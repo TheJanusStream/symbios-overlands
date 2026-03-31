@@ -1,0 +1,39 @@
+[package]
+name = "symbios-overlands"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = "0.18"
+bevy_egui = "0.39"
+bevy_panorbit_camera = { version = "0.34", features = ["bevy_egui"] }
+bevy_symbios_ground = "0.2"
+
+[dev-dependencies]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1"
+getrandom = { version = "0.2", features = ["js"] }
+web-sys = { version = "0.3.82", features = [
+    "Document",
+    "Window",
+    "HtmlElement",
+    "HtmlAnchorElement",
+    "HtmlBodyElement",
+    "Node",
+    "Blob",
+    "Url",
+    "BlobPropertyBag",
+    "Clipboard",
+    "ClipboardEvent",
+    "Navigator",
+] }
+wasm-bindgen = "0.2.114"
+js-sys = "0.3.82"
+
+#[profile.release]
+#opt-level = "s"   # Optimize for size (helps wasm-bindgen)
+#lto = "fat"       # Enable full Link Time Optimization (CRITICAL FIX)
+#codegen-units = 1 # Reduce parallelism to improve optimization quality
+#strip = true      # Strip symbols to clean up the binary tables
+#panic = "abort"   # Reduce binary size by removing stack unwinding

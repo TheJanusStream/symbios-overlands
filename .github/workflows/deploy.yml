@@ -1,0 +1,66 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli --version 0.2.114
+
+      - name: Install Binaryen (wasm-opt)
+        run: |
+          wget https://github.com/WebAssembly/binaryen/releases/download/version_119/binaryen-version_119-x86_64-linux.tar.gz
+          tar -xzf binaryen-version_119-x86_64-linux.tar.gz
+          echo "$(pwd)/binaryen-version_119/bin" >> $GITHUB_PATH
+
+      - name: Build WASM
+        run: cargo build --release --target wasm32-unknown-unknown
+
+      - name: Generate JS Bindings
+        run: |
+          wasm-bindgen --out-dir ./dist --target web \
+            --out-name symbios-overlands \
+            --no-typescript \
+            target/wasm32-unknown-unknown/release/symbios-overlands.wasm
+
+      #- name: Optimize WASM
+      #  run: wasm-opt -Oz -o ./dist/symbios-overlands_bg.wasm ./dist/symbios-overlands_bg.wasm
+
+      - name: Assemble Site
+        run: |
+          cp index.html ./dist/
+          cp -r assets ./dist/
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "./dist"
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

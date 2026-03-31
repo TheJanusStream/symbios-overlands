@@ -1,0 +1,10 @@
+/target
+**/*.rs.bk
+/.claude
+/.chainlink
+Cargo.lock
+CHANGELOG.md
+symbios-overlands-primer.sh
+symbios_overlands_primer_*
+.mcp.json
+/exports

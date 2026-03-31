@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Symbios Overlands</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #222;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        #loading {
+            color: white;
+            font-family: monospace;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="loading">Loading...</div>
+    <script type="module">
+        import init from './symbios-overlands.js';
+        document.addEventListener('contextmenu', event => event.preventDefault());
+        async function run() {
+            try {
+                await init();
+                document.getElementById('loading').style.display = 'none';
+            } catch (e) {
+                console.error("Failed to initialize:", e);
+                document.getElementById('loading').innerText = "Error: " + e;
+            }
+        }
+        run();
+    </script>
+</body>
+
+</html>
