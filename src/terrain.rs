@@ -1,17 +1,19 @@
 use avian3d::prelude::*;
+use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::*;
-use bevy::asset::RenderAssetUsages;
-use bevy::render::render_resource::{Extent3d, TextureDimension};
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat}; // Added TextureFormat
 use bevy::tasks::AsyncComputeTaskPool;
 use bevy_symbios_ground::{
     HeightMapMeshBuilder, NormalMethod, build_heightfield_collider, splat_to_image,
 };
+use bevy_symbios_texture::SymbiosTexturePlugin;
 use bevy_symbios_texture::async_gen::{PendingTexture, TextureReady};
 use bevy_symbios_texture::ground::GroundConfig;
 use bevy_symbios_texture::rock::RockConfig;
-use bevy_symbios_texture::SymbiosTexturePlugin;
-use symbios_ground::{FbmNoise, HeightMap, HydraulicErosion, SplatMapper, SplatRule, TerrainGenerator, ThermalErosion};
+use symbios_ground::{
+    FbmNoise, HeightMap, HydraulicErosion, SplatMapper, SplatRule, TerrainGenerator, ThermalErosion,
+};
 
 use crate::splat::{SplatExtension, SplatTerrainMaterial, SplatUniforms};
 use crate::state::AppState;
@@ -172,6 +174,7 @@ fn poll_terrain_task(
 fn spawn_terrain_mesh(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<SplatTerrainMaterial>>,
     hm_res: Res<FinishedHeightMap>,
 ) {
@@ -189,6 +192,31 @@ fn spawn_terrain_mesh(
 
     let collider = build_heightfield_collider(hm);
 
+    // Generate D2Array placeholders to satisfy WGPU validation until the real arrays load
+    let albedo_placeholder = images.add(Image::new(
+        Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 4,
+        },
+        TextureDimension::D2,
+        vec![255u8; 16],
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    ));
+
+    let normal_placeholder = images.add(Image::new(
+        Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 4,
+        },
+        TextureDimension::D2,
+        vec![128, 128, 255, 255].repeat(4),
+        TextureFormat::Rgba8Unorm,
+        RenderAssetUsages::RENDER_WORLD,
+    ));
+
     // Material starts disabled (flat colour) until the texture tasks finish.
     let mat_handle = materials.add(bevy::pbr::ExtendedMaterial {
         base: StandardMaterial {
@@ -197,20 +225,26 @@ fn spawn_terrain_mesh(
             ..default()
         },
         extension: SplatExtension {
+            albedo_array: albedo_placeholder,
+            normal_array: normal_placeholder,
             uniforms: SplatUniforms {
                 tile_scale: TILE_SCALE,
                 enabled: 0,
                 triplanar_scale: TILE_SCALE / world_extent.max(1.0),
                 triplanar_sharpness: 4.0,
             },
-            ..default()
+            ..default() // weight_map defaults to 1x1 D2, which is fine for the weight sampler
         },
     });
+
     commands.insert_resource(SplatMaterialHandle(mat_handle.clone()));
 
     commands
         .spawn((
             Transform::IDENTITY,
+            Visibility::default(),
+            InheritedVisibility::default(),
+            ViewVisibility::default(),
             RigidBody::Static,
             collider,
             TerrainMesh,

@@ -4,9 +4,6 @@ use bevy::prelude::*;
 use crate::state::{AppState, LocalPlayer};
 
 // --- Suspension (Hooke's law + damping) ------------------------------------
-// Spring stiffness and damping are tuned for ROVER_MASS = 50 kg.
-// Critical damping per corner: 2 * sqrt(k * m/4) = 2 * sqrt(1200 * 12.5) ≈ 245 Ns/m.
-// We target ~0.7× critical for a slightly underdamped (responsive) feel.
 const SUSPENSION_REST_LENGTH: f32 = 0.6;
 const SUSPENSION_STIFFNESS: f32 = 1_200.0;
 const SUSPENSION_DAMPING: f32 = 175.0;
@@ -15,7 +12,6 @@ const RAY_MAX_DIST: f32 = SUSPENSION_REST_LENGTH + 0.5;
 // --- Drive -----------------------------------------------------------------
 const DRIVE_FORCE: f32 = 3_000.0;
 const TURN_TORQUE: f32 = 1_800.0;
-/// Lateral grip: resists sideways sliding proportional to lateral velocity.
 const LATERAL_GRIP: f32 = 6_000.0;
 
 // --- Chassis ---------------------------------------------------------------
@@ -64,12 +60,14 @@ fn spawn_local_rover(
     let surface_normal = hm.get_normal_at(half, half);
     let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
 
-    // 1.0 m above ground gives a gentle landing with the new spring parameters.
     let start_y = ground_y + 1.0;
 
     let chassis = commands
         .spawn((
             Transform::from_xyz(0.0, start_y, 0.0).with_rotation(tilt),
+            Visibility::default(),
+            InheritedVisibility::default(),
+            ViewVisibility::default(),
             RigidBody::Dynamic,
             Collider::cuboid(CHASSIS_X * 2.0, CHASSIS_Y * 2.0, CHASSIS_Z * 2.0),
             Mass(ROVER_MASS),
@@ -80,7 +78,6 @@ fn spawn_local_rover(
         .id();
 
     commands.entity(chassis).with_children(|parent| {
-        // Main chassis visual
         parent.spawn((
             Mesh3d(meshes.add(Cuboid::new(
                 CHASSIS_X * 2.0,
@@ -107,7 +104,6 @@ fn spawn_local_rover(
     });
 }
 
-/// Marker for the sail mesh so the avatar fetch can target it.
 #[derive(Component)]
 pub struct RoverSail;
 
@@ -160,9 +156,7 @@ fn apply_drive_forces(
 
     let lin_vel = forces.linear_velocity();
     let forward = global_tf.forward().as_vec3();
-    // Flatten to horizontal plane so driving on slopes feels natural.
     let flat_forward = Vec3::new(forward.x, 0.0, forward.z).normalize_or_zero();
-    // Steer around the rover's local up axis so turns work correctly on slopes.
     let local_up = global_tf.up().as_vec3();
     let right = global_tf.right().as_vec3();
 
@@ -179,11 +173,9 @@ fn apply_drive_forces(
         forces.apply_torque(-local_up * TURN_TORQUE);
     }
 
-    // Lateral grip — cancels sideways sliding proportional to lateral speed.
     let lateral_vel = right.dot(lin_vel);
     forces.apply_force(-right * lateral_vel * LATERAL_GRIP);
 
-    // Thruster for escaping ditches (toned down from original 5000 N).
     if keyboard.pressed(KeyCode::Space) {
         forces.apply_force(Vec3::Y * 2_500.0);
     }
