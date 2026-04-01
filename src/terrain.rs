@@ -12,7 +12,8 @@ use bevy_symbios_texture::async_gen::{PendingTexture, TextureReady};
 use bevy_symbios_texture::ground::GroundConfig;
 use bevy_symbios_texture::rock::RockConfig;
 use symbios_ground::{
-    FbmNoise, HeightMap, HydraulicErosion, SplatMapper, SplatRule, TerrainGenerator, ThermalErosion,
+    HeightMap, HydraulicErosion, SplatMapper, SplatRule, TerrainGenerator, ThermalErosion,
+    VoronoiTerracing,
 };
 
 use crate::config::terrain as tcfg;
@@ -203,7 +204,7 @@ fn spawn_terrain_mesh(
             depth_or_array_layers: 4,
         },
         TextureDimension::D2,
-        vec![128, 128, 255, 255].repeat(4),
+        [128u8, 128, 255, 255].repeat(4),
         TextureFormat::Rgba8Unorm,
         RenderAssetUsages::RENDER_WORLD,
     ));
@@ -378,32 +379,28 @@ fn build_texture_array(
 fn generate_terrain() -> HeightMap {
     let mut hm = HeightMap::new(tcfg::GRID_SIZE, tcfg::GRID_SIZE, tcfg::CELL_SCALE);
 
-    FbmNoise {
-        seed: tcfg::SEED,
-        octaves: tcfg::fbm::OCTAVES,
-        persistence: tcfg::fbm::PERSISTENCE,
-        lacunarity: tcfg::fbm::LACUNARITY,
-        base_frequency: tcfg::fbm::BASE_FREQUENCY,
-    }
-    .generate(&mut hm);
-
-    hm.normalize();
+    VoronoiTerracing::new(tcfg::SEED, tcfg::voronoi::NUM_SEEDS, tcfg::voronoi::NUM_TERRACES)
+        .generate(&mut hm);
+    // normalize() is intentionally omitted: VoronoiTerracing already produces
+    // bounded [0, 1] output. Only FbmNoise requires a post-generation normalize.
 
     for v in hm.data_mut() {
         *v *= tcfg::HEIGHT_SCALE;
     }
 
-    ThermalErosion::new()
-        .with_iterations(tcfg::thermal::ITERATIONS)
-        .with_talus_angle(tcfg::thermal::TALUS_ANGLE)
-        .erode(&mut hm);
-
+    // Hydraulic erosion runs first (carves the scaled terrain),
+    // then thermal erosion smooths the resulting slopes.
     HydraulicErosion {
         seed: tcfg::SEED,
         num_drops: tcfg::EROSION_DROPS,
         ..HydraulicErosion::new(tcfg::SEED)
     }
     .erode(&mut hm);
+
+    ThermalErosion::new()
+        .with_iterations(tcfg::thermal::ITERATIONS)
+        .with_talus_angle(tcfg::thermal::TALUS_ANGLE)
+        .erode(&mut hm);
 
     hm
 }

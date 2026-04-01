@@ -70,9 +70,9 @@ pub mod camera {
 // ---------------------------------------------------------------------------
 pub mod terrain {
     pub const SEED: u64 = 42;
-    pub const GRID_SIZE: usize = 257;
-    pub const CELL_SCALE: f32 = 1.0;
-    pub const HEIGHT_SCALE: f32 = 30.0;
+    pub const GRID_SIZE: usize = 513;
+    pub const CELL_SCALE: f32 = 2.0;
+    pub const HEIGHT_SCALE: f32 = 20.0;
     /// Number of hydraulic erosion droplets.
     pub const EROSION_DROPS: u32 = 80_000;
     /// How many times the tiling textures repeat across the terrain.
@@ -80,17 +80,17 @@ pub mod terrain {
     /// Resolution of each procedurally generated texture layer (pixels).
     pub const TEXTURE_SIZE: u32 = 512;
 
-    // --- FBM noise -----------------------------------------------------------
-    pub mod fbm {
-        pub const OCTAVES: u32 = 6;
-        pub const PERSISTENCE: f32 = 0.5;
-        pub const LACUNARITY: f32 = 2.0;
-        pub const BASE_FREQUENCY: f32 = 0.003;
+    // --- Voronoi terracing ---------------------------------------------------
+    pub mod voronoi {
+        /// Number of Voronoi seed points; more seeds → smaller plateaus.
+        pub const NUM_SEEDS: usize = 400;
+        /// Number of discrete terrace height levels.
+        pub const NUM_TERRACES: usize = 12;
     }
 
     // --- Thermal erosion -----------------------------------------------------
     pub mod thermal {
-        pub const ITERATIONS: u32 = 50;
+        pub const ITERATIONS: u32 = 20;
         pub const TALUS_ANGLE: f32 = 0.6;
     }
 
@@ -113,8 +113,8 @@ pub mod terrain {
         pub const MICRO_SCALE: f64 = 10.0;
         pub const MICRO_OCTAVES: usize = 3;
         pub const MICRO_WEIGHT: f64 = 0.3;
-        pub const COLOR_DRY: [f32; 3] = [0.30, 0.48, 0.15];
-        pub const COLOR_MOIST: [f32; 3] = [0.14, 0.28, 0.07];
+        pub const COLOR_DRY: [f32; 3] = [0.15, 0.24, 0.07];
+        pub const COLOR_MOIST: [f32; 3] = [0.07, 0.14, 0.03];
         pub const NORMAL_STRENGTH: f32 = 1.5;
         // Splat rule (altitude expressed as factor × HEIGHT_SCALE)
         pub const ALT_MAX_FACTOR: f32 = 0.45;
