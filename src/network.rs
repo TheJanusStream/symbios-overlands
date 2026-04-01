@@ -129,15 +129,15 @@ fn broadcast_local_state(
         channel: ChannelKind::Unreliable,
     });
 
-    if tick.is_multiple_of(IDENTITY_BROADCAST_INTERVAL_TICKS) {
-        if let Some(sess) = &session {
-            writer.write(Broadcast {
-                payload: OverlandsMessage::Identity {
-                    did: sess.did.clone(),
-                    handle: sess.handle.clone(),
-                },
-                channel: ChannelKind::Reliable,
-            });
-        }
+    if tick.is_multiple_of(IDENTITY_BROADCAST_INTERVAL_TICKS)
+        && let Some(sess) = &session
+    {
+        writer.write(Broadcast {
+            payload: OverlandsMessage::Identity {
+                did: sess.did.clone(),
+                handle: sess.handle.clone(),
+            },
+            channel: ChannelKind::Reliable,
+        });
     }
 }
