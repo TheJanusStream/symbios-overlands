@@ -3,6 +3,7 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
 
 use crate::protocol::OverlandsMessage;
+use crate::rover::RoverSail;
 use crate::state::{AppState, ChatHistory, DiagnosticsLog, LocalPlayer, RemotePeer};
 
 const IDENTITY_BROADCAST_INTERVAL_TICKS: u32 = 60;
@@ -36,19 +37,37 @@ fn handle_peer_connections(
         match event.state {
             PeerConnectionState::Connected => {
                 diagnostics.push(format!("[+] Peer {} connected", event.peer));
-                commands.spawn((
-                    Mesh3d(meshes.add(Cuboid::new(1.6, 0.4, 2.4))),
-                    MeshMaterial3d(materials.add(StandardMaterial {
-                        base_color: Color::srgb(0.3, 0.3, 0.3),
-                        ..default()
-                    })),
-                    Transform::from_xyz(0.0, 10.0, 0.0),
-                    RemotePeer {
-                        peer_id: event.peer,
-                        did: None,
-                        handle: None,
-                    },
-                ));
+                commands
+                    .spawn((
+                        Transform::from_xyz(0.0, 10.0, 0.0),
+                        Visibility::default(),
+                        InheritedVisibility::default(),
+                        ViewVisibility::default(),
+                        RemotePeer {
+                            peer_id: event.peer,
+                            did: None,
+                            handle: None,
+                        },
+                    ))
+                    .with_children(|parent| {
+                        parent.spawn((
+                            Mesh3d(meshes.add(Cuboid::new(1.6, 0.4, 2.4))),
+                            MeshMaterial3d(materials.add(StandardMaterial {
+                                base_color: Color::WHITE,
+                                ..default()
+                            })),
+                            Transform::IDENTITY,
+                        ));
+                        parent.spawn((
+                            Mesh3d(meshes.add(Cuboid::new(0.05, 0.8, 0.8))),
+                            MeshMaterial3d(materials.add(StandardMaterial {
+                                base_color: Color::srgb(0.8, 0.8, 0.9),
+                                ..default()
+                            })),
+                            Transform::from_xyz(0.0, 0.7, 0.0),
+                            RoverSail,
+                        ));
+                    });
             }
             PeerConnectionState::Disconnected => {
                 for (entity, peer) in peers.iter() {
