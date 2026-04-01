@@ -9,6 +9,7 @@ bevy_egui = "0.39"
 bevy_panorbit_camera = { version = "0.34", features = ["bevy_egui"] }
 bevy_symbios_ground = { path = "../bevy_symbios_ground", features = ["physics"] }
 bevy_symbios_multiuser = { path = "../bevy_symbios_multiuser" }
+bevy_symbios_texture = { path = "../bevy_symbios_texture" }
 avian3d = "0.6"
 symbios-ground = "0.2"
 serde = { version = "1.0", features = ["derive"] }

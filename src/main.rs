@@ -8,6 +8,7 @@ mod camera;
 mod network;
 mod protocol;
 mod rover;
+mod splat;
 mod state;
 mod terrain;
 mod ui;

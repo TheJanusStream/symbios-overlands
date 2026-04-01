@@ -9,11 +9,11 @@ pub struct AvatarPlugin;
 
 impl Plugin for AvatarPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(AppState::InGame), fetch_local_avatar)
-            .add_systems(
-                Update,
-                (trigger_avatar_fetches, poll_avatar_tasks).run_if(in_state(AppState::InGame)),
-            );
+        app.add_systems(
+            Update,
+            (fetch_local_avatar, trigger_avatar_fetches, poll_avatar_tasks)
+                .run_if(in_state(AppState::InGame)),
+        );
     }
 }
 
@@ -28,7 +28,7 @@ pub struct AvatarFetchTask(pub bevy::tasks::Task<Option<Vec<u8>>>);
 fn fetch_local_avatar(
     mut commands: Commands,
     session: Option<Res<AtprotoSession>>,
-    player: Query<Entity, With<LocalPlayer>>,
+    player: Query<Entity, Added<LocalPlayer>>,
 ) {
     let Some(sess) = session else { return };
     let Ok(entity) = player.single() else { return };

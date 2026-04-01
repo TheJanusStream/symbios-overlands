@@ -3,17 +3,25 @@ use bevy::prelude::*;
 
 use crate::state::{AppState, LocalPlayer};
 
-// Suspension constants (Hooke's Law + damping).
+// --- Suspension (Hooke's law + damping) ------------------------------------
+// Spring stiffness and damping are tuned for ROVER_MASS = 50 kg.
+// Critical damping per corner: 2 * sqrt(k * m/4) = 2 * sqrt(1200 * 12.5) ≈ 245 Ns/m.
+// We target ~0.7× critical for a slightly underdamped (responsive) feel.
 const SUSPENSION_REST_LENGTH: f32 = 0.6;
-const SUSPENSION_STIFFNESS: f32 = 800.0;
-const SUSPENSION_DAMPING: f32 = 80.0;
-const RAY_MAX_DIST: f32 = SUSPENSION_REST_LENGTH + 0.3;
+const SUSPENSION_STIFFNESS: f32 = 1_200.0;
+const SUSPENSION_DAMPING: f32 = 175.0;
+const RAY_MAX_DIST: f32 = SUSPENSION_REST_LENGTH + 0.5;
 
-// Drive constants.
-const DRIVE_FORCE: f32 = 1200.0;
-const TURN_TORQUE: f32 = 600.0;
+// --- Drive -----------------------------------------------------------------
+const DRIVE_FORCE: f32 = 3_000.0;
+const TURN_TORQUE: f32 = 1_800.0;
+/// Lateral grip: resists sideways sliding proportional to lateral velocity.
+const LATERAL_GRIP: f32 = 6_000.0;
+
+// --- Chassis ---------------------------------------------------------------
 const LINEAR_DAMPING: f32 = 1.5;
-const ANGULAR_DAMPING: f32 = 4.0;
+const ANGULAR_DAMPING: f32 = 6.0;
+const ROVER_MASS: f32 = 50.0;
 
 // Chassis half-extents.
 const CHASSIS_X: f32 = 0.8;
@@ -50,23 +58,27 @@ fn spawn_local_rover(
 ) {
     let hm = &hm_res.0;
 
-    // Calculate the height exactly at the center of the procedural map
+    // Spawn just above the terrain centre, pre-tilted to match the surface.
     let half = (hm.width() - 1) as f32 * hm.scale() * 0.5;
     let ground_y = hm.get_height_at(half, half);
-    let start_y = ground_y + 2.0;
+    let surface_normal = hm.get_normal_at(half, half);
+    let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
+
+    // 1.0 m above ground gives a gentle landing with the new spring parameters.
+    let start_y = ground_y + 1.0;
 
     let chassis = commands
         .spawn((
-            Transform::from_xyz(0.0, start_y, 0.0),
+            Transform::from_xyz(0.0, start_y, 0.0).with_rotation(tilt),
             RigidBody::Dynamic,
             Collider::cuboid(CHASSIS_X * 2.0, CHASSIS_Y * 2.0, CHASSIS_Z * 2.0),
+            Mass(ROVER_MASS),
             LinearDamping(LINEAR_DAMPING),
             AngularDamping(ANGULAR_DAMPING),
             LocalPlayer,
         ))
         .id();
 
-    // Attach the visual mesh as a child so the parent rigidbody handles pure physics
     commands.entity(chassis).with_children(|parent| {
         // Main chassis visual
         parent.spawn((
@@ -83,20 +95,19 @@ fn spawn_local_rover(
         ));
 
         // Sail (profile picture surface)
-        let sail_material = materials.add(StandardMaterial {
-            base_color: Color::srgb(0.8, 0.8, 0.9),
-            ..default()
-        });
         parent.spawn((
             Mesh3d(meshes.add(Cuboid::new(0.05, 0.8, 0.8))),
-            MeshMaterial3d(sail_material),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgb(0.8, 0.8, 0.9),
+                ..default()
+            })),
             Transform::from_xyz(0.0, 0.7, 0.0),
             RoverSail,
         ));
     });
 }
 
-/// Marker for the sail mesh so avatar fetch can target it.
+/// Marker for the sail mesh so the avatar fetch can target it.
 #[derive(Component)]
 pub struct RoverSail;
 
@@ -113,26 +124,24 @@ fn apply_suspension_forces(
 
     let lin_vel = forces.linear_velocity();
     let ang_vel = forces.angular_velocity();
-    let center_of_mass = global_tf.translation(); // Approximation
+    let center_of_mass = global_tf.translation();
 
     for offset in CORNER_OFFSETS {
         let local_offset = Vec3::from_array(offset);
         let world_origin = chassis_tf.transform_point(local_offset);
-        let ray_dir = Dir3::NEG_Y;
 
-        let Some(hit) = spatial_query.cast_ray(world_origin, ray_dir, RAY_MAX_DIST, true, &filter)
+        let Some(hit) =
+            spatial_query.cast_ray(world_origin, Dir3::NEG_Y, RAY_MAX_DIST, true, &filter)
         else {
             continue;
         };
 
         let compression = SUSPENSION_REST_LENGTH - hit.distance;
         if compression > 0.0 {
-            // Calculate point velocity: V_point = V_linear + V_angular x r
             let r = world_origin - center_of_mass;
             let point_vel = lin_vel + ang_vel.cross(r);
 
             let spring_force = SUSPENSION_STIFFNESS * compression;
-            // Dampen based on the vertical velocity of this specific corner
             let damping_force = -SUSPENSION_DAMPING * point_vel.y;
 
             let total_force = (spring_force + damping_force).max(0.0);
@@ -149,11 +158,13 @@ fn apply_drive_forces(
         return;
     };
 
+    let lin_vel = forces.linear_velocity();
     let forward = global_tf.forward().as_vec3();
-
-    // Flatten the forward vector to ignore pitch/roll, preventing the rover from driving into the ground
+    // Flatten to horizontal plane so driving on slopes feels natural.
     let flat_forward = Vec3::new(forward.x, 0.0, forward.z).normalize_or_zero();
-    let up = Vec3::Y;
+    // Steer around the rover's local up axis so turns work correctly on slopes.
+    let local_up = global_tf.up().as_vec3();
+    let right = global_tf.right().as_vec3();
 
     if keyboard.pressed(KeyCode::KeyW) {
         forces.apply_force(flat_forward * DRIVE_FORCE);
@@ -162,14 +173,18 @@ fn apply_drive_forces(
         forces.apply_force(-flat_forward * DRIVE_FORCE);
     }
     if keyboard.pressed(KeyCode::KeyA) {
-        forces.apply_torque(up * TURN_TORQUE);
+        forces.apply_torque(local_up * TURN_TORQUE);
     }
     if keyboard.pressed(KeyCode::KeyD) {
-        forces.apply_torque(-up * TURN_TORQUE);
+        forces.apply_torque(-local_up * TURN_TORQUE);
     }
 
-    // Jump Thruster for getting out of ditches
+    // Lateral grip — cancels sideways sliding proportional to lateral speed.
+    let lateral_vel = right.dot(lin_vel);
+    forces.apply_force(-right * lateral_vel * LATERAL_GRIP);
+
+    // Thruster for escaping ditches (toned down from original 5000 N).
     if keyboard.pressed(KeyCode::Space) {
-        forces.apply_force(up * 5000.0);
+        forces.apply_force(Vec3::Y * 2_500.0);
     }
 }
