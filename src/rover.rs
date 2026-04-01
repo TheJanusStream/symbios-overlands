@@ -1,35 +1,15 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::config::rover as cfg;
 use crate::state::{AppState, LocalPlayer};
 
-// --- Suspension (Hooke's law + damping) ------------------------------------
-const SUSPENSION_REST_LENGTH: f32 = 0.6;
-const SUSPENSION_STIFFNESS: f32 = 1_200.0;
-const SUSPENSION_DAMPING: f32 = 175.0;
-const RAY_MAX_DIST: f32 = SUSPENSION_REST_LENGTH + 0.5;
-
-// --- Drive -----------------------------------------------------------------
-const DRIVE_FORCE: f32 = 3_000.0;
-const TURN_TORQUE: f32 = 1_800.0;
-const LATERAL_GRIP: f32 = 6_000.0;
-
-// --- Chassis ---------------------------------------------------------------
-const LINEAR_DAMPING: f32 = 1.5;
-const ANGULAR_DAMPING: f32 = 6.0;
-const ROVER_MASS: f32 = 50.0;
-
-// Chassis half-extents.
-const CHASSIS_X: f32 = 0.8;
-const CHASSIS_Y: f32 = 0.2;
-const CHASSIS_Z: f32 = 1.2;
-
-// Corner offsets in local space for the four suspension rays.
+// Corner offsets in local space for the four suspension rays (derived from chassis half-extents).
 const CORNER_OFFSETS: [[f32; 3]; 4] = [
-    [CHASSIS_X, -CHASSIS_Y, CHASSIS_Z],
-    [-CHASSIS_X, -CHASSIS_Y, CHASSIS_Z],
-    [CHASSIS_X, -CHASSIS_Y, -CHASSIS_Z],
-    [-CHASSIS_X, -CHASSIS_Y, -CHASSIS_Z],
+    [cfg::CHASSIS_X, -cfg::CHASSIS_Y, cfg::CHASSIS_Z],
+    [-cfg::CHASSIS_X, -cfg::CHASSIS_Y, cfg::CHASSIS_Z],
+    [cfg::CHASSIS_X, -cfg::CHASSIS_Y, -cfg::CHASSIS_Z],
+    [-cfg::CHASSIS_X, -cfg::CHASSIS_Y, -cfg::CHASSIS_Z],
 ];
 
 pub struct RoverPlugin;
@@ -60,7 +40,7 @@ fn spawn_local_rover(
     let surface_normal = hm.get_normal_at(half, half);
     let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
 
-    let start_y = ground_y + 1.0;
+    let start_y = ground_y + cfg::SPAWN_HEIGHT_OFFSET;
 
     let chassis = commands
         .spawn((
@@ -69,10 +49,10 @@ fn spawn_local_rover(
             InheritedVisibility::default(),
             ViewVisibility::default(),
             RigidBody::Dynamic,
-            Collider::cuboid(CHASSIS_X * 2.0, CHASSIS_Y * 2.0, CHASSIS_Z * 2.0),
-            Mass(ROVER_MASS),
-            LinearDamping(LINEAR_DAMPING),
-            AngularDamping(ANGULAR_DAMPING),
+            Collider::cuboid(cfg::CHASSIS_X * 2.0, cfg::CHASSIS_Y * 2.0, cfg::CHASSIS_Z * 2.0),
+            Mass(cfg::MASS),
+            LinearDamping(cfg::LINEAR_DAMPING),
+            AngularDamping(cfg::ANGULAR_DAMPING),
             LocalPlayer,
         ))
         .id();
@@ -80,9 +60,9 @@ fn spawn_local_rover(
     commands.entity(chassis).with_children(|parent| {
         parent.spawn((
             Mesh3d(meshes.add(Cuboid::new(
-                CHASSIS_X * 2.0,
-                CHASSIS_Y * 2.0,
-                CHASSIS_Z * 2.0,
+                cfg::CHASSIS_X * 2.0,
+                cfg::CHASSIS_Y * 2.0,
+                cfg::CHASSIS_Z * 2.0,
             ))),
             MeshMaterial3d(materials.add(StandardMaterial {
                 base_color: Color::WHITE,
@@ -93,12 +73,12 @@ fn spawn_local_rover(
 
         // Sail (profile picture surface)
         parent.spawn((
-            Mesh3d(meshes.add(Cuboid::new(0.05, 0.8, 0.8))),
+            Mesh3d(meshes.add(Cuboid::new(cfg::SAIL_THICKNESS, cfg::SAIL_SIZE, cfg::SAIL_SIZE))),
             MeshMaterial3d(materials.add(StandardMaterial {
                 base_color: Color::srgb(0.8, 0.8, 0.9),
                 ..default()
             })),
-            Transform::from_xyz(0.0, 0.7, 0.0),
+            Transform::from_xyz(0.0, cfg::SAIL_OFFSET_Y, 0.0),
             RoverSail,
         ));
     });
@@ -127,18 +107,18 @@ fn apply_suspension_forces(
         let world_origin = chassis_tf.transform_point(local_offset);
 
         let Some(hit) =
-            spatial_query.cast_ray(world_origin, Dir3::NEG_Y, RAY_MAX_DIST, true, &filter)
+            spatial_query.cast_ray(world_origin, Dir3::NEG_Y, cfg::RAY_MAX_DIST, true, &filter)
         else {
             continue;
         };
 
-        let compression = SUSPENSION_REST_LENGTH - hit.distance;
+        let compression = cfg::SUSPENSION_REST_LENGTH - hit.distance;
         if compression > 0.0 {
             let r = world_origin - center_of_mass;
             let point_vel = lin_vel + ang_vel.cross(r);
 
-            let spring_force = SUSPENSION_STIFFNESS * compression;
-            let damping_force = -SUSPENSION_DAMPING * point_vel.y;
+            let spring_force = cfg::SUSPENSION_STIFFNESS * compression;
+            let damping_force = -cfg::SUSPENSION_DAMPING * point_vel.y;
 
             let total_force = (spring_force + damping_force).max(0.0);
             forces.apply_force_at_point(Vec3::Y * total_force, world_origin);
@@ -161,22 +141,22 @@ fn apply_drive_forces(
     let right = global_tf.right().as_vec3();
 
     if keyboard.pressed(KeyCode::KeyW) {
-        forces.apply_force(flat_forward * DRIVE_FORCE);
+        forces.apply_force(flat_forward * cfg::DRIVE_FORCE);
     }
     if keyboard.pressed(KeyCode::KeyS) {
-        forces.apply_force(-flat_forward * DRIVE_FORCE);
+        forces.apply_force(-flat_forward * cfg::DRIVE_FORCE);
     }
     if keyboard.pressed(KeyCode::KeyA) {
-        forces.apply_torque(local_up * TURN_TORQUE);
+        forces.apply_torque(local_up * cfg::TURN_TORQUE);
     }
     if keyboard.pressed(KeyCode::KeyD) {
-        forces.apply_torque(-local_up * TURN_TORQUE);
+        forces.apply_torque(-local_up * cfg::TURN_TORQUE);
     }
 
     let lateral_vel = right.dot(lin_vel);
-    forces.apply_force(-right * lateral_vel * LATERAL_GRIP);
+    forces.apply_force(-right * lateral_vel * cfg::LATERAL_GRIP);
 
     if keyboard.pressed(KeyCode::Space) {
-        forces.apply_force(Vec3::Y * 2_500.0);
+        forces.apply_force(Vec3::Y * cfg::JUMP_FORCE);
     }
 }

@@ -28,10 +28,10 @@ pub struct LoginFormState {
 impl Default for LoginFormState {
     fn default() -> Self {
         Self {
-            pds: "https://bsky.social".into(),
-            handle: String::new(),
-            password: String::new(),
-            relay_host: String::new(),
+            pds: crate::config::login::DEFAULT_PDS.into(),
+            handle: crate::config::login::DEFAULT_HANDLE.into(),
+            password: crate::config::login::DEFAULT_PASSWORD.into(),
+            relay_host: crate::config::login::DEFAULT_RELAY_HOST.into(),
             error: None,
         }
     }

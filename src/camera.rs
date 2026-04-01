@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 
+use crate::config::camera as cfg;
 use crate::state::{AppState, LocalPlayer};
 
 pub struct CameraPlugin;
@@ -17,16 +18,17 @@ impl Plugin for CameraPlugin {
 }
 
 fn spawn_orbit_camera(mut commands: Commands) {
+    let pos = cfg::INITIAL_POS;
     commands.spawn((
         Camera3d::default(),
         PanOrbitCamera {
-            radius: Some(12.0),
-            pitch: Some(0.4),
+            radius: Some(cfg::ORBIT_RADIUS),
+            pitch: Some(cfg::ORBIT_PITCH),
             button_orbit: MouseButton::Right,
             button_pan: MouseButton::Middle,
             ..default()
         },
-        Transform::from_xyz(0.0, 8.0, 12.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(pos[0], pos[1], pos[2]).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 }
 

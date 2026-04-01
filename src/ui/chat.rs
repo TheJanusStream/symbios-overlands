@@ -13,15 +13,16 @@ pub fn chat_ui(
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
     mut input: Local<String>,
 ) {
+    use crate::config::ui::chat as cfg;
     egui::SidePanel::right("chat")
         .resizable(true)
-        .width_range(200.0..=500.0)
-        .default_width(380.0)
+        .width_range(cfg::PANEL_WIDTH_MIN..=cfg::PANEL_WIDTH_MAX)
+        .default_width(cfg::PANEL_DEFAULT_WIDTH)
         .show(contexts.ctx_mut().unwrap(), |ui| {
             ui.heading("Chat");
             ui.separator();
 
-            let scroll_height = (ui.available_height() - 40.0).max(60.0);
+            let scroll_height = (ui.available_height() - cfg::INPUT_RESERVE_HEIGHT).max(cfg::SCROLL_MIN_HEIGHT);
 
             egui::ScrollArea::vertical()
                 .id_salt("chat_scroll")
@@ -31,8 +32,9 @@ pub fn chat_ui(
                     ui.set_max_width(ui.available_width());
                     for (author, text) in &chat.messages {
                         ui.horizontal_wrapped(|ui| {
+                            let [r, g, b] = cfg::AUTHOR_COLOR;
                             ui.colored_label(
-                                egui::Color32::from_rgb(100, 180, 255),
+                                egui::Color32::from_rgb(r, g, b),
                                 format!("[{}]", author),
                             );
                             ui.label(text);

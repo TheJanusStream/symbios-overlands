@@ -15,18 +15,9 @@ use symbios_ground::{
     FbmNoise, HeightMap, HydraulicErosion, SplatMapper, SplatRule, TerrainGenerator, ThermalErosion,
 };
 
+use crate::config::terrain as tcfg;
 use crate::splat::{SplatExtension, SplatTerrainMaterial, SplatUniforms};
 use crate::state::AppState;
-
-const TERRAIN_SEED: u64 = 42;
-const GRID_SIZE: usize = 257;
-const CELL_SCALE: f32 = 1.0;
-const HEIGHT_SCALE: f32 = 30.0;
-const EROSION_DROPS: u32 = 80_000;
-/// How many times the tiling textures repeat across the terrain.
-const TILE_SCALE: f32 = 64.0;
-/// Resolution of each procedurally generated texture layer.
-const TEXTURE_SIZE: u32 = 512;
 
 #[derive(Component)]
 pub struct TerrainMesh;
@@ -104,31 +95,31 @@ fn start_texture_tasks(mut commands: Commands) {
     commands.spawn((
         PendingTexture::ground(
             GroundConfig {
-                seed: 1,
-                macro_scale: 2.5,
-                macro_octaves: 4,
-                micro_scale: 10.0,
-                micro_octaves: 3,
-                micro_weight: 0.3,
-                color_dry: [0.30, 0.48, 0.15],
-                color_moist: [0.14, 0.28, 0.07],
-                normal_strength: 1.5,
+                seed: tcfg::grass::SEED,
+                macro_scale: tcfg::grass::MACRO_SCALE,
+                macro_octaves: tcfg::grass::MACRO_OCTAVES,
+                micro_scale: tcfg::grass::MICRO_SCALE,
+                micro_octaves: tcfg::grass::MICRO_OCTAVES,
+                micro_weight: tcfg::grass::MICRO_WEIGHT,
+                color_dry: tcfg::grass::COLOR_DRY,
+                color_moist: tcfg::grass::COLOR_MOIST,
+                normal_strength: tcfg::grass::NORMAL_STRENGTH,
             },
-            TEXTURE_SIZE,
-            TEXTURE_SIZE,
+            tcfg::TEXTURE_SIZE,
+            tcfg::TEXTURE_SIZE,
         ),
         TextureLayerIndex(0),
     ));
 
     // Layer 1 — Dirt (default brownish soil)
     commands.spawn((
-        PendingTexture::ground(GroundConfig::default(), TEXTURE_SIZE, TEXTURE_SIZE),
+        PendingTexture::ground(GroundConfig::default(), tcfg::TEXTURE_SIZE, tcfg::TEXTURE_SIZE),
         TextureLayerIndex(1),
     ));
 
     // Layer 2 — Rock (ridged multifractal stone)
     commands.spawn((
-        PendingTexture::rock(RockConfig::default(), TEXTURE_SIZE, TEXTURE_SIZE),
+        PendingTexture::rock(RockConfig::default(), tcfg::TEXTURE_SIZE, tcfg::TEXTURE_SIZE),
         TextureLayerIndex(2),
     ));
 
@@ -136,18 +127,18 @@ fn start_texture_tasks(mut commands: Commands) {
     commands.spawn((
         PendingTexture::ground(
             GroundConfig {
-                seed: 99,
-                macro_scale: 4.0,
-                macro_octaves: 3,
-                micro_scale: 12.0,
-                micro_octaves: 3,
-                micro_weight: 0.4,
-                color_dry: [0.95, 0.95, 0.98],
-                color_moist: [0.80, 0.82, 0.88],
-                normal_strength: 0.8,
+                seed: tcfg::snow::SEED,
+                macro_scale: tcfg::snow::MACRO_SCALE,
+                macro_octaves: tcfg::snow::MACRO_OCTAVES,
+                micro_scale: tcfg::snow::MICRO_SCALE,
+                micro_octaves: tcfg::snow::MICRO_OCTAVES,
+                micro_weight: tcfg::snow::MICRO_WEIGHT,
+                color_dry: tcfg::snow::COLOR_DRY,
+                color_moist: tcfg::snow::COLOR_MOIST,
+                normal_strength: tcfg::snow::NORMAL_STRENGTH,
             },
-            TEXTURE_SIZE,
-            TEXTURE_SIZE,
+            tcfg::TEXTURE_SIZE,
+            tcfg::TEXTURE_SIZE,
         ),
         TextureLayerIndex(3),
     ));
@@ -218,20 +209,21 @@ fn spawn_terrain_mesh(
     ));
 
     // Material starts disabled (flat colour) until the texture tasks finish.
+    let pc = tcfg::splat::PLACEHOLDER_COLOR;
     let mat_handle = materials.add(bevy::pbr::ExtendedMaterial {
         base: StandardMaterial {
-            base_color: Color::srgb(0.35, 0.55, 0.25),
-            perceptual_roughness: 0.9,
+            base_color: Color::srgb(pc[0], pc[1], pc[2]),
+            perceptual_roughness: tcfg::splat::PLACEHOLDER_ROUGHNESS,
             ..default()
         },
         extension: SplatExtension {
             albedo_array: albedo_placeholder,
             normal_array: normal_placeholder,
             uniforms: SplatUniforms {
-                tile_scale: TILE_SCALE,
+                tile_scale: tcfg::TILE_SCALE,
                 enabled: 0,
-                triplanar_scale: TILE_SCALE / world_extent.max(1.0),
-                triplanar_sharpness: 4.0,
+                triplanar_scale: tcfg::TILE_SCALE / world_extent.max(1.0),
+                triplanar_sharpness: tcfg::splat::TRIPLANAR_SHARPNESS,
             },
             ..default() // weight_map defaults to 1x1 D2, which is fine for the weight sampler
         },
@@ -303,16 +295,16 @@ fn apply_splat_textures(
     // Generate the RGBA weight map from the heightmap (one texel per cell).
     let hm = &hm_res.0;
     let world_extent = (hm.width() - 1) as f32 * hm.scale();
-    let hs = HEIGHT_SCALE;
+    let hs = tcfg::HEIGHT_SCALE;
     let mapper = SplatMapper::new([
         // R — Grass: lower altitudes, gentle slopes
-        SplatRule::new((0.0, hs * 0.45), (0.0, 0.30), 4.0),
+        SplatRule::new((0.0, hs * tcfg::grass::ALT_MAX_FACTOR), (0.0, tcfg::grass::SLOPE_MAX), tcfg::grass::BLEND),
         // G — Dirt: mid-range altitude, moderate slopes
-        SplatRule::new((hs * 0.30, hs * 0.65), (0.0, 0.55), 2.0),
+        SplatRule::new((hs * tcfg::dirt::ALT_MIN_FACTOR, hs * tcfg::dirt::ALT_MAX_FACTOR), (0.0, tcfg::dirt::SLOPE_MAX), tcfg::dirt::BLEND),
         // B — Rock: steep terrain regardless of altitude (triplanar in shader)
-        SplatRule::new((0.0, hs), (0.25, 1.0), 3.0),
+        SplatRule::new((0.0, hs), (tcfg::rock::SLOPE_MIN, 1.0), tcfg::rock::BLEND),
         // A — Snow: high altitude, gentle slopes
-        SplatRule::new((hs * 0.68, hs), (0.0, 0.35), 4.0),
+        SplatRule::new((hs * tcfg::snow::ALT_MIN_FACTOR, hs), (0.0, tcfg::snow::SLOPE_MAX), tcfg::snow::BLEND),
     ]);
     let weight_map = mapper.generate(hm);
     // `splat_to_image` gives us an RGBA8 image with ClampToEdge sampler —
@@ -327,7 +319,7 @@ fn apply_splat_textures(
         mat.extension.albedo_array = albedo_array;
         mat.extension.normal_array = normal_array;
         mat.extension.uniforms.enabled = 1;
-        mat.extension.uniforms.triplanar_scale = TILE_SCALE / world_extent.max(1.0);
+        mat.extension.uniforms.triplanar_scale = tcfg::TILE_SCALE / world_extent.max(1.0);
     }
 
     state.applied = true;
@@ -384,32 +376,32 @@ fn build_texture_array(
 // ---------------------------------------------------------------------------
 
 fn generate_terrain() -> HeightMap {
-    let mut hm = HeightMap::new(GRID_SIZE, GRID_SIZE, CELL_SCALE);
+    let mut hm = HeightMap::new(tcfg::GRID_SIZE, tcfg::GRID_SIZE, tcfg::CELL_SCALE);
 
     FbmNoise {
-        seed: TERRAIN_SEED,
-        octaves: 6,
-        persistence: 0.5,
-        lacunarity: 2.0,
-        base_frequency: 0.003,
+        seed: tcfg::SEED,
+        octaves: tcfg::fbm::OCTAVES,
+        persistence: tcfg::fbm::PERSISTENCE,
+        lacunarity: tcfg::fbm::LACUNARITY,
+        base_frequency: tcfg::fbm::BASE_FREQUENCY,
     }
     .generate(&mut hm);
 
     hm.normalize();
 
     for v in hm.data_mut() {
-        *v *= HEIGHT_SCALE;
+        *v *= tcfg::HEIGHT_SCALE;
     }
 
     ThermalErosion::new()
-        .with_iterations(50)
-        .with_talus_angle(0.6)
+        .with_iterations(tcfg::thermal::ITERATIONS)
+        .with_talus_angle(tcfg::thermal::TALUS_ANGLE)
         .erode(&mut hm);
 
     HydraulicErosion {
-        seed: TERRAIN_SEED,
-        num_drops: EROSION_DROPS,
-        ..HydraulicErosion::new(TERRAIN_SEED)
+        seed: tcfg::SEED,
+        num_drops: tcfg::EROSION_DROPS,
+        ..HydraulicErosion::new(tcfg::SEED)
     }
     .erode(&mut hm);
 

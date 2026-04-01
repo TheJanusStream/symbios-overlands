@@ -34,11 +34,9 @@ pub struct DiagnosticsLog {
 }
 
 impl DiagnosticsLog {
-    const MAX_ENTRIES: usize = 200;
-
     pub fn push(&mut self, entry: String) {
         self.entries.push_back(entry);
-        if self.entries.len() > Self::MAX_ENTRIES {
+        if self.entries.len() > crate::config::state::MAX_DIAGNOSTICS_ENTRIES {
             self.entries.pop_front();
         }
     }

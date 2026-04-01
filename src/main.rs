@@ -5,6 +5,7 @@ use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 
 mod avatar;
 mod camera;
+pub mod config;
 mod network;
 mod protocol;
 mod rover;
@@ -54,18 +55,19 @@ fn main() {
 }
 
 fn setup_lighting(mut commands: Commands) {
+    let lp = config::lighting::LIGHT_POS;
     commands.spawn((
         DirectionalLight {
             shadows_enabled: true,
-            illuminance: 15_000.0,
+            illuminance: config::lighting::ILLUMINANCE,
             ..default()
         },
-        Transform::from_xyz(50.0, 100.0, 50.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(lp[0], lp[1], lp[2]).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 
     commands.insert_resource(GlobalAmbientLight {
         color: Color::WHITE,
-        brightness: 400.0,
+        brightness: config::lighting::AMBIENT_BRIGHTNESS,
         ..default()
     });
 }

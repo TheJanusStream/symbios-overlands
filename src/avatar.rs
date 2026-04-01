@@ -119,7 +119,7 @@ struct BskyProfile {
 async fn fetch_avatar_bytes(did: String) -> Option<Vec<u8>> {
     // A proper User-Agent prevents silent blocks by the ATProto API
     let client = reqwest::Client::builder()
-        .user_agent("SymbiosOverlands/1.0")
+        .user_agent(crate::config::avatar::USER_AGENT)
         .build()
         .ok()?;
 

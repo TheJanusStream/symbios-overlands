@@ -2,11 +2,10 @@ use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
 
+use crate::config;
 use crate::protocol::OverlandsMessage;
 use crate::rover::RoverSail;
 use crate::state::{AppState, ChatHistory, DiagnosticsLog, LocalPlayer, RemotePeer};
-
-const IDENTITY_BROADCAST_INTERVAL_TICKS: u32 = 60;
 
 pub struct NetworkPlugin;
 
@@ -51,7 +50,7 @@ fn handle_peer_connections(
                     ))
                     .with_children(|parent| {
                         parent.spawn((
-                            Mesh3d(meshes.add(Cuboid::new(1.6, 0.4, 2.4))),
+                            Mesh3d(meshes.add(Cuboid::new(config::rover::CHASSIS_X * 2.0, config::rover::CHASSIS_Y * 2.0, config::rover::CHASSIS_Z * 2.0))),
                             MeshMaterial3d(materials.add(StandardMaterial {
                                 base_color: Color::WHITE,
                                 ..default()
@@ -59,12 +58,12 @@ fn handle_peer_connections(
                             Transform::IDENTITY,
                         ));
                         parent.spawn((
-                            Mesh3d(meshes.add(Cuboid::new(0.05, 0.8, 0.8))),
+                            Mesh3d(meshes.add(Cuboid::new(config::rover::SAIL_THICKNESS, config::rover::SAIL_SIZE, config::rover::SAIL_SIZE))),
                             MeshMaterial3d(materials.add(StandardMaterial {
                                 base_color: Color::srgb(0.8, 0.8, 0.9),
                                 ..default()
                             })),
-                            Transform::from_xyz(0.0, 0.7, 0.0),
+                            Transform::from_xyz(0.0, config::rover::SAIL_OFFSET_Y, 0.0),
                             RoverSail,
                         ));
                     });
@@ -148,7 +147,7 @@ fn broadcast_local_state(
         channel: ChannelKind::Unreliable,
     });
 
-    if tick.is_multiple_of(IDENTITY_BROADCAST_INTERVAL_TICKS)
+    if tick.is_multiple_of(config::network::IDENTITY_BROADCAST_INTERVAL_TICKS)
         && let Some(sess) = &session
     {
         writer.write(Broadcast {

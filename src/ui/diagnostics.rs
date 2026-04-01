@@ -12,7 +12,7 @@ pub fn diagnostics_ui(
 ) {
     egui::SidePanel::left("diagnostics")
         .resizable(true)
-        .default_width(260.0)
+        .default_width(crate::config::ui::diagnostics::PANEL_DEFAULT_WIDTH)
         .show(contexts.ctx_mut().unwrap(), |ui| {
             ui.heading("Diagnostics");
             ui.separator();
