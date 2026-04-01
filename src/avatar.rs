@@ -11,7 +11,11 @@ impl Plugin for AvatarPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (fetch_local_avatar, trigger_avatar_fetches, poll_avatar_tasks)
+            (
+                fetch_local_avatar,
+                trigger_avatar_fetches,
+                poll_avatar_tasks,
+            )
                 .run_if(in_state(AppState::InGame)),
         );
     }
