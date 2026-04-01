@@ -6,22 +6,18 @@ use symbios_ground::{FbmNoise, HeightMap, HydraulicErosion, TerrainGenerator, Th
 
 use crate::state::AppState;
 
-// Fixed seed so every client generates the identical landscape.
 const TERRAIN_SEED: u64 = 42;
 const GRID_SIZE: usize = 257;
 const CELL_SCALE: f32 = 1.0;
 const HEIGHT_SCALE: f32 = 30.0;
 const EROSION_DROPS: u32 = 80_000;
 
-/// Marker for the terrain mesh entity.
 #[derive(Component)]
 pub struct TerrainMesh;
 
-/// Holds the finished heightmap so `spawn_terrain_mesh` can consume it.
 #[derive(Resource)]
 pub struct FinishedHeightMap(pub HeightMap);
 
-/// Task wrapper for async terrain generation.
 #[derive(Resource)]
 pub struct TerrainTask(pub bevy::tasks::Task<HeightMap>);
 
@@ -78,18 +74,26 @@ fn spawn_terrain_mesh(
 
     let collider = build_heightfield_collider(hm);
 
-    commands.spawn((
-        Mesh3d(meshes.add(mesh)),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.35, 0.55, 0.25),
-            perceptual_roughness: 0.9,
-            ..default()
-        })),
-        Transform::from_xyz(-half, 0.0, -half),
-        RigidBody::Static,
-        collider,
-        TerrainMesh,
-    ));
+    // The collider is inherently centered at the local origin.
+    // We attach the visual mesh as a child, offsetting it by -half so it aligns.
+    commands
+        .spawn((
+            Transform::IDENTITY,
+            RigidBody::Static,
+            collider,
+            TerrainMesh,
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                Mesh3d(meshes.add(mesh)),
+                MeshMaterial3d(materials.add(StandardMaterial {
+                    base_color: Color::srgb(0.35, 0.55, 0.25),
+                    perceptual_roughness: 0.9,
+                    ..default()
+                })),
+                Transform::from_xyz(-half, 0.0, -half),
+            ));
+        });
 }
 
 fn generate_terrain() -> HeightMap {

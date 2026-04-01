@@ -17,13 +17,11 @@ impl Plugin for AvatarPlugin {
     }
 }
 
-/// Inserted on a remote peer entity when their DID is first learned.
 #[derive(Component)]
 pub struct AvatarFetchPending {
     pub did: String,
 }
 
-/// Wraps an in-flight avatar download task.
 #[derive(Component)]
 pub struct AvatarFetchTask(pub bevy::tasks::Task<Option<Vec<u8>>>);
 
@@ -64,7 +62,7 @@ fn poll_avatar_tasks(
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     sails: Query<&Children>,
-    sail_query: Query<&MeshMaterial3d<StandardMaterial>, With<RoverSail>>,
+    sail_query: Query<Entity, With<RoverSail>>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
@@ -78,7 +76,7 @@ fn poll_avatar_tasks(
         let Some(bytes) = result else { continue };
 
         let Ok(dyn_img) = image::load_from_memory(&bytes) else {
-            warn!("Failed to decode avatar image");
+            bevy::log::warn!("Failed to decode avatar image");
             continue;
         };
 
@@ -92,12 +90,13 @@ fn poll_avatar_tasks(
         let new_mat = materials.add(StandardMaterial {
             base_color_texture: Some(tex_handle),
             base_color: Color::WHITE,
+            unlit: true, // Better visibility for avatars
             ..default()
         });
 
-        // Apply texture to the sail child of the chassis.
         if let Ok(children) = sails.get(entity) {
             for child in children.iter() {
+                // Correctly check if the child is a sail before injecting the material
                 if sail_query.get(child).is_ok() {
                     commands
                         .entity(child)
@@ -114,27 +113,36 @@ struct BskyProfile {
 }
 
 async fn fetch_avatar_bytes(did: String) -> Option<Vec<u8>> {
-    let client = reqwest::Client::new();
+    // A proper User-Agent prevents silent blocks by the ATProto API
+    let client = reqwest::Client::builder()
+        .user_agent("SymbiosOverlands/1.0")
+        .build()
+        .ok()?;
+
     let url = format!(
         "https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor={}",
         did
     );
-    let profile = client
-        .get(&url)
-        .send()
-        .await
-        .ok()?
-        .json::<BskyProfile>()
-        .await
-        .ok()?;
+
+    let resp = client.get(&url).send().await.ok()?;
+    if !resp.status().is_success() {
+        bevy::log::warn!("Failed to fetch profile for {}: {}", did, resp.status());
+        return None;
+    }
+
+    let profile = resp.json::<BskyProfile>().await.ok()?;
     let avatar_url = profile.avatar?;
-    let bytes = client
-        .get(&avatar_url)
-        .send()
-        .await
-        .ok()?
-        .bytes()
-        .await
-        .ok()?;
+
+    let img_resp = client.get(&avatar_url).send().await.ok()?;
+    if !img_resp.status().is_success() {
+        bevy::log::warn!(
+            "Failed to fetch avatar image for {}: {}",
+            did,
+            img_resp.status()
+        );
+        return None;
+    }
+
+    let bytes = img_resp.bytes().await.ok()?;
     Some(bytes.to_vec())
 }

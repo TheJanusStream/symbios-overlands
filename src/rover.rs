@@ -46,9 +46,30 @@ fn spawn_local_rover(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    hm_res: Res<crate::terrain::FinishedHeightMap>,
 ) {
+    let hm = &hm_res.0;
+
+    // Calculate the height exactly at the center of the procedural map
+    let half = (hm.width() - 1) as f32 * hm.scale() * 0.5;
+    let ground_y = hm.get_height_at(half, half);
+    let start_y = ground_y + 2.0;
+
     let chassis = commands
         .spawn((
+            Transform::from_xyz(0.0, start_y, 0.0),
+            RigidBody::Dynamic,
+            Collider::cuboid(CHASSIS_X * 2.0, CHASSIS_Y * 2.0, CHASSIS_Z * 2.0),
+            LinearDamping(LINEAR_DAMPING),
+            AngularDamping(ANGULAR_DAMPING),
+            LocalPlayer,
+        ))
+        .id();
+
+    // Attach the visual mesh as a child so the parent rigidbody handles pure physics
+    commands.entity(chassis).with_children(|parent| {
+        // Main chassis visual
+        parent.spawn((
             Mesh3d(meshes.add(Cuboid::new(
                 CHASSIS_X * 2.0,
                 CHASSIS_Y * 2.0,
@@ -58,21 +79,14 @@ fn spawn_local_rover(
                 base_color: Color::WHITE,
                 ..default()
             })),
-            Transform::from_xyz(0.0, 10.0, 0.0),
-            RigidBody::Dynamic,
-            Collider::cuboid(CHASSIS_X * 2.0, CHASSIS_Y * 2.0, CHASSIS_Z * 2.0),
-            LinearDamping(LINEAR_DAMPING),
-            AngularDamping(ANGULAR_DAMPING),
-            LocalPlayer,
-        ))
-        .id();
+            Transform::IDENTITY,
+        ));
 
-    // Sail (profile picture surface — child of chassis).
-    let sail_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.8, 0.8, 0.9),
-        ..default()
-    });
-    commands.entity(chassis).with_children(|parent| {
+        // Sail (profile picture surface)
+        let sail_material = materials.add(StandardMaterial {
+            base_color: Color::srgb(0.8, 0.8, 0.9),
+            ..default()
+        });
         parent.spawn((
             Mesh3d(meshes.add(Cuboid::new(0.05, 0.8, 0.8))),
             MeshMaterial3d(sail_material),
@@ -97,6 +111,10 @@ fn apply_suspension_forces(
     let chassis_tf = global_tf.compute_transform();
     let filter = SpatialQueryFilter::default().with_excluded_entities([chassis_entity]);
 
+    let lin_vel = forces.linear_velocity();
+    let ang_vel = forces.angular_velocity();
+    let center_of_mass = global_tf.translation(); // Approximation
+
     for offset in CORNER_OFFSETS {
         let local_offset = Vec3::from_array(offset);
         let world_origin = chassis_tf.transform_point(local_offset);
@@ -108,14 +126,18 @@ fn apply_suspension_forces(
         };
 
         let compression = SUSPENSION_REST_LENGTH - hit.distance;
-        let spring_force = SUSPENSION_STIFFNESS * compression;
+        if compression > 0.0 {
+            // Calculate point velocity: V_point = V_linear + V_angular x r
+            let r = world_origin - center_of_mass;
+            let point_vel = lin_vel + ang_vel.cross(r);
 
-        // Damping: project chassis linear velocity along the ray (world up).
-        let vel = forces.linear_velocity();
-        let damping_force = -SUSPENSION_DAMPING * vel.dot(Vec3::Y);
+            let spring_force = SUSPENSION_STIFFNESS * compression;
+            // Dampen based on the vertical velocity of this specific corner
+            let damping_force = -SUSPENSION_DAMPING * point_vel.y;
 
-        let total_force = (spring_force + damping_force).max(0.0);
-        forces.apply_force_at_point(Vec3::Y * total_force, world_origin);
+            let total_force = (spring_force + damping_force).max(0.0);
+            forces.apply_force_at_point(Vec3::Y * total_force, world_origin);
+        }
     }
 }
 
@@ -127,19 +149,27 @@ fn apply_drive_forces(
         return;
     };
 
-    let forward = global_tf.forward();
+    let forward = global_tf.forward().as_vec3();
+
+    // Flatten the forward vector to ignore pitch/roll, preventing the rover from driving into the ground
+    let flat_forward = Vec3::new(forward.x, 0.0, forward.z).normalize_or_zero();
     let up = Vec3::Y;
 
     if keyboard.pressed(KeyCode::KeyW) {
-        forces.apply_force(forward * DRIVE_FORCE);
+        forces.apply_force(flat_forward * DRIVE_FORCE);
     }
     if keyboard.pressed(KeyCode::KeyS) {
-        forces.apply_force(-forward * DRIVE_FORCE);
+        forces.apply_force(-flat_forward * DRIVE_FORCE);
     }
     if keyboard.pressed(KeyCode::KeyA) {
         forces.apply_torque(up * TURN_TORQUE);
     }
     if keyboard.pressed(KeyCode::KeyD) {
         forces.apply_torque(-up * TURN_TORQUE);
+    }
+
+    // Jump Thruster for getting out of ditches
+    if keyboard.pressed(KeyCode::Space) {
+        forces.apply_force(up * 5000.0);
     }
 }
