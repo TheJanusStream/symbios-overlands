@@ -4,9 +4,7 @@ use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerD
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat}; // Added TextureFormat
 use bevy::tasks::AsyncComputeTaskPool;
-use bevy_symbios_ground::{
-    HeightMapMeshBuilder, NormalMethod, build_heightfield_collider, splat_to_image,
-};
+use bevy_symbios_ground::{HeightMapMeshBuilder, NormalMethod, build_heightfield_collider};
 use bevy_symbios_texture::SymbiosTexturePlugin;
 use bevy_symbios_texture::async_gen::{PendingTexture, TextureReady};
 use bevy_symbios_texture::ground::GroundConfig;
@@ -308,9 +306,32 @@ fn apply_splat_textures(
         SplatRule::new((hs * tcfg::snow::ALT_MIN_FACTOR, hs), (0.0, tcfg::snow::SLOPE_MAX), tcfg::snow::BLEND),
     ]);
     let weight_map = mapper.generate(hm);
-    // `splat_to_image` gives us an RGBA8 image with ClampToEdge sampler —
-    // correct for a full-terrain weight map that must not tile.
-    let wm_handle = images.add(splat_to_image(&weight_map));
+    // Build the weight-map image manually so we can use RENDER_WORLD-only
+    // storage — the CPU bytes are never needed again after upload.
+    let wm_bytes: Vec<u8> = weight_map
+        .data
+        .iter()
+        .flat_map(|pixel| pixel.iter().copied())
+        .collect();
+    let mut wm_image = Image::new(
+        Extent3d {
+            width: weight_map.width as u32,
+            height: weight_map.height as u32,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        wm_bytes,
+        TextureFormat::Rgba8Unorm,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    wm_image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+        address_mode_u: ImageAddressMode::ClampToEdge,
+        address_mode_v: ImageAddressMode::ClampToEdge,
+        mag_filter: ImageFilterMode::Linear,
+        min_filter: ImageFilterMode::Linear,
+        ..Default::default()
+    });
+    let wm_handle = images.add(wm_image);
 
     if let Some(mat) = materials.get_mut(&splat_mat.0) {
         mat.base.base_color = Color::WHITE;
@@ -334,16 +355,17 @@ fn build_texture_array(
     handles: &[Option<Handle<Image>>; 4],
     images: &Assets<Image>,
 ) -> Option<Image> {
-    let first = images.get(handles[0].as_ref()?)?;
+    let first = images.get(handles[0].as_ref()?.id())?;
     let w = first.texture_descriptor.size.width;
     let h = first.texture_descriptor.size.height;
     let format = first.texture_descriptor.format;
     let mip_count = first.texture_descriptor.mip_level_count;
+    let bytes_per_layer = first.data.as_ref()?.len();
 
     // Concatenate every layer's full mipchain in order.
-    let mut merged: Vec<u8> = Vec::new();
+    let mut merged: Vec<u8> = Vec::with_capacity(bytes_per_layer * 4);
     for handle_opt in handles {
-        let img = images.get(handle_opt.as_ref()?)?;
+        let img = images.get(handle_opt.as_ref()?.id())?;
         merged.extend_from_slice(img.data.as_ref()?);
     }
 
