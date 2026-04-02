@@ -19,7 +19,7 @@ impl Plugin for RoverPlugin {
         app.add_systems(OnEnter(AppState::InGame), spawn_local_rover)
             .add_systems(
                 FixedUpdate,
-                (apply_suspension_forces, apply_drive_forces)
+                (apply_suspension_forces, apply_drive_forces, apply_uprighting_force)
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             );
@@ -78,7 +78,8 @@ fn spawn_local_rover(
                 base_color: Color::srgb(0.8, 0.8, 0.9),
                 ..default()
             })),
-            Transform::from_xyz(0.0, cfg::SAIL_OFFSET_Y, 0.0),
+            Transform::from_xyz(0.0, cfg::SAIL_OFFSET_Y, 0.0)
+                .with_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
             RoverSail,
         ));
     });
@@ -159,4 +160,15 @@ fn apply_drive_forces(
     if keyboard.pressed(KeyCode::Space) {
         forces.apply_force(Vec3::Y * cfg::JUMP_FORCE);
     }
+}
+
+fn apply_uprighting_force(
+    mut query: Query<(Forces, &GlobalTransform), With<LocalPlayer>>,
+) {
+    let Ok((mut forces, global_tf)) = query.single_mut() else {
+        return;
+    };
+    let vehicle_up = global_tf.up().as_vec3();
+    let torque = vehicle_up.cross(Vec3::Y) * cfg::UPRIGHTING_TORQUE;
+    forces.apply_torque(torque);
 }

@@ -21,17 +21,19 @@ pub mod lighting {
 // ---------------------------------------------------------------------------
 pub mod rover {
     // --- Suspension (Hooke's law + damping) ----------------------------------
-    pub const SUSPENSION_REST_LENGTH: f32 = 0.6;
-    pub const SUSPENSION_STIFFNESS: f32 = 1_200.0;
+    pub const SUSPENSION_REST_LENGTH: f32 = 0.8;
+    pub const SUSPENSION_STIFFNESS: f32 = 4_200.0;
     pub const SUSPENSION_DAMPING: f32 = 175.0;
     /// Ray-cast length = rest length + this overshoot past the contact plane.
-    pub const RAY_MAX_DIST: f32 = SUSPENSION_REST_LENGTH + 0.5;
+    pub const RAY_MAX_DIST: f32 = SUSPENSION_REST_LENGTH + 1.5;
 
     // --- Drive ---------------------------------------------------------------
     pub const DRIVE_FORCE: f32 = 3_000.0;
     pub const TURN_TORQUE: f32 = 1_800.0;
     pub const LATERAL_GRIP: f32 = 6_000.0;
     pub const JUMP_FORCE: f32 = 2_500.0;
+    /// Torque strength nudging the chassis back to upright.
+    pub const UPRIGHTING_TORQUE: f32 = 800.0;
 
     // --- Chassis -------------------------------------------------------------
     pub const LINEAR_DAMPING: f32 = 1.5;
@@ -72,9 +74,9 @@ pub mod terrain {
     pub const SEED: u64 = 42;
     pub const GRID_SIZE: usize = 513;
     pub const CELL_SCALE: f32 = 2.0;
-    pub const HEIGHT_SCALE: f32 = 20.0;
+    pub const HEIGHT_SCALE: f32 = 5.0;
     /// Number of hydraulic erosion droplets.
-    pub const EROSION_DROPS: u32 = 80_000;
+    pub const EROSION_DROPS: u32 = 30_000;
     /// How many times the tiling textures repeat across the terrain.
     pub const TILE_SCALE: f32 = 256.0;
     /// Resolution of each procedurally generated texture layer (pixels).
@@ -83,9 +85,9 @@ pub mod terrain {
     // --- Voronoi terracing ---------------------------------------------------
     pub mod voronoi {
         /// Number of Voronoi seed points; more seeds → smaller plateaus.
-        pub const NUM_SEEDS: usize = 800;
+        pub const NUM_SEEDS: usize = 1500;
         /// Number of discrete terrace height levels.
-        pub const NUM_TERRACES: usize = 24;
+        pub const NUM_TERRACES: usize = 50;
     }
 
     // --- Thermal erosion -----------------------------------------------------

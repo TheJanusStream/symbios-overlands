@@ -35,6 +35,7 @@ fn spawn_orbit_camera(mut commands: Commands) {
 fn follow_local_player(
     player_query: Query<&GlobalTransform, With<LocalPlayer>>,
     mut camera_query: Query<&mut PanOrbitCamera>,
+    mut prev_yaw: Local<Option<f32>>,
 ) {
     let Ok(player_tf) = player_query.single() else {
         return;
@@ -43,4 +44,16 @@ fn follow_local_player(
         return;
     };
     cam.target_focus = player_tf.translation();
+
+    let (_, rotation, _) = player_tf.to_scale_rotation_translation();
+    let (vehicle_yaw, _, _) = rotation.to_euler(EulerRot::YXZ);
+    if let Some(prev) = *prev_yaw {
+        let delta = {
+            use std::f32::consts::{PI, TAU};
+            let d = (vehicle_yaw - prev).rem_euclid(TAU);
+            if d > PI { d - TAU } else { d }
+        };
+        cam.target_yaw += delta;
+    }
+    *prev_yaw = Some(vehicle_yaw);
 }
