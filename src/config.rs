@@ -76,21 +76,21 @@ pub mod terrain {
     /// Number of hydraulic erosion droplets.
     pub const EROSION_DROPS: u32 = 80_000;
     /// How many times the tiling textures repeat across the terrain.
-    pub const TILE_SCALE: f32 = 64.0;
+    pub const TILE_SCALE: f32 = 256.0;
     /// Resolution of each procedurally generated texture layer (pixels).
     pub const TEXTURE_SIZE: u32 = 512;
 
     // --- Voronoi terracing ---------------------------------------------------
     pub mod voronoi {
         /// Number of Voronoi seed points; more seeds → smaller plateaus.
-        pub const NUM_SEEDS: usize = 400;
+        pub const NUM_SEEDS: usize = 800;
         /// Number of discrete terrace height levels.
-        pub const NUM_TERRACES: usize = 12;
+        pub const NUM_TERRACES: usize = 24;
     }
 
     // --- Thermal erosion -----------------------------------------------------
     pub mod thermal {
-        pub const ITERATIONS: u32 = 20;
+        pub const ITERATIONS: u32 = 50;
         pub const TALUS_ANGLE: f32 = 0.6;
     }
 
@@ -113,9 +113,9 @@ pub mod terrain {
         pub const MICRO_SCALE: f64 = 10.0;
         pub const MICRO_OCTAVES: usize = 3;
         pub const MICRO_WEIGHT: f64 = 0.3;
-        pub const COLOR_DRY: [f32; 3] = [0.15, 0.24, 0.07];
-        pub const COLOR_MOIST: [f32; 3] = [0.07, 0.14, 0.03];
-        pub const NORMAL_STRENGTH: f32 = 1.5;
+        pub const COLOR_DRY: [f32; 3] = [0.07, 0.12, 0.03];
+        pub const COLOR_MOIST: [f32; 3] = [0.03, 0.07, 0.01];
+        pub const NORMAL_STRENGTH: f32 = 4.5;
         // Splat rule (altitude expressed as factor × HEIGHT_SCALE)
         pub const ALT_MAX_FACTOR: f32 = 0.45;
         pub const SLOPE_MAX: f32 = 0.30;
@@ -150,8 +150,8 @@ pub mod terrain {
         pub const COLOR_MOIST: [f32; 3] = [0.80, 0.82, 0.88];
         pub const NORMAL_STRENGTH: f32 = 0.8;
         // Splat rule
-        pub const ALT_MIN_FACTOR: f32 = 0.68;
-        pub const SLOPE_MAX: f32 = 0.35;
+        pub const ALT_MIN_FACTOR: f32 = 0.88;
+        pub const SLOPE_MAX: f32 = 1.0;
         pub const BLEND: f32 = 4.0;
     }
 }
