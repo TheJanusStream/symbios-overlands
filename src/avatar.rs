@@ -108,6 +108,8 @@ fn poll_avatar_tasks(
             base_color_texture: Some(tex_handle),
             base_color: Color::WHITE,
             unlit: true,
+            double_sided: true,
+            cull_mode: None,
             ..default()
         });
 
