@@ -62,7 +62,6 @@ pub fn rebuild_airship_children(
     }
 
     let chassis_half_y = cfg::CHASSIS_Y; // 0.2 m — top surface of physics hull
-    let hull_h = chassis_half_y * 2.0;
     let hull_w = params.hull_width;
     let hull_l = params.hull_length;
     let mast_h = params.mast_height;
@@ -72,10 +71,13 @@ pub fn rebuild_airship_children(
     let [pr, pg, pb] = params.pontoon_color;
     let [mr, mg, mb] = ac::MAST_COLOR;
 
+    // Hull material is double-sided so the concave V interior is visible from above.
     let hull_mat = materials.add(StandardMaterial {
         base_color: Color::srgb(hr, hg, hb),
         metallic: params.metallic,
         perceptual_roughness: params.roughness,
+        double_sided: true,
+        cull_mode: None,
         ..default()
     });
     let pontoon_mat = materials.add(StandardMaterial {
@@ -90,61 +92,59 @@ pub fn rebuild_airship_children(
         perceptual_roughness: 0.35,
         ..default()
     });
+    // Sail is double-sided so the avatar face shows from both port and starboard.
     let sail_mat = materials.add(StandardMaterial {
         base_color: Color::srgb(0.82, 0.82, 0.92),
+        double_sided: true,
+        cull_mode: None,
         ..default()
     });
 
     commands.entity(entity).with_children(|parent| {
-        // Main hull
+        // Main hull — V cross-section extruded along Z with sinusoidal taper.
+        // Deck rim fixed at y = 0; keel dips to -hull_depth at midship.
         parent.spawn((
-            Mesh3d(meshes.add(Cuboid::new(hull_w, hull_h, hull_l))),
+            Mesh3d(meshes.add(build_v_hull_mesh(hull_l, hull_w, params.hull_depth))),
             MeshMaterial3d(hull_mat.clone()),
             Transform::IDENTITY,
         ));
 
-        // Port outrigger pontoon (−X)
+        // Port outrigger pontoon (−X) — capsule aligned along Z.
         parent.spawn((
-            Mesh3d(meshes.add(Cuboid::new(
-                ac::PONTOON_SIZE,
-                ac::PONTOON_SIZE,
-                params.pontoon_length,
-            ))),
+            Mesh3d(meshes.add(Capsule3d::new(ac::PONTOON_RADIUS, params.pontoon_length))),
             MeshMaterial3d(pontoon_mat.clone()),
-            Transform::from_xyz(-params.pontoon_spread, 0.0, 0.0),
+            Transform::from_xyz(-params.pontoon_spread, 0.0, 0.0)
+                .with_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
         ));
 
-        // Starboard outrigger pontoon (+X)
+        // Starboard outrigger pontoon (+X) — capsule aligned along Z.
         parent.spawn((
-            Mesh3d(meshes.add(Cuboid::new(
-                ac::PONTOON_SIZE,
-                ac::PONTOON_SIZE,
-                params.pontoon_length,
-            ))),
+            Mesh3d(meshes.add(Capsule3d::new(ac::PONTOON_RADIUS, params.pontoon_length))),
             MeshMaterial3d(pontoon_mat),
-            Transform::from_xyz(params.pontoon_spread, 0.0, 0.0),
+            Transform::from_xyz(params.pontoon_spread, 0.0, 0.0)
+                .with_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
         ));
 
-        // Forward cross-strut
+        // Forward cross-strut — cylinder aligned along X.
         parent.spawn((
-            Mesh3d(meshes.add(Cuboid::new(
+            Mesh3d(meshes.add(Cylinder::new(
+                ac::STRUT_THICKNESS * 0.5,
                 params.pontoon_spread * 2.0,
-                ac::STRUT_THICKNESS,
-                ac::STRUT_THICKNESS,
             ))),
             MeshMaterial3d(hull_mat.clone()),
-            Transform::from_xyz(0.0, 0.0, hull_l * 0.3),
+            Transform::from_xyz(0.0, 0.0, hull_l * 0.3)
+                .with_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)),
         ));
 
-        // Aft cross-strut
+        // Aft cross-strut — cylinder aligned along X.
         parent.spawn((
-            Mesh3d(meshes.add(Cuboid::new(
+            Mesh3d(meshes.add(Cylinder::new(
+                ac::STRUT_THICKNESS * 0.5,
                 params.pontoon_spread * 2.0,
-                ac::STRUT_THICKNESS,
-                ac::STRUT_THICKNESS,
             ))),
             MeshMaterial3d(hull_mat),
-            Transform::from_xyz(0.0, 0.0, -hull_l * 0.3),
+            Transform::from_xyz(0.0, 0.0, -hull_l * 0.3)
+                .with_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)),
         ));
 
         // Central mast
@@ -154,19 +154,80 @@ pub fn rebuild_airship_children(
             Transform::from_xyz(0.0, chassis_half_y + mast_h * 0.5, 0.0),
         ));
 
-        // Solar sail — thin in Z, square in XY so the profile picture faces
-        // forward/backward.  Sits just below the mast tip.
+        // Solar sail — flat double-sided panel oriented as a flag streaming aft.
+        // The panel is in the YZ plane (faces ±X) so the avatar face is visible
+        // from the sides.  Hoist edge at z = 0 (mast), trailing edge at z = −sail_size.
         parent.spawn((
-            Mesh3d(meshes.add(Cuboid::new(
-                params.sail_size,
-                params.sail_size,
-                ac::SAIL_THICKNESS,
-            ))),
+            Mesh3d(meshes.add(Rectangle::new(params.sail_size, params.sail_size))),
             MeshMaterial3d(sail_mat),
-            Transform::from_xyz(0.0, mast_top_y - params.sail_size * 0.5, 0.0),
+            Transform::from_xyz(
+                0.0,
+                mast_top_y - params.sail_size * 0.5,
+                -params.sail_size * 0.5,
+            )
+            .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
             RoverSail,
         ));
     });
+}
+
+/// Build a smooth V-hull mesh extruded along Z.
+///
+/// Cross-section at each station: two rim points at `(±r, 0)` and a keel point
+/// at `(0, −depth)`.  Both `r` and `depth` follow a sine envelope along the
+/// hull length so bow and stern taper to a point while the deck rim stays at
+/// y = 0.  The mesh has three panels per segment: port side, starboard side,
+/// and the flat deck strip across the top.
+fn build_v_hull_mesh(hull_length: f32, hull_width: f32, hull_depth: f32) -> Mesh {
+    use bevy::asset::RenderAssetUsages;
+    use bevy::mesh::Indices;
+    use bevy::render::render_resource::PrimitiveTopology;
+
+    const SEGMENTS: usize = 20;
+
+    let mut positions: Vec<[f32; 3]> = Vec::with_capacity((SEGMENTS + 1) * 3);
+    let mut indices: Vec<u32> = Vec::with_capacity(SEGMENTS * 12);
+
+    for i in 0..=SEGMENTS {
+        let t = i as f32 / SEGMENTS as f32;
+        let z = -hull_length * 0.5 + t * hull_length;
+        // Sine envelope: zero at bow/stern, one at midship.
+        let scale = (t * std::f32::consts::PI).sin();
+        let r = (hull_width * 0.5) * scale;
+        let keel_y = -hull_depth * scale;
+        // Three vertices per cross-section: port rim, keel, starboard rim.
+        positions.push([-r, 0.0, z]);     // 3i+0  port rim
+        positions.push([0.0, keel_y, z]); // 3i+1  keel
+        positions.push([r, 0.0, z]);      // 3i+2  starboard rim
+    }
+
+    for i in 0..SEGMENTS {
+        let l0 = (i * 3) as u32;       // port rim      station i
+        let k0 = l0 + 1;               // keel           station i
+        let r0 = l0 + 2;               // starboard rim  station i
+        let l1 = ((i + 1) * 3) as u32; // port rim      station i+1
+        let k1 = l1 + 1;               // keel           station i+1
+        let r1 = l1 + 2;               // starboard rim  station i+1
+
+        // Port panel — outward normal faces (−X, −Y).
+        indices.extend_from_slice(&[l0, k0, k1]);
+        indices.extend_from_slice(&[l0, k1, l1]);
+
+        // Starboard panel — outward normal faces (+X, −Y).
+        indices.extend_from_slice(&[k0, r0, r1]);
+        indices.extend_from_slice(&[k0, r1, k1]);
+
+        // Deck strip — outward normal faces +Y.
+        indices.extend_from_slice(&[l0, l1, r1]);
+        indices.extend_from_slice(&[l0, r1, r0]);
+    }
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_indices(Indices::U32(indices));
+    mesh.duplicate_vertices();
+    mesh.compute_flat_normals();
+    mesh
 }
 
 fn spawn_local_rover(

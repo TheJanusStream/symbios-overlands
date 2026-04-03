@@ -17,6 +17,8 @@ pub struct AirshipParams {
     pub mast_height: f32,
     /// Side length of the square solar sail (m).
     pub sail_size: f32,
+    /// Depth of the V-hull keel below the deck rim (m).
+    pub hull_depth: f32,
     // --- Material -----------------------------------------------------------
     /// Hull base colour [sRGB; 0-1].
     pub hull_color: [f32; 3],
@@ -38,6 +40,7 @@ impl Default for AirshipParams {
             pontoon_length: cfg::PONTOON_LENGTH,
             mast_height: cfg::MAST_HEIGHT,
             sail_size: cfg::SAIL_SIZE,
+            hull_depth: cfg::HULL_DEPTH,
             hull_color: cfg::HULL_COLOR,
             pontoon_color: cfg::PONTOON_COLOR,
             metallic: cfg::METALLIC,

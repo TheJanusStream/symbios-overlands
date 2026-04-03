@@ -218,11 +218,15 @@ pub mod airship {
     /// Lateral distance from centre to each outrigger pontoon.
     pub const PONTOON_SPREAD: f32 = 1.1;
     pub const PONTOON_LENGTH: f32 = 1.8;
-    /// Square cross-section side length of each pontoon.
+    /// Capsule cross-section radius of each pontoon.
     pub const PONTOON_SIZE: f32 = 0.22;
+    pub const PONTOON_RADIUS: f32 = PONTOON_SIZE / 2.0;
 
-    /// Thin horizontal struts connecting hull to pontoons.
+    /// Thin horizontal struts connecting hull to pontoons (cylinder diameter).
     pub const STRUT_THICKNESS: f32 = 0.06;
+
+    /// Depth of the V-hull keel below the deck rim (y = 0 in local mesh space).
+    pub const HULL_DEPTH: f32 = 0.5;
 
     pub const MAST_RADIUS: f32 = 0.04;
     pub const MAST_HEIGHT: f32 = 0.9;

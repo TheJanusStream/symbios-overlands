@@ -48,6 +48,11 @@ pub fn airship_ui(mut contexts: EguiContexts, mut ap: ResMut<LocalAirshipParams>
                 .add(egui::Slider::new(&mut p.sail_size, 0.3..=2.5).step_by(0.05))
                 .changed();
 
+            ui.label("Hull keel depth (m)");
+            changed |= ui
+                .add(egui::Slider::new(&mut p.hull_depth, 0.1..=1.5).step_by(0.05))
+                .changed();
+
             ui.separator();
 
             // --- Material properties ----------------------------------------
