@@ -156,14 +156,14 @@ pub fn rebuild_airship_children(
 
         // Solar sail — flat double-sided panel oriented as a flag streaming aft.
         // The panel is in the YZ plane (faces ±X) so the avatar face is visible
-        // from the sides.  Hoist edge at z = 0 (mast), trailing edge at z = −sail_size.
+        // from the sides.  Hoist edge at z = 0 (mast), trailing edge at z = sail_size.
         parent.spawn((
             Mesh3d(meshes.add(Rectangle::new(params.sail_size, params.sail_size))),
             MeshMaterial3d(sail_mat),
             Transform::from_xyz(
                 0.0,
                 mast_top_y - params.sail_size * 0.5,
-                -params.sail_size * 0.5,
+                params.sail_size * 0.5,
             )
             .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
             RoverSail,
