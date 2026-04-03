@@ -14,15 +14,17 @@ pub fn chat_ui(
     mut input: Local<String>,
 ) {
     use crate::config::ui::chat as cfg;
-    egui::SidePanel::right("chat")
+
+    egui::Window::new("Chat")
+        .default_pos(cfg::WINDOW_DEFAULT_POS)
+        .default_size([cfg::WINDOW_DEFAULT_WIDTH, cfg::WINDOW_DEFAULT_HEIGHT])
         .resizable(true)
-        .width_range(cfg::PANEL_WIDTH_MIN..=cfg::PANEL_WIDTH_MAX)
-        .default_width(cfg::PANEL_DEFAULT_WIDTH)
+        .collapsible(true)
         .show(contexts.ctx_mut().unwrap(), |ui| {
-            ui.heading("Chat");
             ui.separator();
 
-            let scroll_height = (ui.available_height() - cfg::INPUT_RESERVE_HEIGHT).max(cfg::SCROLL_MIN_HEIGHT);
+            let scroll_height =
+                (ui.available_height() - cfg::INPUT_RESERVE_HEIGHT).max(cfg::SCROLL_MIN_HEIGHT);
 
             egui::ScrollArea::vertical()
                 .id_salt("chat_scroll")
@@ -45,11 +47,12 @@ pub fn chat_ui(
             ui.separator();
 
             ui.horizontal(|ui| {
-                let response =
-                    ui.add(egui::TextEdit::singleline(&mut *input).desired_width(f32::INFINITY));
+                let response = ui
+                    .add(egui::TextEdit::singleline(&mut *input).desired_width(f32::INFINITY));
                 let send = ui.button("Send");
                 let submit = send.clicked()
-                    || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                    || (response.lost_focus()
+                        && ui.input(|i| i.key_pressed(egui::Key::Enter)));
 
                 if submit && !input.trim().is_empty() {
                     let text = input.trim().to_string();

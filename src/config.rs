@@ -205,22 +205,69 @@ pub mod login {
 }
 
 // ---------------------------------------------------------------------------
-// UI panels (ui/chat.rs, ui/diagnostics.rs)
+// Airship vehicle (rover.rs + network.rs)
+// ---------------------------------------------------------------------------
+pub mod airship {
+    use super::rover;
+
+    /// Main hull dimensions match the physics chassis.
+    pub const HULL_WIDTH: f32 = rover::CHASSIS_X * 2.0;   // 1.6 m
+    pub const HULL_HEIGHT: f32 = rover::CHASSIS_Y * 2.0;  // 0.4 m
+    pub const HULL_LENGTH: f32 = rover::CHASSIS_Z * 2.0;  // 2.4 m
+
+    /// Lateral distance from centre to each outrigger pontoon.
+    pub const PONTOON_SPREAD: f32 = 1.1;
+    pub const PONTOON_LENGTH: f32 = 1.8;
+    /// Square cross-section side length of each pontoon.
+    pub const PONTOON_SIZE: f32 = 0.22;
+
+    /// Thin horizontal struts connecting hull to pontoons.
+    pub const STRUT_THICKNESS: f32 = 0.06;
+
+    pub const MAST_RADIUS: f32 = 0.04;
+    pub const MAST_HEIGHT: f32 = 0.9;
+
+    /// Square solar sail side length.
+    pub const SAIL_SIZE: f32 = 0.9;
+    pub const SAIL_THICKNESS: f32 = 0.03;
+
+    // --- Default material properties (steampunk palette) --------------------
+    /// Brass hull [sRGB].
+    pub const HULL_COLOR: [f32; 3] = [0.72, 0.50, 0.18];
+    /// Dark-bronze pontoons [sRGB].
+    pub const PONTOON_COLOR: [f32; 3] = [0.48, 0.30, 0.10];
+    /// Copper mast [sRGB].
+    pub const MAST_COLOR: [f32; 3] = [0.60, 0.38, 0.18];
+    pub const METALLIC: f32 = 0.65;
+    pub const ROUGHNESS: f32 = 0.55;
+}
+
+// ---------------------------------------------------------------------------
+// UI panels (ui/chat.rs, ui/diagnostics.rs, ui/airship.rs)
 // ---------------------------------------------------------------------------
 pub mod ui {
     pub mod chat {
-        pub const PANEL_WIDTH_MIN: f32 = 200.0;
-        pub const PANEL_WIDTH_MAX: f32 = 500.0;
-        pub const PANEL_DEFAULT_WIDTH: f32 = 380.0;
         /// Height reserved below the scroll area for the input row.
         pub const INPUT_RESERVE_HEIGHT: f32 = 40.0;
         /// Minimum height of the message scroll area.
         pub const SCROLL_MIN_HEIGHT: f32 = 60.0;
         /// Author label colour [R, G, B].
         pub const AUTHOR_COLOR: [u8; 3] = [100, 180, 255];
+        /// Default egui window geometry.
+        pub const WINDOW_DEFAULT_WIDTH: f32 = 380.0;
+        pub const WINDOW_DEFAULT_HEIGHT: f32 = 400.0;
+        /// Default top-left position [x, y] (right side of a typical 1080p window).
+        pub const WINDOW_DEFAULT_POS: [f32; 2] = [820.0, 60.0];
     }
 
     pub mod diagnostics {
-        pub const PANEL_DEFAULT_WIDTH: f32 = 260.0;
+        pub const WINDOW_DEFAULT_WIDTH: f32 = 280.0;
+        pub const WINDOW_DEFAULT_HEIGHT: f32 = 480.0;
+        pub const WINDOW_DEFAULT_POS: [f32; 2] = [10.0, 60.0];
+    }
+
+    pub mod airship {
+        pub const WINDOW_DEFAULT_WIDTH: f32 = 320.0;
+        pub const WINDOW_DEFAULT_POS: [f32; 2] = [10.0, 420.0];
     }
 }

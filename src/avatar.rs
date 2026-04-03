@@ -15,6 +15,7 @@ impl Plugin for AvatarPlugin {
                 fetch_local_avatar,
                 trigger_avatar_fetches,
                 poll_avatar_tasks,
+                reapply_avatar_after_rebuild,
             )
                 .run_if(in_state(AppState::InGame)),
         );
@@ -28,6 +29,18 @@ pub struct AvatarFetchPending {
 
 #[derive(Component)]
 pub struct AvatarFetchTask(pub bevy::tasks::Task<Option<Vec<u8>>>);
+
+/// Stores the last successfully applied avatar material on a chassis entity.
+/// Used to re-apply the material to a new sail child after an airship rebuild
+/// without triggering a redundant network fetch.
+#[derive(Component, Clone)]
+pub struct AvatarMaterial(pub Handle<StandardMaterial>);
+
+/// Placed on a chassis entity by `rebuild_local_rover` (and equivalent network
+/// rebuilds) to signal that the sail needs the cached `AvatarMaterial`
+/// reapplied on the next frame, once the new children are live.
+#[derive(Component)]
+pub struct NeedsAvatarReapply;
 
 fn fetch_local_avatar(
     mut commands: Commands,
@@ -94,19 +107,63 @@ fn poll_avatar_tasks(
         let new_mat = materials.add(StandardMaterial {
             base_color_texture: Some(tex_handle),
             base_color: Color::WHITE,
-            unlit: true, // Better visibility for avatars
+            unlit: true,
             ..default()
         });
 
+        // Cache the material on the chassis so rebuilds can re-apply it without
+        // a new network fetch.
+        commands
+            .entity(entity)
+            .insert(AvatarMaterial(new_mat.clone()));
+
+        // Apply the material to every RoverSail child.  Use a deferred world
+        // closure so validity is checked at *application* time, not query time.
+        // This prevents a panic when a rebuild despawns the sail between this
+        // system running and the commands being flushed.
         if let Ok(children) = sails.get(entity) {
-            for child in children.iter() {
-                // Correctly check if the child is a sail before injecting the material
-                if sail_query.get(child).is_ok() {
-                    commands
-                        .entity(child)
-                        .insert(MeshMaterial3d(new_mat.clone()));
-                }
+            let sail_entities: Vec<Entity> = children
+                .iter()
+                .filter(|&child| sail_query.get(child).is_ok())
+                .collect();
+
+            for sail in sail_entities {
+                let mat = new_mat.clone();
+                commands.queue(move |world: &mut World| {
+                    if let Ok(mut eref) = world.get_entity_mut(sail) {
+                        eref.insert(MeshMaterial3d(mat));
+                    }
+                });
             }
+        }
+    }
+}
+
+/// Runs every frame and re-applies the cached `AvatarMaterial` to any chassis
+/// entity that was recently rebuilt (marked with `NeedsAvatarReapply`).
+/// Running one frame after the rebuild ensures the new sail children are live.
+fn reapply_avatar_after_rebuild(
+    mut commands: Commands,
+    query: Query<(Entity, &Children, &AvatarMaterial), With<NeedsAvatarReapply>>,
+    sail_query: Query<Entity, With<RoverSail>>,
+) {
+    for (entity, children, avatar_mat) in query.iter() {
+        commands.entity(entity).remove::<NeedsAvatarReapply>();
+
+        let sail_entities: Vec<Entity> = children
+            .iter()
+            .filter(|&child| sail_query.get(child).is_ok())
+            .collect();
+
+        for sail in sail_entities {
+            let mat = avatar_mat.0.clone();
+            // Safe closure: sail may have been replaced by another rapid
+            // rebuild; in that case we skip silently.
+            commands.queue(move |world: &mut World| {
+                if let Ok(mut eref) = world.get_entity_mut(sail) {
+                    eref.insert(MeshMaterial3d(mat));
+                }
+            });
         }
     }
 }
@@ -117,7 +174,6 @@ struct BskyProfile {
 }
 
 async fn fetch_avatar_bytes(did: String) -> Option<Vec<u8>> {
-    // A proper User-Agent prevents silent blocks by the ATProto API
     let client = reqwest::Client::builder()
         .user_agent(crate::config::avatar::USER_AGENT)
         .build()

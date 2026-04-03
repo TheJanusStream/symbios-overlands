@@ -2,10 +2,11 @@ use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
 
+use crate::avatar::AvatarFetchPending;
 use crate::config;
-use crate::protocol::OverlandsMessage;
-use crate::rover::RoverSail;
-use crate::state::{AppState, ChatHistory, DiagnosticsLog, LocalPlayer, RemotePeer};
+use crate::protocol::{AirshipParams, OverlandsMessage};
+use crate::rover::rebuild_airship_children;
+use crate::state::{AppState, ChatHistory, DiagnosticsLog, LocalAirshipParams, LocalPlayer, RemotePeer};
 
 pub struct NetworkPlugin;
 
@@ -18,6 +19,7 @@ impl Plugin for NetworkPlugin {
                     handle_peer_connections,
                     handle_incoming_messages,
                     broadcast_local_state,
+                    sync_mute_visibility,
                 )
                     .run_if(in_state(AppState::InGame)),
             );
@@ -36,37 +38,29 @@ fn handle_peer_connections(
         match event.state {
             PeerConnectionState::Connected => {
                 diagnostics.push(format!("[+] Peer {} connected", event.peer));
-                commands
+                let entity = commands
                     .spawn((
                         Transform::from_xyz(0.0, 10.0, 0.0),
                         Visibility::default(),
-                        InheritedVisibility::default(),
-                        ViewVisibility::default(),
                         RemotePeer {
                             peer_id: event.peer,
                             did: None,
                             handle: None,
+                            muted: false,
+                            airship: None,
                         },
                     ))
-                    .with_children(|parent| {
-                        parent.spawn((
-                            Mesh3d(meshes.add(Cuboid::new(config::rover::CHASSIS_X * 2.0, config::rover::CHASSIS_Y * 2.0, config::rover::CHASSIS_Z * 2.0))),
-                            MeshMaterial3d(materials.add(StandardMaterial {
-                                base_color: Color::WHITE,
-                                ..default()
-                            })),
-                            Transform::IDENTITY,
-                        ));
-                        parent.spawn((
-                            Mesh3d(meshes.add(Cuboid::new(config::rover::SAIL_THICKNESS, config::rover::SAIL_SIZE, config::rover::SAIL_SIZE))),
-                            MeshMaterial3d(materials.add(StandardMaterial {
-                                base_color: Color::srgb(0.8, 0.8, 0.9),
-                                ..default()
-                            })),
-                            Transform::from_xyz(0.0, config::rover::SAIL_OFFSET_Y, 0.0),
-                            RoverSail,
-                        ));
-                    });
+                    .id();
+
+                // Spawn default airship visuals until we receive their Identity.
+                rebuild_airship_children(
+                    &mut commands,
+                    entity,
+                    &AirshipParams::default(),
+                    None,
+                    &mut meshes,
+                    &mut materials,
+                );
             }
             PeerConnectionState::Disconnected => {
                 for (entity, peer) in peers.iter() {
@@ -90,40 +84,75 @@ fn handle_incoming_messages(
     mut commands: Commands,
     mut queue: ResMut<NetworkQueue<OverlandsMessage>>,
     mut chat: ResMut<ChatHistory>,
-    mut peers: Query<(Entity, &mut RemotePeer, &mut Transform)>,
+    mut peers: Query<(Entity, &mut RemotePeer, &mut Transform, Option<&Children>)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for msg in queue.drain() {
         match msg.payload {
             OverlandsMessage::Transform { position, rotation } => {
-                for (_, peer, mut tf) in peers.iter_mut() {
+                for (_, peer, mut tf, _) in peers.iter_mut() {
                     if peer.peer_id == msg.sender {
                         tf.translation = Vec3::from_array(position);
                         tf.rotation = Quat::from_array(rotation);
                     }
                 }
             }
-            OverlandsMessage::Identity { did, handle } => {
-                for (entity, mut peer, _) in peers.iter_mut() {
-                    if peer.peer_id == msg.sender {
-                        let did_changed = peer.did.as_deref() != Some(did.as_str());
-                        peer.handle = Some(handle.clone());
-                        if did_changed {
-                            info!("Peer {} identified as @{} ({})", msg.sender, handle, did);
+            OverlandsMessage::Identity { did, handle, airship } => {
+                for (entity, mut peer, _, children) in peers.iter_mut() {
+                    if peer.peer_id != msg.sender {
+                        continue;
+                    }
+
+                    let did_changed = peer.did.as_deref() != Some(did.as_str());
+                    let airship_changed = peer.airship.as_ref() != Some(&airship);
+
+                    peer.handle = Some(handle.clone());
+
+                    if did_changed {
+                        info!("Peer {} identified as @{} ({})", msg.sender, handle, did);
+                        commands
+                            .entity(entity)
+                            .insert(AvatarFetchPending { did: did.clone() });
+                        peer.did = Some(did.clone());
+                    }
+
+                    if airship_changed {
+                        // Rebuild the peer's vessel with the updated parameters.
+                        let children_ref = children.map(|c| c as &Children);
+                        rebuild_airship_children(
+                            &mut commands,
+                            entity,
+                            &airship,
+                            children_ref,
+                            &mut meshes,
+                            &mut materials,
+                        );
+                        if let Some(did_str) = &peer.did {
                             commands
                                 .entity(entity)
-                                .insert(crate::avatar::AvatarFetchPending { did: did.clone() });
-                            peer.did = Some(did.clone());
+                                .insert(AvatarFetchPending { did: did_str.clone() });
                         }
+                        peer.airship = Some(airship.clone());
                     }
                 }
             }
             OverlandsMessage::Chat { text } => {
-                let author = peers
+                // Ignore messages from muted peers.
+                let sender_muted = peers
                     .iter()
-                    .find(|(_, peer, _)| peer.peer_id == msg.sender)
-                    .and_then(|(_, peer, _)| peer.handle.clone())
-                    .unwrap_or_else(|| msg.sender.to_string());
-                chat.messages.push((author, text));
+                    .find(|(_, peer, _, _)| peer.peer_id == msg.sender)
+                    .map(|(_, peer, _, _)| peer.muted)
+                    .unwrap_or(false);
+
+                if !sender_muted {
+                    let author = peers
+                        .iter()
+                        .find(|(_, peer, _, _)| peer.peer_id == msg.sender)
+                        .and_then(|(_, peer, _, _)| peer.handle.clone())
+                        .unwrap_or_else(|| msg.sender.to_string());
+                    chat.messages.push((author, text));
+                }
             }
         }
     }
@@ -132,6 +161,7 @@ fn handle_incoming_messages(
 fn broadcast_local_state(
     query: Query<&Transform, With<LocalPlayer>>,
     session: Option<Res<AtprotoSession>>,
+    ap: Res<LocalAirshipParams>,
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
     mut tick: Local<u32>,
 ) {
@@ -154,8 +184,25 @@ fn broadcast_local_state(
             payload: OverlandsMessage::Identity {
                 did: sess.did.clone(),
                 handle: sess.handle.clone(),
+                airship: ap.params.clone(),
             },
             channel: ChannelKind::Reliable,
         });
     }
 }
+
+/// Propagate each peer's mute flag to its `Visibility` component so that
+/// muted vessels and their child meshes are hidden automatically.
+fn sync_mute_visibility(mut peers: Query<(&RemotePeer, &mut Visibility)>) {
+    for (peer, mut vis) in peers.iter_mut() {
+        let desired = if peer.muted {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
+        if *vis != desired {
+            *vis = desired;
+        }
+    }
+}
+

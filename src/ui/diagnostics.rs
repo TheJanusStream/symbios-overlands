@@ -7,16 +7,17 @@ use crate::state::{DiagnosticsLog, RemotePeer};
 pub fn diagnostics_ui(
     mut contexts: EguiContexts,
     session: Option<Res<AtprotoSession>>,
-    peers: Query<&RemotePeer>,
+    mut peers: Query<&mut RemotePeer>,
     diagnostics: Res<DiagnosticsLog>,
 ) {
-    egui::SidePanel::left("diagnostics")
-        .resizable(true)
-        .default_width(crate::config::ui::diagnostics::PANEL_DEFAULT_WIDTH)
-        .show(contexts.ctx_mut().unwrap(), |ui| {
-            ui.heading("Diagnostics");
-            ui.separator();
+    use crate::config::ui::diagnostics as cfg;
 
+    egui::Window::new("Diagnostics")
+        .default_pos(cfg::WINDOW_DEFAULT_POS)
+        .default_size([cfg::WINDOW_DEFAULT_WIDTH, cfg::WINDOW_DEFAULT_HEIGHT])
+        .resizable(true)
+        .collapsible(true)
+        .show(contexts.ctx_mut().unwrap(), |ui| {
             ui.label("Local Identity");
             match &session {
                 Some(sess) => {
@@ -36,17 +37,29 @@ pub fn diagnostics_ui(
 
             let peer_count = peers.iter().count();
             ui.label(format!("Peers ({})", peer_count));
-            for peer in peers.iter() {
-                let handle = peer.handle.as_deref().unwrap_or("identifying…");
-                let did = peer.did.as_deref().unwrap_or("unknown");
+
+            for mut peer in peers.iter_mut() {
+                let handle = peer.handle.as_deref().unwrap_or("identifying…").to_owned();
+                let did = peer.did.as_deref().unwrap_or("unknown").to_owned();
+                let dot_color = if peer.muted {
+                    egui::Color32::GRAY
+                } else {
+                    egui::Color32::GREEN
+                };
+                let mut muted = peer.muted;
                 ui.horizontal(|ui| {
-                    ui.colored_label(egui::Color32::GREEN, "●");
+                    ui.colored_label(dot_color, "●");
                     ui.vertical(|ui| {
                         ui.monospace(format!("@{}", handle));
-                        ui.monospace(egui::RichText::new(did).small().color(egui::Color32::GRAY));
+                        ui.monospace(
+                            egui::RichText::new(&did).small().color(egui::Color32::GRAY),
+                        );
                     });
+                    ui.checkbox(&mut muted, "Mute");
                 });
+                peer.muted = muted;
             }
+
             if peer_count == 0 {
                 ui.colored_label(egui::Color32::GRAY, "(no peers)");
             }
