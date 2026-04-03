@@ -19,7 +19,7 @@ impl Plugin for RoverPlugin {
         app.add_systems(OnEnter(AppState::InGame), spawn_local_rover)
             .add_systems(
                 FixedUpdate,
-                (apply_suspension_forces, apply_drive_forces, apply_uprighting_force)
+                (apply_suspension_forces, apply_drive_forces, apply_uprighting_force, respawn_if_fallen)
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             );
@@ -171,4 +171,28 @@ fn apply_uprighting_force(
     let vehicle_up = global_tf.up().as_vec3();
     let torque = vehicle_up.cross(Vec3::Y) * cfg::UPRIGHTING_TORQUE;
     forces.apply_torque(torque);
+}
+
+fn respawn_if_fallen(
+    mut query: Query<
+        (&mut Position, &mut Rotation, &mut LinearVelocity, &mut AngularVelocity),
+        With<LocalPlayer>,
+    >,
+    hm_res: Res<crate::terrain::FinishedHeightMap>,
+) {
+    let Ok((mut pos, mut rot, mut lin_vel, mut ang_vel)) = query.single_mut() else {
+        return;
+    };
+    if pos.y > cfg::FALL_Y_THRESHOLD {
+        return;
+    }
+    let hm = &hm_res.0;
+    let half = (hm.width() - 1) as f32 * hm.scale() * 0.5;
+    let ground_y = hm.get_height_at(half, half);
+    let surface_normal = hm.get_normal_at(half, half);
+    let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
+    pos.0 = Vec3::new(0.0, ground_y + cfg::SPAWN_HEIGHT_OFFSET, 0.0);
+    rot.0 = tilt;
+    lin_vel.0 = Vec3::ZERO;
+    ang_vel.0 = Vec3::ZERO;
 }

@@ -1,3 +1,4 @@
+use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 
@@ -19,6 +20,7 @@ impl Plugin for CameraPlugin {
 
 fn spawn_orbit_camera(mut commands: Commands) {
     let pos = cfg::INITIAL_POS;
+    let fc = cfg::fog::COLOR;
     commands.spawn((
         Camera3d::default(),
         PanOrbitCamera {
@@ -29,6 +31,11 @@ fn spawn_orbit_camera(mut commands: Commands) {
             ..default()
         },
         Transform::from_xyz(pos[0], pos[1], pos[2]).looking_at(Vec3::ZERO, Vec3::Y),
+        DistanceFog {
+            color: Color::srgba(fc[0], fc[1], fc[2], fc[3]),
+            falloff: FogFalloff::ExponentialSquared { density: cfg::fog::DENSITY },
+            ..default()
+        },
     ));
 }
 

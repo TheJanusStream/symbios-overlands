@@ -34,6 +34,8 @@ pub mod rover {
     pub const JUMP_FORCE: f32 = 2_500.0;
     /// Torque strength nudging the chassis back to upright.
     pub const UPRIGHTING_TORQUE: f32 = 800.0;
+    /// World-space Y below which the rover is considered "fallen off" and respawned.
+    pub const FALL_Y_THRESHOLD: f32 = -20.0;
 
     // --- Chassis -------------------------------------------------------------
     pub const LINEAR_DAMPING: f32 = 1.5;
@@ -65,6 +67,14 @@ pub mod camera {
     pub const ORBIT_PITCH: f32 = 0.4;
     /// Initial camera world-space position [x, y, z].
     pub const INITIAL_POS: [f32; 3] = [0.0, 8.0, 12.0];
+
+    pub mod fog {
+        /// sRGBA colour of the atmospheric haze (matches a mid-sky tone).
+        pub const COLOR: [f32; 4] = [0.52, 0.62, 0.74, 1.0];
+        /// ExponentialSquared density.  At 1 024 m terrain width this gives
+        /// ~5 % fog at 300 m, ~27 % at 700 m, and ~47 % at 1 000 m.
+        pub const DENSITY: f32 = 0.008;
+    }
 }
 
 // ---------------------------------------------------------------------------
