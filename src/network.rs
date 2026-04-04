@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
 
-use crate::avatar::AvatarFetchPending;
+use crate::avatar::{AvatarFetchPending, AvatarMaterial};
 use crate::config;
 use crate::protocol::{AirshipParams, OverlandsMessage};
 use crate::rover::rebuild_airship_children;
@@ -60,6 +60,7 @@ fn handle_peer_connections(
                     None,
                     &mut meshes,
                     &mut materials,
+                    None,
                 );
             }
             PeerConnectionState::Disconnected => {
@@ -84,14 +85,14 @@ fn handle_incoming_messages(
     mut commands: Commands,
     mut queue: ResMut<NetworkQueue<OverlandsMessage>>,
     mut chat: ResMut<ChatHistory>,
-    mut peers: Query<(Entity, &mut RemotePeer, &mut Transform, Option<&Children>)>,
+    mut peers: Query<(Entity, &mut RemotePeer, &mut Transform, Option<&Children>, Option<&AvatarMaterial>)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for msg in queue.drain() {
         match msg.payload {
             OverlandsMessage::Transform { position, rotation } => {
-                for (_, peer, mut tf, _) in peers.iter_mut() {
+                for (_, peer, mut tf, _, _) in peers.iter_mut() {
                     if peer.peer_id == msg.sender {
                         tf.translation = Vec3::from_array(position);
                         tf.rotation = Quat::from_array(rotation);
@@ -99,7 +100,7 @@ fn handle_incoming_messages(
                 }
             }
             OverlandsMessage::Identity { did, handle, airship } => {
-                for (entity, mut peer, _, children) in peers.iter_mut() {
+                for (entity, mut peer, _, children, avatar_mat) in peers.iter_mut() {
                     if peer.peer_id != msg.sender {
                         continue;
                     }
@@ -127,12 +128,8 @@ fn handle_incoming_messages(
                             children_ref,
                             &mut meshes,
                             &mut materials,
+                            avatar_mat.map(|m| &m.0),
                         );
-                        if let Some(did_str) = &peer.did {
-                            commands
-                                .entity(entity)
-                                .insert(AvatarFetchPending { did: did_str.clone() });
-                        }
                         peer.airship = Some(airship.clone());
                     }
                 }
@@ -141,15 +138,15 @@ fn handle_incoming_messages(
                 // Ignore messages from muted peers.
                 let sender_muted = peers
                     .iter()
-                    .find(|(_, peer, _, _)| peer.peer_id == msg.sender)
-                    .map(|(_, peer, _, _)| peer.muted)
+                    .find(|(_, peer, _, _, _)| peer.peer_id == msg.sender)
+                    .map(|(_, peer, _, _, _)| peer.muted)
                     .unwrap_or(false);
 
                 if !sender_muted {
                     let author = peers
                         .iter()
-                        .find(|(_, peer, _, _)| peer.peer_id == msg.sender)
-                        .and_then(|(_, peer, _, _)| peer.handle.clone())
+                        .find(|(_, peer, _, _, _)| peer.peer_id == msg.sender)
+                        .and_then(|(_, peer, _, _, _)| peer.handle.clone())
                         .unwrap_or_else(|| msg.sender.to_string());
                     chat.messages.push((author, text));
                 }

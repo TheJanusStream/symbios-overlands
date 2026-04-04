@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
+use crate::protocol::PontoonShape;
 use crate::state::LocalAirshipParams;
 
 pub fn airship_ui(mut contexts: EguiContexts, mut ap: ResMut<LocalAirshipParams>) {
@@ -15,69 +16,132 @@ pub fn airship_ui(mut contexts: EguiContexts, mut ap: ResMut<LocalAirshipParams>
             let p = &mut ap.params;
             let mut changed = false;
 
-            // --- Construction parameters ------------------------------------
-            ui.heading("Construction");
+            // --- Hull ------------------------------------------------------
+            egui::CollapsingHeader::new("Hull")
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.label("Length (m)");
+                    changed |= ui
+                        .add(egui::Slider::new(&mut p.hull_length, 1.0..=5.0).step_by(0.05))
+                        .changed();
 
-            ui.label("Hull length (m)");
-            changed |= ui
-                .add(egui::Slider::new(&mut p.hull_length, 1.0..=5.0).step_by(0.05))
-                .changed();
+                    ui.label("Width (m)");
+                    changed |= ui
+                        .add(egui::Slider::new(&mut p.hull_width, 0.6..=3.0).step_by(0.05))
+                        .changed();
 
-            ui.label("Hull width (m)");
-            changed |= ui
-                .add(egui::Slider::new(&mut p.hull_width, 0.6..=3.0).step_by(0.05))
-                .changed();
+                    ui.label("Keel depth (m)");
+                    changed |= ui
+                        .add(egui::Slider::new(&mut p.hull_depth, 0.1..=1.5).step_by(0.05))
+                        .changed();
+                });
 
-            ui.label("Pontoon spread (m)");
-            changed |= ui
-                .add(egui::Slider::new(&mut p.pontoon_spread, 0.5..=2.5).step_by(0.05))
-                .changed();
+            // --- Pontoons --------------------------------------------------
+            egui::CollapsingHeader::new("Pontoons")
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.label("Shape");
+                    let shape_label = match p.pontoon_shape {
+                        PontoonShape::Capsule => "Capsule",
+                        PontoonShape::VHull => "V-Hull",
+                    };
+                    egui::ComboBox::from_id_salt("pontoon_shape")
+                        .selected_text(shape_label)
+                        .show_ui(ui, |ui| {
+                            changed |= ui
+                                .selectable_value(&mut p.pontoon_shape, PontoonShape::Capsule, "Capsule")
+                                .changed();
+                            changed |= ui
+                                .selectable_value(&mut p.pontoon_shape, PontoonShape::VHull, "V-Hull")
+                                .changed();
+                        });
 
-            ui.label("Pontoon length (m)");
-            changed |= ui
-                .add(egui::Slider::new(&mut p.pontoon_length, 0.5..=3.5).step_by(0.05))
-                .changed();
+                    ui.label("Spread (m)");
+                    changed |= ui
+                        .add(egui::Slider::new(&mut p.pontoon_spread, 0.5..=2.5).step_by(0.05))
+                        .changed();
 
-            ui.label("Mast height (m)");
-            changed |= ui
-                .add(egui::Slider::new(&mut p.mast_height, 0.3..=2.5).step_by(0.05))
-                .changed();
+                    ui.label("Length (m)");
+                    changed |= ui
+                        .add(egui::Slider::new(&mut p.pontoon_length, 0.5..=3.5).step_by(0.05))
+                        .changed();
 
-            ui.label("Sail size (m)");
-            changed |= ui
-                .add(egui::Slider::new(&mut p.sail_size, 0.3..=2.5).step_by(0.05))
-                .changed();
+                    ui.label("Width (m)");
+                    changed |= ui
+                        .add(egui::Slider::new(&mut p.pontoon_width, 0.05..=1.0).step_by(0.01))
+                        .changed();
 
-            ui.label("Hull keel depth (m)");
-            changed |= ui
-                .add(egui::Slider::new(&mut p.hull_depth, 0.1..=1.5).step_by(0.05))
-                .changed();
+                    ui.label("Height (m)");
+                    changed |= ui
+                        .add(egui::Slider::new(&mut p.pontoon_height, 0.05..=1.0).step_by(0.01))
+                        .changed();
 
-            ui.separator();
+                    ui.label("Strut drop (% keel)");
+                    changed |= ui
+                        .add(egui::Slider::new(&mut p.strut_drop, 0.0..=1.0).step_by(0.01))
+                        .changed();
+                });
 
-            // --- Material properties ----------------------------------------
-            ui.heading("Materials");
+            // --- Mast & Sail -----------------------------------------------
+            egui::CollapsingHeader::new("Mast & Sail")
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.label("Mast height (m)");
+                    changed |= ui
+                        .add(egui::Slider::new(&mut p.mast_height, 0.3..=2.5).step_by(0.05))
+                        .changed();
 
-            ui.label("Metallic");
-            changed |= ui
-                .add(egui::Slider::new(&mut p.metallic, 0.0..=1.0).step_by(0.01))
-                .changed();
+                    ui.label("Mast radius (m)");
+                    changed |= ui
+                        .add(egui::Slider::new(&mut p.mast_radius, 0.01..=0.2).step_by(0.005))
+                        .changed();
 
-            ui.label("Roughness");
-            changed |= ui
-                .add(egui::Slider::new(&mut p.roughness, 0.0..=1.0).step_by(0.01))
-                .changed();
+                    ui.label("Mast offset X (m)");
+                    changed |= ui
+                        .add(egui::Slider::new(&mut p.mast_offset[0], -1.5..=1.5).step_by(0.05))
+                        .changed();
 
-            ui.separator();
+                    ui.label("Mast offset Z (m)");
+                    changed |= ui
+                        .add(egui::Slider::new(&mut p.mast_offset[1], -2.0..=2.0).step_by(0.05))
+                        .changed();
 
-            // --- Colour pickers (RGB sliders) --------------------------------
-            ui.collapsing("Hull colour", |ui| {
-                changed |= color_sliders(ui, &mut p.hull_color);
-            });
+                    ui.label("Sail size (m)");
+                    changed |= ui
+                        .add(egui::Slider::new(&mut p.sail_size, 0.3..=2.5).step_by(0.05))
+                        .changed();
+                });
 
-            ui.collapsing("Pontoon colour", |ui| {
-                changed |= color_sliders(ui, &mut p.pontoon_color);
-            });
+            // --- Materials -------------------------------------------------
+            egui::CollapsingHeader::new("Materials")
+                .default_open(false)
+                .show(ui, |ui| {
+                    ui.label("Metallic");
+                    changed |= ui
+                        .add(egui::Slider::new(&mut p.metallic, 0.0..=1.0).step_by(0.01))
+                        .changed();
+
+                    ui.label("Roughness");
+                    changed |= ui
+                        .add(egui::Slider::new(&mut p.roughness, 0.0..=1.0).step_by(0.01))
+                        .changed();
+
+                    ui.collapsing("Hull colour", |ui| {
+                        changed |= color_sliders(ui, &mut p.hull_color);
+                    });
+
+                    ui.collapsing("Pontoon colour", |ui| {
+                        changed |= color_sliders(ui, &mut p.pontoon_color);
+                    });
+
+                    ui.collapsing("Mast colour", |ui| {
+                        changed |= color_sliders(ui, &mut p.mast_color);
+                    });
+
+                    ui.collapsing("Strut colour", |ui| {
+                        changed |= color_sliders(ui, &mut p.strut_color);
+                    });
+                });
 
             ui.separator();
 

@@ -1,9 +1,9 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
-use crate::avatar::{AvatarMaterial, NeedsAvatarReapply};
+use crate::avatar::AvatarMaterial;
 use crate::config::airship as ac;
 use crate::config::rover as cfg;
-use crate::protocol::AirshipParams;
+use crate::protocol::{AirshipParams, PontoonShape};
 use crate::state::{AppState, LocalAirshipParams, LocalPlayer};
 
 // Corner offsets in local space for the four suspension rays (derived from chassis half-extents).
@@ -54,6 +54,7 @@ pub fn rebuild_airship_children(
     existing_children: Option<&Children>,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    avatar_override: Option<&Handle<StandardMaterial>>,
 ) {
     if let Some(children) = existing_children {
         for child in children.iter() {
@@ -61,15 +62,19 @@ pub fn rebuild_airship_children(
         }
     }
 
-    let chassis_half_y = cfg::CHASSIS_Y; // 0.2 m — top surface of physics hull
-    let hull_w = params.hull_width;
     let hull_l = params.hull_length;
+    let hull_w = params.hull_width;
     let mast_h = params.mast_height;
-    let mast_top_y = chassis_half_y + mast_h;
+    let [mx, mz] = params.mast_offset;
+    // Mast base sits on the deck rim (y = 0 in hull-mesh space).
+    let mast_top_y = mast_h;
+    // Strut & pontoon vertical drop as fraction of hull keel depth.
+    let drop_y = -params.strut_drop * params.hull_depth;
 
     let [hr, hg, hb] = params.hull_color;
     let [pr, pg, pb] = params.pontoon_color;
-    let [mr, mg, mb] = ac::MAST_COLOR;
+    let [mr, mg, mb] = params.mast_color;
+    let [sr, sg, sb] = params.strut_color;
 
     // Hull material is double-sided so the concave V interior is visible from above.
     let hull_mat = materials.add(StandardMaterial {
@@ -84,6 +89,8 @@ pub fn rebuild_airship_children(
         base_color: Color::srgb(pr, pg, pb),
         metallic: params.metallic * 0.5,
         perceptual_roughness: (params.roughness + 0.15).min(1.0),
+        double_sided: true,
+        cull_mode: None,
         ..default()
     });
     let mast_mat = materials.add(StandardMaterial {
@@ -92,12 +99,20 @@ pub fn rebuild_airship_children(
         perceptual_roughness: 0.35,
         ..default()
     });
-    // Sail is double-sided so the avatar face shows from both port and starboard.
-    let sail_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.82, 0.82, 0.92),
-        double_sided: true,
-        cull_mode: None,
+    let strut_mat = materials.add(StandardMaterial {
+        base_color: Color::srgb(sr, sg, sb),
+        metallic: params.metallic * 0.7,
+        perceptual_roughness: (params.roughness + 0.1).min(1.0),
         ..default()
+    });
+    // Sail is double-sided so the avatar face shows from both port and starboard.
+    let sail_mat = avatar_override.cloned().unwrap_or_else(|| {
+        materials.add(StandardMaterial {
+            base_color: Color::srgb(0.82, 0.82, 0.92),
+            double_sided: true,
+            cull_mode: None,
+            ..default()
+        })
     });
 
     commands.entity(entity).with_children(|parent| {
@@ -109,61 +124,86 @@ pub fn rebuild_airship_children(
             Transform::IDENTITY,
         ));
 
-        // Port outrigger pontoon (−X) — capsule aligned along Z.
+        // Outrigger pontoons — shape selected by the player.
+        let pontoon_mesh = match params.pontoon_shape {
+            PontoonShape::Capsule => {
+                meshes.add(Capsule3d::new(params.pontoon_width / 2.0, params.pontoon_length))
+            }
+            PontoonShape::VHull => {
+                meshes.add(build_v_hull_mesh(
+                    params.pontoon_length,
+                    params.pontoon_width,
+                    params.pontoon_height,
+                ))
+            }
+        };
+        // Capsules need a 90° rotation to align along Z; V-hull meshes already run along Z.
+        let pontoon_rot = match params.pontoon_shape {
+            PontoonShape::Capsule => Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+            PontoonShape::VHull => Quat::IDENTITY,
+        };
+
+        // Port outrigger pontoon (−X).
         parent.spawn((
-            Mesh3d(meshes.add(Capsule3d::new(ac::PONTOON_RADIUS, params.pontoon_length))),
+            Mesh3d(pontoon_mesh.clone()),
             MeshMaterial3d(pontoon_mat.clone()),
-            Transform::from_xyz(-params.pontoon_spread, 0.0, 0.0)
-                .with_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
+            Transform::from_xyz(-params.pontoon_spread, drop_y, 0.0)
+                .with_rotation(pontoon_rot),
         ));
 
-        // Starboard outrigger pontoon (+X) — capsule aligned along Z.
+        // Starboard outrigger pontoon (+X).
         parent.spawn((
-            Mesh3d(meshes.add(Capsule3d::new(ac::PONTOON_RADIUS, params.pontoon_length))),
+            Mesh3d(pontoon_mesh),
             MeshMaterial3d(pontoon_mat),
-            Transform::from_xyz(params.pontoon_spread, 0.0, 0.0)
-                .with_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
+            Transform::from_xyz(params.pontoon_spread, drop_y, 0.0)
+                .with_rotation(pontoon_rot),
         ));
 
-        // Forward cross-strut — cylinder aligned along X.
+        // Forward cross-strut — capsule aligned along X.
+        let strut_mesh = meshes.add(Capsule3d::new(
+            ac::STRUT_THICKNESS * 0.5,
+            params.pontoon_spread * 2.0,
+        ));
         parent.spawn((
-            Mesh3d(meshes.add(Cylinder::new(
-                ac::STRUT_THICKNESS * 0.5,
-                params.pontoon_spread * 2.0,
-            ))),
-            MeshMaterial3d(hull_mat.clone()),
-            Transform::from_xyz(0.0, 0.0, hull_l * 0.3)
+            Mesh3d(strut_mesh.clone()),
+            MeshMaterial3d(strut_mat.clone()),
+            Transform::from_xyz(0.0, drop_y, hull_l * 0.3)
                 .with_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)),
         ));
 
-        // Aft cross-strut — cylinder aligned along X.
+        // Aft cross-strut — capsule aligned along X.
         parent.spawn((
-            Mesh3d(meshes.add(Cylinder::new(
-                ac::STRUT_THICKNESS * 0.5,
-                params.pontoon_spread * 2.0,
-            ))),
-            MeshMaterial3d(hull_mat),
-            Transform::from_xyz(0.0, 0.0, -hull_l * 0.3)
+            Mesh3d(strut_mesh),
+            MeshMaterial3d(strut_mat),
+            Transform::from_xyz(0.0, drop_y, -hull_l * 0.3)
                 .with_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)),
         ));
 
-        // Central mast
+        // Central mast — base sits on the deck rim (y = 0).
+        let mast_r = params.mast_radius;
         parent.spawn((
-            Mesh3d(meshes.add(Cylinder::new(ac::MAST_RADIUS, mast_h))),
+            Mesh3d(meshes.add(Cylinder::new(mast_r, mast_h))),
+            MeshMaterial3d(mast_mat.clone()),
+            Transform::from_xyz(mx, mast_h * 0.5, mz),
+        ));
+
+        // Mast tip cap — hemisphere sitting on top of the mast cylinder.
+        parent.spawn((
+            Mesh3d(meshes.add(Sphere::new(mast_r).mesh().uv(16, 8))),
             MeshMaterial3d(mast_mat),
-            Transform::from_xyz(0.0, chassis_half_y + mast_h * 0.5, 0.0),
+            Transform::from_xyz(mx, mast_h, mz),
         ));
 
         // Solar sail — flat double-sided panel oriented as a flag streaming aft.
         // The panel is in the YZ plane (faces ±X) so the avatar face is visible
-        // from the sides.  Hoist edge at z = 0 (mast), trailing edge at z = sail_size.
+        // from the sides.  Hoist edge at the mast, trailing edge streams along +Z.
         parent.spawn((
             Mesh3d(meshes.add(Rectangle::new(params.sail_size, params.sail_size))),
             MeshMaterial3d(sail_mat),
             Transform::from_xyz(
-                0.0,
+                mx,
                 mast_top_y - params.sail_size * 0.5,
-                params.sail_size * 0.5,
+                mz + params.sail_size * 0.5,
             )
             .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
             RoverSail,
@@ -264,6 +304,7 @@ fn spawn_local_rover(
         None,
         &mut meshes,
         &mut materials,
+        None,
     );
 }
 
@@ -290,15 +331,8 @@ fn rebuild_local_rover(
         children,
         &mut meshes,
         &mut materials,
+        avatar_mat.map(|m| &m.0),
     );
-
-    // If an avatar was already fetched, schedule a re-apply to the new sail
-    // child rather than triggering a redundant network request.
-    if avatar_mat.is_some() {
-        commands.entity(entity).insert(NeedsAvatarReapply);
-    }
-    // If no AvatarMaterial yet, the in-flight fetch (started by
-    // fetch_local_avatar on spawn) will apply to the new sail once done.
 }
 
 // ---------------------------------------------------------------------------

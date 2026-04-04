@@ -85,8 +85,18 @@ pub mod terrain {
     pub const GRID_SIZE: usize = 513;
     pub const CELL_SCALE: f32 = 2.0;
     pub const HEIGHT_SCALE: f32 = 5.0;
-    /// Number of hydraulic erosion droplets.
-    pub const EROSION_DROPS: u32 = 30_000;
+    // --- Hydraulic erosion -----------------------------------------------------
+    pub mod hydraulic {
+        pub const NUM_DROPS: u32 = 30_000;
+        pub const MAX_STEPS: u32 = 64;
+        pub const INERTIA: f32 = 0.05;
+        pub const EROSION_RATE: f32 = 0.3;
+        pub const DEPOSITION_RATE: f32 = 0.3;
+        pub const EVAPORATION_RATE: f32 = 0.02;
+        pub const CAPACITY_FACTOR: f32 = 8.0;
+        pub const MIN_SLOPE: f32 = 0.01;
+        pub const WATER_LEVEL: f32 = 0.0;
+    }
     /// How many times the tiling textures repeat across the terrain.
     pub const TILE_SCALE: f32 = 256.0;
     /// Resolution of each procedurally generated texture layer (pixels).
@@ -113,6 +123,8 @@ pub mod terrain {
         pub const PLACEHOLDER_ROUGHNESS: f32 = 0.9;
         /// Perceptual roughness once real splat textures are applied.
         pub const MATERIAL_ROUGHNESS: f32 = 0.85;
+        /// PBR metallic factor once real splat textures are applied.
+        pub const MATERIAL_METALLIC: f32 = 0.0;
         /// Blend sharpness for triplanar axis transitions.
         pub const TRIPLANAR_SHARPNESS: f32 = 4.0;
     }
@@ -134,8 +146,17 @@ pub mod terrain {
         pub const BLEND: f32 = 4.0;
     }
 
-    // --- Splat layer: Dirt (layer 1, uses GroundConfig::default()) -----------
+    // --- Splat layer: Dirt (layer 1) --------------------------------------------
     pub mod dirt {
+        pub const SEED: u32 = 13;
+        pub const MACRO_SCALE: f64 = 2.0;
+        pub const MACRO_OCTAVES: usize = 5;
+        pub const MICRO_SCALE: f64 = 8.0;
+        pub const MICRO_OCTAVES: usize = 4;
+        pub const MICRO_WEIGHT: f64 = 0.35;
+        pub const COLOR_DRY: [f32; 3] = [0.52, 0.40, 0.26];
+        pub const COLOR_MOIST: [f32; 3] = [0.28, 0.20, 0.12];
+        pub const NORMAL_STRENGTH: f32 = 2.0;
         // Splat rule
         pub const ALT_MIN_FACTOR: f32 = 0.30;
         pub const ALT_MAX_FACTOR: f32 = 0.65;
@@ -143,8 +164,15 @@ pub mod terrain {
         pub const BLEND: f32 = 2.0;
     }
 
-    // --- Splat layer: Rock (layer 2, uses RockConfig::default()) -------------
+    // --- Splat layer: Rock (layer 2) -----------------------------------------
     pub mod rock {
+        pub const SEED: u32 = 7;
+        pub const SCALE: f64 = 3.0;
+        pub const OCTAVES: usize = 8;
+        pub const ATTENUATION: f64 = 2.0;
+        pub const COLOR_LIGHT: [f32; 3] = [0.37, 0.42, 0.36];
+        pub const COLOR_DARK: [f32; 3] = [0.22, 0.20, 0.18];
+        pub const NORMAL_STRENGTH: f32 = 4.0;
         // Splat rule
         pub const SLOPE_MIN: f32 = 0.25;
         pub const BLEND: f32 = 3.0;
@@ -218,9 +246,10 @@ pub mod airship {
     /// Lateral distance from centre to each outrigger pontoon.
     pub const PONTOON_SPREAD: f32 = 1.1;
     pub const PONTOON_LENGTH: f32 = 1.8;
-    /// Capsule cross-section radius of each pontoon.
-    pub const PONTOON_SIZE: f32 = 0.22;
-    pub const PONTOON_RADIUS: f32 = PONTOON_SIZE / 2.0;
+    /// Cross-section width of each pontoon (m).
+    pub const PONTOON_WIDTH: f32 = 0.22;
+    /// Cross-section height of each pontoon (m); keel depth for V-hull shape.
+    pub const PONTOON_HEIGHT: f32 = 0.22;
 
     /// Thin horizontal struts connecting hull to pontoons (cylinder diameter).
     pub const STRUT_THICKNESS: f32 = 0.06;
@@ -228,11 +257,16 @@ pub mod airship {
     /// Depth of the V-hull keel below the deck rim (y = 0 in local mesh space).
     pub const HULL_DEPTH: f32 = 0.5;
 
+    /// Downward offset for struts & pontoons as fraction (0–1) of hull keel depth.
+    pub const STRUT_DROP: f32 = 0.0;
+
     pub const MAST_RADIUS: f32 = 0.04;
     pub const MAST_HEIGHT: f32 = 0.9;
+    /// Default 2D offset [X, Z] of the mast position on the deck (m).
+    pub const MAST_OFFSET: [f32; 2] = [0.0, 0.0];
 
     /// Square solar sail side length.
-    pub const SAIL_SIZE: f32 = 0.9;
+    pub const SAIL_SIZE: f32 = 0.6;
     pub const SAIL_THICKNESS: f32 = 0.03;
 
     // --- Default material properties (steampunk palette) --------------------
@@ -242,6 +276,8 @@ pub mod airship {
     pub const PONTOON_COLOR: [f32; 3] = [0.48, 0.30, 0.10];
     /// Copper mast [sRGB].
     pub const MAST_COLOR: [f32; 3] = [0.60, 0.38, 0.18];
+    /// Dark-iron struts [sRGB].
+    pub const STRUT_COLOR: [f32; 3] = [0.35, 0.28, 0.22];
     pub const METALLIC: f32 = 0.65;
     pub const ROUGHNESS: f32 = 0.55;
 }

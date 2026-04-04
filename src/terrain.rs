@@ -110,15 +110,41 @@ fn start_texture_tasks(mut commands: Commands) {
         TextureLayerIndex(0),
     ));
 
-    // Layer 1 — Dirt (default brownish soil)
+    // Layer 1 — Dirt (brownish soil)
     commands.spawn((
-        PendingTexture::ground(GroundConfig::default(), tcfg::TEXTURE_SIZE, tcfg::TEXTURE_SIZE),
+        PendingTexture::ground(
+            GroundConfig {
+                seed: tcfg::dirt::SEED,
+                macro_scale: tcfg::dirt::MACRO_SCALE,
+                macro_octaves: tcfg::dirt::MACRO_OCTAVES,
+                micro_scale: tcfg::dirt::MICRO_SCALE,
+                micro_octaves: tcfg::dirt::MICRO_OCTAVES,
+                micro_weight: tcfg::dirt::MICRO_WEIGHT,
+                color_dry: tcfg::dirt::COLOR_DRY,
+                color_moist: tcfg::dirt::COLOR_MOIST,
+                normal_strength: tcfg::dirt::NORMAL_STRENGTH,
+            },
+            tcfg::TEXTURE_SIZE,
+            tcfg::TEXTURE_SIZE,
+        ),
         TextureLayerIndex(1),
     ));
 
     // Layer 2 — Rock (ridged multifractal stone)
     commands.spawn((
-        PendingTexture::rock(RockConfig::default(), tcfg::TEXTURE_SIZE, tcfg::TEXTURE_SIZE),
+        PendingTexture::rock(
+            RockConfig {
+                seed: tcfg::rock::SEED,
+                scale: tcfg::rock::SCALE,
+                octaves: tcfg::rock::OCTAVES,
+                attenuation: tcfg::rock::ATTENUATION,
+                color_light: tcfg::rock::COLOR_LIGHT,
+                color_dark: tcfg::rock::COLOR_DARK,
+                normal_strength: tcfg::rock::NORMAL_STRENGTH,
+            },
+            tcfg::TEXTURE_SIZE,
+            tcfg::TEXTURE_SIZE,
+        ),
         TextureLayerIndex(2),
     ));
 
@@ -335,8 +361,8 @@ fn apply_splat_textures(
 
     if let Some(mat) = materials.get_mut(&splat_mat.0) {
         mat.base.base_color = Color::WHITE;
-        mat.base.perceptual_roughness = 0.85;
-        mat.base.metallic = 0.0;
+        mat.base.perceptual_roughness = tcfg::splat::MATERIAL_ROUGHNESS;
+        mat.base.metallic = tcfg::splat::MATERIAL_METALLIC;
         mat.extension.weight_map = wm_handle;
         mat.extension.albedo_array = albedo_array;
         mat.extension.normal_array = normal_array;
@@ -414,8 +440,15 @@ fn generate_terrain() -> HeightMap {
     // then thermal erosion smooths the resulting slopes.
     HydraulicErosion {
         seed: tcfg::SEED,
-        num_drops: tcfg::EROSION_DROPS,
-        ..HydraulicErosion::new(tcfg::SEED)
+        num_drops: tcfg::hydraulic::NUM_DROPS,
+        max_steps: tcfg::hydraulic::MAX_STEPS,
+        inertia: tcfg::hydraulic::INERTIA,
+        erosion_rate: tcfg::hydraulic::EROSION_RATE,
+        deposition_rate: tcfg::hydraulic::DEPOSITION_RATE,
+        evaporation_rate: tcfg::hydraulic::EVAPORATION_RATE,
+        capacity_factor: tcfg::hydraulic::CAPACITY_FACTOR,
+        min_slope: tcfg::hydraulic::MIN_SLOPE,
+        water_level: tcfg::hydraulic::WATER_LEVEL,
     }
     .erode(&mut hm);
 
