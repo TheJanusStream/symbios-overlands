@@ -4,7 +4,7 @@ use crate::avatar::AvatarMaterial;
 use crate::config::airship as ac;
 use crate::config::rover as cfg;
 use crate::protocol::{AirshipParams, PontoonShape};
-use crate::state::{AppState, LocalAirshipParams, LocalPlayer};
+use crate::state::{AppState, LocalAirshipParams, LocalPhysicsParams, LocalPlayer};
 
 // Corner offsets in local space for the four suspension rays (derived from chassis half-extents).
 const CORNER_OFFSETS: [[f32; 3]; 4] = [
@@ -30,6 +30,7 @@ impl Plugin for RoverPlugin {
             .add_systems(
                 FixedUpdate,
                 (
+                    sync_chassis_physics,
                     apply_suspension_forces,
                     apply_drive_forces,
                     apply_uprighting_force,
@@ -336,10 +337,30 @@ fn rebuild_local_rover(
 }
 
 // ---------------------------------------------------------------------------
-// Physics systems (hover-craft suspension, unchanged)
+// Physics systems
 // ---------------------------------------------------------------------------
 
+/// Push mass and damping changes from the GUI resource onto the ECS components.
+fn sync_chassis_physics(
+    pp: Res<LocalPhysicsParams>,
+    mut query: Query<(&mut Mass, &mut LinearDamping, &mut AngularDamping), With<LocalPlayer>>,
+) {
+    let Ok((mut mass, mut lin_damp, mut ang_damp)) = query.single_mut() else {
+        return;
+    };
+    if mass.0 != pp.mass {
+        mass.0 = pp.mass;
+    }
+    if lin_damp.0 != pp.linear_damping {
+        lin_damp.0 = pp.linear_damping;
+    }
+    if ang_damp.0 != pp.angular_damping {
+        ang_damp.0 = pp.angular_damping;
+    }
+}
+
 fn apply_suspension_forces(
+    pp: Res<LocalPhysicsParams>,
     mut query: Query<(Entity, Forces, &GlobalTransform), With<LocalPlayer>>,
     spatial_query: SpatialQuery,
 ) {
@@ -347,6 +368,7 @@ fn apply_suspension_forces(
         return;
     };
 
+    let ray_max = pp.suspension_rest_length + 1.5;
     let chassis_tf = global_tf.compute_transform();
     let filter = SpatialQueryFilter::default().with_excluded_entities([chassis_entity]);
     let lin_vel = forces.linear_velocity();
@@ -358,17 +380,17 @@ fn apply_suspension_forces(
         let world_origin = chassis_tf.transform_point(local_offset);
 
         let Some(hit) =
-            spatial_query.cast_ray(world_origin, Dir3::NEG_Y, cfg::RAY_MAX_DIST, true, &filter)
+            spatial_query.cast_ray(world_origin, Dir3::NEG_Y, ray_max, true, &filter)
         else {
             continue;
         };
 
-        let compression = cfg::SUSPENSION_REST_LENGTH - hit.distance;
+        let compression = pp.suspension_rest_length - hit.distance;
         if compression > 0.0 {
             let r = world_origin - center_of_mass;
             let point_vel = lin_vel + ang_vel.cross(r);
-            let spring_force = cfg::SUSPENSION_STIFFNESS * compression;
-            let damping_force = -cfg::SUSPENSION_DAMPING * point_vel.y;
+            let spring_force = pp.suspension_stiffness * compression;
+            let damping_force = -pp.suspension_damping * point_vel.y;
             let total_force = (spring_force + damping_force).max(0.0);
             forces.apply_force_at_point(Vec3::Y * total_force, world_origin);
         }
@@ -376,6 +398,7 @@ fn apply_suspension_forces(
 }
 
 fn apply_drive_forces(
+    pp: Res<LocalPhysicsParams>,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut query: Query<(Forces, &GlobalTransform), With<LocalPlayer>>,
 ) {
@@ -390,32 +413,35 @@ fn apply_drive_forces(
     let right = global_tf.right().as_vec3();
 
     if keyboard.pressed(KeyCode::KeyW) {
-        forces.apply_force(flat_forward * cfg::DRIVE_FORCE);
+        forces.apply_force(flat_forward * pp.drive_force);
     }
     if keyboard.pressed(KeyCode::KeyS) {
-        forces.apply_force(-flat_forward * cfg::DRIVE_FORCE);
+        forces.apply_force(-flat_forward * pp.drive_force);
     }
     if keyboard.pressed(KeyCode::KeyA) {
-        forces.apply_torque(local_up * cfg::TURN_TORQUE);
+        forces.apply_torque(local_up * pp.turn_torque);
     }
     if keyboard.pressed(KeyCode::KeyD) {
-        forces.apply_torque(-local_up * cfg::TURN_TORQUE);
+        forces.apply_torque(-local_up * pp.turn_torque);
     }
 
     let lateral_vel = right.dot(lin_vel);
-    forces.apply_force(-right * lateral_vel * cfg::LATERAL_GRIP);
+    forces.apply_force(-right * lateral_vel * pp.lateral_grip);
 
     if keyboard.pressed(KeyCode::Space) {
-        forces.apply_force(Vec3::Y * cfg::JUMP_FORCE);
+        forces.apply_force(Vec3::Y * pp.jump_force);
     }
 }
 
-fn apply_uprighting_force(mut query: Query<(Forces, &GlobalTransform), With<LocalPlayer>>) {
+fn apply_uprighting_force(
+    pp: Res<LocalPhysicsParams>,
+    mut query: Query<(Forces, &GlobalTransform), With<LocalPlayer>>,
+) {
     let Ok((mut forces, global_tf)) = query.single_mut() else {
         return;
     };
     let vehicle_up = global_tf.up().as_vec3();
-    forces.apply_torque(vehicle_up.cross(Vec3::Y) * cfg::UPRIGHTING_TORQUE);
+    forces.apply_torque(vehicle_up.cross(Vec3::Y) * pp.uprighting_torque);
 }
 
 fn respawn_if_fallen(

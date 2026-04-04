@@ -14,7 +14,7 @@ mod state;
 mod terrain;
 mod ui;
 
-use state::{AppState, ChatHistory, DiagnosticsLog, LocalAirshipParams};
+use state::{AppState, ChatHistory, DiagnosticsLog, LocalAirshipParams, LocalPhysicsParams};
 
 fn main() {
     #[cfg(target_arch = "wasm32")]
@@ -39,6 +39,7 @@ fn main() {
         .init_resource::<ChatHistory>()
         .init_resource::<DiagnosticsLog>()
         .init_resource::<LocalAirshipParams>()
+        .init_resource::<LocalPhysicsParams>()
         .add_systems(
             EguiPrimaryContextPass,
             (ui::login::login_ui, ui::login::poll_auth_task).run_if(in_state(AppState::Login)),
@@ -53,6 +54,7 @@ fn main() {
                 ui::diagnostics::diagnostics_ui,
                 ui::chat::chat_ui,
                 ui::airship::airship_ui,
+                ui::physics::physics_ui,
             )
                 .run_if(in_state(AppState::InGame)),
         )
