@@ -59,7 +59,7 @@ pub fn login_ui(
                 ui.text_edit_singleline(&mut form.handle);
             });
             ui.horizontal(|ui| {
-                ui.label("Password:");
+                ui.label("App Password:");
                 ui.add(egui::TextEdit::singleline(&mut form.password).password(true));
             });
             ui.horizontal(|ui| {

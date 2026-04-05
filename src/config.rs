@@ -82,12 +82,12 @@ pub mod camera {
 // ---------------------------------------------------------------------------
 pub mod terrain {
     pub const SEED: u64 = 42;
-    pub const GRID_SIZE: usize = 513;
+    pub const GRID_SIZE: usize = 512;
     pub const CELL_SCALE: f32 = 2.0;
-    pub const HEIGHT_SCALE: f32 = 5.0;
+    pub const HEIGHT_SCALE: f32 = 50.0;
     // --- Hydraulic erosion -----------------------------------------------------
     pub mod hydraulic {
-        pub const NUM_DROPS: u32 = 30_000;
+        pub const NUM_DROPS: u32 = 50_000;
         pub const MAX_STEPS: u32 = 64;
         pub const INERTIA: f32 = 0.05;
         pub const EROSION_RATE: f32 = 0.3;
@@ -98,22 +98,22 @@ pub mod terrain {
         pub const WATER_LEVEL: f32 = 0.0;
     }
     /// How many times the tiling textures repeat across the terrain.
-    pub const TILE_SCALE: f32 = 256.0;
+    pub const TILE_SCALE: f32 = 90.0;
     /// Resolution of each procedurally generated texture layer (pixels).
     pub const TEXTURE_SIZE: u32 = 512;
 
     // --- Voronoi terracing ---------------------------------------------------
     pub mod voronoi {
         /// Number of Voronoi seed points; more seeds → smaller plateaus.
-        pub const NUM_SEEDS: usize = 1500;
+        pub const NUM_SEEDS: usize = 1000;
         /// Number of discrete terrace height levels.
-        pub const NUM_TERRACES: usize = 50;
+        pub const NUM_TERRACES: usize = 2;
     }
 
     // --- Thermal erosion -----------------------------------------------------
     pub mod thermal {
-        pub const ITERATIONS: u32 = 50;
-        pub const TALUS_ANGLE: f32 = 0.6;
+        pub const ITERATIONS: u32 = 30;
+        pub const TALUS_ANGLE: f32 = 0.050;
     }
 
     // --- Splat material ------------------------------------------------------
@@ -143,7 +143,7 @@ pub mod terrain {
         // Splat rule (altitude expressed as factor × HEIGHT_SCALE)
         pub const ALT_MAX_FACTOR: f32 = 0.45;
         pub const SLOPE_MAX: f32 = 0.30;
-        pub const BLEND: f32 = 4.0;
+        pub const BLEND: f32 = 0.5;
     }
 
     // --- Splat layer: Dirt (layer 1) --------------------------------------------
@@ -161,7 +161,7 @@ pub mod terrain {
         pub const ALT_MIN_FACTOR: f32 = 0.30;
         pub const ALT_MAX_FACTOR: f32 = 0.65;
         pub const SLOPE_MAX: f32 = 0.55;
-        pub const BLEND: f32 = 2.0;
+        pub const BLEND: f32 = 0.5;
     }
 
     // --- Splat layer: Rock (layer 2) -----------------------------------------
@@ -175,7 +175,7 @@ pub mod terrain {
         pub const NORMAL_STRENGTH: f32 = 4.0;
         // Splat rule
         pub const SLOPE_MIN: f32 = 0.25;
-        pub const BLEND: f32 = 3.0;
+        pub const BLEND: f32 = 0.5;
     }
 
     // --- Splat layer: Snow (layer 3) -----------------------------------------
@@ -239,9 +239,9 @@ pub mod airship {
     use super::rover;
 
     /// Main hull dimensions match the physics chassis.
-    pub const HULL_WIDTH: f32 = rover::CHASSIS_X * 2.0;   // 1.6 m
-    pub const HULL_HEIGHT: f32 = rover::CHASSIS_Y * 2.0;  // 0.4 m
-    pub const HULL_LENGTH: f32 = rover::CHASSIS_Z * 2.0;  // 2.4 m
+    pub const HULL_WIDTH: f32 = rover::CHASSIS_X * 2.0; // 1.6 m
+    pub const HULL_HEIGHT: f32 = rover::CHASSIS_Y * 2.0; // 0.4 m
+    pub const HULL_LENGTH: f32 = rover::CHASSIS_Z * 2.0; // 2.4 m
 
     /// Lateral distance from centre to each outrigger pontoon.
     pub const PONTOON_SPREAD: f32 = 1.1;

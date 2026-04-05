@@ -1,10 +1,10 @@
-use avian3d::prelude::*;
-use bevy::prelude::*;
 use crate::avatar::AvatarMaterial;
 use crate::config::airship as ac;
 use crate::config::rover as cfg;
 use crate::protocol::{AirshipParams, PontoonShape};
 use crate::state::{AppState, LocalAirshipParams, LocalPhysicsParams, LocalPlayer};
+use avian3d::prelude::*;
+use bevy::prelude::*;
 
 // Corner offsets in local space for the four suspension rays (derived from chassis half-extents).
 const CORNER_OFFSETS: [[f32; 3]; 4] = [
@@ -127,16 +127,15 @@ pub fn rebuild_airship_children(
 
         // Outrigger pontoons — shape selected by the player.
         let pontoon_mesh = match params.pontoon_shape {
-            PontoonShape::Capsule => {
-                meshes.add(Capsule3d::new(params.pontoon_width / 2.0, params.pontoon_length))
-            }
-            PontoonShape::VHull => {
-                meshes.add(build_v_hull_mesh(
-                    params.pontoon_length,
-                    params.pontoon_width,
-                    params.pontoon_height,
-                ))
-            }
+            PontoonShape::Capsule => meshes.add(Capsule3d::new(
+                params.pontoon_width / 2.0,
+                params.pontoon_length,
+            )),
+            PontoonShape::VHull => meshes.add(build_v_hull_mesh(
+                params.pontoon_length,
+                params.pontoon_width,
+                params.pontoon_height,
+            )),
         };
         // Capsules need a 90° rotation to align along Z; V-hull meshes already run along Z.
         let pontoon_rot = match params.pontoon_shape {
@@ -148,16 +147,14 @@ pub fn rebuild_airship_children(
         parent.spawn((
             Mesh3d(pontoon_mesh.clone()),
             MeshMaterial3d(pontoon_mat.clone()),
-            Transform::from_xyz(-params.pontoon_spread, drop_y, 0.0)
-                .with_rotation(pontoon_rot),
+            Transform::from_xyz(-params.pontoon_spread, drop_y, 0.0).with_rotation(pontoon_rot),
         ));
 
         // Starboard outrigger pontoon (+X).
         parent.spawn((
             Mesh3d(pontoon_mesh),
             MeshMaterial3d(pontoon_mat),
-            Transform::from_xyz(params.pontoon_spread, drop_y, 0.0)
-                .with_rotation(pontoon_rot),
+            Transform::from_xyz(params.pontoon_spread, drop_y, 0.0).with_rotation(pontoon_rot),
         ));
 
         // Forward cross-strut — capsule aligned along X.
@@ -237,18 +234,18 @@ fn build_v_hull_mesh(hull_length: f32, hull_width: f32, hull_depth: f32) -> Mesh
         let r = (hull_width * 0.5) * scale;
         let keel_y = -hull_depth * scale;
         // Three vertices per cross-section: port rim, keel, starboard rim.
-        positions.push([-r, 0.0, z]);     // 3i+0  port rim
+        positions.push([-r, 0.0, z]); // 3i+0  port rim
         positions.push([0.0, keel_y, z]); // 3i+1  keel
-        positions.push([r, 0.0, z]);      // 3i+2  starboard rim
+        positions.push([r, 0.0, z]); // 3i+2  starboard rim
     }
 
     for i in 0..SEGMENTS {
-        let l0 = (i * 3) as u32;       // port rim      station i
-        let k0 = l0 + 1;               // keel           station i
-        let r0 = l0 + 2;               // starboard rim  station i
+        let l0 = (i * 3) as u32; // port rim      station i
+        let k0 = l0 + 1; // keel           station i
+        let r0 = l0 + 2; // starboard rim  station i
         let l1 = ((i + 1) * 3) as u32; // port rim      station i+1
-        let k1 = l1 + 1;               // keel           station i+1
-        let r1 = l1 + 2;               // starboard rim  station i+1
+        let k1 = l1 + 1; // keel           station i+1
+        let r1 = l1 + 2; // starboard rim  station i+1
 
         // Port panel — outward normal faces (−X, −Y).
         indices.extend_from_slice(&[l0, k0, k1]);
@@ -263,7 +260,10 @@ fn build_v_hull_mesh(hull_length: f32, hull_width: f32, hull_depth: f32) -> Mesh
         indices.extend_from_slice(&[l0, r1, r0]);
     }
 
-    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
+    );
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     mesh.insert_indices(Indices::U32(indices));
     mesh.duplicate_vertices();
@@ -286,11 +286,14 @@ fn spawn_local_rover(
 
     let chassis = commands
         .spawn((
-            Transform::from_xyz(0.0, ground_y + cfg::SPAWN_HEIGHT_OFFSET, 0.0)
-                .with_rotation(tilt),
+            Transform::from_xyz(0.0, ground_y + cfg::SPAWN_HEIGHT_OFFSET, 0.0).with_rotation(tilt),
             Visibility::default(),
             RigidBody::Dynamic,
-            Collider::cuboid(cfg::CHASSIS_X * 2.0, cfg::CHASSIS_Y * 2.0, cfg::CHASSIS_Z * 2.0),
+            Collider::cuboid(
+                cfg::CHASSIS_X * 2.0,
+                cfg::CHASSIS_Y * 2.0,
+                cfg::CHASSIS_Z * 2.0,
+            ),
             Mass(cfg::MASS),
             LinearDamping(cfg::LINEAR_DAMPING),
             AngularDamping(cfg::ANGULAR_DAMPING),
@@ -309,6 +312,7 @@ fn spawn_local_rover(
     );
 }
 
+#[allow(clippy::type_complexity)]
 fn rebuild_local_rover(
     mut commands: Commands,
     mut ap: ResMut<LocalAirshipParams>,
@@ -379,8 +383,7 @@ fn apply_suspension_forces(
         let local_offset = Vec3::from_array(offset);
         let world_origin = chassis_tf.transform_point(local_offset);
 
-        let Some(hit) =
-            spatial_query.cast_ray(world_origin, Dir3::NEG_Y, ray_max, true, &filter)
+        let Some(hit) = spatial_query.cast_ray(world_origin, Dir3::NEG_Y, ray_max, true, &filter)
         else {
             continue;
         };
@@ -446,7 +449,12 @@ fn apply_uprighting_force(
 
 fn respawn_if_fallen(
     mut query: Query<
-        (&mut Position, &mut Rotation, &mut LinearVelocity, &mut AngularVelocity),
+        (
+            &mut Position,
+            &mut Rotation,
+            &mut LinearVelocity,
+            &mut AngularVelocity,
+        ),
         With<LocalPlayer>,
     >,
     hm_res: Res<crate::terrain::FinishedHeightMap>,

@@ -6,7 +6,9 @@ use crate::avatar::{AvatarFetchPending, AvatarMaterial};
 use crate::config;
 use crate::protocol::{AirshipParams, OverlandsMessage};
 use crate::rover::rebuild_airship_children;
-use crate::state::{AppState, ChatHistory, DiagnosticsLog, LocalAirshipParams, LocalPlayer, RemotePeer};
+use crate::state::{
+    AppState, ChatHistory, DiagnosticsLog, LocalAirshipParams, LocalPlayer, RemotePeer,
+};
 
 pub struct NetworkPlugin;
 
@@ -81,11 +83,18 @@ fn handle_peer_connections(
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn handle_incoming_messages(
     mut commands: Commands,
     mut queue: ResMut<NetworkQueue<OverlandsMessage>>,
     mut chat: ResMut<ChatHistory>,
-    mut peers: Query<(Entity, &mut RemotePeer, &mut Transform, Option<&Children>, Option<&AvatarMaterial>)>,
+    mut peers: Query<(
+        Entity,
+        &mut RemotePeer,
+        &mut Transform,
+        Option<&Children>,
+        Option<&AvatarMaterial>,
+    )>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -99,7 +108,11 @@ fn handle_incoming_messages(
                     }
                 }
             }
-            OverlandsMessage::Identity { did, handle, airship } => {
+            OverlandsMessage::Identity {
+                did,
+                handle,
+                airship,
+            } => {
                 for (entity, mut peer, _, children, avatar_mat) in peers.iter_mut() {
                     if peer.peer_id != msg.sender {
                         continue;
@@ -202,4 +215,3 @@ fn sync_mute_visibility(mut peers: Query<(&RemotePeer, &mut Visibility)>) {
         }
     }
 }
-

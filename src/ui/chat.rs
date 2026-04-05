@@ -16,6 +16,7 @@ pub fn chat_ui(
     use crate::config::ui::chat as cfg;
 
     egui::Window::new("Chat")
+        .default_open(false)
         .default_pos(cfg::WINDOW_DEFAULT_POS)
         .default_size([cfg::WINDOW_DEFAULT_WIDTH, cfg::WINDOW_DEFAULT_HEIGHT])
         .resizable(true)
@@ -31,7 +32,7 @@ pub fn chat_ui(
                 .max_height(scroll_height)
                 .stick_to_bottom(true)
                 .show(ui, |ui| {
-                    ui.set_max_width(ui.available_width());
+                    //ui.set_max_width(ui.available_width());
                     for (author, text) in &chat.messages {
                         ui.horizontal_wrapped(|ui| {
                             let [r, g, b] = cfg::AUTHOR_COLOR;
@@ -47,12 +48,10 @@ pub fn chat_ui(
             ui.separator();
 
             ui.horizontal(|ui| {
-                let response = ui
-                    .add(egui::TextEdit::singleline(&mut *input).desired_width(f32::INFINITY));
+                let response = ui.add(egui::TextEdit::singleline(&mut *input));
                 let send = ui.button("Send");
                 let submit = send.clicked()
-                    || (response.lost_focus()
-                        && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                    || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
 
                 if submit && !input.trim().is_empty() {
                     let text = input.trim().to_string();

@@ -8,6 +8,7 @@ pub fn airship_ui(mut contexts: EguiContexts, mut ap: ResMut<LocalAirshipParams>
     use crate::config::ui::airship as cfg;
 
     egui::Window::new("Airship Design")
+        .default_open(false)
         .default_pos(cfg::WINDOW_DEFAULT_POS)
         .default_width(cfg::WINDOW_DEFAULT_WIDTH)
         .resizable(true)
@@ -49,10 +50,18 @@ pub fn airship_ui(mut contexts: EguiContexts, mut ap: ResMut<LocalAirshipParams>
                         .selected_text(shape_label)
                         .show_ui(ui, |ui| {
                             changed |= ui
-                                .selectable_value(&mut p.pontoon_shape, PontoonShape::Capsule, "Capsule")
+                                .selectable_value(
+                                    &mut p.pontoon_shape,
+                                    PontoonShape::Capsule,
+                                    "Capsule",
+                                )
                                 .changed();
                             changed |= ui
-                                .selectable_value(&mut p.pontoon_shape, PontoonShape::VHull, "V-Hull")
+                                .selectable_value(
+                                    &mut p.pontoon_shape,
+                                    PontoonShape::VHull,
+                                    "V-Hull",
+                                )
                                 .changed();
                         });
 
@@ -161,15 +170,21 @@ fn color_sliders(ui: &mut egui::Ui, rgb: &mut [f32; 3]) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("R").color(egui::Color32::from_rgb(220, 80, 80)));
-        changed |= ui.add(egui::Slider::new(&mut rgb[0], 0.0..=1.0).step_by(0.01)).changed();
+        changed |= ui
+            .add(egui::Slider::new(&mut rgb[0], 0.0..=1.0).step_by(0.01))
+            .changed();
     });
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("G").color(egui::Color32::from_rgb(80, 200, 80)));
-        changed |= ui.add(egui::Slider::new(&mut rgb[1], 0.0..=1.0).step_by(0.01)).changed();
+        changed |= ui
+            .add(egui::Slider::new(&mut rgb[1], 0.0..=1.0).step_by(0.01))
+            .changed();
     });
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("B").color(egui::Color32::from_rgb(80, 130, 220)));
-        changed |= ui.add(egui::Slider::new(&mut rgb[2], 0.0..=1.0).step_by(0.01)).changed();
+        changed |= ui
+            .add(egui::Slider::new(&mut rgb[2], 0.0..=1.0).step_by(0.01))
+            .changed();
     });
 
     // Live colour preview swatch
@@ -178,7 +193,8 @@ fn color_sliders(ui: &mut egui::Ui, rgb: &mut [f32; 3]) -> bool {
         (rgb[1] * 255.0) as u8,
         (rgb[2] * 255.0) as u8,
     );
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 14.0), egui::Sense::hover());
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 14.0), egui::Sense::hover());
     ui.painter().rect_filled(rect, 3.0, swatch);
 
     changed

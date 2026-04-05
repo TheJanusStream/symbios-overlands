@@ -33,7 +33,9 @@ fn spawn_orbit_camera(mut commands: Commands) {
         Transform::from_xyz(pos[0], pos[1], pos[2]).looking_at(Vec3::ZERO, Vec3::Y),
         DistanceFog {
             color: Color::srgba(fc[0], fc[1], fc[2], fc[3]),
-            falloff: FogFalloff::ExponentialSquared { density: cfg::fog::DENSITY },
+            falloff: FogFalloff::ExponentialSquared {
+                density: cfg::fog::DENSITY,
+            },
             ..default()
         },
     ));

@@ -323,13 +323,28 @@ fn apply_splat_textures(
     let hs = tcfg::HEIGHT_SCALE;
     let mapper = SplatMapper::new([
         // R — Grass: lower altitudes, gentle slopes
-        SplatRule::new((0.0, hs * tcfg::grass::ALT_MAX_FACTOR), (0.0, tcfg::grass::SLOPE_MAX), tcfg::grass::BLEND),
+        SplatRule::new(
+            (0.0, hs * tcfg::grass::ALT_MAX_FACTOR),
+            (0.0, tcfg::grass::SLOPE_MAX),
+            tcfg::grass::BLEND,
+        ),
         // G — Dirt: mid-range altitude, moderate slopes
-        SplatRule::new((hs * tcfg::dirt::ALT_MIN_FACTOR, hs * tcfg::dirt::ALT_MAX_FACTOR), (0.0, tcfg::dirt::SLOPE_MAX), tcfg::dirt::BLEND),
+        SplatRule::new(
+            (
+                hs * tcfg::dirt::ALT_MIN_FACTOR,
+                hs * tcfg::dirt::ALT_MAX_FACTOR,
+            ),
+            (0.0, tcfg::dirt::SLOPE_MAX),
+            tcfg::dirt::BLEND,
+        ),
         // B — Rock: steep terrain regardless of altitude (triplanar in shader)
         SplatRule::new((0.0, hs), (tcfg::rock::SLOPE_MIN, 1.0), tcfg::rock::BLEND),
         // A — Snow: high altitude, gentle slopes
-        SplatRule::new((hs * tcfg::snow::ALT_MIN_FACTOR, hs), (0.0, tcfg::snow::SLOPE_MAX), tcfg::snow::BLEND),
+        SplatRule::new(
+            (hs * tcfg::snow::ALT_MIN_FACTOR, hs),
+            (0.0, tcfg::snow::SLOPE_MAX),
+            tcfg::snow::BLEND,
+        ),
     ]);
     let weight_map = mapper.generate(hm);
     // Build the weight-map image manually so we can use RENDER_WORLD-only
@@ -427,8 +442,12 @@ fn build_texture_array(
 fn generate_terrain() -> HeightMap {
     let mut hm = HeightMap::new(tcfg::GRID_SIZE, tcfg::GRID_SIZE, tcfg::CELL_SCALE);
 
-    VoronoiTerracing::new(tcfg::SEED, tcfg::voronoi::NUM_SEEDS, tcfg::voronoi::NUM_TERRACES)
-        .generate(&mut hm);
+    VoronoiTerracing::new(
+        tcfg::SEED,
+        tcfg::voronoi::NUM_SEEDS,
+        tcfg::voronoi::NUM_TERRACES,
+    )
+    .generate(&mut hm);
     // normalize() is intentionally omitted: VoronoiTerracing already produces
     // bounded [0, 1] output. Only FbmNoise requires a post-generation normalize.
 

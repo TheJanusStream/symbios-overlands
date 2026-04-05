@@ -51,9 +51,7 @@ pub fn diagnostics_ui(
                     ui.colored_label(dot_color, "●");
                     ui.vertical(|ui| {
                         ui.monospace(format!("@{}", handle));
-                        ui.monospace(
-                            egui::RichText::new(&did).small().color(egui::Color32::GRAY),
-                        );
+                        ui.monospace(egui::RichText::new(&did).small().color(egui::Color32::GRAY));
                     });
                     ui.checkbox(&mut muted, "Mute");
                 });
