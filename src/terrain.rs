@@ -17,9 +17,14 @@ use symbios_ground::{
 use crate::config::terrain as tcfg;
 use crate::splat::{SplatExtension, SplatTerrainMaterial, SplatUniforms};
 use crate::state::AppState;
+use crate::water::{WaterExtension, WaterMaterial};
 
 #[derive(Component)]
 pub struct TerrainMesh;
+
+/// Marker component for the water-level volume entity (translucent cuboid).
+#[derive(Component)]
+pub struct WaterVolume;
 
 #[derive(Resource)]
 pub struct FinishedHeightMap(pub HeightMap);
@@ -57,6 +62,7 @@ impl Plugin for TerrainPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(SymbiosTexturePlugin)
             .add_plugins(MaterialPlugin::<SplatTerrainMaterial>::default())
+            .add_plugins(MaterialPlugin::<WaterMaterial>::default())
             .init_resource::<TerrainSplatState>()
             .add_systems(
                 OnEnter(AppState::Loading),
@@ -72,8 +78,29 @@ impl Plugin for TerrainPlugin {
                 (collect_texture_results, apply_splat_textures)
                     .chain()
                     .run_if(in_state(AppState::InGame)),
-            );
+            )
+            .add_systems(OnExit(AppState::InGame), cleanup_terrain);
     }
+}
+
+/// Despawn terrain + water entities and reset terrain-specific resources so
+/// the next login cycle restarts heightmap generation and splat texture
+/// uploads from scratch.
+fn cleanup_terrain(
+    mut commands: Commands,
+    terrain: Query<Entity, With<TerrainMesh>>,
+    water: Query<Entity, With<WaterVolume>>,
+    mut splat_state: ResMut<TerrainSplatState>,
+) {
+    for e in &terrain {
+        commands.entity(e).despawn();
+    }
+    for e in &water {
+        commands.entity(e).despawn();
+    }
+    *splat_state = TerrainSplatState::default();
+    commands.remove_resource::<FinishedHeightMap>();
+    commands.remove_resource::<SplatMaterialHandle>();
 }
 
 // ---------------------------------------------------------------------------
@@ -192,6 +219,7 @@ fn spawn_terrain_mesh(
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<SplatTerrainMaterial>>,
+    mut water_materials: ResMut<Assets<WaterMaterial>>,
     hm_res: Res<FinishedHeightMap>,
 ) {
     let hm = &hm_res.0;
@@ -273,6 +301,36 @@ fn spawn_terrain_mesh(
                 Transform::from_xyz(-half, 0.0, -half),
             ));
         });
+
+    // Spawn translucent water cuboid at the configured visual water level.
+    let water_mat = water_materials.add(WaterMaterial {
+        base: StandardMaterial {
+            base_color: Color::srgba(
+                tcfg::water::COLOR[0],
+                tcfg::water::COLOR[1],
+                tcfg::water::COLOR[2],
+                tcfg::water::COLOR[3],
+            ),
+            perceptual_roughness: tcfg::water::ROUGHNESS,
+            metallic: tcfg::water::METALLIC,
+            alpha_mode: AlphaMode::Blend,
+            cull_mode: None,
+            ..default()
+        },
+        extension: WaterExtension::default(),
+    });
+
+    let wl = (tcfg::water::LEVEL_FACTOR * tcfg::HEIGHT_SCALE).max(0.001);
+    commands.spawn((
+        Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+        MeshMaterial3d(water_mat),
+        Transform::from_xyz(0.0, wl / 2.0, 0.0).with_scale(Vec3::new(
+            world_extent,
+            wl,
+            world_extent,
+        )),
+        WaterVolume,
+    ));
 }
 
 /// Consume `TextureReady` components attached by `SymbiosTexturePlugin` and

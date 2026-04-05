@@ -116,6 +116,16 @@ pub mod terrain {
         pub const TALUS_ANGLE: f32 = 0.050;
     }
 
+    // --- Water volume (visual) -----------------------------------------------
+    pub mod water {
+        /// Water plane altitude expressed as a fraction of HEIGHT_SCALE.
+        pub const LEVEL_FACTOR: f32 = 0.10;
+        /// Water surface sRGBA colour (translucent blue-green).
+        pub const COLOR: [f32; 4] = [0.0, 0.4, 0.6, 0.5];
+        pub const ROUGHNESS: f32 = 0.05;
+        pub const METALLIC: f32 = 0.1;
+    }
+
     // --- Splat material ------------------------------------------------------
     pub mod splat {
         /// Base colour of the terrain material before textures are uploaded.

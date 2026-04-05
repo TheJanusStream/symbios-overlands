@@ -6,6 +6,7 @@ use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 mod avatar;
 mod camera;
 pub mod config;
+mod logout;
 mod network;
 mod protocol;
 mod rover;
@@ -13,6 +14,7 @@ mod splat;
 mod state;
 mod terrain;
 mod ui;
+mod water;
 
 use state::{AppState, ChatHistory, DiagnosticsLog, LocalAirshipParams, LocalPhysicsParams};
 
@@ -20,7 +22,9 @@ fn main() {
     #[cfg(target_arch = "wasm32")]
     console_error_panic_hook::set_once();
 
+    let fc = config::camera::fog::COLOR;
     App::new()
+        .insert_resource(ClearColor(Color::srgba(fc[0], fc[1], fc[2], fc[3])))
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Symbios Overlands".into(),
@@ -35,6 +39,7 @@ fn main() {
         .add_plugins(camera::CameraPlugin)
         .add_plugins(network::NetworkPlugin)
         .add_plugins(avatar::AvatarPlugin)
+        .add_plugins(logout::LogoutPlugin)
         .init_state::<AppState>()
         .init_resource::<ChatHistory>()
         .init_resource::<DiagnosticsLog>()

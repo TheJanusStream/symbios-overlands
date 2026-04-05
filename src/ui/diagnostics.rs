@@ -2,13 +2,14 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
-use crate::state::{DiagnosticsLog, RemotePeer};
+use crate::state::{AppState, DiagnosticsLog, RemotePeer};
 
 pub fn diagnostics_ui(
     mut contexts: EguiContexts,
     session: Option<Res<AtprotoSession>>,
     mut peers: Query<&mut RemotePeer>,
     diagnostics: Res<DiagnosticsLog>,
+    mut next_state: ResMut<NextState<AppState>>,
 ) {
     use crate::config::ui::diagnostics as cfg;
 
@@ -31,6 +32,10 @@ pub fn diagnostics_ui(
                 None => {
                     ui.colored_label(egui::Color32::GRAY, "(not authenticated)");
                 }
+            }
+
+            if ui.button("Log out").clicked() {
+                next_state.set(AppState::Login);
             }
 
             ui.separator();
