@@ -108,6 +108,7 @@ pub struct LocalPhysicsParams {
     pub angular_damping: f32,
     pub mass: f32,
     // --- Buoyancy (swimming) ---
+    pub water_rest_length: f32,
     pub buoyancy_strength: f32,
     pub buoyancy_damping: f32,
     pub buoyancy_max_depth: f32,
@@ -128,6 +129,7 @@ impl Default for LocalPhysicsParams {
             linear_damping: cfg::LINEAR_DAMPING,
             angular_damping: cfg::ANGULAR_DAMPING,
             mass: cfg::MASS,
+            water_rest_length: cfg::WATER_REST_LENGTH,
             buoyancy_strength: cfg::BUOYANCY_STRENGTH,
             buoyancy_damping: cfg::BUOYANCY_DAMPING,
             buoyancy_max_depth: cfg::BUOYANCY_MAX_DEPTH,

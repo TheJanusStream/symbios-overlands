@@ -495,7 +495,7 @@ fn apply_buoyancy_forces(
     let Ok((mut forces, global_tf)) = query.single_mut() else {
         return;
     };
-    let wl = water_level_y();
+    let wl = water_level_y() + pp.water_rest_length;
     let y = global_tf.translation().y;
     let depth = (wl - y).clamp(0.0, pp.buoyancy_max_depth);
     if depth <= 0.0 {

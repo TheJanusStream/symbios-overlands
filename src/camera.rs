@@ -33,10 +33,26 @@ fn spawn_orbit_camera(mut commands: Commands) {
         Transform::from_xyz(pos[0], pos[1], pos[2]).looking_at(Vec3::ZERO, Vec3::Y),
         DistanceFog {
             color: Color::srgba(fc[0], fc[1], fc[2], fc[3]),
-            falloff: FogFalloff::ExponentialSquared {
-                density: cfg::fog::DENSITY,
-            },
-            ..default()
+            directional_light_color: Color::srgba(
+                cfg::fog::DIRECTIONAL_LIGHT_COLOR[0],
+                cfg::fog::DIRECTIONAL_LIGHT_COLOR[1],
+                cfg::fog::DIRECTIONAL_LIGHT_COLOR[2],
+                cfg::fog::DIRECTIONAL_LIGHT_COLOR[3],
+            ),
+            directional_light_exponent: cfg::fog::DIRECTIONAL_LIGHT_EXPONENT,
+            falloff: FogFalloff::from_visibility_colors(
+                cfg::fog::VISIBILITY,
+                Color::srgb(
+                    cfg::fog::EXTINCTION_COLOR[0],
+                    cfg::fog::EXTINCTION_COLOR[1],
+                    cfg::fog::EXTINCTION_COLOR[2],
+                ),
+                Color::srgb(
+                    cfg::fog::INSCATTERING_COLOR[0],
+                    cfg::fog::INSCATTERING_COLOR[1],
+                    cfg::fog::INSCATTERING_COLOR[2],
+                ),
+            ),
         },
     ));
 }

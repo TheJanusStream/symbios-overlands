@@ -72,6 +72,11 @@ pub fn physics_ui(mut contexts: EguiContexts, mut pp: ResMut<LocalPhysicsParams>
             egui::CollapsingHeader::new("Buoyancy")
                 .default_open(false)
                 .show(ui, |ui| {
+                    ui.label("Water rest length (m)");
+                    ui.add(
+                        egui::Slider::new(&mut p.water_rest_length, 0.0..=3.0).step_by(0.05),
+                    );
+
                     ui.label("Strength (N/m)");
                     ui.add(
                         egui::Slider::new(&mut p.buoyancy_strength, 0.0..=10_000.0).step_by(50.0),

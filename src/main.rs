@@ -1,5 +1,5 @@
 use avian3d::PhysicsPlugins;
-use bevy::light::GlobalAmbientLight;
+use bevy::light::{CascadeShadowConfigBuilder, GlobalAmbientLight, NotShadowCaster};
 use bevy::prelude::*;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 
@@ -69,15 +69,30 @@ fn main() {
         .run();
 }
 
-fn setup_lighting(mut commands: Commands) {
+fn setup_lighting(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
     let lp = config::lighting::LIGHT_POS;
+    let sc = config::lighting::SUN_COLOR;
+
+    let cascade_shadow_config = CascadeShadowConfigBuilder {
+        first_cascade_far_bound: config::lighting::CASCADE_FIRST_FAR,
+        maximum_distance: config::lighting::CASCADE_MAX_DIST,
+        ..default()
+    }
+    .build();
+
     commands.spawn((
         DirectionalLight {
+            color: Color::srgb(sc[0], sc[1], sc[2]),
             shadows_enabled: true,
             illuminance: config::lighting::ILLUMINANCE,
             ..default()
         },
         Transform::from_xyz(lp[0], lp[1], lp[2]).looking_at(Vec3::ZERO, Vec3::Y),
+        cascade_shadow_config,
     ));
 
     commands.insert_resource(GlobalAmbientLight {
@@ -85,6 +100,20 @@ fn setup_lighting(mut commands: Commands) {
         brightness: config::lighting::AMBIENT_BRIGHTNESS,
         ..default()
     });
+
+    // Sky — large unlit cuboid tinted by the distance fog.
+    let sky_c = config::lighting::SKY_COLOR;
+    commands.spawn((
+        Mesh3d(meshes.add(Cuboid::new(2.0, 1.0, 1.0))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgb(sky_c[0], sky_c[1], sky_c[2]),
+            unlit: true,
+            cull_mode: None,
+            ..default()
+        })),
+        Transform::from_scale(Vec3::splat(config::lighting::SKY_SCALE)),
+        NotShadowCaster,
+    ));
 }
 
 fn loading_ui(mut contexts: bevy_egui::EguiContexts) {

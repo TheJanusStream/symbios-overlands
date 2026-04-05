@@ -13,7 +13,18 @@ pub mod lighting {
     /// Brightness of the scene-wide ambient light.
     pub const AMBIENT_BRIGHTNESS: f32 = 400.0;
     /// World-space position of the directional light source.
-    pub const LIGHT_POS: [f32; 3] = [50.0, 100.0, 50.0];
+    pub const LIGHT_POS: [f32; 3] = [50.0, 40.0, 50.0];
+    /// Sun colour (warm daylight, sRGB).
+    pub const SUN_COLOR: [f32; 3] = [0.98, 0.95, 0.82];
+    /// Cascade shadow: near-plane distance of the first cascade (m).
+    pub const CASCADE_FIRST_FAR: f32 = 15.0;
+    /// Cascade shadow: maximum shadow-casting distance (m).
+    pub const CASCADE_MAX_DIST: f32 = 200.0;
+
+    /// Sky-box colour (unlit grey, tinted by fog). sRGB hex ≈ #888888.
+    pub const SKY_COLOR: [f32; 3] = [0.533, 0.533, 0.533];
+    /// Uniform scale of the sky cuboid (must exceed max view distance).
+    pub const SKY_SCALE: f32 = 2000.0;
 }
 
 // ---------------------------------------------------------------------------
@@ -28,8 +39,8 @@ pub mod rover {
     pub const RAY_MAX_DIST: f32 = SUSPENSION_REST_LENGTH + 1.5;
 
     // --- Drive ---------------------------------------------------------------
-    pub const DRIVE_FORCE: f32 = 3_000.0;
-    pub const TURN_TORQUE: f32 = 1_800.0;
+    pub const DRIVE_FORCE: f32 = 1_800.0;
+    pub const TURN_TORQUE: f32 = 400.0;
     pub const LATERAL_GRIP: f32 = 6_000.0;
     pub const JUMP_FORCE: f32 = 2_500.0;
     /// Torque strength nudging the chassis back to upright.
@@ -59,6 +70,10 @@ pub mod rover {
     pub const SPAWN_SCATTER_SIZE: f32 = 10.0;
 
     // --- Buoyancy (swimming) -------------------------------------------------
+    /// Target hover height (m) above the visual water plane.  Analogous to
+    /// `SUSPENSION_REST_LENGTH` for land: the buoyancy system treats
+    /// `water_level + WATER_REST_LENGTH` as the equilibrium altitude.
+    pub const WATER_REST_LENGTH: f32 = 0.5;
     /// Upward force per metre of submersion (N/m).  Acts only when the chassis
     /// origin sits below the visual water plane.
     pub const BUOYANCY_STRENGTH: f32 = 2_500.0;
@@ -82,10 +97,17 @@ pub mod camera {
 
     pub mod fog {
         /// sRGBA colour of the atmospheric haze (matches a mid-sky tone).
-        pub const COLOR: [f32; 4] = [0.52, 0.62, 0.74, 1.0];
-        /// ExponentialSquared density.  At 1 024 m terrain width this gives
-        /// ~5 % fog at 300 m, ~27 % at 700 m, and ~47 % at 1 000 m.
-        pub const DENSITY: f32 = 0.008;
+        pub const COLOR: [f32; 4] = [0.35, 0.48, 0.66, 1.0];
+        /// Visibility distance (m) at which objects retain ≥ 5 % contrast.
+        pub const VISIBILITY: f32 = 350.0;
+        /// Atmospheric extinction colour (light lost to absorption), sRGB.
+        pub const EXTINCTION_COLOR: [f32; 3] = [0.35, 0.5, 0.66];
+        /// Atmospheric inscattering colour (light gained from the sun), sRGB.
+        pub const INSCATTERING_COLOR: [f32; 3] = [0.8, 0.844, 1.0];
+        /// sRGBA colour of sun-tinted fog (alpha controls influence strength).
+        pub const DIRECTIONAL_LIGHT_COLOR: [f32; 4] = [1.0, 0.95, 0.85, 0.5];
+        /// Exponent controlling how tightly the sun glow concentrates.
+        pub const DIRECTIONAL_LIGHT_EXPONENT: f32 = 30.0;
     }
 }
 
