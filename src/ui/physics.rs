@@ -6,7 +6,7 @@ use crate::state::LocalPhysicsParams;
 pub fn physics_ui(mut contexts: EguiContexts, mut pp: ResMut<LocalPhysicsParams>) {
     egui::Window::new("Physics Tuning")
         .default_open(false)
-        .default_pos([10.0, 560.0])
+        .default_pos([650.0, 10.0])
         .default_width(320.0)
         .resizable(true)
         .collapsible(true)

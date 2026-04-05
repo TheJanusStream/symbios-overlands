@@ -307,17 +307,17 @@ pub mod ui {
         pub const WINDOW_DEFAULT_WIDTH: f32 = 380.0;
         pub const WINDOW_DEFAULT_HEIGHT: f32 = 400.0;
         /// Default top-left position [x, y] (right side of a typical 1080p window).
-        pub const WINDOW_DEFAULT_POS: [f32; 2] = [820.0, 60.0];
+        pub const WINDOW_DEFAULT_POS: [f32; 2] = [990.0, 10.0];
     }
 
     pub mod diagnostics {
         pub const WINDOW_DEFAULT_WIDTH: f32 = 280.0;
         pub const WINDOW_DEFAULT_HEIGHT: f32 = 480.0;
-        pub const WINDOW_DEFAULT_POS: [f32; 2] = [10.0, 60.0];
+        pub const WINDOW_DEFAULT_POS: [f32; 2] = [10.0, 10.0];
     }
 
     pub mod airship {
         pub const WINDOW_DEFAULT_WIDTH: f32 = 320.0;
-        pub const WINDOW_DEFAULT_POS: [f32; 2] = [10.0, 420.0];
+        pub const WINDOW_DEFAULT_POS: [f32; 2] = [310.0, 10.0];
     }
 }

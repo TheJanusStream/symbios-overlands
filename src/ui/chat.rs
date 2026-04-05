@@ -16,7 +16,6 @@ pub fn chat_ui(
     use crate::config::ui::chat as cfg;
 
     egui::Window::new("Chat")
-        .default_open(false)
         .default_pos(cfg::WINDOW_DEFAULT_POS)
         .default_size([cfg::WINDOW_DEFAULT_WIDTH, cfg::WINDOW_DEFAULT_HEIGHT])
         .resizable(true)
