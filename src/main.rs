@@ -10,6 +10,7 @@ mod logout;
 mod network;
 mod protocol;
 mod rover;
+mod social;
 mod splat;
 mod state;
 mod terrain;
@@ -39,6 +40,7 @@ fn main() {
         .add_plugins(camera::CameraPlugin)
         .add_plugins(network::NetworkPlugin)
         .add_plugins(avatar::AvatarPlugin)
+        .add_plugins(social::SocialPlugin)
         .add_plugins(logout::LogoutPlugin)
         .init_state::<AppState>()
         .init_resource::<ChatHistory>()

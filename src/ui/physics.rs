@@ -68,6 +68,24 @@ pub fn physics_ui(mut contexts: EguiContexts, mut pp: ResMut<LocalPhysicsParams>
                     ui.add(egui::Slider::new(&mut p.mass, 5.0..=200.0).step_by(1.0));
                 });
 
+            // --- Buoyancy (swimming) --------------------------------------
+            egui::CollapsingHeader::new("Buoyancy")
+                .default_open(false)
+                .show(ui, |ui| {
+                    ui.label("Strength (N/m)");
+                    ui.add(
+                        egui::Slider::new(&mut p.buoyancy_strength, 0.0..=10_000.0).step_by(50.0),
+                    );
+
+                    ui.label("Damping (N·s/m)");
+                    ui.add(
+                        egui::Slider::new(&mut p.buoyancy_damping, 0.0..=2_000.0).step_by(10.0),
+                    );
+
+                    ui.label("Max depth (m)");
+                    ui.add(egui::Slider::new(&mut p.buoyancy_max_depth, 0.1..=5.0).step_by(0.05));
+                });
+
             ui.separator();
 
             if ui.button("Reset to defaults").clicked() {

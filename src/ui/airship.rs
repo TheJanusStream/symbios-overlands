@@ -14,6 +14,11 @@ pub fn airship_ui(mut contexts: EguiContexts, mut ap: ResMut<LocalAirshipParams>
         .resizable(true)
         .collapsible(true)
         .show(contexts.ctx_mut().unwrap(), |ui| {
+            // Reborrow once so we can split-borrow individual fields of
+            // `LocalAirshipParams` independently (egui needs `&mut params` for
+            // the construction sliders *and* `&mut smooth_kinematics` for the
+            // networking checkbox below).
+            let ap = ap.as_mut();
             let p = &mut ap.params;
             let mut changed = false;
 
@@ -154,8 +159,27 @@ pub fn airship_ui(mut contexts: EguiContexts, mut ap: ResMut<LocalAirshipParams>
 
             ui.separator();
 
+            // --- Networking (local-only, not broadcast) -------------------
+            egui::CollapsingHeader::new("Networking")
+                .default_open(false)
+                .show(ui, |ui| {
+                    ui.checkbox(
+                        &mut ap.smooth_kinematics,
+                        "Smooth remote peers (Hermite spline + 50 ms buffer)",
+                    );
+                    ui.label(
+                        egui::RichText::new(
+                            "Uncheck to snap to the latest packet and expose raw jitter.",
+                        )
+                        .small()
+                        .weak(),
+                    );
+                });
+
+            ui.separator();
+
             if ui.button("Reset to defaults").clicked() {
-                *p = crate::protocol::AirshipParams::default();
+                ap.params = crate::protocol::AirshipParams::default();
                 changed = true;
             }
 

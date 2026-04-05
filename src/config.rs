@@ -55,6 +55,18 @@ pub mod rover {
     // --- Spawn ---------------------------------------------------------------
     /// How many metres above the terrain surface the rover is placed at spawn.
     pub const SPAWN_HEIGHT_OFFSET: f32 = 1.0;
+    /// Side length (m) of the square spawn-scatter region centred on the map.
+    pub const SPAWN_SCATTER_SIZE: f32 = 10.0;
+
+    // --- Buoyancy (swimming) -------------------------------------------------
+    /// Upward force per metre of submersion (N/m).  Acts only when the chassis
+    /// origin sits below the visual water plane.
+    pub const BUOYANCY_STRENGTH: f32 = 2_500.0;
+    /// Vertical drag coefficient applied while submerged (N·s/m).
+    pub const BUOYANCY_DAMPING: f32 = 400.0;
+    /// Maximum submersion depth (m) considered by the buoyancy force.  Prevents
+    /// runaway forces if the rover clips far below the surface.
+    pub const BUOYANCY_MAX_DEPTH: f32 = 1.2;
 }
 
 // ---------------------------------------------------------------------------
@@ -212,6 +224,14 @@ pub mod terrain {
 pub mod network {
     /// Broadcast identity to peers every N physics ticks.
     pub const IDENTITY_BROADCAST_INTERVAL_TICKS: u32 = 60;
+    /// Delay (seconds) for the jitter buffer when smoothing remote peer
+    /// transforms.  Rendering peers this far in the past guarantees a window
+    /// of samples to interpolate between, hiding dropped packets.
+    pub const KINEMATIC_RENDER_DELAY_SECS: f64 = 0.05;
+    /// Maximum number of transform samples retained in each peer's buffer.
+    pub const KINEMATIC_BUFFER_CAPACITY: usize = 32;
+    /// Emissive intensity applied to the mast tip of a mutual-follow peer.
+    pub const MUTUAL_MAST_EMISSIVE: f32 = 5.0;
 }
 
 // ---------------------------------------------------------------------------

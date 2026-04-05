@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use bevy::prelude::*;
 
 use crate::protocol::AirshipParams;
@@ -25,6 +27,37 @@ pub struct RemotePeer {
     pub muted: bool,
     /// Last-received vessel design from this peer (used to detect changes).
     pub airship: Option<AirshipParams>,
+}
+
+/// Social-graph resonance state derived from the unauthenticated ATProto
+/// `getRelationships` lexicon call.  Updated asynchronously after the peer's
+/// Identity arrives so the game loop is never blocked on network I/O.
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SocialResonance {
+    /// State not yet queried or in flight.
+    #[default]
+    Unknown,
+    /// Query finished: the local actor and remote peer do **not** follow each
+    /// other bidirectionally.
+    None,
+    /// Query finished: both `following` and `followedBy` were present.
+    Mutual,
+}
+
+/// Per-peer transform sample captured off the network.
+#[derive(Clone, Copy, Debug)]
+pub struct TransformSample {
+    pub position: Vec3,
+    pub rotation: Quat,
+    /// Seconds since application start, taken from `Time::elapsed_secs_f64`.
+    pub timestamp: f64,
+}
+
+/// Ring buffer of incoming transform samples, used by the kinematic-smoothing
+/// system to hide single-packet drops with Hermite interpolation.
+#[derive(Component, Default)]
+pub struct TransformBuffer {
+    pub samples: VecDeque<TransformSample>,
 }
 
 /// Rolling chat history shown in the HUD.
@@ -74,6 +107,10 @@ pub struct LocalPhysicsParams {
     pub linear_damping: f32,
     pub angular_damping: f32,
     pub mass: f32,
+    // --- Buoyancy (swimming) ---
+    pub buoyancy_strength: f32,
+    pub buoyancy_damping: f32,
+    pub buoyancy_max_depth: f32,
 }
 
 impl Default for LocalPhysicsParams {
@@ -91,6 +128,9 @@ impl Default for LocalPhysicsParams {
             linear_damping: cfg::LINEAR_DAMPING,
             angular_damping: cfg::ANGULAR_DAMPING,
             mass: cfg::MASS,
+            buoyancy_strength: cfg::BUOYANCY_STRENGTH,
+            buoyancy_damping: cfg::BUOYANCY_DAMPING,
+            buoyancy_max_depth: cfg::BUOYANCY_MAX_DEPTH,
         }
     }
 }
@@ -98,9 +138,23 @@ impl Default for LocalPhysicsParams {
 /// Local player's current airship construction / material parameters.
 /// Edited via the airship GUI and broadcast inside every Identity message.
 /// Set `needs_rebuild = true` after changing `params` to trigger a mesh rebuild.
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct LocalAirshipParams {
     pub params: AirshipParams,
     /// Signals `rebuild_local_rover` to regenerate the visual children this frame.
     pub needs_rebuild: bool,
+    /// When true, remote peer transforms are smoothed with a Hermite spline
+    /// applied to a delayed jitter buffer.  When false, peers snap to the
+    /// latest received packet (useful for debugging raw network latency).
+    pub smooth_kinematics: bool,
+}
+
+impl Default for LocalAirshipParams {
+    fn default() -> Self {
+        Self {
+            params: AirshipParams::default(),
+            needs_rebuild: false,
+            smooth_kinematics: true,
+        }
+    }
 }

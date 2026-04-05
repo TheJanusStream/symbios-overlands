@@ -1,6 +1,7 @@
 use crate::avatar::AvatarMaterial;
 use crate::config::airship as ac;
 use crate::config::rover as cfg;
+use crate::config::terrain as tcfg;
 use crate::protocol::{AirshipParams, PontoonShape};
 use crate::state::{AppState, LocalAirshipParams, LocalPhysicsParams, LocalPlayer};
 use avian3d::prelude::*;
@@ -14,9 +15,40 @@ const CORNER_OFFSETS: [[f32; 3]; 4] = [
     [-cfg::CHASSIS_X, -cfg::CHASSIS_Y, -cfg::CHASSIS_Z],
 ];
 
+/// Draw an (x, z) pair uniformly distributed inside a square of
+/// `SPAWN_SCATTER_SIZE` metres per side, centred on the origin.  Successive
+/// calls yield different positions via a splitmix64 PRNG stored in process
+/// memory, so every spawn and respawn within a session lands somewhere new.
+fn random_spawn_xz() -> (f32, f32) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEED: AtomicU64 = AtomicU64::new(0x9E37_79B9_7F4A_7C15);
+    let s = SEED.fetch_add(0xDA94_2042_E4DD_58B5, Ordering::Relaxed);
+    // splitmix64 finaliser
+    let mut z = s.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^= z >> 31;
+    let u = (z as u32 as f32) / (u32::MAX as f32);
+    let v = ((z >> 32) as u32 as f32) / (u32::MAX as f32);
+    let side = cfg::SPAWN_SCATTER_SIZE;
+    ((u - 0.5) * side, (v - 0.5) * side)
+}
+
+/// Visual water-plane altitude used by both terrain rendering and the
+/// swimming/buoyancy system so the two stay in perfect agreement.
+#[inline]
+pub fn water_level_y() -> f32 {
+    (tcfg::water::LEVEL_FACTOR * tcfg::HEIGHT_SCALE).max(0.001)
+}
+
 /// Marker placed on the solar-sail mesh child so the avatar system can find it.
 #[derive(Component)]
 pub struct RoverSail;
+
+/// Marker placed on the mast-tip hemisphere child so the social-resonance
+/// system can light it up when a peer is a mutual follow.
+#[derive(Component)]
+pub struct MastTip;
 
 pub struct RoverPlugin;
 
@@ -32,6 +64,7 @@ impl Plugin for RoverPlugin {
                 (
                     sync_chassis_physics,
                     apply_suspension_forces,
+                    apply_buoyancy_forces,
                     apply_drive_forces,
                     apply_uprighting_force,
                     respawn_if_fallen,
@@ -190,6 +223,7 @@ pub fn rebuild_airship_children(
             Mesh3d(meshes.add(Sphere::new(mast_r).mesh().uv(16, 8))),
             MeshMaterial3d(mast_mat),
             Transform::from_xyz(mx, mast_h, mz),
+            MastTip,
         ));
 
         // Solar sail — flat double-sided panel oriented as a flag streaming aft.
@@ -279,14 +313,18 @@ fn spawn_local_rover(
     params: Res<LocalAirshipParams>,
 ) {
     let hm = &hm_res.0;
-    let half = (hm.width() - 1) as f32 * hm.scale() * 0.5;
-    let ground_y = hm.get_height_at(half, half);
-    let surface_normal = hm.get_normal_at(half, half);
+    let centre = (hm.width() - 1) as f32 * hm.scale() * 0.5;
+    // Heightmap is sampled in its own coordinate space where (centre, centre)
+    // is the world origin; offsets from the 10×10 m scatter square are added
+    // directly to both the sampling coordinates and the world position.
+    let (ox, oz) = random_spawn_xz();
+    let ground_y = hm.get_height_at(centre + ox, centre + oz);
+    let surface_normal = hm.get_normal_at(centre + ox, centre + oz);
     let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
 
     let chassis = commands
         .spawn((
-            Transform::from_xyz(0.0, ground_y + cfg::SPAWN_HEIGHT_OFFSET, 0.0).with_rotation(tilt),
+            Transform::from_xyz(ox, ground_y + cfg::SPAWN_HEIGHT_OFFSET, oz).with_rotation(tilt),
             Visibility::default(),
             RigidBody::Dynamic,
             Collider::cuboid(
@@ -447,6 +485,28 @@ fn apply_uprighting_force(
     forces.apply_torque(vehicle_up.cross(Vec3::Y) * pp.uprighting_torque);
 }
 
+/// Archimedean buoyancy — an upward force proportional to submersion depth
+/// below the visual water plane, plus a vertical-velocity drag term.  Converts
+/// the rover into a raft whenever its origin dips below `water_level_y()`.
+fn apply_buoyancy_forces(
+    pp: Res<LocalPhysicsParams>,
+    mut query: Query<(Forces, &GlobalTransform), With<LocalPlayer>>,
+) {
+    let Ok((mut forces, global_tf)) = query.single_mut() else {
+        return;
+    };
+    let wl = water_level_y();
+    let y = global_tf.translation().y;
+    let depth = (wl - y).clamp(0.0, pp.buoyancy_max_depth);
+    if depth <= 0.0 {
+        return;
+    }
+    let lin_vel = forces.linear_velocity();
+    let lift = pp.buoyancy_strength * depth;
+    let drag = -pp.buoyancy_damping * lin_vel.y;
+    forces.apply_force(Vec3::Y * (lift + drag));
+}
+
 fn respawn_if_fallen(
     mut query: Query<
         (
@@ -466,11 +526,12 @@ fn respawn_if_fallen(
         return;
     }
     let hm = &hm_res.0;
-    let half = (hm.width() - 1) as f32 * hm.scale() * 0.5;
-    let ground_y = hm.get_height_at(half, half);
-    let surface_normal = hm.get_normal_at(half, half);
+    let centre = (hm.width() - 1) as f32 * hm.scale() * 0.5;
+    let (ox, oz) = random_spawn_xz();
+    let ground_y = hm.get_height_at(centre + ox, centre + oz);
+    let surface_normal = hm.get_normal_at(centre + ox, centre + oz);
     let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
-    pos.0 = Vec3::new(0.0, ground_y + cfg::SPAWN_HEIGHT_OFFSET, 0.0);
+    pos.0 = Vec3::new(ox, ground_y + cfg::SPAWN_HEIGHT_OFFSET, oz);
     rot.0 = tilt;
     lin_vel.0 = Vec3::ZERO;
     ang_vel.0 = Vec3::ZERO;
