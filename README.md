@@ -1,43 +1,71 @@
 # Symbios Overlands
 
-A decentralized, physics-driven multiplayer sandbox for the ATProto network.
+A multiplayer physics sandbox where airships sail across procedurally
+generated terrain. Built with [Bevy 0.18](https://bevyengine.org/) and
+[Avian3D](https://github.com/Jondolf/avian), networked peer-to-peer, and signed
+in via [ATProto](https://atproto.com/).
 
-**Symbios Overlands** is the flagship showcase application for the Symbios ecosystem. Built on the [Bevy](https://bevyengine.org/) engine, it combines deterministic procedural generation (`symbios-ground`) with peer-to-peer WebRTC networking and federated identity (`bevy_symbios_multiuser`).
+## Overview
 
-Players authenticate via Bluesky/ATProto, spawn a physics-enabled "hover-rover" adorned with their profile picture, and explore a shared, mathematically identical landscape while chatting.
+Symbios Overlands is an experimental open-world vehicle sim that targets both
+native desktop and the browser (WebAssembly). Each player drives a small
+solar-sailed rover / airship across a shared, procedurally eroded landscape,
+with identity and avatars sourced from their Bluesky / ATProto account.
 
-There is no central game server. There is no competitive objective. It is a space to hang out, drift over procedural dunes, and talk.
+- **Procedural terrain** — Voronoi terracing with hydraulic + thermal erosion,
+  4-layer triplanar splat texturing (grass / dirt / rock / snow).
+- **Vehicle physics** — Avian3D rigid-body chassis with ray-cast suspension,
+  drive / turn torque, lateral grip, jump, and auto-uprighting.
+- **Peer-to-peer multiplayer** — WebRTC-based signalling via a relay, with
+  per-peer avatar and vessel-design sync.
+- **ATProto identity** — log in with a Bluesky handle + app password; your
+  profile picture becomes the airship's sail.
+- **In-game tuning UI** — live-editable physics, airship geometry, diagnostics,
+  and chat panels (egui).
 
-## The Metaphor: The Kinetic Guestbook
+## Running
 
-We view this application as a **Kinetic Guestbook**. The landscape itself is fixed and shared; the avatars are dynamic vehicles powered by cryptographic identity. The physical friction of the terrain—the valleys you fall into, the ridges you climb—shapes the flow of the conversation.
+### Native
 
-It proves our **Thin Client, Heavy World** architecture: because the environment is generated deterministically on the client's CPU, we require zero bandwidth to sync the world state. The network only needs to transmit the "kinetic energy" (physics transforms) and "social energy" (chat).
-
-## Key Features
-
-* **Sovereign Identity:** Authenticate directly via your ATProto PDS (e.g., `bsky.social`). The game automatically fetches your profile picture and mounts it as the "sail" of your rover.
-* **P2P WebRTC Networking:** Powered by `bevy_symbios_multiuser`. High-frequency physics transforms (60Hz) are broadcast over Unreliable data channels, while chat and identity data are guaranteed via Reliable channels.
-* **Raycast Hover-Rovers:** Custom vehicle controllers built on [Avian3D](https://github.com/Jondolf/avian). To navigate jagged procedural terrain smoothly, vehicles use a raycast suspension system (Hooke's Law + Damping) rather than brittle wheel colliders, resulting in a buttery-smooth, dune-buggy traversal experience.
-* **Deterministic Procedural Terrain:** Powered by `bevy_symbios_ground`. Every client generates the exact same eroded landscape from a fixed seed locally.
-
-## Architecture
-
-Overlands utilizes a **Sovereign Broker** pattern:
-
-1. **Auth:** Client logs into ATProto to get a Service JWT.
-2. **Signaling:** Client connects to a lightweight Axum relay server, proving identity via the JWT.
-3. **P2P:** The relay brokers a WebRTC SDP handshake, then steps out of the way. All 60fps movement and chat data flows directly peer-to-peer.
-4. **Simulation:** The Local Player is simulated as a `RigidBody::Dynamic`. Remote peers are spawned purely as visual transforms, interpolated from incoming network packets to prevent physics desynchronization across different CPUs.
-
-## Running the Sandbox
-
-### Prerequisites
-
-To play multiplayer, you will need access to a running `bevy_symbios_multiuser` relay server.
-
-### Native (Desktop)
-
-```bash
-# Run in release mode for optimal physics and terrain generation performance
+```sh
 cargo run --release
+```
+
+### Web (WASM)
+
+```sh
+cargo build --release --target wasm32-unknown-unknown
+wasm-bindgen --out-dir ./dist --target web \
+    --out-name symbios-overlands --no-typescript \
+    target/wasm32-unknown-unknown/release/symbios-overlands.wasm
+cp index.html dist/ && cp -r assets dist/
+# Serve dist/ with any static HTTP server.
+```
+
+A `main`-branch build is deployed automatically to GitHub Pages via
+[.github/workflows/deploy.yml](.github/workflows/deploy.yml).
+
+## Project Layout
+
+| Path | Purpose |
+| ---- | ------- |
+| [src/main.rs](src/main.rs) | App bootstrap, plugin wiring, state machine |
+| [src/terrain.rs](src/terrain.rs) | Heightmap generation + erosion |
+| [src/splat.rs](src/splat.rs) | Procedural splat textures |
+| [src/rover.rs](src/rover.rs) | Vehicle mesh, physics, controls |
+| [src/camera.rs](src/camera.rs) | Orbit camera + atmospheric fog |
+| [src/network.rs](src/network.rs) | P2P sync of transforms, chat, avatars |
+| [src/avatar.rs](src/avatar.rs) | ATProto profile fetch + sail texture |
+| [src/protocol.rs](src/protocol.rs) | Wire messages between peers |
+| [src/state.rs](src/state.rs) | Global resources + `AppState` |
+| [src/config.rs](src/config.rs) | All tunable constants (central) |
+| [src/ui/](src/ui/) | egui panels: login, chat, diagnostics, airship, physics |
+| [assets/shaders/](assets/shaders/) | WGSL shaders for splat + water |
+
+All tuneable numbers (suspension stiffness, terrain scale, fog density, airship
+geometry, etc.) live in [src/config.rs](src/config.rs) — start there when
+tweaking.
+
+## License
+
+See [LICENSE](LICENSE).
