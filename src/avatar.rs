@@ -203,16 +203,72 @@ async fn fetch_avatar_bytes(did: String) -> Option<Vec<u8>> {
     let profile = resp.json::<BskyProfile>().await.ok()?;
     let avatar_url = profile.avatar?;
 
-    let img_resp = client.get(&avatar_url).send().await.ok()?;
-    if !img_resp.status().is_success() {
-        bevy::log::warn!(
-            "Failed to fetch avatar image for {}: {}",
-            did,
-            img_resp.status()
-        );
+    fetch_image_bytes(&client, &did, &avatar_url).await
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn fetch_image_bytes(
+    client: &reqwest::Client,
+    did: &str,
+    avatar_url: &str,
+) -> Option<Vec<u8>> {
+    let resp = client.get(avatar_url).send().await.ok()?;
+    if !resp.status().is_success() {
+        bevy::log::warn!("Failed to fetch avatar image for {}: {}", did, resp.status());
         return None;
     }
+    Some(resp.bytes().await.ok()?.to_vec())
+}
 
-    let bytes = img_resp.bytes().await.ok()?;
-    Some(bytes.to_vec())
+/// WASM: cdn.bsky.app lacks CORS headers, so resolve the user's PDS from
+/// their DID document and fetch the raw blob via `com.atproto.sync.getBlob`.
+#[cfg(target_arch = "wasm32")]
+async fn fetch_image_bytes(
+    client: &reqwest::Client,
+    did: &str,
+    avatar_url: &str,
+) -> Option<Vec<u8>> {
+    let cid = avatar_url.rsplit('/').next()?.split('@').next()?;
+    let pds = resolve_pds(client, did).await?;
+    let blob_url = format!(
+        "{}/xrpc/com.atproto.sync.getBlob?did={}&cid={}",
+        pds, did, cid
+    );
+    let resp = client.get(&blob_url).send().await.ok()?;
+    if !resp.status().is_success() {
+        bevy::log::warn!("Failed to fetch avatar blob for {}: {}", did, resp.status());
+        return None;
+    }
+    Some(resp.bytes().await.ok()?.to_vec())
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn resolve_pds(client: &reqwest::Client, did: &str) -> Option<String> {
+    let url = if did.starts_with("did:plc:") {
+        format!("https://plc.directory/{}", did)
+    } else if let Some(domain) = did.strip_prefix("did:web:") {
+        format!("https://{}/.well-known/did.json", domain)
+    } else {
+        return None;
+    };
+    let doc: DidDocument = client.get(&url).send().await.ok()?.json().await.ok()?;
+    doc.service
+        .iter()
+        .find(|s| s.id == "#atproto_pds")
+        .map(|s| s.service_endpoint.clone())
+}
+
+#[cfg(target_arch = "wasm32")]
+#[derive(Deserialize)]
+struct DidDocument {
+    #[serde(default)]
+    service: Vec<DidService>,
+}
+
+#[cfg(target_arch = "wasm32")]
+#[derive(Deserialize)]
+struct DidService {
+    id: String,
+    #[serde(rename = "serviceEndpoint")]
+    service_endpoint: String,
 }

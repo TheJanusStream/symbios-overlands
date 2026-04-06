@@ -279,8 +279,8 @@ pub mod login {
     /// Default ATProto PDS endpoint.
     pub const DEFAULT_PDS: &str = "https://bsky.social";
     /// Default relay signaller hostname.
-    pub const DEFAULT_RELAY_HOST: &str = "";
-    pub const DEFAULT_HANDLE: &str = "";
+    pub const DEFAULT_RELAY_HOST: &str = "37.143.131.78.nip.io";
+    pub const DEFAULT_HANDLE: &str = "YourHandle.bsky.social";
     pub const DEFAULT_PASSWORD: &str = "";
 }
 
