@@ -1,5 +1,7 @@
 # Symbios Overlands
 
+🚧 *Currently in testing* 🚧
+
 A multiplayer physics sandbox where airships sail across procedurally
 generated terrain. Built with [Bevy 0.18](https://bevyengine.org/) and
 [Avian3D](https://github.com/Jondolf/avian), networked peer-to-peer, and signed
