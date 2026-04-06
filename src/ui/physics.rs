@@ -15,7 +15,7 @@ pub fn physics_ui(mut contexts: EguiContexts, mut pp: ResMut<LocalPhysicsParams>
 
             // --- Suspension ------------------------------------------------
             egui::CollapsingHeader::new("Suspension")
-                .default_open(true)
+                .default_open(false)
                 .show(ui, |ui| {
                     ui.label("Rest length (m)");
                     ui.add(
@@ -34,7 +34,7 @@ pub fn physics_ui(mut contexts: EguiContexts, mut pp: ResMut<LocalPhysicsParams>
 
             // --- Drive -----------------------------------------------------
             egui::CollapsingHeader::new("Drive")
-                .default_open(true)
+                .default_open(false)
                 .show(ui, |ui| {
                     ui.label("Drive force");
                     ui.add(egui::Slider::new(&mut p.drive_force, 500.0..=10_000.0).step_by(50.0));
@@ -56,7 +56,7 @@ pub fn physics_ui(mut contexts: EguiContexts, mut pp: ResMut<LocalPhysicsParams>
 
             // --- Chassis ---------------------------------------------------
             egui::CollapsingHeader::new("Chassis")
-                .default_open(true)
+                .default_open(false)
                 .show(ui, |ui| {
                     ui.label("Linear damping");
                     ui.add(egui::Slider::new(&mut p.linear_damping, 0.0..=10.0).step_by(0.1));

@@ -24,7 +24,7 @@ pub fn airship_ui(mut contexts: EguiContexts, mut ap: ResMut<LocalAirshipParams>
 
             // --- Hull ------------------------------------------------------
             egui::CollapsingHeader::new("Hull")
-                .default_open(true)
+                .default_open(false)
                 .show(ui, |ui| {
                     ui.label("Length (m)");
                     changed |= ui
@@ -44,7 +44,7 @@ pub fn airship_ui(mut contexts: EguiContexts, mut ap: ResMut<LocalAirshipParams>
 
             // --- Pontoons --------------------------------------------------
             egui::CollapsingHeader::new("Pontoons")
-                .default_open(true)
+                .default_open(false)
                 .show(ui, |ui| {
                     ui.label("Shape");
                     let shape_label = match p.pontoon_shape {
@@ -98,7 +98,7 @@ pub fn airship_ui(mut contexts: EguiContexts, mut ap: ResMut<LocalAirshipParams>
 
             // --- Mast & Sail -----------------------------------------------
             egui::CollapsingHeader::new("Mast & Sail")
-                .default_open(true)
+                .default_open(false)
                 .show(ui, |ui| {
                     ui.label("Mast height (m)");
                     changed |= ui
