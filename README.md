@@ -1,73 +1,44 @@
-# Symbios Overlands
+# Symbios Overlands 🚧 Currently in testing
 
-🚧 *Currently in testing* 🚧
+A decentralized, physics-driven multiplayer sandbox for the ATProto network.
 
-A multiplayer physics sandbox where airships sail across procedurally
-generated terrain. Built with [Bevy 0.18](https://bevyengine.org/) and
-[Avian3D](https://github.com/Jondolf/avian), networked peer-to-peer, and signed
-in via [ATProto](https://atproto.com/).
+Automatically [compiled to WASM and deployed to Github Pages](https://thejanusstream.github.io/symbios-overlands).
 
-## Overview
+**Symbios Overlands** is the flagship showcase application for the Symbios ecosystem. Built on the [Bevy](https://bevyengine.org/) engine, it combines deterministic procedural generation (`symbios-ground`) with peer-to-peer WebRTC networking and federated identity (`bevy_symbios_multiuser`).
 
-Symbios Overlands is an experimental open-world vehicle sim that targets both
-native desktop and the browser (WebAssembly). Each player drives a small
-solar-sailed rover / airship across a shared, procedurally eroded landscape,
-with identity and avatars sourced from their Bluesky / ATProto account.
+Players authenticate via Bluesky/ATProto, spawn a physics-enabled amphibious "hover-rover" adorned with their profile picture, and explore a shared, mathematically identical landscape while chatting.
 
-- **Procedural terrain** — Voronoi terracing with hydraulic + thermal erosion,
-  4-layer triplanar splat texturing (grass / dirt / rock / snow).
-- **Vehicle physics** — Avian3D rigid-body chassis with ray-cast suspension,
-  drive / turn torque, lateral grip, jump, and auto-uprighting.
-- **Peer-to-peer multiplayer** — WebRTC-based signalling via a relay, with
-  per-peer avatar and vessel-design sync.
-- **ATProto identity** — log in with a Bluesky handle + app password; your
-  profile picture becomes the airship's sail.
-- **In-game tuning UI** — live-editable physics, airship geometry, diagnostics,
-  and chat panels (egui).
+There is no central game server. There is no competitive objective. It is a space to hang out, drift over procedural dunes, sail the seas, and talk.
 
-## Running
+## Key Features
 
-### Native
+* **Sovereign Identity & Avatars:** Authenticate directly via your ATProto PDS. The game automatically resolves your DID, fetches your profile picture (bypassing CORS via `sync.getBlob` on WASM), and mounts it as the double-sided "sail" of your rover.
+* **Social Graph Resonance:** The environment actively queries the ATProto social graph (`app.bsky.graph.getRelationships`). If a peer in the room is a "Mutual" (you follow each other), their rover's mast tip emits a warm, identifying glow.
+* **P2P WebRTC Networking:** Powered by `bevy_symbios_multiuser`. High-frequency physics transforms are broadcast over Unreliable data channels, while chat and identity data are guaranteed via Reliable channels.
+* **Kinematic Spline Smoothing:** Remote peers aren't just snapped to incoming packets. Transforms are pushed to a 50ms jitter buffer and interpolated using Cubic Hermite splines (`bevy_math::curve`), completely masking WebRTC network jitter for a buttery-smooth visual experience.
+* **Bandwidth Throttling:** When a rover comes to a stop (e.g., parking for a "campfire" chat), the client automatically drops its transform broadcast rate from 60Hz to 2Hz, preserving bandwidth and reducing the deserialization CPU load for all connected peers.
+* **Amphibious Raycast Rovers:** Custom vehicles built on [Avian3D](https://github.com/Jondolf/avian). To navigate jagged procedural terrain, vehicles use a raycast suspension system (Hooke's Law + Damping). When entering the procedural ocean, the forces seamlessly transition to Archimedean buoyancy. Drive the dunes, sail the seas.
+* **Deterministic Procedural Terrain:** Powered by `bevy_symbios_ground`. Every client generates the exact same eroded landscape and triplanar PBR splat textures from a fixed seed locally.
 
-```sh
+## Architecture
+
+Overlands utilizes a **Sovereign Broker** pattern:
+
+1. **Auth:** Client logs into ATProto to get a Service JWT.
+2. **Signaling:** Client connects to a lightweight Axum relay server, proving identity via the JWT.
+3. **P2P:** The relay brokers a WebRTC SDP handshake, then steps out of the way. All movement and chat data flows directly peer-to-peer.
+4. **Simulation:** The Local Player is simulated as a `RigidBody::Dynamic`. Remote peers are spawned purely as kinematic visual transforms to prevent physics desynchronization across different CPUs.
+
+## Running the Sandbox
+
+### Prerequisites
+
+To play multiplayer, you will need access to a running `bevy_symbios_multiuser` relay server. The login UI defaults to a public instance if available.
+
+### Native (Desktop)
+
+For optimal physics and terrain generation performance, always run in release mode:
+
+```bash
 cargo run --release
 ```
-
-### Web (WASM)
-
-```sh
-cargo build --release --target wasm32-unknown-unknown
-wasm-bindgen --out-dir ./dist --target web \
-    --out-name symbios-overlands --no-typescript \
-    target/wasm32-unknown-unknown/release/symbios-overlands.wasm
-cp index.html dist/ && cp -r assets dist/
-# Serve dist/ with any static HTTP server.
-```
-
-A `main`-branch build is deployed automatically to GitHub Pages via
-[.github/workflows/deploy.yml](.github/workflows/deploy.yml).
-
-## Project Layout
-
-| Path | Purpose |
-| ---- | ------- |
-| [src/main.rs](src/main.rs) | App bootstrap, plugin wiring, state machine |
-| [src/terrain.rs](src/terrain.rs) | Heightmap generation + erosion |
-| [src/splat.rs](src/splat.rs) | Procedural splat textures |
-| [src/rover.rs](src/rover.rs) | Vehicle mesh, physics, controls |
-| [src/camera.rs](src/camera.rs) | Orbit camera + atmospheric fog |
-| [src/network.rs](src/network.rs) | P2P sync of transforms, chat, avatars |
-| [src/avatar.rs](src/avatar.rs) | ATProto profile fetch + sail texture |
-| [src/protocol.rs](src/protocol.rs) | Wire messages between peers |
-| [src/state.rs](src/state.rs) | Global resources + `AppState` |
-| [src/config.rs](src/config.rs) | All tunable constants (central) |
-| [src/ui/](src/ui/) | egui panels: login, chat, diagnostics, airship, physics |
-| [assets/shaders/](assets/shaders/) | WGSL shaders for splat + water |
-
-All tuneable numbers (suspension stiffness, terrain scale, fog density, airship
-geometry, etc.) live in [src/config.rs](src/config.rs) — start there when
-tweaking.
-
-## License
-
-See [LICENSE](LICENSE).

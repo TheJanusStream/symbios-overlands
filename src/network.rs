@@ -196,7 +196,7 @@ fn broadcast_local_state(
     };
 
     // Throttle transform broadcasts when nearly stationary: drop from ~60 Hz
-    // to ~5 Hz (every 12th tick) to save WebRTC bandwidth and WASM CPU.
+    // to ~2 Hz (every 30th tick) to save WebRTC bandwidth and WASM CPU.
     let stationary = lin_vel.0.length() <= config::network::STATIONARY_SPEED_THRESHOLD;
     let should_send = !stationary
         || tick.is_multiple_of(config::network::STATIONARY_BROADCAST_DIVISOR);
