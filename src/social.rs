@@ -39,6 +39,7 @@ pub struct ResonanceFetchTask(pub Task<SocialResonance>);
 /// Dispatch a relationship query for every peer that has announced a DID but
 /// does not yet carry a `SocialResonance` state.  Requires an authenticated
 /// `AtprotoSession` so we know which `actor` to ask about.
+#[allow(clippy::type_complexity)]
 fn dispatch_resonance_queries(
     mut commands: Commands,
     session: Option<Res<AtprotoSession>>,
@@ -90,6 +91,7 @@ fn poll_resonance_tasks(
 /// colour so mutual follows are visually obvious at a glance.  Runs each
 /// frame but only does work for peers whose resonance flag *or* whose child
 /// set has just changed — the latter catches airship redesigns.
+#[allow(clippy::type_complexity)]
 fn sync_social_resonance(
     changed: Query<
         (&RemotePeer, &SocialResonance, &Children),

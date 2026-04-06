@@ -312,8 +312,7 @@ fn smooth_remote_transforms(
         let h10 = t3 - 2.0 * t2 + t;
         let h01 = -2.0 * t3 + 3.0 * t2;
         let h11 = t3 - t2;
-        tf.translation =
-            a.position * h00 + tangent_a * h10 + b.position * h01 + tangent_b * h11;
+        tf.translation = a.position * h00 + tangent_a * h10 + b.position * h01 + tangent_b * h11;
         tf.rotation = a.rotation.slerp(b.rotation, t);
     }
 }

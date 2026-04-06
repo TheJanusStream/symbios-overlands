@@ -73,9 +73,7 @@ pub fn physics_ui(mut contexts: EguiContexts, mut pp: ResMut<LocalPhysicsParams>
                 .default_open(false)
                 .show(ui, |ui| {
                     ui.label("Water rest length (m)");
-                    ui.add(
-                        egui::Slider::new(&mut p.water_rest_length, 0.0..=3.0).step_by(0.05),
-                    );
+                    ui.add(egui::Slider::new(&mut p.water_rest_length, 0.0..=3.0).step_by(0.05));
 
                     ui.label("Strength (N/m)");
                     ui.add(
@@ -83,9 +81,7 @@ pub fn physics_ui(mut contexts: EguiContexts, mut pp: ResMut<LocalPhysicsParams>
                     );
 
                     ui.label("Damping (N·s/m)");
-                    ui.add(
-                        egui::Slider::new(&mut p.buoyancy_damping, 0.0..=2_000.0).step_by(10.0),
-                    );
+                    ui.add(egui::Slider::new(&mut p.buoyancy_damping, 0.0..=2_000.0).step_by(10.0));
 
                     ui.label("Max depth (m)");
                     ui.add(egui::Slider::new(&mut p.buoyancy_max_depth, 0.1..=5.0).step_by(0.05));

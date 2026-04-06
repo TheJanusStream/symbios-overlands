@@ -29,6 +29,7 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Symbios Overlands".into(),
+                prevent_default_event_handling: false,
                 ..default()
             }),
             ..default()
