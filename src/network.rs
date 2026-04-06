@@ -1,3 +1,4 @@
+use avian3d::prelude::LinearVelocity;
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
@@ -182,7 +183,7 @@ fn handle_incoming_messages(
 }
 
 fn broadcast_local_state(
-    query: Query<&Transform, With<LocalPlayer>>,
+    query: Query<(&Transform, &LinearVelocity), With<LocalPlayer>>,
     session: Option<Res<AtprotoSession>>,
     ap: Res<LocalAirshipParams>,
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
@@ -190,15 +191,25 @@ fn broadcast_local_state(
 ) {
     *tick = tick.wrapping_add(1);
 
-    let Ok(tf) = query.single() else { return };
+    let Ok((tf, lin_vel)) = query.single() else {
+        return;
+    };
 
-    writer.write(Broadcast {
-        payload: OverlandsMessage::Transform {
-            position: tf.translation.to_array(),
-            rotation: tf.rotation.to_array(),
-        },
-        channel: ChannelKind::Unreliable,
-    });
+    // Throttle transform broadcasts when nearly stationary: drop from ~60 Hz
+    // to ~5 Hz (every 12th tick) to save WebRTC bandwidth and WASM CPU.
+    let stationary = lin_vel.0.length() <= config::network::STATIONARY_SPEED_THRESHOLD;
+    let should_send = !stationary
+        || tick.is_multiple_of(config::network::STATIONARY_BROADCAST_DIVISOR);
+
+    if should_send {
+        writer.write(Broadcast {
+            payload: OverlandsMessage::Transform {
+                position: tf.translation.to_array(),
+                rotation: tf.rotation.to_array(),
+            },
+            channel: ChannelKind::Unreliable,
+        });
+    }
 
     if tick.is_multiple_of(config::network::IDENTITY_BROADCAST_INTERVAL_TICKS)
         && let Some(sess) = &session

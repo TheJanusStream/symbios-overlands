@@ -254,6 +254,14 @@ pub mod network {
     pub const KINEMATIC_BUFFER_CAPACITY: usize = 32;
     /// Emissive intensity applied to the mast tip of a mutual-follow peer.
     pub const MUTUAL_MAST_EMISSIVE: f32 = 5.0;
+
+    // --- Stationary bandwidth throttling ------------------------------------
+    /// Linear speed (m/s) at or below which the rover is considered stationary
+    /// and transform broadcasts are throttled to save bandwidth.
+    pub const STATIONARY_SPEED_THRESHOLD: f32 = 0.1;
+    /// Only send a transform every N-th tick while stationary.  At 60 fps this
+    /// yields ~2 Hz (60 / 30 = 2).
+    pub const STATIONARY_BROADCAST_DIVISOR: u32 = 30;
 }
 
 // ---------------------------------------------------------------------------
