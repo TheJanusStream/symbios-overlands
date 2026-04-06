@@ -64,11 +64,19 @@ fn trigger_avatar_fetches(mut commands: Commands, pending: Query<(Entity, &Avata
 fn spawn_avatar_task(commands: &mut Commands, entity: Entity, did: String) {
     let pool = bevy::tasks::AsyncComputeTaskPool::get();
     let task = pool.spawn(async move {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap()
-            .block_on(fetch_avatar_bytes(did))
+        let fut = fetch_avatar_bytes(did);
+        #[cfg(target_arch = "wasm32")]
+        {
+            fut.await
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(fut)
+        }
     });
     commands.entity(entity).insert(AvatarFetchTask(task));
 }

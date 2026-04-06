@@ -59,12 +59,20 @@ fn dispatch_resonance_queries(
         let remote = remote_did.to_string();
         let pool = AsyncComputeTaskPool::get();
         let task = pool.spawn(async move {
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .ok()
-                .map(|rt| rt.block_on(query_resonance(local_did, remote)))
-                .unwrap_or(SocialResonance::None)
+            let fut = query_resonance(local_did, remote);
+            #[cfg(target_arch = "wasm32")]
+            {
+                fut.await
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .ok()
+                    .map(|rt| rt.block_on(fut))
+                    .unwrap_or(SocialResonance::None)
+            }
         });
         commands.entity(entity).insert(ResonanceFetchTask(task));
     }

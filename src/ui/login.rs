@@ -83,22 +83,30 @@ pub fn login_ui(
 
                     let pool = bevy::tasks::AsyncComputeTaskPool::get();
                     let task = pool.spawn(async move {
-                        tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .build()
-                            .unwrap()
-                            .block_on(async move {
-                                let client = reqwest::Client::new();
-                                let session = create_session(&client, &creds).await?;
-                                let service_token = get_service_auth(
-                                    &client,
-                                    &session,
-                                    &creds.pds_url,
-                                    &service_did,
-                                )
-                                .await?;
-                                Ok((session, service_token))
-                            })
+                        let do_auth = async {
+                            let client = reqwest::Client::new();
+                            let session = create_session(&client, &creds).await?;
+                            let service_token = get_service_auth(
+                                &client,
+                                &session,
+                                &creds.pds_url,
+                                &service_did,
+                            )
+                            .await?;
+                            Ok((session, service_token))
+                        };
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            do_auth.await
+                        }
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            tokio::runtime::Builder::new_current_thread()
+                                .enable_all()
+                                .build()
+                                .unwrap()
+                                .block_on(do_auth)
+                        }
                     });
                     commands.spawn(AuthTask(task));
                 }
