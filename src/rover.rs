@@ -490,12 +490,14 @@ fn apply_uprighting_force(
 /// the rover into a raft whenever its origin dips below `water_level_y()`.
 fn apply_buoyancy_forces(
     pp: Res<LocalPhysicsParams>,
+    room_record: Option<Res<crate::pds::RoomRecord>>,
     mut query: Query<(Forces, &GlobalTransform), With<LocalPlayer>>,
 ) {
     let Ok((mut forces, global_tf)) = query.single_mut() else {
         return;
     };
-    let wl = water_level_y() + pp.water_rest_length;
+    let water_offset = room_record.as_ref().map(|r| r.water_level_offset).unwrap_or(0.0);
+    let wl = water_level_y() + water_offset + pp.water_rest_length;
     let y = global_tf.translation().y;
     let depth = (wl - y).clamp(0.0, pp.buoyancy_max_depth);
     if depth <= 0.0 {

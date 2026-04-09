@@ -19,6 +19,19 @@ mod ui;
 mod water;
 
 use pds::RoomRecord;
+
+/// Format elapsed seconds as a `MM:SS` (or `H:MM:SS`) timestamp string.
+pub fn format_elapsed_ts(elapsed_secs: f64) -> String {
+    let total = elapsed_secs as u64;
+    let h = total / 3600;
+    let m = (total % 3600) / 60;
+    let s = total % 60;
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m:02}:{s:02}")
+    }
+}
 use state::{
     AppState, ChatHistory, CurrentRoomDid, DiagnosticsLog, LocalAirshipParams, LocalPhysicsParams,
 };

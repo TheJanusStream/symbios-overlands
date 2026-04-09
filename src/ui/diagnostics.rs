@@ -2,11 +2,12 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
-use crate::state::{AppState, DiagnosticsLog, RemotePeer};
+use crate::state::{AppState, CurrentRoomDid, DiagnosticsLog, RemotePeer};
 
 pub fn diagnostics_ui(
     mut contexts: EguiContexts,
     session: Option<Res<AtprotoSession>>,
+    room_did: Option<Res<CurrentRoomDid>>,
     mut peers: Query<&mut RemotePeer>,
     diagnostics: Res<DiagnosticsLog>,
     mut next_state: ResMut<NextState<AppState>>,
@@ -39,6 +40,16 @@ pub fn diagnostics_ui(
             }
 
             ui.separator();
+
+            if let Some(room) = &room_did {
+                ui.label("Room");
+                ui.monospace(
+                    egui::RichText::new(&room.0)
+                        .small()
+                        .color(egui::Color32::GRAY),
+                );
+                ui.separator();
+            }
 
             let peer_count = peers.iter().count();
             ui.label(format!("Peers ({})", peer_count));
@@ -77,12 +88,19 @@ pub fn diagnostics_ui(
                 .stick_to_bottom(true)
                 .max_height(log_height)
                 .show(ui, |ui| {
-                    for entry in diagnostics.iter() {
-                        ui.monospace(
-                            egui::RichText::new(entry)
-                                .small()
-                                .color(egui::Color32::LIGHT_GRAY),
-                        );
+                    for (ts, entry) in diagnostics.iter() {
+                        ui.horizontal(|ui| {
+                            ui.monospace(
+                                egui::RichText::new(ts)
+                                    .small()
+                                    .color(egui::Color32::GRAY),
+                            );
+                            ui.monospace(
+                                egui::RichText::new(entry)
+                                    .small()
+                                    .color(egui::Color32::LIGHT_GRAY),
+                            );
+                        });
                     }
                 });
         });

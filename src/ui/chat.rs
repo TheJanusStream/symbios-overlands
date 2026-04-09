@@ -12,6 +12,7 @@ pub fn chat_ui(
     mut chat: ResMut<ChatHistory>,
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
     mut input: Local<String>,
+    time: Res<Time>,
 ) {
     use crate::config::ui::chat as cfg;
 
@@ -32,8 +33,12 @@ pub fn chat_ui(
                 .stick_to_bottom(true)
                 .show(ui, |ui| {
                     //ui.set_max_width(ui.available_width());
-                    for (author, text) in &chat.messages {
+                    for (author, text, ts) in &chat.messages {
                         ui.horizontal_wrapped(|ui| {
+                            ui.colored_label(
+                                egui::Color32::GRAY,
+                                format!("[{}]", ts),
+                            );
                             let [r, g, b] = cfg::AUTHOR_COLOR;
                             ui.colored_label(
                                 egui::Color32::from_rgb(r, g, b),
@@ -61,7 +66,8 @@ pub fn chat_ui(
                         .as_ref()
                         .map(|s| s.handle.clone())
                         .unwrap_or_else(|| "me".into());
-                    chat.messages.push((author, text.clone()));
+                    let ts = crate::format_elapsed_ts(time.elapsed_secs_f64());
+                    chat.messages.push((author, text.clone(), ts));
 
                     writer.write(Broadcast {
                         payload: OverlandsMessage::Chat { text },

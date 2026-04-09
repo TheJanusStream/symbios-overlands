@@ -61,26 +61,37 @@ pub struct TransformBuffer {
 }
 
 /// Rolling chat history shown in the HUD.
+/// Each entry is `(author, text, timestamp_label)`.
 #[derive(Resource, Default)]
 pub struct ChatHistory {
-    pub messages: Vec<(String, String)>,
+    pub messages: Vec<(String, String, String)>,
 }
 
-/// Rolling diagnostic event log.
+/// Rolling diagnostic event log with session-relative timestamps.
 #[derive(Resource, Default)]
 pub struct DiagnosticsLog {
-    entries: std::collections::VecDeque<String>,
+    entries: std::collections::VecDeque<(String, String)>,
 }
 
 impl DiagnosticsLog {
-    pub fn push(&mut self, entry: String) {
-        self.entries.push_back(entry);
+    /// Push a new entry. `elapsed_secs` comes from `Time::elapsed_secs_f64`.
+    pub fn push(&mut self, elapsed_secs: f64, entry: String) {
+        let total = elapsed_secs as u64;
+        let h = total / 3600;
+        let m = (total % 3600) / 60;
+        let s = total % 60;
+        let ts = if h > 0 {
+            format!("{h}:{m:02}:{s:02}")
+        } else {
+            format!("{m:02}:{s:02}")
+        };
+        self.entries.push_back((ts, entry));
         if self.entries.len() > crate::config::state::MAX_DIAGNOSTICS_ENTRIES {
             self.entries.pop_front();
         }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &String> {
+    pub fn iter(&self) -> impl Iterator<Item = &(String, String)> {
         self.entries.iter()
     }
 }

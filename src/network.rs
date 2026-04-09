@@ -39,11 +39,13 @@ fn handle_peer_connections(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut diagnostics: ResMut<DiagnosticsLog>,
     peers: Query<(Entity, &RemotePeer)>,
+    time: Res<Time>,
 ) {
+    let elapsed = time.elapsed_secs_f64();
     for event in peer_events.drain() {
         match event.state {
             PeerConnectionState::Connected => {
-                diagnostics.push(format!("[+] Peer {} connected", event.peer));
+                diagnostics.push(elapsed, format!("[+] Peer {} connected", event.peer));
                 let entity = commands
                     .spawn((
                         Transform::from_xyz(0.0, 10.0, 0.0),
@@ -79,7 +81,7 @@ fn handle_peer_connections(
                             .or(peer.did.as_deref())
                             .unwrap_or("unknown");
                         diagnostics
-                            .push(format!("[-] Peer {} ({}) disconnected", event.peer, label));
+                            .push(elapsed, format!("[-] Peer {} ({}) disconnected", event.peer, label));
                         commands.entity(entity).despawn();
                     }
                 }
@@ -175,7 +177,8 @@ fn handle_incoming_messages(
                         .find(|(_, peer, _, _, _, _)| peer.peer_id == msg.sender)
                         .and_then(|(_, peer, _, _, _, _)| peer.handle.clone())
                         .unwrap_or_else(|| msg.sender.to_string());
-                    chat.messages.push((author, text));
+                    let ts = crate::format_elapsed_ts(now);
+                    chat.messages.push((author, text, ts));
                 }
             }
         }
