@@ -3,3 +3,4 @@ pub mod chat;
 pub mod diagnostics;
 pub mod login;
 pub mod physics;
+pub mod room;

@@ -16,8 +16,20 @@ use symbios_ground::{
 
 use crate::config::terrain as tcfg;
 use crate::splat::{SplatExtension, SplatTerrainMaterial, SplatUniforms};
-use crate::state::AppState;
+use crate::state::{AppState, CurrentRoomDid};
 use crate::water::{WaterExtension, WaterMaterial};
+
+/// Deterministic FNV-1a 64-bit hash.  Standard `DefaultHasher` is randomly
+/// keyed per-process (HashDoS mitigation) so it cannot be used here — every
+/// player visiting the same DID must derive the identical seed.
+pub fn hash_did_to_seed(did: &str) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in did.bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
 
 #[derive(Component)]
 pub struct TerrainMesh;
@@ -107,9 +119,10 @@ fn cleanup_terrain(
 // Loading state — terrain generation + async texture tasks
 // ---------------------------------------------------------------------------
 
-fn start_terrain_generation(mut commands: Commands) {
+fn start_terrain_generation(mut commands: Commands, room_did: Res<CurrentRoomDid>) {
+    let seed = hash_did_to_seed(&room_did.0);
     let pool = AsyncComputeTaskPool::get();
-    let task = pool.spawn(async move { generate_terrain() });
+    let task = pool.spawn(async move { generate_terrain(seed) });
     commands.insert_resource(TerrainTask(task));
 }
 
@@ -221,6 +234,7 @@ fn spawn_terrain_mesh(
     mut materials: ResMut<Assets<SplatTerrainMaterial>>,
     mut water_materials: ResMut<Assets<WaterMaterial>>,
     hm_res: Res<FinishedHeightMap>,
+    room_record: Option<Res<crate::pds::RoomRecord>>,
 ) {
     let hm = &hm_res.0;
     let world_extent = (hm.width() - 1) as f32 * hm.scale();
@@ -320,7 +334,11 @@ fn spawn_terrain_mesh(
         extension: WaterExtension::default(),
     });
 
-    let wl = (tcfg::water::LEVEL_FACTOR * tcfg::HEIGHT_SCALE).max(0.001);
+    let water_offset = room_record
+        .as_ref()
+        .map(|r| r.water_level_offset)
+        .unwrap_or(0.0);
+    let wl = (tcfg::water::LEVEL_FACTOR * tcfg::HEIGHT_SCALE + water_offset).max(0.001);
     commands.spawn((
         Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
         MeshMaterial3d(water_mat),
@@ -497,15 +515,11 @@ fn build_texture_array(
 // Heightmap generation (runs on async thread)
 // ---------------------------------------------------------------------------
 
-fn generate_terrain() -> HeightMap {
+fn generate_terrain(seed: u64) -> HeightMap {
     let mut hm = HeightMap::new(tcfg::GRID_SIZE, tcfg::GRID_SIZE, tcfg::CELL_SCALE);
 
-    VoronoiTerracing::new(
-        tcfg::SEED,
-        tcfg::voronoi::NUM_SEEDS,
-        tcfg::voronoi::NUM_TERRACES,
-    )
-    .generate(&mut hm);
+    VoronoiTerracing::new(seed, tcfg::voronoi::NUM_SEEDS, tcfg::voronoi::NUM_TERRACES)
+        .generate(&mut hm);
     // normalize() is intentionally omitted: VoronoiTerracing already produces
     // bounded [0, 1] output. Only FbmNoise requires a post-generation normalize.
 
@@ -516,7 +530,7 @@ fn generate_terrain() -> HeightMap {
     // Hydraulic erosion runs first (carves the scaled terrain),
     // then thermal erosion smooths the resulting slopes.
     HydraulicErosion {
-        seed: tcfg::SEED,
+        seed,
         num_drops: tcfg::hydraulic::NUM_DROPS,
         max_steps: tcfg::hydraulic::MAX_STEPS,
         inertia: tcfg::hydraulic::INERTIA,

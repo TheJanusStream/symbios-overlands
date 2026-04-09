@@ -214,7 +214,11 @@ async fn fetch_image_bytes(
 ) -> Option<Vec<u8>> {
     let resp = client.get(avatar_url).send().await.ok()?;
     if !resp.status().is_success() {
-        bevy::log::warn!("Failed to fetch avatar image for {}: {}", did, resp.status());
+        bevy::log::warn!(
+            "Failed to fetch avatar image for {}: {}",
+            did,
+            resp.status()
+        );
         return None;
     }
     Some(resp.bytes().await.ok()?.to_vec())
@@ -243,32 +247,4 @@ async fn fetch_image_bytes(
 }
 
 #[cfg(target_arch = "wasm32")]
-async fn resolve_pds(client: &reqwest::Client, did: &str) -> Option<String> {
-    let url = if did.starts_with("did:plc:") {
-        format!("https://plc.directory/{}", did)
-    } else if let Some(domain) = did.strip_prefix("did:web:") {
-        format!("https://{}/.well-known/did.json", domain)
-    } else {
-        return None;
-    };
-    let doc: DidDocument = client.get(&url).send().await.ok()?.json().await.ok()?;
-    doc.service
-        .iter()
-        .find(|s| s.id == "#atproto_pds")
-        .map(|s| s.service_endpoint.clone())
-}
-
-#[cfg(target_arch = "wasm32")]
-#[derive(Deserialize)]
-struct DidDocument {
-    #[serde(default)]
-    service: Vec<DidService>,
-}
-
-#[cfg(target_arch = "wasm32")]
-#[derive(Deserialize)]
-struct DidService {
-    id: String,
-    #[serde(rename = "serviceEndpoint")]
-    service_endpoint: String,
-}
+use crate::pds::resolve_pds;

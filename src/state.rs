@@ -89,6 +89,12 @@ impl DiagnosticsLog {
 #[derive(Resource, Clone)]
 pub struct RelayHost(pub String);
 
+/// The DID of the room (overland) we are currently visiting.
+/// If the user leaves the login field blank, this defaults to their own DID
+/// (i.e. "home").
+#[derive(Resource, Clone)]
+pub struct CurrentRoomDid(pub String);
+
 /// Local player's runtime physics tuning parameters.
 /// Initialised from `config::rover` defaults and editable via the physics GUI.
 #[derive(Resource)]

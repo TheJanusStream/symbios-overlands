@@ -8,6 +8,7 @@ mod camera;
 pub mod config;
 mod logout;
 mod network;
+pub mod pds;
 mod protocol;
 mod rover;
 mod social;
@@ -17,7 +18,10 @@ mod terrain;
 mod ui;
 mod water;
 
-use state::{AppState, ChatHistory, DiagnosticsLog, LocalAirshipParams, LocalPhysicsParams};
+use pds::RoomRecord;
+use state::{
+    AppState, ChatHistory, CurrentRoomDid, DiagnosticsLog, LocalAirshipParams, LocalPhysicsParams,
+};
 
 fn main() {
     #[cfg(target_arch = "wasm32")]
@@ -52,6 +56,11 @@ fn main() {
             EguiPrimaryContextPass,
             (ui::login::login_ui, ui::login::poll_auth_task).run_if(in_state(AppState::Login)),
         )
+        .add_systems(OnEnter(AppState::Loading), start_room_record_fetch)
+        .add_systems(
+            Update,
+            poll_room_record_task.run_if(in_state(AppState::Loading)),
+        )
         .add_systems(
             EguiPrimaryContextPass,
             loading_ui.run_if(in_state(AppState::Loading)),
@@ -63,10 +72,16 @@ fn main() {
                 ui::chat::chat_ui,
                 ui::airship::airship_ui,
                 ui::physics::physics_ui,
+                ui::room::room_admin_ui,
             )
                 .run_if(in_state(AppState::InGame)),
         )
+        .add_systems(
+            Update,
+            ui::room::poll_publish_tasks.run_if(in_state(AppState::InGame)),
+        )
         .add_systems(Startup, setup_lighting)
+        .add_systems(OnEnter(AppState::InGame), apply_room_sun_color)
         .run();
 }
 
@@ -74,9 +89,13 @@ fn setup_lighting(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    room_record: Option<Res<RoomRecord>>,
 ) {
     let lp = config::lighting::LIGHT_POS;
-    let sc = config::lighting::SUN_COLOR;
+    let sc = room_record
+        .as_ref()
+        .map(|r| r.sun_color)
+        .unwrap_or(config::lighting::SUN_COLOR);
 
     let cascade_shadow_config = CascadeShadowConfigBuilder {
         first_cascade_far_bound: config::lighting::CASCADE_FIRST_FAR,
@@ -124,4 +143,68 @@ fn loading_ui(mut contexts: bevy_egui::EguiContexts) {
             ui.spinner();
         });
     });
+}
+
+// ---------------------------------------------------------------------------
+// Room record loading (runs during AppState::Loading)
+// ---------------------------------------------------------------------------
+
+#[derive(Component)]
+struct RoomRecordTask(bevy::tasks::Task<Option<RoomRecord>>);
+
+fn start_room_record_fetch(mut commands: Commands, room_did: Res<CurrentRoomDid>) {
+    let did = room_did.0.clone();
+    let pool = bevy::tasks::AsyncComputeTaskPool::get();
+    let task = pool.spawn(async move {
+        let fut = async {
+            let client = reqwest::Client::new();
+            pds::fetch_room_record(&client, &did).await
+        };
+        #[cfg(target_arch = "wasm32")]
+        {
+            fut.await
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(fut)
+        }
+    });
+    commands.spawn(RoomRecordTask(task));
+}
+
+fn poll_room_record_task(mut commands: Commands, mut tasks: Query<(Entity, &mut RoomRecordTask)>) {
+    for (entity, mut task) in tasks.iter_mut() {
+        let Some(result) =
+            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.0))
+        else {
+            continue;
+        };
+
+        commands.entity(entity).despawn();
+
+        let record = result.unwrap_or_default();
+        info!(
+            "Room record loaded: water_offset={}, sun={:?}",
+            record.water_level_offset, record.sun_color
+        );
+        commands.insert_resource(record);
+    }
+}
+
+/// Apply the room record's sun colour to the directional light when entering
+/// InGame.  `setup_lighting` runs at Startup before the record is fetched, so
+/// this system patches the light once the record is available.
+fn apply_room_sun_color(
+    room_record: Option<Res<RoomRecord>>,
+    mut lights: Query<&mut DirectionalLight>,
+) {
+    let Some(record) = room_record else { return };
+    let c = record.sun_color;
+    for mut light in lights.iter_mut() {
+        light.color = Color::srgb(c[0], c[1], c[2]);
+    }
 }

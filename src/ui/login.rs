@@ -8,7 +8,7 @@ use bevy_symbios_multiuser::signaller::{TokenSource, TokenSourceRes};
 use std::marker::PhantomData;
 
 use crate::protocol::OverlandsMessage;
-use crate::state::{AppState, RelayHost};
+use crate::state::{AppState, CurrentRoomDid, RelayHost};
 
 /// (session, service_token)
 type LoginOutcome = Result<(AtprotoSession, String), bevy_symbios_multiuser::error::SymbiosError>;
@@ -22,6 +22,7 @@ pub struct LoginFormState {
     handle: String,
     password: String,
     relay_host: String,
+    target_did: String,
     error: Option<String>,
 }
 
@@ -32,6 +33,7 @@ impl Default for LoginFormState {
             handle: crate::config::login::DEFAULT_HANDLE.into(),
             password: crate::config::login::DEFAULT_PASSWORD.into(),
             relay_host: crate::config::login::DEFAULT_RELAY_HOST.into(),
+            target_did: String::new(),
             error: None,
         }
     }
@@ -66,6 +68,10 @@ pub fn login_ui(
                 ui.label("Relay Host:");
                 ui.text_edit_singleline(&mut form.relay_host);
             });
+            ui.horizontal(|ui| {
+                ui.label("Destination DID (blank = Home):");
+                ui.text_edit_singleline(&mut form.target_did);
+            });
 
             ui.add_space(8.0);
 
@@ -86,13 +92,9 @@ pub fn login_ui(
                         let do_auth = async {
                             let client = reqwest::Client::new();
                             let session = create_session(&client, &creds).await?;
-                            let service_token = get_service_auth(
-                                &client,
-                                &session,
-                                &creds.pds_url,
-                                &service_did,
-                            )
-                            .await?;
+                            let service_token =
+                                get_service_auth(&client, &session, &creds.pds_url, &service_did)
+                                    .await?;
                             Ok((session, service_token))
                         };
                         #[cfg(target_arch = "wasm32")]
@@ -140,6 +142,14 @@ pub fn poll_auth_task(
         match result {
             Ok((session, service_token)) => {
                 info!("Authenticated as {}", session.did);
+
+                let room_did = if form.target_did.trim().is_empty() {
+                    session.did.clone()
+                } else {
+                    form.target_did.trim().to_string()
+                };
+                commands.insert_resource(CurrentRoomDid(room_did.clone()));
+
                 commands.insert_resource(session);
 
                 let source: TokenSource =
@@ -148,7 +158,7 @@ pub fn poll_auth_task(
 
                 let host = relay_host.as_deref().map(|r| r.0.as_str()).unwrap_or("");
                 commands.insert_resource(SymbiosMultiuserConfig::<OverlandsMessage> {
-                    room_url: format!("wss://{}/overlands", host),
+                    room_url: format!("wss://{}/overlands/{}", host, room_did),
                     ice_servers: None,
                     _marker: PhantomData,
                 });
