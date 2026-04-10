@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::pds::RoomRecord;
+
 /// Shape of the outrigger pontoons.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Default)]
 pub enum PontoonShape {
@@ -99,4 +101,6 @@ pub enum OverlandsMessage {
     },
     /// Chat message sent over the Reliable channel.
     Chat { text: String },
+    /// Room owner broadcast their updated environment settings over Reliable.
+    RoomStateUpdate(RoomRecord),
 }

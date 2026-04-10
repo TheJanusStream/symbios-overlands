@@ -1,8 +1,10 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
+use bevy_symbios_multiuser::prelude::*;
 
 use crate::pds::{self, RoomRecord};
+use crate::protocol::OverlandsMessage;
 use crate::state::CurrentRoomDid;
 use crate::terrain::WaterVolume;
 
@@ -20,6 +22,7 @@ pub fn room_admin_ui(
     room_record: Option<ResMut<RoomRecord>>,
     mut water: Query<&mut Transform, With<WaterVolume>>,
     mut dir_lights: Query<&mut DirectionalLight>,
+    mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
 ) {
     let (Some(session), Some(room_did), Some(mut room_record)) = (session, room_did, room_record)
     else {
@@ -102,6 +105,13 @@ pub fn room_admin_ui(
                     }
                 });
                 commands.spawn(PublishRoomTask(task));
+
+                // Broadcast the updated room state to all connected peers so
+                // guests see the change instantly without refreshing.
+                writer.write(Broadcast {
+                    payload: OverlandsMessage::RoomStateUpdate(room_record.clone()),
+                    channel: ChannelKind::Reliable,
+                });
             }
         });
 }

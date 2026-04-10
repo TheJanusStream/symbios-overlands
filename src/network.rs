@@ -5,12 +5,14 @@ use bevy_symbios_multiuser::prelude::*;
 
 use crate::avatar::{AvatarFetchPending, AvatarMaterial};
 use crate::config;
+use crate::pds::RoomRecord;
 use crate::protocol::{AirshipParams, OverlandsMessage};
 use crate::rover::rebuild_airship_children;
 use crate::state::{
-    AppState, ChatHistory, DiagnosticsLog, LocalAirshipParams, LocalPlayer, RemotePeer,
-    TransformBuffer, TransformSample,
+    AppState, ChatHistory, CurrentRoomDid, DiagnosticsLog, LocalAirshipParams, LocalPlayer,
+    RemotePeer, TransformBuffer, TransformSample,
 };
+use crate::terrain::WaterVolume;
 
 pub struct NetworkPlugin;
 
@@ -106,6 +108,10 @@ fn handle_incoming_messages(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     time: Res<Time>,
+    room_did: Option<Res<CurrentRoomDid>>,
+    mut room_record: Option<ResMut<RoomRecord>>,
+    mut water: Query<&mut Transform, (With<WaterVolume>, Without<RemotePeer>)>,
+    mut dir_lights: Query<&mut DirectionalLight>,
 ) {
     let now = time.elapsed_secs_f64();
     for msg in queue.drain() {
@@ -160,6 +166,43 @@ fn handle_incoming_messages(
                             avatar_mat.map(|m| &m.0),
                         );
                         peer.airship = Some(airship.clone());
+                    }
+                }
+            }
+            OverlandsMessage::RoomStateUpdate(new_record) => {
+                // Only accept from the peer whose DID matches the room owner.
+                let sender_did = peers
+                    .iter()
+                    .find(|(_, peer, _, _, _, _)| peer.peer_id == msg.sender)
+                    .and_then(|(_, peer, _, _, _, _)| peer.did.clone());
+
+                let is_owner = match (&sender_did, &room_did) {
+                    (Some(did), Some(rd)) => did == &rd.0,
+                    _ => false,
+                };
+
+                if is_owner {
+                    if let Some(record) = room_record.as_mut() {
+                        record.water_level_offset = new_record.water_level_offset;
+                        record.sun_color = new_record.sun_color;
+
+                        // Live-update water volume transform.
+                        let base_wl = (crate::config::terrain::water::LEVEL_FACTOR
+                            * crate::config::terrain::HEIGHT_SCALE)
+                            .max(0.001);
+                        let wl = (base_wl + new_record.water_level_offset).max(0.001);
+                        for mut tf in water.iter_mut() {
+                            tf.translation.y = wl / 2.0;
+                            tf.scale.y = wl;
+                        }
+
+                        // Live-update sun colour.
+                        let c = new_record.sun_color;
+                        for mut light in dir_lights.iter_mut() {
+                            light.color = Color::srgb(c[0], c[1], c[2]);
+                        }
+
+                        info!("Room state updated from owner broadcast");
                     }
                 }
             }
