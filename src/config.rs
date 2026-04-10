@@ -259,6 +259,11 @@ pub mod network {
     /// Linear speed (m/s) at or below which the rover is considered stationary
     /// and transform broadcasts are throttled to save bandwidth.
     pub const STATIONARY_SPEED_THRESHOLD: f32 = 0.1;
+    /// Angular speed (rad/s) at or below which the rover is considered
+    /// rotationally at rest.  Both linear and angular thresholds must be met
+    /// before throttling kicks in, so a spinning-in-place chassis still
+    /// streams smooth rotation updates at full rate.
+    pub const STATIONARY_ANGULAR_THRESHOLD: f32 = 0.05;
     /// Only send a transform every N-th tick while stationary.  At 60 fps this
     /// yields ~2 Hz (60 / 30 = 2).
     pub const STATIONARY_BROADCAST_DIVISOR: u32 = 30;

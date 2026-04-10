@@ -49,12 +49,34 @@ pub struct DidService {
 // PDS resolution
 // ---------------------------------------------------------------------------
 
+/// Build the DID-document URL for a `did:web` identifier, following the W3C
+/// did:web spec rules for path-based identifiers and percent-encoded ports.
+///
+/// * `did:web:example.com`             → `https://example.com/.well-known/did.json`
+/// * `did:web:example.com:u:alice`     → `https://example.com/u/alice/did.json`
+/// * `did:web:example.com%3A8080`      → `https://example.com:8080/.well-known/did.json`
+fn did_web_document_url(rest: &str) -> String {
+    // The first colon separates the (possibly percent-encoded) domain from the
+    // optional path; any further colons inside the path become `/`.
+    let (domain_enc, path) = match rest.split_once(':') {
+        Some((d, p)) => (d, Some(p.replace(':', "/"))),
+        None => (rest, None),
+    };
+    // Ports in `did:web` are percent-encoded (`%3A`); decode them so reqwest
+    // produces a syntactically valid authority.
+    let domain = domain_enc.replace("%3A", ":");
+    match path {
+        Some(path) => format!("https://{}/{}/did.json", domain, path),
+        None => format!("https://{}/.well-known/did.json", domain),
+    }
+}
+
 /// Resolve a DID to its ATProto PDS endpoint by fetching the DID document.
 pub async fn resolve_pds(client: &reqwest::Client, did: &str) -> Option<String> {
     let url = if did.starts_with("did:plc:") {
         format!("https://plc.directory/{}", did)
-    } else if let Some(domain) = did.strip_prefix("did:web:") {
-        format!("https://{}/.well-known/did.json", domain)
+    } else if let Some(rest) = did.strip_prefix("did:web:") {
+        did_web_document_url(rest)
     } else {
         return None;
     };

@@ -1,7 +1,17 @@
-use avian3d::prelude::LinearVelocity;
+use avian3d::prelude::{AngularVelocity, LinearVelocity};
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
+use uuid::Uuid;
+
+/// Re-derive a `PeerId` from a DID using the same UUID v5 namespace the
+/// Sovereign Broker uses (`Uuid::NAMESPACE_X500`).  Used to verify that an
+/// `Identity` payload's self-reported DID matches the cryptographically
+/// assigned sender `PeerId` — without this check, any peer could claim any
+/// DID over the unauthenticated data channel.
+fn peer_id_from_did(did: &str) -> PeerId {
+    PeerId(Uuid::new_v5(&Uuid::NAMESPACE_X500, did.as_bytes()))
+}
 
 use crate::avatar::{AvatarFetchPending, AvatarMaterial};
 use crate::config;
@@ -135,6 +145,17 @@ fn handle_incoming_messages(
                 handle,
                 airship,
             } => {
+                // Reject identity claims whose DID does not hash to the verified
+                // sender PeerId.  The broker signs the PeerId from the JWT-resolved
+                // DID; any mismatch means the peer is impersonating another user.
+                if peer_id_from_did(&did) != msg.sender {
+                    warn!(
+                        "Rejecting spoofed Identity from {}: claimed did={}",
+                        msg.sender, did
+                    );
+                    continue;
+                }
+
                 for (entity, mut peer, _, _, children, avatar_mat) in peers.iter_mut() {
                     if peer.peer_id != msg.sender {
                         continue;
@@ -229,23 +250,32 @@ fn handle_incoming_messages(
 }
 
 fn broadcast_local_state(
-    query: Query<(&Transform, &LinearVelocity), With<LocalPlayer>>,
+    query: Query<(&Transform, &LinearVelocity, &AngularVelocity), With<LocalPlayer>>,
     session: Option<Res<AtprotoSession>>,
     ap: Res<LocalAirshipParams>,
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
     mut tick: Local<u32>,
+    mut was_stationary: Local<bool>,
 ) {
     *tick = tick.wrapping_add(1);
 
-    let Ok((tf, lin_vel)) = query.single() else {
+    let Ok((tf, lin_vel, ang_vel)) = query.single() else {
         return;
     };
 
     // Throttle transform broadcasts when nearly stationary: drop from ~60 Hz
     // to ~2 Hz (every 30th tick) to save WebRTC bandwidth and WASM CPU.
-    let stationary = lin_vel.0.length() <= config::network::STATIONARY_SPEED_THRESHOLD;
-    let should_send =
-        !stationary || tick.is_multiple_of(config::network::STATIONARY_BROADCAST_DIVISOR);
+    // Check both linear *and* angular velocity so a spinning-in-place rover
+    // still streams smooth rotation updates to peers.
+    let stationary = lin_vel.0.length() <= config::network::STATIONARY_SPEED_THRESHOLD
+        && ang_vel.0.length() <= config::network::STATIONARY_ANGULAR_THRESHOLD;
+    // Force one final broadcast on the tick we cross into rest so peers land
+    // on the true parked pose instead of interpolating toward a stale sample.
+    let just_came_to_rest = stationary && !*was_stationary;
+    *was_stationary = stationary;
+    let should_send = !stationary
+        || just_came_to_rest
+        || tick.is_multiple_of(config::network::STATIONARY_BROADCAST_DIVISOR);
 
     if should_send {
         writer.write(Broadcast {

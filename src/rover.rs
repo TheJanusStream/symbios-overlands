@@ -430,8 +430,14 @@ fn apply_suspension_forces(
         if compression > 0.0 {
             let r = world_origin - center_of_mass;
             let point_vel = lin_vel + ang_vel.cross(r);
+            // Damping must oppose the *compression rate* of the spring, not
+            // world-space vertical motion.  Project the contact-point velocity
+            // onto the terrain contact normal so horizontal travel across a
+            // slope — where `point_vel.y` is large but the spring length is
+            // effectively constant — produces zero damping force.
+            let closing_speed = -point_vel.dot(hit.normal);
             let spring_force = pp.suspension_stiffness * compression;
-            let damping_force = -pp.suspension_damping * point_vel.y;
+            let damping_force = pp.suspension_damping * closing_speed;
             let total_force = (spring_force + damping_force).max(0.0);
             forces.apply_force_at_point(Vec3::Y * total_force, world_origin);
         }
