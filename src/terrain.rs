@@ -82,7 +82,8 @@ impl Plugin for TerrainPlugin {
             )
             .add_systems(
                 Update,
-                poll_terrain_task.run_if(in_state(AppState::Loading)),
+                poll_terrain_task
+                    .run_if(in_state(AppState::Loading).and(resource_exists::<TerrainTask>)),
             )
             .add_systems(OnEnter(AppState::InGame), spawn_terrain_mesh)
             .add_systems(
