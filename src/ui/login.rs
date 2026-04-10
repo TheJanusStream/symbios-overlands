@@ -14,7 +14,10 @@ use crate::state::{AppState, CurrentRoomDid, RelayHost};
 type LoginOutcome = Result<(AtprotoSession, String), bevy_symbios_multiuser::error::SymbiosError>;
 
 #[derive(Component)]
-pub struct AuthTask(bevy::tasks::Task<LoginOutcome>);
+pub struct AuthTask {
+    task: bevy::tasks::Task<LoginOutcome>,
+    target_did: Option<String>,
+}
 
 #[derive(Clone)]
 pub struct LoginFormState {
@@ -113,7 +116,15 @@ pub fn login_ui(
                                 .block_on(do_auth)
                         }
                     });
-                    commands.spawn(AuthTask(task));
+                    let target_did = {
+                        let t = form.target_did.trim();
+                        if t.is_empty() {
+                            None
+                        } else {
+                            Some(t.to_string())
+                        }
+                    };
+                    commands.spawn(AuthTask { task, target_did });
                 }
             } else {
                 ui.spinner();
@@ -133,24 +144,21 @@ pub fn poll_auth_task(
     mut form: Local<LoginFormState>,
     relay_host: Option<Res<RelayHost>>,
 ) {
-    for (entity, mut task) in tasks.iter_mut() {
+    for (entity, mut auth) in tasks.iter_mut() {
         let Some(result) =
-            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.0))
+            futures_lite::future::block_on(futures_lite::future::poll_once(&mut auth.task))
         else {
             continue;
         };
 
+        let target_did = auth.target_did.clone();
         commands.entity(entity).despawn();
 
         match result {
             Ok((session, service_token)) => {
                 info!("Authenticated as {}", session.did);
 
-                let room_did = if form.target_did.trim().is_empty() {
-                    session.did.clone()
-                } else {
-                    form.target_did.trim().to_string()
-                };
+                let room_did = target_did.unwrap_or_else(|| session.did.clone());
                 commands.insert_resource(CurrentRoomDid(room_did.clone()));
 
                 commands.insert_resource(session);

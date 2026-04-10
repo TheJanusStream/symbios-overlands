@@ -118,8 +118,10 @@ fn handle_peer_connections(
                             .as_deref()
                             .or(peer.did.as_deref())
                             .unwrap_or("unknown");
-                        diagnostics
-                            .push(elapsed, format!("[-] Peer {} ({}) disconnected", event.peer, label));
+                        diagnostics.push(
+                            elapsed,
+                            format!("[-] Peer {} ({}) disconnected", event.peer, label),
+                        );
                         commands.entity(entity).despawn();
                     }
                 }
@@ -128,7 +130,7 @@ fn handle_peer_connections(
     }
 }
 
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn handle_incoming_messages(
     mut commands: Commands,
     mut queue: ResMut<NetworkQueue<OverlandsMessage>>,
@@ -242,29 +244,27 @@ fn handle_incoming_messages(
                     _ => false,
                 };
 
-                if is_owner {
-                    if let Some(record) = room_record.as_mut() {
-                        record.water_level_offset = new_record.water_level_offset;
-                        record.sun_color = new_record.sun_color;
+                if is_owner && let Some(record) = room_record.as_mut() {
+                    record.water_level_offset = new_record.water_level_offset;
+                    record.sun_color = new_record.sun_color;
 
-                        // Live-update water volume transform.
-                        let base_wl = (crate::config::terrain::water::LEVEL_FACTOR
-                            * crate::config::terrain::HEIGHT_SCALE)
-                            .max(0.001);
-                        let wl = (base_wl + new_record.water_level_offset).max(0.001);
-                        for mut tf in water.iter_mut() {
-                            tf.translation.y = wl / 2.0;
-                            tf.scale.y = wl;
-                        }
-
-                        // Live-update sun colour.
-                        let c = new_record.sun_color;
-                        for mut light in dir_lights.iter_mut() {
-                            light.color = Color::srgb(c[0], c[1], c[2]);
-                        }
-
-                        info!("Room state updated from owner broadcast");
+                    // Live-update water volume transform.
+                    let base_wl = (crate::config::terrain::water::LEVEL_FACTOR
+                        * crate::config::terrain::HEIGHT_SCALE)
+                        .max(0.001);
+                    let wl = (base_wl + new_record.water_level_offset).max(0.001);
+                    for mut tf in water.iter_mut() {
+                        tf.translation.y = wl / 2.0;
+                        tf.scale.y = wl;
                     }
+
+                    // Live-update sun colour.
+                    let c = new_record.sun_color;
+                    for mut light in dir_lights.iter_mut() {
+                        light.color = Color::srgb(c[0], c[1], c[2]);
+                    }
+
+                    info!("Room state updated from owner broadcast");
                 }
             }
             OverlandsMessage::Chat { text } => {

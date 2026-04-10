@@ -35,10 +35,7 @@ pub fn chat_ui(
                     //ui.set_max_width(ui.available_width());
                     for (author, text, ts) in &chat.messages {
                         ui.horizontal_wrapped(|ui| {
-                            ui.colored_label(
-                                egui::Color32::GRAY,
-                                format!("[{}]", ts),
-                            );
+                            ui.colored_label(egui::Color32::GRAY, format!("[{}]", ts));
                             let [r, g, b] = cfg::AUTHOR_COLOR;
                             ui.colored_label(
                                 egui::Color32::from_rgb(r, g, b),

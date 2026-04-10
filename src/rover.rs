@@ -502,7 +502,10 @@ fn apply_buoyancy_forces(
     let Ok((mut forces, global_tf)) = query.single_mut() else {
         return;
     };
-    let water_offset = room_record.as_ref().map(|r| r.water_level_offset).unwrap_or(0.0);
+    let water_offset = room_record
+        .as_ref()
+        .map(|r| r.water_level_offset)
+        .unwrap_or(0.0);
     let wl = water_level_y() + water_offset + pp.water_rest_length;
     let y = global_tf.translation().y;
     let depth = (wl - y).clamp(0.0, pp.buoyancy_max_depth);

@@ -14,6 +14,7 @@ pub struct PublishRoomTask(pub bevy::tasks::Task<Result<(), String>>);
 
 /// "God mode" admin panel — only rendered when the authenticated user owns the
 /// room (i.e. `session.did == current_room.0`).
+#[allow(clippy::too_many_arguments)]
 pub fn room_admin_ui(
     mut contexts: EguiContexts,
     mut commands: Commands,

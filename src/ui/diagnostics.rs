@@ -97,9 +97,7 @@ pub fn diagnostics_ui(
                     for (ts, entry) in diagnostics.iter() {
                         ui.horizontal(|ui| {
                             ui.monospace(
-                                egui::RichText::new(ts)
-                                    .small()
-                                    .color(egui::Color32::GRAY),
+                                egui::RichText::new(ts).small().color(egui::Color32::GRAY),
                             );
                             ui.monospace(
                                 egui::RichText::new(entry)
