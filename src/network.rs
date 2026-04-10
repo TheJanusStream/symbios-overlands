@@ -35,15 +35,23 @@ impl Plugin for NetworkPlugin {
                     handle_peer_connections,
                     handle_incoming_messages,
                     smooth_remote_transforms,
-                    broadcast_local_state,
                     sync_mute_visibility,
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame)),
+            )
+            // Network broadcast is tied to a fixed tick so the outbound rate
+            // is independent of rendering FPS — otherwise a 144 Hz monitor
+            // would blast peers with 2.4× the intended packet rate and a
+            // 30 Hz machine would stutter.
+            .add_systems(
+                FixedUpdate,
+                broadcast_local_state.run_if(in_state(AppState::InGame)),
             );
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_peer_connections(
     mut commands: Commands,
     mut peer_events: ResMut<PeerStateQueue<OverlandsMessage>>,
@@ -52,6 +60,9 @@ fn handle_peer_connections(
     mut diagnostics: ResMut<DiagnosticsLog>,
     peers: Query<(Entity, &RemotePeer)>,
     time: Res<Time>,
+    session: Option<Res<AtprotoSession>>,
+    ap: Res<LocalAirshipParams>,
+    mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
 ) {
     let elapsed = time.elapsed_secs_f64();
     for event in peer_events.drain() {
@@ -83,6 +94,21 @@ fn handle_peer_connections(
                     &mut materials,
                     None,
                 );
+
+                // Proactively announce our identity to the newcomer.  Without
+                // this, they only learn our DID on the next scheduled identity
+                // broadcast (~1 s), during which a RoomStateUpdate from us
+                // would fail the owner-DID check and be silently dropped.
+                if let Some(sess) = &session {
+                    writer.write(Broadcast {
+                        payload: OverlandsMessage::Identity {
+                            did: sess.did.clone(),
+                            handle: sess.handle.clone(),
+                            airship: ap.params.clone(),
+                        },
+                        channel: ChannelKind::Reliable,
+                    });
+                }
             }
             PeerConnectionState::Disconnected => {
                 for (entity, peer) in peers.iter() {
@@ -129,10 +155,24 @@ fn handle_incoming_messages(
             OverlandsMessage::Transform { position, rotation } => {
                 for (_, peer, _tf, mut buf, _, _) in peers.iter_mut() {
                     if peer.peer_id == msg.sender {
+                        // Assign a *playout* timestamp rather than the raw
+                        // arrival time.  WebRTC data channels frequently
+                        // deliver bursts of 2–3 packets in the same frame;
+                        // stamping them with identical `now` values collapses
+                        // the Hermite spline's dt to ~0 and launches the
+                        // remote mesh to infinity via a divide-by-near-zero
+                        // velocity tangent.  Instead, advance the stamp by the
+                        // expected send interval, anchored to `now` so bursts
+                        // can't drift arbitrarily into the future.
+                        let expected = config::network::EXPECTED_BROADCAST_INTERVAL_SECS;
+                        let next = match buf.samples.back() {
+                            Some(last) => (last.timestamp + expected).max(now),
+                            None => now,
+                        };
                         buf.samples.push_back(TransformSample {
                             position: Vec3::from_array(position),
                             rotation: Quat::from_array(rotation),
-                            timestamp: now,
+                            timestamp: next,
                         });
                         while buf.samples.len() > config::network::KINEMATIC_BUFFER_CAPACITY {
                             buf.samples.pop_front();
@@ -236,13 +276,27 @@ fn handle_incoming_messages(
                     .unwrap_or(false);
 
                 if !sender_muted {
+                    // Defend against over-long chat payloads from a malicious
+                    // peer: the local sender throttles via the chat UI, but a
+                    // hand-crafted packet could still ship an 800 KiB string
+                    // and lock every guest's renderer trying to word-wrap it.
+                    let max = crate::config::ui::chat::MAX_MESSAGE_LEN;
+                    let clipped = if text.len() <= max {
+                        text
+                    } else {
+                        let mut end = max;
+                        while end > 0 && !text.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        text[..end].to_string()
+                    };
                     let author = peers
                         .iter()
                         .find(|(_, peer, _, _, _, _)| peer.peer_id == msg.sender)
                         .and_then(|(_, peer, _, _, _, _)| peer.handle.clone())
                         .unwrap_or_else(|| msg.sender.to_string());
                     let ts = crate::format_elapsed_ts(now);
-                    chat.messages.push((author, text, ts));
+                    chat.messages.push((author, clipped, ts));
                 }
             }
         }

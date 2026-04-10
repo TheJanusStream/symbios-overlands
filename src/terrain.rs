@@ -209,17 +209,12 @@ fn start_texture_tasks(mut commands: Commands) {
     ));
 }
 
-fn poll_terrain_task(
-    mut commands: Commands,
-    mut task_res: ResMut<TerrainTask>,
-    mut next_state: ResMut<NextState<AppState>>,
-) {
+fn poll_terrain_task(mut commands: Commands, mut task_res: ResMut<TerrainTask>) {
     if let Some(hm) =
         futures_lite::future::block_on(futures_lite::future::poll_once(&mut task_res.0))
     {
         commands.remove_resource::<TerrainTask>();
         commands.insert_resource(FinishedHeightMap(hm));
-        next_state.set(AppState::InGame);
     }
 }
 

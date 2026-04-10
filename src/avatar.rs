@@ -11,12 +11,7 @@ impl Plugin for AvatarPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (
-                fetch_local_avatar,
-                trigger_avatar_fetches,
-                poll_avatar_tasks,
-                reapply_avatar_after_rebuild,
-            )
+            (fetch_local_avatar, trigger_avatar_fetches, poll_avatar_tasks)
                 .run_if(in_state(AppState::InGame)),
         );
     }
@@ -35,12 +30,6 @@ pub struct AvatarFetchTask(pub bevy::tasks::Task<Option<Vec<u8>>>);
 /// without triggering a redundant network fetch.
 #[derive(Component, Clone)]
 pub struct AvatarMaterial(pub Handle<StandardMaterial>);
-
-/// Placed on a chassis entity by `rebuild_local_rover` (and equivalent network
-/// rebuilds) to signal that the sail needs the cached `AvatarMaterial`
-/// reapplied on the next frame, once the new children are live.
-#[derive(Component)]
-pub struct NeedsAvatarReapply;
 
 fn fetch_local_avatar(
     mut commands: Commands,
@@ -62,7 +51,10 @@ fn trigger_avatar_fetches(mut commands: Commands, pending: Query<(Entity, &Avata
 }
 
 fn spawn_avatar_task(commands: &mut Commands, entity: Entity, did: String) {
-    let pool = bevy::tasks::AsyncComputeTaskPool::get();
+    // Blocking ATProto profile fetches belong on `IoTaskPool`; mixing them
+    // onto `AsyncComputeTaskPool` would pin its core-count-sized workers on
+    // socket reads and stall GLTF/asset work for every other system.
+    let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = fetch_avatar_bytes(did);
         #[cfg(target_arch = "wasm32")]
@@ -145,35 +137,6 @@ fn poll_avatar_tasks(
                     }
                 });
             }
-        }
-    }
-}
-
-/// Runs every frame and re-applies the cached `AvatarMaterial` to any chassis
-/// entity that was recently rebuilt (marked with `NeedsAvatarReapply`).
-/// Running one frame after the rebuild ensures the new sail children are live.
-fn reapply_avatar_after_rebuild(
-    mut commands: Commands,
-    query: Query<(Entity, &Children, &AvatarMaterial), With<NeedsAvatarReapply>>,
-    sail_query: Query<Entity, With<RoverSail>>,
-) {
-    for (entity, children, avatar_mat) in query.iter() {
-        commands.entity(entity).remove::<NeedsAvatarReapply>();
-
-        let sail_entities: Vec<Entity> = children
-            .iter()
-            .filter(|&child| sail_query.get(child).is_ok())
-            .collect();
-
-        for sail in sail_entities {
-            let mat = avatar_mat.0.clone();
-            // Safe closure: sail may have been replaced by another rapid
-            // rebuild; in that case we skip silently.
-            commands.queue(move |world: &mut World| {
-                if let Ok(mut eref) = world.get_entity_mut(sail) {
-                    eref.insert(MeshMaterial3d(mat));
-                }
-            });
         }
     }
 }

@@ -87,7 +87,10 @@ pub fn login_ui(
                     let service_did = format!("did:web:{}", relay_host);
                     commands.insert_resource(RelayHost(relay_host));
 
-                    let pool = bevy::tasks::AsyncComputeTaskPool::get();
+                    // Route the ATProto `create_session` + service-auth
+                    // round-trip onto the IO pool — these are blocking HTTP
+                    // calls that must not starve compute workers.
+                    let pool = bevy::tasks::IoTaskPool::get();
                     let task = pool.spawn(async move {
                         let do_auth = async {
                             let client = reqwest::Client::new();

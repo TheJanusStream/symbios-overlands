@@ -244,12 +244,18 @@ pub mod terrain {
 // Network (network.rs)
 // ---------------------------------------------------------------------------
 pub mod network {
-    /// Broadcast identity to peers every N physics ticks.
+    /// Broadcast identity to peers every N fixed-update ticks.
     pub const IDENTITY_BROADCAST_INTERVAL_TICKS: u32 = 60;
+    /// Expected spacing (seconds) between consecutive Transform broadcasts
+    /// from a given peer, used by the jitter buffer to assign synthetic
+    /// playout timestamps when WebRTC delivers packets in a burst.  Chosen
+    /// slightly smaller than the nominal FixedUpdate tick so the buffer stays
+    /// in step with wall clock under normal delivery.
+    pub const EXPECTED_BROADCAST_INTERVAL_SECS: f64 = 1.0 / 60.0;
     /// Delay (seconds) for the jitter buffer when smoothing remote peer
     /// transforms.  Rendering peers this far in the past guarantees a window
     /// of samples to interpolate between, hiding dropped packets.
-    pub const KINEMATIC_RENDER_DELAY_SECS: f64 = 0.05;
+    pub const KINEMATIC_RENDER_DELAY_SECS: f64 = 0.1;
     /// Maximum number of transform samples retained in each peer's buffer.
     pub const KINEMATIC_BUFFER_CAPACITY: usize = 32;
     /// Emissive intensity applied to the mast tip of a mutual-follow peer.
@@ -352,6 +358,12 @@ pub mod airship {
 // ---------------------------------------------------------------------------
 pub mod ui {
     pub mod chat {
+        /// Maximum allowed length (in bytes) of a single chat message before
+        /// it is truncated.  Caps peer-side rendering cost: without this an
+        /// attacker could paste an 800 KiB string of junk that egui would try
+        /// to word-wrap on every frame, creating an instant DoS for every
+        /// guest in the room.  Well below the 1 MiB multiuser packet limit.
+        pub const MAX_MESSAGE_LEN: usize = 512;
         /// Height reserved below the scroll area for the input row.
         pub const INPUT_RESERVE_HEIGHT: f32 = 40.0;
         /// Minimum height of the message scroll area.

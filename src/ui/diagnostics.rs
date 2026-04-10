@@ -71,7 +71,13 @@ pub fn diagnostics_ui(
                     });
                     ui.checkbox(&mut muted, "Mute");
                 });
-                peer.muted = muted;
+                // Guard the write so Bevy's change-detection flag is only
+                // raised when the mute state actually flips.  An unconditional
+                // assignment marks `RemotePeer` as `Changed` every frame and
+                // invalidates any `Changed<RemotePeer>` filters downstream.
+                if peer.muted != muted {
+                    peer.muted = muted;
+                }
             }
 
             if peer_count == 0 {

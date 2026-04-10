@@ -58,7 +58,22 @@ pub fn chat_ui(
                     || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
 
                 if submit && !input.trim().is_empty() {
-                    let text = input.trim().to_string();
+                    // Enforce a strict per-message length cap *before* the
+                    // text is broadcast.  Otherwise a peer could paste an
+                    // 800 KiB junk string (well under the 1 MiB packet limit)
+                    // and every guest would try to word-wrap it in egui on
+                    // every frame — an instant room-wide denial of service.
+                    let trimmed = input.trim();
+                    let max = cfg::MAX_MESSAGE_LEN;
+                    let text = if trimmed.len() <= max {
+                        trimmed.to_string()
+                    } else {
+                        let mut end = max;
+                        while end > 0 && !trimmed.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        trimmed[..end].to_string()
+                    };
                     input.clear();
                     response.request_focus();
 

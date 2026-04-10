@@ -72,7 +72,9 @@ fn main() {
         .add_systems(OnEnter(AppState::Loading), start_room_record_fetch)
         .add_systems(
             Update,
-            poll_room_record_task.run_if(in_state(AppState::Loading)),
+            (poll_room_record_task, check_loading_complete)
+                .chain()
+                .run_if(in_state(AppState::Loading)),
         )
         .add_systems(
             EguiPrimaryContextPass,
@@ -167,7 +169,10 @@ struct RoomRecordTask(bevy::tasks::Task<Option<RoomRecord>>);
 
 fn start_room_record_fetch(mut commands: Commands, room_did: Res<CurrentRoomDid>) {
     let did = room_did.0.clone();
-    let pool = bevy::tasks::AsyncComputeTaskPool::get();
+    // `IoTaskPool` is the correct home for blocking HTTP calls — the
+    // `AsyncComputeTaskPool` is sized to the CPU-core count and must not be
+    // starved by threads blocked on network sockets.
+    let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
             let client = reqwest::Client::new();
@@ -205,6 +210,21 @@ fn poll_room_record_task(mut commands: Commands, mut tasks: Query<(Entity, &mut 
             record.water_level_offset, record.sun_color
         );
         commands.insert_resource(record);
+    }
+}
+
+/// Transition out of `Loading` only once BOTH the heightmap generation task
+/// *and* the ATProto PDS room-record fetch have finished.  If we advanced on
+/// terrain alone the network task would be orphaned — the poll systems only
+/// run in `AppState::Loading`, so a slower PDS round-trip would be silently
+/// dropped and the room owner could never edit their own environment.
+fn check_loading_complete(
+    finished_hm: Option<Res<terrain::FinishedHeightMap>>,
+    room_record: Option<Res<RoomRecord>>,
+    mut next_state: ResMut<NextState<AppState>>,
+) {
+    if finished_hm.is_some() && room_record.is_some() {
+        next_state.set(AppState::InGame);
     }
 }
 

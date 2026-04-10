@@ -85,7 +85,9 @@ pub fn room_admin_ui(
             if ui.button("Save to PDS").clicked() {
                 let record = room_record.clone();
                 let session_clone = session.clone();
-                let pool = bevy::tasks::AsyncComputeTaskPool::get();
+                // Use the IO pool for the blocking putRecord HTTP call so it
+                // never contends with CPU-bound compute workers.
+                let pool = bevy::tasks::IoTaskPool::get();
                 let task = pool.spawn(async move {
                     let fut = async {
                         let client = reqwest::Client::new();
