@@ -4,6 +4,11 @@ use serde::{Deserialize, Serialize};
 
 const COLLECTION: &str = "network.symbios.overlands.room";
 
+// ATProto records are encoded as DAG-CBOR, which forbids floats. Runtime
+// fields are stored as f32 but serialized through fixed-point integer scales.
+const WATER_OFFSET_SCALE: f32 = 1000.0;
+const SUN_COLOR_SCALE: f32 = 10000.0;
+
 // ---------------------------------------------------------------------------
 // Room record (ATProto lexicon)
 // ---------------------------------------------------------------------------
@@ -14,8 +19,46 @@ const COLLECTION: &str = "network.symbios.overlands.room";
 pub struct RoomRecord {
     #[serde(rename = "$type")]
     pub lex_type: String,
+    #[serde(with = "fixed_point_water")]
     pub water_level_offset: f32,
+    #[serde(with = "fixed_point_color")]
     pub sun_color: [f32; 3],
+}
+
+mod fixed_point_water {
+    use super::WATER_OFFSET_SCALE;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(v: &f32, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_i32((v * WATER_OFFSET_SCALE).round() as i32)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
+        Ok(i32::deserialize(d)? as f32 / WATER_OFFSET_SCALE)
+    }
+}
+
+mod fixed_point_color {
+    use super::SUN_COLOR_SCALE;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(v: &[f32; 3], s: S) -> Result<S::Ok, S::Error> {
+        let ints: [i32; 3] = [
+            (v[0] * SUN_COLOR_SCALE).round() as i32,
+            (v[1] * SUN_COLOR_SCALE).round() as i32,
+            (v[2] * SUN_COLOR_SCALE).round() as i32,
+        ];
+        ints.serialize(s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[f32; 3], D::Error> {
+        let ints = <[i32; 3]>::deserialize(d)?;
+        Ok([
+            ints[0] as f32 / SUN_COLOR_SCALE,
+            ints[1] as f32 / SUN_COLOR_SCALE,
+            ints[2] as f32 / SUN_COLOR_SCALE,
+        ])
+    }
 }
 
 impl Default for RoomRecord {

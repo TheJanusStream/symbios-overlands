@@ -2,16 +2,6 @@ use avian3d::prelude::{AngularVelocity, LinearVelocity};
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
-use uuid::Uuid;
-
-/// Re-derive a `PeerId` from a DID using the same UUID v5 namespace the
-/// Sovereign Broker uses (`Uuid::NAMESPACE_X500`).  Used to verify that an
-/// `Identity` payload's self-reported DID matches the cryptographically
-/// assigned sender `PeerId` — without this check, any peer could claim any
-/// DID over the unauthenticated data channel.
-fn peer_id_from_did(did: &str) -> PeerId {
-    PeerId(Uuid::new_v5(&Uuid::NAMESPACE_X500, did.as_bytes()))
-}
 
 use crate::avatar::{AvatarFetchPending, AvatarMaterial};
 use crate::config;
@@ -150,6 +140,7 @@ fn handle_incoming_messages(
     mut room_record: Option<ResMut<RoomRecord>>,
     mut water: Query<&mut Transform, (With<WaterVolume>, Without<RemotePeer>)>,
     mut dir_lights: Query<&mut DirectionalLight>,
+    peer_sessions: Res<PeerSessionMapRes>,
 ) {
     let now = time.elapsed_secs_f64();
     for msg in queue.drain() {
@@ -187,15 +178,34 @@ fn handle_incoming_messages(
                 handle,
                 airship,
             } => {
-                // Reject identity claims whose DID does not hash to the verified
-                // sender PeerId.  The broker signs the PeerId from the JWT-resolved
-                // DID; any mismatch means the peer is impersonating another user.
-                if peer_id_from_did(&did) != msg.sender {
-                    warn!(
-                        "Rejecting spoofed Identity from {}: claimed did={}",
-                        msg.sender, did
-                    );
-                    continue;
+                // Reject identity claims whose DID does not match the
+                // session_id the relay bound to the sender's PeerId. The
+                // signaller publishes (PeerId → authenticated DID) entries to
+                // `PeerSessionMapRes` as peers join, so any mismatch means the
+                // peer is impersonating another user over the unauthenticated
+                // data channel.
+                //
+                // A `None` lookup means matchbox surfaced the peer before the
+                // signaller recorded its session_id (or the peer disconnected
+                // mid-frame). Treat this as "not yet verified" and drop the
+                // message — the peer broadcasts Identity on a timer, so a
+                // subsequent attempt will succeed once the map catches up.
+                match peer_sessions.session_id(&msg.sender) {
+                    Some(authenticated_did) if authenticated_did == did => {}
+                    Some(authenticated_did) => {
+                        warn!(
+                            "Rejecting spoofed Identity from {}: claimed did={}, authenticated did={}",
+                            msg.sender, did, authenticated_did
+                        );
+                        continue;
+                    }
+                    None => {
+                        debug!(
+                            "Deferring Identity from {}: session not yet known",
+                            msg.sender
+                        );
+                        continue;
+                    }
                 }
 
                 for (entity, mut peer, _, _, children, avatar_mat) in peers.iter_mut() {

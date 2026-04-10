@@ -8,7 +8,7 @@ bevy = "0.18"
 bevy_egui = "0.39"
 bevy_panorbit_camera = { version = "0.34", features = ["bevy_egui"] }
 bevy_symbios_ground = { version = "0.2", features = ["physics"] }
-bevy_symbios_multiuser = "0.1"
+bevy_symbios_multiuser = { path = "../bevy_symbios_multiuser" }
 bevy_symbios_texture = "0.3"
 avian3d = "0.6"
 symbios-ground = "0.2"
@@ -17,7 +17,6 @@ image = "0.25"
 futures-lite = "2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tokio = { version = "1", features = ["rt", "macros"] }
-uuid = { version = "1", features = ["v5"] }
 
 [dev-dependencies]
 
@@ -41,9 +40,9 @@ web-sys = { version = "0.3.82", features = [
 wasm-bindgen = "0.2.117"
 js-sys = "0.3.82"
 
-[profile.release]
-opt-level = "s"   # Optimize for size (helps wasm-bindgen)
-lto = "fat"       # Enable full Link Time Optimization (CRITICAL FIX)
-codegen-units = 1 # Reduce parallelism to improve optimization quality
-strip = true      # Strip symbols to clean up the binary tables
-panic = "abort"   # Reduce binary size by removing stack unwinding
+#[profile.release]
+#opt-level = "s"   # Optimize for size (helps wasm-bindgen)
+#lto = "fat"       # Enable full Link Time Optimization (CRITICAL FIX)
+#codegen-units = 1 # Reduce parallelism to improve optimization quality
+#strip = true      # Strip symbols to clean up the binary tables
+#panic = "abort"   # Reduce binary size by removing stack unwinding
