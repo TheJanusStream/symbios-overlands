@@ -1,3 +1,11 @@
+//! In-game chat window.
+//!
+//! Renders `ChatHistory` into a scroll area and exposes a single-line input
+//! that broadcasts `OverlandsMessage::Chat` over the Reliable channel.  The
+//! sender enforces the same `MAX_MESSAGE_LEN` cap as the receiver so a
+//! misbehaving peer who bypasses this UI still gets its payload clipped on
+//! every other client in the room.
+
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;

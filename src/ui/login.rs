@@ -1,3 +1,12 @@
+//! Login form UI.
+//!
+//! Collects PDS endpoint, handle, app password, relay host, and an optional
+//! destination DID, then spawns a single async task that calls
+//! `create_session` followed by `get_service_auth` to exchange the session
+//! for a service-bound JWT the relay will accept.  On success the task
+//! installs the `AtprotoSession`, `TokenSourceRes`, `SymbiosMultiuserConfig`,
+//! and `CurrentRoomDid` resources and transitions the app to `Loading`.
+
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::{

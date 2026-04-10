@@ -1,3 +1,19 @@
+//! Deterministic procedural terrain plugin.
+//!
+//! A room's seed is the FNV-1a 64-bit hash of its owner's DID, so every
+//! client visiting the same overland derives the identical landscape locally
+//! — there is no authoritative server to replicate from.  Heightmap
+//! generation (Voronoi terracing → hydraulic erosion → thermal erosion) runs
+//! on `AsyncComputeTaskPool` while the four splat layer textures
+//! (grass / dirt / rock / snow) are baked in parallel by
+//! `bevy_symbios_texture`.  Once every task has finished, the layers are
+//! concatenated into a 2D texture array and the `SplatExtension` material is
+//! flipped from placeholder flat-colour mode to triplanar PBR splat blending.
+//!
+//! A translucent water cuboid is spawned at
+//! `HEIGHT_SCALE * water::LEVEL_FACTOR + RoomRecord::water_level_offset` and
+//! live-updated whenever the owner broadcasts a `RoomStateUpdate`.
+
 use avian3d::prelude::*;
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};

@@ -1,3 +1,8 @@
+//! Shared ECS state: the `AppState` enum driving the login/loading/ingame
+//! state machine, marker components for the local player and remote peers,
+//! the per-peer transform jitter buffer, rolling chat and diagnostics logs,
+//! and the GUI-editable physics and airship parameter resources.
+
 use std::collections::VecDeque;
 
 use bevy::prelude::*;

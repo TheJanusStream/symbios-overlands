@@ -1,3 +1,10 @@
+//! Runtime tuning panel for the rover's physics parameters.
+//!
+//! Writes live into `LocalPhysicsParams`; `sync_chassis_physics` in
+//! `rover.rs` pushes mass and damping changes onto the Avian components each
+//! fixed step, and the suspension / drive / buoyancy systems read their
+//! coefficients directly from the resource every frame.
+
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 

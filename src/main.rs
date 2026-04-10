@@ -1,3 +1,11 @@
+//! Symbios Overlands — application entry point.
+//!
+//! Wires every gameplay plugin, initialises the shared ECS resources, and
+//! coordinates the three-stage state machine (`Login` → `Loading` → `InGame`).
+//! The loading gate here explicitly waits on **both** the heightmap generation
+//! task *and* the ATProto PDS room-record fetch before entering `InGame` so
+//! slower PDS round-trips cannot be silently dropped.
+
 use avian3d::PhysicsPlugins;
 use bevy::light::{CascadeShadowConfigBuilder, GlobalAmbientLight, NotShadowCaster};
 use bevy::prelude::*;

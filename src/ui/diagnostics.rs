@@ -1,3 +1,7 @@
+//! Diagnostics HUD: local identity, current room DID, peer roster with per-
+//! peer mute toggles, a scrolling event log, and the log-out button that
+//! transitions the app back to `AppState::Login`.
+
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;

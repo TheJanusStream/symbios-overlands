@@ -1,3 +1,13 @@
+//! Airship design panel.
+//!
+//! Edits `LocalAirshipParams::params` (hull, pontoons, mast, sail, materials)
+//! and sets `needs_rebuild` so `rebuild_local_rover` regenerates the visual
+//! children on the next frame.  Every change is automatically advertised to
+//! peers inside the regular `Identity` broadcast, so a remote observer sees
+//! the redesign the next time the sender's identity timer fires.  Also
+//! hosts the "smooth remote peers" toggle, which is local-only and never
+//! leaves this client.
+
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
@@ -165,7 +175,7 @@ pub fn airship_ui(mut contexts: EguiContexts, mut ap: ResMut<LocalAirshipParams>
                 .show(ui, |ui| {
                     ui.checkbox(
                         &mut ap.smooth_kinematics,
-                        "Smooth remote peers (Hermite spline + 50 ms buffer)",
+                        "Smooth remote peers (Hermite spline + 100 ms buffer)",
                     );
                     ui.label(
                         egui::RichText::new(

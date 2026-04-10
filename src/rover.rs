@@ -1,3 +1,14 @@
+//! Local rover plugin: airship visual construction, raycast suspension,
+//! keyboard drive, buoyancy, and automatic respawn.
+//!
+//! The vessel is a single `RigidBody::Dynamic` cuboid chassis decorated with
+//! non-colliding visual children (hull, pontoons, mast, sail, struts).  Four
+//! downward raycasts from the chassis corners implement a Hooke's-law spring
+//! with damping projected onto the contact normal so horizontal travel across
+//! a slope contributes zero damping force.  When the chassis origin dips
+//! below the buoyancy equilibrium altitude the same physics system switches
+//! to Archimedean lift, turning the rover into a raft seamlessly.
+
 use crate::avatar::AvatarMaterial;
 use crate::config::airship as ac;
 use crate::config::rover as cfg;
@@ -491,9 +502,12 @@ fn apply_uprighting_force(
     forces.apply_torque(vehicle_up.cross(Vec3::Y) * pp.uprighting_torque);
 }
 
-/// Archimedean buoyancy — an upward force proportional to submersion depth
-/// below the visual water plane, plus a vertical-velocity drag term.  Converts
-/// the rover into a raft whenever its origin dips below `water_level_y()`.
+/// Archimedean buoyancy — an upward force proportional to depth below the
+/// buoyancy equilibrium altitude (visual water level, the owner-configured
+/// room offset, and `WATER_REST_LENGTH` combined), plus a vertical-velocity
+/// drag term.  The rest length holds the chassis hovering slightly above the
+/// visual surface, so the force engages as soon as the origin dips below that
+/// target altitude rather than waiting for the vessel to fully submerge.
 fn apply_buoyancy_forces(
     pp: Res<LocalPhysicsParams>,
     room_record: Option<Res<crate::pds::RoomRecord>>,

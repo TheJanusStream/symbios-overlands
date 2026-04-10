@@ -1,3 +1,13 @@
+//! Sovereign room editor.
+//!
+//! Rendered only when `session.did == current_room.0` — i.e. the
+//! authenticated user owns the overland they are currently inside.  Edits
+//! `RoomRecord` in place, live-updates the water cuboid and sun light so
+//! the author sees every change immediately, broadcasts the new record to
+//! connected guests as `OverlandsMessage::RoomStateUpdate` over the Reliable
+//! channel, and writes the record back to the owner's PDS with
+//! `com.atproto.repo.putRecord`.
+
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;

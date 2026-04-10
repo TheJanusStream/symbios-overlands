@@ -1,3 +1,19 @@
+//! P2P networking plugin: peer lifecycle, inbound dispatch, outbound
+//! throttling, and the jitter-buffered kinematic smoother.
+//!
+//! Outbound `Transform` broadcasts are driven by `FixedUpdate` (not `Update`)
+//! so the packet rate is independent of render FPS.  When the local rover is
+//! nearly stationary the broadcast rate drops from ~60 Hz to ~2 Hz to save
+//! bandwidth and downstream CPU — with a forced "final frame" broadcast on
+//! the tick we cross into rest so remote peers land on the true parked pose.
+//!
+//! Inbound `Transform` samples are pushed into a per-peer ring buffer and
+//! replayed `KINEMATIC_RENDER_DELAY_SECS` in the past; the playout position
+//! is resolved with a cubic Hermite spline whose endpoint tangents come from
+//! central differences of the buffered samples.  Identity messages are
+//! authenticated against the relay-signed `PeerSessionMapRes` so a peer
+//! cannot impersonate another DID over the unauthenticated data channel.
+
 use avian3d::prelude::{AngularVelocity, LinearVelocity};
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;

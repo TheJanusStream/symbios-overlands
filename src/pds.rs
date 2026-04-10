@@ -1,11 +1,24 @@
+//! ATProto PDS integration: DID resolution, room-record fetch, and upsert.
+//!
+//! The room's environmental state lives on the owner's PDS as a single
+//! record at `collection = network.symbios.overlands.room, rkey = self`.
+//! `RoomRecord` is the client-side shape of that record and doubles as a
+//! Bevy `Resource` so other systems can read the active room configuration
+//! without another round trip.
+//!
+//! ATProto records are encoded as DAG-CBOR, which forbids floats entirely.
+//! Runtime fields stay as `f32` but are serialised through fixed-point
+//! integer scales (`water_level_offset` × 1000, `sun_color` channels ×
+//! 10 000) so the wire format stays lexicon-compliant without forcing the
+//! rest of the codebase onto integer maths.
+
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde::{Deserialize, Serialize};
 
 const COLLECTION: &str = "network.symbios.overlands.room";
 
-// ATProto records are encoded as DAG-CBOR, which forbids floats. Runtime
-// fields are stored as f32 but serialized through fixed-point integer scales.
+// Fixed-point scales used by the custom serde adapters below.
 const WATER_OFFSET_SCALE: f32 = 1000.0;
 const SUN_COLOR_SCALE: f32 = 10000.0;
 

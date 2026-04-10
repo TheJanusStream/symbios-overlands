@@ -1,3 +1,8 @@
+//! Wire protocol for `OverlandsMessage` and the per-peer `AirshipParams`
+//! payload broadcast inside every Identity message.  The message enum is
+//! Serde-tagged and rides the `bevy_symbios_multiuser` data channels; each
+//! variant's docstring records which channel it is expected to travel over.
+
 use serde::{Deserialize, Serialize};
 
 use crate::pds::RoomRecord;
