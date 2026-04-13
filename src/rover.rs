@@ -516,11 +516,11 @@ fn apply_buoyancy_forces(
     let Ok((mut forces, global_tf)) = query.single_mut() else {
         return;
     };
-    let water_offset = room_record
+    let water_offset: f32 = room_record
         .as_ref()
         .and_then(|r| {
             r.generators.values().find_map(|g| match g {
-                crate::pds::Generator::Water { level_offset } => Some(*level_offset),
+                crate::pds::Generator::Water { level_offset } => Some(level_offset.0),
                 _ => None,
             })
         })

@@ -26,25 +26,23 @@ use bevy_symbios_texture::async_gen::{PendingTexture, TextureReady};
 use bevy_symbios_texture::ground::GroundConfig;
 use bevy_symbios_texture::rock::RockConfig;
 use symbios_ground::{
-    HeightMap, HydraulicErosion, SplatMapper, SplatRule, TerrainGenerator, ThermalErosion,
-    VoronoiTerracing,
+    DiamondSquare, FbmNoise, HeightMap, HydraulicErosion, SplatMapper, SplatRule, TerrainGenerator,
+    ThermalErosion, VoronoiTerracing,
 };
 
 use crate::config::terrain as tcfg;
+use crate::pds::{
+    Generator, RoomRecord, SovereignGeneratorKind, SovereignGroundConfig, SovereignRockConfig,
+    SovereignTerrainConfig,
+};
 use crate::splat::{SplatExtension, SplatTerrainMaterial, SplatUniforms};
-use crate::state::{AppState, CurrentRoomDid};
+use crate::state::AppState;
 
-/// Deterministic FNV-1a 64-bit hash.  Standard `DefaultHasher` is randomly
-/// keyed per-process (HashDoS mitigation) so it cannot be used here — every
-/// player visiting the same DID must derive the identical seed.
-pub fn hash_did_to_seed(did: &str) -> u64 {
-    let mut hash: u64 = 0xcbf29ce484222325;
-    for byte in did.bytes() {
-        hash ^= byte as u64;
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    hash
-}
+/// Marker inserted once the texture-layer spawn step has run, so the
+/// Loading-phase scheduler doesn't kick the same four tasks twice while
+/// waiting for `poll_terrain_task` to drain.
+#[derive(Resource)]
+struct TextureTasksStarted;
 
 #[derive(Component)]
 pub struct TerrainMesh;
@@ -90,14 +88,25 @@ impl Plugin for TerrainPlugin {
         app.add_plugins(SymbiosTexturePlugin)
             .add_plugins(MaterialPlugin::<SplatTerrainMaterial>::default())
             .init_resource::<TerrainSplatState>()
-            .add_systems(
-                OnEnter(AppState::Loading),
-                (start_terrain_generation, start_texture_tasks),
-            )
+            // Terrain + texture tasks can only be configured once the room
+            // record has arrived, so they run as conditional Update systems
+            // inside Loading rather than at OnEnter. Each guards itself from
+            // double-kicking with a resource/marker check.
             .add_systems(
                 Update,
-                poll_terrain_task
-                    .run_if(in_state(AppState::Loading).and(resource_exists::<TerrainTask>)),
+                (
+                    start_terrain_generation.run_if(
+                        resource_exists::<RoomRecord>
+                            .and(not(resource_exists::<TerrainTask>))
+                            .and(not(resource_exists::<FinishedHeightMap>)),
+                    ),
+                    start_texture_tasks.run_if(
+                        resource_exists::<RoomRecord>
+                            .and(not(resource_exists::<TextureTasksStarted>)),
+                    ),
+                    poll_terrain_task.run_if(resource_exists::<TerrainTask>),
+                )
+                    .run_if(in_state(AppState::Loading)),
             )
             .add_systems(OnEnter(AppState::InGame), spawn_terrain_mesh)
             .add_systems(
@@ -134,53 +143,57 @@ fn cleanup_terrain(
 // Loading state — terrain generation + async texture tasks
 // ---------------------------------------------------------------------------
 
-fn start_terrain_generation(mut commands: Commands, room_did: Res<CurrentRoomDid>) {
-    let seed = hash_did_to_seed(&room_did.0);
+fn start_terrain_generation(mut commands: Commands, record: Res<RoomRecord>) {
+    // Pull the first `Generator::Terrain` from the record — if none exists
+    // (malformed record) we fall back to the built-in default so the
+    // Loading gate still closes.
+    let cfg = record
+        .generators
+        .values()
+        .find_map(|g| match g {
+            Generator::Terrain(c) => Some(c.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+
     let pool = AsyncComputeTaskPool::get();
-    let task = pool.spawn(async move { generate_terrain(seed) });
+    let task = pool.spawn(async move { generate_terrain(&cfg) });
     commands.insert_resource(TerrainTask(task));
 }
 
-/// Spawn four `PendingTexture` entities (one per splat layer) in Loading so
-/// they run in parallel with heightmap generation.  `SymbiosTexturePlugin`
-/// polls them every frame and attaches `TextureReady` when done.
-fn start_texture_tasks(mut commands: Commands) {
-    // Layer 0 — Grass (lush green ground cover)
+/// Spawn four `PendingTexture` entities (one per splat layer), pulling the
+/// procedural configs from the active `RoomRecord`'s terrain generator.
+/// `SymbiosTexturePlugin` polls them every frame and attaches `TextureReady`
+/// when done. A `TextureTasksStarted` marker is inserted to make this a
+/// one-shot inside the Loading-phase scheduler loop.
+fn start_texture_tasks(mut commands: Commands, record: Res<RoomRecord>) {
+    let mat = record
+        .generators
+        .values()
+        .find_map(|g| match g {
+            Generator::Terrain(c) => Some(c.material.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+
+    let texture_size = mat.texture_size.max(16);
+
+    // Layer 0 — Grass
     commands.spawn((
         PendingTexture::ground(
-            GroundConfig {
-                seed: tcfg::grass::SEED,
-                macro_scale: tcfg::grass::MACRO_SCALE,
-                macro_octaves: tcfg::grass::MACRO_OCTAVES,
-                micro_scale: tcfg::grass::MICRO_SCALE,
-                micro_octaves: tcfg::grass::MICRO_OCTAVES,
-                micro_weight: tcfg::grass::MICRO_WEIGHT,
-                color_dry: tcfg::grass::COLOR_DRY,
-                color_moist: tcfg::grass::COLOR_MOIST,
-                normal_strength: tcfg::grass::NORMAL_STRENGTH,
-            },
-            tcfg::TEXTURE_SIZE,
-            tcfg::TEXTURE_SIZE,
+            sovereign_ground_to_texture(&mat.grass),
+            texture_size,
+            texture_size,
         ),
         TextureLayerIndex(0),
     ));
 
-    // Layer 1 — Dirt (brownish soil)
+    // Layer 1 — Dirt
     commands.spawn((
         PendingTexture::ground(
-            GroundConfig {
-                seed: tcfg::dirt::SEED,
-                macro_scale: tcfg::dirt::MACRO_SCALE,
-                macro_octaves: tcfg::dirt::MACRO_OCTAVES,
-                micro_scale: tcfg::dirt::MICRO_SCALE,
-                micro_octaves: tcfg::dirt::MICRO_OCTAVES,
-                micro_weight: tcfg::dirt::MICRO_WEIGHT,
-                color_dry: tcfg::dirt::COLOR_DRY,
-                color_moist: tcfg::dirt::COLOR_MOIST,
-                normal_strength: tcfg::dirt::NORMAL_STRENGTH,
-            },
-            tcfg::TEXTURE_SIZE,
-            tcfg::TEXTURE_SIZE,
+            sovereign_ground_to_texture(&mat.dirt),
+            texture_size,
+            texture_size,
         ),
         TextureLayerIndex(1),
     ));
@@ -188,40 +201,50 @@ fn start_texture_tasks(mut commands: Commands) {
     // Layer 2 — Rock (ridged multifractal stone)
     commands.spawn((
         PendingTexture::rock(
-            RockConfig {
-                seed: tcfg::rock::SEED,
-                scale: tcfg::rock::SCALE,
-                octaves: tcfg::rock::OCTAVES,
-                attenuation: tcfg::rock::ATTENUATION,
-                color_light: tcfg::rock::COLOR_LIGHT,
-                color_dark: tcfg::rock::COLOR_DARK,
-                normal_strength: tcfg::rock::NORMAL_STRENGTH,
-            },
-            tcfg::TEXTURE_SIZE,
-            tcfg::TEXTURE_SIZE,
+            sovereign_rock_to_texture(&mat.rock),
+            texture_size,
+            texture_size,
         ),
         TextureLayerIndex(2),
     ));
 
-    // Layer 3 — Snow (pale, low-relief ground cover)
+    // Layer 3 — Snow
     commands.spawn((
         PendingTexture::ground(
-            GroundConfig {
-                seed: tcfg::snow::SEED,
-                macro_scale: tcfg::snow::MACRO_SCALE,
-                macro_octaves: tcfg::snow::MACRO_OCTAVES,
-                micro_scale: tcfg::snow::MICRO_SCALE,
-                micro_octaves: tcfg::snow::MICRO_OCTAVES,
-                micro_weight: tcfg::snow::MICRO_WEIGHT,
-                color_dry: tcfg::snow::COLOR_DRY,
-                color_moist: tcfg::snow::COLOR_MOIST,
-                normal_strength: tcfg::snow::NORMAL_STRENGTH,
-            },
-            tcfg::TEXTURE_SIZE,
-            tcfg::TEXTURE_SIZE,
+            sovereign_ground_to_texture(&mat.snow),
+            texture_size,
+            texture_size,
         ),
         TextureLayerIndex(3),
     ));
+
+    commands.insert_resource(TextureTasksStarted);
+}
+
+fn sovereign_ground_to_texture(g: &SovereignGroundConfig) -> GroundConfig {
+    GroundConfig {
+        seed: g.seed,
+        macro_scale: g.macro_scale.0,
+        macro_octaves: g.macro_octaves as usize,
+        micro_scale: g.micro_scale.0,
+        micro_octaves: g.micro_octaves as usize,
+        micro_weight: g.micro_weight.0,
+        color_dry: g.color_dry.0,
+        color_moist: g.color_moist.0,
+        normal_strength: g.normal_strength.0,
+    }
+}
+
+fn sovereign_rock_to_texture(r: &SovereignRockConfig) -> RockConfig {
+    RockConfig {
+        seed: r.seed,
+        scale: r.scale.0,
+        octaves: r.octaves as usize,
+        attenuation: r.attenuation.0,
+        color_light: r.color_light.0,
+        color_dark: r.color_dark.0,
+        normal_strength: r.normal_strength.0,
+    }
 }
 
 fn poll_terrain_task(mut commands: Commands, mut task_res: ResMut<TerrainTask>) {
@@ -348,6 +371,7 @@ fn apply_splat_textures(
     mut state: ResMut<TerrainSplatState>,
     hm_res: Option<Res<FinishedHeightMap>>,
     splat_mat: Option<Res<SplatMaterialHandle>>,
+    record: Option<Res<RoomRecord>>,
     mut materials: ResMut<Assets<SplatTerrainMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
@@ -373,30 +397,61 @@ fn apply_splat_textures(
     // Generate the RGBA weight map from the heightmap (one texel per cell).
     let hm = &hm_res.0;
     let world_extent = (hm.width() - 1) as f32 * hm.scale();
-    let hs = tcfg::HEIGHT_SCALE;
+
+    // Pull splat rules from the active record when present — this is what
+    // lets the world editor re-balance biomes without a recompile. Falls
+    // back to the canonical defaults if the record lacks a terrain gen.
+    let (rules_src, hs) = record
+        .as_ref()
+        .and_then(|r| {
+            r.generators.values().find_map(|g| match g {
+                Generator::Terrain(c) => Some((c.material.rules, c.height_scale.0)),
+                _ => None,
+            })
+        })
+        .unwrap_or_else(|| {
+            (
+                SovereignTerrainConfig::default().material.rules,
+                tcfg::HEIGHT_SCALE,
+            )
+        });
+
     let mapper = SplatMapper::new([
-        // R — Grass: lower altitudes, gentle slopes
-        SplatRule::new(
-            (0.0, hs * tcfg::grass::ALT_MAX_FACTOR),
-            (0.0, tcfg::grass::SLOPE_MAX),
-            tcfg::grass::BLEND,
-        ),
-        // G — Dirt: mid-range altitude, moderate slopes
+        // R — Grass
         SplatRule::new(
             (
-                hs * tcfg::dirt::ALT_MIN_FACTOR,
-                hs * tcfg::dirt::ALT_MAX_FACTOR,
+                hs * rules_src[0].height_min.0,
+                hs * rules_src[0].height_max.0,
             ),
-            (0.0, tcfg::dirt::SLOPE_MAX),
-            tcfg::dirt::BLEND,
+            (rules_src[0].slope_min.0, rules_src[0].slope_max.0),
+            rules_src[0].sharpness.0,
         ),
-        // B — Rock: steep terrain regardless of altitude (triplanar in shader)
-        SplatRule::new((0.0, hs), (tcfg::rock::SLOPE_MIN, 1.0), tcfg::rock::BLEND),
-        // A — Snow: high altitude, gentle slopes
+        // G — Dirt
         SplatRule::new(
-            (hs * tcfg::snow::ALT_MIN_FACTOR, hs),
-            (0.0, tcfg::snow::SLOPE_MAX),
-            tcfg::snow::BLEND,
+            (
+                hs * rules_src[1].height_min.0,
+                hs * rules_src[1].height_max.0,
+            ),
+            (rules_src[1].slope_min.0, rules_src[1].slope_max.0),
+            rules_src[1].sharpness.0,
+        ),
+        // B — Rock
+        SplatRule::new(
+            (
+                hs * rules_src[2].height_min.0,
+                hs * rules_src[2].height_max.0,
+            ),
+            (rules_src[2].slope_min.0, rules_src[2].slope_max.0),
+            rules_src[2].sharpness.0,
+        ),
+        // A — Snow
+        SplatRule::new(
+            (
+                hs * rules_src[3].height_min.0,
+                hs * rules_src[3].height_max.0,
+            ),
+            (rules_src[3].slope_min.0, rules_src[3].slope_max.0),
+            rules_src[3].sharpness.0,
         ),
     ]);
     let weight_map = mapper.generate(hm);
@@ -492,38 +547,65 @@ fn build_texture_array(
 // Heightmap generation (runs on async thread)
 // ---------------------------------------------------------------------------
 
-fn generate_terrain(seed: u64) -> HeightMap {
-    let mut hm = HeightMap::new(tcfg::GRID_SIZE, tcfg::GRID_SIZE, tcfg::CELL_SCALE);
+fn generate_terrain(cfg: &SovereignTerrainConfig) -> HeightMap {
+    let grid = (cfg.grid_size as usize).max(2);
+    let mut hm = HeightMap::new(grid, grid, cfg.cell_scale.0.max(0.01));
 
-    VoronoiTerracing::new(seed, tcfg::voronoi::NUM_SEEDS, tcfg::voronoi::NUM_TERRACES)
-        .generate(&mut hm);
-    // normalize() is intentionally omitted: VoronoiTerracing already produces
-    // bounded [0, 1] output. Only FbmNoise requires a post-generation normalize.
+    // Dispatch on the requested algorithm; each generator is reproducible
+    // from `cfg.seed` alone, which is the same across every visiting peer.
+    match cfg.generator_kind {
+        SovereignGeneratorKind::FbmNoise => {
+            let fbm = FbmNoise {
+                seed: cfg.seed,
+                octaves: cfg.octaves.clamp(1, 32),
+                persistence: cfg.persistence.0,
+                lacunarity: cfg.lacunarity.0,
+                base_frequency: cfg.base_frequency.0,
+            };
+            fbm.generate(&mut hm);
+            hm.normalize();
+        }
+        SovereignGeneratorKind::DiamondSquare => {
+            DiamondSquare::new(cfg.seed, cfg.ds_roughness.0).generate(&mut hm);
+            hm.normalize();
+        }
+        SovereignGeneratorKind::VoronoiTerracing => {
+            VoronoiTerracing::new(
+                cfg.seed,
+                cfg.voronoi_num_seeds.max(1) as usize,
+                cfg.voronoi_num_terraces.max(1) as usize,
+            )
+            .generate(&mut hm);
+            // Voronoi already emits bounded [0, 1] output.
+        }
+    }
 
     for v in hm.data_mut() {
-        *v *= tcfg::HEIGHT_SCALE;
+        *v *= cfg.height_scale.0;
     }
 
-    // Hydraulic erosion runs first (carves the scaled terrain),
-    // then thermal erosion smooths the resulting slopes.
-    HydraulicErosion {
-        seed,
-        num_drops: tcfg::hydraulic::NUM_DROPS,
-        max_steps: tcfg::hydraulic::MAX_STEPS,
-        inertia: tcfg::hydraulic::INERTIA,
-        erosion_rate: tcfg::hydraulic::EROSION_RATE,
-        deposition_rate: tcfg::hydraulic::DEPOSITION_RATE,
-        evaporation_rate: tcfg::hydraulic::EVAPORATION_RATE,
-        capacity_factor: tcfg::hydraulic::CAPACITY_FACTOR,
-        min_slope: tcfg::hydraulic::MIN_SLOPE,
-        water_level: tcfg::hydraulic::WATER_LEVEL,
-    }
-    .erode(&mut hm);
-
-    ThermalErosion::new()
-        .with_iterations(tcfg::thermal::ITERATIONS)
-        .with_talus_angle(tcfg::thermal::TALUS_ANGLE)
+    if cfg.erosion_enabled {
+        HydraulicErosion {
+            seed: cfg.seed,
+            num_drops: cfg.erosion_drops,
+            max_steps: tcfg::hydraulic::MAX_STEPS,
+            inertia: cfg.inertia.0,
+            erosion_rate: cfg.erosion_rate.0,
+            deposition_rate: cfg.deposition_rate.0,
+            evaporation_rate: cfg.evaporation_rate.0,
+            capacity_factor: cfg.capacity_factor.0,
+            min_slope: tcfg::hydraulic::MIN_SLOPE,
+            water_level: tcfg::hydraulic::WATER_LEVEL,
+        }
         .erode(&mut hm);
+    }
+
+    if cfg.thermal_enabled {
+        ThermalErosion::new()
+            .with_iterations(cfg.thermal_iterations)
+            .with_talus_angle(cfg.thermal_talus_angle.0)
+            .erode(&mut hm);
+    }
 
     hm
 }
