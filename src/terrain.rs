@@ -10,9 +10,9 @@
 //! concatenated into a 2D texture array and the `SplatExtension` material is
 //! flipped from placeholder flat-colour mode to triplanar PBR splat blending.
 //!
-//! A translucent water cuboid is spawned at
-//! `HEIGHT_SCALE * water::LEVEL_FACTOR + RoomRecord::water_level_offset` and
-//! live-updated whenever the owner broadcasts a `RoomStateUpdate`.
+//! Water is spawned by `world_builder.rs` from the `Water` generator in the
+//! active `RoomRecord` — this plugin only produces the terrain mesh and
+//! heightfield collider.
 
 use avian3d::prelude::*;
 use bevy::asset::RenderAssetUsages;
@@ -33,7 +33,6 @@ use symbios_ground::{
 use crate::config::terrain as tcfg;
 use crate::splat::{SplatExtension, SplatTerrainMaterial, SplatUniforms};
 use crate::state::{AppState, CurrentRoomDid};
-use crate::water::{WaterExtension, WaterMaterial};
 
 /// Deterministic FNV-1a 64-bit hash.  Standard `DefaultHasher` is randomly
 /// keyed per-process (HashDoS mitigation) so it cannot be used here — every
@@ -90,7 +89,6 @@ impl Plugin for TerrainPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(SymbiosTexturePlugin)
             .add_plugins(MaterialPlugin::<SplatTerrainMaterial>::default())
-            .add_plugins(MaterialPlugin::<WaterMaterial>::default())
             .init_resource::<TerrainSplatState>()
             .add_systems(
                 OnEnter(AppState::Loading),
@@ -244,9 +242,7 @@ fn spawn_terrain_mesh(
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<SplatTerrainMaterial>>,
-    mut water_materials: ResMut<Assets<WaterMaterial>>,
     hm_res: Res<FinishedHeightMap>,
-    room_record: Option<Res<crate::pds::RoomRecord>>,
 ) {
     let hm = &hm_res.0;
     let world_extent = (hm.width() - 1) as f32 * hm.scale();
@@ -328,39 +324,8 @@ fn spawn_terrain_mesh(
             ));
         });
 
-    // Spawn translucent water cuboid at the configured visual water level.
-    let water_mat = water_materials.add(WaterMaterial {
-        base: StandardMaterial {
-            base_color: Color::srgba(
-                tcfg::water::COLOR[0],
-                tcfg::water::COLOR[1],
-                tcfg::water::COLOR[2],
-                tcfg::water::COLOR[3],
-            ),
-            perceptual_roughness: tcfg::water::ROUGHNESS,
-            metallic: tcfg::water::METALLIC,
-            alpha_mode: AlphaMode::Blend,
-            cull_mode: None,
-            ..default()
-        },
-        extension: WaterExtension::default(),
-    });
-
-    let water_offset = room_record
-        .as_ref()
-        .map(|r| r.water_level_offset)
-        .unwrap_or(0.0);
-    let wl = (tcfg::water::LEVEL_FACTOR * tcfg::HEIGHT_SCALE + water_offset).max(0.001);
-    commands.spawn((
-        Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
-        MeshMaterial3d(water_mat),
-        Transform::from_xyz(0.0, wl / 2.0, 0.0).with_scale(Vec3::new(
-            world_extent,
-            wl,
-            world_extent,
-        )),
-        WaterVolume,
-    ));
+    // Water is spawned separately by `world_builder.rs` from whichever
+    // `Water` generator the active `RoomRecord` declares.
 }
 
 /// Consume `TextureReady` components attached by `SymbiosTexturePlugin` and

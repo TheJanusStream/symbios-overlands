@@ -25,6 +25,7 @@ mod state;
 mod terrain;
 mod ui;
 mod water;
+mod world_builder;
 
 use pds::RoomRecord;
 
@@ -62,6 +63,7 @@ fn main() {
         .add_plugins(EguiPlugin::default())
         .add_plugins(PhysicsPlugins::default())
         .add_plugins(terrain::TerrainPlugin)
+        .add_plugins(world_builder::WorldBuilderPlugin)
         .add_plugins(rover::RoverPlugin)
         .add_plugins(camera::CameraPlugin)
         .add_plugins(network::NetworkPlugin)
@@ -104,7 +106,6 @@ fn main() {
             ui::room::poll_publish_tasks.run_if(in_state(AppState::InGame)),
         )
         .add_systems(Startup, setup_lighting)
-        .add_systems(OnEnter(AppState::InGame), apply_room_sun_color)
         .run();
 }
 
@@ -112,13 +113,12 @@ fn setup_lighting(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    room_record: Option<Res<RoomRecord>>,
 ) {
     let lp = config::lighting::LIGHT_POS;
-    let sc = room_record
-        .as_ref()
-        .map(|r| r.sun_color)
-        .unwrap_or(config::lighting::SUN_COLOR);
+    // Start with the config default; `world_builder::compile_room_record`
+    // patches the light with the `environment.sun_color` from the active
+    // `RoomRecord` as soon as the recipe is compiled on InGame entry.
+    let sc = config::lighting::SUN_COLOR;
 
     let cascade_shadow_config = CascadeShadowConfigBuilder {
         first_cascade_far_bound: config::lighting::CASCADE_FIRST_FAR,
@@ -202,7 +202,11 @@ fn start_room_record_fetch(mut commands: Commands, room_did: Res<CurrentRoomDid>
     commands.spawn(RoomRecordTask(task));
 }
 
-fn poll_room_record_task(mut commands: Commands, mut tasks: Query<(Entity, &mut RoomRecordTask)>) {
+fn poll_room_record_task(
+    mut commands: Commands,
+    mut tasks: Query<(Entity, &mut RoomRecordTask)>,
+    room_did: Res<CurrentRoomDid>,
+) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
             futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.0))
@@ -212,10 +216,14 @@ fn poll_room_record_task(mut commands: Commands, mut tasks: Query<(Entity, &mut 
 
         commands.entity(entity).despawn();
 
-        let record = result.unwrap_or_default();
+        // Zero-configuration homeworld: a 404 from the PDS means the owner
+        // has not customised their overland yet, so we synthesise the
+        // canonical default recipe (terrain + water) keyed to their DID.
+        let record = result.unwrap_or_else(|| pds::RoomRecord::default_for_did(&room_did.0));
         info!(
-            "Room record loaded: water_offset={}, sun={:?}",
-            record.water_level_offset, record.sun_color
+            "Room record loaded: {} generators, {} placements",
+            record.generators.len(),
+            record.placements.len()
         );
         commands.insert_resource(record);
     }
@@ -236,16 +244,3 @@ fn check_loading_complete(
     }
 }
 
-/// Apply the room record's sun colour to the directional light when entering
-/// InGame.  `setup_lighting` runs at Startup before the record is fetched, so
-/// this system patches the light once the record is available.
-fn apply_room_sun_color(
-    room_record: Option<Res<RoomRecord>>,
-    mut lights: Query<&mut DirectionalLight>,
-) {
-    let Some(record) = room_record else { return };
-    let c = record.sun_color;
-    for mut light in lights.iter_mut() {
-        light.color = Color::srgb(c[0], c[1], c[2]);
-    }
-}

@@ -518,7 +518,12 @@ fn apply_buoyancy_forces(
     };
     let water_offset = room_record
         .as_ref()
-        .map(|r| r.water_level_offset)
+        .and_then(|r| {
+            r.generators.values().find_map(|g| match g {
+                crate::pds::Generator::Water { level_offset } => Some(*level_offset),
+                _ => None,
+            })
+        })
         .unwrap_or(0.0);
     let wl = water_level_y() + water_offset + pp.water_rest_length;
     let y = global_tf.translation().y;

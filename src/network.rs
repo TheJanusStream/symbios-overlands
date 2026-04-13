@@ -28,7 +28,6 @@ use crate::state::{
     AppState, ChatHistory, CurrentRoomDid, DiagnosticsLog, LocalAirshipParams, LocalPlayer,
     RemotePeer, TransformBuffer, TransformSample,
 };
-use crate::terrain::WaterVolume;
 
 pub struct NetworkPlugin;
 
@@ -154,8 +153,6 @@ fn handle_incoming_messages(
     time: Res<Time>,
     room_did: Option<Res<CurrentRoomDid>>,
     mut room_record: Option<ResMut<RoomRecord>>,
-    mut water: Query<&mut Transform, (With<WaterVolume>, Without<RemotePeer>)>,
-    mut dir_lights: Query<&mut DirectionalLight>,
     peer_sessions: Res<PeerSessionMapRes>,
 ) {
     let now = time.elapsed_secs_f64();
@@ -270,26 +267,11 @@ fn handle_incoming_messages(
                     _ => false,
                 };
 
+                // Replace the whole recipe. `world_builder::compile_room_record`
+                // observes the resource change and rebuilds every compiled
+                // entity (water, sun colour, scattered shapes) in one pass.
                 if is_owner && let Some(record) = room_record.as_mut() {
-                    record.water_level_offset = new_record.water_level_offset;
-                    record.sun_color = new_record.sun_color;
-
-                    // Live-update water volume transform.
-                    let base_wl = (crate::config::terrain::water::LEVEL_FACTOR
-                        * crate::config::terrain::HEIGHT_SCALE)
-                        .max(0.001);
-                    let wl = (base_wl + new_record.water_level_offset).max(0.001);
-                    for mut tf in water.iter_mut() {
-                        tf.translation.y = wl / 2.0;
-                        tf.scale.y = wl;
-                    }
-
-                    // Live-update sun colour.
-                    let c = new_record.sun_color;
-                    for mut light in dir_lights.iter_mut() {
-                        light.color = Color::srgb(c[0], c[1], c[2]);
-                    }
-
+                    **record = new_record;
                     info!("Room state updated from owner broadcast");
                 }
             }
