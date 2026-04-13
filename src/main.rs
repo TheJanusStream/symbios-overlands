@@ -172,9 +172,14 @@ fn loading_ui(mut contexts: bevy_egui::EguiContexts) {
 // Room record loading (runs during AppState::Loading)
 // ---------------------------------------------------------------------------
 
+/// In-flight `fetch_room_record` task attached to a throwaway entity so the
+/// `Loading` poll system can drain it without a dedicated resource.
 #[derive(Component)]
 struct RoomRecordTask(bevy::tasks::Task<Option<RoomRecord>>);
 
+/// Kick off the async ATProto `getRecord` fetch for the room the client is
+/// visiting. Runs exactly once on entry to `AppState::Loading`; the result is
+/// picked up by `poll_room_record_task` on subsequent frames.
 fn start_room_record_fetch(mut commands: Commands, room_did: Res<CurrentRoomDid>) {
     let did = room_did.0.clone();
     // `IoTaskPool` is the correct home for blocking HTTP calls — the
@@ -202,6 +207,9 @@ fn start_room_record_fetch(mut commands: Commands, room_did: Res<CurrentRoomDid>
     commands.spawn(RoomRecordTask(task));
 }
 
+/// Drain a finished `RoomRecordTask`, install the resulting `RoomRecord` as a
+/// Bevy resource, and synthesise the default recipe if the owner has never
+/// published one (a 404 is not an error — it means a blank homeworld).
 fn poll_room_record_task(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut RoomRecordTask)>,
@@ -243,4 +251,3 @@ fn check_loading_complete(
         next_state.set(AppState::InGame);
     }
 }
-

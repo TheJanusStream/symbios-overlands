@@ -50,8 +50,7 @@ pub fn room_admin_ui(
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
     mut editor: Local<RoomEditorState>,
 ) {
-    let (Some(session), Some(room_did), Some(record)) =
-        (session, room_did, room_record.as_mut())
+    let (Some(session), Some(room_did), Some(record)) = (session, room_did, room_record.as_mut())
     else {
         return;
     };
@@ -124,12 +123,8 @@ pub fn room_admin_ui(
                             let task = pool.spawn(async move {
                                 let fut = async {
                                     let client = reqwest::Client::new();
-                                    pds::publish_room_record(
-                                        &client,
-                                        &session_clone,
-                                        &new_record,
-                                    )
-                                    .await
+                                    pds::publish_room_record(&client, &session_clone, &new_record)
+                                        .await
                                 };
                                 #[cfg(target_arch = "wasm32")]
                                 {

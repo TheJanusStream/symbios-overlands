@@ -291,10 +291,7 @@ impl RoomRecord {
         let mut traits = HashMap::new();
         traits.insert(
             "base_terrain".to_string(),
-            vec![
-                "collider_heightfield".to_string(),
-                "ground".to_string(),
-            ],
+            vec!["collider_heightfield".to_string(), "ground".to_string()],
         );
 
         Self {
@@ -469,9 +466,7 @@ mod tests {
         // serialise to `0` / `1` even without fixed-point wrapping.
         let mut record = RoomRecord::default_for_did("did:plc:test");
         record.environment.sun_color = [0.98, 0.95, 0.82];
-        if let Some(Generator::Water { level_offset }) =
-            record.generators.get_mut("base_water")
-        {
+        if let Some(Generator::Water { level_offset }) = record.generators.get_mut("base_water") {
             *level_offset = 2.5;
         }
         if let Some(Generator::Terrain { noise_scale, .. }) =

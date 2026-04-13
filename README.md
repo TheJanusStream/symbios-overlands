@@ -20,7 +20,8 @@ There is no central game server. There is no competitive objective. It is a spac
 * **Amphibious Raycast Rovers:** Custom vehicles built on [Avian3D](https://github.com/Jondolf/avian). To navigate jagged procedural terrain, vehicles use a raycast suspension system (Hooke's Law + Damping). When entering the procedural ocean, the forces seamlessly transition to Archimedean buoyancy. Drive the dunes, sail the seas.
 * **Deterministic Procedural Terrain:** Powered by `symbios-ground` and `bevy_symbios_ground`. Each room is seeded by an FNV-1a hash of the owner's DID, so every client visiting the same overland generates a mathematically identical landscape — Voronoi terracing, hydraulic erosion, then thermal erosion — with triplanar PBR splat textures (grass / dirt / rock / snow) blended from a heightmap-derived weight map.
 
-* **Sovereign Room Customisation:** The environment itself is an ATProto record. Room owners see an in-game "Room Settings" panel that lets them adjust the water level and sun colour and publish the result to their own PDS as a `network.symbios.overlands.room` record. Changes are broadcast live to every connected peer over a Reliable data channel and saved to the owner's repo via `com.atproto.repo.putRecord`. Guests fetch the record on load and only the authenticated owner can publish (enforced both client-side and by the PDS).
+* **Data-Driven Room Recipes:** The environment itself is an ATProto record (`network.symbios.overlands.room`) authored as a *recipe* — a graph of named `generators` (terrain / water / shape / l-system), `placements` (absolute or deterministic scatter regions) and `traits` (ECS components to attach). `world_builder.rs` compiles the recipe into Bevy entities, and every union uses `#[serde(other)] Unknown` so a client visiting a newer room skips unrecognised variants instead of crashing. Floats are stored on the wire as fixed-point `i32` values because DAG-CBOR rejects IEEE floats in records.
+* **Sovereign Room Customisation:** Room owners see an advanced "Room Settings" panel that exposes the raw `RoomRecord` JSON directly, so any recipe field — water level offset, sun colour, generator graph, scatter placements — is editable in place. Applying the change swaps the live `RoomRecord` resource (triggering an incremental rebuild of every compiled entity), broadcasts a `RoomStateUpdate` to connected guests over the Reliable channel, and publishes the record to the owner's PDS via `com.atproto.repo.putRecord`. Guests fetch the record on load, and ownership is enforced both client-side (signed-in DID must match the room DID) and by the PDS.
 
 * **In-Room Chat:** An egui chat window streams Reliable messages between everyone in the room, labelled with each sender's Bluesky handle and a session-relative timestamp. Muting a peer from the Diagnostics panel hides their vessel and silences their messages locally. Incoming chat payloads are hard-clipped at 512 bytes on the receiver to neutralise malicious jumbo packets.
 
@@ -81,25 +82,32 @@ The orbit camera follows the rover's yaw automatically, so steering always rotat
 
 ```text
 src/
-├── main.rs              App wiring: plugins, state machine, loading-gate, lighting
+├── main.rs              App wiring: plugins, state machine, dual loading-gate
+│                        (terrain task + PDS room-record fetch), lighting
 ├── config.rs            Centralised tuneable constants (no magic numbers in modules)
 ├── state.rs             ECS resources, components, and the AppState enum
 ├── protocol.rs          Serde-tagged network message enum + AirshipParams
-├── network.rs           P2P broadcast, jitter buffer, Hermite smoothing, mute sync
-├── pds.rs               ATProto DID / PDS resolution and room-record read/write
+├── network.rs           P2P broadcast, jitter buffer, Hermite smoothing,
+│                        identity anti-spoofing, mute sync
+├── pds.rs               ATProto DID / PDS resolution, `RoomRecord` recipe
+│                        lexicon, DAG-CBOR fixed-point adapters, read/write
+├── world_builder.rs     Compiler that walks a `RoomRecord` recipe and spawns
+│                        ECS entities (deterministic ChaCha8 scatter, trait
+│                        application, destructive rebuild on record change)
 ├── avatar.rs            Bluesky profile picture fetch + sail-material swap
 ├── social.rs            Async `app.bsky.graph.getRelationships` resonance query
 ├── rover.rs             Airship mesh build, raycast suspension, drive, buoyancy
-├── terrain.rs           Heightmap generation, collider, splat textures, water volume
+├── terrain.rs           Heightmap generation (Voronoi + erosion), heightfield
+│                        collider, splat texture pipeline
 ├── camera.rs            Pan-orbit camera that follows the local rover
 ├── splat.rs             `ExtendedMaterial` binding for the splat terrain shader
 ├── water.rs             `ExtendedMaterial` binding for the animated water shader
-├── logout.rs             InGame → Login cleanup: despawn entities, tear down socket
+├── logout.rs            InGame → Login cleanup: despawn entities, tear down socket
 └── ui/
     ├── login.rs         ATProto login form + auth task polling
     ├── diagnostics.rs   Peer list, mute toggles, event log, logout button
     ├── chat.rs          Reliable chat window with length-capped input
     ├── airship.rs       Airship design sliders + smoothing toggle
     ├── physics.rs       Runtime rover physics tuning sliders
-    └── room.rs          Owner-only room settings editor (water level, sun colour)
+    └── room.rs          Owner-only advanced JSON editor for the full `RoomRecord`
 ```

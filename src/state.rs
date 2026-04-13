@@ -9,7 +9,10 @@ use bevy::prelude::*;
 
 use crate::protocol::AirshipParams;
 
-/// Application state machine. Terrain must be solid before entering InGame.
+/// Application state machine. `Loading` waits on *both* the async heightmap
+/// generation task and the ATProto PDS room-record fetch before handing off
+/// to `InGame`, so the terrain collider is solid and the world-builder has a
+/// recipe to compile the moment the first gameplay frame runs.
 #[derive(States, Default, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AppState {
     #[default]

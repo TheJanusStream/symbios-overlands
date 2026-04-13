@@ -195,13 +195,8 @@ fn spawn_from_generator(
             }
         }
         Generator::Water { level_offset } => {
-            let entity = spawn_water_volume(
-                commands,
-                *level_offset,
-                transform,
-                meshes,
-                water_materials,
-            );
+            let entity =
+                spawn_water_volume(commands, *level_offset, transform, meshes, water_materials);
             apply_traits(commands, entity, record, generator_ref);
         }
         Generator::Shape { .. } | Generator::LSystem { .. } => {
@@ -210,10 +205,7 @@ fn spawn_from_generator(
             // any `sensor`/`ground` markers once wired up.
         }
         Generator::Unknown => {
-            warn!(
-                "Ignoring generator `{}` of unknown $type",
-                generator_ref
-            );
+            warn!("Ignoring generator `{}` of unknown $type", generator_ref);
         }
     }
 }
@@ -271,12 +263,7 @@ fn spawn_water_volume(
 /// Attach any ECS components listed under `record.traits[generator_ref]`
 /// to `entity`. The trait engine is the main extension point — new
 /// lexicon tokens map cleanly to Bevy components without schema churn.
-fn apply_traits(
-    commands: &mut Commands,
-    entity: Entity,
-    record: &RoomRecord,
-    generator_ref: &str,
-) {
+fn apply_traits(commands: &mut Commands, entity: Entity, record: &RoomRecord, generator_ref: &str) {
     let Some(traits) = record.traits.get(generator_ref) else {
         return;
     };
