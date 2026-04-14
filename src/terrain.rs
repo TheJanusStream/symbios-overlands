@@ -32,7 +32,7 @@ use symbios_ground::{
 
 use crate::config::terrain as tcfg;
 use crate::pds::{
-    Generator, RoomRecord, SovereignGeneratorKind, SovereignGroundConfig, SovereignRockConfig,
+    RoomRecord, SovereignGeneratorKind, SovereignGroundConfig, SovereignRockConfig,
     SovereignTerrainConfig,
 };
 use crate::splat::{SplatExtension, SplatTerrainMaterial, SplatUniforms};
@@ -81,6 +81,18 @@ impl TerrainSplatState {
 #[derive(Resource)]
 struct SplatMaterialHandle(Handle<SplatTerrainMaterial>);
 
+/// Serialised fingerprint of the terrain config currently compiled into the
+/// live heightmap. `maybe_regenerate_terrain` compares the active
+/// `RoomRecord`'s terrain config against this and, on mismatch, triggers a
+/// full heightmap/texture/mesh rebuild in place. Without this, a room owner
+/// editing noise parameters would desync every guest: the live terrain would
+/// stay frozen for everyone already in the room, while a new guest joining
+/// afterwards would enter `Loading` and generate the *new* terrain — so
+/// older peers and newcomers end up driving on fundamentally different
+/// ground.
+#[derive(Resource, Default)]
+struct LastTerrainConfigJson(Option<String>);
+
 pub struct TerrainPlugin;
 
 impl Plugin for TerrainPlugin {
@@ -88,10 +100,13 @@ impl Plugin for TerrainPlugin {
         app.add_plugins(SymbiosTexturePlugin)
             .add_plugins(MaterialPlugin::<SplatTerrainMaterial>::default())
             .init_resource::<TerrainSplatState>()
-            // Terrain + texture tasks can only be configured once the room
-            // record has arrived, so they run as conditional Update systems
-            // inside Loading rather than at OnEnter. Each guards itself from
-            // double-kicking with a resource/marker check.
+            .init_resource::<LastTerrainConfigJson>()
+            // Terrain + texture + mesh spawning runs as conditional Update
+            // systems in both Loading and InGame so the same plumbing handles
+            // the initial world build *and* in-place regeneration when the
+            // room owner edits terrain parameters mid-session. Each step
+            // guards itself against double-kicking with a resource/marker
+            // check.
             .add_systems(
                 Update,
                 (
@@ -105,14 +120,20 @@ impl Plugin for TerrainPlugin {
                             .and(not(resource_exists::<TextureTasksStarted>)),
                     ),
                     poll_terrain_task.run_if(resource_exists::<TerrainTask>),
+                    spawn_terrain_mesh.run_if(
+                        resource_exists::<FinishedHeightMap>
+                            .and(not(resource_exists::<SplatMaterialHandle>)),
+                    ),
                 )
-                    .run_if(in_state(AppState::Loading)),
+                    .run_if(not(in_state(AppState::Login))),
             )
-            .add_systems(OnEnter(AppState::InGame), spawn_terrain_mesh)
             .add_systems(
                 Update,
-                (collect_texture_results, apply_splat_textures)
-                    .chain()
+                (
+                    maybe_regenerate_terrain.run_if(resource_exists::<RoomRecord>),
+                    collect_texture_results,
+                    apply_splat_textures,
+                )
                     .run_if(in_state(AppState::InGame)),
             )
             .add_systems(OnExit(AppState::InGame), cleanup_terrain);
@@ -127,6 +148,7 @@ fn cleanup_terrain(
     terrain: Query<Entity, With<TerrainMesh>>,
     water: Query<Entity, With<WaterVolume>>,
     mut splat_state: ResMut<TerrainSplatState>,
+    mut last_cfg: ResMut<LastTerrainConfigJson>,
 ) {
     for e in &terrain {
         commands.entity(e).despawn();
@@ -135,8 +157,68 @@ fn cleanup_terrain(
         commands.entity(e).despawn();
     }
     *splat_state = TerrainSplatState::default();
+    last_cfg.0 = None;
     commands.remove_resource::<FinishedHeightMap>();
     commands.remove_resource::<SplatMaterialHandle>();
+    commands.remove_resource::<TextureTasksStarted>();
+    commands.remove_resource::<TerrainTask>();
+}
+
+/// Watch the active room record for terrain-config changes. When the owner
+/// edits grid size, noise params, erosion, splat rules, or any other
+/// terrain-affecting field, despawn the existing heightfield, drop the
+/// cached heightmap / splat resources, and let the generic `Update`
+/// pipeline re-kick terrain + texture tasks from scratch. The first
+/// observation of a config simply records the fingerprint — Loading handled
+/// the initial build — so this only fires on *changes* after the player is
+/// already InGame.
+#[allow(clippy::too_many_arguments)]
+fn maybe_regenerate_terrain(
+    mut commands: Commands,
+    record: Res<RoomRecord>,
+    mut last_cfg: ResMut<LastTerrainConfigJson>,
+    terrain_q: Query<Entity, With<TerrainMesh>>,
+    water_q: Query<Entity, With<WaterVolume>>,
+    pending_textures: Query<Entity, With<TextureLayerIndex>>,
+    mut splat_state: ResMut<TerrainSplatState>,
+) {
+    if !record.is_changed() {
+        return;
+    }
+    let Some(cfg) = crate::pds::find_terrain_config(&record) else {
+        return;
+    };
+    let Ok(fp) = serde_json::to_string(cfg) else {
+        return;
+    };
+    let should_regen = match &last_cfg.0 {
+        Some(prev) if prev == &fp => false,
+        Some(_) => true,
+        None => false, // first observation — initial Loading pipeline built it
+    };
+    last_cfg.0 = Some(fp);
+    if !should_regen {
+        return;
+    }
+
+    // Tear down everything tied to the old heightmap so the generic Update
+    // pipeline above re-kicks terrain generation, texture baking, and mesh
+    // spawning against the new config on subsequent frames.
+    for e in &terrain_q {
+        commands.entity(e).despawn();
+    }
+    for e in &water_q {
+        commands.entity(e).despawn();
+    }
+    for e in &pending_textures {
+        commands.entity(e).despawn();
+    }
+    commands.remove_resource::<FinishedHeightMap>();
+    commands.remove_resource::<SplatMaterialHandle>();
+    commands.remove_resource::<TextureTasksStarted>();
+    commands.remove_resource::<TerrainTask>();
+    *splat_state = TerrainSplatState::default();
+    info!("Terrain config changed — regenerating heightmap + splat textures");
 }
 
 // ---------------------------------------------------------------------------
@@ -144,16 +226,12 @@ fn cleanup_terrain(
 // ---------------------------------------------------------------------------
 
 fn start_terrain_generation(mut commands: Commands, record: Res<RoomRecord>) {
-    // Pull the first `Generator::Terrain` from the record — if none exists
-    // (malformed record) we fall back to the built-in default so the
-    // Loading gate still closes.
-    let cfg = record
-        .generators
-        .values()
-        .find_map(|g| match g {
-            Generator::Terrain(c) => Some(c.clone()),
-            _ => None,
-        })
+    // `find_terrain_config` walks the generator map in sorted-key order so
+    // every peer compiling this record picks the same entry — `HashMap`
+    // iteration is SipHash-randomised per process, and without the helper
+    // two clients could generate different terrains from the same record.
+    let cfg = crate::pds::find_terrain_config(&record)
+        .cloned()
         .unwrap_or_default();
 
     let pool = AsyncComputeTaskPool::get();
@@ -167,13 +245,8 @@ fn start_terrain_generation(mut commands: Commands, record: Res<RoomRecord>) {
 /// when done. A `TextureTasksStarted` marker is inserted to make this a
 /// one-shot inside the Loading-phase scheduler loop.
 fn start_texture_tasks(mut commands: Commands, record: Res<RoomRecord>) {
-    let mat = record
-        .generators
-        .values()
-        .find_map(|g| match g {
-            Generator::Terrain(c) => Some(c.material.clone()),
-            _ => None,
-        })
+    let mat = crate::pds::find_terrain_config(&record)
+        .map(|c| c.material.clone())
         .unwrap_or_default();
 
     let texture_size = mat.texture_size.max(16);
@@ -404,10 +477,7 @@ fn apply_splat_textures(
     let (rules_src, hs) = record
         .as_ref()
         .and_then(|r| {
-            r.generators.values().find_map(|g| match g {
-                Generator::Terrain(c) => Some((c.material.rules, c.height_scale.0)),
-                _ => None,
-            })
+            crate::pds::find_terrain_config(r).map(|c| (c.material.rules, c.height_scale.0))
         })
         .unwrap_or_else(|| {
             (

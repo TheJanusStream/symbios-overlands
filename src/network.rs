@@ -170,10 +170,28 @@ fn handle_incoming_messages(
                         // velocity tangent.  Instead, advance the stamp by the
                         // expected send interval, anchored to `now` so bursts
                         // can't drift arbitrarily into the future.
+                        //
+                        // The `(last + expected).max(now)` form alone would
+                        // wind up permanently if the sender's clock runs
+                        // faster than ours — every packet pushes `next`
+                        // slightly ahead of `now`, and after a few minutes
+                        // `render_time = now - delay` falls behind the
+                        // oldest sample and the spline degenerates into a
+                        // snap to the earliest buffered sample. Clamp the
+                        // forward drift so the assigned timestamp can never
+                        // sit more than `MAX_JITTER_DRIFT_SECS` ahead of
+                        // `now`, rebasing to live wall-clock on overrun.
                         let expected = config::network::EXPECTED_BROADCAST_INTERVAL_SECS;
-                        let next = match buf.samples.back() {
+                        let max_drift = config::network::MAX_JITTER_DRIFT_SECS;
+                        let raw_next = match buf.samples.back() {
                             Some(last) => (last.timestamp + expected).max(now),
                             None => now,
+                        };
+                        let ceiling = now + max_drift;
+                        let next = if raw_next > ceiling {
+                            ceiling
+                        } else {
+                            raw_next
                         };
                         buf.samples.push_back(TransformSample {
                             position: Vec3::from_array(position),
@@ -255,7 +273,7 @@ fn handle_incoming_messages(
                     }
                 }
             }
-            OverlandsMessage::RoomStateUpdate(new_record) => {
+            OverlandsMessage::RoomStateUpdate(mut new_record) => {
                 // Only accept from the peer whose DID matches the room owner.
                 let sender_did = peers
                     .iter()
@@ -266,6 +284,12 @@ fn handle_incoming_messages(
                     (Some(did), Some(rd)) => did == &rd.0,
                     _ => false,
                 };
+
+                // Clamp every unbounded numeric field before the world
+                // compiler touches the recipe — a malicious owner could
+                // otherwise ship a grid_size or L-system iteration count
+                // designed to OOM every guest.
+                new_record.sanitize();
 
                 // Replace the whole recipe. `world_builder::compile_room_record`
                 // observes the resource change and rebuilds every compiled

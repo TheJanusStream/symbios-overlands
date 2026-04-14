@@ -516,13 +516,20 @@ fn apply_buoyancy_forces(
     let Ok((mut forces, global_tf)) = query.single_mut() else {
         return;
     };
+    // Pick the Water generator with the lexicographically smallest key so
+    // every peer computes the same buoyancy equilibrium — the raw
+    // `HashMap::values()` iteration order is process-random (SipHash).
     let water_offset: f32 = room_record
         .as_ref()
         .and_then(|r| {
-            r.generators.values().find_map(|g| match g {
-                crate::pds::Generator::Water { level_offset } => Some(level_offset.0),
-                _ => None,
-            })
+            let mut keys: Vec<&String> = r.generators.keys().collect();
+            keys.sort();
+            for k in keys {
+                if let Some(crate::pds::Generator::Water { level_offset }) = r.generators.get(k) {
+                    return Some(level_offset.0);
+                }
+            }
+            None
         })
         .unwrap_or(0.0);
     let wl = water_level_y() + water_offset + pp.water_rest_length;
@@ -561,7 +568,14 @@ fn respawn_if_fallen(
     let ground_y = hm.get_height_at(centre + ox, centre + oz);
     let surface_normal = hm.get_normal_at(centre + ox, centre + oz);
     let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
-    pos.0 = Vec3::new(ox, ground_y + cfg::SPAWN_HEIGHT_OFFSET, oz);
+    // Guard against infinite respawn: the owner controls `height_scale` and
+    // erosion depth, so a map centre can legitimately sit below
+    // `FALL_Y_THRESHOLD`. Clamping to `threshold + SPAWN_HEIGHT_OFFSET`
+    // ensures the very next physics tick sees `pos.y > FALL_Y_THRESHOLD`,
+    // breaking what would otherwise be a rapid-fire respawn soft-lock.
+    let spawn_y =
+        (ground_y + cfg::SPAWN_HEIGHT_OFFSET).max(cfg::FALL_Y_THRESHOLD + cfg::SPAWN_HEIGHT_OFFSET);
+    pos.0 = Vec3::new(ox, spawn_y, oz);
     rot.0 = tilt;
     lin_vel.0 = Vec3::ZERO;
     ang_vel.0 = Vec3::ZERO;

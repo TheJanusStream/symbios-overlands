@@ -120,11 +120,8 @@ fn compile_room_record(
                 local_seed,
                 biome_filter,
             } => {
-                // Look up the scatter's terrain context for biome filtering.
-                let terrain_cfg = record.generators.values().find_map(|g| match g {
-                    Generator::Terrain(cfg) => Some(cfg),
-                    _ => None,
-                });
+                // Deterministic pick — see `find_terrain_config` doc comment.
+                let terrain_cfg = crate::pds::find_terrain_config(&record);
                 let max_attempts = count.saturating_mul(10).max(*count);
                 let mut rng = ChaCha8Rng::seed_from_u64(*local_seed);
                 let mut spawned = 0u32;
@@ -322,7 +319,13 @@ fn spawn_from_generator(
             // gameplay begins). The recipe still participates through
             // `traits`, which we apply here to every existing terrain
             // mesh entity.
+            //
+            // Because terrain entities survive a `RoomEntity` rebuild,
+            // first wipe any previously-attached trait components — if a
+            // trait was removed from the record, the diff must actually
+            // take effect on the live mesh.
             for terrain_entity in ctx.terrain_meshes.iter() {
+                reset_traits(ctx.commands, terrain_entity);
                 apply_traits(ctx.commands, terrain_entity, ctx.record, generator_ref);
             }
         }
@@ -583,4 +586,12 @@ fn apply_traits(commands: &mut Commands, entity: Entity, record: &RoomRecord, ge
             commands.entity(entity).insert(Sensor);
         }
     }
+}
+
+/// Remove every component that `apply_traits` could have attached. Used on
+/// long-lived entities (e.g. the terrain mesh) that survive a room rebuild
+/// so a trait deletion actually lands on the live entity instead of
+/// leaving the old component stuck in place.
+fn reset_traits(commands: &mut Commands, entity: Entity) {
+    commands.entity(entity).remove::<Sensor>();
 }

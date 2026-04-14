@@ -674,6 +674,140 @@ impl Default for RoomRecord {
 }
 
 // ---------------------------------------------------------------------------
+// Sanitisation — clamp any numeric field a malicious peer might inflate to
+// crash the engine or exhaust host RAM. The limits mirror the ranges the
+// World Editor UI already exposes, so a hand-crafted record cannot trigger
+// behaviour the owner couldn't have requested via the normal interface.
+// ---------------------------------------------------------------------------
+
+/// Maximum values allowed in a `RoomRecord`. Record fields outside these
+/// bounds are clamped rather than rejected so slightly exotic records from
+/// forward-compatible clients still round-trip, but a weaponised payload
+/// cannot force a runaway allocation.
+pub mod limits {
+    /// Heightmap edge length (cells per side). 2048² ≈ 4M f32 cells ≈ 16 MiB.
+    pub const MAX_GRID_SIZE: u32 = 2048;
+    /// FBM / noise octaves.
+    pub const MAX_OCTAVES: u32 = 32;
+    /// Voronoi seed-point count.
+    pub const MAX_VORONOI_SEEDS: u32 = 10_000;
+    /// Voronoi terrace-level count.
+    pub const MAX_VORONOI_TERRACES: u32 = 64;
+    /// Hydraulic erosion drop count.
+    pub const MAX_EROSION_DROPS: u32 = 500_000;
+    /// Thermal erosion iteration count.
+    pub const MAX_THERMAL_ITERATIONS: u32 = 500;
+    /// Splat texture resolution per side (pixels).
+    pub const MAX_TEXTURE_SIZE: u32 = 4096;
+    /// Ground / rock generator octaves.
+    pub const MAX_GROUND_OCTAVES: u32 = 12;
+    pub const MAX_ROCK_OCTAVES: u32 = 16;
+    /// Scatter placement count.
+    pub const MAX_SCATTER_COUNT: u32 = 100_000;
+    /// L-system derivation iterations. 12 is already enough to blow out most
+    /// lexical grammars — anything beyond this is almost certainly an attack.
+    pub const MAX_LSYSTEM_ITERATIONS: u32 = 12;
+    /// L-system source / finalization code length in bytes.
+    pub const MAX_LSYSTEM_CODE_BYTES: usize = 16_384;
+    /// L-system mesh resolution (stroke segments per twig).
+    pub const MAX_LSYSTEM_MESH_RESOLUTION: u32 = 32;
+    /// Shape generator floor count.
+    pub const MAX_SHAPE_FLOORS: u32 = 64;
+}
+
+impl RoomRecord {
+    /// Clamp every numeric field to a safe upper bound. Every path that
+    /// accepts a `RoomRecord` from the network (PDS fetch and peer-broadcast
+    /// `RoomStateUpdate`) calls this before handing the record to the world
+    /// compiler, so an attacker cannot weaponise an unbounded field to crash
+    /// or OOM the victim.
+    pub fn sanitize(&mut self) {
+        for generator in self.generators.values_mut() {
+            match generator {
+                Generator::Terrain(cfg) => sanitize_terrain_cfg(cfg),
+                Generator::LSystem {
+                    source_code,
+                    finalization_code,
+                    iterations,
+                    angle: _,
+                    step: _,
+                    width: _,
+                    elasticity: _,
+                    mesh_resolution,
+                    ..
+                } => {
+                    if source_code.len() > limits::MAX_LSYSTEM_CODE_BYTES {
+                        source_code.truncate(limits::MAX_LSYSTEM_CODE_BYTES);
+                    }
+                    if finalization_code.len() > limits::MAX_LSYSTEM_CODE_BYTES {
+                        finalization_code.truncate(limits::MAX_LSYSTEM_CODE_BYTES);
+                    }
+                    *iterations = (*iterations).min(limits::MAX_LSYSTEM_ITERATIONS);
+                    *mesh_resolution =
+                        (*mesh_resolution).clamp(3, limits::MAX_LSYSTEM_MESH_RESOLUTION);
+                }
+                Generator::Shape { floors, .. } => {
+                    *floors = (*floors).min(limits::MAX_SHAPE_FLOORS);
+                }
+                Generator::Water { .. } | Generator::Unknown => {}
+            }
+        }
+        for placement in self.placements.iter_mut() {
+            if let Placement::Scatter { count, .. } = placement {
+                *count = (*count).min(limits::MAX_SCATTER_COUNT);
+            }
+        }
+    }
+}
+
+fn sanitize_terrain_cfg(cfg: &mut SovereignTerrainConfig) {
+    cfg.grid_size = cfg.grid_size.clamp(2, limits::MAX_GRID_SIZE);
+    cfg.octaves = cfg.octaves.clamp(1, limits::MAX_OCTAVES);
+    cfg.voronoi_num_seeds = cfg.voronoi_num_seeds.clamp(1, limits::MAX_VORONOI_SEEDS);
+    cfg.voronoi_num_terraces = cfg
+        .voronoi_num_terraces
+        .clamp(1, limits::MAX_VORONOI_TERRACES);
+    cfg.erosion_drops = cfg.erosion_drops.min(limits::MAX_EROSION_DROPS);
+    cfg.thermal_iterations = cfg.thermal_iterations.min(limits::MAX_THERMAL_ITERATIONS);
+    cfg.material.texture_size = cfg
+        .material
+        .texture_size
+        .clamp(16, limits::MAX_TEXTURE_SIZE);
+    for ground in [
+        &mut cfg.material.grass,
+        &mut cfg.material.dirt,
+        &mut cfg.material.snow,
+    ] {
+        ground.macro_octaves = ground.macro_octaves.clamp(1, limits::MAX_GROUND_OCTAVES);
+        ground.micro_octaves = ground.micro_octaves.clamp(1, limits::MAX_GROUND_OCTAVES);
+    }
+    cfg.material.rock.octaves = cfg.material.rock.octaves.clamp(1, limits::MAX_ROCK_OCTAVES);
+}
+
+// ---------------------------------------------------------------------------
+// Deterministic generator lookup
+// ---------------------------------------------------------------------------
+
+/// Return the terrain generator with the lexicographically smallest key.
+///
+/// `HashMap::values()` iteration order is randomised per execution (SipHash),
+/// so a record with more than one `Generator::Terrain` entry would otherwise
+/// have every client picking a different one and landing on a different
+/// heightmap — instantly fracturing the shared world. Every site that needs
+/// "the terrain" for a record must go through this function (or its sibling)
+/// so the choice is deterministic across peers.
+pub fn find_terrain_config(record: &RoomRecord) -> Option<&SovereignTerrainConfig> {
+    let mut keys: Vec<&String> = record.generators.keys().collect();
+    keys.sort();
+    for k in keys {
+        if let Some(Generator::Terrain(cfg)) = record.generators.get(k) {
+            return Some(cfg);
+        }
+    }
+    None
+}
+
+// ---------------------------------------------------------------------------
 // DID Document types (shared with avatar.rs on WASM)
 // ---------------------------------------------------------------------------
 
@@ -738,20 +872,86 @@ struct GetRecordResponse {
     value: RoomRecord,
 }
 
+/// Outcome of a `fetch_room_record` call. A 404 means the owner has never
+/// saved a custom record (ok to substitute the default homeworld); any other
+/// outcome is a genuine failure that the caller must distinguish so it does
+/// not silently overwrite an existing record with the default on a transient
+/// DNS/timeout/5xx blip.
+#[derive(Debug)]
+pub enum FetchError {
+    /// DID could not be resolved to a PDS endpoint (DID doc missing/invalid).
+    DidResolutionFailed,
+    /// Network transport failure (DNS, connection refused, timeout, etc.).
+    Network(String),
+    /// PDS responded but with a non-404 error status.
+    PdsError(u16),
+    /// The response body could not be decoded as a `RoomRecord`.
+    Decode(String),
+}
+
+/// Error envelope returned by ATProto XRPC endpoints on non-2xx responses,
+/// e.g. `{"error":"RecordNotFound","message":"Could not locate record..."}`.
+#[derive(Deserialize)]
+struct XrpcError {
+    error: Option<String>,
+    #[allow(dead_code)]
+    message: Option<String>,
+}
+
 /// Fetch the room customisation record from the given DID's PDS.
-/// Returns `None` on 404 (no record yet) or any network error.
-pub async fn fetch_room_record(client: &reqwest::Client, did: &str) -> Option<RoomRecord> {
-    let pds = resolve_pds(client, did).await?;
+///
+/// * `Ok(Some(record))` — the owner has published a record.
+/// * `Ok(None)` — the PDS reported there is no record yet (the caller may
+///   substitute the default homeworld).
+/// * `Err(FetchError)` — transient or permanent failure; the caller must
+///   **not** fall through to the default, because doing so risks the user
+///   publishing the blank default over their real room on the next save.
+///
+/// Note: ATProto's `com.atproto.repo.getRecord` returns `400 RecordNotFound`
+/// — NOT `404` — when the record does not exist. We detect that payload
+/// explicitly and convert it to `Ok(None)` so the loading state can advance
+/// onto the default homeworld instead of hammering the PDS with retries.
+pub async fn fetch_room_record(
+    client: &reqwest::Client,
+    did: &str,
+) -> Result<Option<RoomRecord>, FetchError> {
+    let pds = resolve_pds(client, did)
+        .await
+        .ok_or(FetchError::DidResolutionFailed)?;
     let url = format!(
         "{}/xrpc/com.atproto.repo.getRecord?repo={}&collection={}&rkey=self",
         pds, did, COLLECTION
     );
-    let resp = client.get(&url).send().await.ok()?;
-    if !resp.status().is_success() {
-        return None;
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| FetchError::Network(e.to_string()))?;
+    let status = resp.status();
+    if status.as_u16() == 404 {
+        return Ok(None);
     }
-    let wrapper: GetRecordResponse = resp.json().await.ok()?;
-    Some(wrapper.value)
+    if !status.is_success() {
+        // Inspect the error body before surfacing as PdsError — ATProto
+        // signals "no such record" via 400 + `error: "RecordNotFound"` in
+        // the body, and we must not treat that as a transient retry case.
+        let body = resp.text().await.unwrap_or_default();
+        if let Ok(xrpc) = serde_json::from_str::<XrpcError>(&body)
+            && let Some(err) = xrpc.error.as_deref()
+            && (err == "RecordNotFound"
+                || (err == "InvalidRequest" && body.contains("RecordNotFound")))
+        {
+            return Ok(None);
+        }
+        return Err(FetchError::PdsError(status.as_u16()));
+    }
+    let wrapper: GetRecordResponse = resp
+        .json()
+        .await
+        .map_err(|e| FetchError::Decode(e.to_string()))?;
+    let mut record = wrapper.value;
+    record.sanitize();
+    Ok(Some(record))
 }
 
 // ---------------------------------------------------------------------------
@@ -800,6 +1000,65 @@ pub async fn publish_room_record(
         let body = resp.text().await.unwrap_or_default();
         Err(format!("putRecord failed: {} — {}", status, body))
     }
+}
+
+/// Payload for `com.atproto.repo.deleteRecord`.
+#[derive(Serialize)]
+struct DeleteRecordRequest<'a> {
+    repo: &'a str,
+    collection: &'a str,
+    rkey: &'a str,
+}
+
+/// Delete the room record from the authenticated user's PDS. A 404 response
+/// is reported as `Ok(())` because the caller usually just wants to know the
+/// row is gone — whether it was never there or just removed is immaterial.
+pub async fn delete_room_record(
+    client: &reqwest::Client,
+    session: &AtprotoSession,
+) -> Result<(), String> {
+    let pds = resolve_pds(client, &session.did)
+        .await
+        .ok_or_else(|| "Failed to resolve PDS".to_string())?;
+
+    let url = format!("{}/xrpc/com.atproto.repo.deleteRecord", pds);
+    let body = DeleteRecordRequest {
+        repo: &session.did,
+        collection: COLLECTION,
+        rkey: "self",
+    };
+
+    let resp = client
+        .post(&url)
+        .bearer_auth(&session.access_jwt)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if resp.status().is_success() || resp.status().as_u16() == 404 {
+        Ok(())
+    } else {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        Err(format!("deleteRecord failed: {} — {}", status, body))
+    }
+}
+
+/// Force-overwrite the room record by deleting first, then creating fresh.
+///
+/// The plain `putRecord` upsert path can trip on an incompatible stored
+/// record: some PDS implementations try to diff the prior CID and return
+/// `500 InternalServerError` when the old blob can't be validated against
+/// the current lexicon. Deleting first gives the PDS a clean slate, so the
+/// subsequent create is a simple new-record path with no diff logic.
+pub async fn reset_room_record(
+    client: &reqwest::Client,
+    session: &AtprotoSession,
+    record: &RoomRecord,
+) -> Result<(), String> {
+    delete_room_record(client, session).await?;
+    publish_room_record(client, session, record).await
 }
 
 // ---------------------------------------------------------------------------

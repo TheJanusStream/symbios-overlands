@@ -252,6 +252,16 @@ pub mod network {
     /// slightly smaller than the nominal FixedUpdate tick so the buffer stays
     /// in step with wall clock under normal delivery.
     pub const EXPECTED_BROADCAST_INTERVAL_SECS: f64 = 1.0 / 60.0;
+    /// Maximum amount (seconds) a jitter-buffered playout timestamp is
+    /// allowed to sit ahead of wall-clock `now`.  If the sender's clock
+    /// runs faster than ours, `(last + expected).max(now)` would
+    /// accumulate drift forever, eventually pushing the newest sample so
+    /// far into the future that `now - KINEMATIC_RENDER_DELAY_SECS`
+    /// becomes older than every buffered sample — the Hermite spline
+    /// then degenerates into a snap to the earliest sample and the
+    /// remote mesh lags visibly.  The ceiling rebases drift to live
+    /// wall-clock instead of letting it run away.
+    pub const MAX_JITTER_DRIFT_SECS: f64 = 0.5;
     /// Delay (seconds) for the jitter buffer when smoothing remote peer
     /// transforms.  Rendering peers this far in the past guarantees a window
     /// of samples to interpolate between, hiding dropped packets.

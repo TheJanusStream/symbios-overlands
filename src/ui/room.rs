@@ -26,11 +26,17 @@ use crate::pds::{
     TransformData,
 };
 use crate::protocol::OverlandsMessage;
-use crate::state::CurrentRoomDid;
+use crate::state::{CurrentRoomDid, RoomRecordRecovery};
 
 /// Async task for publishing the room record to the owner's PDS.
 #[derive(Component)]
 pub struct PublishRoomTask(pub bevy::tasks::Task<Result<(), String>>);
+
+/// Async task for the hard-reset publish path (delete-then-put). Separate
+/// from `PublishRoomTask` only for logging clarity — the two share the same
+/// result type and poll system.
+#[derive(Component)]
+pub struct ResetRoomTask(pub bevy::tasks::Task<Result<(), String>>);
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum EditorTab {
@@ -68,6 +74,7 @@ pub fn room_admin_ui(
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
     mut room_record: Option<ResMut<RoomRecord>>,
+    recovery: Option<Res<RoomRecordRecovery>>,
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
     mut editor: Local<RoomEditorState>,
 ) {
@@ -112,6 +119,51 @@ pub fn room_admin_ui(
         .default_height(620.0)
         .default_pos([10.0, 220.0])
         .show(ctx, |ui| {
+            // Recovery banner — shown when the stored PDS record failed to
+            // decode and we're running on the synthesised default. Offers a
+            // one-click "Reset PDS to default" so the owner can deliberately
+            // overwrite the incompatible record instead of being stuck.
+            if let Some(rec) = recovery.as_deref() {
+                let banner = egui::Frame::new()
+                    .fill(egui::Color32::from_rgb(90, 30, 30))
+                    .inner_margin(6.0)
+                    .corner_radius(4.0);
+                banner.show(ui, |ui| {
+                    ui.colored_label(
+                        egui::Color32::WHITE,
+                        "⚠ Stored room record is incompatible with this build.",
+                    );
+                    ui.label(format!("Decode error: {}", rec.reason));
+                    ui.label(
+                        "You are currently editing the default homeworld. Click below to \
+                         overwrite the stored record on your PDS with this default so the \
+                         next login loads cleanly.",
+                    );
+                    if ui.button("Reset PDS to default").clicked() {
+                        let default_record = pds::RoomRecord::default_for_did(&room_did.0);
+                        **record = default_record.clone();
+                        if let Some(p) = pending_record.as_mut() {
+                            *p = default_record.clone();
+                        }
+                        *raw_text = serde_json::to_string_pretty(&default_record)
+                            .unwrap_or_default();
+                        *raw_error = None;
+                        *is_dirty = false;
+                        writer.write(Broadcast {
+                            payload: OverlandsMessage::RoomStateUpdate(default_record.clone()),
+                            channel: ChannelKind::Reliable,
+                        });
+                        // Use the delete-then-put reset path. The vanilla
+                        // putRecord upsert can return 500 when the stored
+                        // record is incompatible with the current lexicon;
+                        // hard-deleting first sidesteps that failure mode.
+                        spawn_reset_task(&mut commands, &session, default_record);
+                        commands.remove_resource::<RoomRecordRecovery>();
+                    }
+                });
+                ui.add_space(6.0);
+            }
+
             // Tab bar
             ui.horizontal(|ui| {
                 let tabs = [
@@ -1143,12 +1195,41 @@ fn spawn_publish_task(commands: &mut Commands, session: &AtprotoSession, record:
     commands.spawn(PublishRoomTask(task));
 }
 
-/// Poll outstanding publish tasks and log results.
+/// Spawn the hard-reset publish task — delete the stored record first, then
+/// create a fresh one. Used by the recovery banner's "Reset PDS to default"
+/// button, which has to work around PDS implementations that return 500 on
+/// `putRecord` when the prior blob is schema-incompatible.
+fn spawn_reset_task(commands: &mut Commands, session: &AtprotoSession, record: RoomRecord) {
+    let session_clone = session.clone();
+    let pool = bevy::tasks::IoTaskPool::get();
+    let task = pool.spawn(async move {
+        let fut = async {
+            let client = reqwest::Client::new();
+            pds::reset_room_record(&client, &session_clone, &record).await
+        };
+        #[cfg(target_arch = "wasm32")]
+        {
+            fut.await
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(fut)
+        }
+    });
+    commands.spawn(ResetRoomTask(task));
+}
+
+/// Poll outstanding publish and reset tasks and log results.
 pub fn poll_publish_tasks(
     mut commands: Commands,
-    mut tasks: Query<(Entity, &mut PublishRoomTask)>,
+    mut publish_tasks: Query<(Entity, &mut PublishRoomTask)>,
+    mut reset_tasks: Query<(Entity, &mut ResetRoomTask)>,
 ) {
-    for (entity, mut task) in tasks.iter_mut() {
+    for (entity, mut task) in publish_tasks.iter_mut() {
         let Some(result) =
             futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.0))
         else {
@@ -1159,6 +1240,19 @@ pub fn poll_publish_tasks(
         match result {
             Ok(()) => info!("Room record saved to PDS"),
             Err(e) => warn!("Failed to save room record: {}", e),
+        }
+    }
+    for (entity, mut task) in reset_tasks.iter_mut() {
+        let Some(result) =
+            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.0))
+        else {
+            continue;
+        };
+
+        commands.entity(entity).despawn();
+        match result {
+            Ok(()) => info!("Room record reset on PDS (delete + put)"),
+            Err(e) => warn!("Failed to reset room record: {}", e),
         }
     }
 }

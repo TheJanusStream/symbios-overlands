@@ -20,13 +20,28 @@ use crate::protocol::OverlandsMessage;
 use crate::state::{AppState, CurrentRoomDid, RelayHost};
 
 /// (session, service_token)
-type LoginOutcome = Result<(AtprotoSession, String), bevy_symbios_multiuser::error::SymbiosError>;
+///
+/// The error arm is a pre-formatted `String` rather than `SymbiosError` so we
+/// can control the exact wording on the way out — upstream already wraps
+/// failures with a `"authentication failed: ..."` prefix via its `Display`
+/// impl, and re-wrapping through `SymbiosError::AuthFailed` doubled it up
+/// ("authentication failed: create_session: authentication failed: ...").
+type LoginOutcome = Result<(AtprotoSession, String), String>;
 
 #[derive(Component)]
 pub struct AuthTask {
     task: bevy::tasks::Task<LoginOutcome>,
     target_did: Option<String>,
 }
+
+/// Latest login failure, shown underneath the login form.
+///
+/// Must be a Bevy `Resource` rather than a `Local` on either UI system —
+/// `login_ui` and `poll_auth_task` have their own independent `Local`
+/// instances, so previously `poll_auth_task` wrote the error into a state
+/// the form rendering system never read, making every failure silent.
+#[derive(Resource, Default)]
+pub struct LoginError(pub Option<String>);
 
 #[derive(Clone)]
 pub struct LoginFormState {
@@ -35,7 +50,6 @@ pub struct LoginFormState {
     password: String,
     relay_host: String,
     target_did: String,
-    error: Option<String>,
 }
 
 impl Default for LoginFormState {
@@ -46,7 +60,6 @@ impl Default for LoginFormState {
             password: crate::config::login::DEFAULT_PASSWORD.into(),
             relay_host: crate::config::login::DEFAULT_RELAY_HOST.into(),
             target_did: String::new(),
-            error: None,
         }
     }
 }
@@ -55,6 +68,7 @@ pub fn login_ui(
     mut contexts: EguiContexts,
     mut commands: Commands,
     mut form: Local<LoginFormState>,
+    login_error: Res<LoginError>,
     tasks: Query<&AuthTask>,
 ) {
     egui::Window::new("Symbios Overlands — Login")
@@ -89,12 +103,23 @@ pub fn login_ui(
 
             if tasks.is_empty() {
                 if ui.button("Enter the Overlands").clicked() {
-                    form.error = None;
+                    commands.insert_resource(LoginError(None));
                     let creds = AtprotoCredentials {
                         pds_url: form.pds.clone(),
                         identifier: form.handle.clone(),
                         password: form.password.clone(),
                     };
+                    info!(
+                        "Login attempt: pds={} handle={} relay={} target_did={}",
+                        creds.pds_url,
+                        creds.identifier,
+                        form.relay_host.trim(),
+                        if form.target_did.trim().is_empty() {
+                            "<home>"
+                        } else {
+                            form.target_did.trim()
+                        }
+                    );
                     let relay_host = form.relay_host.trim().to_string();
                     let service_did = format!("did:web:{}", relay_host);
                     commands.insert_resource(RelayHost(relay_host));
@@ -102,14 +127,22 @@ pub fn login_ui(
                     // Route the ATProto `create_session` + service-auth
                     // round-trip onto the IO pool — these are blocking HTTP
                     // calls that must not starve compute workers.
+                    //
+                    // Each step is labelled in its error so the user can see
+                    // which leg of the handshake failed — `create_session`
+                    // (bad handle/password/PDS URL) vs. `get_service_auth`
+                    // (relay host unreachable or refusing the DID audience).
                     let pool = bevy::tasks::IoTaskPool::get();
                     let task = pool.spawn(async move {
                         let do_auth = async {
                             let client = reqwest::Client::new();
-                            let session = create_session(&client, &creds).await?;
+                            let session = create_session(&client, &creds)
+                                .await
+                                .map_err(|e| format_auth_error("create_session", e))?;
                             let service_token =
                                 get_service_auth(&client, &session, &creds.pds_url, &service_did)
-                                    .await?;
+                                    .await
+                                    .map_err(|e| format_auth_error("get_service_auth", e))?;
                             Ok((session, service_token))
                         };
                         #[cfg(target_arch = "wasm32")]
@@ -140,17 +173,40 @@ pub fn login_ui(
                 ui.label("Authenticating…");
             }
 
-            if let Some(err) = &form.error {
+            if let Some(err) = &login_error.0 {
                 ui.colored_label(egui::Color32::RED, err);
             }
         });
+}
+
+/// Render a `SymbiosError` from `create_session` / `get_service_auth` into a
+/// user-facing message. Strips the redundant `"authentication failed: "`
+/// prefix the upstream `Display` impl adds (so we don't end up with
+/// `"authentication failed: create_session: authentication failed: ..."`)
+/// and promotes HTTP 429 into a dedicated rate-limit message — users
+/// hitting this almost always think it's their password or the relay, not a
+/// server-side throttle with its own cooldown clock.
+fn format_auth_error(step: &str, err: bevy_symbios_multiuser::error::SymbiosError) -> String {
+    let inner = err.to_string();
+    let inner = inner
+        .strip_prefix("authentication failed: ")
+        .unwrap_or(&inner);
+
+    if inner.contains("429") || inner.contains("RateLimitExceeded") {
+        format!(
+            "{step} — the PDS is rate-limiting this IP/account (HTTP 429). Wait a few minutes \
+             before retrying; repeated attempts will extend the cooldown. Raw: {inner}"
+        )
+    } else {
+        format!("{step}: {inner}")
+    }
 }
 
 pub fn poll_auth_task(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut AuthTask)>,
     mut next_state: ResMut<NextState<AppState>>,
-    mut form: Local<LoginFormState>,
+    mut login_error: ResMut<LoginError>,
     relay_host: Option<Res<RelayHost>>,
 ) {
     for (entity, mut auth) in tasks.iter_mut() {
@@ -185,8 +241,13 @@ pub fn poll_auth_task(
 
                 next_state.set(AppState::Loading);
             }
-            Err(e) => {
-                form.error = Some(e.to_string());
+            Err(msg) => {
+                // Show the specific failure in the form (red banner) *and*
+                // surface it via `warn!` so terminal users also see it —
+                // silent failures previously made misconfigured PDS URLs,
+                // app passwords, and relay hosts all look identical.
+                warn!("Login failed: {msg}");
+                login_error.0 = Some(msg);
             }
         }
     }

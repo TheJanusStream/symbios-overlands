@@ -43,6 +43,7 @@ pub fn format_elapsed_ts(elapsed_secs: f64) -> String {
 }
 use state::{
     AppState, ChatHistory, CurrentRoomDid, DiagnosticsLog, LocalAirshipParams, LocalPhysicsParams,
+    RoomRecordRecovery,
 };
 
 fn main() {
@@ -75,6 +76,7 @@ fn main() {
         .init_resource::<DiagnosticsLog>()
         .init_resource::<LocalAirshipParams>()
         .init_resource::<LocalPhysicsParams>()
+        .init_resource::<ui::login::LoginError>()
         .add_systems(
             EguiPrimaryContextPass,
             (ui::login::login_ui, ui::login::poll_auth_task).run_if(in_state(AppState::Login)),
@@ -174,8 +176,15 @@ fn loading_ui(mut contexts: bevy_egui::EguiContexts) {
 
 /// In-flight `fetch_room_record` task attached to a throwaway entity so the
 /// `Loading` poll system can drain it without a dedicated resource.
+///
+/// The task result preserves the distinction between *no record* (404) and
+/// *couldn't reach the PDS*, so the poll system only falls through to the
+/// default homeworld on the former. Falling through on a transient network
+/// failure is catastrophic: the owner would silently be staged on the blank
+/// default, and a "Publish to Noosphere" click would overwrite their real
+/// room with the default.
 #[derive(Component)]
-struct RoomRecordTask(bevy::tasks::Task<Option<RoomRecord>>);
+struct RoomRecordTask(bevy::tasks::Task<Result<Option<RoomRecord>, pds::FetchError>>);
 
 /// Kick off the async ATProto `getRecord` fetch for the room the client is
 /// visiting. Runs exactly once on entry to `AppState::Loading`; the result is
@@ -210,10 +219,18 @@ fn start_room_record_fetch(mut commands: Commands, room_did: Res<CurrentRoomDid>
 /// Drain a finished `RoomRecordTask`, install the resulting `RoomRecord` as a
 /// Bevy resource, and synthesise the default recipe if the owner has never
 /// published one (a 404 is not an error — it means a blank homeworld).
+///
+/// A non-404 failure (DNS timeout, 5xx, garbled JSON) retries the fetch
+/// instead of substituting the default. This matters because the owner's
+/// editor workflow is "load record → edit → publish": if we installed the
+/// default on a transient error, a save-and-publish click would silently
+/// clobber the owner's real room with the blank default.
 fn poll_room_record_task(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut RoomRecordTask)>,
     room_did: Res<CurrentRoomDid>,
+    mut diagnostics: ResMut<DiagnosticsLog>,
+    time: Res<Time>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
@@ -224,10 +241,73 @@ fn poll_room_record_task(
 
         commands.entity(entity).despawn();
 
-        // Zero-configuration homeworld: a 404 from the PDS means the owner
-        // has not customised their overland yet, so we synthesise the
-        // canonical default recipe (terrain + water) keyed to their DID.
-        let record = result.unwrap_or_else(|| pds::RoomRecord::default_for_did(&room_did.0));
+        let mut record = match result {
+            Ok(Some(r)) => r,
+            Ok(None) => {
+                // Zero-configuration homeworld: a 404 from the PDS means the
+                // owner has not customised their overland yet, so we
+                // synthesise the canonical default recipe keyed to their DID.
+                info!("No room record on PDS — using default homeworld");
+                pds::RoomRecord::default_for_did(&room_did.0)
+            }
+            Err(pds::FetchError::Decode(msg)) => {
+                // A decode failure is *not* transient: the stored record
+                // exists but is incompatible with the current schema (e.g.
+                // lexicon drift, partially-migrated field). Retrying will
+                // never recover — the loading screen would hang forever and
+                // spam the diagnostics log. Fall through to the default
+                // homeworld so the session progresses, and surface a
+                // `RoomRecordRecovery` marker so the world editor can show
+                // the owner a "Reset PDS to default" affordance.
+                let elapsed = time.elapsed_secs_f64();
+                diagnostics.push(
+                    elapsed,
+                    format!("Stored room record incompatible ({msg}) — falling back to default"),
+                );
+                warn!(
+                    "Stored room record could not be decoded ({}) — using default and entering recovery mode",
+                    msg
+                );
+                commands.insert_resource(RoomRecordRecovery { reason: msg });
+                pds::RoomRecord::default_for_did(&room_did.0)
+            }
+            Err(err) => {
+                // Transient failure (DNS timeout, 5xx, DID resolution hiccup):
+                // do NOT substitute the default. Log it, re-queue the fetch,
+                // and keep the Loading state active so the owner cannot
+                // accidentally overwrite their room with a blank default on a
+                // network blip.
+                let elapsed = time.elapsed_secs_f64();
+                diagnostics.push(
+                    elapsed,
+                    format!("Room record fetch failed ({err:?}) — retrying"),
+                );
+                warn!("Room record fetch failed: {:?} — retrying", err);
+                let did = room_did.0.clone();
+                let pool = bevy::tasks::IoTaskPool::get();
+                let retry = pool.spawn(async move {
+                    let fut = async {
+                        let client = reqwest::Client::new();
+                        pds::fetch_room_record(&client, &did).await
+                    };
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        fut.await
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .unwrap()
+                            .block_on(fut)
+                    }
+                });
+                commands.spawn(RoomRecordTask(retry));
+                continue;
+            }
+        };
+        record.sanitize();
         info!(
             "Room record loaded: {} generators, {} placements",
             record.generators.len(),

@@ -114,6 +114,20 @@ pub struct RelayHost(pub String);
 #[derive(Resource, Clone)]
 pub struct CurrentRoomDid(pub String);
 
+/// Present when the room-record fetch fell through to the default homeworld
+/// because the PDS response could not be decoded against the current
+/// `RoomRecord` schema (e.g. an old record saved against a since-changed
+/// lexicon). The world editor shows a recovery banner and a "Reset PDS to
+/// default" button while this resource is set, so the owner can deliberately
+/// overwrite the incompatible stored record instead of being stuck in a
+/// retry loop during Loading.
+#[derive(Resource, Debug, Clone)]
+pub struct RoomRecordRecovery {
+    /// Human-readable decode error reported by `serde_json` / reqwest, shown
+    /// in the banner so the owner understands why recovery is active.
+    pub reason: String,
+}
+
 /// Local player's runtime physics tuning parameters.
 /// Initialised from `config::rover` defaults and editable via the physics GUI.
 #[derive(Resource)]
