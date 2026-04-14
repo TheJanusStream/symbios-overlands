@@ -178,7 +178,6 @@ fn maybe_regenerate_terrain(
     record: Res<RoomRecord>,
     mut last_cfg: ResMut<LastTerrainConfigJson>,
     terrain_q: Query<Entity, With<TerrainMesh>>,
-    water_q: Query<Entity, With<WaterVolume>>,
     pending_textures: Query<Entity, With<TextureLayerIndex>>,
     mut splat_state: ResMut<TerrainSplatState>,
 ) {
@@ -203,11 +202,11 @@ fn maybe_regenerate_terrain(
 
     // Tear down everything tied to the old heightmap so the generic Update
     // pipeline above re-kicks terrain generation, texture baking, and mesh
-    // spawning against the new config on subsequent frames.
+    // spawning against the new config on subsequent frames. Water is a
+    // `RoomEntity`, so `compile_room_record` despawns and rebuilds it in
+    // response to the same record change — touching it here would race and
+    // double-despawn.
     for e in &terrain_q {
-        commands.entity(e).despawn();
-    }
-    for e in &water_q {
         commands.entity(e).despawn();
     }
     for e in &pending_textures {

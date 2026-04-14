@@ -554,7 +554,7 @@ fn respawn_if_fallen(
         ),
         With<LocalPlayer>,
     >,
-    hm_res: Res<crate::terrain::FinishedHeightMap>,
+    hm_res: Option<Res<crate::terrain::FinishedHeightMap>>,
 ) {
     let Ok((mut pos, mut rot, mut lin_vel, mut ang_vel)) = query.single_mut() else {
         return;
@@ -562,6 +562,13 @@ fn respawn_if_fallen(
     if pos.y > cfg::FALL_Y_THRESHOLD {
         return;
     }
+    // Heightmap is torn down in-place whenever the room owner edits terrain
+    // parameters mid-session (see `maybe_regenerate_terrain`). Skip this
+    // tick; the chassis is a dynamic rigid body and will tumble harmlessly
+    // until the new heightfield collider comes online.
+    let Some(hm_res) = hm_res else {
+        return;
+    };
     let hm = &hm_res.0;
     let centre = (hm.width() - 1) as f32 * hm.scale() * 0.5;
     let (ox, oz) = random_spawn_xz();
