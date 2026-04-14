@@ -42,6 +42,29 @@ const COLLECTION: &str = "network.symbios.overlands.room";
 
 const FP_SCALE: f32 = 10_000.0;
 
+/// Serialize a `u64` as a JSON **string** rather than a number.
+///
+/// JSON has no native integer type — most parsers (including the ones in
+/// front of ATProto PDSes) decode all numbers as IEEE-754 `f64`, which can
+/// only represent integers exactly up to `2^53` (≈ 9.0e15). Our 64-bit FNV
+/// seeds routinely run above that, and when the PDS rounds them through
+/// `f64` its DAG-CBOR encoder either loses precision and rejects the
+/// record or crashes outright with `500 InternalServerError`. Encoding as
+/// a string side-steps the float hop entirely; the wire form is just a
+/// decimal literal in quotes.
+pub mod u64_as_string {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(value: &u64, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&value.to_string())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<u64, D::Error> {
+        let s = String::deserialize(d)?;
+        s.parse::<u64>().map_err(serde::de::Error::custom)
+    }
+}
+
 /// Fixed-point `f32` wrapper — (de)serialises as `i32` scaled by 10_000.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Fp(pub f32);
@@ -260,6 +283,7 @@ pub struct SovereignTerrainConfig {
 
     // Algorithm selection
     pub generator_kind: SovereignGeneratorKind,
+    #[serde(with = "u64_as_string")]
     pub seed: u64,
 
     // FBM params
@@ -537,6 +561,7 @@ pub enum Generator {
         source_code: String,
         finalization_code: String,
         iterations: u32,
+        #[serde(with = "u64_as_string")]
         seed: u64,
         angle: Fp,
         step: Fp,
@@ -570,6 +595,7 @@ pub enum Placement {
         generator_ref: String,
         bounds: ScatterBounds,
         count: u32,
+        #[serde(with = "u64_as_string")]
         local_seed: u64,
         /// Optional biome filter — scatter points whose dominant splat
         /// channel does not match this id are discarded.
@@ -967,7 +993,63 @@ struct PutRecordRequest<'a> {
     record: &'a RoomRecord,
 }
 
+/// Result of a single `putRecord` attempt. The `ServerError` variant
+/// distinguishes "the PDS's own logic blew up" (transient-or-buggy; we can
+/// retry with delete-then-put) from "the PDS rejected our request" (4xx;
+/// retrying won't help and we should surface the error as-is).
+enum PutOutcome {
+    Ok,
+    ServerError(String),
+    ClientError(String),
+    Transport(String),
+}
+
+async fn try_put_record(
+    client: &reqwest::Client,
+    pds: &str,
+    session: &AtprotoSession,
+    record: &RoomRecord,
+) -> PutOutcome {
+    let url = format!("{}/xrpc/com.atproto.repo.putRecord", pds);
+    let body = PutRecordRequest {
+        repo: &session.did,
+        collection: COLLECTION,
+        rkey: "self",
+        record,
+    };
+
+    let resp = match client
+        .post(&url)
+        .bearer_auth(&session.access_jwt)
+        .json(&body)
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => return PutOutcome::Transport(e.to_string()),
+    };
+
+    let status = resp.status();
+    if status.is_success() {
+        return PutOutcome::Ok;
+    }
+    let body = resp.text().await.unwrap_or_default();
+    let msg = format!("putRecord failed: {} — {}", status, body);
+    if status.is_server_error() {
+        PutOutcome::ServerError(msg)
+    } else {
+        PutOutcome::ClientError(msg)
+    }
+}
+
 /// Write (upsert) the room record to the authenticated user's own PDS.
+///
+/// Tries `com.atproto.repo.putRecord` first (the fast-path upsert). If the
+/// PDS responds with a `5xx`, some implementations are choking on their
+/// own update-diff logic against a stale or incompatible stored CID — we
+/// recover by transparently falling back to `delete_room_record` followed
+/// by a fresh `putRecord`. Client (`4xx`) errors are surfaced directly
+/// because retrying won't help.
 pub async fn publish_room_record(
     client: &reqwest::Client,
     session: &AtprotoSession,
@@ -977,28 +1059,27 @@ pub async fn publish_room_record(
         .await
         .ok_or_else(|| "Failed to resolve PDS".to_string())?;
 
-    let url = format!("{}/xrpc/com.atproto.repo.putRecord", pds);
-    let body = PutRecordRequest {
-        repo: &session.did,
-        collection: COLLECTION,
-        rkey: "self",
-        record,
-    };
-
-    let resp = client
-        .post(&url)
-        .bearer_auth(&session.access_jwt)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if resp.status().is_success() {
-        Ok(())
-    } else {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        Err(format!("putRecord failed: {} — {}", status, body))
+    match try_put_record(client, &pds, session, record).await {
+        PutOutcome::Ok => Ok(()),
+        PutOutcome::ClientError(msg) => Err(msg),
+        PutOutcome::Transport(msg) => Err(msg),
+        PutOutcome::ServerError(first_err) => {
+            // Fall back to the hard-reset path. This recovers the common
+            // failure mode where the PDS's putRecord update path crashes on
+            // a stale CID/commit but can still handle a fresh create.
+            warn!("{first_err} — retrying via delete_room_record + putRecord");
+            delete_room_record(client, session)
+                .await
+                .map_err(|e| format!("{first_err}; fallback delete failed: {e}"))?;
+            match try_put_record(client, &pds, session, record).await {
+                PutOutcome::Ok => Ok(()),
+                PutOutcome::ClientError(m)
+                | PutOutcome::ServerError(m)
+                | PutOutcome::Transport(m) => {
+                    Err(format!("{first_err}; fallback put failed: {m}"))
+                }
+            }
+        }
     }
 }
 
@@ -1068,6 +1149,33 @@ pub async fn reset_room_record(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regression guard for issue #58: 64-bit seeds must serialize as JSON
+    /// strings, not numbers. Numeric form would round-trip through `f64` in
+    /// most parsers (including the ones in front of ATProto PDSes), losing
+    /// precision above `2^53` and triggering `500 InternalServerError`
+    /// from the DAG-CBOR encoder. The default DID-derived terrain seed
+    /// is FNV-1a 64-bit, which routinely lands well above the safe range.
+    #[test]
+    fn u64_seeds_serialize_as_strings() {
+        let r = RoomRecord::default_for_did("did:plc:z5yhcebtrvzblrojezn6pjgi");
+        let json = serde_json::to_string(&r).expect("serialise");
+        assert!(
+            json.contains("\"seed\":\""),
+            "terrain seed must be a string in JSON, got: {json}"
+        );
+        // Round-trip stays lossless.
+        let back: RoomRecord = serde_json::from_str(&json).expect("deserialise");
+        let original_seed = match r.generators.get("base_terrain") {
+            Some(Generator::Terrain(cfg)) => cfg.seed,
+            _ => panic!("expected base_terrain"),
+        };
+        let round_seed = match back.generators.get("base_terrain") {
+            Some(Generator::Terrain(cfg)) => cfg.seed,
+            _ => panic!("expected base_terrain"),
+        };
+        assert_eq!(original_seed, round_seed);
+    }
 
     /// Regression guard for issue #48: a `RoomRecord` serialised via serde
     /// must contain zero JSON floating-point literals. DAG-CBOR forbids
