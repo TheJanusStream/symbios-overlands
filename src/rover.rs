@@ -556,10 +556,7 @@ fn apply_buoyancy_forces(
 /// can take over cleanly on the next physics tick.
 fn lift_rover_above_new_ground(
     hm_res: Option<Res<crate::terrain::FinishedHeightMap>>,
-    mut query: Query<
-        (&mut Position, &mut LinearVelocity, &mut AngularVelocity),
-        With<LocalPlayer>,
-    >,
+    mut query: Query<(&mut Position, &mut LinearVelocity, &mut AngularVelocity), With<LocalPlayer>>,
 ) {
     let Some(hm_res) = hm_res else {
         return;

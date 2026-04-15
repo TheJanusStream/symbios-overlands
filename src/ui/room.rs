@@ -20,9 +20,10 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
 
 use crate::pds::{
-    self, Environment, Fp, Fp2, Fp3, Fp4, Fp64, Generator, Placement, RoomRecord, ScatterBounds,
-    SovereignGeneratorKind, SovereignGroundConfig, SovereignMaterialConfig,
-    SovereignMaterialSettings, SovereignRockConfig, SovereignSplatRule, SovereignTerrainConfig,
+    self, Environment, Fp, Fp2, Fp3, Fp4, Fp64, Generator, Placement, PropMeshType, RoomRecord,
+    ScatterBounds, SovereignBarkConfig, SovereignGeneratorKind, SovereignGroundConfig,
+    SovereignLeafConfig, SovereignMaterialConfig, SovereignMaterialSettings, SovereignRockConfig,
+    SovereignSplatRule, SovereignTerrainConfig, SovereignTextureType, SovereignTwigConfig,
     TransformData,
 };
 use crate::protocol::OverlandsMessage;
@@ -147,8 +148,8 @@ pub fn room_admin_ui(
                         if let Some(p) = pending_record.as_mut() {
                             *p = default_record.clone();
                         }
-                        *raw_text = serde_json::to_string_pretty(&default_record)
-                            .unwrap_or_default();
+                        *raw_text =
+                            serde_json::to_string_pretty(&default_record).unwrap_or_default();
                         *raw_error = None;
                         *is_dirty = false;
                         writer.write(Broadcast {
@@ -399,6 +400,7 @@ fn draw_generator_detail(
             elasticity,
             tropism,
             materials,
+            prop_mappings,
             prop_scale,
             mesh_resolution,
             ..
@@ -414,6 +416,7 @@ fn draw_generator_detail(
             elasticity,
             tropism,
             materials,
+            prop_mappings,
             prop_scale,
             mesh_resolution,
             dirty,
@@ -638,6 +641,7 @@ fn draw_lsystem_forge(
     elasticity: &mut Fp,
     tropism: &mut Option<Fp3>,
     materials: &mut std::collections::HashMap<u8, SovereignMaterialSettings>,
+    prop_mappings: &mut std::collections::HashMap<u16, PropMeshType>,
     prop_scale: &mut Fp,
     mesh_resolution: &mut u32,
     dirty: &mut bool,
@@ -749,6 +753,54 @@ fn draw_lsystem_forge(
                     );
                     fp_slider(ui, "Roughness", &mut m.roughness, 0.0, 1.0, dirty);
                     fp_slider(ui, "Metallic", &mut m.metallic, 0.0, 1.0, dirty);
+                    fp_slider(ui, "UV scale", &mut m.uv_scale, 0.1, 10.0, dirty);
+
+                    egui::ComboBox::from_id_salt(format!("tex_type_{}", id))
+                        .selected_text(format!("{:?}", m.texture_type))
+                        .show_ui(ui, |ui| {
+                            let types = [
+                                SovereignTextureType::None,
+                                SovereignTextureType::Bark,
+                                SovereignTextureType::Leaf,
+                                SovereignTextureType::Twig,
+                            ];
+                            for t in types {
+                                if ui
+                                    .selectable_value(&mut m.texture_type, t, format!("{:?}", t))
+                                    .changed()
+                                {
+                                    *dirty = true;
+                                }
+                            }
+                        });
+
+                    match m.texture_type {
+                        SovereignTextureType::Leaf => {
+                            egui::CollapsingHeader::new("Leaf config")
+                                .id_salt(format!("leaf_cfg_{}", id))
+                                .default_open(false)
+                                .show(ui, |ui| {
+                                    draw_leaf_config(ui, &mut m.leaf_config, dirty);
+                                });
+                        }
+                        SovereignTextureType::Twig => {
+                            egui::CollapsingHeader::new("Twig config")
+                                .id_salt(format!("twig_cfg_{}", id))
+                                .default_open(false)
+                                .show(ui, |ui| {
+                                    draw_twig_config(ui, &mut m.twig_config, dirty);
+                                });
+                        }
+                        SovereignTextureType::Bark => {
+                            egui::CollapsingHeader::new("Bark config")
+                                .id_salt(format!("bark_cfg_{}", id))
+                                .default_open(false)
+                                .show(ui, |ui| {
+                                    draw_bark_config(ui, &mut m.bark_config, dirty);
+                                });
+                        }
+                        _ => {}
+                    }
                 });
             }
             if let Some(id) = to_remove {
@@ -763,6 +815,182 @@ fn draw_lsystem_forge(
                 }
             }
         });
+
+    egui::CollapsingHeader::new("Prop mappings")
+        .default_open(false)
+        .show(ui, |ui| {
+            let mut ids: Vec<u16> = prop_mappings.keys().copied().collect();
+            ids.sort_unstable();
+            let mut to_remove: Option<u16> = None;
+            for id in ids {
+                ui.horizontal(|ui| {
+                    ui.label(format!("~{}", id));
+                    if let Some(current) = prop_mappings.get_mut(&id) {
+                        egui::ComboBox::from_id_salt(format!("prop_map_{}", id))
+                            .selected_text(format!("{:?}", current))
+                            .show_ui(ui, |ui| {
+                                let types = [
+                                    PropMeshType::Leaf,
+                                    PropMeshType::Twig,
+                                    PropMeshType::Sphere,
+                                    PropMeshType::Cone,
+                                    PropMeshType::Cylinder,
+                                    PropMeshType::Cube,
+                                ];
+                                for t in types {
+                                    if ui
+                                        .selectable_value(current, t, format!("{:?}", t))
+                                        .changed()
+                                    {
+                                        *dirty = true;
+                                    }
+                                }
+                            });
+                    }
+                    if ui.small_button("−").clicked() {
+                        to_remove = Some(id);
+                    }
+                });
+            }
+            if let Some(id) = to_remove {
+                prop_mappings.remove(&id);
+                *dirty = true;
+            }
+            if ui.button("+ Add mapping").clicked() {
+                let next = (0u16..=255).find(|k| !prop_mappings.contains_key(k));
+                if let Some(k) = next {
+                    prop_mappings.insert(k, PropMeshType::Leaf);
+                    *dirty = true;
+                }
+            }
+        });
+}
+
+fn draw_leaf_config(ui: &mut egui::Ui, cfg: &mut SovereignLeafConfig, dirty: &mut bool) {
+    drag_u32_wide(ui, "Seed", &mut cfg.seed, dirty);
+    color_picker(ui, "Base", &mut cfg.color_base, dirty);
+    color_picker(ui, "Edge", &mut cfg.color_edge, dirty);
+    fp64_slider(
+        ui,
+        "Serration",
+        &mut cfg.serration_strength,
+        0.0,
+        1.0,
+        dirty,
+    );
+    fp64_slider(ui, "Vein angle", &mut cfg.vein_angle, 0.0, 8.0, dirty);
+    fp64_slider(ui, "Micro detail", &mut cfg.micro_detail, 0.0, 1.0, dirty);
+    fp_slider(
+        ui,
+        "Normal strength",
+        &mut cfg.normal_strength,
+        0.0,
+        8.0,
+        dirty,
+    );
+    fp64_slider(ui, "Lobe count", &mut cfg.lobe_count, 0.0, 12.0, dirty);
+    fp64_slider(ui, "Lobe depth", &mut cfg.lobe_depth, 0.0, 1.0, dirty);
+    fp64_slider(
+        ui,
+        "Lobe sharpness",
+        &mut cfg.lobe_sharpness,
+        0.1,
+        4.0,
+        dirty,
+    );
+    fp64_slider(
+        ui,
+        "Petiole length",
+        &mut cfg.petiole_length,
+        0.0,
+        0.5,
+        dirty,
+    );
+    fp64_slider(ui, "Petiole width", &mut cfg.petiole_width, 0.0, 0.2, dirty);
+    fp64_slider(ui, "Midrib width", &mut cfg.midrib_width, 0.0, 0.5, dirty);
+    fp64_slider(ui, "Vein count", &mut cfg.vein_count, 0.0, 20.0, dirty);
+    fp64_slider(
+        ui,
+        "Venule strength",
+        &mut cfg.venule_strength,
+        0.0,
+        1.0,
+        dirty,
+    );
+}
+
+fn draw_twig_config(ui: &mut egui::Ui, cfg: &mut SovereignTwigConfig, dirty: &mut bool) {
+    egui::CollapsingHeader::new("Leaf")
+        .default_open(false)
+        .show(ui, |ui| {
+            draw_leaf_config(ui, &mut cfg.leaf, dirty);
+        });
+    color_picker(ui, "Stem color", &mut cfg.stem_color, dirty);
+    fp64_slider(
+        ui,
+        "Stem half width",
+        &mut cfg.stem_half_width,
+        0.0,
+        0.1,
+        dirty,
+    );
+    drag_u32(ui, "Leaf pairs", &mut cfg.leaf_pairs, 0, 32, dirty);
+    fp64_slider(
+        ui,
+        "Leaf angle",
+        &mut cfg.leaf_angle,
+        0.0,
+        std::f64::consts::PI,
+        dirty,
+    );
+    fp64_slider(ui, "Leaf scale", &mut cfg.leaf_scale, 0.0, 1.5, dirty);
+    fp64_slider(ui, "Stem curve", &mut cfg.stem_curve, 0.0, 0.25, dirty);
+    if ui.checkbox(&mut cfg.sympodial, "Sympodial").changed() {
+        *dirty = true;
+    }
+}
+
+fn draw_bark_config(ui: &mut egui::Ui, cfg: &mut SovereignBarkConfig, dirty: &mut bool) {
+    drag_u32_wide(ui, "Seed", &mut cfg.seed, dirty);
+    fp64_slider(ui, "Scale", &mut cfg.scale, 0.1, 10.0, dirty);
+    drag_u32(ui, "Octaves", &mut cfg.octaves, 1, 12, dirty);
+    fp64_slider(ui, "Warp U", &mut cfg.warp_u, 0.0, 2.0, dirty);
+    fp64_slider(ui, "Warp V", &mut cfg.warp_v, 0.0, 2.0, dirty);
+    color_picker(ui, "Light", &mut cfg.color_light, dirty);
+    color_picker(ui, "Dark", &mut cfg.color_dark, dirty);
+    fp_slider(
+        ui,
+        "Normal strength",
+        &mut cfg.normal_strength,
+        0.0,
+        8.0,
+        dirty,
+    );
+    fp64_slider(
+        ui,
+        "Furrow mul",
+        &mut cfg.furrow_multiplier,
+        0.0,
+        1.0,
+        dirty,
+    );
+    fp64_slider(
+        ui,
+        "Furrow scale U",
+        &mut cfg.furrow_scale_u,
+        0.1,
+        8.0,
+        dirty,
+    );
+    fp64_slider(
+        ui,
+        "Furrow scale V",
+        &mut cfg.furrow_scale_v,
+        0.05,
+        4.0,
+        dirty,
+    );
+    fp64_slider(ui, "Furrow shape", &mut cfg.furrow_shape, 0.1, 8.0, dirty);
 }
 
 // ---------------------------------------------------------------------------
@@ -1179,19 +1407,58 @@ fn unique_key<T>(map: &std::collections::HashMap<String, T>, prefix: &str) -> St
     }
 }
 
+/// "Ternary Tree (+Props +Materials +Variations)" preset, ported verbatim
+/// from `lsystem-explorer`. Ships with three material slots (bark / twig /
+/// leaf) pre-wired to procedural textures, plus a prop-mapping table so the
+/// `B` terminals become leaf billboards and `~(0)` props become twig cards.
 fn default_lsystem_generator() -> Generator {
+    let mut materials = std::collections::HashMap::new();
+
+    materials.insert(
+        0,
+        SovereignMaterialSettings {
+            base_color: Fp3([0.35, 0.2, 0.08]),
+            roughness: Fp(0.95),
+            uv_scale: Fp(1.5),
+            texture_type: SovereignTextureType::Bark,
+            ..Default::default()
+        },
+    );
+    materials.insert(
+        1,
+        SovereignMaterialSettings {
+            base_color: Fp3([1.0, 1.0, 1.0]),
+            roughness: Fp(1.0),
+            texture_type: SovereignTextureType::Twig,
+            ..Default::default()
+        },
+    );
+    materials.insert(
+        2,
+        SovereignMaterialSettings {
+            base_color: Fp3([1.0, 1.0, 1.0]),
+            roughness: Fp(0.6),
+            texture_type: SovereignTextureType::Leaf,
+            ..Default::default()
+        },
+    );
+
+    let mut prop_mappings = std::collections::HashMap::new();
+    prop_mappings.insert(0, PropMeshType::Twig);
+    prop_mappings.insert(1, PropMeshType::Leaf);
+
     Generator::LSystem {
-        source_code: String::from("omega: F\nF -> F[+F]F[-F]F\n"),
-        finalization_code: String::new(),
-        iterations: 3,
+        source_code: "#define d1 180\n#define th 3.5\n#define d2 252\n#define a 36\n#define lr 1.12\n#define vr 1.532\n#define ps 60.0\n#define s 50.0\n#define ir 10.0\nomega: C(0.0)!(th)F(4*s)/(45)A[B]\np0: A : 0.7 -> !(th*vr)F(s)[&(a)F(s)A[B]]/(d1)[&(a)F(s)A[B]]/(d2)[&(a)F(s)A[B]]\np1: A : 0.3 -> !(th*vr)F(s)A[B]\np2: F(l) : * -> F(l*lr)\np3: !(w) : * -> !(w*vr)\np4: B : * -> \np5: B -> \np6: C(x) : 0.7 -> C(x)\np7: C(x) : 0.3 -> C(x-ir)".to_string(),
+        finalization_code: "p8: B : * -> ,(1)~(0,ps)\np9: C(x) : * -> /(x)".to_string(),
+        iterations: 6,
         seed: 1,
-        angle: Fp(22.5),
+        angle: Fp(36.0),
         step: Fp(1.0),
-        width: Fp(0.2),
-        elasticity: Fp(0.0),
-        tropism: None,
-        materials: std::collections::HashMap::new(),
-        prop_mappings: std::collections::HashMap::new(),
+        width: Fp(0.1),
+        elasticity: Fp(0.05),
+        tropism: Some(Fp3([0.0, -1.0, 0.0])),
+        materials,
+        prop_mappings,
         prop_scale: Fp(1.0),
         mesh_resolution: 8,
     }

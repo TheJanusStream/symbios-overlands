@@ -495,10 +495,199 @@ impl Default for SovereignMaterialConfig {
 // L-system generator payload (ported from lsystem-explorer)
 // ---------------------------------------------------------------------------
 
-/// Per-slot material settings for an L-system generator — a trimmed-down
-/// mirror of `bevy_symbios::materials::MaterialSettings` without the per-
-/// texture config (which can round-trip later via `PropMeshType`-style
-/// tagged enums).
+/// Which procedural texture generator to bake for a given material slot.
+/// Mirrors `bevy_symbios::materials::TextureType`, with only the foliage
+/// variants the world builder currently supports getting async-baked on a
+/// per-slot basis. The non-foliage variants stay here so a record authored
+/// on a newer client still round-trips even if we don't bake them yet.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SovereignTextureType {
+    #[default]
+    None,
+    Grid,
+    Noise,
+    Checker,
+    Leaf,
+    Twig,
+    Bark,
+}
+
+/// Fixed-point mirror of `bevy_symbios_texture::leaf::LeafConfig`. Every
+/// `f64` field becomes an [`Fp64`] and every `[f32; 3]` becomes an [`Fp3`]
+/// so the record stays DAG-CBOR clean. See `to_leaf_config` for the
+/// conversion back into the upstream type consumed by `LeafGenerator`.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SovereignLeafConfig {
+    pub seed: u32,
+    pub color_base: Fp3,
+    pub color_edge: Fp3,
+    pub serration_strength: Fp64,
+    pub vein_angle: Fp64,
+    pub micro_detail: Fp64,
+    pub normal_strength: Fp,
+    pub lobe_count: Fp64,
+    pub lobe_depth: Fp64,
+    pub lobe_sharpness: Fp64,
+    pub petiole_length: Fp64,
+    pub petiole_width: Fp64,
+    pub midrib_width: Fp64,
+    pub vein_count: Fp64,
+    pub venule_strength: Fp64,
+}
+
+impl Default for SovereignLeafConfig {
+    fn default() -> Self {
+        Self {
+            seed: 0,
+            color_base: Fp3([0.12, 0.19, 0.11]),
+            color_edge: Fp3([0.35, 0.28, 0.05]),
+            serration_strength: Fp64(0.12),
+            vein_angle: Fp64(2.5),
+            micro_detail: Fp64(0.3),
+            normal_strength: Fp(1.0),
+            lobe_count: Fp64(4.0),
+            lobe_depth: Fp64(0.23),
+            lobe_sharpness: Fp64(1.0),
+            petiole_length: Fp64(0.12),
+            petiole_width: Fp64(0.022),
+            midrib_width: Fp64(0.12),
+            vein_count: Fp64(6.0),
+            venule_strength: Fp64(0.50),
+        }
+    }
+}
+
+/// Fixed-point mirror of `bevy_symbios_texture::twig::TwigConfig`. Shares a
+/// nested `SovereignLeafConfig` so the twig's leaf appearance is edited
+/// once and baked into both the twig card and any standalone leaf cards on
+/// the same generator.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SovereignTwigConfig {
+    pub leaf: SovereignLeafConfig,
+    pub stem_color: Fp3,
+    pub stem_half_width: Fp64,
+    pub leaf_pairs: u32,
+    pub leaf_angle: Fp64,
+    pub leaf_scale: Fp64,
+    pub stem_curve: Fp64,
+    pub sympodial: bool,
+}
+
+impl Default for SovereignTwigConfig {
+    fn default() -> Self {
+        // Mirrors upstream default: `FRAC_PI_2 - 0.35` ≈ 1.2208 radians.
+        Self {
+            leaf: SovereignLeafConfig::default(),
+            stem_color: Fp3([0.18, 0.08, 0.06]),
+            stem_half_width: Fp64(0.021),
+            leaf_pairs: 4,
+            leaf_angle: Fp64(std::f64::consts::FRAC_PI_2 - 0.35),
+            leaf_scale: Fp64(0.38),
+            stem_curve: Fp64(0.015),
+            sympodial: true,
+        }
+    }
+}
+
+/// Fixed-point mirror of `bevy_symbios_texture::bark::BarkConfig`.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SovereignBarkConfig {
+    pub seed: u32,
+    pub scale: Fp64,
+    pub octaves: u32,
+    pub warp_u: Fp64,
+    pub warp_v: Fp64,
+    pub color_light: Fp3,
+    pub color_dark: Fp3,
+    pub normal_strength: Fp,
+    pub furrow_multiplier: Fp64,
+    pub furrow_scale_u: Fp64,
+    pub furrow_scale_v: Fp64,
+    pub furrow_shape: Fp64,
+}
+
+impl Default for SovereignBarkConfig {
+    fn default() -> Self {
+        Self {
+            seed: 42,
+            scale: Fp64(2.0),
+            octaves: 6,
+            warp_u: Fp64(0.15),
+            warp_v: Fp64(0.55),
+            color_light: Fp3([0.45, 0.28, 0.14]),
+            color_dark: Fp3([0.09, 0.05, 0.03]),
+            normal_strength: Fp(3.0),
+            furrow_multiplier: Fp64(0.78),
+            furrow_scale_u: Fp64(2.0),
+            furrow_scale_v: Fp64(0.48),
+            furrow_shape: Fp64(2.0),
+        }
+    }
+}
+
+impl SovereignLeafConfig {
+    /// Convert this DAG-CBOR-safe mirror back into the upstream
+    /// `bevy_symbios_texture::leaf::LeafConfig` the `LeafGenerator` consumes.
+    pub fn to_leaf_config(&self) -> bevy_symbios_texture::leaf::LeafConfig {
+        bevy_symbios_texture::leaf::LeafConfig {
+            seed: self.seed,
+            color_base: self.color_base.0,
+            color_edge: self.color_edge.0,
+            serration_strength: self.serration_strength.0,
+            vein_angle: self.vein_angle.0,
+            micro_detail: self.micro_detail.0,
+            normal_strength: self.normal_strength.0,
+            lobe_count: self.lobe_count.0,
+            lobe_depth: self.lobe_depth.0,
+            lobe_sharpness: self.lobe_sharpness.0,
+            petiole_length: self.petiole_length.0,
+            petiole_width: self.petiole_width.0,
+            midrib_width: self.midrib_width.0,
+            vein_count: self.vein_count.0,
+            venule_strength: self.venule_strength.0,
+        }
+    }
+}
+
+impl SovereignTwigConfig {
+    pub fn to_twig_config(&self) -> bevy_symbios_texture::twig::TwigConfig {
+        bevy_symbios_texture::twig::TwigConfig {
+            leaf: self.leaf.to_leaf_config(),
+            stem_color: self.stem_color.0,
+            stem_half_width: self.stem_half_width.0,
+            leaf_pairs: self.leaf_pairs as usize,
+            leaf_angle: self.leaf_angle.0,
+            leaf_scale: self.leaf_scale.0,
+            stem_curve: self.stem_curve.0,
+            sympodial: self.sympodial,
+        }
+    }
+}
+
+impl SovereignBarkConfig {
+    pub fn to_bark_config(&self) -> bevy_symbios_texture::bark::BarkConfig {
+        bevy_symbios_texture::bark::BarkConfig {
+            seed: self.seed,
+            scale: self.scale.0,
+            octaves: self.octaves as usize,
+            warp_u: self.warp_u.0,
+            warp_v: self.warp_v.0,
+            color_light: self.color_light.0,
+            color_dark: self.color_dark.0,
+            normal_strength: self.normal_strength.0,
+            furrow_multiplier: self.furrow_multiplier.0,
+            furrow_scale_u: self.furrow_scale_u.0,
+            furrow_scale_v: self.furrow_scale_v.0,
+            furrow_shape: self.furrow_shape.0,
+        }
+    }
+}
+
+/// Per-slot material settings for an L-system generator — mirrors
+/// `bevy_symbios::materials::MaterialSettings` with DAG-CBOR-safe numeric
+/// fields. The three nested `*_config` structs hold procedural texture
+/// parameters that `world_builder` hands to `bevy_symbios_texture`
+/// generators whenever `texture_type` asks for them.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SovereignMaterialSettings {
     pub base_color: Fp3,
@@ -506,6 +695,20 @@ pub struct SovereignMaterialSettings {
     pub emission_strength: Fp,
     pub roughness: Fp,
     pub metallic: Fp,
+    #[serde(default = "default_uv_scale")]
+    pub uv_scale: Fp,
+    #[serde(default)]
+    pub texture_type: SovereignTextureType,
+    #[serde(default)]
+    pub leaf_config: SovereignLeafConfig,
+    #[serde(default)]
+    pub twig_config: SovereignTwigConfig,
+    #[serde(default)]
+    pub bark_config: SovereignBarkConfig,
+}
+
+fn default_uv_scale() -> Fp {
+    Fp(1.0)
 }
 
 impl Default for SovereignMaterialSettings {
@@ -516,13 +719,18 @@ impl Default for SovereignMaterialSettings {
             emission_strength: Fp(0.0),
             roughness: Fp(0.5),
             metallic: Fp(0.0),
+            uv_scale: Fp(1.0),
+            texture_type: SovereignTextureType::None,
+            leaf_config: SovereignLeafConfig::default(),
+            twig_config: SovereignTwigConfig::default(),
+            bark_config: SovereignBarkConfig::default(),
         }
     }
 }
 
 /// Prop mesh shapes for `PropMeshType` slots. Mirrors
 /// `lsystem-explorer::PropMeshType`.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum PropMeshType {
     #[default]
     Leaf,
@@ -1075,9 +1283,7 @@ pub async fn publish_room_record(
                 PutOutcome::Ok => Ok(()),
                 PutOutcome::ClientError(m)
                 | PutOutcome::ServerError(m)
-                | PutOutcome::Transport(m) => {
-                    Err(format!("{first_err}; fallback put failed: {m}"))
-                }
+                | PutOutcome::Transport(m) => Err(format!("{first_err}; fallback put failed: {m}")),
             }
         }
     }

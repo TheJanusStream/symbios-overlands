@@ -20,17 +20,28 @@
 //! forbidden here — OS entropy would desynchronise the shared reality.
 
 use avian3d::prelude::*;
+use bevy::asset::RenderAssetUsages;
+use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
+use bevy::render::render_resource::Face;
+use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, futures_lite::future};
 use bevy_symbios::LSystemMeshBuilder;
 use bevy_symbios::materials::MaterialPalette;
+use bevy_symbios_texture::bark::BarkGenerator;
+use bevy_symbios_texture::generator::{TextureError, TextureGenerator, TextureMap};
+use bevy_symbios_texture::leaf::LeafGenerator;
+use bevy_symbios_texture::twig::TwigGenerator;
+use bevy_symbios_texture::{map_to_images, map_to_images_card};
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
+use std::collections::HashMap;
 use symbios::System;
 use symbios_turtle_3d::{TurtleConfig, TurtleInterpreter};
 
 use crate::config::terrain as tcfg;
 use crate::pds::{
-    Fp3, Generator, Placement, RoomRecord, ScatterBounds, SovereignTerrainConfig, TransformData,
+    Fp3, Generator, Placement, PropMeshType, RoomRecord, ScatterBounds, SovereignMaterialSettings,
+    SovereignTerrainConfig, SovereignTextureType, TransformData,
 };
 use crate::state::AppState;
 use crate::terrain::{FinishedHeightMap, TerrainMesh, WaterVolume};
@@ -42,16 +53,101 @@ use crate::water::{WaterExtension, WaterMaterial};
 #[derive(Component)]
 pub struct RoomEntity;
 
+/// Base meshes for each [`PropMeshType`] — built once at startup so every
+/// L-system spawn can share the same handles. Foliage variants (Leaf, Twig)
+/// are billboard cards whose UV layout matches the upstream
+/// `bevy_symbios_texture` card convention (V=1 at the base).
+#[derive(Resource)]
+pub struct PropMeshAssets {
+    pub meshes: HashMap<PropMeshType, Handle<Mesh>>,
+}
+
+/// A single in-flight foliage texture task: the async generator future, the
+/// material handle whose textures should be populated when the result
+/// arrives, and a `is_card` flag selecting between `map_to_images` (tileable)
+/// and `map_to_images_card` (clamp-to-edge) upload paths.
+pub type FoliageTask = (
+    Task<Result<TextureMap, TextureError>>,
+    Handle<StandardMaterial>,
+    bool,
+);
+
+/// In-flight foliage texture tasks, drained by `poll_overlands_foliage_tasks`.
+#[derive(Resource, Default)]
+pub struct OverlandsFoliageTasks {
+    pub tasks: Vec<FoliageTask>,
+}
+
 pub struct WorldBuilderPlugin;
 
 impl Plugin for WorldBuilderPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<WaterMaterial>::default())
+            .init_resource::<OverlandsFoliageTasks>()
+            .add_systems(Startup, setup_prop_assets)
             .add_systems(
                 Update,
-                compile_room_record.run_if(in_state(AppState::InGame)),
+                (compile_room_record, poll_overlands_foliage_tasks)
+                    .run_if(in_state(AppState::InGame)),
             );
     }
+}
+
+/// Billboard quad with its pivot at the base centre. Matches the layout in
+/// `lsystem-explorer/src/visuals/assets.rs` so the same foliage cards swap
+/// in cleanly.
+fn create_foliage_card(width: f32, height: f32) -> Mesh {
+    let positions: Vec<[f32; 3]> = vec![
+        [-width / 2.0, 0.0, 0.0],
+        [width / 2.0, 0.0, 0.0],
+        [width / 2.0, height, 0.0],
+        [-width / 2.0, height, 0.0],
+    ];
+    let normals: Vec<[f32; 3]> = vec![[0.0, 0.0, 1.0]; 4];
+    let uvs: Vec<[f32; 2]> = vec![[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]];
+    let indices = Indices::U32(vec![0, 1, 2, 0, 2, 3]);
+
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(indices);
+    let _ = mesh.generate_tangents();
+    mesh
+}
+
+/// Startup system that populates [`PropMeshAssets`] with the shared prop
+/// meshes (one handle per `PropMeshType`).
+fn setup_prop_assets(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
+    let mut prop_meshes = HashMap::new();
+    prop_meshes.insert(
+        PropMeshType::Leaf,
+        meshes.add(create_foliage_card(0.5, 0.8)),
+    );
+    prop_meshes.insert(
+        PropMeshType::Twig,
+        meshes.add(create_foliage_card(0.7, 1.0)),
+    );
+    prop_meshes.insert(
+        PropMeshType::Sphere,
+        meshes.add(Sphere::new(0.2).mesh().ico(2).unwrap()),
+    );
+    prop_meshes.insert(
+        PropMeshType::Cone,
+        meshes.add(Cone::new(0.15, 0.4).mesh().resolution(8)),
+    );
+    prop_meshes.insert(
+        PropMeshType::Cylinder,
+        meshes.add(Cylinder::new(0.1, 0.5).mesh().resolution(8)),
+    );
+    prop_meshes.insert(PropMeshType::Cube, meshes.add(Cuboid::new(0.3, 0.3, 0.3)));
+
+    commands.insert_resource(PropMeshAssets {
+        meshes: prop_meshes,
+    });
 }
 
 /// Walks the active `RoomRecord` and produces ECS entities for every
@@ -70,6 +166,8 @@ fn compile_room_record(
     mut std_materials: ResMut<Assets<StandardMaterial>>,
     mut water_materials: ResMut<Assets<WaterMaterial>>,
     palette: Option<Res<MaterialPalette>>,
+    prop_assets: Option<Res<PropMeshAssets>>,
+    mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
     mut lights: Query<&mut DirectionalLight>,
 ) {
     let Some(record) = record else {
@@ -110,6 +208,8 @@ fn compile_room_record(
                     palette: palette.as_deref(),
                     heightmap: heightmap.as_deref(),
                     terrain_meshes: &terrain_meshes,
+                    prop_assets: prop_assets.as_deref(),
+                    foliage_tasks: &mut foliage_tasks,
                 };
                 spawn_from_generator(ctx, generator_ref, transform_from_data(transform));
             }
@@ -162,7 +262,11 @@ fn compile_room_record(
                         continue;
                     }
 
-                    let tf = Transform::from_xyz(x, y, z);
+                    // Inject a deterministic random yaw so scattered forests
+                    // look organic — every peer reuses the same local RNG so
+                    // the rotation stays shared-world-consistent.
+                    let yaw = unit_f32(&mut rng) * std::f32::consts::PI;
+                    let tf = Transform::from_xyz(x, y, z).with_rotation(Quat::from_rotation_y(yaw));
                     let ctx = SpawnCtx {
                         commands: &mut commands,
                         record: &record,
@@ -172,6 +276,8 @@ fn compile_room_record(
                         palette: palette.as_deref(),
                         heightmap: heightmap.as_deref(),
                         terrain_meshes: &terrain_meshes,
+                        prop_assets: prop_assets.as_deref(),
+                        foliage_tasks: &mut foliage_tasks,
                     };
                     spawn_from_generator(ctx, generator_ref, tf);
                     spawned += 1;
@@ -298,6 +404,8 @@ struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     palette: Option<&'a MaterialPalette>,
     heightmap: Option<&'a FinishedHeightMap>,
     terrain_meshes: &'a Query<'wq, 'sq, Entity, With<TerrainMesh>>,
+    prop_assets: Option<&'a PropMeshAssets>,
+    foliage_tasks: &'a mut OverlandsFoliageTasks,
 }
 
 fn spawn_from_generator(
@@ -418,6 +526,8 @@ fn spawn_lsystem_entity(
         elasticity,
         tropism,
         materials: lsys_materials,
+        prop_mappings,
+        prop_scale,
         mesh_resolution,
         ..
     } = generator
@@ -527,24 +637,31 @@ fn spawn_lsystem_entity(
         .spawn((transform, Visibility::default(), RoomEntity))
         .id();
 
-    for (material_id, mesh) in mesh_buckets {
-        let material = if let Some(palette) = ctx.palette {
-            palette
-                .materials
-                .get(&material_id)
-                .cloned()
-                .unwrap_or_else(|| {
-                    lsys_materials
-                        .get(&material_id)
-                        .map(|s| ctx.std_materials.add(settings_to_std_material(s)))
-                        .unwrap_or_else(|| ctx.std_materials.add(StandardMaterial::default()))
-                })
+    // Build material handles per slot. For foliage slots (Leaf/Twig/Bark)
+    // we *also* spawn a texture-generation task so the handle receives its
+    // procedural albedo/normal/ORM maps on a later frame. The palette path
+    // still wins when `bevy_symbios::materials::sync_*` has already
+    // resolved a shared palette slot for us — in that case we skip the
+    // task, because the palette owns texture sync.
+    let mut slot_handles: HashMap<u8, Handle<StandardMaterial>> = HashMap::new();
+    for (&slot, settings) in lsys_materials.iter() {
+        let handle = if let Some(palette) = ctx.palette {
+            if let Some(h) = palette.materials.get(&slot) {
+                h.clone()
+            } else {
+                spawn_foliage_material(ctx, settings)
+            }
         } else {
-            lsys_materials
-                .get(&material_id)
-                .map(|s| ctx.std_materials.add(settings_to_std_material(s)))
-                .unwrap_or_else(|| ctx.std_materials.add(StandardMaterial::default()))
+            spawn_foliage_material(ctx, settings)
         };
+        slot_handles.insert(slot, handle);
+    }
+
+    for (material_id, mesh) in mesh_buckets {
+        let material = slot_handles
+            .get(&material_id)
+            .cloned()
+            .unwrap_or_else(|| ctx.std_materials.add(StandardMaterial::default()));
 
         // NB: no `RoomEntity` marker on child meshes. The parent below
         // carries it, and Bevy 0.18's recursive `despawn` tears down
@@ -563,19 +680,147 @@ fn spawn_lsystem_entity(
         ctx.commands.entity(parent).add_child(child);
     }
 
+    // Spawn prop billboards/primitives. Each prop inherits its material
+    // from `slot_handles`, so foliage props share the same handle as the
+    // branch meshes — when the async texture task finishes, the prop picks
+    // up the albedo automatically. A prop whose `prop_id` has no mapping
+    // falls back to `PropMeshType::Leaf`.
+    if let Some(prop_assets) = ctx.prop_assets {
+        let ps = prop_scale.0.max(0.0);
+        for prop in &skeleton.props {
+            let mesh_type = prop_mappings
+                .get(&prop.prop_id)
+                .copied()
+                .unwrap_or(PropMeshType::Leaf);
+            let Some(mesh_handle) = prop_assets.meshes.get(&mesh_type) else {
+                continue;
+            };
+            let material = slot_handles
+                .get(&prop.material_id)
+                .cloned()
+                .unwrap_or_else(|| ctx.std_materials.add(StandardMaterial::default()));
+
+            let child = ctx
+                .commands
+                .spawn((
+                    Mesh3d(mesh_handle.clone()),
+                    MeshMaterial3d(material),
+                    Transform {
+                        translation: prop.position,
+                        rotation: prop.rotation,
+                        scale: prop.scale * ps,
+                    },
+                ))
+                .id();
+            ctx.commands.entity(parent).add_child(child);
+        }
+    }
+
     apply_traits(ctx.commands, parent, ctx.record, generator_ref);
     // Silence unused-binding warnings when the heightmap is unused here.
     let _ = ctx.heightmap;
 }
 
-fn settings_to_std_material(s: &crate::pds::SovereignMaterialSettings) -> StandardMaterial {
-    let emissive = Color::srgb_from_array(s.emission_color.0).to_linear() * s.emission_strength.0;
-    StandardMaterial {
-        base_color: Color::srgb_from_array(s.base_color.0),
-        perceptual_roughness: s.roughness.0,
-        metallic: s.metallic.0,
+/// Build a `StandardMaterial` from sovereign settings, enqueuing an async
+/// texture-generation task for foliage variants. Returns a handle that the
+/// caller installs on every strand / prop belonging to the slot.
+fn spawn_foliage_material(
+    ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
+    settings: &SovereignMaterialSettings,
+) -> Handle<StandardMaterial> {
+    let emissive = Color::srgb_from_array(settings.emission_color.0).to_linear()
+        * settings.emission_strength.0;
+
+    let (alpha_mode, double_sided, cull_mode, is_card) = match settings.texture_type {
+        SovereignTextureType::Leaf | SovereignTextureType::Twig => {
+            (AlphaMode::Mask(0.5), true, None, true)
+        }
+        SovereignTextureType::Bark => (AlphaMode::Opaque, false, Some(Face::Back), false),
+        _ => (AlphaMode::Opaque, false, Some(Face::Back), false),
+    };
+
+    let handle = ctx.std_materials.add(StandardMaterial {
+        base_color: Color::srgb_from_array(settings.base_color.0),
+        perceptual_roughness: settings.roughness.0,
+        metallic: settings.metallic.0,
         emissive,
+        alpha_mode,
+        double_sided,
+        cull_mode,
         ..default()
+    });
+
+    let pool = AsyncComputeTaskPool::get();
+    match settings.texture_type {
+        SovereignTextureType::Leaf => {
+            let config = settings.leaf_config.to_leaf_config();
+            let task = pool.spawn(async move { LeafGenerator::new(config).generate(512, 512) });
+            ctx.foliage_tasks
+                .tasks
+                .push((task, handle.clone(), is_card));
+        }
+        SovereignTextureType::Twig => {
+            let config = settings.twig_config.to_twig_config();
+            let task = pool.spawn(async move { TwigGenerator::new(config).generate(512, 512) });
+            ctx.foliage_tasks
+                .tasks
+                .push((task, handle.clone(), is_card));
+        }
+        SovereignTextureType::Bark => {
+            let config = settings.bark_config.to_bark_config();
+            let task = pool.spawn(async move { BarkGenerator::new(config).generate(512, 512) });
+            ctx.foliage_tasks
+                .tasks
+                .push((task, handle.clone(), is_card));
+        }
+        _ => {}
+    }
+
+    handle
+}
+
+/// Drains completed foliage texture tasks and copies the generated images
+/// onto their target `StandardMaterial` handles. Runs every frame.
+pub fn poll_overlands_foliage_tasks(
+    mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let mut finished: Vec<(
+        Handle<StandardMaterial>,
+        Result<TextureMap, TextureError>,
+        bool,
+    )> = Vec::new();
+
+    foliage_tasks.tasks.retain_mut(|(task, handle, is_card)| {
+        if let Some(result) = block_on(future::poll_once(task)) {
+            finished.push((handle.clone(), result, *is_card));
+            false
+        } else {
+            true
+        }
+    });
+
+    for (handle, result, is_card) in finished {
+        let map = match result {
+            Ok(m) => m,
+            Err(e) => {
+                error!("Foliage texture generation failed: {e}");
+                continue;
+            }
+        };
+
+        let handles = if is_card {
+            map_to_images_card(map, &mut images)
+        } else {
+            map_to_images(map, &mut images)
+        };
+
+        if let Some(mat) = materials.get_mut(&handle) {
+            mat.base_color_texture = Some(handles.albedo);
+            mat.normal_map_texture = Some(handles.normal);
+            mat.metallic_roughness_texture = Some(handles.roughness);
+        }
     }
 }
 
