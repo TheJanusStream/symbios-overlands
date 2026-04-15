@@ -107,5 +107,36 @@ pub enum OverlandsMessage {
     /// Chat message sent over the Reliable channel.
     Chat { text: String },
     /// Room owner broadcast their updated environment settings over Reliable.
-    RoomStateUpdate(RoomRecord),
+    ///
+    /// The payload is a JSON-serialised [`RoomRecord`] rather than the
+    /// record itself, because `RoomRecord` contains internally-tagged enums
+    /// (`#[serde(tag = "$type")]` on `Generator`, `Placement`, and
+    /// `ScatterBounds`) that require `serde::Deserializer::deserialize_any`
+    /// — and bincode, which `bevy_symbios_multiuser` uses for its data
+    /// channels, explicitly does not support that method. Guests would
+    /// otherwise see "Bincode does not support the
+    /// serde::Deserializer::deserialize_any method" every time the owner
+    /// edited a room setting, and never receive the update. JSON has no
+    /// such limitation, so we pay one allocation to wrap the record in a
+    /// byte buffer that bincode can shuttle verbatim.
+    RoomStateUpdate { record_json: Vec<u8> },
+}
+
+impl OverlandsMessage {
+    /// Package a [`RoomRecord`] for broadcast over the P2P channel. Falls
+    /// back to an empty payload if serialisation fails, which the receiver
+    /// will drop — the alternative of panicking on a malformed record would
+    /// tear down the session mid-edit.
+    pub fn room_state_update(record: &RoomRecord) -> Self {
+        Self::RoomStateUpdate {
+            record_json: serde_json::to_vec(record).unwrap_or_default(),
+        }
+    }
+
+    /// Attempt to decode a [`RoomRecord`] from a `RoomStateUpdate` payload.
+    /// Returns `None` if the bytes are not valid JSON or the schema drifted
+    /// incompatibly — the caller should log and ignore rather than crash.
+    pub fn decode_room_state(bytes: &[u8]) -> Option<RoomRecord> {
+        serde_json::from_slice(bytes).ok()
+    }
 }

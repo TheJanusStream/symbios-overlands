@@ -152,7 +152,7 @@ pub fn room_admin_ui(
                         *raw_error = None;
                         *is_dirty = false;
                         writer.write(Broadcast {
-                            payload: OverlandsMessage::RoomStateUpdate(default_record.clone()),
+                            payload: OverlandsMessage::room_state_update(&default_record),
                             channel: ChannelKind::Reliable,
                         });
                         // Use the delete-then-put reset path. The vanilla
@@ -214,7 +214,7 @@ pub fn room_admin_ui(
                     let new_record = pending.clone();
                     **record = new_record.clone();
                     writer.write(Broadcast {
-                        payload: OverlandsMessage::RoomStateUpdate(new_record),
+                        payload: OverlandsMessage::room_state_update(&new_record),
                         channel: ChannelKind::Reliable,
                     });
                     *is_dirty = false;
@@ -226,7 +226,7 @@ pub fn room_admin_ui(
                     let new_record = pending.clone();
                     **record = new_record.clone();
                     writer.write(Broadcast {
-                        payload: OverlandsMessage::RoomStateUpdate(new_record.clone()),
+                        payload: OverlandsMessage::room_state_update(&new_record),
                         channel: ChannelKind::Reliable,
                     });
                     *is_dirty = false;

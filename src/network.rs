@@ -273,7 +273,20 @@ fn handle_incoming_messages(
                     }
                 }
             }
-            OverlandsMessage::RoomStateUpdate(mut new_record) => {
+            OverlandsMessage::RoomStateUpdate { record_json } => {
+                // Decode the JSON payload shipped by the owner. The wire
+                // format is JSON-in-bincode because `RoomRecord`'s tagged
+                // enums are incompatible with bincode's streaming decoder —
+                // see `OverlandsMessage::RoomStateUpdate` docs.
+                let Some(mut new_record) = OverlandsMessage::decode_room_state(&record_json)
+                else {
+                    warn!(
+                        "Dropping RoomStateUpdate from {:?}: payload failed to decode as RoomRecord",
+                        msg.sender
+                    );
+                    continue;
+                };
+
                 // Only accept from the peer whose DID matches the room owner.
                 let sender_did = peers
                     .iter()
