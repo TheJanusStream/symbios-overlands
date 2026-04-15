@@ -182,7 +182,7 @@ fn loading_ui(mut contexts: bevy_egui::EguiContexts) {
 /// *couldn't reach the PDS*, so the poll system only falls through to the
 /// default homeworld on the former. Falling through on a transient network
 /// failure is catastrophic: the owner would silently be staged on the blank
-/// default, and a "Publish to Noosphere" click would overwrite their real
+/// default, and a "Publish to PDS" click would overwrite their real
 /// room with the default.
 #[derive(Component)]
 struct RoomRecordTask(bevy::tasks::Task<Result<Option<RoomRecord>, pds::FetchError>>);

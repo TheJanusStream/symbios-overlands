@@ -114,7 +114,7 @@ pub struct RelayHost(pub String);
 #[derive(Resource, Clone)]
 pub struct CurrentRoomDid(pub String);
 
-/// Most recent result of a "Publish to Noosphere" attempt from the World
+/// Most recent result of a "Publish to PDS" attempt from the World
 /// Editor. The UI watches this resource to render a status line beside the
 /// Apply/Publish buttons so the owner gets visual confirmation that the PDS
 /// round-trip actually succeeded instead of relying on the console log.

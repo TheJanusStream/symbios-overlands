@@ -6,7 +6,7 @@
 //! without clobbering the live `ResMut<RoomRecord>` that `world_builder`
 //! recompiles from; hitting "Apply Local Preview" commits the pending
 //! record into the resource, broadcasts a `RoomStateUpdate` to guests, and
-//! (when "Publish to Noosphere" is used) pushes it to the owner's PDS via
+//! (when "Publish to PDS" is used) pushes it to the owner's PDS via
 //! `com.atproto.repo.putRecord`.
 //!
 //! The editor is intentionally forgiving: any field it doesn't yet expose
@@ -222,7 +222,7 @@ pub fn room_admin_ui(
                     *raw_error = None;
                 }
 
-                if ui.button("Publish to Noosphere").clicked() {
+                if ui.button("Publish to PDS").clicked() {
                     let new_record = pending.clone();
                     **record = new_record.clone();
                     writer.write(Broadcast {
