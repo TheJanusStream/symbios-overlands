@@ -43,7 +43,7 @@ pub fn format_elapsed_ts(elapsed_secs: f64) -> String {
 }
 use state::{
     AppState, ChatHistory, CurrentRoomDid, DiagnosticsLog, LocalAirshipParams, LocalPhysicsParams,
-    RoomRecordRecovery,
+    PublishFeedback, RoomRecordRecovery,
 };
 
 fn main() {
@@ -76,6 +76,7 @@ fn main() {
         .init_resource::<DiagnosticsLog>()
         .init_resource::<LocalAirshipParams>()
         .init_resource::<LocalPhysicsParams>()
+        .init_resource::<PublishFeedback>()
         .init_resource::<ui::login::LoginError>()
         .add_systems(
             EguiPrimaryContextPass,

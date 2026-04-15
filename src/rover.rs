@@ -68,7 +68,8 @@ impl Plugin for RoverPlugin {
         app.add_systems(OnEnter(AppState::InGame), spawn_local_rover)
             .add_systems(
                 Update,
-                rebuild_local_rover.run_if(in_state(AppState::InGame)),
+                (rebuild_local_rover, lift_rover_above_new_ground)
+                    .run_if(in_state(AppState::InGame)),
             )
             .add_systems(
                 FixedUpdate,
@@ -542,6 +543,47 @@ fn apply_buoyancy_forces(
     let lift = pp.buoyancy_strength * depth;
     let drag = -pp.buoyancy_damping * lin_vel.y;
     forces.apply_force(Vec3::Y * (lift + drag));
+}
+
+/// When the room owner edits terrain parameters mid-session, `terrain.rs`
+/// tears down the old heightfield collider and rebuilds it once the new
+/// heightmap finishes generating. During that gap the rigid body is in
+/// free-fall, and when the new collider spawns the chassis can wind up
+/// visibly embedded in (or below) the fresh terrain surface. This system
+/// detects the moment a new `FinishedHeightMap` resource is inserted and
+/// snaps the chassis to `ground_y + SPAWN_HEIGHT_OFFSET` if it is sitting
+/// below that altitude, zeroing linear velocity so the raycast suspension
+/// can take over cleanly on the next physics tick.
+fn lift_rover_above_new_ground(
+    hm_res: Option<Res<crate::terrain::FinishedHeightMap>>,
+    mut query: Query<
+        (&mut Position, &mut LinearVelocity, &mut AngularVelocity),
+        With<LocalPlayer>,
+    >,
+) {
+    let Some(hm_res) = hm_res else {
+        return;
+    };
+    // Only act on the tick the resource was just (re-)inserted — otherwise
+    // this would tug the vehicle upward every frame.
+    if !hm_res.is_added() {
+        return;
+    }
+    let Ok((mut pos, mut lin_vel, mut ang_vel)) = query.single_mut() else {
+        return;
+    };
+    let hm = &hm_res.0;
+    let extent = (hm.width() - 1) as f32 * hm.scale();
+    let half = extent * 0.5;
+    let hm_x = (pos.x + half).clamp(0.0, extent);
+    let hm_z = (pos.z + half).clamp(0.0, extent);
+    let ground_y = hm.get_height_at(hm_x, hm_z);
+    let min_y = ground_y + cfg::SPAWN_HEIGHT_OFFSET;
+    if pos.y < min_y {
+        pos.y = min_y;
+        lin_vel.0 = Vec3::ZERO;
+        ang_vel.0 = Vec3::ZERO;
+    }
 }
 
 fn respawn_if_fallen(

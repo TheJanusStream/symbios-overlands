@@ -114,6 +114,24 @@ pub struct RelayHost(pub String);
 #[derive(Resource, Clone)]
 pub struct CurrentRoomDid(pub String);
 
+/// Most recent result of a "Publish to Noosphere" attempt from the World
+/// Editor. The UI watches this resource to render a status line beside the
+/// Apply/Publish buttons so the owner gets visual confirmation that the PDS
+/// round-trip actually succeeded instead of relying on the console log.
+#[derive(Resource, Clone, Debug, Default)]
+pub enum PublishFeedback {
+    #[default]
+    Idle,
+    Publishing,
+    Success {
+        at_secs: f64,
+    },
+    Failed {
+        at_secs: f64,
+        message: String,
+    },
+}
+
 /// Present when the room-record fetch fell through to the default homeworld
 /// because the PDS response could not be decoded against the current
 /// `RoomRecord` schema (e.g. an old record saved against a since-changed

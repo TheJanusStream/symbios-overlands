@@ -26,7 +26,7 @@ use crate::pds::{
     TransformData,
 };
 use crate::protocol::OverlandsMessage;
-use crate::state::{CurrentRoomDid, RoomRecordRecovery};
+use crate::state::{CurrentRoomDid, PublishFeedback, RoomRecordRecovery};
 
 /// Async task for publishing the room record to the owner's PDS.
 #[derive(Component)]
@@ -77,6 +77,8 @@ pub fn room_admin_ui(
     recovery: Option<Res<RoomRecordRecovery>>,
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
     mut editor: Local<RoomEditorState>,
+    mut publish_feedback: ResMut<PublishFeedback>,
+    time: Res<Time>,
 ) {
     let (Some(session), Some(room_did), Some(record)) = (session, room_did, room_record.as_mut())
     else {
@@ -228,6 +230,7 @@ pub fn room_admin_ui(
                         channel: ChannelKind::Reliable,
                     });
                     *is_dirty = false;
+                    *publish_feedback = PublishFeedback::Publishing;
                     spawn_publish_task(&mut commands, &session, new_record);
                 }
 
@@ -240,6 +243,33 @@ pub fn room_admin_ui(
                     *selected_placement = None;
                 }
             });
+
+            // Publish status indicator. `Idle` stays silent; other states
+            // render a coloured one-liner so the owner knows whether the PDS
+            // round-trip actually landed without having to tail the console.
+            match publish_feedback.as_ref() {
+                PublishFeedback::Idle => {}
+                PublishFeedback::Publishing => {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(220, 200, 80),
+                        "⟳ Publishing to Noosphere…",
+                    );
+                }
+                PublishFeedback::Success { at_secs } => {
+                    let ago = (time.elapsed_secs_f64() - at_secs).max(0.0);
+                    ui.colored_label(
+                        egui::Color32::from_rgb(80, 200, 120),
+                        format!("✓ Published to Noosphere ({:.0}s ago)", ago),
+                    );
+                }
+                PublishFeedback::Failed { at_secs, message } => {
+                    let ago = (time.elapsed_secs_f64() - at_secs).max(0.0);
+                    ui.colored_label(
+                        egui::Color32::from_rgb(220, 90, 90),
+                        format!("✗ Publish failed ({:.0}s ago): {}", ago, message),
+                    );
+                }
+            }
         });
 }
 
@@ -1228,6 +1258,8 @@ pub fn poll_publish_tasks(
     mut commands: Commands,
     mut publish_tasks: Query<(Entity, &mut PublishRoomTask)>,
     mut reset_tasks: Query<(Entity, &mut ResetRoomTask)>,
+    mut publish_feedback: ResMut<PublishFeedback>,
+    time: Res<Time>,
 ) {
     for (entity, mut task) in publish_tasks.iter_mut() {
         let Some(result) =
@@ -1237,9 +1269,19 @@ pub fn poll_publish_tasks(
         };
 
         commands.entity(entity).despawn();
+        let now = time.elapsed_secs_f64();
         match result {
-            Ok(()) => info!("Room record saved to PDS"),
-            Err(e) => warn!("Failed to save room record: {}", e),
+            Ok(()) => {
+                info!("Room record saved to PDS");
+                *publish_feedback = PublishFeedback::Success { at_secs: now };
+            }
+            Err(e) => {
+                warn!("Failed to save room record: {}", e);
+                *publish_feedback = PublishFeedback::Failed {
+                    at_secs: now,
+                    message: e,
+                };
+            }
         }
     }
     for (entity, mut task) in reset_tasks.iter_mut() {
@@ -1250,9 +1292,19 @@ pub fn poll_publish_tasks(
         };
 
         commands.entity(entity).despawn();
+        let now = time.elapsed_secs_f64();
         match result {
-            Ok(()) => info!("Room record reset on PDS (delete + put)"),
-            Err(e) => warn!("Failed to reset room record: {}", e),
+            Ok(()) => {
+                info!("Room record reset on PDS (delete + put)");
+                *publish_feedback = PublishFeedback::Success { at_secs: now };
+            }
+            Err(e) => {
+                warn!("Failed to reset room record: {}", e);
+                *publish_feedback = PublishFeedback::Failed {
+                    at_secs: now,
+                    message: e,
+                };
+            }
         }
     }
 }

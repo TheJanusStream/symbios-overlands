@@ -546,13 +546,18 @@ fn spawn_lsystem_entity(
                 .unwrap_or_else(|| ctx.std_materials.add(StandardMaterial::default()))
         };
 
+        // NB: no `RoomEntity` marker on child meshes. The parent below
+        // carries it, and Bevy 0.18's recursive `despawn` tears down
+        // children automatically. Marking children with `RoomEntity` too
+        // causes the logout / room-rebuild cleanup queries to yield both
+        // parent and child, and whichever lands first cascades the
+        // despawn, leaving the other as an "entity despawned" warning.
         let child = ctx
             .commands
             .spawn((
                 Mesh3d(ctx.meshes.add(mesh)),
                 MeshMaterial3d(material),
                 Transform::IDENTITY,
-                RoomEntity,
             ))
             .id();
         ctx.commands.entity(parent).add_child(child);
