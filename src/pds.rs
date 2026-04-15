@@ -741,6 +741,72 @@ pub enum PropMeshType {
     Cube,
 }
 
+pub mod map_u8_as_string {
+    use serde::{Deserialize, Deserializer, Serializer};
+    use std::collections::HashMap;
+
+    pub fn serialize<S, V>(map: &HashMap<u8, V>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        V: serde::Serialize,
+    {
+        use serde::ser::SerializeMap;
+        let mut map_ser = serializer.serialize_map(Some(map.len()))?;
+        for (k, v) in map {
+            map_ser.serialize_entry(&k.to_string(), v)?;
+        }
+        map_ser.end()
+    }
+
+    pub fn deserialize<'de, D, V>(deserializer: D) -> Result<HashMap<u8, V>, D::Error>
+    where
+        D: Deserializer<'de>,
+        V: serde::Deserialize<'de>,
+    {
+        let string_map = HashMap::<String, V>::deserialize(deserializer)?;
+        let mut map = HashMap::new();
+        for (k, v) in string_map {
+            if let Ok(key) = k.parse::<u8>() {
+                map.insert(key, v);
+            }
+        }
+        Ok(map)
+    }
+}
+
+pub mod map_u16_as_string {
+    use serde::{Deserialize, Deserializer, Serializer};
+    use std::collections::HashMap;
+
+    pub fn serialize<S, V>(map: &HashMap<u16, V>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        V: serde::Serialize,
+    {
+        use serde::ser::SerializeMap;
+        let mut map_ser = serializer.serialize_map(Some(map.len()))?;
+        for (k, v) in map {
+            map_ser.serialize_entry(&k.to_string(), v)?;
+        }
+        map_ser.end()
+    }
+
+    pub fn deserialize<'de, D, V>(deserializer: D) -> Result<HashMap<u16, V>, D::Error>
+    where
+        D: Deserializer<'de>,
+        V: serde::Deserialize<'de>,
+    {
+        let string_map = HashMap::<String, V>::deserialize(deserializer)?;
+        let mut map = HashMap::new();
+        for (k, v) in string_map {
+            if let Ok(key) = k.parse::<u16>() {
+                map.insert(key, v);
+            }
+        }
+        Ok(map)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Open unions: Generators and Placements
 // ---------------------------------------------------------------------------
@@ -777,8 +843,10 @@ pub enum Generator {
         elasticity: Fp,
         tropism: Option<Fp3>,
         /// Material slot id → PBR settings.
+        #[serde(with = "map_u8_as_string")]
         materials: HashMap<u8, SovereignMaterialSettings>,
         /// Prop id → mesh shape.
+        #[serde(with = "map_u16_as_string")]
         prop_mappings: HashMap<u16, PropMeshType>,
         prop_scale: Fp,
         mesh_resolution: u32,

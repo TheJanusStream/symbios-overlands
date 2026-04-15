@@ -129,14 +129,23 @@ impl OverlandsMessage {
     /// tear down the session mid-edit.
     pub fn room_state_update(record: &RoomRecord) -> Self {
         Self::RoomStateUpdate {
-            record_json: serde_json::to_vec(record).unwrap_or_default(),
+            record_json: serde_json::to_vec(record).unwrap_or_else(|e| {
+                bevy::log::error!("Failed to serialize RoomRecord: {}", e);
+                Vec::new()
+            }),
         }
     }
 
-    /// Attempt to decode a [`RoomRecord`] from a `RoomStateUpdate` payload.
+    /// Attempt to decode a[`RoomRecord`] from a `RoomStateUpdate` payload.
     /// Returns `None` if the bytes are not valid JSON or the schema drifted
     /// incompatibly — the caller should log and ignore rather than crash.
     pub fn decode_room_state(bytes: &[u8]) -> Option<RoomRecord> {
-        serde_json::from_slice(bytes).ok()
+        match serde_json::from_slice(bytes) {
+            Ok(r) => Some(r),
+            Err(e) => {
+                bevy::log::warn!("RoomRecord decode error: {}", e);
+                None
+            }
+        }
     }
 }
