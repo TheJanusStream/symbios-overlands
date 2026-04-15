@@ -59,7 +59,7 @@ impl Default for LoginFormState {
             handle: crate::config::login::DEFAULT_HANDLE.into(),
             password: crate::config::login::DEFAULT_PASSWORD.into(),
             relay_host: crate::config::login::DEFAULT_RELAY_HOST.into(),
-            target_did: String::new(),
+            target_did: crate::config::login::DEFAULT_TARGET_DID.into(),
         }
     }
 }
