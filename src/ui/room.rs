@@ -253,14 +253,14 @@ pub fn room_admin_ui(
                 PublishFeedback::Publishing => {
                     ui.colored_label(
                         egui::Color32::from_rgb(220, 200, 80),
-                        "⟳ Publishing to Noosphere…",
+                        "⟳ Publishing to PDS…",
                     );
                 }
                 PublishFeedback::Success { at_secs } => {
                     let ago = (time.elapsed_secs_f64() - at_secs).max(0.0);
                     ui.colored_label(
                         egui::Color32::from_rgb(80, 200, 120),
-                        format!("✓ Published to Noosphere ({:.0}s ago)", ago),
+                        format!("✓ Published to PDS ({:.0}s ago)", ago),
                     );
                 }
                 PublishFeedback::Failed { at_secs, message } => {

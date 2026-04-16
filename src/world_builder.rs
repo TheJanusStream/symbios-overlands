@@ -34,7 +34,8 @@ use bevy_symbios_texture::twig::TwigGenerator;
 use bevy_symbios_texture::{map_to_images, map_to_images_card};
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use symbios::System;
 use symbios_turtle_3d::{TurtleConfig, TurtleInterpreter};
 
@@ -78,12 +79,37 @@ pub struct OverlandsFoliageTasks {
     pub tasks: Vec<FoliageTask>,
 }
 
+/// One cached L-system slot material: the content hash of the settings that
+/// built it, plus the resulting PBR handle.
+struct CachedLSystemMaterial {
+    settings_hash: u64,
+    handle: Handle<StandardMaterial>,
+}
+
+/// Persistent cross-compile cache for L-system `StandardMaterial` handles.
+///
+/// Without this, every `RoomRecord` change rebuilds every generator's
+/// material — enqueuing fresh foliage texture tasks for configs that haven't
+/// moved. Keyed by `(generator_ref, slot_id)` and invalidated by hashing the
+/// canonical (fixed-point) serialisation of `SovereignMaterialSettings`, so
+/// a record edit that touches *only* (say) the scatter count re-uses last
+/// pass's baked textures instead of re-baking them.
+///
+/// Entries for `(generator_ref, slot)` pairs not touched during a compile
+/// pass are dropped at the end of that pass so stale generators stop
+/// pinning their handles in `Assets<StandardMaterial>`.
+#[derive(Resource, Default)]
+pub struct LSystemMaterialCache {
+    entries: HashMap<(String, u8), CachedLSystemMaterial>,
+}
+
 pub struct WorldBuilderPlugin;
 
 impl Plugin for WorldBuilderPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<WaterMaterial>::default())
             .init_resource::<OverlandsFoliageTasks>()
+            .init_resource::<LSystemMaterialCache>()
             .add_systems(Startup, setup_prop_assets)
             .add_systems(
                 Update,
@@ -168,6 +194,7 @@ fn compile_room_record(
     palette: Option<Res<MaterialPalette>>,
     prop_assets: Option<Res<PropMeshAssets>>,
     mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
+    mut lsystem_material_cache: ResMut<LSystemMaterialCache>,
     mut lights: Query<&mut DirectionalLight>,
 ) {
     let Some(record) = record else {
@@ -191,13 +218,11 @@ fn compile_room_record(
         light.color = Color::srgb(c[0], c[1], c[2]);
     }
 
-    // Memoise L-system material handles across every placement in this
-    // compile pass. Hoisting the cache out of `spawn_lsystem_entity` lets
-    // a scatter placement (count=N) share a single `StandardMaterial` per
-    // slot rather than allocating (and enqueuing an async texture task for)
-    // N copies of the same handle.
-    let mut lsystem_material_cache: HashMap<(String, u8), Handle<StandardMaterial>> =
-        HashMap::new();
+    // Cross-compile cache lives in `LSystemMaterialCache` (a persistent
+    // Resource). Track which `(generator_ref, slot)` keys were touched this
+    // pass so we can drop stale entries at the end — a generator removed
+    // from the record would otherwise keep its handles pinned forever.
+    let mut lsystem_cache_touched: HashSet<(String, u8)> = HashSet::new();
 
     // Step 3 — Placements. Walk the recipe; each scatter placement uses
     // its own deterministic RNG so every peer reproduces the same layout.
@@ -219,6 +244,7 @@ fn compile_room_record(
                     prop_assets: prop_assets.as_deref(),
                     foliage_tasks: &mut foliage_tasks,
                     lsystem_material_cache: &mut lsystem_material_cache,
+                    lsystem_cache_touched: &mut lsystem_cache_touched,
                 };
                 spawn_from_generator(ctx, generator_ref, transform_from_data(transform));
             }
@@ -288,6 +314,7 @@ fn compile_room_record(
                         prop_assets: prop_assets.as_deref(),
                         foliage_tasks: &mut foliage_tasks,
                         lsystem_material_cache: &mut lsystem_material_cache,
+                        lsystem_cache_touched: &mut lsystem_cache_touched,
                     };
                     spawn_from_generator(ctx, generator_ref, tf);
                     spawned += 1;
@@ -305,6 +332,36 @@ fn compile_room_record(
             }
         }
     }
+
+    // Drop cache entries whose `(generator_ref, slot)` was not touched this
+    // compile pass — that slot is no longer referenced by the record, so
+    // keeping the handle alive would pin a `StandardMaterial` (and any
+    // baked foliage textures it points at) in `Assets` forever.
+    lsystem_material_cache
+        .entries
+        .retain(|k, _| lsystem_cache_touched.contains(k));
+}
+
+/// Stable content hash of a `SovereignMaterialSettings` for the L-system
+/// material cache. Serde already rounds every `f32`/`f64` field to the
+/// fixed-point `i32` wire form (see `Fp`/`Fp3`/`Fp64` impls in `pds`), so
+/// hashing the JSON bytes yields a representation-equal fingerprint with
+/// no manual field walking — and skips the NaN/denormal footguns hashing
+/// raw floats would bring.
+fn settings_fingerprint(settings: &SovereignMaterialSettings) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    match serde_json::to_vec(settings) {
+        Ok(bytes) => bytes.hash(&mut hasher),
+        // Serialisation of a plain struct of scalars cannot fail in
+        // practice; if it somehow does, fall back to a distinct sentinel
+        // so the match arm below treats every lookup as a miss (forcing a
+        // rebuild) rather than collapsing all failures onto the same key.
+        Err(_) => {
+            0xDEAD_BEEF_u64.hash(&mut hasher);
+            (settings as *const SovereignMaterialSettings as usize).hash(&mut hasher);
+        }
+    }
+    hasher.finish()
 }
 
 fn transform_from_data(t: &TransformData) -> Transform {
@@ -416,13 +473,17 @@ struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     terrain_meshes: &'a Query<'wq, 'sq, Entity, With<TerrainMesh>>,
     prop_assets: Option<&'a PropMeshAssets>,
     foliage_tasks: &'a mut OverlandsFoliageTasks,
-    /// Memoised material handles keyed by (generator_ref, slot_id). A single
-    /// scatter placement with count=100 would otherwise allocate 100 fresh
-    /// `StandardMaterial`s *and* enqueue 100 identical foliage texture tasks
-    /// for the same slot — filling the asset store with duplicates and
-    /// saturating `AsyncComputeTaskPool` for seconds on every tree-heavy
-    /// room.
-    lsystem_material_cache: &'a mut HashMap<(String, u8), Handle<StandardMaterial>>,
+    /// Persistent, hash-invalidated material cache. A single scatter
+    /// placement with count=100 would otherwise allocate 100 fresh
+    /// `StandardMaterial`s *and* enqueue 100 identical foliage texture
+    /// tasks for the same slot — and across compile passes an unchanged
+    /// slot would re-bake every time the record is patched. The cache
+    /// keys on `(generator_ref, slot)` and reuses the handle whenever the
+    /// content hash of `SovereignMaterialSettings` is identical.
+    lsystem_material_cache: &'a mut LSystemMaterialCache,
+    /// `(generator_ref, slot)` keys touched this compile pass. Populated
+    /// as we resolve material handles so the caller can GC stale entries.
+    lsystem_cache_touched: &'a mut HashSet<(String, u8)>,
 }
 
 fn spawn_from_generator(
@@ -716,12 +777,21 @@ fn spawn_lsystem_entity(
             h.clone()
         } else {
             let key = (generator_ref.to_string(), slot);
-            if let Some(h) = ctx.lsystem_material_cache.get(&key) {
-                h.clone()
-            } else {
-                let h = spawn_foliage_material(ctx, settings);
-                ctx.lsystem_material_cache.insert(key, h.clone());
-                h
+            let hash = settings_fingerprint(settings);
+            ctx.lsystem_cache_touched.insert(key.clone());
+            match ctx.lsystem_material_cache.entries.get(&key) {
+                Some(cached) if cached.settings_hash == hash => cached.handle.clone(),
+                _ => {
+                    let handle = spawn_foliage_material(ctx, settings);
+                    ctx.lsystem_material_cache.entries.insert(
+                        key,
+                        CachedLSystemMaterial {
+                            settings_hash: hash,
+                            handle: handle.clone(),
+                        },
+                    );
+                    handle
+                }
             }
         };
         slot_handles.insert(slot, handle);
