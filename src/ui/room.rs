@@ -1258,7 +1258,13 @@ fn draw_raw_tab(
     ui.horizontal(|ui| {
         if ui.button("Parse into pending record").clicked() {
             match serde_json::from_str::<RoomRecord>(text) {
-                Ok(parsed) => {
+                Ok(mut parsed) => {
+                    // Enforce the same bounds the network-ingress path
+                    // applies — the raw JSON tab otherwise lets the owner
+                    // bypass `sanitize()` and hand a 2 GiB grid_size or
+                    // unbounded L-system iterations straight to the world
+                    // compiler.
+                    parsed.sanitize();
                     *pending = parsed;
                     *error = None;
                     *dirty = true;

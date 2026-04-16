@@ -598,9 +598,6 @@ fn respawn_if_fallen(
     let Ok((mut pos, mut rot, mut lin_vel, mut ang_vel)) = query.single_mut() else {
         return;
     };
-    if pos.y > cfg::FALL_Y_THRESHOLD {
-        return;
-    }
     // Heightmap is torn down in-place whenever the room owner edits terrain
     // parameters mid-session (see `maybe_regenerate_terrain`). Skip this
     // tick; the chassis is a dynamic rigid body and will tumble harmlessly
@@ -609,19 +606,26 @@ fn respawn_if_fallen(
         return;
     };
     let hm = &hm_res.0;
-    let centre = (hm.width() - 1) as f32 * hm.scale() * 0.5;
+    let extent = (hm.width() - 1) as f32 * hm.scale();
+    let half = extent * 0.5;
+    // Use the local ground altitude under the rover as the fall threshold.
+    // The owner controls `height_scale` and erosion depth, so a map can
+    // legitimately sit far below any fixed world-Y threshold; a purely
+    // absolute check would then fire every tick, respawn the rover a metre
+    // above the sunken ground, see `pos.y < threshold` again on the next
+    // tick, and soft-lock the session.
+    let hm_x = (pos.x + half).clamp(0.0, extent);
+    let hm_z = (pos.z + half).clamp(0.0, extent);
+    let local_ground = hm.get_height_at(hm_x, hm_z);
+    if pos.y > local_ground - cfg::FALL_BELOW_GROUND {
+        return;
+    }
+    let centre = extent * 0.5;
     let (ox, oz) = random_spawn_xz();
     let ground_y = hm.get_height_at(centre + ox, centre + oz);
     let surface_normal = hm.get_normal_at(centre + ox, centre + oz);
     let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
-    // Guard against infinite respawn: the owner controls `height_scale` and
-    // erosion depth, so a map centre can legitimately sit below
-    // `FALL_Y_THRESHOLD`. Clamping to `threshold + SPAWN_HEIGHT_OFFSET`
-    // ensures the very next physics tick sees `pos.y > FALL_Y_THRESHOLD`,
-    // breaking what would otherwise be a rapid-fire respawn soft-lock.
-    let spawn_y =
-        (ground_y + cfg::SPAWN_HEIGHT_OFFSET).max(cfg::FALL_Y_THRESHOLD + cfg::SPAWN_HEIGHT_OFFSET);
-    pos.0 = Vec3::new(ox, spawn_y, oz);
+    pos.0 = Vec3::new(ox, ground_y + cfg::SPAWN_HEIGHT_OFFSET, oz);
     rot.0 = tilt;
     lin_vel.0 = Vec3::ZERO;
     ang_vel.0 = Vec3::ZERO;

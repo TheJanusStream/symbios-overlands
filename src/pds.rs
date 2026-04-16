@@ -1038,12 +1038,8 @@ impl RoomRecord {
                     mesh_resolution,
                     ..
                 } => {
-                    if source_code.len() > limits::MAX_LSYSTEM_CODE_BYTES {
-                        source_code.truncate(limits::MAX_LSYSTEM_CODE_BYTES);
-                    }
-                    if finalization_code.len() > limits::MAX_LSYSTEM_CODE_BYTES {
-                        finalization_code.truncate(limits::MAX_LSYSTEM_CODE_BYTES);
-                    }
+                    truncate_on_char_boundary(source_code, limits::MAX_LSYSTEM_CODE_BYTES);
+                    truncate_on_char_boundary(finalization_code, limits::MAX_LSYSTEM_CODE_BYTES);
                     *iterations = (*iterations).min(limits::MAX_LSYSTEM_ITERATIONS);
                     *mesh_resolution =
                         (*mesh_resolution).clamp(3, limits::MAX_LSYSTEM_MESH_RESOLUTION);
@@ -1060,6 +1056,20 @@ impl RoomRecord {
             }
         }
     }
+}
+
+/// Trim `s` to at most `max_bytes`, walking back to the previous UTF-8
+/// boundary so `String::truncate`'s boundary-panic can't be triggered by a
+/// multi-byte character straddling the cap.
+fn truncate_on_char_boundary(s: &mut String, max_bytes: usize) {
+    if s.len() <= max_bytes {
+        return;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s.truncate(end);
 }
 
 fn sanitize_terrain_cfg(cfg: &mut SovereignTerrainConfig) {

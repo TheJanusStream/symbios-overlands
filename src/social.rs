@@ -7,7 +7,7 @@
 //! frame so the main game loop never stalls on network I/O.
 
 use bevy::prelude::*;
-use bevy::tasks::{AsyncComputeTaskPool, Task};
+use bevy::tasks::{IoTaskPool, Task};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use futures_lite::future;
 use serde::Deserialize;
@@ -57,7 +57,13 @@ fn dispatch_resonance_queries(
         }
         let local_did = sess.did.clone();
         let remote = remote_did.to_string();
-        let pool = AsyncComputeTaskPool::get();
+        // `IoTaskPool` — not `AsyncComputeTaskPool` — is the correct pool for
+        // blocking HTTP work. AsyncCompute is CPU-bound (rayon-sized, scales
+        // with `physical_cores`); a handful of hung reqwest connections
+        // there starves the whole async-compute budget (terrain generation,
+        // texture baking), tanking FPS for the entire session. The IoTaskPool
+        // is sized for exactly this pattern.
+        let pool = IoTaskPool::get();
         let task = pool.spawn(async move {
             let fut = query_resonance(local_did, remote);
             #[cfg(target_arch = "wasm32")]

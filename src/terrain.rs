@@ -147,6 +147,8 @@ fn cleanup_terrain(
     mut commands: Commands,
     terrain: Query<Entity, With<TerrainMesh>>,
     water: Query<Entity, With<WaterVolume>>,
+    pending_textures: Query<Entity, With<TextureLayerIndex>>,
+    pending_raw: Query<Entity, With<PendingTexture>>,
     mut splat_state: ResMut<TerrainSplatState>,
     mut last_cfg: ResMut<LastTerrainConfigJson>,
 ) {
@@ -154,6 +156,16 @@ fn cleanup_terrain(
         commands.entity(e).despawn();
     }
     for e in &water {
+        commands.entity(e).despawn();
+    }
+    // In-flight splat texture tasks would otherwise survive into the next
+    // login cycle, land their `TextureReady` components on orphaned entities,
+    // and leak until process exit. Drain both the marker-tagged and any
+    // `PendingTexture` entities missing the marker (recovery path) here.
+    for e in &pending_textures {
+        commands.entity(e).despawn();
+    }
+    for e in &pending_raw {
         commands.entity(e).despawn();
     }
     *splat_state = TerrainSplatState::default();
@@ -180,8 +192,14 @@ fn maybe_regenerate_terrain(
     terrain_q: Query<Entity, With<TerrainMesh>>,
     pending_textures: Query<Entity, With<TextureLayerIndex>>,
     mut splat_state: ResMut<TerrainSplatState>,
+    terrain_task: Option<Res<TerrainTask>>,
 ) {
-    if !record.is_changed() {
+    // Refuse to tear down in-flight generation — the previous async task's
+    // output would still land in `FinishedHeightMap` and the new pipeline
+    // couldn't start. Retain the pending record change for a later frame;
+    // this system runs every frame, not just on `is_changed`, so once the
+    // task completes the regeneration kicks in.
+    if terrain_task.is_some() {
         return;
     }
     let Some(cfg) = crate::pds::find_terrain_config(&record) else {

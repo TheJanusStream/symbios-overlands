@@ -62,6 +62,62 @@ pub struct AirshipParams {
     pub roughness: f32,
 }
 
+impl AirshipParams {
+    /// Clamp every numeric field to a safe range before the values feed
+    /// Bevy primitive constructors (`Capsule3d::new`, `Cylinder::new`,
+    /// `Sphere::new`, `Rectangle::new`), which panic on negative, zero, or
+    /// NaN inputs. A malicious peer can otherwise crash every guest by
+    /// broadcasting an Identity with `pontoon_width = -1.0`.
+    pub fn sanitize(&mut self) {
+        const MIN_DIM: f32 = 0.01;
+        const MAX_DIM: f32 = 50.0;
+        let clamp = |v: f32| {
+            if v.is_finite() {
+                v.clamp(MIN_DIM, MAX_DIM)
+            } else {
+                MIN_DIM
+            }
+        };
+        let clamp_unit = |v: f32| {
+            if v.is_finite() {
+                v.clamp(0.0, 1.0)
+            } else {
+                0.0
+            }
+        };
+        let clamp_color = |c: [f32; 3]| [clamp_unit(c[0]), clamp_unit(c[1]), clamp_unit(c[2])];
+        let clamp_offset = |v: f32| {
+            if v.is_finite() {
+                v.clamp(-MAX_DIM, MAX_DIM)
+            } else {
+                0.0
+            }
+        };
+
+        self.hull_length = clamp(self.hull_length);
+        self.hull_width = clamp(self.hull_width);
+        self.pontoon_spread = clamp(self.pontoon_spread);
+        self.pontoon_length = clamp(self.pontoon_length);
+        self.pontoon_width = clamp(self.pontoon_width);
+        self.pontoon_height = clamp(self.pontoon_height);
+        self.strut_drop = clamp_unit(self.strut_drop);
+        self.mast_height = clamp(self.mast_height);
+        self.mast_radius = clamp(self.mast_radius);
+        self.mast_offset = [
+            clamp_offset(self.mast_offset[0]),
+            clamp_offset(self.mast_offset[1]),
+        ];
+        self.sail_size = clamp(self.sail_size);
+        self.hull_depth = clamp(self.hull_depth);
+        self.hull_color = clamp_color(self.hull_color);
+        self.pontoon_color = clamp_color(self.pontoon_color);
+        self.mast_color = clamp_color(self.mast_color);
+        self.strut_color = clamp_color(self.strut_color);
+        self.metallic = clamp_unit(self.metallic);
+        self.roughness = clamp_unit(self.roughness);
+    }
+}
+
 impl Default for AirshipParams {
     fn default() -> Self {
         use crate::config::airship as cfg;

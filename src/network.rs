@@ -193,9 +193,28 @@ fn handle_incoming_messages(
                         } else {
                             raw_next
                         };
+                        // Reject non-finite positions and normalise the
+                        // quaternion before it reaches `Quat::slerp` in the
+                        // kinematic smoother — `slerp` on an unnormalised or
+                        // NaN quat propagates NaN into every peer's
+                        // Transform, which then NaN-poisons the avian3d
+                        // broadphase for the *local* rigid body. Drop
+                        // garbage packets silently; the peer broadcasts
+                        // Transform at 60 Hz so the next well-formed one
+                        // overrides within ~16 ms.
+                        let pos_vec = Vec3::from_array(position);
+                        if !pos_vec.is_finite() {
+                            continue;
+                        }
+                        let raw_rot = Quat::from_array(rotation);
+                        let rot = if raw_rot.is_finite() && raw_rot.length_squared() > 1e-6 {
+                            raw_rot.normalize()
+                        } else {
+                            Quat::IDENTITY
+                        };
                         buf.samples.push_back(TransformSample {
-                            position: Vec3::from_array(position),
-                            rotation: Quat::from_array(rotation),
+                            position: pos_vec,
+                            rotation: rot,
                             timestamp: next,
                         });
                         while buf.samples.len() > config::network::KINEMATIC_BUFFER_CAPACITY {
@@ -207,8 +226,15 @@ fn handle_incoming_messages(
             OverlandsMessage::Identity {
                 did,
                 handle,
-                airship,
+                mut airship,
             } => {
+                // Clamp every dimension/colour field before any Bevy primitive
+                // constructor sees it. `rebuild_airship_children` feeds raw
+                // values to `Capsule3d::new`, `Cylinder::new`, `Sphere::new`,
+                // and `Rectangle::new`, all of which panic on negative, zero,
+                // or NaN inputs — a hand-crafted Identity with
+                // `pontoon_width = -1.0` would otherwise crash every guest.
+                airship.sanitize();
                 // Reject identity claims whose DID does not match the
                 // session_id the relay bound to the sender's PeerId. The
                 // signaller publishes (PeerId → authenticated DID) entries to
@@ -334,6 +360,14 @@ fn handle_incoming_messages(
                         }
                         text[..end].to_string()
                     };
+                    // Strip ASCII control bytes (newlines, carriage returns,
+                    // form feeds, etc.) so a peer cannot inject multi-line
+                    // payloads that impersonate another author's rows in the
+                    // HUD log.
+                    let clipped: String = clipped
+                        .chars()
+                        .map(|c| if c.is_control() && c != '\t' { ' ' } else { c })
+                        .collect();
                     let author = peers
                         .iter()
                         .find(|(_, peer, _, _, _, _)| peer.peer_id == msg.sender)
@@ -341,6 +375,14 @@ fn handle_incoming_messages(
                         .unwrap_or_else(|| msg.sender.to_string());
                     let ts = crate::format_elapsed_ts(now);
                     chat.messages.push((author, clipped, ts));
+                    // Bound the rolling history so a chatty peer can't grow
+                    // the scroll area unbounded — each entry re-wraps every
+                    // frame once it's in egui's text layout cache.
+                    let cap = crate::config::ui::chat::MAX_HISTORY_ENTRIES;
+                    if chat.messages.len() > cap {
+                        let drop = chat.messages.len() - cap;
+                        chat.messages.drain(..drop);
+                    }
                 }
             }
         }

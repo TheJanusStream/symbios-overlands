@@ -191,6 +191,14 @@ fn compile_room_record(
         light.color = Color::srgb(c[0], c[1], c[2]);
     }
 
+    // Memoise L-system material handles across every placement in this
+    // compile pass. Hoisting the cache out of `spawn_lsystem_entity` lets
+    // a scatter placement (count=N) share a single `StandardMaterial` per
+    // slot rather than allocating (and enqueuing an async texture task for)
+    // N copies of the same handle.
+    let mut lsystem_material_cache: HashMap<(String, u8), Handle<StandardMaterial>> =
+        HashMap::new();
+
     // Step 3 — Placements. Walk the recipe; each scatter placement uses
     // its own deterministic RNG so every peer reproduces the same layout.
     for placement in &record.placements {
@@ -210,6 +218,7 @@ fn compile_room_record(
                     terrain_meshes: &terrain_meshes,
                     prop_assets: prop_assets.as_deref(),
                     foliage_tasks: &mut foliage_tasks,
+                    lsystem_material_cache: &mut lsystem_material_cache,
                 };
                 spawn_from_generator(ctx, generator_ref, transform_from_data(transform));
             }
@@ -278,6 +287,7 @@ fn compile_room_record(
                         terrain_meshes: &terrain_meshes,
                         prop_assets: prop_assets.as_deref(),
                         foliage_tasks: &mut foliage_tasks,
+                        lsystem_material_cache: &mut lsystem_material_cache,
                     };
                     spawn_from_generator(ctx, generator_ref, tf);
                     spawned += 1;
@@ -406,6 +416,13 @@ struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     terrain_meshes: &'a Query<'wq, 'sq, Entity, With<TerrainMesh>>,
     prop_assets: Option<&'a PropMeshAssets>,
     foliage_tasks: &'a mut OverlandsFoliageTasks,
+    /// Memoised material handles keyed by (generator_ref, slot_id). A single
+    /// scatter placement with count=100 would otherwise allocate 100 fresh
+    /// `StandardMaterial`s *and* enqueue 100 identical foliage texture tasks
+    /// for the same slot — filling the asset store with duplicates and
+    /// saturating `AsyncComputeTaskPool` for seconds on every tree-heavy
+    /// room.
+    lsystem_material_cache: &'a mut HashMap<(String, u8), Handle<StandardMaterial>>,
 }
 
 fn spawn_from_generator(
@@ -564,9 +581,22 @@ fn spawn_lsystem_entity(
         }
     }
 
+    // Cap the derived state length so a malicious record can't weaponise a
+    // productive grammar (e.g. an axiom expanding >10× per step) into a
+    // multi-gigabyte symbol buffer that locks the main thread inside the
+    // turtle interpreter. 2^20 symbols is well past the largest legitimate
+    // L-system our shipping presets produce.
+    const MAX_LSYSTEM_STATE_LEN: usize = 1 << 20;
     for _ in 0..*iterations {
         if let Err(e) = sys.derive(1) {
             warn!("L-system `{}` derivation error: {}", generator_ref, e);
+            return;
+        }
+        if sys.state.len() > MAX_LSYSTEM_STATE_LEN {
+            warn!(
+                "L-system `{}` state exceeded {} symbols — aborting derivation",
+                generator_ref, MAX_LSYSTEM_STATE_LEN
+            );
             return;
         }
     }
@@ -645,14 +675,19 @@ fn spawn_lsystem_entity(
     // task, because the palette owns texture sync.
     let mut slot_handles: HashMap<u8, Handle<StandardMaterial>> = HashMap::new();
     for (&slot, settings) in lsys_materials.iter() {
-        let handle = if let Some(palette) = ctx.palette {
-            if let Some(h) = palette.materials.get(&slot) {
+        let handle = if let Some(palette) = ctx.palette
+            && let Some(h) = palette.materials.get(&slot)
+        {
+            h.clone()
+        } else {
+            let key = (generator_ref.to_string(), slot);
+            if let Some(h) = ctx.lsystem_material_cache.get(&key) {
                 h.clone()
             } else {
-                spawn_foliage_material(ctx, settings)
+                let h = spawn_foliage_material(ctx, settings);
+                ctx.lsystem_material_cache.insert(key, h.clone());
+                h
             }
-        } else {
-            spawn_foliage_material(ctx, settings)
         };
         slot_handles.insert(slot, handle);
     }

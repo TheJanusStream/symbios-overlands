@@ -45,8 +45,12 @@ pub mod rover {
     pub const JUMP_FORCE: f32 = 2_500.0;
     /// Torque strength nudging the chassis back to upright.
     pub const UPRIGHTING_TORQUE: f32 = 800.0;
-    /// World-space Y below which the rover is considered "fallen off" and respawned.
-    pub const FALL_Y_THRESHOLD: f32 = -20.0;
+    /// Metres *below local ground* at which the rover is considered fallen
+    /// through the terrain and respawned. Using a ground-relative delta
+    /// rather than an absolute world-Y threshold keeps the respawn system
+    /// from soft-locking on rooms whose `height_scale` sinks the entire
+    /// heightmap far below the origin.
+    pub const FALL_BELOW_GROUND: f32 = 20.0;
 
     // --- Chassis -------------------------------------------------------------
     pub const LINEAR_DAMPING: f32 = 1.5;
@@ -375,6 +379,10 @@ pub mod ui {
         /// to word-wrap on every frame, creating an instant DoS for every
         /// guest in the room.  Well below the 1 MiB multiuser packet limit.
         pub const MAX_MESSAGE_LEN: usize = 512;
+        /// Maximum chat entries retained in the rolling HUD log. A noisy (or
+        /// malicious) peer could otherwise spam the channel until egui's
+        /// scroll area holds megabytes of strings, re-wrapping every frame.
+        pub const MAX_HISTORY_ENTRIES: usize = 500;
         /// Height reserved below the scroll area for the input row.
         pub const INPUT_RESERVE_HEIGHT: f32 = 40.0;
         /// Minimum height of the message scroll area.
