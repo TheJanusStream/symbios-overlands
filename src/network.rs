@@ -156,7 +156,32 @@ fn handle_incoming_messages(
     peer_sessions: Res<PeerSessionMapRes>,
 ) {
     let now = time.elapsed_secs_f64();
-    for msg in queue.drain() {
+    // Drain the whole queue into a buffer so we can dedupe `Identity`
+    // messages per sender before processing. `rebuild_airship_children`
+    // despawns the children referenced by the query-borrowed
+    // `Option<&Children>`, but the despawn is queued — it only executes
+    // when `commands` applies at system end. A burst of Identity
+    // messages with alternating airship params would otherwise run the
+    // rebuild path N times, re-queueing despawns for the same original
+    // children each pass and leaving the meshes spawned by intermediate
+    // passes orphaned in the ECS with dangling PBR material/mesh handles.
+    // Keeping only the last Identity per sender collapses the burst into
+    // a single rebuild whose `existing_children` accurately reflects
+    // what's alive before we start spawning.
+    let messages: Vec<_> = queue.drain().collect();
+    let mut last_identity_idx: std::collections::HashMap<PeerId, usize> =
+        std::collections::HashMap::new();
+    for (i, msg) in messages.iter().enumerate() {
+        if matches!(msg.payload, OverlandsMessage::Identity { .. }) {
+            last_identity_idx.insert(msg.sender, i);
+        }
+    }
+    for (i, msg) in messages.into_iter().enumerate() {
+        if matches!(msg.payload, OverlandsMessage::Identity { .. })
+            && last_identity_idx.get(&msg.sender) != Some(&i)
+        {
+            continue;
+        }
         match msg.payload {
             OverlandsMessage::Transform { position, rotation } => {
                 for (_, peer, _tf, mut buf, _, _) in peers.iter_mut() {

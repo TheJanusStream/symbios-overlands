@@ -202,6 +202,14 @@ fn maybe_regenerate_terrain(
     if terrain_task.is_some() {
         return;
     }
+    // Serde-serialising the full `SovereignTerrainConfig` on every render
+    // frame just to compare strings was dragging a measurable chunk of
+    // frame time (record is large and deeply nested). Bevy already
+    // tracks resource mutation via `record.is_changed()` — only build
+    // the fingerprint when the record actually changed.
+    if !record.is_changed() {
+        return;
+    }
     let Some(cfg) = crate::pds::find_terrain_config(&record) else {
         return;
     };

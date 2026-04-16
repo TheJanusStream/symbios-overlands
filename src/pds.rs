@@ -1015,6 +1015,16 @@ pub mod limits {
     pub const MAX_LSYSTEM_MESH_RESOLUTION: u32 = 32;
     /// Shape generator floor count.
     pub const MAX_SHAPE_FLOORS: u32 = 64;
+    /// Maximum number of `Placement` entries per `RoomRecord`. Clamping
+    /// `Scatter.count` alone is not enough — a record with ten-thousand
+    /// single-count scatter entries still weaponises `compile_room_record`.
+    pub const MAX_PLACEMENTS: usize = 1_024;
+    /// Maximum number of generators per `RoomRecord`. Every generator also
+    /// materialises per-peer state (L-system material cache, lookup work
+    /// in hot loops) so a record with a million generator entries would
+    /// still inflate memory and slow every `compile_room_record` pass even
+    /// if no placement referenced them.
+    pub const MAX_GENERATORS: usize = 256;
 }
 
 impl RoomRecord {
@@ -1024,6 +1034,19 @@ impl RoomRecord {
     /// compiler, so an attacker cannot weaponise an unbounded field to crash
     /// or OOM the victim.
     pub fn sanitize(&mut self) {
+        // Bound the total number of generators before touching any of them.
+        // Drop entries in lexicographic key order so the survivor set is
+        // deterministic across peers — otherwise a record with 1000
+        // generators and `MAX_GENERATORS = 256` would resolve to a
+        // different 256 on every client (HashMap iteration is SipHash
+        // randomised) and fracture the shared world.
+        if self.generators.len() > limits::MAX_GENERATORS {
+            let mut keys: Vec<String> = self.generators.keys().cloned().collect();
+            keys.sort();
+            for key in keys.into_iter().skip(limits::MAX_GENERATORS) {
+                self.generators.remove(&key);
+            }
+        }
         for generator in self.generators.values_mut() {
             match generator {
                 Generator::Terrain(cfg) => sanitize_terrain_cfg(cfg),
@@ -1049,6 +1072,14 @@ impl RoomRecord {
                 }
                 Generator::Water { .. } | Generator::Unknown => {}
             }
+        }
+        // Drop excess placements so a 1M-entry array can't force
+        // `compile_room_record` to spawn tens of millions of entities in
+        // a single frame. Keeping a prefix is order-stable (serde
+        // round-trips `Vec` in order) so every peer truncates to the
+        // same survivor set.
+        if self.placements.len() > limits::MAX_PLACEMENTS {
+            self.placements.truncate(limits::MAX_PLACEMENTS);
         }
         for placement in self.placements.iter_mut() {
             if let Placement::Scatter { count, .. } = placement {

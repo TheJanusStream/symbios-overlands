@@ -455,10 +455,22 @@ fn spawn_from_generator(
             }
         }
         Generator::Water { level_offset } => {
+            // Size the water volume to the *active* heightmap extent so it
+            // continues to cover the map when the room owner scales
+            // `grid_size` / `cell_scale` outside the compile-time defaults.
+            // Without this, `buoyancy` and the visual water plane drift
+            // apart (see `apply_buoyancy_forces` — it bounds lift by the
+            // same heightmap extent) and a guest driving off the edge of
+            // a stale 1022 m² cube lands in a valley still floating.
+            let world_extent = ctx
+                .heightmap
+                .map(|hm| (hm.0.width() - 1) as f32 * hm.0.scale())
+                .unwrap_or_else(|| (tcfg::GRID_SIZE - 1) as f32 * tcfg::CELL_SCALE);
             let entity = spawn_water_volume(
                 ctx.commands,
                 level_offset.0,
                 transform,
+                world_extent,
                 ctx.meshes,
                 ctx.water_materials,
             );
@@ -477,16 +489,16 @@ fn spawn_from_generator(
 }
 
 /// Spawn the translucent water cuboid scaled to cover the whole terrain.
-/// World extent is recomputed from config constants so we don't need a
-/// `FinishedHeightMap` handle just to build the water.
+/// `world_extent` is the active heightmap's side length so the water plane
+/// matches whatever `grid_size × cell_scale` the room owner configured.
 fn spawn_water_volume(
     commands: &mut Commands,
     level_offset: f32,
     placement_tf: Transform,
+    world_extent: f32,
     meshes: &mut Assets<Mesh>,
     water_materials: &mut Assets<WaterMaterial>,
 ) -> Entity {
-    let world_extent = (tcfg::GRID_SIZE - 1) as f32 * tcfg::CELL_SCALE;
     let base_wl = tcfg::water::LEVEL_FACTOR * tcfg::HEIGHT_SCALE;
     let wl = (base_wl + level_offset).max(0.001);
 
@@ -587,6 +599,14 @@ fn spawn_lsystem_entity(
     // turtle interpreter. 2^20 symbols is well past the largest legitimate
     // L-system our shipping presets produce.
     const MAX_LSYSTEM_STATE_LEN: usize = 1 << 20;
+    // Force the hard cap into symbios's own back-buffer so the derivation
+    // engine returns `CapacityOverflow` before the single-step expansion
+    // can allocate past our budget. Without this, a rule like
+    // `A -> [16 KB of junk]` applied to a 1M-symbol state could try to
+    // allocate tens of billions of symbols inside a single `derive(1)`
+    // call — the post-derive length check fires too late to prevent the
+    // OOM that allocation triggers.
+    sys.max_capacity = MAX_LSYSTEM_STATE_LEN;
     for _ in 0..*iterations {
         if let Err(e) = sys.derive(1) {
             warn!("L-system `{}` derivation error: {}", generator_ref, e);
@@ -633,6 +653,21 @@ fn spawn_lsystem_entity(
             warn!(
                 "L-system `{}` finalization derivation error: {}",
                 generator_ref, e
+            );
+            return;
+        }
+        // Mirror the main-loop guard: the owner's finalization rules can
+        // carry their own 16 KB replacement strings, so a 1M-symbol
+        // carrier state × those rules must not be allowed to slip past
+        // the engine's back-buffer cap through the single finalization
+        // derive step. `sys.max_capacity` (set above) handles the
+        // allocation-side clamp; this guard keeps the interpreter off
+        // a runaway state if a future symbios release relaxes the
+        // internal `CapacityOverflow` contract.
+        if sys.state.len() > MAX_LSYSTEM_STATE_LEN {
+            warn!(
+                "L-system `{}` finalization exceeded {} symbols — aborting",
+                generator_ref, MAX_LSYSTEM_STATE_LEN
             );
             return;
         }

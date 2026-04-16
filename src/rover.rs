@@ -325,13 +325,21 @@ fn spawn_local_rover(
     params: Res<LocalAirshipParams>,
 ) {
     let hm = &hm_res.0;
-    let centre = (hm.width() - 1) as f32 * hm.scale() * 0.5;
+    let extent = (hm.width() - 1) as f32 * hm.scale();
+    let centre = extent * 0.5;
     // Heightmap is sampled in its own coordinate space where (centre, centre)
     // is the world origin; offsets from the 10×10 m scatter square are added
     // directly to both the sampling coordinates and the world position.
+    // Clamp to the heightmap's valid range before sampling: a room owner
+    // can legally configure `grid_size = 2, cell_scale = 0.1` (clamped
+    // minima), yielding `extent = 0.1` — our ±5 m spawn offsets would
+    // otherwise sample 50 cells off the edge and pin every new arrival
+    // to the same corner grid cell.
     let (ox, oz) = random_spawn_xz();
-    let ground_y = hm.get_height_at(centre + ox, centre + oz);
-    let surface_normal = hm.get_normal_at(centre + ox, centre + oz);
+    let hm_x = (centre + ox).clamp(0.0, extent);
+    let hm_z = (centre + oz).clamp(0.0, extent);
+    let ground_y = hm.get_height_at(hm_x, hm_z);
+    let surface_normal = hm.get_normal_at(hm_x, hm_z);
     let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
 
     let chassis = commands
@@ -512,25 +520,44 @@ fn apply_uprighting_force(
 fn apply_buoyancy_forces(
     pp: Res<LocalPhysicsParams>,
     room_record: Option<Res<crate::pds::RoomRecord>>,
+    hm_res: Option<Res<crate::terrain::FinishedHeightMap>>,
     mut query: Query<(Forces, &GlobalTransform), With<LocalPlayer>>,
 ) {
     let Ok((mut forces, global_tf)) = query.single_mut() else {
         return;
     };
+    // Bail if the player has driven off the edge of the active water
+    // volume. `spawn_water_volume` sizes the plane to the heightmap
+    // extent, so reusing the same extent here keeps Archimedean lift
+    // from acting on thin air in a valley past the shoreline.
+    if let Some(hm_res) = hm_res.as_deref() {
+        let hm = &hm_res.0;
+        let half = (hm.width() - 1) as f32 * hm.scale() * 0.5;
+        let p = global_tf.translation();
+        if p.x.abs() > half || p.z.abs() > half {
+            return;
+        }
+    }
     // Pick the Water generator with the lexicographically smallest key so
     // every peer computes the same buoyancy equilibrium — the raw
     // `HashMap::values()` iteration order is process-random (SipHash).
+    //
+    // Runs in `FixedUpdate` at 60 Hz, so collecting and sorting every
+    // generator key was a visible allocation hotspot on rooms with
+    // hundreds of generators. Scan for the smallest Water key in a
+    // single O(n) pass without heap traffic.
     let water_offset: f32 = room_record
         .as_ref()
         .and_then(|r| {
-            let mut keys: Vec<&String> = r.generators.keys().collect();
-            keys.sort();
-            for k in keys {
-                if let Some(crate::pds::Generator::Water { level_offset }) = r.generators.get(k) {
-                    return Some(level_offset.0);
+            let mut best: Option<(&String, f32)> = None;
+            for (k, g) in r.generators.iter() {
+                if let crate::pds::Generator::Water { level_offset } = g
+                    && best.is_none_or(|(bk, _)| k < bk)
+                {
+                    best = Some((k, level_offset.0));
                 }
             }
-            None
+            best.map(|(_, off)| off)
         })
         .unwrap_or(0.0);
     let wl = water_level_y() + water_offset + pp.water_rest_length;
@@ -622,8 +649,13 @@ fn respawn_if_fallen(
     }
     let centre = extent * 0.5;
     let (ox, oz) = random_spawn_xz();
-    let ground_y = hm.get_height_at(centre + ox, centre + oz);
-    let surface_normal = hm.get_normal_at(centre + ox, centre + oz);
+    // Same clamp as `spawn_local_rover`: a tiny heightmap (legal with
+    // `grid_size = 2, cell_scale = 0.1`) would otherwise push the
+    // sample coordinates outside the valid `[0, extent]` range.
+    let hm_x = (centre + ox).clamp(0.0, extent);
+    let hm_z = (centre + oz).clamp(0.0, extent);
+    let ground_y = hm.get_height_at(hm_x, hm_z);
+    let surface_normal = hm.get_normal_at(hm_x, hm_z);
     let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
     pos.0 = Vec3::new(ox, ground_y + cfg::SPAWN_HEIGHT_OFFSET, oz);
     rot.0 = tilt;
