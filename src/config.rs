@@ -324,6 +324,7 @@ pub mod http {
     /// small thread budget a handful of such tasks can starve every
     /// subsequent HTTP request (avatar fetches, social resonance queries,
     /// room record reloads).
+    #[cfg(not(target_arch = "wasm32"))]
     pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
     /// Whole-request wall-clock limit, including connection, TLS,
     /// request body, and response body. Any request that exceeds this
@@ -334,12 +335,15 @@ pub mod http {
     /// client on builder failure — reqwest's default has no timeouts, so
     /// this is a conservative hardening rather than a correctness gate.
     pub fn default_client() -> reqwest::Client {
-        reqwest::Client::builder()
+        let builder = reqwest::Client::builder()
             .user_agent(super::avatar::USER_AGENT)
-            .connect_timeout(CONNECT_TIMEOUT)
-            .timeout(REQUEST_TIMEOUT)
-            .build()
-            .unwrap_or_default()
+            .timeout(REQUEST_TIMEOUT);
+        // `connect_timeout` is only available on the native reqwest client;
+        // the WASM backend routes through the browser's fetch API, which
+        // exposes no separate connect phase to bound.
+        #[cfg(not(target_arch = "wasm32"))]
+        let builder = builder.connect_timeout(CONNECT_TIMEOUT);
+        builder.build().unwrap_or_default()
     }
 }
 

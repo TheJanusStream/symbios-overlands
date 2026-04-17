@@ -238,9 +238,7 @@ fn handle_incoming_messages(
                         // broadphase. Reject any component whose magnitude
                         // exceeds the play-space bound so arithmetic stays
                         // well clear of the f32 overflow threshold.
-                        if pos_vec.abs().max_element()
-                            > config::network::MAX_REMOTE_COORD_ABS
-                        {
+                        if pos_vec.abs().max_element() > config::network::MAX_REMOTE_COORD_ABS {
                             continue;
                         }
                         let raw_rot = Quat::from_array(rotation);
