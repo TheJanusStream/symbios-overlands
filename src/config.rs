@@ -272,6 +272,14 @@ pub mod network {
     pub const KINEMATIC_RENDER_DELAY_SECS: f64 = 0.1;
     /// Maximum number of transform samples retained in each peer's buffer.
     pub const KINEMATIC_BUFFER_CAPACITY: usize = 32;
+    /// Maximum absolute value of any coordinate component accepted from a
+    /// remote Transform packet. `f32::MAX` is finite (so passes an
+    /// `is_finite()` guard) but `f32::MAX - (-f32::MAX)` overflows to
+    /// `+Inf` inside the Hermite tangent computation, which then poisons
+    /// the avian3d broadphase via the local rigid body's neighbour list.
+    /// 1e6 m is ~3 orders of magnitude beyond plausible play space and
+    /// leaves ~32 orders of headroom before f32 arithmetic overflows.
+    pub const MAX_REMOTE_COORD_ABS: f32 = 1.0e6;
     /// Emissive intensity applied to the mast tip of a mutual-follow peer.
     pub const MUTUAL_MAST_EMISSIVE: f32 = 5.0;
 
@@ -303,6 +311,36 @@ pub mod state {
 pub mod avatar {
     /// User-Agent header sent to the ATProto API.
     pub const USER_AGENT: &str = "SymbiosOverlands/1.0";
+}
+
+// ---------------------------------------------------------------------------
+// HTTP client defaults (main.rs, avatar.rs, social.rs, ui/{login,room}.rs)
+// ---------------------------------------------------------------------------
+pub mod http {
+    use std::time::Duration;
+    /// Maximum time to wait for a TCP + TLS handshake. A tarpit peer that
+    /// accepts the connection but never negotiates would otherwise hold
+    /// the spawned task open forever, and on an `IoTaskPool` with a
+    /// small thread budget a handful of such tasks can starve every
+    /// subsequent HTTP request (avatar fetches, social resonance queries,
+    /// room record reloads).
+    pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+    /// Whole-request wall-clock limit, including connection, TLS,
+    /// request body, and response body. Any request that exceeds this
+    /// returns an error the caller can log and recover from.
+    pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+    /// Attempt to build a reqwest `Client` with connect + total-request
+    /// timeouts and the project's User-Agent. Falls back to the default
+    /// client on builder failure — reqwest's default has no timeouts, so
+    /// this is a conservative hardening rather than a correctness gate.
+    pub fn default_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent(super::avatar::USER_AGENT)
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(REQUEST_TIMEOUT)
+            .build()
+            .unwrap_or_default()
+    }
 }
 
 // ---------------------------------------------------------------------------

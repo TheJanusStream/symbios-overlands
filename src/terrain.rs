@@ -93,6 +93,18 @@ struct SplatMaterialHandle(Handle<SplatTerrainMaterial>);
 #[derive(Resource, Default)]
 struct LastTerrainConfigJson(Option<String>);
 
+/// Latest observed record fingerprint that has not yet been acted on.
+///
+/// `Res::is_changed()` ticks are per-system and consumed the moment this
+/// system runs — so a change observed while a previous terrain task was
+/// still in flight used to vanish: we'd return early, the tick would
+/// clear, and subsequent frames would never re-fire because the record
+/// didn't mutate again. Stashing the fingerprint here lets us survive
+/// any number of in-flight frames and apply the edit as soon as the
+/// async generator finishes.
+#[derive(Resource, Default)]
+struct PendingTerrainConfigJson(Option<String>);
+
 pub struct TerrainPlugin;
 
 impl Plugin for TerrainPlugin {
@@ -101,6 +113,7 @@ impl Plugin for TerrainPlugin {
             .add_plugins(MaterialPlugin::<SplatTerrainMaterial>::default())
             .init_resource::<TerrainSplatState>()
             .init_resource::<LastTerrainConfigJson>()
+            .init_resource::<PendingTerrainConfigJson>()
             // Terrain + texture + mesh spawning runs as conditional Update
             // systems in both Loading and InGame so the same plumbing handles
             // the initial world build *and* in-place regeneration when the
@@ -143,6 +156,7 @@ impl Plugin for TerrainPlugin {
 /// Despawn terrain + water entities and reset terrain-specific resources so
 /// the next login cycle restarts heightmap generation and splat texture
 /// uploads from scratch.
+#[allow(clippy::too_many_arguments)]
 fn cleanup_terrain(
     mut commands: Commands,
     terrain: Query<Entity, With<TerrainMesh>>,
@@ -151,6 +165,7 @@ fn cleanup_terrain(
     pending_raw: Query<Entity, With<PendingTexture>>,
     mut splat_state: ResMut<TerrainSplatState>,
     mut last_cfg: ResMut<LastTerrainConfigJson>,
+    mut pending_cfg: ResMut<PendingTerrainConfigJson>,
 ) {
     for e in &terrain {
         commands.entity(e).despawn();
@@ -170,6 +185,7 @@ fn cleanup_terrain(
     }
     *splat_state = TerrainSplatState::default();
     last_cfg.0 = None;
+    pending_cfg.0 = None;
     commands.remove_resource::<FinishedHeightMap>();
     commands.remove_resource::<SplatMaterialHandle>();
     commands.remove_resource::<TextureTasksStarted>();
@@ -189,31 +205,36 @@ fn maybe_regenerate_terrain(
     mut commands: Commands,
     record: Res<RoomRecord>,
     mut last_cfg: ResMut<LastTerrainConfigJson>,
+    mut pending_cfg: ResMut<PendingTerrainConfigJson>,
     terrain_q: Query<Entity, With<TerrainMesh>>,
     pending_textures: Query<Entity, With<TextureLayerIndex>>,
     mut splat_state: ResMut<TerrainSplatState>,
     terrain_task: Option<Res<TerrainTask>>,
 ) {
-    // Refuse to tear down in-flight generation — the previous async task's
-    // output would still land in `FinishedHeightMap` and the new pipeline
-    // couldn't start. Retain the pending record change for a later frame;
-    // this system runs every frame, not just on `is_changed`, so once the
-    // task completes the regeneration kicks in.
+    // Capture the fingerprint of any observed change *before* we decide
+    // whether to act on it. `Res::is_changed` is a per-system tick that
+    // fires exactly once; if we let a frame with an in-flight terrain
+    // task consume the tick via an early return, the edit is silently
+    // lost — `record.is_changed()` won't re-fire unless the owner edits
+    // again. Serde-serialising the full `SovereignTerrainConfig` is
+    // non-trivial (deeply nested record), so we still gate it on
+    // `is_changed` rather than rebuilding every frame.
+    if record.is_changed()
+        && let Some(cfg) = crate::pds::find_terrain_config(&record)
+        && let Ok(fp) = serde_json::to_string(cfg)
+    {
+        pending_cfg.0 = Some(fp);
+    }
+
+    // Refuse to tear down in-flight generation — the previous async
+    // task's output would still land in `FinishedHeightMap` and the new
+    // pipeline couldn't start. The pending fingerprint stays queued and
+    // will be applied on a later frame once the task completes.
     if terrain_task.is_some() {
         return;
     }
-    // Serde-serialising the full `SovereignTerrainConfig` on every render
-    // frame just to compare strings was dragging a measurable chunk of
-    // frame time (record is large and deeply nested). Bevy already
-    // tracks resource mutation via `record.is_changed()` — only build
-    // the fingerprint when the record actually changed.
-    if !record.is_changed() {
-        return;
-    }
-    let Some(cfg) = crate::pds::find_terrain_config(&record) else {
-        return;
-    };
-    let Ok(fp) = serde_json::to_string(cfg) else {
+
+    let Some(fp) = pending_cfg.0.take() else {
         return;
     };
     let should_regen = match &last_cfg.0 {

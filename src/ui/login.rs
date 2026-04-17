@@ -135,7 +135,7 @@ pub fn login_ui(
                     let pool = bevy::tasks::IoTaskPool::get();
                     let task = pool.spawn(async move {
                         let do_auth = async {
-                            let client = reqwest::Client::new();
+                            let client = crate::config::http::default_client();
                             let session = create_session(&client, &creds)
                                 .await
                                 .map_err(|e| format_auth_error("create_session", e))?;

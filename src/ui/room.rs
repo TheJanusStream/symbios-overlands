@@ -1479,7 +1479,7 @@ fn spawn_publish_task(commands: &mut Commands, session: &AtprotoSession, record:
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
-            let client = reqwest::Client::new();
+            let client = crate::config::http::default_client();
             pds::publish_room_record(&client, &session_clone, &record).await
         };
         #[cfg(target_arch = "wasm32")]
@@ -1507,7 +1507,7 @@ fn spawn_reset_task(commands: &mut Commands, session: &AtprotoSession, record: R
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
-            let client = reqwest::Client::new();
+            let client = crate::config::http::default_client();
             pds::reset_room_record(&client, &session_clone, &record).await
         };
         #[cfg(target_arch = "wasm32")]

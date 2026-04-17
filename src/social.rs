@@ -167,13 +167,7 @@ struct RelationshipEntry {
 }
 
 async fn query_resonance(local_did: String, remote_did: String) -> SocialResonance {
-    let client = match reqwest::Client::builder()
-        .user_agent(crate::config::avatar::USER_AGENT)
-        .build()
-    {
-        Ok(c) => c,
-        Err(_) => return SocialResonance::None,
-    };
+    let client = crate::config::http::default_client();
 
     let url = format!(
         "https://public.api.bsky.app/xrpc/app.bsky.graph.getRelationships?actor={}&others={}",

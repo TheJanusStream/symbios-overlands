@@ -13,7 +13,7 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde::Deserialize;
 
 use crate::rover::RoverSail;
-use crate::state::{AppState, LocalPlayer};
+use crate::state::{AppState, LocalPlayer, RemotePeer};
 
 pub struct AvatarPlugin;
 
@@ -36,8 +36,19 @@ pub struct AvatarFetchPending {
     pub did: String,
 }
 
+/// Result of an ATProto profile fetch: the image blob (if any) and the
+/// authoritative handle published alongside the DID's profile record.
+/// Peer-supplied handles on the wire are untrusted — only the handle
+/// returned by `app.bsky.actor.getProfile` for the authenticated DID is
+/// authoritative.
+#[derive(Default)]
+pub struct AvatarFetchResult {
+    pub bytes: Option<Vec<u8>>,
+    pub handle: Option<String>,
+}
+
 #[derive(Component)]
-pub struct AvatarFetchTask(pub bevy::tasks::Task<Option<Vec<u8>>>);
+pub struct AvatarFetchTask(pub bevy::tasks::Task<AvatarFetchResult>);
 
 /// Stores the last successfully applied avatar material on a chassis entity.
 /// Used to re-apply the material to a new sail child after an airship rebuild
@@ -87,9 +98,11 @@ fn spawn_avatar_task(commands: &mut Commands, entity: Entity, did: String) {
     commands.entity(entity).insert(AvatarFetchTask(task));
 }
 
+#[allow(clippy::too_many_arguments)]
 fn poll_avatar_tasks(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut AvatarFetchTask)>,
+    mut peers: Query<&mut RemotePeer>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     sails: Query<&Children>,
@@ -104,7 +117,19 @@ fn poll_avatar_tasks(
 
         commands.entity(entity).remove::<AvatarFetchTask>();
 
-        let Some(bytes) = result else { continue };
+        // Promote the profile-verified handle to the authoritative one on
+        // the peer entity. The handle field on `OverlandsMessage::Identity`
+        // is peer-supplied and cannot be trusted — a malicious peer could
+        // claim any string they like to impersonate another user in the
+        // chat HUD or disconnect log. Only a handle resolved from the
+        // authenticated DID's profile record is safe to display.
+        if let Some(handle) = result.handle.clone()
+            && let Ok(mut peer) = peers.get_mut(entity)
+        {
+            peer.handle = Some(handle);
+        }
+
+        let Some(bytes) = result.bytes else { continue };
 
         let Ok(dyn_img) = image::load_from_memory(&bytes) else {
             bevy::log::warn!("Failed to decode avatar image");
@@ -158,29 +183,35 @@ fn poll_avatar_tasks(
 #[derive(Deserialize)]
 struct BskyProfile {
     avatar: Option<String>,
+    handle: Option<String>,
 }
 
-async fn fetch_avatar_bytes(did: String) -> Option<Vec<u8>> {
-    let client = reqwest::Client::builder()
-        .user_agent(crate::config::avatar::USER_AGENT)
-        .build()
-        .ok()?;
+async fn fetch_avatar_bytes(did: String) -> AvatarFetchResult {
+    let mut out = AvatarFetchResult::default();
+    let client = crate::config::http::default_client();
 
     let url = format!(
         "https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor={}",
         did
     );
 
-    let resp = client.get(&url).send().await.ok()?;
+    let Ok(resp) = client.get(&url).send().await else {
+        return out;
+    };
     if !resp.status().is_success() {
         bevy::log::warn!("Failed to fetch profile for {}: {}", did, resp.status());
-        return None;
+        return out;
     }
 
-    let profile = resp.json::<BskyProfile>().await.ok()?;
-    let avatar_url = profile.avatar?;
+    let Ok(profile) = resp.json::<BskyProfile>().await else {
+        return out;
+    };
+    out.handle = profile.handle;
 
-    fetch_image_bytes(&client, &did, &avatar_url).await
+    if let Some(avatar_url) = profile.avatar {
+        out.bytes = fetch_image_bytes(&client, &did, &avatar_url).await;
+    }
+    out
 }
 
 #[cfg(not(target_arch = "wasm32"))]

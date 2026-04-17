@@ -185,20 +185,45 @@ fn loading_ui(mut contexts: bevy_egui::EguiContexts) {
 /// default, and a "Publish to PDS" click would overwrite their real
 /// room with the default.
 #[derive(Component)]
-struct RoomRecordTask(bevy::tasks::Task<Result<Option<RoomRecord>, pds::FetchError>>);
+struct RoomRecordTask {
+    task: bevy::tasks::Task<Result<Option<RoomRecord>, pds::FetchError>>,
+    /// Zero for the initial fetch; incremented on each transient-failure
+    /// respawn so `spawn_room_record_fetch` can pick a backoff delay.
+    attempt: u32,
+}
 
-/// Kick off the async ATProto `getRecord` fetch for the room the client is
-/// visiting. Runs exactly once on entry to `AppState::Loading`; the result is
-/// picked up by `poll_room_record_task` on subsequent frames.
-fn start_room_record_fetch(mut commands: Commands, room_did: Res<CurrentRoomDid>) {
-    let did = room_did.0.clone();
+/// Exponential backoff for transient `fetch_room_record` failures. Without
+/// a delay, a DNS error or immediate `ConnRefused` returns so fast that
+/// the retry runs in the same or next frame, producing a busy loop that
+/// burns a full CPU core and floods the log with warnings. Doubling from
+/// 1 s up to a 60 s ceiling yields ~a minute-of-retries over six
+/// attempts while still converging quickly when the PDS recovers.
+fn room_record_backoff_secs(attempt: u32) -> u64 {
+    if attempt == 0 {
+        0
+    } else {
+        (1u64 << attempt.min(6)).min(60)
+    }
+}
+
+fn spawn_room_record_fetch(commands: &mut Commands, did: String, attempt: u32) {
+    let delay_secs = room_record_backoff_secs(attempt);
     // `IoTaskPool` is the correct home for blocking HTTP calls — the
     // `AsyncComputeTaskPool` is sized to the CPU-core count and must not be
     // starved by threads blocked on network sockets.
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
-            let client = reqwest::Client::new();
+            // `tokio::time::sleep` lives inside the `.block_on(...)`
+            // runtime below — wasm uses an unrelated executor and would
+            // panic on a `tokio::time` call, so the delay is simply
+            // skipped there (browser event loop throttles a busy retry
+            // enough in practice).
+            if delay_secs > 0 {
+                #[cfg(not(target_arch = "wasm32"))]
+                tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
+            }
+            let client = config::http::default_client();
             pds::fetch_room_record(&client, &did).await
         };
         #[cfg(target_arch = "wasm32")]
@@ -214,7 +239,14 @@ fn start_room_record_fetch(mut commands: Commands, room_did: Res<CurrentRoomDid>
                 .block_on(fut)
         }
     });
-    commands.spawn(RoomRecordTask(task));
+    commands.spawn(RoomRecordTask { task, attempt });
+}
+
+/// Kick off the async ATProto `getRecord` fetch for the room the client is
+/// visiting. Runs exactly once on entry to `AppState::Loading`; the result is
+/// picked up by `poll_room_record_task` on subsequent frames.
+fn start_room_record_fetch(mut commands: Commands, room_did: Res<CurrentRoomDid>) {
+    spawn_room_record_fetch(&mut commands, room_did.0.clone(), 0);
 }
 
 /// Drain a finished `RoomRecordTask`, install the resulting `RoomRecord` as a
@@ -235,10 +267,11 @@ fn poll_room_record_task(
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
-            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.0))
+            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.task))
         else {
             continue;
         };
+        let prev_attempt = task.attempt;
 
         commands.entity(entity).despawn();
 
@@ -274,37 +307,28 @@ fn poll_room_record_task(
             }
             Err(err) => {
                 // Transient failure (DNS timeout, 5xx, DID resolution hiccup):
-                // do NOT substitute the default. Log it, re-queue the fetch,
-                // and keep the Loading state active so the owner cannot
-                // accidentally overwrite their room with a blank default on a
-                // network blip.
+                // do NOT substitute the default. Log it, re-queue the fetch
+                // with an exponential backoff, and keep the Loading state
+                // active so the owner cannot accidentally overwrite their
+                // room with a blank default on a network blip. Without the
+                // backoff, an instantly-failing error (e.g. ConnRefused)
+                // would return so fast that the retry fires in the same
+                // frame, busy-looping on the IoTaskPool and flooding the
+                // diagnostics log.
+                let next_attempt = prev_attempt.saturating_add(1);
+                let backoff = room_record_backoff_secs(next_attempt);
                 let elapsed = time.elapsed_secs_f64();
                 diagnostics.push(
                     elapsed,
-                    format!("Room record fetch failed ({err:?}) — retrying"),
+                    format!(
+                        "Room record fetch failed ({err:?}) — retrying in {backoff}s (attempt {next_attempt})"
+                    ),
                 );
-                warn!("Room record fetch failed: {:?} — retrying", err);
-                let did = room_did.0.clone();
-                let pool = bevy::tasks::IoTaskPool::get();
-                let retry = pool.spawn(async move {
-                    let fut = async {
-                        let client = reqwest::Client::new();
-                        pds::fetch_room_record(&client, &did).await
-                    };
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        fut.await
-                    }
-                    #[cfg(not(target_arch = "wasm32"))]
-                    {
-                        tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .build()
-                            .unwrap()
-                            .block_on(fut)
-                    }
-                });
-                commands.spawn(RoomRecordTask(retry));
+                warn!(
+                    "Room record fetch failed: {:?} — retrying in {}s (attempt {})",
+                    err, backoff, next_attempt
+                );
+                spawn_room_record_fetch(&mut commands, room_did.0.clone(), next_attempt);
                 continue;
             }
         };

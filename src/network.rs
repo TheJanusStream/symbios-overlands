@@ -231,6 +231,18 @@ fn handle_incoming_messages(
                         if !pos_vec.is_finite() {
                             continue;
                         }
+                        // `is_finite` accepts `f32::MAX`, but subtracting two
+                        // such values inside the Hermite tangent computation
+                        // below overflows to `+Inf`, producing NaN/Inf in
+                        // `Transform.translation` and poisoning the avian3d
+                        // broadphase. Reject any component whose magnitude
+                        // exceeds the play-space bound so arithmetic stays
+                        // well clear of the f32 overflow threshold.
+                        if pos_vec.abs().max_element()
+                            > config::network::MAX_REMOTE_COORD_ABS
+                        {
+                            continue;
+                        }
                         let raw_rot = Quat::from_array(rotation);
                         let rot = if raw_rot.is_finite() && raw_rot.length_squared() > 1e-6 {
                             raw_rot.normalize()
@@ -298,13 +310,28 @@ fn handle_incoming_messages(
                     let did_changed = peer.did.as_deref() != Some(did.as_str());
                     let airship_changed = peer.airship.as_ref() != Some(&airship);
 
-                    peer.handle = Some(handle.clone());
+                    // The `handle` field on the wire is peer-supplied and
+                    // therefore untrusted — a malicious peer could claim any
+                    // handle string to impersonate another actor in the chat
+                    // HUD and disconnect log. The authoritative handle is
+                    // resolved asynchronously by the avatar/profile fetch
+                    // pipeline (kicked below via `AvatarFetchPending`), which
+                    // hits `app.bsky.actor.getProfile` against the DID the
+                    // relay already authenticated. Do NOT write `peer.handle`
+                    // from this message.
 
                     if did_changed {
-                        info!("Peer {} identified as @{} ({})", msg.sender, handle, did);
+                        info!(
+                            "Peer {} identified as did={} (claimed handle @{} — unverified, will resolve via getProfile)",
+                            msg.sender, did, handle
+                        );
                         commands
                             .entity(entity)
                             .insert(AvatarFetchPending { did: did.clone() });
+                        // Clear any stale handle from a prior identity so the
+                        // HUD reverts to the DID until the profile fetch
+                        // returns a verified value.
+                        peer.handle = None;
                         peer.did = Some(did.clone());
                     }
 
