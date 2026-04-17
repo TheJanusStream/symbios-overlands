@@ -335,14 +335,15 @@ pub mod http {
     /// client on builder failure — reqwest's default has no timeouts, so
     /// this is a conservative hardening rather than a correctness gate.
     pub fn default_client() -> reqwest::Client {
-        let builder = reqwest::Client::builder()
-            .user_agent(super::avatar::USER_AGENT)
-            .timeout(REQUEST_TIMEOUT);
-        // `connect_timeout` is only available on the native reqwest client;
-        // the WASM backend routes through the browser's fetch API, which
-        // exposes no separate connect phase to bound.
+        let builder = reqwest::Client::builder().user_agent(super::avatar::USER_AGENT);
+        // Neither `timeout` nor `connect_timeout` are available on the WASM
+        // reqwest client: it routes through the browser's fetch API, which
+        // exposes no timeout controls on the builder. Per-request timeouts
+        // must be enforced by the caller on wasm32.
         #[cfg(not(target_arch = "wasm32"))]
-        let builder = builder.connect_timeout(CONNECT_TIMEOUT);
+        let builder = builder
+            .timeout(REQUEST_TIMEOUT)
+            .connect_timeout(CONNECT_TIMEOUT);
         builder.build().unwrap_or_default()
     }
 }
