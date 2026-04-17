@@ -236,6 +236,36 @@ fn room_record_backoff_secs(attempt: u32) -> u64 {
     }
 }
 
+/// Hard cap on record-fetch retries. The backoff saturates at 60 s after
+/// six attempts, so twelve attempts buys roughly ten minutes of real-time
+/// retrying against a flaky PDS — past that, persistent failure is
+/// overwhelmingly more likely than a transient hiccup. Without this cap,
+/// a misbehaving endpoint would spin the IoTaskPool indefinitely; on
+/// `wasm32` it would also pile up an unbounded sequence of setTimeout
+/// futures waiting in the browser event loop.
+const MAX_RECORD_FETCH_ATTEMPTS: u32 = 12;
+
+/// Pause the fetch future for `delay_secs` before retrying, using the
+/// correct timer primitive for each target. On native we block the
+/// single-threaded tokio runtime the task drives; on `wasm32` we rely on
+/// `gloo-timers`, which schedules a JS `setTimeout` and resolves a future
+/// that yields control back to the browser event loop — without this,
+/// the retry queued by `poll_*_record_task` would re-enter the fetch at
+/// the application framerate and hammer the PDS at 60–144 rps.
+async fn record_fetch_delay(delay_secs: u64) {
+    if delay_secs == 0 {
+        return;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        gloo_timers::future::TimeoutFuture::new((delay_secs as u32).saturating_mul(1000)).await;
+    }
+}
+
 fn spawn_room_record_fetch(commands: &mut Commands, did: String, attempt: u32) {
     let delay_secs = room_record_backoff_secs(attempt);
     // `IoTaskPool` is the correct home for blocking HTTP calls — the
@@ -244,15 +274,7 @@ fn spawn_room_record_fetch(commands: &mut Commands, did: String, attempt: u32) {
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
-            // `tokio::time::sleep` lives inside the `.block_on(...)`
-            // runtime below — wasm uses an unrelated executor and would
-            // panic on a `tokio::time` call, so the delay is simply
-            // skipped there (browser event loop throttles a busy retry
-            // enough in practice).
-            if delay_secs > 0 {
-                #[cfg(not(target_arch = "wasm32"))]
-                tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
-            }
+            record_fetch_delay(delay_secs).await;
             let client = config::http::default_client();
             pds::fetch_room_record(&client, &did).await
         };
@@ -346,20 +368,40 @@ fn poll_room_record_task(
                 // frame, busy-looping on the IoTaskPool and flooding the
                 // diagnostics log.
                 let next_attempt = prev_attempt.saturating_add(1);
-                let backoff = room_record_backoff_secs(next_attempt);
                 let elapsed = time.elapsed_secs_f64();
-                diagnostics.push(
-                    elapsed,
-                    format!(
-                        "Room record fetch failed ({err:?}) — retrying in {backoff}s (attempt {next_attempt})"
-                    ),
-                );
-                warn!(
-                    "Room record fetch failed: {:?} — retrying in {}s (attempt {})",
-                    err, backoff, next_attempt
-                );
-                spawn_room_record_fetch(&mut commands, room_did.0.clone(), next_attempt);
-                continue;
+                if next_attempt > MAX_RECORD_FETCH_ATTEMPTS {
+                    // Persistent failure: stop hammering the endpoint and
+                    // surface a recovery banner so the owner can reset to
+                    // the default without risking a silent clobber.
+                    diagnostics.push(
+                        elapsed,
+                        format!(
+                            "Room record fetch failed ({err:?}) — giving up after {MAX_RECORD_FETCH_ATTEMPTS} attempts"
+                        ),
+                    );
+                    warn!(
+                        "Room record fetch exhausted {} attempts: {:?} — entering recovery mode",
+                        MAX_RECORD_FETCH_ATTEMPTS, err
+                    );
+                    commands.insert_resource(RoomRecordRecovery {
+                        reason: format!("PDS unreachable: {err:?}"),
+                    });
+                    pds::RoomRecord::default_for_did(&room_did.0)
+                } else {
+                    let backoff = room_record_backoff_secs(next_attempt);
+                    diagnostics.push(
+                        elapsed,
+                        format!(
+                            "Room record fetch failed ({err:?}) — retrying in {backoff}s (attempt {next_attempt})"
+                        ),
+                    );
+                    warn!(
+                        "Room record fetch failed: {:?} — retrying in {}s (attempt {})",
+                        err, backoff, next_attempt
+                    );
+                    spawn_room_record_fetch(&mut commands, room_did.0.clone(), next_attempt);
+                    continue;
+                }
             }
         };
         record.sanitize();
@@ -399,10 +441,7 @@ fn spawn_avatar_record_fetch(commands: &mut Commands, did: String, attempt: u32)
     let did_for_fetch = did.clone();
     let task = pool.spawn(async move {
         let fut = async {
-            if delay_secs > 0 {
-                #[cfg(not(target_arch = "wasm32"))]
-                tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
-            }
+            record_fetch_delay(delay_secs).await;
             let client = config::http::default_client();
             pds::fetch_avatar_record(&client, &did_for_fetch).await
         };
@@ -467,22 +506,39 @@ fn poll_avatar_record_task(
                 // Transient failure — retry with backoff rather than
                 // installing the default. Installing the default on a
                 // network error would let a subsequent "Publish" click
-                // silently clobber the user's real avatar.
+                // silently clobber the user's real avatar. After
+                // `MAX_RECORD_FETCH_ATTEMPTS` we stop retrying so a dead
+                // PDS can't drive a permanent busy-loop against the user's
+                // CPU or the remote endpoint.
                 let next_attempt = prev_attempt.saturating_add(1);
-                let backoff = room_record_backoff_secs(next_attempt);
                 let elapsed = time.elapsed_secs_f64();
-                diagnostics.push(
-                    elapsed,
-                    format!(
-                        "Avatar record fetch failed ({err:?}) — retrying in {backoff}s (attempt {next_attempt})"
-                    ),
-                );
-                warn!(
-                    "Avatar record fetch failed: {:?} — retrying in {}s (attempt {})",
-                    err, backoff, next_attempt
-                );
-                spawn_avatar_record_fetch(&mut commands, did, next_attempt);
-                continue;
+                if next_attempt > MAX_RECORD_FETCH_ATTEMPTS {
+                    diagnostics.push(
+                        elapsed,
+                        format!(
+                            "Avatar record fetch failed ({err:?}) — giving up after {MAX_RECORD_FETCH_ATTEMPTS} attempts, using default"
+                        ),
+                    );
+                    warn!(
+                        "Avatar record fetch exhausted {} attempts: {:?} — falling back to default",
+                        MAX_RECORD_FETCH_ATTEMPTS, err
+                    );
+                    AvatarRecord::default_for_did(&did)
+                } else {
+                    let backoff = room_record_backoff_secs(next_attempt);
+                    diagnostics.push(
+                        elapsed,
+                        format!(
+                            "Avatar record fetch failed ({err:?}) — retrying in {backoff}s (attempt {next_attempt})"
+                        ),
+                    );
+                    warn!(
+                        "Avatar record fetch failed: {:?} — retrying in {}s (attempt {})",
+                        err, backoff, next_attempt
+                    );
+                    spawn_avatar_record_fetch(&mut commands, did, next_attempt);
+                    continue;
+                }
             }
         };
         record.sanitize();

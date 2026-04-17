@@ -24,6 +24,15 @@ use crate::config::terrain as tcfg;
 use crate::pds::{AvatarBody, AvatarRecord, HumanoidPhenotype};
 use crate::protocol::{AirshipParams, PontoonShape};
 use crate::state::{AppState, LiveAvatarRecord, LocalPlayer, RemotePeer};
+
+/// Snapshot of the last `AvatarRecord` whose visuals have been painted onto
+/// a remote peer. `detect_remote_archetype_change` listens to the broad
+/// `Changed<RemotePeer>` signal (which also fires on mute/handle/DID edits)
+/// and compares against this snapshot so an unrelated field flip doesn't
+/// re-enter the expensive visual rebuild path. The cheaper
+/// `sync_mute_visibility` handles the mute toggle on its own.
+#[derive(Component)]
+struct AppliedAvatar(AvatarRecord);
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
@@ -348,12 +357,17 @@ fn rebuild_local_visuals(
 // Hot-swap — remote peers
 // ---------------------------------------------------------------------------
 
-/// Watch every `RemotePeer` for either a freshly-fetched `avatar` or a
-/// variant change in the already-applied record. On either trigger, strip
-/// the current archetype's components + children and install the new ones.
-/// Cheaper than gating on a dedicated marker because `Changed<RemotePeer>`
-/// already tracks slider tweaks, fetch completions, and variant swaps in
-/// the same signal.
+/// Rebuild a remote peer's visual children whenever their avatar record
+/// actually changes (initial fetch, live-preview broadcast, or archetype
+/// swap). Remote peers are pure kinematic visual transforms — they never
+/// carry a `RigidBody`, so installing a `Collider` / `Mass` / `LockedAxes`
+/// here would register them as Static, and every per-frame `Transform`
+/// update from `smooth_remote_transforms` would thrash the broadphase
+/// spatial trees. We therefore only rebuild visuals and leave physics
+/// alone. The `AppliedAvatar` snapshot gates this path so that muting or
+/// relabelling a peer (both of which also trigger `Changed<RemotePeer>`)
+/// doesn't redundantly despawn and rebuild every mesh — that expensive
+/// path is reserved for genuine avatar-record changes.
 #[allow(clippy::type_complexity)]
 fn detect_remote_archetype_change(
     mut commands: Commands,
@@ -361,6 +375,7 @@ fn detect_remote_archetype_change(
         (
             Entity,
             &RemotePeer,
+            Option<&AppliedAvatar>,
             Option<&Children>,
             Option<&AvatarMaterial>,
         ),
@@ -369,12 +384,13 @@ fn detect_remote_archetype_change(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for (entity, peer, children, avatar_mat) in peers.iter() {
+    for (entity, peer, applied, children, avatar_mat) in peers.iter() {
         let Some(record) = peer.avatar.as_ref() else {
             continue;
         };
-        strip_archetype_components(&mut commands, entity);
-        build_archetype_components(&mut commands, entity, record);
+        if applied.is_some_and(|a| &a.0 == record) {
+            continue;
+        }
         build_archetype_visuals(
             &mut commands,
             entity,
@@ -384,6 +400,7 @@ fn detect_remote_archetype_change(
             &mut meshes,
             &mut materials,
         );
+        commands.entity(entity).insert(AppliedAvatar(record.clone()));
     }
 }
 

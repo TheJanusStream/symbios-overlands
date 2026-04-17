@@ -37,7 +37,7 @@ pub fn avatar_ui(
     stored: Option<Res<StoredAvatarRecord>>,
     mut settings: ResMut<LocalSettings>,
     session: Option<Res<AtprotoSession>>,
-    feedback: Res<PublishFeedback>,
+    mut feedback: ResMut<PublishFeedback>,
 ) {
     use crate::config::ui::airship as cfg;
 
@@ -138,6 +138,11 @@ pub fn avatar_ui(
                 if ui.add_enabled(publish_enabled, publish_button).clicked()
                     && let Some(session) = session.as_ref()
                 {
+                    // Flip to `Publishing` the same frame the click fires so
+                    // the user gets immediate visual confirmation; without
+                    // this, the panel stays on `Idle` for the full PDS
+                    // round-trip and the click looks like it was dropped.
+                    *feedback = PublishFeedback::Publishing;
                     spawn_publish_avatar_task(&mut commands, session, live.0.clone());
                 }
 
