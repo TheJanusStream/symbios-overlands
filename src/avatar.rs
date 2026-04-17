@@ -12,7 +12,7 @@ use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde::Deserialize;
 
-use crate::player::RoverSail;
+use crate::player::{ChestBadge, RoverSail};
 use crate::state::{AppState, LocalPlayer, RemotePeer};
 
 pub struct AvatarPlugin;
@@ -105,8 +105,9 @@ fn poll_avatar_tasks(
     mut peers: Query<&mut RemotePeer>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    sails: Query<&Children>,
+    children_query: Query<&Children>,
     sail_query: Query<Entity, With<RoverSail>>,
+    badge_query: Query<Entity, With<ChestBadge>>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
@@ -158,24 +159,29 @@ fn poll_avatar_tasks(
             .entity(entity)
             .insert(AvatarMaterial(new_mat.clone()));
 
-        // Apply the material to every RoverSail child.  Use a deferred world
-        // closure so validity is checked at *application* time, not query time.
-        // This prevents a panic when a rebuild despawns the sail between this
-        // system running and the commands being flushed.
-        if let Ok(children) = sails.get(entity) {
-            let sail_entities: Vec<Entity> = children
-                .iter()
-                .filter(|&child| sail_query.get(child).is_ok())
-                .collect();
-
-            for sail in sail_entities {
-                let mat = new_mat.clone();
-                commands.queue(move |world: &mut World| {
-                    if let Ok(mut eref) = world.get_entity_mut(sail) {
-                        eref.insert(MeshMaterial3d(mat));
-                    }
-                });
+        // Apply the material to every RoverSail or ChestBadge descendant.
+        // Walk the full child tree because the humanoid badge sits below an
+        // intermediate `HumanoidVisualRoot`, not directly under the chassis.
+        // The deferred world closure guards against a rebuild despawning the
+        // target between system execution and command flush.
+        let mut targets: Vec<Entity> = Vec::new();
+        let mut stack: Vec<Entity> = vec![entity];
+        while let Some(node) = stack.pop() {
+            if sail_query.get(node).is_ok() || badge_query.get(node).is_ok() {
+                targets.push(node);
             }
+            if let Ok(children) = children_query.get(node) {
+                stack.extend(children.iter());
+            }
+        }
+
+        for target in targets {
+            let mat = new_mat.clone();
+            commands.queue(move |world: &mut World| {
+                if let Ok(mut eref) = world.get_entity_mut(target) {
+                    eref.insert(MeshMaterial3d(mat));
+                }
+            });
         }
     }
 }

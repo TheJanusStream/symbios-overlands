@@ -11,6 +11,7 @@ use bevy::prelude::*;
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 
 use crate::config::camera as cfg;
+use crate::player::HoverRoverArchetype;
 use crate::state::{AppState, LocalPlayer};
 
 pub struct CameraPlugin;
@@ -66,11 +67,11 @@ fn spawn_orbit_camera(mut commands: Commands) {
 }
 
 fn follow_local_player(
-    player_query: Query<&GlobalTransform, With<LocalPlayer>>,
+    player_query: Query<(&GlobalTransform, Option<&HoverRoverArchetype>), With<LocalPlayer>>,
     mut camera_query: Query<&mut PanOrbitCamera>,
     mut prev_yaw: Local<Option<f32>>,
 ) {
-    let Ok(player_tf) = player_query.single() else {
+    let Ok((player_tf, rover)) = player_query.single() else {
         return;
     };
     let Ok(mut cam) = camera_query.single_mut() else {
@@ -78,15 +79,22 @@ fn follow_local_player(
     };
     cam.target_focus = player_tf.translation();
 
-    let (_, rotation, _) = player_tf.to_scale_rotation_translation();
-    let (vehicle_yaw, _, _) = rotation.to_euler(EulerRot::YXZ);
-    if let Some(prev) = *prev_yaw {
-        let delta = {
-            use std::f32::consts::{PI, TAU};
-            let d = (vehicle_yaw - prev).rem_euclid(TAU);
-            if d > PI { d - TAU } else { d }
-        };
-        cam.target_yaw += delta;
+    // Only inherit yaw when driving a vehicle. On the humanoid archetype the
+    // physics body never rotates, and we want the mouse to orbit freely
+    // without snapping when the visual rig turns to face movement.
+    if rover.is_some() {
+        let (_, rotation, _) = player_tf.to_scale_rotation_translation();
+        let (vehicle_yaw, _, _) = rotation.to_euler(EulerRot::YXZ);
+        if let Some(prev) = *prev_yaw {
+            let delta = {
+                use std::f32::consts::{PI, TAU};
+                let d = (vehicle_yaw - prev).rem_euclid(TAU);
+                if d > PI { d - TAU } else { d }
+            };
+            cam.target_yaw += delta;
+        }
+        *prev_yaw = Some(vehicle_yaw);
+    } else {
+        *prev_yaw = None;
     }
-    *prev_yaw = Some(vehicle_yaw);
 }

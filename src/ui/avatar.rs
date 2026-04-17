@@ -300,6 +300,11 @@ fn humanoid_panel(ui: &mut egui::Ui, phen: &mut HumanoidPhenotype, kin: &mut Hum
             fp_slider(ui, &mut phen.head_size, 0.1..=0.5, 0.01);
             ui.label("Limb thickness (m)");
             fp_slider(ui, &mut phen.limb_thickness, 0.04..=0.25, 0.005);
+            ui.label("Arm length (× torso)");
+            fp_slider(ui, &mut phen.arm_length_ratio, 0.5..=1.5, 0.01);
+            ui.label("Leg length (× height)");
+            fp_slider(ui, &mut phen.leg_length_ratio, 0.3..=0.6, 0.01);
+            ui.checkbox(&mut phen.show_badge, "Show profile badge");
         });
 
     egui::CollapsingHeader::new("Materials")

@@ -1041,11 +1041,30 @@ pub struct HumanoidPhenotype {
     pub head_size: Fp,
     /// Limb thickness (m).
     pub limb_thickness: Fp,
+    /// Arm length expressed as a ratio of torso height (≈0.5–1.5).
+    #[serde(default = "default_arm_ratio")]
+    pub arm_length_ratio: Fp,
+    /// Leg length expressed as a ratio of total height (≈0.3–0.6).
+    #[serde(default = "default_leg_ratio")]
+    pub leg_length_ratio: Fp,
+    /// Show the owner's ATProto profile picture on the chest.
+    #[serde(default = "default_show_badge")]
+    pub show_badge: bool,
     pub body_color: Fp3,
     pub head_color: Fp3,
     pub limb_color: Fp3,
     pub metallic: Fp,
     pub roughness: Fp,
+}
+
+fn default_arm_ratio() -> Fp {
+    Fp(0.9)
+}
+fn default_leg_ratio() -> Fp {
+    Fp(0.45)
+}
+fn default_show_badge() -> bool {
+    true
 }
 
 impl Default for HumanoidPhenotype {
@@ -1056,6 +1075,9 @@ impl Default for HumanoidPhenotype {
             torso_half_depth: Fp(0.18),
             head_size: Fp(0.28),
             limb_thickness: Fp(0.12),
+            arm_length_ratio: default_arm_ratio(),
+            leg_length_ratio: default_leg_ratio(),
+            show_badge: default_show_badge(),
             body_color: Fp3([0.25, 0.45, 0.75]),
             head_color: Fp3([0.85, 0.75, 0.65]),
             limb_color: Fp3([0.20, 0.20, 0.25]),
@@ -1256,6 +1278,16 @@ impl AvatarRecord {
                 p.torso_half_depth = Fp(clamp(p.torso_half_depth.0));
                 p.head_size = Fp(clamp(p.head_size.0));
                 p.limb_thickness = Fp(clamp(p.limb_thickness.0));
+                p.arm_length_ratio = Fp(if p.arm_length_ratio.0.is_finite() {
+                    p.arm_length_ratio.0.clamp(0.5, 1.5)
+                } else {
+                    default_arm_ratio().0
+                });
+                p.leg_length_ratio = Fp(if p.leg_length_ratio.0.is_finite() {
+                    p.leg_length_ratio.0.clamp(0.3, 0.6)
+                } else {
+                    default_leg_ratio().0
+                });
                 p.body_color = clamp_color(p.body_color);
                 p.head_color = clamp_color(p.head_color);
                 p.limb_color = clamp_color(p.limb_color);

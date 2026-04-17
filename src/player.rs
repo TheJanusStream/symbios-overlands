@@ -77,6 +77,28 @@ pub struct HoverRoverArchetype;
 #[derive(Component)]
 pub struct HumanoidArchetype;
 
+/// Intermediate visual parent on a Humanoid. The rigid body never rotates —
+/// the walk controller yaws this root to face the movement direction.
+#[derive(Component)]
+pub struct HumanoidVisualRoot;
+
+/// Shoulder / hip joint pivots. The limb cylinder is a child offset downward,
+/// so rotating this entity swings the limb from its top (not its middle).
+#[derive(Component, Clone, Copy)]
+pub struct HumanoidJoint {
+    /// +1 for left (or forward-phase) limbs, -1 for right. Used to
+    /// counter-rotate the animation pairs.
+    pub phase_sign: f32,
+    /// Additional phase offset in radians — legs are 180° out of phase with
+    /// their paired arm so the gait alternates naturally.
+    pub phase_offset: f32,
+}
+
+/// Chest-mounted profile badge quad. The avatar system paints the owner's
+/// ATProto profile picture onto this material when one is available.
+#[derive(Component)]
+pub struct ChestBadge;
+
 /// Request flag set when the local player's archetype needs to be
 /// rebuilt on the main thread. This exists because Avian components
 /// cannot be added/removed from `Query`-held mutable borrows — we have
@@ -97,6 +119,7 @@ impl Plugin for PlayerPlugin {
                     detect_remote_archetype_change,
                     rebuild_local_visuals,
                     lift_player_above_new_ground,
+                    animate_humanoid_limbs,
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame)),
@@ -188,11 +211,14 @@ fn build_archetype_components(commands: &mut Commands, entity: Entity, record: &
                 Mass(kinematics.mass.0),
                 LinearDamping(kinematics.linear_damping.0),
                 AngularDamping(cfg::ANGULAR_DAMPING),
-                // Pin the upright axis so the walker can never faceplant:
-                // input torques are not applied in this archetype, and the
-                // physics solver would otherwise tip the capsule over when
-                // a corner clips geometry.
-                LockedAxes::new().lock_rotation_x().lock_rotation_z(),
+                // Traditional character controller: lock all three rotation
+                // axes so the physics capsule slides without spinning. The
+                // walk controller rotates a child visual root to face the
+                // movement direction, keeping the rigid body stable.
+                LockedAxes::new()
+                    .lock_rotation_x()
+                    .lock_rotation_y()
+                    .lock_rotation_z(),
                 HumanoidArchetype,
             ));
         }
@@ -395,6 +421,7 @@ fn build_archetype_visuals(
                 existing_children,
                 meshes,
                 materials,
+                avatar_override,
             );
         }
         AvatarBody::Unknown => {
@@ -555,10 +582,11 @@ pub fn rebuild_airship_children(
     });
 }
 
-/// Build the humanoid visual children: torso cuboid, head cuboid, four
-/// limb capsules. Kept deliberately simple — the avatar system can still
-/// drape a profile texture on a future "face plate" child without
-/// touching the physics capsule.
+/// Build the humanoid visual rig. Instead of attaching meshes directly to
+/// the physics capsule, we spawn an intermediate `HumanoidVisualRoot` that
+/// the walk controller rotates to face the movement direction, plus
+/// shoulder/hip joint pivots so the procedural animation system can swing
+/// the limbs from their tops.
 fn rebuild_humanoid_children(
     commands: &mut Commands,
     entity: Entity,
@@ -566,6 +594,7 @@ fn rebuild_humanoid_children(
     existing_children: Option<&Children>,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    avatar_override: Option<&Handle<StandardMaterial>>,
 ) {
     if let Some(children) = existing_children {
         for child in children.iter() {
@@ -580,6 +609,8 @@ fn rebuild_humanoid_children(
     let td = phen.torso_half_depth.0.clamp(0.05, 1.0);
     let head = phen.head_size.0.clamp(0.05, 1.0);
     let limb = phen.limb_thickness.0.clamp(0.03, 0.4);
+    let arm_ratio = phen.arm_length_ratio.0.clamp(0.5, 1.5);
+    let leg_ratio = phen.leg_length_ratio.0.clamp(0.3, 0.6);
 
     let [br, bg, bb] = phen.body_color.0;
     let [hr, hg, hb] = phen.head_color.0;
@@ -602,55 +633,136 @@ fn rebuild_humanoid_children(
         perceptual_roughness: phen.roughness.0,
         ..default()
     });
+    let badge_mat = avatar_override.cloned().unwrap_or_else(|| {
+        materials.add(StandardMaterial {
+            base_color: Color::srgb(0.9, 0.9, 0.95),
+            unlit: true,
+            double_sided: true,
+            cull_mode: None,
+            ..default()
+        })
+    });
 
-    // Proportions: head ~15%, torso ~45%, legs ~40% of total height.
     let head_h = head;
     let torso_h = (height * 0.45).max(0.2);
-    let leg_len = (height * 0.40).max(0.2);
-    let arm_len = (torso_h * 0.9).max(0.15);
+    let leg_len = (height * leg_ratio).max(0.2);
+    let arm_len = (torso_h * arm_ratio).max(0.15);
     // Capsule body's origin sits at the rigid-body centre; torso centre
-    // should therefore be at y = 0 in local space.
+    // sits at y = 0 in local space.
     let torso_y = 0.0;
     let head_y = torso_h * 0.5 + head_h * 0.5;
-    let leg_y = -torso_h * 0.5 - leg_len * 0.5;
-    let arm_y = torso_h * 0.2;
+    let shoulder_y = torso_h * 0.45;
+    let hip_y = -torso_h * 0.5;
+    let shoulder_x = tw + limb * 0.5;
+    let hip_x = tw * 0.6;
 
-    commands.entity(entity).with_children(|parent| {
-        parent.spawn((
-            Mesh3d(meshes.add(Cuboid::new(tw * 2.0, torso_h, td * 2.0))),
-            MeshMaterial3d(body_mat),
-            Transform::from_xyz(0.0, torso_y, 0.0),
-        ));
-        parent.spawn((
-            Mesh3d(meshes.add(Cuboid::new(head_h, head_h, head_h))),
-            MeshMaterial3d(head_mat),
-            Transform::from_xyz(0.0, head_y, 0.0),
-        ));
+    let arm_mesh = meshes.add(Capsule3d::new(limb * 0.5, arm_len));
+    let leg_mesh = meshes.add(Capsule3d::new(limb * 0.6, leg_len));
+    let show_badge = phen.show_badge;
 
-        let limb_mesh = meshes.add(Capsule3d::new(limb * 0.5, arm_len));
-        parent.spawn((
-            Mesh3d(limb_mesh.clone()),
-            MeshMaterial3d(limb_mat.clone()),
-            Transform::from_xyz(-tw - limb * 0.5, arm_y, 0.0),
-        ));
-        parent.spawn((
-            Mesh3d(limb_mesh),
-            MeshMaterial3d(limb_mat.clone()),
-            Transform::from_xyz(tw + limb * 0.5, arm_y, 0.0),
-        ));
+    commands.entity(entity).with_children(|root| {
+        root.spawn((
+            Transform::IDENTITY,
+            Visibility::default(),
+            HumanoidVisualRoot,
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                Mesh3d(meshes.add(Cuboid::new(tw * 2.0, torso_h, td * 2.0))),
+                MeshMaterial3d(body_mat),
+                Transform::from_xyz(0.0, torso_y, 0.0),
+            ));
+            parent.spawn((
+                Mesh3d(meshes.add(Cuboid::new(head_h, head_h, head_h))),
+                MeshMaterial3d(head_mat),
+                Transform::from_xyz(0.0, head_y, 0.0),
+            ));
 
-        let leg_mesh = meshes.add(Capsule3d::new(limb * 0.6, leg_len));
-        parent.spawn((
-            Mesh3d(leg_mesh.clone()),
-            MeshMaterial3d(limb_mat.clone()),
-            Transform::from_xyz(-tw * 0.5, leg_y, 0.0),
-        ));
-        parent.spawn((
-            Mesh3d(leg_mesh),
-            MeshMaterial3d(limb_mat),
-            Transform::from_xyz(tw * 0.5, leg_y, 0.0),
-        ));
+            if show_badge {
+                let badge_w = (tw * 1.6).min(tw * 2.0 - 0.02).max(0.05);
+                let badge_h = (torso_h * 0.55).max(0.05);
+                parent.spawn((
+                    Mesh3d(meshes.add(Rectangle::new(badge_w, badge_h))),
+                    MeshMaterial3d(badge_mat),
+                    Transform::from_xyz(0.0, torso_y, td + 0.01),
+                    ChestBadge,
+                ));
+            }
+
+            // Shoulders — rotating the joint swings the limb from its top
+            // because the cylinder is offset downward by half its length.
+            spawn_joint(
+                parent,
+                Vec3::new(-shoulder_x, shoulder_y, 0.0),
+                HumanoidJoint {
+                    phase_sign: 1.0,
+                    phase_offset: 0.0,
+                },
+                arm_mesh.clone(),
+                limb_mat.clone(),
+                arm_len,
+            );
+            spawn_joint(
+                parent,
+                Vec3::new(shoulder_x, shoulder_y, 0.0),
+                HumanoidJoint {
+                    phase_sign: -1.0,
+                    phase_offset: 0.0,
+                },
+                arm_mesh,
+                limb_mat.clone(),
+                arm_len,
+            );
+
+            // Hips — 180° out of phase with the arm on the same side so the
+            // gait alternates (left arm forward ↔ left leg back).
+            spawn_joint(
+                parent,
+                Vec3::new(-hip_x, hip_y, 0.0),
+                HumanoidJoint {
+                    phase_sign: -1.0,
+                    phase_offset: 0.0,
+                },
+                leg_mesh.clone(),
+                limb_mat.clone(),
+                leg_len,
+            );
+            spawn_joint(
+                parent,
+                Vec3::new(hip_x, hip_y, 0.0),
+                HumanoidJoint {
+                    phase_sign: 1.0,
+                    phase_offset: 0.0,
+                },
+                leg_mesh,
+                limb_mat,
+                leg_len,
+            );
+        });
     });
+}
+
+fn spawn_joint(
+    parent: &mut ChildSpawnerCommands,
+    position: Vec3,
+    joint: HumanoidJoint,
+    limb_mesh: Handle<Mesh>,
+    limb_mat: Handle<StandardMaterial>,
+    limb_length: f32,
+) {
+    parent
+        .spawn((
+            Transform::from_translation(position),
+            Visibility::default(),
+            joint,
+        ))
+        .with_children(|pivot| {
+            pivot.spawn((
+                Mesh3d(limb_mesh),
+                MeshMaterial3d(limb_mat),
+                Transform::from_xyz(0.0, -limb_length * 0.5, 0.0),
+            ));
+        });
 }
 
 fn build_v_hull_mesh(hull_length: f32, hull_width: f32, hull_depth: f32) -> Mesh {
@@ -888,9 +1000,11 @@ fn apply_buoyancy_forces(
 
 /// Velocity-driven walk controller for the Humanoid archetype.
 /// WASD nudges the target horizontal velocity toward `walk_speed` in the
-/// input direction; `Space` adds a one-shot vertical impulse whenever a
-/// short downward raycast confirms the capsule is on the ground (so the
-/// player can't chain jumps mid-air).
+/// input direction; when no key is held we aggressively damp the horizontal
+/// velocity so the avatar doesn't ice-skate. The `HumanoidVisualRoot` child
+/// is slerped to face the movement direction each step.
+/// `Space` adds a one-shot vertical impulse whenever a short downward
+/// raycast confirms the capsule is on the ground.
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::type_complexity)]
 fn apply_humanoid_walk(
@@ -899,9 +1013,10 @@ fn apply_humanoid_walk(
     keyboard: Res<ButtonInput<KeyCode>>,
     camera: Query<&GlobalTransform, With<Camera3d>>,
     mut query: Query<
-        (Entity, &mut LinearVelocity, &GlobalTransform),
+        (Entity, &mut LinearVelocity, &GlobalTransform, &Children),
         (With<LocalPlayer>, With<HumanoidArchetype>),
     >,
+    mut visual_roots: Query<&mut Transform, With<HumanoidVisualRoot>>,
     spatial_query: SpatialQuery,
 ) {
     let AvatarBody::Humanoid {
@@ -911,13 +1026,10 @@ fn apply_humanoid_walk(
     else {
         return;
     };
-    let Ok((entity, mut lin_vel, global_tf)) = query.single_mut() else {
+    let Ok((entity, mut lin_vel, global_tf, children)) = query.single_mut() else {
         return;
     };
 
-    // Use the main camera's forward as the walk direction basis so the
-    // player moves in the direction they are looking. If the camera
-    // isn't ready yet, fall back to world-forward.
     let cam_forward = camera
         .single()
         .ok()
@@ -927,33 +1039,54 @@ fn apply_humanoid_walk(
     let right = Vec3::new(-forward.z, 0.0, forward.x);
 
     let mut desired = Vec3::ZERO;
+    let mut any_input = false;
     if keyboard.pressed(KeyCode::KeyW) {
         desired += forward;
+        any_input = true;
     }
     if keyboard.pressed(KeyCode::KeyS) {
         desired -= forward;
+        any_input = true;
     }
     if keyboard.pressed(KeyCode::KeyD) {
         desired += right;
+        any_input = true;
     }
     if keyboard.pressed(KeyCode::KeyA) {
         desired -= right;
+        any_input = true;
     }
     desired = desired.normalize_or_zero() * kinematics.walk_speed.0;
 
     let dt = time.delta_secs().max(1e-4);
-    let alpha = (kinematics.acceleration.0 * dt).clamp(0.0, 1.0);
-    // Smoothly steer the horizontal velocity toward the desired walk
-    // vector. Preserve the vertical component so gravity and jump
-    // impulses are undisturbed by the controller.
     let current_h = Vec3::new(lin_vel.0.x, 0.0, lin_vel.0.z);
-    let new_h = current_h.lerp(desired, alpha);
+    let new_h = if any_input {
+        let alpha = (kinematics.acceleration.0 * dt).clamp(0.0, 1.0);
+        current_h.lerp(desired, alpha)
+    } else {
+        // Snappy friction: collapse horizontal velocity to zero fast so the
+        // avatar stops on a dime instead of coasting.
+        let decay = (-20.0 * dt).exp();
+        current_h * decay
+    };
     lin_vel.0.x = new_h.x;
     lin_vel.0.z = new_h.z;
 
+    // Rotate the visual root to face movement. The physics body has all
+    // rotation axes locked, so this is purely cosmetic — and exactly what
+    // a traditional character controller does.
+    if new_h.length_squared() > 0.01 {
+        let facing = new_h.normalize();
+        let target = Transform::IDENTITY.looking_to(facing, Vec3::Y).rotation;
+        let turn_alpha = (12.0 * dt).clamp(0.0, 1.0);
+        for child in children.iter() {
+            if let Ok(mut tf) = visual_roots.get_mut(child) {
+                tf.rotation = tf.rotation.slerp(target, turn_alpha);
+            }
+        }
+    }
+
     if keyboard.just_pressed(KeyCode::Space) {
-        // Short downward probe from slightly inside the capsule so the
-        // ray reliably intersects the ground on sloped terrain.
         let origin = global_tf.translation() + Vec3::Y * 0.05;
         let feet_distance = phenotype.height.0 * 0.5 + 0.1;
         let filter = SpatialQueryFilter::default().with_excluded_entities([entity]);
@@ -961,12 +1094,52 @@ fn apply_humanoid_walk(
             .cast_ray(origin, Dir3::NEG_Y, feet_distance, true, &filter)
             .is_some();
         if grounded {
-            // Impulse = delta_v * mass; convert the stored impulse value
-            // (already in N·s units by convention) into a direct velocity
-            // delta so the motion feels consistent even if the player
-            // edits the capsule mass mid-session.
             let delta_v = kinematics.jump_impulse.0 / kinematics.mass.0.max(1.0);
             lin_vel.0.y += delta_v;
+        }
+    }
+}
+
+/// Procedural gait animation: swing each shoulder/hip joint in a sine
+/// counter-rotation, scaled by horizontal speed. Legs are 180° out of
+/// phase with their paired arm so the walk alternates naturally. When
+/// stopped the joints smoothly slerp back to the idle (identity) pose.
+#[allow(clippy::type_complexity)]
+fn animate_humanoid_limbs(
+    time: Res<Time>,
+    players: Query<(&LinearVelocity, &Children), With<HumanoidArchetype>>,
+    visual_roots: Query<&Children, With<HumanoidVisualRoot>>,
+    mut joints: Query<(&HumanoidJoint, &mut Transform)>,
+) {
+    const SWING_AMPLITUDE: f32 = 0.9;
+    const PHASE_SPEED: f32 = 2.2;
+    const IDLE_SLERP_RATE: f32 = 10.0;
+
+    let dt = time.delta_secs().max(1e-4);
+    let t = time.elapsed_secs();
+
+    for (lin_vel, children) in players.iter() {
+        let horiz = Vec3::new(lin_vel.0.x, 0.0, lin_vel.0.z);
+        let speed = horiz.length();
+        let amplitude = SWING_AMPLITUDE * (speed / 4.0).clamp(0.0, 1.0);
+        let phase = t * PHASE_SPEED * speed.max(0.0);
+
+        for chassis_child in children.iter() {
+            let Ok(root_children) = visual_roots.get(chassis_child) else {
+                continue;
+            };
+            for joint_entity in root_children.iter() {
+                let Ok((joint, mut tf)) = joints.get_mut(joint_entity) else {
+                    continue;
+                };
+                if amplitude < 1e-3 {
+                    let idle_alpha = (IDLE_SLERP_RATE * dt).clamp(0.0, 1.0);
+                    tf.rotation = tf.rotation.slerp(Quat::IDENTITY, idle_alpha);
+                } else {
+                    let angle = (phase + joint.phase_offset).sin() * amplitude * joint.phase_sign;
+                    tf.rotation = Quat::from_rotation_x(angle);
+                }
+            }
         }
     }
 }
