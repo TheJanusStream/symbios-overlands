@@ -13,20 +13,24 @@
 //! central differences of the buffered samples.  Identity messages are
 //! authenticated against the relay-signed `PeerSessionMapRes` so a peer
 //! cannot impersonate another DID over the unauthenticated data channel.
+//!
+//! Avatar records are sovereign: after a peer announces its DID, we spawn
+//! an async `fetch_avatar_record` task against that peer's PDS. A live
+//! preview nudge via `AvatarStateUpdate` lets remote peers mirror
+//! mid-slider edits before the author presses "Publish".
 
 use avian3d::prelude::{AngularVelocity, LinearVelocity};
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
 
-use crate::avatar::{AvatarFetchPending, AvatarMaterial};
+use crate::avatar::AvatarFetchPending;
 use crate::config;
-use crate::pds::RoomRecord;
-use crate::protocol::{AirshipParams, OverlandsMessage};
-use crate::rover::rebuild_airship_children;
+use crate::pds::{self, AvatarRecord, RoomRecord};
+use crate::protocol::OverlandsMessage;
 use crate::state::{
-    AppState, ChatHistory, CurrentRoomDid, DiagnosticsLog, LocalAirshipParams, LocalPlayer,
-    RemotePeer, TransformBuffer, TransformSample,
+    AppState, ChatHistory, CurrentRoomDid, DiagnosticsLog, LiveAvatarRecord, LocalPlayer,
+    LocalSettings, RemotePeer, TransformBuffer, TransformSample,
 };
 
 pub struct NetworkPlugin;
@@ -39,6 +43,7 @@ impl Plugin for NetworkPlugin {
                 (
                     handle_peer_connections,
                     handle_incoming_messages,
+                    poll_peer_avatar_fetches,
                     smooth_remote_transforms,
                     sync_mute_visibility,
                 )
@@ -52,21 +57,64 @@ impl Plugin for NetworkPlugin {
             .add_systems(
                 FixedUpdate,
                 broadcast_local_state.run_if(in_state(AppState::InGame)),
+            )
+            // Live-preview avatar updates piggyback on `Update` so they
+            // fire the frame an editor slider changes the resource, rather
+            // than waiting for the next FixedUpdate tick.
+            .add_systems(
+                Update,
+                broadcast_avatar_state.run_if(in_state(AppState::InGame)),
             );
     }
+}
+
+/// In-flight `fetch_avatar_record` task attached to a throwaway entity so
+/// the `poll_peer_avatar_fetches` system can drain it without a dedicated
+/// resource. The `peer_id` field identifies which remote peer the result
+/// belongs to — the peer's ECS entity may have despawned by the time the
+/// task completes (late disconnect), so the poller has to look it up.
+#[derive(Component)]
+struct PeerAvatarFetchTask {
+    peer_id: PeerId,
+    did: String,
+    task: bevy::tasks::Task<Result<Option<AvatarRecord>, pds::FetchError>>,
+}
+
+fn spawn_peer_avatar_fetch(commands: &mut Commands, peer_id: PeerId, did: String) {
+    // `IoTaskPool` is the correct home for blocking HTTP calls — the
+    // `AsyncComputeTaskPool` is sized to the CPU-core count and must not be
+    // starved by threads blocked on network sockets.
+    let pool = bevy::tasks::IoTaskPool::get();
+    let did_for_fetch = did.clone();
+    let task = pool.spawn(async move {
+        let fut = async {
+            let client = config::http::default_client();
+            pds::fetch_avatar_record(&client, &did_for_fetch).await
+        };
+        #[cfg(target_arch = "wasm32")]
+        {
+            fut.await
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(fut)
+        }
+    });
+    commands.spawn(PeerAvatarFetchTask { peer_id, did, task });
 }
 
 #[allow(clippy::too_many_arguments)]
 fn handle_peer_connections(
     mut commands: Commands,
     mut peer_events: ResMut<PeerStateQueue<OverlandsMessage>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut diagnostics: ResMut<DiagnosticsLog>,
     peers: Query<(Entity, &RemotePeer)>,
     time: Res<Time>,
     session: Option<Res<AtprotoSession>>,
-    ap: Res<LocalAirshipParams>,
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
 ) {
     let elapsed = time.elapsed_secs_f64();
@@ -74,31 +122,24 @@ fn handle_peer_connections(
         match event.state {
             PeerConnectionState::Connected => {
                 diagnostics.push(elapsed, format!("[+] Peer {} connected", event.peer));
-                let entity = commands
-                    .spawn((
-                        Transform::from_xyz(0.0, 10.0, 0.0),
-                        Visibility::default(),
-                        RemotePeer {
-                            peer_id: event.peer,
-                            did: None,
-                            handle: None,
-                            muted: false,
-                            airship: None,
-                        },
-                        TransformBuffer::default(),
-                    ))
-                    .id();
-
-                // Spawn default airship visuals until we receive their Identity.
-                rebuild_airship_children(
-                    &mut commands,
-                    entity,
-                    &AirshipParams::default(),
-                    None,
-                    &mut meshes,
-                    &mut materials,
-                    None,
-                );
+                // Spawn the peer with no avatar yet — the hot-swap system in
+                // `player.rs` will build visuals once the PDS fetch populates
+                // `RemotePeer::avatar`. Leaving the vessel invisible until
+                // then is deliberate: a guessed default would be indistinguishable
+                // from a deliberately-minimal avatar and mislead the other
+                // players about the peer's real appearance.
+                commands.spawn((
+                    Transform::from_xyz(0.0, 10.0, 0.0),
+                    Visibility::default(),
+                    RemotePeer {
+                        peer_id: event.peer,
+                        did: None,
+                        handle: None,
+                        muted: false,
+                        avatar: None,
+                    },
+                    TransformBuffer::default(),
+                ));
 
                 // Proactively announce our identity to the newcomer.  Without
                 // this, they only learn our DID on the next scheduled identity
@@ -109,7 +150,6 @@ fn handle_peer_connections(
                         payload: OverlandsMessage::Identity {
                             did: sess.did.clone(),
                             handle: sess.handle.clone(),
-                            airship: ap.params.clone(),
                         },
                         channel: ChannelKind::Reliable,
                     });
@@ -145,11 +185,7 @@ fn handle_incoming_messages(
         &mut RemotePeer,
         &mut Transform,
         &mut TransformBuffer,
-        Option<&Children>,
-        Option<&AvatarMaterial>,
     )>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     time: Res<Time>,
     room_did: Option<Res<CurrentRoomDid>>,
     mut room_record: Option<ResMut<RoomRecord>>,
@@ -157,17 +193,8 @@ fn handle_incoming_messages(
 ) {
     let now = time.elapsed_secs_f64();
     // Drain the whole queue into a buffer so we can dedupe `Identity`
-    // messages per sender before processing. `rebuild_airship_children`
-    // despawns the children referenced by the query-borrowed
-    // `Option<&Children>`, but the despawn is queued — it only executes
-    // when `commands` applies at system end. A burst of Identity
-    // messages with alternating airship params would otherwise run the
-    // rebuild path N times, re-queueing despawns for the same original
-    // children each pass and leaving the meshes spawned by intermediate
-    // passes orphaned in the ECS with dangling PBR material/mesh handles.
-    // Keeping only the last Identity per sender collapses the burst into
-    // a single rebuild whose `existing_children` accurately reflects
-    // what's alive before we start spawning.
+    // messages per sender. A burst of Identity messages would otherwise
+    // fire N redundant avatar fetches against the peer's PDS.
     let messages: Vec<_> = queue.drain().collect();
     let mut last_identity_idx: std::collections::HashMap<PeerId, usize> =
         std::collections::HashMap::new();
@@ -184,7 +211,7 @@ fn handle_incoming_messages(
         }
         match msg.payload {
             OverlandsMessage::Transform { position, rotation } => {
-                for (_, peer, _tf, mut buf, _, _) in peers.iter_mut() {
+                for (_, peer, _tf, mut buf) in peers.iter_mut() {
                     if peer.peer_id == msg.sender {
                         // Assign a *playout* timestamp rather than the raw
                         // arrival time.  WebRTC data channels frequently
@@ -258,18 +285,7 @@ fn handle_incoming_messages(
                     }
                 }
             }
-            OverlandsMessage::Identity {
-                did,
-                handle,
-                mut airship,
-            } => {
-                // Clamp every dimension/colour field before any Bevy primitive
-                // constructor sees it. `rebuild_airship_children` feeds raw
-                // values to `Capsule3d::new`, `Cylinder::new`, `Sphere::new`,
-                // and `Rectangle::new`, all of which panic on negative, zero,
-                // or NaN inputs — a hand-crafted Identity with
-                // `pontoon_width = -1.0` would otherwise crash every guest.
-                airship.sanitize();
+            OverlandsMessage::Identity { did, handle } => {
                 // Reject identity claims whose DID does not match the
                 // session_id the relay bound to the sender's PeerId. The
                 // signaller publishes (PeerId → authenticated DID) entries to
@@ -300,13 +316,12 @@ fn handle_incoming_messages(
                     }
                 }
 
-                for (entity, mut peer, _, _, children, avatar_mat) in peers.iter_mut() {
+                for (entity, mut peer, _, _) in peers.iter_mut() {
                     if peer.peer_id != msg.sender {
                         continue;
                     }
 
                     let did_changed = peer.did.as_deref() != Some(did.as_str());
-                    let airship_changed = peer.airship.as_ref() != Some(&airship);
 
                     // The `handle` field on the wire is peer-supplied and
                     // therefore untrusted — a malicious peer could claim any
@@ -331,22 +346,46 @@ fn handle_incoming_messages(
                         // returns a verified value.
                         peer.handle = None;
                         peer.did = Some(did.clone());
+                        // Trigger the sovereign PDS fetch — the peer's
+                        // AvatarRecord lives on their own server, not on the
+                        // wire. `poll_peer_avatar_fetches` applies the result
+                        // when it arrives.
+                        spawn_peer_avatar_fetch(&mut commands, msg.sender, did.clone());
                     }
+                }
+            }
+            OverlandsMessage::AvatarStateUpdate { record_json } => {
+                // Live preview nudge from a peer who is mid-edit. Decode,
+                // authenticate against the already-validated DID, sanitize,
+                // then overwrite `peer.avatar` so the hot-swap system in
+                // `player.rs` rebuilds the visual next frame.
+                let Some(mut new_record) = OverlandsMessage::decode_avatar_state(&record_json)
+                else {
+                    warn!(
+                        "Dropping AvatarStateUpdate from {:?}: payload failed to decode",
+                        msg.sender
+                    );
+                    continue;
+                };
+                new_record.sanitize();
 
-                    if airship_changed {
-                        // Rebuild the peer's vessel with the updated parameters.
-                        let children_ref = children.map(|c| c as &Children);
-                        rebuild_airship_children(
-                            &mut commands,
-                            entity,
-                            &airship,
-                            children_ref,
-                            &mut meshes,
-                            &mut materials,
-                            avatar_mat.map(|m| &m.0),
-                        );
-                        peer.airship = Some(airship.clone());
+                for (_, mut peer, _, _) in peers.iter_mut() {
+                    if peer.peer_id != msg.sender {
+                        continue;
                     }
+                    // Only accept live updates from peers whose DID we have
+                    // already authenticated via Identity — otherwise a peer
+                    // that connected before its session bound could smuggle
+                    // an avatar under an empty DID and never be swept.
+                    if peer.did.is_none() {
+                        debug!(
+                            "Deferring AvatarStateUpdate from {}: peer DID not yet known",
+                            msg.sender
+                        );
+                        continue;
+                    }
+                    peer.avatar = Some(new_record);
+                    break;
                 }
             }
             OverlandsMessage::RoomStateUpdate { record_json } => {
@@ -365,8 +404,8 @@ fn handle_incoming_messages(
                 // Only accept from the peer whose DID matches the room owner.
                 let sender_did = peers
                     .iter()
-                    .find(|(_, peer, _, _, _, _)| peer.peer_id == msg.sender)
-                    .and_then(|(_, peer, _, _, _, _)| peer.did.clone());
+                    .find(|(_, peer, _, _)| peer.peer_id == msg.sender)
+                    .and_then(|(_, peer, _, _)| peer.did.clone());
 
                 let is_owner = match (&sender_did, &room_did) {
                     (Some(did), Some(rd)) => did == &rd.0,
@@ -391,8 +430,8 @@ fn handle_incoming_messages(
                 // Ignore messages from muted peers.
                 let sender_muted = peers
                     .iter()
-                    .find(|(_, peer, _, _, _, _)| peer.peer_id == msg.sender)
-                    .map(|(_, peer, _, _, _, _)| peer.muted)
+                    .find(|(_, peer, _, _)| peer.peer_id == msg.sender)
+                    .map(|(_, peer, _, _)| peer.muted)
                     .unwrap_or(false);
 
                 if !sender_muted {
@@ -420,8 +459,8 @@ fn handle_incoming_messages(
                         .collect();
                     let author = peers
                         .iter()
-                        .find(|(_, peer, _, _, _, _)| peer.peer_id == msg.sender)
-                        .and_then(|(_, peer, _, _, _, _)| peer.handle.clone())
+                        .find(|(_, peer, _, _)| peer.peer_id == msg.sender)
+                        .and_then(|(_, peer, _, _)| peer.handle.clone())
                         .unwrap_or_else(|| msg.sender.to_string());
                     let ts = crate::format_elapsed_ts(now);
                     chat.messages.push((author, clipped, ts));
@@ -439,10 +478,63 @@ fn handle_incoming_messages(
     }
 }
 
+/// Drain completed peer-avatar fetch tasks and install the fetched record
+/// onto the matching `RemotePeer`. A 404 means the peer has never published
+/// an avatar, in which case we synthesise the deterministic default keyed
+/// off their DID so their vessel is still distinguishable from other
+/// "unpublished" peers.
+fn poll_peer_avatar_fetches(
+    mut commands: Commands,
+    mut tasks: Query<(Entity, &mut PeerAvatarFetchTask)>,
+    mut peers: Query<&mut RemotePeer>,
+    mut diagnostics: ResMut<DiagnosticsLog>,
+    time: Res<Time>,
+) {
+    let elapsed = time.elapsed_secs_f64();
+    for (entity, mut task) in tasks.iter_mut() {
+        let Some(result) =
+            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.task))
+        else {
+            continue;
+        };
+        let peer_id = task.peer_id;
+        let did = task.did.clone();
+        commands.entity(entity).despawn();
+
+        let mut record = match result {
+            Ok(Some(r)) => r,
+            Ok(None) => {
+                info!(
+                    "Peer {} ({}) has no avatar record — synthesising default",
+                    peer_id, did
+                );
+                AvatarRecord::default_for_did(&did)
+            }
+            Err(err) => {
+                diagnostics.push(
+                    elapsed,
+                    format!("Avatar fetch failed for {peer_id}: {err:?} — using default"),
+                );
+                warn!(
+                    "Avatar fetch failed for {} ({}): {:?} — falling back to default",
+                    peer_id, did, err
+                );
+                AvatarRecord::default_for_did(&did)
+            }
+        };
+        record.sanitize();
+
+        // Find the live peer entity; it may have despawned if the peer
+        // disconnected between the fetch kick-off and its completion.
+        if let Some(mut peer) = peers.iter_mut().find(|p| p.peer_id == peer_id) {
+            peer.avatar = Some(record);
+        }
+    }
+}
+
 fn broadcast_local_state(
     query: Query<(&Transform, &LinearVelocity, &AngularVelocity), With<LocalPlayer>>,
     session: Option<Res<AtprotoSession>>,
-    ap: Res<LocalAirshipParams>,
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
     mut tick: Local<u32>,
     mut was_stationary: Local<bool>,
@@ -484,11 +576,28 @@ fn broadcast_local_state(
             payload: OverlandsMessage::Identity {
                 did: sess.did.clone(),
                 handle: sess.handle.clone(),
-                airship: ap.params.clone(),
             },
             channel: ChannelKind::Reliable,
         });
     }
+}
+
+/// Broadcast a live-preview `AvatarStateUpdate` whenever the local avatar
+/// resource changes, so peers can mirror the edit before the author commits
+/// to Publish. Runs in `Update` so that UI mutations observed this frame
+/// propagate the same frame, bypassing the fixed-timestep throttle used for
+/// continuous transforms.
+fn broadcast_avatar_state(
+    live: Res<LiveAvatarRecord>,
+    mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
+) {
+    if !live.is_changed() {
+        return;
+    }
+    writer.write(Broadcast {
+        payload: OverlandsMessage::avatar_state_update(&live.0),
+        channel: ChannelKind::Reliable,
+    });
 }
 
 /// Resolve each remote peer's displayed transform from the jitter buffer.
@@ -500,7 +609,7 @@ fn broadcast_local_state(
 /// useful debugging mode for observing raw network latency.
 fn smooth_remote_transforms(
     time: Res<Time>,
-    ap: Res<LocalAirshipParams>,
+    settings: Res<LocalSettings>,
     mut peers: Query<(&mut Transform, &mut TransformBuffer), With<RemotePeer>>,
 ) {
     let now = time.elapsed_secs_f64();
@@ -513,7 +622,7 @@ fn smooth_remote_transforms(
 
         // Raw-snap mode — just follow the latest packet and keep the buffer
         // trimmed so a later mode flip doesn't jump back in time.
-        if !ap.smooth_kinematics {
+        if !settings.smooth_kinematics {
             if let Some(last) = buf.samples.back() {
                 tf.translation = last.position;
                 tf.rotation = last.rotation;

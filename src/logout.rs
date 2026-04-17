@@ -15,7 +15,8 @@ use bevy_symbios_multiuser::signaller::TokenSourceRes;
 use crate::pds::RoomRecord;
 use crate::protocol::OverlandsMessage;
 use crate::state::{
-    AppState, ChatHistory, DiagnosticsLog, LocalPlayer, RelayHost, RemotePeer, RoomRecordRecovery,
+    AppState, ChatHistory, DiagnosticsLog, LiveAvatarRecord, LocalPlayer, RelayHost, RemotePeer,
+    RoomRecordRecovery, StoredAvatarRecord, StoredRoomRecord,
 };
 use crate::world_builder::RoomEntity;
 
@@ -37,11 +38,20 @@ fn cleanup_on_logout(
     mut diagnostics: ResMut<DiagnosticsLog>,
 ) {
     // Despawn game-world entities (recursive by default in Bevy 0.18).
+    //
+    // `try_despawn` swallows the `EntityMutableFetchError` that fires
+    // when an entity has already been despawned this frame — which can
+    // happen when a parent's recursive despawn reaches a child before
+    // the child's own queue entry runs, or when a deferred closure
+    // queued by a gameplay system (e.g. `commands.queue(...)` in the
+    // avatar paint pipeline) lands in the same apply pass. The warnings
+    // are harmless but noisy; using `try_despawn` keeps the log clean
+    // without masking genuine lifecycle bugs elsewhere.
     for e in &players {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
     for e in &peers {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
     // Also drop every world-compiler output (L-systems, scatter props,
     // water volumes). `terrain.rs` despawns the heightfield on its own
@@ -49,12 +59,15 @@ fn cleanup_on_logout(
     // this loop, trees and shapes from the previous room would sit
     // orphaned in the ECS until the next room loaded.
     for e in &room_entities {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
 
     // Drop the active recipe so a later login does not compile the old
     // room's contents into the new session's scene graph.
     commands.remove_resource::<RoomRecord>();
+    commands.remove_resource::<StoredRoomRecord>();
+    commands.remove_resource::<LiveAvatarRecord>();
+    commands.remove_resource::<StoredAvatarRecord>();
     // Clear any recovery marker from this session so a fresh login does
     // not start with the "incompatible record" banner still showing.
     commands.remove_resource::<RoomRecordRecovery>();

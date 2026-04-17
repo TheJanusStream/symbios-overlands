@@ -8,6 +8,7 @@
 
 use avian3d::PhysicsPlugins;
 use bevy::light::{CascadeShadowConfigBuilder, GlobalAmbientLight, NotShadowCaster};
+use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 
@@ -17,8 +18,8 @@ pub mod config;
 mod logout;
 mod network;
 pub mod pds;
+mod player;
 mod protocol;
-mod rover;
 mod social;
 mod splat;
 mod state;
@@ -27,7 +28,7 @@ mod ui;
 mod water;
 mod world_builder;
 
-use pds::RoomRecord;
+use pds::{AvatarRecord, RoomRecord};
 
 /// Format elapsed seconds as a `MM:SS` (or `H:MM:SS`) timestamp string.
 pub fn format_elapsed_ts(elapsed_secs: f64) -> String {
@@ -42,8 +43,8 @@ pub fn format_elapsed_ts(elapsed_secs: f64) -> String {
     }
 }
 use state::{
-    AppState, ChatHistory, CurrentRoomDid, DiagnosticsLog, LocalAirshipParams, LocalPhysicsParams,
-    PublishFeedback, RoomRecordRecovery,
+    AppState, ChatHistory, CurrentRoomDid, DiagnosticsLog, LiveAvatarRecord, LocalSettings,
+    PublishFeedback, RoomRecordRecovery, StoredAvatarRecord, StoredRoomRecord,
 };
 
 fn main() {
@@ -53,19 +54,39 @@ fn main() {
     let fc = config::camera::fog::COLOR;
     App::new()
         .insert_resource(ClearColor(Color::srgba(fc[0], fc[1], fc[2], fc[3])))
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Symbios Overlands".into(),
-                prevent_default_event_handling: false,
-                ..default()
-            }),
-            ..default()
-        }))
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "Symbios Overlands".into(),
+                        prevent_default_event_handling: false,
+                        ..default()
+                    }),
+                    ..default()
+                })
+                // `webrtc_ice::agent::agent_internal` emits a `WARN` every
+                // ~200ms during ICE bring-up whenever the agent has zero
+                // candidate pairs ("pingAllCandidates called with no
+                // candidate pairs"). This is expected behaviour — candidate
+                // gathering + signalling of the remote side takes several
+                // seconds, and the agent keeps retrying the pairing loop in
+                // the meantime. Demote the whole agent_internal module to
+                // `error` so the handshake log stays readable; genuine ICE
+                // failures still surface via the `webrtc_ice` module's other
+                // error-level events.
+                .set(LogPlugin {
+                    filter: format!(
+                        "{},webrtc_ice::agent::agent_internal=error",
+                        bevy::log::DEFAULT_FILTER
+                    ),
+                    ..default()
+                }),
+        )
         .add_plugins(EguiPlugin::default())
         .add_plugins(PhysicsPlugins::default())
         .add_plugins(terrain::TerrainPlugin)
         .add_plugins(world_builder::WorldBuilderPlugin)
-        .add_plugins(rover::RoverPlugin)
+        .add_plugins(player::PlayerPlugin)
         .add_plugins(camera::CameraPlugin)
         .add_plugins(network::NetworkPlugin)
         .add_plugins(avatar::AvatarPlugin)
@@ -74,18 +95,24 @@ fn main() {
         .init_state::<AppState>()
         .init_resource::<ChatHistory>()
         .init_resource::<DiagnosticsLog>()
-        .init_resource::<LocalAirshipParams>()
-        .init_resource::<LocalPhysicsParams>()
+        .init_resource::<LocalSettings>()
         .init_resource::<PublishFeedback>()
         .init_resource::<ui::login::LoginError>()
         .add_systems(
             EguiPrimaryContextPass,
             (ui::login::login_ui, ui::login::poll_auth_task).run_if(in_state(AppState::Login)),
         )
-        .add_systems(OnEnter(AppState::Loading), start_room_record_fetch)
+        .add_systems(
+            OnEnter(AppState::Loading),
+            (start_room_record_fetch, start_avatar_record_fetch),
+        )
         .add_systems(
             Update,
-            (poll_room_record_task, check_loading_complete)
+            (
+                poll_room_record_task,
+                poll_avatar_record_task,
+                check_loading_complete,
+            )
                 .chain()
                 .run_if(in_state(AppState::Loading)),
         )
@@ -98,15 +125,18 @@ fn main() {
             (
                 ui::diagnostics::diagnostics_ui,
                 ui::chat::chat_ui,
-                ui::airship::airship_ui,
-                ui::physics::physics_ui,
+                ui::avatar::avatar_ui,
                 ui::room::room_admin_ui,
             )
                 .run_if(in_state(AppState::InGame)),
         )
         .add_systems(
             Update,
-            ui::room::poll_publish_tasks.run_if(in_state(AppState::InGame)),
+            (
+                ui::room::poll_publish_tasks,
+                ui::avatar::poll_publish_avatar_tasks,
+            )
+                .run_if(in_state(AppState::InGame)),
         )
         .add_systems(Startup, setup_lighting)
         .run();
@@ -338,21 +368,155 @@ fn poll_room_record_task(
             record.generators.len(),
             record.placements.len()
         );
+        // Install both the live resource (mutated by the world editor) and
+        // the stored snapshot (consulted by "Revert" to undo uncommitted
+        // edits). The two start identical — any divergence is authored by
+        // the owner.
+        commands.insert_resource(StoredRoomRecord(record.clone()));
         commands.insert_resource(record);
     }
 }
 
-/// Transition out of `Loading` only once BOTH the heightmap generation task
-/// *and* the ATProto PDS room-record fetch have finished.  If we advanced on
-/// terrain alone the network task would be orphaned — the poll systems only
-/// run in `AppState::Loading`, so a slower PDS round-trip would be silently
-/// dropped and the room owner could never edit their own environment.
+// ---------------------------------------------------------------------------
+// Avatar record loading (runs during AppState::Loading, in parallel with
+// the room fetch — both must complete before entering InGame so the local
+// player has a definitive starting pose *and* recipe).
+// ---------------------------------------------------------------------------
+
+/// In-flight `fetch_avatar_record` task for the *local* player's own
+/// avatar. Mirrors [`RoomRecordTask`]: a component attached to a throwaway
+/// entity drained by [`poll_avatar_record_task`].
+#[derive(Component)]
+struct AvatarRecordTask {
+    did: String,
+    task: bevy::tasks::Task<Result<Option<AvatarRecord>, pds::FetchError>>,
+    attempt: u32,
+}
+
+fn spawn_avatar_record_fetch(commands: &mut Commands, did: String, attempt: u32) {
+    let delay_secs = room_record_backoff_secs(attempt);
+    let pool = bevy::tasks::IoTaskPool::get();
+    let did_for_fetch = did.clone();
+    let task = pool.spawn(async move {
+        let fut = async {
+            if delay_secs > 0 {
+                #[cfg(not(target_arch = "wasm32"))]
+                tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
+            }
+            let client = config::http::default_client();
+            pds::fetch_avatar_record(&client, &did_for_fetch).await
+        };
+        #[cfg(target_arch = "wasm32")]
+        {
+            fut.await
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(fut)
+        }
+    });
+    commands.spawn(AvatarRecordTask { did, task, attempt });
+}
+
+/// Kick off the async `getRecord` fetch for the local player's avatar.
+/// Silently no-ops if the user never logged in (session absent), in which
+/// case [`check_loading_complete`] will also refuse to advance — we never
+/// reach Loading without a session in normal flow.
+fn start_avatar_record_fetch(
+    mut commands: Commands,
+    session: Option<Res<bevy_symbios_multiuser::auth::AtprotoSession>>,
+) {
+    let Some(sess) = session else {
+        warn!("start_avatar_record_fetch: no session — local avatar will not load");
+        return;
+    };
+    spawn_avatar_record_fetch(&mut commands, sess.did.clone(), 0);
+}
+
+/// Drain a finished `AvatarRecordTask`, install both the live and stored
+/// resources, and synthesise a DID-derived default on a 404. Transient
+/// failures retry with exponential backoff so a network blip cannot
+/// silently clobber the user's published avatar with the default.
+fn poll_avatar_record_task(
+    mut commands: Commands,
+    mut tasks: Query<(Entity, &mut AvatarRecordTask)>,
+    mut diagnostics: ResMut<DiagnosticsLog>,
+    time: Res<Time>,
+) {
+    for (entity, mut task) in tasks.iter_mut() {
+        let Some(result) =
+            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.task))
+        else {
+            continue;
+        };
+        let prev_attempt = task.attempt;
+        let did = task.did.clone();
+        commands.entity(entity).despawn();
+
+        let mut record = match result {
+            Ok(Some(r)) => r,
+            Ok(None) => {
+                info!("No avatar record on PDS — using DID-hashed default");
+                AvatarRecord::default_for_did(&did)
+            }
+            Err(err) => {
+                // Transient failure — retry with backoff rather than
+                // installing the default. Installing the default on a
+                // network error would let a subsequent "Publish" click
+                // silently clobber the user's real avatar.
+                let next_attempt = prev_attempt.saturating_add(1);
+                let backoff = room_record_backoff_secs(next_attempt);
+                let elapsed = time.elapsed_secs_f64();
+                diagnostics.push(
+                    elapsed,
+                    format!(
+                        "Avatar record fetch failed ({err:?}) — retrying in {backoff}s (attempt {next_attempt})"
+                    ),
+                );
+                warn!(
+                    "Avatar record fetch failed: {:?} — retrying in {}s (attempt {})",
+                    err, backoff, next_attempt
+                );
+                spawn_avatar_record_fetch(&mut commands, did, next_attempt);
+                continue;
+            }
+        };
+        record.sanitize();
+        commands.insert_resource(LiveAvatarRecord(record.clone()));
+        commands.insert_resource(StoredAvatarRecord(record));
+    }
+}
+
+/// Transition out of `Loading` only once *every* resource the first
+/// `InGame` frame relies on is present:
+///
+/// - [`terrain::FinishedHeightMap`] — collider is solid
+/// - [`RoomRecord`] — live room recipe (world builder consumes this)
+/// - [`StoredRoomRecord`] — committed snapshot used by the Revert button
+/// - [`LiveAvatarRecord`] — live avatar driving `spawn_local_player`
+/// - [`StoredAvatarRecord`] — committed snapshot used by the Revert button
+///
+/// Advancing early leaves the poll systems orphaned (they only run in
+/// `Loading`), which would strand a slower PDS round-trip and leave the
+/// owner unable to edit what was never fetched.
 fn check_loading_complete(
     finished_hm: Option<Res<terrain::FinishedHeightMap>>,
     room_record: Option<Res<RoomRecord>>,
+    stored_room: Option<Res<StoredRoomRecord>>,
+    live_avatar: Option<Res<LiveAvatarRecord>>,
+    stored_avatar: Option<Res<StoredAvatarRecord>>,
     mut next_state: ResMut<NextState<AppState>>,
 ) {
-    if finished_hm.is_some() && room_record.is_some() {
+    if finished_hm.is_some()
+        && room_record.is_some()
+        && stored_room.is_some()
+        && live_avatar.is_some()
+        && stored_avatar.is_some()
+    {
         next_state.set(AppState::InGame);
     }
 }

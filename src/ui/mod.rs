@@ -2,9 +2,8 @@
 //! environment editor.  Each submodule exposes at least one system function
 //! that `main.rs` registers under the appropriate state and schedule.
 
-pub mod airship;
+pub mod avatar;
 pub mod chat;
 pub mod diagnostics;
 pub mod login;
-pub mod physics;
 pub mod room;

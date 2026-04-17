@@ -12,7 +12,7 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 use futures_lite::future;
 use serde::Deserialize;
 
-use crate::rover::MastTip;
+use crate::player::MastTip;
 use crate::state::{AppState, RemotePeer, SocialResonance};
 
 pub struct SocialPlugin;
@@ -119,10 +119,16 @@ fn sync_social_resonance(
         if *resonance != SocialResonance::Mutual {
             continue;
         }
-        let Some(airship) = peer.airship.as_ref() else {
+        let Some(avatar) = peer.avatar.as_ref() else {
             continue;
         };
-        let [mr, mg, mb] = airship.mast_color;
+        // Only hover-rover peers carry a mast. Humanoid peers skip the
+        // mutual-glow visual entirely — they express resonance through
+        // different shader paths (TBD).
+        let crate::pds::AvatarBody::HoverRover { phenotype, .. } = &avatar.body else {
+            continue;
+        };
+        let [mr, mg, mb] = phenotype.mast_color.0;
         let intensity = crate::config::network::MUTUAL_MAST_EMISSIVE;
         let mat = materials.add(StandardMaterial {
             base_color: Color::srgb(mr, mg, mb),

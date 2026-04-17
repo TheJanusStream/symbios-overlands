@@ -1,18 +1,20 @@
 //! Shared ECS state: the `AppState` enum driving the login/loading/ingame
 //! state machine, marker components for the local player and remote peers,
 //! the per-peer transform jitter buffer, rolling chat and diagnostics logs,
-//! and the GUI-editable physics and airship parameter resources.
+//! and the live/stored avatar + room record resources backing the "Live UX"
+//! editor paradigm.
 
 use std::collections::VecDeque;
 
 use bevy::prelude::*;
 
-use crate::protocol::AirshipParams;
+use crate::pds::{AvatarRecord, RoomRecord};
 
-/// Application state machine. `Loading` waits on *both* the async heightmap
-/// generation task and the ATProto PDS room-record fetch before handing off
-/// to `InGame`, so the terrain collider is solid and the world-builder has a
-/// recipe to compile the moment the first gameplay frame runs.
+/// Application state machine. `Loading` waits on the async heightmap
+/// generation task, the ATProto PDS room-record fetch, *and* the local
+/// avatar-record fetch before handing off to `InGame`, so the terrain
+/// collider is solid and both recipes are ready when the first gameplay
+/// frame runs.
 #[derive(States, Default, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AppState {
     #[default]
@@ -33,8 +35,9 @@ pub struct RemotePeer {
     pub handle: Option<String>,
     /// When true: chat messages are ignored and the vessel is hidden.
     pub muted: bool,
-    /// Last-received vessel design from this peer (used to detect changes).
-    pub airship: Option<AirshipParams>,
+    /// Last-applied avatar record from this peer (used to detect changes and
+    /// hot-swap archetypes). `None` until the async PDS fetch completes.
+    pub avatar: Option<AvatarRecord>,
 }
 
 /// Social-graph resonance state derived from the unauthenticated ATProto
@@ -114,10 +117,11 @@ pub struct RelayHost(pub String);
 #[derive(Resource, Clone)]
 pub struct CurrentRoomDid(pub String);
 
-/// Most recent result of a "Publish to PDS" attempt from the World
-/// Editor. The UI watches this resource to render a status line beside the
-/// Apply/Publish buttons so the owner gets visual confirmation that the PDS
-/// round-trip actually succeeded instead of relying on the console log.
+/// Most recent result of a "Publish to PDS" attempt from the World or
+/// Avatar editor. The UI watches this resource to render a status line
+/// beside the Publish/Revert buttons so the owner gets visual confirmation
+/// that the PDS round-trip actually succeeded instead of relying on the
+/// console log.
 #[derive(Resource, Clone, Debug, Default)]
 pub enum PublishFeedback {
     #[default]
@@ -146,73 +150,45 @@ pub struct RoomRecordRecovery {
     pub reason: String,
 }
 
-/// Local player's runtime physics tuning parameters.
-/// Initialised from `config::rover` defaults and editable via the physics GUI.
-#[derive(Resource)]
-pub struct LocalPhysicsParams {
-    // --- Suspension ---
-    pub suspension_rest_length: f32,
-    pub suspension_stiffness: f32,
-    pub suspension_damping: f32,
-    // --- Drive ---
-    pub drive_force: f32,
-    pub turn_torque: f32,
-    pub lateral_grip: f32,
-    pub jump_force: f32,
-    pub uprighting_torque: f32,
-    // --- Chassis ---
-    pub linear_damping: f32,
-    pub angular_damping: f32,
-    pub mass: f32,
-    // --- Buoyancy (swimming) ---
-    pub water_rest_length: f32,
-    pub buoyancy_strength: f32,
-    pub buoyancy_damping: f32,
-    pub buoyancy_max_depth: f32,
-}
+/// The local player's **live** avatar record — what the editor sliders
+/// mutate in real time and what gets broadcast to peers. Diverges from
+/// `StoredAvatarRecord` until the owner presses "Publish" (or reverts).
+#[derive(Resource, Clone)]
+pub struct LiveAvatarRecord(pub AvatarRecord);
 
-impl Default for LocalPhysicsParams {
-    fn default() -> Self {
-        use crate::config::rover as cfg;
-        Self {
-            suspension_rest_length: cfg::SUSPENSION_REST_LENGTH,
-            suspension_stiffness: cfg::SUSPENSION_STIFFNESS,
-            suspension_damping: cfg::SUSPENSION_DAMPING,
-            drive_force: cfg::DRIVE_FORCE,
-            turn_torque: cfg::TURN_TORQUE,
-            lateral_grip: cfg::LATERAL_GRIP,
-            jump_force: cfg::JUMP_FORCE,
-            uprighting_torque: cfg::UPRIGHTING_TORQUE,
-            linear_damping: cfg::LINEAR_DAMPING,
-            angular_damping: cfg::ANGULAR_DAMPING,
-            mass: cfg::MASS,
-            water_rest_length: cfg::WATER_REST_LENGTH,
-            buoyancy_strength: cfg::BUOYANCY_STRENGTH,
-            buoyancy_damping: cfg::BUOYANCY_DAMPING,
-            buoyancy_max_depth: cfg::BUOYANCY_MAX_DEPTH,
-        }
-    }
-}
+/// The last known PDS-persisted avatar record. Populated by the loading
+/// fetch and replaced on a successful publish; used by the "Revert" button
+/// to restore the sliders to the committed state.
+#[derive(Resource, Clone)]
+pub struct StoredAvatarRecord(pub AvatarRecord);
 
-/// Local player's current airship construction / material parameters.
-/// Edited via the airship GUI and broadcast inside every Identity message.
-/// Set `needs_rebuild = true` after changing `params` to trigger a mesh rebuild.
+/// The last known PDS-persisted room record. The live `RoomRecord`
+/// resource is mutated immediately by the world editor; this one stays
+/// pinned to the committed state so "Revert" can undo uncommitted edits.
+///
+/// The room editor currently keeps its own `pending_record` clone and
+/// compares against the live `RoomRecord` for revert, so this resource is
+/// not yet read anywhere — it is installed during `Loading` so the
+/// `check_loading_complete` gate can wait on a definitive committed copy
+/// before entering `InGame`, and kept as a hook for the upcoming Live-UX
+/// room editor pass.
+#[derive(Resource, Clone)]
+#[allow(dead_code)]
+pub struct StoredRoomRecord(pub RoomRecord);
+
+/// Local-only UX preferences that are *not* stored on the PDS (they
+/// describe how this client renders the world, not the world itself).
 #[derive(Resource)]
-pub struct LocalAirshipParams {
-    pub params: AirshipParams,
-    /// Signals `rebuild_local_rover` to regenerate the visual children this frame.
-    pub needs_rebuild: bool,
+pub struct LocalSettings {
     /// When true, remote peer transforms are smoothed with a Hermite spline
     /// applied to a delayed jitter buffer.  When false, peers snap to the
     /// latest received packet (useful for debugging raw network latency).
     pub smooth_kinematics: bool,
 }
 
-impl Default for LocalAirshipParams {
+impl Default for LocalSettings {
     fn default() -> Self {
         Self {
-            params: AirshipParams::default(),
-            needs_rebuild: false,
             smooth_kinematics: true,
         }
     }

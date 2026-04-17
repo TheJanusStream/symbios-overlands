@@ -12,7 +12,7 @@ use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde::Deserialize;
 
-use crate::rover::RoverSail;
+use crate::player::RoverSail;
 use crate::state::{AppState, LocalPlayer, RemotePeer};
 
 pub struct AvatarPlugin;
