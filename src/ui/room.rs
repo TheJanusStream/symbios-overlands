@@ -1,13 +1,21 @@
 //! Sovereign room editor — tabbed Master/Detail view.
 //!
 //! Rendered only when `session.did == current_room.0` (the signed-in user
-//! owns the room they are visiting). The editor keeps an in-flight
-//! `pending_record` clone so the owner can stage changes across frames
-//! without clobbering the live `ResMut<RoomRecord>` that `world_builder`
-//! recompiles from; hitting "Apply Local Preview" commits the pending
-//! record into the resource, broadcasts a `RoomStateUpdate` to guests, and
-//! (when "Publish to PDS" is used) pushes it to the owner's PDS via
-//! `com.atproto.repo.putRecord`.
+//! owns the room they are visiting). Follows the same **Live UX** paradigm
+//! as the avatar editor: every widget mutates the live `ResMut<RoomRecord>`
+//! in place, so the world recompiles and remote peers mirror the edit the
+//! same frame the slider moves — the peer broadcast is driven by the
+//! `network::broadcast_room_state` system watching `Res::is_changed`. Three
+//! explicit buttons drive persistence and discard flows:
+//!
+//! - **Publish to PDS** pushes the current `RoomRecord` to the owner's PDS
+//!   via `com.atproto.repo.putRecord` and syncs the value into
+//!   [`StoredRoomRecord`] on success.
+//! - **Load from PDS** drops all in-flight edits by copying
+//!   [`StoredRoomRecord`] back into the live `RoomRecord`.
+//! - **Reset to default** replaces `RoomRecord` with the canonical
+//!   `RoomRecord::default_for_did` seed — useful after a botched edit or
+//!   when starting from scratch.
 //!
 //! The editor is intentionally forgiving: any field it doesn't yet expose
 //! as a widget still round-trips via the Raw JSON tab, so L-system code,
@@ -17,7 +25,6 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
-use bevy_symbios_multiuser::prelude::*;
 
 use crate::pds::{
     self, Environment, Fp, Fp2, Fp3, Fp4, Fp64, Generator, Placement, PropMeshType, RoomRecord,
@@ -26,8 +33,7 @@ use crate::pds::{
     SovereignSplatRule, SovereignTerrainConfig, SovereignTextureType, SovereignTwigConfig,
     TransformData,
 };
-use crate::protocol::OverlandsMessage;
-use crate::state::{CurrentRoomDid, PublishFeedback, RoomRecordRecovery};
+use crate::state::{CurrentRoomDid, PublishFeedback, RoomRecordRecovery, StoredRoomRecord};
 
 /// Async task for publishing the room record to the owner's PDS.
 #[derive(Component)]
@@ -51,20 +57,15 @@ enum EditorTab {
 /// Persistent editor state kept across frames.
 #[derive(Default)]
 pub struct RoomEditorState {
-    /// True after `pending_record` has been initialised from the live
-    /// `RoomRecord` resource. Prevents stomping in-flight edits on every
-    /// frame.
-    initialised: bool,
-    /// Clone of the live record that absorbs widget changes. Only written
-    /// back to `ResMut<RoomRecord>` when the owner hits Apply.
-    pending_record: Option<RoomRecord>,
     selected_tab: EditorTab,
     selected_generator: Option<String>,
     selected_placement: Option<usize>,
     raw_text: String,
+    raw_text_initialised: bool,
     raw_error: Option<String>,
-    /// True once the user has changed the pending record relative to the
-    /// live one — drives the colour of the Apply/Publish buttons.
+    /// True once a widget mutates the live record relative to the last
+    /// committed / loaded / reset state — drives the Publish button
+    /// colouring.
     is_dirty: bool,
 }
 
@@ -75,8 +76,8 @@ pub fn room_admin_ui(
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
     mut room_record: Option<ResMut<RoomRecord>>,
+    stored: Option<Res<StoredRoomRecord>>,
     recovery: Option<Res<RoomRecordRecovery>>,
-    mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
     mut editor: Local<RoomEditorState>,
     mut publish_feedback: ResMut<PublishFeedback>,
     time: Res<Time>,
@@ -91,11 +92,10 @@ pub fn room_admin_ui(
         return;
     }
 
-    if !editor.initialised {
-        editor.pending_record = Some(record.as_ref().clone());
+    if !editor.raw_text_initialised {
         editor.raw_text = serde_json::to_string_pretty(record.as_ref())
             .unwrap_or_else(|e| format!("// serialize error: {}", e));
-        editor.initialised = true;
+        editor.raw_text_initialised = true;
     }
 
     // Destructure the Local into independent field borrows so the
@@ -103,7 +103,6 @@ pub fn room_admin_ui(
     // closure each touch *disjoint* subsets of the editor state. Without
     // this, re-borrowing `editor` inside nested egui closures trips E0499.
     let RoomEditorState {
-        pending_record,
         selected_tab,
         selected_generator,
         selected_placement,
@@ -115,163 +114,217 @@ pub fn room_admin_ui(
 
     let ctx = contexts.ctx_mut().unwrap();
 
-    egui::Window::new("World Editor")
-        .collapsible(true)
-        .resizable(true)
-        .default_width(560.0)
-        .default_height(620.0)
-        .default_pos([10.0, 220.0])
-        .show(ctx, |ui| {
-            // Recovery banner — shown when the stored PDS record failed to
-            // decode and we're running on the synthesised default. Offers a
-            // one-click "Reset PDS to default" so the owner can deliberately
-            // overwrite the incompatible record instead of being stuck.
-            if let Some(rec) = recovery.as_deref() {
-                let banner = egui::Frame::new()
-                    .fill(egui::Color32::from_rgb(90, 30, 30))
-                    .inner_margin(6.0)
-                    .corner_radius(4.0);
-                banner.show(ui, |ui| {
-                    ui.colored_label(
-                        egui::Color32::WHITE,
-                        "⚠ Stored room record is incompatible with this build.",
-                    );
-                    ui.label(format!("Decode error: {}", rec.reason));
-                    ui.label(
-                        "You are currently editing the default homeworld. Click below to \
-                         overwrite the stored record on your PDS with this default so the \
-                         next login loads cleanly.",
-                    );
-                    if ui.button("Reset PDS to default").clicked() {
-                        let default_record = pds::RoomRecord::default_for_did(&room_did.0);
-                        **record = default_record.clone();
-                        if let Some(p) = pending_record.as_mut() {
-                            *p = default_record.clone();
+    // `ResMut::deref_mut` unconditionally flips the change tick, so any
+    // `&mut record.field` access taken while the window is open would mark
+    // the resource as changed every frame — which in turn spams peers with
+    // `RoomStateUpdate` broadcasts even when nothing was actually edited.
+    // Route all UI access through `bypass_change_detection` and call
+    // `record.set_changed()` explicitly at the bottom only when a widget or
+    // Load/Reset click actually mutated the record.
+    let mut widget_change = false;
+    let mut needs_broadcast = false;
+
+    {
+        let record_mut: &mut RoomRecord = record.bypass_change_detection();
+
+        egui::Window::new("World Editor")
+            .collapsible(true)
+            .resizable(true)
+            .default_width(560.0)
+            .default_height(620.0)
+            .default_pos([10.0, 220.0])
+            .show(ctx, |ui| {
+                // Recovery banner — shown when the stored PDS record failed
+                // to decode and we're running on the synthesised default.
+                // Offers a one-click "Reset PDS to default" so the owner can
+                // deliberately overwrite the incompatible record instead of
+                // being stuck.
+                if let Some(rec) = recovery.as_deref() {
+                    let banner = egui::Frame::new()
+                        .fill(egui::Color32::from_rgb(90, 30, 30))
+                        .inner_margin(6.0)
+                        .corner_radius(4.0);
+                    banner.show(ui, |ui| {
+                        ui.colored_label(
+                            egui::Color32::WHITE,
+                            "⚠ Stored room record is incompatible with this build.",
+                        );
+                        ui.label(format!("Decode error: {}", rec.reason));
+                        ui.label(
+                            "You are currently editing the default homeworld. Click below \
+                             to overwrite the stored record on your PDS with this default \
+                             so the next login loads cleanly.",
+                        );
+                        if ui.button("Reset PDS to default").clicked() {
+                            let default_record = pds::RoomRecord::default_for_did(&room_did.0);
+                            *record_mut = default_record.clone();
+                            *raw_text = serde_json::to_string_pretty(&default_record)
+                                .unwrap_or_default();
+                            *raw_error = None;
+                            *is_dirty = false;
+                            needs_broadcast = true;
+                            // Use the delete-then-put reset path. The vanilla
+                            // putRecord upsert can return 500 when the stored
+                            // record is incompatible with the current lexicon;
+                            // hard-deleting first sidesteps that failure mode.
+                            spawn_reset_task(&mut commands, &session, default_record);
+                            commands.remove_resource::<RoomRecordRecovery>();
                         }
+                    });
+                    ui.add_space(6.0);
+                }
+
+                // Tab bar
+                ui.horizontal(|ui| {
+                    let tabs = [
+                        (EditorTab::Environment, "Environment"),
+                        (EditorTab::Generators, "Generators"),
+                        (EditorTab::Placements, "Placements"),
+                        (EditorTab::Raw, "Raw JSON"),
+                    ];
+                    for (tab, label) in tabs {
+                        if ui.selectable_label(*selected_tab == tab, label).clicked() {
+                            // Refresh the JSON text when the user arrives at
+                            // the Raw tab so it reflects any edits made in
+                            // the other tabs since the last time it was
+                            // viewed.
+                            if tab == EditorTab::Raw && *selected_tab != EditorTab::Raw {
+                                *raw_text = serde_json::to_string_pretty(&*record_mut)
+                                    .unwrap_or_default();
+                                *raw_error = None;
+                            }
+                            *selected_tab = tab;
+                        }
+                    }
+                });
+                ui.separator();
+
+                egui::ScrollArea::vertical()
+                    .max_height(460.0)
+                    .show(ui, |ui| match *selected_tab {
+                        EditorTab::Environment => {
+                            draw_environment_tab(
+                                ui,
+                                &mut record_mut.environment,
+                                &mut widget_change,
+                            );
+                        }
+                        EditorTab::Generators => {
+                            draw_generators_tab(
+                                ui,
+                                record_mut,
+                                selected_generator,
+                                &mut widget_change,
+                            );
+                        }
+                        EditorTab::Placements => {
+                            draw_placements_tab(
+                                ui,
+                                record_mut,
+                                selected_placement,
+                                &mut widget_change,
+                            );
+                        }
+                        EditorTab::Raw => {
+                            draw_raw_tab(
+                                ui,
+                                raw_text,
+                                raw_error,
+                                record_mut,
+                                &mut widget_change,
+                            );
+                        }
+                    });
+
+                ui.separator();
+
+                // Publish / Load from PDS / Reset to default
+                ui.horizontal(|ui| {
+                    let publish_button = egui::Button::new(
+                        egui::RichText::new("Publish to PDS").color(if *is_dirty {
+                            egui::Color32::LIGHT_GREEN
+                        } else {
+                            egui::Color32::GRAY
+                        }),
+                    );
+                    if ui.add_enabled(*is_dirty, publish_button).clicked() {
+                        let new_record = record_mut.clone();
+                        *is_dirty = false;
+                        *publish_feedback = PublishFeedback::Publishing;
+                        spawn_publish_task(&mut commands, &session, new_record);
+                    }
+
+                    let can_load = stored.is_some() && *is_dirty;
+                    if ui
+                        .add_enabled(can_load, egui::Button::new("Load from PDS"))
+                        .clicked()
+                        && let Some(stored) = stored.as_ref()
+                    {
+                        *record_mut = stored.0.clone();
                         *raw_text =
-                            serde_json::to_string_pretty(&default_record).unwrap_or_default();
+                            serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
                         *raw_error = None;
                         *is_dirty = false;
-                        writer.write(Broadcast {
-                            payload: OverlandsMessage::room_state_update(&default_record),
-                            channel: ChannelKind::Reliable,
-                        });
-                        // Use the delete-then-put reset path. The vanilla
-                        // putRecord upsert can return 500 when the stored
-                        // record is incompatible with the current lexicon;
-                        // hard-deleting first sidesteps that failure mode.
-                        spawn_reset_task(&mut commands, &session, default_record);
-                        commands.remove_resource::<RoomRecordRecovery>();
+                        *selected_generator = None;
+                        *selected_placement = None;
+                        needs_broadcast = true;
                     }
-                });
-                ui.add_space(6.0);
-            }
 
-            // Tab bar
-            ui.horizontal(|ui| {
-                let tabs = [
-                    (EditorTab::Environment, "Environment"),
-                    (EditorTab::Generators, "Generators"),
-                    (EditorTab::Placements, "Placements"),
-                    (EditorTab::Raw, "Raw JSON"),
-                ];
-                for (tab, label) in tabs {
-                    if ui.selectable_label(*selected_tab == tab, label).clicked() {
-                        *selected_tab = tab;
-                    }
-                }
-            });
-            ui.separator();
-
-            // Tab body — bail if pending_record somehow got dropped
-            let Some(pending) = pending_record.as_mut() else {
-                ui.label("No pending record loaded.");
-                return;
-            };
-
-            egui::ScrollArea::vertical()
-                .max_height(460.0)
-                .show(ui, |ui| match *selected_tab {
-                    EditorTab::Environment => {
-                        draw_environment_tab(ui, &mut pending.environment, is_dirty);
-                    }
-                    EditorTab::Generators => {
-                        draw_generators_tab(ui, pending, selected_generator, is_dirty);
-                    }
-                    EditorTab::Placements => {
-                        draw_placements_tab(ui, pending, selected_placement, is_dirty);
-                    }
-                    EditorTab::Raw => {
-                        draw_raw_tab(ui, raw_text, raw_error, pending, is_dirty);
+                    if ui.button("Reset to default").clicked() {
+                        *record_mut = pds::RoomRecord::default_for_did(&room_did.0);
+                        *raw_text =
+                            serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
+                        *raw_error = None;
+                        *is_dirty = stored
+                            .as_ref()
+                            .map(|s| {
+                                serde_json::to_value(&s.0).ok()
+                                    != serde_json::to_value(&*record_mut).ok()
+                            })
+                            .unwrap_or(true);
+                        *selected_generator = None;
+                        *selected_placement = None;
+                        needs_broadcast = true;
                     }
                 });
 
-            ui.separator();
-
-            // Commit row
-            ui.horizontal(|ui| {
-                let apply = ui.add_enabled(*is_dirty, egui::Button::new("Apply Local Preview"));
-                if apply.clicked() {
-                    let new_record = pending.clone();
-                    **record = new_record.clone();
-                    writer.write(Broadcast {
-                        payload: OverlandsMessage::room_state_update(&new_record),
-                        channel: ChannelKind::Reliable,
-                    });
-                    *is_dirty = false;
-                    *raw_text = serde_json::to_string_pretty(record.as_ref()).unwrap_or_default();
-                    *raw_error = None;
-                }
-
-                if ui.button("Publish to PDS").clicked() {
-                    let new_record = pending.clone();
-                    **record = new_record.clone();
-                    writer.write(Broadcast {
-                        payload: OverlandsMessage::room_state_update(&new_record),
-                        channel: ChannelKind::Reliable,
-                    });
-                    *is_dirty = false;
-                    *publish_feedback = PublishFeedback::Publishing;
-                    spawn_publish_task(&mut commands, &session, new_record);
-                }
-
-                if ui.button("Revert").clicked() {
-                    *pending = record.as_ref().clone();
-                    *raw_text = serde_json::to_string_pretty(record.as_ref()).unwrap_or_default();
-                    *raw_error = None;
-                    *is_dirty = false;
-                    *selected_generator = None;
-                    *selected_placement = None;
+                // Publish status indicator. `Idle` stays silent; other states
+                // render a coloured one-liner so the owner knows whether the
+                // PDS round-trip actually landed without having to tail the
+                // console.
+                match publish_feedback.as_ref() {
+                    PublishFeedback::Idle => {}
+                    PublishFeedback::Publishing => {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(220, 200, 80),
+                            "⟳ Publishing to PDS…",
+                        );
+                    }
+                    PublishFeedback::Success { at_secs } => {
+                        let ago = (time.elapsed_secs_f64() - at_secs).max(0.0);
+                        ui.colored_label(
+                            egui::Color32::from_rgb(80, 200, 120),
+                            format!("✓ Published to PDS ({:.0}s ago)", ago),
+                        );
+                    }
+                    PublishFeedback::Failed { at_secs, message } => {
+                        let ago = (time.elapsed_secs_f64() - at_secs).max(0.0);
+                        ui.colored_label(
+                            egui::Color32::from_rgb(220, 90, 90),
+                            format!("✗ Publish failed ({:.0}s ago): {}", ago, message),
+                        );
+                    }
                 }
             });
+    }
 
-            // Publish status indicator. `Idle` stays silent; other states
-            // render a coloured one-liner so the owner knows whether the PDS
-            // round-trip actually landed without having to tail the console.
-            match publish_feedback.as_ref() {
-                PublishFeedback::Idle => {}
-                PublishFeedback::Publishing => {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(220, 200, 80),
-                        "⟳ Publishing to PDS…",
-                    );
-                }
-                PublishFeedback::Success { at_secs } => {
-                    let ago = (time.elapsed_secs_f64() - at_secs).max(0.0);
-                    ui.colored_label(
-                        egui::Color32::from_rgb(80, 200, 120),
-                        format!("✓ Published to PDS ({:.0}s ago)", ago),
-                    );
-                }
-                PublishFeedback::Failed { at_secs, message } => {
-                    let ago = (time.elapsed_secs_f64() - at_secs).max(0.0);
-                    ui.colored_label(
-                        egui::Color32::from_rgb(220, 90, 90),
-                        format!("✗ Publish failed ({:.0}s ago): {}", ago, message),
-                    );
-                }
-            }
-        });
+    if widget_change {
+        *is_dirty = true;
+        needs_broadcast = true;
+    }
+    if needs_broadcast {
+        record.set_changed();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1526,11 +1579,16 @@ fn spawn_reset_task(commands: &mut Commands, session: &AtprotoSession, record: R
     commands.spawn(ResetRoomTask(task));
 }
 
-/// Poll outstanding publish and reset tasks and log results.
+/// Poll outstanding publish and reset tasks and log results. On success,
+/// pin `StoredRoomRecord` to the live `RoomRecord` so subsequent "Load from
+/// PDS" presses restore the now-committed state and the dirty indicator
+/// resets.
 pub fn poll_publish_tasks(
     mut commands: Commands,
     mut publish_tasks: Query<(Entity, &mut PublishRoomTask)>,
     mut reset_tasks: Query<(Entity, &mut ResetRoomTask)>,
+    live: Option<Res<RoomRecord>>,
+    mut stored: Option<ResMut<StoredRoomRecord>>,
     mut publish_feedback: ResMut<PublishFeedback>,
     time: Res<Time>,
 ) {
@@ -1546,6 +1604,9 @@ pub fn poll_publish_tasks(
         match result {
             Ok(()) => {
                 info!("Room record saved to PDS");
+                if let (Some(live), Some(stored)) = (live.as_ref(), stored.as_mut()) {
+                    stored.0 = live.as_ref().clone();
+                }
                 *publish_feedback = PublishFeedback::Success { at_secs: now };
             }
             Err(e) => {
@@ -1569,6 +1630,9 @@ pub fn poll_publish_tasks(
         match result {
             Ok(()) => {
                 info!("Room record reset on PDS (delete + put)");
+                if let (Some(live), Some(stored)) = (live.as_ref(), stored.as_mut()) {
+                    stored.0 = live.as_ref().clone();
+                }
                 *publish_feedback = PublishFeedback::Success { at_secs: now };
             }
             Err(e) => {

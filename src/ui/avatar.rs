@@ -5,14 +5,17 @@
 //! [`LiveAvatarRecord`] in place. The hot-swap system in `player.rs`
 //! rebuilds the local visuals the same frame the resource changes, and
 //! `network::broadcast_avatar_state` pushes a preview update to peers so
-//! they see the edit before the author commits. Two explicit buttons drive
-//! PDS persistence:
+//! they see the edit before the author commits. Three explicit buttons drive
+//! persistence and discard flows:
 //!
-//! - **Publish** writes the current `LiveAvatarRecord` to the owner's PDS
-//!   via `com.atproto.repo.putRecord` and then syncs the value into
-//!   [`StoredAvatarRecord`] on success.
-//! - **Revert** drops all in-flight edits by copying `StoredAvatarRecord`
-//!   back into `LiveAvatarRecord`.
+//! - **Publish to PDS** writes the current `LiveAvatarRecord` to the
+//!   owner's PDS via `com.atproto.repo.putRecord` and then syncs the value
+//!   into [`StoredAvatarRecord`] on success.
+//! - **Load from PDS** drops all in-flight edits by copying
+//!   [`StoredAvatarRecord`] back into `LiveAvatarRecord`.
+//! - **Reset to default** replaces `LiveAvatarRecord` with the canonical
+//!   `AvatarRecord::default_for_did` seed — useful after a botched edit
+//!   session or as a blank slate for re-tuning.
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
@@ -118,13 +121,8 @@ pub fn avatar_ui(
 
             ui.separator();
 
-            // --- Publish / Revert --------------------------------------
-            let (is_dirty, can_revert) = if let Some(stored) = &stored {
-                let dirty = stored.0 != live.0;
-                (dirty, dirty)
-            } else {
-                (false, false)
-            };
+            // --- Publish / Load from PDS / Reset to default ------------
+            let is_dirty = stored.as_ref().is_some_and(|s| s.0 != live.0);
 
             ui.horizontal(|ui| {
                 let publish_button = egui::Button::new(
@@ -147,11 +145,28 @@ pub fn avatar_ui(
                 }
 
                 if ui
-                    .add_enabled(can_revert, egui::Button::new("Revert"))
+                    .add_enabled(is_dirty, egui::Button::new("Load from PDS"))
                     .clicked()
                     && let Some(stored) = &stored
                 {
                     live.0 = stored.0.clone();
+                }
+
+                // Reset requires a session because the canonical default
+                // seeds itself off the signed-in DID — skipping the button
+                // when signed out keeps the reset path deterministic.
+                let default_record = session
+                    .as_ref()
+                    .map(|s| AvatarRecord::default_for_did(&s.did));
+                let reset_enabled = default_record
+                    .as_ref()
+                    .is_some_and(|d| *d != live.0);
+                if ui
+                    .add_enabled(reset_enabled, egui::Button::new("Reset to default"))
+                    .clicked()
+                    && let Some(default_record) = default_record
+                {
+                    live.0 = default_record;
                 }
             });
 
@@ -406,7 +421,7 @@ fn spawn_publish_avatar_task(
 }
 
 /// Poll outstanding avatar publish tasks. On success, sync `LiveAvatarRecord`
-/// into `StoredAvatarRecord` so the "Revert" button is disabled until the
+/// into `StoredAvatarRecord` so the "Load from PDS" button is disabled until the
 /// next edit.
 pub fn poll_publish_avatar_tasks(
     mut commands: Commands,

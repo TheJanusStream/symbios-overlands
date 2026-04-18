@@ -411,9 +411,9 @@ fn poll_room_record_task(
             record.placements.len()
         );
         // Install both the live resource (mutated by the world editor) and
-        // the stored snapshot (consulted by "Revert" to undo uncommitted
-        // edits). The two start identical — any divergence is authored by
-        // the owner.
+        // the stored snapshot (consulted by "Load from PDS" to undo
+        // uncommitted edits). The two start identical — any divergence is
+        // authored by the owner.
         commands.insert_resource(StoredRoomRecord(record.clone()));
         commands.insert_resource(record);
     }
@@ -552,9 +552,9 @@ fn poll_avatar_record_task(
 ///
 /// - [`terrain::FinishedHeightMap`] — collider is solid
 /// - [`RoomRecord`] — live room recipe (world builder consumes this)
-/// - [`StoredRoomRecord`] — committed snapshot used by the Revert button
+/// - [`StoredRoomRecord`] — committed snapshot used by the Load-from-PDS button
 /// - [`LiveAvatarRecord`] — live avatar driving `spawn_local_player`
-/// - [`StoredAvatarRecord`] — committed snapshot used by the Revert button
+/// - [`StoredAvatarRecord`] — committed snapshot used by the Load-from-PDS button
 ///
 /// Advancing early leaves the poll systems orphaned (they only run in
 /// `Loading`), which would strand a slower PDS round-trip and leave the

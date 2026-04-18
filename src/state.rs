@@ -119,7 +119,7 @@ pub struct CurrentRoomDid(pub String);
 
 /// Most recent result of a "Publish to PDS" attempt from the World or
 /// Avatar editor. The UI watches this resource to render a status line
-/// beside the Publish/Revert buttons so the owner gets visual confirmation
+/// beside the Publish/Load/Reset buttons so the owner gets visual confirmation
 /// that the PDS round-trip actually succeeded instead of relying on the
 /// console log.
 #[derive(Resource, Clone, Debug, Default)]
@@ -157,23 +157,17 @@ pub struct RoomRecordRecovery {
 pub struct LiveAvatarRecord(pub AvatarRecord);
 
 /// The last known PDS-persisted avatar record. Populated by the loading
-/// fetch and replaced on a successful publish; used by the "Revert" button
+/// fetch and replaced on a successful publish; used by the "Load from PDS" button
 /// to restore the sliders to the committed state.
 #[derive(Resource, Clone)]
 pub struct StoredAvatarRecord(pub AvatarRecord);
 
 /// The last known PDS-persisted room record. The live `RoomRecord`
 /// resource is mutated immediately by the world editor; this one stays
-/// pinned to the committed state so "Revert" can undo uncommitted edits.
-///
-/// The room editor currently keeps its own `pending_record` clone and
-/// compares against the live `RoomRecord` for revert, so this resource is
-/// not yet read anywhere — it is installed during `Loading` so the
-/// `check_loading_complete` gate can wait on a definitive committed copy
-/// before entering `InGame`, and kept as a hook for the upcoming Live-UX
-/// room editor pass.
+/// pinned to the committed state so "Load from PDS" can discard
+/// uncommitted edits and the Publish button's dirty indicator has a
+/// reference point to diff against.
 #[derive(Resource, Clone)]
-#[allow(dead_code)]
 pub struct StoredRoomRecord(pub RoomRecord);
 
 /// Local-only UX preferences that are *not* stored on the PDS (they

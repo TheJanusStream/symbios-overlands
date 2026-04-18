@@ -58,12 +58,13 @@ impl Plugin for NetworkPlugin {
                 FixedUpdate,
                 broadcast_local_state.run_if(in_state(AppState::InGame)),
             )
-            // Live-preview avatar updates piggyback on `Update` so they
-            // fire the frame an editor slider changes the resource, rather
-            // than waiting for the next FixedUpdate tick.
+            // Live-preview avatar and room updates piggyback on `Update` so
+            // they fire the frame an editor slider changes the resource,
+            // rather than waiting for the next FixedUpdate tick.
             .add_systems(
                 Update,
-                broadcast_avatar_state.run_if(in_state(AppState::InGame)),
+                (broadcast_avatar_state, broadcast_room_state)
+                    .run_if(in_state(AppState::InGame)),
             );
     }
 }
@@ -596,6 +597,32 @@ fn broadcast_avatar_state(
     }
     writer.write(Broadcast {
         payload: OverlandsMessage::avatar_state_update(&live.0),
+        channel: ChannelKind::Reliable,
+    });
+}
+
+/// Broadcast a live-preview `RoomStateUpdate` whenever the owner mutates
+/// the `RoomRecord` resource so guests mirror the edit the same frame the
+/// slider moves. The `session.did == room_did.0` gate ensures guests
+/// (whose `RoomRecord` is also rewritten by inbound `RoomStateUpdate`
+/// handling) do not echo the owner's broadcast back to the relay.
+fn broadcast_room_state(
+    record: Option<Res<RoomRecord>>,
+    session: Option<Res<AtprotoSession>>,
+    room_did: Option<Res<CurrentRoomDid>>,
+    mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
+) {
+    let (Some(record), Some(session), Some(room_did)) = (record, session, room_did) else {
+        return;
+    };
+    if session.did != room_did.0 {
+        return;
+    }
+    if !record.is_changed() {
+        return;
+    }
+    writer.write(Broadcast {
+        payload: OverlandsMessage::room_state_update(&record),
         channel: ChannelKind::Reliable,
     });
 }
