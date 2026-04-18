@@ -63,8 +63,7 @@ impl Plugin for NetworkPlugin {
             // rather than waiting for the next FixedUpdate tick.
             .add_systems(
                 Update,
-                (broadcast_avatar_state, broadcast_room_state)
-                    .run_if(in_state(AppState::InGame)),
+                (broadcast_avatar_state, broadcast_room_state).run_if(in_state(AppState::InGame)),
             );
     }
 }

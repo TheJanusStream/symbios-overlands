@@ -212,10 +212,18 @@ fn setup_prop_assets(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
 }
 
 /// Walks the active `RoomRecord` and produces ECS entities for every
-/// placement. Re-runs automatically whenever the record resource is marked
-/// changed; the first frame inside `AppState::InGame` counts as a change
-/// because the resource was just inserted during Loading, which performs
-/// the initial compilation for free.
+/// placement. Re-runs whenever the record resource is marked changed *or*
+/// `FinishedHeightMap` is inserted/modified. The first frame inside
+/// `AppState::InGame` counts as a change because the resource was just
+/// inserted during Loading, which performs the initial compilation for free.
+///
+/// The heightmap trigger matters for scatter placements: when the owner
+/// edits terrain config, `maybe_regenerate_terrain` tears down the old
+/// heightmap and kicks off async regen in the same frame that
+/// `record.is_changed()` fires. The initial rebuild scatters against the
+/// stale heightmap; when the new one lands via `poll_terrain_task` the
+/// record itself hasn't changed again, so without this second trigger
+/// scatter y-positions would stay locked to the old ground.
 #[allow(clippy::too_many_arguments)]
 fn compile_room_record(
     mut commands: Commands,
@@ -236,7 +244,8 @@ fn compile_room_record(
     let Some(record) = record else {
         return;
     };
-    if !record.is_changed() {
+    let heightmap_changed = heightmap.as_ref().is_some_and(|h| h.is_changed());
+    if !record.is_changed() && !heightmap_changed {
         return;
     }
 

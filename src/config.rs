@@ -449,4 +449,20 @@ pub mod ui {
         pub const WINDOW_DEFAULT_WIDTH: f32 = 320.0;
         pub const WINDOW_DEFAULT_POS: [f32; 2] = [310.0, 10.0];
     }
+
+    pub mod editor {
+        /// Seconds of slider-idle time before the world / avatar editor
+        /// flushes a pending edit into its `ResMut` change tick.
+        ///
+        /// Dragging an egui slider fires `changed()` every frame, which
+        /// without debounce cascades into a per-frame terrain regen, room
+        /// rebuild, and peer `RoomStateUpdate` / `AvatarStateUpdate`
+        /// broadcast. Those rebuilds tear down in-flight foliage /
+        /// splat-texture entities mid-generation, and the external
+        /// `bevy_symbios_texture::poll_texture_tasks` panics when it tries
+        /// to attach `TextureReady` to a despawned entity. Batching
+        /// consecutive widget changes here drops the churn from ~60 Hz to
+        /// ~4 Hz while staying imperceptible to the editor.
+        pub const MENU_DEBOUNCE_SECS: f32 = 0.25;
+    }
 }

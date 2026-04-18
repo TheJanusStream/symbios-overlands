@@ -32,6 +32,20 @@ use crate::state::{LiveAvatarRecord, LocalSettings, PublishFeedback, StoredAvata
 #[derive(Component)]
 pub struct PublishAvatarTask(pub bevy::tasks::Task<Result<(), String>>);
 
+/// Persistent avatar-editor state across frames. Holds the debounce timer
+/// that throttles slider-driven mutations into `LiveAvatarRecord`'s change
+/// tick.
+#[derive(Default)]
+pub struct AvatarEditorState {
+    /// Seconds remaining before a pending widget change is flushed into
+    /// `LiveAvatarRecord`'s change tick. Every match-arm `&mut live.0.body`
+    /// flip or slider drag resets this to `MENU_DEBOUNCE_SECS`; the
+    /// downstream `player.rs` visual rebuild and
+    /// `network::broadcast_avatar_state` peer broadcast fire once when
+    /// the timer drains rather than every frame.
+    pending_flush_secs: f32,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn avatar_ui(
     mut contexts: EguiContexts,
@@ -41,152 +55,189 @@ pub fn avatar_ui(
     mut settings: ResMut<LocalSettings>,
     session: Option<Res<AtprotoSession>>,
     mut feedback: ResMut<PublishFeedback>,
+    mut editor: Local<AvatarEditorState>,
+    time: Res<Time>,
 ) {
     use crate::config::ui::airship as cfg;
 
-    egui::Window::new("Avatar")
-        .default_open(false)
-        .default_pos(cfg::WINDOW_DEFAULT_POS)
-        .default_width(cfg::WINDOW_DEFAULT_WIDTH)
-        .resizable(true)
-        .collapsible(true)
-        .show(contexts.ctx_mut().unwrap(), |ui| {
-            // --- Body variant selector ---------------------------------
-            let current_kind = live.0.body.kind_tag();
-            ui.horizontal(|ui| {
-                ui.label("Body:");
-                if ui
-                    .selectable_label(current_kind == "hover_rover", "Hover-Rover")
-                    .clicked()
-                    && current_kind != "hover_rover"
-                {
-                    live.0.body = AvatarBody::HoverRover {
-                        phenotype: RoverPhenotype::default(),
-                        kinematics: RoverKinematics::default(),
-                    };
-                }
-                if ui
-                    .selectable_label(current_kind == "humanoid", "Humanoid")
-                    .clicked()
-                    && current_kind != "humanoid"
-                {
-                    live.0.body = AvatarBody::Humanoid {
-                        phenotype: HumanoidPhenotype::default(),
-                        kinematics: HumanoidKinematics::default(),
-                    };
-                }
-            });
+    // `ResMut::deref_mut` unconditionally flips the change tick, so
+    // `match &mut live.0.body` inside the egui closure would otherwise
+    // mark the resource changed every frame the editor is visible — and
+    // `network::broadcast_avatar_state` turns that into a peer broadcast
+    // storm. Route UI access through `bypass_change_detection` and call
+    // `live.set_changed()` explicitly below, only after the debounce
+    // timer drains.
+    let mut widget_changed = false;
+    {
+        let live_mut = live.bypass_change_detection();
+        // Clone-compare detects every widget-driven mutation (sliders,
+        // body variant flips, Load/Reset button writes) without threading
+        // a `&mut bool` through every panel helper. `AvatarRecord` is a
+        // small POD struct of phenotype + kinematics scalars, so the
+        // per-frame clone is cheap.
+        let before = live_mut.0.clone();
 
-            ui.separator();
-
-            match &mut live.0.body {
-                AvatarBody::HoverRover {
-                    phenotype,
-                    kinematics,
-                } => {
-                    rover_panel(ui, phenotype, kinematics);
-                }
-                AvatarBody::Humanoid {
-                    phenotype,
-                    kinematics,
-                } => {
-                    humanoid_panel(ui, phenotype, kinematics);
-                }
-                AvatarBody::Unknown => {
-                    ui.colored_label(
-                        egui::Color32::ORANGE,
-                        "This avatar was authored against a newer schema — pick a body type above to replace it.",
-                    );
-                }
-            }
-
-            ui.separator();
-
-            // --- Networking (local-only, not broadcast) ----------------
-            egui::CollapsingHeader::new("Networking")
-                .default_open(false)
-                .show(ui, |ui| {
-                    ui.checkbox(
-                        &mut settings.smooth_kinematics,
-                        "Smooth remote peers (Hermite spline + 100 ms buffer)",
-                    );
-                    ui.label(
-                        egui::RichText::new(
-                            "Uncheck to snap to the latest packet and expose raw jitter.",
-                        )
-                        .small()
-                        .weak(),
-                    );
+        egui::Window::new("Avatar")
+            .default_open(false)
+            .default_pos(cfg::WINDOW_DEFAULT_POS)
+            .default_width(cfg::WINDOW_DEFAULT_WIDTH)
+            .resizable(true)
+            .collapsible(true)
+            .show(contexts.ctx_mut().unwrap(), |ui| {
+                // --- Body variant selector ---------------------------------
+                let current_kind = live_mut.0.body.kind_tag();
+                ui.horizontal(|ui| {
+                    ui.label("Body:");
+                    if ui
+                        .selectable_label(current_kind == "hover_rover", "Hover-Rover")
+                        .clicked()
+                        && current_kind != "hover_rover"
+                    {
+                        live_mut.0.body = AvatarBody::HoverRover {
+                            phenotype: RoverPhenotype::default(),
+                            kinematics: RoverKinematics::default(),
+                        };
+                    }
+                    if ui
+                        .selectable_label(current_kind == "humanoid", "Humanoid")
+                        .clicked()
+                        && current_kind != "humanoid"
+                    {
+                        live_mut.0.body = AvatarBody::Humanoid {
+                            phenotype: HumanoidPhenotype::default(),
+                            kinematics: HumanoidKinematics::default(),
+                        };
+                    }
                 });
 
-            ui.separator();
+                ui.separator();
 
-            // --- Publish / Load from PDS / Reset to default ------------
-            let is_dirty = stored.as_ref().is_some_and(|s| s.0 != live.0);
-
-            ui.horizontal(|ui| {
-                let publish_button = egui::Button::new(
-                    egui::RichText::new("Publish to PDS").color(if is_dirty {
-                        egui::Color32::LIGHT_GREEN
-                    } else {
-                        egui::Color32::GRAY
-                    }),
-                );
-                let publish_enabled = is_dirty && session.is_some();
-                if ui.add_enabled(publish_enabled, publish_button).clicked()
-                    && let Some(session) = session.as_ref()
-                {
-                    // Flip to `Publishing` the same frame the click fires so
-                    // the user gets immediate visual confirmation; without
-                    // this, the panel stays on `Idle` for the full PDS
-                    // round-trip and the click looks like it was dropped.
-                    *feedback = PublishFeedback::Publishing;
-                    spawn_publish_avatar_task(&mut commands, session, live.0.clone());
+                match &mut live_mut.0.body {
+                    AvatarBody::HoverRover {
+                        phenotype,
+                        kinematics,
+                    } => {
+                        rover_panel(ui, phenotype, kinematics);
+                    }
+                    AvatarBody::Humanoid {
+                        phenotype,
+                        kinematics,
+                    } => {
+                        humanoid_panel(ui, phenotype, kinematics);
+                    }
+                    AvatarBody::Unknown => {
+                        ui.colored_label(
+                            egui::Color32::ORANGE,
+                            "This avatar was authored against a newer schema — pick a body type above to replace it.",
+                        );
+                    }
                 }
 
-                if ui
-                    .add_enabled(is_dirty, egui::Button::new("Load from PDS"))
-                    .clicked()
-                    && let Some(stored) = &stored
-                {
-                    live.0 = stored.0.clone();
-                }
+                ui.separator();
 
-                // Reset requires a session because the canonical default
-                // seeds itself off the signed-in DID — skipping the button
-                // when signed out keeps the reset path deterministic.
-                let default_record = session
-                    .as_ref()
-                    .map(|s| AvatarRecord::default_for_did(&s.did));
-                let reset_enabled = default_record
-                    .as_ref()
-                    .is_some_and(|d| *d != live.0);
-                if ui
-                    .add_enabled(reset_enabled, egui::Button::new("Reset to default"))
-                    .clicked()
-                    && let Some(default_record) = default_record
-                {
-                    live.0 = default_record;
+                // --- Networking (local-only, not broadcast) ----------------
+                egui::CollapsingHeader::new("Networking")
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        ui.checkbox(
+                            &mut settings.smooth_kinematics,
+                            "Smooth remote peers (Hermite spline + 100 ms buffer)",
+                        );
+                        ui.label(
+                            egui::RichText::new(
+                                "Uncheck to snap to the latest packet and expose raw jitter.",
+                            )
+                            .small()
+                            .weak(),
+                        );
+                    });
+
+                ui.separator();
+
+                // --- Publish / Load from PDS / Reset to default ------------
+                let is_dirty = stored.as_ref().is_some_and(|s| s.0 != live_mut.0);
+
+                ui.horizontal(|ui| {
+                    let publish_button = egui::Button::new(
+                        egui::RichText::new("Publish to PDS").color(if is_dirty {
+                            egui::Color32::LIGHT_GREEN
+                        } else {
+                            egui::Color32::GRAY
+                        }),
+                    );
+                    let publish_enabled = is_dirty && session.is_some();
+                    if ui.add_enabled(publish_enabled, publish_button).clicked()
+                        && let Some(session) = session.as_ref()
+                    {
+                        // Flip to `Publishing` the same frame the click fires so
+                        // the user gets immediate visual confirmation; without
+                        // this, the panel stays on `Idle` for the full PDS
+                        // round-trip and the click looks like it was dropped.
+                        *feedback = PublishFeedback::Publishing;
+                        spawn_publish_avatar_task(&mut commands, session, live_mut.0.clone());
+                    }
+
+                    if ui
+                        .add_enabled(is_dirty, egui::Button::new("Load from PDS"))
+                        .clicked()
+                        && let Some(stored) = &stored
+                    {
+                        live_mut.0 = stored.0.clone();
+                    }
+
+                    // Reset requires a session because the canonical default
+                    // seeds itself off the signed-in DID — skipping the button
+                    // when signed out keeps the reset path deterministic.
+                    let default_record = session
+                        .as_ref()
+                        .map(|s| AvatarRecord::default_for_did(&s.did));
+                    let reset_enabled = default_record
+                        .as_ref()
+                        .is_some_and(|d| *d != live_mut.0);
+                    if ui
+                        .add_enabled(reset_enabled, egui::Button::new("Reset to default"))
+                        .clicked()
+                        && let Some(default_record) = default_record
+                    {
+                        live_mut.0 = default_record;
+                    }
+                });
+
+                // --- Status line ------------------------------------------
+                match &*feedback {
+                    PublishFeedback::Idle => {}
+                    PublishFeedback::Publishing => {
+                        ui.label(egui::RichText::new("Publishing…").italics().weak());
+                    }
+                    PublishFeedback::Success { .. } => {
+                        ui.colored_label(egui::Color32::LIGHT_GREEN, "Published ✓");
+                    }
+                    PublishFeedback::Failed { message, .. } => {
+                        ui.colored_label(
+                            egui::Color32::LIGHT_RED,
+                            format!("Publish failed: {message}"),
+                        );
+                    }
                 }
             });
 
-            // --- Status line ------------------------------------------
-            match &*feedback {
-                PublishFeedback::Idle => {}
-                PublishFeedback::Publishing => {
-                    ui.label(egui::RichText::new("Publishing…").italics().weak());
-                }
-                PublishFeedback::Success { .. } => {
-                    ui.colored_label(egui::Color32::LIGHT_GREEN, "Published ✓");
-                }
-                PublishFeedback::Failed { message, .. } => {
-                    ui.colored_label(
-                        egui::Color32::LIGHT_RED,
-                        format!("Publish failed: {message}"),
-                    );
-                }
-            }
-        });
+        if live_mut.0 != before {
+            widget_changed = true;
+        }
+    }
+
+    if widget_changed {
+        editor.pending_flush_secs = crate::config::ui::editor::MENU_DEBOUNCE_SECS;
+    }
+    if editor.pending_flush_secs > 0.0 {
+        editor.pending_flush_secs = (editor.pending_flush_secs - time.delta_secs()).max(0.0);
+        if editor.pending_flush_secs <= 0.0 {
+            // Debounce drained — publish the accumulated edit to
+            // `player.rs` (visual rebuild) and `broadcast_avatar_state`
+            // (peer preview) in a single change tick.
+            live.set_changed();
+        }
+    }
 }
 
 fn rover_panel(ui: &mut egui::Ui, phen: &mut RoverPhenotype, kin: &mut RoverKinematics) {

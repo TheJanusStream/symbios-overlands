@@ -67,6 +67,13 @@ pub struct RoomEditorState {
     /// committed / loaded / reset state — drives the Publish button
     /// colouring.
     is_dirty: bool,
+    /// Seconds remaining before a pending widget change is flushed into
+    /// the live `RoomRecord`'s change tick. Dragging a slider resets
+    /// this to `MENU_DEBOUNCE_SECS`; the downstream terrain rebuild,
+    /// world-compiler pass, and peer `RoomStateUpdate` broadcast fire
+    /// exactly once when the timer drains rather than every frame the
+    /// slider moves.
+    pending_flush_secs: f32,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -109,6 +116,7 @@ pub fn room_admin_ui(
         raw_text,
         raw_error,
         is_dirty,
+        pending_flush_secs,
         ..
     } = &mut *editor;
 
@@ -158,8 +166,8 @@ pub fn room_admin_ui(
                         if ui.button("Reset PDS to default").clicked() {
                             let default_record = pds::RoomRecord::default_for_did(&room_did.0);
                             *record_mut = default_record.clone();
-                            *raw_text = serde_json::to_string_pretty(&default_record)
-                                .unwrap_or_default();
+                            *raw_text =
+                                serde_json::to_string_pretty(&default_record).unwrap_or_default();
                             *raw_error = None;
                             *is_dirty = false;
                             needs_broadcast = true;
@@ -189,8 +197,8 @@ pub fn room_admin_ui(
                             // the other tabs since the last time it was
                             // viewed.
                             if tab == EditorTab::Raw && *selected_tab != EditorTab::Raw {
-                                *raw_text = serde_json::to_string_pretty(&*record_mut)
-                                    .unwrap_or_default();
+                                *raw_text =
+                                    serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
                                 *raw_error = None;
                             }
                             *selected_tab = tab;
@@ -226,13 +234,7 @@ pub fn room_admin_ui(
                             );
                         }
                         EditorTab::Raw => {
-                            draw_raw_tab(
-                                ui,
-                                raw_text,
-                                raw_error,
-                                record_mut,
-                                &mut widget_change,
-                            );
+                            draw_raw_tab(ui, raw_text, raw_error, record_mut, &mut widget_change);
                         }
                     });
 
@@ -261,8 +263,7 @@ pub fn room_admin_ui(
                         && let Some(stored) = stored.as_ref()
                     {
                         *record_mut = stored.0.clone();
-                        *raw_text =
-                            serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
+                        *raw_text = serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
                         *raw_error = None;
                         *is_dirty = false;
                         *selected_generator = None;
@@ -272,8 +273,7 @@ pub fn room_admin_ui(
 
                     if ui.button("Reset to default").clicked() {
                         *record_mut = pds::RoomRecord::default_for_did(&room_did.0);
-                        *raw_text =
-                            serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
+                        *raw_text = serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
                         *raw_error = None;
                         *is_dirty = stored
                             .as_ref()
@@ -320,9 +320,24 @@ pub fn room_admin_ui(
 
     if widget_change {
         *is_dirty = true;
-        needs_broadcast = true;
+        *pending_flush_secs = crate::config::ui::editor::MENU_DEBOUNCE_SECS;
+    }
+    // Drain the debounce timer and flip `needs_broadcast` on the frame it
+    // reaches zero. A slider drag keeps resetting `pending_flush_secs`
+    // above, so the flush only fires once the user pauses — collapsing a
+    // ~60 Hz storm of RoomStateUpdate broadcasts and terrain rebuilds into
+    // one event per edit burst.
+    if *pending_flush_secs > 0.0 {
+        *pending_flush_secs = (*pending_flush_secs - time.delta_secs()).max(0.0);
+        if *pending_flush_secs <= 0.0 {
+            needs_broadcast = true;
+        }
     }
     if needs_broadcast {
+        // Explicit Load / Reset / recovery clicks land here too; zero the
+        // timer so a concurrently-debounced slider flush cannot double-fire
+        // set_changed() on the very next frame.
+        *pending_flush_secs = 0.0;
         record.set_changed();
     }
 }

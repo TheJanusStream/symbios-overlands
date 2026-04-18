@@ -400,7 +400,9 @@ fn detect_remote_archetype_change(
             &mut meshes,
             &mut materials,
         );
-        commands.entity(entity).insert(AppliedAvatar(record.clone()));
+        commands
+            .entity(entity)
+            .insert(AppliedAvatar(record.clone()));
     }
 }
 
