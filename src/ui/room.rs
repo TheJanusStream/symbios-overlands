@@ -409,78 +409,86 @@ fn draw_generators_tab(
     selected: &mut Option<String>,
     dirty: &mut bool,
 ) {
-    ui.columns(2, |cols| {
-        // Left column — master list
-        cols[0].heading("Generators");
-        cols[0].add_space(4.0);
+    // Single-column master/detail: when a generator is selected and still
+    // exists, render the detail view full-width with a back button;
+    // otherwise render the master list full-width.
+    let selected_exists = selected
+        .as_ref()
+        .is_some_and(|n| record.generators.contains_key(n));
 
-        let mut names: Vec<String> = record.generators.keys().cloned().collect();
-        names.sort();
-
-        let mut to_remove: Option<String> = None;
-        for name in &names {
-            let is_selected = selected.as_ref() == Some(name);
-            cols[0].horizontal(|ui| {
-                if ui.selectable_label(is_selected, name).clicked() {
-                    *selected = Some(name.clone());
-                }
-                if ui.small_button("−").clicked() {
-                    to_remove = Some(name.clone());
-                }
-            });
-        }
-        if let Some(name) = to_remove {
-            record.generators.remove(&name);
-            if selected.as_ref() == Some(&name) {
+    if selected_exists {
+        let name = selected.clone().expect("selected_exists implies Some");
+        ui.horizontal(|ui| {
+            if ui.button("← Back").clicked() {
                 *selected = None;
             }
-            *dirty = true;
+            ui.heading("Detail");
+        });
+        ui.add_space(4.0);
+        if *selected == Some(name.clone())
+            && let Some(g) = record.generators.get_mut(&name)
+        {
+            draw_generator_detail(ui, &name, g, dirty);
         }
+        return;
+    }
 
-        cols[0].add_space(6.0);
-        cols[0].separator();
-        cols[0].label("Add new generator:");
-        cols[0].horizontal(|ui| {
-            if ui.small_button("+ Terrain").clicked() {
-                let name = unique_key(&record.generators, "terrain");
-                record
-                    .generators
-                    .insert(name.clone(), Generator::Terrain(Default::default()));
-                *selected = Some(name);
-                *dirty = true;
+    // Drop any stale selection so a later re-select of the same name starts
+    // cleanly and the "(Selection no longer exists.)" state never renders.
+    *selected = None;
+
+    ui.heading("Generators");
+    ui.add_space(4.0);
+
+    let mut names: Vec<String> = record.generators.keys().cloned().collect();
+    names.sort();
+
+    let mut to_remove: Option<String> = None;
+    for name in &names {
+        ui.horizontal(|ui| {
+            if ui.selectable_label(false, name).clicked() {
+                *selected = Some(name.clone());
             }
-            if ui.small_button("+ Water").clicked() {
-                let name = unique_key(&record.generators, "water");
-                record.generators.insert(
-                    name.clone(),
-                    Generator::Water {
-                        level_offset: Fp(0.0),
-                    },
-                );
-                *selected = Some(name);
-                *dirty = true;
-            }
-            if ui.small_button("+ LSystem").clicked() {
-                let name = unique_key(&record.generators, "lsystem");
-                record
-                    .generators
-                    .insert(name.clone(), default_lsystem_generator());
-                *selected = Some(name);
-                *dirty = true;
+            if ui.small_button("−").clicked() {
+                to_remove = Some(name.clone());
             }
         });
+    }
+    if let Some(name) = to_remove {
+        record.generators.remove(&name);
+        *dirty = true;
+    }
 
-        // Right column — detail
-        cols[1].heading("Detail");
-        cols[1].add_space(4.0);
-        if let Some(name) = selected.clone() {
-            if let Some(g) = record.generators.get_mut(&name) {
-                draw_generator_detail(&mut cols[1], &name, g, dirty);
-            } else {
-                cols[1].label("(Selection no longer exists.)");
-            }
-        } else {
-            cols[1].label("Select a generator on the left to edit it.");
+    ui.add_space(6.0);
+    ui.separator();
+    ui.label("Add new generator:");
+    ui.horizontal(|ui| {
+        if ui.small_button("+ Terrain").clicked() {
+            let name = unique_key(&record.generators, "terrain");
+            record
+                .generators
+                .insert(name.clone(), Generator::Terrain(Default::default()));
+            *selected = Some(name);
+            *dirty = true;
+        }
+        if ui.small_button("+ Water").clicked() {
+            let name = unique_key(&record.generators, "water");
+            record.generators.insert(
+                name.clone(),
+                Generator::Water {
+                    level_offset: Fp(0.0),
+                },
+            );
+            *selected = Some(name);
+            *dirty = true;
+        }
+        if ui.small_button("+ LSystem").clicked() {
+            let name = unique_key(&record.generators, "lsystem");
+            record
+                .generators
+                .insert(name.clone(), default_lsystem_generator());
+            *selected = Some(name);
+            *dirty = true;
         }
     });
 }
@@ -1112,77 +1120,80 @@ fn draw_placements_tab(
     selected: &mut Option<usize>,
     dirty: &mut bool,
 ) {
-    ui.columns(2, |cols| {
-        cols[0].heading("Placements");
-        cols[0].add_space(4.0);
+    // Single-column master/detail — see `draw_generators_tab` for the
+    // rationale; logic mirrors it with index-based selection.
+    let selected_exists = selected.is_some_and(|i| i < record.placements.len());
 
-        let mut to_remove: Option<usize> = None;
-        for (i, p) in record.placements.iter().enumerate() {
-            let label = match p {
-                Placement::Absolute { generator_ref, .. } => {
-                    format!("#{i} Absolute → {generator_ref}")
-                }
-                Placement::Scatter {
-                    generator_ref,
-                    count,
-                    ..
-                } => format!("#{i} Scatter × {count} → {generator_ref}"),
-                Placement::Unknown => format!("#{i} (unknown)"),
-            };
-            let is_selected = *selected == Some(i);
-            cols[0].horizontal(|ui| {
-                if ui.selectable_label(is_selected, label).clicked() {
-                    *selected = Some(i);
-                }
-                if ui.small_button("−").clicked() {
-                    to_remove = Some(i);
-                }
-            });
-        }
-        if let Some(idx) = to_remove {
-            record.placements.remove(idx);
-            if *selected == Some(idx) {
+    if selected_exists {
+        let idx = selected.expect("selected_exists implies Some");
+        ui.horizontal(|ui| {
+            if ui.button("← Back").clicked() {
                 *selected = None;
             }
-            *dirty = true;
+            ui.heading(format!("Detail — #{idx}"));
+        });
+        ui.add_space(4.0);
+        let gen_names: Vec<String> = record.generators.keys().cloned().collect();
+        if let Some(p) = record.placements.get_mut(idx) {
+            draw_placement_detail(ui, p, &gen_names, dirty);
         }
+        return;
+    }
 
-        cols[0].add_space(6.0);
-        cols[0].separator();
-        cols[0].label("Add placement:");
-        cols[0].horizontal(|ui| {
-            if ui.small_button("+ Absolute").clicked() {
-                record.placements.push(Placement::Absolute {
-                    generator_ref: record.generators.keys().next().cloned().unwrap_or_default(),
-                    transform: TransformData::default(),
-                });
-                *selected = Some(record.placements.len() - 1);
-                *dirty = true;
+    *selected = None;
+
+    ui.heading("Placements");
+    ui.add_space(4.0);
+
+    let mut to_remove: Option<usize> = None;
+    for (i, p) in record.placements.iter().enumerate() {
+        let label = match p {
+            Placement::Absolute { generator_ref, .. } => {
+                format!("#{i} Absolute → {generator_ref}")
             }
-            if ui.small_button("+ Scatter").clicked() {
-                record.placements.push(Placement::Scatter {
-                    generator_ref: record.generators.keys().next().cloned().unwrap_or_default(),
-                    bounds: ScatterBounds::default(),
-                    count: 16,
-                    local_seed: 1,
-                    biome_filter: None,
-                });
-                *selected = Some(record.placements.len() - 1);
-                *dirty = true;
+            Placement::Scatter {
+                generator_ref,
+                count,
+                ..
+            } => format!("#{i} Scatter × {count} → {generator_ref}"),
+            Placement::Unknown => format!("#{i} (unknown)"),
+        };
+        ui.horizontal(|ui| {
+            if ui.selectable_label(false, label).clicked() {
+                *selected = Some(i);
+            }
+            if ui.small_button("−").clicked() {
+                to_remove = Some(i);
             }
         });
+    }
+    if let Some(idx) = to_remove {
+        record.placements.remove(idx);
+        *dirty = true;
+    }
 
-        cols[1].heading("Detail");
-        cols[1].add_space(4.0);
-        if let Some(idx) = *selected {
-            if let Some(p) = record.placements.get_mut(idx) {
-                let gen_names: Vec<String> = record.generators.keys().cloned().collect();
-                draw_placement_detail(&mut cols[1], p, &gen_names, dirty);
-            } else {
-                cols[1].label("(Selection no longer exists.)");
-            }
-        } else {
-            cols[1].label("Select a placement on the left to edit it.");
+    ui.add_space(6.0);
+    ui.separator();
+    ui.label("Add placement:");
+    ui.horizontal(|ui| {
+        if ui.small_button("+ Absolute").clicked() {
+            record.placements.push(Placement::Absolute {
+                generator_ref: record.generators.keys().next().cloned().unwrap_or_default(),
+                transform: TransformData::default(),
+            });
+            *selected = Some(record.placements.len() - 1);
+            *dirty = true;
+        }
+        if ui.small_button("+ Scatter").clicked() {
+            record.placements.push(Placement::Scatter {
+                generator_ref: record.generators.keys().next().cloned().unwrap_or_default(),
+                bounds: ScatterBounds::default(),
+                count: 16,
+                local_seed: 1,
+                biome_filter: None,
+            });
+            *selected = Some(record.placements.len() - 1);
+            *dirty = true;
         }
     });
 }
