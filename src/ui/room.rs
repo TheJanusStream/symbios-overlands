@@ -490,6 +490,18 @@ fn draw_generators_tab(
             *selected = Some(name);
             *dirty = true;
         }
+        if ui.small_button("+ Portal").clicked() {
+            let name = unique_key(&record.generators, "portal");
+            record.generators.insert(
+                name.clone(),
+                Generator::Portal {
+                    target_did: String::new(),
+                    target_pos: Fp3([0.0, 0.0, 0.0]),
+                },
+            );
+            *selected = Some(name);
+            *dirty = true;
+        }
     });
 }
 
@@ -551,6 +563,46 @@ fn draw_generator_detail(
             {
                 *dirty = true;
             }
+        }
+        Generator::Portal {
+            target_did,
+            target_pos,
+        } => {
+            ui.label("Target DID (destination room)");
+            if ui
+                .add(egui::TextEdit::singleline(target_did).hint_text("did:plc:…"))
+                .changed()
+            {
+                *dirty = true;
+            }
+            ui.add_space(4.0);
+            ui.label("Exit position (world space in the target room)");
+            // Drag the raw f32s directly — wrapping each axis in a temporary
+            // `Fp` to reuse `fp_slider` wouldn't round-trip the edit back to
+            // the underlying `[f32; 3]`.
+            ui.horizontal(|ui| {
+                ui.label("X");
+                if ui
+                    .add(egui::DragValue::new(&mut target_pos.0[0]).speed(0.1))
+                    .changed()
+                {
+                    *dirty = true;
+                }
+                ui.label("Y");
+                if ui
+                    .add(egui::DragValue::new(&mut target_pos.0[1]).speed(0.1))
+                    .changed()
+                {
+                    *dirty = true;
+                }
+                ui.label("Z");
+                if ui
+                    .add(egui::DragValue::new(&mut target_pos.0[2]).speed(0.1))
+                    .changed()
+                {
+                    *dirty = true;
+                }
+            });
         }
         Generator::Unknown => {
             ui.colored_label(

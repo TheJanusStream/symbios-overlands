@@ -23,7 +23,10 @@ use crate::config::rover as cfg;
 use crate::config::terrain as tcfg;
 use crate::pds::{AvatarBody, AvatarRecord, HumanoidPhenotype};
 use crate::protocol::{AirshipParams, PontoonShape};
-use crate::state::{AppState, LiveAvatarRecord, LocalPlayer, RemotePeer};
+use crate::state::{
+    AppState, CurrentRoomDid, LiveAvatarRecord, LocalPlayer, RemotePeer, TravelRequest,
+};
+use crate::world_builder::PortalMarker;
 
 /// Snapshot of the last `AvatarRecord` whose visuals have been painted onto
 /// a remote peer. `detect_remote_archetype_change` listens to the broad
@@ -129,6 +132,7 @@ impl Plugin for PlayerPlugin {
                     rebuild_local_visuals,
                     lift_player_above_new_ground,
                     animate_humanoid_limbs,
+                    handle_portal_interaction,
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame)),
@@ -160,22 +164,40 @@ fn spawn_local_player(
     mut materials: ResMut<Assets<StandardMaterial>>,
     hm_res: Res<crate::terrain::FinishedHeightMap>,
     live: Res<LiveAvatarRecord>,
+    travel_req: Option<Res<TravelRequest>>,
 ) {
     let hm = &hm_res.0;
     let extent = (hm.width() - 1) as f32 * hm.scale();
     let centre = extent * 0.5;
-    let (ox, oz) = random_spawn_xz();
-    let hm_x = (centre + ox).clamp(0.0, extent);
-    let hm_z = (centre + oz).clamp(0.0, extent);
-    let ground_y = hm.get_height_at(hm_x, hm_z);
-    let surface_normal = hm.get_normal_at(hm_x, hm_z);
-    let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
+
+    // A pending `TravelRequest` (inserted by the portal-interaction system
+    // immediately before a state transition) hijacks the spawn location so the
+    // avatar materialises at the portal's exit coordinate in the new room.
+    // Consume it so the next natural spawn/respawn falls back to the random
+    // homeworld scatter.
+    let (ox, oy, oz, tilt) = if let Some(req) = travel_req.as_deref() {
+        let p = req.target_pos;
+        (p.x, p.y, p.z, Quat::IDENTITY)
+    } else {
+        let (rx, rz) = random_spawn_xz();
+        let hm_x = (centre + rx).clamp(0.0, extent);
+        let hm_z = (centre + rz).clamp(0.0, extent);
+        let ground_y = hm.get_height_at(hm_x, hm_z);
+        let surface_normal = hm.get_normal_at(hm_x, hm_z);
+        let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
+        (rx, ground_y + cfg::SPAWN_HEIGHT_OFFSET, rz, tilt)
+    };
+
+    if travel_req.is_some() {
+        commands.remove_resource::<TravelRequest>();
+    }
 
     let entity = commands
         .spawn((
-            Transform::from_xyz(ox, ground_y + cfg::SPAWN_HEIGHT_OFFSET, oz).with_rotation(tilt),
+            Transform::from_xyz(ox, oy, oz).with_rotation(tilt),
             Visibility::default(),
             RigidBody::Dynamic,
+            CollidingEntities::default(),
             LocalPlayer,
         ))
         .id();
@@ -1191,6 +1213,56 @@ fn lift_player_above_new_ground(
         pos.y = min_y;
         lin_vel.0 = Vec3::ZERO;
         ang_vel.0 = Vec3::ZERO;
+    }
+}
+
+/// Per-frame sweep that fires the portal jump the instant the local player's
+/// sensor-collision set contains a `PortalMarker`. An intra-room portal snaps
+/// the chassis to the exit pose and zeros its velocities; an inter-room
+/// portal stages a `TravelRequest` + `AppState::Loading` transition so the
+/// logout cleanup can swap the matchbox socket without dropping the session.
+#[allow(clippy::type_complexity)]
+fn handle_portal_interaction(
+    mut commands: Commands,
+    mut players: Query<
+        (
+            &CollidingEntities,
+            &mut Transform,
+            &mut LinearVelocity,
+            &mut AngularVelocity,
+        ),
+        With<LocalPlayer>,
+    >,
+    portals: Query<&PortalMarker>,
+    current_room: Option<Res<CurrentRoomDid>>,
+    mut next_state: ResMut<NextState<AppState>>,
+) {
+    let Ok((collisions, mut tf, mut lv, mut av)) = players.single_mut() else {
+        return;
+    };
+
+    for entity in collisions.iter() {
+        let Ok(portal) = portals.get(*entity) else {
+            continue;
+        };
+
+        let same_room = current_room
+            .as_deref()
+            .map(|r| r.0 == portal.target_did)
+            .unwrap_or(false);
+        if same_room {
+            tf.translation = portal.target_pos;
+            lv.0 = Vec3::ZERO;
+            av.0 = Vec3::ZERO;
+        } else {
+            commands.insert_resource(TravelRequest {
+                target_did: portal.target_did.clone(),
+                target_pos: portal.target_pos,
+            });
+            commands.insert_resource(CurrentRoomDid(portal.target_did.clone()));
+            next_state.set(AppState::Loading);
+        }
+        break;
     }
 }
 

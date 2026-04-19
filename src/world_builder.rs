@@ -46,9 +46,27 @@ use crate::pds::{
     Fp, Fp3, Fp4, Generator, Placement, PropMeshType, RoomRecord, ScatterBounds,
     SovereignMaterialSettings, SovereignTerrainConfig, SovereignTextureType, TransformData,
 };
-use crate::state::AppState;
+use crate::state::{AppState, CurrentRoomDid};
 use crate::terrain::{FinishedHeightMap, TerrainMesh, WaterVolume};
 use crate::water::{WaterExtension, WaterMaterial};
+
+/// Marks an in-scene portal cube and carries the destination coordinates the
+/// interaction system reads on F-press.
+#[derive(Component, Clone)]
+pub struct PortalMarker {
+    pub target_did: String,
+    pub target_pos: Vec3,
+}
+
+/// In-flight ATProto profile-picture fetch for the top face of a portal cube.
+/// Drained by `poll_portal_avatar_tasks`; the task lives on its own entity so
+/// the portal itself can be despawned by a room rebuild without having to
+/// cancel the future explicitly.
+#[derive(Component)]
+pub struct PortalAvatarTask {
+    task: bevy::tasks::Task<crate::avatar::AvatarFetchResult>,
+    material: Handle<StandardMaterial>,
+}
 
 /// Marker attached to every entity spawned from the active `RoomRecord`.
 /// Despawning all of these is how the compiler applies a record update
@@ -154,6 +172,7 @@ impl Plugin for WorldBuilderPlugin {
                     compile_room_record,
                     apply_environment_state,
                     poll_overlands_foliage_tasks,
+                    poll_portal_avatar_tasks,
                 )
                     .run_if(in_state(AppState::InGame)),
             );
@@ -245,6 +264,7 @@ fn compile_room_record(
     mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
     mut lsystem_material_cache: ResMut<LSystemMaterialCache>,
     mut lsystem_mesh_cache: ResMut<LSystemMeshCache>,
+    current_room: Option<Res<CurrentRoomDid>>,
 ) {
     let Some(record) = record else {
         return;
@@ -297,6 +317,7 @@ fn compile_room_record(
                     lsystem_cache_touched: &mut lsystem_cache_touched,
                     lsystem_mesh_cache: &mut lsystem_mesh_cache,
                     lsystem_mesh_touched: &mut lsystem_mesh_touched,
+                    current_room: current_room.as_deref(),
                 };
                 spawn_from_generator(ctx, generator_ref, transform_from_data(transform));
             }
@@ -369,6 +390,7 @@ fn compile_room_record(
                         lsystem_cache_touched: &mut lsystem_cache_touched,
                         lsystem_mesh_cache: &mut lsystem_mesh_cache,
                         lsystem_mesh_touched: &mut lsystem_mesh_touched,
+                        current_room: current_room.as_deref(),
                     };
                     spawn_from_generator(ctx, generator_ref, tf);
                     spawned += 1;
@@ -804,6 +826,10 @@ struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// `generator_ref` keys touched this compile pass so the caller can GC
     /// meshes belonging to generators removed from the record.
     lsystem_mesh_touched: &'a mut HashSet<String>,
+    /// DID of the room we're currently compiling. Portal generators skip the
+    /// ATProto profile-picture fetch when `target_did` equals this (an
+    /// intra-room portal has no remote identity to paint onto its top face).
+    current_room: Option<&'a CurrentRoomDid>,
 }
 
 fn spawn_from_generator(
@@ -863,8 +889,129 @@ fn spawn_from_generator(
         Generator::Shape { .. } => {
             // Stub: symbios-shape integration lands in a follow-up.
         }
+        Generator::Portal {
+            target_did,
+            target_pos,
+        } => {
+            spawn_portal_entity(&mut ctx, target_did, target_pos, transform);
+        }
         Generator::Unknown => {
             warn!("Ignoring generator `{}` of unknown $type", generator_ref);
+        }
+    }
+}
+
+/// Spawn a translucent sensor cube with a textured top face that the portal
+/// interaction system reads. An inter-room portal kicks off an async profile
+/// fetch for the target DID's avatar; an intra-room portal (`target_did` ==
+/// current room) skips the fetch because the top face stays the fallback
+/// white material.
+fn spawn_portal_entity(
+    ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
+    target_did: &str,
+    target_pos: &Fp3,
+    transform: Transform,
+) {
+    let is_local = ctx.current_room.map(|r| r.0 == target_did).unwrap_or(false);
+
+    let cube_mat = ctx.std_materials.add(StandardMaterial {
+        base_color: Color::srgba(0.2, 0.8, 1.0, 0.4),
+        alpha_mode: AlphaMode::Blend,
+        emissive: LinearRgba::rgb(0.5, 1.0, 2.0),
+        double_sided: true,
+        cull_mode: None,
+        ..default()
+    });
+
+    let parent = ctx
+        .commands
+        .spawn((
+            Mesh3d(ctx.meshes.add(Cuboid::new(1.5, 2.0, 1.5))),
+            MeshMaterial3d(cube_mat),
+            transform,
+            Collider::cuboid(1.5, 2.0, 1.5),
+            Sensor,
+            PortalMarker {
+                target_did: target_did.to_string(),
+                target_pos: Vec3::from_array(target_pos.0),
+            },
+            RoomEntity,
+        ))
+        .id();
+
+    // Top face — a thin plane pinned just above the cube's top so it renders
+    // on top of the translucent volume without z-fighting. `unlit` keeps the
+    // profile picture legible at any sun angle.
+    let top_mat = ctx.std_materials.add(StandardMaterial {
+        base_color: Color::WHITE,
+        unlit: true,
+        ..default()
+    });
+
+    let top_face = ctx
+        .commands
+        .spawn((
+            Mesh3d(ctx.meshes.add(Plane3d::new(Vec3::Y, Vec2::new(0.75, 0.75)))),
+            MeshMaterial3d(top_mat.clone()),
+            Transform::from_xyz(0.0, 1.01, 0.0),
+        ))
+        .id();
+    ctx.commands.entity(parent).add_child(top_face);
+
+    if !is_local {
+        let pool = AsyncComputeTaskPool::get();
+        let did_clone = target_did.to_string();
+        let task = pool.spawn(async move {
+            let fut = crate::avatar::fetch_avatar_bytes(did_clone);
+            #[cfg(target_arch = "wasm32")]
+            {
+                fut.await
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(fut)
+            }
+        });
+        ctx.commands.spawn(PortalAvatarTask {
+            task,
+            material: top_mat,
+        });
+    }
+}
+
+/// Drain finished portal-avatar fetches and paint the resulting texture onto
+/// the portal top face's material. Failed fetches leave the material at the
+/// fallback white so the portal is still visible and interactable.
+fn poll_portal_avatar_tasks(
+    mut commands: Commands,
+    mut tasks: Query<(Entity, &mut PortalAvatarTask)>,
+    mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (entity, mut task) in tasks.iter_mut() {
+        let Some(result) =
+            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.task))
+        else {
+            continue;
+        };
+        commands.entity(entity).despawn();
+        let Some(bytes) = result.bytes else {
+            continue;
+        };
+        let Ok(dyn_img) = image::load_from_memory(&bytes) else {
+            continue;
+        };
+        let img = Image::from_dynamic(
+            dyn_img,
+            true,
+            RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+        );
+        if let Some(mat) = materials.get_mut(&task.material) {
+            mat.base_color_texture = Some(images.add(img));
         }
     }
 }

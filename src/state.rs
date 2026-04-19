@@ -117,6 +117,18 @@ pub struct RelayHost(pub String);
 #[derive(Resource, Clone)]
 pub struct CurrentRoomDid(pub String);
 
+/// Inserted by a portal interaction to request a seamless inter-room jump.
+/// The logout cleanup system inspects this to preserve the authenticated
+/// session (avoiding a hard round-trip through Login) while swapping out the
+/// matchbox socket for the target room. Consumed by `spawn_local_player` so
+/// the avatar materialises at the portal's exit coordinate instead of a
+/// random homeworld scatter point.
+#[derive(Resource, Clone)]
+pub struct TravelRequest {
+    pub target_did: String,
+    pub target_pos: Vec3,
+}
+
 /// Most recent result of a "Publish to PDS" attempt from the World or
 /// Avatar editor. The UI watches this resource to render a status line
 /// beside the Publish/Load/Reset buttons so the owner gets visual confirmation

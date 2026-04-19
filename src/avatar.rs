@@ -192,7 +192,7 @@ struct BskyProfile {
     handle: Option<String>,
 }
 
-async fn fetch_avatar_bytes(did: String) -> AvatarFetchResult {
+pub(crate) async fn fetch_avatar_bytes(did: String) -> AvatarFetchResult {
     let mut out = AvatarFetchResult::default();
     let client = crate::config::http::default_client();
 

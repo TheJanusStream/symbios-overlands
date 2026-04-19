@@ -831,6 +831,9 @@ pub enum Generator {
     #[serde(rename = "network.symbios.gen.shape")]
     Shape { style: String, floors: u32 },
 
+    #[serde(rename = "network.symbios.gen.portal")]
+    Portal { target_did: String, target_pos: Fp3 },
+
     #[serde(rename = "network.symbios.gen.lsystem")]
     LSystem {
         source_code: String,
@@ -1720,6 +1723,18 @@ impl RoomRecord {
                 }
                 Generator::Shape { floors, .. } => {
                     *floors = (*floors).min(limits::MAX_SHAPE_FLOORS);
+                }
+                Generator::Portal {
+                    target_did,
+                    target_pos,
+                } => {
+                    // Clamp the target DID so a hostile record can't drive the
+                    // string hashmap lookups (or the egui label allocator) into
+                    // gigabyte territory via an unbounded peer-broadcast.
+                    truncate_on_char_boundary(target_did, 256);
+                    target_pos.0[0] = target_pos.0[0].clamp(-10_000.0, 10_000.0);
+                    target_pos.0[1] = target_pos.0[1].clamp(-1_000.0, 10_000.0);
+                    target_pos.0[2] = target_pos.0[2].clamp(-10_000.0, 10_000.0);
                 }
                 Generator::Water { .. } | Generator::Unknown => {}
             }
