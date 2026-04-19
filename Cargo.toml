@@ -9,7 +9,7 @@ bevy_egui = "0.39"
 bevy_panorbit_camera = { version = "0.34", features = ["bevy_egui"] }
 bevy_symbios = "0.3"
 bevy_symbios_ground = { version = "0.2", features = ["physics"] }
-bevy_symbios_multiuser = "0.2"
+bevy_symbios_multiuser = { path = "../bevy_symbios_multiuser" }
 bevy_symbios_texture = "0.3"
 symbios = "1.4"
 symbios-turtle-3d = "0.4"
@@ -22,8 +22,15 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 tokio = { version = "1", features = ["rt", "macros"] }
 serde_json = "1"
 rand_chacha = "0.9"
+proto-blue-oauth = "0.2"
+proto-blue-api = "0.2"
+url = "2"
 
 [dev-dependencies]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tiny_http = "0.12"
+webbrowser = "1.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1"
@@ -41,6 +48,9 @@ web-sys = { version = "0.3.82", features = [
     "Clipboard",
     "ClipboardEvent",
     "Navigator",
+    "Storage",
+    "Location",
+    "History",
 ] }
 wasm-bindgen = "0.2.118"
 js-sys = "0.3.82"

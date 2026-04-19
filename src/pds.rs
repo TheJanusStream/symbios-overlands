@@ -1370,7 +1370,7 @@ struct PutAvatarRequest<'a> {
 }
 
 async fn try_put_avatar(
-    client: &reqwest::Client,
+    _client: &reqwest::Client,
     pds: &str,
     session: &AtprotoSession,
     record: &AvatarRecord,
@@ -1382,21 +1382,18 @@ async fn try_put_avatar(
         rkey: "self",
         record,
     };
-    let resp = match client
-        .post(&url)
-        .bearer_auth(&session.access_jwt)
-        .json(&body)
-        .send()
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return PutOutcome::Transport(e.to_string()),
+    let body_json = match serde_json::to_value(&body) {
+        Ok(v) => v,
+        Err(e) => return PutOutcome::Transport(format!("serialize: {e}")),
     };
-    let status = resp.status();
+    let (status, body) =
+        match crate::oauth::oauth_post_with_nonce_retry(&session.session, &url, &body_json).await {
+            Ok(pair) => pair,
+            Err(e) => return PutOutcome::Transport(e),
+        };
     if status.is_success() {
         return PutOutcome::Ok;
     }
-    let body = resp.text().await.unwrap_or_default();
     let msg = format!("putRecord (avatar) failed: {} — {}", status, body);
     if status.is_server_error() {
         PutOutcome::ServerError(msg)
@@ -1418,18 +1415,12 @@ async fn delete_avatar_record(
         collection: AVATAR_COLLECTION,
         rkey: "self",
     };
-    let resp = client
-        .post(&url)
-        .bearer_auth(&session.access_jwt)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if resp.status().is_success() || resp.status().as_u16() == 404 {
+    let body_json = serde_json::to_value(&body).map_err(|e| e.to_string())?;
+    let (status, body) =
+        crate::oauth::oauth_post_with_nonce_retry(&session.session, &url, &body_json).await?;
+    if status.is_success() || status.as_u16() == 404 {
         Ok(())
     } else {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
         Err(format!(
             "deleteRecord (avatar) failed: {} — {}",
             status, body
@@ -1988,7 +1979,7 @@ enum PutOutcome {
 }
 
 async fn try_put_record(
-    client: &reqwest::Client,
+    _client: &reqwest::Client,
     pds: &str,
     session: &AtprotoSession,
     record: &RoomRecord,
@@ -2001,22 +1992,19 @@ async fn try_put_record(
         record,
     };
 
-    let resp = match client
-        .post(&url)
-        .bearer_auth(&session.access_jwt)
-        .json(&body)
-        .send()
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return PutOutcome::Transport(e.to_string()),
+    let body_json = match serde_json::to_value(&body) {
+        Ok(v) => v,
+        Err(e) => return PutOutcome::Transport(format!("serialize: {e}")),
     };
+    let (status, body) =
+        match crate::oauth::oauth_post_with_nonce_retry(&session.session, &url, &body_json).await {
+            Ok(pair) => pair,
+            Err(e) => return PutOutcome::Transport(e),
+        };
 
-    let status = resp.status();
     if status.is_success() {
         return PutOutcome::Ok;
     }
-    let body = resp.text().await.unwrap_or_default();
     let msg = format!("putRecord failed: {} — {}", status, body);
     if status.is_server_error() {
         PutOutcome::ServerError(msg)
@@ -2090,19 +2078,13 @@ pub async fn delete_room_record(
         rkey: "self",
     };
 
-    let resp = client
-        .post(&url)
-        .bearer_auth(&session.access_jwt)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    let body_json = serde_json::to_value(&body).map_err(|e| e.to_string())?;
+    let (status, body) =
+        crate::oauth::oauth_post_with_nonce_retry(&session.session, &url, &body_json).await?;
 
-    if resp.status().is_success() || resp.status().as_u16() == 404 {
+    if status.is_success() || status.as_u16() == 404 {
         Ok(())
     } else {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
         Err(format!("deleteRecord failed: {} — {}", status, body))
     }
 }

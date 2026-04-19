@@ -17,6 +17,7 @@ mod camera;
 pub mod config;
 mod logout;
 mod network;
+mod oauth;
 pub mod pds;
 mod player;
 mod protocol;
@@ -104,9 +105,22 @@ fn main() {
         .init_resource::<LocalSettings>()
         .init_resource::<PublishFeedback>()
         .init_resource::<ui::login::LoginError>()
+        .init_resource::<oauth::OauthClientRes>()
         .add_systems(
             EguiPrimaryContextPass,
-            (ui::login::login_ui, ui::login::poll_auth_task).run_if(in_state(AppState::Login)),
+            ui::login::login_ui.run_if(in_state(AppState::Login)),
+        )
+        .add_systems(
+            Update,
+            (
+                ui::login::poll_begin_auth_task,
+                ui::login::poll_complete_auth_task,
+                #[cfg(target_arch = "wasm32")]
+                ui::login::check_wasm_callback,
+                #[cfg(not(target_arch = "wasm32"))]
+                ui::login::poll_native_callback,
+            )
+                .run_if(in_state(AppState::Login)),
         )
         .add_systems(
             OnEnter(AppState::Loading),
