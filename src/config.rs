@@ -28,7 +28,7 @@ pub mod lighting {
 }
 
 // ---------------------------------------------------------------------------
-// Rover (rover.rs + network.rs)
+// Rover (player.rs + network.rs)
 // ---------------------------------------------------------------------------
 pub mod rover {
     // --- Suspension (Hooke's law + damping) ----------------------------------
@@ -362,7 +362,7 @@ pub mod login {
 }
 
 // ---------------------------------------------------------------------------
-// Airship vehicle (rover.rs + network.rs)
+// Airship vehicle (player.rs + network.rs)
 // ---------------------------------------------------------------------------
 pub mod airship {
     use super::rover;
@@ -412,7 +412,7 @@ pub mod airship {
 }
 
 // ---------------------------------------------------------------------------
-// UI panels (ui/chat.rs, ui/diagnostics.rs, ui/airship.rs)
+// UI panels (ui/chat.rs, ui/diagnostics.rs, ui/avatar.rs, ui/room.rs, ui/login.rs)
 // ---------------------------------------------------------------------------
 pub mod ui {
     pub mod chat {

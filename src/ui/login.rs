@@ -129,12 +129,8 @@ pub fn login_ui(
                     let client = oauth_client.0.clone();
                     let pool = bevy::tasks::IoTaskPool::get();
                     let task = pool.spawn(async move {
-                        let fut = oauth::begin_authorization(
-                            &client,
-                            &pds_url,
-                            &relay_host,
-                            &target_did,
-                        );
+                        let fut =
+                            oauth::begin_authorization(&client, &pds_url, &relay_host, &target_did);
                         #[cfg(target_arch = "wasm32")]
                         {
                             fut.await
@@ -250,8 +246,7 @@ pub fn poll_complete_auth_task(
                 commands.insert_resource(CurrentRoomDid(room_did.clone()));
                 commands.insert_resource(session);
 
-                let source: TokenSource =
-                    Arc::new(std::sync::RwLock::new(Some(service_token)));
+                let source: TokenSource = Arc::new(std::sync::RwLock::new(Some(service_token)));
                 commands.insert_resource(TokenSourceRes(source));
 
                 let host = relay_host.as_deref().map(|r| r.0.as_str()).unwrap_or("");

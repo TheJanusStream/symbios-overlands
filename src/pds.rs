@@ -961,7 +961,7 @@ impl Default for RoverPhenotype {
 
 impl RoverPhenotype {
     /// Bake into the plain-float struct consumed by
-    /// [`crate::rover::rebuild_airship_children`].
+    /// [`crate::player::rebuild_airship_children`].
     pub fn to_airship_params(&self) -> crate::protocol::AirshipParams {
         crate::protocol::AirshipParams {
             hull_length: self.hull_length.0,

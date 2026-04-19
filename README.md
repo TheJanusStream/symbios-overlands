@@ -12,7 +12,7 @@ There is no central game server. There is no competitive objective. It is a spac
 
 ## Key Features
 
-* **Identity & Avatars:** Authenticate directly via your ATProto PDS. The game automatically resolves your DID, fetches your profile picture (bypassing CORS via `sync.getBlob` on WASM), and mounts it as the double-sided "sail" of your rover — or paints it onto the chest badge of your humanoid.
+* **Identity & Avatars:** Authenticate directly via your ATProto PDS using OAuth 2.0 + DPoP — the app never sees your password. The game automatically resolves your DID, fetches your profile picture (bypassing CORS via `sync.getBlob` on WASM), and mounts it as the double-sided "sail" of your rover — or paints it onto the chest badge of your humanoid.
 * **Parametric Avatars:** The avatar itself is an ATProto record (`network.symbios.overlands.avatar`) authored as a *recipe*, with two archetypes: an amphibious `HoverRover` vehicle and a walkable `Humanoid` character. Every dimension, colour, damping coefficient, and kinematic tuning lives in the record, so each player's vessel or body is portable and mutable from any client.
 * **Social Graph Resonance:** The environment actively queries the ATProto social graph (`app.bsky.graph.getRelationships`). If a peer in the room is a "Mutual" (you follow each other), their rover's mast tip emits a warm, identifying glow.
 * **P2P WebRTC Networking:** Powered by `bevy_symbios_multiuser`. High-frequency physics transforms are broadcast over Unreliable data channels, while chat and identity data are guaranteed via Reliable channels.
@@ -27,12 +27,14 @@ There is no central game server. There is no competitive objective. It is a spac
 
 * **In-Room Chat:** An egui chat window streams Reliable messages between everyone in the room, labelled with each sender's Bluesky handle and a session-relative timestamp. Muting a peer from the Diagnostics panel hides their vessel and silences their messages locally. Incoming chat payloads are hard-clipped at 512 bytes on the receiver to neutralise malicious jumbo packets.
 
+* **Seamless Portals:** Rooms can expose `Portal` generators that teleport the player on collision — either intra-room (snap to a coordinate) or inter-room (jump to another DID's overland without a full login round-trip). Inter-room portals paint the target owner's profile picture onto the portal's top face so you can see where each doorway leads before stepping through.
+
 ## Architecture
 
 Overlands utilizes a **Broker** pattern:
 
-1. **Auth:** Client logs into ATProto to get a Service JWT.
-2. **Signaling:** Client connects to a lightweight Axum relay server, proving identity via the JWT.
+1. **Auth:** Client runs the atproto OAuth 2.0 + DPoP authorization-code flow against the user's PDS — WASM redirects the tab, native spins a loopback `tiny_http` callback server. The resulting `OAuthSession` is then exchanged for a relay-specific service token via `com.atproto.server.getServiceAuth`.
+2. **Signaling:** Client connects to a lightweight Axum relay server, proving identity with the service token.
 3. **P2P:** The relay brokers a WebRTC SDP handshake, then steps out of the way. All movement and chat data flows directly peer-to-peer.
 4. **Simulation:** The Local Player is simulated as a `RigidBody::Dynamic`. Remote peers are spawned purely as kinematic visual transforms to prevent physics desynchronization across different CPUs.
 
@@ -94,6 +96,11 @@ src/
 ├── protocol.rs          Serde-tagged network message enum + AirshipParams
 ├── network.rs           P2P broadcast, jitter buffer, Hermite smoothing,
 │                        identity anti-spoofing, mute sync
+├── oauth.rs             atproto OAuth 2.0 + DPoP authorization-code flow
+│                        (WASM sessionStorage redirect + native tiny_http
+│                        loopback callback), PDS discovery via
+│                        `.well-known/oauth-protected-resource`, DPoP-nonce
+│                        retry helpers
 ├── pds.rs               ATProto DID / PDS resolution, `RoomRecord` and
 │                        `AvatarRecord` recipe lexicons, DAG-CBOR fixed-point
 │                        adapters, read/write
@@ -114,7 +121,9 @@ src/
 ├── water.rs             `ExtendedMaterial` binding for the animated water shader
 ├── logout.rs            InGame → Login cleanup: despawn entities, tear down socket
 └── ui/
-    ├── login.rs         ATProto login form + auth task polling
+    ├── login.rs         OAuth 2.0 + DPoP login form (PDS, handle, relay host,
+    │                    optional destination DID), Begin/Complete auth task
+    │                    pollers, WASM callback + native loopback handoff
     ├── diagnostics.rs   Peer list, mute toggles, event log, logout button
     ├── chat.rs          Reliable chat window with length-capped input
     ├── avatar.rs        Avatar Editor — parametric sliders for the

@@ -175,10 +175,7 @@ struct ProtectedResourceMetadata {
 ///    The caller's next step (`OAuthClient::discover_server`) will then
 ///    probe `.well-known/oauth-authorization-server` on that URL and
 ///    either succeed or surface a clear error.
-pub async fn discover_auth_server(
-    http: &reqwest::Client,
-    pds_url: &str,
-) -> Result<String, String> {
+pub async fn discover_auth_server(http: &reqwest::Client, pds_url: &str) -> Result<String, String> {
     let base = pds_url.trim_end_matches('/');
     let url = format!("{base}/.well-known/oauth-protected-resource");
     let resp = http
@@ -404,8 +401,8 @@ pub mod wasm {
     pub fn store_pending(pending: &PendingAuth) -> Result<(), String> {
         let storage = session_storage()
             .ok_or_else(|| "sessionStorage unavailable (private mode?)".to_string())?;
-        let json = serde_json::to_string(pending)
-            .map_err(|e| format!("serialize pending auth: {e}"))?;
+        let json =
+            serde_json::to_string(pending).map_err(|e| format!("serialize pending auth: {e}"))?;
         storage
             .set_item(SESSION_STORAGE_KEY, &json)
             .map_err(|e| format!("sessionStorage.setItem: {e:?}"))
@@ -521,7 +518,9 @@ pub mod wasm {
 /// server back to the Bevy polling system.
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Resource)]
-pub struct NativeCallbackReceiver(pub std::sync::Mutex<std::sync::mpsc::Receiver<(String, String)>>);
+pub struct NativeCallbackReceiver(
+    pub std::sync::Mutex<std::sync::mpsc::Receiver<(String, String)>>,
+);
 
 /// Start a one-shot `tiny_http` server on the configured port, parse the
 /// first `/callback?code=&state=` request it receives, send the pair
@@ -531,14 +530,13 @@ pub struct NativeCallbackReceiver(pub std::sync::Mutex<std::sync::mpsc::Receiver
 /// Returns the receive side of the channel — the caller is expected to
 /// insert it as [`NativeCallbackReceiver`] and poll it in a Bevy system.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn start_native_callback_server()
--> Result<std::sync::mpsc::Receiver<(String, String)>, String> {
+pub fn start_native_callback_server() -> Result<std::sync::mpsc::Receiver<(String, String)>, String>
+{
     use std::thread;
 
     let (tx, rx) = std::sync::mpsc::channel();
     let addr = format!("127.0.0.1:{NATIVE_CALLBACK_PORT}");
-    let server = tiny_http::Server::http(&addr)
-        .map_err(|e| format!("bind {addr}: {e}"))?;
+    let server = tiny_http::Server::http(&addr).map_err(|e| format!("bind {addr}: {e}"))?;
 
     thread::spawn(move || {
         // Accept a single request — authorization codes are single-use so
