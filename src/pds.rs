@@ -1467,10 +1467,80 @@ pub async fn publish_avatar_record(
 // Root room record
 // ---------------------------------------------------------------------------
 
-/// Non-spatial environment state — sky / sun / fog tint.
+/// Non-spatial environment state — directional sun, ambient light, sky
+/// cuboid tint, and atmospheric distance fog. Every field is wrapped in a
+/// fixed-point type so the record stays DAG-CBOR compliant.
+///
+/// `#[serde(default)]` lets pre-atmosphere records (which only carried
+/// `sun_color`) round-trip: any missing field falls back to the canonical
+/// constant via `Environment::default()` rather than failing the whole
+/// decode and stranding the owner on the recovery banner.
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
 pub struct Environment {
     pub sun_color: Fp3,
+    pub sun_illuminance: Fp,
+    pub ambient_brightness: Fp,
+    pub sky_color: Fp3,
+
+    pub fog_color: Fp4,
+    pub fog_visibility: Fp,
+    pub fog_extinction: Fp3,
+    pub fog_inscattering: Fp3,
+    pub fog_sun_color: Fp4,
+    pub fog_sun_exponent: Fp,
+}
+
+impl Default for Environment {
+    fn default() -> Self {
+        use crate::config::{camera::fog as f, lighting as l};
+        Self {
+            sun_color: Fp3(l::SUN_COLOR),
+            sun_illuminance: Fp(l::ILLUMINANCE),
+            ambient_brightness: Fp(l::AMBIENT_BRIGHTNESS),
+            sky_color: Fp3(l::SKY_COLOR),
+
+            fog_color: Fp4(f::COLOR),
+            fog_visibility: Fp(f::VISIBILITY),
+            fog_extinction: Fp3(f::EXTINCTION_COLOR),
+            fog_inscattering: Fp3(f::INSCATTERING_COLOR),
+            fog_sun_color: Fp4(f::DIRECTIONAL_LIGHT_COLOR),
+            fog_sun_exponent: Fp(f::DIRECTIONAL_LIGHT_EXPONENT),
+        }
+    }
+}
+
+impl Environment {
+    /// Clamp every field so a malicious or malformed record cannot crash
+    /// the renderer with NaN, negative light values, or a zero visibility
+    /// that makes `FogFalloff::from_visibility_colors` divide by zero.
+    pub fn sanitize(&mut self) {
+        let clamp_unit = |v: f32| v.clamp(0.0, 1.0);
+        let clamp3 = |c: Fp3| Fp3([clamp_unit(c.0[0]), clamp_unit(c.0[1]), clamp_unit(c.0[2])]);
+        let clamp4 = |c: Fp4| {
+            Fp4([
+                clamp_unit(c.0[0]),
+                clamp_unit(c.0[1]),
+                clamp_unit(c.0[2]),
+                clamp_unit(c.0[3]),
+            ])
+        };
+
+        self.sun_color = clamp3(self.sun_color);
+        self.sky_color = clamp3(self.sky_color);
+        self.fog_color = clamp4(self.fog_color);
+        self.fog_extinction = clamp3(self.fog_extinction);
+        self.fog_inscattering = clamp3(self.fog_inscattering);
+        self.fog_sun_color = clamp4(self.fog_sun_color);
+
+        self.sun_illuminance = Fp(self.sun_illuminance.0.clamp(0.0, 100_000.0));
+        self.ambient_brightness = Fp(self.ambient_brightness.0.clamp(0.0, 10_000.0));
+        // A zero visibility would make `FogFalloff::from_visibility_colors`
+        // blow up (it divides by `visibility` internally). Floor at 10 m so
+        // the falloff remains well-defined even under an adversarial record.
+        self.fog_visibility = Fp(self.fog_visibility.0.clamp(10.0, 10_000.0));
+        self.fog_sun_exponent = Fp(self.fog_sun_exponent.0.clamp(1.0, 100.0));
+    }
 }
 
 /// The full recipe: environment + generators + placements + traits. Acts as
@@ -1538,9 +1608,7 @@ impl RoomRecord {
 
         Self {
             lex_type: COLLECTION.into(),
-            environment: Environment {
-                sun_color: Fp3(crate::config::lighting::SUN_COLOR),
-            },
+            environment: Environment::default(),
             generators,
             placements,
             traits,
@@ -1613,6 +1681,10 @@ impl RoomRecord {
     /// compiler, so an attacker cannot weaponise an unbounded field to crash
     /// or OOM the victim.
     pub fn sanitize(&mut self) {
+        // Clamp atmospheric fields first — cheap and independent of everything
+        // else, and guarantees the world compiler never hands NaN or a zero
+        // visibility to `FogFalloff::from_visibility_colors`.
+        self.environment.sanitize();
         // Bound the total number of generators before touching any of them.
         // Drop entries in lexicographic key order so the survivor set is
         // deterministic across peers — otherwise a record with 1000

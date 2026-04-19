@@ -21,7 +21,9 @@
 
 use avian3d::prelude::*;
 use bevy::asset::RenderAssetUsages;
+use bevy::light::GlobalAmbientLight;
 use bevy::mesh::{Indices, PrimitiveTopology};
+use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 use bevy::render::render_resource::Face;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, futures_lite::future};
@@ -41,7 +43,7 @@ use symbios_turtle_3d::{SkeletonProp, TurtleConfig, TurtleInterpreter};
 
 use crate::config::terrain as tcfg;
 use crate::pds::{
-    Fp, Fp3, Generator, Placement, PropMeshType, RoomRecord, ScatterBounds,
+    Fp, Fp3, Fp4, Generator, Placement, PropMeshType, RoomRecord, ScatterBounds,
     SovereignMaterialSettings, SovereignTerrainConfig, SovereignTextureType, TransformData,
 };
 use crate::state::AppState;
@@ -148,7 +150,11 @@ impl Plugin for WorldBuilderPlugin {
             .add_systems(Startup, setup_prop_assets)
             .add_systems(
                 Update,
-                (compile_room_record, poll_overlands_foliage_tasks)
+                (
+                    compile_room_record,
+                    apply_environment_state,
+                    poll_overlands_foliage_tasks,
+                )
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -239,7 +245,6 @@ fn compile_room_record(
     mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
     mut lsystem_material_cache: ResMut<LSystemMaterialCache>,
     mut lsystem_mesh_cache: ResMut<LSystemMeshCache>,
-    mut lights: Query<&mut DirectionalLight>,
 ) {
     let Some(record) = record else {
         return;
@@ -256,12 +261,10 @@ fn compile_room_record(
         commands.entity(e).despawn();
     }
 
-    // Step 2 — Environment. Patch the shared directional light in place
-    // so a record update takes effect on every connected peer.
-    let Fp3(c) = record.environment.sun_color;
-    for mut light in lights.iter_mut() {
-        light.color = Color::srgb(c[0], c[1], c[2]);
-    }
+    // Step 2 — Environment is applied by `apply_environment_state`, which
+    // runs as its own system. Splitting it out keeps `compile_room_record`
+    // under Bevy's 16-param limit on `IntoSystem` impls now that the
+    // record carries sky / ambient / fog fields as well as the sun.
 
     // Cross-compile cache lives in `LSystemMaterialCache` (a persistent
     // Resource). Track which `(generator_ref, slot)` keys were touched this
@@ -396,6 +399,65 @@ fn compile_room_record(
     lsystem_mesh_cache
         .entries
         .retain(|k, _| lsystem_mesh_touched.contains(k));
+}
+
+/// Apply the active `RoomRecord`'s `Environment` to every atmospheric
+/// resource in the scene — sun, ambient, sky cuboid, clear colour, and
+/// distance fog. Runs on every `RoomRecord` change so an editor slider
+/// (or peer broadcast) retints the world without restarting the session.
+///
+/// Kept separate from [`compile_room_record`] because the combined
+/// signature would exceed Bevy's 16-param `IntoSystem` limit; splitting
+/// it out also lets Bevy schedule the two passes in parallel when their
+/// resource borrows don't conflict.
+fn apply_environment_state(
+    record: Option<Res<RoomRecord>>,
+    mut lights: Query<&mut DirectionalLight>,
+    mut clear_color: ResMut<ClearColor>,
+    mut ambient_light: ResMut<GlobalAmbientLight>,
+    mut fog: Query<&mut DistanceFog>,
+    skybox: Query<&MeshMaterial3d<StandardMaterial>, With<crate::SkyBox>>,
+    mut std_materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let Some(record) = record else {
+        return;
+    };
+    if !record.is_changed() {
+        return;
+    }
+    let env = &record.environment;
+
+    let Fp3(sun_c) = env.sun_color;
+    for mut light in lights.iter_mut() {
+        light.color = Color::srgb(sun_c[0], sun_c[1], sun_c[2]);
+        light.illuminance = env.sun_illuminance.0;
+    }
+
+    ambient_light.brightness = env.ambient_brightness.0;
+
+    let Fp3(sky_c) = env.sky_color;
+    clear_color.0 = Color::srgb(sky_c[0], sky_c[1], sky_c[2]);
+    for material_handle in skybox.iter() {
+        if let Some(mat) = std_materials.get_mut(&material_handle.0) {
+            mat.base_color = Color::srgb(sky_c[0], sky_c[1], sky_c[2]);
+        }
+    }
+
+    let Fp4(fog_c) = env.fog_color;
+    let Fp4(fog_sun_c) = env.fog_sun_color;
+    let Fp3(ext_c) = env.fog_extinction;
+    let Fp3(in_c) = env.fog_inscattering;
+    for mut dfog in fog.iter_mut() {
+        dfog.color = Color::srgba(fog_c[0], fog_c[1], fog_c[2], fog_c[3]);
+        dfog.directional_light_color =
+            Color::srgba(fog_sun_c[0], fog_sun_c[1], fog_sun_c[2], fog_sun_c[3]);
+        dfog.directional_light_exponent = env.fog_sun_exponent.0;
+        dfog.falloff = FogFalloff::from_visibility_colors(
+            env.fog_visibility.0,
+            Color::srgb(ext_c[0], ext_c[1], ext_c[2]),
+            Color::srgb(in_c[0], in_c[1], in_c[2]),
+        );
+    }
 }
 
 /// Stable content hash of a `SovereignMaterialSettings` for the L-system

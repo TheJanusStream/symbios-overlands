@@ -30,6 +30,12 @@ mod world_builder;
 
 use pds::{AvatarRecord, RoomRecord};
 
+/// Marker for the unlit sky cuboid spawned in `setup_lighting`. The world
+/// compiler uses this to retint the sky material when a room record's
+/// `environment.sky_color` changes.
+#[derive(Component)]
+pub struct SkyBox;
+
 /// Format elapsed seconds as a `MM:SS` (or `H:MM:SS`) timestamp string.
 pub fn format_elapsed_ts(elapsed_secs: f64) -> String {
     let total = elapsed_secs as u64;
@@ -189,6 +195,7 @@ fn setup_lighting(
         })),
         Transform::from_scale(Vec3::splat(config::lighting::SKY_SCALE)),
         NotShadowCaster,
+        SkyBox,
     ));
 }
 

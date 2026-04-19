@@ -349,13 +349,54 @@ pub fn room_admin_ui(
 fn draw_environment_tab(ui: &mut egui::Ui, env: &mut Environment, dirty: &mut bool) {
     ui.heading("Environment");
     ui.add_space(4.0);
-    ui.label("Directional sunlight colour — applied to the scene's main light.");
-    ui.add_space(4.0);
-    let mut rgb = env.sun_color.0;
-    if ui.color_edit_button_rgb(&mut rgb).changed() {
-        env.sun_color = Fp3(rgb);
-        *dirty = true;
-    }
+
+    egui::CollapsingHeader::new("Lighting & Sky")
+        .default_open(true)
+        .show(ui, |ui| {
+            color_picker(ui, "Sun colour", &mut env.sun_color, dirty);
+            color_picker(ui, "Sky colour", &mut env.sky_color, dirty);
+            fp_slider(
+                ui,
+                "Sun illuminance",
+                &mut env.sun_illuminance,
+                0.0,
+                50_000.0,
+                dirty,
+            );
+            fp_slider(
+                ui,
+                "Ambient brightness",
+                &mut env.ambient_brightness,
+                0.0,
+                2_000.0,
+                dirty,
+            );
+        });
+
+    egui::CollapsingHeader::new("Distance Fog")
+        .default_open(false)
+        .show(ui, |ui| {
+            fp_slider(
+                ui,
+                "Visibility (m)",
+                &mut env.fog_visibility,
+                50.0,
+                2_000.0,
+                dirty,
+            );
+            color_picker_rgba(ui, "Fog colour", &mut env.fog_color, dirty);
+            color_picker(ui, "Extinction", &mut env.fog_extinction, dirty);
+            color_picker(ui, "Inscattering", &mut env.fog_inscattering, dirty);
+            color_picker_rgba(ui, "Sun glow", &mut env.fog_sun_color, dirty);
+            fp_slider(
+                ui,
+                "Sun glow exponent",
+                &mut env.fog_sun_exponent,
+                1.0,
+                100.0,
+                dirty,
+            );
+        });
 }
 
 // ---------------------------------------------------------------------------
@@ -1413,6 +1454,21 @@ fn color_picker(ui: &mut egui::Ui, label: &str, value: &mut Fp3, dirty: &mut boo
         let mut rgb = value.0;
         if ui.color_edit_button_rgb(&mut rgb).changed() {
             *value = Fp3(rgb);
+            *dirty = true;
+        }
+    });
+}
+
+/// RGBA colour picker — mirrors [`color_picker`] but for [`Fp4`] fields
+/// where the alpha channel carries renderer-relevant information (fog
+/// opacity, sun-glow strength). Uses the unmultiplied variant so the
+/// alpha edits independently of RGB rather than being pre-scaled.
+fn color_picker_rgba(ui: &mut egui::Ui, label: &str, value: &mut Fp4, dirty: &mut bool) {
+    ui.horizontal(|ui| {
+        ui.label(label);
+        let mut rgba = value.0;
+        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+            *value = Fp4(rgba);
             *dirty = true;
         }
     });
