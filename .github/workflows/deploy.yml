@@ -52,6 +52,7 @@ jobs:
         run: |
           cp index.html ./dist/
           cp -r assets ./dist/
+          cp assets/client-metadata.json ./dist/
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
