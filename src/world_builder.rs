@@ -43,8 +43,9 @@ use symbios_turtle_3d::{SkeletonProp, TurtleConfig, TurtleInterpreter};
 
 use crate::config::terrain as tcfg;
 use crate::pds::{
-    Fp, Fp3, Fp4, Generator, Placement, PropMeshType, RoomRecord, ScatterBounds,
-    SovereignMaterialSettings, SovereignTerrainConfig, SovereignTextureType, TransformData,
+    Fp, Fp3, Fp4, Generator, Placement, PrimNode, PrimShape, PropMeshType, RoomRecord,
+    ScatterBounds, SovereignMaterialSettings, SovereignTerrainConfig, SovereignTextureType,
+    TransformData,
 };
 use crate::state::{AppState, CurrentRoomDid};
 use crate::terrain::{FinishedHeightMap, TerrainMesh, WaterVolume};
@@ -889,6 +890,9 @@ fn spawn_from_generator(
         Generator::Shape { .. } => {
             // Stub: symbios-shape integration lands in a follow-up.
         }
+        Generator::Construct { root } => {
+            spawn_construct_entity(&mut ctx, root, generator_ref, transform);
+        }
         Generator::Portal {
             target_did,
             target_pos,
@@ -1014,6 +1018,95 @@ fn poll_portal_avatar_tasks(
             mat.base_color_texture = Some(images.add(img));
         }
     }
+}
+
+/// Spawn a `Construct` hierarchy: the root node gets `RigidBody::Static`
+/// plus `RoomEntity` (so room rebuilds despawn the whole tree), every
+/// `solid` node contributes an Avian collider, and nested nodes become
+/// Bevy children so Avian can resolve the assembly as a compound body.
+///
+/// Procedural materials (Bark/Leaf/Twig) are deduped by settings
+/// fingerprint within the tree so a chair built from 20 `Bark` cubes only
+/// spawns the texture task once.
+fn spawn_construct_entity(
+    ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
+    root: &PrimNode,
+    generator_ref: &str,
+    placement_tf: Transform,
+) {
+    let mut material_cache: HashMap<u64, Handle<StandardMaterial>> = HashMap::new();
+    // Compose the placement transform with the root's own local transform
+    // so the root entity already lives in world space. Child transforms
+    // stay local and cascade via Bevy's hierarchy.
+    let root_tf = placement_tf * transform_from_data(&root.transform);
+    let entity = spawn_prim_tree(ctx, root, root_tf, true, &mut material_cache);
+    apply_traits(ctx.commands, entity, ctx.record, generator_ref);
+}
+
+fn spawn_prim_tree(
+    ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
+    node: &PrimNode,
+    tf: Transform,
+    is_root: bool,
+    material_cache: &mut HashMap<u64, Handle<StandardMaterial>>,
+) -> Entity {
+    let mesh = mesh_for_prim_shape(ctx.meshes, node.shape);
+
+    let hash = settings_fingerprint(&node.material);
+    let material = if let Some(h) = material_cache.get(&hash) {
+        h.clone()
+    } else {
+        let h = spawn_foliage_material(ctx, &node.material);
+        material_cache.insert(hash, h.clone());
+        h
+    };
+
+    let mut cmd = ctx
+        .commands
+        .spawn((Mesh3d(mesh), MeshMaterial3d(material), tf));
+    if is_root {
+        cmd.insert((RoomEntity, RigidBody::Static));
+    }
+    if node.solid
+        && let Some(collider) = collider_for_prim_shape(node.shape)
+    {
+        cmd.insert(collider);
+    }
+    let entity = cmd.id();
+
+    for child_node in &node.children {
+        let child_tf = transform_from_data(&child_node.transform);
+        let child = spawn_prim_tree(ctx, child_node, child_tf, false, material_cache);
+        ctx.commands.entity(entity).add_child(child);
+    }
+    entity
+}
+
+/// Build the unit-sized mesh for a [`PrimShape`]. The node's
+/// [`TransformData::scale`] is applied via Bevy's transform hierarchy, so
+/// one handle per shape variant suffices per tree.
+fn mesh_for_prim_shape(meshes: &mut Assets<Mesh>, shape: PrimShape) -> Handle<Mesh> {
+    match shape {
+        PrimShape::Cube => meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
+        PrimShape::Sphere => meshes.add(Sphere::new(0.5)),
+        PrimShape::Cylinder => meshes.add(Cylinder::new(0.5, 1.0)),
+        PrimShape::Capsule => meshes.add(Capsule3d::new(0.5, 1.0)),
+        PrimShape::Cone => meshes.add(Cone::new(0.5, 1.0)),
+        PrimShape::Torus => meshes.add(Torus::new(0.3, 0.5)),
+    }
+}
+
+/// Build the Avian collider matching a [`PrimShape`]'s mesh. `Torus` falls
+/// back to a bounding cuboid because Avian 0.6 has no native torus primitive.
+fn collider_for_prim_shape(shape: PrimShape) -> Option<Collider> {
+    Some(match shape {
+        PrimShape::Cube => Collider::cuboid(1.0, 1.0, 1.0),
+        PrimShape::Sphere => Collider::sphere(0.5),
+        PrimShape::Cylinder => Collider::cylinder(0.5, 1.0),
+        PrimShape::Capsule => Collider::capsule(0.5, 1.0),
+        PrimShape::Cone => Collider::cone(0.5, 1.0),
+        PrimShape::Torus => Collider::cuboid(1.0, 0.6, 1.0),
+    })
 }
 
 /// Spawn the translucent water cuboid scaled to cover the whole terrain.

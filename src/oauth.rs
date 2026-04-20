@@ -458,11 +458,7 @@ pub mod wasm {
             return;
         };
         let scrubbed = format!("{}/", super::WASM_REDIRECT_URI);
-        let _ = history.replace_state_with_url(
-            &wasm_bindgen::JsValue::NULL,
-            "",
-            Some(&scrubbed),
-        );
+        let _ = history.replace_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(&scrubbed));
     }
 
     /// Navigate the current tab to an authorization URL — this terminates

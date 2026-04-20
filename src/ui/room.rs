@@ -27,11 +27,11 @@ use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
 use crate::pds::{
-    self, Environment, Fp, Fp2, Fp3, Fp4, Fp64, Generator, Placement, PropMeshType, RoomRecord,
-    ScatterBounds, SovereignBarkConfig, SovereignGeneratorKind, SovereignGroundConfig,
-    SovereignLeafConfig, SovereignMaterialConfig, SovereignMaterialSettings, SovereignRockConfig,
-    SovereignSplatRule, SovereignTerrainConfig, SovereignTextureType, SovereignTwigConfig,
-    TransformData,
+    self, Environment, Fp, Fp2, Fp3, Fp4, Fp64, Generator, Placement, PrimNode, PrimShape,
+    PropMeshType, RoomRecord, ScatterBounds, SovereignBarkConfig, SovereignGeneratorKind,
+    SovereignGroundConfig, SovereignLeafConfig, SovereignMaterialConfig, SovereignMaterialSettings,
+    SovereignRockConfig, SovereignSplatRule, SovereignTerrainConfig, SovereignTextureType,
+    SovereignTwigConfig, TransformData,
 };
 use crate::state::{CurrentRoomDid, PublishFeedback, RoomRecordRecovery, StoredRoomRecord};
 
@@ -502,6 +502,17 @@ fn draw_generators_tab(
             *selected = Some(name);
             *dirty = true;
         }
+        if ui.small_button("+ Construct").clicked() {
+            let name = unique_key(&record.generators, "construct");
+            record.generators.insert(
+                name.clone(),
+                Generator::Construct {
+                    root: PrimNode::default(),
+                },
+            );
+            *selected = Some(name);
+            *dirty = true;
+        }
     });
 }
 
@@ -604,12 +615,181 @@ fn draw_generator_detail(
                 }
             });
         }
+        Generator::Construct { root } => {
+            draw_construct_forge(ui, root, dirty);
+        }
         Generator::Unknown => {
             ui.colored_label(
                 egui::Color32::from_rgb(220, 160, 80),
                 "Unknown generator type — editable only via the Raw JSON tab.",
             );
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Construct forge — recursive hierarchical primitive editor
+// ---------------------------------------------------------------------------
+
+fn draw_construct_forge(ui: &mut egui::Ui, root: &mut PrimNode, dirty: &mut bool) {
+    ui.label(
+        "Hierarchical primitive tree. Root anchors to the world; \
+        children inherit transform, and every solid node contributes a collider.",
+    );
+    ui.add_space(4.0);
+    draw_prim_node_ui(ui, root, true, dirty, "root");
+}
+
+/// Recursive node editor. `is_root` suppresses the delete button for the tree
+/// root. `path_salt` makes every egui ID unique across the recursive tree so
+/// collapsing one sibling never affects another.
+fn draw_prim_node_ui(
+    ui: &mut egui::Ui,
+    node: &mut PrimNode,
+    is_root: bool,
+    dirty: &mut bool,
+    path_salt: &str,
+) -> PrimNodeAction {
+    let header = format!("{:?}", node.shape);
+    let mut action = PrimNodeAction::None;
+    egui::CollapsingHeader::new(header)
+        .id_salt(path_salt)
+        .default_open(true)
+        .show(ui, |ui| {
+            shape_combo(ui, &mut node.shape, path_salt, dirty);
+
+            if ui.checkbox(&mut node.solid, "Solid (collider)").changed() {
+                *dirty = true;
+            }
+
+            ui.add_space(4.0);
+            draw_transform(ui, &mut node.transform, dirty);
+
+            egui::CollapsingHeader::new("Material")
+                .id_salt(format!("{}_mat", path_salt))
+                .default_open(false)
+                .show(ui, |ui| {
+                    draw_prim_material(ui, &mut node.material, path_salt, dirty);
+                });
+
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                if ui.small_button("+ Add child").clicked() {
+                    node.children.push(PrimNode::default());
+                    *dirty = true;
+                }
+                if !is_root && ui.small_button("− Delete").clicked() {
+                    action = PrimNodeAction::Delete;
+                }
+            });
+
+            ui.add_space(4.0);
+            let mut to_remove: Option<usize> = None;
+            for (i, child) in node.children.iter_mut().enumerate() {
+                let child_salt = format!("{}_c{}", path_salt, i);
+                let child_action = draw_prim_node_ui(ui, child, false, dirty, &child_salt);
+                if matches!(child_action, PrimNodeAction::Delete) {
+                    to_remove = Some(i);
+                }
+            }
+            if let Some(i) = to_remove {
+                node.children.remove(i);
+                *dirty = true;
+            }
+        });
+    action
+}
+
+/// Signal returned by `draw_prim_node_ui` so the parent can remove a child
+/// that asked to be deleted. Keeping the delete state out of the child's own
+/// mutation avoids borrow conflicts with the recursive `iter_mut`.
+enum PrimNodeAction {
+    None,
+    Delete,
+}
+
+fn shape_combo(ui: &mut egui::Ui, shape: &mut PrimShape, salt: &str, dirty: &mut bool) {
+    egui::ComboBox::from_id_salt(format!("{}_shape", salt))
+        .selected_text(format!("{:?}", shape))
+        .show_ui(ui, |ui| {
+            let shapes = [
+                PrimShape::Cube,
+                PrimShape::Sphere,
+                PrimShape::Cylinder,
+                PrimShape::Capsule,
+                PrimShape::Cone,
+                PrimShape::Torus,
+            ];
+            for s in shapes {
+                if ui.selectable_value(shape, s, format!("{:?}", s)).changed() {
+                    *dirty = true;
+                }
+            }
+        });
+}
+
+/// Slim material editor for a single Prim node. Mirrors the L-system slot
+/// UI but scoped to a single `SovereignMaterialSettings` with `salt` making
+/// every internal egui id unique across the recursive tree.
+fn draw_prim_material(
+    ui: &mut egui::Ui,
+    m: &mut SovereignMaterialSettings,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    color_picker(ui, "Base color", &mut m.base_color, dirty);
+    color_picker(ui, "Emission", &mut m.emission_color, dirty);
+    fp_slider(
+        ui,
+        "Emission strength",
+        &mut m.emission_strength,
+        0.0,
+        20.0,
+        dirty,
+    );
+    fp_slider(ui, "Roughness", &mut m.roughness, 0.0, 1.0, dirty);
+    fp_slider(ui, "Metallic", &mut m.metallic, 0.0, 1.0, dirty);
+    fp_slider(ui, "UV scale", &mut m.uv_scale, 0.1, 10.0, dirty);
+
+    egui::ComboBox::from_id_salt(format!("{}_tex", salt))
+        .selected_text(format!("{:?}", m.texture_type))
+        .show_ui(ui, |ui| {
+            let types = [
+                SovereignTextureType::None,
+                SovereignTextureType::Bark,
+                SovereignTextureType::Leaf,
+                SovereignTextureType::Twig,
+            ];
+            for t in types {
+                if ui
+                    .selectable_value(&mut m.texture_type, t, format!("{:?}", t))
+                    .changed()
+                {
+                    *dirty = true;
+                }
+            }
+        });
+
+    match m.texture_type {
+        SovereignTextureType::Leaf => {
+            egui::CollapsingHeader::new("Leaf config")
+                .id_salt(format!("{}_leaf", salt))
+                .default_open(false)
+                .show(ui, |ui| draw_leaf_config(ui, &mut m.leaf_config, dirty));
+        }
+        SovereignTextureType::Twig => {
+            egui::CollapsingHeader::new("Twig config")
+                .id_salt(format!("{}_twig", salt))
+                .default_open(false)
+                .show(ui, |ui| draw_twig_config(ui, &mut m.twig_config, dirty));
+        }
+        SovereignTextureType::Bark => {
+            egui::CollapsingHeader::new("Bark config")
+                .id_salt(format!("{}_bark", salt))
+                .default_open(false)
+                .show(ui, |ui| draw_bark_config(ui, &mut m.bark_config, dirty));
+        }
+        _ => {}
     }
 }
 

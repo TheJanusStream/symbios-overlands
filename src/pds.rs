@@ -809,6 +809,49 @@ pub mod map_u16_as_string {
 }
 
 // ---------------------------------------------------------------------------
+// Construct — hierarchical primitive nodes
+// ---------------------------------------------------------------------------
+
+/// Primitive mesh shape for a `Construct` node. All shapes are authored at
+/// unit dimensions; the node's [`TransformData::scale`] maps directly to
+/// metres, so a 2 m wall is `scale = [2, 2, 0.2]` with no per-shape tweaking.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PrimShape {
+    #[default]
+    Cube,
+    Sphere,
+    Cylinder,
+    Capsule,
+    Cone,
+    Torus,
+}
+
+/// A single node in a `Construct` hierarchy. Each node carries its own
+/// shape, transform, material, and optional children. Child transforms are
+/// interpreted relative to the parent so a rotated assembly stays rigid.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PrimNode {
+    pub shape: PrimShape,
+    pub transform: TransformData,
+    pub solid: bool,
+    pub material: SovereignMaterialSettings,
+    #[serde(default)]
+    pub children: Vec<PrimNode>,
+}
+
+impl Default for PrimNode {
+    fn default() -> Self {
+        Self {
+            shape: PrimShape::default(),
+            transform: TransformData::default(),
+            solid: true,
+            material: SovereignMaterialSettings::default(),
+            children: Vec::new(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Open unions: Generators and Placements
 // ---------------------------------------------------------------------------
 
@@ -833,6 +876,9 @@ pub enum Generator {
 
     #[serde(rename = "network.symbios.gen.portal")]
     Portal { target_did: String, target_pos: Fp3 },
+
+    #[serde(rename = "network.symbios.gen.construct")]
+    Construct { root: PrimNode },
 
     #[serde(rename = "network.symbios.gen.lsystem")]
     LSystem {
@@ -1666,6 +1712,14 @@ pub mod limits {
     /// still inflate memory and slow every `compile_room_record` pass even
     /// if no placement referenced them.
     pub const MAX_GENERATORS: usize = 256;
+    /// Maximum recursion depth for a `Construct` primitive tree. Deep
+    /// hierarchies cost an entity + Transform chain per node; 16 is well
+    /// past any plausible hand-authored assembly.
+    pub const MAX_CONSTRUCT_DEPTH: u32 = 16;
+    /// Maximum total node count for a single `Construct` generator. A
+    /// malicious record with a million children would otherwise spawn a
+    /// million Bevy entities + colliders on every compile pass.
+    pub const MAX_CONSTRUCT_NODES: u32 = 1024;
 }
 
 impl RoomRecord {
@@ -1727,6 +1781,10 @@ impl RoomRecord {
                     target_pos.0[1] = target_pos.0[1].clamp(-1_000.0, 10_000.0);
                     target_pos.0[2] = target_pos.0[2].clamp(-10_000.0, 10_000.0);
                 }
+                Generator::Construct { root } => {
+                    let mut count: u32 = 0;
+                    sanitize_prim_node(root, 0, &mut count);
+                }
                 Generator::Water { .. } | Generator::Unknown => {}
             }
         }
@@ -1758,6 +1816,109 @@ fn truncate_on_char_boundary(s: &mut String, max_bytes: usize) {
         end -= 1;
     }
     s.truncate(end);
+}
+
+/// Recursively clamp a `Construct` primitive tree. Beyond the depth and
+/// total-node budgets (see [`limits::MAX_CONSTRUCT_DEPTH`] and
+/// [`limits::MAX_CONSTRUCT_NODES`]), each node's transform and material are
+/// clamped so a malicious record can't pass NaN/negative scales to Bevy's
+/// primitive mesh constructors or the Avian collider builders.
+fn sanitize_prim_node(node: &mut PrimNode, depth: u32, count: &mut u32) {
+    *count += 1;
+    sanitize_prim_transform(&mut node.transform);
+    sanitize_material_settings(&mut node.material);
+
+    if depth >= limits::MAX_CONSTRUCT_DEPTH || *count >= limits::MAX_CONSTRUCT_NODES {
+        node.children.clear();
+        return;
+    }
+    for child in node.children.iter_mut() {
+        if *count >= limits::MAX_CONSTRUCT_NODES {
+            break;
+        }
+        sanitize_prim_node(child, depth + 1, count);
+    }
+    if *count >= limits::MAX_CONSTRUCT_NODES {
+        // Drop the tail children whose recursion budget we couldn't afford
+        // so the survivor count matches the spawn budget exactly.
+        let budget_used = *count;
+        let keep = node
+            .children
+            .len()
+            .saturating_sub((budget_used.saturating_sub(limits::MAX_CONSTRUCT_NODES)) as usize);
+        node.children.truncate(keep);
+    }
+}
+
+/// Clamp a `TransformData` so the downstream Bevy/Avian constructors can't
+/// be fed NaN, infinities, or non-positive scales.
+fn sanitize_prim_transform(t: &mut TransformData) {
+    let finite = |v: f32, default: f32| if v.is_finite() { v } else { default };
+    let clamp_pos = |v: f32| {
+        if v.is_finite() {
+            v.clamp(0.001, 1_000.0)
+        } else {
+            1.0
+        }
+    };
+    let clamp_offset = |v: f32| {
+        if v.is_finite() {
+            v.clamp(-10_000.0, 10_000.0)
+        } else {
+            0.0
+        }
+    };
+    t.translation = Fp3([
+        clamp_offset(t.translation.0[0]),
+        clamp_offset(t.translation.0[1]),
+        clamp_offset(t.translation.0[2]),
+    ]);
+    let rot = [
+        finite(t.rotation.0[0], 0.0),
+        finite(t.rotation.0[1], 0.0),
+        finite(t.rotation.0[2], 0.0),
+        finite(t.rotation.0[3], 1.0),
+    ];
+    let len_sq = rot[0] * rot[0] + rot[1] * rot[1] + rot[2] * rot[2] + rot[3] * rot[3];
+    t.rotation = if len_sq > 1e-6 {
+        let inv = len_sq.sqrt().recip();
+        Fp4([rot[0] * inv, rot[1] * inv, rot[2] * inv, rot[3] * inv])
+    } else {
+        Fp4([0.0, 0.0, 0.0, 1.0])
+    };
+    t.scale = Fp3([
+        clamp_pos(t.scale.0[0]),
+        clamp_pos(t.scale.0[1]),
+        clamp_pos(t.scale.0[2]),
+    ]);
+}
+
+/// Clamp a `SovereignMaterialSettings` so render/PBR parameters stay in
+/// physically sensible ranges. Colour channels are `[0,1]`, roughness and
+/// metallic are `[0,1]`, emission strength is capped.
+fn sanitize_material_settings(m: &mut SovereignMaterialSettings) {
+    let clamp_unit = |v: f32| {
+        if v.is_finite() {
+            v.clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    };
+    let clamp3 = |c: Fp3| Fp3([clamp_unit(c.0[0]), clamp_unit(c.0[1]), clamp_unit(c.0[2])]);
+    m.base_color = clamp3(m.base_color);
+    m.emission_color = clamp3(m.emission_color);
+    m.emission_strength = Fp(if m.emission_strength.0.is_finite() {
+        m.emission_strength.0.clamp(0.0, 1_000.0)
+    } else {
+        0.0
+    });
+    m.roughness = Fp(clamp_unit(m.roughness.0));
+    m.metallic = Fp(clamp_unit(m.metallic.0));
+    m.uv_scale = Fp(if m.uv_scale.0.is_finite() {
+        m.uv_scale.0.clamp(0.001, 1_000.0)
+    } else {
+        1.0
+    });
 }
 
 fn sanitize_terrain_cfg(cfg: &mut SovereignTerrainConfig) {
