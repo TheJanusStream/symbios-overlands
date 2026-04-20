@@ -28,10 +28,15 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 
 use crate::pds::{
     self, Environment, Fp, Fp2, Fp3, Fp4, Fp64, Generator, Placement, PrimNode, PrimShape,
-    PropMeshType, RoomRecord, ScatterBounds, SovereignBarkConfig, SovereignGeneratorKind,
-    SovereignGroundConfig, SovereignLeafConfig, SovereignMaterialConfig, SovereignMaterialSettings,
-    SovereignRockConfig, SovereignSplatRule, SovereignTerrainConfig, SovereignTextureType,
-    SovereignTwigConfig, TransformData,
+    PropMeshType, RoomRecord, ScatterBounds, SovereignAshlarConfig, SovereignAsphaltConfig,
+    SovereignBarkConfig, SovereignBrickConfig, SovereignCobblestoneConfig, SovereignConcreteConfig,
+    SovereignCorrugatedConfig, SovereignEncausticConfig, SovereignGeneratorKind,
+    SovereignGroundConfig, SovereignIronGrilleConfig, SovereignLeafConfig, SovereignMarbleConfig,
+    SovereignMaterialConfig, SovereignMaterialSettings, SovereignMetalConfig, SovereignPaversConfig,
+    SovereignPlankConfig, SovereignRockConfig, SovereignShingleConfig, SovereignSplatRule,
+    SovereignStainedGlassConfig, SovereignStuccoConfig, SovereignTerrainConfig,
+    SovereignTextureConfig, SovereignThatchConfig, SovereignTwigConfig, SovereignWainscotingConfig,
+    SovereignWindowConfig, TransformData,
 };
 use crate::state::{CurrentRoomDid, PublishFeedback, RoomRecordRecovery, StoredRoomRecord};
 
@@ -751,46 +756,7 @@ fn draw_prim_material(
     fp_slider(ui, "Metallic", &mut m.metallic, 0.0, 1.0, dirty);
     fp_slider(ui, "UV scale", &mut m.uv_scale, 0.1, 10.0, dirty);
 
-    egui::ComboBox::from_id_salt(format!("{}_tex", salt))
-        .selected_text(format!("{:?}", m.texture_type))
-        .show_ui(ui, |ui| {
-            let types = [
-                SovereignTextureType::None,
-                SovereignTextureType::Bark,
-                SovereignTextureType::Leaf,
-                SovereignTextureType::Twig,
-            ];
-            for t in types {
-                if ui
-                    .selectable_value(&mut m.texture_type, t, format!("{:?}", t))
-                    .changed()
-                {
-                    *dirty = true;
-                }
-            }
-        });
-
-    match m.texture_type {
-        SovereignTextureType::Leaf => {
-            egui::CollapsingHeader::new("Leaf config")
-                .id_salt(format!("{}_leaf", salt))
-                .default_open(false)
-                .show(ui, |ui| draw_leaf_config(ui, &mut m.leaf_config, dirty));
-        }
-        SovereignTextureType::Twig => {
-            egui::CollapsingHeader::new("Twig config")
-                .id_salt(format!("{}_twig", salt))
-                .default_open(false)
-                .show(ui, |ui| draw_twig_config(ui, &mut m.twig_config, dirty));
-        }
-        SovereignTextureType::Bark => {
-            egui::CollapsingHeader::new("Bark config")
-                .id_salt(format!("{}_bark", salt))
-                .default_open(false)
-                .show(ui, |ui| draw_bark_config(ui, &mut m.bark_config, dirty));
-        }
-        _ => {}
-    }
+    draw_texture_bridge(ui, &mut m.texture, salt, dirty);
 }
 
 fn draw_terrain_forge(ui: &mut egui::Ui, cfg: &mut SovereignTerrainConfig, dirty: &mut bool) {
@@ -1104,52 +1070,8 @@ fn draw_lsystem_forge(
                     fp_slider(ui, "Metallic", &mut m.metallic, 0.0, 1.0, dirty);
                     fp_slider(ui, "UV scale", &mut m.uv_scale, 0.1, 10.0, dirty);
 
-                    egui::ComboBox::from_id_salt(format!("tex_type_{}", id))
-                        .selected_text(format!("{:?}", m.texture_type))
-                        .show_ui(ui, |ui| {
-                            let types = [
-                                SovereignTextureType::None,
-                                SovereignTextureType::Bark,
-                                SovereignTextureType::Leaf,
-                                SovereignTextureType::Twig,
-                            ];
-                            for t in types {
-                                if ui
-                                    .selectable_value(&mut m.texture_type, t, format!("{:?}", t))
-                                    .changed()
-                                {
-                                    *dirty = true;
-                                }
-                            }
-                        });
-
-                    match m.texture_type {
-                        SovereignTextureType::Leaf => {
-                            egui::CollapsingHeader::new("Leaf config")
-                                .id_salt(format!("leaf_cfg_{}", id))
-                                .default_open(false)
-                                .show(ui, |ui| {
-                                    draw_leaf_config(ui, &mut m.leaf_config, dirty);
-                                });
-                        }
-                        SovereignTextureType::Twig => {
-                            egui::CollapsingHeader::new("Twig config")
-                                .id_salt(format!("twig_cfg_{}", id))
-                                .default_open(false)
-                                .show(ui, |ui| {
-                                    draw_twig_config(ui, &mut m.twig_config, dirty);
-                                });
-                        }
-                        SovereignTextureType::Bark => {
-                            egui::CollapsingHeader::new("Bark config")
-                                .id_salt(format!("bark_cfg_{}", id))
-                                .default_open(false)
-                                .show(ui, |ui| {
-                                    draw_bark_config(ui, &mut m.bark_config, dirty);
-                                });
-                        }
-                        _ => {}
-                    }
+                    let salt = format!("mat_{}", id);
+                    draw_texture_bridge(ui, &mut m.texture, &salt, dirty);
                 });
             }
             if let Some(id) = to_remove {
@@ -1215,131 +1137,212 @@ fn draw_lsystem_forge(
         });
 }
 
-fn draw_leaf_config(ui: &mut egui::Ui, cfg: &mut SovereignLeafConfig, dirty: &mut bool) {
-    drag_u32_wide(ui, "Seed", &mut cfg.seed, dirty);
-    color_picker(ui, "Base", &mut cfg.color_base, dirty);
-    color_picker(ui, "Edge", &mut cfg.color_edge, dirty);
-    fp64_slider(
-        ui,
-        "Serration",
-        &mut cfg.serration_strength,
-        0.0,
-        1.0,
-        dirty,
-    );
-    fp64_slider(ui, "Vein angle", &mut cfg.vein_angle, 0.0, 8.0, dirty);
-    fp64_slider(ui, "Micro detail", &mut cfg.micro_detail, 0.0, 1.0, dirty);
-    fp_slider(
-        ui,
-        "Normal strength",
-        &mut cfg.normal_strength,
-        0.0,
-        8.0,
-        dirty,
-    );
-    fp64_slider(ui, "Lobe count", &mut cfg.lobe_count, 0.0, 12.0, dirty);
-    fp64_slider(ui, "Lobe depth", &mut cfg.lobe_depth, 0.0, 1.0, dirty);
-    fp64_slider(
-        ui,
-        "Lobe sharpness",
-        &mut cfg.lobe_sharpness,
-        0.1,
-        4.0,
-        dirty,
-    );
-    fp64_slider(
-        ui,
-        "Petiole length",
-        &mut cfg.petiole_length,
-        0.0,
-        0.5,
-        dirty,
-    );
-    fp64_slider(ui, "Petiole width", &mut cfg.petiole_width, 0.0, 0.2, dirty);
-    fp64_slider(ui, "Midrib width", &mut cfg.midrib_width, 0.0, 0.5, dirty);
-    fp64_slider(ui, "Vein count", &mut cfg.vein_count, 0.0, 20.0, dirty);
-    fp64_slider(
-        ui,
-        "Venule strength",
-        &mut cfg.venule_strength,
-        0.0,
-        1.0,
-        dirty,
-    );
-}
-
-fn draw_twig_config(ui: &mut egui::Ui, cfg: &mut SovereignTwigConfig, dirty: &mut bool) {
-    egui::CollapsingHeader::new("Leaf")
-        .default_open(false)
-        .show(ui, |ui| {
-            draw_leaf_config(ui, &mut cfg.leaf, dirty);
+/// Unified texture picker + upstream config editor bridge. Renders a combo
+/// box for the 24 [`SovereignTextureConfig`] variants, then hands the
+/// active variant's config to the corresponding
+/// `bevy_symbios_texture::ui::*_config_editor`, round-tripping through the
+/// native type so edits persist back into the DAG-CBOR-safe mirror.
+fn draw_texture_bridge(
+    ui: &mut egui::Ui,
+    texture: &mut SovereignTextureConfig,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    egui::ComboBox::from_id_salt(format!("{}_tex_ty", salt))
+        .selected_text(texture.label())
+        .show_ui(ui, |ui| {
+            macro_rules! opt {
+                ($label:literal, $expr:expr) => {{
+                    let selected = texture.label() == $label;
+                    if ui.selectable_label(selected, $label).clicked() && !selected {
+                        *texture = $expr;
+                        *dirty = true;
+                    }
+                }};
+            }
+            opt!("None", SovereignTextureConfig::None);
+            opt!("Leaf", SovereignTextureConfig::Leaf(Default::default()));
+            opt!("Twig", SovereignTextureConfig::Twig(Default::default()));
+            opt!("Bark", SovereignTextureConfig::Bark(Default::default()));
+            opt!("Window", SovereignTextureConfig::Window(Default::default()));
+            opt!(
+                "Stained Glass",
+                SovereignTextureConfig::StainedGlass(Default::default())
+            );
+            opt!(
+                "Iron Grille",
+                SovereignTextureConfig::IronGrille(Default::default())
+            );
+            opt!("Ground", SovereignTextureConfig::Ground(Default::default()));
+            opt!("Rock", SovereignTextureConfig::Rock(Default::default()));
+            opt!("Brick", SovereignTextureConfig::Brick(Default::default()));
+            opt!("Plank", SovereignTextureConfig::Plank(Default::default()));
+            opt!(
+                "Shingle",
+                SovereignTextureConfig::Shingle(Default::default())
+            );
+            opt!("Stucco", SovereignTextureConfig::Stucco(Default::default()));
+            opt!(
+                "Concrete",
+                SovereignTextureConfig::Concrete(Default::default())
+            );
+            opt!("Metal", SovereignTextureConfig::Metal(Default::default()));
+            opt!("Pavers", SovereignTextureConfig::Pavers(Default::default()));
+            opt!("Ashlar", SovereignTextureConfig::Ashlar(Default::default()));
+            opt!(
+                "Cobblestone",
+                SovereignTextureConfig::Cobblestone(Default::default())
+            );
+            opt!("Thatch", SovereignTextureConfig::Thatch(Default::default()));
+            opt!("Marble", SovereignTextureConfig::Marble(Default::default()));
+            opt!(
+                "Corrugated",
+                SovereignTextureConfig::Corrugated(Default::default())
+            );
+            opt!(
+                "Asphalt",
+                SovereignTextureConfig::Asphalt(Default::default())
+            );
+            opt!(
+                "Wainscoting",
+                SovereignTextureConfig::Wainscoting(Default::default())
+            );
+            opt!(
+                "Encaustic",
+                SovereignTextureConfig::Encaustic(Default::default())
+            );
         });
-    color_picker(ui, "Stem color", &mut cfg.stem_color, dirty);
-    fp64_slider(
-        ui,
-        "Stem half width",
-        &mut cfg.stem_half_width,
-        0.0,
-        0.1,
-        dirty,
-    );
-    drag_u32(ui, "Leaf pairs", &mut cfg.leaf_pairs, 0, 32, dirty);
-    fp64_slider(
-        ui,
-        "Leaf angle",
-        &mut cfg.leaf_angle,
-        0.0,
-        std::f64::consts::PI,
-        dirty,
-    );
-    fp64_slider(ui, "Leaf scale", &mut cfg.leaf_scale, 0.0, 1.5, dirty);
-    fp64_slider(ui, "Stem curve", &mut cfg.stem_curve, 0.0, 0.25, dirty);
-    if ui.checkbox(&mut cfg.sympodial, "Sympodial").changed() {
-        *dirty = true;
-    }
-}
 
-fn draw_bark_config(ui: &mut egui::Ui, cfg: &mut SovereignBarkConfig, dirty: &mut bool) {
-    drag_u32_wide(ui, "Seed", &mut cfg.seed, dirty);
-    fp64_slider(ui, "Scale", &mut cfg.scale, 0.1, 10.0, dirty);
-    drag_u32(ui, "Octaves", &mut cfg.octaves, 1, 12, dirty);
-    fp64_slider(ui, "Warp U", &mut cfg.warp_u, 0.0, 2.0, dirty);
-    fp64_slider(ui, "Warp V", &mut cfg.warp_v, 0.0, 2.0, dirty);
-    color_picker(ui, "Light", &mut cfg.color_light, dirty);
-    color_picker(ui, "Dark", &mut cfg.color_dark, dirty);
-    fp_slider(
-        ui,
-        "Normal strength",
-        &mut cfg.normal_strength,
-        0.0,
-        8.0,
-        dirty,
-    );
-    fp64_slider(
-        ui,
-        "Furrow mul",
-        &mut cfg.furrow_multiplier,
-        0.0,
-        1.0,
-        dirty,
-    );
-    fp64_slider(
-        ui,
-        "Furrow scale U",
-        &mut cfg.furrow_scale_u,
-        0.1,
-        8.0,
-        dirty,
-    );
-    fp64_slider(
-        ui,
-        "Furrow scale V",
-        &mut cfg.furrow_scale_v,
-        0.05,
-        4.0,
-        dirty,
-    );
-    fp64_slider(ui, "Furrow shape", &mut cfg.furrow_shape, 0.1, 8.0, dirty);
+    let id = egui::Id::new(salt);
+    macro_rules! run {
+        ($c:expr, $sov:ty, $editor:path) => {{
+            let mut native = $c.to_native();
+            let (wb, _regen) = $editor(ui, &mut native, id);
+            if wb {
+                *$c = <$sov>::from_native(&native);
+                *dirty = true;
+            }
+        }};
+    }
+
+    match texture {
+        SovereignTextureConfig::None | SovereignTextureConfig::Unknown => {}
+        SovereignTextureConfig::Leaf(c) => run!(
+            c,
+            SovereignLeafConfig,
+            bevy_symbios_texture::ui::leaf_config_editor
+        ),
+        SovereignTextureConfig::Twig(c) => run!(
+            c,
+            SovereignTwigConfig,
+            bevy_symbios_texture::ui::twig_config_editor
+        ),
+        SovereignTextureConfig::Bark(c) => run!(
+            c,
+            SovereignBarkConfig,
+            bevy_symbios_texture::ui::bark_config_editor
+        ),
+        SovereignTextureConfig::Window(c) => run!(
+            c,
+            SovereignWindowConfig,
+            bevy_symbios_texture::ui::window_config_editor
+        ),
+        SovereignTextureConfig::StainedGlass(c) => run!(
+            c,
+            SovereignStainedGlassConfig,
+            bevy_symbios_texture::ui::stained_glass_config_editor
+        ),
+        SovereignTextureConfig::IronGrille(c) => run!(
+            c,
+            SovereignIronGrilleConfig,
+            bevy_symbios_texture::ui::iron_grille_config_editor
+        ),
+        SovereignTextureConfig::Ground(c) => run!(
+            c,
+            SovereignGroundConfig,
+            bevy_symbios_texture::ui::ground_config_editor
+        ),
+        SovereignTextureConfig::Rock(c) => run!(
+            c,
+            SovereignRockConfig,
+            bevy_symbios_texture::ui::rock_config_editor
+        ),
+        SovereignTextureConfig::Brick(c) => run!(
+            c,
+            SovereignBrickConfig,
+            bevy_symbios_texture::ui::brick_config_editor
+        ),
+        SovereignTextureConfig::Plank(c) => run!(
+            c,
+            SovereignPlankConfig,
+            bevy_symbios_texture::ui::plank_config_editor
+        ),
+        SovereignTextureConfig::Shingle(c) => run!(
+            c,
+            SovereignShingleConfig,
+            bevy_symbios_texture::ui::shingle_config_editor
+        ),
+        SovereignTextureConfig::Stucco(c) => run!(
+            c,
+            SovereignStuccoConfig,
+            bevy_symbios_texture::ui::stucco_config_editor
+        ),
+        SovereignTextureConfig::Concrete(c) => run!(
+            c,
+            SovereignConcreteConfig,
+            bevy_symbios_texture::ui::concrete_config_editor
+        ),
+        SovereignTextureConfig::Metal(c) => run!(
+            c,
+            SovereignMetalConfig,
+            bevy_symbios_texture::ui::metal_config_editor
+        ),
+        SovereignTextureConfig::Pavers(c) => run!(
+            c,
+            SovereignPaversConfig,
+            bevy_symbios_texture::ui::pavers_config_editor
+        ),
+        SovereignTextureConfig::Ashlar(c) => run!(
+            c,
+            SovereignAshlarConfig,
+            bevy_symbios_texture::ui::ashlar_config_editor
+        ),
+        SovereignTextureConfig::Cobblestone(c) => run!(
+            c,
+            SovereignCobblestoneConfig,
+            bevy_symbios_texture::ui::cobblestone_config_editor
+        ),
+        SovereignTextureConfig::Thatch(c) => run!(
+            c,
+            SovereignThatchConfig,
+            bevy_symbios_texture::ui::thatch_config_editor
+        ),
+        SovereignTextureConfig::Marble(c) => run!(
+            c,
+            SovereignMarbleConfig,
+            bevy_symbios_texture::ui::marble_config_editor
+        ),
+        SovereignTextureConfig::Corrugated(c) => run!(
+            c,
+            SovereignCorrugatedConfig,
+            bevy_symbios_texture::ui::corrugated_config_editor
+        ),
+        SovereignTextureConfig::Asphalt(c) => run!(
+            c,
+            SovereignAsphaltConfig,
+            bevy_symbios_texture::ui::asphalt_config_editor
+        ),
+        SovereignTextureConfig::Wainscoting(c) => run!(
+            c,
+            SovereignWainscotingConfig,
+            bevy_symbios_texture::ui::wainscoting_config_editor
+        ),
+        SovereignTextureConfig::Encaustic(c) => run!(
+            c,
+            SovereignEncausticConfig,
+            bevy_symbios_texture::ui::encaustic_config_editor
+        ),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1793,7 +1796,7 @@ fn default_lsystem_generator() -> Generator {
             base_color: Fp3([0.35, 0.2, 0.08]),
             roughness: Fp(0.95),
             uv_scale: Fp(1.5),
-            texture_type: SovereignTextureType::Bark,
+            texture: SovereignTextureConfig::Bark(SovereignBarkConfig::default()),
             ..Default::default()
         },
     );
@@ -1802,7 +1805,7 @@ fn default_lsystem_generator() -> Generator {
         SovereignMaterialSettings {
             base_color: Fp3([1.0, 1.0, 1.0]),
             roughness: Fp(1.0),
-            texture_type: SovereignTextureType::Twig,
+            texture: SovereignTextureConfig::Twig(SovereignTwigConfig::default()),
             ..Default::default()
         },
     );
@@ -1811,7 +1814,7 @@ fn default_lsystem_generator() -> Generator {
         SovereignMaterialSettings {
             base_color: Fp3([1.0, 1.0, 1.0]),
             roughness: Fp(0.6),
-            texture_type: SovereignTextureType::Leaf,
+            texture: SovereignTextureConfig::Leaf(SovereignLeafConfig::default()),
             ..Default::default()
         },
     );

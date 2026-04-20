@@ -10,7 +10,7 @@ bevy_panorbit_camera = { version = "0.34", features = ["bevy_egui"] }
 bevy_symbios = "0.3"
 bevy_symbios_ground = { version = "0.2", features = ["physics"] }
 bevy_symbios_multiuser = "0.3"
-bevy_symbios_texture = "0.3"
+bevy_symbios_texture = { version = "0.3", features = ["egui"] }
 symbios = "1.4"
 symbios-turtle-3d = "0.4"
 avian3d = "0.6"

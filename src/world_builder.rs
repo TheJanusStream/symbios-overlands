@@ -25,14 +25,33 @@ use bevy::light::GlobalAmbientLight;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
-use bevy::render::render_resource::Face;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, futures_lite::future};
 use bevy_symbios::LSystemMeshBuilder;
 use bevy_symbios::materials::MaterialPalette;
+use bevy_symbios_texture::ashlar::AshlarGenerator;
+use bevy_symbios_texture::asphalt::AsphaltGenerator;
 use bevy_symbios_texture::bark::BarkGenerator;
+use bevy_symbios_texture::brick::BrickGenerator;
+use bevy_symbios_texture::cobblestone::CobblestoneGenerator;
+use bevy_symbios_texture::concrete::ConcreteGenerator;
+use bevy_symbios_texture::corrugated::CorrugatedGenerator;
+use bevy_symbios_texture::encaustic::EncausticGenerator;
 use bevy_symbios_texture::generator::{TextureError, TextureGenerator, TextureMap};
+use bevy_symbios_texture::ground::GroundGenerator;
+use bevy_symbios_texture::iron_grille::IronGrilleGenerator;
 use bevy_symbios_texture::leaf::LeafGenerator;
+use bevy_symbios_texture::marble::MarbleGenerator;
+use bevy_symbios_texture::metal::MetalGenerator;
+use bevy_symbios_texture::pavers::PaversGenerator;
+use bevy_symbios_texture::plank::PlankGenerator;
+use bevy_symbios_texture::rock::RockGenerator;
+use bevy_symbios_texture::shingle::ShingleGenerator;
+use bevy_symbios_texture::stained_glass::StainedGlassGenerator;
+use bevy_symbios_texture::stucco::StuccoGenerator;
+use bevy_symbios_texture::thatch::ThatchGenerator;
 use bevy_symbios_texture::twig::TwigGenerator;
+use bevy_symbios_texture::wainscoting::WainscotingGenerator;
+use bevy_symbios_texture::window::WindowGenerator;
 use bevy_symbios_texture::{map_to_images, map_to_images_card};
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
@@ -44,7 +63,7 @@ use symbios_turtle_3d::{SkeletonProp, TurtleConfig, TurtleInterpreter};
 use crate::config::terrain as tcfg;
 use crate::pds::{
     Fp, Fp3, Fp4, Generator, Placement, PrimNode, PrimShape, PropMeshType, RoomRecord,
-    ScatterBounds, SovereignMaterialSettings, SovereignTerrainConfig, SovereignTextureType,
+    ScatterBounds, SovereignMaterialSettings, SovereignTerrainConfig, SovereignTextureConfig,
     TransformData,
 };
 use crate::state::{AppState, CurrentRoomDid};
@@ -1056,7 +1075,7 @@ fn spawn_prim_tree(
     let material = if let Some(h) = material_cache.get(&hash) {
         h.clone()
     } else {
-        let h = spawn_foliage_material(ctx, &node.material);
+        let h = spawn_procedural_material(ctx, &node.material);
         material_cache.insert(hash, h.clone());
         h
     };
@@ -1273,7 +1292,7 @@ fn spawn_lsystem_entity(
             match ctx.lsystem_material_cache.entries.get(&key) {
                 Some(cached) if cached.settings_hash == hash => cached.handle.clone(),
                 _ => {
-                    let handle = spawn_foliage_material(ctx, settings);
+                    let handle = spawn_procedural_material(ctx, settings);
                     ctx.lsystem_material_cache.entries.insert(
                         key,
                         CachedLSystemMaterial {
@@ -1353,22 +1372,17 @@ fn spawn_lsystem_entity(
 }
 
 /// Build a `StandardMaterial` from sovereign settings, enqueuing an async
-/// texture-generation task for foliage variants. Returns a handle that the
-/// caller installs on every strand / prop belonging to the slot.
-fn spawn_foliage_material(
+/// texture-generation task for any [`SovereignTextureConfig`] variant.
+/// Returns a handle that the caller installs on every strand / prop
+/// belonging to the slot.
+fn spawn_procedural_material(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
     settings: &SovereignMaterialSettings,
 ) -> Handle<StandardMaterial> {
     let emissive = Color::srgb_from_array(settings.emission_color.0).to_linear()
         * settings.emission_strength.0;
 
-    let (alpha_mode, double_sided, cull_mode, is_card) = match settings.texture_type {
-        SovereignTextureType::Leaf | SovereignTextureType::Twig => {
-            (AlphaMode::Mask(0.5), true, None, true)
-        }
-        SovereignTextureType::Bark => (AlphaMode::Opaque, false, Some(Face::Back), false),
-        _ => (AlphaMode::Opaque, false, Some(Face::Back), false),
-    };
+    let (alpha_mode, double_sided, cull_mode, is_card) = settings.texture.render_properties();
 
     let handle = ctx.std_materials.add(StandardMaterial {
         base_color: Color::srgb_from_array(settings.base_color.0),
@@ -1382,29 +1396,47 @@ fn spawn_foliage_material(
     });
 
     let pool = AsyncComputeTaskPool::get();
-    match settings.texture_type {
-        SovereignTextureType::Leaf => {
-            let config = settings.leaf_config.to_leaf_config();
-            let task = pool.spawn(async move { LeafGenerator::new(config).generate(512, 512) });
+    macro_rules! spawn_gen {
+        ($gen:ty, $cfg:expr) => {{
+            let config = $cfg;
+            let task = pool.spawn(async move { <$gen>::new(config).generate(512, 512) });
             ctx.foliage_tasks
                 .tasks
                 .push((task, handle.clone(), is_card));
+        }};
+    }
+
+    match &settings.texture {
+        SovereignTextureConfig::None | SovereignTextureConfig::Unknown => {}
+        SovereignTextureConfig::Leaf(c) => spawn_gen!(LeafGenerator, c.to_native()),
+        SovereignTextureConfig::Twig(c) => spawn_gen!(TwigGenerator, c.to_native()),
+        SovereignTextureConfig::Bark(c) => spawn_gen!(BarkGenerator, c.to_native()),
+        SovereignTextureConfig::Window(c) => spawn_gen!(WindowGenerator, c.to_native()),
+        SovereignTextureConfig::StainedGlass(c) => {
+            spawn_gen!(StainedGlassGenerator, c.to_native())
         }
-        SovereignTextureType::Twig => {
-            let config = settings.twig_config.to_twig_config();
-            let task = pool.spawn(async move { TwigGenerator::new(config).generate(512, 512) });
-            ctx.foliage_tasks
-                .tasks
-                .push((task, handle.clone(), is_card));
+        SovereignTextureConfig::IronGrille(c) => spawn_gen!(IronGrilleGenerator, c.to_native()),
+        SovereignTextureConfig::Ground(c) => spawn_gen!(GroundGenerator, c.to_native()),
+        SovereignTextureConfig::Rock(c) => spawn_gen!(RockGenerator, c.to_native()),
+        SovereignTextureConfig::Brick(c) => spawn_gen!(BrickGenerator, c.to_native()),
+        SovereignTextureConfig::Plank(c) => spawn_gen!(PlankGenerator, c.to_native()),
+        SovereignTextureConfig::Shingle(c) => spawn_gen!(ShingleGenerator, c.to_native()),
+        SovereignTextureConfig::Stucco(c) => spawn_gen!(StuccoGenerator, c.to_native()),
+        SovereignTextureConfig::Concrete(c) => spawn_gen!(ConcreteGenerator, c.to_native()),
+        SovereignTextureConfig::Metal(c) => spawn_gen!(MetalGenerator, c.to_native()),
+        SovereignTextureConfig::Pavers(c) => spawn_gen!(PaversGenerator, c.to_native()),
+        SovereignTextureConfig::Ashlar(c) => spawn_gen!(AshlarGenerator, c.to_native()),
+        SovereignTextureConfig::Cobblestone(c) => {
+            spawn_gen!(CobblestoneGenerator, c.to_native())
         }
-        SovereignTextureType::Bark => {
-            let config = settings.bark_config.to_bark_config();
-            let task = pool.spawn(async move { BarkGenerator::new(config).generate(512, 512) });
-            ctx.foliage_tasks
-                .tasks
-                .push((task, handle.clone(), is_card));
+        SovereignTextureConfig::Thatch(c) => spawn_gen!(ThatchGenerator, c.to_native()),
+        SovereignTextureConfig::Marble(c) => spawn_gen!(MarbleGenerator, c.to_native()),
+        SovereignTextureConfig::Corrugated(c) => spawn_gen!(CorrugatedGenerator, c.to_native()),
+        SovereignTextureConfig::Asphalt(c) => spawn_gen!(AsphaltGenerator, c.to_native()),
+        SovereignTextureConfig::Wainscoting(c) => {
+            spawn_gen!(WainscotingGenerator, c.to_native())
         }
-        _ => {}
+        SovereignTextureConfig::Encaustic(c) => spawn_gen!(EncausticGenerator, c.to_native()),
     }
 
     handle
