@@ -3,8 +3,7 @@
   "client_name": "Symbios Overlands",
   "client_uri": "https://thejanusstream.github.io/symbios-overlands",
   "redirect_uris": [
-    "https://thejanusstream.github.io/symbios-overlands",
-    "http://127.0.0.1:3456/callback"
+    "https://thejanusstream.github.io/symbios-overlands"
   ],
   "scope": "atproto transition:generic",
   "grant_types": ["authorization_code", "refresh_token"],

@@ -42,8 +42,10 @@ pub const CLIENT_METADATA_URL: &str =
 #[cfg(target_arch = "wasm32")]
 pub const WASM_REDIRECT_URI: &str = "https://thejanusstream.github.io/symbios-overlands";
 
-/// Loopback port the native build listens on for the OAuth callback. Must
-/// match the second entry in `assets/client-metadata.json#redirect_uris`.
+/// Loopback port the native build listens on for the OAuth callback.
+/// Native uses the loopback-client `client_id` pattern (see
+/// [`client_metadata`]) and does not consume the hosted metadata document,
+/// so this URI is not listed in `assets/client-metadata.json`.
 #[cfg(not(target_arch = "wasm32"))]
 pub const NATIVE_CALLBACK_PORT: u16 = 3456;
 
