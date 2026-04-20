@@ -444,6 +444,12 @@ pub mod wasm {
 
     /// Replace the current URL with the bare redirect origin so reloads
     /// after a successful login do not re-submit the consumed code.
+    ///
+    /// The scrubbed URL has a trailing slash even though
+    /// [`WASM_REDIRECT_URI`] does not. Without the slash the browser treats
+    /// `/symbios-overlands` as a file and resolves subsequent relative
+    /// fetches (e.g. Bevy's `assets/shaders/splat.wgsl`) against the parent
+    /// directory, producing 404s for every asset loaded post-login.
     pub fn scrub_url() {
         let Some(window) = web_sys::window() else {
             return;
@@ -451,10 +457,11 @@ pub mod wasm {
         let Ok(history) = window.history() else {
             return;
         };
+        let scrubbed = format!("{}/", super::WASM_REDIRECT_URI);
         let _ = history.replace_state_with_url(
             &wasm_bindgen::JsValue::NULL,
             "",
-            Some(super::WASM_REDIRECT_URI),
+            Some(&scrubbed),
         );
     }
 
