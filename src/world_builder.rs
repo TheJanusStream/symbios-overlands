@@ -102,6 +102,18 @@ pub struct RoomEntity;
 #[derive(Component)]
 pub struct PlacementMarker(pub usize);
 
+/// Tags every entity spawned from a node in a `Generator::Construct`
+/// blueprint. Carries the generator's name plus the child-index chain from
+/// the blueprint root so `editor_gizmo` can (a) find every live instance
+/// matching a UI-selected prim and (b) resolve the dragged Transform back
+/// to its slot in the recipe. The path for the blueprint root is an empty
+/// `Vec`; each descendant appends its child index at each depth.
+#[derive(Component, Clone)]
+pub struct PrimMarker {
+    pub generator_ref: String,
+    pub path: Vec<usize>,
+}
+
 /// Base meshes for each [`PropMeshType`] — built once at startup so every
 /// L-system spawn can share the same handles. Foliage variants (Leaf, Twig)
 /// are billboard cards whose UV layout matches the upstream
@@ -305,8 +317,16 @@ fn compile_room_record(
     // Step 1 — Cleanup. Despawn every entity previously compiled out of
     // this record. Terrain is NOT a `RoomEntity` (it is owned by the
     // terrain plugin's own lifecycle), so it survives the rebuild.
+    //
+    // `try_despawn` (instead of `despawn`) tolerates double-despawn: every
+    // construct prim now carries its own `RoomEntity`, so when the parent
+    // anchor's recursive-despawn removes the tree, subsequent iterations
+    // for individual prims would log warnings otherwise. The extra marker
+    // is load-bearing for gizmo-detached prims — they sit outside the
+    // anchor's hierarchy, so the recursive sweep can't catch them, and the
+    // flat `RoomEntity` iteration is the only thing that cleans them up.
     for e in &existing {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
 
     // Step 2 — Environment is applied by `apply_environment_state`, which
@@ -1064,10 +1084,15 @@ fn poll_portal_avatar_tasks(
     }
 }
 
-/// Spawn a `Construct` hierarchy: the root node gets `RigidBody::Static`
-/// plus `RoomEntity` (so room rebuilds despawn the whole tree), every
-/// `solid` node contributes an Avian collider, and nested nodes become
-/// Bevy children so Avian can resolve the assembly as a compound body.
+/// Spawn a `Construct` hierarchy under an invisible anchor entity.
+///
+/// The anchor holds the Placement's **world-space** transform and owns the
+/// rigid body; the blueprint tree is attached as its child so every prim
+/// entity's `Transform` stays in **local-blueprint-space**. That separation
+/// lets the in-world Gizmo drag a prim and commit its `Transform` straight
+/// back into the recipe with no matrix inversion — dragging the root of a
+/// placed construct would otherwise bake the world placement into the
+/// blueprint, corrupting every other instance of the same generator.
 ///
 /// Procedural materials (Bark/Leaf/Twig) are deduped by settings
 /// fingerprint within the tree so a chair built from 20 `Bark` cubes only
@@ -1079,21 +1104,47 @@ fn spawn_construct_entity(
     placement_tf: Transform,
 ) -> Entity {
     let mut material_cache: HashMap<u64, Handle<StandardMaterial>> = HashMap::new();
-    // Compose the placement transform with the root's own local transform
-    // so the root entity already lives in world space. Child transforms
-    // stay local and cascade via Bevy's hierarchy.
-    let root_tf = placement_tf * transform_from_data(&root.transform);
-    let entity = spawn_prim_tree(ctx, root, root_tf, true, &mut material_cache);
-    apply_traits(ctx.commands, entity, ctx.record, generator_ref);
-    entity
+
+    // World-space anchor. Owns the rigid body and the `RoomEntity` marker so
+    // the whole subtree despawns together on the next compile pass. No mesh
+    // or material — it only exists to isolate world space from blueprint
+    // space.
+    let anchor = ctx
+        .commands
+        .spawn((
+            placement_tf,
+            Visibility::default(),
+            RigidBody::Static,
+            RoomEntity,
+        ))
+        .id();
+
+    // Blueprint root, spawned in its own local transform. Attaching it as a
+    // child of the anchor composes the placement's world transform with the
+    // blueprint root's local transform via Bevy's hierarchy, so visually the
+    // whole tree lands exactly where the `Placement::Absolute` asked.
+    let mut path: Vec<usize> = Vec::new();
+    let root_child = spawn_prim_tree(
+        ctx,
+        root,
+        transform_from_data(&root.transform),
+        &mut material_cache,
+        generator_ref,
+        &mut path,
+    );
+    ctx.commands.entity(anchor).add_child(root_child);
+
+    apply_traits(ctx.commands, anchor, ctx.record, generator_ref);
+    anchor
 }
 
 fn spawn_prim_tree(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
     node: &PrimNode,
     tf: Transform,
-    is_root: bool,
     material_cache: &mut HashMap<u64, Handle<StandardMaterial>>,
+    generator_ref: &str,
+    path: &mut Vec<usize>,
 ) -> Entity {
     let mesh = mesh_for_prim_shape(ctx.meshes, node.shape);
 
@@ -1106,12 +1157,20 @@ fn spawn_prim_tree(
         h
     };
 
-    let mut cmd = ctx
-        .commands
-        .spawn((Mesh3d(mesh), MeshMaterial3d(material), tf));
-    if is_root {
-        cmd.insert((RoomEntity, RigidBody::Static));
-    }
+    let mut cmd = ctx.commands.spawn((
+        Mesh3d(mesh),
+        MeshMaterial3d(material),
+        tf,
+        PrimMarker {
+            generator_ref: generator_ref.to_string(),
+            path: path.clone(),
+        },
+        // Per-prim `RoomEntity` so the compile-pass cleanup finds every
+        // prim directly, not just through the anchor's recursive despawn.
+        // A gizmo-detached prim has no `ChildOf` link back to the anchor
+        // and would otherwise survive the rebuild as a dangling ghost.
+        RoomEntity,
+    ));
     if node.solid
         && let Some(collider) = collider_for_prim_shape(node.shape)
     {
@@ -1119,10 +1178,19 @@ fn spawn_prim_tree(
     }
     let entity = cmd.id();
 
-    for child_node in &node.children {
+    for (i, child_node) in node.children.iter().enumerate() {
+        path.push(i);
         let child_tf = transform_from_data(&child_node.transform);
-        let child = spawn_prim_tree(ctx, child_node, child_tf, false, material_cache);
+        let child = spawn_prim_tree(
+            ctx,
+            child_node,
+            child_tf,
+            material_cache,
+            generator_ref,
+            path,
+        );
         ctx.commands.entity(entity).add_child(child);
+        path.pop();
     }
     entity
 }

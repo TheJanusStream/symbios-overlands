@@ -67,6 +67,11 @@ pub struct RoomEditorState {
     pub selected_tab: EditorTab,
     pub selected_generator: Option<String>,
     pub selected_placement: Option<usize>,
+    /// Path through the active Construct's `PrimNode` tree to the node the
+    /// owner has toggled as the Gizmo target. An empty `Vec` means the root;
+    /// a `Some([i0, i1, ...])` means the `i_n`-th child at each depth. `None`
+    /// means no primitive is currently targeted.
+    pub selected_prim_path: Option<Vec<usize>>,
     raw_text: String,
     raw_text_initialised: bool,
     raw_error: Option<String>,
@@ -120,6 +125,7 @@ pub fn room_admin_ui(
         selected_tab,
         selected_generator,
         selected_placement,
+        selected_prim_path,
         raw_text,
         raw_error,
         is_dirty,
@@ -208,6 +214,18 @@ pub fn room_admin_ui(
                                     serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
                                 *raw_error = None;
                             }
+                            // Drop selections whose tab we're leaving so the
+                            // 3D gizmo doesn't linger on an entity the user
+                            // can no longer see in the current panel.
+                            if tab != *selected_tab {
+                                if tab != EditorTab::Placements {
+                                    *selected_placement = None;
+                                }
+                                if tab != EditorTab::Generators {
+                                    *selected_generator = None;
+                                    *selected_prim_path = None;
+                                }
+                            }
                             *selected_tab = tab;
                         }
                     }
@@ -229,6 +247,7 @@ pub fn room_admin_ui(
                                 ui,
                                 record_mut,
                                 selected_generator,
+                                selected_prim_path,
                                 &mut widget_change,
                             );
                         }
@@ -275,6 +294,7 @@ pub fn room_admin_ui(
                         *is_dirty = false;
                         *selected_generator = None;
                         *selected_placement = None;
+                        *selected_prim_path = None;
                         needs_broadcast = true;
                     }
 
@@ -291,6 +311,7 @@ pub fn room_admin_ui(
                             .unwrap_or(true);
                         *selected_generator = None;
                         *selected_placement = None;
+                        *selected_prim_path = None;
                         needs_broadcast = true;
                     }
                 });
@@ -414,6 +435,7 @@ fn draw_generators_tab(
     ui: &mut egui::Ui,
     record: &mut RoomRecord,
     selected: &mut Option<String>,
+    selected_prim_path: &mut Option<Vec<usize>>,
     dirty: &mut bool,
 ) {
     // Single-column master/detail: when a generator is selected and still
@@ -435,7 +457,7 @@ fn draw_generators_tab(
         if *selected == Some(name.clone())
             && let Some(g) = record.generators.get_mut(&name)
         {
-            draw_generator_detail(ui, &name, g, dirty);
+            draw_generator_detail(ui, &name, g, selected_prim_path, dirty);
         }
         return;
     }
@@ -527,6 +549,7 @@ fn draw_generator_detail(
     ui: &mut egui::Ui,
     name: &str,
     generator: &mut Generator,
+    selected_prim_path: &mut Option<Vec<usize>>,
     dirty: &mut bool,
 ) {
     ui.label(format!("Generator: `{}`", name));
@@ -623,7 +646,7 @@ fn draw_generator_detail(
             });
         }
         Generator::Construct { root } => {
-            draw_construct_forge(ui, root, dirty);
+            draw_construct_forge(ui, root, selected_prim_path, dirty);
         }
         Generator::Unknown => {
             ui.colored_label(
@@ -638,24 +661,34 @@ fn draw_generator_detail(
 // Construct forge — recursive hierarchical primitive editor
 // ---------------------------------------------------------------------------
 
-fn draw_construct_forge(ui: &mut egui::Ui, root: &mut PrimNode, dirty: &mut bool) {
+fn draw_construct_forge(
+    ui: &mut egui::Ui,
+    root: &mut PrimNode,
+    selected_prim_path: &mut Option<Vec<usize>>,
+    dirty: &mut bool,
+) {
     ui.label(
         "Hierarchical primitive tree. Root anchors to the world; \
         children inherit transform, and every solid node contributes a collider.",
     );
     ui.add_space(4.0);
-    draw_prim_node_ui(ui, root, true, dirty, "root");
+    draw_prim_node_ui(ui, root, true, dirty, "root", &[], selected_prim_path);
 }
 
 /// Recursive node editor. `is_root` suppresses the delete button for the tree
 /// root. `path_salt` makes every egui ID unique across the recursive tree so
-/// collapsing one sibling never affects another.
+/// collapsing one sibling never affects another. `current_path` carries the
+/// child-index chain from the blueprint root to this node; the "🎯 Target"
+/// toggle writes that path into `selected_path` so `editor_gizmo` can find
+/// the matching live entity.
 fn draw_prim_node_ui(
     ui: &mut egui::Ui,
     node: &mut PrimNode,
     is_root: bool,
     dirty: &mut bool,
     path_salt: &str,
+    current_path: &[usize],
+    selected_path: &mut Option<Vec<usize>>,
 ) -> PrimNodeAction {
     let header = format!("{:?}", node.shape);
     let mut action = PrimNodeAction::None;
@@ -663,7 +696,22 @@ fn draw_prim_node_ui(
         .id_salt(path_salt)
         .default_open(true)
         .show(ui, |ui| {
-            shape_combo(ui, &mut node.shape, path_salt, dirty);
+            ui.horizontal(|ui| {
+                let is_targeted = selected_path.as_ref().is_some_and(|p| p == current_path);
+                let mut toggle = is_targeted;
+                if ui.toggle_value(&mut toggle, "🎯 Target").clicked() {
+                    if toggle {
+                        *selected_path = Some(current_path.to_vec());
+                    } else {
+                        *selected_path = None;
+                    }
+                    // Bump `is_dirty` so `sync_gizmo_selection` observes the
+                    // change-tick flip and re-evaluates which prim entity
+                    // should own the `GizmoTarget` component.
+                    *dirty = true;
+                }
+                shape_combo(ui, &mut node.shape, path_salt, dirty);
+            });
 
             if ui.checkbox(&mut node.solid, "Solid (collider)").changed() {
                 *dirty = true;
@@ -694,7 +742,17 @@ fn draw_prim_node_ui(
             let mut to_remove: Option<usize> = None;
             for (i, child) in node.children.iter_mut().enumerate() {
                 let child_salt = format!("{}_c{}", path_salt, i);
-                let child_action = draw_prim_node_ui(ui, child, false, dirty, &child_salt);
+                let mut child_path = current_path.to_vec();
+                child_path.push(i);
+                let child_action = draw_prim_node_ui(
+                    ui,
+                    child,
+                    false,
+                    dirty,
+                    &child_salt,
+                    &child_path,
+                    selected_path,
+                );
                 if matches!(child_action, PrimNodeAction::Delete) {
                     to_remove = Some(i);
                 }
@@ -702,6 +760,17 @@ fn draw_prim_node_ui(
             if let Some(i) = to_remove {
                 node.children.remove(i);
                 *dirty = true;
+                // Clear the gizmo target if we just removed the targeted
+                // node or any ancestor of it — its entity is about to be
+                // despawned on the next compile, and leaving the stale path
+                // in place would point at a hole.
+                let mut deleted_path = current_path.to_vec();
+                deleted_path.push(i);
+                if let Some(sel) = selected_path.as_ref()
+                    && sel.starts_with(&deleted_path)
+                {
+                    *selected_path = None;
+                }
             }
         });
     action
