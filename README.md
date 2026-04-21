@@ -4,11 +4,17 @@ A decentralized, physics-driven multiplayer sandbox for the ATProto network.
 
 Automatically [compiled to WASM and deployed to Github Pages](https://thejanusstream.github.io/symbios-overlands).
 
-**Symbios Overlands** is the flagship showcase application for the Symbios ecosystem. Built on the [Bevy](https://bevyengine.org/) engine, it combines deterministic procedural generation (`symbios-ground`) with peer-to-peer WebRTC networking and federated identity (`bevy_symbios_multiuser`).
+**Symbios Overlands** is the flagship showcase application for the Symbios ecosystem — and, by now, a working sketch of a **sovereign spatial web**. Built on the [Bevy](https://bevyengine.org/) engine, it stitches together deterministic procedural generation (`symbios-ground`, `bevy_symbios`, `bevy_symbios_texture`), peer-to-peer WebRTC networking and federated identity (`bevy_symbios_multiuser`), and the ATProto PDS as a **user-owned data substrate**.
 
-Players authenticate via Bluesky/ATProto, spawn a parametric avatar — either a physics-enabled amphibious "hover-rover" adorned with their profile picture, or a walkable humanoid — and explore a shared, mathematically identical landscape while chatting.
+The overlands started life as a physics rover sandbox. It has since grown into a live-editable, multi-room shared reality whose every artifact is authored as an ATProto record on the player's own PDS:
 
-There is no central game server. There is no competitive objective. It is a space to hang out, drift over procedural dunes, sail the seas, walk the shoreline, and talk.
+* **Your avatar** is an `AvatarRecord` recipe — a `HoverRover` or `Humanoid` phenotype plus kinematics — with every dimension, material slot, and procedural texture editable from a slider panel that mutates the live resource in place.
+* **Your room** is a `RoomRecord` recipe — environment, a generator graph (terrain, water, shape, L-system trees, hierarchical construct assemblies, portals) and absolute / biome-filtered scatter placements — authored through a tabbed Master/Detail editor with an in-world transform gizmo for direct 3D manipulation.
+* **Your doorways** are `Portal` generators that teleport on collision, intra- or inter-room, with the destination owner's profile picture painted onto the portal's top face so you can see where you're about to go.
+
+Players authenticate over OAuth 2.0 + DPoP (the app never sees a password), spawn their parametric avatar on a landscape deterministically hashed from the room owner's DID, and meet — every client generating the identical terrain locally, every edit to the world or an avatar streaming live over P2P data channels the same frame a slider moves.
+
+There is no central game server. There is no competitive objective. The overlands are a space to hang out, drift over procedural dunes, sail the seas, walk the shoreline, step between each other's hand-authored rooms, and talk — with the scenery and the vessels themselves living on the players' own ATProto repositories, portable to any client that speaks the lexicon.
 
 ## Key Features
 
@@ -21,9 +27,12 @@ There is no central game server. There is no competitive objective. It is a spac
 * **Amphibious Raycast Rovers:** Custom vehicles built on [Avian3D](https://github.com/Jondolf/avian). To navigate jagged procedural terrain, vehicles use a raycast suspension system (Hooke's Law + Damping). When entering the procedural ocean, the forces seamlessly transition to Archimedean buoyancy. Drive the dunes, sail the seas.
 * **Deterministic Procedural Terrain:** Powered by `symbios-ground` and `bevy_symbios_ground`. Each room is seeded by an FNV-1a hash of the owner's DID, so every client visiting the same overland generates a mathematically identical landscape — Voronoi terracing, hydraulic erosion, then thermal erosion — with triplanar PBR splat textures (grass / dirt / rock / snow) blended from a heightmap-derived weight map.
 
-* **Data-Driven Room Recipes:** The environment itself is an ATProto record (`network.symbios.overlands.room`) authored as a *recipe* — a graph of named `generators` (terrain / water / shape / l-system), `placements` (absolute or deterministic scatter regions) and `traits` (ECS components to attach). `world_builder.rs` compiles the recipe into Bevy entities, and every union uses `#[serde(other)] Unknown` so a client visiting a newer room skips unrecognised variants instead of crashing. Floats are stored on the wire as fixed-point `i32` values because DAG-CBOR rejects IEEE floats in records.
+* **Data-Driven Room Recipes:** The environment itself is an ATProto record (`network.symbios.overlands.room`) authored as a *recipe* — a graph of named `generators` (terrain / water / shape / l-system / **construct** / portal), `placements` (absolute or biome-filtered deterministic scatter regions) and `traits` (ECS components to attach). `world_builder.rs` compiles the recipe into Bevy entities, and every union uses `#[serde(other)] Unknown` so a client visiting a newer room skips unrecognised variants instead of crashing. Floats are stored on the wire as fixed-point `i32` values because DAG-CBOR rejects IEEE floats in records.
+* **Hierarchical Construct Primitives:** The `Construct` generator authors a tree of `PrimNode`s — cubes, spheres, cylinders, capsules, cones, and torus shapes — each with its own relative transform, solid-collider flag, and material. Child transforms are interpreted relative to the parent so a rotated assembly stays rigid, and the compiler clamps recursion depth and total node count on every apply so a malicious record cannot exhaust memory on peers.
+* **Universal Procedural Materials:** Every material slot in the schema — rover hull / pontoons / mast / struts / sail, humanoid body / head / limbs, every construct node, every L-system prop bucket — carries a full `SovereignMaterialSettings` (`base_color`, `emission`, `roughness`, `metallic`, `uv_scale`) plus an embedded `SovereignTextureConfig` that drives any `bevy_symbios_texture` generator (ashlar, asphalt, bark, brick, cobblestone, concrete, corrugated, encaustic, ground, iron grille, leaf, marble, metal, pavers, plank, rock, shingle, stained glass, stucco, thatch, twig, wainscoting, window) at an author-tunable UV scale.
 * **Live UX Editors:** Both the **Avatar Editor** and the owner-only **World Editor** follow the same paradigm — every widget mutates the live `LiveAvatarRecord` or `RoomRecord` resource in place, so visuals, physics and peer broadcasts update the same frame a slider moves. A menu-local debounce timer coalesces rapid slider drags into a single terrain rebuild / world-compiler pass / `RoomStateUpdate` (or `AvatarStateUpdate`) broadcast when the drag settles. Three explicit buttons drive persistence and discard: **Publish to PDS** writes the current record via `com.atproto.repo.putRecord`; **Load from PDS** rolls live edits back to the last stored record; **Reset to default** seeds the canonical default for the signed-in DID.
-* **Room Customisation:** The World Editor is a tabbed Master/Detail view with Environment, Generators, Placements and Raw JSON tabs, so lighting, water level, the terrain/water/shape/l-system generator graph, and absolute / scatter placements are all editable in place — and any field the visual UI doesn't yet expose still round-trips via the Raw JSON tab. Numeric fields are clamped by `pds::sanitize` on every apply, so out-of-range JSON edits cannot starve memory on peers. If a previously-published record fails to decode against the current lexicon, the editor shows a recovery banner and a hard-reset button that deletes the stale record and republishes the default homeworld. Ownership is enforced both client-side (signed-in DID must match the room DID) and by the PDS. Publish outcomes surface in a status line driven by the `PublishFeedback` resource.
+* **Room Customisation:** The World Editor is a tabbed Master/Detail view with Environment, Generators, Placements and Raw JSON tabs, so lighting, water level, the generator graph (terrain / water / shape / l-system / construct / portal) and absolute / scatter placements are all editable in place — and any field the visual UI doesn't yet expose still round-trips via the Raw JSON tab. Numeric fields are clamped by `pds::sanitize` on every apply, so out-of-range JSON edits cannot starve memory on peers. If a previously-published record fails to decode against the current lexicon, the editor shows a recovery banner and a hard-reset button that deletes the stale record and republishes the default homeworld. Ownership is enforced both client-side (signed-in DID must match the room DID) and by the PDS. Publish outcomes surface in a status line driven by the `PublishFeedback` resource.
+* **In-World Transform Gizmo:** Selecting an absolute placement in the World Editor attaches a `transform-gizmo-bevy` handle to its live entity, so the owner can translate / rotate / scale their props directly in the 3D viewport instead of typing numbers into sliders. The dragged transform is held ephemerally during the drag and committed back into the `RoomRecord` on mouse release — a single record update, a single peer broadcast, and a single world recompile per gesture, even across a twenty-second drag.
 
 * **In-Room Chat:** An egui chat window streams Reliable messages between everyone in the room, labelled with each sender's Bluesky handle and a session-relative timestamp. Muting a peer from the Diagnostics panel hides their vessel and silences their messages locally. Incoming chat payloads are hard-clipped at 512 bytes on the receiver to neutralise malicious jumbo packets.
 
@@ -93,7 +102,9 @@ src/
 ├── state.rs             ECS resources (including Live/Stored avatar + room
 │                        records for the Live UX editors), components,
 │                        and the AppState enum
-├── protocol.rs          Serde-tagged network message enum + AirshipParams
+├── protocol.rs          Serde-tagged `OverlandsMessage` wire-protocol enum
+│                        (Transform / Identity / Chat / RoomStateUpdate /
+│                        AvatarStateUpdate) with per-variant channel notes
 ├── network.rs           P2P broadcast, jitter buffer, Hermite smoothing,
 │                        identity anti-spoofing, mute sync
 ├── oauth.rs             atproto OAuth 2.0 + DPoP authorization-code flow
@@ -102,8 +113,11 @@ src/
 │                        `.well-known/oauth-protected-resource`, DPoP-nonce
 │                        retry helpers
 ├── pds.rs               ATProto DID / PDS resolution, `RoomRecord` and
-│                        `AvatarRecord` recipe lexicons, DAG-CBOR fixed-point
-│                        adapters, read/write
+│                        `AvatarRecord` recipe lexicons (generators including
+│                        `Construct` hierarchical primitives, placements,
+│                        `SovereignMaterialSettings` with full procedural
+│                        texture configs), DAG-CBOR fixed-point adapters,
+│                        sanitise / read / write
 ├── world_builder.rs     Compiler that walks a `RoomRecord` recipe and spawns
 │                        ECS entities (deterministic ChaCha8 scatter, trait
 │                        application, destructive rebuild on record change)
@@ -120,6 +134,10 @@ src/
 ├── splat.rs             `ExtendedMaterial` binding for the splat terrain shader
 ├── water.rs             `ExtendedMaterial` binding for the animated water shader
 ├── logout.rs            InGame → Login cleanup: despawn entities, tear down socket
+├── editor_gizmo.rs      Bridge between the World Editor's selected placement
+│                        and the `transform-gizmo-bevy` 3D handle: attach /
+│                        detach `GizmoTarget`, commit the dragged Transform
+│                        back into the `RoomRecord` on mouse release
 └── ui/
     ├── login.rs         OAuth 2.0 + DPoP login form (PDS, handle, relay host,
     │                    optional destination DID), Begin/Complete auth task

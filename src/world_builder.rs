@@ -71,7 +71,8 @@ use crate::terrain::{FinishedHeightMap, TerrainMesh, WaterVolume};
 use crate::water::{WaterExtension, WaterMaterial};
 
 /// Marks an in-scene portal cube and carries the destination coordinates the
-/// interaction system reads on F-press.
+/// interaction system reads when the local player's sensor-collision set
+/// touches it.
 #[derive(Component, Clone)]
 pub struct PortalMarker {
     pub target_did: String,
