@@ -785,23 +785,154 @@ enum PrimNodeAction {
 }
 
 fn shape_combo(ui: &mut egui::Ui, shape: &mut PrimShape, salt: &str, dirty: &mut bool) {
-    egui::ComboBox::from_id_salt(format!("{}_shape", salt))
-        .selected_text(format!("{:?}", shape))
-        .show_ui(ui, |ui| {
-            let shapes = [
-                PrimShape::Cube,
-                PrimShape::Sphere,
-                PrimShape::Cylinder,
-                PrimShape::Capsule,
-                PrimShape::Cone,
-                PrimShape::Torus,
-            ];
-            for s in shapes {
-                if ui.selectable_value(shape, s, format!("{:?}", s)).changed() {
+    let current_variant = shape.kind_tag();
+
+    ui.horizontal(|ui| {
+        egui::ComboBox::from_id_salt(format!("{}_shape", salt))
+            .selected_text(current_variant)
+            .show_ui(ui, |ui| {
+                let variants = [
+                    "Cuboid",
+                    "Sphere",
+                    "Cylinder",
+                    "Capsule",
+                    "Cone",
+                    "Torus",
+                    "Plane",
+                    "Tetrahedron",
+                ];
+                for v in variants {
+                    if ui.selectable_label(current_variant == v, v).clicked() {
+                        *shape = PrimShape::default_for_tag(v);
+                        *dirty = true;
+                    }
+                }
+            });
+    });
+
+    ui.add_space(2.0);
+
+    match shape {
+        PrimShape::Cuboid { size } => {
+            ui.horizontal(|ui| {
+                ui.label("Size X/Y/Z:");
+                let mut v = size.0;
+                let mut changed = false;
+                changed |= ui
+                    .add(
+                        egui::DragValue::new(&mut v[0])
+                            .speed(0.1)
+                            .range(0.01..=100.0),
+                    )
+                    .changed();
+                changed |= ui
+                    .add(
+                        egui::DragValue::new(&mut v[1])
+                            .speed(0.1)
+                            .range(0.01..=100.0),
+                    )
+                    .changed();
+                changed |= ui
+                    .add(
+                        egui::DragValue::new(&mut v[2])
+                            .speed(0.1)
+                            .range(0.01..=100.0),
+                    )
+                    .changed();
+                if changed {
+                    *size = Fp3(v);
                     *dirty = true;
                 }
-            }
-        });
+            });
+        }
+        PrimShape::Sphere { radius, resolution } => {
+            ui.horizontal(|ui| {
+                fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
+                drag_u32(ui, "Ico Res", resolution, 0, 10, dirty);
+            });
+        }
+        PrimShape::Cylinder {
+            radius,
+            height,
+            resolution,
+        } => {
+            ui.horizontal(|ui| {
+                fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
+                fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
+                drag_u32(ui, "Res", resolution, 3, 128, dirty);
+            });
+        }
+        PrimShape::Capsule {
+            radius,
+            length,
+            latitudes,
+            longitudes,
+        } => {
+            ui.horizontal(|ui| {
+                fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
+                fp_slider(ui, "Length", length, 0.01, 100.0, dirty);
+            });
+            ui.horizontal(|ui| {
+                drag_u32(ui, "Lats", latitudes, 2, 64, dirty);
+                drag_u32(ui, "Lons", longitudes, 4, 128, dirty);
+            });
+        }
+        PrimShape::Cone {
+            radius,
+            height,
+            resolution,
+        } => {
+            ui.horizontal(|ui| {
+                fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
+                fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
+                drag_u32(ui, "Res", resolution, 3, 128, dirty);
+            });
+        }
+        PrimShape::Torus {
+            minor_radius,
+            major_radius,
+            minor_resolution,
+            major_resolution,
+        } => {
+            ui.horizontal(|ui| {
+                fp_slider(ui, "Minor R", minor_radius, 0.01, 50.0, dirty);
+                fp_slider(ui, "Major R", major_radius, 0.01, 100.0, dirty);
+            });
+            ui.horizontal(|ui| {
+                drag_u32(ui, "Minor Res", minor_resolution, 3, 64, dirty);
+                drag_u32(ui, "Major Res", major_resolution, 3, 128, dirty);
+            });
+        }
+        PrimShape::Plane { size, subdivisions } => {
+            ui.horizontal(|ui| {
+                ui.label("Size X/Z:");
+                let mut v = size.0;
+                let mut changed = false;
+                changed |= ui
+                    .add(
+                        egui::DragValue::new(&mut v[0])
+                            .speed(0.1)
+                            .range(0.01..=100.0),
+                    )
+                    .changed();
+                changed |= ui
+                    .add(
+                        egui::DragValue::new(&mut v[1])
+                            .speed(0.1)
+                            .range(0.01..=100.0),
+                    )
+                    .changed();
+                if changed {
+                    *size = Fp2(v);
+                    *dirty = true;
+                }
+                drag_u32(ui, "Subdivs", subdivisions, 0, 32, dirty);
+            });
+        }
+        PrimShape::Tetrahedron { size } => {
+            fp_slider(ui, "Size", size, 0.01, 100.0, dirty);
+        }
+    }
 }
 
 /// Slim material editor for a single Prim node. Mirrors the L-system slot

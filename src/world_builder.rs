@@ -1146,7 +1146,7 @@ fn spawn_prim_tree(
     generator_ref: &str,
     path: &mut Vec<usize>,
 ) -> Entity {
-    let mesh = mesh_for_prim_shape(ctx.meshes, node.shape);
+    let mesh = mesh_for_prim_shape(ctx.meshes, &node.shape);
 
     let hash = settings_fingerprint(&node.material);
     let material = if let Some(h) = material_cache.get(&hash) {
@@ -1172,7 +1172,7 @@ fn spawn_prim_tree(
         RoomEntity,
     ));
     if node.solid
-        && let Some(collider) = collider_for_prim_shape(node.shape)
+        && let Some(collider) = collider_for_prim_shape(&node.shape)
     {
         cmd.insert(collider);
     }
@@ -1195,32 +1195,102 @@ fn spawn_prim_tree(
     entity
 }
 
-/// Build the unit-sized mesh for a [`PrimShape`]. The node's
-/// [`TransformData::scale`] is applied via Bevy's transform hierarchy, so
-/// one handle per shape variant suffices per tree.
-fn mesh_for_prim_shape(meshes: &mut Assets<Mesh>, shape: PrimShape) -> Handle<Mesh> {
+/// Build the parametric mesh for a [`PrimShape`]. The node's
+/// [`TransformData::scale`] is applied via Bevy's transform hierarchy on
+/// top of the shape's intrinsic dimensions.
+fn mesh_for_prim_shape(meshes: &mut Assets<Mesh>, shape: &PrimShape) -> Handle<Mesh> {
     let mut mesh = match shape {
-        PrimShape::Cube => Cuboid::new(1.0, 1.0, 1.0).mesh().build(),
-        PrimShape::Sphere => Sphere::new(0.5).mesh().build(),
-        PrimShape::Cylinder => Cylinder::new(0.5, 1.0).mesh().build(),
-        PrimShape::Capsule => Capsule3d::new(0.5, 1.0).mesh().build(),
-        PrimShape::Cone => Cone::new(0.5, 1.0).mesh().build(),
-        PrimShape::Torus => Torus::new(0.3, 0.5).mesh().build(),
+        PrimShape::Cuboid { size } => Cuboid::new(size.0[0], size.0[1], size.0[2]).mesh().build(),
+        PrimShape::Sphere { radius, resolution } => Sphere::new(radius.0)
+            .mesh()
+            .ico(*resolution)
+            .unwrap_or_else(|_| Sphere::new(radius.0).mesh().build()),
+        PrimShape::Cylinder {
+            radius,
+            height,
+            resolution,
+        } => Cylinder::new(radius.0, height.0)
+            .mesh()
+            .resolution(*resolution)
+            .build(),
+        PrimShape::Capsule {
+            radius,
+            length,
+            latitudes,
+            longitudes,
+        } => Capsule3d::new(radius.0, length.0)
+            .mesh()
+            .latitudes(*latitudes)
+            .longitudes(*longitudes)
+            .build(),
+        PrimShape::Cone {
+            radius,
+            height,
+            resolution,
+        } => Cone::new(radius.0, height.0)
+            .mesh()
+            .resolution(*resolution)
+            .build(),
+        PrimShape::Torus {
+            minor_radius,
+            major_radius,
+            minor_resolution,
+            major_resolution,
+        } => Torus {
+            minor_radius: minor_radius.0,
+            major_radius: major_radius.0,
+        }
+        .mesh()
+        .minor_resolution(*minor_resolution as usize)
+        .major_resolution(*major_resolution as usize)
+        .build(),
+        PrimShape::Plane { size, subdivisions } => {
+            Plane3d::new(Vec3::Y, Vec2::new(size.0[0] / 2.0, size.0[1] / 2.0))
+                .mesh()
+                .subdivisions(*subdivisions)
+                .build()
+        }
+        PrimShape::Tetrahedron { size } => {
+            let s = size.0;
+            let p0 = Vec3::new(0.0, 1.0, 0.0) * s;
+            let p1 = Vec3::new(-1.0, -1.0, 1.0).normalize() * s;
+            let p2 = Vec3::new(1.0, -1.0, 1.0).normalize() * s;
+            let p3 = Vec3::new(0.0, -1.0, -1.0).normalize() * s;
+            Tetrahedron::new(p0, p1, p2, p3).mesh().build()
+        }
     };
     let _ = mesh.generate_tangents();
     meshes.add(mesh)
 }
 
-/// Build the Avian collider matching a [`PrimShape`]'s mesh. `Torus` falls
-/// back to a bounding cuboid because Avian 0.6 has no native torus primitive.
-fn collider_for_prim_shape(shape: PrimShape) -> Option<Collider> {
+/// Build the Avian collider matching a [`PrimShape`]'s mesh. `Torus` and
+/// `Plane` fall back to bounding cuboids because Avian 0.6 has no native
+/// primitives for them; `Tetrahedron` uses a convex hull.
+fn collider_for_prim_shape(shape: &PrimShape) -> Option<Collider> {
     Some(match shape {
-        PrimShape::Cube => Collider::cuboid(1.0, 1.0, 1.0),
-        PrimShape::Sphere => Collider::sphere(0.5),
-        PrimShape::Cylinder => Collider::cylinder(0.5, 1.0),
-        PrimShape::Capsule => Collider::capsule(0.5, 1.0),
-        PrimShape::Cone => Collider::cone(0.5, 1.0),
-        PrimShape::Torus => Collider::cuboid(1.0, 0.6, 1.0),
+        PrimShape::Cuboid { size } => Collider::cuboid(size.0[0], size.0[1], size.0[2]),
+        PrimShape::Sphere { radius, .. } => Collider::sphere(radius.0),
+        PrimShape::Cylinder { radius, height, .. } => Collider::cylinder(radius.0, height.0),
+        PrimShape::Capsule { radius, length, .. } => Collider::capsule(radius.0, length.0),
+        PrimShape::Cone { radius, height, .. } => Collider::cone(radius.0, height.0),
+        PrimShape::Torus {
+            minor_radius,
+            major_radius,
+            ..
+        } => Collider::cuboid(
+            major_radius.0 + minor_radius.0,
+            minor_radius.0 * 2.0,
+            major_radius.0 + minor_radius.0,
+        ),
+        PrimShape::Plane { size, .. } => Collider::cuboid(size.0[0], 0.01, size.0[1]),
+        PrimShape::Tetrahedron { size } => {
+            let s = size.0;
+            let p0 = Vec3::new(0.0, 1.0, 0.0) * s;
+            let p1 = Vec3::new(-1.0, -1.0, 1.0).normalize() * s;
+            let p2 = Vec3::new(1.0, -1.0, 1.0).normalize() * s;
+            let p3 = Vec3::new(0.0, -1.0, -1.0).normalize() * s;
+            Collider::convex_hull(vec![p0, p1, p2, p3]).unwrap_or_else(|| Collider::sphere(s))
+        }
     })
 }
 
