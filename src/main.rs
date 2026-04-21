@@ -527,6 +527,27 @@ fn poll_avatar_record_task(
                 info!("No avatar record on PDS — using DID-hashed default");
                 AvatarRecord::default_for_did(&did)
             }
+            Err(pds::FetchError::Decode(msg)) => {
+                // Decode failure is permanent, not transient: the stored
+                // record exists but its schema is incompatible with the
+                // current `AvatarRecord` (lexicon drift, partially-migrated
+                // field, bincode/JSON mismatch). Retrying will never
+                // recover, so fall straight through to the DID-hashed
+                // default — otherwise Loading hangs forever and the
+                // diagnostics log fills with identical decode warnings.
+                // The owner can re-publish from the avatar editor to
+                // overwrite the incompatible record with the new schema.
+                let elapsed = time.elapsed_secs_f64();
+                diagnostics.push(
+                    elapsed,
+                    format!("Stored avatar record incompatible ({msg}) — falling back to default"),
+                );
+                warn!(
+                    "Stored avatar record could not be decoded ({}) — using DID-hashed default",
+                    msg
+                );
+                AvatarRecord::default_for_did(&did)
+            }
             Err(err) => {
                 // Transient failure — retry with backoff rather than
                 // installing the default. Installing the default on a

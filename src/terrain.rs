@@ -23,8 +23,6 @@ use bevy::tasks::AsyncComputeTaskPool;
 use bevy_symbios_ground::{HeightMapMeshBuilder, NormalMethod, build_heightfield_collider};
 use bevy_symbios_texture::SymbiosTexturePlugin;
 use bevy_symbios_texture::async_gen::{PendingTexture, TextureReady};
-use bevy_symbios_texture::ground::GroundConfig;
-use bevy_symbios_texture::rock::RockConfig;
 use symbios_ground::{
     DiamondSquare, FbmNoise, HeightMap, HydraulicErosion, SplatMapper, SplatRule, TerrainGenerator,
     ThermalErosion, VoronoiTerracing,
@@ -32,8 +30,7 @@ use symbios_ground::{
 
 use crate::config::terrain as tcfg;
 use crate::pds::{
-    RoomRecord, SovereignGeneratorKind, SovereignGroundConfig, SovereignRockConfig,
-    SovereignTerrainConfig,
+    RoomRecord, SovereignGeneratorKind, SovereignTerrainConfig, SovereignTextureConfig,
 };
 use crate::splat::{SplatExtension, SplatTerrainMaterial, SplatUniforms};
 use crate::state::AppState;
@@ -297,72 +294,62 @@ fn start_texture_tasks(mut commands: Commands, record: Res<RoomRecord>) {
 
     let texture_size = mat.texture_size.max(16);
 
-    // Layer 0 — Grass
-    commands.spawn((
-        PendingTexture::ground(
-            sovereign_ground_to_texture(&mat.grass),
-            texture_size,
-            texture_size,
-        ),
-        TextureLayerIndex(0),
-    ));
-
-    // Layer 1 — Dirt
-    commands.spawn((
-        PendingTexture::ground(
-            sovereign_ground_to_texture(&mat.dirt),
-            texture_size,
-            texture_size,
-        ),
-        TextureLayerIndex(1),
-    ));
-
-    // Layer 2 — Rock (ridged multifractal stone)
-    commands.spawn((
-        PendingTexture::rock(
-            sovereign_rock_to_texture(&mat.rock),
-            texture_size,
-            texture_size,
-        ),
-        TextureLayerIndex(2),
-    ));
-
-    // Layer 3 — Snow
-    commands.spawn((
-        PendingTexture::ground(
-            sovereign_ground_to_texture(&mat.snow),
-            texture_size,
-            texture_size,
-        ),
-        TextureLayerIndex(3),
-    ));
+    for (i, layer) in mat.layers.iter().enumerate() {
+        let pending = pending_texture_from_sovereign(layer, texture_size);
+        commands.spawn((pending, TextureLayerIndex(i)));
+    }
 
     commands.insert_resource(TextureTasksStarted);
 }
 
-fn sovereign_ground_to_texture(g: &SovereignGroundConfig) -> GroundConfig {
-    GroundConfig {
-        seed: g.seed,
-        macro_scale: g.macro_scale.0,
-        macro_octaves: g.macro_octaves as usize,
-        micro_scale: g.micro_scale.0,
-        micro_octaves: g.micro_octaves as usize,
-        micro_weight: g.micro_weight.0,
-        color_dry: g.color_dry.0,
-        color_moist: g.color_moist.0,
-        normal_strength: g.normal_strength.0,
-    }
-}
-
-fn sovereign_rock_to_texture(r: &SovereignRockConfig) -> RockConfig {
-    RockConfig {
-        seed: r.seed,
-        scale: r.scale.0,
-        octaves: r.octaves as usize,
-        attenuation: r.attenuation.0,
-        color_light: r.color_light.0,
-        color_dark: r.color_dark.0,
-        normal_strength: r.normal_strength.0,
+/// Build a [`PendingTexture`] from any [`SovereignTextureConfig`] variant.
+/// Unknown / None variants fall back to a default ground config so all four
+/// terrain splat layers always produce a baked texture — the splat shader
+/// samples all four unconditionally.
+fn pending_texture_from_sovereign(layer: &SovereignTextureConfig, size: u32) -> PendingTexture {
+    match layer {
+        SovereignTextureConfig::Ground(c) => PendingTexture::ground(c.to_native(), size, size),
+        SovereignTextureConfig::Rock(c) => PendingTexture::rock(c.to_native(), size, size),
+        SovereignTextureConfig::Bark(c) => PendingTexture::bark(c.to_native(), size, size),
+        SovereignTextureConfig::Brick(c) => PendingTexture::brick(c.to_native(), size, size),
+        SovereignTextureConfig::Plank(c) => PendingTexture::plank(c.to_native(), size, size),
+        SovereignTextureConfig::Shingle(c) => PendingTexture::shingle(c.to_native(), size, size),
+        SovereignTextureConfig::Stucco(c) => PendingTexture::stucco(c.to_native(), size, size),
+        SovereignTextureConfig::Concrete(c) => PendingTexture::concrete(c.to_native(), size, size),
+        SovereignTextureConfig::Metal(c) => PendingTexture::metal(c.to_native(), size, size),
+        SovereignTextureConfig::Pavers(c) => PendingTexture::pavers(c.to_native(), size, size),
+        SovereignTextureConfig::Ashlar(c) => PendingTexture::ashlar(c.to_native(), size, size),
+        SovereignTextureConfig::Cobblestone(c) => {
+            PendingTexture::cobblestone(c.to_native(), size, size)
+        }
+        SovereignTextureConfig::Thatch(c) => PendingTexture::thatch(c.to_native(), size, size),
+        SovereignTextureConfig::Marble(c) => PendingTexture::marble(c.to_native(), size, size),
+        SovereignTextureConfig::Corrugated(c) => {
+            PendingTexture::corrugated(c.to_native(), size, size)
+        }
+        SovereignTextureConfig::Asphalt(c) => PendingTexture::asphalt(c.to_native(), size, size),
+        SovereignTextureConfig::Wainscoting(c) => {
+            PendingTexture::wainscoting(c.to_native(), size, size)
+        }
+        SovereignTextureConfig::Encaustic(c) => {
+            PendingTexture::encaustic(c.to_native(), size, size)
+        }
+        SovereignTextureConfig::Leaf(c) => PendingTexture::leaf(c.to_native(), size, size),
+        SovereignTextureConfig::Twig(c) => PendingTexture::twig(c.to_native(), size, size),
+        SovereignTextureConfig::Window(c) => PendingTexture::window(c.to_native(), size, size),
+        SovereignTextureConfig::StainedGlass(c) => {
+            PendingTexture::stained_glass(c.to_native(), size, size)
+        }
+        SovereignTextureConfig::IronGrille(c) => {
+            PendingTexture::iron_grille(c.to_native(), size, size)
+        }
+        // None / Unknown — fall back to an opaque placeholder via GroundConfig
+        // default so the splat array always has four live textures to sample.
+        SovereignTextureConfig::None | SovereignTextureConfig::Unknown => PendingTexture::ground(
+            crate::pds::SovereignGroundConfig::default().to_native(),
+            size,
+            size,
+        ),
     }
 }
 

@@ -22,8 +22,8 @@ use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
 use crate::pds::{
-    self, AvatarBody, AvatarRecord, Fp, Fp3, HumanoidKinematics, HumanoidPhenotype,
-    RoverKinematics, RoverPhenotype,
+    self, AvatarBody, AvatarRecord, Fp, HumanoidKinematics, HumanoidPhenotype, RoverKinematics,
+    RoverPhenotype,
 };
 use crate::protocol::PontoonShape;
 use crate::state::{LiveAvatarRecord, LocalSettings, PublishFeedback, StoredAvatarRecord};
@@ -297,18 +297,58 @@ fn rover_panel(ui: &mut egui::Ui, phen: &mut RoverPhenotype, kin: &mut RoverKine
     egui::CollapsingHeader::new("Materials")
         .default_open(false)
         .show(ui, |ui| {
-            ui.label("Metallic");
-            fp_slider(ui, &mut phen.metallic, 0.0..=1.0, 0.01);
-            ui.label("Roughness");
-            fp_slider(ui, &mut phen.roughness, 0.0..=1.0, 0.01);
-            ui.collapsing("Hull colour", |ui| color_sliders(ui, &mut phen.hull_color));
-            ui.collapsing("Pontoon colour", |ui| {
-                color_sliders(ui, &mut phen.pontoon_color)
-            });
-            ui.collapsing("Mast colour", |ui| color_sliders(ui, &mut phen.mast_color));
-            ui.collapsing("Strut colour", |ui| {
-                color_sliders(ui, &mut phen.strut_color)
-            });
+            let mut dirty = false;
+            egui::CollapsingHeader::new("Hull")
+                .default_open(false)
+                .show(ui, |ui| {
+                    super::room::draw_universal_material(
+                        ui,
+                        &mut phen.hull_material,
+                        "rover_hull",
+                        &mut dirty,
+                    );
+                });
+            egui::CollapsingHeader::new("Pontoons")
+                .default_open(false)
+                .show(ui, |ui| {
+                    super::room::draw_universal_material(
+                        ui,
+                        &mut phen.pontoon_material,
+                        "rover_pontoon",
+                        &mut dirty,
+                    );
+                });
+            egui::CollapsingHeader::new("Mast")
+                .default_open(false)
+                .show(ui, |ui| {
+                    super::room::draw_universal_material(
+                        ui,
+                        &mut phen.mast_material,
+                        "rover_mast",
+                        &mut dirty,
+                    );
+                });
+            egui::CollapsingHeader::new("Struts")
+                .default_open(false)
+                .show(ui, |ui| {
+                    super::room::draw_universal_material(
+                        ui,
+                        &mut phen.strut_material,
+                        "rover_strut",
+                        &mut dirty,
+                    );
+                });
+            egui::CollapsingHeader::new("Sail")
+                .default_open(false)
+                .show(ui, |ui| {
+                    super::room::draw_universal_material(
+                        ui,
+                        &mut phen.sail_material,
+                        "rover_sail",
+                        &mut dirty,
+                    );
+                });
+            let _ = dirty;
         });
 
     egui::CollapsingHeader::new("Suspension & Drive")
@@ -381,13 +421,38 @@ fn humanoid_panel(ui: &mut egui::Ui, phen: &mut HumanoidPhenotype, kin: &mut Hum
     egui::CollapsingHeader::new("Materials")
         .default_open(false)
         .show(ui, |ui| {
-            ui.label("Metallic");
-            fp_slider(ui, &mut phen.metallic, 0.0..=1.0, 0.01);
-            ui.label("Roughness");
-            fp_slider(ui, &mut phen.roughness, 0.0..=1.0, 0.01);
-            ui.collapsing("Body colour", |ui| color_sliders(ui, &mut phen.body_color));
-            ui.collapsing("Head colour", |ui| color_sliders(ui, &mut phen.head_color));
-            ui.collapsing("Limb colour", |ui| color_sliders(ui, &mut phen.limb_color));
+            let mut dirty = false;
+            egui::CollapsingHeader::new("Body")
+                .default_open(false)
+                .show(ui, |ui| {
+                    super::room::draw_universal_material(
+                        ui,
+                        &mut phen.body_material,
+                        "humanoid_body",
+                        &mut dirty,
+                    );
+                });
+            egui::CollapsingHeader::new("Head")
+                .default_open(false)
+                .show(ui, |ui| {
+                    super::room::draw_universal_material(
+                        ui,
+                        &mut phen.head_material,
+                        "humanoid_head",
+                        &mut dirty,
+                    );
+                });
+            egui::CollapsingHeader::new("Limbs")
+                .default_open(false)
+                .show(ui, |ui| {
+                    super::room::draw_universal_material(
+                        ui,
+                        &mut phen.limb_material,
+                        "humanoid_limb",
+                        &mut dirty,
+                    );
+                });
+            let _ = dirty;
         });
 
     egui::CollapsingHeader::new("Locomotion")
@@ -417,30 +482,6 @@ fn fp_slider_array(
     step: f64,
 ) {
     ui.add(egui::Slider::new(value, range).step_by(step));
-}
-
-fn color_sliders(ui: &mut egui::Ui, rgb: &mut Fp3) {
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("R").color(egui::Color32::from_rgb(220, 80, 80)));
-        ui.add(egui::Slider::new(&mut rgb.0[0], 0.0..=1.0).step_by(0.01));
-    });
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("G").color(egui::Color32::from_rgb(80, 200, 80)));
-        ui.add(egui::Slider::new(&mut rgb.0[1], 0.0..=1.0).step_by(0.01));
-    });
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("B").color(egui::Color32::from_rgb(80, 130, 220)));
-        ui.add(egui::Slider::new(&mut rgb.0[2], 0.0..=1.0).step_by(0.01));
-    });
-
-    let swatch = egui::Color32::from_rgb(
-        (rgb.0[0] * 255.0) as u8,
-        (rgb.0[1] * 255.0) as u8,
-        (rgb.0[2] * 255.0) as u8,
-    );
-    let (rect, _) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), 14.0), egui::Sense::hover());
-    ui.painter().rect_filled(rect, 3.0, swatch);
 }
 
 fn spawn_publish_avatar_task(

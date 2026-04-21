@@ -378,7 +378,7 @@ pub struct SovereignSplatRule {
 
 /// Procedural "ground" texture parameters (grass / dirt / snow layers).
 /// Mirrors `bevy_symbios_texture::ground::GroundConfig` with fixed-point wrappers.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct SovereignGroundConfig {
     pub seed: u32,
     pub macro_scale: Fp64,
@@ -393,7 +393,7 @@ pub struct SovereignGroundConfig {
 
 /// Procedural "rock" texture parameters. Mirrors
 /// `bevy_symbios_texture::rock::RockConfig`.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct SovereignRockConfig {
     pub seed: u32,
     pub scale: Fp64,
@@ -491,16 +491,21 @@ impl SovereignRockConfig {
 }
 
 /// Four-layer splat/texture configuration for a terrain generator.
+///
+/// `rules[i]` controls where layer `i` appears on the terrain (altitude and
+/// slope bands); `layers[i]` is the procedural texture generator config that
+/// bakes that layer's albedo/normal/ORM maps. Any
+/// [`SovereignTextureConfig`] variant may appear in any slot — the canonical
+/// defaults are Grass / Dirt / Rock / Snow (Ground / Ground / Rock / Ground),
+/// but a room can swap any layer for e.g. `Brick`, `Cobblestone`, `Thatch`.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SovereignMaterialConfig {
     pub texture_size: u32,
     pub tile_scale: Fp,
-    /// Splat rules for channels R, G, B, A — Grass / Dirt / Rock / Snow.
+    /// Splat rules for channels R, G, B, A — one per layer.
     pub rules: [SovereignSplatRule; 4],
-    pub grass: SovereignGroundConfig,
-    pub dirt: SovereignGroundConfig,
-    pub rock: SovereignRockConfig,
-    pub snow: SovereignGroundConfig,
+    /// Procedural texture configs for channels R, G, B, A.
+    pub layers: [SovereignTextureConfig; 4],
 }
 
 impl Default for SovereignMaterialConfig {
@@ -542,48 +547,54 @@ impl Default for SovereignMaterialConfig {
                     sharpness: Fp(4.0),
                 },
             ],
-            grass: SovereignGroundConfig {
-                seed: 1,
-                macro_scale: Fp64(2.5),
-                macro_octaves: 4,
-                micro_scale: Fp64(10.0),
-                micro_octaves: 3,
-                micro_weight: Fp64(0.3),
-                color_dry: Fp3([0.07, 0.12, 0.03]),
-                color_moist: Fp3([0.03, 0.07, 0.01]),
-                normal_strength: Fp(4.5),
-            },
-            dirt: SovereignGroundConfig {
-                seed: 13,
-                macro_scale: Fp64(2.0),
-                macro_octaves: 5,
-                micro_scale: Fp64(8.0),
-                micro_octaves: 4,
-                micro_weight: Fp64(0.35),
-                color_dry: Fp3([0.52, 0.40, 0.26]),
-                color_moist: Fp3([0.28, 0.20, 0.12]),
-                normal_strength: Fp(2.0),
-            },
-            rock: SovereignRockConfig {
-                seed: 7,
-                scale: Fp64(3.0),
-                octaves: 8,
-                attenuation: Fp64(2.0),
-                color_light: Fp3([0.37, 0.42, 0.36]),
-                color_dark: Fp3([0.22, 0.20, 0.18]),
-                normal_strength: Fp(4.0),
-            },
-            snow: SovereignGroundConfig {
-                seed: 99,
-                macro_scale: Fp64(4.0),
-                macro_octaves: 3,
-                micro_scale: Fp64(12.0),
-                micro_octaves: 3,
-                micro_weight: Fp64(0.4),
-                color_dry: Fp3([0.95, 0.95, 0.98]),
-                color_moist: Fp3([0.80, 0.82, 0.88]),
-                normal_strength: Fp(0.8),
-            },
+            layers: [
+                // R — Grass
+                SovereignTextureConfig::Ground(SovereignGroundConfig {
+                    seed: 1,
+                    macro_scale: Fp64(2.5),
+                    macro_octaves: 4,
+                    micro_scale: Fp64(10.0),
+                    micro_octaves: 3,
+                    micro_weight: Fp64(0.3),
+                    color_dry: Fp3([0.07, 0.12, 0.03]),
+                    color_moist: Fp3([0.03, 0.07, 0.01]),
+                    normal_strength: Fp(4.5),
+                }),
+                // G — Dirt
+                SovereignTextureConfig::Ground(SovereignGroundConfig {
+                    seed: 13,
+                    macro_scale: Fp64(2.0),
+                    macro_octaves: 5,
+                    micro_scale: Fp64(8.0),
+                    micro_octaves: 4,
+                    micro_weight: Fp64(0.35),
+                    color_dry: Fp3([0.52, 0.40, 0.26]),
+                    color_moist: Fp3([0.28, 0.20, 0.12]),
+                    normal_strength: Fp(2.0),
+                }),
+                // B — Rock
+                SovereignTextureConfig::Rock(SovereignRockConfig {
+                    seed: 7,
+                    scale: Fp64(3.0),
+                    octaves: 8,
+                    attenuation: Fp64(2.0),
+                    color_light: Fp3([0.37, 0.42, 0.36]),
+                    color_dark: Fp3([0.22, 0.20, 0.18]),
+                    normal_strength: Fp(4.0),
+                }),
+                // A — Snow
+                SovereignTextureConfig::Ground(SovereignGroundConfig {
+                    seed: 99,
+                    macro_scale: Fp64(4.0),
+                    macro_octaves: 3,
+                    micro_scale: Fp64(12.0),
+                    micro_octaves: 3,
+                    micro_weight: Fp64(0.4),
+                    color_dry: Fp3([0.95, 0.95, 0.98]),
+                    color_moist: Fp3([0.80, 0.82, 0.88]),
+                    normal_strength: Fp(0.8),
+                }),
+            ],
         }
     }
 }
@@ -609,7 +620,7 @@ macro_rules! define_sovereign_texture_cfg {
             $( $kind:ident $( ( $sub:ty ) )? : $field:ident = $default:expr ),+ $(,)?
         }
     ) => {
-        #[derive(Serialize, Deserialize, Clone, Debug)]
+        #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
         pub struct $sov {
             $( pub $field: define_sovereign_texture_cfg!(@ty $kind $(($sub))?), )+
         }
@@ -955,7 +966,7 @@ define_sovereign_texture_cfg!(SovereignEncausticConfig => bevy_symbios_texture::
 /// `bevy_symbios_texture` generator. Serialises with a `$type` discriminant
 /// so newer variants round-trip safely through older clients via
 /// `#[serde(other)] Unknown`.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "$type")]
 pub enum SovereignTextureConfig {
     None,
@@ -1053,7 +1064,7 @@ impl SovereignTextureConfig {
 /// `bevy_symbios::materials::MaterialSettings` with DAG-CBOR-safe numeric
 /// fields. The embedded [`SovereignTextureConfig`] carries the full config
 /// for whichever `bevy_symbios_texture` generator drives this slot (if any).
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct SovereignMaterialSettings {
     pub base_color: Fp3,
     pub emission_color: Fp3,
@@ -1307,9 +1318,9 @@ pub enum Placement {
 //     PDS cannot crash guests by broadcasting pathological spring constants.
 
 /// Rover chassis construction + material, DAG-CBOR safe via `Fp*` wrappers.
-/// Serialisable mirror of [`crate::protocol::AirshipParams`] — use
-/// [`RoverPhenotype::to_airship_params`] to hand a plain-float copy to the
-/// existing `rebuild_airship_children` builder.
+/// Each slot carries a full [`SovereignMaterialSettings`] so the hull,
+/// pontoons, mast, struts, and sail can drive any `bevy_symbios_texture`
+/// generator independently.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct RoverPhenotype {
     pub hull_length: Fp,
@@ -1325,17 +1336,22 @@ pub struct RoverPhenotype {
     pub mast_radius: Fp,
     pub mast_offset: Fp2,
     pub sail_size: Fp,
-    pub hull_color: Fp3,
-    pub pontoon_color: Fp3,
-    pub mast_color: Fp3,
-    pub strut_color: Fp3,
-    pub metallic: Fp,
-    pub roughness: Fp,
+    pub hull_material: SovereignMaterialSettings,
+    pub pontoon_material: SovereignMaterialSettings,
+    pub mast_material: SovereignMaterialSettings,
+    pub strut_material: SovereignMaterialSettings,
+    pub sail_material: SovereignMaterialSettings,
 }
 
 impl Default for RoverPhenotype {
     fn default() -> Self {
         use crate::config::airship as cfg;
+        let mat = |color: [f32; 3]| SovereignMaterialSettings {
+            base_color: Fp3(color),
+            metallic: Fp(cfg::METALLIC),
+            roughness: Fp(cfg::ROUGHNESS),
+            ..Default::default()
+        };
         Self {
             hull_length: Fp(cfg::HULL_LENGTH),
             hull_width: Fp(cfg::HULL_WIDTH),
@@ -1350,40 +1366,16 @@ impl Default for RoverPhenotype {
             mast_radius: Fp(cfg::MAST_RADIUS),
             mast_offset: Fp2(cfg::MAST_OFFSET),
             sail_size: Fp(cfg::SAIL_SIZE),
-            hull_color: Fp3(cfg::HULL_COLOR),
-            pontoon_color: Fp3(cfg::PONTOON_COLOR),
-            mast_color: Fp3(cfg::MAST_COLOR),
-            strut_color: Fp3(cfg::STRUT_COLOR),
-            metallic: Fp(cfg::METALLIC),
-            roughness: Fp(cfg::ROUGHNESS),
-        }
-    }
-}
-
-impl RoverPhenotype {
-    /// Bake into the plain-float struct consumed by
-    /// [`crate::player::rebuild_airship_children`].
-    pub fn to_airship_params(&self) -> crate::protocol::AirshipParams {
-        crate::protocol::AirshipParams {
-            hull_length: self.hull_length.0,
-            hull_width: self.hull_width.0,
-            pontoon_spread: self.pontoon_spread.0,
-            pontoon_length: self.pontoon_length.0,
-            pontoon_width: self.pontoon_width.0,
-            pontoon_height: self.pontoon_height.0,
-            pontoon_shape: self.pontoon_shape,
-            strut_drop: self.strut_drop.0,
-            mast_height: self.mast_height.0,
-            mast_radius: self.mast_radius.0,
-            mast_offset: self.mast_offset.0,
-            sail_size: self.sail_size.0,
-            hull_depth: self.hull_depth.0,
-            hull_color: self.hull_color.0,
-            pontoon_color: self.pontoon_color.0,
-            mast_color: self.mast_color.0,
-            strut_color: self.strut_color.0,
-            metallic: self.metallic.0,
-            roughness: self.roughness.0,
+            hull_material: mat(cfg::HULL_COLOR),
+            pontoon_material: mat(cfg::PONTOON_COLOR),
+            mast_material: mat(cfg::MAST_COLOR),
+            strut_material: mat(cfg::STRUT_COLOR),
+            sail_material: SovereignMaterialSettings {
+                base_color: Fp3([0.95, 0.95, 0.92]),
+                metallic: Fp(0.0),
+                roughness: Fp(0.85),
+                ..Default::default()
+            },
         }
     }
 }
@@ -1454,11 +1446,9 @@ pub struct HumanoidPhenotype {
     /// Show the owner's ATProto profile picture on the chest.
     #[serde(default = "default_show_badge")]
     pub show_badge: bool,
-    pub body_color: Fp3,
-    pub head_color: Fp3,
-    pub limb_color: Fp3,
-    pub metallic: Fp,
-    pub roughness: Fp,
+    pub body_material: SovereignMaterialSettings,
+    pub head_material: SovereignMaterialSettings,
+    pub limb_material: SovereignMaterialSettings,
 }
 
 fn default_arm_ratio() -> Fp {
@@ -1473,6 +1463,12 @@ fn default_show_badge() -> bool {
 
 impl Default for HumanoidPhenotype {
     fn default() -> Self {
+        let mat = |color: [f32; 3]| SovereignMaterialSettings {
+            base_color: Fp3(color),
+            metallic: Fp(0.2),
+            roughness: Fp(0.7),
+            ..Default::default()
+        };
         Self {
             height: Fp(1.8),
             torso_half_width: Fp(0.28),
@@ -1482,11 +1478,9 @@ impl Default for HumanoidPhenotype {
             arm_length_ratio: default_arm_ratio(),
             leg_length_ratio: default_leg_ratio(),
             show_badge: default_show_badge(),
-            body_color: Fp3([0.25, 0.45, 0.75]),
-            head_color: Fp3([0.85, 0.75, 0.65]),
-            limb_color: Fp3([0.20, 0.20, 0.25]),
-            metallic: Fp(0.2),
-            roughness: Fp(0.7),
+            body_material: mat([0.25, 0.45, 0.75]),
+            head_material: mat([0.85, 0.75, 0.65]),
+            limb_material: mat([0.20, 0.20, 0.25]),
         }
     }
 }
@@ -1580,13 +1574,11 @@ impl AvatarRecord {
             [0.25 + r * 0.70, 0.25 + g * 0.70, 0.25 + b * 0.70]
         };
 
-        let phenotype = RoverPhenotype {
-            hull_color: Fp3(hue(0)),
-            pontoon_color: Fp3(hue(3)),
-            mast_color: Fp3(hue(7)),
-            strut_color: Fp3(hue(11)),
-            ..RoverPhenotype::default()
-        };
+        let mut phenotype = RoverPhenotype::default();
+        phenotype.hull_material.base_color = Fp3(hue(0));
+        phenotype.pontoon_material.base_color = Fp3(hue(3));
+        phenotype.mast_material.base_color = Fp3(hue(7));
+        phenotype.strut_material.base_color = Fp3(hue(11));
 
         Self {
             lex_type: AVATAR_COLLECTION.into(),
@@ -1617,8 +1609,6 @@ impl AvatarRecord {
                 0.0
             }
         };
-        let clamp_color =
-            |c: Fp3| Fp3([clamp_unit(c.0[0]), clamp_unit(c.0[1]), clamp_unit(c.0[2])]);
         let clamp_offset = |v: f32| {
             if v.is_finite() {
                 v.clamp(-MAX_DIM, MAX_DIM)
@@ -1650,12 +1640,11 @@ impl AvatarRecord {
                     clamp_offset(p.mast_offset.0[1]),
                 ]);
                 p.sail_size = Fp(clamp(p.sail_size.0));
-                p.hull_color = clamp_color(p.hull_color);
-                p.pontoon_color = clamp_color(p.pontoon_color);
-                p.mast_color = clamp_color(p.mast_color);
-                p.strut_color = clamp_color(p.strut_color);
-                p.metallic = Fp(clamp_unit(p.metallic.0));
-                p.roughness = Fp(clamp_unit(p.roughness.0));
+                sanitize_material_settings(&mut p.hull_material);
+                sanitize_material_settings(&mut p.pontoon_material);
+                sanitize_material_settings(&mut p.mast_material);
+                sanitize_material_settings(&mut p.strut_material);
+                sanitize_material_settings(&mut p.sail_material);
 
                 k.suspension_rest_length = Fp(clamp_pos(k.suspension_rest_length.0, 5.0));
                 k.suspension_stiffness = Fp(clamp_pos(k.suspension_stiffness.0, 50_000.0));
@@ -1692,11 +1681,9 @@ impl AvatarRecord {
                 } else {
                     default_leg_ratio().0
                 });
-                p.body_color = clamp_color(p.body_color);
-                p.head_color = clamp_color(p.head_color);
-                p.limb_color = clamp_color(p.limb_color);
-                p.metallic = Fp(clamp_unit(p.metallic.0));
-                p.roughness = Fp(clamp_unit(p.roughness.0));
+                sanitize_material_settings(&mut p.body_material);
+                sanitize_material_settings(&mut p.head_material);
+                sanitize_material_settings(&mut p.limb_material);
 
                 k.walk_speed = Fp(clamp_pos(k.walk_speed.0, 50.0));
                 k.acceleration = Fp(clamp_pos(k.acceleration.0, 200.0));
@@ -2289,15 +2276,22 @@ fn sanitize_terrain_cfg(cfg: &mut SovereignTerrainConfig) {
         .material
         .texture_size
         .clamp(16, limits::MAX_TEXTURE_SIZE);
-    for ground in [
-        &mut cfg.material.grass,
-        &mut cfg.material.dirt,
-        &mut cfg.material.snow,
-    ] {
-        ground.macro_octaves = ground.macro_octaves.clamp(1, limits::MAX_GROUND_OCTAVES);
-        ground.micro_octaves = ground.micro_octaves.clamp(1, limits::MAX_GROUND_OCTAVES);
+    // Cap per-variant octave-like fields so a forward-compat peer cannot
+    // weaponise texture-size × octave blowups. Only the variants used for
+    // the canonical Grass/Dirt/Rock/Snow palette are sanitised here;
+    // future variants get a pass (their generators clamp internally).
+    for layer in cfg.material.layers.iter_mut() {
+        match layer {
+            SovereignTextureConfig::Ground(g) => {
+                g.macro_octaves = g.macro_octaves.clamp(1, limits::MAX_GROUND_OCTAVES);
+                g.micro_octaves = g.micro_octaves.clamp(1, limits::MAX_GROUND_OCTAVES);
+            }
+            SovereignTextureConfig::Rock(r) => {
+                r.octaves = r.octaves.clamp(1, limits::MAX_ROCK_OCTAVES);
+            }
+            _ => {}
+        }
     }
-    cfg.material.rock.octaves = cfg.material.rock.octaves.clamp(1, limits::MAX_ROCK_OCTAVES);
 }
 
 // ---------------------------------------------------------------------------

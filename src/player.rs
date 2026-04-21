@@ -21,12 +21,12 @@ use crate::avatar::AvatarMaterial;
 use crate::config::airship as ac;
 use crate::config::rover as cfg;
 use crate::config::terrain as tcfg;
-use crate::pds::{AvatarBody, AvatarRecord, HumanoidPhenotype};
-use crate::protocol::{AirshipParams, PontoonShape};
+use crate::pds::{AvatarBody, AvatarRecord, HumanoidPhenotype, RoverPhenotype};
+use crate::protocol::PontoonShape;
 use crate::state::{
     AppState, CurrentRoomDid, LiveAvatarRecord, LocalPlayer, RemotePeer, TravelRequest,
 };
-use crate::world_builder::PortalMarker;
+use crate::world_builder::{OverlandsFoliageTasks, PortalMarker, build_procedural_material};
 
 /// Snapshot of the last `AvatarRecord` whose visuals have been painted onto
 /// a remote peer. `detect_remote_archetype_change` listens to the broad
@@ -169,6 +169,7 @@ fn spawn_local_player(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
     hm_res: Res<crate::terrain::FinishedHeightMap>,
     live: Res<LiveAvatarRecord>,
     travel_req: Option<Res<TravelRequest>>,
@@ -218,6 +219,7 @@ fn spawn_local_player(
         None,
         &mut meshes,
         &mut materials,
+        &mut foliage_tasks,
     );
 }
 
@@ -321,6 +323,7 @@ fn apply_local_archetype_rebuild(
     live: Res<LiveAvatarRecord>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
 ) {
     for (entity, children, avatar_mat) in players.iter() {
         strip_archetype_components(&mut commands, entity);
@@ -333,6 +336,7 @@ fn apply_local_archetype_rebuild(
             avatar_mat.map(|m| &m.0),
             &mut meshes,
             &mut materials,
+            &mut foliage_tasks,
         );
         commands.entity(entity).remove::<NeedsArchetypeRebuild>();
     }
@@ -365,6 +369,7 @@ fn rebuild_local_visuals(
     >,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
 ) {
     if !live.is_changed() {
         return;
@@ -378,6 +383,7 @@ fn rebuild_local_visuals(
             avatar_mat.map(|m| &m.0),
             &mut meshes,
             &mut materials,
+            &mut foliage_tasks,
         );
     }
 }
@@ -412,6 +418,7 @@ fn detect_remote_archetype_change(
     >,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
 ) {
     for (entity, peer, applied, children, avatar_mat) in peers.iter() {
         let Some(record) = peer.avatar.as_ref() else {
@@ -428,6 +435,7 @@ fn detect_remote_archetype_change(
             avatar_mat.map(|m| &m.0),
             &mut meshes,
             &mut materials,
+            &mut foliage_tasks,
         );
         commands
             .entity(entity)
@@ -439,6 +447,7 @@ fn detect_remote_archetype_change(
 // Visuals
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn build_archetype_visuals(
     commands: &mut Commands,
     entity: Entity,
@@ -447,17 +456,18 @@ fn build_archetype_visuals(
     avatar_override: Option<&Handle<StandardMaterial>>,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    foliage_tasks: &mut OverlandsFoliageTasks,
 ) {
     match &record.body {
         AvatarBody::HoverRover { phenotype, .. } => {
-            let airship = phenotype.to_airship_params();
             rebuild_airship_children(
                 commands,
                 entity,
-                &airship,
+                phenotype,
                 existing_children,
                 meshes,
                 materials,
+                foliage_tasks,
                 avatar_override,
             );
         }
@@ -469,6 +479,7 @@ fn build_archetype_visuals(
                 existing_children,
                 meshes,
                 materials,
+                foliage_tasks,
                 avatar_override,
             );
         }
@@ -485,15 +496,17 @@ fn build_archetype_visuals(
     }
 }
 
-/// Build the steampunk-airship visual children of `entity`. Unchanged
-/// semantics from the pre-rename version; only the module path moved.
+/// Build the steampunk-airship visual children of `entity` directly from a
+/// [`RoverPhenotype`] — no intermediate struct.
+#[allow(clippy::too_many_arguments)]
 pub fn rebuild_airship_children(
     commands: &mut Commands,
     entity: Entity,
-    params: &AirshipParams,
+    phen: &RoverPhenotype,
     existing_children: Option<&Children>,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    foliage_tasks: &mut OverlandsFoliageTasks,
     avatar_override: Option<&Handle<StandardMaterial>>,
 ) {
     if let Some(children) = existing_children {
@@ -502,94 +515,91 @@ pub fn rebuild_airship_children(
         }
     }
 
-    let hull_l = params.hull_length;
-    let hull_w = params.hull_width;
-    let mast_h = params.mast_height;
-    let [mx, mz] = params.mast_offset;
+    let hull_l = phen.hull_length.0;
+    let hull_w = phen.hull_width.0;
+    let hull_d = phen.hull_depth.0;
+    let mast_h = phen.mast_height.0;
+    let [mx, mz] = phen.mast_offset.0;
     let mast_top_y = mast_h;
-    let drop_y = -params.strut_drop * params.hull_depth;
+    let drop_y = -phen.strut_drop.0 * hull_d;
 
-    let [hr, hg, hb] = params.hull_color;
-    let [pr, pg, pb] = params.pontoon_color;
-    let [mr, mg, mb] = params.mast_color;
-    let [sr, sg, sb] = params.strut_color;
+    // Hull, pontoons, and sail want `double_sided=true` regardless of what
+    // `render_properties` infers from the texture: the hull/pontoon meshes
+    // are open-bottomed shells and the sail is a flat quad, so back-face
+    // culling would leave holes when the camera sees them from inside.
+    let mut build_slot = |m: &crate::pds::SovereignMaterialSettings,
+                          double_sided: bool|
+     -> Handle<StandardMaterial> {
+        let h = build_procedural_material(materials, foliage_tasks, m);
+        if double_sided && let Some(mat) = materials.get_mut(&h) {
+            mat.double_sided = true;
+            mat.cull_mode = None;
+        }
+        h
+    };
 
-    let hull_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(hr, hg, hb),
-        metallic: params.metallic,
-        perceptual_roughness: params.roughness,
-        double_sided: true,
-        cull_mode: None,
-        ..default()
-    });
-    let pontoon_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(pr, pg, pb),
-        metallic: params.metallic * 0.5,
-        perceptual_roughness: (params.roughness + 0.15).min(1.0),
-        double_sided: true,
-        cull_mode: None,
-        ..default()
-    });
-    let mast_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(mr, mg, mb),
-        metallic: 0.75,
-        perceptual_roughness: 0.35,
-        ..default()
-    });
-    let strut_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(sr, sg, sb),
-        metallic: params.metallic * 0.7,
-        perceptual_roughness: (params.roughness + 0.1).min(1.0),
-        ..default()
-    });
-    let sail_mat = avatar_override.cloned().unwrap_or_else(|| {
-        materials.add(StandardMaterial {
-            base_color: Color::srgb(0.82, 0.82, 0.92),
-            double_sided: true,
-            cull_mode: None,
-            ..default()
-        })
-    });
+    let hull_mat = build_slot(&phen.hull_material, true);
+    let pontoon_mat = build_slot(&phen.pontoon_material, true);
+    let mast_mat = build_slot(&phen.mast_material, false);
+    let strut_mat = build_slot(&phen.strut_material, false);
+    let sail_mat = avatar_override
+        .cloned()
+        .unwrap_or_else(|| build_slot(&phen.sail_material, true));
+
+    let pontoon_shape = phen.pontoon_shape;
+    let pontoon_spread = phen.pontoon_spread.0;
+    let pontoon_length = phen.pontoon_length.0;
+    let pontoon_width = phen.pontoon_width.0;
+    let pontoon_height = phen.pontoon_height.0;
+    let mast_r = phen.mast_radius.0;
+    let sail_size = phen.sail_size.0;
+
+    let hull_mesh = meshes.add(with_tangents(build_v_hull_mesh(hull_l, hull_w, hull_d)));
+    let pontoon_mesh = match pontoon_shape {
+        PontoonShape::Capsule => meshes.add(with_tangents(
+            Capsule3d::new(pontoon_width / 2.0, pontoon_length)
+                .mesh()
+                .build(),
+        )),
+        PontoonShape::VHull => meshes.add(with_tangents(build_v_hull_mesh(
+            pontoon_length,
+            pontoon_width,
+            pontoon_height,
+        ))),
+    };
+    let pontoon_rot = match pontoon_shape {
+        PontoonShape::Capsule => Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+        PontoonShape::VHull => Quat::IDENTITY,
+    };
+    let strut_mesh = meshes.add(with_tangents(
+        Capsule3d::new(ac::STRUT_THICKNESS * 0.5, pontoon_spread * 2.0)
+            .mesh()
+            .build(),
+    ));
+    let mast_mesh = meshes.add(with_tangents(Cylinder::new(mast_r, mast_h).mesh().build()));
+    let mast_tip_mesh = meshes.add(with_tangents(Sphere::new(mast_r).mesh().uv(16, 8)));
+    let sail_mesh = meshes.add(with_tangents(
+        Rectangle::new(sail_size, sail_size).mesh().build(),
+    ));
 
     commands.entity(entity).with_children(|parent| {
         parent.spawn((
-            Mesh3d(meshes.add(build_v_hull_mesh(hull_l, hull_w, params.hull_depth))),
+            Mesh3d(hull_mesh),
             MeshMaterial3d(hull_mat.clone()),
             Transform::IDENTITY,
         ));
 
-        let pontoon_mesh = match params.pontoon_shape {
-            PontoonShape::Capsule => meshes.add(Capsule3d::new(
-                params.pontoon_width / 2.0,
-                params.pontoon_length,
-            )),
-            PontoonShape::VHull => meshes.add(build_v_hull_mesh(
-                params.pontoon_length,
-                params.pontoon_width,
-                params.pontoon_height,
-            )),
-        };
-        let pontoon_rot = match params.pontoon_shape {
-            PontoonShape::Capsule => Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
-            PontoonShape::VHull => Quat::IDENTITY,
-        };
-
         parent.spawn((
             Mesh3d(pontoon_mesh.clone()),
             MeshMaterial3d(pontoon_mat.clone()),
-            Transform::from_xyz(-params.pontoon_spread, drop_y, 0.0).with_rotation(pontoon_rot),
+            Transform::from_xyz(-pontoon_spread, drop_y, 0.0).with_rotation(pontoon_rot),
         ));
-
         parent.spawn((
             Mesh3d(pontoon_mesh),
             MeshMaterial3d(pontoon_mat),
-            Transform::from_xyz(params.pontoon_spread, drop_y, 0.0).with_rotation(pontoon_rot),
+            Transform::from_xyz(pontoon_spread, drop_y, 0.0).with_rotation(pontoon_rot),
         ));
 
-        let strut_mesh = meshes.add(Capsule3d::new(
-            ac::STRUT_THICKNESS * 0.5,
-            params.pontoon_spread * 2.0,
-        ));
         parent.spawn((
             Mesh3d(strut_mesh.clone()),
             MeshMaterial3d(strut_mat.clone()),
@@ -603,31 +613,34 @@ pub fn rebuild_airship_children(
                 .with_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)),
         ));
 
-        let mast_r = params.mast_radius;
         parent.spawn((
-            Mesh3d(meshes.add(Cylinder::new(mast_r, mast_h))),
+            Mesh3d(mast_mesh),
             MeshMaterial3d(mast_mat.clone()),
             Transform::from_xyz(mx, mast_h * 0.5, mz),
         ));
         parent.spawn((
-            Mesh3d(meshes.add(Sphere::new(mast_r).mesh().uv(16, 8))),
+            Mesh3d(mast_tip_mesh),
             MeshMaterial3d(mast_mat),
             Transform::from_xyz(mx, mast_h, mz),
             MastTip,
         ));
 
         parent.spawn((
-            Mesh3d(meshes.add(Rectangle::new(params.sail_size, params.sail_size))),
+            Mesh3d(sail_mesh),
             MeshMaterial3d(sail_mat),
-            Transform::from_xyz(
-                mx,
-                mast_top_y - params.sail_size * 0.5,
-                mz + params.sail_size * 0.5,
-            )
-            .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
+            Transform::from_xyz(mx, mast_top_y - sail_size * 0.5, mz + sail_size * 0.5)
+                .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
             RoverSail,
         ));
     });
+}
+
+/// Generate tangent space on a mesh before storing it. Tangents are required
+/// by PBR normal maps produced by `bevy_symbios_texture` — without them the
+/// shader samples garbage in the TBN matrix and lighting goes haywire.
+fn with_tangents(mut mesh: Mesh) -> Mesh {
+    let _ = mesh.generate_tangents();
+    mesh
 }
 
 /// Build the humanoid visual rig. Instead of attaching meshes directly to
@@ -635,6 +648,7 @@ pub fn rebuild_airship_children(
 /// the walk controller rotates to face the movement direction, plus
 /// shoulder/hip joint pivots so the procedural animation system can swing
 /// the limbs from their tops.
+#[allow(clippy::too_many_arguments)]
 fn rebuild_humanoid_children(
     commands: &mut Commands,
     entity: Entity,
@@ -642,6 +656,7 @@ fn rebuild_humanoid_children(
     existing_children: Option<&Children>,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    foliage_tasks: &mut OverlandsFoliageTasks,
     avatar_override: Option<&Handle<StandardMaterial>>,
 ) {
     if let Some(children) = existing_children {
@@ -660,27 +675,9 @@ fn rebuild_humanoid_children(
     let arm_ratio = phen.arm_length_ratio.0.clamp(0.5, 1.5);
     let leg_ratio = phen.leg_length_ratio.0.clamp(0.3, 0.6);
 
-    let [br, bg, bb] = phen.body_color.0;
-    let [hr, hg, hb] = phen.head_color.0;
-    let [lr, lg, lb] = phen.limb_color.0;
-    let body_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(br, bg, bb),
-        metallic: phen.metallic.0,
-        perceptual_roughness: phen.roughness.0,
-        ..default()
-    });
-    let head_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(hr, hg, hb),
-        metallic: phen.metallic.0 * 0.3,
-        perceptual_roughness: (phen.roughness.0 + 0.1).min(1.0),
-        ..default()
-    });
-    let limb_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(lr, lg, lb),
-        metallic: phen.metallic.0 * 0.5,
-        perceptual_roughness: phen.roughness.0,
-        ..default()
-    });
+    let body_mat = build_procedural_material(materials, foliage_tasks, &phen.body_material);
+    let head_mat = build_procedural_material(materials, foliage_tasks, &phen.head_material);
+    let limb_mat = build_procedural_material(materials, foliage_tasks, &phen.limb_material);
     let badge_mat = avatar_override.cloned().unwrap_or_else(|| {
         materials.add(StandardMaterial {
             base_color: Color::srgb(0.9, 0.9, 0.95),
@@ -704,9 +701,31 @@ fn rebuild_humanoid_children(
     let shoulder_x = tw + limb * 0.5;
     let hip_x = tw * 0.6;
 
-    let arm_mesh = meshes.add(Capsule3d::new(limb * 0.5, arm_len));
-    let leg_mesh = meshes.add(Capsule3d::new(limb * 0.6, leg_len));
+    let arm_mesh = meshes.add(with_tangents(
+        Capsule3d::new(limb * 0.5, arm_len).mesh().build(),
+    ));
+    let leg_mesh = meshes.add(with_tangents(
+        Capsule3d::new(limb * 0.6, leg_len).mesh().build(),
+    ));
+    let torso_mesh = meshes.add(with_tangents(
+        Cuboid::new(tw * 2.0, torso_h, td * 2.0).mesh().build(),
+    ));
+    let head_mesh = meshes.add(with_tangents(
+        Cuboid::new(head_h, head_h, head_h).mesh().build(),
+    ));
     let show_badge = phen.show_badge;
+    let badge_mesh = if show_badge {
+        let badge_w = (tw * 1.6).min(tw * 2.0 - 0.02).max(0.05);
+        let badge_h = (torso_h * 0.55).max(0.05);
+        Some((
+            meshes.add(with_tangents(
+                Rectangle::new(badge_w, badge_h).mesh().build(),
+            )),
+            td,
+        ))
+    } else {
+        None
+    };
 
     commands.entity(entity).with_children(|root| {
         root.spawn((
@@ -716,21 +735,19 @@ fn rebuild_humanoid_children(
         ))
         .with_children(|parent| {
             parent.spawn((
-                Mesh3d(meshes.add(Cuboid::new(tw * 2.0, torso_h, td * 2.0))),
+                Mesh3d(torso_mesh),
                 MeshMaterial3d(body_mat),
                 Transform::from_xyz(0.0, torso_y, 0.0),
             ));
             parent.spawn((
-                Mesh3d(meshes.add(Cuboid::new(head_h, head_h, head_h))),
+                Mesh3d(head_mesh),
                 MeshMaterial3d(head_mat),
                 Transform::from_xyz(0.0, head_y, 0.0),
             ));
 
-            if show_badge {
-                let badge_w = (tw * 1.6).min(tw * 2.0 - 0.02).max(0.05);
-                let badge_h = (torso_h * 0.55).max(0.05);
+            if let Some((badge_mesh, td)) = badge_mesh {
                 parent.spawn((
-                    Mesh3d(meshes.add(Rectangle::new(badge_w, badge_h))),
+                    Mesh3d(badge_mesh),
                     MeshMaterial3d(badge_mat),
                     Transform::from_xyz(0.0, torso_y, td + 0.01),
                     ChestBadge,
@@ -821,6 +838,7 @@ fn build_v_hull_mesh(hull_length: f32, hull_width: f32, hull_depth: f32) -> Mesh
     const SEGMENTS: usize = 20;
 
     let mut positions: Vec<[f32; 3]> = Vec::with_capacity((SEGMENTS + 1) * 3);
+    let mut uvs: Vec<[f32; 2]> = Vec::with_capacity((SEGMENTS + 1) * 3);
     let mut indices: Vec<u32> = Vec::with_capacity(SEGMENTS * 12);
 
     for i in 0..=SEGMENTS {
@@ -832,6 +850,9 @@ fn build_v_hull_mesh(hull_length: f32, hull_width: f32, hull_depth: f32) -> Mesh
         positions.push([-r, 0.0, z]);
         positions.push([0.0, keel_y, z]);
         positions.push([r, 0.0, z]);
+        uvs.push([0.0, t]);
+        uvs.push([0.5, t]);
+        uvs.push([1.0, t]);
     }
 
     for i in 0..SEGMENTS {
@@ -855,9 +876,11 @@ fn build_v_hull_mesh(hull_length: f32, hull_width: f32, hull_depth: f32) -> Mesh
         RenderAssetUsages::RENDER_WORLD,
     );
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
     mesh.insert_indices(Indices::U32(indices));
     mesh.duplicate_vertices();
     mesh.compute_flat_normals();
+    let _ = mesh.generate_tangents();
     mesh
 }
 

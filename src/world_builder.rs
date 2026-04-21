@@ -1130,14 +1130,16 @@ fn spawn_prim_tree(
 /// [`TransformData::scale`] is applied via Bevy's transform hierarchy, so
 /// one handle per shape variant suffices per tree.
 fn mesh_for_prim_shape(meshes: &mut Assets<Mesh>, shape: PrimShape) -> Handle<Mesh> {
-    match shape {
-        PrimShape::Cube => meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
-        PrimShape::Sphere => meshes.add(Sphere::new(0.5)),
-        PrimShape::Cylinder => meshes.add(Cylinder::new(0.5, 1.0)),
-        PrimShape::Capsule => meshes.add(Capsule3d::new(0.5, 1.0)),
-        PrimShape::Cone => meshes.add(Cone::new(0.5, 1.0)),
-        PrimShape::Torus => meshes.add(Torus::new(0.3, 0.5)),
-    }
+    let mut mesh = match shape {
+        PrimShape::Cube => Cuboid::new(1.0, 1.0, 1.0).mesh().build(),
+        PrimShape::Sphere => Sphere::new(0.5).mesh().build(),
+        PrimShape::Cylinder => Cylinder::new(0.5, 1.0).mesh().build(),
+        PrimShape::Capsule => Capsule3d::new(0.5, 1.0).mesh().build(),
+        PrimShape::Cone => Cone::new(0.5, 1.0).mesh().build(),
+        PrimShape::Torus => Torus::new(0.3, 0.5).mesh().build(),
+    };
+    let _ = mesh.generate_tangents();
+    meshes.add(mesh)
 }
 
 /// Build the Avian collider matching a [`PrimShape`]'s mesh. `Torus` falls
@@ -1405,12 +1407,25 @@ fn spawn_procedural_material(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
     settings: &SovereignMaterialSettings,
 ) -> Handle<StandardMaterial> {
+    build_procedural_material(ctx.std_materials, ctx.foliage_tasks, settings)
+}
+
+/// Free-function core of [`spawn_procedural_material`] — takes the two
+/// resources it actually needs instead of the full [`SpawnCtx`], so avatar
+/// builders can reuse it without constructing a world-builder context.
+/// Returns a [`StandardMaterial`] handle whose texture slots are populated
+/// asynchronously once the texture-generator task finishes.
+pub fn build_procedural_material(
+    std_materials: &mut Assets<StandardMaterial>,
+    foliage_tasks: &mut OverlandsFoliageTasks,
+    settings: &SovereignMaterialSettings,
+) -> Handle<StandardMaterial> {
     let emissive = Color::srgb_from_array(settings.emission_color.0).to_linear()
         * settings.emission_strength.0;
 
     let (alpha_mode, double_sided, cull_mode, is_card) = settings.texture.render_properties();
 
-    let handle = ctx.std_materials.add(StandardMaterial {
+    let handle = std_materials.add(StandardMaterial {
         base_color: Color::srgb_from_array(settings.base_color.0),
         perceptual_roughness: settings.roughness.0,
         metallic: settings.metallic.0,
@@ -1426,9 +1441,7 @@ fn spawn_procedural_material(
         ($gen:ty, $cfg:expr) => {{
             let config = $cfg;
             let task = pool.spawn(async move { <$gen>::new(config).generate(512, 512) });
-            ctx.foliage_tasks
-                .tasks
-                .push((task, handle.clone(), is_card));
+            foliage_tasks.tasks.push((task, handle.clone(), is_card));
         }};
     }
 

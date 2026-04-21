@@ -27,9 +27,9 @@ use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
 use crate::pds::{
-    self, Environment, Fp, Fp2, Fp3, Fp4, Fp64, Generator, Placement, PrimNode, PrimShape,
-    PropMeshType, RoomRecord, ScatterBounds, SovereignAshlarConfig, SovereignAsphaltConfig,
-    SovereignBarkConfig, SovereignBrickConfig, SovereignCobblestoneConfig, SovereignConcreteConfig,
+    self, Environment, Fp, Fp2, Fp3, Fp4, Generator, Placement, PrimNode, PrimShape, PropMeshType,
+    RoomRecord, ScatterBounds, SovereignAshlarConfig, SovereignAsphaltConfig, SovereignBarkConfig,
+    SovereignBrickConfig, SovereignCobblestoneConfig, SovereignConcreteConfig,
     SovereignCorrugatedConfig, SovereignEncausticConfig, SovereignGeneratorKind,
     SovereignGroundConfig, SovereignIronGrilleConfig, SovereignLeafConfig, SovereignMarbleConfig,
     SovereignMaterialConfig, SovereignMaterialSettings, SovereignMetalConfig,
@@ -676,7 +676,7 @@ fn draw_prim_node_ui(
                 .id_salt(format!("{}_mat", path_salt))
                 .default_open(false)
                 .show(ui, |ui| {
-                    draw_prim_material(ui, &mut node.material, path_salt, dirty);
+                    draw_universal_material(ui, &mut node.material, path_salt, dirty);
                 });
 
             ui.add_space(4.0);
@@ -738,7 +738,7 @@ fn shape_combo(ui: &mut egui::Ui, shape: &mut PrimShape, salt: &str, dirty: &mut
 /// Slim material editor for a single Prim node. Mirrors the L-system slot
 /// UI but scoped to a single `SovereignMaterialSettings` with `salt` making
 /// every internal egui id unique across the recursive tree.
-fn draw_prim_material(
+pub(crate) fn draw_universal_material(
     ui: &mut egui::Ui,
     m: &mut SovereignMaterialSettings,
     salt: &str,
@@ -878,27 +878,31 @@ fn draw_material_forge(ui: &mut egui::Ui, mat: &mut SovereignMaterialConfig, dir
     drag_u32(ui, "Texture size", &mut mat.texture_size, 16, 4096, dirty);
     fp_slider(ui, "Tile scale", &mut mat.tile_scale, 1.0, 500.0, dirty);
 
-    let labels = ["Grass", "Dirt", "Rock", "Snow"];
-    for (i, rule) in mat.rules.iter_mut().enumerate() {
-        egui::CollapsingHeader::new(format!("{} rule", labels[i]))
+    // Canonical palette labels for the R/G/B/A splat channels. Users may
+    // swap any layer for a different texture generator via the per-layer
+    // bridge; the labels stay fixed because the splat rules are indexed
+    // by channel, not by content.
+    let labels = ["Grass (R)", "Dirt (G)", "Rock (B)", "Snow (A)"];
+    for (i, label) in labels.iter().enumerate() {
+        egui::CollapsingHeader::new(format!("{} rule", label))
             .default_open(false)
             .show(ui, |ui| {
-                draw_splat_rule(ui, rule, dirty);
+                draw_splat_rule(ui, &mut mat.rules[i], dirty);
             });
     }
 
-    egui::CollapsingHeader::new("Grass texture")
-        .default_open(false)
-        .show(ui, |ui| draw_ground_config(ui, &mut mat.grass, dirty));
-    egui::CollapsingHeader::new("Dirt texture")
-        .default_open(false)
-        .show(ui, |ui| draw_ground_config(ui, &mut mat.dirt, dirty));
-    egui::CollapsingHeader::new("Rock texture")
-        .default_open(false)
-        .show(ui, |ui| draw_rock_config(ui, &mut mat.rock, dirty));
-    egui::CollapsingHeader::new("Snow texture")
-        .default_open(false)
-        .show(ui, |ui| draw_ground_config(ui, &mut mat.snow, dirty));
+    for (i, label) in labels.iter().enumerate() {
+        egui::CollapsingHeader::new(format!("{} texture", label))
+            .default_open(false)
+            .show(ui, |ui| {
+                draw_texture_bridge(
+                    ui,
+                    &mut mat.layers[i],
+                    &format!("terrain_layer_{}", i),
+                    dirty,
+                );
+            });
+    }
 }
 
 fn draw_splat_rule(ui: &mut egui::Ui, rule: &mut SovereignSplatRule, dirty: &mut bool) {
@@ -907,42 +911,6 @@ fn draw_splat_rule(ui: &mut egui::Ui, rule: &mut SovereignSplatRule, dirty: &mut
     fp_slider(ui, "Slope min", &mut rule.slope_min, 0.0, 1.0, dirty);
     fp_slider(ui, "Slope max", &mut rule.slope_max, 0.0, 1.0, dirty);
     fp_slider(ui, "Sharpness", &mut rule.sharpness, 0.05, 8.0, dirty);
-}
-
-fn draw_ground_config(ui: &mut egui::Ui, g: &mut SovereignGroundConfig, dirty: &mut bool) {
-    drag_u32_wide(ui, "Seed", &mut g.seed, dirty);
-    fp64_slider(ui, "Macro scale", &mut g.macro_scale, 0.1, 20.0, dirty);
-    drag_u32(ui, "Macro octaves", &mut g.macro_octaves, 1, 12, dirty);
-    fp64_slider(ui, "Micro scale", &mut g.micro_scale, 0.1, 40.0, dirty);
-    drag_u32(ui, "Micro octaves", &mut g.micro_octaves, 1, 12, dirty);
-    fp64_slider(ui, "Micro weight", &mut g.micro_weight, 0.0, 1.0, dirty);
-    color_picker(ui, "Dry", &mut g.color_dry, dirty);
-    color_picker(ui, "Moist", &mut g.color_moist, dirty);
-    fp_slider(
-        ui,
-        "Normal strength",
-        &mut g.normal_strength,
-        0.0,
-        10.0,
-        dirty,
-    );
-}
-
-fn draw_rock_config(ui: &mut egui::Ui, r: &mut SovereignRockConfig, dirty: &mut bool) {
-    drag_u32_wide(ui, "Seed", &mut r.seed, dirty);
-    fp64_slider(ui, "Scale", &mut r.scale, 0.1, 20.0, dirty);
-    drag_u32(ui, "Octaves", &mut r.octaves, 1, 16, dirty);
-    fp64_slider(ui, "Attenuation", &mut r.attenuation, 0.1, 8.0, dirty);
-    color_picker(ui, "Light", &mut r.color_light, dirty);
-    color_picker(ui, "Dark", &mut r.color_dark, dirty);
-    fp_slider(
-        ui,
-        "Normal strength",
-        &mut r.normal_strength,
-        0.0,
-        10.0,
-        dirty,
-    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1651,37 +1619,10 @@ fn fp_slider(ui: &mut egui::Ui, label: &str, value: &mut Fp, lo: f32, hi: f32, d
     }
 }
 
-fn fp64_slider(
-    ui: &mut egui::Ui,
-    label: &str,
-    value: &mut Fp64,
-    lo: f64,
-    hi: f64,
-    dirty: &mut bool,
-) {
-    let mut v = value.0;
-    if ui
-        .add(egui::Slider::new(&mut v, lo..=hi).text(label))
-        .changed()
-    {
-        *value = Fp64(v);
-        *dirty = true;
-    }
-}
-
 fn drag_u32(ui: &mut egui::Ui, label: &str, value: &mut u32, lo: u32, hi: u32, dirty: &mut bool) {
     ui.horizontal(|ui| {
         ui.label(label);
         if ui.add(egui::DragValue::new(value).range(lo..=hi)).changed() {
-            *dirty = true;
-        }
-    });
-}
-
-fn drag_u32_wide(ui: &mut egui::Ui, label: &str, value: &mut u32, dirty: &mut bool) {
-    ui.horizontal(|ui| {
-        ui.label(label);
-        if ui.add(egui::DragValue::new(value)).changed() {
             *dirty = true;
         }
     });

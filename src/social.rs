@@ -128,7 +128,7 @@ fn sync_social_resonance(
         let crate::pds::AvatarBody::HoverRover { phenotype, .. } = &avatar.body else {
             continue;
         };
-        let [mr, mg, mb] = phenotype.mast_color.0;
+        let [mr, mg, mb] = phenotype.mast_material.base_color.0;
         let intensity = crate::config::network::MUTUAL_MAST_EMISSIVE;
         let mat = materials.add(StandardMaterial {
             base_color: Color::srgb(mr, mg, mb),
