@@ -239,6 +239,16 @@ impl Default for TransformData {
     }
 }
 
+impl From<Transform> for TransformData {
+    fn from(t: Transform) -> Self {
+        Self {
+            translation: Fp3(t.translation.to_array()),
+            rotation: Fp4(t.rotation.to_array()),
+            scale: Fp3(t.scale.to_array()),
+        }
+    }
+}
+
 /// Scatter region shape for `Placement::Scatter`.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type")]

@@ -15,6 +15,7 @@ use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 mod avatar;
 mod camera;
 pub mod config;
+mod editor_gizmo;
 mod logout;
 mod network;
 mod oauth;
@@ -91,6 +92,7 @@ fn main() {
         )
         .add_plugins(EguiPlugin::default())
         .add_plugins(PhysicsPlugins::default())
+        .add_plugins(transform_gizmo_bevy::TransformGizmoPlugin)
         .add_plugins(terrain::TerrainPlugin)
         .add_plugins(world_builder::WorldBuilderPlugin)
         .add_plugins(player::PlayerPlugin)
@@ -99,12 +101,14 @@ fn main() {
         .add_plugins(avatar::AvatarPlugin)
         .add_plugins(social::SocialPlugin)
         .add_plugins(logout::LogoutPlugin)
+        .add_plugins(editor_gizmo::EditorGizmoPlugin)
         .init_state::<AppState>()
         .init_resource::<ChatHistory>()
         .init_resource::<DiagnosticsLog>()
         .init_resource::<LocalSettings>()
         .init_resource::<PublishFeedback>()
         .init_resource::<ui::login::LoginError>()
+        .init_resource::<ui::room::RoomEditorState>()
         .init_resource::<oauth::OauthClientRes>()
         .add_systems(
             EguiPrimaryContextPass,

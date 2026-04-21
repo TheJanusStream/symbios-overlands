@@ -9,6 +9,7 @@
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
+use transform_gizmo_bevy::GizmoCamera;
 
 use crate::config::camera as cfg;
 use crate::player::HoverRoverArchetype;
@@ -32,6 +33,7 @@ fn spawn_orbit_camera(mut commands: Commands) {
     let fc = cfg::fog::COLOR;
     commands.spawn((
         Camera3d::default(),
+        GizmoCamera,
         PanOrbitCamera {
             radius: Some(cfg::ORBIT_RADIUS),
             pitch: Some(cfg::ORBIT_PITCH),

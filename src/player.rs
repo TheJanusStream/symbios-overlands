@@ -38,6 +38,7 @@ use crate::world_builder::PortalMarker;
 struct AppliedAvatar(AvatarRecord);
 use avian3d::prelude::*;
 use bevy::prelude::*;
+use bevy_egui::input::egui_wants_any_keyboard_input;
 
 // Corner offsets in local space for the four suspension rays.
 const CORNER_OFFSETS: [[f32; 3]; 4] = [
@@ -143,9 +144,15 @@ impl Plugin for PlayerPlugin {
                     sync_local_chassis_physics,
                     apply_suspension_forces,
                     apply_buoyancy_forces,
-                    apply_rover_drive_forces,
+                    // Disable keyboard-driven drive/walk systems while the
+                    // owner is typing in an egui text field — otherwise
+                    // WASD-heavy chat messages steer the rover or the
+                    // humanoid through walls. Physics (suspension, buoyancy)
+                    // and the uprighting / respawn passes still run so a
+                    // vehicle left mid-air keeps obeying gravity.
+                    apply_rover_drive_forces.run_if(not(egui_wants_any_keyboard_input)),
                     apply_rover_uprighting_force,
-                    apply_humanoid_walk,
+                    apply_humanoid_walk.run_if(not(egui_wants_any_keyboard_input)),
                     respawn_if_fallen,
                 )
                     .chain()

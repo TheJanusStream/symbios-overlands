@@ -94,6 +94,13 @@ pub struct PortalAvatarTask {
 #[derive(Component)]
 pub struct RoomEntity;
 
+/// Tags the root entity of a `Placement::Absolute` with its index into the
+/// live `RoomRecord::placements` vec. `editor_gizmo` reads this to map a
+/// selected-in-UI placement to its 3D entity and to commit the gizmo's
+/// final Transform back into the record when the user releases the mouse.
+#[derive(Component)]
+pub struct PlacementMarker(pub usize);
+
 /// Base meshes for each [`PropMeshType`] — built once at startup so every
 /// L-system spawn can share the same handles. Foliage variants (Leaf, Twig)
 /// are billboard cards whose UV layout matches the upstream
@@ -316,7 +323,7 @@ fn compile_room_record(
 
     // Step 3 — Placements. Walk the recipe; each scatter placement uses
     // its own deterministic RNG so every peer reproduces the same layout.
-    for placement in &record.placements {
+    for (placement_index, placement) in record.placements.iter().enumerate() {
         match placement {
             Placement::Absolute {
                 generator_ref,
@@ -339,7 +346,13 @@ fn compile_room_record(
                     lsystem_mesh_touched: &mut lsystem_mesh_touched,
                     current_room: current_room.as_deref(),
                 };
-                spawn_from_generator(ctx, generator_ref, transform_from_data(transform));
+                if let Some(entity) =
+                    spawn_from_generator(ctx, generator_ref, transform_from_data(transform))
+                {
+                    commands
+                        .entity(entity)
+                        .insert(PlacementMarker(placement_index));
+                }
             }
             Placement::Scatter {
                 generator_ref,
@@ -856,13 +869,13 @@ fn spawn_from_generator(
     mut ctx: SpawnCtx<'_, '_, '_, '_, '_>,
     generator_ref: &str,
     transform: Transform,
-) {
+) -> Option<Entity> {
     let Some(generator) = ctx.record.generators.get(generator_ref) else {
         warn!(
             "Placement references unknown generator `{}` — skipped",
             generator_ref
         );
-        return;
+        return None;
     };
     match generator {
         Generator::Terrain(_) => {
@@ -880,6 +893,9 @@ fn spawn_from_generator(
                 reset_traits(ctx.commands, terrain_entity);
                 apply_traits(ctx.commands, terrain_entity, ctx.record, generator_ref);
             }
+            // Terrain is never a placement root — its entities predate the
+            // recipe compile pass and are owned by the terrain plugin.
+            None
         }
         Generator::Water { level_offset } => {
             // Size the water volume to the *active* heightmap extent so it
@@ -902,24 +918,30 @@ fn spawn_from_generator(
                 ctx.water_materials,
             );
             apply_traits(ctx.commands, entity, ctx.record, generator_ref);
+            Some(entity)
         }
         Generator::LSystem { .. } => {
-            spawn_lsystem_entity(&mut ctx, generator, generator_ref, transform);
+            spawn_lsystem_entity(&mut ctx, generator, generator_ref, transform)
         }
         Generator::Shape { .. } => {
             // Stub: symbios-shape integration lands in a follow-up.
+            None
         }
-        Generator::Construct { root } => {
-            spawn_construct_entity(&mut ctx, root, generator_ref, transform);
-        }
+        Generator::Construct { root } => Some(spawn_construct_entity(
+            &mut ctx,
+            root,
+            generator_ref,
+            transform,
+        )),
         Generator::Portal {
             target_did,
             target_pos,
-        } => {
-            spawn_portal_entity(&mut ctx, target_did, target_pos, transform);
-        }
+        } => Some(spawn_portal_entity(
+            &mut ctx, target_did, target_pos, transform,
+        )),
         Generator::Unknown => {
             warn!("Ignoring generator `{}` of unknown $type", generator_ref);
+            None
         }
     }
 }
@@ -934,7 +956,7 @@ fn spawn_portal_entity(
     target_did: &str,
     target_pos: &Fp3,
     transform: Transform,
-) {
+) -> Entity {
     let is_local = ctx.current_room.map(|r| r.0 == target_did).unwrap_or(false);
 
     let cube_mat = ctx.std_materials.add(StandardMaterial {
@@ -1004,6 +1026,8 @@ fn spawn_portal_entity(
             material: top_mat,
         });
     }
+
+    parent
 }
 
 /// Drain finished portal-avatar fetches and paint the resulting texture onto
@@ -1052,7 +1076,7 @@ fn spawn_construct_entity(
     root: &PrimNode,
     generator_ref: &str,
     placement_tf: Transform,
-) {
+) -> Entity {
     let mut material_cache: HashMap<u64, Handle<StandardMaterial>> = HashMap::new();
     // Compose the placement transform with the root's own local transform
     // so the root entity already lives in world space. Child transforms
@@ -1060,6 +1084,7 @@ fn spawn_construct_entity(
     let root_tf = placement_tf * transform_from_data(&root.transform);
     let entity = spawn_prim_tree(ctx, root, root_tf, true, &mut material_cache);
     apply_traits(ctx.commands, entity, ctx.record, generator_ref);
+    entity
 }
 
 fn spawn_prim_tree(
@@ -1183,7 +1208,7 @@ fn spawn_lsystem_entity(
     generator: &Generator,
     generator_ref: &str,
     transform: Transform,
-) {
+) -> Option<Entity> {
     let Generator::LSystem {
         source_code,
         finalization_code,
@@ -1201,7 +1226,7 @@ fn spawn_lsystem_entity(
         ..
     } = generator
     else {
-        return;
+        return None;
     };
 
     // Reuse cached geometry when the geometry-affecting settings are
@@ -1248,7 +1273,7 @@ fn spawn_lsystem_entity(
                 // so a later edit that fixes the grammar triggers a rebuild
                 // instead of reusing invalid geometry.
                 ctx.lsystem_mesh_cache.entries.remove(generator_ref);
-                return;
+                return None;
             };
             let bucket_handles: Vec<(u8, Handle<Mesh>)> = mesh_buckets_raw
                 .into_iter()
@@ -1369,6 +1394,7 @@ fn spawn_lsystem_entity(
     apply_traits(ctx.commands, parent, ctx.record, generator_ref);
     // Silence unused-binding warnings when the heightmap is unused here.
     let _ = ctx.heightmap;
+    Some(parent)
 }
 
 /// Build a `StandardMaterial` from sovereign settings, enqueuing an async

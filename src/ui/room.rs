@@ -32,9 +32,9 @@ use crate::pds::{
     SovereignBarkConfig, SovereignBrickConfig, SovereignCobblestoneConfig, SovereignConcreteConfig,
     SovereignCorrugatedConfig, SovereignEncausticConfig, SovereignGeneratorKind,
     SovereignGroundConfig, SovereignIronGrilleConfig, SovereignLeafConfig, SovereignMarbleConfig,
-    SovereignMaterialConfig, SovereignMaterialSettings, SovereignMetalConfig, SovereignPaversConfig,
-    SovereignPlankConfig, SovereignRockConfig, SovereignShingleConfig, SovereignSplatRule,
-    SovereignStainedGlassConfig, SovereignStuccoConfig, SovereignTerrainConfig,
+    SovereignMaterialConfig, SovereignMaterialSettings, SovereignMetalConfig,
+    SovereignPaversConfig, SovereignPlankConfig, SovereignRockConfig, SovereignShingleConfig,
+    SovereignSplatRule, SovereignStainedGlassConfig, SovereignStuccoConfig, SovereignTerrainConfig,
     SovereignTextureConfig, SovereignThatchConfig, SovereignTwigConfig, SovereignWainscotingConfig,
     SovereignWindowConfig, TransformData,
 };
@@ -51,7 +51,7 @@ pub struct PublishRoomTask(pub bevy::tasks::Task<Result<(), String>>);
 pub struct ResetRoomTask(pub bevy::tasks::Task<Result<(), String>>);
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
-enum EditorTab {
+pub enum EditorTab {
     #[default]
     Environment,
     Generators,
@@ -59,12 +59,14 @@ enum EditorTab {
     Raw,
 }
 
-/// Persistent editor state kept across frames.
-#[derive(Default)]
+/// Persistent editor state kept across frames. Promoted to a `Resource` so
+/// the 3D gizmo controller in `editor_gizmo` can observe which placement the
+/// owner has selected in the UI panel.
+#[derive(Resource, Default)]
 pub struct RoomEditorState {
-    selected_tab: EditorTab,
-    selected_generator: Option<String>,
-    selected_placement: Option<usize>,
+    pub selected_tab: EditorTab,
+    pub selected_generator: Option<String>,
+    pub selected_placement: Option<usize>,
     raw_text: String,
     raw_text_initialised: bool,
     raw_error: Option<String>,
@@ -90,7 +92,7 @@ pub fn room_admin_ui(
     mut room_record: Option<ResMut<RoomRecord>>,
     stored: Option<Res<StoredRoomRecord>>,
     recovery: Option<Res<RoomRecordRecovery>>,
-    mut editor: Local<RoomEditorState>,
+    mut editor: ResMut<RoomEditorState>,
     mut publish_feedback: ResMut<PublishFeedback>,
     time: Res<Time>,
 ) {
