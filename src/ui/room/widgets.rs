@@ -287,7 +287,7 @@ pub(super) fn default_lsystem_generator() -> Generator {
     prop_mappings.insert(1, PropMeshType::Leaf);
 
     Generator::LSystem {
-        source_code: "#define d1 180\n#define th 3.5\n#define d2 252\n#define a 36\n#define lr 1.12\n#define vr 1.532\n#define ps 60.0\n#define s 50.0\n#define ir 10.0\nomega: C(0.0)!(th)F(4*s)/(45)A[B]\np0: A : 0.7 -> !(th*vr)F(s)[&(a)F(s)A[B]]/(d1)[&(a)F(s)A[B]]/(d2)[&(a)F(s)A[B]]\np1: A : 0.3 -> !(th*vr)F(s)A[B]\np2: F(l) : * -> F(l*lr)\np3: !(w) : * -> !(w*vr)\np4: B : * -> \np5: B -> \np6: C(x) : 0.7 -> C(x)\np7: C(x) : 0.3 -> C(x-ir)".to_string(),
+        source_code: "#define d1 180\n#define th 0.035\n#define d2 252\n#define a 36\n#define lr 1.12\n#define vr 1.532\n#define ps 60.0\n#define s 0.5\n#define ir 10.0\nomega: C(0.0)!(th)F(4*s)/(45)A[B]\np0: A : 0.7 -> !(th*vr)F(s)[&(a)F(s)A[B]]/(d1)[&(a)F(s)A[B]]/(d2)[&(a)F(s)A[B]]\np1: A : 0.3 -> !(th*vr)F(s)A[B]\np2: F(l) : * -> F(l*lr)\np3: !(w) : * -> !(w*vr)\np4: B : * -> \np5: B -> \np6: C(x) : 0.7 -> C(x)\np7: C(x) : 0.3 -> C(x-ir)".to_string(),
         finalization_code: "p8: B : * -> ,(1)~(0,ps)\np9: C(x) : * -> /(x)".to_string(),
         iterations: 6,
         seed: 1,
@@ -298,7 +298,7 @@ pub(super) fn default_lsystem_generator() -> Generator {
         tropism: Some(Fp3([0.0, -1.0, 0.0])),
         materials,
         prop_mappings,
-        prop_scale: Fp(1.0),
+        prop_scale: Fp(0.04),
         mesh_resolution: 8,
     }
 }
