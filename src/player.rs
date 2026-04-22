@@ -986,16 +986,16 @@ fn apply_rover_drive_forces(
     let local_up = global_tf.up().as_vec3();
     let right = global_tf.right().as_vec3();
 
-    if keyboard.pressed(KeyCode::KeyW) {
+    if keyboard.pressed(KeyCode::KeyW) || keyboard.pressed(KeyCode::ArrowUp) {
         forces.apply_force(flat_forward * kinematics.drive_force.0);
     }
-    if keyboard.pressed(KeyCode::KeyS) {
+    if keyboard.pressed(KeyCode::KeyS) || keyboard.pressed(KeyCode::ArrowDown) {
         forces.apply_force(-flat_forward * kinematics.drive_force.0);
     }
-    if keyboard.pressed(KeyCode::KeyA) {
+    if keyboard.pressed(KeyCode::KeyA) || keyboard.pressed(KeyCode::ArrowLeft) {
         forces.apply_torque(local_up * kinematics.turn_torque.0);
     }
-    if keyboard.pressed(KeyCode::KeyD) {
+    if keyboard.pressed(KeyCode::KeyD) || keyboard.pressed(KeyCode::ArrowRight) {
         forces.apply_torque(-local_up * kinematics.turn_torque.0);
     }
 
@@ -1111,19 +1111,19 @@ fn apply_humanoid_walk(
 
     let mut desired = Vec3::ZERO;
     let mut any_input = false;
-    if keyboard.pressed(KeyCode::KeyW) {
+    if keyboard.pressed(KeyCode::KeyW) || keyboard.pressed(KeyCode::ArrowUp) {
         desired += forward;
         any_input = true;
     }
-    if keyboard.pressed(KeyCode::KeyS) {
+    if keyboard.pressed(KeyCode::KeyS) || keyboard.pressed(KeyCode::ArrowDown) {
         desired -= forward;
         any_input = true;
     }
-    if keyboard.pressed(KeyCode::KeyD) {
+    if keyboard.pressed(KeyCode::KeyD) || keyboard.pressed(KeyCode::ArrowRight) {
         desired += right;
         any_input = true;
     }
-    if keyboard.pressed(KeyCode::KeyA) {
+    if keyboard.pressed(KeyCode::KeyA) || keyboard.pressed(KeyCode::ArrowLeft) {
         desired -= right;
         any_input = true;
     }
