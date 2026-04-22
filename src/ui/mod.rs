@@ -5,5 +5,6 @@
 pub mod avatar;
 pub mod chat;
 pub mod diagnostics;
+pub mod inventory;
 pub mod login;
 pub mod room;

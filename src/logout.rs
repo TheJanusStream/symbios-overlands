@@ -15,8 +15,9 @@ use bevy_symbios_multiuser::signaller::TokenSourceRes;
 use crate::pds::RoomRecord;
 use crate::protocol::OverlandsMessage;
 use crate::state::{
-    AppState, ChatHistory, DiagnosticsLog, LiveAvatarRecord, LocalPlayer, RelayHost, RemotePeer,
-    RoomRecordRecovery, StoredAvatarRecord, StoredRoomRecord,
+    AppState, ChatHistory, DiagnosticsLog, LiveAvatarRecord, LiveInventoryRecord, LocalPlayer,
+    RelayHost, RemotePeer, RoomRecordRecovery, StoredAvatarRecord, StoredInventoryRecord,
+    StoredRoomRecord,
 };
 use crate::world_builder::RoomEntity;
 
@@ -68,6 +69,8 @@ fn cleanup_on_logout(
     commands.remove_resource::<StoredRoomRecord>();
     commands.remove_resource::<LiveAvatarRecord>();
     commands.remove_resource::<StoredAvatarRecord>();
+    commands.remove_resource::<LiveInventoryRecord>();
+    commands.remove_resource::<StoredInventoryRecord>();
     // Clear any recovery marker from this session so a fresh login does
     // not start with the "incompatible record" banner still showing.
     commands.remove_resource::<RoomRecordRecovery>();

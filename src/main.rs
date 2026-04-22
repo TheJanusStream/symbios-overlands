@@ -51,8 +51,9 @@ pub fn format_elapsed_ts(elapsed_secs: f64) -> String {
     }
 }
 use state::{
-    AppState, ChatHistory, CurrentRoomDid, DiagnosticsLog, LiveAvatarRecord, LocalSettings,
-    PublishFeedback, RoomRecordRecovery, StoredAvatarRecord, StoredRoomRecord,
+    AppState, ChatHistory, CurrentRoomDid, DiagnosticsLog, InventoryPublishFeedback,
+    LiveAvatarRecord, LiveInventoryRecord, LocalSettings, PublishFeedback, RoomRecordRecovery,
+    StoredAvatarRecord, StoredInventoryRecord, StoredRoomRecord,
 };
 
 fn main() {
@@ -107,6 +108,7 @@ fn main() {
         .init_resource::<DiagnosticsLog>()
         .init_resource::<LocalSettings>()
         .init_resource::<PublishFeedback>()
+        .init_resource::<InventoryPublishFeedback>()
         .init_resource::<ui::login::LoginError>()
         .init_resource::<ui::room::RoomEditorState>()
         .init_resource::<oauth::OauthClientRes>()
@@ -128,13 +130,18 @@ fn main() {
         )
         .add_systems(
             OnEnter(AppState::Loading),
-            (start_room_record_fetch, start_avatar_record_fetch),
+            (
+                start_room_record_fetch,
+                start_avatar_record_fetch,
+                start_inventory_record_fetch,
+            ),
         )
         .add_systems(
             Update,
             (
                 poll_room_record_task,
                 poll_avatar_record_task,
+                poll_inventory_record_task,
                 check_loading_complete,
             )
                 .chain()
@@ -151,6 +158,7 @@ fn main() {
                 ui::chat::chat_ui,
                 ui::avatar::avatar_ui,
                 ui::room::room_admin_ui,
+                ui::inventory::inventory_ui,
             )
                 .run_if(in_state(AppState::InGame)),
         )
@@ -159,6 +167,7 @@ fn main() {
             (
                 ui::room::poll_publish_tasks,
                 ui::avatar::poll_publish_avatar_tasks,
+                ui::inventory::poll_publish_inventory_tasks,
             )
                 .run_if(in_state(AppState::InGame)),
         )
@@ -593,6 +602,71 @@ fn poll_avatar_record_task(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Inventory record loading (runs during AppState::Loading, in parallel with
+// room + avatar fetches). Unlike those two, the inventory fetch is best-effort:
+// transient failures fall through to an empty stash rather than retrying,
+// because nothing gameplay-critical reads the inventory — the owner can
+// re-open the Inventory window after login if they want to retry by
+// publishing a saved item.
+// ---------------------------------------------------------------------------
+
+#[derive(Component)]
+struct InventoryRecordTask(
+    bevy::tasks::Task<Result<Option<crate::pds::InventoryRecord>, crate::pds::FetchError>>,
+);
+
+fn start_inventory_record_fetch(
+    mut commands: Commands,
+    session: Option<Res<bevy_symbios_multiuser::auth::AtprotoSession>>,
+) {
+    let Some(sess) = session else {
+        return;
+    };
+    let pool = bevy::tasks::IoTaskPool::get();
+    let did = sess.did.clone();
+    let task = pool.spawn(async move {
+        let fut = async {
+            let client = config::http::default_client();
+            pds::fetch_inventory_record(&client, &did).await
+        };
+        #[cfg(target_arch = "wasm32")]
+        {
+            fut.await
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(fut)
+        }
+    });
+    commands.spawn(InventoryRecordTask(task));
+}
+
+fn poll_inventory_record_task(
+    mut commands: Commands,
+    mut tasks: Query<(Entity, &mut InventoryRecordTask)>,
+) {
+    for (entity, mut task) in tasks.iter_mut() {
+        let Some(result) =
+            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.0))
+        else {
+            continue;
+        };
+        commands.entity(entity).despawn();
+        let mut record = match result {
+            Ok(Some(r)) => r,
+            _ => crate::pds::InventoryRecord::default(),
+        };
+        record.sanitize();
+        commands.insert_resource(LiveInventoryRecord(record.clone()));
+        commands.insert_resource(StoredInventoryRecord(record));
+    }
+}
+
 /// Transition out of `Loading` only once *every* resource the first
 /// `InGame` frame relies on is present:
 ///
@@ -601,16 +675,20 @@ fn poll_avatar_record_task(
 /// - [`StoredRoomRecord`] — committed snapshot used by the Load-from-PDS button
 /// - [`LiveAvatarRecord`] — live avatar driving `spawn_local_player`
 /// - [`StoredAvatarRecord`] — committed snapshot used by the Load-from-PDS button
+/// - [`LiveInventoryRecord`] / [`StoredInventoryRecord`] — owner's Generator stash
 ///
 /// Advancing early leaves the poll systems orphaned (they only run in
 /// `Loading`), which would strand a slower PDS round-trip and leave the
 /// owner unable to edit what was never fetched.
+#[allow(clippy::too_many_arguments)]
 fn check_loading_complete(
     finished_hm: Option<Res<terrain::FinishedHeightMap>>,
     room_record: Option<Res<RoomRecord>>,
     stored_room: Option<Res<StoredRoomRecord>>,
     live_avatar: Option<Res<LiveAvatarRecord>>,
     stored_avatar: Option<Res<StoredAvatarRecord>>,
+    live_inventory: Option<Res<LiveInventoryRecord>>,
+    stored_inventory: Option<Res<StoredInventoryRecord>>,
     mut next_state: ResMut<NextState<AppState>>,
 ) {
     if finished_hm.is_some()
@@ -618,6 +696,8 @@ fn check_loading_complete(
         && stored_room.is_some()
         && live_avatar.is_some()
         && stored_avatar.is_some()
+        && live_inventory.is_some()
+        && stored_inventory.is_some()
     {
         next_state.set(AppState::InGame);
     }

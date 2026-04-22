@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 
 use bevy::prelude::*;
 
-use crate::pds::{AvatarRecord, RoomRecord};
+use crate::pds::{AvatarRecord, InventoryRecord, RoomRecord};
 
 /// Application state machine. `Loading` waits on the async heightmap
 /// generation task, the ATProto PDS room-record fetch, *and* the local
@@ -195,4 +195,34 @@ impl Default for LocalSettings {
             smooth_kinematics: true,
         }
     }
+}
+
+/// The owner's **live** inventory record — the in-memory copy the Inventory
+/// window mutates in place. Divergence from [`StoredInventoryRecord`] drives
+/// the "Publish to PDS" button's dirty indicator.
+#[derive(Resource, Clone)]
+pub struct LiveInventoryRecord(pub InventoryRecord);
+
+/// Last known PDS-persisted inventory record. Populated by the loading
+/// fetch and replaced on a successful publish; nothing else should mutate
+/// it so the dirty check against `LiveInventoryRecord` stays meaningful.
+#[derive(Resource, Clone)]
+pub struct StoredInventoryRecord(pub InventoryRecord);
+
+/// Most recent outcome of an inventory publish attempt. Mirrors
+/// [`PublishFeedback`] but is kept separate so publishing the inventory
+/// doesn't clobber the status line rendered next to the room editor's own
+/// Publish button.
+#[derive(Resource, Clone, Debug, Default)]
+pub enum InventoryPublishFeedback {
+    #[default]
+    Idle,
+    Publishing,
+    Success {
+        at_secs: f64,
+    },
+    Failed {
+        at_secs: f64,
+        message: String,
+    },
 }

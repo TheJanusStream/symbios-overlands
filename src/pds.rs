@@ -30,6 +30,7 @@ use std::collections::HashMap;
 
 const COLLECTION: &str = "network.symbios.overlands.room";
 const AVATAR_COLLECTION: &str = "network.symbios.overlands.avatar";
+pub const INVENTORY_COLLECTION: &str = "network.symbios.overlands.inventory";
 
 // ---------------------------------------------------------------------------
 // Fixed-point serde wrapper types (DAG-CBOR float workaround)
@@ -2330,46 +2331,7 @@ impl RoomRecord {
             }
         }
         for generator in self.generators.values_mut() {
-            match generator {
-                Generator::Terrain(cfg) => sanitize_terrain_cfg(cfg),
-                Generator::LSystem {
-                    source_code,
-                    finalization_code,
-                    iterations,
-                    angle: _,
-                    step: _,
-                    width: _,
-                    elasticity: _,
-                    mesh_resolution,
-                    ..
-                } => {
-                    truncate_on_char_boundary(source_code, limits::MAX_LSYSTEM_CODE_BYTES);
-                    truncate_on_char_boundary(finalization_code, limits::MAX_LSYSTEM_CODE_BYTES);
-                    *iterations = (*iterations).min(limits::MAX_LSYSTEM_ITERATIONS);
-                    *mesh_resolution =
-                        (*mesh_resolution).clamp(3, limits::MAX_LSYSTEM_MESH_RESOLUTION);
-                }
-                Generator::Shape { floors, .. } => {
-                    *floors = (*floors).min(limits::MAX_SHAPE_FLOORS);
-                }
-                Generator::Portal {
-                    target_did,
-                    target_pos,
-                } => {
-                    // Clamp the target DID so a hostile record can't drive the
-                    // string hashmap lookups (or the egui label allocator) into
-                    // gigabyte territory via an unbounded peer-broadcast.
-                    truncate_on_char_boundary(target_did, 256);
-                    target_pos.0[0] = target_pos.0[0].clamp(-10_000.0, 10_000.0);
-                    target_pos.0[1] = target_pos.0[1].clamp(-1_000.0, 10_000.0);
-                    target_pos.0[2] = target_pos.0[2].clamp(-10_000.0, 10_000.0);
-                }
-                Generator::Construct { root } => {
-                    let mut count: u32 = 0;
-                    sanitize_prim_node(root, 0, &mut count);
-                }
-                Generator::Water { .. } | Generator::Unknown => {}
-            }
+            sanitize_generator(generator);
         }
         // Drop excess placements so a 1M-entry array can't force
         // `compile_room_record` to spawn tens of millions of entities in
@@ -2522,6 +2484,46 @@ fn sanitize_material_settings(m: &mut SovereignMaterialSettings) {
     } else {
         1.0
     });
+}
+
+/// Clamp a single `Generator` variant in place. Shared by
+/// [`RoomRecord::sanitize`] and [`InventoryRecord::sanitize`] so the per-variant
+/// bounds stay identical between the room recipe and the inventory stash —
+/// an inventory item that was safe on the PDS must stay safe the moment the
+/// owner drags it back into their room.
+pub fn sanitize_generator(generator: &mut Generator) {
+    match generator {
+        Generator::Terrain(cfg) => sanitize_terrain_cfg(cfg),
+        Generator::LSystem {
+            source_code,
+            finalization_code,
+            iterations,
+            mesh_resolution,
+            ..
+        } => {
+            truncate_on_char_boundary(source_code, limits::MAX_LSYSTEM_CODE_BYTES);
+            truncate_on_char_boundary(finalization_code, limits::MAX_LSYSTEM_CODE_BYTES);
+            *iterations = (*iterations).min(limits::MAX_LSYSTEM_ITERATIONS);
+            *mesh_resolution = (*mesh_resolution).clamp(3, limits::MAX_LSYSTEM_MESH_RESOLUTION);
+        }
+        Generator::Shape { floors, .. } => {
+            *floors = (*floors).min(limits::MAX_SHAPE_FLOORS);
+        }
+        Generator::Portal {
+            target_did,
+            target_pos,
+        } => {
+            truncate_on_char_boundary(target_did, 256);
+            target_pos.0[0] = target_pos.0[0].clamp(-10_000.0, 10_000.0);
+            target_pos.0[1] = target_pos.0[1].clamp(-1_000.0, 10_000.0);
+            target_pos.0[2] = target_pos.0[2].clamp(-10_000.0, 10_000.0);
+        }
+        Generator::Construct { root } => {
+            let mut count: u32 = 0;
+            sanitize_prim_node(root, 0, &mut count);
+        }
+        Generator::Water { .. } | Generator::Unknown => {}
+    }
 }
 
 fn sanitize_terrain_cfg(cfg: &mut SovereignTerrainConfig) {
@@ -2874,6 +2876,144 @@ pub async fn reset_room_record(
 ) -> Result<(), String> {
     delete_room_record(client, session).await?;
     publish_room_record(client, session, record).await
+}
+
+// ---------------------------------------------------------------------------
+// Inventory record — personal stash of Generator blueprints, keyed off the
+// owner's DID at `collection = network.symbios.overlands.inventory, rkey =
+// self`. The in-world editor lets the owner tuck any generator they like into
+// their inventory, rename it, and later spawn it into whichever room they
+// happen to be editing — so a hand-authored L-system or Construct survives
+// across rooms the same way an avatar does.
+// ---------------------------------------------------------------------------
+
+/// Per-owner stash of `Generator` blueprints. Published to the owner's PDS
+/// via `putRecord`; fetched once at Loading alongside the room and avatar
+/// records.
+#[derive(Serialize, Deserialize, Clone, Debug, Resource)]
+pub struct InventoryRecord {
+    #[serde(rename = "$type")]
+    pub lex_type: String,
+    pub generators: HashMap<String, Generator>,
+}
+
+impl Default for InventoryRecord {
+    fn default() -> Self {
+        Self {
+            lex_type: INVENTORY_COLLECTION.into(),
+            generators: HashMap::new(),
+        }
+    }
+}
+
+impl InventoryRecord {
+    /// Clamp every stored generator to the same bounds the room record
+    /// enforces, and cap the overall stash size so a hostile PDS blob can't
+    /// force the owner's client into a multi-megabyte allocation on login.
+    /// The cap is enforced in lexicographic key order so the survivor set
+    /// is deterministic (HashMap iteration is SipHash-randomised).
+    pub fn sanitize(&mut self) {
+        if self.generators.len() > 50 {
+            let mut keys: Vec<String> = self.generators.keys().cloned().collect();
+            keys.sort();
+            for key in keys.into_iter().skip(50) {
+                self.generators.remove(&key);
+            }
+        }
+        for generator in self.generators.values_mut() {
+            sanitize_generator(generator);
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct GetInventoryResponse {
+    value: InventoryRecord,
+}
+
+/// Fetch the inventory record for `did`. `Ok(None)` signals a 404 / "no
+/// record yet" which the caller must treat as a clean empty stash — the
+/// same convention as [`fetch_room_record`].
+pub async fn fetch_inventory_record(
+    client: &reqwest::Client,
+    did: &str,
+) -> Result<Option<InventoryRecord>, FetchError> {
+    let pds = resolve_pds(client, did)
+        .await
+        .ok_or(FetchError::DidResolutionFailed)?;
+    let url = format!(
+        "{}/xrpc/com.atproto.repo.getRecord?repo={}&collection={}&rkey=self",
+        pds, did, INVENTORY_COLLECTION
+    );
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| FetchError::Network(e.to_string()))?;
+    let status = resp.status();
+    if status.as_u16() == 404 {
+        return Ok(None);
+    }
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        if let Ok(xrpc) = serde_json::from_str::<XrpcError>(&body)
+            && let Some(err) = xrpc.error.as_deref()
+            && (err == "RecordNotFound"
+                || (err == "InvalidRequest" && body.contains("RecordNotFound")))
+        {
+            return Ok(None);
+        }
+        return Err(FetchError::PdsError(status.as_u16()));
+    }
+    let mut record = resp
+        .json::<GetInventoryResponse>()
+        .await
+        .map_err(|e| FetchError::Decode(e.to_string()))?
+        .value;
+    record.sanitize();
+    Ok(Some(record))
+}
+
+#[derive(Serialize)]
+struct PutInventoryRequest<'a> {
+    repo: &'a str,
+    collection: &'a str,
+    rkey: &'a str,
+    record: &'a InventoryRecord,
+}
+
+/// Upsert the inventory record to the signed-in user's PDS. Thin wrapper
+/// around `com.atproto.repo.putRecord` — unlike `publish_room_record` there
+/// is no delete-then-put recovery path, because the 5xx-on-stale-CID
+/// failure mode the room publish mitigates is driven by generators that
+/// reference terrain + splat assets the PDS struggles to validate; a bare
+/// inventory record has no such server-side coupling.
+pub async fn publish_inventory_record(
+    client: &reqwest::Client,
+    session: &AtprotoSession,
+    record: &InventoryRecord,
+) -> Result<(), String> {
+    let pds = resolve_pds(client, &session.did)
+        .await
+        .ok_or_else(|| "Failed to resolve PDS".to_string())?;
+    let url = format!("{}/xrpc/com.atproto.repo.putRecord", pds);
+    let body = PutInventoryRequest {
+        repo: &session.did,
+        collection: INVENTORY_COLLECTION,
+        rkey: "self",
+        record,
+    };
+    let body_json = serde_json::to_value(&body).map_err(|e| format!("serialize: {e}"))?;
+    let (status, body) =
+        crate::oauth::oauth_post_with_nonce_retry(&session.session, &url, &body_json).await?;
+    if status.is_success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "putRecord (inventory) failed: {} — {}",
+            status, body
+        ))
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -38,7 +38,9 @@ use crate::pds::{
     SovereignTextureConfig, SovereignThatchConfig, SovereignTwigConfig, SovereignWainscotingConfig,
     SovereignWindowConfig, TransformData, WaterRelation,
 };
-use crate::state::{CurrentRoomDid, PublishFeedback, RoomRecordRecovery, StoredRoomRecord};
+use crate::state::{
+    CurrentRoomDid, LiveInventoryRecord, PublishFeedback, RoomRecordRecovery, StoredRoomRecord,
+};
 
 /// Async task for publishing the room record to the owner's PDS.
 #[derive(Component)]
@@ -86,6 +88,10 @@ pub struct RoomEditorState {
     /// exactly once when the timer drains rather than every frame the
     /// slider moves.
     pending_flush_secs: f32,
+    /// Active rename modal: `(original_key, draft_key)`. Set when the
+    /// owner clicks "Rename" on a generator; cleared when the modal
+    /// applies the rename or is dismissed.
+    pub renaming_generator: Option<(String, String)>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -99,6 +105,7 @@ pub fn room_admin_ui(
     recovery: Option<Res<RoomRecordRecovery>>,
     mut editor: ResMut<RoomEditorState>,
     mut publish_feedback: ResMut<PublishFeedback>,
+    mut inventory: Option<ResMut<LiveInventoryRecord>>,
     time: Res<Time>,
 ) {
     let (Some(session), Some(room_did), Some(record)) = (session, room_did, room_record.as_mut())
@@ -130,6 +137,7 @@ pub fn room_admin_ui(
         raw_error,
         is_dirty,
         pending_flush_secs,
+        renaming_generator,
         ..
     } = &mut *editor;
 
@@ -147,6 +155,61 @@ pub fn room_admin_ui(
 
     {
         let record_mut: &mut RoomRecord = record.bypass_change_detection();
+
+        // Rename modal — rendered as an independent top-level egui Window so
+        // it floats above the World Editor. Cloning the `(old, draft)` pair
+        // out first lets us mutate the draft in a scratch variable and feed
+        // the final decision back into `renaming_generator` without holding
+        // a long-lived mutable borrow across the `egui::Window::show` call.
+        if let Some((old_name, mut new_name)) = renaming_generator.clone() {
+            let mut close = false;
+            let mut apply = false;
+            egui::Window::new("Rename Generator")
+                .collapsible(false)
+                .show(ctx, |ui| {
+                    ui.text_edit_singleline(&mut new_name).request_focus();
+                    ui.horizontal(|ui| {
+                        if ui.button("Apply").clicked() {
+                            apply = true;
+                            close = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            close = true;
+                        }
+                    });
+                });
+
+            if apply
+                && !new_name.is_empty()
+                && !record_mut.generators.contains_key(&new_name)
+                && let Some(g) = record_mut.generators.remove(&old_name)
+            {
+                record_mut.generators.insert(new_name.clone(), g);
+                // Rewrite every Placement that referenced the old key so the
+                // world compiler can still resolve its generator after the
+                // rename. Unknown placements (forward-compat variants) stay
+                // untouched because we can't see their generator_ref field.
+                for p in record_mut.placements.iter_mut() {
+                    match p {
+                        Placement::Absolute { generator_ref, .. }
+                        | Placement::Scatter { generator_ref, .. }
+                        | Placement::Grid { generator_ref, .. } => {
+                            if generator_ref == &old_name {
+                                *generator_ref = new_name.clone();
+                            }
+                        }
+                        Placement::Unknown => {}
+                    }
+                }
+                *selected_generator = Some(new_name.clone());
+                widget_change = true;
+            }
+            if close {
+                *renaming_generator = None;
+            } else {
+                *renaming_generator = Some((old_name, new_name));
+            }
+        }
 
         egui::Window::new("World Editor")
             .collapsible(true)
@@ -248,6 +311,8 @@ pub fn room_admin_ui(
                                 record_mut,
                                 selected_generator,
                                 selected_prim_path,
+                                renaming_generator,
+                                inventory.as_deref_mut(),
                                 &mut widget_change,
                             );
                         }
@@ -431,11 +496,14 @@ fn draw_environment_tab(ui: &mut egui::Ui, env: &mut Environment, dirty: &mut bo
 // Tab: Generators (master list + detail)
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn draw_generators_tab(
     ui: &mut egui::Ui,
     record: &mut RoomRecord,
     selected: &mut Option<String>,
     selected_prim_path: &mut Option<Vec<usize>>,
+    renaming_generator: &mut Option<(String, String)>,
+    mut inventory: Option<&mut LiveInventoryRecord>,
     dirty: &mut bool,
 ) {
     // Single-column master/detail: when a generator is selected and still
@@ -452,12 +520,22 @@ fn draw_generators_tab(
                 *selected = None;
             }
             ui.heading("Detail");
+            if ui.button("Rename").clicked() {
+                *renaming_generator = Some((name.clone(), name.clone()));
+            }
         });
         ui.add_space(4.0);
         if *selected == Some(name.clone())
             && let Some(g) = record.generators.get_mut(&name)
         {
-            draw_generator_detail(ui, &name, g, selected_prim_path, dirty);
+            draw_generator_detail(
+                ui,
+                &name,
+                g,
+                selected_prim_path,
+                inventory.as_deref_mut(),
+                dirty,
+            );
         }
         return;
     }
@@ -478,7 +556,10 @@ fn draw_generators_tab(
             if ui.selectable_label(false, name).clicked() {
                 *selected = Some(name.clone());
             }
-            if ui.small_button("−").clicked() {
+            if ui
+                .add(egui::Button::new("−").fill(egui::Color32::from_rgb(180, 50, 50)))
+                .clicked()
+            {
                 to_remove = Some(name.clone());
             }
         });
@@ -542,6 +623,30 @@ fn draw_generators_tab(
             *selected = Some(name);
             *dirty = true;
         }
+        if let Some(inv) = inventory.as_deref()
+            && !inv.0.generators.is_empty()
+        {
+            let mut insert: Option<(String, Generator)> = None;
+            egui::ComboBox::from_id_salt("from_inventory")
+                .selected_text("From Inventory...")
+                .show_ui(ui, |ui| {
+                    let mut inv_names: Vec<&String> = inv.0.generators.keys().collect();
+                    inv_names.sort();
+                    for inv_name in inv_names {
+                        if ui.selectable_label(false, inv_name).clicked()
+                            && let Some(g) = inv.0.generators.get(inv_name)
+                        {
+                            insert = Some((inv_name.clone(), g.clone()));
+                        }
+                    }
+                });
+            if let Some((inv_name, g)) = insert {
+                let new_name = unique_key(&record.generators, &inv_name);
+                record.generators.insert(new_name.clone(), g);
+                *selected = Some(new_name);
+                *dirty = true;
+            }
+        }
     });
 }
 
@@ -550,9 +655,18 @@ fn draw_generator_detail(
     name: &str,
     generator: &mut Generator,
     selected_prim_path: &mut Option<Vec<usize>>,
+    inventory: Option<&mut LiveInventoryRecord>,
     dirty: &mut bool,
 ) {
-    ui.label(format!("Generator: `{}`", name));
+    ui.horizontal(|ui| {
+        ui.label(format!("Generator: `{}`", name));
+        if let Some(inv) = inventory
+            && ui.button("Save to Inventory").clicked()
+        {
+            let safe_name = unique_key(&inv.0.generators, name);
+            inv.0.generators.insert(safe_name, generator.clone());
+        }
+    });
     ui.add_space(4.0);
     match generator {
         Generator::Terrain(cfg) => draw_terrain_forge(ui, cfg, dirty),
