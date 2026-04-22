@@ -249,6 +249,59 @@ impl From<Transform> for TransformData {
     }
 }
 
+fn default_true() -> bool { true }
+
+/// Whether a sampled point should be accepted above, below, or regardless of
+/// the world's water surface. `Both` is the no-op default.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WaterRelation {
+    /// No water constraint — keep points on either side of the surface.
+    #[default]
+    Both,
+    /// Keep only points with world Y ≥ water surface.
+    Above,
+    /// Keep only points with world Y < water surface.
+    Below,
+}
+
+/// Combined biome + water filter applied to each scatter sample. An empty
+/// `biomes` list is "any biome"; `water = Both` is "any side". The
+/// all-defaults filter is a no-op and accepts every sample.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct BiomeFilter {
+    /// Allowed dominant splat layers, any-of. Empty = every biome passes.
+    /// `0 = Grass, 1 = Dirt, 2 = Rock, 3 = Snow`.
+    #[serde(default)]
+    pub biomes: Vec<u8>,
+    /// Water-surface relation. `Both` imposes no constraint.
+    #[serde(default)]
+    pub water: WaterRelation,
+}
+
+impl BiomeFilter {
+    /// `true` when neither the biome allow-list nor the water relation
+    /// imposes any constraint. Lets the caller skip expensive per-sample
+    /// work when the filter is a no-op.
+    pub fn is_noop(&self) -> bool {
+        self.biomes.is_empty() && matches!(self.water, WaterRelation::Both)
+    }
+
+    /// Accept / reject a sample. `water_level` is `None` when the record has
+    /// no water generator — in that case water-relative filters collapse to
+    /// accept so a filter targeted at land-only biomes still behaves
+    /// sensibly on dry-land records.
+    pub fn accepts(&self, biome: u8, y: f32, water_level: Option<f32>) -> bool {
+        if !self.biomes.is_empty() && !self.biomes.contains(&biome) {
+            return false;
+        }
+        match (self.water, water_level) {
+            (WaterRelation::Above, Some(wl)) => y >= wl,
+            (WaterRelation::Below, Some(wl)) => y < wl,
+            _ => true,
+        }
+    }
+}
+
 /// Scatter region shape for `Placement::Scatter`.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type")]
@@ -256,7 +309,12 @@ pub enum ScatterBounds {
     #[serde(rename = "circle")]
     Circle { center: Fp2, radius: Fp },
     #[serde(rename = "rect")]
-    Rect { center: Fp2, extents: Fp2 },
+    Rect {
+        center: Fp2,
+        extents: Fp2,
+        #[serde(default)]
+        rotation: Fp,
+    },
 }
 
 impl Default for ScatterBounds {
@@ -1438,6 +1496,8 @@ pub enum Placement {
     Absolute {
         generator_ref: String,
         transform: TransformData,
+        #[serde(default = "default_true")]
+        snap_to_terrain: bool,
     },
 
     #[serde(rename = "network.symbios.place.scatter")]
@@ -1447,11 +1507,31 @@ pub enum Placement {
         count: u32,
         #[serde(with = "u64_as_string")]
         local_seed: u64,
-        /// Optional biome filter — scatter points whose dominant splat
-        /// channel does not match this id are discarded.
-        /// `0 = Grass, 1 = Dirt, 2 = Rock, 3 = Snow`. `None` = everywhere.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        biome_filter: Option<u8>,
+        /// Combined biome allow-list + water-surface relation. A default
+        /// `BiomeFilter` accepts every sample.
+        #[serde(default)]
+        biome_filter: BiomeFilter,
+        #[serde(default = "default_true")]
+        snap_to_terrain: bool,
+        /// Apply a deterministic random yaw (per `local_seed`) to every
+        /// scattered instance. Defaults to `true` for backward compatibility
+        /// with records written before this field existed.
+        #[serde(default = "default_true")]
+        random_yaw: bool,
+    },
+
+    #[serde(rename = "network.symbios.place.grid")]
+    Grid {
+        generator_ref: String,
+        transform: TransformData,
+        counts: [u32; 3],
+        gaps: Fp3,
+        #[serde(default = "default_true")]
+        snap_to_terrain: bool,
+        /// Apply a per-cell deterministic random yaw. Defaults to `false`
+        /// — grids are typically axis-aligned.
+        #[serde(default)]
+        random_yaw: bool,
     },
 
     #[serde(other)]
@@ -2133,10 +2213,12 @@ impl RoomRecord {
             Placement::Absolute {
                 generator_ref: "base_terrain".to_string(),
                 transform: TransformData::default(),
+                snap_to_terrain: false,
             },
             Placement::Absolute {
                 generator_ref: "base_water".to_string(),
                 transform: TransformData::default(),
+                snap_to_terrain: false,
             },
         ];
 
@@ -2297,8 +2379,27 @@ impl RoomRecord {
             self.placements.truncate(limits::MAX_PLACEMENTS);
         }
         for placement in self.placements.iter_mut() {
-            if let Placement::Scatter { count, .. } = placement {
-                *count = (*count).min(limits::MAX_SCATTER_COUNT);
+            match placement {
+                Placement::Scatter { count, .. } => {
+                    *count = (*count).min(limits::MAX_SCATTER_COUNT);
+                }
+                Placement::Grid { counts, gaps, .. } => {
+                    counts[0] = counts[0].clamp(1, 100);
+                    counts[1] = counts[1].clamp(1, 100);
+                    counts[2] = counts[2].clamp(1, 100);
+                    let total = (counts[0] as usize)
+                        .saturating_mul(counts[1] as usize)
+                        .saturating_mul(counts[2] as usize);
+                    if total > 10_000 {
+                        counts[0] = counts[0].min(21);
+                        counts[1] = counts[1].min(21);
+                        counts[2] = counts[2].min(21);
+                    }
+                    gaps.0[0] = gaps.0[0].clamp(0.01, 1000.0);
+                    gaps.0[1] = gaps.0[1].clamp(0.01, 1000.0);
+                    gaps.0[2] = gaps.0[2].clamp(0.01, 1000.0);
+                }
+                _ => {}
             }
         }
     }
@@ -2830,7 +2931,12 @@ mod tests {
             },
             count: 4,
             local_seed: 42,
-            biome_filter: Some(0),
+            biome_filter: BiomeFilter {
+                biomes: vec![0, 2],
+                water: WaterRelation::Above,
+            },
+            snap_to_terrain: true,
+            random_yaw: true,
         });
 
         let json = serde_json::to_string(&record).expect("serialise record");

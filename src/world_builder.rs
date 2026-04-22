@@ -22,6 +22,7 @@
 use avian3d::prelude::*;
 use bevy::asset::RenderAssetUsages;
 use bevy::light::GlobalAmbientLight;
+use bevy::math::Isometry3d;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
@@ -213,6 +214,7 @@ impl Plugin for WorldBuilderPlugin {
                     apply_environment_state,
                     poll_overlands_foliage_tasks,
                     poll_portal_avatar_tasks,
+                    draw_placement_visualizers,
                 )
                     .run_if(in_state(AppState::InGame)),
             );
@@ -344,46 +346,133 @@ fn compile_room_record(
 
     // Step 3 — Placements. Walk the recipe; each scatter placement uses
     // its own deterministic RNG so every peer reproduces the same layout.
+    let mut ctx = SpawnCtx {
+        commands: &mut commands,
+        record: &record,
+        meshes: &mut meshes,
+        std_materials: &mut std_materials,
+        water_materials: &mut water_materials,
+        palette: palette.as_deref(),
+        heightmap: heightmap.as_deref(),
+        terrain_meshes: &terrain_meshes,
+        prop_assets: prop_assets.as_deref(),
+        foliage_tasks: &mut foliage_tasks,
+        lsystem_material_cache: &mut lsystem_material_cache,
+        lsystem_cache_touched: &mut lsystem_cache_touched,
+        lsystem_mesh_cache: &mut lsystem_mesh_cache,
+        lsystem_mesh_touched: &mut lsystem_mesh_touched,
+        current_room: current_room.as_deref(),
+    };
+
     for (placement_index, placement) in record.placements.iter().enumerate() {
-        match placement {
-            Placement::Absolute {
-                generator_ref,
-                transform,
-            } => {
-                let ctx = SpawnCtx {
-                    commands: &mut commands,
-                    record: &record,
-                    meshes: &mut meshes,
-                    std_materials: &mut std_materials,
-                    water_materials: &mut water_materials,
-                    palette: palette.as_deref(),
-                    heightmap: heightmap.as_deref(),
-                    terrain_meshes: &terrain_meshes,
-                    prop_assets: prop_assets.as_deref(),
-                    foliage_tasks: &mut foliage_tasks,
-                    lsystem_material_cache: &mut lsystem_material_cache,
-                    lsystem_cache_touched: &mut lsystem_cache_touched,
-                    lsystem_mesh_cache: &mut lsystem_mesh_cache,
-                    lsystem_mesh_touched: &mut lsystem_mesh_touched,
-                    current_room: current_room.as_deref(),
+        let (anchor_tf, snap) = match placement {
+            Placement::Absolute { transform, snap_to_terrain, .. } => {
+                (transform_from_data(transform).with_scale(Vec3::ONE), *snap_to_terrain)
+            }
+            Placement::Scatter { bounds, snap_to_terrain, .. } => {
+                let center = match bounds {
+                    ScatterBounds::Circle { center, .. } => Vec3::new(center.0[0], 0.0, center.0[1]),
+                    ScatterBounds::Rect { center, .. } => Vec3::new(center.0[0], 0.0, center.0[1]),
                 };
-                if let Some(entity) =
-                    spawn_from_generator(ctx, generator_ref, transform_from_data(transform))
-                {
-                    commands
-                        .entity(entity)
-                        .insert(PlacementMarker(placement_index));
+                let rot = match bounds {
+                    ScatterBounds::Circle { .. } => Quat::IDENTITY,
+                    ScatterBounds::Rect { rotation, .. } => Quat::from_rotation_y(rotation.0),
+                };
+                (Transform::from_translation(center).with_rotation(rot), *snap_to_terrain)
+            }
+            Placement::Grid { transform, snap_to_terrain, .. } => {
+                (transform_from_data(transform).with_scale(Vec3::ONE), *snap_to_terrain)
+            }
+            Placement::Unknown => continue,
+        };
+
+        // Resolve Anchor world Y if snapped
+        let mut anchor_world_tf = anchor_tf;
+        if snap {
+            if let Some(hm_res) = heightmap.as_deref() {
+                let hm = &hm_res.0;
+                let extent = (hm.width() - 1) as f32 * hm.scale();
+                let half = extent * 0.5;
+                let hm_x = (anchor_world_tf.translation.x + half).clamp(0.0, extent);
+                let hm_z = (anchor_world_tf.translation.z + half).clamp(0.0, extent);
+                anchor_world_tf.translation.y = hm.get_height_at(hm_x, hm_z);
+            } else {
+                anchor_world_tf.translation.y = 0.0;
+            }
+        }
+
+        // The unified Anchor Entity
+        let anchor = ctx.commands.spawn((
+            anchor_world_tf,
+            Visibility::default(),
+            RigidBody::Static,
+            PlacementMarker(placement_index),
+            RoomEntity,
+        )).id();
+
+        match placement {
+            Placement::Absolute { generator_ref, .. } => {
+                if let Some(entity) = spawn_from_generator(&mut ctx, generator_ref, Transform::IDENTITY) {
+                    ctx.commands.entity(anchor).add_child(entity);
                 }
             }
-            Placement::Scatter {
-                generator_ref,
-                bounds,
-                count,
-                local_seed,
-                biome_filter,
-            } => {
-                // Deterministic pick — see `find_terrain_config` doc comment.
-                let terrain_cfg = crate::pds::find_terrain_config(&record);
+            Placement::Grid { generator_ref, counts, gaps, random_yaw, .. } => {
+                let [cx, cy, cz] = *counts;
+                let [gx, gy, gz] = gaps.0;
+                let start_x = -((cx as f32 - 1.0) * gx) / 2.0;
+                let start_y = -((cy as f32 - 1.0) * gy) / 2.0;
+                let start_z = -((cz as f32 - 1.0) * gz) / 2.0;
+
+                // Per-placement RNG so yaw stays deterministic across peers
+                // without adding a user-facing seed field to Grid.
+                let mut rng = if *random_yaw {
+                    Some(ChaCha8Rng::seed_from_u64(placement_index as u64))
+                } else {
+                    None
+                };
+
+                for ix in 0..cx {
+                    for iy in 0..cy {
+                        for iz in 0..cz {
+                            let local_x = start_x + (ix as f32) * gx;
+                            let local_y = start_y + (iy as f32) * gy;
+                            let local_z = start_z + (iz as f32) * gz;
+
+                            let mut final_local_y = local_y;
+                            if snap {
+                                let world_pos = anchor_world_tf.transform_point(Vec3::new(local_x, 0.0, local_z));
+                                let world_y = if let Some(hm_res) = heightmap.as_deref() {
+                                    let hm = &hm_res.0;
+                                    let extent = (hm.width() - 1) as f32 * hm.scale();
+                                    let half = extent * 0.5;
+                                    let hm_x = (world_pos.x + half).clamp(0.0, extent);
+                                    let hm_z = (world_pos.z + half).clamp(0.0, extent);
+                                    hm.get_height_at(hm_x, hm_z)
+                                } else {
+                                    0.0
+                                };
+                                let local_snapped = anchor_world_tf.compute_affine().inverse().transform_point3(Vec3::new(world_pos.x, world_y, world_pos.z));
+                                final_local_y = local_snapped.y + local_y;
+                            }
+
+                            let rotation = if let Some(rng) = rng.as_mut() {
+                                let yaw = unit_f32(rng) * std::f32::consts::PI;
+                                Quat::from_rotation_y(yaw)
+                            } else {
+                                Quat::IDENTITY
+                            };
+                            let child_tf = Transform::from_xyz(local_x, final_local_y, local_z)
+                                .with_rotation(rotation);
+                            if let Some(entity) = spawn_from_generator(&mut ctx, generator_ref, child_tf) {
+                                ctx.commands.entity(anchor).add_child(entity);
+                            }
+                        }
+                    }
+                }
+            }
+            Placement::Scatter { generator_ref, bounds, count, local_seed, biome_filter, random_yaw, .. } => {
+                let terrain_cfg = crate::pds::find_terrain_config(ctx.record);
+                let water_level = find_water_level_for_filter(ctx.record);
                 let max_attempts = count.saturating_mul(10).max(*count);
                 let mut rng = ChaCha8Rng::seed_from_u64(*local_seed);
                 let mut spawned = 0u32;
@@ -391,75 +480,62 @@ fn compile_room_record(
 
                 while spawned < *count && attempts < max_attempts {
                     attempts += 1;
-                    let (x, z) = sample_bounds(bounds, &mut rng);
+                    let (world_x, world_z) = sample_bounds(bounds, &mut rng);
 
-                    let (y, keep) = if let (Some(hm_res), Some(target), Some(tcfg)) =
-                        (heightmap.as_deref(), *biome_filter, terrain_cfg)
-                    {
+                    let (world_y, keep) = if let Some(hm_res) = heightmap.as_deref() {
                         let hm = &hm_res.0;
-                        // Re-centre: scatter coords are world-centred, the
-                        // heightmap is origin-local (see spawn_terrain_mesh
-                        // translation of `-half`).
                         let extent = (hm.width() - 1) as f32 * hm.scale();
                         let half = extent * 0.5;
-                        let hm_x = (x + half).clamp(0.0, extent);
-                        let hm_z = (z + half).clamp(0.0, extent);
+                        let hm_x = (world_x + half).clamp(0.0, extent);
+                        let hm_z = (world_z + half).clamp(0.0, extent);
                         let y = hm.get_height_at(hm_x, hm_z);
-                        let normal = hm.get_normal_at(hm_x, hm_z);
-                        let slope = (1.0 - normal[1]).max(0.0);
-                        let dominant = dominant_biome(tcfg, y, slope);
-                        (y, dominant == target)
-                    } else if let Some(hm_res) = heightmap.as_deref() {
-                        let hm = &hm_res.0;
-                        let extent = (hm.width() - 1) as f32 * hm.scale();
-                        let half = extent * 0.5;
-                        let hm_x = (x + half).clamp(0.0, extent);
-                        let hm_z = (z + half).clamp(0.0, extent);
-                        (hm.get_height_at(hm_x, hm_z), true)
+                        let keep = if biome_filter.is_noop() {
+                            true
+                        } else {
+                            // Without a terrain generator the biome allow-list
+                            // has no channel to resolve against; treat any
+                            // non-empty list as "never matches" so accidental
+                            // biome filters on dry-land records don't silently
+                            // pass through. The water clause still evaluates.
+                            let biome = if let Some(tcfg) = terrain_cfg {
+                                let normal = hm.get_normal_at(hm_x, hm_z);
+                                let slope = (1.0 - normal[1]).max(0.0);
+                                dominant_biome(tcfg, y, slope)
+                            } else {
+                                255
+                            };
+                            biome_filter.accepts(biome, y, water_level)
+                        };
+                        (y, keep)
                     } else {
-                        (0.0, true)
+                        (0.0, biome_filter.is_noop())
                     };
 
-                    if !keep {
-                        continue;
+                    if !keep { continue; }
+
+                    // Make scatter children of the anchor so grabbing the Gizmo moves the whole forest live.
+                    // Always draw from `rng` so disabling `random_yaw` doesn't shift downstream
+                    // samples — the spawn stream stays byte-identical across peers regardless.
+                    let local_pos = anchor_world_tf.compute_affine().inverse().transform_point3(Vec3::new(world_x, world_y, world_z));
+                    let yaw_sample = unit_f32(&mut rng) * std::f32::consts::PI;
+                    let rotation = if *random_yaw {
+                        Quat::from_rotation_y(yaw_sample)
+                    } else {
+                        Quat::IDENTITY
+                    };
+                    let child_tf = Transform::from_translation(local_pos).with_rotation(rotation);
+
+                    if let Some(entity) = spawn_from_generator(&mut ctx, generator_ref, child_tf) {
+                        ctx.commands.entity(anchor).add_child(entity);
                     }
-
-                    // Inject a deterministic random yaw so scattered forests
-                    // look organic — every peer reuses the same local RNG so
-                    // the rotation stays shared-world-consistent.
-                    let yaw = unit_f32(&mut rng) * std::f32::consts::PI;
-                    let tf = Transform::from_xyz(x, y, z).with_rotation(Quat::from_rotation_y(yaw));
-                    let ctx = SpawnCtx {
-                        commands: &mut commands,
-                        record: &record,
-                        meshes: &mut meshes,
-                        std_materials: &mut std_materials,
-                        water_materials: &mut water_materials,
-                        palette: palette.as_deref(),
-                        heightmap: heightmap.as_deref(),
-                        terrain_meshes: &terrain_meshes,
-                        prop_assets: prop_assets.as_deref(),
-                        foliage_tasks: &mut foliage_tasks,
-                        lsystem_material_cache: &mut lsystem_material_cache,
-                        lsystem_cache_touched: &mut lsystem_cache_touched,
-                        lsystem_mesh_cache: &mut lsystem_mesh_cache,
-                        lsystem_mesh_touched: &mut lsystem_mesh_touched,
-                        current_room: current_room.as_deref(),
-                    };
-                    spawn_from_generator(ctx, generator_ref, tf);
                     spawned += 1;
                 }
 
                 if spawned < *count {
-                    debug!(
-                        "Scatter `{}` placed {}/{} points (biome filter {:?}, {} attempts)",
-                        generator_ref, spawned, count, biome_filter, attempts
-                    );
+                    debug!("Scatter `{}` placed {}/{} points", generator_ref, spawned, count);
                 }
             }
-            Placement::Unknown => {
-                warn!("Skipping placement with unknown $type");
-            }
+            Placement::Unknown => {}
         }
     }
 
@@ -763,10 +839,13 @@ fn transform_from_data(t: &TransformData) -> Transform {
 /// centre (which a naïve `radius * random()` would produce).
 fn sample_bounds(bounds: &ScatterBounds, rng: &mut ChaCha8Rng) -> (f32, f32) {
     match bounds {
-        ScatterBounds::Rect { center, extents } => {
-            let x = center.0[0] + unit_f32(rng) * extents.0[0];
-            let z = center.0[1] + unit_f32(rng) * extents.0[1];
-            (x, z)
+        ScatterBounds::Rect { center, extents, rotation } => {
+            let lx = unit_f32(rng) * extents.0[0];
+            let lz = unit_f32(rng) * extents.0[1];
+            let rot = rotation.0;
+            let rx = lx * rot.cos() - lz * rot.sin();
+            let rz = lx * rot.sin() + lz * rot.cos();
+            (center.0[0] + rx, center.0[1] + rz)
         }
         ScatterBounds::Circle { center, radius } => loop {
             let x = unit_f32(rng);
@@ -776,6 +855,34 @@ fn sample_bounds(bounds: &ScatterBounds, rng: &mut ChaCha8Rng) -> (f32, f32) {
             }
         },
     }
+}
+
+/// Compute the world-space Y of the first water generator's surface for use
+/// by `BiomeFilter` water-relation checks. Walks generators in sorted key
+/// order so every peer picks the same water level; when no water generator is
+/// present we return `None` and the filter collapses to accept-by-default.
+///
+/// The computation mirrors `spawn_water_volume`: base sea level comes from
+/// the compile-time `tcfg::water::LEVEL_FACTOR * HEIGHT_SCALE` constant, plus
+/// the generator's `level_offset`, plus the water's placement-Y when the
+/// record happens to place the volume off-origin.
+fn find_water_level_for_filter(record: &RoomRecord) -> Option<f32> {
+    let mut keys: Vec<&String> = record.generators.keys().collect();
+    keys.sort();
+    for k in &keys {
+        if let Some(Generator::Water { level_offset }) = record.generators.get(*k) {
+            let placement_y = record.placements.iter().find_map(|p| match p {
+                Placement::Absolute { generator_ref, transform, .. } if generator_ref == *k => {
+                    Some(transform.translation.0[1])
+                }
+                _ => None,
+            }).unwrap_or(0.0);
+            let base_wl = tcfg::water::LEVEL_FACTOR * tcfg::HEIGHT_SCALE;
+            let wl = (base_wl + level_offset.0).max(0.001);
+            return Some(placement_y + wl);
+        }
+    }
+    None
 }
 
 /// Deterministic `[-1, 1]` sample from a `ChaCha8Rng`.
@@ -887,7 +994,7 @@ struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
 }
 
 fn spawn_from_generator(
-    mut ctx: SpawnCtx<'_, '_, '_, '_, '_>,
+    ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
     generator_ref: &str,
     transform: Transform,
 ) -> Option<Entity> {
@@ -942,14 +1049,14 @@ fn spawn_from_generator(
             Some(entity)
         }
         Generator::LSystem { .. } => {
-            spawn_lsystem_entity(&mut ctx, generator, generator_ref, transform)
+            spawn_lsystem_entity(ctx, generator, generator_ref, transform)
         }
         Generator::Shape { .. } => {
             // Stub: symbios-shape integration lands in a follow-up.
             None
         }
         Generator::Construct { root } => Some(spawn_construct_entity(
-            &mut ctx,
+            ctx,
             root,
             generator_ref,
             transform,
@@ -958,7 +1065,7 @@ fn spawn_from_generator(
             target_did,
             target_pos,
         } => Some(spawn_portal_entity(
-            &mut ctx, target_did, target_pos, transform,
+            ctx, target_did, target_pos, transform,
         )),
         Generator::Unknown => {
             warn!("Ignoring generator `{}` of unknown $type", generator_ref);
@@ -1685,4 +1792,72 @@ fn apply_traits(commands: &mut Commands, entity: Entity, record: &RoomRecord, ge
 /// leaving the old component stuck in place.
 fn reset_traits(commands: &mut Commands, entity: Entity) {
     commands.entity(entity).remove::<Sensor>();
+}
+
+fn draw_placement_visualizers(
+    mut gizmos: Gizmos,
+    editor_state: Res<crate::ui::room::RoomEditorState>,
+    record: Option<Res<RoomRecord>>,
+    heightmap: Option<Res<FinishedHeightMap>>,
+) {
+    let Some(record) = record else { return; };
+    if editor_state.selected_tab != crate::ui::room::EditorTab::Placements { return; }
+    let Some(idx) = editor_state.selected_placement else { return; };
+    let Some(placement) = record.placements.get(idx) else { return; };
+
+    let get_y = |x: f32, z: f32| -> f32 {
+        if let Some(hm_res) = heightmap.as_deref() {
+            let hm = &hm_res.0;
+            let extent = (hm.width() - 1) as f32 * hm.scale();
+            let half = extent * 0.5;
+            let hm_x = (x + half).clamp(0.0, extent);
+            let hm_z = (z + half).clamp(0.0, extent);
+            hm.get_height_at(hm_x, hm_z)
+        } else {
+            0.0
+        }
+    };
+
+    let color = Color::srgb(0.0, 1.0, 0.5);
+
+    match placement {
+        Placement::Absolute { transform, snap_to_terrain, .. } => {
+            let mut pos = Vec3::from_array(transform.translation.0);
+            if *snap_to_terrain { pos.y = get_y(pos.x, pos.z); }
+            gizmos.sphere(pos, 1.0, color);
+        }
+        Placement::Scatter { bounds, snap_to_terrain, .. } => {
+            match bounds {
+                ScatterBounds::Circle { center, radius } => {
+                    let mut pos = Vec3::new(center.0[0], 0.0, center.0[1]);
+                    if *snap_to_terrain { pos.y = get_y(pos.x, pos.z); }
+                    let iso = Isometry3d::new(pos, Quat::from_rotation_x(std::f32::consts::FRAC_PI_2));
+                    gizmos.circle(iso, radius.0, color);
+                }
+                ScatterBounds::Rect { center, extents, rotation } => {
+                    let mut pos = Vec3::new(center.0[0], 0.0, center.0[1]);
+                    if *snap_to_terrain { pos.y = get_y(pos.x, pos.z); }
+                    // Align the rect to lie flat on the XZ plane
+                    let rot = Quat::from_rotation_y(rotation.0) * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
+                    let size = Vec2::new(extents.0[0] * 2.0, extents.0[1] * 2.0);
+                    gizmos.rect(Isometry3d::new(pos, rot), size, color);
+                }
+            }
+        }
+        Placement::Grid { transform, counts, gaps, snap_to_terrain, .. } => {
+            let mut pos = Vec3::from_array(transform.translation.0);
+            if *snap_to_terrain { pos.y = get_y(pos.x, pos.z); }
+            let rot = Quat::from_array(transform.rotation.0);
+            let w = ((counts[0] as f32) - 1.0).max(0.0) * gaps.0[0];
+            let h = ((counts[1] as f32) - 1.0).max(0.0) * gaps.0[1];
+            let d = ((counts[2] as f32) - 1.0).max(0.0) * gaps.0[2];
+
+            // Draw 3 intersecting planes as an elegant bounding volume visualization
+            let iso = Isometry3d::new(pos, rot);
+            gizmos.rect(iso, Vec2::new(w + 1.0, d + 1.0), color);
+            gizmos.rect(Isometry3d::new(pos, rot * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)), Vec2::new(w + 1.0, h + 1.0), color);
+            gizmos.rect(Isometry3d::new(pos, rot * Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)), Vec2::new(d + 1.0, h + 1.0), color);
+        }
+        _ => {}
+    }
 }

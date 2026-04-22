@@ -40,9 +40,9 @@
 
 use bevy::ecs::hierarchy::ChildOf;
 use bevy::prelude::*;
-use transform_gizmo_bevy::GizmoTarget;
+use transform_gizmo_bevy::{EnumSet, GizmoMode, GizmoOptions, GizmoTarget};
 
-use crate::pds::{Generator, Placement, RoomRecord, TransformData};
+use crate::pds::{Fp3, Fp4, Generator, Placement, RoomRecord, TransformData};
 use crate::state::AppState;
 use crate::ui::room::{EditorTab, RoomEditorState};
 use crate::world_builder::{PlacementMarker, PrimMarker};
@@ -86,6 +86,7 @@ impl Plugin for EditorGizmoPlugin {
 fn sync_gizmo_selection(
     mut commands: Commands,
     editor_state: Res<RoomEditorState>,
+    mut gizmo_options: ResMut<GizmoOptions>,
     placement_query: Query<(Entity, &PlacementMarker, Has<GizmoTarget>)>,
     prim_query: Query<(
         Entity,
@@ -140,13 +141,34 @@ fn sync_gizmo_selection(
 
     // --- Placements ---------------------------------------------------------
     let want_placement_gizmo = editor_state.selected_tab == EditorTab::Placements;
+    let mut placement_selected = false;
+
     for (entity, marker, has_gizmo) in placement_query.iter() {
         let is_selected = want_placement_gizmo && editor_state.selected_placement == Some(marker.0);
+        if is_selected {
+            placement_selected = true;
+        }
         if is_selected && !has_gizmo {
             commands.entity(entity).try_insert(GizmoTarget::default());
         } else if !is_selected && has_gizmo {
             commands.entity(entity).try_remove::<GizmoTarget>();
         }
+    }
+
+    let is_prim_selected = target_prim.is_some();
+
+    // Restrict Gizmo Modes to disable Scale for Placements
+    if placement_selected {
+        let mut modes = EnumSet::new();
+        modes.insert_all(GizmoMode::all_translate());
+        modes.insert_all(GizmoMode::all_rotate());
+        gizmo_options.gizmo_modes = modes;
+    } else if is_prim_selected {
+        let mut modes = EnumSet::new();
+        modes.insert_all(GizmoMode::all_translate());
+        modes.insert_all(GizmoMode::all_rotate());
+        modes.insert_all(GizmoMode::all_scale());
+        gizmo_options.gizmo_modes = modes;
     }
 
     // --- Prims --------------------------------------------------------------
@@ -254,11 +276,38 @@ fn commit_gizmo_drag(
         if !target.is_active() {
             continue;
         }
-        if let Some(Placement::Absolute {
-            transform: rec_tf, ..
-        }) = record.placements.get_mut(marker.0)
-        {
-            *rec_tf = TransformData::from(*transform);
+        let mut committed_local = false;
+        if let Some(placement) = record.placements.get_mut(marker.0) {
+            match placement {
+                Placement::Absolute { transform: rec_tf, .. } => {
+                    rec_tf.translation = Fp3(transform.translation.to_array());
+                    rec_tf.rotation = Fp4(transform.rotation.to_array());
+                    committed_local = true;
+                }
+                Placement::Grid { transform: rec_tf, .. } => {
+                    rec_tf.translation = Fp3(transform.translation.to_array());
+                    rec_tf.rotation = Fp4(transform.rotation.to_array());
+                    committed_local = true;
+                }
+                Placement::Scatter { bounds, .. } => {
+                    match bounds {
+                        crate::pds::ScatterBounds::Circle { center, .. } => {
+                            center.0[0] = transform.translation.x;
+                            center.0[1] = transform.translation.z;
+                        }
+                        crate::pds::ScatterBounds::Rect { center, rotation, .. } => {
+                            center.0[0] = transform.translation.x;
+                            center.0[1] = transform.translation.z;
+                            let (yaw, _, _) = transform.rotation.to_euler(EulerRot::YXZ);
+                            rotation.0 = yaw;
+                        }
+                    }
+                    committed_local = true;
+                }
+                Placement::Unknown => {}
+            }
+        }
+        if committed_local {
             committed = true;
         }
     }
