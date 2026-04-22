@@ -66,9 +66,24 @@ impl Plugin for EditorGizmoPlugin {
         )
         .add_systems(
             PostUpdate,
-            commit_gizmo_drag.run_if(in_state(AppState::InGame)),
+            manage_gizmo_drag.run_if(in_state(AppState::InGame)),
         );
     }
+}
+
+/// Drag session state spanning all the frames between mouse-down and
+/// mouse-release on the gizmo. Holds the identity of the entity being
+/// dragged, the world-space pose it started at (so `Escape` can snap it
+/// back and copy-on-drag can draw a ghost of the origin), whether the
+/// drag is in copy-mode (Shift held at drag start), and whether the user
+/// has aborted this drag with `Escape`. Lives in a `Local<DragState>` on
+/// the manage system so it persists across the multiple frames of a drag.
+#[derive(Default)]
+struct DragState {
+    active_entity: Option<Entity>,
+    original_world_tf: Transform,
+    is_copy: bool,
+    aborted: bool,
 }
 
 /// Keep the `GizmoTarget` component in sync with the active editor tab and
@@ -82,7 +97,7 @@ impl Plugin for EditorGizmoPlugin {
 /// already-despawned indices. Tolerating the race here is safe — the next
 /// frame's sync pass sees the newly-spawned entity and re-attaches
 /// `GizmoTarget` on it.
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn sync_gizmo_selection(
     mut commands: Commands,
     editor_state: Res<RoomEditorState>,
@@ -157,15 +172,26 @@ fn sync_gizmo_selection(
 
     let is_prim_selected = target_prim.is_some();
 
-    // Restrict Gizmo Modes to disable Scale for Placements
+    // Restrict Gizmo Modes. Placements can't scale (their generator's
+    // construct tree owns shape). Prims can translate/rotate/scale except
+    // for the blueprint root, which is locked to rotate+scale — translating
+    // the root would just shift the entire construct relative to its own
+    // origin and is better expressed at the placement level.
     if placement_selected {
         let mut modes = EnumSet::new();
         modes.insert_all(GizmoMode::all_translate());
         modes.insert_all(GizmoMode::all_rotate());
         gizmo_options.gizmo_modes = modes;
     } else if is_prim_selected {
+        let is_root = editor_state
+            .selected_prim_path
+            .as_ref()
+            .map(|p| p.is_empty())
+            .unwrap_or(false);
         let mut modes = EnumSet::new();
-        modes.insert_all(GizmoMode::all_translate());
+        if !is_root {
+            modes.insert_all(GizmoMode::all_translate());
+        }
         modes.insert_all(GizmoMode::all_rotate());
         modes.insert_all(GizmoMode::all_scale());
         gizmo_options.gizmo_modes = modes;
@@ -231,13 +257,16 @@ fn sync_gizmo_selection(
     }
 }
 
-/// Write the dragged `Transform` back into the `RoomRecord` the instant the
-/// owner drops the left mouse button. Writing during the drag would make
-/// `RoomRecord::is_changed()` fire on every frame, which in turn triggers
-/// `compile_room_record` to despawn the dragged entity mid-drag and lose
-/// the gizmo's target. Deferring the write to mouse-release collapses the
-/// whole gesture into a single record update, a single peer broadcast and a
-/// single recompile.
+/// Drive the full drag session: detect the rising edge (Shift at drag start
+/// chooses copy-on-drag), watch for `Escape` aborts and render the
+/// origin-ghost + "+" indicator every frame, then commit (or discard) on
+/// the falling edge when the gizmo goes idle.
+///
+/// Writing during the drag would make `RoomRecord::is_changed()` fire on
+/// every frame, which in turn triggers `compile_room_record` to despawn the
+/// dragged entity mid-drag and lose the gizmo's target. Deferring the write
+/// to drag-end collapses the whole gesture into a single record update, a
+/// single peer broadcast and a single recompile.
 ///
 /// Because prims are detached from their parent while the gizmo is attached,
 /// a prim's `Transform` is in world space at commit time. We convert back to
@@ -245,17 +274,28 @@ fn sync_gizmo_selection(
 /// writing into the recipe.
 ///
 /// `GizmoTarget::is_active()` reflects the most recent drag state set by
-/// `transform-gizmo-bevy`'s `update_gizmos` system in `Last`. Running our
-/// commit in `PostUpdate` means we observe the *previous* frame's
-/// `is_active` — still `true` on the release frame for the entity being
-/// dragged — which is exactly the filter we need. Without this guard, a
-/// stray left-click on empty space would fire `set_changed()` and uselessly
-/// rebuild the world.
-fn commit_gizmo_drag(
-    mouse: Res<ButtonInput<MouseButton>>,
-    placement_query: Query<(&Transform, &PlacementMarker, &GizmoTarget)>,
-    prim_query: Query<(
-        &Transform,
+/// `transform-gizmo-bevy`'s `update_gizmos` system in `Last`. Running in
+/// `PostUpdate` means we observe the *previous* frame's `is_active`, which
+/// is still `true` on the release frame and flips to `false` the frame
+/// after — giving us a clean one-frame-delayed falling edge to commit on.
+///
+/// Copy-on-drag: Shift-held at drag-start clones the placement/prim at
+/// commit time and drops the new copy at the dragged position, leaving the
+/// original in place. Blueprint roots force copy off — cloning an entire
+/// construct tree sideways is expressed at the placement layer instead.
+#[allow(clippy::too_many_arguments)]
+fn manage_gizmo_drag(
+    mut state: Local<DragState>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut gizmos: Gizmos,
+    mut editor_state: ResMut<RoomEditorState>,
+    mut placement_query: Query<
+        (Entity, &mut Transform, &PlacementMarker, &GizmoTarget),
+        Without<PrimMarker>,
+    >,
+    mut prim_query: Query<(
+        Entity,
+        &mut Transform,
         &PrimMarker,
         &GizmoTarget,
         Option<&GizmoDetachedPrim>,
@@ -263,7 +303,106 @@ fn commit_gizmo_drag(
     global_tf: Query<&GlobalTransform>,
     record: Option<ResMut<RoomRecord>>,
 ) {
-    if !mouse.just_released(MouseButton::Left) {
+    // Find the entity (if any) whose gizmo reports active this frame.
+    let mut active_target: Option<Entity> = None;
+    for (entity, _tf, _m, target) in placement_query.iter() {
+        if target.is_active() {
+            active_target = Some(entity);
+            break;
+        }
+    }
+    if active_target.is_none() {
+        for (entity, _tf, _m, target, _d) in prim_query.iter() {
+            if target.is_active() {
+                active_target = Some(entity);
+                break;
+            }
+        }
+    }
+
+    // Rising edge — a new drag just started.
+    if state.active_entity.is_none() {
+        let Some(entity) = active_target else {
+            return;
+        };
+        let (original_world_tf, is_prim_root) =
+            if let Ok((_e, tf, _m, _t)) = placement_query.get(entity) {
+                (*tf, false)
+            } else if let Ok((_e, tf, marker, _t, _d)) = prim_query.get(entity) {
+                (*tf, marker.path.is_empty())
+            } else {
+                return;
+            };
+        let mut is_copy =
+            keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+        // A blueprint root has no parent to receive a sibling clone — a
+        // "copy of the root" only makes sense at the Placement level. Force
+        // is_copy off so the commit path takes the normal in-place update.
+        if is_prim_root {
+            is_copy = false;
+        }
+        state.active_entity = Some(entity);
+        state.original_world_tf = original_world_tf;
+        state.is_copy = is_copy;
+        state.aborted = false;
+    }
+
+    let active_entity = state.active_entity.unwrap();
+    let is_still_active = active_target == Some(active_entity);
+
+    // Active drag — every frame until the mouse is released.
+    if is_still_active {
+        if keyboard.just_pressed(KeyCode::Escape) {
+            state.aborted = true;
+        }
+
+        if state.aborted {
+            // Visually snap back to the starting pose. The gizmo's Last-
+            // schedule update will keep trying to write the dragged pose,
+            // but overwriting here each frame keeps the user's feedback
+            // pinned to "nothing happened" until they release.
+            if let Ok((_e, mut tf, _m, _t)) = placement_query.get_mut(active_entity) {
+                *tf = state.original_world_tf;
+            } else if let Ok((_e, mut tf, _m, _t, _d)) = prim_query.get_mut(active_entity) {
+                *tf = state.original_world_tf;
+            }
+            return;
+        }
+
+        if state.is_copy {
+            // Ghost at origin: a wireframe cube + tripod marks where the
+            // original sits while the dragged copy is whisked away.
+            gizmos.axes(state.original_world_tf, 1.0);
+            gizmos.cube(state.original_world_tf, Color::srgb(0.5, 0.5, 0.5));
+
+            // "+" indicator at the dragged position: bigger tripod plus a
+            // green crossing pair hovering above the cursor to signal
+            // "this is a copy" rather than a move.
+            let current_tf = if let Ok((_e, tf, _m, _t)) = placement_query.get(active_entity) {
+                Some(*tf)
+            } else if let Ok((_e, tf, _m, _t, _d)) = prim_query.get(active_entity) {
+                Some(*tf)
+            } else {
+                None
+            };
+            if let Some(current_tf) = current_tf {
+                gizmos.axes(current_tf, 1.5);
+                let center = current_tf.translation + Vec3::Y * 2.0;
+                let green = Color::srgb(0.0, 1.0, 0.0);
+                gizmos.line(center - Vec3::X * 0.4, center + Vec3::X * 0.4, green);
+                gizmos.line(center - Vec3::Z * 0.4, center + Vec3::Z * 0.4, green);
+            }
+        }
+        return;
+    }
+
+    // Falling edge — the gizmo went idle. Either commit or discard.
+    let was_aborted = state.aborted;
+    let is_copy = state.is_copy;
+    state.active_entity = None;
+    state.aborted = false;
+
+    if was_aborted {
         return;
     }
     let Some(mut record) = record else {
@@ -272,97 +411,135 @@ fn commit_gizmo_drag(
 
     let mut committed = false;
 
-    for (transform, marker, target) in placement_query.iter() {
-        if !target.is_active() {
-            continue;
-        }
-        let mut committed_local = false;
-        if let Some(placement) = record.placements.get_mut(marker.0) {
-            match placement {
-                Placement::Absolute { transform: rec_tf, .. } => {
-                    rec_tf.translation = Fp3(transform.translation.to_array());
-                    rec_tf.rotation = Fp4(transform.rotation.to_array());
-                    committed_local = true;
+    if let Ok((_e, transform, marker, _t)) = placement_query.get(active_entity) {
+        let transform = *transform;
+        let marker_idx = marker.0;
+        if is_copy {
+            // Clone the original (unchanged) placement, stamp it with the
+            // dragged pose (ignoring scale — placements don't scale), and
+            // push it as a new row. UI selection follows the new copy so
+            // the gizmo re-attaches to it on the next sync.
+            if let Some(original) = record.placements.get(marker_idx).cloned() {
+                let mut new_placement = original;
+                if write_transform_into_placement(&mut new_placement, &transform) {
+                    record.placements.push(new_placement);
+                    editor_state.selected_placement = Some(record.placements.len() - 1);
+                    committed = true;
                 }
-                Placement::Grid { transform: rec_tf, .. } => {
-                    rec_tf.translation = Fp3(transform.translation.to_array());
-                    rec_tf.rotation = Fp4(transform.rotation.to_array());
-                    committed_local = true;
-                }
-                Placement::Scatter { bounds, .. } => {
-                    match bounds {
-                        crate::pds::ScatterBounds::Circle { center, .. } => {
-                            center.0[0] = transform.translation.x;
-                            center.0[1] = transform.translation.z;
-                        }
-                        crate::pds::ScatterBounds::Rect { center, rotation, .. } => {
-                            center.0[0] = transform.translation.x;
-                            center.0[1] = transform.translation.z;
-                            let (yaw, _, _) = transform.rotation.to_euler(EulerRot::YXZ);
-                            rotation.0 = yaw;
-                        }
-                    }
-                    committed_local = true;
-                }
-                Placement::Unknown => {}
             }
-        }
-        if committed_local {
+        } else if let Some(placement) = record.placements.get_mut(marker_idx)
+            && write_transform_into_placement(placement, &transform)
+        {
             committed = true;
         }
-    }
-
-    for (transform, marker, target, detached) in prim_query.iter() {
-        if !target.is_active() {
-            continue;
-        }
+    } else if let Ok((_e, transform, marker, _t, detached)) = prim_query.get(active_entity) {
+        let transform = *transform;
 
         // Convert the post-drag world pose back into blueprint-local space.
         // A detached prim's `Transform` is already world-space (no parent);
-        // we divide out the original parent's world pose to recover the
-        // local offset the recipe expects. If the prim wasn't detached (edge
-        // case: selection raced with a rebuild), we treat its `Transform` as
-        // already-local and write it through unchanged.
+        // divide out the original parent's world pose to recover the local
+        // offset the recipe expects.
         let new_local = if let Some(detached) = detached {
             match global_tf.get(detached.original_parent) {
-                // Wrap the detached prim's local `Transform` (which is
-                // world-space because it has no parent) as a synthetic
-                // `GlobalTransform` so we can reuse Bevy's built-in
-                // world→local helper.
-                Ok(parent_gt) => GlobalTransform::from(*transform).reparented_to(parent_gt),
-                Err(_) => *transform,
+                Ok(parent_gt) => GlobalTransform::from(transform).reparented_to(parent_gt),
+                Err(_) => transform,
             }
         } else {
-            *transform
+            transform
         };
 
-        let Some(Generator::Construct { root }) = record.generators.get_mut(&marker.generator_ref)
-        else {
-            continue;
-        };
-
-        // Walk the blueprint tree along the recorded path. A mid-drag edit
-        // that removes a sibling could shift indices; bail cleanly if the
-        // path no longer resolves rather than panicking.
-        let mut current_node = root;
-        let mut valid = true;
-        for &idx in &marker.path {
-            if idx < current_node.children.len() {
-                current_node = &mut current_node.children[idx];
+        if let Some(Generator::Construct { root }) =
+            record.generators.get_mut(&marker.generator_ref)
+        {
+            if is_copy && !marker.path.is_empty() {
+                // Append the clone as a sibling of the original child. We
+                // forced is_copy=false for roots earlier, so by construction
+                // path is non-empty here.
+                let parent_path = &marker.path[..marker.path.len() - 1];
+                let child_idx = *marker.path.last().unwrap();
+                let mut parent_node = &mut *root;
+                let mut valid = true;
+                for &idx in parent_path {
+                    if idx < parent_node.children.len() {
+                        parent_node = &mut parent_node.children[idx];
+                    } else {
+                        valid = false;
+                        break;
+                    }
+                }
+                if valid && child_idx < parent_node.children.len() {
+                    let mut new_child = parent_node.children[child_idx].clone();
+                    new_child.transform = TransformData::from(new_local);
+                    parent_node.children.push(new_child);
+                    let new_idx = parent_node.children.len() - 1;
+                    if let Some(path) = editor_state.selected_prim_path.as_mut()
+                        && let Some(last) = path.last_mut()
+                    {
+                        *last = new_idx;
+                    }
+                    committed = true;
+                }
             } else {
-                valid = false;
-                break;
+                // Normal in-place update — walk the path and stamp the new
+                // local transform on the target node.
+                let mut current_node = &mut *root;
+                let mut valid = true;
+                for &idx in &marker.path {
+                    if idx < current_node.children.len() {
+                        current_node = &mut current_node.children[idx];
+                    } else {
+                        valid = false;
+                        break;
+                    }
+                }
+                if valid {
+                    current_node.transform = TransformData::from(new_local);
+                    committed = true;
+                }
             }
-        }
-
-        if valid {
-            current_node.transform = TransformData::from(new_local);
-            committed = true;
         }
     }
 
     if committed {
         info!("Gizmo drag committed. Rebuilding world.");
         record.set_changed();
+    }
+}
+
+/// Copy the translation + rotation from `transform` into `placement`. Scale
+/// is intentionally ignored: placements don't scale (their generator's
+/// construct tree owns shape), and the placement gizmo modes don't expose
+/// a scale handle. Returns `false` for `Placement::Unknown` (no schema to
+/// write into).
+fn write_transform_into_placement(placement: &mut Placement, transform: &Transform) -> bool {
+    match placement {
+        Placement::Absolute { transform: rec_tf, .. } => {
+            rec_tf.translation = Fp3(transform.translation.to_array());
+            rec_tf.rotation = Fp4(transform.rotation.to_array());
+            true
+        }
+        Placement::Grid { transform: rec_tf, .. } => {
+            rec_tf.translation = Fp3(transform.translation.to_array());
+            rec_tf.rotation = Fp4(transform.rotation.to_array());
+            true
+        }
+        Placement::Scatter { bounds, .. } => {
+            match bounds {
+                crate::pds::ScatterBounds::Circle { center, .. } => {
+                    center.0[0] = transform.translation.x;
+                    center.0[1] = transform.translation.z;
+                }
+                crate::pds::ScatterBounds::Rect {
+                    center, rotation, ..
+                } => {
+                    center.0[0] = transform.translation.x;
+                    center.0[1] = transform.translation.z;
+                    let (yaw, _, _) = transform.rotation.to_euler(EulerRot::YXZ);
+                    rotation.0 = yaw;
+                }
+            }
+            true
+        }
+        Placement::Unknown => false,
     }
 }
