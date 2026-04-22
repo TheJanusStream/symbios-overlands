@@ -80,7 +80,14 @@ fn draw_prim_node_ui(
                     node.children.push(PrimNode::default());
                     *dirty = true;
                 }
-                if !is_root && ui.small_button("− Delete").clicked() {
+                if !is_root
+                    && ui
+                        .add(
+                            egui::Button::new("− Delete")
+                                .fill(egui::Color32::from_rgb(180, 50, 50)),
+                        )
+                        .clicked()
+                {
                     action = PrimNodeAction::Delete;
                 }
             });

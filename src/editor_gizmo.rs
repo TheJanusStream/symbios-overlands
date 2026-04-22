@@ -502,6 +502,7 @@ fn manage_gizmo_drag(
 
     if committed {
         info!("Gizmo drag committed. Rebuilding world.");
+        editor_state.mark_dirty();
         record.set_changed();
     }
 }

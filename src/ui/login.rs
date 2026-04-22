@@ -1,8 +1,9 @@
 //! OAuth 2.0 + DPoP login flow.
 //!
-//! Collects PDS, Handle (display only), Relay Host, and an optional
-//! destination DID, then drives the atproto OAuth authorization-code flow
-//! via [`crate::oauth`]. The flow is target-specific:
+//! Collects PDS, Relay Host, and an optional destination DID, then drives
+//! the atproto OAuth authorization-code flow via [`crate::oauth`]. The
+//! authenticated handle is learnt back from the authorization response,
+//! so no handle input is needed from the user. The flow is target-specific:
 //!
 //! - **WASM** — `sessionStorage` carries the pending-auth blob across the
 //!   page redirect; the callback lands back on the hosted page with
@@ -55,7 +56,6 @@ pub struct LoginError(pub Option<String>);
 #[derive(Clone)]
 pub struct LoginFormState {
     pds: String,
-    handle: String,
     relay_host: String,
     target_did: String,
 }
@@ -64,7 +64,6 @@ impl Default for LoginFormState {
     fn default() -> Self {
         Self {
             pds: crate::config::login::DEFAULT_PDS.into(),
-            handle: crate::config::login::DEFAULT_HANDLE.into(),
             relay_host: crate::config::login::DEFAULT_RELAY_HOST.into(),
             target_did: crate::config::login::DEFAULT_TARGET_DID.into(),
         }
@@ -90,10 +89,6 @@ pub fn login_ui(
             ui.horizontal(|ui| {
                 ui.label("PDS:");
                 ui.text_edit_singleline(&mut form.pds);
-            });
-            ui.horizontal(|ui| {
-                ui.label("Handle:");
-                ui.text_edit_singleline(&mut form.handle);
             });
             ui.horizontal(|ui| {
                 ui.label("Relay Host:");

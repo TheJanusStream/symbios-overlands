@@ -70,7 +70,10 @@ pub(super) fn draw_placements_tab(
             if ui.selectable_label(false, label).clicked() {
                 *selected = Some(i);
             }
-            if ui.small_button("−").clicked() {
+            if ui
+                .add(egui::Button::new("−").fill(egui::Color32::from_rgb(180, 50, 50)))
+                .clicked()
+            {
                 to_remove = Some(i);
             }
         });

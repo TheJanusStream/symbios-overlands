@@ -356,8 +356,6 @@ pub mod login {
     pub const DEFAULT_PDS: &str = "https://bsky.social";
     /// Default relay signaller hostname.
     pub const DEFAULT_RELAY_HOST: &str = "37.143.131.78.nip.io";
-    pub const DEFAULT_HANDLE: &str = "YourHandle.bsky.social";
-    pub const DEFAULT_PASSWORD: &str = "";
     pub const DEFAULT_TARGET_DID: &str = "did:plc:z5yhcebtrvzblrojezn6pjgi";
 }
 

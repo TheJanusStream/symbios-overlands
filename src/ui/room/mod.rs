@@ -104,6 +104,21 @@ pub struct RoomEditorState {
     pub renaming_generator: Option<(String, String)>,
 }
 
+impl RoomEditorState {
+    /// Flag the editor as having uncommitted edits so the Publish and Load
+    /// buttons light up. Used by out-of-band edit paths — the 3D gizmo
+    /// commit, drag-drop placement from the Inventory — that mutate the
+    /// live `RoomRecord` without going through the egui widget flow that
+    /// normally sets [`Self::is_dirty`] via `widget_change`.
+    ///
+    /// Does not touch `pending_flush_secs`: those edit paths call
+    /// `record.set_changed()` themselves at commit time, so the debounce
+    /// timer that collapses slider drags has no work to do here.
+    pub fn mark_dirty(&mut self) {
+        self.is_dirty = true;
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn room_admin_ui(
     mut contexts: EguiContexts,
