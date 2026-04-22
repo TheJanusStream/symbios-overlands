@@ -1,12 +1,15 @@
 //! Avatar fetch plugin: resolves a peer's Bluesky profile picture and paints
-//! it onto the double-sided sail panel of their rover.
+//! it onto every [`RoverSail`] or [`ChestBadge`] descendant of their
+//! chassis — so a HoverRover flies it as a double-sided sail panel and a
+//! Humanoid wears it on the chest.
 //!
 //! On native builds the profile blob is fetched straight from `cdn.bsky.app`.
 //! On WASM that CDN lacks CORS headers, so `fetch_image_bytes` instead
 //! resolves the author's PDS from their DID document and downloads the raw
 //! blob via `com.atproto.sync.getBlob`.  Successful materials are cached on
-//! the chassis entity (`AvatarMaterial`) so airship rebuilds can re-apply
-//! the texture to the new sail child without another network round trip.
+//! the chassis entity ([`AvatarMaterial`]) so archetype rebuilds (hot-swap
+//! HoverRover ↔ Humanoid, or a phenotype re-spawn) can re-apply the texture
+//! to the freshly spawned child without another network round trip.
 
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;

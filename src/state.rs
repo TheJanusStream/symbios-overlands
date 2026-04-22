@@ -1,8 +1,8 @@
 //! Shared ECS state: the `AppState` enum driving the login/loading/ingame
 //! state machine, marker components for the local player and remote peers,
 //! the per-peer transform jitter buffer, rolling chat and diagnostics logs,
-//! and the live/stored avatar + room record resources backing the "Live UX"
-//! editor paradigm.
+//! and the live/stored avatar + room + inventory record resources backing
+//! the "Live UX" editor paradigm.
 
 use std::collections::VecDeque;
 
@@ -11,9 +11,10 @@ use bevy::prelude::*;
 use crate::pds::{AvatarRecord, InventoryRecord, RoomRecord};
 
 /// Application state machine. `Loading` waits on the async heightmap
-/// generation task, the ATProto PDS room-record fetch, *and* the local
-/// avatar-record fetch before handing off to `InGame`, so the terrain
-/// collider is solid and both recipes are ready when the first gameplay
+/// generation task, the ATProto PDS room-record fetch, the local
+/// avatar-record fetch, *and* the local inventory-record fetch before
+/// handing off to `InGame`, so the terrain collider is solid and every
+/// recipe (room + avatar + inventory) is resident when the first gameplay
 /// frame runs.
 #[derive(States, Default, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AppState {

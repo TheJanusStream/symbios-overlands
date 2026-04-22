@@ -1,15 +1,20 @@
-//! ATProto PDS integration: DID resolution, room-record fetch, and upsert,
-//! plus the `RoomRecord` lexicon that describes a room as a data-driven
-//! *recipe*.
+//! ATProto PDS integration: DID resolution, XRPC plumbing, and the three
+//! sovereign record lexicons the engine publishes to a player's own PDS.
 //!
-//! The record is stored at `collection = network.symbios.overlands.room,
-//! rkey = self`.  A record is composed of three open unions:
+//! | Record             | Collection NSID                          | rkey   |
+//! | ------------------ | ---------------------------------------- | ------ |
+//! | [`RoomRecord`]     | `network.symbios.overlands.room`         | `self` |
+//! | [`AvatarRecord`]   | `network.symbios.overlands.avatar`       | `self` |
+//! | [`InventoryRecord`] | `network.symbios.overlands.inventory`   | `self` |
 //!
-//! * `generators`  — named blueprints (terrain / water / shape / lsystem…)
+//! A `RoomRecord` is composed of three open unions:
+//!
+//! * `generators`  — named blueprints (terrain / water / shape / lsystem / construct / portal)
 //! * `placements`  — how and where those generators are instantiated
+//!   (absolute / scatter / grid)
 //! * `traits`      — ECS components attached to entities a generator spawns
 //!
-//! Every union uses `#[serde(other)] Unknown` so a client visiting a room
+//! Every union uses `#[serde(other)] Unknown` so a client visiting a record
 //! authored by a newer version of the engine skips the unrecognised variants
 //! instead of crashing its deserializer. This is how the schema evolves
 //! without breaking older clients.
