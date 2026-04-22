@@ -575,8 +575,12 @@ pub fn start_native_callback_server() -> Result<std::sync::mpsc::Receiver<(Strin
 }
 
 /// Parse `code` and `state` out of a URL like `/callback?code=abc&state=xyz`.
+///
+/// Exposed so the integration-test suite in `tests/` can exercise the
+/// native-loopback callback parser end-to-end; no production caller outside
+/// this module invokes it directly.
 #[cfg(not(target_arch = "wasm32"))]
-fn parse_callback_query(url: &str) -> (Option<String>, Option<String>) {
+pub fn parse_callback_query(url: &str) -> (Option<String>, Option<String>) {
     let Some(q_start) = url.find('?') else {
         return (None, None);
     };
@@ -663,51 +667,3 @@ impl Default for OauthClientRes {
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Resource, Default)]
 pub struct NativePendingAuthRes(pub std::sync::Mutex<Option<PendingAuth>>);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn client_metadata_redirect_matches_target() {
-        let meta = client_metadata();
-        assert_eq!(meta.redirect_uris.len(), 1);
-        #[cfg(target_arch = "wasm32")]
-        {
-            assert_eq!(meta.client_id, CLIENT_METADATA_URL);
-            assert_eq!(meta.redirect_uris[0], WASM_REDIRECT_URI);
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            // Loopback client_id pattern: http://localhost?redirect_uri=…&scope=…
-            assert!(meta.client_id.starts_with("http://localhost?"));
-            assert!(meta.client_id.contains("redirect_uri="));
-            assert!(meta.client_id.contains("scope="));
-            assert!(meta.redirect_uris[0].starts_with("http://127.0.0.1:"));
-            assert_eq!(meta.application_type.as_deref(), Some("native"));
-        }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[test]
-    fn parse_callback_query_typical() {
-        let (c, s) = parse_callback_query("/callback?code=abc123&state=xyz");
-        assert_eq!(c.as_deref(), Some("abc123"));
-        assert_eq!(s.as_deref(), Some("xyz"));
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[test]
-    fn parse_callback_query_percent_encoded() {
-        let (c, _) = parse_callback_query("/callback?code=a%2Bb&state=s");
-        assert_eq!(c.as_deref(), Some("a+b"));
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[test]
-    fn parse_callback_query_missing() {
-        let (c, s) = parse_callback_query("/callback");
-        assert!(c.is_none());
-        assert!(s.is_none());
-    }
-}

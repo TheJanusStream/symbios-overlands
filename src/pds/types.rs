@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// DAG-CBOR float scale. Every `f32` goes to the wire as `i32` scaled by this.
-pub(crate) const FP_SCALE: f32 = 10_000.0;
+pub const FP_SCALE: f32 = 10_000.0;
 
 /// Serialize a `u64` as a JSON **string** rather than a number.
 ///
