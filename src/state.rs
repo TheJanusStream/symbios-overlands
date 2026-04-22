@@ -117,14 +117,11 @@ pub struct RelayHost(pub String);
 #[derive(Resource, Clone)]
 pub struct CurrentRoomDid(pub String);
 
-/// Inserted by a portal interaction to request a seamless inter-room jump.
-/// The logout cleanup system inspects this to preserve the authenticated
-/// session (avoiding a hard round-trip through Login) while swapping out the
-/// matchbox socket for the target room. Consumed by `spawn_local_player` so
-/// the avatar materialises at the portal's exit coordinate instead of a
-/// random homeworld scatter point.
+/// Inserted when the player touches an inter-room portal. Freezes local
+/// movement and triggers an async fetch of the target room record while
+/// keeping the player in AppState::InGame.
 #[derive(Resource, Clone)]
-pub struct TravelRequest {
+pub struct TravelingTo {
     pub target_did: String,
     pub target_pos: Vec3,
 }

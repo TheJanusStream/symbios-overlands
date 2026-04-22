@@ -29,15 +29,14 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 use crate::pds::{
     self, BiomeFilter, Environment, Fp, Fp2, Fp3, Fp4, Generator, Placement, PrimNode, PrimShape,
     PropMeshType, RoomRecord, ScatterBounds, SovereignAshlarConfig, SovereignAsphaltConfig,
-    SovereignBarkConfig, WaterRelation,
-    SovereignBrickConfig, SovereignCobblestoneConfig, SovereignConcreteConfig,
+    SovereignBarkConfig, SovereignBrickConfig, SovereignCobblestoneConfig, SovereignConcreteConfig,
     SovereignCorrugatedConfig, SovereignEncausticConfig, SovereignGeneratorKind,
     SovereignGroundConfig, SovereignIronGrilleConfig, SovereignLeafConfig, SovereignMarbleConfig,
     SovereignMaterialConfig, SovereignMaterialSettings, SovereignMetalConfig,
     SovereignPaversConfig, SovereignPlankConfig, SovereignRockConfig, SovereignShingleConfig,
     SovereignSplatRule, SovereignStainedGlassConfig, SovereignStuccoConfig, SovereignTerrainConfig,
     SovereignTextureConfig, SovereignThatchConfig, SovereignTwigConfig, SovereignWainscotingConfig,
-    SovereignWindowConfig, TransformData,
+    SovereignWindowConfig, TransformData, WaterRelation,
 };
 use crate::state::{CurrentRoomDid, PublishFeedback, RoomRecordRecovery, StoredRoomRecord};
 
@@ -1557,11 +1556,22 @@ fn draw_placements_tab(
             Placement::Absolute { generator_ref, .. } => {
                 format!("#{i} Absolute → {generator_ref}")
             }
-            Placement::Scatter { generator_ref, count, .. } => {
+            Placement::Scatter {
+                generator_ref,
+                count,
+                ..
+            } => {
                 format!("#{i} Scatter × {count} → {generator_ref}")
             }
-            Placement::Grid { generator_ref, counts, .. } => {
-                format!("#{i} Grid {}x{}x{} → {generator_ref}", counts[0], counts[1], counts[2])
+            Placement::Grid {
+                generator_ref,
+                counts,
+                ..
+            } => {
+                format!(
+                    "#{i} Grid {}x{}x{} → {generator_ref}",
+                    counts[0], counts[1], counts[2]
+                )
             }
             Placement::Unknown => format!("#{i} (unknown)"),
         };
@@ -1633,7 +1643,9 @@ fn draw_placement_detail(
             snap_to_terrain,
         } => {
             generator_combo(ui, "Generator", generator_ref, gen_names, dirty);
-            if ui.checkbox(snap_to_terrain, "Snap to Terrain").changed() { *dirty = true; }
+            if ui.checkbox(snap_to_terrain, "Snap to Terrain").changed() {
+                *dirty = true;
+            }
             draw_transform_no_scale(ui, transform, dirty);
         }
         Placement::Scatter {
@@ -1646,8 +1658,12 @@ fn draw_placement_detail(
             random_yaw,
         } => {
             generator_combo(ui, "Generator", generator_ref, gen_names, dirty);
-            if ui.checkbox(snap_to_terrain, "Snap to Terrain").changed() { *dirty = true; }
-            if ui.checkbox(random_yaw, "Random Yaw").changed() { *dirty = true; }
+            if ui.checkbox(snap_to_terrain, "Snap to Terrain").changed() {
+                *dirty = true;
+            }
+            if ui.checkbox(random_yaw, "Random Yaw").changed() {
+                *dirty = true;
+            }
             drag_u32(ui, "Count", count, 0, 100_000, dirty);
             drag_u64(ui, "Seed", local_seed, dirty);
             draw_scatter_bounds(ui, bounds, dirty);
@@ -1662,21 +1678,67 @@ fn draw_placement_detail(
             random_yaw,
         } => {
             generator_combo(ui, "Generator", generator_ref, gen_names, dirty);
-            if ui.checkbox(snap_to_terrain, "Snap to Terrain").changed() { *dirty = true; }
-            if ui.checkbox(random_yaw, "Random Yaw").changed() { *dirty = true; }
+            if ui.checkbox(snap_to_terrain, "Snap to Terrain").changed() {
+                *dirty = true;
+            }
+            if ui.checkbox(random_yaw, "Random Yaw").changed() {
+                *dirty = true;
+            }
 
             ui.label("Grid Counts (X, Y, Z)");
             ui.horizontal(|ui| {
-                if ui.add(egui::DragValue::new(&mut counts[0]).speed(1).range(1..=100)).changed() { *dirty = true; }
-                if ui.add(egui::DragValue::new(&mut counts[1]).speed(1).range(1..=100)).changed() { *dirty = true; }
-                if ui.add(egui::DragValue::new(&mut counts[2]).speed(1).range(1..=100)).changed() { *dirty = true; }
+                if ui
+                    .add(egui::DragValue::new(&mut counts[0]).speed(1).range(1..=100))
+                    .changed()
+                {
+                    *dirty = true;
+                }
+                if ui
+                    .add(egui::DragValue::new(&mut counts[1]).speed(1).range(1..=100))
+                    .changed()
+                {
+                    *dirty = true;
+                }
+                if ui
+                    .add(egui::DragValue::new(&mut counts[2]).speed(1).range(1..=100))
+                    .changed()
+                {
+                    *dirty = true;
+                }
             });
 
             ui.label("Grid Gaps (X, Y, Z)");
             ui.horizontal(|ui| {
-                if ui.add(egui::DragValue::new(&mut gaps.0[0]).speed(0.1).range(0.01..=100.0)).changed() { *dirty = true; }
-                if ui.add(egui::DragValue::new(&mut gaps.0[1]).speed(0.1).range(0.01..=100.0)).changed() { *dirty = true; }
-                if ui.add(egui::DragValue::new(&mut gaps.0[2]).speed(0.1).range(0.01..=100.0)).changed() { *dirty = true; }
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut gaps.0[0])
+                            .speed(0.1)
+                            .range(0.01..=100.0),
+                    )
+                    .changed()
+                {
+                    *dirty = true;
+                }
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut gaps.0[1])
+                            .speed(0.1)
+                            .range(0.01..=100.0),
+                    )
+                    .changed()
+                {
+                    *dirty = true;
+                }
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut gaps.0[2])
+                            .speed(0.1)
+                            .range(0.01..=100.0),
+                    )
+                    .changed()
+                {
+                    *dirty = true;
+                }
             });
 
             draw_transform_no_scale(ui, transform, dirty);
@@ -1749,16 +1811,37 @@ fn draw_scatter_bounds(ui: &mut egui::Ui, bounds: &mut ScatterBounds, dirty: &mu
     }
     match bounds {
         ScatterBounds::Circle { center, radius } => {
-            ui.label(egui::RichText::new(format!("Center: X {:.1}, Z {:.1} (Use Gizmo to move)", center.0[0], center.0[1])).small().color(egui::Color32::GRAY));
+            ui.label(
+                egui::RichText::new(format!(
+                    "Center: X {:.1}, Z {:.1} (Use Gizmo to move)",
+                    center.0[0], center.0[1]
+                ))
+                .small()
+                .color(egui::Color32::GRAY),
+            );
             fp_slider(ui, "Radius", radius, 1.0, 1024.0, dirty);
         }
-        ScatterBounds::Rect { center, extents, rotation } => {
-            ui.label(egui::RichText::new(format!("Center: X {:.1}, Z {:.1} (Use Gizmo to move)", center.0[0], center.0[1])).small().color(egui::Color32::GRAY));
+        ScatterBounds::Rect {
+            center,
+            extents,
+            rotation,
+        } => {
+            ui.label(
+                egui::RichText::new(format!(
+                    "Center: X {:.1}, Z {:.1} (Use Gizmo to move)",
+                    center.0[0], center.0[1]
+                ))
+                .small()
+                .color(egui::Color32::GRAY),
+            );
             let mut e = extents.0;
             ui.horizontal(|ui| {
                 ui.label("Extents");
                 for v in e.iter_mut() {
-                    if ui.add(egui::DragValue::new(v).speed(1.0).range(0.0..=4096.0)).changed() {
+                    if ui
+                        .add(egui::DragValue::new(v).speed(1.0).range(0.0..=4096.0))
+                        .changed()
+                    {
                         *dirty = true;
                     }
                 }
@@ -1766,7 +1849,10 @@ fn draw_scatter_bounds(ui: &mut egui::Ui, bounds: &mut ScatterBounds, dirty: &mu
             *extents = Fp2(e);
 
             let mut deg = rotation.0.to_degrees();
-            if ui.add(egui::Slider::new(&mut deg, -180.0..=180.0).text("Rotation (deg)")).changed() {
+            if ui
+                .add(egui::Slider::new(&mut deg, -180.0..=180.0).text("Rotation (deg)"))
+                .changed()
+            {
                 rotation.0 = deg.to_radians();
                 *dirty = true;
             }
@@ -1778,25 +1864,64 @@ fn draw_transform_no_scale(ui: &mut egui::Ui, t: &mut TransformData, dirty: &mut
     ui.label("Translation");
     let mut tr = t.translation.0;
     ui.horizontal(|ui| {
-        if ui.add(egui::DragValue::new(&mut tr[0]).speed(0.5)).changed() { *dirty = true; }
-        if ui.add(egui::DragValue::new(&mut tr[1]).speed(0.5)).changed() { *dirty = true; }
-        if ui.add(egui::DragValue::new(&mut tr[2]).speed(0.5)).changed() { *dirty = true; }
+        if ui
+            .add(egui::DragValue::new(&mut tr[0]).speed(0.5))
+            .changed()
+        {
+            *dirty = true;
+        }
+        if ui
+            .add(egui::DragValue::new(&mut tr[1]).speed(0.5))
+            .changed()
+        {
+            *dirty = true;
+        }
+        if ui
+            .add(egui::DragValue::new(&mut tr[2]).speed(0.5))
+            .changed()
+        {
+            *dirty = true;
+        }
     });
     t.translation = Fp3(tr);
 
     ui.label("Rotation (quaternion xyzw)");
     let mut rot = t.rotation.0;
     ui.horizontal(|ui| {
-        if ui.add(egui::DragValue::new(&mut rot[0]).speed(0.01)).changed() { *dirty = true; }
-        if ui.add(egui::DragValue::new(&mut rot[1]).speed(0.01)).changed() { *dirty = true; }
-        if ui.add(egui::DragValue::new(&mut rot[2]).speed(0.01)).changed() { *dirty = true; }
-        if ui.add(egui::DragValue::new(&mut rot[3]).speed(0.01)).changed() { *dirty = true; }
+        if ui
+            .add(egui::DragValue::new(&mut rot[0]).speed(0.01))
+            .changed()
+        {
+            *dirty = true;
+        }
+        if ui
+            .add(egui::DragValue::new(&mut rot[1]).speed(0.01))
+            .changed()
+        {
+            *dirty = true;
+        }
+        if ui
+            .add(egui::DragValue::new(&mut rot[2]).speed(0.01))
+            .changed()
+        {
+            *dirty = true;
+        }
+        if ui
+            .add(egui::DragValue::new(&mut rot[3]).speed(0.01))
+            .changed()
+        {
+            *dirty = true;
+        }
     });
     t.rotation = Fp4(rot);
 
     ui.label(
-        egui::RichText::new(format!("Scale: {:.2} x {:.2} x {:.2} (Configure scale in Generator)", t.scale.0[0], t.scale.0[1], t.scale.0[2]))
-            .small().color(egui::Color32::GRAY)
+        egui::RichText::new(format!(
+            "Scale: {:.2} x {:.2} x {:.2} (Configure scale in Generator)",
+            t.scale.0[0], t.scale.0[1], t.scale.0[2]
+        ))
+        .small()
+        .color(egui::Color32::GRAY),
     );
 }
 
@@ -1829,10 +1954,7 @@ fn draw_biome_filter(ui: &mut egui::Ui, filter: &mut BiomeFilter, dirty: &mut bo
             (WaterRelation::Below, "Below"),
         ];
         for (value, label) in options {
-            if ui
-                .radio_value(&mut filter.water, value, label)
-                .changed()
-            {
+            if ui.radio_value(&mut filter.water, value, label).changed() {
                 *dirty = true;
             }
         }

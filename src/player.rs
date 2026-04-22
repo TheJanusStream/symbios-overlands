@@ -21,12 +21,18 @@ use crate::avatar::AvatarMaterial;
 use crate::config::airship as ac;
 use crate::config::rover as cfg;
 use crate::config::terrain as tcfg;
-use crate::pds::{AvatarBody, AvatarRecord, HumanoidPhenotype, RoverPhenotype};
+use crate::pds::{
+    AvatarBody, AvatarRecord, FetchError, HumanoidPhenotype, RoomRecord, RoverPhenotype,
+    fetch_room_record,
+};
 use crate::protocol::PontoonShape;
 use crate::state::{
-    AppState, CurrentRoomDid, LiveAvatarRecord, LocalPlayer, RemotePeer, TravelRequest,
+    AppState, CurrentRoomDid, LiveAvatarRecord, LocalPlayer, RemotePeer, TravelingTo,
 };
 use crate::world_builder::{OverlandsFoliageTasks, PortalMarker, build_procedural_material};
+
+#[derive(Component)]
+struct PortalTravelTask(bevy::tasks::Task<Result<Option<RoomRecord>, FetchError>>);
 
 /// Snapshot of the last `AvatarRecord` whose visuals have been painted onto
 /// a remote peer. `detect_remote_archetype_change` listens to the broad
@@ -134,6 +140,7 @@ impl Plugin for PlayerPlugin {
                     lift_player_above_new_ground,
                     animate_humanoid_limbs,
                     handle_portal_interaction,
+                    poll_portal_travel_tasks,
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame)),
@@ -172,33 +179,18 @@ fn spawn_local_player(
     mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
     hm_res: Res<crate::terrain::FinishedHeightMap>,
     live: Res<LiveAvatarRecord>,
-    travel_req: Option<Res<TravelRequest>>,
 ) {
     let hm = &hm_res.0;
     let extent = (hm.width() - 1) as f32 * hm.scale();
     let centre = extent * 0.5;
 
-    // A pending `TravelRequest` (inserted by the portal-interaction system
-    // immediately before a state transition) hijacks the spawn location so the
-    // avatar materialises at the portal's exit coordinate in the new room.
-    // Consume it so the next natural spawn/respawn falls back to the random
-    // homeworld scatter.
-    let (ox, oy, oz, tilt) = if let Some(req) = travel_req.as_deref() {
-        let p = req.target_pos;
-        (p.x, p.y, p.z, Quat::IDENTITY)
-    } else {
-        let (rx, rz) = random_spawn_xz();
-        let hm_x = (centre + rx).clamp(0.0, extent);
-        let hm_z = (centre + rz).clamp(0.0, extent);
-        let ground_y = hm.get_height_at(hm_x, hm_z);
-        let surface_normal = hm.get_normal_at(hm_x, hm_z);
-        let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
-        (rx, ground_y + cfg::SPAWN_HEIGHT_OFFSET, rz, tilt)
-    };
-
-    if travel_req.is_some() {
-        commands.remove_resource::<TravelRequest>();
-    }
+    let (rx, rz) = random_spawn_xz();
+    let hm_x = (centre + rx).clamp(0.0, extent);
+    let hm_z = (centre + rz).clamp(0.0, extent);
+    let ground_y = hm.get_height_at(hm_x, hm_z);
+    let surface_normal = hm.get_normal_at(hm_x, hm_z);
+    let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
+    let (ox, oy, oz) = (rx, ground_y + cfg::SPAWN_HEIGHT_OFFSET, rz);
 
     let entity = commands
         .spawn((
@@ -972,7 +964,11 @@ fn apply_rover_drive_forces(
     live: Res<LiveAvatarRecord>,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut query: Query<(Forces, &GlobalTransform), (With<LocalPlayer>, With<HoverRoverArchetype>)>,
+    traveling: Option<Res<TravelingTo>>,
 ) {
+    if traveling.is_some() {
+        return;
+    }
     let AvatarBody::HoverRover { kinematics, .. } = &live.0.body else {
         return;
     };
@@ -1089,7 +1085,11 @@ fn apply_humanoid_walk(
     >,
     mut visual_roots: Query<&mut Transform, With<HumanoidVisualRoot>>,
     spatial_query: SpatialQuery,
+    traveling: Option<Res<TravelingTo>>,
 ) {
+    if traveling.is_some() {
+        return;
+    }
     let AvatarBody::Humanoid {
         kinematics,
         phenotype,
@@ -1249,8 +1249,8 @@ fn lift_player_above_new_ground(
 /// Per-frame sweep that fires the portal jump the instant the local player's
 /// sensor-collision set contains a `PortalMarker`. An intra-room portal snaps
 /// the chassis to the exit pose and zeros its velocities; an inter-room
-/// portal stages a `TravelRequest` + `AppState::Loading` transition so the
-/// logout cleanup can swap the matchbox socket without dropping the session.
+/// portal stages a `TravelingTo` resource and spawns an async `RoomRecord`
+/// fetch so the destination can be hot-swapped without leaving `InGame`.
 #[allow(clippy::type_complexity)]
 fn handle_portal_interaction(
     mut commands: Commands,
@@ -1265,7 +1265,6 @@ fn handle_portal_interaction(
     >,
     portals: Query<&PortalMarker>,
     current_room: Option<Res<CurrentRoomDid>>,
-    mut next_state: ResMut<NextState<AppState>>,
 ) {
     let Ok((collisions, mut tf, mut lv, mut av)) = players.single_mut() else {
         return;
@@ -1285,12 +1284,19 @@ fn handle_portal_interaction(
             lv.0 = Vec3::ZERO;
             av.0 = Vec3::ZERO;
         } else {
-            commands.insert_resource(TravelRequest {
+            // Inter-room portal: Freeze the player and start the async fetch.
+            commands.insert_resource(TravelingTo {
                 target_did: portal.target_did.clone(),
                 target_pos: portal.target_pos,
             });
-            commands.insert_resource(CurrentRoomDid(portal.target_did.clone()));
-            next_state.set(AppState::Loading);
+
+            let did_clone = portal.target_did.clone();
+            let pool = bevy::tasks::IoTaskPool::get();
+            let task = pool.spawn(async move {
+                let client = crate::config::http::default_client();
+                fetch_room_record(&client, &did_clone).await
+            });
+            commands.spawn(PortalTravelTask(task));
         }
         break;
     }
@@ -1334,4 +1340,76 @@ fn respawn_if_fallen(
     rot.0 = tilt;
     lin_vel.0 = Vec3::ZERO;
     ang_vel.0 = Vec3::ZERO;
+}
+
+#[allow(clippy::too_many_arguments)]
+fn poll_portal_travel_tasks(
+    mut commands: Commands,
+    mut tasks: Query<(Entity, &mut PortalTravelTask)>,
+    traveling: Option<Res<TravelingTo>>,
+    mut room_record: Option<ResMut<RoomRecord>>,
+    mut stored_room: Option<ResMut<crate::state::StoredRoomRecord>>,
+    mut current_did: Option<ResMut<CurrentRoomDid>>,
+    mut chat: ResMut<crate::state::ChatHistory>,
+    relay_host: Option<Res<crate::state::RelayHost>>,
+    mut players: Query<
+        (&mut Transform, &mut LinearVelocity, &mut AngularVelocity),
+        With<LocalPlayer>,
+    >,
+) {
+    for (entity, mut task) in tasks.iter_mut() {
+        let Some(result) = bevy::tasks::futures_lite::future::block_on(
+            bevy::tasks::futures_lite::future::poll_once(&mut task.0),
+        ) else {
+            continue;
+        };
+
+        commands.entity(entity).despawn();
+        let Some(travel_data) = traveling.as_deref() else {
+            continue;
+        };
+
+        // 1. Resolve the new record (or default if 404)
+        let mut new_record = match result {
+            Ok(Some(r)) => r,
+            Ok(None) | Err(_) => RoomRecord::default_for_did(&travel_data.target_did),
+        };
+        new_record.sanitize();
+
+        // 2. Hot-swap the ECS Resources (Triggers world_builder.rs automatically!)
+        if let Some(rec) = room_record.as_mut() {
+            **rec = new_record.clone();
+        }
+        if let Some(stored) = stored_room.as_mut() {
+            **stored = crate::state::StoredRoomRecord(new_record);
+        }
+        if let Some(did) = current_did.as_mut() {
+            did.0 = travel_data.target_did.clone();
+        }
+
+        // 3. Hot-swap the WebRTC Socket
+        commands.remove_resource::<bevy_symbios_multiuser::prelude::SymbiosMultiuserConfig<
+            crate::protocol::OverlandsMessage,
+        >>();
+        if let Some(host) = relay_host.as_deref() {
+            commands.insert_resource(bevy_symbios_multiuser::prelude::SymbiosMultiuserConfig::<
+                crate::protocol::OverlandsMessage,
+            > {
+                room_url: format!("wss://{}/overlands/{}", host.0, travel_data.target_did),
+                ice_servers: None,
+                _marker: std::marker::PhantomData,
+            });
+        }
+
+        // 4. Teleport player and clear momentum
+        if let Ok((mut tf, mut lv, mut av)) = players.single_mut() {
+            tf.translation = travel_data.target_pos;
+            lv.0 = Vec3::ZERO;
+            av.0 = Vec3::ZERO;
+        }
+
+        // 5. Clean up state
+        chat.messages.clear();
+        commands.remove_resource::<TravelingTo>();
+    }
 }

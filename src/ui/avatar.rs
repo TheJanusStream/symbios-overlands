@@ -94,8 +94,8 @@ pub fn avatar_ui(
                         && current_kind != "hover_rover"
                     {
                         live_mut.0.body = AvatarBody::HoverRover {
-                            phenotype: RoverPhenotype::default(),
-                            kinematics: RoverKinematics::default(),
+                            phenotype: Box::new(RoverPhenotype::default()),
+                            kinematics: Box::new(RoverKinematics::default()),
                         };
                     }
                     if ui
@@ -104,8 +104,8 @@ pub fn avatar_ui(
                         && current_kind != "humanoid"
                     {
                         live_mut.0.body = AvatarBody::Humanoid {
-                            phenotype: HumanoidPhenotype::default(),
-                            kinematics: HumanoidKinematics::default(),
+                            phenotype: Box::new(HumanoidPhenotype::default()),
+                            kinematics: Box::new(HumanoidKinematics::default()),
                         };
                     }
                 });

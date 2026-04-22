@@ -513,12 +513,16 @@ fn manage_gizmo_drag(
 /// write into).
 fn write_transform_into_placement(placement: &mut Placement, transform: &Transform) -> bool {
     match placement {
-        Placement::Absolute { transform: rec_tf, .. } => {
+        Placement::Absolute {
+            transform: rec_tf, ..
+        } => {
             rec_tf.translation = Fp3(transform.translation.to_array());
             rec_tf.rotation = Fp4(transform.rotation.to_array());
             true
         }
-        Placement::Grid { transform: rec_tf, .. } => {
+        Placement::Grid {
+            transform: rec_tf, ..
+        } => {
             rec_tf.translation = Fp3(transform.translation.to_array());
             rec_tf.rotation = Fp4(transform.rotation.to_array());
             true

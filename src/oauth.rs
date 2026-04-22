@@ -72,7 +72,7 @@ pub fn native_redirect_uri() -> String {
 ///   `bsky.social` AS expects for native callback flows; without it the
 ///   PAR endpoint rejects the request with HTTP 400.
 pub fn client_metadata() -> OAuthClientMetadata {
-    let scope = "atproto transition:generic";
+    let scope = "atproto transition:generic network.symbios.overlands.room network.symbios.overlands.avatar";
     #[cfg(target_arch = "wasm32")]
     {
         OAuthClientMetadata {

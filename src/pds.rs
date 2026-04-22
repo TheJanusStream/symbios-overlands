@@ -249,7 +249,9 @@ impl From<Transform> for TransformData {
     }
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 /// Whether a sampled point should be accepted above, below, or regardless of
 /// the world's water surface. `Both` is the no-op default.
@@ -1024,9 +1026,10 @@ define_sovereign_texture_cfg!(SovereignEncausticConfig => bevy_symbios_texture::
 /// `bevy_symbios_texture` generator. Serialises with a `$type` discriminant
 /// so newer variants round-trip safely through older clients via
 /// `#[serde(other)] Unknown`.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(tag = "$type")]
 pub enum SovereignTextureConfig {
+    #[default]
     None,
     Leaf(SovereignLeafConfig),
     Twig(SovereignTwigConfig),
@@ -1053,12 +1056,6 @@ pub enum SovereignTextureConfig {
     Encaustic(SovereignEncausticConfig),
     #[serde(other)]
     Unknown,
-}
-
-impl Default for SovereignTextureConfig {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 impl SovereignTextureConfig {
@@ -1750,19 +1747,23 @@ impl Default for HumanoidKinematics {
 
 /// Open-union avatar body. Future vehicle types add new `#[serde(rename)]`
 /// variants; older clients fall through to `Unknown`.
+///
+/// Phenotype + kinematics payloads are boxed so the enum's stack footprint
+/// stays close to that of the zero-sized `Unknown` variant. Deref coercion
+/// makes the boxing transparent at every access site.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "$type")]
 pub enum AvatarBody {
     #[serde(rename = "network.symbios.avatar.hover_rover")]
     HoverRover {
-        phenotype: RoverPhenotype,
-        kinematics: RoverKinematics,
+        phenotype: Box<RoverPhenotype>,
+        kinematics: Box<RoverKinematics>,
     },
 
     #[serde(rename = "network.symbios.avatar.humanoid")]
     Humanoid {
-        phenotype: HumanoidPhenotype,
-        kinematics: HumanoidKinematics,
+        phenotype: Box<HumanoidPhenotype>,
+        kinematics: Box<HumanoidKinematics>,
     },
 
     #[serde(other)]
@@ -1821,8 +1822,8 @@ impl AvatarRecord {
         Self {
             lex_type: AVATAR_COLLECTION.into(),
             body: AvatarBody::HoverRover {
-                phenotype,
-                kinematics: RoverKinematics::default(),
+                phenotype: Box::new(phenotype),
+                kinematics: Box::new(RoverKinematics::default()),
             },
         }
     }

@@ -366,23 +366,42 @@ fn compile_room_record(
 
     for (placement_index, placement) in record.placements.iter().enumerate() {
         let (anchor_tf, snap) = match placement {
-            Placement::Absolute { transform, snap_to_terrain, .. } => {
-                (transform_from_data(transform).with_scale(Vec3::ONE), *snap_to_terrain)
-            }
-            Placement::Scatter { bounds, snap_to_terrain, .. } => {
+            Placement::Absolute {
+                transform,
+                snap_to_terrain,
+                ..
+            } => (
+                transform_from_data(transform).with_scale(Vec3::ONE),
+                *snap_to_terrain,
+            ),
+            Placement::Scatter {
+                bounds,
+                snap_to_terrain,
+                ..
+            } => {
                 let center = match bounds {
-                    ScatterBounds::Circle { center, .. } => Vec3::new(center.0[0], 0.0, center.0[1]),
+                    ScatterBounds::Circle { center, .. } => {
+                        Vec3::new(center.0[0], 0.0, center.0[1])
+                    }
                     ScatterBounds::Rect { center, .. } => Vec3::new(center.0[0], 0.0, center.0[1]),
                 };
                 let rot = match bounds {
                     ScatterBounds::Circle { .. } => Quat::IDENTITY,
                     ScatterBounds::Rect { rotation, .. } => Quat::from_rotation_y(rotation.0),
                 };
-                (Transform::from_translation(center).with_rotation(rot), *snap_to_terrain)
+                (
+                    Transform::from_translation(center).with_rotation(rot),
+                    *snap_to_terrain,
+                )
             }
-            Placement::Grid { transform, snap_to_terrain, .. } => {
-                (transform_from_data(transform).with_scale(Vec3::ONE), *snap_to_terrain)
-            }
+            Placement::Grid {
+                transform,
+                snap_to_terrain,
+                ..
+            } => (
+                transform_from_data(transform).with_scale(Vec3::ONE),
+                *snap_to_terrain,
+            ),
             Placement::Unknown => continue,
         };
 
@@ -402,21 +421,32 @@ fn compile_room_record(
         }
 
         // The unified Anchor Entity
-        let anchor = ctx.commands.spawn((
-            anchor_world_tf,
-            Visibility::default(),
-            RigidBody::Static,
-            PlacementMarker(placement_index),
-            RoomEntity,
-        )).id();
+        let anchor = ctx
+            .commands
+            .spawn((
+                anchor_world_tf,
+                Visibility::default(),
+                RigidBody::Static,
+                PlacementMarker(placement_index),
+                RoomEntity,
+            ))
+            .id();
 
         match placement {
             Placement::Absolute { generator_ref, .. } => {
-                if let Some(entity) = spawn_from_generator(&mut ctx, generator_ref, Transform::IDENTITY) {
+                if let Some(entity) =
+                    spawn_from_generator(&mut ctx, generator_ref, Transform::IDENTITY)
+                {
                     ctx.commands.entity(anchor).add_child(entity);
                 }
             }
-            Placement::Grid { generator_ref, counts, gaps, random_yaw, .. } => {
+            Placement::Grid {
+                generator_ref,
+                counts,
+                gaps,
+                random_yaw,
+                ..
+            } => {
                 let [cx, cy, cz] = *counts;
                 let [gx, gy, gz] = gaps.0;
                 let start_x = -((cx as f32 - 1.0) * gx) / 2.0;
@@ -440,7 +470,8 @@ fn compile_room_record(
 
                             let mut final_local_y = local_y;
                             if snap {
-                                let world_pos = anchor_world_tf.transform_point(Vec3::new(local_x, 0.0, local_z));
+                                let world_pos = anchor_world_tf
+                                    .transform_point(Vec3::new(local_x, 0.0, local_z));
                                 let world_y = if let Some(hm_res) = heightmap.as_deref() {
                                     let hm = &hm_res.0;
                                     let extent = (hm.width() - 1) as f32 * hm.scale();
@@ -451,7 +482,10 @@ fn compile_room_record(
                                 } else {
                                     0.0
                                 };
-                                let local_snapped = anchor_world_tf.compute_affine().inverse().transform_point3(Vec3::new(world_pos.x, world_y, world_pos.z));
+                                let local_snapped = anchor_world_tf
+                                    .compute_affine()
+                                    .inverse()
+                                    .transform_point3(Vec3::new(world_pos.x, world_y, world_pos.z));
                                 final_local_y = local_snapped.y + local_y;
                             }
 
@@ -463,14 +497,24 @@ fn compile_room_record(
                             };
                             let child_tf = Transform::from_xyz(local_x, final_local_y, local_z)
                                 .with_rotation(rotation);
-                            if let Some(entity) = spawn_from_generator(&mut ctx, generator_ref, child_tf) {
+                            if let Some(entity) =
+                                spawn_from_generator(&mut ctx, generator_ref, child_tf)
+                            {
                                 ctx.commands.entity(anchor).add_child(entity);
                             }
                         }
                     }
                 }
             }
-            Placement::Scatter { generator_ref, bounds, count, local_seed, biome_filter, random_yaw, .. } => {
+            Placement::Scatter {
+                generator_ref,
+                bounds,
+                count,
+                local_seed,
+                biome_filter,
+                random_yaw,
+                ..
+            } => {
                 let terrain_cfg = crate::pds::find_terrain_config(ctx.record);
                 let water_level = find_water_level_for_filter(ctx.record);
                 let max_attempts = count.saturating_mul(10).max(*count);
@@ -511,12 +555,17 @@ fn compile_room_record(
                         (0.0, biome_filter.is_noop())
                     };
 
-                    if !keep { continue; }
+                    if !keep {
+                        continue;
+                    }
 
                     // Make scatter children of the anchor so grabbing the Gizmo moves the whole forest live.
                     // Always draw from `rng` so disabling `random_yaw` doesn't shift downstream
                     // samples — the spawn stream stays byte-identical across peers regardless.
-                    let local_pos = anchor_world_tf.compute_affine().inverse().transform_point3(Vec3::new(world_x, world_y, world_z));
+                    let local_pos = anchor_world_tf
+                        .compute_affine()
+                        .inverse()
+                        .transform_point3(Vec3::new(world_x, world_y, world_z));
                     let yaw_sample = unit_f32(&mut rng) * std::f32::consts::PI;
                     let rotation = if *random_yaw {
                         Quat::from_rotation_y(yaw_sample)
@@ -532,7 +581,10 @@ fn compile_room_record(
                 }
 
                 if spawned < *count {
-                    debug!("Scatter `{}` placed {}/{} points", generator_ref, spawned, count);
+                    debug!(
+                        "Scatter `{}` placed {}/{} points",
+                        generator_ref, spawned, count
+                    );
                 }
             }
             Placement::Unknown => {}
@@ -839,7 +891,11 @@ fn transform_from_data(t: &TransformData) -> Transform {
 /// centre (which a naïve `radius * random()` would produce).
 fn sample_bounds(bounds: &ScatterBounds, rng: &mut ChaCha8Rng) -> (f32, f32) {
     match bounds {
-        ScatterBounds::Rect { center, extents, rotation } => {
+        ScatterBounds::Rect {
+            center,
+            extents,
+            rotation,
+        } => {
             let lx = unit_f32(rng) * extents.0[0];
             let lz = unit_f32(rng) * extents.0[1];
             let rot = rotation.0;
@@ -871,12 +927,18 @@ fn find_water_level_for_filter(record: &RoomRecord) -> Option<f32> {
     keys.sort();
     for k in &keys {
         if let Some(Generator::Water { level_offset }) = record.generators.get(*k) {
-            let placement_y = record.placements.iter().find_map(|p| match p {
-                Placement::Absolute { generator_ref, transform, .. } if generator_ref == *k => {
-                    Some(transform.translation.0[1])
-                }
-                _ => None,
-            }).unwrap_or(0.0);
+            let placement_y = record
+                .placements
+                .iter()
+                .find_map(|p| match p {
+                    Placement::Absolute {
+                        generator_ref,
+                        transform,
+                        ..
+                    } if generator_ref == *k => Some(transform.translation.0[1]),
+                    _ => None,
+                })
+                .unwrap_or(0.0);
             let base_wl = tcfg::water::LEVEL_FACTOR * tcfg::HEIGHT_SCALE;
             let wl = (base_wl + level_offset.0).max(0.001);
             return Some(placement_y + wl);
@@ -1048,25 +1110,18 @@ fn spawn_from_generator(
             apply_traits(ctx.commands, entity, ctx.record, generator_ref);
             Some(entity)
         }
-        Generator::LSystem { .. } => {
-            spawn_lsystem_entity(ctx, generator, generator_ref, transform)
-        }
+        Generator::LSystem { .. } => spawn_lsystem_entity(ctx, generator, generator_ref, transform),
         Generator::Shape { .. } => {
             // Stub: symbios-shape integration lands in a follow-up.
             None
         }
-        Generator::Construct { root } => Some(spawn_construct_entity(
-            ctx,
-            root,
-            generator_ref,
-            transform,
-        )),
+        Generator::Construct { root } => {
+            Some(spawn_construct_entity(ctx, root, generator_ref, transform))
+        }
         Generator::Portal {
             target_did,
             target_pos,
-        } => Some(spawn_portal_entity(
-            ctx, target_did, target_pos, transform,
-        )),
+        } => Some(spawn_portal_entity(ctx, target_did, target_pos, transform)),
         Generator::Unknown => {
             warn!("Ignoring generator `{}` of unknown $type", generator_ref);
             None
@@ -1800,10 +1855,18 @@ fn draw_placement_visualizers(
     record: Option<Res<RoomRecord>>,
     heightmap: Option<Res<FinishedHeightMap>>,
 ) {
-    let Some(record) = record else { return; };
-    if editor_state.selected_tab != crate::ui::room::EditorTab::Placements { return; }
-    let Some(idx) = editor_state.selected_placement else { return; };
-    let Some(placement) = record.placements.get(idx) else { return; };
+    let Some(record) = record else {
+        return;
+    };
+    if editor_state.selected_tab != crate::ui::room::EditorTab::Placements {
+        return;
+    }
+    let Some(idx) = editor_state.selected_placement else {
+        return;
+    };
+    let Some(placement) = record.placements.get(idx) else {
+        return;
+    };
 
     let get_y = |x: f32, z: f32| -> f32 {
         if let Some(hm_res) = heightmap.as_deref() {
@@ -1821,32 +1884,60 @@ fn draw_placement_visualizers(
     let color = Color::srgb(0.0, 1.0, 0.5);
 
     match placement {
-        Placement::Absolute { transform, snap_to_terrain, .. } => {
+        Placement::Absolute {
+            transform,
+            snap_to_terrain,
+            ..
+        } => {
             let mut pos = Vec3::from_array(transform.translation.0);
-            if *snap_to_terrain { pos.y = get_y(pos.x, pos.z); }
+            if *snap_to_terrain {
+                pos.y = get_y(pos.x, pos.z);
+            }
             gizmos.sphere(pos, 1.0, color);
         }
-        Placement::Scatter { bounds, snap_to_terrain, .. } => {
+        Placement::Scatter {
+            bounds,
+            snap_to_terrain,
+            ..
+        } => {
             match bounds {
                 ScatterBounds::Circle { center, radius } => {
                     let mut pos = Vec3::new(center.0[0], 0.0, center.0[1]);
-                    if *snap_to_terrain { pos.y = get_y(pos.x, pos.z); }
-                    let iso = Isometry3d::new(pos, Quat::from_rotation_x(std::f32::consts::FRAC_PI_2));
+                    if *snap_to_terrain {
+                        pos.y = get_y(pos.x, pos.z);
+                    }
+                    let iso =
+                        Isometry3d::new(pos, Quat::from_rotation_x(std::f32::consts::FRAC_PI_2));
                     gizmos.circle(iso, radius.0, color);
                 }
-                ScatterBounds::Rect { center, extents, rotation } => {
+                ScatterBounds::Rect {
+                    center,
+                    extents,
+                    rotation,
+                } => {
                     let mut pos = Vec3::new(center.0[0], 0.0, center.0[1]);
-                    if *snap_to_terrain { pos.y = get_y(pos.x, pos.z); }
+                    if *snap_to_terrain {
+                        pos.y = get_y(pos.x, pos.z);
+                    }
                     // Align the rect to lie flat on the XZ plane
-                    let rot = Quat::from_rotation_y(rotation.0) * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
+                    let rot = Quat::from_rotation_y(rotation.0)
+                        * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
                     let size = Vec2::new(extents.0[0] * 2.0, extents.0[1] * 2.0);
                     gizmos.rect(Isometry3d::new(pos, rot), size, color);
                 }
             }
         }
-        Placement::Grid { transform, counts, gaps, snap_to_terrain, .. } => {
+        Placement::Grid {
+            transform,
+            counts,
+            gaps,
+            snap_to_terrain,
+            ..
+        } => {
             let mut pos = Vec3::from_array(transform.translation.0);
-            if *snap_to_terrain { pos.y = get_y(pos.x, pos.z); }
+            if *snap_to_terrain {
+                pos.y = get_y(pos.x, pos.z);
+            }
             let rot = Quat::from_array(transform.rotation.0);
             let w = ((counts[0] as f32) - 1.0).max(0.0) * gaps.0[0];
             let h = ((counts[1] as f32) - 1.0).max(0.0) * gaps.0[1];
@@ -1855,8 +1946,22 @@ fn draw_placement_visualizers(
             // Draw 3 intersecting planes as an elegant bounding volume visualization
             let iso = Isometry3d::new(pos, rot);
             gizmos.rect(iso, Vec2::new(w + 1.0, d + 1.0), color);
-            gizmos.rect(Isometry3d::new(pos, rot * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)), Vec2::new(w + 1.0, h + 1.0), color);
-            gizmos.rect(Isometry3d::new(pos, rot * Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)), Vec2::new(d + 1.0, h + 1.0), color);
+            gizmos.rect(
+                Isometry3d::new(
+                    pos,
+                    rot * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+                ),
+                Vec2::new(w + 1.0, h + 1.0),
+                color,
+            );
+            gizmos.rect(
+                Isometry3d::new(
+                    pos,
+                    rot * Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
+                ),
+                Vec2::new(d + 1.0, h + 1.0),
+                color,
+            );
         }
         _ => {}
     }

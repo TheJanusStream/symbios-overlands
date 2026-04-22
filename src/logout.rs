@@ -16,7 +16,7 @@ use crate::pds::RoomRecord;
 use crate::protocol::OverlandsMessage;
 use crate::state::{
     AppState, ChatHistory, DiagnosticsLog, LiveAvatarRecord, LocalPlayer, RelayHost, RemotePeer,
-    RoomRecordRecovery, StoredAvatarRecord, StoredRoomRecord, TravelRequest,
+    RoomRecordRecovery, StoredAvatarRecord, StoredRoomRecord,
 };
 use crate::world_builder::RoomEntity;
 
@@ -36,8 +36,6 @@ fn cleanup_on_logout(
     room_entities: Query<Entity, With<RoomEntity>>,
     mut chat: ResMut<ChatHistory>,
     mut diagnostics: ResMut<DiagnosticsLog>,
-    travel_req: Option<Res<TravelRequest>>,
-    relay_host: Option<Res<RelayHost>>,
 ) {
     // Despawn game-world entities (recursive by default in Bevy 0.18).
     //
@@ -74,30 +72,11 @@ fn cleanup_on_logout(
     // not start with the "incompatible record" banner still showing.
     commands.remove_resource::<RoomRecordRecovery>();
 
-    if let Some(req) = travel_req {
-        // Seamless portal travel: keep the authenticated session and the
-        // relay host, only swap the matchbox socket config so the client
-        // reconnects to the target room's URL on the next frame. Without
-        // this branch, a portal jump would drop the user back to the login
-        // screen (losing credentials) instead of streaming directly into
-        // the destination overland.
-        commands.remove_resource::<SymbiosMultiuserConfig<OverlandsMessage>>();
-        if let Some(host) = relay_host {
-            commands.insert_resource(SymbiosMultiuserConfig::<OverlandsMessage> {
-                room_url: format!("wss://{}/overlands/{}", host.0, req.target_did),
-                ice_servers: None,
-                _marker: std::marker::PhantomData,
-            });
-        }
-    } else {
-        // Hard logout path: tear down every session + networking resource.
-        // Removing SymbiosMultiuserConfig triggers bevy_symbios_multiuser to
-        // close the matchbox socket on the next frame.
-        commands.remove_resource::<AtprotoSession>();
-        commands.remove_resource::<TokenSourceRes>();
-        commands.remove_resource::<SymbiosMultiuserConfig<OverlandsMessage>>();
-        commands.remove_resource::<RelayHost>();
-    }
+    // Hard logout path: tear down every session + networking resource.
+    commands.remove_resource::<AtprotoSession>();
+    commands.remove_resource::<TokenSourceRes>();
+    commands.remove_resource::<SymbiosMultiuserConfig<OverlandsMessage>>();
+    commands.remove_resource::<RelayHost>();
 
     // Reset in-memory buffers so the next session starts fresh.
     chat.messages.clear();
