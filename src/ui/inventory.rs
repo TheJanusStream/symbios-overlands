@@ -136,7 +136,7 @@ pub fn inventory_ui(
 
     egui::Window::new("Inventory")
         .default_open(false)
-        .default_pos([580.0, 220.0])
+        .default_pos([390.0, 10.0])
         .default_size([300.0, 400.0])
         .resizable(true)
         .collapsible(true)

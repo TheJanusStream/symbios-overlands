@@ -239,11 +239,12 @@ pub fn room_admin_ui(
         }
 
         egui::Window::new("World Editor")
+            .default_open(false)
             .collapsible(true)
             .resizable(true)
             .default_width(560.0)
             .default_height(620.0)
-            .default_pos([10.0, 220.0])
+            .default_pos([580.0, 10.0])
             .show(ctx, |ui| {
                 // Recovery banner — shown when the stored PDS record failed
                 // to decode and we're running on the synthesised default.

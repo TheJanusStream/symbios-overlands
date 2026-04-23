@@ -429,8 +429,10 @@ pub mod ui {
         /// Default egui window geometry.
         pub const WINDOW_DEFAULT_WIDTH: f32 = 380.0;
         pub const WINDOW_DEFAULT_HEIGHT: f32 = 400.0;
-        /// Default top-left position [x, y] (right side of a typical 1080p window).
-        pub const WINDOW_DEFAULT_POS: [f32; 2] = [990.0, 10.0];
+        /// Rightmost slot in the top-row layout — the only panel that
+        /// starts open, so it needs the space to render its scroll area
+        /// and input field at first frame.
+        pub const WINDOW_DEFAULT_POS: [f32; 2] = [960.0, 10.0];
     }
 
     pub mod diagnostics {
@@ -442,15 +444,12 @@ pub mod ui {
     pub mod people {
         pub const WINDOW_DEFAULT_WIDTH: f32 = 280.0;
         pub const WINDOW_DEFAULT_HEIGHT: f32 = 300.0;
-        /// Placed left of the Chat window (which defaults to x=990) with a
-        /// small gap, so a freshly-logged-in owner sees People and Chat
-        /// side-by-side without having to drag either into place.
-        pub const WINDOW_DEFAULT_POS: [f32; 2] = [700.0, 10.0];
+        pub const WINDOW_DEFAULT_POS: [f32; 2] = [770.0, 10.0];
     }
 
     pub mod airship {
         pub const WINDOW_DEFAULT_WIDTH: f32 = 320.0;
-        pub const WINDOW_DEFAULT_POS: [f32; 2] = [310.0, 10.0];
+        pub const WINDOW_DEFAULT_POS: [f32; 2] = [200.0, 10.0];
     }
 
     pub mod editor {

@@ -20,6 +20,7 @@ pub fn people_ui(
 
     let ctx = contexts.ctx_mut().unwrap();
     egui::Window::new("People")
+        .default_open(false)
         .default_pos(cfg::WINDOW_DEFAULT_POS)
         .default_size([cfg::WINDOW_DEFAULT_WIDTH, cfg::WINDOW_DEFAULT_HEIGHT])
         .resizable(true)
