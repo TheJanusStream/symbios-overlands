@@ -18,6 +18,16 @@
 //! an async `fetch_avatar_record` task against that peer's PDS. A live
 //! preview nudge via `AvatarStateUpdate` lets remote peers mirror
 //! mid-slider edits before the author presses "Publish".
+//!
+//! Peer-to-peer item offers ([`OverlandsMessage::ItemOffer`] /
+//! [`OverlandsMessage::ItemOfferResponse`]) are dispatched by
+//! `handle_incoming_messages`. The handler authenticates both sender and
+//! responder DIDs against the same relay-signed session map, sanitises the
+//! inbound `Generator` against the shared `RoomRecord` clamps, silently
+//! auto-declines muted senders, busy-gates concurrent offers so a single
+//! [`crate::state::IncomingOfferDialog`] is ever active, and matches
+//! responses against [`crate::state::PendingOutgoingOffers`] so a
+//! third-party peer cannot race a forged "accepted" reply onto the wire.
 
 use avian3d::prelude::{AngularVelocity, LinearVelocity};
 use bevy::prelude::*;

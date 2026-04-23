@@ -3,6 +3,13 @@
 //! the per-peer transform jitter buffer, rolling chat and diagnostics logs,
 //! and the live/stored avatar + room + inventory record resources backing
 //! the "Live UX" editor paradigm.
+//!
+//! Peer-to-peer item-offer bookkeeping also lives here:
+//! [`IncomingOfferDialog`] is the single active "someone sent you a gift"
+//! modal (concurrent offers are auto-declined with "busy" at the network
+//! layer), and [`PendingOutgoingOffers`] tracks offers the local user has
+//! sent but not yet received a response for, keyed by a session-unique
+//! `offer_id` the recipient echoes back in its reply.
 
 use std::collections::VecDeque;
 
@@ -276,7 +283,8 @@ pub struct PendingOutgoingOffer {
 
 impl PendingOutgoingOffers {
     /// Allocate a fresh `offer_id` and insert the pending record. Returns
-    /// the allocated id so the caller can ship it in the [`OverlandsMessage::ItemOffer`].
+    /// the allocated id so the caller can ship it in the
+    /// [`crate::protocol::OverlandsMessage::ItemOffer`].
     pub fn register(
         &mut self,
         target_did: String,

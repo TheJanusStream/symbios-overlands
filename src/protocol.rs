@@ -5,7 +5,15 @@
 //! Avatar records are **not** broadcast inline — Identity carries just the
 //! peer's DID/handle, and the receiver fetches the signed `AvatarRecord`
 //! from the owner's PDS directly. The lightweight `AvatarStateUpdate`
-//! variant nudges peers to re-fetch after a live edit.
+//! variant nudges peers to re-fetch after a live edit. `RoomStateUpdate`
+//! uses the same preview-then-publish pattern for the owner's room recipe
+//! so guests mirror mid-slider tweaks before the author presses Publish.
+//!
+//! Peer-to-peer inventory gifts travel as an [`OverlandsMessage::ItemOffer`]
+//! / [`OverlandsMessage::ItemOfferResponse`] pair: both are broadcast over
+//! the Reliable channel and addressed by the recipient DID inside the
+//! payload, because `bevy_symbios_multiuser` has no directed-send primitive
+//! — non-targets authenticate the DID and drop the message on receipt.
 
 use serde::{Deserialize, Serialize};
 
@@ -61,7 +69,7 @@ pub enum OverlandsMessage {
     /// whose authenticated DID matches `target_did` acts on it.
     ///
     /// Broadcast-with-address is used because
-    /// [`bevy_symbios_multiuser::Broadcast`] has no directed-send primitive —
+    /// [`bevy_symbios_multiuser::messages::Broadcast`] has no directed-send primitive —
     /// non-targets drop the message on receipt after the DID check. The
     /// `generator_json` payload is a JSON-serialised [`Generator`] for the
     /// same reason [`Self::RoomStateUpdate`] ships JSON-in-bincode:
