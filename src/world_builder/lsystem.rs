@@ -142,7 +142,7 @@ type LSystemGeometryBuild = (Vec<(u8, Mesh)>, Vec<SkeletonProp>);
 ///
 /// Split out of `spawn_lsystem_entity` so `LSystemMeshCache` can invoke the
 /// expensive pipeline at most once per `(generator_ref, geometry_hash)` pair.
-
+#[allow(clippy::too_many_arguments)]
 pub(super) fn build_lsystem_geometry(
     source_code: &str,
     finalization_code: &str,

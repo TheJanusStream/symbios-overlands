@@ -82,11 +82,9 @@ pub(super) fn spawn_water_volume(
         .id()
 }
 
-/// Compile + mesh an `LSystem` generator at the given transform. Materials
-/// are resolved against the palette that `bevy_symbios::materials::sync_*`
-/// maintains; if the palette isn't ready yet we fall back to the per-slot
-/// config baked into a fresh `StandardMaterial`.
-
+/// Thin `SpawnCtx` wrapper around [`build_procedural_material`] for the
+/// world-builder hot path, which already holds a [`SpawnCtx`] and doesn't
+/// need to unpack its individual `&mut` resources at every call site.
 pub(super) fn spawn_procedural_material(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
     settings: &SovereignMaterialSettings,

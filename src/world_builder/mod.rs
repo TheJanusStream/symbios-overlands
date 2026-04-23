@@ -207,15 +207,6 @@ fn setup_prop_assets(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
 /// `AppState::InGame` counts as a change because the resource was just
 /// inserted during Loading, which performs the initial compilation for free.
 ///
-/// The heightmap trigger matters for scatter placements: when the owner
-/// edits terrain config, `maybe_regenerate_terrain` tears down the old
-/// heightmap and kicks off async regen in the same frame that
-/// `record.is_changed()` fires. The initial rebuild scatters against the
-/// stale heightmap; when the new one lands via `poll_terrain_task` the
-/// record itself hasn't changed again, so without this second trigger
-/// scatter y-positions would stay locked to the old ground.
-#[allow(clippy::too_many_arguments)]
-
 fn apply_traits(commands: &mut Commands, entity: Entity, record: &RoomRecord, generator_ref: &str) {
     let Some(traits) = record.traits.get(generator_ref) else {
         return;

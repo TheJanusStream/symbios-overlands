@@ -99,8 +99,8 @@ fn native_callback_port_in_expected_range() {
     // Loopback ports must not collide with the OS ephemeral-port range
     // or with well-known services. The current pick (3456) is safely
     // inside the user-allocatable registered-port band.
-    assert!(oauth::NATIVE_CALLBACK_PORT >= 1024);
-    assert!(oauth::NATIVE_CALLBACK_PORT < 49_152);
+    const _: () = assert!(oauth::NATIVE_CALLBACK_PORT >= 1024);
+    const _: () = assert!(oauth::NATIVE_CALLBACK_PORT < 49_152);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

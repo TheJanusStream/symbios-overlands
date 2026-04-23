@@ -13,6 +13,7 @@ use crate::world_builder::{OverlandsFoliageTasks, build_procedural_material};
 
 use super::{CORNER_OFFSETS, HoverRoverArchetype, MastTip, RoverSail, water_level_y};
 
+#[allow(clippy::too_many_arguments)]
 pub fn rebuild_airship_children(
     commands: &mut Commands,
     entity: Entity,
@@ -157,12 +158,6 @@ pub(super) fn with_tangents(mut mesh: Mesh) -> Mesh {
     mesh
 }
 
-/// Build the humanoid visual rig. Instead of attaching meshes directly to
-/// the physics capsule, we spawn an intermediate `HumanoidVisualRoot` that
-/// the walk controller rotates to face the movement direction, plus
-/// shoulder/hip joint pivots so the procedural animation system can swing
-/// the limbs from their tops.
-
 fn build_v_hull_mesh(hull_length: f32, hull_width: f32, hull_depth: f32) -> Mesh {
     use bevy::asset::RenderAssetUsages;
     use bevy::mesh::Indices;
@@ -224,7 +219,6 @@ fn build_v_hull_mesh(hull_length: f32, hull_width: f32, hull_depth: f32) -> Mesh
 /// Push kinematics changes from the live record onto the chassis's Mass
 /// and Damping components every fixed step, so slider tweaks take effect
 /// immediately without requiring an archetype rebuild.
-
 pub(super) fn sync_local_chassis_physics(
     live: Res<LiveAvatarRecord>,
     mut query: Query<(&mut Mass, &mut LinearDamping, &mut AngularDamping), With<LocalPlayer>>,

@@ -119,7 +119,7 @@ pub fn run() {
         .init_resource::<LocalSettings>()
         .init_resource::<PublishFeedback>()
         .init_resource::<InventoryPublishFeedback>()
-        .init_resource::<ui::inventory::PendingInventoryDrop>()
+        .init_resource::<ui::inventory::PendingGeneratorDrop>()
         .init_resource::<ui::login::LoginError>()
         .init_resource::<ui::room::RoomEditorState>()
         .init_resource::<oauth::OauthClientRes>()
@@ -179,7 +179,7 @@ pub fn run() {
                 ui::room::poll_publish_tasks,
                 ui::avatar::poll_publish_avatar_tasks,
                 ui::inventory::poll_publish_inventory_tasks,
-                ui::inventory::handle_inventory_drop,
+                ui::inventory::handle_generator_drop,
             )
                 .run_if(in_state(AppState::InGame)),
         )

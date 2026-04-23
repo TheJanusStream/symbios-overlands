@@ -6,12 +6,14 @@ use bevy_egui::egui;
 
 use crate::pds::{Fp, Fp3, Generator, PrimNode, RoomRecord};
 use crate::state::LiveInventoryRecord;
+use crate::ui::inventory::{DropSource, PendingGeneratorDrop, is_drop_placeable};
 
 use super::construct::draw_construct_forge;
 use super::lsystem::draw_lsystem_forge;
 use super::terrain::draw_terrain_forge;
 use super::widgets::{default_lsystem_generator, fp_slider, unique_key};
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_generators_tab(
     ui: &mut egui::Ui,
     record: &mut RoomRecord,
@@ -19,6 +21,8 @@ pub(super) fn draw_generators_tab(
     selected_prim_path: &mut Option<Vec<usize>>,
     renaming_generator: &mut Option<(String, String)>,
     mut inventory: Option<&mut LiveInventoryRecord>,
+    pending_drop: Option<&mut PendingGeneratorDrop>,
+    can_drag_place: bool,
     dirty: &mut bool,
 ) {
     // Single-column master/detail: when a generator is selected and still
@@ -66,10 +70,53 @@ pub(super) fn draw_generators_tab(
     names.sort();
 
     let mut to_remove: Option<String> = None;
+    let mut pending_drop = pending_drop;
     for name in &names {
         ui.horizontal(|ui| {
-            if ui.selectable_label(false, name).clicked() {
+            // Mirror the inventory's drag-to-place affordance: only arm a
+            // drag when (a) the viewer owns this room and (b) the generator
+            // kind is point-placeable (terrain + water are room-scoped, so
+            // spawning them at a ground hit makes no sense).
+            let is_placeable = record
+                .generators
+                .get(name)
+                .map(is_drop_placeable)
+                .unwrap_or(false);
+            let drag_armable = can_drag_place && is_placeable && pending_drop.is_some();
+            let resp = if drag_armable {
+                ui.selectable_label(false, name)
+                    .interact(egui::Sense::click_and_drag())
+            } else {
+                ui.selectable_label(false, name)
+            };
+            if resp.clicked() {
                 *selected = Some(name.clone());
+            }
+            if drag_armable
+                && resp.drag_started()
+                && let Some(pd) = pending_drop.as_deref_mut()
+            {
+                pd.generator_name = Some(name.clone());
+                pd.source = DropSource::RoomGenerators;
+            }
+            if drag_armable
+                && resp.dragged()
+                && pending_drop
+                    .as_deref()
+                    .and_then(|pd| pd.generator_name.as_deref())
+                    == Some(name.as_str())
+            {
+                // Follow-the-cursor tooltip so the owner can see what
+                // they're about to drop once the pointer leaves the row.
+                egui::Tooltip::always_open(
+                    ui.ctx().clone(),
+                    ui.layer_id(),
+                    egui::Id::new(("gen_drag_tip", name)),
+                    egui::PopupAnchor::Pointer,
+                )
+                .show(|ui| {
+                    ui.label(format!("Place “{name}”"));
+                });
             }
             if ui
                 .add(egui::Button::new("−").fill(egui::Color32::from_rgb(180, 50, 50)))

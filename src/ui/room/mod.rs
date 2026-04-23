@@ -51,6 +51,7 @@ use crate::pds::{self, Placement, RoomRecord};
 use crate::state::{
     CurrentRoomDid, LiveInventoryRecord, PublishFeedback, RoomRecordRecovery, StoredRoomRecord,
 };
+use crate::ui::inventory::PendingGeneratorDrop;
 
 /// Async task for publishing the room record to the owner's PDS.
 #[derive(Component)]
@@ -131,6 +132,7 @@ pub fn room_admin_ui(
     mut editor: ResMut<RoomEditorState>,
     mut publish_feedback: ResMut<PublishFeedback>,
     mut inventory: Option<ResMut<LiveInventoryRecord>>,
+    mut pending_drop: ResMut<PendingGeneratorDrop>,
     time: Res<Time>,
 ) {
     let (Some(session), Some(room_did), Some(record)) = (session, room_did, room_record.as_mut())
@@ -338,6 +340,8 @@ pub fn room_admin_ui(
                                 selected_prim_path,
                                 renaming_generator,
                                 inventory.as_deref_mut(),
+                                Some(&mut *pending_drop),
+                                true,
                                 &mut widget_change,
                             );
                         }

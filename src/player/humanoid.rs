@@ -10,6 +10,7 @@ use crate::world_builder::{OverlandsFoliageTasks, build_procedural_material};
 use super::rover::with_tangents;
 use super::{ChestBadge, HumanoidArchetype, HumanoidJoint, HumanoidVisualRoot};
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn rebuild_humanoid_children(
     commands: &mut Commands,
     entity: Entity,
@@ -191,6 +192,7 @@ fn spawn_joint(
         });
 }
 
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(super) fn apply_humanoid_walk(
     live: Res<LiveAvatarRecord>,
     time: Res<Time<Fixed>>,

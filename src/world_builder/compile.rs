@@ -33,6 +33,7 @@ use super::{
     OverlandsFoliageTasks, PlacementMarker, PropMeshAssets, RoomEntity, apply_traits, reset_traits,
 };
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn compile_room_record(
     mut commands: Commands,
     record: Option<Res<RoomRecord>>,
@@ -404,13 +405,6 @@ pub(super) fn apply_environment_state(
         );
     }
 }
-
-/// Stable content hash of a `SovereignMaterialSettings` for the L-system
-/// material cache. Serde already rounds every `f32`/`f64` field to the
-/// fixed-point `i32` wire form (see `Fp`/`Fp3`/`Fp64` impls in `pds`), so
-/// hashing the JSON bytes yields a representation-equal fingerprint with
-/// no manual field walking — and skips the NaN/denormal footguns hashing
-/// raw floats would bring.
 
 pub(super) fn transform_from_data(t: &TransformData) -> Transform {
     Transform {

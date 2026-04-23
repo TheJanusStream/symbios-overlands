@@ -14,10 +14,11 @@
 //! `serde_json` — same pattern the world editor uses for its Reset button.
 //!
 //! Drag-to-place: each row is a drag source. When the owner releases a drag
-//! over the 3D viewport while standing in their own room, [`handle_inventory_drop`]
+//! over the 3D viewport while standing in their own room, [`handle_generator_drop`]
 //! raycasts against the terrain and appends a fresh `Placement::Absolute` to
 //! the live `RoomRecord`, copying the dragged generator into the room's
-//! `generators` map on first use.
+//! `generators` map on first use. The same handler also services drags
+//! started from the World Editor's Generators tab — see [`DropSource`].
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -46,13 +47,25 @@ pub struct InventoryEditorState {
 #[derive(Component)]
 pub struct PublishInventoryTask(pub bevy::tasks::Task<Result<(), String>>);
 
-/// Inventory → world drag handoff. The egui-side inventory UI sets the
-/// generator name on drag-start; [`handle_inventory_drop`] consumes it on
-/// mouse release, runs the raycast, and clears it — whether or not the
-/// release landed on a valid ground hit.
+/// Origin of a drag-to-place operation. The raycast + placement path is
+/// identical for both sources; only the generator lookup differs — inventory
+/// drops copy a blueprint into the room's `generators` map under a
+/// collision-safe key, while room-editor drops reuse the existing key.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub enum DropSource {
+    #[default]
+    Inventory,
+    RoomGenerators,
+}
+
+/// Egui → world drag handoff. The UI side sets the generator name and source
+/// on drag-start; [`handle_generator_drop`] consumes it on mouse release,
+/// runs the raycast, and clears it — whether or not the release landed on a
+/// valid ground hit.
 #[derive(Resource, Default)]
-pub struct PendingInventoryDrop {
+pub struct PendingGeneratorDrop {
     pub generator_name: Option<String>,
+    pub source: DropSource,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -64,7 +77,7 @@ pub fn inventory_ui(
     mut live: Option<ResMut<LiveInventoryRecord>>,
     stored: Option<Res<StoredInventoryRecord>>,
     mut feedback: ResMut<InventoryPublishFeedback>,
-    mut pending_drop: ResMut<PendingInventoryDrop>,
+    mut pending_drop: ResMut<PendingGeneratorDrop>,
     mut state: Local<InventoryEditorState>,
     time: Res<Time>,
 ) {
@@ -154,6 +167,7 @@ pub fn inventory_ui(
                                 let resp = ui.add(label);
                                 if resp.drag_started() {
                                     pending_drop.generator_name = Some(name.clone());
+                                    pending_drop.source = DropSource::Inventory;
                                 }
                                 if resp.dragged()
                                     && pending_drop.generator_name.as_deref() == Some(name.as_str())
@@ -312,7 +326,7 @@ pub fn poll_publish_inventory_tasks(
 /// Terrain + water describe whole-room scope (one heightmap / one water
 /// plane) so a ground-level placement of them is nonsensical; they stay
 /// editable via the World Editor tabs.
-fn is_drop_placeable(generator: &Generator) -> bool {
+pub fn is_drop_placeable(generator: &Generator) -> bool {
     !matches!(
         generator,
         Generator::Terrain(_) | Generator::Water { .. } | Generator::Unknown
@@ -349,32 +363,38 @@ fn choose_room_generator_key(
     inventory_name.to_string()
 }
 
-/// Drop handler. Runs every frame in `InGame`; cheap-out early unless the
-/// inventory UI has armed a pending drag via [`PendingInventoryDrop`].
+/// Drop handler. Runs every frame in `InGame`; cheap-out early unless a drag
+/// has been armed via [`PendingGeneratorDrop`].
 ///
-/// The UI system sets the pending name on `drag_started`; this system:
+/// Two origin cases share this path (see [`DropSource`]):
+/// * [`DropSource::Inventory`] — the source blueprint lives in the owner's
+///   `LiveInventoryRecord`; we copy it into `RoomRecord.generators` under a
+///   collision-safe key (reusing an identical existing entry when present).
+/// * [`DropSource::RoomGenerators`] — the source generator is already a key
+///   in `RoomRecord.generators`; we just append a new `Placement::Absolute`
+///   that references it.
+///
+/// In both cases the system:
 /// 1. Waits for the left mouse button to be released.
 /// 2. Rejects the release if the cursor is over any egui area (so releasing
-///    back onto the Inventory window simply cancels the drag).
+///    back onto the originating window simply cancels the drag).
 /// 3. Raycasts the cursor into the world and accepts only hits against the
 ///    `TerrainMesh` entity, so the player chassis and other colliders can't
 ///    serve as drop targets.
-/// 4. Copies the inventory generator into the live `RoomRecord.generators`
-///    map under a collision-safe key (reusing any identical existing entry),
-///    then appends a `Placement::Absolute` at the hit point with identity
-///    rotation and `snap_to_terrain: false` — the recorded Y equals the
-///    raycast's exact ground height, so re-snapping would only add jitter.
+/// 4. Appends a `Placement::Absolute` at the hit point with identity rotation
+///    and `snap_to_terrain: false` — the recorded Y equals the raycast's
+///    exact ground height, so re-snapping would only add jitter.
 /// 5. Clears the pending slot on every exit path (release outside the
 ///    viewport, missed raycast, disallowed generator type) so the next drag
 ///    starts clean.
 ///
-/// Owner gating is enforced twice — once on arm (in `inventory_ui`) and once
-/// here on release — so a malicious state transition (e.g. room DID changes
-/// mid-drag via a portal) cannot end up mutating a room the user doesn't own.
+/// Owner gating is enforced twice — once on arm (in the UI) and once here on
+/// release — so a malicious state transition (e.g. room DID changes mid-drag
+/// via a portal) cannot end up mutating a room the user doesn't own.
 #[allow(clippy::too_many_arguments)]
-pub fn handle_inventory_drop(
+pub fn handle_generator_drop(
     mut contexts: EguiContexts,
-    mut pending: ResMut<PendingInventoryDrop>,
+    mut pending: ResMut<PendingGeneratorDrop>,
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
@@ -389,6 +409,7 @@ pub fn handle_inventory_drop(
     let Some(name) = pending.generator_name.clone() else {
         return;
     };
+    let source = pending.source;
 
     // The drag only commits on the frame the button is released. Every other
     // frame the mouse is either still held (drag in progress — we want to
@@ -411,12 +432,23 @@ pub fn handle_inventory_drop(
     // unconditionally flips the resource's change tick, so taking the mutable
     // borrow earlier would spam `RoomRecord::is_changed` (and therefore the
     // world rebuild + peer broadcast) every time a drag is cancelled.
-    let (Some(session), Some(room_did), Some(inv)) = (session, room_did, inventory) else {
+    let (Some(session), Some(room_did)) = (session, room_did) else {
         return;
     };
     if session.did != room_did.0 {
         return;
     }
+    // Inventory-sourced drops need the live stash to pull the blueprint from;
+    // room-generator drops don't touch the inventory resource at all.
+    let inventory = match source {
+        DropSource::Inventory => {
+            let Some(inv) = inventory else {
+                return;
+            };
+            Some(inv)
+        }
+        DropSource::RoomGenerators => None,
+    };
 
     // Releasing over any egui area (notably the Inventory window itself) is
     // the standard "cancel" gesture — treat it as a no-op instead of placing
@@ -453,21 +485,36 @@ pub fn handle_inventory_drop(
     };
     let hit_point = ray.origin + *ray.direction * hit.distance;
 
-    let Some(generator) = inv.0.generators.get(&name).cloned() else {
-        return;
-    };
-    if !is_drop_placeable(&generator) {
-        return;
-    }
-
     let Some(record) = room.as_mut() else {
         return;
     };
-    let gen_key = choose_room_generator_key(&record.generators, &name, &generator);
-    record
-        .generators
-        .entry(gen_key.clone())
-        .or_insert(generator);
+
+    let gen_key = match source {
+        DropSource::Inventory => {
+            let Some(inv) = inventory.as_ref() else {
+                return;
+            };
+            let Some(generator) = inv.0.generators.get(&name).cloned() else {
+                return;
+            };
+            if !is_drop_placeable(&generator) {
+                return;
+            }
+            let key = choose_room_generator_key(&record.generators, &name, &generator);
+            record.generators.entry(key.clone()).or_insert(generator);
+            key
+        }
+        DropSource::RoomGenerators => {
+            let Some(generator) = record.generators.get(&name) else {
+                return;
+            };
+            if !is_drop_placeable(generator) {
+                return;
+            }
+            name.clone()
+        }
+    };
+
     record.placements.push(Placement::Absolute {
         generator_ref: gen_key.clone(),
         transform: TransformData {
@@ -478,8 +525,8 @@ pub fn handle_inventory_drop(
         snap_to_terrain: false,
     });
     info!(
-        "Placed inventory generator '{}' (as '{}') at ({:.2}, {:.2}, {:.2})",
-        name, gen_key, hit_point.x, hit_point.y, hit_point.z
+        "Placed generator '{}' (as '{}') from {:?} at ({:.2}, {:.2}, {:.2})",
+        name, gen_key, source, hit_point.x, hit_point.y, hit_point.z
     );
     editor_state.mark_dirty();
 }

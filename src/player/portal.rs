@@ -64,6 +64,7 @@ pub(super) fn handle_portal_interaction(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn poll_portal_travel_tasks(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut PortalTravelTask)>,

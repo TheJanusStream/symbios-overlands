@@ -8,6 +8,7 @@ use crate::pds::{Fp, Fp3, PropMeshType, SovereignMaterialSettings};
 use super::material::draw_texture_bridge;
 use super::widgets::{color_picker, drag_u32, drag_u64, fp_slider};
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_lsystem_forge(
     ui: &mut egui::Ui,
     source_code: &mut String,

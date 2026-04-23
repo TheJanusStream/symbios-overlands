@@ -115,7 +115,12 @@ fn fp_handles_nonfinite_without_panic() {
 /// quantisation budget across all four components.
 #[test]
 fn fp4_unit_quaternion_round_trip_stays_unit() {
-    let q = Fp4([0.0, 0.707_106_78, 0.0, 0.707_106_78]);
+    let q = Fp4([
+        0.0,
+        std::f32::consts::FRAC_1_SQRT_2,
+        0.0,
+        std::f32::consts::FRAC_1_SQRT_2,
+    ]);
     let json = serde_json::to_string(&q).unwrap();
     let back: Fp4 = serde_json::from_str(&json).unwrap();
     let m = back.0.iter().map(|c| c * c).sum::<f32>().sqrt();

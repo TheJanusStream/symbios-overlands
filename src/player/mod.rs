@@ -287,7 +287,6 @@ fn humanoid_capsule_dimensions(phen: &HumanoidPhenotype) -> (f32, f32) {
 /// memoises the last-seen kind so we don't rebuild on every frame the
 /// resource is `Changed` — the kinematics sliders fire `Changed` constantly
 /// and would otherwise drop a dozen rebuilds per second.
-
 fn detect_local_archetype_change(
     mut commands: Commands,
     live: Res<LiveAvatarRecord>,
@@ -492,9 +491,6 @@ fn build_archetype_visuals(
     }
 }
 
-/// Build the steampunk-airship visual children of `entity` directly from a
-/// [`RoverPhenotype`] — no intermediate struct.
-
 fn lift_player_above_new_ground(
     hm_res: Option<Res<crate::terrain::FinishedHeightMap>>,
     mut query: Query<(&mut Position, &mut LinearVelocity, &mut AngularVelocity), With<LocalPlayer>>,
@@ -522,13 +518,7 @@ fn lift_player_above_new_ground(
     }
 }
 
-/// Per-frame sweep that fires the portal jump the instant the local player's
-/// sensor-collision set contains a `PortalMarker`. An intra-room portal snaps
-/// the chassis to the exit pose and zeros its velocities; an inter-room
-/// portal stages a `TravelingTo` resource and spawns an async `RoomRecord`
-/// fetch so the destination can be hot-swapped without leaving `InGame`.
 #[allow(clippy::type_complexity)]
-
 fn respawn_if_fallen(
     mut query: Query<
         (
