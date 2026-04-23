@@ -322,8 +322,20 @@ pub fn room_admin_ui(
                 });
                 ui.separator();
 
+                // Reserve room below the tab body for the separator +
+                // Publish/Load/Reset row + feedback line; the scroll area
+                // then fills the rest of the window so dragging the window
+                // taller actually grows the tab body. Without this (and
+                // without `auto_shrink = false`) the scroll area collapses
+                // to its content and the window height snaps back.
+                const FOOTER_RESERVE: f32 = 90.0;
+                const BODY_MIN_HEIGHT: f32 = 160.0;
+                let body_height =
+                    (ui.available_height() - FOOTER_RESERVE).max(BODY_MIN_HEIGHT);
+
                 egui::ScrollArea::vertical()
-                    .max_height(460.0)
+                    .auto_shrink([true, false])
+                    .max_height(body_height)
                     .show(ui, |ui| match *selected_tab {
                         EditorTab::Environment => {
                             environment::draw_environment_tab(

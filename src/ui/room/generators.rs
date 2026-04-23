@@ -39,22 +39,12 @@ pub(super) fn draw_generators_tab(
                 *selected = None;
             }
             ui.heading("Detail");
-            if ui.button("Rename").clicked() {
-                *renaming_generator = Some((name.clone(), name.clone()));
-            }
         });
         ui.add_space(4.0);
         if *selected == Some(name.clone())
             && let Some(g) = record.generators.get_mut(&name)
         {
-            draw_generator_detail(
-                ui,
-                &name,
-                g,
-                selected_prim_path,
-                inventory.as_deref_mut(),
-                dirty,
-            );
+            draw_generator_detail(ui, &name, g, selected_prim_path, dirty);
         }
         return;
     }
@@ -118,12 +108,24 @@ pub(super) fn draw_generators_tab(
                     ui.label(format!("Place “{name}”"));
                 });
             }
-            if ui
-                .add(egui::Button::new("−").fill(egui::Color32::from_rgb(180, 50, 50)))
-                .clicked()
-            {
-                to_remove = Some(name.clone());
-            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add(egui::Button::new("−").fill(egui::Color32::from_rgb(180, 50, 50)))
+                    .clicked()
+                {
+                    to_remove = Some(name.clone());
+                }
+                if let Some(inv) = inventory.as_deref_mut()
+                    && ui.small_button("Save to Inventory").clicked()
+                    && let Some(g) = record.generators.get(name).cloned()
+                {
+                    let safe_name = unique_key(&inv.0.generators, name);
+                    inv.0.generators.insert(safe_name, g);
+                }
+                if ui.small_button("Rename").clicked() {
+                    *renaming_generator = Some((name.clone(), name.clone()));
+                }
+            });
         });
     }
     if let Some(name) = to_remove {
@@ -217,18 +219,9 @@ fn draw_generator_detail(
     name: &str,
     generator: &mut Generator,
     selected_prim_path: &mut Option<Vec<usize>>,
-    inventory: Option<&mut LiveInventoryRecord>,
     dirty: &mut bool,
 ) {
-    ui.horizontal(|ui| {
-        ui.label(format!("Generator: `{}`", name));
-        if let Some(inv) = inventory
-            && ui.button("Save to Inventory").clicked()
-        {
-            let safe_name = unique_key(&inv.0.generators, name);
-            inv.0.generators.insert(safe_name, generator.clone());
-        }
-    });
+    ui.label(format!("Generator: `{}`", name));
     ui.add_space(4.0);
     match generator {
         Generator::Terrain(cfg) => draw_terrain_forge(ui, cfg, dirty),

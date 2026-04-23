@@ -135,15 +135,28 @@ pub fn inventory_ui(
     }
 
     egui::Window::new("Inventory")
+        .default_open(false)
         .default_pos([580.0, 220.0])
         .default_size([300.0, 400.0])
+        .resizable(true)
         .collapsible(true)
         .show(ctx, |ui| {
             ui.label(format!("Stored Generators: {}/50", live.0.generators.len()));
             ui.separator();
 
+            // Reserve room below the list for the separator + Publish row +
+            // feedback line; the scroll area then fills the rest of the
+            // window so dragging the window taller actually grows the list.
+            // Without this (and without `auto_shrink = false`) the scroll
+            // area collapses to its content and the window height snaps back.
+            const FOOTER_RESERVE: f32 = 80.0;
+            const LIST_MIN_HEIGHT: f32 = 80.0;
+            let list_height =
+                (ui.available_height() - FOOTER_RESERVE).max(LIST_MIN_HEIGHT);
+
             egui::ScrollArea::vertical()
-                .max_height(300.0)
+                .auto_shrink([true, false])
+                .max_height(list_height)
                 .show(ui, |ui| {
                     let mut to_remove: Option<String> = None;
                     let mut names: Vec<String> = live.0.generators.keys().cloned().collect();

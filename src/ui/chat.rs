@@ -50,8 +50,6 @@ pub fn chat_ui(
         .resizable(true)
         .collapsible(true)
         .show(contexts.ctx_mut().unwrap(), |ui| {
-            ui.separator();
-
             // Build the room roster — self plus every remote peer. Peers
             // whose Identity handshake is still in flight render as
             // "identifying…" so the row count matches `diagnostics_ui` and
@@ -68,13 +66,22 @@ pub fn chat_ui(
                 .collect();
             peer_handles.sort();
 
+            // Reserve vertical space for the bottom separator + input row
+            // and let the scroll areas fill everything above. The
+            // `auto_shrink([true, false])` on each scroll area combined
+            // with the dynamic `max_height` is what actually makes the
+            // window vertically resizable — as the user drags the window
+            // taller, `ui.available_height()` grows, `scroll_height`
+            // grows with it, and the scroll areas fill the extra space.
+            const INPUT_RESERVE_HEIGHT: f32 = 44.0;
+            const SCROLL_MIN_HEIGHT: f32 = 60.0;
             let scroll_height =
-                (ui.available_height() - cfg::INPUT_RESERVE_HEIGHT).max(cfg::SCROLL_MIN_HEIGHT);
+                (ui.available_height() - INPUT_RESERVE_HEIGHT).max(SCROLL_MIN_HEIGHT);
 
             ui.horizontal(|ui| {
-                // Collapsed: a single narrow toggle column so the chat keeps
-                // most of the horizontal space. Expanded: the same toggle
-                // plus the handle list.
+                // Collapsed: a single narrow toggle column so the chat
+                // keeps most of the horizontal space. Expanded: the same
+                // toggle plus the handle list.
                 let toggle_label = if state.roster_expanded { "◂" } else { "▸" };
                 if ui
                     .add(egui::Button::new(toggle_label).small())
@@ -99,6 +106,7 @@ pub fn chat_ui(
                         );
                         egui::ScrollArea::vertical()
                             .id_salt("chat_roster")
+                            .auto_shrink([true, false])
                             .max_height(scroll_height)
                             .show(ui, |ui| {
                                 let [r, g, b] = cfg::AUTHOR_COLOR;
@@ -126,6 +134,7 @@ pub fn chat_ui(
                 ui.vertical(|ui| {
                     egui::ScrollArea::vertical()
                         .id_salt("chat_scroll")
+                        .auto_shrink([true, false])
                         .max_height(scroll_height)
                         .stick_to_bottom(true)
                         .show(ui, |ui| {
@@ -146,44 +155,55 @@ pub fn chat_ui(
 
             ui.separator();
 
+            // Right-to-left layout: Send first (pinned to the right edge),
+            // then the TextEdit whose `desired_width` is set to whatever
+            // horizontal space remains — so widening the window stretches
+            // the field instead of leaving dead space beside it.
             ui.horizontal(|ui| {
-                let response = ui.add(egui::TextEdit::singleline(&mut *input));
-                let send = ui.button("Send");
-                let submit = send.clicked()
-                    || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let send = ui.button("Send");
+                    let response = ui.add(
+                        egui::TextEdit::singleline(&mut *input)
+                            .desired_width(ui.available_width()),
+                    );
+                    let submit = send.clicked()
+                        || (response.lost_focus()
+                            && ui.input(|i| i.key_pressed(egui::Key::Enter)));
 
-                if submit && !input.trim().is_empty() {
-                    // Enforce a strict per-message length cap *before* the
-                    // text is broadcast.  Otherwise a peer could paste an
-                    // 800 KiB junk string (well under the 1 MiB packet limit)
-                    // and every guest would try to word-wrap it in egui on
-                    // every frame — an instant room-wide denial of service.
-                    let trimmed = input.trim();
-                    let max = cfg::MAX_MESSAGE_LEN;
-                    let text = if trimmed.len() <= max {
-                        trimmed.to_string()
-                    } else {
-                        let mut end = max;
-                        while end > 0 && !trimmed.is_char_boundary(end) {
-                            end -= 1;
-                        }
-                        trimmed[..end].to_string()
-                    };
-                    input.clear();
-                    response.request_focus();
+                    if submit && !input.trim().is_empty() {
+                        // Enforce a strict per-message length cap *before*
+                        // the text is broadcast. Otherwise a peer could
+                        // paste an 800 KiB junk string (well under the 1
+                        // MiB packet limit) and every guest would try to
+                        // word-wrap it in egui on every frame — an instant
+                        // room-wide DoS.
+                        let trimmed = input.trim();
+                        let max = cfg::MAX_MESSAGE_LEN;
+                        let text = if trimmed.len() <= max {
+                            trimmed.to_string()
+                        } else {
+                            let mut end = max;
+                            while end > 0 && !trimmed.is_char_boundary(end) {
+                                end -= 1;
+                            }
+                            trimmed[..end].to_string()
+                        };
+                        input.clear();
+                        response.request_focus();
 
-                    let author = session
-                        .as_ref()
-                        .map(|s| s.handle.clone())
-                        .unwrap_or_else(|| "me".into());
-                    let ts = crate::format_elapsed_ts(time.elapsed_secs_f64());
-                    chat.messages.push((author, text.clone(), ts));
+                        let author = session
+                            .as_ref()
+                            .map(|s| s.handle.clone())
+                            .unwrap_or_else(|| "me".into());
+                        let ts = crate::format_elapsed_ts(time.elapsed_secs_f64());
+                        chat.messages.push((author, text.clone(), ts));
 
-                    writer.write(Broadcast {
-                        payload: OverlandsMessage::Chat { text },
-                        channel: ChannelKind::Reliable,
-                    });
-                }
+                        writer.write(Broadcast {
+                            payload: OverlandsMessage::Chat { text },
+                            channel: ChannelKind::Reliable,
+                        });
+                    }
+                });
             });
         });
 }

@@ -424,10 +424,6 @@ pub mod ui {
         /// malicious) peer could otherwise spam the channel until egui's
         /// scroll area holds megabytes of strings, re-wrapping every frame.
         pub const MAX_HISTORY_ENTRIES: usize = 500;
-        /// Height reserved below the scroll area for the input row.
-        pub const INPUT_RESERVE_HEIGHT: f32 = 40.0;
-        /// Minimum height of the message scroll area.
-        pub const SCROLL_MIN_HEIGHT: f32 = 60.0;
         /// Author label colour [R, G, B].
         pub const AUTHOR_COLOR: [u8; 3] = [100, 180, 255];
         /// Default egui window geometry.
