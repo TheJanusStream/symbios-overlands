@@ -29,8 +29,9 @@ use crate::config;
 use crate::pds::{self, AvatarRecord, RoomRecord};
 use crate::protocol::OverlandsMessage;
 use crate::state::{
-    AppState, ChatHistory, CurrentRoomDid, DiagnosticsLog, LiveAvatarRecord, LocalPlayer,
-    LocalSettings, RemotePeer, TransformBuffer, TransformSample,
+    AppState, ChatHistory, CurrentRoomDid, DiagnosticsLog, IncomingOfferDialog, LiveAvatarRecord,
+    LocalPlayer, LocalSettings, PendingOutgoingOffers, RemotePeer, TransformBuffer,
+    TransformSample,
 };
 
 pub struct NetworkPlugin;
@@ -190,6 +191,11 @@ fn handle_incoming_messages(
     room_did: Option<Res<CurrentRoomDid>>,
     mut room_record: Option<ResMut<RoomRecord>>,
     peer_sessions: Res<PeerSessionMapRes>,
+    session: Option<Res<AtprotoSession>>,
+    mut diagnostics: ResMut<DiagnosticsLog>,
+    incoming_dialog: Option<Res<IncomingOfferDialog>>,
+    mut pending_offers: ResMut<PendingOutgoingOffers>,
+    mut offer_writer: MessageWriter<Broadcast<OverlandsMessage>>,
 ) {
     let now = time.elapsed_secs_f64();
     // Drain the whole queue into a buffer so we can dedupe `Identity`
@@ -473,6 +479,207 @@ fn handle_incoming_messages(
                         chat.messages.drain(..drop);
                     }
                 }
+            }
+            OverlandsMessage::ItemOffer {
+                offer_id,
+                target_did,
+                item_name,
+                generator_json,
+            } => {
+                // Broadcast-with-address: only the peer whose DID matches
+                // `target_did` should act on the offer. Everyone else
+                // silently drops it because `bevy_symbios_multiuser` has no
+                // directed-send primitive.
+                let Some(sess) = session.as_deref() else {
+                    continue;
+                };
+                if sess.did != target_did {
+                    continue;
+                }
+
+                // Authenticate the sender's DID against the relay-signed
+                // PeerSessionMap — same defence the Identity handler uses.
+                // A `None` lookup means the peer connected before its
+                // session bound; defer by dropping the message (the sender
+                // can retry).
+                let Some(sender_did) = peer_sessions.session_id(&msg.sender) else {
+                    debug!(
+                        "Deferring ItemOffer from {}: peer session not yet known",
+                        msg.sender
+                    );
+                    continue;
+                };
+
+                // Silent auto-decline for muted senders. The sender still
+                // gets a response so their UI clears the pending state, but
+                // no dialog is shown and no diagnostics entry is written —
+                // muted senders should be invisible by design.
+                let peer_lookup = peers
+                    .iter()
+                    .find(|(_, peer, _, _)| peer.peer_id == msg.sender);
+                let sender_muted = peer_lookup
+                    .as_ref()
+                    .map(|(_, peer, _, _)| peer.muted)
+                    .unwrap_or(false);
+                let sender_handle = peer_lookup
+                    .as_ref()
+                    .and_then(|(_, peer, _, _)| peer.handle.clone())
+                    .unwrap_or_else(|| sender_did.clone());
+
+                if sender_muted {
+                    offer_writer.write(Broadcast {
+                        payload: OverlandsMessage::ItemOfferResponse {
+                            offer_id,
+                            target_did: sender_did.clone(),
+                            accepted: false,
+                        },
+                        channel: ChannelKind::Reliable,
+                    });
+                    continue;
+                }
+
+                // Busy-gate: a dialog is already up, so an attacker can't
+                // queue-flood the recipient with nested prompts. Decline
+                // and log so the user knows someone tried.
+                if incoming_dialog.is_some() {
+                    offer_writer.write(Broadcast {
+                        payload: OverlandsMessage::ItemOfferResponse {
+                            offer_id,
+                            target_did: sender_did.clone(),
+                            accepted: false,
+                        },
+                        channel: ChannelKind::Reliable,
+                    });
+                    diagnostics.push(
+                        now,
+                        format!(
+                            "Auto-declined offer \"{item_name}\" from @{sender_handle} (already handling an offer)"
+                        ),
+                    );
+                    continue;
+                }
+
+                // Decode + sanitise the inbound generator. A malformed
+                // payload or an Unknown variant is treated as a protocol
+                // error — auto-decline and log.
+                let Some(mut generator) = OverlandsMessage::decode_item_offer(&generator_json)
+                else {
+                    offer_writer.write(Broadcast {
+                        payload: OverlandsMessage::ItemOfferResponse {
+                            offer_id,
+                            target_did: sender_did.clone(),
+                            accepted: false,
+                        },
+                        channel: ChannelKind::Reliable,
+                    });
+                    diagnostics.push(
+                        now,
+                        format!(
+                            "Dropped malformed item offer from @{sender_handle}: failed to decode"
+                        ),
+                    );
+                    continue;
+                };
+                crate::pds::sanitize_generator(&mut generator);
+
+                // Non-placeable kinds (terrain / water / Unknown) never
+                // make sense as a gift — the sender UI already filters
+                // these, but reject here too so a hand-crafted payload
+                // can't stuff an unplaceable item into the recipient's
+                // stash via the accept path.
+                if !crate::ui::inventory::is_drop_placeable(&generator) {
+                    offer_writer.write(Broadcast {
+                        payload: OverlandsMessage::ItemOfferResponse {
+                            offer_id,
+                            target_did: sender_did.clone(),
+                            accepted: false,
+                        },
+                        channel: ChannelKind::Reliable,
+                    });
+                    diagnostics.push(
+                        now,
+                        format!(
+                            "Rejected offer \"{item_name}\" from @{sender_handle}: item kind not giftable"
+                        ),
+                    );
+                    continue;
+                }
+
+                // Clamp the item name to the same reasonable bounds the
+                // rest of the editor enforces so a hostile payload can't
+                // blow up the dialog's text layout.
+                let item_name = {
+                    let mut n: String = item_name
+                        .chars()
+                        .filter(|c| !c.is_control())
+                        .take(64)
+                        .collect();
+                    if n.is_empty() {
+                        n.push_str("(unnamed)");
+                    }
+                    n
+                };
+
+                diagnostics.push(
+                    now,
+                    format!("Received offer \"{item_name}\" from @{sender_handle}"),
+                );
+                commands.insert_resource(IncomingOfferDialog {
+                    offer_id,
+                    sender_peer_id: msg.sender,
+                    sender_did,
+                    sender_handle,
+                    item_name,
+                    generator,
+                    arrived_at_secs: now,
+                });
+            }
+            OverlandsMessage::ItemOfferResponse {
+                offer_id,
+                target_did,
+                accepted,
+            } => {
+                // Gate on the local DID first: a response broadcast is
+                // carrying our own sender-side offer_id only when
+                // `target_did` equals our DID. Other peers drop it.
+                let Some(sess) = session.as_deref() else {
+                    continue;
+                };
+                if sess.did != target_did {
+                    continue;
+                }
+
+                // Authenticate the responder's DID against the relay map
+                // so a third-party peer can't impersonate the real
+                // recipient and spoof an "accepted" reply to steal
+                // visibility into what we gifted.
+                let Some(responder_did) = peer_sessions.session_id(&msg.sender) else {
+                    continue;
+                };
+
+                let Some(pending) = pending_offers.by_id.remove(&offer_id) else {
+                    // Either this response is for an offer we already
+                    // resolved (duplicate reply), or it's a reply to an
+                    // offer we never sent. Either way, drop it silently.
+                    continue;
+                };
+
+                // Drop responses whose responder DID doesn't match the
+                // originally-targeted peer. Without this, any peer could
+                // observe the offer on the wire and race an "accepted"
+                // reply back before the real target answered.
+                if responder_did != pending.target_did {
+                    continue;
+                }
+
+                let outcome = if accepted { "accepted" } else { "declined" };
+                diagnostics.push(
+                    now,
+                    format!(
+                        "@{} {} offer \"{}\"",
+                        pending.target_handle, outcome, pending.item_name
+                    ),
+                );
             }
         }
     }

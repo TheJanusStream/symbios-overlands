@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 
 use bevy::prelude::*;
 
-use crate::pds::{AvatarRecord, InventoryRecord, RoomRecord};
+use crate::pds::{AvatarRecord, Generator, InventoryRecord, RoomRecord};
 
 /// Application state machine. `Loading` waits on the async heightmap
 /// generation task, the ATProto PDS room-record fetch, the local
@@ -226,4 +226,75 @@ pub enum InventoryPublishFeedback {
         at_secs: f64,
         message: String,
     },
+}
+
+/// A currently-displayed incoming item-offer modal. Exactly one can be
+/// active at a time — this is an explicit anti-spam measure: concurrent
+/// offers from other peers are auto-declined with a "busy" reply so a
+/// malicious client cannot flood a victim with request dialogs or tie
+/// their client up answering queued prompts.
+///
+/// Muted senders never reach this resource — see
+/// `handle_incoming_messages` in `network.rs`, which short-circuits
+/// muted-peer offers into a silent auto-decline before the dialog is
+/// constructed.
+#[derive(Resource, Clone, Debug)]
+pub struct IncomingOfferDialog {
+    pub offer_id: u64,
+    pub sender_peer_id: bevy_symbios_multiuser::prelude::PeerId,
+    pub sender_did: String,
+    pub sender_handle: String,
+    pub item_name: String,
+    pub generator: Generator,
+    /// Session-relative seconds the offer arrived; diagnostics entries and
+    /// any future timeout logic key off this.
+    pub arrived_at_secs: f64,
+}
+
+/// A gift that the local user has sent to a peer but hasn't yet received
+/// a response for. Keyed by `offer_id` (the sender-chosen token echoed by
+/// the recipient). The resource is a thin map because a single user may
+/// fire off several offers to different peers before any response comes
+/// back; the per-entry target DID lets us authenticate responses and drop
+/// spoofed replies from unrelated peers.
+#[derive(Resource, Default, Debug)]
+pub struct PendingOutgoingOffers {
+    pub by_id: std::collections::HashMap<u64, PendingOutgoingOffer>,
+    /// Monotonic counter for generating fresh offer_ids. Scoped per-client
+    /// so the ids only have to be unique within this session — the peer
+    /// echoes the value back unchanged, and we correlate by id alone.
+    pub next_id: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct PendingOutgoingOffer {
+    pub target_did: String,
+    pub target_handle: String,
+    pub item_name: String,
+    pub sent_at_secs: f64,
+}
+
+impl PendingOutgoingOffers {
+    /// Allocate a fresh `offer_id` and insert the pending record. Returns
+    /// the allocated id so the caller can ship it in the [`OverlandsMessage::ItemOffer`].
+    pub fn register(
+        &mut self,
+        target_did: String,
+        target_handle: String,
+        item_name: String,
+        sent_at_secs: f64,
+    ) -> u64 {
+        let id = self.next_id;
+        self.next_id = self.next_id.wrapping_add(1);
+        self.by_id.insert(
+            id,
+            PendingOutgoingOffer {
+                target_did,
+                target_handle,
+                item_name,
+                sent_at_secs,
+            },
+        );
+        id
+    }
 }

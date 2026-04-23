@@ -303,6 +303,12 @@ pub mod network {
 pub mod state {
     /// Maximum number of entries retained in the rolling diagnostics log.
     pub const MAX_DIAGNOSTICS_ENTRIES: usize = 200;
+    /// Maximum number of generators the inventory stash retains. Mirrored
+    /// in `pds::inventory::InventoryRecord::sanitize` so a hostile PDS
+    /// blob cannot force the client into a multi-megabyte allocation at
+    /// login, and consulted by the item-offer accept path so a peer
+    /// cannot gift you over the cap.
+    pub const MAX_INVENTORY_ITEMS: usize = 50;
 }
 
 // ---------------------------------------------------------------------------

@@ -120,6 +120,7 @@ pub fn run() {
         .init_resource::<PublishFeedback>()
         .init_resource::<InventoryPublishFeedback>()
         .init_resource::<ui::inventory::PendingGeneratorDrop>()
+        .init_resource::<state::PendingOutgoingOffers>()
         .init_resource::<ui::login::LoginError>()
         .init_resource::<ui::room::RoomEditorState>()
         .init_resource::<oauth::OauthClientRes>()
@@ -168,6 +169,7 @@ pub fn run() {
                 ui::diagnostics::diagnostics_ui,
                 ui::chat::chat_ui,
                 ui::people::people_ui,
+                ui::people::incoming_offer_ui,
                 ui::avatar::avatar_ui,
                 ui::room::room_admin_ui,
                 ui::inventory::inventory_ui,

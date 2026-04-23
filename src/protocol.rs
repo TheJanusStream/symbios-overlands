@@ -9,7 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::pds::{AvatarRecord, RoomRecord};
+use crate::pds::{AvatarRecord, Generator, RoomRecord};
 
 /// Shape of the outrigger pontoons.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Default)]
@@ -55,6 +55,39 @@ pub enum OverlandsMessage {
     /// live preview of the peer's editor state, so other players see edits
     /// immediately without waiting for a Publish round-trip.
     AvatarStateUpdate { record_json: Vec<u8> },
+    /// Peer-to-peer inventory gift. The sender drags a generator from their
+    /// Inventory (or World Editor Generators tab) onto a peer row in the
+    /// People window; the engine broadcasts this message and only the peer
+    /// whose authenticated DID matches `target_did` acts on it.
+    ///
+    /// Broadcast-with-address is used because
+    /// [`bevy_symbios_multiuser::Broadcast`] has no directed-send primitive —
+    /// non-targets drop the message on receipt after the DID check. The
+    /// `generator_json` payload is a JSON-serialised [`Generator`] for the
+    /// same reason [`Self::RoomStateUpdate`] ships JSON-in-bincode:
+    /// `Generator` is a `#[serde(tag = "$type")]` open union that bincode's
+    /// streaming decoder cannot handle.
+    ///
+    /// `offer_id` is a sender-chosen token echoed by the recipient in
+    /// [`Self::ItemOfferResponse`] so the sender can correlate accept/decline
+    /// outcomes with the originating drag. It only has to be unique within
+    /// one sender's session.
+    ItemOffer {
+        offer_id: u64,
+        target_did: String,
+        item_name: String,
+        generator_json: Vec<u8>,
+    },
+    /// Reply to an [`Self::ItemOffer`]. The `target_did` is the *sender* of
+    /// the original offer so non-originators can drop the response on
+    /// receipt; `accepted = true` means the recipient added the item to
+    /// their inventory, `false` covers decline / mute / busy / full /
+    /// over-capacity — the sender just needs a yes/no for UX feedback.
+    ItemOfferResponse {
+        offer_id: u64,
+        target_did: String,
+        accepted: bool,
+    },
 }
 
 impl OverlandsMessage {
@@ -101,6 +134,37 @@ impl OverlandsMessage {
             Ok(r) => Some(r),
             Err(e) => {
                 bevy::log::warn!("AvatarRecord decode error: {}", e);
+                None
+            }
+        }
+    }
+
+    /// Package an [`ItemOffer`](Self::ItemOffer). Serialises the `Generator`
+    /// blueprint as JSON for the same reason room/avatar updates do —
+    /// bincode cannot stream `#[serde(tag = "$type")]` open unions.
+    pub fn item_offer(
+        offer_id: u64,
+        target_did: String,
+        item_name: String,
+        generator: &Generator,
+    ) -> Self {
+        Self::ItemOffer {
+            offer_id,
+            target_did,
+            item_name,
+            generator_json: serde_json::to_vec(generator).unwrap_or_else(|e| {
+                bevy::log::error!("Failed to serialize Generator for ItemOffer: {}", e);
+                Vec::new()
+            }),
+        }
+    }
+
+    /// Decode a [`Generator`] from an `ItemOffer` payload.
+    pub fn decode_item_offer(bytes: &[u8]) -> Option<Generator> {
+        match serde_json::from_slice(bytes) {
+            Ok(g) => Some(g),
+            Err(e) => {
+                bevy::log::warn!("Generator decode error: {}", e);
                 None
             }
         }

@@ -25,11 +25,14 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
+use bevy_symbios_multiuser::prelude::*;
 use std::collections::HashMap;
 
 use crate::pds::{Fp3, Fp4, Generator, Placement, RoomRecord, TransformData};
+use crate::protocol::OverlandsMessage;
 use crate::state::{
-    CurrentRoomDid, InventoryPublishFeedback, LiveInventoryRecord, StoredInventoryRecord,
+    CurrentRoomDid, DiagnosticsLog, InventoryPublishFeedback, LiveInventoryRecord,
+    PendingOutgoingOffers, StoredInventoryRecord,
 };
 use crate::terrain::TerrainMesh;
 use crate::ui::room::RoomEditorState;
@@ -62,10 +65,31 @@ pub enum DropSource {
 /// on drag-start; [`handle_generator_drop`] consumes it on mouse release,
 /// runs the raycast, and clears it — whether or not the release landed on a
 /// valid ground hit.
+///
+/// `peer_target` is refreshed every frame by [`crate::ui::people::people_ui`]
+/// while a drag is active: it is set to the peer whose row the cursor is
+/// currently over (or cleared when the cursor isn't over a peer row). The
+/// drop handler consumes it on release to route the drag into an
+/// [`crate::protocol::OverlandsMessage::ItemOffer`] instead of a terrain
+/// placement. It intentionally is **not** cleared by the inventory or
+/// world-editor drag source on its own — the People UI owns the signal
+/// because only it can resolve "cursor is over peer row N" via egui's
+/// layout.
 #[derive(Resource, Default)]
 pub struct PendingGeneratorDrop {
     pub generator_name: Option<String>,
     pub source: DropSource,
+    pub peer_target: Option<PeerDropTarget>,
+}
+
+/// Per-frame hover snapshot for the peer the cursor is currently over
+/// during an armed drag. Populated by the People GUI so the drop handler
+/// can route release events without reaching into egui itself.
+#[derive(Clone, Debug)]
+pub struct PeerDropTarget {
+    pub peer_id: bevy_symbios_multiuser::prelude::PeerId,
+    pub did: String,
+    pub handle: String,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -141,7 +165,11 @@ pub fn inventory_ui(
         .resizable(true)
         .collapsible(true)
         .show(ctx, |ui| {
-            ui.label(format!("Stored Generators: {}/50", live.0.generators.len()));
+            ui.label(format!(
+                "Stored Generators: {}/{}",
+                live.0.generators.len(),
+                crate::config::state::MAX_INVENTORY_ITEMS
+            ));
             ui.separator();
 
             // Reserve room below the list for the separator + Publish row +
@@ -378,31 +406,27 @@ fn choose_room_generator_key(
 /// Drop handler. Runs every frame in `InGame`; cheap-out early unless a drag
 /// has been armed via [`PendingGeneratorDrop`].
 ///
-/// Two origin cases share this path (see [`DropSource`]):
-/// * [`DropSource::Inventory`] — the source blueprint lives in the owner's
-///   `LiveInventoryRecord`; we copy it into `RoomRecord.generators` under a
-///   collision-safe key (reusing an identical existing entry when present).
-/// * [`DropSource::RoomGenerators`] — the source generator is already a key
-///   in `RoomRecord.generators`; we just append a new `Placement::Absolute`
-///   that references it.
+/// Three destinations share this path (see [`DropSource`]):
+/// * Release over a peer row in the People window → routes into an
+///   [`OverlandsMessage::ItemOffer`]. The target is resolved from
+///   `pending.peer_target`, refreshed every frame by the People UI.
+/// * [`DropSource::Inventory`] release over the 3D viewport — copy the
+///   blueprint into `RoomRecord.generators` under a collision-safe key
+///   (reusing an identical existing entry when present) and append a
+///   `Placement::Absolute`.
+/// * [`DropSource::RoomGenerators`] release over the 3D viewport — the
+///   source generator is already a key in `RoomRecord.generators`; just
+///   append a new `Placement::Absolute` that references it.
 ///
-/// In both cases the system:
-/// 1. Waits for the left mouse button to be released.
-/// 2. Rejects the release if the cursor is over any egui area (so releasing
-///    back onto the originating window simply cancels the drag).
-/// 3. Raycasts the cursor into the world and accepts only hits against the
-///    `TerrainMesh` entity, so the player chassis and other colliders can't
-///    serve as drop targets.
-/// 4. Appends a `Placement::Absolute` at the hit point with identity rotation
-///    and `snap_to_terrain: false` — the recorded Y equals the raycast's
-///    exact ground height, so re-snapping would only add jitter.
-/// 5. Clears the pending slot on every exit path (release outside the
-///    viewport, missed raycast, disallowed generator type) so the next drag
-///    starts clean.
+/// The peer branch fires even when the local user does not own the current
+/// room — gifting is a personal transaction between two players and
+/// doesn't touch the `RoomRecord`. The ground-placement branches still
+/// enforce `session.did == room_did` so a malicious state transition
+/// mid-drag (e.g. a portal that swaps the room DID) cannot mutate a room
+/// the user doesn't own.
 ///
-/// Owner gating is enforced twice — once on arm (in the UI) and once here on
-/// release — so a malicious state transition (e.g. room DID changes mid-drag
-/// via a portal) cannot end up mutating a room the user doesn't own.
+/// The handler clears `pending.generator_name` and `pending.peer_target`
+/// on every exit path so the next drag starts clean.
 #[allow(clippy::too_many_arguments)]
 pub fn handle_generator_drop(
     mut contexts: EguiContexts,
@@ -417,11 +441,16 @@ pub fn handle_generator_drop(
     inventory: Option<Res<LiveInventoryRecord>>,
     mut room: Option<ResMut<RoomRecord>>,
     mut editor_state: ResMut<RoomEditorState>,
+    mut pending_offers: ResMut<PendingOutgoingOffers>,
+    mut diagnostics: ResMut<DiagnosticsLog>,
+    mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
+    time: Res<Time>,
 ) {
     let Some(name) = pending.generator_name.clone() else {
         return;
     };
     let source = pending.source;
+    let peer_target = pending.peer_target.clone();
 
     // The drag only commits on the frame the button is released. Every other
     // frame the mouse is either still held (drag in progress — we want to
@@ -431,6 +460,7 @@ pub fn handle_generator_drop(
         // Fall through to the placement path below; release clears `pending`.
     } else if !mouse.pressed(MouseButton::Left) {
         pending.generator_name = None;
+        pending.peer_target = None;
         return;
     } else {
         return;
@@ -439,6 +469,76 @@ pub fn handle_generator_drop(
     // From here on, whatever happens, consume the pending slot so we don't
     // re-enter the placement path on the next frame.
     pending.generator_name = None;
+    pending.peer_target = None;
+
+    // -----------------------------------------------------------------
+    // Peer gift branch: if the People UI flagged a peer row under the
+    // cursor last frame, route the drag into an ItemOffer instead of a
+    // ground placement. This takes precedence over the egui-cancel check
+    // below because releasing over the People window IS the valid target
+    // here — the usual "released over egui = cancel" rule doesn't apply.
+    // -----------------------------------------------------------------
+    if let Some(target) = peer_target {
+        // The sender still needs the source `Generator` in hand; pull it
+        // from the same sources the ground-placement branches use so
+        // both drop origins can gift.
+        let Some(sess) = session.as_deref() else {
+            return;
+        };
+        let generator_opt = match source {
+            DropSource::Inventory => inventory
+                .as_ref()
+                .and_then(|inv| inv.0.generators.get(&name).cloned()),
+            DropSource::RoomGenerators => room
+                .as_deref()
+                .and_then(|r| r.generators.get(&name).cloned()),
+        };
+        let Some(generator) = generator_opt else {
+            warn!("Peer-gift drop: source generator '{}' not found", name);
+            return;
+        };
+        if !is_drop_placeable(&generator) {
+            // Same filter the UI uses to gate drag-start; defence-in-depth
+            // in case a non-placeable kind slipped through.
+            return;
+        }
+
+        let now = time.elapsed_secs_f64();
+        let offer_id =
+            pending_offers.register(target.did.clone(), target.handle.clone(), name.clone(), now);
+        writer.write(Broadcast {
+            payload: OverlandsMessage::item_offer(
+                offer_id,
+                target.did.clone(),
+                name.clone(),
+                &generator,
+            ),
+            channel: ChannelKind::Reliable,
+        });
+        diagnostics.push(
+            now,
+            format!(
+                "Offered \"{}\" to @{} — awaiting response",
+                name, target.handle
+            ),
+        );
+        info!(
+            "Sent ItemOffer #{} \"{}\" to @{} ({})",
+            offer_id, name, target.handle, target.did
+        );
+        // `editor_state` is untouched on this branch (gifts don't mutate
+        // the room record), and `sess` served its purpose as a session
+        // presence guard — silence the unused warnings without sprinkling
+        // `#[allow]` attributes across the function.
+        let _ = &mut editor_state;
+        let _ = sess;
+        return;
+    }
+
+    // -----------------------------------------------------------------
+    // Ground-placement branch from here on. Enforces room ownership and
+    // requires a clean viewport release.
+    // -----------------------------------------------------------------
 
     // All gate checks run *before* we touch `room` mutably. `ResMut::as_mut()`
     // unconditionally flips the resource's change tick, so taking the mutable
@@ -541,4 +641,27 @@ pub fn handle_generator_drop(
         name, gen_key, source, hit_point.x, hit_point.y, hit_point.z
     );
     editor_state.mark_dirty();
+}
+
+/// Pick an inventory key for a gift arriving via [`OverlandsMessage::ItemOffer`].
+/// Policy: if the incoming name is free, use it verbatim; otherwise
+/// append `_2`, `_3`, … until we find an unused slot. This matches the
+/// user-approved design ("auto-rename with _2 suffix"). Equality of
+/// existing entries is not consulted — a gift always lands as a new item,
+/// because two players may each have tweaked the same base blueprint and
+/// silently coalescing would lose data.
+pub fn choose_inventory_gift_key(
+    existing: &HashMap<String, Generator>,
+    incoming_name: &str,
+) -> String {
+    if !existing.contains_key(incoming_name) {
+        return incoming_name.to_string();
+    }
+    for i in 2u32..u32::MAX {
+        let candidate = format!("{incoming_name}_{i}");
+        if !existing.contains_key(&candidate) {
+            return candidate;
+        }
+    }
+    incoming_name.to_string()
 }

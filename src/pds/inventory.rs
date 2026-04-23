@@ -41,10 +41,11 @@ impl InventoryRecord {
     /// The cap is enforced in lexicographic key order so the survivor set
     /// is deterministic (HashMap iteration is SipHash-randomised).
     pub fn sanitize(&mut self) {
-        if self.generators.len() > 50 {
+        let cap = crate::config::state::MAX_INVENTORY_ITEMS;
+        if self.generators.len() > cap {
             let mut keys: Vec<String> = self.generators.keys().cloned().collect();
             keys.sort();
-            for key in keys.into_iter().skip(50) {
+            for key in keys.into_iter().skip(cap) {
                 self.generators.remove(&key);
             }
         }
