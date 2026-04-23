@@ -46,9 +46,43 @@ use crate::state::{
 
 pub struct NetworkPlugin;
 
+/// DID → last-known `AvatarRecord` cache, keyed on the authenticated DID.
+///
+/// Every Identity message from a previously-unseen peer used to trigger an
+/// unconditional HTTPS round trip against that peer's PDS (DID document
+/// resolve → `getRecord`). When a portal hop brings a cluster of familiar
+/// peers into a room at once, the IoTaskPool gets saturated and avatars
+/// flicker in over several seconds. Caching here lets a returning peer's
+/// record load from memory without any network I/O, and keeps subsequent
+/// reconnects of the same DID within a session essentially free.
+///
+/// The cache is invalidated through the same channels that would invalidate
+/// a stale in-memory copy: an inbound `AvatarStateUpdate` from the owner
+/// overwrites it, and [`AppState::InGame`] exit (`logout`) wipes the whole
+/// map so a new login can't see a previous user's peers.
+#[derive(Resource, Default)]
+pub struct PeerAvatarCache {
+    by_did: std::collections::HashMap<String, AvatarRecord>,
+}
+
+impl PeerAvatarCache {
+    fn get(&self, did: &str) -> Option<&AvatarRecord> {
+        self.by_did.get(did)
+    }
+
+    fn insert(&mut self, did: String, record: AvatarRecord) {
+        self.by_did.insert(did, record);
+    }
+
+    pub fn clear(&mut self) {
+        self.by_did.clear();
+    }
+}
+
 impl Plugin for NetworkPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(SymbiosMultiuserPlugin::<OverlandsMessage>::deferred())
+            .init_resource::<PeerAvatarCache>()
             .add_systems(
                 Update,
                 (
@@ -206,6 +240,7 @@ fn handle_incoming_messages(
     incoming_dialog: Option<Res<IncomingOfferDialog>>,
     mut pending_offers: ResMut<PendingOutgoingOffers>,
     mut offer_writer: MessageWriter<Broadcast<OverlandsMessage>>,
+    mut avatar_cache: ResMut<PeerAvatarCache>,
 ) {
     let now = time.elapsed_secs_f64();
     // Drain the whole queue into a buffer so we can dedupe `Identity`
@@ -362,11 +397,18 @@ fn handle_incoming_messages(
                         // returns a verified value.
                         peer.handle = None;
                         peer.did = Some(did.clone());
-                        // Trigger the sovereign PDS fetch — the peer's
-                        // AvatarRecord lives on their own server, not on the
-                        // wire. `poll_peer_avatar_fetches` applies the result
-                        // when it arrives.
-                        spawn_peer_avatar_fetch(&mut commands, msg.sender, did.clone());
+                        // Install from cache synchronously when we've fetched
+                        // this DID before in the same session; otherwise
+                        // kick the async PDS fetch. Skipping the network
+                        // round trip matters most for portal hops, which
+                        // bring a cluster of familiar peers in at once and
+                        // would otherwise saturate the IoTaskPool with
+                        // duplicate DID-document resolves.
+                        if let Some(cached) = avatar_cache.get(&did) {
+                            peer.avatar = Some(cached.clone());
+                        } else {
+                            spawn_peer_avatar_fetch(&mut commands, msg.sender, did.clone());
+                        }
                     }
                 }
             }
@@ -393,13 +435,17 @@ fn handle_incoming_messages(
                     // already authenticated via Identity — otherwise a peer
                     // that connected before its session bound could smuggle
                     // an avatar under an empty DID and never be swept.
-                    if peer.did.is_none() {
+                    let Some(peer_did) = peer.did.clone() else {
                         debug!(
                             "Deferring AvatarStateUpdate from {}: peer DID not yet known",
                             msg.sender
                         );
                         continue;
-                    }
+                    };
+                    // Refresh the cache so a future Identity from this DID
+                    // (e.g. reconnect within the session) restores the
+                    // live-preview state instead of the stale PDS record.
+                    avatar_cache.insert(peer_did, new_record.clone());
                     peer.avatar = Some(new_record);
                     break;
                 }
@@ -716,6 +762,7 @@ fn poll_peer_avatar_fetches(
     mut tasks: Query<(Entity, &mut PeerAvatarFetchTask)>,
     mut peers: Query<&mut RemotePeer>,
     mut diagnostics: ResMut<DiagnosticsLog>,
+    mut avatar_cache: ResMut<PeerAvatarCache>,
     time: Res<Time>,
 ) {
     let elapsed = time.elapsed_secs_f64();
@@ -729,14 +776,21 @@ fn poll_peer_avatar_fetches(
         let did = task.did.clone();
         commands.entity(entity).despawn();
 
-        let mut record = match result {
-            Ok(Some(r)) => r,
+        // Only a true 2xx-with-payload is cached: a 404 or transient
+        // network error synthesises a DID-hashed default here, and caching
+        // that would prevent a later Identity for the same peer from
+        // retrying the real PDS fetch (a user who publishes their avatar
+        // for the first time mid-session would otherwise be stuck with the
+        // placeholder for every peer that happened to be on the PDS
+        // fallback path).
+        let (mut record, cacheable) = match result {
+            Ok(Some(r)) => (r, true),
             Ok(None) => {
                 info!(
                     "Peer {} ({}) has no avatar record — synthesising default",
                     peer_id, did
                 );
-                AvatarRecord::default_for_did(&did)
+                (AvatarRecord::default_for_did(&did), false)
             }
             Err(err) => {
                 diagnostics.push(
@@ -747,10 +801,13 @@ fn poll_peer_avatar_fetches(
                     "Avatar fetch failed for {} ({}): {:?} — falling back to default",
                     peer_id, did, err
                 );
-                AvatarRecord::default_for_did(&did)
+                (AvatarRecord::default_for_did(&did), false)
             }
         };
         record.sanitize();
+        if cacheable {
+            avatar_cache.insert(did.clone(), record.clone());
+        }
 
         // Find the live peer entity; it may have despawned if the peer
         // disconnected between the fetch kick-off and its completion.

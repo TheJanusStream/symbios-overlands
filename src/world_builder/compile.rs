@@ -22,7 +22,7 @@ use crate::pds::{
     TransformData,
 };
 use crate::state::CurrentRoomDid;
-use crate::terrain::{FinishedHeightMap, TerrainMesh};
+use crate::terrain::{FinishedHeightMap, OutgoingTerrain, TerrainMesh};
 use crate::water::WaterMaterial;
 
 use super::lsystem::{LSystemMaterialCache, LSystemMeshCache, spawn_lsystem_entity};
@@ -38,7 +38,7 @@ pub(super) fn compile_room_record(
     mut commands: Commands,
     record: Option<Res<RoomRecord>>,
     existing: Query<Entity, With<RoomEntity>>,
-    terrain_meshes: Query<Entity, With<TerrainMesh>>,
+    terrain_meshes: Query<Entity, (With<TerrainMesh>, Without<OutgoingTerrain>)>,
     heightmap: Option<Res<FinishedHeightMap>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut std_materials: ResMut<Assets<StandardMaterial>>,
@@ -553,7 +553,8 @@ pub(super) struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     pub(super) water_materials: &'a mut Assets<WaterMaterial>,
     pub(super) palette: Option<&'a MaterialPalette>,
     pub(super) heightmap: Option<&'a FinishedHeightMap>,
-    pub(super) terrain_meshes: &'a Query<'wq, 'sq, Entity, With<TerrainMesh>>,
+    pub(super) terrain_meshes:
+        &'a Query<'wq, 'sq, Entity, (With<TerrainMesh>, Without<OutgoingTerrain>)>,
     pub(super) prop_assets: Option<&'a PropMeshAssets>,
     pub(super) foliage_tasks: &'a mut OverlandsFoliageTasks,
     /// Persistent, hash-invalidated material cache. A single scatter

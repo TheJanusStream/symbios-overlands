@@ -6,7 +6,7 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 
 use crate::pds::{FetchError, RoomRecord, fetch_room_record};
-use crate::state::{CurrentRoomDid, LocalPlayer, TravelingTo};
+use crate::state::{CurrentRoomDid, LocalPlayer, RemotePeer, TravelingTo};
 use crate::world_builder::PortalMarker;
 
 #[derive(Component)]
@@ -67,9 +67,32 @@ pub(super) fn handle_portal_interaction(
 
             let did_clone = portal.target_did.clone();
             let pool = bevy::tasks::IoTaskPool::get();
+            // `reqwest` spawns internal timer/IO futures the moment it issues
+            // a request, which panics with "there is no reactor running"
+            // unless the future is driven inside a tokio runtime. The
+            // `IoTaskPool` is a plain async-executor, so on native we build
+            // a per-task single-threaded runtime (same pattern as every
+            // other HTTP-spawning site in the crate — see
+            // `network::spawn_peer_avatar_fetch` /
+            // `lib::spawn_avatar_record_fetch`). wasm32 has no tokio; the
+            // browser's JS runtime backs `fetch`, so the bare future works.
             let task = pool.spawn(async move {
-                let client = crate::config::http::default_client();
-                fetch_room_record(&client, &did_clone).await
+                let fut = async {
+                    let client = crate::config::http::default_client();
+                    fetch_room_record(&client, &did_clone).await
+                };
+                #[cfg(target_arch = "wasm32")]
+                {
+                    fut.await
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap()
+                        .block_on(fut)
+                }
             });
             commands.spawn(PortalTravelTask(task));
         }
@@ -87,6 +110,7 @@ pub(super) fn poll_portal_travel_tasks(
     mut current_did: Option<ResMut<CurrentRoomDid>>,
     mut chat: ResMut<crate::state::ChatHistory>,
     relay_host: Option<Res<crate::state::RelayHost>>,
+    peers: Query<Entity, With<RemotePeer>>,
     mut players: Query<
         (&mut Transform, &mut LinearVelocity, &mut AngularVelocity),
         With<LocalPlayer>,
@@ -134,6 +158,20 @@ pub(super) fn poll_portal_travel_tasks(
                 ice_servers: None,
                 _marker: std::marker::PhantomData,
             });
+        }
+
+        // 3a. Despawn the origin-region's remote peers. Tearing down the
+        // multiuser socket above *should* surface `Disconnected` events for
+        // each peer, but those events fan through the plugin's own systems
+        // next frame and are not guaranteed to sweep the ECS entities —
+        // leaving mute, frozen chassis sitting at the origin's last
+        // broadcast transform in the new region. The fresh socket's
+        // `Connected` events will re-spawn each peer we still share a
+        // room with. `try_despawn` tolerates the case where a parent
+        // despawn (e.g. an in-flight avatar rebuild queued this frame)
+        // already took a child down.
+        for peer_entity in &peers {
+            commands.entity(peer_entity).try_despawn();
         }
 
         // 4. Teleport player and clear momentum

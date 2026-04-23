@@ -12,6 +12,8 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::SymbiosMultiuserConfig;
 use bevy_symbios_multiuser::signaller::TokenSourceRes;
 
+use crate::avatar::BskyProfileCache;
+use crate::network::PeerAvatarCache;
 use crate::pds::RoomRecord;
 use crate::protocol::OverlandsMessage;
 use crate::state::{
@@ -37,6 +39,8 @@ fn cleanup_on_logout(
     room_entities: Query<Entity, With<RoomEntity>>,
     mut chat: ResMut<ChatHistory>,
     mut diagnostics: ResMut<DiagnosticsLog>,
+    mut avatar_cache: ResMut<PeerAvatarCache>,
+    mut bsky_cache: ResMut<BskyProfileCache>,
 ) {
     // Despawn game-world entities (recursive by default in Bevy 0.18).
     //
@@ -84,4 +88,13 @@ fn cleanup_on_logout(
     // Reset in-memory buffers so the next session starts fresh.
     chat.messages.clear();
     *diagnostics = DiagnosticsLog::default();
+    // Drop the peer avatar cache so a new login can't see the previous
+    // user's peers; the cache lives by DID, so a stale entry would install
+    // a stranger's vessel the moment a new session's peer Identity claim
+    // happened to match a DID from the old room.
+    avatar_cache.clear();
+    // Likewise for the bsky profile material cache — if the previous user
+    // lingered on a peer's pfp we don't want to render it on someone else
+    // after a DID collision.
+    bsky_cache.clear();
 }

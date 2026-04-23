@@ -44,6 +44,14 @@ struct TextureTasksStarted;
 #[derive(Component)]
 pub struct TerrainMesh;
 
+/// Marker inserted on the previous terrain entity during an in-place
+/// regenerate. Kept alive (with its collider + textured mesh) until the new
+/// heightmap task completes and `spawn_terrain_mesh` swaps in the fresh one —
+/// otherwise the player would fall through the world for the ~frame(s) the
+/// generator takes, and every peer would see a jarring flash to empty sky.
+#[derive(Component)]
+pub struct OutgoingTerrain;
+
 /// Marker component for the water-level volume entity (translucent cuboid).
 #[derive(Component)]
 pub struct WaterVolume;
@@ -157,6 +165,7 @@ impl Plugin for TerrainPlugin {
 fn cleanup_terrain(
     mut commands: Commands,
     terrain: Query<Entity, With<TerrainMesh>>,
+    outgoing: Query<Entity, With<OutgoingTerrain>>,
     water: Query<Entity, With<WaterVolume>>,
     pending_textures: Query<Entity, With<TextureLayerIndex>>,
     pending_raw: Query<Entity, With<PendingTexture>>,
@@ -166,6 +175,9 @@ fn cleanup_terrain(
 ) {
     for e in &terrain {
         commands.entity(e).despawn();
+    }
+    for e in &outgoing {
+        commands.entity(e).try_despawn();
     }
     for e in &water {
         commands.entity(e).despawn();
@@ -203,7 +215,7 @@ fn maybe_regenerate_terrain(
     record: Res<RoomRecord>,
     mut last_cfg: ResMut<LastTerrainConfigJson>,
     mut pending_cfg: ResMut<PendingTerrainConfigJson>,
-    terrain_q: Query<Entity, With<TerrainMesh>>,
+    terrain_q: Query<Entity, (With<TerrainMesh>, Without<OutgoingTerrain>)>,
     pending_textures: Query<Entity, With<TextureLayerIndex>>,
     mut splat_state: ResMut<TerrainSplatState>,
     terrain_task: Option<Res<TerrainTask>>,
@@ -244,14 +256,17 @@ fn maybe_regenerate_terrain(
         return;
     }
 
-    // Tear down everything tied to the old heightmap so the generic Update
-    // pipeline above re-kicks terrain generation, texture baking, and mesh
-    // spawning against the new config on subsequent frames. Water is a
+    // Mark the current terrain as outgoing instead of despawning it
+    // immediately: the player sits on its heightfield collider, so removing
+    // it before the new heightmap task completes would drop them through the
+    // world for the ~frame(s) generation takes, and every peer would see an
+    // abrupt flash to empty sky. `spawn_terrain_mesh` despawns outgoing
+    // entries atomically when the fresh mesh spawns. Water is a
     // `RoomEntity`, so `compile_room_record` despawns and rebuilds it in
     // response to the same record change — touching it here would race and
     // double-despawn.
     for e in &terrain_q {
-        commands.entity(e).despawn();
+        commands.entity(e).insert(OutgoingTerrain);
     }
     for e in &pending_textures {
         commands.entity(e).despawn();
@@ -372,7 +387,18 @@ fn spawn_terrain_mesh(
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<SplatTerrainMaterial>>,
     hm_res: Res<FinishedHeightMap>,
+    outgoing: Query<Entity, With<OutgoingTerrain>>,
 ) {
+    // Atomic hand-off from the previous terrain (which has been displaying
+    // the player on its collider while the new heightmap generated) to the
+    // freshly-spawned one. Queuing the despawn before the new-entity spawn
+    // keeps the command order correct — the old colliders are gone by the
+    // time physics observes a transform, and no frame ever has zero terrain
+    // in the world.
+    for e in &outgoing {
+        commands.entity(e).try_despawn();
+    }
+
     let hm = &hm_res.0;
     let world_extent = (hm.width() - 1) as f32 * hm.scale();
     let half = world_extent * 0.5;
