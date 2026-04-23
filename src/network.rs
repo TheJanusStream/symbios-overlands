@@ -743,7 +743,17 @@ fn poll_peer_avatar_fetches(
 
         // Find the live peer entity; it may have despawned if the peer
         // disconnected between the fetch kick-off and its completion.
-        if let Some(mut peer) = peers.iter_mut().find(|p| p.peer_id == peer_id) {
+        //
+        // Only install the fetched record if we haven't already received a
+        // newer state for this peer. An `AvatarStateUpdate` broadcast (the
+        // live-preview nudge from a peer dragging a slider in the Avatar
+        // Editor) can land between the fetch kick-off and its completion;
+        // overwriting it here would permanently fracture visual state —
+        // this client would see the old PDS record while every other peer
+        // in the room sees the live preview.
+        if let Some(mut peer) = peers.iter_mut().find(|p| p.peer_id == peer_id)
+            && peer.avatar.is_none()
+        {
             peer.avatar = Some(record);
         }
     }

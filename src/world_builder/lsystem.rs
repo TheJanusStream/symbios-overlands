@@ -411,6 +411,47 @@ pub(super) fn spawn_lsystem_entity(
         slot_handles.insert(slot, handle);
     }
 
+    // Backfill a shared fallback for any material id produced by the
+    // geometry/props that the generator's `materials` map doesn't define.
+    // Without this, the per-use `std_materials.add(..)` fallback below
+    // would allocate a fresh `StandardMaterial` for every scatter instance
+    // — attacker-crafted geometry with unmapped ids + a scatter of 100k
+    // would otherwise push millions of unique materials into the asset
+    // registry in a single frame. We route through `lsystem_material_cache`
+    // so every scatter instance of this generator shares one handle.
+    // `FALLBACK_SENTINEL_HASH` is intentionally a value
+    // `settings_fingerprint` cannot return, so a later record edit that
+    // *adds* a real `SovereignMaterialSettings` for the slot triggers a
+    // rebuild instead of reusing the bare default.
+    const FALLBACK_SENTINEL_HASH: u64 = u64::MAX;
+    let mut referenced_ids: std::collections::HashSet<u8> =
+        mesh_bucket_handles.iter().map(|(id, _)| *id).collect();
+    for prop in &props {
+        referenced_ids.insert(prop.material_id);
+    }
+    for id in referenced_ids {
+        if slot_handles.contains_key(&id) {
+            continue;
+        }
+        let key = (generator_ref.to_string(), id);
+        ctx.lsystem_cache_touched.insert(key.clone());
+        let handle = match ctx.lsystem_material_cache.entries.get(&key) {
+            Some(cached) if cached.settings_hash == FALLBACK_SENTINEL_HASH => cached.handle.clone(),
+            _ => {
+                let h = ctx.std_materials.add(StandardMaterial::default());
+                ctx.lsystem_material_cache.entries.insert(
+                    key,
+                    CachedLSystemMaterial {
+                        settings_hash: FALLBACK_SENTINEL_HASH,
+                        handle: h.clone(),
+                    },
+                );
+                h
+            }
+        };
+        slot_handles.insert(id, handle);
+    }
+
     for (material_id, mesh_handle) in &mesh_bucket_handles {
         let material = slot_handles
             .get(material_id)

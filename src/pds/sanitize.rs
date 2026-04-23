@@ -83,21 +83,22 @@ pub(crate) fn sanitize_prim_node(node: &mut PrimNode, depth: u32, count: &mut u3
         node.children.clear();
         return;
     }
-    for child in node.children.iter_mut() {
+    // Drop the tail children whose recursion budget we couldn't afford so
+    // the survivor count matches the spawn budget exactly. We track the
+    // loop index directly — the previous attempt to derive it from
+    // `*count - MAX_CONSTRUCT_NODES` evaluated to zero on the nominal
+    // break path, leaving the unvisited subtrees (with their unsanitized
+    // transforms and materials) in place and bypassing every cap below.
+    let mut visited = 0usize;
+    for (i, child) in node.children.iter_mut().enumerate() {
         if *count >= limits::MAX_CONSTRUCT_NODES {
             break;
         }
         sanitize_prim_node(child, depth + 1, count);
+        visited = i + 1;
     }
-    if *count >= limits::MAX_CONSTRUCT_NODES {
-        // Drop the tail children whose recursion budget we couldn't afford
-        // so the survivor count matches the spawn budget exactly.
-        let budget_used = *count;
-        let keep = node
-            .children
-            .len()
-            .saturating_sub((budget_used.saturating_sub(limits::MAX_CONSTRUCT_NODES)) as usize);
-        node.children.truncate(keep);
+    if visited < node.children.len() {
+        node.children.truncate(visited);
     }
 }
 
@@ -146,7 +147,9 @@ pub(crate) fn sanitize_prim_transform(t: &mut TransformData) {
 
 /// Clamp a `SovereignMaterialSettings` so render/PBR parameters stay in
 /// physically sensible ranges. Colour channels are `[0,1]`, roughness and
-/// metallic are `[0,1]`, emission strength is capped.
+/// metallic are `[0,1]`, emission strength is capped. Also clamps the
+/// embedded [`SovereignTextureConfig`] so octave-style DoS vectors can't
+/// ride in via a PBR material.
 pub(crate) fn sanitize_material_settings(m: &mut SovereignMaterialSettings) {
     let clamp_unit = |v: f32| {
         if v.is_finite() {
@@ -170,6 +173,37 @@ pub(crate) fn sanitize_material_settings(m: &mut SovereignMaterialSettings) {
     } else {
         1.0
     });
+    sanitize_texture_config(&mut m.texture);
+}
+
+/// Clamp octave-style fields on a `SovereignTextureConfig` variant so a
+/// malicious record cannot tell the procedural texture pipeline to run
+/// billions of noise iterations per pixel. Variants without an octave-like
+/// parameter are passed through untouched — their cost is bounded by the
+/// texture resolution cap in [`limits::MAX_TEXTURE_SIZE`].
+pub(crate) fn sanitize_texture_config(cfg: &mut SovereignTextureConfig) {
+    match cfg {
+        SovereignTextureConfig::Ground(g) => {
+            g.macro_octaves = g.macro_octaves.clamp(1, limits::MAX_GROUND_OCTAVES);
+            g.micro_octaves = g.micro_octaves.clamp(1, limits::MAX_GROUND_OCTAVES);
+        }
+        SovereignTextureConfig::Rock(r) => {
+            r.octaves = r.octaves.clamp(1, limits::MAX_ROCK_OCTAVES);
+        }
+        SovereignTextureConfig::Bark(b) => {
+            b.octaves = b.octaves.clamp(1, limits::MAX_ROCK_OCTAVES);
+        }
+        SovereignTextureConfig::Stucco(s) => {
+            s.octaves = s.octaves.clamp(1, limits::MAX_ROCK_OCTAVES);
+        }
+        SovereignTextureConfig::Concrete(c) => {
+            c.octaves = c.octaves.clamp(1, limits::MAX_ROCK_OCTAVES);
+        }
+        SovereignTextureConfig::Marble(m) => {
+            m.octaves = m.octaves.clamp(1, limits::MAX_ROCK_OCTAVES);
+        }
+        _ => {}
+    }
 }
 
 /// Clamp a single `Generator` variant in place. Shared by
@@ -186,12 +220,19 @@ pub fn sanitize_generator(generator: &mut Generator) {
             finalization_code,
             iterations,
             mesh_resolution,
+            materials,
             ..
         } => {
             truncate_on_char_boundary(source_code, limits::MAX_LSYSTEM_CODE_BYTES);
             truncate_on_char_boundary(finalization_code, limits::MAX_LSYSTEM_CODE_BYTES);
             *iterations = (*iterations).min(limits::MAX_LSYSTEM_ITERATIONS);
             *mesh_resolution = (*mesh_resolution).clamp(3, limits::MAX_LSYSTEM_MESH_RESOLUTION);
+            // Without this, a peer could ship a `Bark` slot with
+            // `octaves = 4_000_000_000` (or NaN emission) and hang the
+            // procedural texture task the moment a scatter lands.
+            for settings in materials.values_mut() {
+                sanitize_material_settings(settings);
+            }
         }
         Generator::Shape { floors, .. } => {
             *floors = (*floors).min(limits::MAX_SHAPE_FLOORS);
@@ -227,19 +268,8 @@ pub(crate) fn sanitize_terrain_cfg(cfg: &mut SovereignTerrainConfig) {
         .texture_size
         .clamp(16, limits::MAX_TEXTURE_SIZE);
     // Cap per-variant octave-like fields so a forward-compat peer cannot
-    // weaponise texture-size × octave blowups. Only the variants used for
-    // the canonical Grass/Dirt/Rock/Snow palette are sanitised here;
-    // future variants get a pass (their generators clamp internally).
+    // weaponise texture-size × octave blowups.
     for layer in cfg.material.layers.iter_mut() {
-        match layer {
-            SovereignTextureConfig::Ground(g) => {
-                g.macro_octaves = g.macro_octaves.clamp(1, limits::MAX_GROUND_OCTAVES);
-                g.micro_octaves = g.micro_octaves.clamp(1, limits::MAX_GROUND_OCTAVES);
-            }
-            SovereignTextureConfig::Rock(r) => {
-                r.octaves = r.octaves.clamp(1, limits::MAX_ROCK_OCTAVES);
-            }
-            _ => {}
-        }
+        sanitize_texture_config(layer);
     }
 }

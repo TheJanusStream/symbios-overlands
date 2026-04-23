@@ -142,6 +142,99 @@ fn count_nodes(node: &PrimNode, depth: u32, max_depth: &mut u32, count: &mut u32
 }
 
 #[test]
+fn construct_wide_fan_is_truncated_to_budget() {
+    // A fan one level deep with more children than the node budget must
+    // have its tail actually dropped, not silently left in the tree. The
+    // previous off-by-one (`children.len() - (count - MAX)`) resolved to a
+    // no-op on the nominal break path, letting the unvisited subtrees
+    // bypass every downstream NaN/size clamp.
+    let mut root = PrimNode {
+        shape: PrimShape::default(),
+        ..Default::default()
+    };
+    let fan_width = (limits::MAX_CONSTRUCT_NODES * 4) as usize;
+    for _ in 0..fan_width {
+        root.children.push(PrimNode {
+            shape: PrimShape::default(),
+            ..Default::default()
+        });
+    }
+
+    let mut generator = Generator::Construct { root };
+    sanitize_generator(&mut generator);
+
+    let Generator::Construct { root } = &generator else {
+        panic!("sanitize converted Construct to another variant");
+    };
+    let mut d = 0u32;
+    let mut c = 0u32;
+    count_nodes(root, 0, &mut d, &mut c);
+    assert!(
+        c <= limits::MAX_CONSTRUCT_NODES,
+        "wide-fan sanitize left {c} nodes (> budget {})",
+        limits::MAX_CONSTRUCT_NODES
+    );
+}
+
+#[test]
+fn lsystem_material_octaves_are_clamped() {
+    use std::collections::HashMap;
+    use symbios_overlands::pds::{
+        PropMeshType, SovereignBarkConfig, SovereignMaterialSettings, SovereignTextureConfig,
+    };
+
+    let mut materials: HashMap<u8, SovereignMaterialSettings> = HashMap::new();
+    let bark_slot = SovereignMaterialSettings {
+        emission_strength: Fp(f32::NAN),
+        uv_scale: Fp(f32::INFINITY),
+        texture: SovereignTextureConfig::Bark(SovereignBarkConfig {
+            octaves: 4_000_000_000,
+            ..SovereignBarkConfig::default()
+        }),
+        ..SovereignMaterialSettings::default()
+    };
+    materials.insert(0, bark_slot);
+
+    let mut lsys = Generator::LSystem {
+        source_code: "omega: F".into(),
+        finalization_code: String::new(),
+        iterations: 2,
+        seed: 0,
+        angle: Fp(25.0),
+        step: Fp(1.0),
+        width: Fp(0.1),
+        elasticity: Fp(0.0),
+        tropism: None,
+        materials,
+        prop_mappings: HashMap::<u16, PropMeshType>::new(),
+        prop_scale: Fp(1.0),
+        mesh_resolution: 8,
+    };
+    sanitize_generator(&mut lsys);
+
+    let Generator::LSystem { materials, .. } = &lsys else {
+        panic!("sanitize changed LSystem variant");
+    };
+    let settings = materials.get(&0).expect("bark slot missing after sanitize");
+    assert!(
+        settings.emission_strength.0.is_finite(),
+        "emission_strength left non-finite"
+    );
+    assert!(settings.uv_scale.0.is_finite(), "uv_scale left non-finite");
+    match &settings.texture {
+        SovereignTextureConfig::Bark(b) => {
+            assert!(
+                b.octaves <= limits::MAX_ROCK_OCTAVES,
+                "bark octaves {} > cap",
+                b.octaves
+            );
+            assert!(b.octaves >= 1, "bark octaves clamped below floor");
+        }
+        other => panic!("bark variant mutated: {other:?}"),
+    }
+}
+
+#[test]
 fn prim_transform_rejects_non_finite_fields() {
     use symbios_overlands::pds::{Fp4, TransformData};
     let mut generator = Generator::Construct {

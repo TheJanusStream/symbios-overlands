@@ -3,7 +3,7 @@
 use avian3d::prelude::*;
 use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
-use bevy::tasks::AsyncComputeTaskPool;
+use bevy::tasks::IoTaskPool;
 
 use crate::pds::Fp3;
 
@@ -63,7 +63,13 @@ pub(super) fn spawn_portal_entity(
     ctx.commands.entity(parent).add_child(top_face);
 
     if !is_local {
-        let pool = AsyncComputeTaskPool::get();
+        // `IoTaskPool` — not `AsyncComputeTaskPool` — is the right home for
+        // a blocking ATProto HTTP fetch. The compute pool is sized to the
+        // physical CPU-core count and is shared with terrain generation
+        // and procedural texture baking; a room with enough portals
+        // scheduled for fetch would pin every compute worker on a socket
+        // read and hang the client's `Loading` screen indefinitely.
+        let pool = IoTaskPool::get();
         let did_clone = target_did.to_string();
         let task = pool.spawn(async move {
             let fut = crate::avatar::fetch_avatar_bytes(did_clone);
