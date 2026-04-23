@@ -58,6 +58,17 @@ pub mod limits {
     /// still inflate memory and slow every `compile_room_record` pass even
     /// if no placement referenced them.
     pub const MAX_GENERATORS: usize = 256;
+    /// Horizontal cell spacing for the heightmap mesh. The lower bound keeps
+    /// the mesh finite (cell_scale feeds straight into the collider builder
+    /// and a NaN/zero would panic `avian3d`), and the upper bound caps the
+    /// total world extent at a sane radius even with MAX_GRID_SIZE.
+    pub const MIN_CELL_SCALE: f32 = 0.01;
+    pub const MAX_CELL_SCALE: f32 = 64.0;
+    /// Vertical scale applied to normalised heightmap samples. Same rationale:
+    /// clamp to a finite positive range so a corrupted record can't smuggle
+    /// NaN/infinity into `HeightMapMeshBuilder`.
+    pub const MIN_HEIGHT_SCALE: f32 = 0.01;
+    pub const MAX_HEIGHT_SCALE: f32 = 10_000.0;
     /// Maximum recursion depth for a `Construct` primitive tree. Deep
     /// hierarchies cost an entity + Transform chain per node; 16 is well
     /// past any plausible hand-authored assembly.
@@ -256,6 +267,18 @@ pub fn sanitize_generator(generator: &mut Generator) {
 
 pub(crate) fn sanitize_terrain_cfg(cfg: &mut SovereignTerrainConfig) {
     cfg.grid_size = cfg.grid_size.clamp(2, limits::MAX_GRID_SIZE);
+    // `cell_scale` and `height_scale` feed straight into the heightmap
+    // mesh/collider builders. A NaN or infinity smuggled in via a malicious
+    // record propagates to `avian3d` collider construction and panics the
+    // physics step, so clamp both to finite positive ranges.
+    cfg.cell_scale = Fp(cfg
+        .cell_scale
+        .0
+        .clamp(limits::MIN_CELL_SCALE, limits::MAX_CELL_SCALE));
+    cfg.height_scale = Fp(cfg
+        .height_scale
+        .0
+        .clamp(limits::MIN_HEIGHT_SCALE, limits::MAX_HEIGHT_SCALE));
     cfg.octaves = cfg.octaves.clamp(1, limits::MAX_OCTAVES);
     cfg.voronoi_num_seeds = cfg.voronoi_num_seeds.clamp(1, limits::MAX_VORONOI_SEEDS);
     cfg.voronoi_num_terraces = cfg

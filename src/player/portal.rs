@@ -27,7 +27,16 @@ pub(super) fn handle_portal_interaction(
     >,
     portals: Query<&PortalMarker>,
     current_room: Option<Res<CurrentRoomDid>>,
+    traveling: Option<Res<TravelingTo>>,
 ) {
+    // Guard against re-entry: once a travel task is in flight, the player
+    // keeps coasting through the portal collider for several frames. Without
+    // this check the Update system would spawn a fresh IoTaskPool fetch each
+    // frame, flooding the pool and stalling every other background task.
+    if traveling.is_some() {
+        return;
+    }
+
     let Ok((collisions, mut tf, mut lv, mut av)) = players.single_mut() else {
         return;
     };
@@ -47,6 +56,10 @@ pub(super) fn handle_portal_interaction(
             av.0 = Vec3::ZERO;
         } else {
             // Inter-room portal: Freeze the player and start the async fetch.
+            // Zero momentum so the player doesn't re-collide with the portal
+            // on the next frame before the travel task resolves.
+            lv.0 = Vec3::ZERO;
+            av.0 = Vec3::ZERO;
             commands.insert_resource(TravelingTo {
                 target_did: portal.target_did.clone(),
                 target_pos: portal.target_pos,

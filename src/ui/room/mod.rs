@@ -228,6 +228,13 @@ pub fn room_admin_ui(
                         Placement::Unknown => {}
                     }
                 }
+                // Migrate the traits mapping too — `RoomRecord::traits` is
+                // keyed on generator name, so a rename without this step
+                // orphans ECS trait bindings like `collider_heightfield`
+                // and leaves the renamed generator with no collision.
+                if let Some(traits) = record_mut.traits.remove(&old_name) {
+                    record_mut.traits.insert(new_name.clone(), traits);
+                }
                 *selected_generator = Some(new_name.clone());
                 widget_change = true;
             }

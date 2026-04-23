@@ -375,7 +375,13 @@ pub(super) fn apply_buoyancy_forces(
             return;
         }
     }
-    let water_offset: f32 = room_record
+    // Match `spawn_water_volume` and `find_water_level_for_filter`: the
+    // visual water surface is `base_wl + level_offset` AT the water
+    // placement's translation.y. Forgetting `placement_y` desyncs the
+    // buoyancy plane from the visible surface when the owner shifts the
+    // water volume via the 3D Gizmo, so the player falls through the top
+    // slab of visible water before floating somewhere beneath.
+    let (water_offset, placement_y) = room_record
         .as_ref()
         .and_then(|r| {
             let mut best: Option<(&String, f32)> = None;
@@ -386,10 +392,24 @@ pub(super) fn apply_buoyancy_forces(
                     best = Some((k, level_offset.0));
                 }
             }
-            best.map(|(_, off)| off)
+            best.map(|(best_key, off)| {
+                let py = r
+                    .placements
+                    .iter()
+                    .find_map(|p| match p {
+                        crate::pds::Placement::Absolute {
+                            generator_ref,
+                            transform,
+                            ..
+                        } if generator_ref == best_key => Some(transform.translation.0[1]),
+                        _ => None,
+                    })
+                    .unwrap_or(0.0);
+                (off, py)
+            })
         })
-        .unwrap_or(0.0);
-    let wl = water_level_y() + water_offset + kinematics.water_rest_length.0;
+        .unwrap_or((0.0, 0.0));
+    let wl = water_level_y() + water_offset + placement_y + kinematics.water_rest_length.0;
     let y = global_tf.translation().y;
     let depth = (wl - y).clamp(0.0, kinematics.buoyancy_max_depth.0);
     if depth <= 0.0 {

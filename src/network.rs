@@ -405,6 +405,27 @@ fn handle_incoming_messages(
                 }
             }
             OverlandsMessage::RoomStateUpdate { record_json } => {
+                // Authority check FIRST: decoding and sanitising up to ~1 MiB
+                // of JSON per broadcast is expensive enough that a guest
+                // spamming forged updates at 60 Hz would burn main-thread
+                // cycles even though the result is ultimately discarded. By
+                // resolving the sender's DID and comparing against the room
+                // owner before touching `record_json`, a non-owner broadcast
+                // short-circuits before the parse runs.
+                let sender_did = peers
+                    .iter()
+                    .find(|(_, peer, _, _)| peer.peer_id == msg.sender)
+                    .and_then(|(_, peer, _, _)| peer.did.clone());
+
+                let is_owner = match (&sender_did, &room_did) {
+                    (Some(did), Some(rd)) => did == &rd.0,
+                    _ => false,
+                };
+
+                if !is_owner {
+                    continue;
+                }
+
                 // Decode the JSON payload shipped by the owner. The wire
                 // format is JSON-in-bincode because `RoomRecord`'s tagged
                 // enums are incompatible with bincode's streaming decoder —
@@ -417,17 +438,6 @@ fn handle_incoming_messages(
                     continue;
                 };
 
-                // Only accept from the peer whose DID matches the room owner.
-                let sender_did = peers
-                    .iter()
-                    .find(|(_, peer, _, _)| peer.peer_id == msg.sender)
-                    .and_then(|(_, peer, _, _)| peer.did.clone());
-
-                let is_owner = match (&sender_did, &room_did) {
-                    (Some(did), Some(rd)) => did == &rd.0,
-                    _ => false,
-                };
-
                 // Clamp every unbounded numeric field before the world
                 // compiler touches the recipe — a malicious owner could
                 // otherwise ship a grid_size or L-system iteration count
@@ -437,7 +447,7 @@ fn handle_incoming_messages(
                 // Replace the whole recipe. `world_builder::compile_room_record`
                 // observes the resource change and rebuilds every compiled
                 // entity (water, sun colour, scattered shapes) in one pass.
-                if is_owner && let Some(record) = room_record.as_mut() {
+                if let Some(record) = room_record.as_mut() {
                     **record = new_record;
                     info!("Room state updated from owner broadcast");
                 }
@@ -667,20 +677,21 @@ fn handle_incoming_messages(
                     continue;
                 };
 
+                // Authenticate the responder's DID against the pending
+                // offer's target BEFORE consuming the pending entry. A
+                // prior implementation removed unconditionally, letting any
+                // peer in the room race a spoofed "accepted" reply onto the
+                // wire and silently delete the genuine target's pending
+                // offer — permanently breaking gifting for the sender.
+                match pending_offers.by_id.get(&offer_id) {
+                    Some(pending) if pending.target_did != responder_did => continue,
+                    None => continue,
+                    _ => {}
+                }
+
                 let Some(pending) = pending_offers.by_id.remove(&offer_id) else {
-                    // Either this response is for an offer we already
-                    // resolved (duplicate reply), or it's a reply to an
-                    // offer we never sent. Either way, drop it silently.
                     continue;
                 };
-
-                // Drop responses whose responder DID doesn't match the
-                // originally-targeted peer. Without this, any peer could
-                // observe the offer on the wire and race an "accepted"
-                // reply back before the real target answered.
-                if responder_did != pending.target_did {
-                    continue;
-                }
 
                 let outcome = if accepted { "accepted" } else { "declined" };
                 diagnostics.push(
