@@ -330,8 +330,7 @@ pub fn room_admin_ui(
                 // to its content and the window height snaps back.
                 const FOOTER_RESERVE: f32 = 90.0;
                 const BODY_MIN_HEIGHT: f32 = 160.0;
-                let body_height =
-                    (ui.available_height() - FOOTER_RESERVE).max(BODY_MIN_HEIGHT);
+                let body_height = (ui.available_height() - FOOTER_RESERVE).max(BODY_MIN_HEIGHT);
 
                 egui::ScrollArea::vertical()
                     .auto_shrink([true, false])

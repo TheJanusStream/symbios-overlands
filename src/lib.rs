@@ -167,6 +167,7 @@ pub fn run() {
             (
                 ui::diagnostics::diagnostics_ui,
                 ui::chat::chat_ui,
+                ui::people::people_ui,
                 ui::avatar::avatar_ui,
                 ui::room::room_admin_ui,
                 ui::inventory::inventory_ui,

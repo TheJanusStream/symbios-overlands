@@ -151,8 +151,7 @@ pub fn inventory_ui(
             // area collapses to its content and the window height snaps back.
             const FOOTER_RESERVE: f32 = 80.0;
             const LIST_MIN_HEIGHT: f32 = 80.0;
-            let list_height =
-                (ui.available_height() - FOOTER_RESERVE).max(LIST_MIN_HEIGHT);
+            let list_height = (ui.available_height() - FOOTER_RESERVE).max(LIST_MIN_HEIGHT);
 
             egui::ScrollArea::vertical()
                 .auto_shrink([true, false])

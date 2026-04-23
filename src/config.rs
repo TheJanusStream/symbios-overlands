@@ -439,6 +439,15 @@ pub mod ui {
         pub const WINDOW_DEFAULT_POS: [f32; 2] = [10.0, 10.0];
     }
 
+    pub mod people {
+        pub const WINDOW_DEFAULT_WIDTH: f32 = 280.0;
+        pub const WINDOW_DEFAULT_HEIGHT: f32 = 300.0;
+        /// Placed left of the Chat window (which defaults to x=990) with a
+        /// small gap, so a freshly-logged-in owner sees People and Chat
+        /// side-by-side without having to drag either into place.
+        pub const WINDOW_DEFAULT_POS: [f32; 2] = [700.0, 10.0];
+    }
+
     pub mod airship {
         pub const WINDOW_DEFAULT_WIDTH: f32 = 320.0;
         pub const WINDOW_DEFAULT_POS: [f32; 2] = [310.0, 10.0];
