@@ -93,13 +93,9 @@ pub(super) fn spawn_water_volume(
             perceptual_roughness: surface.roughness.0,
             metallic: surface.metallic.0,
             alpha_mode: AlphaMode::Blend,
-            // Back-face cull the cuboid: the old `cull_mode: None` + blend
-            // combination was what produced the parallel hard-edge bands —
-            // alpha-sorted side faces competing against the top gave per-view
-            // ordering flips. The shader discards fragments whose geometric
-            // normal isn't pointing up, so only the top face contributes —
-            // back-face culling here is belt-and-braces (plus saves the
-            // fragment invocations that the shader would discard anyway).
+            // Back-face cull the plane: viewed from underwater the surface
+            // contributes nothing, matching the previous Cuboid+discard
+            // behaviour without the wasted side-face rasterisation.
             cull_mode: Some(bevy::render::render_resource::Face::Back),
             ..default()
         },
@@ -108,13 +104,18 @@ pub(super) fn spawn_water_volume(
         },
     });
 
+    // Flat `Plane3d` at the water-surface altitude. The previous iteration
+    // spawned a 1×1×1 `Cuboid` scaled to `(world_extent, wl, world_extent)`
+    // and then discarded five out of six faces in the fragment shader — a
+    // lot of rasterisation work for zero visible fragments, and
+    // `fwidth`-after-`discard` is only well-defined under uniform quad
+    // control flow. The plane eliminates both.
     let mut tf = placement_tf;
-    tf.translation.y += wl / 2.0;
-    tf.scale = Vec3::new(world_extent, wl, world_extent);
+    tf.translation.y += wl;
 
     commands
         .spawn((
-            Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+            Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(world_extent / 2.0)))),
             MeshMaterial3d(water_mat),
             tf,
             WaterVolume,

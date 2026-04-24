@@ -1,26 +1,25 @@
 // Fragment shader for the animated water surface.
 //
 // Step-by-step what this does vs the old sum-of-two-sines implementation:
-//   1. Discards everything but the top face of the water cuboid. The old
-//      shader discarded only the bottom, leaving the side faces to draw
-//      against the top with AlphaMode::Blend — whichever sort order the
-//      current view produced, you'd get the characteristic "parallel hard
-//      edges" artifact. One surface only, no sort race.
-//   2. Wave displacement is now a sum of six Gerstner waves rotated around
+//   1. Wave displacement is a sum of six Gerstner waves rotated around
 //      the user-controlled prevailing wind direction, at golden-ratio-ish
 //      wavelengths / amplitudes / speeds. Normals are computed analytically
 //      from the Gerstner partial derivatives — not a faked vec3(x, 1, z).
 //      Rotated direction vectors kill the axis-aligned grid repetition the
 //      old implementation showed on long sightlines.
-//   3. A two-scale scrolling detail noise (near/far tiles blended by camera
+//   2. A two-scale scrolling detail noise (near/far tiles blended by camera
 //      distance) overlays fine ripples onto the Gerstner normal to mask the
 //      wave-frequency grain at distance.
-//   4. Fresnel (Schlick) drives both the reflection strength and the final
+//   3. Fresnel (Schlick) drives both the reflection strength and the final
 //      alpha, mixing a shallow/transparent tint at head-on view with a
 //      deep/opaque tint at grazing angles. This is what fixes the "sometimes
 //      very translucent" behaviour — there was no view-angle term before.
-//   5. Subsurface scatter, wave-crest foam, and a sharp sun-glitter specular
+//   4. Subsurface scatter, wave-crest foam, and a sharp sun-glitter specular
 //      highlight all ride on top of the PBR lighting pass.
+//
+// The mesh is a flat `Plane3d` in +Y — no cuboid side-face `discard` is
+// required, so the shader runs on every rasterised fragment and derivatives
+// (`fwidth`) stay well-defined across full 2×2 quads.
 //
 // All tunable values flow through the `WaterUniforms` block bound at slot
 // 100 — authored on `pds::WaterSurface` (per water body) and
@@ -124,10 +123,29 @@ fn rot2(v: vec2<f32>, a: f32) -> vec2<f32> {
 // Value noise for detail normals + foam breakup
 // ---------------------------------------------------------------------------
 
+// David Hoskins' sine-free scalar hash ("Hash without Sine", Shadertoy
+// XlGcRh). We need this specifically because the water's integer-coordinate
+// lattice can reach magnitudes of several hundred — `xz * normal_scale_near`
+// over a ~256 m world extent puts `floor(p)` well past 200 on each axis.
+//
+// Two earlier iterations failed here:
+//   1. `fract(p * 123.34, 456.21) + dot(...)` — 123.34 = 6167/50, so
+//      `fract(i.x * 123.34)` had period 50, planting a rigid 50×100 grid
+//      across the water. Denser near-tile scaling tiled that grid thicker
+//      into view, producing the diagonal bands.
+//   2. `fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453)` — with
+//      integer `p` above ~100, the argument to sin() exceeds ~10⁴ and
+//      f32 argument-reduction quantises runs of adjacent cells onto
+//      identical hash values, reading as hard-edged square splotches.
+//
+// Hoskins' construction stays in the numerically well-conditioned range
+// `[0, 1)` throughout (multiplier `0.1031`), uses a 3-component spread so
+// the returned scalar mixes all three carriers, and has no transcendental
+// dependency — so it's immune to both period and precision failure modes.
 fn hash21(p: vec2<f32>) -> f32 {
-    let q = fract(p * vec2<f32>(123.34, 456.21));
-    let r = q + dot(q, q + 45.32);
-    return fract(r.x * r.y);
+    var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
+    p3 = p3 + dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
 }
 
 fn noise2d(p: vec2<f32>) -> f32 {
@@ -178,13 +196,6 @@ fn fragment(
     in: VertexOutput,
     @builtin(front_facing) is_front: bool,
 ) -> FragmentOutput {
-    // Step 1 / artifact fix: discard every fragment whose geometric normal
-    // is not pointing up. Only the top face of the water cuboid contributes.
-    let geo_normal = normalize(in.world_normal);
-    if geo_normal.y < 0.5 {
-        discard;
-    }
-
     var pbr_input = pbr_input_from_standard_material(in, is_front);
 
     let t = globals.time * water_uniforms.wave_speed;
