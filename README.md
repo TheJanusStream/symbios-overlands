@@ -2,6 +2,8 @@
 
 A peer-to-peer spatial web of user-owned virtual worlds for the ATProto network.
 
+## 🚧 Prototype in active development 🚧
+
 🌍 **[Enter the Overlands (Live Browser / WASM Demo)](https://thejanusstream.github.io/symbios-overlands)**
 
 **Symbios Overlands** transforms your ATProto decentralized identity (DID) into a persistent, 3D virtual world. Built in Rust using the [Bevy](https://bevyengine.org/) engine, it acts as a true, sovereign spatial web.

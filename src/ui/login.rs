@@ -241,7 +241,7 @@ pub fn poll_complete_auth_task(
                 commands.insert_resource(CurrentRoomDid(room_did.clone()));
                 commands.insert_resource(session);
 
-                let source: TokenSource = Arc::new(std::sync::RwLock::new(Some(service_token)));
+                let source = TokenSource::new(Some(service_token));
                 commands.insert_resource(TokenSourceRes(source));
 
                 let host = relay_host.as_deref().map(|r| r.0.as_str()).unwrap_or("");
