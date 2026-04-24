@@ -7,8 +7,7 @@
 //! `pds::limits` envelope afterwards.
 
 use symbios_overlands::pds::{
-    Fp, Fp3, Generator, InventoryRecord, PrimNode, PrimShape, RoomRecord, limits,
-    sanitize_generator,
+    ConstructNode, Fp, Fp3, Generator, InventoryRecord, RoomRecord, limits, sanitize_generator,
 };
 
 const TEST_DID: &str = "did:plc:sanitise";
@@ -94,18 +93,12 @@ fn placements_over_cap_are_trimmed() {
 
 #[test]
 fn construct_depth_and_node_budget_enforced() {
-    let mut deep = PrimNode {
-        shape: PrimShape::default(),
-        ..Default::default()
-    };
+    let mut deep = ConstructNode::default();
     // Build a pathological chain twice as deep as the limit.
     let chain_depth = (limits::MAX_CONSTRUCT_DEPTH * 4) as usize;
     let mut cursor = &mut deep;
     for _ in 0..chain_depth {
-        cursor.children.push(PrimNode {
-            shape: PrimShape::default(),
-            ..Default::default()
-        });
+        cursor.children.push(ConstructNode::default());
         cursor = cursor.children.last_mut().unwrap();
     }
 
@@ -131,7 +124,7 @@ fn construct_depth_and_node_budget_enforced() {
     );
 }
 
-fn count_nodes(node: &PrimNode, depth: u32, max_depth: &mut u32, count: &mut u32) {
+fn count_nodes(node: &ConstructNode, depth: u32, max_depth: &mut u32, count: &mut u32) {
     *count += 1;
     if depth > *max_depth {
         *max_depth = depth;
@@ -148,16 +141,10 @@ fn construct_wide_fan_is_truncated_to_budget() {
     // previous off-by-one (`children.len() - (count - MAX)`) resolved to a
     // no-op on the nominal break path, letting the unvisited subtrees
     // bypass every downstream NaN/size clamp.
-    let mut root = PrimNode {
-        shape: PrimShape::default(),
-        ..Default::default()
-    };
+    let mut root = ConstructNode::default();
     let fan_width = (limits::MAX_CONSTRUCT_NODES * 4) as usize;
     for _ in 0..fan_width {
-        root.children.push(PrimNode {
-            shape: PrimShape::default(),
-            ..Default::default()
-        });
+        root.children.push(ConstructNode::default());
     }
 
     let mut generator = Generator::Construct { root };
@@ -174,6 +161,41 @@ fn construct_wide_fan_is_truncated_to_budget() {
         "wide-fan sanitize left {c} nodes (> budget {})",
         limits::MAX_CONSTRUCT_NODES
     );
+}
+
+#[test]
+fn construct_rejects_terrain_and_water_children() {
+    // Terrain and Water are room-scoped generators — nesting them inside a
+    // Construct would double-spawn heightmap colliders or water volumes on
+    // every compile pass. The sanitizer must overwrite them with a safe
+    // default cuboid rather than admit them into the blueprint tree.
+    let mut root = ConstructNode::default();
+    root.children.push(ConstructNode {
+        generator: Box::new(Generator::Terrain(Default::default())),
+        ..ConstructNode::default()
+    });
+    root.children.push(ConstructNode {
+        generator: Box::new(Generator::Water {
+            level_offset: Fp(0.0),
+        }),
+        ..ConstructNode::default()
+    });
+
+    let mut generator = Generator::Construct { root };
+    sanitize_generator(&mut generator);
+
+    let Generator::Construct { root } = &generator else {
+        panic!("sanitize converted Construct to another variant");
+    };
+    for child in &root.children {
+        assert!(
+            !matches!(
+                &*child.generator,
+                Generator::Terrain(_) | Generator::Water { .. }
+            ),
+            "Terrain/Water survived inside a ConstructNode"
+        );
+    }
 }
 
 #[test]
@@ -235,19 +257,24 @@ fn lsystem_material_octaves_are_clamped() {
 }
 
 #[test]
-fn prim_transform_rejects_non_finite_fields() {
+fn construct_node_transform_rejects_non_finite_fields() {
     use symbios_overlands::pds::{Fp4, TransformData};
     let mut generator = Generator::Construct {
-        root: PrimNode {
-            shape: PrimShape::Cuboid {
+        root: ConstructNode {
+            generator: Box::new(Generator::Cuboid {
                 size: Fp3([1.0, 1.0, 1.0]),
-            },
+                solid: true,
+                material: Default::default(),
+                twist: Fp(0.0),
+                taper: Fp(0.0),
+                bend: Fp3([0.0, 0.0, 0.0]),
+            }),
             transform: TransformData {
                 translation: Fp3([f32::NAN, f32::INFINITY, 0.0]),
                 rotation: Fp4([f32::NAN, f32::NAN, f32::NAN, f32::NAN]),
                 scale: Fp3([-1.0, 0.0, f32::INFINITY]),
             },
-            ..Default::default()
+            children: Vec::new(),
         },
     };
     // Must not panic.
@@ -271,6 +298,37 @@ fn prim_transform_rejects_non_finite_fields() {
         );
     } else {
         panic!("expected Construct after sanitize");
+    }
+}
+
+#[test]
+fn primitive_torture_clamped() {
+    // NaN/infinity/out-of-range torture parameters on a top-level
+    // primitive must be driven back into the finite envelope so the
+    // CPU-side vertex mutation pass never sees non-finite math.
+    let mut prim = Generator::Cuboid {
+        size: Fp3([1.0, 1.0, 1.0]),
+        solid: true,
+        material: Default::default(),
+        twist: Fp(f32::INFINITY),
+        taper: Fp(f32::NAN),
+        bend: Fp3([f32::INFINITY, f32::NAN, 1_000.0]),
+    };
+    sanitize_generator(&mut prim);
+    if let Generator::Cuboid {
+        twist, taper, bend, ..
+    } = &prim
+    {
+        assert!(twist.0.is_finite());
+        assert!(taper.0.is_finite());
+        assert!(twist.0.abs() <= limits::MAX_TORTURE_TWIST + 1e-3);
+        assert!(taper.0.abs() <= limits::MAX_TORTURE_TAPER + 1e-3);
+        for &v in bend.0.iter() {
+            assert!(v.is_finite());
+            assert!(v.abs() <= limits::MAX_TORTURE_BEND + 1e-3);
+        }
+    } else {
+        panic!("sanitize mutated Cuboid into another variant");
     }
 }
 

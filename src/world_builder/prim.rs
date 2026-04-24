@@ -1,156 +1,164 @@
-//! Construct / Prim node spawners plus parametric mesh and collider helpers.
-
-use std::collections::HashMap;
+//! Parametric primitive meshing and CPU-side vertex torture.
+//!
+//! Every `Generator::{Cuboid, Sphere, Cylinder, Capsule, Cone, Torus, Plane,
+//! Tetrahedron}` variant routes through [`build_primitive_mesh`] to produce a
+//! Bevy `Mesh`. When the variant's `(twist, taper, bend)` triple is non-zero,
+//! [`apply_vertex_torture`] mutates the mesh's `ATTRIBUTE_POSITION` buffer
+//! before it lands in `Assets<Mesh>`, so the visible geometry and the Avian
+//! collider stay in lock-step.
+//!
+//! The tortured-collider path swaps the fast analytical collider (e.g.
+//! `Collider::cuboid`) for a convex hull built from the mutated mesh — the
+//! analytic shape would cut corners on a twisted/bent primitive, leaving the
+//! visual mesh penetrating the world while the collider sits undisturbed.
+//! Trimesh colliders are avoided for now because Avian rejects them on
+//! dynamic rigid bodies; a Construct prim that later gains a dynamic body
+//! trait would panic the physics step otherwise.
 
 use avian3d::prelude::*;
+use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 
-use crate::pds::{PrimNode, PrimShape};
+use crate::pds::Generator;
 
-use super::compile::{SpawnCtx, transform_from_data};
-use super::lsystem::settings_fingerprint;
-use super::material::spawn_procedural_material;
-use super::{PrimMarker, RoomEntity, apply_traits};
-
-pub(super) fn spawn_construct_entity(
-    ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
-    root: &PrimNode,
-    generator_ref: &str,
-    placement_tf: Transform,
-) -> Entity {
-    let mut material_cache: HashMap<u64, Handle<StandardMaterial>> = HashMap::new();
-
-    // World-space anchor. Owns the rigid body and the `RoomEntity` marker so
-    // the whole subtree despawns together on the next compile pass. No mesh
-    // or material — it only exists to isolate world space from blueprint
-    // space.
-    let anchor = ctx
-        .commands
-        .spawn((
-            placement_tf,
-            Visibility::default(),
-            RigidBody::Static,
-            RoomEntity,
-        ))
-        .id();
-
-    // Blueprint root, spawned in its own local transform. Attaching it as a
-    // child of the anchor composes the placement's world transform with the
-    // blueprint root's local transform via Bevy's hierarchy, so visually the
-    // whole tree lands exactly where the `Placement::Absolute` asked.
-    let mut path: Vec<usize> = Vec::new();
-    let root_child = spawn_prim_tree(
-        ctx,
-        root,
-        transform_from_data(&root.transform),
-        &mut material_cache,
-        generator_ref,
-        &mut path,
-    );
-    ctx.commands.entity(anchor).add_child(root_child);
-
-    apply_traits(ctx.commands, anchor, ctx.record, generator_ref);
-    anchor
+/// Torture parameters extracted from a primitive generator. Each parameter
+/// is applied to the mesh's vertex positions along the shape's Y extent:
+///
+/// * `twist` — radians of rotation around Y, linear in normalised Y height.
+///   `twist = π` means the top face is rotated 180° relative to the bottom.
+/// * `taper` — fraction of `1 - taper * t` scale on X/Z at normalised Y
+///   height `t ∈ [0, 1]`. `taper = 0.5` → top is half-width.
+/// * `bend` — world-space translation of the top face. At normalised height
+///   `t`, vertices are displaced by `bend * t²` on X/Z (quadratic arc). The
+///   `bend.y` component is reserved for future rotational bends.
+#[derive(Clone, Copy)]
+pub(super) struct Torture {
+    pub twist: f32,
+    pub taper: f32,
+    pub bend: Vec3,
 }
 
-fn spawn_prim_tree(
-    ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
-    node: &PrimNode,
-    tf: Transform,
-    material_cache: &mut HashMap<u64, Handle<StandardMaterial>>,
-    generator_ref: &str,
-    path: &mut Vec<usize>,
-) -> Entity {
-    let mesh = mesh_for_prim_shape(ctx.meshes, &node.shape);
+impl Torture {
+    pub fn is_identity(&self) -> bool {
+        self.twist.abs() < 1e-6 && self.taper.abs() < 1e-6 && self.bend.length_squared() < 1e-12
+    }
+}
 
-    let hash = settings_fingerprint(&node.material);
-    let material = if let Some(h) = material_cache.get(&hash) {
-        h.clone()
+/// Build the parametric mesh for a primitive `Generator` variant and apply
+/// vertex torture when non-trivial. Returns the raw `Mesh`; the caller
+/// registers it in `Assets<Mesh>` so a single mesh can be reused when a
+/// material cache hit bypasses the allocation hot path.
+pub(super) fn build_primitive_mesh(generator: &Generator) -> Mesh {
+    let mut mesh = base_primitive_mesh(generator);
+    let torture = torture_of(generator);
+    if !torture.is_identity() {
+        apply_vertex_torture(&mut mesh, torture);
     } else {
-        let h = spawn_procedural_material(ctx, &node.material);
-        material_cache.insert(hash, h.clone());
-        h
-    };
-
-    let mut cmd = ctx.commands.spawn((
-        Mesh3d(mesh),
-        MeshMaterial3d(material),
-        tf,
-        PrimMarker {
-            generator_ref: generator_ref.to_string(),
-            path: path.clone(),
-        },
-        // Per-prim `RoomEntity` so the compile-pass cleanup finds every
-        // prim directly, not just through the anchor's recursive despawn.
-        // A gizmo-detached prim has no `ChildOf` link back to the anchor
-        // and would otherwise survive the rebuild as a dangling ghost.
-        RoomEntity,
-    ));
-    if node.solid
-        && let Some(collider) = collider_for_prim_shape(&node.shape)
-    {
-        cmd.insert(collider);
+        // Non-tortured path still needs tangents for the PBR shader. The
+        // torture branch regenerates them itself after mutating positions.
+        let _ = mesh.generate_tangents();
     }
-    let entity = cmd.id();
-
-    for (i, child_node) in node.children.iter().enumerate() {
-        path.push(i);
-        let child_tf = transform_from_data(&child_node.transform);
-        let child = spawn_prim_tree(
-            ctx,
-            child_node,
-            child_tf,
-            material_cache,
-            generator_ref,
-            path,
-        );
-        ctx.commands.entity(entity).add_child(child);
-        path.pop();
-    }
-    entity
+    mesh
 }
 
-/// Build the parametric mesh for a [`PrimShape`]. The node's
-/// [`TransformData::scale`] is applied via Bevy's transform hierarchy on
-/// top of the shape's intrinsic dimensions.
-fn mesh_for_prim_shape(meshes: &mut Assets<Mesh>, shape: &PrimShape) -> Handle<Mesh> {
-    let mut mesh = match shape {
-        PrimShape::Cuboid { size } => Cuboid::new(size.0[0], size.0[1], size.0[2]).mesh().build(),
-        PrimShape::Sphere { radius, resolution } => Sphere::new(radius.0)
+/// Build the Avian collider that matches a primitive's mesh — analytical
+/// when the shape is untortured (cheap, allocates nothing), or a convex
+/// hull of the mutated vertex cloud when torture is active (the analytical
+/// hull would diverge from the visible geometry). Returns `None` for shapes
+/// with no meaningful solid collider.
+pub(super) fn collider_for_primitive(generator: &Generator, mesh: &Mesh) -> Option<Collider> {
+    let torture = torture_of(generator);
+    if torture.is_identity() {
+        analytical_collider(generator)
+    } else {
+        convex_hull_from_mesh(mesh).or_else(|| analytical_collider(generator))
+    }
+}
+
+fn torture_of(generator: &Generator) -> Torture {
+    match generator {
+        Generator::Cuboid {
+            twist, taper, bend, ..
+        }
+        | Generator::Sphere {
+            twist, taper, bend, ..
+        }
+        | Generator::Cylinder {
+            twist, taper, bend, ..
+        }
+        | Generator::Capsule {
+            twist, taper, bend, ..
+        }
+        | Generator::Cone {
+            twist, taper, bend, ..
+        }
+        | Generator::Torus {
+            twist, taper, bend, ..
+        }
+        | Generator::Plane {
+            twist, taper, bend, ..
+        }
+        | Generator::Tetrahedron {
+            twist, taper, bend, ..
+        } => Torture {
+            twist: twist.0,
+            taper: taper.0,
+            bend: Vec3::from_array(bend.0),
+        },
+        _ => Torture {
+            twist: 0.0,
+            taper: 0.0,
+            bend: Vec3::ZERO,
+        },
+    }
+}
+
+fn base_primitive_mesh(generator: &Generator) -> Mesh {
+    match generator {
+        Generator::Cuboid { size, .. } => {
+            Cuboid::new(size.0[0], size.0[1], size.0[2]).mesh().build()
+        }
+        Generator::Sphere {
+            radius, resolution, ..
+        } => Sphere::new(radius.0)
             .mesh()
             .ico(*resolution)
             .unwrap_or_else(|_| Sphere::new(radius.0).mesh().build()),
-        PrimShape::Cylinder {
+        Generator::Cylinder {
             radius,
             height,
             resolution,
+            ..
         } => Cylinder::new(radius.0, height.0)
             .mesh()
             .resolution(*resolution)
             .build(),
-        PrimShape::Capsule {
+        Generator::Capsule {
             radius,
             length,
             latitudes,
             longitudes,
+            ..
         } => Capsule3d::new(radius.0, length.0)
             .mesh()
             .latitudes(*latitudes)
             .longitudes(*longitudes)
             .build(),
-        PrimShape::Cone {
+        Generator::Cone {
             radius,
             height,
             resolution,
+            ..
         } => Cone::new(radius.0, height.0)
             .mesh()
             .resolution(*resolution)
             .build(),
-        PrimShape::Torus {
+        Generator::Torus {
             minor_radius,
             major_radius,
             minor_resolution,
             major_resolution,
+            ..
         } => Torus {
             minor_radius: minor_radius.0,
             major_radius: major_radius.0,
@@ -159,13 +167,13 @@ fn mesh_for_prim_shape(meshes: &mut Assets<Mesh>, shape: &PrimShape) -> Handle<M
         .minor_resolution(*minor_resolution as usize)
         .major_resolution(*major_resolution as usize)
         .build(),
-        PrimShape::Plane { size, subdivisions } => {
-            Plane3d::new(Vec3::Y, Vec2::new(size.0[0] / 2.0, size.0[1] / 2.0))
-                .mesh()
-                .subdivisions(*subdivisions)
-                .build()
-        }
-        PrimShape::Tetrahedron { size } => {
+        Generator::Plane {
+            size, subdivisions, ..
+        } => Plane3d::new(Vec3::Y, Vec2::new(size.0[0] / 2.0, size.0[1] / 2.0))
+            .mesh()
+            .subdivisions(*subdivisions)
+            .build(),
+        Generator::Tetrahedron { size, .. } => {
             let s = size.0;
             let p0 = Vec3::new(0.0, 1.0, 0.0) * s;
             let p1 = Vec3::new(-1.0, -1.0, 1.0).normalize() * s;
@@ -173,22 +181,18 @@ fn mesh_for_prim_shape(meshes: &mut Assets<Mesh>, shape: &PrimShape) -> Handle<M
             let p3 = Vec3::new(0.0, -1.0, -1.0).normalize() * s;
             Tetrahedron::new(p0, p1, p2, p3).mesh().build()
         }
-    };
-    let _ = mesh.generate_tangents();
-    meshes.add(mesh)
+        _ => Cuboid::new(1.0, 1.0, 1.0).mesh().build(),
+    }
 }
 
-/// Build the Avian collider matching a [`PrimShape`]'s mesh. `Torus` and
-/// `Plane` fall back to bounding cuboids because Avian 0.6 has no native
-/// primitives for them; `Tetrahedron` uses a convex hull.
-fn collider_for_prim_shape(shape: &PrimShape) -> Option<Collider> {
-    Some(match shape {
-        PrimShape::Cuboid { size } => Collider::cuboid(size.0[0], size.0[1], size.0[2]),
-        PrimShape::Sphere { radius, .. } => Collider::sphere(radius.0),
-        PrimShape::Cylinder { radius, height, .. } => Collider::cylinder(radius.0, height.0),
-        PrimShape::Capsule { radius, length, .. } => Collider::capsule(radius.0, length.0),
-        PrimShape::Cone { radius, height, .. } => Collider::cone(radius.0, height.0),
-        PrimShape::Torus {
+fn analytical_collider(generator: &Generator) -> Option<Collider> {
+    Some(match generator {
+        Generator::Cuboid { size, .. } => Collider::cuboid(size.0[0], size.0[1], size.0[2]),
+        Generator::Sphere { radius, .. } => Collider::sphere(radius.0),
+        Generator::Cylinder { radius, height, .. } => Collider::cylinder(radius.0, height.0),
+        Generator::Capsule { radius, length, .. } => Collider::capsule(radius.0, length.0),
+        Generator::Cone { radius, height, .. } => Collider::cone(radius.0, height.0),
+        Generator::Torus {
             minor_radius,
             major_radius,
             ..
@@ -197,8 +201,8 @@ fn collider_for_prim_shape(shape: &PrimShape) -> Option<Collider> {
             minor_radius.0 * 2.0,
             major_radius.0 + minor_radius.0,
         ),
-        PrimShape::Plane { size, .. } => Collider::cuboid(size.0[0], 0.01, size.0[1]),
-        PrimShape::Tetrahedron { size } => {
+        Generator::Plane { size, .. } => Collider::cuboid(size.0[0], 0.01, size.0[1]),
+        Generator::Tetrahedron { size, .. } => {
             let s = size.0;
             let p0 = Vec3::new(0.0, 1.0, 0.0) * s;
             let p1 = Vec3::new(-1.0, -1.0, 1.0).normalize() * s;
@@ -206,5 +210,87 @@ fn collider_for_prim_shape(shape: &PrimShape) -> Option<Collider> {
             let p3 = Vec3::new(0.0, -1.0, -1.0).normalize() * s;
             Collider::convex_hull(vec![p0, p1, p2, p3]).unwrap_or_else(|| Collider::sphere(s))
         }
+        _ => return None,
     })
+}
+
+fn convex_hull_from_mesh(mesh: &Mesh) -> Option<Collider> {
+    let positions = mesh.attribute(Mesh::ATTRIBUTE_POSITION)?;
+    let VertexAttributeValues::Float32x3(verts) = positions else {
+        return None;
+    };
+    if verts.len() < 4 {
+        return None;
+    }
+    let points: Vec<Vec3> = verts.iter().map(|p| Vec3::from_array(*p)).collect();
+    Collider::convex_hull(points)
+}
+
+/// Mutate `mesh`'s vertex positions in-place, applying twist, taper, and
+/// bend proportionally to each vertex's normalised Y height. Regenerates
+/// normals + tangents afterwards so the lighting and UV pipeline stay valid.
+///
+/// The Y normalisation uses the mesh's pre-torture bounding box — we pin
+/// `t = 0` at the lowest vertex and `t = 1` at the highest, which keeps the
+/// math well-defined for any primitive regardless of whether its origin
+/// sits at the base or the centre.
+fn apply_vertex_torture(mesh: &mut Mesh, torture: Torture) {
+    let Some(positions_attr) = mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION) else {
+        return;
+    };
+    let VertexAttributeValues::Float32x3(positions) = positions_attr else {
+        return;
+    };
+    if positions.is_empty() {
+        return;
+    }
+
+    let (mut y_min, mut y_max) = (f32::INFINITY, f32::NEG_INFINITY);
+    for p in positions.iter() {
+        y_min = y_min.min(p[1]);
+        y_max = y_max.max(p[1]);
+    }
+    let y_range = (y_max - y_min).max(1e-6);
+
+    for p in positions.iter_mut() {
+        let t = ((p[1] - y_min) / y_range).clamp(0.0, 1.0);
+
+        // Taper: scale X/Z around the shape's central axis. Bounded away
+        // from zero by the sanitizer (|taper| ≤ 0.99) so the taper factor
+        // never collapses the face to a point — that would kill convex-hull
+        // construction and leave the collider with zero volume.
+        let taper_scale = 1.0 - torture.taper * t;
+        p[0] *= taper_scale;
+        p[2] *= taper_scale;
+
+        // Twist: rotate vertices around the Y axis by an angle linear in
+        // normalised height. Vertex at y_max gets the full `twist` angle.
+        if torture.twist.abs() > 1e-6 {
+            let angle = torture.twist * t;
+            let (s, c) = angle.sin_cos();
+            let (x, z) = (p[0], p[2]);
+            p[0] = c * x - s * z;
+            p[2] = s * x + c * z;
+        }
+
+        // Bend: quadratic horizontal displacement so the bend curve is
+        // tangent to vertical at the base and peaks at the top. Using t²
+        // (rather than linear t) keeps the base lined up with the parent
+        // transform while the top face arcs away cleanly.
+        let t2 = t * t;
+        p[0] += torture.bend.x * t2;
+        p[2] += torture.bend.z * t2;
+    }
+
+    // Flat normals pair well with the tortured geometry — smooth normals
+    // baked against the original (un-twisted) surface would point the wrong
+    // way once the vertices shift, producing shading seams. `duplicate_vertices`
+    // guarantees indexed meshes have one normal per face before the
+    // `compute_flat_normals` pass, which would otherwise panic on shared
+    // index fan-outs.
+    if mesh.indices().is_some() {
+        mesh.duplicate_vertices();
+    }
+    mesh.compute_flat_normals();
+    let _ = mesh.generate_tangents();
 }

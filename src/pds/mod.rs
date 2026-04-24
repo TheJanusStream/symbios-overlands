@@ -38,7 +38,8 @@
 //!   [`SovereignMaterialSettings`].
 //! * [`terrain`] — [`SovereignTerrainConfig`] + splat rules + four-layer
 //!   [`SovereignMaterialConfig`].
-//! * [`prim`] — [`PrimShape`], [`PrimNode`], and [`PropMeshType`].
+//! * [`prim`] — [`PropMeshType`] (the hierarchical primitive tree was
+//!   retired; every primitive is now a first-class [`Generator`] variant).
 //! * [`generator`] — the [`Generator`] and [`Placement`] open-union enums.
 //! * [`sanitize`] — clamp helpers + [`sanitize::limits`] for every numeric
 //!   field on the wire.
@@ -72,9 +73,9 @@ pub use avatar::{
     AvatarBody, AvatarRecord, HumanoidKinematics, HumanoidPhenotype, RoverKinematics,
     RoverPhenotype, fetch_avatar_record, publish_avatar_record,
 };
-pub use generator::{Generator, Placement};
+pub use generator::{ConstructNode, Generator, Placement};
 pub use inventory::{InventoryRecord, fetch_inventory_record, publish_inventory_record};
-pub use prim::{PrimNode, PrimShape, PropMeshType};
+pub use prim::PropMeshType;
 pub use room::{
     Environment, RoomRecord, delete_room_record, fetch_room_record, find_terrain_config,
     publish_room_record, reset_room_record,

@@ -9,11 +9,10 @@
 //! to the world compiler; those impls live alongside the record types and
 //! delegate into the per-variant helpers defined here.
 
-use super::generator::Generator;
-use super::prim::PrimNode;
+use super::generator::{ConstructNode, Generator};
 use super::terrain::SovereignTerrainConfig;
 use super::texture::{SovereignMaterialSettings, SovereignTextureConfig};
-use super::types::{Fp, Fp3, Fp4, TransformData, truncate_on_char_boundary};
+use super::types::{Fp, Fp2, Fp3, Fp4, TransformData, truncate_on_char_boundary};
 
 /// Maximum values allowed in a `RoomRecord`. Record fields outside these
 /// bounds are clamped rather than rejected so slightly exotic records from
@@ -46,8 +45,6 @@ pub mod limits {
     pub const MAX_LSYSTEM_CODE_BYTES: usize = 16_384;
     /// L-system mesh resolution (stroke segments per twig).
     pub const MAX_LSYSTEM_MESH_RESOLUTION: u32 = 32;
-    /// Shape generator floor count.
-    pub const MAX_SHAPE_FLOORS: u32 = 64;
     /// Maximum number of `Placement` entries per `RoomRecord`. Clamping
     /// `Scatter.count` alone is not enough — a record with ten-thousand
     /// single-count scatter entries still weaponises `compile_room_record`.
@@ -77,35 +74,64 @@ pub mod limits {
     /// malicious record with a million children would otherwise spawn a
     /// million Bevy entities + colliders on every compile pass.
     pub const MAX_CONSTRUCT_NODES: u32 = 1024;
+    /// Maximum absolute `twist` angle (radians) applied across a primitive's
+    /// Y extent. Two full turns in either direction is well past any
+    /// sculpting need — anything beyond that is just geometry noise.
+    pub const MAX_TORTURE_TWIST: f32 = 4.0 * std::f32::consts::PI;
+    /// Maximum magnitude of the per-axis `taper` factor. Clamped below 1.0
+    /// so a tapered primitive never collapses its top (or bottom) to a
+    /// single point — we'd lose vertices and the collider builder would
+    /// start returning zero-volume hulls.
+    pub const MAX_TORTURE_TAPER: f32 = 0.99;
+    /// Maximum magnitude of any component of the `bend` vector (world-units
+    /// of vertex displacement at the shape's top). 10 m is already a
+    /// dramatic curl on a 1 m primitive; beyond that the vertex torture pass
+    /// produces visually degenerate meshes the collider can't hug.
+    pub const MAX_TORTURE_BEND: f32 = 10.0;
 }
 
-/// Recursively clamp a `Construct` primitive tree. Beyond the depth and
+/// Recursively clamp a `ConstructNode` blueprint tree. Beyond the depth and
 /// total-node budgets (see [`limits::MAX_CONSTRUCT_DEPTH`] and
-/// [`limits::MAX_CONSTRUCT_NODES`]), each node's transform and material are
+/// [`limits::MAX_CONSTRUCT_NODES`]), each node's transform and generator are
 /// clamped so a malicious record can't pass NaN/negative scales to Bevy's
 /// primitive mesh constructors or the Avian collider builders.
-pub(crate) fn sanitize_prim_node(node: &mut PrimNode, depth: u32, count: &mut u32) {
+///
+/// **Security gate.** `Terrain` and `Water` are room-scoped generators (they
+/// reference the heightmap or hang a cuboid volume at the world's water
+/// level) and MUST NOT be nested inside a Construct — doing so would double-
+/// spawn heightfield colliders, desync buoyancy, or stamp a second sky-water
+/// volume at a random offset. If a hostile record smuggles one in, we
+/// overwrite it with a default cuboid so the node still round-trips.
+pub(crate) fn sanitize_construct_node(node: &mut ConstructNode, depth: u32, count: &mut u32) {
     *count += 1;
-    node.shape.sanitize();
     sanitize_prim_transform(&mut node.transform);
-    sanitize_material_settings(&mut node.material);
+
+    // Forbid room-scoped generators inside a Construct blueprint. They would
+    // either spawn a second heightmap collider (Terrain) or a second water
+    // volume (Water) every time a Construct instance compiled, fracturing
+    // physics and buoyancy. Overwrite rather than reject so the node still
+    // round-trips and the owner can fix it in the UI.
+    if matches!(
+        &*node.generator,
+        Generator::Terrain(_) | Generator::Water { .. }
+    ) {
+        *node.generator = Generator::default_cuboid();
+    }
+
+    sanitize_generator(&mut node.generator);
 
     if depth >= limits::MAX_CONSTRUCT_DEPTH || *count >= limits::MAX_CONSTRUCT_NODES {
         node.children.clear();
         return;
     }
     // Drop the tail children whose recursion budget we couldn't afford so
-    // the survivor count matches the spawn budget exactly. We track the
-    // loop index directly — the previous attempt to derive it from
-    // `*count - MAX_CONSTRUCT_NODES` evaluated to zero on the nominal
-    // break path, leaving the unvisited subtrees (with their unsanitized
-    // transforms and materials) in place and bypassing every cap below.
+    // the survivor count matches the spawn budget exactly.
     let mut visited = 0usize;
     for (i, child) in node.children.iter_mut().enumerate() {
         if *count >= limits::MAX_CONSTRUCT_NODES {
             break;
         }
-        sanitize_prim_node(child, depth + 1, count);
+        sanitize_construct_node(child, depth + 1, count);
         visited = i + 1;
     }
     if visited < node.children.len() {
@@ -217,6 +243,162 @@ pub(crate) fn sanitize_texture_config(cfg: &mut SovereignTextureConfig) {
     }
 }
 
+/// Clamp a single numeric value to a finite range, replacing NaN/Inf with
+/// `default`. Used by the primitive sanitizer and `sanitize_torture`.
+fn clamp_finite(v: f32, lo: f32, hi: f32, default: f32) -> f32 {
+    if v.is_finite() {
+        v.clamp(lo, hi)
+    } else {
+        default
+    }
+}
+
+/// Clamp the `(twist, taper, bend)` torture triple attached to every top-
+/// level primitive. Values drive the CPU-side vertex mutation pass in
+/// `world_builder::prim::apply_vertex_torture`; out-of-range inputs produce
+/// degenerate meshes (NaN vertex positions, zero-volume colliders) so we
+/// clamp them on ingest rather than in the spawn loop.
+fn sanitize_torture(twist: &mut Fp, taper: &mut Fp, bend: &mut Fp3) {
+    let t = limits::MAX_TORTURE_TWIST;
+    let tp = limits::MAX_TORTURE_TAPER;
+    let b = limits::MAX_TORTURE_BEND;
+    twist.0 = clamp_finite(twist.0, -t, t, 0.0);
+    taper.0 = clamp_finite(taper.0, -tp, tp, 0.0);
+    for i in 0..3 {
+        bend.0[i] = clamp_finite(bend.0[i], -b, b, 0.0);
+    }
+}
+
+/// Clamp every numeric field on a parametric primitive generator variant.
+/// Mirrors the bounds the World Editor UI exposes so a hand-crafted record
+/// can't push mesh/collider builders into NaN / OOM territory.
+fn sanitize_primitive(generator: &mut Generator) {
+    let c_dim = |v: f32| clamp_finite(v, 0.01, 100.0, 1.0);
+    match generator {
+        Generator::Cuboid {
+            size,
+            material,
+            twist,
+            taper,
+            bend,
+            ..
+        } => {
+            size.0 = [c_dim(size.0[0]), c_dim(size.0[1]), c_dim(size.0[2])];
+            sanitize_material_settings(material);
+            sanitize_torture(twist, taper, bend);
+        }
+        Generator::Sphere {
+            radius,
+            resolution,
+            material,
+            twist,
+            taper,
+            bend,
+            ..
+        } => {
+            *radius = Fp(c_dim(radius.0));
+            *resolution = (*resolution).clamp(0, 10);
+            sanitize_material_settings(material);
+            sanitize_torture(twist, taper, bend);
+        }
+        Generator::Cylinder {
+            radius,
+            height,
+            resolution,
+            material,
+            twist,
+            taper,
+            bend,
+            ..
+        } => {
+            *radius = Fp(c_dim(radius.0));
+            *height = Fp(c_dim(height.0));
+            *resolution = (*resolution).clamp(3, 128);
+            sanitize_material_settings(material);
+            sanitize_torture(twist, taper, bend);
+        }
+        Generator::Capsule {
+            radius,
+            length,
+            latitudes,
+            longitudes,
+            material,
+            twist,
+            taper,
+            bend,
+            ..
+        } => {
+            *radius = Fp(c_dim(radius.0));
+            *length = Fp(c_dim(length.0));
+            *latitudes = (*latitudes).clamp(2, 64);
+            *longitudes = (*longitudes).clamp(4, 128);
+            sanitize_material_settings(material);
+            sanitize_torture(twist, taper, bend);
+        }
+        Generator::Cone {
+            radius,
+            height,
+            resolution,
+            material,
+            twist,
+            taper,
+            bend,
+            ..
+        } => {
+            *radius = Fp(c_dim(radius.0));
+            *height = Fp(c_dim(height.0));
+            *resolution = (*resolution).clamp(3, 128);
+            sanitize_material_settings(material);
+            sanitize_torture(twist, taper, bend);
+        }
+        Generator::Torus {
+            minor_radius,
+            major_radius,
+            minor_resolution,
+            major_resolution,
+            material,
+            twist,
+            taper,
+            bend,
+            ..
+        } => {
+            *minor_radius = Fp(c_dim(minor_radius.0));
+            *major_radius = Fp(c_dim(major_radius.0));
+            *minor_resolution = (*minor_resolution).clamp(3, 64);
+            *major_resolution = (*major_resolution).clamp(3, 128);
+            sanitize_material_settings(material);
+            sanitize_torture(twist, taper, bend);
+        }
+        Generator::Plane {
+            size,
+            subdivisions,
+            material,
+            twist,
+            taper,
+            bend,
+            ..
+        } => {
+            *size = Fp2([c_dim(size.0[0]), c_dim(size.0[1])]);
+            *subdivisions = (*subdivisions).clamp(0, 32);
+            sanitize_material_settings(material);
+            sanitize_torture(twist, taper, bend);
+        }
+        Generator::Tetrahedron {
+            size,
+            material,
+            twist,
+            taper,
+            bend,
+            ..
+        } => {
+            *size = Fp(c_dim(size.0));
+            sanitize_material_settings(material);
+            sanitize_torture(twist, taper, bend);
+        }
+        _ => {}
+    }
+}
+
 /// Clamp a single `Generator` variant in place. Shared by
 /// [`super::room::RoomRecord::sanitize`] and
 /// [`super::inventory::InventoryRecord::sanitize`] so the per-variant
@@ -245,9 +427,6 @@ pub fn sanitize_generator(generator: &mut Generator) {
                 sanitize_material_settings(settings);
             }
         }
-        Generator::Shape { floors, .. } => {
-            *floors = (*floors).min(limits::MAX_SHAPE_FLOORS);
-        }
         Generator::Portal {
             target_did,
             target_pos,
@@ -259,8 +438,16 @@ pub fn sanitize_generator(generator: &mut Generator) {
         }
         Generator::Construct { root } => {
             let mut count: u32 = 0;
-            sanitize_prim_node(root, 0, &mut count);
+            sanitize_construct_node(root, 0, &mut count);
         }
+        Generator::Cuboid { .. }
+        | Generator::Sphere { .. }
+        | Generator::Cylinder { .. }
+        | Generator::Capsule { .. }
+        | Generator::Cone { .. }
+        | Generator::Torus { .. }
+        | Generator::Plane { .. }
+        | Generator::Tetrahedron { .. } => sanitize_primitive(generator),
         Generator::Water { .. } | Generator::Unknown => {}
     }
 }

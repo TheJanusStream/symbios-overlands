@@ -1,17 +1,17 @@
 //! Generators tab — master list of named generators, add/remove/rename
 //! flows, and the per-generator detail editor that dispatches to the
-//! Terrain / Construct / LSystem / Shape / Water / Portal sub-editors.
+//! Terrain / Construct / LSystem / Water / Portal / Primitive sub-editors.
 
 use bevy_egui::egui;
 
-use crate::pds::{Fp, Fp3, Generator, PrimNode, RoomRecord};
+use crate::pds::{ConstructNode, Fp, Fp2, Fp3, Generator, RoomRecord};
 use crate::state::LiveInventoryRecord;
 use crate::ui::inventory::{DropSource, PendingGeneratorDrop, is_drop_placeable};
 
-use super::construct::draw_construct_forge;
+use super::construct::{draw_construct_forge, draw_torture, draw_universal_material};
 use super::lsystem::draw_lsystem_forge;
 use super::terrain::draw_terrain_forge;
-use super::widgets::{default_lsystem_generator, fp_slider, unique_key};
+use super::widgets::{default_lsystem_generator, drag_u32, fp_slider, unique_key};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_generators_tab(
@@ -44,7 +44,14 @@ pub(super) fn draw_generators_tab(
         if *selected == Some(name.clone())
             && let Some(g) = record.generators.get_mut(&name)
         {
-            draw_generator_detail(ui, &name, g, selected_prim_path, dirty);
+            ui.label(format!("Generator: `{}`", name));
+            ui.add_space(4.0);
+            // Re-borrow as shared so nested construct editors can offer an
+            // "add child from inventory" picker without fighting the outer
+            // `&mut` that the master-list code still needs for the "Save to
+            // Inventory" and "From Inventory..." buttons further down.
+            let inv_shared: Option<&LiveInventoryRecord> = inventory.as_deref();
+            draw_generator_detail(ui, &name, g, selected_prim_path, inv_shared, dirty);
         }
         return;
     }
@@ -136,7 +143,7 @@ pub(super) fn draw_generators_tab(
     ui.add_space(6.0);
     ui.separator();
     ui.label("Add new generator:");
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         if ui.small_button("+ Terrain").clicked() {
             let name = unique_key(&record.generators, "terrain");
             record
@@ -181,11 +188,34 @@ pub(super) fn draw_generators_tab(
             record.generators.insert(
                 name.clone(),
                 Generator::Construct {
-                    root: PrimNode::default(),
+                    root: ConstructNode::default(),
                 },
             );
             *selected = Some(name);
             *dirty = true;
+        }
+        // Top-level parametric primitives. Each gets a sensible default
+        // from `Generator::default_primitive_for_tag` so the owner can drop
+        // a naked cuboid/sphere/etc. into a room without building a
+        // Construct wrapper. They're still valid inside a Construct too.
+        for (label, tag) in [
+            ("+ Cuboid", "Cuboid"),
+            ("+ Sphere", "Sphere"),
+            ("+ Cylinder", "Cylinder"),
+            ("+ Capsule", "Capsule"),
+            ("+ Cone", "Cone"),
+            ("+ Torus", "Torus"),
+            ("+ Plane", "Plane"),
+            ("+ Tetrahedron", "Tetrahedron"),
+        ] {
+            if ui.small_button(label).clicked()
+                && let Some(prim) = Generator::default_primitive_for_tag(tag)
+            {
+                let name = unique_key(&record.generators, &tag.to_lowercase());
+                record.generators.insert(name.clone(), prim);
+                *selected = Some(name);
+                *dirty = true;
+            }
         }
         if let Some(inv) = inventory.as_deref()
             && !inv.0.generators.is_empty()
@@ -214,15 +244,30 @@ pub(super) fn draw_generators_tab(
     });
 }
 
-fn draw_generator_detail(
+/// Per-generator detail editor. Dispatches into the per-variant forges for
+/// Terrain/LSystem/Construct, owns the inline Water/Portal widgets, and
+/// uses a shared primitive editor for every parametric shape.
+///
+/// `salt` uniquely identifies this generator in egui's ID stack — it's
+/// passed through to nested construct/material widgets so collapsing one
+/// sibling never affects another when the same widget type repeats in a
+/// recursive ConstructNode tree.
+///
+/// `inventory` is threaded through so nested ConstructNode editors can
+/// offer an "+ From Inventory…" child-picker combo. It is a shared
+/// borrow — we only read from it — which lets nested mutual recursion
+/// (`draw_generator_detail` ↔ `draw_construct_forge`) pass it around
+/// without re-borrow conflicts against the outer `&mut` the master list
+/// holds for "Save to Inventory" / "From Inventory..." buttons.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn draw_generator_detail(
     ui: &mut egui::Ui,
-    name: &str,
+    salt: &str,
     generator: &mut Generator,
     selected_prim_path: &mut Option<Vec<usize>>,
+    inventory: Option<&LiveInventoryRecord>,
     dirty: &mut bool,
 ) {
-    ui.label(format!("Generator: `{}`", name));
-    ui.add_space(4.0);
     match generator {
         Generator::Terrain(cfg) => draw_terrain_forge(ui, cfg, dirty),
         Generator::Water { level_offset } => {
@@ -260,20 +305,6 @@ fn draw_generator_detail(
             mesh_resolution,
             dirty,
         ),
-        Generator::Shape { style, floors } => {
-            if ui
-                .add(egui::TextEdit::singleline(style).hint_text("style"))
-                .changed()
-            {
-                *dirty = true;
-            }
-            if ui
-                .add(egui::DragValue::new(floors).speed(1.0).range(0..=64))
-                .changed()
-            {
-                *dirty = true;
-            }
-        }
         Generator::Portal {
             target_did,
             target_pos,
@@ -287,9 +318,6 @@ fn draw_generator_detail(
             }
             ui.add_space(4.0);
             ui.label("Exit position (world space in the target room)");
-            // Drag the raw f32s directly — wrapping each axis in a temporary
-            // `Fp` to reuse `fp_slider` wouldn't round-trip the edit back to
-            // the underlying `[f32; 3]`.
             ui.horizontal(|ui| {
                 ui.label("X");
                 if ui
@@ -315,8 +343,117 @@ fn draw_generator_detail(
             });
         }
         Generator::Construct { root } => {
-            draw_construct_forge(ui, root, selected_prim_path, dirty);
+            draw_construct_forge(ui, root, selected_prim_path, inventory, dirty);
         }
+        Generator::Cuboid {
+            size,
+            solid,
+            material,
+            twist,
+            taper,
+            bend,
+        } => draw_primitive_cuboid(ui, size, solid, material, twist, taper, bend, salt, dirty),
+        Generator::Sphere {
+            radius,
+            resolution,
+            solid,
+            material,
+            twist,
+            taper,
+            bend,
+        } => draw_primitive_sphere(
+            ui, radius, resolution, solid, material, twist, taper, bend, salt, dirty,
+        ),
+        Generator::Cylinder {
+            radius,
+            height,
+            resolution,
+            solid,
+            material,
+            twist,
+            taper,
+            bend,
+        } => draw_primitive_cylinder(
+            ui, radius, height, resolution, solid, material, twist, taper, bend, salt, dirty,
+        ),
+        Generator::Capsule {
+            radius,
+            length,
+            latitudes,
+            longitudes,
+            solid,
+            material,
+            twist,
+            taper,
+            bend,
+        } => draw_primitive_capsule(
+            ui, radius, length, latitudes, longitudes, solid, material, twist, taper, bend, salt,
+            dirty,
+        ),
+        Generator::Cone {
+            radius,
+            height,
+            resolution,
+            solid,
+            material,
+            twist,
+            taper,
+            bend,
+        } => draw_primitive_cone(
+            ui, radius, height, resolution, solid, material, twist, taper, bend, salt, dirty,
+        ),
+        Generator::Torus {
+            minor_radius,
+            major_radius,
+            minor_resolution,
+            major_resolution,
+            solid,
+            material,
+            twist,
+            taper,
+            bend,
+        } => draw_primitive_torus(
+            ui,
+            minor_radius,
+            major_radius,
+            minor_resolution,
+            major_resolution,
+            solid,
+            material,
+            twist,
+            taper,
+            bend,
+            salt,
+            dirty,
+        ),
+        Generator::Plane {
+            size,
+            subdivisions,
+            solid,
+            material,
+            twist,
+            taper,
+            bend,
+        } => draw_primitive_plane(
+            ui,
+            size,
+            subdivisions,
+            solid,
+            material,
+            twist,
+            taper,
+            bend,
+            salt,
+            dirty,
+        ),
+        Generator::Tetrahedron {
+            size,
+            solid,
+            material,
+            twist,
+            taper,
+            bend,
+        } => draw_primitive_tetrahedron(ui, size, solid, material, twist, taper, bend, salt, dirty),
         Generator::Unknown => {
             ui.colored_label(
                 egui::Color32::from_rgb(220, 160, 80),
@@ -327,5 +464,226 @@ fn draw_generator_detail(
 }
 
 // ---------------------------------------------------------------------------
-// Construct forge — recursive hierarchical primitive editor
+// Per-primitive detail editors. Each one owns the shape-specific drag
+// widgets, the solid checkbox, the torture triple, and the material panel.
 // ---------------------------------------------------------------------------
+
+#[allow(clippy::too_many_arguments)]
+fn draw_primitive_cuboid(
+    ui: &mut egui::Ui,
+    size: &mut Fp3,
+    solid: &mut bool,
+    material: &mut crate::pds::SovereignMaterialSettings,
+    twist: &mut Fp,
+    taper: &mut Fp,
+    bend: &mut Fp3,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    ui.horizontal(|ui| {
+        ui.label("Size X/Y/Z:");
+        let mut v = size.0;
+        let mut changed = false;
+        for axis in v.iter_mut() {
+            changed |= ui
+                .add(egui::DragValue::new(axis).speed(0.1).range(0.01..=100.0))
+                .changed();
+        }
+        if changed {
+            *size = Fp3(v);
+            *dirty = true;
+        }
+    });
+    draw_common_primitive(ui, solid, material, twist, taper, bend, salt, dirty);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_primitive_sphere(
+    ui: &mut egui::Ui,
+    radius: &mut Fp,
+    resolution: &mut u32,
+    solid: &mut bool,
+    material: &mut crate::pds::SovereignMaterialSettings,
+    twist: &mut Fp,
+    taper: &mut Fp,
+    bend: &mut Fp3,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    ui.horizontal(|ui| {
+        fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
+        drag_u32(ui, "Ico Res", resolution, 0, 10, dirty);
+    });
+    draw_common_primitive(ui, solid, material, twist, taper, bend, salt, dirty);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_primitive_cylinder(
+    ui: &mut egui::Ui,
+    radius: &mut Fp,
+    height: &mut Fp,
+    resolution: &mut u32,
+    solid: &mut bool,
+    material: &mut crate::pds::SovereignMaterialSettings,
+    twist: &mut Fp,
+    taper: &mut Fp,
+    bend: &mut Fp3,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    ui.horizontal(|ui| {
+        fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
+        fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
+        drag_u32(ui, "Res", resolution, 3, 128, dirty);
+    });
+    draw_common_primitive(ui, solid, material, twist, taper, bend, salt, dirty);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_primitive_capsule(
+    ui: &mut egui::Ui,
+    radius: &mut Fp,
+    length: &mut Fp,
+    latitudes: &mut u32,
+    longitudes: &mut u32,
+    solid: &mut bool,
+    material: &mut crate::pds::SovereignMaterialSettings,
+    twist: &mut Fp,
+    taper: &mut Fp,
+    bend: &mut Fp3,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    ui.horizontal(|ui| {
+        fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
+        fp_slider(ui, "Length", length, 0.01, 100.0, dirty);
+    });
+    ui.horizontal(|ui| {
+        drag_u32(ui, "Lats", latitudes, 2, 64, dirty);
+        drag_u32(ui, "Lons", longitudes, 4, 128, dirty);
+    });
+    draw_common_primitive(ui, solid, material, twist, taper, bend, salt, dirty);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_primitive_cone(
+    ui: &mut egui::Ui,
+    radius: &mut Fp,
+    height: &mut Fp,
+    resolution: &mut u32,
+    solid: &mut bool,
+    material: &mut crate::pds::SovereignMaterialSettings,
+    twist: &mut Fp,
+    taper: &mut Fp,
+    bend: &mut Fp3,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    ui.horizontal(|ui| {
+        fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
+        fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
+        drag_u32(ui, "Res", resolution, 3, 128, dirty);
+    });
+    draw_common_primitive(ui, solid, material, twist, taper, bend, salt, dirty);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_primitive_torus(
+    ui: &mut egui::Ui,
+    minor_radius: &mut Fp,
+    major_radius: &mut Fp,
+    minor_resolution: &mut u32,
+    major_resolution: &mut u32,
+    solid: &mut bool,
+    material: &mut crate::pds::SovereignMaterialSettings,
+    twist: &mut Fp,
+    taper: &mut Fp,
+    bend: &mut Fp3,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    ui.horizontal(|ui| {
+        fp_slider(ui, "Minor R", minor_radius, 0.01, 50.0, dirty);
+        fp_slider(ui, "Major R", major_radius, 0.01, 100.0, dirty);
+    });
+    ui.horizontal(|ui| {
+        drag_u32(ui, "Minor Res", minor_resolution, 3, 64, dirty);
+        drag_u32(ui, "Major Res", major_resolution, 3, 128, dirty);
+    });
+    draw_common_primitive(ui, solid, material, twist, taper, bend, salt, dirty);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_primitive_plane(
+    ui: &mut egui::Ui,
+    size: &mut Fp2,
+    subdivisions: &mut u32,
+    solid: &mut bool,
+    material: &mut crate::pds::SovereignMaterialSettings,
+    twist: &mut Fp,
+    taper: &mut Fp,
+    bend: &mut Fp3,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    ui.horizontal(|ui| {
+        ui.label("Size X/Z:");
+        let mut v = size.0;
+        let mut changed = false;
+        for axis in v.iter_mut() {
+            changed |= ui
+                .add(egui::DragValue::new(axis).speed(0.1).range(0.01..=100.0))
+                .changed();
+        }
+        if changed {
+            *size = Fp2(v);
+            *dirty = true;
+        }
+        drag_u32(ui, "Subdivs", subdivisions, 0, 32, dirty);
+    });
+    draw_common_primitive(ui, solid, material, twist, taper, bend, salt, dirty);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_primitive_tetrahedron(
+    ui: &mut egui::Ui,
+    size: &mut Fp,
+    solid: &mut bool,
+    material: &mut crate::pds::SovereignMaterialSettings,
+    twist: &mut Fp,
+    taper: &mut Fp,
+    bend: &mut Fp3,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    fp_slider(ui, "Size", size, 0.01, 100.0, dirty);
+    draw_common_primitive(ui, solid, material, twist, taper, bend, salt, dirty);
+}
+
+/// Shared tail for every primitive editor: solid checkbox, torture triple,
+/// collapsible material panel. Factored out so each per-primitive editor
+/// only owns its shape-specific parameter widgets.
+#[allow(clippy::too_many_arguments)]
+fn draw_common_primitive(
+    ui: &mut egui::Ui,
+    solid: &mut bool,
+    material: &mut crate::pds::SovereignMaterialSettings,
+    twist: &mut Fp,
+    taper: &mut Fp,
+    bend: &mut Fp3,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    if ui.checkbox(solid, "Solid (collider)").changed() {
+        *dirty = true;
+    }
+    ui.add_space(2.0);
+    draw_torture(ui, twist, taper, bend, dirty);
+    ui.add_space(2.0);
+    egui::CollapsingHeader::new("Material")
+        .id_salt(format!("{}_mat", salt))
+        .default_open(false)
+        .show(ui, |ui| {
+            draw_universal_material(ui, material, salt, dirty);
+        });
+}

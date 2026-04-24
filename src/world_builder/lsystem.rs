@@ -12,9 +12,9 @@ use symbios_turtle_3d::{SkeletonProp, TurtleConfig, TurtleInterpreter};
 
 use crate::pds::{Fp, Fp3, Generator, PropMeshType, SovereignMaterialSettings};
 
+use super::RoomEntity;
 use super::compile::SpawnCtx;
 use super::material::spawn_procedural_material;
-use super::{RoomEntity, apply_traits};
 
 /// One cached L-system slot material: the content hash of the settings that
 /// built it, plus the resulting PBR handle.
@@ -511,8 +511,9 @@ pub(super) fn spawn_lsystem_entity(
         }
     }
 
-    apply_traits(ctx.commands, parent, ctx.record, generator_ref);
-    // Silence unused-binding warnings when the heightmap is unused here.
+    // Trait application is now owned by `dispatch_top_level` in compile.rs
+    // so a Construct containing an L-system doesn't accidentally double-
+    // attach traits (they belong to the Construct, not its internal nodes).
     let _ = ctx.heightmap;
     Some(parent)
 }

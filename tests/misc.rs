@@ -1,9 +1,9 @@
 //! Miscellaneous helpers that don't belong to a specific domain module:
-//! `format_elapsed_ts`, `PrimShape::default_for_tag` + sanitize, and the
+//! `format_elapsed_ts`, the `Generator` primitive tag round-trip, and the
 //! DID document URL builder.
 
 use symbios_overlands::format_elapsed_ts;
-use symbios_overlands::pds::{Fp, Fp2, Fp3, PrimShape};
+use symbios_overlands::pds::{Fp, Fp2, Fp3, Generator, sanitize_generator};
 
 // ---------------------------------------------------------------------------
 // format_elapsed_ts — used to label chat messages and the diagnostics log.
@@ -39,14 +39,14 @@ fn format_elapsed_handles_very_long_sessions() {
 }
 
 // ---------------------------------------------------------------------------
-// PrimShape — tag helpers + sanitize.
+// Generator primitive tag — round-trip between `kind_tag` and the
+// default-builder. The UI's shape-type dropdown uses the tag as the
+// round-trip key, so drift in either direction would break in-editor kind
+// switches.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn prim_shape_tag_round_trips() {
-    // Every `kind_tag` value must be parseable back to the same shape class
-    // by `default_for_tag`. Drift in either direction would break the UI's
-    // shape-type dropdown, which uses the tag as the round-trip key.
+fn primitive_tag_round_trips() {
     for tag in &[
         "Cuboid",
         "Sphere",
@@ -57,9 +57,10 @@ fn prim_shape_tag_round_trips() {
         "Plane",
         "Tetrahedron",
     ] {
-        let shape = PrimShape::default_for_tag(tag);
+        let prim = Generator::default_primitive_for_tag(tag)
+            .unwrap_or_else(|| panic!("no default primitive for `{tag}`"));
         assert_eq!(
-            shape.kind_tag(),
+            prim.kind_tag(),
             *tag,
             "kind_tag round-trip failed for {tag}"
         );
@@ -67,59 +68,102 @@ fn prim_shape_tag_round_trips() {
 }
 
 #[test]
-fn prim_shape_unknown_tag_falls_back_to_default() {
-    let shape = PrimShape::default_for_tag("not-a-real-tag");
-    assert_eq!(shape.kind_tag(), PrimShape::default().kind_tag());
+fn primitive_unknown_tag_returns_none() {
+    assert!(Generator::default_primitive_for_tag("not-a-real-tag").is_none());
 }
 
 #[test]
-fn prim_shape_sanitize_clamps_non_finite_dimensions() {
-    // Every shape variant carries its own dimensional knobs. Sanitize
-    // must clamp NaN and negative values before they hit Bevy's mesh /
-    // Avian's collider constructors.
-    let cases: Vec<PrimShape> = vec![
-        PrimShape::Cuboid {
+fn primitive_sanitize_clamps_non_finite_dimensions() {
+    // Every parametric primitive variant carries its own dimensional knobs.
+    // Sanitize must clamp NaN / infinity / negative values before they hit
+    // Bevy's mesh / Avian's collider constructors.
+    let cases: Vec<Generator> = vec![
+        Generator::Cuboid {
             size: Fp3([f32::NAN, -1.0, f32::INFINITY]),
+            solid: true,
+            material: Default::default(),
+            twist: Fp(f32::NAN),
+            taper: Fp(f32::INFINITY),
+            bend: Fp3([f32::NAN, f32::NEG_INFINITY, 10_000.0]),
         },
-        PrimShape::Sphere {
+        Generator::Sphere {
             radius: Fp(f32::NAN),
             resolution: u32::MAX,
+            solid: true,
+            material: Default::default(),
+            twist: Fp(0.0),
+            taper: Fp(0.0),
+            bend: Fp3([0.0, 0.0, 0.0]),
         },
-        PrimShape::Cylinder {
+        Generator::Cylinder {
             radius: Fp(-10.0),
             height: Fp(f32::INFINITY),
             resolution: 10_000,
+            solid: true,
+            material: Default::default(),
+            twist: Fp(0.0),
+            taper: Fp(0.0),
+            bend: Fp3([0.0, 0.0, 0.0]),
         },
-        PrimShape::Capsule {
+        Generator::Capsule {
             radius: Fp(-1.0),
             length: Fp(f32::NAN),
             latitudes: 10_000,
             longitudes: 10_000,
+            solid: true,
+            material: Default::default(),
+            twist: Fp(0.0),
+            taper: Fp(0.0),
+            bend: Fp3([0.0, 0.0, 0.0]),
         },
-        PrimShape::Cone {
+        Generator::Cone {
             radius: Fp(f32::NEG_INFINITY),
             height: Fp(-5.0),
             resolution: 10_000,
+            solid: true,
+            material: Default::default(),
+            twist: Fp(0.0),
+            taper: Fp(0.0),
+            bend: Fp3([0.0, 0.0, 0.0]),
         },
-        PrimShape::Torus {
+        Generator::Torus {
             minor_radius: Fp(f32::NAN),
             major_radius: Fp(-2.0),
             minor_resolution: 10_000,
             major_resolution: 10_000,
+            solid: true,
+            material: Default::default(),
+            twist: Fp(0.0),
+            taper: Fp(0.0),
+            bend: Fp3([0.0, 0.0, 0.0]),
         },
-        PrimShape::Plane {
+        Generator::Plane {
             size: Fp2([f32::INFINITY, -1.0]),
             subdivisions: 10_000,
+            solid: true,
+            material: Default::default(),
+            twist: Fp(0.0),
+            taper: Fp(0.0),
+            bend: Fp3([0.0, 0.0, 0.0]),
         },
-        PrimShape::Tetrahedron { size: Fp(f32::NAN) },
+        Generator::Tetrahedron {
+            size: Fp(f32::NAN),
+            solid: true,
+            material: Default::default(),
+            twist: Fp(0.0),
+            taper: Fp(0.0),
+            bend: Fp3([0.0, 0.0, 0.0]),
+        },
     ];
 
     for case in cases {
-        let mut shape = case;
-        shape.sanitize();
-        // Re-encode/decode to verify the shape is valid after sanitize —
-        // an intermediate panic here would surface immediately.
-        let json = serde_json::to_string(&shape).expect("sanitised shape must serialise");
-        let _: PrimShape = serde_json::from_str(&json).expect("sanitised shape must round-trip");
+        let mut prim = case;
+        sanitize_generator(&mut prim);
+        // Re-encode/decode to verify the sanitized generator is valid — an
+        // intermediate panic here would surface immediately, and a decode
+        // failure would mean sanitize left the record malformed.
+        let json = serde_json::to_string(&prim).expect("sanitised generator must serialise");
+        let _: Generator =
+            serde_json::from_str(&json).expect("sanitised generator must round-trip");
     }
 }
