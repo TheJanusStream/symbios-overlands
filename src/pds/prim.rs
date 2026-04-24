@@ -6,8 +6,12 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Prop mesh shapes for `PropMeshType` slots. Mirrors
-/// `lsystem-explorer::PropMeshType`.
+/// Prop mesh shapes attached to L-system skeleton nodes. The world
+/// compiler's L-system spawner maps a generator's
+/// `prop_mappings: HashMap<u16, PropMeshType>` over the
+/// [`symbios_turtle_3d::SkeletonProp`] list emitted by the turtle
+/// interpreter to decide which billboard or instanced mesh each prop slot
+/// renders.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum PropMeshType {
     #[default]

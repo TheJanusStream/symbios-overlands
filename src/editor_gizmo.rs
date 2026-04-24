@@ -3,9 +3,9 @@
 //! — this module handles:
 //!
 //! * attaching a `GizmoTarget` to whichever entity the owner is currently
-//!   editing (a `Placement::Absolute` root, or a single `PrimNode` inside a
-//!   `Generator::Construct` blueprint), removing it from any previously
-//!   selected entity, and
+//!   editing (a `Placement::Absolute` root, or a single `ConstructNode`
+//!   inside a `Generator::Construct` blueprint), removing it from any
+//!   previously selected entity, and
 //! * committing the dragged `Transform` back into the live `RoomRecord` on
 //!   mouse release so the `world_builder` recompile, the Publish-to-PDS
 //!   button and the peer broadcast all see the final pose exactly once per

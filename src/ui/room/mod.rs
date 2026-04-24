@@ -80,10 +80,10 @@ pub struct RoomEditorState {
     pub selected_tab: EditorTab,
     pub selected_generator: Option<String>,
     pub selected_placement: Option<usize>,
-    /// Path through the active Construct's `PrimNode` tree to the node the
-    /// owner has toggled as the Gizmo target. An empty `Vec` means the root;
-    /// a `Some([i0, i1, ...])` means the `i_n`-th child at each depth. `None`
-    /// means no primitive is currently targeted.
+    /// Path through the active Construct's `ConstructNode` tree to the node
+    /// the owner has toggled as the Gizmo target. An empty `Vec` means the
+    /// root; a `Some([i0, i1, ...])` means the `i_n`-th child at each depth.
+    /// `None` means no primitive is currently targeted.
     pub selected_prim_path: Option<Vec<usize>>,
     raw_text: String,
     raw_text_initialised: bool,

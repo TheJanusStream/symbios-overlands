@@ -11,20 +11,35 @@ There are no central game servers to shut down, and no walled gardens. Every art
 ## Core Features
 
 * **Your DID is Your Domain:** Authenticate securely via ATProto OAuth 2.0 + DPoP. The app never sees your password. Your room is deterministically seeded by your DID, meaning every user has a unique homeworld from the moment they log in.
-* **Live World Building:** Your world is a JSON recipe (`network.symbios.overlands.room`). Use the in-world UI and 3D transform gizmos to sculpt terrain, adjust water levels, and place objects (Absolute, Scatter, or Grid arrays). Changes serialize to your PDS and stream to visiting peers instantly.
+* **Live World Building:** Your world is a JSON recipe (`network.symbios.overlands.room`). The owner-only World Editor sculpts terrain, atmosphere and water; spawns parametric primitives, L-systems, portals and procedural materials; and arranges them via Absolute, Scatter or Grid placements. Every widget mutates the live record in place — the world recompiles, the 3D transform gizmo follows the selection, and remote peers mirror each edit before you press **Publish to PDS**.
+* **Fractal Construct Engine:** Compose `Cuboid`, `Sphere`, `Cylinder`, `Capsule`, `Cone`, `Torus`, `Plane`, and `Tetrahedron` primitives — each with its own twist/taper/bend vertex torture and PBR material — into hierarchical `Construct` blueprints that can recursively nest other Constructs, L-systems or portals. A house, a tree, or an entire vehicle becomes one named generator you can scatter, grid-array, or stash in your inventory.
 * **The Seamless Spatial Web:** Walk through physical portal doorways to travel to other users' DIDs. The engine hot-swaps the PDS data and the WebRTC mesh in the background, allowing you to traverse the federated network without ever hitting a loading screen.
-* **Persistent Inventory:** Stash custom-tuned generators (like a procedural tree or a complex architectural blueprint) into your personal inventory (`network.symbios.overlands.inventory`). Carry your creations across the network to deploy in your home room — or gift them to fellow travellers by dragging a stash entry onto their row in the People window.
-* **Peer-to-Peer Presence:** A lightweight broker server handles the initial SDP handshake and identity verification, then steps aside. All 60Hz physics transforms, spatial syncing, and chat messages flow directly between peers over WebRTC.
-* **Parametric Avatars:** Embody an amphibious `HoverRover` or a bipedal `Humanoid`. Your profile picture is fetched directly from your PDS and worn as a sail or badge. Every physical dimension and material is mutable and portable.
+* **Persistent Inventory:** Stash custom-tuned generators (a procedural tree, a fractal Construct blueprint, an L-system) into your personal inventory (`network.symbios.overlands.inventory`). Carry your creations across the network to deploy in your home room — or gift them to fellow travellers by dragging a stash entry onto their row in the People window. The recipient gets an Accept / Decline / Mute & Decline modal; concurrent offers are auto-declined as "busy" so a malicious peer cannot spam dialogs.
+* **Peer-to-Peer Presence:** A lightweight broker server handles the initial SDP handshake and identity verification, then steps aside. All 60 Hz physics transforms, spatial syncing, and chat messages flow directly between peers over WebRTC. Peer DIDs are authenticated against the relay-signed session map so a peer cannot impersonate another identity over the unauthenticated data channel.
+* **Parametric Avatars:** Embody an amphibious `HoverRover` or a bipedal `Humanoid`. Your profile picture is fetched directly from your PDS and worn as a sail or badge. Every physical dimension and material is mutable and portable, and edits stream to peers as a live preview before you commit them to your PDS.
 
 ## Architecture
 
 The project is built on a "Thin Client, Heavy World" philosophy:
 
-* **Engine:** Bevy 0.18 + Avian3D 0.6 (Physics) + `bevy_egui` (UI).
-* **Procedural Ecosystem:** Relies on the sovereign `symbios` crates (`symbios-ground`, `bevy_symbios_texture`, etc.) for deterministic terrain and L-System derivation.
-* **Networking:** `matchbox` (WebRTC) + `proto-blue` (ATProto/OAuth).
-* **Protocol Safety:** ATProto's DAG-CBOR encoding strictly forbids floating-point numbers. Overlands wraps all continuous spatial data in fixed-point (`Fp`) structures, safely serializing complex 3D state to the PDS without violating protocol rules.
+* **Engine:** Bevy 0.18 + Avian3D 0.6 (physics) + `bevy_egui` (UI) + `transform-gizmo-bevy` (in-world editor handles).
+* **Procedural Ecosystem:** The sovereign `symbios` family powers every recipe — `symbios-ground` for deterministic terrain (Voronoi terracing, hydraulic and thermal erosion), `symbios` + `symbios-turtle-3d` for L-system derivation, and `bevy_symbios_texture` for the procedural PBR catalogue (ground, rock, bark, leaf, twig, brick, plank, shingle, marble, ashlar, stained-glass, etc.). Every layer mirror exposed in a record is DAG-CBOR safe.
+* **Networking:** `bevy_symbios_multiuser` over `matchbox` (WebRTC) for the peer mesh + `proto-blue` for ATProto OAuth and PDS XRPC plumbing.
+* **State Machine:** A three-stage `AppState` (`Login` → `Loading` → `InGame`). The loading gate blocks on **all** of the heightmap task, the room record fetch, the avatar record fetch, and the inventory record fetch before gameplay starts, so a slow PDS round-trip cannot leave the world half-loaded or let a "Publish" click clobber a real record with a default.
+* **Protocol Safety:** ATProto's DAG-CBOR encoding strictly forbids floating-point numbers. Overlands wraps all continuous spatial data in fixed-point (`Fp` / `Fp2` / `Fp3` / `Fp4` / `Fp64`) structures, safely serialising complex 3D state to the PDS without violating protocol rules. Every record class also carries a `sanitize()` step that clamps grid sizes, scatter counts, L-system iterations, Construct depths, and PBR octaves so a hostile or malformed payload from the network cannot OOM or crash the engine.
+
+## Project Layout
+
+* [src/lib.rs](src/lib.rs) — App wiring, state machine, record-fetch retry/backoff.
+* [src/pds/](src/pds/) — Sovereign record schemas (`RoomRecord`, `AvatarRecord`, `InventoryRecord`), fixed-point types, and the PDS XRPC plumbing.
+* [src/world_builder/](src/world_builder/) — Recipe → ECS compiler: spawners for terrain trait application, L-systems, primitives/Constructs, portals, and water.
+* [src/player/](src/player/) — Local player rig: HoverRover (suspension + buoyancy + drive) and Humanoid (capsule walker), plus portal interaction.
+* [src/network.rs](src/network.rs) / [src/protocol.rs](src/protocol.rs) — P2P message wire format, jitter-buffered transform smoothing, item-offer routing.
+* [src/ui/](src/ui/) — Egui panels: login, diagnostics, chat, people, avatar editor, world editor (Environment / Generators / Placements / Raw JSON tabs), inventory.
+* [src/oauth.rs](src/oauth.rs) — ATProto OAuth 2.0 + DPoP flow (WASM redirect / native loopback).
+* [src/editor_gizmo.rs](src/editor_gizmo.rs) — Bridge between the editor selection and the in-world 3D transform gizmo.
+* [src/config.rs](src/config.rs) — Centralised tuneable constants for lighting, rover, terrain, networking and UI windows.
+* [tests/](tests/) — Integration suite: record round-trips, sanitiser bounds, OAuth flow, biome filters, fixed-point precision, open-union forward compatibility.
 
 ## Running Locally
 
