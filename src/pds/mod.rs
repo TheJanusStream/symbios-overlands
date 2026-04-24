@@ -73,7 +73,7 @@ pub use avatar::{
     AvatarBody, AvatarRecord, HumanoidKinematics, HumanoidPhenotype, RoverKinematics,
     RoverPhenotype, fetch_avatar_record, publish_avatar_record,
 };
-pub use generator::{ConstructNode, Generator, Placement};
+pub use generator::{ConstructNode, Generator, Placement, WaterSurface};
 pub use inventory::{InventoryRecord, fetch_inventory_record, publish_inventory_record};
 pub use prim::PropMeshType;
 pub use room::{

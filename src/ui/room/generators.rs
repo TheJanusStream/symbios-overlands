@@ -4,14 +4,16 @@
 
 use bevy_egui::egui;
 
-use crate::pds::{ConstructNode, Fp, Fp2, Fp3, Generator, RoomRecord};
+use crate::pds::{ConstructNode, Fp, Fp2, Fp3, Generator, RoomRecord, WaterSurface};
 use crate::state::LiveInventoryRecord;
 use crate::ui::inventory::{DropSource, PendingGeneratorDrop, is_drop_placeable};
 
 use super::construct::{draw_construct_forge, draw_torture, draw_universal_material};
 use super::lsystem::draw_lsystem_forge;
 use super::terrain::draw_terrain_forge;
-use super::widgets::{default_lsystem_generator, drag_u32, fp_slider, unique_key};
+use super::widgets::{
+    color_picker_rgba, default_lsystem_generator, drag_u32, fp_slider, unique_key,
+};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_generators_tab(
@@ -158,6 +160,7 @@ pub(super) fn draw_generators_tab(
                 name.clone(),
                 Generator::Water {
                     level_offset: Fp(0.0),
+                    surface: WaterSurface::default(),
                 },
             );
             *selected = Some(name);
@@ -270,8 +273,11 @@ pub(super) fn draw_generator_detail(
 ) {
     match generator {
         Generator::Terrain(cfg) => draw_terrain_forge(ui, cfg, dirty),
-        Generator::Water { level_offset } => {
-            fp_slider(ui, "Level offset", level_offset, -20.0, 20.0, dirty);
+        Generator::Water {
+            level_offset,
+            surface,
+        } => {
+            draw_water_editor(ui, level_offset, surface, dirty);
         }
         Generator::LSystem {
             source_code,
@@ -685,5 +691,97 @@ fn draw_common_primitive(
         .default_open(false)
         .show(ui, |ui| {
             draw_universal_material(ui, material, salt, dirty);
+        });
+}
+
+/// Per-volume water editor: the single `level_offset` slider plus the full
+/// [`WaterSurface`] knob set grouped into colour / wave / material sub-panels.
+/// Room-wide water parameters (detail-normal tiling, sun glitter, scatter
+/// tint) live on the Environment tab instead — the split follows the "one
+/// room, many water bodies" intuition: different ponds can have different
+/// colour and choppiness, but they share the room's sky and atmosphere.
+fn draw_water_editor(
+    ui: &mut egui::Ui,
+    level_offset: &mut Fp,
+    surface: &mut WaterSurface,
+    dirty: &mut bool,
+) {
+    fp_slider(ui, "Level offset", level_offset, -20.0, 20.0, dirty);
+    ui.add_space(4.0);
+
+    egui::CollapsingHeader::new("Colour")
+        .default_open(true)
+        .show(ui, |ui| {
+            color_picker_rgba(ui, "Shallow (head-on)", &mut surface.shallow_color, dirty);
+            color_picker_rgba(ui, "Deep (grazing)", &mut surface.deep_color, dirty);
+            ui.label(
+                egui::RichText::new(
+                    "Alpha controls the opacity at each viewing extreme — shallow is typically \
+                     low (transparent looking down), deep is high (opaque at grazing).",
+                )
+                .small()
+                .color(egui::Color32::GRAY),
+            );
+        });
+
+    egui::CollapsingHeader::new("Waves")
+        .default_open(true)
+        .show(ui, |ui| {
+            fp_slider(
+                ui,
+                "Scale (amplitude)",
+                &mut surface.wave_scale,
+                0.0,
+                4.0,
+                dirty,
+            );
+            fp_slider(ui, "Speed", &mut surface.wave_speed, 0.0, 4.0, dirty);
+            fp_slider(
+                ui,
+                "Choppiness",
+                &mut surface.wave_choppiness,
+                0.0,
+                1.0,
+                dirty,
+            );
+            ui.label("Wave direction (X / Z)");
+            ui.horizontal(|ui| {
+                let mut v = surface.wave_direction.0;
+                let mut changed = false;
+                changed |= ui
+                    .add(
+                        egui::DragValue::new(&mut v[0])
+                            .speed(0.05)
+                            .range(-1.0..=1.0),
+                    )
+                    .changed();
+                changed |= ui
+                    .add(
+                        egui::DragValue::new(&mut v[1])
+                            .speed(0.05)
+                            .range(-1.0..=1.0),
+                    )
+                    .changed();
+                if changed {
+                    surface.wave_direction = crate::pds::Fp2(v);
+                    *dirty = true;
+                }
+            });
+            fp_slider(ui, "Foam amount", &mut surface.foam_amount, 0.0, 1.0, dirty);
+        });
+
+    egui::CollapsingHeader::new("Material")
+        .default_open(false)
+        .show(ui, |ui| {
+            fp_slider(ui, "Roughness", &mut surface.roughness, 0.0, 1.0, dirty);
+            fp_slider(ui, "Metallic", &mut surface.metallic, 0.0, 1.0, dirty);
+            fp_slider(
+                ui,
+                "Reflectance (F0)",
+                &mut surface.reflectance,
+                0.0,
+                1.0,
+                dirty,
+            );
         });
 }

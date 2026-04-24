@@ -4,7 +4,7 @@
 //! owner's PDS.
 
 use super::COLLECTION;
-use super::generator::{Generator, Placement};
+use super::generator::{Generator, Placement, WaterSurface};
 use super::sanitize::{limits, sanitize_generator};
 use super::terrain::SovereignTerrainConfig;
 use super::types::{Fp, Fp3, Fp4, TransformData};
@@ -36,11 +36,32 @@ pub struct Environment {
     pub fog_inscattering: Fp3,
     pub fog_sun_color: Fp4,
     pub fog_sun_exponent: Fp,
+
+    /// Tiling frequency for the close-distance scrolling detail normal map
+    /// (world-unit reciprocal — higher = tighter tiling). Pairs with
+    /// [`Self::water_normal_scale_far`] to kill the repeating-grid look on
+    /// long camera sightlines.
+    pub water_normal_scale_near: Fp,
+    /// Tiling frequency for the far-distance scrolling detail normal map.
+    pub water_normal_scale_far: Fp,
+    /// Screen-space refraction distortion strength. Currently reserved — the
+    /// shader honours the value but falls back to a no-op when no depth
+    /// prepass is wired. Kept on the record so the field is stable.
+    pub water_refraction_strength: Fp,
+    /// Intensity of the sharp specular sun-glitter highlight on the water
+    /// surface. `0` disables; ~2.0 is a pleasing default.
+    pub water_sun_glitter: Fp,
+    /// sRGB tint added to wave crests to simulate cheap subsurface scatter.
+    pub water_scatter_color: Fp3,
+    /// Width (m) of the procedural shoreline foam band. Reserved — requires
+    /// a depth prepass to resolve shoreline distance; stored on the record
+    /// so the UI field is stable across the feature's rollout.
+    pub water_shore_foam_width: Fp,
 }
 
 impl Default for Environment {
     fn default() -> Self {
-        use crate::config::{camera::fog as f, lighting as l};
+        use crate::config::{camera::fog as f, lighting as l, terrain::water as w};
         Self {
             sun_color: Fp3(l::SUN_COLOR),
             sun_illuminance: Fp(l::ILLUMINANCE),
@@ -53,6 +74,13 @@ impl Default for Environment {
             fog_inscattering: Fp3(f::INSCATTERING_COLOR),
             fog_sun_color: Fp4(f::DIRECTIONAL_LIGHT_COLOR),
             fog_sun_exponent: Fp(f::DIRECTIONAL_LIGHT_EXPONENT),
+
+            water_normal_scale_near: Fp(w::DEFAULT_NORMAL_SCALE_NEAR),
+            water_normal_scale_far: Fp(w::DEFAULT_NORMAL_SCALE_FAR),
+            water_refraction_strength: Fp(w::DEFAULT_REFRACTION_STRENGTH),
+            water_sun_glitter: Fp(w::DEFAULT_SUN_GLITTER),
+            water_scatter_color: Fp3(w::DEFAULT_SCATTER_COLOR),
+            water_shore_foam_width: Fp(w::DEFAULT_SHORE_FOAM_WIDTH),
         }
     }
 }
@@ -87,6 +115,43 @@ impl Environment {
         // the falloff remains well-defined even under an adversarial record.
         self.fog_visibility = Fp(self.fog_visibility.0.clamp(10.0, 10_000.0));
         self.fog_sun_exponent = Fp(self.fog_sun_exponent.0.clamp(1.0, 100.0));
+
+        // Water-environment fields. Keep every channel in a finite,
+        // physically-sane range — a NaN or negative normal-tiling scale
+        // would poison the water shader's UV math every frame.
+        let clamp_finite_pos = |v: f32, lo: f32, hi: f32, default: f32| -> f32 {
+            if v.is_finite() {
+                v.clamp(lo, hi)
+            } else {
+                default
+            }
+        };
+        self.water_normal_scale_near = Fp(clamp_finite_pos(
+            self.water_normal_scale_near.0,
+            0.0,
+            64.0,
+            0.85,
+        ));
+        self.water_normal_scale_far = Fp(clamp_finite_pos(
+            self.water_normal_scale_far.0,
+            0.0,
+            64.0,
+            0.08,
+        ));
+        self.water_refraction_strength = Fp(clamp_finite_pos(
+            self.water_refraction_strength.0,
+            0.0,
+            4.0,
+            0.0,
+        ));
+        self.water_sun_glitter = Fp(clamp_finite_pos(self.water_sun_glitter.0, 0.0, 16.0, 1.8));
+        self.water_scatter_color = clamp3(self.water_scatter_color);
+        self.water_shore_foam_width = Fp(clamp_finite_pos(
+            self.water_shore_foam_width.0,
+            0.0,
+            50.0,
+            0.0,
+        ));
     }
 }
 
@@ -133,6 +198,7 @@ impl RoomRecord {
             "base_water".to_string(),
             Generator::Water {
                 level_offset: Fp(0.0),
+                surface: WaterSurface::default(),
             },
         );
 

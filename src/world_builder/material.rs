@@ -32,16 +32,49 @@ use bevy_symbios_texture::window::WindowGenerator;
 use bevy_symbios_texture::{map_to_images, map_to_images_card};
 
 use crate::config::terrain as tcfg;
-use crate::pds::{SovereignMaterialSettings, SovereignTextureConfig};
+use crate::pds::{Environment, SovereignMaterialSettings, SovereignTextureConfig, WaterSurface};
 use crate::terrain::WaterVolume;
-use crate::water::{WaterExtension, WaterMaterial};
+use crate::water::{WaterExtension, WaterMaterial, WaterUniforms};
 
 use super::compile::SpawnCtx;
 use super::{OverlandsFoliageTasks, RoomEntity};
 
+/// Translate a [`WaterSurface`] + [`Environment`] pair into the uniform block
+/// the water shader reads. Every value that the shader depends on flows
+/// through this function so the egui widgets, raw JSON edits, and peer
+/// broadcasts all converge on the same GPU state.
+fn build_water_uniforms(surface: &WaterSurface, env: &Environment) -> WaterUniforms {
+    WaterUniforms {
+        shallow_color: Vec4::from_array(surface.shallow_color.0),
+        deep_color: Vec4::from_array(surface.deep_color.0),
+        scatter_color: Vec4::new(
+            env.water_scatter_color.0[0],
+            env.water_scatter_color.0[1],
+            env.water_scatter_color.0[2],
+            0.0,
+        ),
+        wave_direction: Vec2::from_array(surface.wave_direction.0),
+        wave_scale: surface.wave_scale.0,
+        wave_speed: surface.wave_speed.0,
+        wave_choppiness: surface.wave_choppiness.0,
+        roughness: surface.roughness.0,
+        metallic: surface.metallic.0,
+        reflectance: surface.reflectance.0,
+        foam_amount: surface.foam_amount.0,
+        normal_scale_near: env.water_normal_scale_near.0,
+        normal_scale_far: env.water_normal_scale_far.0,
+        refraction_strength: env.water_refraction_strength.0,
+        sun_glitter: env.water_sun_glitter.0,
+        shore_foam_width: env.water_shore_foam_width.0,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(super) fn spawn_water_volume(
     commands: &mut Commands,
     level_offset: f32,
+    surface: &WaterSurface,
+    env: &Environment,
     placement_tf: Transform,
     world_extent: f32,
     meshes: &mut Assets<Mesh>,
@@ -50,21 +83,29 @@ pub(super) fn spawn_water_volume(
     let base_wl = tcfg::water::LEVEL_FACTOR * tcfg::HEIGHT_SCALE;
     let wl = (base_wl + level_offset).max(0.001);
 
+    // Straight-down view colour seeds the StandardMaterial base colour for
+    // any non-shader-overridden path (shadow-caster fallback, editor outline,
+    // etc.). The shader re-derives the view-dependent blend itself.
+    let base = surface.shallow_color.0;
     let water_mat = water_materials.add(WaterMaterial {
         base: StandardMaterial {
-            base_color: Color::srgba(
-                tcfg::water::COLOR[0],
-                tcfg::water::COLOR[1],
-                tcfg::water::COLOR[2],
-                tcfg::water::COLOR[3],
-            ),
-            perceptual_roughness: tcfg::water::ROUGHNESS,
-            metallic: tcfg::water::METALLIC,
+            base_color: Color::srgba(base[0], base[1], base[2], base[3]),
+            perceptual_roughness: surface.roughness.0,
+            metallic: surface.metallic.0,
             alpha_mode: AlphaMode::Blend,
-            cull_mode: None,
+            // Back-face cull the cuboid: the old `cull_mode: None` + blend
+            // combination was what produced the parallel hard-edge bands —
+            // alpha-sorted side faces competing against the top gave per-view
+            // ordering flips. The shader discards fragments whose geometric
+            // normal isn't pointing up, so only the top face contributes —
+            // back-face culling here is belt-and-braces (plus saves the
+            // fragment invocations that the shader would discard anyway).
+            cull_mode: Some(bevy::render::render_resource::Face::Back),
             ..default()
         },
-        extension: WaterExtension::default(),
+        extension: WaterExtension {
+            uniforms: build_water_uniforms(surface, env),
+        },
     });
 
     let mut tf = placement_tf;

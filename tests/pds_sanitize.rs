@@ -177,6 +177,7 @@ fn construct_rejects_terrain_and_water_children() {
     root.children.push(ConstructNode {
         generator: Box::new(Generator::Water {
             level_offset: Fp(0.0),
+            surface: Default::default(),
         }),
         ..ConstructNode::default()
     });

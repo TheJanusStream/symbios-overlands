@@ -7,7 +7,7 @@
 //! around the player instead of whipping the view around.
 
 use bevy::pbr::{DistanceFog, FogFalloff};
-use bevy::prelude::*;
+use bevy::{post_process::bloom::Bloom, prelude::*};
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 use transform_gizmo_bevy::GizmoCamera;
 
@@ -65,6 +65,7 @@ fn spawn_orbit_camera(mut commands: Commands) {
                 ),
             ),
         },
+        Bloom::NATURAL, // Enable Bloom
     ));
 }
 

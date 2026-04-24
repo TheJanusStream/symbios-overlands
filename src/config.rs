@@ -158,10 +158,29 @@ pub mod terrain {
     pub mod water {
         /// Water plane altitude expressed as a fraction of HEIGHT_SCALE.
         pub const LEVEL_FACTOR: f32 = 0.10;
-        /// Water surface sRGBA colour (translucent blue-green).
-        pub const COLOR: [f32; 4] = [0.0, 0.4, 0.6, 0.5];
-        pub const ROUGHNESS: f32 = 0.05;
-        pub const METALLIC: f32 = 0.1;
+
+        // --- Environment-global water defaults (Room `Environment` fields) ---
+        // These are the room-wide settings used as the fallback whenever a
+        // record does not already carry them. Per-volume appearance lives on
+        // `pds::WaterSurface` and is seeded from its own `Default` impl.
+
+        /// Tiling frequency of the close-distance detail normal (per world-m).
+        pub const DEFAULT_NORMAL_SCALE_NEAR: f32 = 0.85;
+        /// Tiling frequency of the far-distance detail normal (per world-m).
+        /// Much coarser than the near tile so the two scales blend without
+        /// showing the per-pixel grain that produced the "repetitive at a
+        /// distance" artifact on the old sum-of-sines implementation.
+        pub const DEFAULT_NORMAL_SCALE_FAR: f32 = 0.08;
+        /// Screen-space refraction offset strength. Defaults to 0.0 — the
+        /// shader reserves the channel for a future depth-prepass wiring.
+        pub const DEFAULT_REFRACTION_STRENGTH: f32 = 0.0;
+        /// Specular sun-glitter highlight strength.
+        pub const DEFAULT_SUN_GLITTER: f32 = 1.8;
+        /// sRGB tint applied to wave crests via cheap subsurface scattering.
+        pub const DEFAULT_SCATTER_COLOR: [f32; 3] = [0.18, 0.45, 0.42];
+        /// Default shore-foam band width (m). Defaults to 0.0 until the
+        /// depth-prepass path needed to resolve shoreline depth is wired in.
+        pub const DEFAULT_SHORE_FOAM_WIDTH: f32 = 0.0;
     }
 
     // --- Splat material ------------------------------------------------------

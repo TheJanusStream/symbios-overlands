@@ -50,7 +50,7 @@ fn u64_seeds_serialize_as_strings() {
 fn default_record_serialises_without_floats() {
     let mut record = RoomRecord::default_for_did("did:plc:test");
     record.environment.sun_color = Fp3([0.98, 0.95, 0.82]);
-    if let Some(Generator::Water { level_offset }) = record.generators.get_mut("base_water") {
+    if let Some(Generator::Water { level_offset, .. }) = record.generators.get_mut("base_water") {
         *level_offset = Fp(2.5);
     }
     record.placements.push(Placement::Scatter {

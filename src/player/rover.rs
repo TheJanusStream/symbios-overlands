@@ -386,7 +386,7 @@ pub(super) fn apply_buoyancy_forces(
         .and_then(|r| {
             let mut best: Option<(&String, f32)> = None;
             for (k, g) in r.generators.iter() {
-                if let crate::pds::Generator::Water { level_offset } = g
+                if let crate::pds::Generator::Water { level_offset, .. } = g
                     && best.is_none_or(|(bk, _)| k < bk)
                 {
                     best = Some((k, level_offset.0));

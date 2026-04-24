@@ -457,7 +457,7 @@ pub(super) fn find_water_level_for_filter(record: &RoomRecord) -> Option<f32> {
     let mut keys: Vec<&String> = record.generators.keys().collect();
     keys.sort();
     for k in &keys {
-        if let Some(Generator::Water { level_offset }) = record.generators.get(*k) {
+        if let Some(Generator::Water { level_offset, .. }) = record.generators.get(*k) {
             let placement_y = record
                 .placements
                 .iter()
@@ -679,7 +679,10 @@ pub(super) fn spawn_generator(
             // value we didn't clone from the record, which shouldn't happen.
             None
         }
-        Generator::Water { level_offset } => {
+        Generator::Water {
+            level_offset,
+            surface,
+        } => {
             if in_blueprint {
                 warn!("Water generator ignored inside Construct blueprint at `{cache_key}`");
                 return None;
@@ -691,6 +694,8 @@ pub(super) fn spawn_generator(
             Some(spawn_water_volume(
                 ctx.commands,
                 level_offset.0,
+                surface,
+                &ctx.record.environment,
                 transform,
                 world_extent,
                 ctx.meshes,

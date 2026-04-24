@@ -16,11 +16,71 @@ use super::prim::PropMeshType;
 use super::terrain::SovereignTerrainConfig;
 use super::texture::SovereignMaterialSettings;
 use super::types::{
-    BiomeFilter, Fp, Fp2, Fp3, ScatterBounds, TransformData, default_true, map_u8_as_string,
+    BiomeFilter, Fp, Fp2, Fp3, Fp4, ScatterBounds, TransformData, default_true, map_u8_as_string,
     map_u16_as_string, u64_as_string,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+/// Per-volume appearance and wave parameters for [`Generator::Water`].
+///
+/// Everything on this struct describes the water body itself (its colour,
+/// choppiness, prevailing wave direction). Room-wide water settings —
+/// detail-normal tiling, sun glitter strength, shoreline foam width — live on
+/// [`crate::pds::Environment`] instead so they match the room's overall mood
+/// rather than varying between adjacent water volumes.
+///
+/// `#[serde(default)]` at both struct and field level means a record that only
+/// carries `level_offset` (the pre-overhaul schema) round-trips cleanly with
+/// every appearance field filled in from [`WaterSurface::default`].
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
+pub struct WaterSurface {
+    /// sRGBA tint seen looking straight down (low alpha = transparent).
+    pub shallow_color: Fp4,
+    /// sRGBA tint seen at grazing angles (high alpha = opaque).
+    pub deep_color: Fp4,
+    /// PBR perceptual roughness. Water is typically very low (~0.05–0.12).
+    pub roughness: Fp,
+    /// PBR metallic. Water is dielectric so this is ~0.
+    pub metallic: Fp,
+    /// Schlick F0 reflectance — the base fraction of light reflected when
+    /// viewed head-on. Real water is ~0.02; higher values bias toward a
+    /// stylised, glossy look.
+    pub reflectance: Fp,
+    /// Global amplitude multiplier on the Gerstner waves. `0.0` = flat pond.
+    pub wave_scale: Fp,
+    /// Global time multiplier on the Gerstner waves. `0.0` = frozen.
+    pub wave_speed: Fp,
+    /// Prevailing wave direction in the world XZ plane. Need not be
+    /// unit-length — the shader normalises.
+    pub wave_direction: Fp2,
+    /// Gerstner steepness in `[0, 1]`. `0` = smooth sines, `1` = sharp crests.
+    pub wave_choppiness: Fp,
+    /// Strength of the procedural foam on wave crests (`[0, 1]`).
+    pub foam_amount: Fp,
+}
+
+impl Default for WaterSurface {
+    fn default() -> Self {
+        // Defaults tuned against the six-Gerstner-wave table in water.wgsl.
+        // Lower choppiness + moderate roughness keep the specular lobe wide
+        // enough to absorb small residual normal errors without revealing
+        // wave interference bands at grazing angles.
+        Self {
+            shallow_color: Fp4([0.18, 0.48, 0.56, 0.22]),
+            deep_color: Fp4([0.02, 0.14, 0.24, 0.9]),
+            roughness: Fp(0.14),
+            metallic: Fp(0.0),
+            reflectance: Fp(0.3),
+            wave_scale: Fp(0.7),
+            wave_speed: Fp(1.0),
+            wave_direction: Fp2([1.0, 0.3]),
+            wave_choppiness: Fp(0.3),
+            foam_amount: Fp(0.25),
+        }
+    }
+}
 
 /// Blueprint for something that can be spawned into a room.  Open union:
 /// unknown tags deserialize to `Unknown` instead of failing.
@@ -36,7 +96,11 @@ pub enum Generator {
     Terrain(SovereignTerrainConfig),
 
     #[serde(rename = "network.symbios.gen.water")]
-    Water { level_offset: Fp },
+    Water {
+        level_offset: Fp,
+        #[serde(default)]
+        surface: WaterSurface,
+    },
 
     #[serde(rename = "network.symbios.gen.portal")]
     Portal { target_did: String, target_pos: Fp3 },
