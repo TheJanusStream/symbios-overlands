@@ -28,7 +28,7 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
 use std::collections::HashMap;
 
-use crate::pds::{Fp3, Fp4, Generator, Placement, RoomRecord, TransformData};
+use crate::pds::{Fp3, Fp4, Generator, GeneratorKind, Placement, RoomRecord, TransformData};
 use crate::protocol::OverlandsMessage;
 use crate::state::{
     CurrentRoomDid, DiagnosticsLog, InventoryPublishFeedback, LiveInventoryRecord,
@@ -362,14 +362,14 @@ pub fn poll_publish_inventory_tasks(
     }
 }
 
-/// Which `Generator` kinds can be point-placed via drag-and-drop.
+/// Which generator kinds can be point-placed via drag-and-drop.
 /// Terrain + water describe whole-room scope (one heightmap / one water
 /// plane) so a ground-level placement of them is nonsensical; they stay
 /// editable via the World Editor tabs.
 pub fn is_drop_placeable(generator: &Generator) -> bool {
     !matches!(
-        generator,
-        Generator::Terrain(_) | Generator::Water { .. } | Generator::Unknown
+        generator.kind,
+        GeneratorKind::Terrain(_) | GeneratorKind::Water { .. } | GeneratorKind::Unknown
     )
 }
 

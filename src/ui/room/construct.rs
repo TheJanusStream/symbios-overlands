@@ -1,15 +1,15 @@
-//! Construct generator tab — hierarchical `ConstructNode` tree editor.
+//! Universal generator-tree editor.
 //!
-//! Each node shows its local transform plus whatever generator it carries,
-//! rendered by the same `draw_generator_detail` the top-level generator
-//! list uses. Primitives inside a Construct get exactly the same UI as a
-//! top-level primitive placement; an L-system or Portal nested in a
-//! Construct uses its usual editor. Fractal nesting (Construct-in-Construct)
-//! recurses through the same path without special casing.
+//! Every named generator is hierarchical: a root node carrying variant-
+//! specific parameters plus a `Vec<Generator>` of children. This module owns
+//! the recursive node UI — local transform editor, kind picker, child
+//! add/delete buttons, "🎯 Target" toggle that flags a node for the 3D
+//! gizmo — that the Generators tab draws above the per-kind detail editor
+//! provided by [`super::generators::draw_generator_detail`].
 
 use bevy_egui::egui;
 
-use crate::pds::{ConstructNode, Fp, Fp3, Generator, SovereignMaterialSettings};
+use crate::pds::{Fp, Fp3, Generator, GeneratorKind, SovereignMaterialSettings, WaterSurface};
 use crate::state::LiveInventoryRecord;
 use crate::ui::inventory::is_drop_placeable;
 
@@ -17,19 +17,19 @@ use super::generators::draw_generator_detail;
 use super::material::draw_texture_bridge;
 use super::widgets::{color_picker, draw_transform, fp_slider};
 
-pub(super) fn draw_construct_forge(
+pub(super) fn draw_generator_tree(
     ui: &mut egui::Ui,
-    root: &mut ConstructNode,
+    root: &mut Generator,
     selected_prim_path: &mut Option<Vec<usize>>,
     inventory: Option<&LiveInventoryRecord>,
     dirty: &mut bool,
 ) {
     ui.label(
-        "Hierarchical generator tree. Root anchors to the placement; \
-        children inherit transform. Every solid node contributes a collider.",
+        "Hierarchical generator. Root anchors to the placement; children \
+        inherit transform. Every solid node contributes a collider.",
     );
     ui.add_space(4.0);
-    draw_construct_node_ui(
+    draw_generator_node_ui(
         ui,
         root,
         true,
@@ -41,16 +41,23 @@ pub(super) fn draw_construct_forge(
     );
 }
 
+/// Whether a node at this position is allowed to carry children. Terrain
+/// is root-only and a region anchor (children allowed). Water is a leaf
+/// (no children). Unknown can't be edited so child management is hidden.
+fn allows_children(kind: &GeneratorKind) -> bool {
+    !matches!(kind, GeneratorKind::Water { .. } | GeneratorKind::Unknown)
+}
+
 /// Recursive node editor. `is_root` suppresses the delete button for the
 /// tree root. `path_salt` makes every egui ID unique across the recursive
 /// tree so collapsing one sibling never affects another. `current_path`
-/// carries the child-index chain from the blueprint root to this node; the
-/// "🎯 Target" toggle writes that path into `selected_path` so `editor_gizmo`
-/// can find the matching live entity.
+/// carries the child-index chain from the named generator's root to this
+/// node; the "🎯 Target" toggle writes that path into `selected_path` so
+/// `editor_gizmo` can find the matching live entity.
 #[allow(clippy::too_many_arguments)]
-fn draw_construct_node_ui(
+fn draw_generator_node_ui(
     ui: &mut egui::Ui,
-    node: &mut ConstructNode,
+    node: &mut Generator,
     is_root: bool,
     dirty: &mut bool,
     path_salt: &str,
@@ -58,7 +65,7 @@ fn draw_construct_node_ui(
     selected_path: &mut Option<Vec<usize>>,
     inventory: Option<&LiveInventoryRecord>,
 ) -> NodeAction {
-    let header = node.generator.kind_tag();
+    let header = node.kind_tag();
     let mut action = NodeAction::None;
     egui::CollapsingHeader::new(header)
         .id_salt(path_salt)
@@ -74,11 +81,11 @@ fn draw_construct_node_ui(
                         *selected_path = None;
                     }
                     // Bump `is_dirty` so `sync_gizmo_selection` observes the
-                    // change-tick flip and re-evaluates which prim entity
-                    // should own the `GizmoTarget` component.
+                    // change-tick flip and re-evaluates which entity should
+                    // own the `GizmoTarget` component.
                     *dirty = true;
                 }
-                generator_kind_picker(ui, &mut node.generator, path_salt, dirty);
+                generator_kind_picker(ui, &mut node.kind, is_root, path_salt, dirty);
             });
 
             ui.add_space(4.0);
@@ -86,30 +93,29 @@ fn draw_construct_node_ui(
 
             ui.add_space(4.0);
             ui.separator();
-            // Reuse the top-level generator detail editor verbatim. A
-            // primitive inside a Construct uses the exact same UI as a
-            // top-level primitive; an L-system or Portal inside a Construct
-            // uses its normal editor; a Construct inside a Construct
-            // recurses through `draw_construct_forge` again.
-            draw_generator_detail(
-                ui,
-                path_salt,
-                &mut node.generator,
-                selected_path,
-                inventory,
-                dirty,
-            );
+            // Per-kind detail editor — every primitive, L-system, portal,
+            // water, terrain renders its variant-specific widgets here.
+            draw_generator_detail(ui, path_salt, &mut node.kind, dirty);
 
             ui.add_space(4.0);
+            // Water is a leaf and can't carry children (the spawner
+            // ignores them and the sanitizer strips them); Unknown is
+            // un-editable. Terrain *can* now carry children — that's the
+            // region-blueprint shape. Hide the child UI on the leaf-only
+            // kinds so we don't promise something the spawner won't honor.
+            let allows_children = allows_children(&node.kind);
+
             ui.horizontal(|ui| {
-                if ui.small_button("+ Add child").clicked() {
-                    node.children.push(ConstructNode::default());
-                    *dirty = true;
-                }
-                if let Some(inv) = inventory
-                    && !inv.0.generators.is_empty()
-                {
-                    draw_inventory_child_picker(ui, node, path_salt, inv, dirty);
+                if allows_children {
+                    if ui.small_button("+ Add child").clicked() {
+                        node.children.push(Generator::default());
+                        *dirty = true;
+                    }
+                    if let Some(inv) = inventory
+                        && !inv.0.generators.is_empty()
+                    {
+                        draw_inventory_child_picker(ui, node, path_salt, inv, dirty);
+                    }
                 }
                 if !is_root
                     && ui
@@ -123,46 +129,48 @@ fn draw_construct_node_ui(
                 }
             });
 
-            ui.add_space(4.0);
-            let mut to_remove: Option<usize> = None;
-            for (i, child) in node.children.iter_mut().enumerate() {
-                let child_salt = format!("{}_c{}", path_salt, i);
-                let mut child_path = current_path.to_vec();
-                child_path.push(i);
-                let child_action = draw_construct_node_ui(
-                    ui,
-                    child,
-                    false,
-                    dirty,
-                    &child_salt,
-                    &child_path,
-                    selected_path,
-                    inventory,
-                );
-                if matches!(child_action, NodeAction::Delete) {
-                    to_remove = Some(i);
+            if allows_children {
+                ui.add_space(4.0);
+                let mut to_remove: Option<usize> = None;
+                for (i, child) in node.children.iter_mut().enumerate() {
+                    let child_salt = format!("{}_c{}", path_salt, i);
+                    let mut child_path = current_path.to_vec();
+                    child_path.push(i);
+                    let child_action = draw_generator_node_ui(
+                        ui,
+                        child,
+                        false,
+                        dirty,
+                        &child_salt,
+                        &child_path,
+                        selected_path,
+                        inventory,
+                    );
+                    if matches!(child_action, NodeAction::Delete) {
+                        to_remove = Some(i);
+                    }
                 }
-            }
-            if let Some(i) = to_remove {
-                node.children.remove(i);
-                *dirty = true;
-                // Clear the gizmo target if we just removed the targeted
-                // node or any ancestor of it — its entity is about to be
-                // despawned on the next compile, and leaving the stale path
-                // in place would point at a hole.
-                let mut deleted_path = current_path.to_vec();
-                deleted_path.push(i);
-                if let Some(sel) = selected_path.as_ref()
-                    && sel.starts_with(&deleted_path)
-                {
-                    *selected_path = None;
+                if let Some(i) = to_remove {
+                    node.children.remove(i);
+                    *dirty = true;
+                    // Clear the gizmo target if we just removed the targeted
+                    // node or any ancestor of it — its entity is about to be
+                    // despawned on the next compile, and leaving the stale path
+                    // in place would point at a hole.
+                    let mut deleted_path = current_path.to_vec();
+                    deleted_path.push(i);
+                    if let Some(sel) = selected_path.as_ref()
+                        && sel.starts_with(&deleted_path)
+                    {
+                        *selected_path = None;
+                    }
                 }
             }
         });
     action
 }
 
-/// Signal returned by `draw_construct_node_ui` so the parent can remove a
+/// Signal returned by `draw_generator_node_ui` so the parent can remove a
 /// child that asked to be deleted. Keeping the delete state out of the
 /// child's own mutation avoids borrow conflicts with the recursive
 /// `iter_mut`.
@@ -172,13 +180,13 @@ enum NodeAction {
 }
 
 /// Combo box that lists every placeable generator in the owner's inventory
-/// and, on click, clones the chosen entry into a fresh [`ConstructNode`]
-/// appended to `node.children`. Filters through [`is_drop_placeable`] so
-/// Terrain/Water/Unknown — which the sanitizer would overwrite anyway —
-/// never appear in the menu.
+/// and, on click, clones the chosen entry into a fresh child appended to
+/// `node.children`. Filters through [`is_drop_placeable`] so Terrain /
+/// Water / Unknown — which the sanitizer would overwrite anyway — never
+/// appear in the menu.
 fn draw_inventory_child_picker(
     ui: &mut egui::Ui,
-    node: &mut ConstructNode,
+    node: &mut Generator,
     salt: &str,
     inventory: &LiveInventoryRecord,
     dirty: &mut bool,
@@ -208,29 +216,32 @@ fn draw_inventory_child_picker(
             }
         });
     if let Some(generator) = picked {
-        node.children.push(ConstructNode {
-            generator: Box::new(generator),
-            ..ConstructNode::default()
-        });
+        node.children.push(generator);
         *dirty = true;
     }
 }
 
-/// Variant-picker combo box for a `ConstructNode`'s generator. Switching to
-/// a different primitive builds a fresh default for that shape; switching
-/// to a non-primitive (LSystem/Portal/Construct) constructs a reasonable
-/// starter so the owner has something to edit.
+/// Variant-picker combo box for a node's [`GeneratorKind`]. The kind set
+/// depends on the node's position in the tree:
 ///
-/// Terrain and Water are deliberately absent from the picker: they are
-/// room-scoped and the sanitizer will overwrite them back to a cuboid if
-/// one sneaks in via the Raw JSON tab or a malicious peer record.
+/// * **Root** of a named generator: every kind except Water (Water is
+///   child-only; the sanitizer would overwrite a Water root anyway).
+///   Terrain *is* offered at root — promoting an existing root to Terrain
+///   turns the named generator into a region blueprint.
+/// * **Child** node: every kind except Terrain (Terrain is root-only).
+///   Water *is* offered as a child option here.
+///
+/// Switching to a different primitive builds a fresh default for that
+/// shape; switching to a non-primitive (Terrain/Water/LSystem/Portal)
+/// constructs a reasonable starter so the owner has something to edit.
 fn generator_kind_picker(
     ui: &mut egui::Ui,
-    generator: &mut Generator,
+    kind: &mut GeneratorKind,
+    is_root: bool,
     salt: &str,
     dirty: &mut bool,
 ) {
-    const KINDS: &[&str] = &[
+    const PRIMITIVES: &[&str] = &[
         "Cuboid",
         "Sphere",
         "Cylinder",
@@ -239,43 +250,51 @@ fn generator_kind_picker(
         "Torus",
         "Plane",
         "Tetrahedron",
-        "LSystem",
-        "Portal",
-        "Construct",
     ];
-    let current = generator.kind_tag();
+    let mut kinds: Vec<&'static str> = PRIMITIVES.to_vec();
+    kinds.push("LSystem");
+    kinds.push("Portal");
+    if is_root {
+        kinds.push("Terrain");
+    } else {
+        kinds.push("Water");
+    }
+
+    let current = kind.kind_tag();
     egui::ComboBox::from_id_salt(format!("{}_kind", salt))
         .selected_text(current)
         .show_ui(ui, |ui| {
-            for kind in KINDS {
-                if ui.selectable_label(current == *kind, *kind).clicked() && current != *kind {
-                    *generator = make_default_for_kind(kind);
+            for k in &kinds {
+                if ui.selectable_label(current == *k, *k).clicked() && current != *k {
+                    *kind = make_default_for_kind(k);
                     *dirty = true;
                 }
             }
         });
 }
 
-fn make_default_for_kind(kind: &str) -> Generator {
-    if let Some(prim) = Generator::default_primitive_for_tag(kind) {
+fn make_default_for_kind(kind: &str) -> GeneratorKind {
+    if let Some(prim) = GeneratorKind::default_primitive_for_tag(kind) {
         return prim;
     }
     match kind {
-        "LSystem" => super::widgets::default_lsystem_generator(),
-        "Portal" => Generator::Portal {
+        "LSystem" => super::widgets::default_lsystem_kind(),
+        "Portal" => GeneratorKind::Portal {
             target_did: String::new(),
             target_pos: Fp3([0.0, 0.0, 0.0]),
         },
-        "Construct" => Generator::Construct {
-            root: ConstructNode::default(),
+        "Terrain" => GeneratorKind::Terrain(Default::default()),
+        "Water" => GeneratorKind::Water {
+            level_offset: Fp(0.0),
+            surface: WaterSurface::default(),
         },
-        _ => Generator::default_cuboid(),
+        _ => GeneratorKind::default_cuboid(),
     }
 }
 
-/// Slim material editor for a single ConstructNode primitive. Mirrors the
-/// L-system slot UI but scoped to a single `SovereignMaterialSettings` with
-/// `salt` making every internal egui id unique across the recursive tree.
+/// Slim material editor for a single primitive's `SovereignMaterialSettings`.
+/// Mirrors the L-system slot UI but scoped to a single material with `salt`
+/// making every internal egui id unique across the recursive tree.
 pub(crate) fn draw_universal_material(
     ui: &mut egui::Ui,
     m: &mut SovereignMaterialSettings,
@@ -299,8 +318,8 @@ pub(crate) fn draw_universal_material(
     draw_texture_bridge(ui, &mut m.texture, salt, dirty);
 }
 
-/// Vertex-torture editor for the three fields every top-level primitive
-/// carries. Ranges mirror `pds::limits::MAX_TORTURE_*`.
+/// Vertex-torture editor for the three fields every primitive carries.
+/// Ranges mirror `pds::limits::MAX_TORTURE_*`.
 pub(super) fn draw_torture(
     ui: &mut egui::Ui,
     twist: &mut Fp,

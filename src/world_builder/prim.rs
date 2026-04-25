@@ -1,25 +1,25 @@
 //! Parametric primitive meshing and CPU-side vertex torture.
 //!
-//! Every `Generator::{Cuboid, Sphere, Cylinder, Capsule, Cone, Torus, Plane,
-//! Tetrahedron}` variant routes through [`build_primitive_mesh`] to produce a
-//! Bevy `Mesh`. When the variant's `(twist, taper, bend)` triple is non-zero,
-//! [`apply_vertex_torture`] mutates the mesh's `ATTRIBUTE_POSITION` buffer
-//! before it lands in `Assets<Mesh>`, so the visible geometry and the Avian
-//! collider stay in lock-step.
+//! Every `GeneratorKind::{Cuboid, Sphere, Cylinder, Capsule, Cone, Torus,
+//! Plane, Tetrahedron}` variant routes through [`build_primitive_mesh`] to
+//! produce a Bevy `Mesh`. When the variant's `(twist, taper, bend)` triple
+//! is non-zero, [`apply_vertex_torture`] mutates the mesh's
+//! `ATTRIBUTE_POSITION` buffer before it lands in `Assets<Mesh>`, so the
+//! visible geometry and the Avian collider stay in lock-step.
 //!
 //! The tortured-collider path swaps the fast analytical collider (e.g.
 //! `Collider::cuboid`) for a convex hull built from the mutated mesh — the
 //! analytic shape would cut corners on a twisted/bent primitive, leaving the
 //! visual mesh penetrating the world while the collider sits undisturbed.
 //! Trimesh colliders are avoided for now because Avian rejects them on
-//! dynamic rigid bodies; a Construct prim that later gains a dynamic body
+//! dynamic rigid bodies; a child prim that later gains a dynamic body
 //! trait would panic the physics step otherwise.
 
 use avian3d::prelude::*;
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 
-use crate::pds::Generator;
+use crate::pds::GeneratorKind;
 
 /// Torture parameters extracted from a primitive generator. Each parameter
 /// is applied to the mesh's vertex positions along the shape's Y extent:
@@ -44,13 +44,13 @@ impl Torture {
     }
 }
 
-/// Build the parametric mesh for a primitive `Generator` variant and apply
-/// vertex torture when non-trivial. Returns the raw `Mesh`; the caller
+/// Build the parametric mesh for a primitive [`GeneratorKind`] variant and
+/// apply vertex torture when non-trivial. Returns the raw `Mesh`; the caller
 /// registers it in `Assets<Mesh>` so a single mesh can be reused when a
 /// material cache hit bypasses the allocation hot path.
-pub(super) fn build_primitive_mesh(generator: &Generator) -> Mesh {
-    let mut mesh = base_primitive_mesh(generator);
-    let torture = torture_of(generator);
+pub(super) fn build_primitive_mesh(kind: &GeneratorKind) -> Mesh {
+    let mut mesh = base_primitive_mesh(kind);
+    let torture = torture_of(kind);
     if !torture.is_identity() {
         apply_vertex_torture(&mut mesh, torture);
     } else {
@@ -66,39 +66,39 @@ pub(super) fn build_primitive_mesh(generator: &Generator) -> Mesh {
 /// hull of the mutated vertex cloud when torture is active (the analytical
 /// hull would diverge from the visible geometry). Returns `None` for shapes
 /// with no meaningful solid collider.
-pub(super) fn collider_for_primitive(generator: &Generator, mesh: &Mesh) -> Option<Collider> {
-    let torture = torture_of(generator);
+pub(super) fn collider_for_primitive(kind: &GeneratorKind, mesh: &Mesh) -> Option<Collider> {
+    let torture = torture_of(kind);
     if torture.is_identity() {
-        analytical_collider(generator)
+        analytical_collider(kind)
     } else {
-        convex_hull_from_mesh(mesh).or_else(|| analytical_collider(generator))
+        convex_hull_from_mesh(mesh).or_else(|| analytical_collider(kind))
     }
 }
 
-fn torture_of(generator: &Generator) -> Torture {
-    match generator {
-        Generator::Cuboid {
+fn torture_of(kind: &GeneratorKind) -> Torture {
+    match kind {
+        GeneratorKind::Cuboid {
             twist, taper, bend, ..
         }
-        | Generator::Sphere {
+        | GeneratorKind::Sphere {
             twist, taper, bend, ..
         }
-        | Generator::Cylinder {
+        | GeneratorKind::Cylinder {
             twist, taper, bend, ..
         }
-        | Generator::Capsule {
+        | GeneratorKind::Capsule {
             twist, taper, bend, ..
         }
-        | Generator::Cone {
+        | GeneratorKind::Cone {
             twist, taper, bend, ..
         }
-        | Generator::Torus {
+        | GeneratorKind::Torus {
             twist, taper, bend, ..
         }
-        | Generator::Plane {
+        | GeneratorKind::Plane {
             twist, taper, bend, ..
         }
-        | Generator::Tetrahedron {
+        | GeneratorKind::Tetrahedron {
             twist, taper, bend, ..
         } => Torture {
             twist: twist.0,
@@ -113,18 +113,18 @@ fn torture_of(generator: &Generator) -> Torture {
     }
 }
 
-fn base_primitive_mesh(generator: &Generator) -> Mesh {
-    match generator {
-        Generator::Cuboid { size, .. } => {
+fn base_primitive_mesh(kind: &GeneratorKind) -> Mesh {
+    match kind {
+        GeneratorKind::Cuboid { size, .. } => {
             Cuboid::new(size.0[0], size.0[1], size.0[2]).mesh().build()
         }
-        Generator::Sphere {
+        GeneratorKind::Sphere {
             radius, resolution, ..
         } => Sphere::new(radius.0)
             .mesh()
             .ico(*resolution)
             .unwrap_or_else(|_| Sphere::new(radius.0).mesh().build()),
-        Generator::Cylinder {
+        GeneratorKind::Cylinder {
             radius,
             height,
             resolution,
@@ -133,7 +133,7 @@ fn base_primitive_mesh(generator: &Generator) -> Mesh {
             .mesh()
             .resolution(*resolution)
             .build(),
-        Generator::Capsule {
+        GeneratorKind::Capsule {
             radius,
             length,
             latitudes,
@@ -144,7 +144,7 @@ fn base_primitive_mesh(generator: &Generator) -> Mesh {
             .latitudes(*latitudes)
             .longitudes(*longitudes)
             .build(),
-        Generator::Cone {
+        GeneratorKind::Cone {
             radius,
             height,
             resolution,
@@ -153,7 +153,7 @@ fn base_primitive_mesh(generator: &Generator) -> Mesh {
             .mesh()
             .resolution(*resolution)
             .build(),
-        Generator::Torus {
+        GeneratorKind::Torus {
             minor_radius,
             major_radius,
             minor_resolution,
@@ -167,13 +167,13 @@ fn base_primitive_mesh(generator: &Generator) -> Mesh {
         .minor_resolution(*minor_resolution as usize)
         .major_resolution(*major_resolution as usize)
         .build(),
-        Generator::Plane {
+        GeneratorKind::Plane {
             size, subdivisions, ..
         } => Plane3d::new(Vec3::Y, Vec2::new(size.0[0] / 2.0, size.0[1] / 2.0))
             .mesh()
             .subdivisions(*subdivisions)
             .build(),
-        Generator::Tetrahedron { size, .. } => {
+        GeneratorKind::Tetrahedron { size, .. } => {
             let s = size.0;
             let p0 = Vec3::new(0.0, 1.0, 0.0) * s;
             let p1 = Vec3::new(-1.0, -1.0, 1.0).normalize() * s;
@@ -185,14 +185,14 @@ fn base_primitive_mesh(generator: &Generator) -> Mesh {
     }
 }
 
-fn analytical_collider(generator: &Generator) -> Option<Collider> {
-    Some(match generator {
-        Generator::Cuboid { size, .. } => Collider::cuboid(size.0[0], size.0[1], size.0[2]),
-        Generator::Sphere { radius, .. } => Collider::sphere(radius.0),
-        Generator::Cylinder { radius, height, .. } => Collider::cylinder(radius.0, height.0),
-        Generator::Capsule { radius, length, .. } => Collider::capsule(radius.0, length.0),
-        Generator::Cone { radius, height, .. } => Collider::cone(radius.0, height.0),
-        Generator::Torus {
+fn analytical_collider(kind: &GeneratorKind) -> Option<Collider> {
+    Some(match kind {
+        GeneratorKind::Cuboid { size, .. } => Collider::cuboid(size.0[0], size.0[1], size.0[2]),
+        GeneratorKind::Sphere { radius, .. } => Collider::sphere(radius.0),
+        GeneratorKind::Cylinder { radius, height, .. } => Collider::cylinder(radius.0, height.0),
+        GeneratorKind::Capsule { radius, length, .. } => Collider::capsule(radius.0, length.0),
+        GeneratorKind::Cone { radius, height, .. } => Collider::cone(radius.0, height.0),
+        GeneratorKind::Torus {
             minor_radius,
             major_radius,
             ..
@@ -201,8 +201,8 @@ fn analytical_collider(generator: &Generator) -> Option<Collider> {
             minor_radius.0 * 2.0,
             major_radius.0 + minor_radius.0,
         ),
-        Generator::Plane { size, .. } => Collider::cuboid(size.0[0], 0.01, size.0[1]),
-        Generator::Tetrahedron { size, .. } => {
+        GeneratorKind::Plane { size, .. } => Collider::cuboid(size.0[0], 0.01, size.0[1]),
+        GeneratorKind::Tetrahedron { size, .. } => {
             let s = size.0;
             let p0 = Vec3::new(0.0, 1.0, 0.0) * s;
             let p1 = Vec3::new(-1.0, -1.0, 1.0).normalize() * s;

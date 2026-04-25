@@ -4,7 +4,7 @@
 //! owner's PDS.
 
 use super::COLLECTION;
-use super::generator::{Generator, Placement, WaterSurface};
+use super::generator::{Generator, GeneratorKind, Placement, WaterSurface};
 use super::sanitize::{limits, sanitize_generator};
 use super::terrain::SovereignTerrainConfig;
 use super::types::{Fp, Fp3, Fp4, TransformData};
@@ -192,28 +192,28 @@ impl RoomRecord {
             ..SovereignTerrainConfig::default()
         };
 
-        let mut generators = HashMap::new();
-        generators.insert("base_terrain".to_string(), Generator::Terrain(terrain_cfg));
-        generators.insert(
-            "base_water".to_string(),
-            Generator::Water {
+        // Strict scheme: a single named generator describes the whole
+        // region. Terrain sits at the root (only valid position for
+        // Terrain) and the room's water is a child of it (only valid
+        // position for Water). Saving `base_terrain` to inventory now
+        // captures the entire homeworld — heightmap + water — as one
+        // portable blueprint.
+        let mut base_region = Generator::from_kind(GeneratorKind::Terrain(terrain_cfg));
+        base_region
+            .children
+            .push(Generator::from_kind(GeneratorKind::Water {
                 level_offset: Fp(0.0),
                 surface: WaterSurface::default(),
-            },
-        );
+            }));
 
-        let placements = vec![
-            Placement::Absolute {
-                generator_ref: "base_terrain".to_string(),
-                transform: TransformData::default(),
-                snap_to_terrain: false,
-            },
-            Placement::Absolute {
-                generator_ref: "base_water".to_string(),
-                transform: TransformData::default(),
-                snap_to_terrain: false,
-            },
-        ];
+        let mut generators = HashMap::new();
+        generators.insert("base_terrain".to_string(), base_region);
+
+        let placements = vec![Placement::Absolute {
+            generator_ref: "base_terrain".to_string(),
+            transform: TransformData::default(),
+            snap_to_terrain: false,
+        }];
 
         let mut traits = HashMap::new();
         traits.insert(
@@ -309,7 +309,9 @@ pub fn find_terrain_config(record: &RoomRecord) -> Option<&SovereignTerrainConfi
     let mut keys: Vec<&String> = record.generators.keys().collect();
     keys.sort();
     for k in keys {
-        if let Some(Generator::Terrain(cfg)) = record.generators.get(k) {
+        if let Some(generator) = record.generators.get(k)
+            && let GeneratorKind::Terrain(cfg) = &generator.kind
+        {
             return Some(cfg);
         }
     }

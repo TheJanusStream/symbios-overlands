@@ -18,14 +18,12 @@ use std::collections::HashSet;
 
 use crate::config::terrain as tcfg;
 use crate::pds::{
-    Fp3, Fp4, Generator, Placement, RoomRecord, ScatterBounds, SovereignTerrainConfig,
-    TransformData,
+    Fp3, Fp4, Generator, GeneratorKind, Placement, RoomRecord, ScatterBounds,
+    SovereignTerrainConfig, TransformData,
 };
 use crate::state::CurrentRoomDid;
 use crate::terrain::{FinishedHeightMap, OutgoingTerrain, TerrainMesh};
 use crate::water::WaterMaterial;
-
-use crate::pds::ConstructNode;
 
 use super::lsystem::{LSystemMaterialCache, LSystemMeshCache, spawn_lsystem_entity};
 use super::material::{spawn_procedural_material, spawn_water_volume};
@@ -66,7 +64,7 @@ pub(super) fn compile_room_record(
     // terrain plugin's own lifecycle), so it survives the rebuild.
     //
     // `try_despawn` (instead of `despawn`) tolerates double-despawn: every
-    // construct prim now carries its own `RoomEntity`, so when the parent
+    // child prim now carries its own `RoomEntity`, so when the parent
     // anchor's recursive-despawn removes the tree, subsequent iterations
     // for individual prims would log warnings otherwise. The extra marker
     // is load-bearing for gizmo-detached prims — they sit outside the
@@ -165,7 +163,11 @@ pub(super) fn compile_room_record(
             }
         }
 
-        // The unified Anchor Entity
+        // The unified outer Anchor entity. Every placement gets one, so a
+        // top-level Cuboid and a deeply-nested fractal blueprint share the
+        // same gizmo-friendly two-level layout: outer anchor at placement
+        // pose, generator entity (and its descendants) at their own poses
+        // beneath.
         let anchor = ctx
             .commands
             .spawn((
@@ -240,10 +242,15 @@ pub(super) fn compile_room_record(
                             } else {
                                 Quat::IDENTITY
                             };
-                            let child_tf = Transform::from_xyz(local_x, final_local_y, local_z)
+                            // Per-cell placement transform composes on top
+                            // of the generator's own root transform inside
+                            // `dispatch_top_level`. Yaw spins each cell
+                            // around its own Y axis so identical
+                            // blueprints don't all face the same way.
+                            let cell_tf = Transform::from_xyz(local_x, final_local_y, local_z)
                                 .with_rotation(rotation);
                             if let Some(entity) =
-                                dispatch_top_level(&mut ctx, generator_ref, child_tf)
+                                dispatch_top_level(&mut ctx, generator_ref, cell_tf)
                             {
                                 ctx.commands.entity(anchor).add_child(entity);
                             }
@@ -304,9 +311,11 @@ pub(super) fn compile_room_record(
                         continue;
                     }
 
-                    // Make scatter children of the anchor so grabbing the Gizmo moves the whole forest live.
-                    // Always draw from `rng` so disabling `random_yaw` doesn't shift downstream
-                    // samples — the spawn stream stays byte-identical across peers regardless.
+                    // Make scatter children of the anchor so grabbing the
+                    // gizmo moves the whole forest live. Always draw from
+                    // `rng` so disabling `random_yaw` doesn't shift
+                    // downstream samples — the spawn stream stays
+                    // byte-identical across peers regardless.
                     let local_pos = anchor_world_tf
                         .compute_affine()
                         .inverse()
@@ -317,9 +326,9 @@ pub(super) fn compile_room_record(
                     } else {
                         Quat::IDENTITY
                     };
-                    let child_tf = Transform::from_translation(local_pos).with_rotation(rotation);
+                    let cell_tf = Transform::from_translation(local_pos).with_rotation(rotation);
 
-                    if let Some(entity) = dispatch_top_level(&mut ctx, generator_ref, child_tf) {
+                    if let Some(entity) = dispatch_top_level(&mut ctx, generator_ref, cell_tf) {
                         ctx.commands.entity(anchor).add_child(entity);
                     }
                     spawned += 1;
@@ -444,20 +453,40 @@ pub(super) fn sample_bounds(bounds: &ScatterBounds, rng: &mut ChaCha8Rng) -> (f3
     }
 }
 
-/// Compute the world-space Y of the first water generator's surface for use
-/// by `BiomeFilter` water-relation checks. Walks generators in sorted key
-/// order so every peer picks the same water level; when no water generator is
-/// present we return `None` and the filter collapses to accept-by-default.
+/// Compute the world-space Y of the first water node's surface for use by
+/// `BiomeFilter` water-relation checks. Under the strict generator rules,
+/// Water is child-only — so the search walks each named generator's tree
+/// (DFS) looking for the first Water descendant.
 ///
-/// The computation mirrors `spawn_water_volume`: base sea level comes from
-/// the compile-time `tcfg::water::LEVEL_FACTOR * HEIGHT_SCALE` constant, plus
-/// the generator's `level_offset`, plus the water's placement-Y when the
-/// record happens to place the volume off-origin.
+/// Walks generators in sorted key order so every peer picks the same
+/// water; when no record contains a Water node we return `None` and the
+/// filter collapses to accept-by-default.
+///
+/// The computation mirrors what `spawn_water_volume` will see at compile
+/// time:
+///
+/// * base sea level = `tcfg::water::LEVEL_FACTOR * HEIGHT_SCALE`
+/// * plus the water node's own `level_offset`
+/// * plus the placement-Y of the named generator that contains the water
+/// * plus the cumulative `transform.translation.y` from the named
+///   generator's root down through every ancestor to the water node
+///   itself (its own translation included). This matches the entity tree
+///   the spawner builds: each generator entity sits at its `transform`
+///   inside its parent, so the world Y of the water surface is the
+///   product of those nested local Ys.
+///
+/// Quaternion rotations are intentionally ignored. The buoyancy plane the
+/// rover and biome-filter code reason about is axis-aligned with world Y
+/// — water "tilted" by an ancestor rotation has no useful surface for
+/// either system, and authoring such a thing is a bug, not a feature.
 pub(super) fn find_water_level_for_filter(record: &RoomRecord) -> Option<f32> {
     let mut keys: Vec<&String> = record.generators.keys().collect();
     keys.sort();
     for k in &keys {
-        if let Some(Generator::Water { level_offset, .. }) = record.generators.get(*k) {
+        let Some(generator) = record.generators.get(*k) else {
+            continue;
+        };
+        if let Some((level_offset, ancestor_y)) = first_water_in_tree(generator, 0.0) {
             let placement_y = record
                 .placements
                 .iter()
@@ -471,8 +500,31 @@ pub(super) fn find_water_level_for_filter(record: &RoomRecord) -> Option<f32> {
                 })
                 .unwrap_or(0.0);
             let base_wl = tcfg::water::LEVEL_FACTOR * tcfg::HEIGHT_SCALE;
-            let wl = (base_wl + level_offset.0).max(0.001);
-            return Some(placement_y + wl);
+            let wl = (base_wl + level_offset).max(0.001);
+            return Some(placement_y + ancestor_y + wl);
+        }
+    }
+    None
+}
+
+/// DFS the tree under `node`, returning the first `(level_offset,
+/// cumulative_ancestor_y)` for a Water descendant. `accumulated_y` is the
+/// sum of `transform.translation.y` from the *parent* down to (but not
+/// including) `node`; we include `node`'s own translation here so the
+/// returned `ancestor_y` is the full world-Y contribution of the path
+/// from the named generator's root to the matched water node.
+///
+/// Children are visited in declaration order, matching the spawner's
+/// traversal — so "the first water" is unambiguous and identical across
+/// peers.
+pub fn first_water_in_tree(node: &Generator, accumulated_y: f32) -> Option<(f32, f32)> {
+    let here_y = accumulated_y + node.transform.translation.0[1];
+    if let GeneratorKind::Water { level_offset, .. } = &node.kind {
+        return Some((level_offset.0, here_y));
+    }
+    for child in &node.children {
+        if let Some(found) = first_water_in_tree(child, here_y) {
+            return Some(found);
         }
     }
     None
@@ -588,18 +640,28 @@ pub(super) struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
 }
 
 /// Entry point called by the top-level `Placement` loop. Resolves the
-/// generator by name and routes it into [`spawn_generator`] with an empty
-/// blueprint path. The returned entity is the placement's root (caller
-/// adopts it as a child of the placement anchor).
+/// generator by name, composes the placement-level cell transform with the
+/// named generator's own root transform, and routes the recursive walk
+/// into [`spawn_generator`] with an empty blueprint path. The returned
+/// entity is the placement's root (caller adopts it as a child of the
+/// placement anchor).
+///
+/// `cell_tf` is the per-cell transform contributed by the placement (the
+/// per-grid-cell offset + yaw, the per-scatter-sample local position +
+/// yaw, or `Transform::IDENTITY` for a single absolute placement). The
+/// generator's authored `transform` is composed *inside* it: the final
+/// root pose is `cell_tf * generator.transform`. So a `Placement::Absolute`
+/// plants the generator at its authored pose, while a Grid or Scatter cell
+/// shifts and rotates that pose by the cell's contribution.
 ///
 /// Traits are applied here rather than inside `spawn_generator` because
 /// only a top-level placement is keyed directly by `generator_ref` in the
-/// record's `traits` table — children inside a Construct share the
-/// Construct's traits via the anchor and should not double-apply.
+/// record's `traits` table — children inside a tree share the named
+/// generator's traits via the anchor and should not double-apply.
 pub(super) fn dispatch_top_level(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
     generator_ref: &str,
-    transform: Transform,
+    cell_tf: Transform,
 ) -> Option<Entity> {
     let Some(generator) = ctx.record.generators.get(generator_ref) else {
         warn!(
@@ -609,31 +671,35 @@ pub(super) fn dispatch_top_level(
         return None;
     };
 
-    // Terrain is special: it's already spawned by the terrain plugin, so we
-    // just apply the record's traits to the existing heightmap entities and
-    // return — there is no per-placement entity to attach to the anchor.
-    if matches!(generator, Generator::Terrain(_)) {
+    // Terrain is special: the heightmap mesh is already owned by the
+    // terrain plugin (its config drives `FinishedHeightMap` upstream of
+    // this pass). Apply the record's traits to those existing entities so
+    // the heightfield collider lands on the live terrain mesh, then fall
+    // through to the normal spawn path — `spawn_generator` will produce a
+    // bare anchor entity for the Terrain root and walk its children. The
+    // `traits` table thus targets the terrain mesh, while the children
+    // (L-systems, props, water, …) ride along on the anchor.
+    let is_terrain_root = matches!(&generator.kind, GeneratorKind::Terrain(_));
+    if is_terrain_root {
         for terrain_entity in ctx.terrain_meshes.iter() {
             reset_traits(ctx.commands, terrain_entity);
             apply_traits(ctx.commands, terrain_entity, ctx.record, generator_ref);
         }
-        return None;
     }
 
-    // `spawn_generator` walks the generator tree without borrowing
-    // `ctx.record.generators` a second time. Pull the generator out by
-    // cloning — it's only the placement root, so we pay the clone once per
-    // placement (not per scatter sample, which keys off the already-cloned
-    // root).
-    //
-    // Rather than cloning, we side-step the borrow by getting the slot
-    // pointer; the record is not mutated by the spawner, only its
-    // generators map is read, and we clone only if needed. Since we need a
-    // live reference to `ctx` which has `&RoomRecord`, we use a small
-    // helper that owns a clone.
+    // Clone out the named generator so the recursive spawner doesn't have
+    // to re-borrow `ctx.record.generators` at every depth. The clone is per
+    // placement, not per scatter sample, so the cost is bounded.
     let generator = generator.clone();
-    let entity = spawn_generator(ctx, &generator, generator_ref, &[], transform);
-    if let Some(entity) = entity {
+    let root_tf = cell_tf * transform_from_data(&generator.transform);
+    let entity = spawn_generator(ctx, &generator, generator_ref, &[], root_tf);
+    if let Some(entity) = entity
+        && !is_terrain_root
+    {
+        // For non-terrain roots, traits attach to the spawned root entity.
+        // Terrain refs already routed traits to the heightmap mesh above —
+        // applying them again on the anchor would attach `Sensor` /
+        // `collider_heightfield` to a transform-only node, which is wrong.
         apply_traits(ctx.commands, entity, ctx.record, generator_ref);
     }
     entity
@@ -642,17 +708,16 @@ pub(super) fn dispatch_top_level(
 /// Unified recursive spawner. Builds the entity tree for `generator`,
 /// parented under a `base_ref`-qualified synthetic path so nested L-system
 /// and procedural-texture caches stay collision-free across fractal
-/// Construct nestings.
+/// nestings.
 ///
 /// * `base_ref` is the top-level generator's key in `RoomRecord::generators`.
-/// * `path` records the child-index chain from the base Construct's root
-///   down to this node. It is `&[]` for a top-level placement or the root
-///   of a Construct blueprint, and grows by one index at each recursion
-///   into `ConstructNode::children`.
+/// * `path` records the child-index chain from the named generator's root
+///   down to this node. It is `&[]` for the root of the named blueprint
+///   itself, and grows by one index at each recursion into `children`.
 ///
 /// The returned entity is the node's visible/physical root. Trait
 /// application is the caller's responsibility — this function deliberately
-/// does not apply traits so recursion into a Construct's children doesn't
+/// does not apply traits so recursion into a generator's children doesn't
 /// double-attach `Sensor` or `collider_heightfield` components.
 pub(super) fn spawn_generator(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
@@ -664,27 +729,33 @@ pub(super) fn spawn_generator(
     let cache_key = synthetic_cache_key(base_ref, path);
     let in_blueprint = !path.is_empty();
 
-    let entity = match generator {
-        // Terrain/Water are room-scoped and only valid at top level. The
-        // sanitizer overwrites Terrain/Water found inside a ConstructNode,
-        // but we defend against a stale in-memory record by skipping here
-        // too so a nested one never spawns a second heightmap collider.
-        Generator::Terrain(_) => {
+    let entity = match &generator.kind {
+        // Terrain is root-only (sanitizer enforces). Its heightmap mesh is
+        // owned by the terrain plugin — we don't spawn it here. We do
+        // spawn a bare anchor entity so the Terrain root's children (the
+        // region's water, L-systems, portals, props, …) have a per-instance
+        // parent to attach to.
+        GeneratorKind::Terrain(_) => {
             if in_blueprint {
-                warn!("Terrain generator ignored inside Construct blueprint at `{cache_key}`");
+                warn!("Terrain generator ignored as a child at `{cache_key}`");
                 return None;
             }
-            // Top-level Terrain was handled in `dispatch_top_level`; reaching
-            // this branch here would mean direct recursion into a Terrain
-            // value we didn't clone from the record, which shouldn't happen.
-            None
+            Some(
+                ctx.commands
+                    .spawn((transform, Visibility::default(), RoomEntity))
+                    .id(),
+            )
         }
-        Generator::Water {
+        // Water is child-only (sanitizer enforces). Spawning at root would
+        // place an unparented infinite cuboid at the world water level,
+        // which is exactly the "stray top-level water" case the strict
+        // rule forbids.
+        GeneratorKind::Water {
             level_offset,
             surface,
         } => {
-            if in_blueprint {
-                warn!("Water generator ignored inside Construct blueprint at `{cache_key}`");
+            if !in_blueprint {
+                warn!("Water generator ignored at root at `{cache_key}`");
                 return None;
             }
             let world_extent = ctx
@@ -702,48 +773,73 @@ pub(super) fn spawn_generator(
                 ctx.water_materials,
             ))
         }
-        Generator::LSystem { .. } => {
+        GeneratorKind::LSystem { .. } => {
             // Synthetic cache key keeps a nested L-system distinct from any
-            // siblings (and from its outer Construct) so `LSystemMeshCache`
-            // entries don't clobber each other. Scattering 1000 Constructs
-            // each containing the same L-system at path=[0] reuses the same
-            // "<base_ref>/0" cache entry — 1 derivation, 999 handle clones.
-            spawn_lsystem_entity(ctx, generator, &cache_key, transform)
+            // siblings (and from the outer named generator) so
+            // `LSystemMeshCache` entries don't clobber each other.
+            // Scattering 1000 generator trees each containing the same
+            // L-system at path=[0] reuses the same "<base_ref>/0" cache
+            // entry — 1 derivation, 999 handle clones.
+            spawn_lsystem_entity(ctx, &generator.kind, &cache_key, transform)
         }
-        Generator::Portal {
+        GeneratorKind::Portal {
             target_did,
             target_pos,
         } => Some(spawn_portal_entity(ctx, target_did, target_pos, transform)),
-        Generator::Cuboid { .. }
-        | Generator::Sphere { .. }
-        | Generator::Cylinder { .. }
-        | Generator::Capsule { .. }
-        | Generator::Cone { .. }
-        | Generator::Torus { .. }
-        | Generator::Plane { .. }
-        | Generator::Tetrahedron { .. } => Some(spawn_primitive_entity(ctx, generator, transform)),
-        Generator::Construct { root } => {
-            Some(spawn_construct_tree(ctx, root, base_ref, path, transform))
+        GeneratorKind::Cuboid { .. }
+        | GeneratorKind::Sphere { .. }
+        | GeneratorKind::Cylinder { .. }
+        | GeneratorKind::Capsule { .. }
+        | GeneratorKind::Cone { .. }
+        | GeneratorKind::Torus { .. }
+        | GeneratorKind::Plane { .. }
+        | GeneratorKind::Tetrahedron { .. } => {
+            Some(spawn_primitive_entity(ctx, &generator.kind, transform))
         }
-        Generator::Unknown => {
+        GeneratorKind::Unknown => {
             warn!("Ignoring generator `{cache_key}` of unknown $type");
             None
         }
     };
 
-    // Attach a PrimMarker to blueprint-internal entities so the editor
-    // gizmo can map a UI-selected ConstructNode back to its live Bevy
-    // entity. Top-level placements get PlacementMarker from the caller
-    // instead — a PrimMarker on them would confuse the gizmo's prim
-    // detach/reparent path.
-    if in_blueprint && let Some(e) = entity {
+    // Attach a PrimMarker to every node in the named generator's tree so
+    // the editor gizmo can map a UI-selected node back to its live Bevy
+    // entity by `(generator_ref, path)`. Top-level placements *also* get
+    // PlacementMarker from the caller, but that lives on the outer anchor
+    // — the generator entity itself always carries PrimMarker now so the
+    // gizmo can target the root with `path=[]`.
+    if let Some(e) = entity {
         ctx.commands.entity(e).insert(PrimMarker {
             generator_ref: base_ref.to_string(),
             path: path.to_vec(),
         });
+        // Recurse into the children list, parenting each child entity to
+        // this node's generated entity so the hierarchy mirrors the
+        // blueprint shape.
+        spawn_generator_children(ctx, generator, e, base_ref, path);
     }
 
     entity
+}
+
+/// Recursive walk of a generator's children. Each child is spawned as a
+/// direct child of `parent_entity` (the generated entity for the parent
+/// node, not its anchor), with its path extended by the child index.
+fn spawn_generator_children(
+    ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
+    parent_node: &Generator,
+    parent_entity: Entity,
+    base_ref: &str,
+    parent_path: &[usize],
+) {
+    for (i, child) in parent_node.children.iter().enumerate() {
+        let mut child_path = parent_path.to_vec();
+        child_path.push(i);
+        let child_tf = transform_from_data(&child.transform);
+        if let Some(child_entity) = spawn_generator(ctx, child, base_ref, &child_path, child_tf) {
+            ctx.commands.entity(parent_entity).add_child(child_entity);
+        }
+    }
 }
 
 fn synthetic_cache_key(base_ref: &str, path: &[usize]) -> String {
@@ -766,40 +862,40 @@ fn synthetic_cache_key(base_ref: &str, path: &[usize]) -> String {
 /// hierarchy by the gizmo.
 fn spawn_primitive_entity(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
-    generator: &Generator,
+    kind: &GeneratorKind,
     transform: Transform,
 ) -> Entity {
-    let (solid, material_settings) = match generator {
-        Generator::Cuboid {
+    let (solid, material_settings) = match kind {
+        GeneratorKind::Cuboid {
             solid, material, ..
         }
-        | Generator::Sphere {
+        | GeneratorKind::Sphere {
             solid, material, ..
         }
-        | Generator::Cylinder {
+        | GeneratorKind::Cylinder {
             solid, material, ..
         }
-        | Generator::Capsule {
+        | GeneratorKind::Capsule {
             solid, material, ..
         }
-        | Generator::Cone {
+        | GeneratorKind::Cone {
             solid, material, ..
         }
-        | Generator::Torus {
+        | GeneratorKind::Torus {
             solid, material, ..
         }
-        | Generator::Plane {
+        | GeneratorKind::Plane {
             solid, material, ..
         }
-        | Generator::Tetrahedron {
+        | GeneratorKind::Tetrahedron {
             solid, material, ..
         } => (*solid, material.clone()),
-        _ => unreachable!("spawn_primitive_entity called on non-primitive generator"),
+        _ => unreachable!("spawn_primitive_entity called on non-primitive kind"),
     };
 
-    let raw_mesh = build_primitive_mesh(generator);
+    let raw_mesh = build_primitive_mesh(kind);
     let collider = if solid {
-        collider_for_primitive(generator, &raw_mesh)
+        collider_for_primitive(kind, &raw_mesh)
     } else {
         None
     };
@@ -816,60 +912,4 @@ fn spawn_primitive_entity(
         cmd.insert(collider);
     }
     cmd.id()
-}
-
-/// Spawn a Construct blueprint: an intermediate anchor at the node's
-/// `transform`, then the root generator as its child, then each of the
-/// root's children recursively. Preserves the double-anchor pattern the
-/// legacy `spawn_construct_entity` used so a placement-level rotation still
-/// rotates the whole blueprint as a rigid group even when the root is
-/// itself a primitive.
-fn spawn_construct_tree(
-    ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
-    root: &ConstructNode,
-    base_ref: &str,
-    base_path: &[usize],
-    placement_tf: Transform,
-) -> Entity {
-    let inner_anchor = ctx
-        .commands
-        .spawn((
-            placement_tf,
-            Visibility::default(),
-            RigidBody::Static,
-            RoomEntity,
-        ))
-        .id();
-
-    let root_tf = transform_from_data(&root.transform);
-    let root_entity = spawn_generator(ctx, &root.generator, base_ref, base_path, root_tf);
-    if let Some(root_entity) = root_entity {
-        ctx.commands.entity(inner_anchor).add_child(root_entity);
-        spawn_construct_children(ctx, root, root_entity, base_ref, base_path);
-    }
-
-    inner_anchor
-}
-
-/// Recursive walk of a ConstructNode's children. Each child is spawned as
-/// a direct child of `parent_entity` (which is the generated entity for the
-/// parent node, not its anchor), with its path extended by the child index.
-fn spawn_construct_children(
-    ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
-    parent_node: &ConstructNode,
-    parent_entity: Entity,
-    base_ref: &str,
-    parent_path: &[usize],
-) {
-    for (i, child) in parent_node.children.iter().enumerate() {
-        let mut child_path = parent_path.to_vec();
-        child_path.push(i);
-        let child_tf = transform_from_data(&child.transform);
-        if let Some(child_entity) =
-            spawn_generator(ctx, &child.generator, base_ref, &child_path, child_tf)
-        {
-            ctx.commands.entity(parent_entity).add_child(child_entity);
-            spawn_construct_children(ctx, child, child_entity, base_ref, &child_path);
-        }
-    }
 }

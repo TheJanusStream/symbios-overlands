@@ -7,7 +7,7 @@
 //! in the current lexicon and assert the decoder preserves them as
 //! `Unknown`.
 
-use symbios_overlands::pds::{Generator, Placement, RoomRecord};
+use symbios_overlands::pds::{GeneratorKind, Placement, RoomRecord};
 
 #[test]
 fn unknown_generator_type_decodes_to_unknown() {
@@ -28,7 +28,7 @@ fn unknown_generator_type_decodes_to_unknown() {
         .generators
         .get("future_forest")
         .expect("entry preserved");
-    assert!(matches!(g, Generator::Unknown));
+    assert!(matches!(g.kind, GeneratorKind::Unknown));
 }
 
 #[test]
@@ -78,12 +78,12 @@ fn mixed_known_and_unknown_variants_coexist() {
     }"#;
     let room: RoomRecord = serde_json::from_str(json).expect("mixed payload must decode");
     assert!(matches!(
-        room.generators.get("base_water"),
-        Some(Generator::Water { .. })
+        room.generators.get("base_water").map(|g| &g.kind),
+        Some(GeneratorKind::Water { .. })
     ));
     assert!(matches!(
-        room.generators.get("future_arch"),
-        Some(Generator::Unknown)
+        room.generators.get("future_arch").map(|g| &g.kind),
+        Some(GeneratorKind::Unknown)
     ));
     assert_eq!(room.placements.len(), 2);
     assert!(matches!(room.placements[0], Placement::Absolute { .. }));

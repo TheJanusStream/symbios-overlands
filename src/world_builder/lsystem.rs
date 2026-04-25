@@ -10,7 +10,7 @@ use bevy_symbios::LSystemMeshBuilder;
 use symbios::System;
 use symbios_turtle_3d::{SkeletonProp, TurtleConfig, TurtleInterpreter};
 
-use crate::pds::{Fp, Fp3, Generator, PropMeshType, SovereignMaterialSettings};
+use crate::pds::{Fp, Fp3, GeneratorKind, PropMeshType, SovereignMaterialSettings};
 
 use super::RoomEntity;
 use super::compile::SpawnCtx;
@@ -90,7 +90,7 @@ pub(super) fn settings_fingerprint(settings: &SovereignMaterialSettings) -> u64 
     hasher.finish()
 }
 
-/// Stable content hash of the geometry-affecting fields of a `Generator::LSystem`.
+/// Stable content hash of the geometry-affecting fields of a `GeneratorKind::LSystem`.
 /// Material / prop-mapping settings are deliberately excluded because those
 /// are applied per-spawn on top of a shared mesh (see `LSystemMeshCache`).
 /// Each `Fp` field is hashed via its fixed-point wire form so NaN/denormal
@@ -284,11 +284,11 @@ pub(super) fn build_lsystem_geometry(
 
 pub(super) fn spawn_lsystem_entity(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
-    generator: &Generator,
+    kind: &GeneratorKind,
     generator_ref: &str,
     transform: Transform,
 ) -> Option<Entity> {
-    let Generator::LSystem {
+    let GeneratorKind::LSystem {
         source_code,
         finalization_code,
         iterations,
@@ -303,7 +303,7 @@ pub(super) fn spawn_lsystem_entity(
         prop_scale,
         mesh_resolution,
         ..
-    } = generator
+    } = kind
     else {
         return None;
     };

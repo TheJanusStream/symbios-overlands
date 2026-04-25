@@ -5,7 +5,7 @@
 //! a string, and the default recipe deserialises back into itself.
 
 use symbios_overlands::pds::{
-    BiomeFilter, Fp, Fp2, Fp3, Generator, Placement, RoomRecord, ScatterBounds, WaterRelation,
+    BiomeFilter, Fp, Fp2, Fp3, GeneratorKind, Placement, RoomRecord, ScatterBounds, WaterRelation,
 };
 
 const TEST_DID: &str = "did:plc:z5yhcebtrvzblrojezn6pjgi";
@@ -29,12 +29,12 @@ fn u64_seeds_serialize_as_strings() {
         "terrain seed must be a string in JSON, got: {json}"
     );
     let back: RoomRecord = serde_json::from_str(&json).expect("deserialise");
-    let original_seed = match r.generators.get("base_terrain") {
-        Some(Generator::Terrain(cfg)) => cfg.seed,
+    let original_seed = match r.generators.get("base_terrain").map(|g| &g.kind) {
+        Some(GeneratorKind::Terrain(cfg)) => cfg.seed,
         _ => panic!("expected base_terrain"),
     };
-    let round_seed = match back.generators.get("base_terrain") {
-        Some(Generator::Terrain(cfg)) => cfg.seed,
+    let round_seed = match back.generators.get("base_terrain").map(|g| &g.kind) {
+        Some(GeneratorKind::Terrain(cfg)) => cfg.seed,
         _ => panic!("expected base_terrain"),
     };
     assert_eq!(original_seed, round_seed);
@@ -50,7 +50,9 @@ fn u64_seeds_serialize_as_strings() {
 fn default_record_serialises_without_floats() {
     let mut record = RoomRecord::default_for_did("did:plc:test");
     record.environment.sun_color = Fp3([0.98, 0.95, 0.82]);
-    if let Some(Generator::Water { level_offset, .. }) = record.generators.get_mut("base_water") {
+    if let Some(g) = record.generators.get_mut("base_water")
+        && let GeneratorKind::Water { level_offset, .. } = &mut g.kind
+    {
         *level_offset = Fp(2.5);
     }
     record.placements.push(Placement::Scatter {
@@ -101,8 +103,8 @@ fn default_record_round_trips_through_json() {
 fn default_records_diverge_across_dids() {
     let a = RoomRecord::default_for_did("did:plc:alice");
     let b = RoomRecord::default_for_did("did:plc:bob");
-    let seed_of = |r: &RoomRecord| match r.generators.get("base_terrain") {
-        Some(Generator::Terrain(cfg)) => cfg.seed,
+    let seed_of = |r: &RoomRecord| match r.generators.get("base_terrain").map(|g| &g.kind) {
+        Some(GeneratorKind::Terrain(cfg)) => cfg.seed,
         _ => panic!("expected base_terrain"),
     };
     assert_ne!(seed_of(&a), seed_of(&b));
@@ -174,8 +176,8 @@ fn every_placement_variant_round_trips() {
 fn default_record_carries_terrain_generator() {
     let r = RoomRecord::default_for_did(TEST_DID);
     assert!(matches!(
-        r.generators.get("base_terrain"),
-        Some(Generator::Terrain(_))
+        r.generators.get("base_terrain").map(|g| &g.kind),
+        Some(GeneratorKind::Terrain(_))
     ));
 }
 

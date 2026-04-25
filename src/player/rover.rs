@@ -375,41 +375,52 @@ pub(super) fn apply_buoyancy_forces(
             return;
         }
     }
-    // Match `spawn_water_volume` and `find_water_level_for_filter`: the
-    // visual water surface is `base_wl + level_offset` AT the water
-    // placement's translation.y. Forgetting `placement_y` desyncs the
-    // buoyancy plane from the visible surface when the owner shifts the
-    // water volume via the 3D Gizmo, so the player falls through the top
-    // slab of visible water before floating somewhere beneath.
-    let (water_offset, placement_y) = room_record
+    // Match `spawn_water_volume` and `find_water_level_for_filter`: under
+    // the strict generator rules, Water is a child of (typically) a
+    // Terrain root, so the buoyancy lookup walks each named generator's
+    // tree DFS for the first Water descendant. The plane Y is then the
+    // sum of:
+    //   * the visual base water level (`water_level_y`)
+    //   * the water node's `level_offset`
+    //   * the placement-Y of the *named generator* that hosts the water
+    //   * the cumulative ancestor `transform.translation.y` from the
+    //     named generator's root down through the water node itself
+    // Forgetting any of those desyncs the buoyancy plane from the visible
+    // surface when the owner shifts the water (or its parent region) via
+    // the 3D Gizmo, so the player falls through the top slab of visible
+    // water before floating somewhere beneath.
+    let (water_offset, ancestor_y, placement_y) = room_record
         .as_ref()
         .and_then(|r| {
-            let mut best: Option<(&String, f32)> = None;
-            for (k, g) in r.generators.iter() {
-                if let crate::pds::Generator::Water { level_offset, .. } = g
-                    && best.is_none_or(|(bk, _)| k < bk)
+            let mut keys: Vec<&String> = r.generators.keys().collect();
+            keys.sort();
+            for k in keys {
+                let Some(generator) = r.generators.get(k) else {
+                    continue;
+                };
+                if let Some((level_offset, ancestor_y)) =
+                    crate::world_builder::first_water_in_tree(generator, 0.0)
                 {
-                    best = Some((k, level_offset.0));
+                    let py = r
+                        .placements
+                        .iter()
+                        .find_map(|p| match p {
+                            crate::pds::Placement::Absolute {
+                                generator_ref,
+                                transform,
+                                ..
+                            } if generator_ref == k => Some(transform.translation.0[1]),
+                            _ => None,
+                        })
+                        .unwrap_or(0.0);
+                    return Some((level_offset, ancestor_y, py));
                 }
             }
-            best.map(|(best_key, off)| {
-                let py = r
-                    .placements
-                    .iter()
-                    .find_map(|p| match p {
-                        crate::pds::Placement::Absolute {
-                            generator_ref,
-                            transform,
-                            ..
-                        } if generator_ref == best_key => Some(transform.translation.0[1]),
-                        _ => None,
-                    })
-                    .unwrap_or(0.0);
-                (off, py)
-            })
+            None
         })
-        .unwrap_or((0.0, 0.0));
-    let wl = water_level_y() + water_offset + placement_y + kinematics.water_rest_length.0;
+        .unwrap_or((0.0, 0.0, 0.0));
+    let wl =
+        water_level_y() + water_offset + ancestor_y + placement_y + kinematics.water_rest_length.0;
     let y = global_tf.translation().y;
     let depth = (wl - y).clamp(0.0, kinematics.buoyancy_max_depth.0);
     if depth <= 0.0 {

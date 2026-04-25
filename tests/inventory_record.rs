@@ -1,7 +1,7 @@
 //! Integration tests for `InventoryRecord` — the personal stash of
 //! `Generator` blueprints owners keep across rooms.
 
-use symbios_overlands::pds::{Generator, InventoryRecord, RoomRecord};
+use symbios_overlands::pds::{GeneratorKind, InventoryRecord, RoomRecord};
 
 const TEST_DID: &str = "did:plc:inventory";
 
@@ -63,7 +63,7 @@ fn unknown_generator_survives_inventory_round_trip_as_unknown() {
     let inv: InventoryRecord =
         serde_json::from_str(json).expect("unknown generator must not break the decoder");
     let exotic = inv.generators.get("exotic").expect("entry preserved");
-    assert!(matches!(exotic, Generator::Unknown));
+    assert!(matches!(exotic.kind, GeneratorKind::Unknown));
 }
 
 #[test]

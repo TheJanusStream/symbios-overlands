@@ -2,12 +2,12 @@
 //! inbound record traverses before the world compiler touches it.
 //!
 //! The overarching contract is that sanitise never panics on pathological
-//! input — NaN, infinities, negative dimensions, recursive primitive
-//! trees, giant counts — and that every numeric field lands inside the
+//! input — NaN, infinities, negative dimensions, recursive generator trees,
+//! giant counts — and that every numeric field lands inside the
 //! `pds::limits` envelope afterwards.
 
 use symbios_overlands::pds::{
-    ConstructNode, Fp, Fp3, Generator, InventoryRecord, RoomRecord, limits, sanitize_generator,
+    Fp, Fp3, Generator, GeneratorKind, InventoryRecord, RoomRecord, limits, sanitize_generator,
 };
 
 const TEST_DID: &str = "did:plc:sanitise";
@@ -19,7 +19,9 @@ const TEST_DID: &str = "did:plc:sanitise";
 #[test]
 fn terrain_grid_size_clamped_to_max() {
     let mut r = RoomRecord::default_for_did(TEST_DID);
-    if let Some(Generator::Terrain(cfg)) = r.generators.get_mut("base_terrain") {
+    if let Some(g) = r.generators.get_mut("base_terrain")
+        && let GeneratorKind::Terrain(cfg) = &mut g.kind
+    {
         cfg.grid_size = u32::MAX;
         cfg.octaves = u32::MAX;
         cfg.erosion_drops = u32::MAX;
@@ -30,8 +32,8 @@ fn terrain_grid_size_clamped_to_max() {
     }
     r.sanitize();
 
-    match r.generators.get("base_terrain") {
-        Some(Generator::Terrain(cfg)) => {
+    match r.generators.get("base_terrain").map(|g| &g.kind) {
+        Some(GeneratorKind::Terrain(cfg)) => {
             assert!(cfg.grid_size <= limits::MAX_GRID_SIZE);
             assert!(cfg.octaves <= limits::MAX_OCTAVES);
             assert!(cfg.erosion_drops <= limits::MAX_EROSION_DROPS);
@@ -88,43 +90,33 @@ fn placements_over_cap_are_trimmed() {
 }
 
 // ---------------------------------------------------------------------------
-// Construct-tree clamps
+// Generator-tree clamps
 // ---------------------------------------------------------------------------
 
 #[test]
-fn construct_depth_and_node_budget_enforced() {
-    let mut deep = ConstructNode::default();
+fn generator_depth_and_node_budget_enforced() {
     // Build a pathological chain twice as deep as the limit.
-    let chain_depth = (limits::MAX_CONSTRUCT_DEPTH * 4) as usize;
+    let mut deep = Generator::default();
+    let chain_depth = (limits::MAX_GENERATOR_DEPTH * 4) as usize;
     let mut cursor = &mut deep;
     for _ in 0..chain_depth {
-        cursor.children.push(ConstructNode::default());
+        cursor.children.push(Generator::default());
         cursor = cursor.children.last_mut().unwrap();
     }
 
-    let mut generator = Generator::Construct { root: deep };
-    sanitize_generator(&mut generator);
+    sanitize_generator(&mut deep);
 
-    let (depth, count) = match &generator {
-        Generator::Construct { root } => {
-            let mut d = 0u32;
-            let mut c = 0u32;
-            count_nodes(root, 0, &mut d, &mut c);
-            (d, c)
-        }
-        _ => panic!("sanitize converted Construct to another variant"),
-    };
+    let mut d = 0u32;
+    let mut c = 0u32;
+    count_nodes(&deep, 0, &mut d, &mut c);
+    assert!(d <= limits::MAX_GENERATOR_DEPTH, "depth {d} exceeds limit");
     assert!(
-        depth <= limits::MAX_CONSTRUCT_DEPTH,
-        "depth {depth} exceeds limit"
-    );
-    assert!(
-        count <= limits::MAX_CONSTRUCT_NODES,
-        "node count {count} exceeds limit"
+        c <= limits::MAX_GENERATOR_NODES,
+        "node count {c} exceeds limit"
     );
 }
 
-fn count_nodes(node: &ConstructNode, depth: u32, max_depth: &mut u32, count: &mut u32) {
+fn count_nodes(node: &Generator, depth: u32, max_depth: &mut u32, count: &mut u32) {
     *count += 1;
     if depth > *max_depth {
         *max_depth = depth;
@@ -135,68 +127,139 @@ fn count_nodes(node: &ConstructNode, depth: u32, max_depth: &mut u32, count: &mu
 }
 
 #[test]
-fn construct_wide_fan_is_truncated_to_budget() {
+fn generator_wide_fan_is_truncated_to_budget() {
     // A fan one level deep with more children than the node budget must
     // have its tail actually dropped, not silently left in the tree. The
-    // previous off-by-one (`children.len() - (count - MAX)`) resolved to a
-    // no-op on the nominal break path, letting the unvisited subtrees
-    // bypass every downstream NaN/size clamp.
-    let mut root = ConstructNode::default();
-    let fan_width = (limits::MAX_CONSTRUCT_NODES * 4) as usize;
+    // previous off-by-one resolved to a no-op on the nominal break path,
+    // letting the unvisited subtrees bypass every downstream NaN/size
+    // clamp.
+    let mut root = Generator::default();
+    let fan_width = (limits::MAX_GENERATOR_NODES * 4) as usize;
     for _ in 0..fan_width {
-        root.children.push(ConstructNode::default());
+        root.children.push(Generator::default());
     }
 
-    let mut generator = Generator::Construct { root };
-    sanitize_generator(&mut generator);
+    sanitize_generator(&mut root);
 
-    let Generator::Construct { root } = &generator else {
-        panic!("sanitize converted Construct to another variant");
-    };
     let mut d = 0u32;
     let mut c = 0u32;
-    count_nodes(root, 0, &mut d, &mut c);
+    count_nodes(&root, 0, &mut d, &mut c);
     assert!(
-        c <= limits::MAX_CONSTRUCT_NODES,
+        c <= limits::MAX_GENERATOR_NODES,
         "wide-fan sanitize left {c} nodes (> budget {})",
-        limits::MAX_CONSTRUCT_NODES
+        limits::MAX_GENERATOR_NODES
     );
 }
 
 #[test]
-fn construct_rejects_terrain_and_water_children() {
-    // Terrain and Water are room-scoped generators — nesting them inside a
-    // Construct would double-spawn heightmap colliders or water volumes on
-    // every compile pass. The sanitizer must overwrite them with a safe
-    // default cuboid rather than admit them into the blueprint tree.
-    let mut root = ConstructNode::default();
-    root.children.push(ConstructNode {
-        generator: Box::new(Generator::Terrain(Default::default())),
-        ..ConstructNode::default()
-    });
-    root.children.push(ConstructNode {
-        generator: Box::new(Generator::Water {
-            level_offset: Fp(0.0),
-            surface: Default::default(),
-        }),
-        ..ConstructNode::default()
-    });
+fn generator_rejects_terrain_in_child_position() {
+    // Strict scheme: Terrain is root-only. The terrain plugin owns the
+    // world's heightmap, so a Terrain in a child slot would either spawn
+    // a second heightfield collider (Avian forbids that) or be silently
+    // ignored. The sanitizer overwrites it with a default cuboid.
+    let mut root = Generator::default();
+    root.children
+        .push(Generator::from_kind(GeneratorKind::Terrain(
+            Default::default(),
+        )));
 
-    let mut generator = Generator::Construct { root };
-    sanitize_generator(&mut generator);
+    sanitize_generator(&mut root);
 
-    let Generator::Construct { root } = &generator else {
-        panic!("sanitize converted Construct to another variant");
-    };
     for child in &root.children {
         assert!(
-            !matches!(
-                &*child.generator,
-                Generator::Terrain(_) | Generator::Water { .. }
-            ),
-            "Terrain/Water survived inside a ConstructNode"
+            !matches!(&child.kind, GeneratorKind::Terrain(_)),
+            "Terrain survived as a child"
         );
     }
+}
+
+#[test]
+fn generator_rejects_water_at_root() {
+    // Strict scheme: Water is child-only. A root Water is overwritten so
+    // every Water volume in a record has an ancestor whose transform
+    // anchors it (typically a Terrain root in a region blueprint).
+    let mut root = Generator::from_kind(GeneratorKind::Water {
+        level_offset: Fp(0.0),
+        surface: Default::default(),
+    });
+    sanitize_generator(&mut root);
+    assert!(
+        !matches!(&root.kind, GeneratorKind::Water { .. }),
+        "Water survived at root after sanitize"
+    );
+}
+
+#[test]
+fn water_is_allowed_as_child() {
+    // Inverse of the rule above: Water *is* welcome as a descendant of
+    // any other generator. Saving a region blueprint to inventory relies
+    // on this — the homeworld's water lives inside the terrain root and
+    // must round-trip unchanged.
+    let mut root = Generator::from_kind(GeneratorKind::Terrain(Default::default()));
+    root.children
+        .push(Generator::from_kind(GeneratorKind::Water {
+            level_offset: Fp(0.0),
+            surface: Default::default(),
+        }));
+
+    sanitize_generator(&mut root);
+
+    assert!(matches!(&root.kind, GeneratorKind::Terrain(_)));
+    assert_eq!(root.children.len(), 1, "Water child must survive sanitize");
+    assert!(matches!(
+        &root.children[0].kind,
+        GeneratorKind::Water { .. }
+    ));
+}
+
+#[test]
+fn terrain_root_keeps_authored_children() {
+    // A Terrain root anchors a region blueprint — its children (water,
+    // L-systems, props, …) must travel with the inventory item, so the
+    // sanitizer leaves the children list alone (subject to the depth /
+    // total-node budget enforced elsewhere).
+    let mut terrain_root = Generator::from_kind(GeneratorKind::Terrain(Default::default()));
+    terrain_root.children.push(Generator::default_cuboid());
+    terrain_root
+        .children
+        .push(Generator::from_kind(GeneratorKind::Water {
+            level_offset: Fp(0.0),
+            surface: Default::default(),
+        }));
+
+    sanitize_generator(&mut terrain_root);
+    assert_eq!(
+        terrain_root.children.len(),
+        2,
+        "Terrain root must preserve its children list"
+    );
+}
+
+#[test]
+fn water_child_strips_authored_grandchildren() {
+    // Water itself is still a leaf — `spawn_water_volume` doesn't consume
+    // children, so the sanitizer strips them to keep the editor and the
+    // spawner in sync.
+    let mut root = Generator::default();
+    let mut water_child = Generator::from_kind(GeneratorKind::Water {
+        level_offset: Fp(0.0),
+        surface: Default::default(),
+    });
+    water_child.children.push(Generator::default_cuboid());
+    water_child.children.push(Generator::default_cuboid());
+    root.children.push(water_child);
+
+    sanitize_generator(&mut root);
+
+    assert_eq!(root.children.len(), 1);
+    assert!(matches!(
+        &root.children[0].kind,
+        GeneratorKind::Water { .. }
+    ));
+    assert!(
+        root.children[0].children.is_empty(),
+        "Water children must be stripped (Water is a leaf)"
+    );
 }
 
 #[test]
@@ -218,7 +281,7 @@ fn lsystem_material_octaves_are_clamped() {
     };
     materials.insert(0, bark_slot);
 
-    let mut lsys = Generator::LSystem {
+    let mut lsys = Generator::from_kind(GeneratorKind::LSystem {
         source_code: "omega: F".into(),
         finalization_code: String::new(),
         iterations: 2,
@@ -232,10 +295,10 @@ fn lsystem_material_octaves_are_clamped() {
         prop_mappings: HashMap::<u16, PropMeshType>::new(),
         prop_scale: Fp(1.0),
         mesh_resolution: 8,
-    };
+    });
     sanitize_generator(&mut lsys);
 
-    let Generator::LSystem { materials, .. } = &lsys else {
+    let GeneratorKind::LSystem { materials, .. } = &lsys.kind else {
         panic!("sanitize changed LSystem variant");
     };
     let settings = materials.get(&0).expect("bark slot missing after sanitize");
@@ -258,48 +321,42 @@ fn lsystem_material_octaves_are_clamped() {
 }
 
 #[test]
-fn construct_node_transform_rejects_non_finite_fields() {
+fn generator_node_transform_rejects_non_finite_fields() {
     use symbios_overlands::pds::{Fp4, TransformData};
-    let mut generator = Generator::Construct {
-        root: ConstructNode {
-            generator: Box::new(Generator::Cuboid {
-                size: Fp3([1.0, 1.0, 1.0]),
-                solid: true,
-                material: Default::default(),
-                twist: Fp(0.0),
-                taper: Fp(0.0),
-                bend: Fp3([0.0, 0.0, 0.0]),
-            }),
-            transform: TransformData {
-                translation: Fp3([f32::NAN, f32::INFINITY, 0.0]),
-                rotation: Fp4([f32::NAN, f32::NAN, f32::NAN, f32::NAN]),
-                scale: Fp3([-1.0, 0.0, f32::INFINITY]),
-            },
-            children: Vec::new(),
+    let mut generator = Generator {
+        kind: GeneratorKind::Cuboid {
+            size: Fp3([1.0, 1.0, 1.0]),
+            solid: true,
+            material: Default::default(),
+            twist: Fp(0.0),
+            taper: Fp(0.0),
+            bend: Fp3([0.0, 0.0, 0.0]),
         },
+        transform: TransformData {
+            translation: Fp3([f32::NAN, f32::INFINITY, 0.0]),
+            rotation: Fp4([f32::NAN, f32::NAN, f32::NAN, f32::NAN]),
+            scale: Fp3([-1.0, 0.0, f32::INFINITY]),
+        },
+        children: Vec::new(),
     };
     // Must not panic.
     sanitize_generator(&mut generator);
 
-    if let Generator::Construct { root } = &generator {
-        for &v in root.transform.translation.0.iter() {
-            assert!(v.is_finite(), "translation contains non-finite after clamp");
-        }
-        for &v in root.transform.rotation.0.iter() {
-            assert!(v.is_finite(), "rotation contains non-finite after clamp");
-        }
-        for &v in root.transform.scale.0.iter() {
-            assert!(v.is_finite() && v > 0.0, "scale must be strictly positive");
-        }
-        let q = root.transform.rotation.0;
-        let m = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]).sqrt();
-        assert!(
-            (m - 1.0).abs() < 1e-3,
-            "rotation must normalise to unit quaternion"
-        );
-    } else {
-        panic!("expected Construct after sanitize");
+    for &v in generator.transform.translation.0.iter() {
+        assert!(v.is_finite(), "translation contains non-finite after clamp");
     }
+    for &v in generator.transform.rotation.0.iter() {
+        assert!(v.is_finite(), "rotation contains non-finite after clamp");
+    }
+    for &v in generator.transform.scale.0.iter() {
+        assert!(v.is_finite() && v > 0.0, "scale must be strictly positive");
+    }
+    let q = generator.transform.rotation.0;
+    let m = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]).sqrt();
+    assert!(
+        (m - 1.0).abs() < 1e-3,
+        "rotation must normalise to unit quaternion"
+    );
 }
 
 #[test]
@@ -307,18 +364,18 @@ fn primitive_torture_clamped() {
     // NaN/infinity/out-of-range torture parameters on a top-level
     // primitive must be driven back into the finite envelope so the
     // CPU-side vertex mutation pass never sees non-finite math.
-    let mut prim = Generator::Cuboid {
+    let mut prim = Generator::from_kind(GeneratorKind::Cuboid {
         size: Fp3([1.0, 1.0, 1.0]),
         solid: true,
         material: Default::default(),
         twist: Fp(f32::INFINITY),
         taper: Fp(f32::NAN),
         bend: Fp3([f32::INFINITY, f32::NAN, 1_000.0]),
-    };
+    });
     sanitize_generator(&mut prim);
-    if let Generator::Cuboid {
+    if let GeneratorKind::Cuboid {
         twist, taper, bend, ..
-    } = &prim
+    } = &prim.kind
     {
         assert!(twist.0.is_finite());
         assert!(taper.0.is_finite());

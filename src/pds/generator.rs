@@ -1,16 +1,15 @@
-//! Open-union `Generator` and `Placement` enums — the building blocks of a
-//! `RoomRecord`'s recipe. Both use `#[serde(other)] Unknown` so a client
+//! Open-union [`GeneratorKind`] and [`Placement`] enums — the building blocks
+//! of a `RoomRecord`'s recipe. Both use `#[serde(other)] Unknown` so a client
 //! visiting a room authored by a newer engine version skips unrecognised
 //! variants instead of crashing its deserializer.
 //!
-//! **Fractal Construct Engine.** Every parametric primitive (Cuboid, Sphere,
-//! Cylinder, …) is a first-class `Generator` variant that can live at the
-//! top level of a room **or** inside a [`ConstructNode`] tree. The unified
-//! [`Generator::Construct`] variant carries a `ConstructNode`, which itself
-//! boxes a [`Generator`] and a list of child nodes — so a Construct can
-//! contain another Construct (fractal nesting), an L-system, a portal, etc.
-//! `Terrain` and `Water` are room-scoped and sanitised away if a hostile
-//! record attempts to smuggle them inside a Construct.
+//! **Unified Construct Model.** Every generator is hierarchical: it carries a
+//! [`GeneratorKind`] (the variant-specific parameters), a local
+//! [`TransformData`], and a `Vec<Generator>` of children. Any kind — primitive,
+//! L-system, portal — can have children, so a portal can wear a doorframe, a
+//! cuboid can carry a chimney, and Constructs are no longer a distinct kind.
+//! `Terrain` and `Water` remain room-scoped and are sanitised away when a
+//! hostile record tries to nest them as children or hang children off them.
 
 use super::prim::PropMeshType;
 use super::terrain::SovereignTerrainConfig;
@@ -22,7 +21,7 @@ use super::types::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Per-volume appearance and wave parameters for [`Generator::Water`].
+/// Per-volume appearance and wave parameters for [`GeneratorKind::Water`].
 ///
 /// Everything on this struct describes the water body itself (its colour,
 /// choppiness, prevailing wave direction). Room-wide water settings —
@@ -82,8 +81,8 @@ impl Default for WaterSurface {
     }
 }
 
-/// Blueprint for something that can be spawned into a room.  Open union:
-/// unknown tags deserialize to `Unknown` instead of failing.
+/// Variant-specific payload for a [`Generator`]. Open union: unrecognised
+/// `$type` tags deserialise to `Unknown` instead of failing the whole record.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "$type")]
 // The Terrain variant carries a full `SovereignTerrainConfig` (~400 bytes);
@@ -91,7 +90,7 @@ impl Default for WaterSurface {
 // current round-trip tests and the Raw JSON editor format. Generators are
 // kept by owning HashMaps, not in hot paths, so the size penalty is fine.
 #[allow(clippy::large_enum_variant)]
-pub enum Generator {
+pub enum GeneratorKind {
     #[serde(rename = "network.symbios.gen.terrain")]
     Terrain(SovereignTerrainConfig),
 
@@ -219,20 +218,17 @@ pub enum Generator {
         bend: Fp3,
     },
 
-    #[serde(rename = "network.symbios.gen.construct")]
-    Construct { root: ConstructNode },
-
     #[serde(other)]
     Unknown,
 }
 
-impl Generator {
-    /// Canonical default for a newly-added primitive — a 1×1×1 cuboid with
-    /// zero torture and a blank material. Used by UI "+ Cuboid" flows and
-    /// when the sanitizer overwrites a forbidden `Terrain`/`Water` generator
-    /// nested inside a Construct.
+impl GeneratorKind {
+    /// Canonical default kind for a newly-added primitive — a 1×1×1 cuboid
+    /// with zero torture and a blank material. Used by UI "+ Cuboid" flows
+    /// and when the sanitizer overwrites a forbidden `Terrain`/`Water`
+    /// generator nested inside another generator.
     pub fn default_cuboid() -> Self {
-        Generator::Cuboid {
+        GeneratorKind::Cuboid {
             size: Fp3([1.0, 1.0, 1.0]),
             solid: true,
             material: SovereignMaterialSettings::default(),
@@ -248,14 +244,14 @@ impl Generator {
     pub fn is_primitive(&self) -> bool {
         matches!(
             self,
-            Generator::Cuboid { .. }
-                | Generator::Sphere { .. }
-                | Generator::Cylinder { .. }
-                | Generator::Capsule { .. }
-                | Generator::Cone { .. }
-                | Generator::Torus { .. }
-                | Generator::Plane { .. }
-                | Generator::Tetrahedron { .. }
+            GeneratorKind::Cuboid { .. }
+                | GeneratorKind::Sphere { .. }
+                | GeneratorKind::Cylinder { .. }
+                | GeneratorKind::Capsule { .. }
+                | GeneratorKind::Cone { .. }
+                | GeneratorKind::Torus { .. }
+                | GeneratorKind::Plane { .. }
+                | GeneratorKind::Tetrahedron { .. }
         )
     }
 
@@ -263,33 +259,32 @@ impl Generator {
     /// to show the current kind and to drive `default_for_tag`.
     pub fn kind_tag(&self) -> &'static str {
         match self {
-            Generator::Terrain(_) => "Terrain",
-            Generator::Water { .. } => "Water",
-            Generator::Portal { .. } => "Portal",
-            Generator::LSystem { .. } => "LSystem",
-            Generator::Cuboid { .. } => "Cuboid",
-            Generator::Sphere { .. } => "Sphere",
-            Generator::Cylinder { .. } => "Cylinder",
-            Generator::Capsule { .. } => "Capsule",
-            Generator::Cone { .. } => "Cone",
-            Generator::Torus { .. } => "Torus",
-            Generator::Plane { .. } => "Plane",
-            Generator::Tetrahedron { .. } => "Tetrahedron",
-            Generator::Construct { .. } => "Construct",
-            Generator::Unknown => "Unknown",
+            GeneratorKind::Terrain(_) => "Terrain",
+            GeneratorKind::Water { .. } => "Water",
+            GeneratorKind::Portal { .. } => "Portal",
+            GeneratorKind::LSystem { .. } => "LSystem",
+            GeneratorKind::Cuboid { .. } => "Cuboid",
+            GeneratorKind::Sphere { .. } => "Sphere",
+            GeneratorKind::Cylinder { .. } => "Cylinder",
+            GeneratorKind::Capsule { .. } => "Capsule",
+            GeneratorKind::Cone { .. } => "Cone",
+            GeneratorKind::Torus { .. } => "Torus",
+            GeneratorKind::Plane { .. } => "Plane",
+            GeneratorKind::Tetrahedron { .. } => "Tetrahedron",
+            GeneratorKind::Unknown => "Unknown",
         }
     }
 
-    /// Build a default primitive generator for `tag`. Returns `None` for
-    /// non-primitive tags — callers that want to switch a ConstructNode into
-    /// an L-system, Portal, or Construct should construct those variants
-    /// directly since they carry more state than sensible defaults capture.
+    /// Build a default primitive kind for `tag`. Returns `None` for non-
+    /// primitive tags — callers that want an L-system or Portal should
+    /// construct those variants directly since they carry more state than
+    /// sensible defaults capture.
     pub fn default_primitive_for_tag(tag: &str) -> Option<Self> {
         let mat = SovereignMaterialSettings::default();
         let zero = Fp(0.0);
         let zero3 = Fp3([0.0, 0.0, 0.0]);
         Some(match tag {
-            "Cuboid" => Generator::Cuboid {
+            "Cuboid" => GeneratorKind::Cuboid {
                 size: Fp3([1.0, 1.0, 1.0]),
                 solid: true,
                 material: mat,
@@ -297,7 +292,7 @@ impl Generator {
                 taper: zero,
                 bend: zero3,
             },
-            "Sphere" => Generator::Sphere {
+            "Sphere" => GeneratorKind::Sphere {
                 radius: Fp(0.5),
                 resolution: 3,
                 solid: true,
@@ -306,7 +301,7 @@ impl Generator {
                 taper: zero,
                 bend: zero3,
             },
-            "Cylinder" => Generator::Cylinder {
+            "Cylinder" => GeneratorKind::Cylinder {
                 radius: Fp(0.5),
                 height: Fp(1.0),
                 resolution: 16,
@@ -316,7 +311,7 @@ impl Generator {
                 taper: zero,
                 bend: zero3,
             },
-            "Capsule" => Generator::Capsule {
+            "Capsule" => GeneratorKind::Capsule {
                 radius: Fp(0.5),
                 length: Fp(1.0),
                 latitudes: 8,
@@ -327,7 +322,7 @@ impl Generator {
                 taper: zero,
                 bend: zero3,
             },
-            "Cone" => Generator::Cone {
+            "Cone" => GeneratorKind::Cone {
                 radius: Fp(0.5),
                 height: Fp(1.0),
                 resolution: 16,
@@ -337,7 +332,7 @@ impl Generator {
                 taper: zero,
                 bend: zero3,
             },
-            "Torus" => Generator::Torus {
+            "Torus" => GeneratorKind::Torus {
                 minor_radius: Fp(0.1),
                 major_radius: Fp(0.5),
                 minor_resolution: 12,
@@ -348,7 +343,7 @@ impl Generator {
                 taper: zero,
                 bend: zero3,
             },
-            "Plane" => Generator::Plane {
+            "Plane" => GeneratorKind::Plane {
                 size: Fp2([1.0, 1.0]),
                 subdivisions: 0,
                 solid: true,
@@ -357,7 +352,7 @@ impl Generator {
                 taper: zero,
                 bend: zero3,
             },
-            "Tetrahedron" => Generator::Tetrahedron {
+            "Tetrahedron" => GeneratorKind::Tetrahedron {
                 size: Fp(1.0),
                 solid: true,
                 material: mat,
@@ -370,31 +365,67 @@ impl Generator {
     }
 }
 
-/// A single node in a `Construct` hierarchy. Each node composes a
-/// [`Generator`] with a local [`TransformData`] (its placement in the parent
-/// node's frame) and an optional child list. The generator is boxed so a
-/// node can recursively carry another `Construct` — enabling fractal
-/// blueprints without blowing up the enum's stack size at every nesting
-/// level.
+/// A hierarchical generator: variant-specific payload + local transform +
+/// child generators. Top-level entries in `RoomRecord::generators` are
+/// `Generator`s; so are every node in any of their child trees. The wire
+/// format flattens `kind` so each node is one tagged JSON object carrying
+/// `$type`, the variant fields, `transform`, and `children`.
+///
+/// A `Vec<Generator>` is heap-allocated, so the recursion through `children`
+/// is finite-sized at compile time without an explicit `Box`.
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct ConstructNode {
-    pub generator: Box<Generator>,
+pub struct Generator {
+    #[serde(flatten)]
+    pub kind: GeneratorKind,
+    #[serde(default)]
     pub transform: TransformData,
     #[serde(default)]
-    pub children: Vec<ConstructNode>,
+    pub children: Vec<Generator>,
 }
 
-impl Default for ConstructNode {
-    fn default() -> Self {
+impl Generator {
+    /// Wrap a kind with the canonical defaults: identity transform and no
+    /// children. Use this when you want a leaf-shaped generator and don't
+    /// care about hierarchy.
+    pub fn from_kind(kind: GeneratorKind) -> Self {
         Self {
-            generator: Box::new(Generator::default_cuboid()),
+            kind,
             transform: TransformData::default(),
             children: Vec::new(),
         }
     }
+
+    /// Convenience constructor for the canonical 1×1×1 cuboid.
+    pub fn default_cuboid() -> Self {
+        Self::from_kind(GeneratorKind::default_cuboid())
+    }
+
+    /// `true` when the variant is a parametric primitive. Delegates to the
+    /// inner kind so call sites that already hold a `Generator` don't have
+    /// to peel into `.kind` themselves.
+    pub fn is_primitive(&self) -> bool {
+        self.kind.is_primitive()
+    }
+
+    /// Short human-readable tag for the variant. See [`GeneratorKind::kind_tag`].
+    pub fn kind_tag(&self) -> &'static str {
+        self.kind.kind_tag()
+    }
+
+    /// Build a default primitive `Generator` (identity transform, no
+    /// children) for `tag`. Returns `None` for non-primitive tags.
+    pub fn default_primitive_for_tag(tag: &str) -> Option<Self> {
+        GeneratorKind::default_primitive_for_tag(tag).map(Self::from_kind)
+    }
 }
 
-/// Where and how a `Generator` is instantiated.
+impl Default for Generator {
+    fn default() -> Self {
+        Self::default_cuboid()
+    }
+}
+
+/// Where and how a generator is instantiated.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "$type")]
 pub enum Placement {

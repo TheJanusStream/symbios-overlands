@@ -52,6 +52,7 @@ use crate::state::AppState;
 use crate::terrain::FinishedHeightMap;
 use crate::water::WaterMaterial;
 
+pub use compile::first_water_in_tree;
 pub use lsystem::{LSystemMaterialCache, LSystemMeshCache};
 pub use material::build_procedural_material;
 

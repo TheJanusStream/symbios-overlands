@@ -9,7 +9,9 @@
 //!
 //! A `RoomRecord` is composed of three open unions:
 //!
-//! * `generators`  — named blueprints (terrain / water / shape / lsystem / construct / portal)
+//! * `generators`  — named hierarchical generators (terrain / water / shape /
+//!   lsystem / portal). Every generator carries a transform and a `children`
+//!   list, so a single named entry can describe an entire fractal blueprint.
 //! * `placements`  — how and where those generators are instantiated
 //!   (absolute / scatter / grid)
 //! * `traits`      — ECS components attached to entities a generator spawns
@@ -40,7 +42,9 @@
 //!   [`SovereignMaterialConfig`].
 //! * [`prim`] — [`PropMeshType`] (the hierarchical primitive tree was
 //!   retired; every primitive is now a first-class [`Generator`] variant).
-//! * [`generator`] — the [`Generator`] and [`Placement`] open-union enums.
+//! * [`generator`] — the [`Generator`] hierarchical wrapper, its
+//!   variant-specific [`generator::GeneratorKind`] payload, and the
+//!   [`Placement`] open-union enum.
 //! * [`sanitize`] — clamp helpers + [`sanitize::limits`] for every numeric
 //!   field on the wire.
 //! * [`xrpc`] — DID resolution, [`FetchError`], and the common XRPC plumbing.
@@ -73,7 +77,7 @@ pub use avatar::{
     AvatarBody, AvatarRecord, HumanoidKinematics, HumanoidPhenotype, RoverKinematics,
     RoverPhenotype, fetch_avatar_record, publish_avatar_record,
 };
-pub use generator::{ConstructNode, Generator, Placement, WaterSurface};
+pub use generator::{Generator, GeneratorKind, Placement, WaterSurface};
 pub use inventory::{InventoryRecord, fetch_inventory_record, publish_inventory_record};
 pub use prim::PropMeshType;
 pub use room::{

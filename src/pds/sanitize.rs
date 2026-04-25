@@ -9,7 +9,7 @@
 //! to the world compiler; those impls live alongside the record types and
 //! delegate into the per-variant helpers defined here.
 
-use super::generator::{ConstructNode, Generator};
+use super::generator::{Generator, GeneratorKind};
 use super::terrain::SovereignTerrainConfig;
 use super::texture::{SovereignMaterialSettings, SovereignTextureConfig};
 use super::types::{Fp, Fp2, Fp3, Fp4, TransformData, truncate_on_char_boundary};
@@ -49,11 +49,11 @@ pub mod limits {
     /// `Scatter.count` alone is not enough — a record with ten-thousand
     /// single-count scatter entries still weaponises `compile_room_record`.
     pub const MAX_PLACEMENTS: usize = 1_024;
-    /// Maximum number of generators per `RoomRecord`. Every generator also
-    /// materialises per-peer state (L-system material cache, lookup work
-    /// in hot loops) so a record with a million generator entries would
-    /// still inflate memory and slow every `compile_room_record` pass even
-    /// if no placement referenced them.
+    /// Maximum number of named generators per `RoomRecord`. Every generator
+    /// also materialises per-peer state (L-system material cache, lookup
+    /// work in hot loops) so a record with a million generator entries
+    /// would still inflate memory and slow every `compile_room_record` pass
+    /// even if no placement referenced them.
     pub const MAX_GENERATORS: usize = 256;
     /// Horizontal cell spacing for the heightmap mesh. The lower bound keeps
     /// the mesh finite (cell_scale feeds straight into the collider builder
@@ -66,14 +66,14 @@ pub mod limits {
     /// NaN/infinity into `HeightMapMeshBuilder`.
     pub const MIN_HEIGHT_SCALE: f32 = 0.01;
     pub const MAX_HEIGHT_SCALE: f32 = 10_000.0;
-    /// Maximum recursion depth for a `Construct` primitive tree. Deep
+    /// Maximum recursion depth for any generator's child tree. Deep
     /// hierarchies cost an entity + Transform chain per node; 16 is well
     /// past any plausible hand-authored assembly.
-    pub const MAX_CONSTRUCT_DEPTH: u32 = 16;
-    /// Maximum total node count for a single `Construct` generator. A
-    /// malicious record with a million children would otherwise spawn a
-    /// million Bevy entities + colliders on every compile pass.
-    pub const MAX_CONSTRUCT_NODES: u32 = 1024;
+    pub const MAX_GENERATOR_DEPTH: u32 = 16;
+    /// Maximum total node count (root + descendants) for a single named
+    /// generator's tree. A malicious record with a million children would
+    /// otherwise spawn a million Bevy entities + colliders on every compile.
+    pub const MAX_GENERATOR_NODES: u32 = 1024;
     /// Maximum absolute `twist` angle (radians) applied across a primitive's
     /// Y extent. Two full turns in either direction is well past any
     /// sculpting need — anything beyond that is just geometry noise.
@@ -90,37 +90,52 @@ pub mod limits {
     pub const MAX_TORTURE_BEND: f32 = 10.0;
 }
 
-/// Recursively clamp a `ConstructNode` blueprint tree. Beyond the depth and
-/// total-node budgets (see [`limits::MAX_CONSTRUCT_DEPTH`] and
-/// [`limits::MAX_CONSTRUCT_NODES`]), each node's transform and generator are
+/// Recursively clamp a [`Generator`] tree. Beyond the depth and total-node
+/// budgets (see [`limits::MAX_GENERATOR_DEPTH`] and
+/// [`limits::MAX_GENERATOR_NODES`]), each node's transform and kind are
 /// clamped so a malicious record can't pass NaN/negative scales to Bevy's
 /// primitive mesh constructors or the Avian collider builders.
 ///
-/// **Security gate.** `Terrain` and `Water` are room-scoped generators (they
-/// reference the heightmap or hang a cuboid volume at the world's water
-/// level) and MUST NOT be nested inside a Construct — doing so would double-
-/// spawn heightfield colliders, desync buoyancy, or stamp a second sky-water
-/// volume at a random offset. If a hostile record smuggles one in, we
-/// overwrite it with a default cuboid so the node still round-trips.
-pub(crate) fn sanitize_construct_node(node: &mut ConstructNode, depth: u32, count: &mut u32) {
+/// **Strict positional rules.**
+///
+/// * **Terrain is root-only.** The terrain plugin owns the world's
+///   heightmap; allowing a Terrain in a child slot would either spawn a
+///   second heightfield collider (Avian forbids that) or be silently
+///   ignored. A non-root Terrain is overwritten with a default cuboid.
+///   *A Terrain root MAY have children* — that's the "region blueprint"
+///   shape, where the terrain root anchors a tree of L-systems / portals /
+///   props that travel together.
+/// * **Water is child-only.** Every Water volume must inherit a parent
+///   (typically a Terrain ancestor) so its world-space surface is
+///   well-defined. A root Water is overwritten with a default cuboid —
+///   `RoomRecord::default_for_did` puts water inside the terrain root, and
+///   inventory-saved water should always be a child of the region it
+///   belongs to. Water itself is a leaf (its `children` list is cleared).
+fn sanitize_generator_node(node: &mut Generator, depth: u32, count: &mut u32, is_root: bool) {
     *count += 1;
     sanitize_prim_transform(&mut node.transform);
 
-    // Forbid room-scoped generators inside a Construct blueprint. They would
-    // either spawn a second heightmap collider (Terrain) or a second water
-    // volume (Water) every time a Construct instance compiled, fracturing
-    // physics and buoyancy. Overwrite rather than reject so the node still
-    // round-trips and the owner can fix it in the UI.
-    if matches!(
-        &*node.generator,
-        Generator::Terrain(_) | Generator::Water { .. }
-    ) {
-        *node.generator = Generator::default_cuboid();
+    if !is_root && matches!(&node.kind, GeneratorKind::Terrain(_)) {
+        // Terrain at non-root: not a valid position. Overwrite rather than
+        // reject so the node still round-trips and the owner can fix it.
+        node.kind = GeneratorKind::default_cuboid();
+    }
+    if is_root && matches!(&node.kind, GeneratorKind::Water { .. }) {
+        // Water at the root of a named generator: not a valid position.
+        // Water needs an ancestor whose transform anchors the volume.
+        node.kind = GeneratorKind::default_cuboid();
     }
 
-    sanitize_generator(&mut node.generator);
+    sanitize_kind(&mut node.kind);
 
-    if depth >= limits::MAX_CONSTRUCT_DEPTH || *count >= limits::MAX_CONSTRUCT_NODES {
+    // Water is a leaf — `spawn_water_volume` does not consume children, so
+    // strip authored children to keep the editor and spawner in sync.
+    if matches!(&node.kind, GeneratorKind::Water { .. }) {
+        node.children.clear();
+        return;
+    }
+
+    if depth >= limits::MAX_GENERATOR_DEPTH || *count >= limits::MAX_GENERATOR_NODES {
         node.children.clear();
         return;
     }
@@ -128,10 +143,10 @@ pub(crate) fn sanitize_construct_node(node: &mut ConstructNode, depth: u32, coun
     // the survivor count matches the spawn budget exactly.
     let mut visited = 0usize;
     for (i, child) in node.children.iter_mut().enumerate() {
-        if *count >= limits::MAX_CONSTRUCT_NODES {
+        if *count >= limits::MAX_GENERATOR_NODES {
             break;
         }
-        sanitize_construct_node(child, depth + 1, count);
+        sanitize_generator_node(child, depth + 1, count, false);
         visited = i + 1;
     }
     if visited < node.children.len() {
@@ -253,8 +268,8 @@ fn clamp_finite(v: f32, lo: f32, hi: f32, default: f32) -> f32 {
     }
 }
 
-/// Clamp the `(twist, taper, bend)` torture triple attached to every top-
-/// level primitive. Values drive the CPU-side vertex mutation pass in
+/// Clamp the `(twist, taper, bend)` torture triple attached to every
+/// primitive. Values drive the CPU-side vertex mutation pass in
 /// `world_builder::prim::apply_vertex_torture`; out-of-range inputs produce
 /// degenerate meshes (NaN vertex positions, zero-volume colliders) so we
 /// clamp them on ingest rather than in the spawn loop.
@@ -269,13 +284,13 @@ fn sanitize_torture(twist: &mut Fp, taper: &mut Fp, bend: &mut Fp3) {
     }
 }
 
-/// Clamp every numeric field on a parametric primitive generator variant.
+/// Clamp every numeric field on a parametric primitive [`GeneratorKind`].
 /// Mirrors the bounds the World Editor UI exposes so a hand-crafted record
 /// can't push mesh/collider builders into NaN / OOM territory.
-fn sanitize_primitive(generator: &mut Generator) {
+fn sanitize_primitive(kind: &mut GeneratorKind) {
     let c_dim = |v: f32| clamp_finite(v, 0.01, 100.0, 1.0);
-    match generator {
-        Generator::Cuboid {
+    match kind {
+        GeneratorKind::Cuboid {
             size,
             material,
             twist,
@@ -287,7 +302,7 @@ fn sanitize_primitive(generator: &mut Generator) {
             sanitize_material_settings(material);
             sanitize_torture(twist, taper, bend);
         }
-        Generator::Sphere {
+        GeneratorKind::Sphere {
             radius,
             resolution,
             material,
@@ -301,7 +316,7 @@ fn sanitize_primitive(generator: &mut Generator) {
             sanitize_material_settings(material);
             sanitize_torture(twist, taper, bend);
         }
-        Generator::Cylinder {
+        GeneratorKind::Cylinder {
             radius,
             height,
             resolution,
@@ -317,7 +332,7 @@ fn sanitize_primitive(generator: &mut Generator) {
             sanitize_material_settings(material);
             sanitize_torture(twist, taper, bend);
         }
-        Generator::Capsule {
+        GeneratorKind::Capsule {
             radius,
             length,
             latitudes,
@@ -335,7 +350,7 @@ fn sanitize_primitive(generator: &mut Generator) {
             sanitize_material_settings(material);
             sanitize_torture(twist, taper, bend);
         }
-        Generator::Cone {
+        GeneratorKind::Cone {
             radius,
             height,
             resolution,
@@ -351,7 +366,7 @@ fn sanitize_primitive(generator: &mut Generator) {
             sanitize_material_settings(material);
             sanitize_torture(twist, taper, bend);
         }
-        Generator::Torus {
+        GeneratorKind::Torus {
             minor_radius,
             major_radius,
             minor_resolution,
@@ -369,7 +384,7 @@ fn sanitize_primitive(generator: &mut Generator) {
             sanitize_material_settings(material);
             sanitize_torture(twist, taper, bend);
         }
-        Generator::Plane {
+        GeneratorKind::Plane {
             size,
             subdivisions,
             material,
@@ -383,7 +398,7 @@ fn sanitize_primitive(generator: &mut Generator) {
             sanitize_material_settings(material);
             sanitize_torture(twist, taper, bend);
         }
-        Generator::Tetrahedron {
+        GeneratorKind::Tetrahedron {
             size,
             material,
             twist,
@@ -399,16 +414,13 @@ fn sanitize_primitive(generator: &mut Generator) {
     }
 }
 
-/// Clamp a single `Generator` variant in place. Shared by
-/// [`super::room::RoomRecord::sanitize`] and
-/// [`super::inventory::InventoryRecord::sanitize`] so the per-variant
-/// bounds stay identical between the room recipe and the inventory stash —
-/// an inventory item that was safe on the PDS must stay safe the moment the
-/// owner drags it back into their room.
-pub fn sanitize_generator(generator: &mut Generator) {
-    match generator {
-        Generator::Terrain(cfg) => sanitize_terrain_cfg(cfg),
-        Generator::LSystem {
+/// Clamp the variant-specific payload of a [`GeneratorKind`] in place. Does
+/// not touch the wrapping [`Generator`]'s transform or children — those are
+/// handled by [`sanitize_generator_node`] which calls this on every node.
+pub fn sanitize_kind(kind: &mut GeneratorKind) {
+    match kind {
+        GeneratorKind::Terrain(cfg) => sanitize_terrain_cfg(cfg),
+        GeneratorKind::LSystem {
             source_code,
             finalization_code,
             iterations,
@@ -427,7 +439,7 @@ pub fn sanitize_generator(generator: &mut Generator) {
                 sanitize_material_settings(settings);
             }
         }
-        Generator::Portal {
+        GeneratorKind::Portal {
             target_did,
             target_pos,
         } => {
@@ -436,20 +448,26 @@ pub fn sanitize_generator(generator: &mut Generator) {
             target_pos.0[1] = target_pos.0[1].clamp(-1_000.0, 10_000.0);
             target_pos.0[2] = target_pos.0[2].clamp(-10_000.0, 10_000.0);
         }
-        Generator::Construct { root } => {
-            let mut count: u32 = 0;
-            sanitize_construct_node(root, 0, &mut count);
-        }
-        Generator::Cuboid { .. }
-        | Generator::Sphere { .. }
-        | Generator::Cylinder { .. }
-        | Generator::Capsule { .. }
-        | Generator::Cone { .. }
-        | Generator::Torus { .. }
-        | Generator::Plane { .. }
-        | Generator::Tetrahedron { .. } => sanitize_primitive(generator),
-        Generator::Water { .. } | Generator::Unknown => {}
+        GeneratorKind::Cuboid { .. }
+        | GeneratorKind::Sphere { .. }
+        | GeneratorKind::Cylinder { .. }
+        | GeneratorKind::Capsule { .. }
+        | GeneratorKind::Cone { .. }
+        | GeneratorKind::Torus { .. }
+        | GeneratorKind::Plane { .. }
+        | GeneratorKind::Tetrahedron { .. } => sanitize_primitive(kind),
+        GeneratorKind::Water { .. } | GeneratorKind::Unknown => {}
     }
+}
+
+/// Clamp a whole [`Generator`] tree (root + descendants) in place. Shared
+/// by [`super::room::RoomRecord::sanitize`] and
+/// [`super::inventory::InventoryRecord::sanitize`] so the per-variant
+/// bounds — and the depth / total-node budgets — stay identical between
+/// the room recipe and the inventory stash.
+pub fn sanitize_generator(generator: &mut Generator) {
+    let mut count: u32 = 0;
+    sanitize_generator_node(generator, 0, &mut count, true);
 }
 
 pub(crate) fn sanitize_terrain_cfg(cfg: &mut SovereignTerrainConfig) {

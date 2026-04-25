@@ -1,8 +1,8 @@
 //! Shared enum for L-system prop meshes. The hierarchical primitive tree
 //! that used to live here (`PrimShape` / `PrimNode`) has been retired in
-//! favour of the unified `Generator` enum and [`super::generator::ConstructNode`]
-//! — every primitive is now a first-class generator that can live at the
-//! top level of a room or nested inside a Construct blueprint.
+//! favour of the unified [`super::generator::Generator`] wrapper — every
+//! primitive is a first-class generator kind that can live at the top level
+//! of a room or as a child of any other generator.
 
 use serde::{Deserialize, Serialize};
 

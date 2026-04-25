@@ -1,14 +1,14 @@
 //! Generators tab — master list of named generators, add/remove/rename
-//! flows, and the per-generator detail editor that dispatches to the
-//! Terrain / Construct / LSystem / Water / Portal / Primitive sub-editors.
+//! flows, and the per-kind detail editor that dispatches to the
+//! Terrain / LSystem / Water / Portal / Primitive sub-editors.
 
 use bevy_egui::egui;
 
-use crate::pds::{ConstructNode, Fp, Fp2, Fp3, Generator, RoomRecord, WaterSurface};
+use crate::pds::{Fp, Fp2, Fp3, Generator, GeneratorKind, RoomRecord, WaterSurface};
 use crate::state::LiveInventoryRecord;
 use crate::ui::inventory::{DropSource, PendingGeneratorDrop, is_drop_placeable};
 
-use super::construct::{draw_construct_forge, draw_torture, draw_universal_material};
+use super::construct::{draw_generator_tree, draw_torture, draw_universal_material};
 use super::lsystem::draw_lsystem_forge;
 use super::terrain::draw_terrain_forge;
 use super::widgets::{
@@ -48,12 +48,15 @@ pub(super) fn draw_generators_tab(
         {
             ui.label(format!("Generator: `{}`", name));
             ui.add_space(4.0);
-            // Re-borrow as shared so nested construct editors can offer an
-            // "add child from inventory" picker without fighting the outer
-            // `&mut` that the master-list code still needs for the "Save to
+            // Re-borrow as shared so nested tree editors can offer an "add
+            // child from inventory" picker without fighting the outer `&mut`
+            // that the master-list code still needs for the "Save to
             // Inventory" and "From Inventory..." buttons further down.
             let inv_shared: Option<&LiveInventoryRecord> = inventory.as_deref();
-            draw_generator_detail(ui, &name, g, selected_prim_path, inv_shared, dirty);
+            // Every named generator opens into the universal tree editor —
+            // that draws the root's transform + kind picker + per-kind
+            // detail (via `draw_generator_detail`) + child tree.
+            draw_generator_tree(ui, g, selected_prim_path, inv_shared, dirty);
         }
         return;
     }
@@ -148,24 +151,15 @@ pub(super) fn draw_generators_tab(
     ui.horizontal_wrapped(|ui| {
         if ui.small_button("+ Terrain").clicked() {
             let name = unique_key(&record.generators, "terrain");
-            record
-                .generators
-                .insert(name.clone(), Generator::Terrain(Default::default()));
-            *selected = Some(name);
-            *dirty = true;
-        }
-        if ui.small_button("+ Water").clicked() {
-            let name = unique_key(&record.generators, "water");
             record.generators.insert(
                 name.clone(),
-                Generator::Water {
-                    level_offset: Fp(0.0),
-                    surface: WaterSurface::default(),
-                },
+                Generator::from_kind(GeneratorKind::Terrain(Default::default())),
             );
             *selected = Some(name);
             *dirty = true;
         }
+        // No "+ Water" button: Water is child-only. Add it inside a
+        // generator's tree via the per-node "+ Add child" affordance.
         if ui.small_button("+ LSystem").clicked() {
             let name = unique_key(&record.generators, "lsystem");
             record
@@ -178,29 +172,19 @@ pub(super) fn draw_generators_tab(
             let name = unique_key(&record.generators, "portal");
             record.generators.insert(
                 name.clone(),
-                Generator::Portal {
+                Generator::from_kind(GeneratorKind::Portal {
                     target_did: String::new(),
                     target_pos: Fp3([0.0, 0.0, 0.0]),
-                },
-            );
-            *selected = Some(name);
-            *dirty = true;
-        }
-        if ui.small_button("+ Construct").clicked() {
-            let name = unique_key(&record.generators, "construct");
-            record.generators.insert(
-                name.clone(),
-                Generator::Construct {
-                    root: ConstructNode::default(),
-                },
+                }),
             );
             *selected = Some(name);
             *dirty = true;
         }
         // Top-level parametric primitives. Each gets a sensible default
-        // from `Generator::default_primitive_for_tag` so the owner can drop
-        // a naked cuboid/sphere/etc. into a room without building a
-        // Construct wrapper. They're still valid inside a Construct too.
+        // from `Generator::default_primitive_for_tag`. They all carry an
+        // empty `children` list by default and can be promoted into a
+        // hierarchy by adding children inside the detail view — there is
+        // no separate "+ Construct" button anymore.
         for (label, tag) in [
             ("+ Cuboid", "Cuboid"),
             ("+ Sphere", "Sphere"),
@@ -247,39 +231,30 @@ pub(super) fn draw_generators_tab(
     });
 }
 
-/// Per-generator detail editor. Dispatches into the per-variant forges for
-/// Terrain/LSystem/Construct, owns the inline Water/Portal widgets, and
-/// uses a shared primitive editor for every parametric shape.
+/// Per-kind variant detail editor. Dispatches into the per-variant forges
+/// for Terrain / LSystem, owns the inline Water / Portal widgets, and uses
+/// a shared primitive editor for every parametric shape. Does NOT render
+/// the local transform or the child tree — those belong to the wrapping
+/// [`Generator`] node and are drawn by [`super::construct::draw_generator_tree`].
 ///
-/// `salt` uniquely identifies this generator in egui's ID stack — it's
-/// passed through to nested construct/material widgets so collapsing one
-/// sibling never affects another when the same widget type repeats in a
-/// recursive ConstructNode tree.
-///
-/// `inventory` is threaded through so nested ConstructNode editors can
-/// offer an "+ From Inventory…" child-picker combo. It is a shared
-/// borrow — we only read from it — which lets nested mutual recursion
-/// (`draw_generator_detail` ↔ `draw_construct_forge`) pass it around
-/// without re-borrow conflicts against the outer `&mut` the master list
-/// holds for "Save to Inventory" / "From Inventory..." buttons.
-#[allow(clippy::too_many_arguments)]
+/// `salt` uniquely identifies this node in egui's ID stack — it's passed
+/// through to nested material widgets so collapsing one sibling never
+/// affects another when the same widget type repeats in a recursive tree.
 pub(super) fn draw_generator_detail(
     ui: &mut egui::Ui,
     salt: &str,
-    generator: &mut Generator,
-    selected_prim_path: &mut Option<Vec<usize>>,
-    inventory: Option<&LiveInventoryRecord>,
+    kind: &mut GeneratorKind,
     dirty: &mut bool,
 ) {
-    match generator {
-        Generator::Terrain(cfg) => draw_terrain_forge(ui, cfg, dirty),
-        Generator::Water {
+    match kind {
+        GeneratorKind::Terrain(cfg) => draw_terrain_forge(ui, cfg, dirty),
+        GeneratorKind::Water {
             level_offset,
             surface,
         } => {
             draw_water_editor(ui, level_offset, surface, dirty);
         }
-        Generator::LSystem {
+        GeneratorKind::LSystem {
             source_code,
             finalization_code,
             iterations,
@@ -311,7 +286,7 @@ pub(super) fn draw_generator_detail(
             mesh_resolution,
             dirty,
         ),
-        Generator::Portal {
+        GeneratorKind::Portal {
             target_did,
             target_pos,
         } => {
@@ -348,10 +323,7 @@ pub(super) fn draw_generator_detail(
                 }
             });
         }
-        Generator::Construct { root } => {
-            draw_construct_forge(ui, root, selected_prim_path, inventory, dirty);
-        }
-        Generator::Cuboid {
+        GeneratorKind::Cuboid {
             size,
             solid,
             material,
@@ -359,7 +331,7 @@ pub(super) fn draw_generator_detail(
             taper,
             bend,
         } => draw_primitive_cuboid(ui, size, solid, material, twist, taper, bend, salt, dirty),
-        Generator::Sphere {
+        GeneratorKind::Sphere {
             radius,
             resolution,
             solid,
@@ -370,7 +342,7 @@ pub(super) fn draw_generator_detail(
         } => draw_primitive_sphere(
             ui, radius, resolution, solid, material, twist, taper, bend, salt, dirty,
         ),
-        Generator::Cylinder {
+        GeneratorKind::Cylinder {
             radius,
             height,
             resolution,
@@ -382,7 +354,7 @@ pub(super) fn draw_generator_detail(
         } => draw_primitive_cylinder(
             ui, radius, height, resolution, solid, material, twist, taper, bend, salt, dirty,
         ),
-        Generator::Capsule {
+        GeneratorKind::Capsule {
             radius,
             length,
             latitudes,
@@ -396,7 +368,7 @@ pub(super) fn draw_generator_detail(
             ui, radius, length, latitudes, longitudes, solid, material, twist, taper, bend, salt,
             dirty,
         ),
-        Generator::Cone {
+        GeneratorKind::Cone {
             radius,
             height,
             resolution,
@@ -408,7 +380,7 @@ pub(super) fn draw_generator_detail(
         } => draw_primitive_cone(
             ui, radius, height, resolution, solid, material, twist, taper, bend, salt, dirty,
         ),
-        Generator::Torus {
+        GeneratorKind::Torus {
             minor_radius,
             major_radius,
             minor_resolution,
@@ -432,7 +404,7 @@ pub(super) fn draw_generator_detail(
             salt,
             dirty,
         ),
-        Generator::Plane {
+        GeneratorKind::Plane {
             size,
             subdivisions,
             solid,
@@ -452,7 +424,7 @@ pub(super) fn draw_generator_detail(
             salt,
             dirty,
         ),
-        Generator::Tetrahedron {
+        GeneratorKind::Tetrahedron {
             size,
             solid,
             material,
@@ -460,7 +432,7 @@ pub(super) fn draw_generator_detail(
             taper,
             bend,
         } => draw_primitive_tetrahedron(ui, size, solid, material, twist, taper, bend, salt, dirty),
-        Generator::Unknown => {
+        GeneratorKind::Unknown => {
             ui.colored_label(
                 egui::Color32::from_rgb(220, 160, 80),
                 "Unknown generator type — editable only via the Raw JSON tab.",

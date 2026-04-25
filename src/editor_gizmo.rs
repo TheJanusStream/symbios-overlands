@@ -3,22 +3,22 @@
 //! — this module handles:
 //!
 //! * attaching a `GizmoTarget` to whichever entity the owner is currently
-//!   editing (a `Placement::Absolute` root, or a single `ConstructNode`
-//!   inside a `Generator::Construct` blueprint), removing it from any
-//!   previously selected entity, and
+//!   editing (a `Placement::Absolute` root, or any node inside a named
+//!   generator's tree), removing it from any previously selected entity,
+//!   and
 //! * committing the dragged `Transform` back into the live `RoomRecord` on
 //!   mouse release so the `world_builder` recompile, the Publish-to-PDS
 //!   button and the peer broadcast all see the final pose exactly once per
 //!   drag.
 //!
-//! **Proximity Gizmo.** A `Construct` can be referenced by many placements
-//! (e.g. a scatter of 50 houses). Attaching a `GizmoTarget` to every live
-//! instance of a UI-selected prim would make `transform-gizmo-bevy` group
-//! the selection and rotate the group around its centroid — breaking the
-//! local math the moment you try to nudge a single chimney. Instead, we
-//! find the instance *closest to the camera* and attach the gizmo there
+//! **Proximity Gizmo.** A named generator can be referenced by many
+//! placements (e.g. a scatter of 50 houses). Attaching a `GizmoTarget` to
+//! every live instance of a UI-selected node would make `transform-gizmo-bevy`
+//! group the selection and rotate the group around its centroid — breaking
+//! the local math the moment you try to nudge a single chimney. Instead,
+//! we find the instance *closest to the camera* and attach the gizmo there
 //! alone. When the drag commits, the record update triggers a full room
-//! recompile and every other instance of the same construct reappears with
+//! recompile and every other instance of the same generator reappears with
 //! the updated blueprint.
 //!
 //! **World-space detach.** `transform-gizmo-bevy` reads the target entity's
@@ -42,7 +42,7 @@ use bevy::ecs::hierarchy::ChildOf;
 use bevy::prelude::*;
 use transform_gizmo_bevy::{EnumSet, GizmoMode, GizmoOptions, GizmoTarget};
 
-use crate::pds::{Fp3, Fp4, Generator, Placement, RoomRecord, TransformData};
+use crate::pds::{Fp3, Fp4, Placement, RoomRecord, TransformData};
 use crate::state::AppState;
 use crate::ui::room::{EditorTab, RoomEditorState};
 use crate::world_builder::{PlacementMarker, PrimMarker};
@@ -448,16 +448,14 @@ fn manage_gizmo_drag(
             transform
         };
 
-        if let Some(Generator::Construct { root }) =
-            record.generators.get_mut(&marker.generator_ref)
-        {
+        if let Some(generator) = record.generators.get_mut(&marker.generator_ref) {
             if is_copy && !marker.path.is_empty() {
                 // Append the clone as a sibling of the original child. We
                 // forced is_copy=false for roots earlier, so by construction
                 // path is non-empty here.
                 let parent_path = &marker.path[..marker.path.len() - 1];
                 let child_idx = *marker.path.last().unwrap();
-                let mut parent_node = &mut *root;
+                let mut parent_node = &mut *generator;
                 let mut valid = true;
                 for &idx in parent_path {
                     if idx < parent_node.children.len() {
@@ -481,8 +479,9 @@ fn manage_gizmo_drag(
                 }
             } else {
                 // Normal in-place update — walk the path and stamp the new
-                // local transform on the target node.
-                let mut current_node = &mut *root;
+                // local transform on the target node. An empty `path` means
+                // the named generator's own root.
+                let mut current_node = &mut *generator;
                 let mut valid = true;
                 for &idx in &marker.path {
                     if idx < current_node.children.len() {

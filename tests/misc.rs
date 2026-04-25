@@ -3,7 +3,7 @@
 //! DID document URL builder.
 
 use symbios_overlands::format_elapsed_ts;
-use symbios_overlands::pds::{Fp, Fp2, Fp3, Generator, sanitize_generator};
+use symbios_overlands::pds::{Fp, Fp2, Fp3, Generator, GeneratorKind, sanitize_generator};
 
 // ---------------------------------------------------------------------------
 // format_elapsed_ts — used to label chat messages and the diagnostics log.
@@ -78,15 +78,15 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
     // Sanitize must clamp NaN / infinity / negative values before they hit
     // Bevy's mesh / Avian's collider constructors.
     let cases: Vec<Generator> = vec![
-        Generator::Cuboid {
+        Generator::from_kind(GeneratorKind::Cuboid {
             size: Fp3([f32::NAN, -1.0, f32::INFINITY]),
             solid: true,
             material: Default::default(),
             twist: Fp(f32::NAN),
             taper: Fp(f32::INFINITY),
             bend: Fp3([f32::NAN, f32::NEG_INFINITY, 10_000.0]),
-        },
-        Generator::Sphere {
+        }),
+        Generator::from_kind(GeneratorKind::Sphere {
             radius: Fp(f32::NAN),
             resolution: u32::MAX,
             solid: true,
@@ -94,8 +94,8 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             twist: Fp(0.0),
             taper: Fp(0.0),
             bend: Fp3([0.0, 0.0, 0.0]),
-        },
-        Generator::Cylinder {
+        }),
+        Generator::from_kind(GeneratorKind::Cylinder {
             radius: Fp(-10.0),
             height: Fp(f32::INFINITY),
             resolution: 10_000,
@@ -104,8 +104,8 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             twist: Fp(0.0),
             taper: Fp(0.0),
             bend: Fp3([0.0, 0.0, 0.0]),
-        },
-        Generator::Capsule {
+        }),
+        Generator::from_kind(GeneratorKind::Capsule {
             radius: Fp(-1.0),
             length: Fp(f32::NAN),
             latitudes: 10_000,
@@ -115,8 +115,8 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             twist: Fp(0.0),
             taper: Fp(0.0),
             bend: Fp3([0.0, 0.0, 0.0]),
-        },
-        Generator::Cone {
+        }),
+        Generator::from_kind(GeneratorKind::Cone {
             radius: Fp(f32::NEG_INFINITY),
             height: Fp(-5.0),
             resolution: 10_000,
@@ -125,8 +125,8 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             twist: Fp(0.0),
             taper: Fp(0.0),
             bend: Fp3([0.0, 0.0, 0.0]),
-        },
-        Generator::Torus {
+        }),
+        Generator::from_kind(GeneratorKind::Torus {
             minor_radius: Fp(f32::NAN),
             major_radius: Fp(-2.0),
             minor_resolution: 10_000,
@@ -136,8 +136,8 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             twist: Fp(0.0),
             taper: Fp(0.0),
             bend: Fp3([0.0, 0.0, 0.0]),
-        },
-        Generator::Plane {
+        }),
+        Generator::from_kind(GeneratorKind::Plane {
             size: Fp2([f32::INFINITY, -1.0]),
             subdivisions: 10_000,
             solid: true,
@@ -145,15 +145,15 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             twist: Fp(0.0),
             taper: Fp(0.0),
             bend: Fp3([0.0, 0.0, 0.0]),
-        },
-        Generator::Tetrahedron {
+        }),
+        Generator::from_kind(GeneratorKind::Tetrahedron {
             size: Fp(f32::NAN),
             solid: true,
             material: Default::default(),
             twist: Fp(0.0),
             taper: Fp(0.0),
             bend: Fp3([0.0, 0.0, 0.0]),
-        },
+        }),
     ];
 
     for case in cases {
