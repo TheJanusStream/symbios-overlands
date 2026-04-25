@@ -1,11 +1,11 @@
 //! Logout cleanup: despawn game entities and remove session/game resources
-//! when transitioning from [`AppState::InGame`](crate::state::AppState::InGame)
-//! back to [`AppState::Login`](crate::state::AppState::Login).
+//! when transitioning from [`crate::state::AppState::InGame`] back to
+//! [`crate::state::AppState::Login`].
 //!
 //! Runs on `OnExit(AppState::InGame)`. Removing the
-//! [`SymbiosMultiuserConfig`](bevy_symbios_multiuser::prelude::SymbiosMultiuserConfig)
-//! resource tears down the existing matchbox socket on the next frame
-//! (see bevy_symbios_multiuser docs).
+//! [`bevy_symbios_multiuser::prelude::SymbiosMultiuserConfig`] resource
+//! tears down the existing matchbox socket on the next frame (see
+//! `bevy_symbios_multiuser` docs).
 
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;

@@ -59,10 +59,10 @@ pub fn native_redirect_uri() -> String {
 ///
 /// Two different `client_id` strategies are used depending on target:
 ///
-/// - **WASM (hosted)** — `client_id` is a public URL
-///   ([`CLIENT_METADATA_URL`]) that the authorization server fetches to
-///   read the registered redirect URIs, scopes, and token-endpoint auth
-///   method. Enabled by Bluesky's `client_id_metadata_document_supported`.
+/// - **WASM (hosted)** — `client_id` is the public `CLIENT_METADATA_URL`
+///   that the authorization server fetches to read the registered redirect
+///   URIs, scopes, and token-endpoint auth method. Enabled by Bluesky's
+///   `client_id_metadata_document_supported`.
 /// - **Native (loopback)** — per the atproto OAuth spec's *loopback client*
 ///   exception, development builds that redirect to `127.0.0.1` cannot use
 ///   a hosted metadata document (hosted clients are not allowed to redirect
@@ -136,7 +136,7 @@ fn urlencode_query_value(s: &str) -> String {
 /// In-flight OAuth authorization state persisted between the `authorize()`
 /// call and the callback. On WASM this is serialized into
 /// `sessionStorage`; on native it lives in a Mutex inside
-/// [`PendingAuthRes`].
+/// [`NativePendingAuthRes`].
 #[derive(Serialize, Deserialize, Clone)]
 pub struct PendingAuth {
     pub auth_state: AuthState,

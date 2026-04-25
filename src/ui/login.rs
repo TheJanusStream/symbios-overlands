@@ -7,11 +7,11 @@
 //!
 //! - **WASM** — `sessionStorage` carries the pending-auth blob across the
 //!   page redirect; the callback lands back on the hosted page with
-//!   `?code=&state=` and [`check_wasm_callback`] kicks off the code
+//!   `?code=&state=` and `check_wasm_callback` kicks off the code
 //!   exchange on the next frame.
 //! - **Native** — a background `tiny_http` loopback server catches the
 //!   redirect; the pending-auth blob lives in
-//!   [`crate::oauth::NativePendingAuthRes`] and [`poll_native_callback`]
+//!   [`crate::oauth::NativePendingAuthRes`] and `poll_native_callback`
 //!   drains the channel.
 
 use std::marker::PhantomData;

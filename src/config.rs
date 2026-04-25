@@ -422,13 +422,13 @@ pub mod airship {
     pub const SAIL_THICKNESS: f32 = 0.03;
 
     // --- Default material properties (steampunk palette) --------------------
-    /// Brass hull [sRGB].
+    /// Brass hull, sRGB.
     pub const HULL_COLOR: [f32; 3] = [0.72, 0.50, 0.18];
-    /// Dark-bronze pontoons [sRGB].
+    /// Dark-bronze pontoons, sRGB.
     pub const PONTOON_COLOR: [f32; 3] = [0.48, 0.30, 0.10];
-    /// Copper mast [sRGB].
+    /// Copper mast, sRGB.
     pub const MAST_COLOR: [f32; 3] = [0.60, 0.38, 0.18];
-    /// Dark-iron struts [sRGB].
+    /// Dark-iron struts, sRGB.
     pub const STRUT_COLOR: [f32; 3] = [0.35, 0.28, 0.22];
     pub const METALLIC: f32 = 0.65;
     pub const ROUGHNESS: f32 = 0.55;

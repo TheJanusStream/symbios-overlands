@@ -3,8 +3,9 @@
 //!
 //! The in-world editor lets the owner tuck any generator they like into
 //! their inventory, rename it, and later spawn it into whichever room they
-//! happen to be editing — so a hand-authored L-system or Construct survives
-//! across rooms the same way an avatar does.
+//! happen to be editing — so a hand-authored L-system, region blueprint, or
+//! deeply-nested generator hierarchy survives across rooms the same way an
+//! avatar does.
 
 use super::INVENTORY_COLLECTION;
 use super::generator::Generator;
