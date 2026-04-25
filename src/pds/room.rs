@@ -253,9 +253,42 @@ impl RoomRecord {
                 self.generators.remove(&key);
             }
         }
+        // Snapshot the names of generators whose root kind is Terrain or
+        // Water *before* `sanitize_generator` rewrites them. Any
+        // `Scatter`/`Grid` placement targeting one of these is positionally
+        // invalid: a Scatter of a Terrain root would spawn duplicate
+        // heightfield colliders (Avian forbids that), and Water can never
+        // legally be a root. We capture the snapshot first because the
+        // generator pass overwrites root Water with a default cuboid — if
+        // we filtered after, a Scatter pointing at the now-cuboid would
+        // silently spawn N copies of an unrelated shape instead of being
+        // dropped outright.
+        let ineligible_targets: std::collections::HashSet<String> = self
+            .generators
+            .iter()
+            .filter(|(_, g)| {
+                matches!(
+                    g.kind,
+                    GeneratorKind::Terrain(_) | GeneratorKind::Water { .. }
+                )
+            })
+            .map(|(name, _)| name.clone())
+            .collect();
         for generator in self.generators.values_mut() {
             sanitize_generator(generator);
         }
+        // Drop offending Scatter/Grid placements before applying the
+        // count cap, so 1024 ineligible entries can't push valid ones
+        // past `MAX_PLACEMENTS`. Absolute is left alone — pointing it
+        // at a Terrain root is the canonical home-world placement, and
+        // a hostile Water-rooted Absolute is already neutralised by
+        // the generator-level overwrite above.
+        self.placements.retain(|p| match p {
+            Placement::Scatter { generator_ref, .. } | Placement::Grid { generator_ref, .. } => {
+                !ineligible_targets.contains(generator_ref)
+            }
+            _ => true,
+        });
         // Drop excess placements so a 1M-entry array can't force
         // `compile_room_record` to spawn tens of millions of entities in
         // a single frame. Keeping a prefix is order-stable (serde

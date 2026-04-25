@@ -5,7 +5,8 @@
 use bevy_egui::egui;
 
 use crate::pds::{
-    BiomeFilter, Fp, Fp2, Fp3, Placement, RoomRecord, ScatterBounds, TransformData, WaterRelation,
+    BiomeFilter, Fp, Fp2, Fp3, GeneratorKind, Placement, RoomRecord, ScatterBounds, TransformData,
+    WaterRelation,
 };
 
 use super::widgets::{drag_u32, drag_u64, draw_transform_no_scale, fp_slider, generator_combo};
@@ -20,6 +21,24 @@ pub(super) fn draw_placements_tab(
     // rationale; logic mirrors it with index-based selection.
     let selected_exists = selected.is_some_and(|i| i < record.placements.len());
 
+    let all_names: Vec<String> = record.generators.keys().cloned().collect();
+    // Targets valid for Scatter/Grid: any root generator that is neither
+    // a Terrain (unique by design — duplicating it would spawn
+    // conflicting heightfield colliders) nor a Water (water is
+    // child-only, so it can never legally be a root). Absolute is
+    // unrestricted.
+    let eligible_names: Vec<String> = record
+        .generators
+        .iter()
+        .filter(|(_, g)| {
+            !matches!(
+                g.kind,
+                GeneratorKind::Terrain(_) | GeneratorKind::Water { .. }
+            )
+        })
+        .map(|(name, _)| name.clone())
+        .collect();
+
     if selected_exists {
         let idx = selected.expect("selected_exists implies Some");
         ui.horizontal(|ui| {
@@ -29,9 +48,8 @@ pub(super) fn draw_placements_tab(
             ui.heading(format!("Detail — #{idx}"));
         });
         ui.add_space(4.0);
-        let gen_names: Vec<String> = record.generators.keys().cloned().collect();
         if let Some(p) = record.placements.get_mut(idx) {
-            draw_placement_detail(ui, p, &gen_names, dirty);
+            draw_placement_detail(ui, p, &all_names, &eligible_names, dirty);
         }
         return;
     }
@@ -89,16 +107,24 @@ pub(super) fn draw_placements_tab(
     ui.horizontal(|ui| {
         if ui.small_button("+ Absolute").clicked() {
             record.placements.push(Placement::Absolute {
-                generator_ref: record.generators.keys().next().cloned().unwrap_or_default(),
+                generator_ref: all_names.first().cloned().unwrap_or_default(),
                 transform: TransformData::default(),
                 snap_to_terrain: true,
             });
             *selected = Some(record.placements.len() - 1);
             *dirty = true;
         }
-        if ui.small_button("+ Scatter").clicked() {
+        // Scatter and Grid require an eligible target — disable the
+        // buttons when every generator in the record is a Terrain or
+        // Water root, so the user can't seed an immediately-invalid
+        // placement that the sanitiser would just drop on next save.
+        let has_eligible = !eligible_names.is_empty();
+        if ui
+            .add_enabled(has_eligible, egui::Button::new("+ Scatter").small())
+            .clicked()
+        {
             record.placements.push(Placement::Scatter {
-                generator_ref: record.generators.keys().next().cloned().unwrap_or_default(),
+                generator_ref: eligible_names.first().cloned().unwrap_or_default(),
                 bounds: ScatterBounds::default(),
                 count: 16,
                 local_seed: 1,
@@ -109,9 +135,12 @@ pub(super) fn draw_placements_tab(
             *selected = Some(record.placements.len() - 1);
             *dirty = true;
         }
-        if ui.small_button("+ Grid").clicked() {
+        if ui
+            .add_enabled(has_eligible, egui::Button::new("+ Grid").small())
+            .clicked()
+        {
             record.placements.push(Placement::Grid {
-                generator_ref: record.generators.keys().next().cloned().unwrap_or_default(),
+                generator_ref: eligible_names.first().cloned().unwrap_or_default(),
                 transform: TransformData::default(),
                 counts: [2, 1, 2],
                 gaps: Fp3([2.0, 2.0, 2.0]),
@@ -127,7 +156,8 @@ pub(super) fn draw_placements_tab(
 fn draw_placement_detail(
     ui: &mut egui::Ui,
     placement: &mut Placement,
-    gen_names: &[String],
+    all_names: &[String],
+    eligible_names: &[String],
     dirty: &mut bool,
 ) {
     match placement {
@@ -136,7 +166,7 @@ fn draw_placement_detail(
             transform,
             snap_to_terrain,
         } => {
-            generator_combo(ui, "Generator", generator_ref, gen_names, dirty);
+            generator_combo(ui, "Generator", generator_ref, all_names, dirty);
             if ui.checkbox(snap_to_terrain, "Snap to Terrain").changed() {
                 *dirty = true;
             }
@@ -151,7 +181,7 @@ fn draw_placement_detail(
             snap_to_terrain,
             random_yaw,
         } => {
-            generator_combo(ui, "Generator", generator_ref, gen_names, dirty);
+            generator_combo(ui, "Generator", generator_ref, eligible_names, dirty);
             if ui.checkbox(snap_to_terrain, "Snap to Terrain").changed() {
                 *dirty = true;
             }
@@ -171,7 +201,7 @@ fn draw_placement_detail(
             snap_to_terrain,
             random_yaw,
         } => {
-            generator_combo(ui, "Generator", generator_ref, gen_names, dirty);
+            generator_combo(ui, "Generator", generator_ref, eligible_names, dirty);
             if ui.checkbox(snap_to_terrain, "Snap to Terrain").changed() {
                 *dirty = true;
             }

@@ -54,8 +54,13 @@ fn terrain_grid_size_clamped_to_max() {
 fn scatter_count_clamped_to_max() {
     use symbios_overlands::pds::{BiomeFilter, Fp2, Placement, ScatterBounds};
     let mut r = RoomRecord::default_for_did(TEST_DID);
+    // Scatter at a Terrain root is dropped by sanitise (see
+    // `scatter_pointing_at_terrain_root_is_dropped`), so target a
+    // non-Terrain/non-Water generator to exercise the count clamp.
+    r.generators
+        .insert("scatterable".into(), Generator::default_cuboid());
     r.placements.push(Placement::Scatter {
-        generator_ref: "base_terrain".into(),
+        generator_ref: "scatterable".into(),
         bounds: ScatterBounds::Circle {
             center: Fp2([0.0, 0.0]),
             radius: Fp(16.0),
@@ -67,10 +72,14 @@ fn scatter_count_clamped_to_max() {
         random_yaw: true,
     });
     r.sanitize();
-    for p in &r.placements {
-        if let Placement::Scatter { count, .. } = p {
-            assert!(*count <= limits::MAX_SCATTER_COUNT);
-        }
+    let scatters: Vec<&Placement> = r
+        .placements
+        .iter()
+        .filter(|p| matches!(p, Placement::Scatter { .. }))
+        .collect();
+    assert_eq!(scatters.len(), 1, "non-Terrain Scatter must survive");
+    if let Placement::Scatter { count, .. } = scatters[0] {
+        assert!(*count <= limits::MAX_SCATTER_COUNT);
     }
 }
 
@@ -87,6 +96,106 @@ fn placements_over_cap_are_trimmed() {
     }
     r.sanitize();
     assert!(r.placements.len() <= limits::MAX_PLACEMENTS);
+}
+
+#[test]
+fn scatter_pointing_at_terrain_root_is_dropped() {
+    use symbios_overlands::pds::{BiomeFilter, Fp2, Placement, ScatterBounds};
+    let mut r = RoomRecord::default_for_did(TEST_DID);
+    // base_terrain is a Terrain root in the default record. Scattering
+    // it would request duplicate heightfield colliders, which Avian
+    // rejects — drop the placement instead of letting it through.
+    r.placements.push(Placement::Scatter {
+        generator_ref: "base_terrain".into(),
+        bounds: ScatterBounds::Circle {
+            center: Fp2([0.0, 0.0]),
+            radius: Fp(8.0),
+        },
+        count: 4,
+        local_seed: 1,
+        biome_filter: BiomeFilter::default(),
+        snap_to_terrain: true,
+        random_yaw: true,
+    });
+    r.sanitize();
+    assert!(
+        !r.placements
+            .iter()
+            .any(|p| matches!(p, Placement::Scatter { .. })),
+        "Scatter targeting Terrain root must be dropped"
+    );
+}
+
+#[test]
+fn grid_pointing_at_terrain_root_is_dropped() {
+    use symbios_overlands::pds::{Placement, TransformData};
+    let mut r = RoomRecord::default_for_did(TEST_DID);
+    r.placements.push(Placement::Grid {
+        generator_ref: "base_terrain".into(),
+        transform: TransformData::default(),
+        counts: [2, 1, 2],
+        gaps: Fp3([1.0, 1.0, 1.0]),
+        snap_to_terrain: true,
+        random_yaw: false,
+    });
+    r.sanitize();
+    assert!(
+        !r.placements
+            .iter()
+            .any(|p| matches!(p, Placement::Grid { .. })),
+        "Grid targeting Terrain root must be dropped"
+    );
+}
+
+#[test]
+fn scatter_pointing_at_water_root_is_dropped() {
+    use symbios_overlands::pds::{BiomeFilter, Fp2, Placement, ScatterBounds, WaterSurface};
+    let mut r = RoomRecord::default_for_did(TEST_DID);
+    // Inject a Water-rooted generator (the strict positional rules
+    // forbid this, but a hostile peer record could carry one). The
+    // generator pass will overwrite it to a cuboid; the placement
+    // filter must drop the Scatter targeting it *before* that
+    // overwrite turns it into N copies of an unrelated shape.
+    r.generators.insert(
+        "rogue_water".into(),
+        Generator::from_kind(GeneratorKind::Water {
+            level_offset: Fp(0.0),
+            surface: WaterSurface::default(),
+        }),
+    );
+    r.placements.push(Placement::Scatter {
+        generator_ref: "rogue_water".into(),
+        bounds: ScatterBounds::Circle {
+            center: Fp2([0.0, 0.0]),
+            radius: Fp(8.0),
+        },
+        count: 4,
+        local_seed: 1,
+        biome_filter: BiomeFilter::default(),
+        snap_to_terrain: true,
+        random_yaw: true,
+    });
+    r.sanitize();
+    assert!(
+        !r.placements.iter().any(|p| matches!(
+            p,
+            Placement::Scatter { generator_ref, .. } if generator_ref == "rogue_water"
+        )),
+        "Scatter targeting Water root must be dropped"
+    );
+}
+
+#[test]
+fn absolute_pointing_at_terrain_root_is_preserved() {
+    use symbios_overlands::pds::Placement;
+    let mut r = RoomRecord::default_for_did(TEST_DID);
+    let before = r.placements.len();
+    r.sanitize();
+    // The default home-world record has exactly one Absolute pointing
+    // at base_terrain. Sanitise must leave it intact — that's the
+    // canonical placement of the (singleton) terrain root.
+    assert_eq!(r.placements.len(), before);
+    assert!(matches!(r.placements[0], Placement::Absolute { .. }));
 }
 
 // ---------------------------------------------------------------------------
@@ -446,8 +555,13 @@ fn inventory_stash_over_cap_is_trimmed_deterministically() {
 fn sanitize_is_idempotent_on_a_pathological_record() {
     use symbios_overlands::pds::{BiomeFilter, Fp2, Placement, ScatterBounds};
     let mut r = RoomRecord::default_for_did(TEST_DID);
+    // Same rationale as `scatter_count_clamped_to_max`: target a
+    // non-Terrain root so the Scatter survives the eligibility filter
+    // and the pathological numeric fields actually get clamped.
+    r.generators
+        .insert("scatterable".into(), Generator::default_cuboid());
     r.placements.push(Placement::Scatter {
-        generator_ref: "base_terrain".into(),
+        generator_ref: "scatterable".into(),
         bounds: ScatterBounds::Circle {
             center: Fp2([f32::NAN, f32::NAN]),
             radius: Fp(-1.0),
