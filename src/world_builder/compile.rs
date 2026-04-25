@@ -34,6 +34,38 @@ use super::{
     reset_traits,
 };
 
+/// Hard ceiling on the number of `spawn_generator` calls a single
+/// `compile_room_record` pass is allowed to make. The per-axis sanitiser
+/// caps are *additive* (1024 placements × 100k scatter × 1024 nodes/tree)
+/// and their product is many orders of magnitude past anything a real room
+/// produces — this is the multiplicative bound.
+///
+/// 500_000 was chosen so a single legitimate scatter at
+/// `MAX_SCATTER_COUNT = 100_000` over a 1–5-node generator tree fits with
+/// headroom for a handful of additional placements in the same room. A
+/// scatter dense enough to exhaust this on its own is already past the
+/// authoring envelope and the cap fail-stops the compile so the rest of
+/// the frame stays interactive.
+pub(super) const MAX_ROOM_ENTITIES: u32 = 500_000;
+
+/// Returns `true` once the running spawn count has reached the budget.
+/// The first overshoot logs a warning; subsequent calls in the same pass
+/// stay quiet so a runaway record doesn't flood the log.
+pub(super) fn budget_exceeded(spawned: u32, warned: &mut bool) -> bool {
+    if spawned >= MAX_ROOM_ENTITIES {
+        if !*warned {
+            warn!(
+                "Room entity budget {} exceeded; remaining placements skipped",
+                MAX_ROOM_ENTITIES
+            );
+            *warned = true;
+        }
+        true
+    } else {
+        false
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn compile_room_record(
     mut commands: Commands,
@@ -50,6 +82,7 @@ pub(super) fn compile_room_record(
     mut lsystem_material_cache: ResMut<LSystemMaterialCache>,
     mut lsystem_mesh_cache: ResMut<LSystemMeshCache>,
     current_room: Option<Res<CurrentRoomDid>>,
+    mut portal_avatar_cache: ResMut<super::portal::PortalAvatarCache>,
 ) {
     let Some(record) = record else {
         return;
@@ -87,6 +120,12 @@ pub(super) fn compile_room_record(
     // Parallel touch-set for the per-generator mesh cache (see `LSystemMeshCache`).
     let mut lsystem_mesh_touched: HashSet<String> = HashSet::new();
 
+    // Multiplicative spawn budget. Per-axis sanitiser caps already bound a
+    // single placement; this catches the case where many bounded placements
+    // multiply into a frame-killing total.
+    let mut entities_spawned: u32 = 0;
+    let mut budget_warned: bool = false;
+
     // Step 3 — Placements. Walk the recipe; each scatter placement uses
     // its own deterministic RNG so every peer reproduces the same layout.
     let mut ctx = SpawnCtx {
@@ -105,9 +144,15 @@ pub(super) fn compile_room_record(
         lsystem_mesh_cache: &mut lsystem_mesh_cache,
         lsystem_mesh_touched: &mut lsystem_mesh_touched,
         current_room: current_room.as_deref(),
+        entities_spawned: &mut entities_spawned,
+        budget_warned: &mut budget_warned,
+        portal_avatar_cache: &mut portal_avatar_cache,
     };
 
     for (placement_index, placement) in record.placements.iter().enumerate() {
+        if budget_exceeded(*ctx.entities_spawned, ctx.budget_warned) {
+            break;
+        }
         let (anchor_tf, snap) = match placement {
             Placement::Absolute {
                 transform,
@@ -182,7 +227,7 @@ pub(super) fn compile_room_record(
         match placement {
             Placement::Absolute { generator_ref, .. } => {
                 if let Some(entity) =
-                    dispatch_top_level(&mut ctx, generator_ref, Transform::IDENTITY)
+                    dispatch_top_level(&mut ctx, generator_ref, Transform::IDENTITY, false)
                 {
                     ctx.commands.entity(anchor).add_child(entity);
                 }
@@ -208,9 +253,12 @@ pub(super) fn compile_room_record(
                     None
                 };
 
-                for ix in 0..cx {
+                'grid: for ix in 0..cx {
                     for iy in 0..cy {
                         for iz in 0..cz {
+                            if budget_exceeded(*ctx.entities_spawned, ctx.budget_warned) {
+                                break 'grid;
+                            }
                             let local_x = start_x + (ix as f32) * gx;
                             let local_y = start_y + (iy as f32) * gy;
                             let local_z = start_z + (iz as f32) * gz;
@@ -250,7 +298,7 @@ pub(super) fn compile_room_record(
                             let cell_tf = Transform::from_xyz(local_x, final_local_y, local_z)
                                 .with_rotation(rotation);
                             if let Some(entity) =
-                                dispatch_top_level(&mut ctx, generator_ref, cell_tf)
+                                dispatch_top_level(&mut ctx, generator_ref, cell_tf, true)
                             {
                                 ctx.commands.entity(anchor).add_child(entity);
                             }
@@ -275,6 +323,9 @@ pub(super) fn compile_room_record(
                 let mut attempts = 0u32;
 
                 while spawned < *count && attempts < max_attempts {
+                    if budget_exceeded(*ctx.entities_spawned, ctx.budget_warned) {
+                        break;
+                    }
                     attempts += 1;
                     let (world_x, world_z) = sample_bounds(bounds, &mut rng);
 
@@ -328,7 +379,8 @@ pub(super) fn compile_room_record(
                     };
                     let cell_tf = Transform::from_translation(local_pos).with_rotation(rotation);
 
-                    if let Some(entity) = dispatch_top_level(&mut ctx, generator_ref, cell_tf) {
+                    if let Some(entity) = dispatch_top_level(&mut ctx, generator_ref, cell_tf, true)
+                    {
                         ctx.commands.entity(anchor).add_child(entity);
                     }
                     spawned += 1;
@@ -637,6 +689,19 @@ pub(super) struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// ATProto profile-picture fetch when `target_did` equals this (an
     /// intra-room portal has no remote identity to paint onto its top face).
     pub(super) current_room: Option<&'a CurrentRoomDid>,
+    /// Running count of entities spawned this compile pass. Compared
+    /// against [`MAX_ROOM_ENTITIES`] to fail-stop pathological records
+    /// whose per-axis sanitiser caps still multiply into a frame-killing
+    /// total.
+    pub(super) entities_spawned: &'a mut u32,
+    /// Latch that flips on the first budget overshoot so the warning
+    /// fires once per pass instead of once per skipped spawn.
+    pub(super) budget_warned: &'a mut bool,
+    /// DID-coalescing cache for portal avatar fetches. The first portal to
+    /// a DID registers a pending task here; every subsequent portal to the
+    /// same DID enqueues its top-face material instead of issuing a fresh
+    /// HTTPS round trip.
+    pub(super) portal_avatar_cache: &'a mut super::portal::PortalAvatarCache,
 }
 
 /// Entry point called by the top-level `Placement` loop. Resolves the
@@ -662,6 +727,7 @@ pub(super) fn dispatch_top_level(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
     generator_ref: &str,
     cell_tf: Transform,
+    strip_water: bool,
 ) -> Option<Entity> {
     let Some(generator) = ctx.record.generators.get(generator_ref) else {
         warn!(
@@ -690,7 +756,17 @@ pub(super) fn dispatch_top_level(
     // Clone out the named generator so the recursive spawner doesn't have
     // to re-borrow `ctx.record.generators` at every depth. The clone is per
     // placement, not per scatter sample, so the cost is bounded.
-    let generator = generator.clone();
+    let mut generator = generator.clone();
+    // Scattered/gridded blueprints would otherwise spawn one world-extent
+    // water plane per cell — N copies of the same flat surface stacked at
+    // the same Y, which is wasteful and produces shader z-fighting. The
+    // canonical home-world Water lives under a Terrain root anchored by an
+    // `Absolute` placement; child Water inside a scattered blueprint is
+    // dropped here rather than at sanitise time so an `Absolute` user of
+    // the same generator name still gets its water.
+    if strip_water {
+        strip_water_children(&mut generator);
+    }
     let root_tf = cell_tf * transform_from_data(&generator.transform);
     let entity = spawn_generator(ctx, &generator, generator_ref, &[], root_tf);
     if let Some(entity) = entity
@@ -726,6 +802,9 @@ pub(super) fn spawn_generator(
     path: &[usize],
     transform: Transform,
 ) -> Option<Entity> {
+    if budget_exceeded(*ctx.entities_spawned, ctx.budget_warned) {
+        return None;
+    }
     let cache_key = synthetic_cache_key(base_ref, path);
     let in_blueprint = !path.is_empty();
 
@@ -809,6 +888,12 @@ pub(super) fn spawn_generator(
     // — the generator entity itself always carries PrimMarker now so the
     // gizmo can target the root with `path=[]`.
     if let Some(e) = entity {
+        // Charge the global budget here rather than at the spawn sites in
+        // each variant arm: this is the one place that fires exactly once
+        // per node we actually committed to the world, and the variants'
+        // own internal entity counts (lsystem mesh buckets, portal top
+        // face) are bounded constant multiples of this.
+        *ctx.entities_spawned = ctx.entities_spawned.saturating_add(1);
         ctx.commands.entity(e).insert(PrimMarker {
             generator_ref: base_ref.to_string(),
             path: path.to_vec(),
@@ -839,6 +924,19 @@ fn spawn_generator_children(
         if let Some(child_entity) = spawn_generator(ctx, child, base_ref, &child_path, child_tf) {
             ctx.commands.entity(parent_entity).add_child(child_entity);
         }
+    }
+}
+
+/// Recursively drop `Water` children from a generator tree. Sanitise rules
+/// already forbid Water at a generator's root, so we only need to filter the
+/// children list at each level. Used by `dispatch_top_level` for Scatter and
+/// Grid placements where N copies of the same world-extent water plane would
+/// otherwise stack at the same Y.
+fn strip_water_children(node: &mut Generator) {
+    node.children
+        .retain(|c| !matches!(c.kind, GeneratorKind::Water { .. }));
+    for child in &mut node.children {
+        strip_water_children(child);
     }
 }
 

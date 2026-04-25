@@ -4,11 +4,41 @@ use avian3d::prelude::*;
 use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
 use bevy::tasks::IoTaskPool;
+use std::collections::HashMap;
 
 use crate::pds::Fp3;
 
 use super::compile::SpawnCtx;
 use super::{PortalAvatarTask, PortalMarker, RoomEntity};
+
+/// DID-keyed coalescing cache for portal-avatar fetches. A room scattering
+/// portals to the same DID would otherwise issue one HTTPS round trip and
+/// one image decode per portal entity; here, the first portal records a
+/// `Pending` task and every later portal to the same DID enqueues its
+/// top-face material on that pending list. When the task finishes, the
+/// poll system paints the resulting texture into every queued material at
+/// once and promotes the entry to `Ready` so any *future* portal to the
+/// same DID paints synchronously without a fetch.
+#[derive(Resource, Default)]
+pub struct PortalAvatarCache {
+    pub by_did: HashMap<String, PortalAvatarCacheEntry>,
+}
+
+pub enum PortalAvatarCacheEntry {
+    /// HTTPS fetch is in flight. Each subsequent portal to this DID pushes
+    /// its top-face material handle onto this list; the poll system drains
+    /// the whole list on completion.
+    Pending(Vec<Handle<StandardMaterial>>),
+    /// Image is already GPU-resident. Subsequent portals paint
+    /// synchronously by cloning the handle into their own material.
+    Ready(Handle<Image>),
+}
+
+impl PortalAvatarCache {
+    pub fn clear(&mut self) {
+        self.by_did.clear();
+    }
+}
 
 pub(super) fn spawn_portal_entity(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
@@ -63,46 +93,74 @@ pub(super) fn spawn_portal_entity(
     ctx.commands.entity(parent).add_child(top_face);
 
     if !is_local {
-        // `IoTaskPool` — not `AsyncComputeTaskPool` — is the right home for
-        // a blocking ATProto HTTP fetch. The compute pool is sized to the
-        // physical CPU-core count and is shared with terrain generation
-        // and procedural texture baking; a room with enough portals
-        // scheduled for fetch would pin every compute worker on a socket
-        // read and hang the client's `Loading` screen indefinitely.
-        let pool = IoTaskPool::get();
-        let did_clone = target_did.to_string();
-        let task = pool.spawn(async move {
-            let fut = crate::avatar::fetch_avatar_bytes(did_clone);
-            #[cfg(target_arch = "wasm32")]
-            {
-                fut.await
+        match ctx.portal_avatar_cache.by_did.get_mut(target_did) {
+            // The texture is already loaded — paint synchronously, no
+            // network task. This is the fast path for repeated visits to
+            // the same DID across compile passes (or for the second + Nth
+            // portal to a DID whose first portal already finished
+            // fetching).
+            Some(PortalAvatarCacheEntry::Ready(img_handle)) => {
+                let img_handle = img_handle.clone();
+                if let Some(mat) = ctx.std_materials.get_mut(&top_mat) {
+                    mat.base_color_texture = Some(img_handle);
+                }
             }
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .unwrap()
-                    .block_on(fut)
+            // A task for this DID is already in flight. Enqueue our
+            // material so the existing task's poll completion paints us
+            // without spawning a redundant HTTPS fetch.
+            Some(PortalAvatarCacheEntry::Pending(list)) => {
+                list.push(top_mat.clone());
             }
-        });
-        ctx.commands.spawn(PortalAvatarTask {
-            task,
-            material: top_mat,
-        });
+            // First portal to this DID this session — register a pending
+            // entry and start exactly one fetch task. `IoTaskPool` (not
+            // `AsyncComputeTaskPool`) is the right home for a blocking
+            // ATProto HTTP fetch; the compute pool is sized to physical
+            // cores and pinning every worker on a socket read would hang
+            // procedural texture / terrain generation.
+            None => {
+                ctx.portal_avatar_cache.by_did.insert(
+                    target_did.to_string(),
+                    PortalAvatarCacheEntry::Pending(vec![top_mat.clone()]),
+                );
+                let pool = IoTaskPool::get();
+                let did_clone = target_did.to_string();
+                let task = pool.spawn(async move {
+                    let fut = crate::avatar::fetch_avatar_bytes(did_clone);
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        fut.await
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .unwrap()
+                            .block_on(fut)
+                    }
+                });
+                ctx.commands.spawn(PortalAvatarTask {
+                    task,
+                    did: target_did.to_string(),
+                });
+            }
+        }
     }
 
     parent
 }
 
 /// Drain finished portal-avatar fetches and paint the resulting texture onto
-/// the portal top face's material. Failed fetches leave the material at the
-/// fallback white so the portal is still visible and interactable.
+/// every portal top-face material that was waiting on this DID. Failed
+/// fetches leave each pending material at the fallback white so the portal
+/// is still visible and interactable, and promote the entry to a
+/// `Pending(empty)` -free state by removing it.
 pub(super) fn poll_portal_avatar_tasks(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut PortalAvatarTask)>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut cache: ResMut<PortalAvatarCache>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
@@ -111,7 +169,23 @@ pub(super) fn poll_portal_avatar_tasks(
             continue;
         };
         commands.entity(entity).despawn();
+
+        // Take ownership of the pending list. If the entry has already
+        // been promoted to `Ready` (only possible if a duplicate task
+        // somehow raced) or removed by a logout, drop this result.
+        let pending = match cache.by_did.remove(&task.did) {
+            Some(PortalAvatarCacheEntry::Pending(list)) => list,
+            Some(other) => {
+                cache.by_did.insert(task.did.clone(), other);
+                continue;
+            }
+            None => continue,
+        };
+
         let Some(bytes) = result.bytes else {
+            // Fetch failed. Drop the pending entry so a future portal to
+            // the same DID gets a fresh attempt instead of permanently
+            // displaying white.
             continue;
         };
         let Ok(dyn_img) = image::load_from_memory(&bytes) else {
@@ -122,8 +196,14 @@ pub(super) fn poll_portal_avatar_tasks(
             true,
             RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
         );
-        if let Some(mat) = materials.get_mut(&task.material) {
-            mat.base_color_texture = Some(images.add(img));
+        let img_handle = images.add(img);
+        for mat_handle in pending {
+            if let Some(mat) = materials.get_mut(&mat_handle) {
+                mat.base_color_texture = Some(img_handle.clone());
+            }
         }
+        cache
+            .by_did
+            .insert(task.did.clone(), PortalAvatarCacheEntry::Ready(img_handle));
     }
 }

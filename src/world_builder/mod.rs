@@ -34,7 +34,7 @@
 mod compile;
 mod lsystem;
 mod material;
-mod portal;
+pub mod portal;
 mod prim;
 
 use std::collections::HashMap;
@@ -69,10 +69,14 @@ pub struct PortalMarker {
 /// Drained by `poll_portal_avatar_tasks`; the task lives on its own entity so
 /// the portal itself can be despawned by a room rebuild without having to
 /// cancel the future explicitly.
+///
+/// Keyed by `did` rather than a single material handle: the
+/// [`portal::PortalAvatarCache`] resource holds the list of every portal
+/// material waiting on this DID's image, so one task fans out to N portals.
 #[derive(Component)]
 pub struct PortalAvatarTask {
     pub(crate) task: bevy::tasks::Task<crate::avatar::AvatarFetchResult>,
-    pub(crate) material: Handle<StandardMaterial>,
+    pub(crate) did: String,
 }
 
 /// Marker attached to every entity spawned from the active `RoomRecord`.
@@ -133,6 +137,7 @@ impl Plugin for WorldBuilderPlugin {
             .init_resource::<OverlandsFoliageTasks>()
             .init_resource::<LSystemMaterialCache>()
             .init_resource::<LSystemMeshCache>()
+            .init_resource::<portal::PortalAvatarCache>()
             .add_systems(Startup, setup_prop_assets)
             .add_systems(
                 Update,
