@@ -81,23 +81,58 @@ pub fn native_redirect_uri() -> String {
 ///   `bsky.social` AS expects for native callback flows; without it the
 ///   PAR endpoint rejects the request with HTTP 400.
 pub fn client_metadata() -> OAuthClientMetadata {
-    // bsky.social's authorization server currently advertises only the
-    // legacy scope vocabulary in `scopes_supported`:
+    // `transition:generic` is, per the atproto OAuth spec
+    // (https://atproto.com/specs/oauth), the legacy scope that grants
+    // "ability to generate service auth tokens for the specific API
+    // endpoints the client has access to" — i.e. it is the documented
+    // path for clients (like us) that need `com.atproto.server.getServiceAuth`
+    // against a relay. We accept the breadth (App-Password-equivalent:
+    // full repo + blob + rpc) because today no narrower scope is honoured
+    // by bsky.social — its AS only advertises the legacy vocabulary in
+    // `scopes_supported`:
     //   ["atproto", "transition:email", "transition:generic", "transition:chat.bsky"]
-    // Granular Permission-Sets scopes (`repo:<NSID>?action=*`,
-    // `rpc:*?aud=did:web:<HOST>`, etc. — atproto/discussions/4437) are
-    // *silently dropped* by the AS today: requesting them yields a token
-    // whose granted scope is just `"atproto"`, with no `rpc:` claim — and
-    // the PDS *does* enforce the new grammar on `getServiceAuth`, so
-    // service-auth requests then 403 with `ScopeMissingError`.
+    // Granular Permission-Sets scopes (https://atproto.com/specs/permission)
+    // are silently dropped at grant time today: requesting them yields a
+    // token whose granted scope is just `"atproto"`, the PDS then 403s
+    // service-auth calls with `ScopeMissingError`. The diagnostic logs in
+    // `begin_authorization` / `complete_authorization` make that
+    // observable so the migration below can be re-attempted.
     //
-    // Until bsky.social adds the granular scopes to `scopes_supported`,
-    // `transition:generic` is the smallest scope that actually grants
-    // `getServiceAuth` against any relay. It is broader than we'd like
-    // (App-Password-equivalent: full repo + blob + rpc), so revisit and
-    // narrow this once the AS publishes the granular vocabulary. The
-    // diagnostic logs in `begin_authorization` /
-    // `complete_authorization` make that future audit cheap.
+    // ── Future-state minimum (when bsky.social ships granular scopes) ──
+    // Per the Permissions spec the syntactically-correct minimum for
+    // Overlands would be roughly:
+    //
+    //   atproto
+    //   repo:network.symbios.overlands.room
+    //   repo:network.symbios.overlands.avatar
+    //   repo:network.symbios.overlands.inventory
+    //   rpc:com.atproto.server.getServiceAuth?aud=<RELAY_DID>#<service_type>
+    //
+    // Things to get right that earlier attempts in this file got wrong:
+    //   • `repo:<NSID>?action=*` is INVALID — `action` is an enumerated
+    //     set (`create`, `update`, `delete`); there is no `*`. Omit
+    //     `?action=…` entirely to grant all three operations, or list
+    //     them explicitly.
+    //   • `aud=*` and `lxm=*` are not both allowed; at least one of
+    //     `aud` / `lxm` must be concrete. `rpc:*?aud=*` parses but is
+    //     spec-rejected.
+    //   • `aud` requires a service-type *fragment* on the DID
+    //     (`did:web:relay.example#<service_type>`, see the
+    //     `did:web:api.bsky.app#bsky_appview` example in the OAuth
+    //     Patterns guide). A bare `did:web:host` is non-canonical even
+    //     though some servers report it that way in error messages.
+    //   • Hosted-metadata scope is the upper bound on what an
+    //     authorization request may ask for. For dynamic relays on WASM
+    //     this means client_metadata.json has to either list every
+    //     possible audience, or fall back to `transition:generic` until
+    //     bsky.social allows wildcards. Native (loopback) can rebuild
+    //     metadata per-session because `client_id` encodes the scope —
+    //     see git history for #170 / `oauth::build_client` for the
+    //     plumbing pattern when we're ready to revive it.
+    //   • The relay's service-type fragment has to be discovered by
+    //     resolving its DID document and matching the relay service
+    //     entry. That resolution step has to happen before
+    //     `begin_authorization` so it can be substituted into the scope.
     let scope = "atproto transition:generic";
     #[cfg(target_arch = "wasm32")]
     {
