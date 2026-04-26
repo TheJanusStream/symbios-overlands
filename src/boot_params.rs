@@ -82,8 +82,11 @@ pub fn parse_pos(s: &str) -> Option<TargetPos> {
             let x: f32 = parts[0].parse().ok()?;
             let y: f32 = parts[1].parse().ok()?;
             let z: f32 = parts[2].parse().ok()?;
-            (x.is_finite() && y.is_finite() && z.is_finite())
-                .then_some(TargetPos { x, y: Some(y), z })
+            (x.is_finite() && y.is_finite() && z.is_finite()).then_some(TargetPos {
+                x,
+                y: Some(y),
+                z,
+            })
         }
         _ => None,
     }

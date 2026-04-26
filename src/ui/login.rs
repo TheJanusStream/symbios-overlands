@@ -316,7 +316,12 @@ pub fn poll_complete_auth_task(
         };
         commands.entity(entity).despawn();
         match result {
-            Ok(completed) => install_completed_session(&mut commands, &mut next_state, completed, relay_host.as_deref()),
+            Ok(completed) => install_completed_session(
+                &mut commands,
+                &mut next_state,
+                completed,
+                relay_host.as_deref(),
+            ),
             Err(msg) => {
                 warn!("Login failed: {msg}");
                 login_error.0 = Some(msg);
@@ -583,7 +588,13 @@ pub fn check_wasm_resume(
     }
     info!("Resuming persisted session for {}", blob.handle);
     commands.insert_resource(crate::state::RelayHost(blob.relay_host.clone()));
-    spawn_resume_task(&mut commands, oauth_client.0.clone(), blob, boot_pos, boot_yaw);
+    spawn_resume_task(
+        &mut commands,
+        oauth_client.0.clone(),
+        blob,
+        boot_pos,
+        boot_yaw,
+    );
 }
 
 /// Spawn the async task that rebuilds the session from `blob`. Splits cleanly
