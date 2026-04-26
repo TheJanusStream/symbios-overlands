@@ -38,10 +38,11 @@ use bevy::prelude::*;
 use bevy_egui::input::egui_wants_any_keyboard_input;
 
 use crate::avatar::AvatarMaterial;
+use crate::boot_params::TargetPos;
 use crate::config::rover as cfg;
 use crate::config::terrain as tcfg;
 use crate::pds::{AvatarBody, AvatarRecord, HumanoidPhenotype};
-use crate::state::{AppState, LiveAvatarRecord, LocalPlayer, RemotePeer};
+use crate::state::{AppState, LiveAvatarRecord, LocalPlayer, PendingSpawnPlacement, RemotePeer};
 use crate::world_builder::OverlandsFoliageTasks;
 
 /// Snapshot of the last `AvatarRecord` whose visuals have been painted onto
@@ -182,28 +183,56 @@ fn spawn_local_player(
     mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
     hm_res: Res<crate::terrain::FinishedHeightMap>,
     live: Res<LiveAvatarRecord>,
+    placement: Option<Res<PendingSpawnPlacement>>,
 ) {
     let hm = &hm_res.0;
     let extent = (hm.width() - 1) as f32 * hm.scale();
-    let centre = extent * 0.5;
+    let half = extent * 0.5;
+    let centre = half;
 
-    let (rx, rz) = random_spawn_xz();
+    // Pick (rx, rz) from the URL/CLI placement when supplied, falling back to
+    // the random spawn-scatter. World coordinates are centred on (0, 0); the
+    // heightmap sample uses (centre + x, centre + z).
+    let (rx, rz) = match placement.as_deref().and_then(|p| p.pos) {
+        Some(TargetPos { x, z, .. }) => (x.clamp(-half, half), z.clamp(-half, half)),
+        None => random_spawn_xz(),
+    };
     let hm_x = (centre + rx).clamp(0.0, extent);
     let hm_z = (centre + rz).clamp(0.0, extent);
     let ground_y = hm.get_height_at(hm_x, hm_z);
     let surface_normal = hm.get_normal_at(hm_x, hm_z);
     let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
-    let (ox, oy, oz) = (rx, ground_y + cfg::SPAWN_HEIGHT_OFFSET, rz);
+    // Apply yaw on top of the surface tilt so a landmark "facing N" lands the
+    // chassis aimed at -Z while still resting flush on the slope.
+    let yaw = placement
+        .as_deref()
+        .and_then(|p| p.yaw_deg)
+        .map(|deg| Quat::from_rotation_y(deg.to_radians()))
+        .unwrap_or(Quat::IDENTITY);
+    let rotation = tilt * yaw;
+    // y override (`pos=x,y,z`) bypasses the heightmap sample; the drop-pin
+    // form (`pos=x,z`) keeps the heightmap-resolved height.
+    let oy = match placement.as_deref().and_then(|p| p.pos).and_then(|p| p.y) {
+        Some(y) => y,
+        None => ground_y + cfg::SPAWN_HEIGHT_OFFSET,
+    };
+    let (ox, oz) = (rx, rz);
 
     let entity = commands
         .spawn((
-            Transform::from_xyz(ox, oy, oz).with_rotation(tilt),
+            Transform::from_xyz(ox, oy, oz).with_rotation(rotation),
             Visibility::default(),
             RigidBody::Dynamic,
             CollidingEntities::default(),
             LocalPlayer,
         ))
         .id();
+
+    // One-shot: remove the resource so a portal travel or fall-respawn
+    // later in the session does not retroactively reapply this placement.
+    if placement.is_some() {
+        commands.remove_resource::<PendingSpawnPlacement>();
+    }
 
     build_archetype_components(&mut commands, entity, &live.0);
     build_archetype_visuals(

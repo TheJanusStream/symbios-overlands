@@ -156,6 +156,15 @@ pub struct PendingAuth {
     pub relay_host: String,
     /// Target DID (for portal jumps) or empty for "home" — same UX as 0.2.
     pub target_did: String,
+    /// Optional spawn position from the URL/CLI boot params, carried across
+    /// the OAuth redirect so the post-callback spawn lands the user where
+    /// the landmark link asked. `None` ⇒ random spawn-scatter as before.
+    #[serde(default)]
+    pub target_pos: Option<crate::boot_params::TargetPos>,
+    /// Optional spawn yaw (degrees) from the URL/CLI boot params. `None` ⇒
+    /// keep the heightmap-derived surface tilt with no extra rotation.
+    #[serde(default)]
+    pub target_yaw_deg: Option<f32>,
 }
 
 /// `sessionStorage` key holding the serialized [`PendingAuth`] between the
@@ -435,6 +444,11 @@ pub async fn begin_authorization(
             pds_url: pds_url.to_string(),
             relay_host: relay_host.to_string(),
             target_did: target_did.to_string(),
+            // Spawn-pose params are filled in by the login pipeline after
+            // this returns — they live in `BootParams`, not the OAuth
+            // discovery flow.
+            target_pos: None,
+            target_yaw_deg: None,
         },
     ))
 }
@@ -689,6 +703,10 @@ pub mod wasm {
         /// Destination DID at the time of login (empty = "home"). Same
         /// rationale as `relay_host` — we want the reload to land the user
         /// back in the room they were viewing.
+        ///
+        /// Spawn pose (`pos` / `rot`) is deliberately *not* persisted: it
+        /// is a one-shot hint from a landmark link and would otherwise
+        /// teleport the user back to that spot on every page reload.
         pub target_did: String,
     }
 

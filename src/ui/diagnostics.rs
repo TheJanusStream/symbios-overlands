@@ -6,8 +6,11 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
-use crate::state::{AppState, CurrentRoomDid, DiagnosticsLog, RemotePeer};
+use crate::boot_params::{build_landmark_link, write_to_clipboard};
+use crate::player::HumanoidVisualRoot;
+use crate::state::{AppState, CurrentRoomDid, DiagnosticsLog, LocalPlayer, RemotePeer};
 
+#[allow(clippy::too_many_arguments)]
 pub fn diagnostics_ui(
     mut contexts: EguiContexts,
     session: Option<Res<AtprotoSession>>,
@@ -15,6 +18,10 @@ pub fn diagnostics_ui(
     mut peers: Query<&mut RemotePeer>,
     diagnostics: Res<DiagnosticsLog>,
     mut next_state: ResMut<NextState<AppState>>,
+    mut landmark_status: Local<Option<(String, f64)>>,
+    time: Res<Time>,
+    local_player_q: Query<&Transform, With<LocalPlayer>>,
+    visual_root_q: Query<&Transform, With<HumanoidVisualRoot>>,
 ) {
     use crate::config::ui::diagnostics as cfg;
 
@@ -53,6 +60,46 @@ pub fn diagnostics_ui(
                         .small()
                         .color(egui::Color32::GRAY),
                 );
+
+                // "Copy Landmark Link" — emits a shareable URL pointing at
+                // the WASM build with the local player's current room DID,
+                // exact world position, and yaw in degrees. Visible to
+                // visitors as well as owners (any player in the room can
+                // share where they are).
+                let player_tf = local_player_q.single().ok().copied();
+                let visual_tf = visual_root_q.single().ok().copied();
+                let can_copy = player_tf.is_some();
+                if ui
+                    .add_enabled(can_copy, egui::Button::new("Copy Landmark Link"))
+                    .clicked()
+                    && let Some(tf) = player_tf
+                {
+                    // Humanoid locks rotation on the rigid body and yaws a
+                    // child visual root instead, so prefer the visual root
+                    // when present. HoverRover's chassis transform carries
+                    // its own yaw directly.
+                    let yaw_rad = visual_tf
+                        .map(|v| v.rotation)
+                        .unwrap_or(tf.rotation)
+                        .to_euler(EulerRot::YXZ)
+                        .0;
+                    let yaw_deg = yaw_rad.to_degrees();
+                    let link = build_landmark_link(&room.0, tf.translation, yaw_deg);
+                    let now = time.elapsed_secs_f64();
+                    *landmark_status = Some(match write_to_clipboard(&link) {
+                        Ok(()) => (format!("Copied: {link}"), now),
+                        Err(e) => (format!("Copy failed ({e}); {link}"), now),
+                    });
+                }
+                if let Some((msg, at)) = landmark_status.as_ref() {
+                    let ago = (time.elapsed_secs_f64() - at).max(0.0);
+                    if ago < 6.0 {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(160, 200, 160),
+                            egui::RichText::new(msg).small(),
+                        );
+                    }
+                }
                 ui.separator();
             }
 

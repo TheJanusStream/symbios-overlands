@@ -134,6 +134,17 @@ pub struct TravelingTo {
     pub target_pos: Vec3,
 }
 
+/// Spawn-pose handoff from the login pipeline (fresh login or resume) into
+/// `spawn_local_player`. Inserted by the login completion / resume systems
+/// when the URL/CLI boot params asked for a non-default pose; consumed and
+/// removed by `spawn_local_player` on the first `InGame` frame so a later
+/// portal travel or `respawn_if_fallen` can't retroactively reapply it.
+#[derive(Resource, Clone, Debug)]
+pub struct PendingSpawnPlacement {
+    pub pos: Option<crate::boot_params::TargetPos>,
+    pub yaw_deg: Option<f32>,
+}
+
 /// Most recent result of a "Publish to PDS" attempt from the World or
 /// Avatar editor. The UI watches this resource to render a status line
 /// beside the Publish/Load/Reset buttons so the owner gets visual confirmation

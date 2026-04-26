@@ -19,6 +19,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 
 pub mod avatar;
+pub mod boot_params;
 pub mod camera;
 pub mod config;
 pub mod editor_gizmo;
@@ -69,6 +70,11 @@ use state::{
 pub fn run() {
     #[cfg(target_arch = "wasm32")]
     console_error_panic_hook::set_once();
+
+    // Pulled before `App::new()` so the native `clap::Parser::parse()` can
+    // emit `--help` / `--version` and exit cleanly without bringing up a
+    // Bevy window first. WASM reads from the URL bar — no I/O risk.
+    let boot = boot_params::detect();
 
     let fc = config::camera::fog::COLOR;
     App::new()
@@ -124,6 +130,7 @@ pub fn run() {
         .init_resource::<ui::login::LoginError>()
         .init_resource::<ui::room::RoomEditorState>()
         .init_resource::<oauth::OauthClientRes>()
+        .insert_resource(boot)
         .add_systems(
             EguiPrimaryContextPass,
             ui::login::login_ui.run_if(in_state(AppState::Login)),

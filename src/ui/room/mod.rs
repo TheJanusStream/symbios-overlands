@@ -350,7 +350,7 @@ pub fn room_admin_ui(
                 ui.horizontal(|ui| {
                     let tabs = [
                         (EditorTab::Environment, "Environment"),
-                        (EditorTab::Generators, "Generators"),
+                        (EditorTab::Generators, "Region Assets"),
                         (EditorTab::Placements, "Placements"),
                         (EditorTab::Raw, "Raw JSON"),
                     ];

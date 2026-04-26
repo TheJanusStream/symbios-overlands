@@ -24,23 +24,29 @@ use bevy_symbios_multiuser::prelude::*;
 use bevy_symbios_multiuser::signaller::{TokenSource, TokenSourceRes};
 use proto_blue_oauth::OAuthClient;
 
+use crate::boot_params::BootParams;
 use crate::oauth::{self, OauthClientRes, PendingAuth};
 use crate::protocol::OverlandsMessage;
-use crate::state::{AppState, CurrentRoomDid, RelayHost};
+use crate::state::{AppState, CurrentRoomDid, PendingSpawnPlacement, RelayHost};
 
 /// (auth_url, pending)
 type BeginOutcome = Result<(String, PendingAuth), String>;
 
-/// (session, refresh_ctx, service_token, room_did)
-type CompleteOutcome = Result<
-    (
-        AtprotoSession,
-        crate::oauth::OauthRefreshCtx,
-        String,
-        String,
-    ),
-    String,
->;
+/// Bundle returned by the fresh-login + resume async tasks. Replaces a
+/// 4-tuple so adding the optional spawn pose did not turn the call sites
+/// into positional-noise.
+pub struct CompletedSession {
+    pub session: AtprotoSession,
+    pub refresh_ctx: crate::oauth::OauthRefreshCtx,
+    pub service_token: String,
+    pub room_did: String,
+    /// Carried from the URL/CLI boot params (fresh login) or from the
+    /// `BootParams` resource (resume). `None` ⇒ random spawn scatter.
+    pub spawn_pos: Option<crate::boot_params::TargetPos>,
+    pub spawn_yaw_deg: Option<f32>,
+}
+
+type CompleteOutcome = Result<CompletedSession, String>;
 
 /// In-flight authorization initiation (PAR + `authorize`). On completion we
 /// either navigate the tab (WASM) or launch the system browser (native).
@@ -78,15 +84,39 @@ impl Default for LoginFormState {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn login_ui(
     mut contexts: EguiContexts,
     mut commands: Commands,
     mut form: Local<LoginFormState>,
+    mut prefilled: Local<bool>,
+    mut autosubmitted: Local<bool>,
+    boot: Option<Res<BootParams>>,
     login_error: Res<LoginError>,
     oauth_client: Res<OauthClientRes>,
     begin_tasks: Query<&BeginAuthTask>,
     complete_tasks: Query<&CompleteAuthTask>,
 ) {
+    // First-frame pre-fill from URL/CLI boot params. Done as a one-shot
+    // (`*prefilled` latch) so a subsequent re-render does not stomp on
+    // edits the user made after landing on the form. `pds` / `relay`
+    // fall back to the form defaults when not provided so an empty boot
+    // input behaves identically to the prior release.
+    if !*prefilled
+        && let Some(boot) = boot.as_deref()
+        && boot.is_any()
+    {
+        if let Some(did) = &boot.target_did {
+            form.target_did = did.clone();
+        }
+        if let Some(pds) = &boot.pds {
+            form.pds = pds.clone();
+        }
+        if let Some(relay) = &boot.relay {
+            form.relay_host = relay.clone();
+        }
+        *prefilled = true;
+    }
     egui::Window::new("Symbios Overlands — Login")
         .collapsible(false)
         .resizable(false)
@@ -111,43 +141,37 @@ pub fn login_ui(
 
             let redirecting = !begin_tasks.is_empty();
             let completing = !complete_tasks.is_empty();
+            let mut begin_now = false;
             if !redirecting && !completing {
                 if ui.button("Enter the Overlands").clicked() {
-                    commands.insert_resource(LoginError(None));
-                    let relay_host = form.relay_host.trim().to_string();
-                    let pds_url = form.pds.trim().to_string();
-                    let target_did = form.target_did.trim().to_string();
-                    info!(
-                        "OAuth begin: pds={} relay={} target_did={}",
-                        pds_url,
-                        relay_host,
-                        if target_did.is_empty() {
-                            "<home>"
-                        } else {
-                            target_did.as_str()
-                        }
-                    );
-                    commands.insert_resource(RelayHost(relay_host.clone()));
-
-                    let client = oauth_client.0.clone();
-                    let pool = bevy::tasks::IoTaskPool::get();
-                    let task = pool.spawn(async move {
-                        let fut =
-                            oauth::begin_authorization(&client, &pds_url, &relay_host, &target_did);
-                        #[cfg(target_arch = "wasm32")]
-                        {
-                            fut.await
-                        }
-                        #[cfg(not(target_arch = "wasm32"))]
-                        {
-                            tokio::runtime::Builder::new_current_thread()
-                                .enable_all()
-                                .build()
-                                .unwrap()
-                                .block_on(fut)
-                        }
-                    });
-                    commands.spawn(BeginAuthTask(task));
+                    begin_now = true;
+                }
+                // Auto-submit when the URL/CLI supplied a destination DID.
+                // Latched on `*autosubmitted` so we never double-fire even
+                // if the form re-renders before the BeginAuthTask spawns.
+                // Only `did` triggers this; `pds` / `relay` alone pre-fill
+                // but leave the click to the user.
+                //
+                // On WASM, a persisted session resume is preferred: it
+                // skips the OAuth redirect entirely and `check_wasm_resume`
+                // already applies the URL `did=` override. Autosubmitting
+                // on top would spawn two competing auth tasks; suppress
+                // ourselves and let the resume path handle the link.
+                #[cfg(target_arch = "wasm32")]
+                let has_persisted = oauth::wasm::load_persisted().is_some();
+                #[cfg(not(target_arch = "wasm32"))]
+                let has_persisted = false;
+                if !*autosubmitted
+                    && !has_persisted
+                    && let Some(b) = boot.as_deref()
+                    && b.autosubmit
+                {
+                    begin_now = true;
+                    *autosubmitted = true;
+                }
+                if !begin_now {
+                    // Idle state — render nothing extra. The button above
+                    // is the only affordance.
                 }
             } else {
                 ui.spinner();
@@ -156,6 +180,54 @@ pub fn login_ui(
                 } else {
                     "Opening your PDS authorization page…"
                 });
+            }
+            if begin_now {
+                commands.insert_resource(LoginError(None));
+                let relay_host = form.relay_host.trim().to_string();
+                let pds_url = form.pds.trim().to_string();
+                let target_did = form.target_did.trim().to_string();
+                let boot_pos = boot.as_deref().and_then(|b| b.target_pos);
+                let boot_yaw = boot.as_deref().and_then(|b| b.target_yaw_deg);
+                info!(
+                    "OAuth begin: pds={} relay={} target_did={}",
+                    pds_url,
+                    relay_host,
+                    if target_did.is_empty() {
+                        "<home>"
+                    } else {
+                        target_did.as_str()
+                    }
+                );
+                commands.insert_resource(RelayHost(relay_host.clone()));
+
+                let client = oauth_client.0.clone();
+                let pool = bevy::tasks::IoTaskPool::get();
+                let task = pool.spawn(async move {
+                    let fut = async move {
+                        let (auth_url, mut pending) =
+                            oauth::begin_authorization(&client, &pds_url, &relay_host, &target_did)
+                                .await?;
+                        // Carry the URL/CLI spawn pose across the OAuth
+                        // redirect — the AS strips our query params, so
+                        // this is the only path that survives.
+                        pending.target_pos = boot_pos;
+                        pending.target_yaw_deg = boot_yaw;
+                        Ok::<_, String>((auth_url, pending))
+                    };
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        fut.await
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .unwrap()
+                            .block_on(fut)
+                    }
+                });
+                commands.spawn(BeginAuthTask(task));
             }
 
             if let Some(err) = &login_error.0 {
@@ -244,29 +316,57 @@ pub fn poll_complete_auth_task(
         };
         commands.entity(entity).despawn();
         match result {
-            Ok((session, refresh_ctx, service_token, room_did)) => {
-                info!("Authenticated as {} ({})", session.handle, session.did);
-                commands.insert_resource(CurrentRoomDid(room_did.clone()));
-                commands.insert_resource(session);
-                commands.insert_resource(refresh_ctx);
-
-                let source = TokenSource::new(Some(service_token));
-                commands.insert_resource(TokenSourceRes(source));
-
-                let host = relay_host.as_deref().map(|r| r.0.as_str()).unwrap_or("");
-                commands.insert_resource(SymbiosMultiuserConfig::<OverlandsMessage> {
-                    room_url: format!("wss://{}/overlands/{}", host, room_did),
-                    ice_servers: None,
-                    _marker: PhantomData,
-                });
-                next_state.set(AppState::Loading);
-            }
+            Ok(completed) => install_completed_session(&mut commands, &mut next_state, completed, relay_host.as_deref()),
             Err(msg) => {
                 warn!("Login failed: {msg}");
                 login_error.0 = Some(msg);
             }
         }
     }
+}
+
+/// Shared post-auth installation: insert session resources, hand off the
+/// optional spawn pose, build the relay socket config, and transition to
+/// `Loading`. Used by both fresh-login (`poll_complete_auth_task`) and
+/// resume (`poll_resume_task`) so the two paths can never drift on the
+/// installation step.
+fn install_completed_session(
+    commands: &mut Commands,
+    next_state: &mut NextState<AppState>,
+    completed: CompletedSession,
+    relay_host: Option<&RelayHost>,
+) {
+    let CompletedSession {
+        session,
+        refresh_ctx,
+        service_token,
+        room_did,
+        spawn_pos,
+        spawn_yaw_deg,
+    } = completed;
+    info!("Authenticated as {} ({})", session.handle, session.did);
+    commands.insert_resource(CurrentRoomDid(room_did.clone()));
+    commands.insert_resource(session);
+    commands.insert_resource(refresh_ctx);
+
+    let source = TokenSource::new(Some(service_token));
+    commands.insert_resource(TokenSourceRes(source));
+
+    let host = relay_host.map(|r| r.0.as_str()).unwrap_or("");
+    commands.insert_resource(SymbiosMultiuserConfig::<OverlandsMessage> {
+        room_url: format!("wss://{}/overlands/{}", host, room_did),
+        ice_servers: None,
+        _marker: PhantomData,
+    });
+
+    if spawn_pos.is_some() || spawn_yaw_deg.is_some() {
+        commands.insert_resource(PendingSpawnPlacement {
+            pos: spawn_pos,
+            yaw_deg: spawn_yaw_deg,
+        });
+    }
+
+    next_state.set(AppState::Loading);
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -339,7 +439,14 @@ fn spawn_complete_task(
             } else {
                 pending.target_did.clone()
             };
-            Ok::<_, String>((session, refresh_ctx, service_token, room_did))
+            Ok::<_, String>(CompletedSession {
+                session,
+                refresh_ctx,
+                service_token,
+                room_did,
+                spawn_pos: pending.target_pos,
+                spawn_yaw_deg: pending.target_yaw_deg,
+            })
         };
         #[cfg(target_arch = "wasm32")]
         {
@@ -441,12 +548,14 @@ pub struct ResumeAuthTask(bevy::tasks::Task<CompleteOutcome>);
 /// A bad blob (deserialise failure) is silently dropped by `load_persisted`,
 /// so the worst-case behaviour is "show the login form anyway."
 #[cfg(target_arch = "wasm32")]
+#[allow(clippy::too_many_arguments)]
 pub fn check_wasm_resume(
     mut commands: Commands,
     oauth_client: Res<OauthClientRes>,
     existing_complete: Query<&CompleteAuthTask>,
     existing_resume: Query<&ResumeAuthTask>,
     existing_session: Option<Res<AtprotoSession>>,
+    boot: Option<Res<BootParams>>,
     mut ran: Local<bool>,
 ) {
     if *ran
@@ -457,12 +566,24 @@ pub fn check_wasm_resume(
         return;
     }
     *ran = true;
-    let Some(blob) = oauth::wasm::load_persisted() else {
+    let Some(mut blob) = oauth::wasm::load_persisted() else {
         return;
     };
+    // URL/CLI boot params win over the persisted blob: a shared landmark
+    // link should drop the recipient at the linked overland even though
+    // their local browser remembers them at "home". The blob itself is
+    // not rewritten — the override is applied in-memory only, so the
+    // next reload (without the URL params) restores the persisted view.
+    let (boot_did, boot_pos, boot_yaw) = boot
+        .as_deref()
+        .map(|b| (b.target_did.clone(), b.target_pos, b.target_yaw_deg))
+        .unwrap_or((None, None, None));
+    if let Some(did) = boot_did {
+        blob.target_did = did;
+    }
     info!("Resuming persisted session for {}", blob.handle);
     commands.insert_resource(crate::state::RelayHost(blob.relay_host.clone()));
-    spawn_resume_task(&mut commands, oauth_client.0.clone(), blob);
+    spawn_resume_task(&mut commands, oauth_client.0.clone(), blob, boot_pos, boot_yaw);
 }
 
 /// Spawn the async task that rebuilds the session from `blob`. Splits cleanly
@@ -474,6 +595,8 @@ fn spawn_resume_task(
     commands: &mut Commands,
     client: std::sync::Arc<OAuthClient>,
     blob: oauth::wasm::PersistedSession,
+    spawn_pos: Option<crate::boot_params::TargetPos>,
+    spawn_yaw_deg: Option<f32>,
 ) {
     use proto_blue_oauth::OAuthSession;
     use proto_blue_oauth::client::dpop_key_from_jwk;
@@ -516,7 +639,14 @@ fn spawn_resume_task(
         } else {
             blob.target_did.clone()
         };
-        Ok::<_, String>((session, refresh_ctx, service_token, room_did))
+        Ok::<_, String>(CompletedSession {
+            session,
+            refresh_ctx,
+            service_token,
+            room_did,
+            spawn_pos,
+            spawn_yaw_deg,
+        })
     });
     commands.spawn(ResumeAuthTask(task));
 }
@@ -540,25 +670,17 @@ pub fn poll_resume_task(
         };
         commands.entity(entity).despawn();
         match result {
-            Ok((session, refresh_ctx, service_token, room_did)) => {
+            Ok(completed) => {
                 info!(
                     "Resumed session {} ({}); skipping login form",
-                    session.handle, session.did
+                    completed.session.handle, completed.session.did
                 );
-                commands.insert_resource(CurrentRoomDid(room_did.clone()));
-                commands.insert_resource(session);
-                commands.insert_resource(refresh_ctx);
-
-                let source = TokenSource::new(Some(service_token));
-                commands.insert_resource(TokenSourceRes(source));
-
-                let host = relay_host.as_deref().map(|r| r.0.as_str()).unwrap_or("");
-                commands.insert_resource(SymbiosMultiuserConfig::<OverlandsMessage> {
-                    room_url: format!("wss://{}/overlands/{}", host, room_did),
-                    ice_servers: None,
-                    _marker: PhantomData,
-                });
-                next_state.set(AppState::Loading);
+                install_completed_session(
+                    &mut commands,
+                    &mut next_state,
+                    completed,
+                    relay_host.as_deref(),
+                );
             }
             Err(msg) => {
                 warn!("Resume failed: {msg}");
