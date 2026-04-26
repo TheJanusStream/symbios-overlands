@@ -36,6 +36,7 @@ mod lsystem;
 mod material;
 pub mod portal;
 mod prim;
+mod shape;
 
 use std::collections::HashMap;
 
@@ -55,6 +56,7 @@ use crate::water::WaterMaterial;
 pub use compile::first_water_in_tree;
 pub use lsystem::{LSystemMaterialCache, LSystemMeshCache};
 pub use material::build_procedural_material;
+pub use shape::{ShapeMaterialCache, ShapeMeshCache};
 
 /// Marks an in-scene portal cube and carries the destination coordinates the
 /// interaction system reads when the local player's sensor-collision set
@@ -137,6 +139,8 @@ impl Plugin for WorldBuilderPlugin {
             .init_resource::<OverlandsFoliageTasks>()
             .init_resource::<LSystemMaterialCache>()
             .init_resource::<LSystemMeshCache>()
+            .init_resource::<ShapeMaterialCache>()
+            .init_resource::<ShapeMeshCache>()
             .init_resource::<portal::PortalAvatarCache>()
             .add_systems(Startup, setup_prop_assets)
             .add_systems(

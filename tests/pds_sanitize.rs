@@ -430,6 +430,75 @@ fn lsystem_material_octaves_are_clamped() {
 }
 
 #[test]
+fn shape_generator_caps_clamp_oversized_inputs() {
+    use std::collections::HashMap;
+    use symbios_overlands::pds::SovereignMaterialSettings;
+
+    // Authored payload: a megabyte of grammar text, an over-long root
+    // rule, an exploding footprint with a NaN axis, and 1024 unrelated
+    // material slots. Every one of these would otherwise sail through
+    // into the spawn pass and either DoS the parser or pin GPU memory
+    // for thousands of unused PBR materials.
+    let mut materials: HashMap<String, SovereignMaterialSettings> = HashMap::new();
+    for i in 0..1024 {
+        materials.insert(format!("Slot{i}"), SovereignMaterialSettings::default());
+    }
+    // Slot whose key is well over the identifier cap — the upstream parser
+    // would never match it, so the sanitiser should drop it on ingest.
+    let oversized_key = "X".repeat(limits::MAX_SHAPE_ROOT_RULE_BYTES * 4);
+    materials.insert(oversized_key, SovereignMaterialSettings::default());
+
+    let mut shape = Generator::from_kind(GeneratorKind::Shape {
+        grammar_source: "X".repeat(limits::MAX_SHAPE_SOURCE_BYTES * 2),
+        root_rule: "Lot".repeat(64),
+        footprint: Fp3([f32::NAN, f32::INFINITY, 1e9]),
+        seed: 0,
+        materials,
+    });
+    sanitize_generator(&mut shape);
+
+    let GeneratorKind::Shape {
+        grammar_source,
+        root_rule,
+        footprint,
+        materials,
+        ..
+    } = &shape.kind
+    else {
+        panic!("sanitize changed Shape variant");
+    };
+    assert!(
+        grammar_source.len() <= limits::MAX_SHAPE_SOURCE_BYTES,
+        "grammar source not truncated: {} bytes",
+        grammar_source.len()
+    );
+    assert!(
+        root_rule.len() <= limits::MAX_SHAPE_ROOT_RULE_BYTES,
+        "root rule not truncated: {} bytes",
+        root_rule.len()
+    );
+    for axis in footprint.0 {
+        assert!(axis.is_finite(), "footprint axis left non-finite: {axis}");
+    }
+    assert!(
+        footprint.0[0] <= limits::MAX_SHAPE_FOOTPRINT,
+        "footprint X not clamped: {}",
+        footprint.0[0]
+    );
+    assert!(
+        materials.len() <= limits::MAX_SHAPE_MATERIAL_SLOTS,
+        "materials over cap: {}",
+        materials.len()
+    );
+    for key in materials.keys() {
+        assert!(
+            key.len() <= limits::MAX_SHAPE_ROOT_RULE_BYTES,
+            "oversized slot key survived sanitise: {key:?}"
+        );
+    }
+}
+
+#[test]
 fn generator_node_transform_rejects_non_finite_fields() {
     use symbios_overlands::pds::{Fp4, TransformData};
     let mut generator = Generator {

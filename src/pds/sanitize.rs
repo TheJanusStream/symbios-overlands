@@ -45,6 +45,26 @@ pub mod limits {
     pub const MAX_LSYSTEM_CODE_BYTES: usize = 16_384;
     /// L-system mesh resolution (stroke segments per twig).
     pub const MAX_LSYSTEM_MESH_RESOLUTION: u32 = 32;
+    /// CGA shape grammar source length in bytes. The upstream parser caps a
+    /// single rule body at 1024 ops + 64 variants; the same DoS pressure
+    /// applies at the source level — a megabyte of `Name --> Name | Name |
+    /// …` lines would still spend its budget inside `parse_rule` before any
+    /// derivation-time guard fires. 16 KiB matches the L-system code cap.
+    pub const MAX_SHAPE_SOURCE_BYTES: usize = 16_384;
+    /// CGA shape grammar root-rule identifier length. The upstream parser
+    /// rejects identifiers above 64 bytes; we clamp earlier so a hostile
+    /// record cannot smuggle a megabyte of Unicode through `kind_tag` /
+    /// editor labels before the parser ever sees it.
+    pub const MAX_SHAPE_ROOT_RULE_BYTES: usize = 64;
+    /// Maximum number of named material slots on a `Shape` generator. Each
+    /// slot may pin a baked foliage texture in `Assets<Image>`, so a record
+    /// with thousands of unused slots inflates GPU memory even before any
+    /// terminal references them.
+    pub const MAX_SHAPE_MATERIAL_SLOTS: usize = 64;
+    /// Per-axis footprint clamp (metres). 1 km is well past any plausible
+    /// authored building / district footprint and keeps the initial scope
+    /// finite so `Interpreter::derive` cannot be smuggled an `f64` infinity.
+    pub const MAX_SHAPE_FOOTPRINT: f32 = 1_000.0;
     /// Maximum number of `Placement` entries per `RoomRecord`. Clamping
     /// `Scatter.count` alone is not enough — a record with ten-thousand
     /// single-count scatter entries still weaponises `compile_room_record`.
@@ -497,6 +517,38 @@ pub fn sanitize_kind(kind: &mut GeneratorKind) {
             // Without this, a peer could ship a `Bark` slot with
             // `octaves = 4_000_000_000` (or NaN emission) and hang the
             // procedural texture task the moment a scatter lands.
+            for settings in materials.values_mut() {
+                sanitize_material_settings(settings);
+            }
+        }
+        GeneratorKind::Shape {
+            grammar_source,
+            root_rule,
+            footprint,
+            materials,
+            ..
+        } => {
+            truncate_on_char_boundary(grammar_source, limits::MAX_SHAPE_SOURCE_BYTES);
+            truncate_on_char_boundary(root_rule, limits::MAX_SHAPE_ROOT_RULE_BYTES);
+            // Clamp each footprint axis to a finite, non-negative range. Y is
+            // allowed to be 0.0 because most grammars `Extrude` from a flat
+            // 2-D plot; the others must stay positive so the interpreter's
+            // split / repeat math doesn't divide by zero.
+            footprint.0[0] = clamp_finite(footprint.0[0], 0.001, limits::MAX_SHAPE_FOOTPRINT, 10.0);
+            footprint.0[1] = clamp_finite(footprint.0[1], 0.0, limits::MAX_SHAPE_FOOTPRINT, 0.0);
+            footprint.0[2] = clamp_finite(footprint.0[2], 0.001, limits::MAX_SHAPE_FOOTPRINT, 10.0);
+            // Cap the slot count first so the per-slot sanitiser doesn't
+            // walk an attacker-supplied million-entry map. Slot keys above
+            // the upstream identifier cap are dropped — they could never
+            // match an emitted `Mat("...")` anyway.
+            if materials.len() > limits::MAX_SHAPE_MATERIAL_SLOTS {
+                let mut keys: Vec<String> = materials.keys().cloned().collect();
+                keys.sort();
+                for k in keys.into_iter().skip(limits::MAX_SHAPE_MATERIAL_SLOTS) {
+                    materials.remove(&k);
+                }
+            }
+            materials.retain(|k, _| k.len() <= limits::MAX_SHAPE_ROOT_RULE_BYTES);
             for settings in materials.values_mut() {
                 sanitize_material_settings(settings);
             }

@@ -10,9 +10,11 @@ use crate::ui::inventory::{DropSource, PendingGeneratorDrop, is_drop_placeable};
 
 use super::construct::{draw_generator_tree, draw_torture, draw_universal_material};
 use super::lsystem::draw_lsystem_forge;
+use super::shape::draw_shape_forge;
 use super::terrain::draw_terrain_forge;
 use super::widgets::{
-    color_picker_rgba, default_lsystem_generator, drag_u32, fp_slider, unique_key,
+    color_picker_rgba, default_lsystem_generator, default_shape_generator, drag_u32, fp_slider,
+    unique_key,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -168,6 +170,14 @@ pub(super) fn draw_generators_tab(
             *selected = Some(name);
             *dirty = true;
         }
+        if ui.small_button("+ Shape").clicked() {
+            let name = unique_key(&record.generators, "shape");
+            record
+                .generators
+                .insert(name.clone(), default_shape_generator());
+            *selected = Some(name);
+            *dirty = true;
+        }
         if ui.small_button("+ Portal").clicked() {
             let name = unique_key(&record.generators, "portal");
             record.generators.insert(
@@ -284,6 +294,21 @@ pub(super) fn draw_generator_detail(
             prop_mappings,
             prop_scale,
             mesh_resolution,
+            dirty,
+        ),
+        GeneratorKind::Shape {
+            grammar_source,
+            root_rule,
+            footprint,
+            seed,
+            materials,
+        } => draw_shape_forge(
+            ui,
+            grammar_source,
+            root_rule,
+            footprint,
+            seed,
+            materials,
             dirty,
         ),
         GeneratorKind::Portal {

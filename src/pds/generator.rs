@@ -126,6 +126,32 @@ pub enum GeneratorKind {
         mesh_resolution: u32,
     },
 
+    #[serde(rename = "network.symbios.gen.shape")]
+    Shape {
+        /// Multi-rule CGA Shape Grammar source. One rule per line in the
+        /// `Name --> ops` form documented by `symbios_shape::grammar::parse_rule`.
+        /// Lines that are blank or start with `//` are skipped at compile time.
+        grammar_source: String,
+        /// Entry rule that the interpreter starts deriving from. Must appear
+        /// in `grammar_source`; if absent, the spawner skips the generator.
+        root_rule: String,
+        /// Initial scope size passed to `Interpreter::derive`. Y is
+        /// typically `0.0` because most grammars `Extrude` the footprint
+        /// themselves; the placement transform contributes the world
+        /// position and rotation.
+        footprint: Fp3,
+        /// Stochastic-rule RNG seed. The interpreter weights `A | B | C` by
+        /// percentage; the same seed across peers reproduces the same draw.
+        #[serde(with = "u64_as_string")]
+        seed: u64,
+        /// Material name (the string emitted by `Mat("...")` in the grammar)
+        /// → PBR settings. A terminal whose `material` is `None` or whose
+        /// name has no entry here falls back to the spawner's default
+        /// material.
+        #[serde(default)]
+        materials: HashMap<String, SovereignMaterialSettings>,
+    },
+
     #[serde(rename = "network.symbios.gen.cuboid")]
     Cuboid {
         size: Fp3,
@@ -263,6 +289,7 @@ impl GeneratorKind {
             GeneratorKind::Water { .. } => "Water",
             GeneratorKind::Portal { .. } => "Portal",
             GeneratorKind::LSystem { .. } => "LSystem",
+            GeneratorKind::Shape { .. } => "Shape",
             GeneratorKind::Cuboid { .. } => "Cuboid",
             GeneratorKind::Sphere { .. } => "Sphere",
             GeneratorKind::Cylinder { .. } => "Cylinder",

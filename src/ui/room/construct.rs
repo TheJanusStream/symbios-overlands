@@ -253,6 +253,7 @@ fn generator_kind_picker(
     ];
     let mut kinds: Vec<&'static str> = PRIMITIVES.to_vec();
     kinds.push("LSystem");
+    kinds.push("Shape");
     kinds.push("Portal");
     if is_root {
         kinds.push("Terrain");
@@ -279,6 +280,7 @@ fn make_default_for_kind(kind: &str) -> GeneratorKind {
     }
     match kind {
         "LSystem" => super::widgets::default_lsystem_kind(),
+        "Shape" => super::widgets::default_shape_kind(),
         "Portal" => GeneratorKind::Portal {
             target_did: String::new(),
             target_pos: Fp3([0.0, 0.0, 0.0]),

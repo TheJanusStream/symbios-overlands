@@ -313,3 +313,79 @@ pub(super) fn default_lsystem_kind() -> GeneratorKind {
         mesh_resolution: 8,
     }
 }
+
+/// Default starter preset for a freshly added Shape generator. A 3-storey
+/// columnar building shipped verbatim from `symbios-shape`'s
+/// `simple_building` example, plus matching brick / glass material slots so
+/// the procedural mesh fallback renders something visually distinct out of
+/// the box. Returned as a top-level [`Generator`] for the master list's
+/// "+ Shape" button.
+pub(super) fn default_shape_generator() -> Generator {
+    Generator::from_kind(default_shape_kind())
+}
+
+/// Bare [`GeneratorKind`] form of [`default_shape_generator`] — used by the
+/// per-node kind picker when the owner swaps an existing node's variant in
+/// place without resetting its transform / children.
+pub(super) fn default_shape_kind() -> GeneratorKind {
+    use crate::pds::{
+        SovereignBrickConfig, SovereignShingleConfig, SovereignStuccoConfig, SovereignWindowConfig,
+    };
+
+    let mut materials = std::collections::HashMap::new();
+    materials.insert(
+        "Brick".to_string(),
+        SovereignMaterialSettings {
+            base_color: Fp3([0.78, 0.34, 0.22]),
+            roughness: Fp(0.85),
+            uv_scale: Fp(2.0),
+            texture: SovereignTextureConfig::Brick(SovereignBrickConfig::default()),
+            ..Default::default()
+        },
+    );
+    materials.insert(
+        "Stucco".to_string(),
+        SovereignMaterialSettings {
+            base_color: Fp3([0.92, 0.88, 0.78]),
+            roughness: Fp(0.9),
+            uv_scale: Fp(1.5),
+            texture: SovereignTextureConfig::Stucco(SovereignStuccoConfig::default()),
+            ..Default::default()
+        },
+    );
+    materials.insert(
+        "Window".to_string(),
+        SovereignMaterialSettings {
+            base_color: Fp3([0.6, 0.75, 0.85]),
+            roughness: Fp(0.15),
+            metallic: Fp(0.1),
+            uv_scale: Fp(1.0),
+            texture: SovereignTextureConfig::Window(SovereignWindowConfig::default()),
+            ..Default::default()
+        },
+    );
+    materials.insert(
+        "Roof".to_string(),
+        SovereignMaterialSettings {
+            base_color: Fp3([0.45, 0.28, 0.22]),
+            roughness: Fp(0.95),
+            uv_scale: Fp(1.5),
+            texture: SovereignTextureConfig::Shingle(SovereignShingleConfig::default()),
+            ..Default::default()
+        },
+    );
+
+    GeneratorKind::Shape {
+        grammar_source: "Lot --> Extrude(9) Split(Y) { 3: Ground | ~1: Floor | 2: Cap }\n\
+            Ground --> Mat(\"Stucco\") Split(X) { 1.2: Pier | ~1: Bay | 1.2: Pier }\n\
+            Floor --> Mat(\"Brick\") Repeat(X, 2.5) { Bay }\n\
+            Bay --> Split(X) { ~1: Wall | 1.5: WindowPanel | ~1: Wall }\n\
+            WindowPanel --> Mat(\"Window\") I(\"Window\")\n\
+            Cap --> Mat(\"Roof\") Taper(0.7) I(\"Roof\")"
+            .to_string(),
+        root_rule: "Lot".to_string(),
+        footprint: Fp3([12.0, 0.0, 8.0]),
+        seed: 1,
+        materials,
+    }
+}

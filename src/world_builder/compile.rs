@@ -8,6 +8,7 @@
 //! (`lsystem`, `prim`, `portal`, `material`) write into.
 
 use avian3d::prelude::*;
+use bevy::ecs::system::SystemParam;
 use bevy::light::GlobalAmbientLight;
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
@@ -29,10 +30,24 @@ use super::lsystem::{LSystemMaterialCache, LSystemMeshCache, spawn_lsystem_entit
 use super::material::{spawn_procedural_material, spawn_water_volume};
 use super::portal::spawn_portal_entity;
 use super::prim::{build_primitive_mesh, collider_for_primitive};
+use super::shape::{ShapeMaterialCache, ShapeMeshCache, spawn_shape_entity};
 use super::{
     OverlandsFoliageTasks, PlacementMarker, PrimMarker, PropMeshAssets, RoomEntity, apply_traits,
     reset_traits,
 };
+
+/// Bundled per-generator caches for the compile pass. Bevy 0.18 imposes a
+/// 16-parameter ceiling on `IntoSystem`, and `compile_room_record` already
+/// hugged that bound; collapsing the four geometry / material caches into
+/// one `SystemParam` struct keeps the signature inside the budget when
+/// future generators need their own caches alongside L-system and Shape.
+#[derive(SystemParam)]
+pub(super) struct GeneratorCaches<'w> {
+    pub(super) lsystem_material: ResMut<'w, LSystemMaterialCache>,
+    pub(super) lsystem_mesh: ResMut<'w, LSystemMeshCache>,
+    pub(super) shape_material: ResMut<'w, ShapeMaterialCache>,
+    pub(super) shape_mesh: ResMut<'w, ShapeMeshCache>,
+}
 
 /// Hard ceiling on the number of `spawn_generator` calls a single
 /// `compile_room_record` pass is allowed to make. The per-axis sanitiser
@@ -79,8 +94,7 @@ pub(super) fn compile_room_record(
     palette: Option<Res<MaterialPalette>>,
     prop_assets: Option<Res<PropMeshAssets>>,
     mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
-    mut lsystem_material_cache: ResMut<LSystemMaterialCache>,
-    mut lsystem_mesh_cache: ResMut<LSystemMeshCache>,
+    mut generator_caches: GeneratorCaches,
     current_room: Option<Res<CurrentRoomDid>>,
     mut portal_avatar_cache: ResMut<super::portal::PortalAvatarCache>,
 ) {
@@ -119,6 +133,9 @@ pub(super) fn compile_room_record(
     let mut lsystem_cache_touched: HashSet<(String, u8)> = HashSet::new();
     // Parallel touch-set for the per-generator mesh cache (see `LSystemMeshCache`).
     let mut lsystem_mesh_touched: HashSet<String> = HashSet::new();
+    // Sister touch-sets for the Shape generator caches.
+    let mut shape_material_touched: HashSet<(String, String)> = HashSet::new();
+    let mut shape_mesh_touched: HashSet<String> = HashSet::new();
 
     // Multiplicative spawn budget. Per-axis sanitiser caps already bound a
     // single placement; this catches the case where many bounded placements
@@ -139,10 +156,14 @@ pub(super) fn compile_room_record(
         terrain_meshes: &terrain_meshes,
         prop_assets: prop_assets.as_deref(),
         foliage_tasks: &mut foliage_tasks,
-        lsystem_material_cache: &mut lsystem_material_cache,
+        lsystem_material_cache: &mut generator_caches.lsystem_material,
         lsystem_cache_touched: &mut lsystem_cache_touched,
-        lsystem_mesh_cache: &mut lsystem_mesh_cache,
+        lsystem_mesh_cache: &mut generator_caches.lsystem_mesh,
         lsystem_mesh_touched: &mut lsystem_mesh_touched,
+        shape_material_cache: &mut generator_caches.shape_material,
+        shape_material_touched: &mut shape_material_touched,
+        shape_mesh_cache: &mut generator_caches.shape_mesh,
+        shape_mesh_touched: &mut shape_mesh_touched,
         current_room: current_room.as_deref(),
         entities_spawned: &mut entities_spawned,
         budget_warned: &mut budget_warned,
@@ -401,14 +422,25 @@ pub(super) fn compile_room_record(
     // compile pass — that slot is no longer referenced by the record, so
     // keeping the handle alive would pin a `StandardMaterial` (and any
     // baked foliage textures it points at) in `Assets` forever.
-    lsystem_material_cache
+    generator_caches
+        .lsystem_material
         .entries
         .retain(|k, _| lsystem_cache_touched.contains(k));
     // Same GC for cached meshes so a generator removed from the record
     // stops pinning its `Handle<Mesh>` entries in `Assets<Mesh>`.
-    lsystem_mesh_cache
+    generator_caches
+        .lsystem_mesh
         .entries
         .retain(|k, _| lsystem_mesh_touched.contains(k));
+    // Mirror the GC pass for the Shape generator caches.
+    generator_caches
+        .shape_material
+        .entries
+        .retain(|k, _| shape_material_touched.contains(k));
+    generator_caches
+        .shape_mesh
+        .entries
+        .retain(|k, _| shape_mesh_touched.contains(k));
 }
 
 /// Apply the active `RoomRecord`'s `Environment` to every atmospheric
@@ -685,6 +717,21 @@ pub(super) struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// `generator_ref` keys touched this compile pass so the caller can GC
     /// meshes belonging to generators removed from the record.
     pub(super) lsystem_mesh_touched: &'a mut HashSet<String>,
+    /// Shape grammar material cache — sister of `lsystem_material_cache`,
+    /// keyed by `(generator_ref, slot_name)` because the upstream
+    /// interpreter emits string slot names from `Mat("...")` rather than
+    /// the L-system's u8 slot ids.
+    pub(super) shape_material_cache: &'a mut ShapeMaterialCache,
+    /// `(generator_ref, slot_name)` keys touched this compile pass so the
+    /// caller can GC stale shape material handles.
+    pub(super) shape_material_touched: &'a mut HashSet<(String, String)>,
+    /// Shape grammar geometry cache — derives once per
+    /// `(generator_ref, geometry_hash)` pair and shares the per-terminal
+    /// `Handle<Mesh>` list across every scatter/grid spawn.
+    pub(super) shape_mesh_cache: &'a mut ShapeMeshCache,
+    /// `generator_ref` keys touched this compile pass so the caller can GC
+    /// shape meshes belonging to generators removed from the record.
+    pub(super) shape_mesh_touched: &'a mut HashSet<String>,
     /// DID of the room we're currently compiling. Portal generators skip the
     /// ATProto profile-picture fetch when `target_did` equals this (an
     /// intra-room portal has no remote identity to paint onto its top face).
@@ -851,6 +898,12 @@ pub(super) fn spawn_generator(
                 ctx.meshes,
                 ctx.water_materials,
             ))
+        }
+        GeneratorKind::Shape { .. } => {
+            // Synthetic cache key matches the L-system convention so a
+            // Shape nested at `path=[2,0]` inside a Construct doesn't
+            // collide with an unrelated Shape in another branch.
+            spawn_shape_entity(ctx, &generator.kind, &cache_key, transform)
         }
         GeneratorKind::LSystem { .. } => {
             // Synthetic cache key keeps a nested L-system distinct from any

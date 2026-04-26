@@ -34,6 +34,7 @@ mod lsystem;
 mod material;
 mod placements;
 mod raw;
+mod shape;
 mod terrain;
 mod widgets;
 

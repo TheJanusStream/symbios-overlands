@@ -168,6 +168,67 @@ fn every_placement_variant_round_trips() {
     assert_no_floats(&back);
 }
 
+/// A `GeneratorKind::Shape` round-trips losslessly through JSON. Guards
+/// the string-keyed `materials` map (PDS deserialises JSON object keys
+/// as strings, which is the natural shape here) and the `seed` field
+/// using the shared `u64_as_string` helper used by every other 64-bit
+/// numeric on the wire.
+#[test]
+fn shape_generator_round_trips() {
+    use std::collections::HashMap;
+    use symbios_overlands::pds::{Generator, SovereignMaterialSettings};
+
+    let mut record = RoomRecord::default_for_did(TEST_DID);
+    let mut materials: HashMap<String, SovereignMaterialSettings> = HashMap::new();
+    materials.insert(
+        "Brick".to_string(),
+        SovereignMaterialSettings {
+            base_color: Fp3([0.7, 0.3, 0.2]),
+            ..Default::default()
+        },
+    );
+    record.generators.insert(
+        "tower".into(),
+        Generator::from_kind(GeneratorKind::Shape {
+            grammar_source: "Lot --> Extrude(8) I(\"Tower\")".into(),
+            root_rule: "Lot".into(),
+            footprint: Fp3([10.0, 0.0, 10.0]),
+            // Above 2^53 to exercise the string-encoded seed path.
+            seed: 18_446_744_073_709_551_557,
+            materials,
+        }),
+    );
+
+    let json = serde_json::to_string(&record).expect("serialise");
+    // Wire form must encode the seed as a string — see `u64_as_string`.
+    assert!(
+        json.contains("\"seed\":\"18446744073709551557\""),
+        "shape seed must round-trip as a JSON string, got: {json}"
+    );
+    let back: RoomRecord = serde_json::from_str(&json).expect("deserialise");
+    let kind = back
+        .generators
+        .get("tower")
+        .map(|g| &g.kind)
+        .expect("tower generator");
+    let GeneratorKind::Shape {
+        grammar_source,
+        root_rule,
+        footprint,
+        seed,
+        materials,
+    } = kind
+    else {
+        panic!("expected Shape variant after round-trip, got {:?}", kind);
+    };
+    assert_eq!(grammar_source, "Lot --> Extrude(8) I(\"Tower\")");
+    assert_eq!(root_rule, "Lot");
+    assert_eq!(footprint.0, [10.0, 0.0, 10.0]);
+    assert_eq!(*seed, 18_446_744_073_709_551_557);
+    assert!(materials.contains_key("Brick"));
+    assert_no_floats(&back);
+}
+
 /// A default recipe carries at least a terrain generator. Regression
 /// guard against an accidental empty default slipping through — without
 /// terrain the loading gate in `main`/`lib.rs` would stall forever
