@@ -5,7 +5,7 @@
   "redirect_uris": [
     "https://thejanusstream.github.io/symbios-overlands"
   ],
-  "scope": "atproto transition:generic network.symbios.overlands.room network.symbios.overlands.avatar network.symbios.overlands.inventory",
+  "scope": "atproto network.symbios.overlands.room network.symbios.overlands.avatar network.symbios.overlands.inventory",
   "grant_types": ["authorization_code", "refresh_token"],
   "response_types": ["code"],
   "token_endpoint_auth_method": "none",
