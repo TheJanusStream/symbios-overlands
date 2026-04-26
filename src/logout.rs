@@ -83,9 +83,16 @@ fn cleanup_on_logout(
 
     // Hard logout path: tear down every session + networking resource.
     commands.remove_resource::<AtprotoSession>();
+    commands.remove_resource::<crate::oauth::OauthRefreshCtx>();
     commands.remove_resource::<TokenSourceRes>();
     commands.remove_resource::<SymbiosMultiuserConfig<OverlandsMessage>>();
     commands.remove_resource::<RelayHost>();
+
+    // Drop the persisted session blob so the next page load lands back
+    // on the login screen instead of silently restoring the stale
+    // identity. WASM-only: native sessions aren't persisted today.
+    #[cfg(target_arch = "wasm32")]
+    crate::oauth::wasm::clear_persisted();
 
     // Reset in-memory buffers so the next session starts fresh.
     chat.messages.clear();

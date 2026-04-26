@@ -27,6 +27,15 @@ use proto_blue_oauth::{
 };
 use serde::{Deserialize, Serialize};
 
+/// Marker substring used by `proto_blue_oauth::OAuthSession::request` when it
+/// detects a `401 + WWW-Authenticate: error="invalid_token"` response. The
+/// library returns this as `OAuthError::RefreshFailed("Access token is
+/// invalid, refresh required")` (despite the variant name, no refresh has been
+/// attempted — the caller is expected to do it). We pattern-match on the
+/// string here because the helpers below convert errors to `String` before
+/// they reach us.
+const INVALID_TOKEN_ERR: &str = "Access token is invalid, refresh required";
+
 /// Hosted `client-metadata.json` URL. Per the atproto OAuth profile this URL
 /// *is* the `client_id`: the authorization server fetches it to learn the
 /// registered redirect URIs, scopes, and token-endpoint auth method. Used
@@ -154,6 +163,11 @@ pub struct PendingAuth {
 #[cfg(target_arch = "wasm32")]
 pub const SESSION_STORAGE_KEY: &str = "symbios_overlands_pending_auth";
 
+/// `localStorage` key holding the serialized [`wasm::PersistedSession`]
+/// across page reloads. Cleared on logout and on a refresh failure.
+#[cfg(target_arch = "wasm32")]
+pub const PERSISTED_SESSION_KEY: &str = "symbios_overlands_session";
+
 /// Minimum well-known discovery response for an atproto OAuth PDS. See the
 /// atproto OAuth spec §3.2 (Protected Resource Metadata).
 #[derive(Deserialize)]
@@ -269,6 +283,100 @@ pub async fn oauth_post_with_nonce_retry(
     Ok((status, body))
 }
 
+/// Bevy resource holding everything `OAuthSession::refresh` needs.
+///
+/// The `OAuthSession` itself only carries the token set + DPoP key; refreshing
+/// against the `/token` endpoint additionally requires the `OAuthClient` (for
+/// its DPoP-nonce cache and its client metadata) and the `OAuthServerMetadata`
+/// (which names the token endpoint URL). We persist both alongside the
+/// session so any system holding `&AtprotoSession` can also borrow this and
+/// drive a refresh without re-running the discovery dance.
+///
+/// Inserted by `ui::login::poll_complete_auth_task` after a successful OAuth
+/// callback (and on WASM by the resume-from-localStorage system on boot).
+/// Removed by `logout::cleanup_on_logout`.
+#[derive(Resource, Clone)]
+pub struct OauthRefreshCtx {
+    pub client: Arc<OAuthClient>,
+    pub server_metadata: OAuthServerMetadata,
+}
+
+/// Refresh the OAuth access token and re-persist the rotated `TokenSet`
+/// to the WASM session blob. On native this is a thin pass-through.
+///
+/// `proto_blue_oauth::OAuthSession::refresh` is internally mutex-serialised
+/// so concurrent callers share one `/token` round-trip; we trust that
+/// guarantee and don't re-serialise on top.
+pub async fn refresh_session(
+    session: &OAuthSession,
+    refresh: &OauthRefreshCtx,
+) -> Result<(), String> {
+    session
+        .refresh(&refresh.client, &refresh.server_metadata)
+        .await
+        .map_err(|e| format!("refresh: {e}"))?;
+    #[cfg(target_arch = "wasm32")]
+    {
+        // Persist the rotated token set so a subsequent reload doesn't
+        // come back with the now-stale access token from before refresh.
+        // Any failure here is non-fatal — the session in memory is still
+        // good for this run; we just won't survive a reload until the
+        // next refresh.
+        if let Err(e) = wasm::update_persisted_token_set(&session.token_set()) {
+            warn!("update_persisted_token_set: {e}");
+        }
+    }
+    Ok(())
+}
+
+/// Authenticated POST that proactively refreshes an expired access token
+/// and reactively retries once on `invalid_token`.
+///
+/// Wraps [`oauth_post_with_nonce_retry`] with the refresh dance proto-blue
+/// expects callers to perform: it does NOT auto-refresh, only signals the
+/// need via `OAuthError::RefreshFailed`. Call this from every authenticated
+/// PDS write so a session that has been idle past the access-token lifetime
+/// (~30 min – 2 h on ATProto PDSes) self-heals instead of failing the user's
+/// click.
+pub async fn oauth_post_with_refresh(
+    session: &OAuthSession,
+    refresh: &OauthRefreshCtx,
+    url: &str,
+    body_json: &serde_json::Value,
+) -> Result<(reqwest::StatusCode, String), String> {
+    if session.is_expired_jittered() {
+        refresh_session(session, refresh).await?;
+    }
+    match oauth_post_with_nonce_retry(session, url, body_json).await {
+        Ok(pair) => Ok(pair),
+        Err(e) if e.contains(INVALID_TOKEN_ERR) => {
+            refresh_session(session, refresh).await?;
+            oauth_post_with_nonce_retry(session, url, body_json).await
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// GET counterpart to [`oauth_post_with_refresh`]. See that function's
+/// docs for why both proactive and reactive refresh paths are needed.
+pub async fn oauth_get_with_refresh(
+    session: &OAuthSession,
+    refresh: &OauthRefreshCtx,
+    url: &str,
+) -> Result<(reqwest::StatusCode, String), String> {
+    if session.is_expired_jittered() {
+        refresh_session(session, refresh).await?;
+    }
+    match oauth_get_with_nonce_retry(session, url).await {
+        Ok(pair) => Ok(pair),
+        Err(e) if e.contains(INVALID_TOKEN_ERR) => {
+            refresh_session(session, refresh).await?;
+            oauth_get_with_nonce_retry(session, url).await
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// Response shape from `com.atproto.server.getSession` — used after the
 /// OAuth exchange to look up the handle that matches the DID in the token.
 #[derive(Deserialize)]
@@ -348,7 +456,7 @@ pub async fn complete_authorization(
     oauth_client: &OAuthClient,
     pending: &PendingAuth,
     code: &str,
-) -> Result<(Arc<OAuthSession>, String, String, String), String> {
+) -> Result<CompletedAuth, String> {
     let token_set: TokenSet = oauth_client
         .callback(code, &pending.auth_state, &pending.server_metadata)
         .await
@@ -357,8 +465,8 @@ pub async fn complete_authorization(
     if did.is_empty() {
         return Err("callback: token response missing `sub` (DID)".to_string());
     }
-    let dpop_key = dpop_key_from_jwk(&pending.auth_state.dpop_key)
-        .map_err(|e| format!("dpop_key_from_jwk: {e}"))?;
+    let dpop_jwk = pending.auth_state.dpop_key.clone();
+    let dpop_key = dpop_key_from_jwk(&dpop_jwk).map_err(|e| format!("dpop_key_from_jwk: {e}"))?;
     let oauth_session = Arc::new(OAuthSession::new(
         token_set,
         dpop_key,
@@ -376,7 +484,31 @@ pub async fn complete_authorization(
             "getSession DID mismatch: token sub={did} but PDS returned {session_did}"
         ));
     }
-    Ok((oauth_session, did, handle, pds_url))
+    Ok(CompletedAuth {
+        session: oauth_session,
+        did,
+        handle,
+        pds_url,
+        server_metadata: pending.server_metadata.clone(),
+        dpop_jwk,
+    })
+}
+
+/// Bundle of everything [`complete_authorization`] produces. Held briefly by
+/// the login pipeline before being split into the long-lived `AtprotoSession`
+/// + `OauthRefreshCtx` resources (and, on WASM, persisted to localStorage).
+pub struct CompletedAuth {
+    pub session: Arc<OAuthSession>,
+    pub did: String,
+    pub handle: String,
+    pub pds_url: String,
+    /// Server metadata as returned by `discover_server`. Needed for the
+    /// `/token` refresh round-trip and stashed in `OauthRefreshCtx`.
+    pub server_metadata: OAuthServerMetadata,
+    /// JWK form of the DPoP private key. Carried so the WASM persistence
+    /// layer can rebuild the `OAuthSession` after a page reload — the
+    /// `DpopKey` inside the session is not directly serialisable.
+    pub dpop_jwk: serde_json::Value,
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -390,8 +522,14 @@ pub mod wasm {
     //! scrubbing the URL bar after a successful exchange so reloads don't
     //! re-trigger the `code` exchange (which would 400 — the authorization
     //! code is single-use).
+    //!
+    //! Also home to the [`PersistedSession`] blob written to `localStorage`
+    //! after a successful login so a page reload restores the session
+    //! without forcing the user back through the OAuth dance.
 
-    use super::{PendingAuth, SESSION_STORAGE_KEY};
+    use super::{PERSISTED_SESSION_KEY, PendingAuth, SESSION_STORAGE_KEY};
+    use proto_blue_oauth::{OAuthServerMetadata, types::TokenSet};
+    use serde::{Deserialize, Serialize};
 
     /// Retrieve the browser's `sessionStorage`, or `None` if it is not
     /// available (private-browsing mode in some browsers).
@@ -512,6 +650,101 @@ pub mod wasm {
             b'A'..=b'F' => Some(b - b'A' + 10),
             _ => None,
         }
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Persisted-session blob (localStorage)
+    // ──────────────────────────────────────────────────────────────────
+
+    /// Serializable bundle of everything a fresh page load needs to rebuild
+    /// the in-memory `OAuthSession` + `AtprotoSession` + `OauthRefreshCtx`
+    /// without re-running the OAuth dance. Stored as JSON under
+    /// [`PERSISTED_SESSION_KEY`] in `localStorage`.
+    ///
+    /// The DPoP private key lives here as a JWK (`serde_json::Value`) — the
+    /// `DpopKey` runtime type isn't directly serialisable, but
+    /// `proto_blue_oauth::client::dpop_key_from_jwk` turns the JWK back into
+    /// one cheaply on resume.
+    ///
+    /// # Threat model note
+    ///
+    /// The persisted blob contains the DPoP private key in cleartext —
+    /// anyone with read access to this origin's `localStorage` can mint
+    /// authenticated requests until the refresh token expires. That is the
+    /// same trust boundary every browser-resident OAuth client operates
+    /// under (cf. RFC 8252 §8.6); we accept it for the sake of
+    /// reload-resilience. If you're targeting a stricter threat model,
+    /// disable persistence at compile time and force re-auth on every load.
+    #[derive(Serialize, Deserialize, Clone)]
+    pub struct PersistedSession {
+        pub token_set: TokenSet,
+        pub dpop_jwk: serde_json::Value,
+        pub server_metadata: OAuthServerMetadata,
+        pub did: String,
+        pub handle: String,
+        pub pds_url: String,
+        /// Relay host captured at login. Carried so the resume path can
+        /// rebuild `RelayHost` + `SymbiosMultiuserConfig` without prompting.
+        pub relay_host: String,
+        /// Destination DID at the time of login (empty = "home"). Same
+        /// rationale as `relay_host` — we want the reload to land the user
+        /// back in the room they were viewing.
+        pub target_did: String,
+    }
+
+    /// Retrieve the browser's `localStorage`, or `None` if it is not
+    /// available (private-browsing modes that disable it).
+    fn local_storage() -> Option<web_sys::Storage> {
+        web_sys::window()?.local_storage().ok().flatten()
+    }
+
+    /// Persist a freshly-built session blob. Called once at login completion.
+    pub fn save_persisted(session: &PersistedSession) -> Result<(), String> {
+        let storage = local_storage()
+            .ok_or_else(|| "localStorage unavailable (private mode?)".to_string())?;
+        let json = serde_json::to_string(session).map_err(|e| format!("serialize session: {e}"))?;
+        storage
+            .set_item(PERSISTED_SESSION_KEY, &json)
+            .map_err(|e| format!("localStorage.setItem: {e:?}"))
+    }
+
+    /// Read the persisted session blob, returning `None` if no blob is
+    /// stored or it can't be deserialised. A deserialisation failure also
+    /// clears the blob — once we've decided we can't use it, leaving it in
+    /// place would just trigger the same failure on every subsequent load.
+    pub fn load_persisted() -> Option<PersistedSession> {
+        let storage = local_storage()?;
+        let raw = storage.get_item(PERSISTED_SESSION_KEY).ok().flatten()?;
+        match serde_json::from_str::<PersistedSession>(&raw) {
+            Ok(v) => Some(v),
+            Err(_) => {
+                let _ = storage.remove_item(PERSISTED_SESSION_KEY);
+                None
+            }
+        }
+    }
+
+    /// Drop the persisted blob. Called on logout and whenever a refresh
+    /// fails terminally (refresh token rejected → user must re-authenticate).
+    pub fn clear_persisted() {
+        if let Some(storage) = local_storage() {
+            let _ = storage.remove_item(PERSISTED_SESSION_KEY);
+        }
+    }
+
+    /// Rotate the `token_set` portion of the persisted blob in place. Called
+    /// after every successful `OAuthSession::refresh` so a subsequent reload
+    /// doesn't restore the now-stale access token.
+    ///
+    /// No-ops (returns `Ok`) when no persisted blob exists — refresh is
+    /// allowed without persistence, e.g. on native or when the user
+    /// explicitly opted out of localStorage.
+    pub fn update_persisted_token_set(new_token_set: &TokenSet) -> Result<(), String> {
+        let Some(mut blob) = load_persisted() else {
+            return Ok(());
+        };
+        blob.token_set = new_token_set.clone();
+        save_persisted(&blob)
     }
 }
 

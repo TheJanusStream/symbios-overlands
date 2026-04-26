@@ -135,6 +135,10 @@ pub fn run() {
                 ui::login::poll_complete_auth_task,
                 #[cfg(target_arch = "wasm32")]
                 ui::login::check_wasm_callback,
+                #[cfg(target_arch = "wasm32")]
+                ui::login::check_wasm_resume,
+                #[cfg(target_arch = "wasm32")]
+                ui::login::poll_resume_task,
                 #[cfg(not(target_arch = "wasm32"))]
                 ui::login::poll_native_callback,
             )

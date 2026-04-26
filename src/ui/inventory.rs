@@ -97,6 +97,7 @@ pub fn inventory_ui(
     mut contexts: EguiContexts,
     mut commands: Commands,
     session: Option<Res<AtprotoSession>>,
+    refresh_ctx: Option<Res<crate::oauth::OauthRefreshCtx>>,
     room_did: Option<Res<CurrentRoomDid>>,
     mut live: Option<ResMut<LiveInventoryRecord>>,
     stored: Option<Res<StoredInventoryRecord>>,
@@ -105,7 +106,9 @@ pub fn inventory_ui(
     mut state: Local<InventoryEditorState>,
     time: Res<Time>,
 ) {
-    let (Some(live), Some(stored), Some(session)) = (live.as_mut(), stored, session) else {
+    let (Some(live), Some(stored), Some(session), Some(refresh_ctx)) =
+        (live.as_mut(), stored, session, refresh_ctx)
+    else {
         return;
     };
     // Drag-to-place is only valid in rooms the signed-in user owns. In other
@@ -269,6 +272,7 @@ pub fn inventory_ui(
                     *feedback = InventoryPublishFeedback::Publishing;
 
                     let session_clone = session.clone();
+                    let refresh_clone = refresh_ctx.clone();
                     let record_clone = live.0.clone();
                     let pool = bevy::tasks::IoTaskPool::get();
                     let task = pool.spawn(async move {
@@ -277,6 +281,7 @@ pub fn inventory_ui(
                             crate::pds::publish_inventory_record(
                                 &client,
                                 &session_clone,
+                                &refresh_clone,
                                 &record_clone,
                             )
                             .await

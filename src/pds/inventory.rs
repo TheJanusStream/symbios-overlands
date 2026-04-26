@@ -121,6 +121,7 @@ struct PutInventoryRequest<'a> {
 pub async fn publish_inventory_record(
     client: &reqwest::Client,
     session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
     record: &InventoryRecord,
 ) -> Result<(), String> {
     let pds = resolve_pds(client, &session.did)
@@ -135,7 +136,7 @@ pub async fn publish_inventory_record(
     };
     let body_json = serde_json::to_value(&body).map_err(|e| format!("serialize: {e}"))?;
     let (status, body) =
-        crate::oauth::oauth_post_with_nonce_retry(&session.session, &url, &body_json).await?;
+        crate::oauth::oauth_post_with_refresh(&session.session, refresh, &url, &body_json).await?;
     if status.is_success() {
         Ok(())
     } else {

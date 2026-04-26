@@ -171,6 +171,7 @@ pub fn room_admin_ui(
     mut contexts: EguiContexts,
     mut commands: Commands,
     session: Option<Res<AtprotoSession>>,
+    refresh_ctx: Option<Res<crate::oauth::OauthRefreshCtx>>,
     room_did: Option<Res<CurrentRoomDid>>,
     mut room_record: Option<ResMut<RoomRecord>>,
     stored: Option<Res<StoredRoomRecord>>,
@@ -180,7 +181,8 @@ pub fn room_admin_ui(
     mut inventory: Option<ResMut<LiveInventoryRecord>>,
     time: Res<Time>,
 ) {
-    let (Some(session), Some(room_did), Some(record)) = (session, room_did, room_record.as_mut())
+    let (Some(session), Some(refresh_ctx), Some(room_did), Some(record)) =
+        (session, refresh_ctx, room_did, room_record.as_mut())
     else {
         return;
     };
@@ -337,7 +339,7 @@ pub fn room_admin_ui(
                             // putRecord upsert can return 500 when the stored
                             // record is incompatible with the current lexicon;
                             // hard-deleting first sidesteps that failure mode.
-                            spawn_reset_task(&mut commands, &session, default_record);
+                            spawn_reset_task(&mut commands, &session, &refresh_ctx, default_record);
                             commands.remove_resource::<RoomRecordRecovery>();
                         }
                     });
@@ -461,7 +463,7 @@ pub fn room_admin_ui(
                         let new_record = record_mut.clone();
                         *is_dirty = false;
                         *publish_feedback = PublishFeedback::Publishing;
-                        spawn_publish_task(&mut commands, &session, new_record);
+                        spawn_publish_task(&mut commands, &session, &refresh_ctx, new_record);
                     }
 
                     let can_load = stored.is_some() && *is_dirty;
@@ -558,13 +560,19 @@ pub fn room_admin_ui(
 // Publish pipeline
 // ---------------------------------------------------------------------------
 
-fn spawn_publish_task(commands: &mut Commands, session: &AtprotoSession, record: RoomRecord) {
+fn spawn_publish_task(
+    commands: &mut Commands,
+    session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
+    record: RoomRecord,
+) {
     let session_clone = session.clone();
+    let refresh_clone = refresh.clone();
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
             let client = crate::config::http::default_client();
-            pds::publish_room_record(&client, &session_clone, &record).await
+            pds::publish_room_record(&client, &session_clone, &refresh_clone, &record).await
         };
         #[cfg(target_arch = "wasm32")]
         {
@@ -586,13 +594,19 @@ fn spawn_publish_task(commands: &mut Commands, session: &AtprotoSession, record:
 /// create a fresh one. Used by the recovery banner's "Reset PDS to default"
 /// button, which has to work around PDS implementations that return 500 on
 /// `putRecord` when the prior blob is schema-incompatible.
-fn spawn_reset_task(commands: &mut Commands, session: &AtprotoSession, record: RoomRecord) {
+fn spawn_reset_task(
+    commands: &mut Commands,
+    session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
+    record: RoomRecord,
+) {
     let session_clone = session.clone();
+    let refresh_clone = refresh.clone();
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
             let client = crate::config::http::default_client();
-            pds::reset_room_record(&client, &session_clone, &record).await
+            pds::reset_room_record(&client, &session_clone, &refresh_clone, &record).await
         };
         #[cfg(target_arch = "wasm32")]
         {

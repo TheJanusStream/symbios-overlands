@@ -54,6 +54,7 @@ pub fn avatar_ui(
     stored: Option<Res<StoredAvatarRecord>>,
     mut settings: ResMut<LocalSettings>,
     session: Option<Res<AtprotoSession>>,
+    refresh_ctx: Option<Res<crate::oauth::OauthRefreshCtx>>,
     mut feedback: ResMut<PublishFeedback>,
     mut editor: Local<AvatarEditorState>,
     time: Res<Time>,
@@ -165,16 +166,22 @@ pub fn avatar_ui(
                             egui::Color32::GRAY
                         }),
                     );
-                    let publish_enabled = is_dirty && session.is_some();
+                    let publish_enabled = is_dirty && session.is_some() && refresh_ctx.is_some();
                     if ui.add_enabled(publish_enabled, publish_button).clicked()
-                        && let Some(session) = session.as_ref()
+                        && let (Some(session), Some(refresh)) =
+                            (session.as_ref(), refresh_ctx.as_ref())
                     {
                         // Flip to `Publishing` the same frame the click fires so
                         // the user gets immediate visual confirmation; without
                         // this, the panel stays on `Idle` for the full PDS
                         // round-trip and the click looks like it was dropped.
                         *feedback = PublishFeedback::Publishing;
-                        spawn_publish_avatar_task(&mut commands, session, live_mut.0.clone());
+                        spawn_publish_avatar_task(
+                            &mut commands,
+                            session,
+                            refresh,
+                            live_mut.0.clone(),
+                        );
                     }
 
                     if ui
@@ -487,14 +494,16 @@ fn fp_slider_array(
 fn spawn_publish_avatar_task(
     commands: &mut Commands,
     session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
     record: AvatarRecord,
 ) {
     let session_clone = session.clone();
+    let refresh_clone = refresh.clone();
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
             let client = crate::config::http::default_client();
-            pds::publish_avatar_record(&client, &session_clone, &record).await
+            pds::publish_avatar_record(&client, &session_clone, &refresh_clone, &record).await
         };
         #[cfg(target_arch = "wasm32")]
         {

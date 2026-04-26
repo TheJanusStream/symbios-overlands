@@ -470,6 +470,7 @@ async fn try_put_avatar(
     _client: &reqwest::Client,
     pds: &str,
     session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
     record: &AvatarRecord,
 ) -> PutOutcome {
     let url = format!("{}/xrpc/com.atproto.repo.putRecord", pds);
@@ -484,7 +485,9 @@ async fn try_put_avatar(
         Err(e) => return PutOutcome::Transport(format!("serialize: {e}")),
     };
     let (status, body) =
-        match crate::oauth::oauth_post_with_nonce_retry(&session.session, &url, &body_json).await {
+        match crate::oauth::oauth_post_with_refresh(&session.session, refresh, &url, &body_json)
+            .await
+        {
             Ok(pair) => pair,
             Err(e) => return PutOutcome::Transport(e),
         };
@@ -509,6 +512,7 @@ struct DeleteAvatarRequest<'a> {
 async fn delete_avatar_record(
     client: &reqwest::Client,
     session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
 ) -> Result<(), String> {
     let pds = resolve_pds(client, &session.did)
         .await
@@ -521,7 +525,7 @@ async fn delete_avatar_record(
     };
     let body_json = serde_json::to_value(&body).map_err(|e| e.to_string())?;
     let (status, body) =
-        crate::oauth::oauth_post_with_nonce_retry(&session.session, &url, &body_json).await?;
+        crate::oauth::oauth_post_with_refresh(&session.session, refresh, &url, &body_json).await?;
     if status.is_success() || status.as_u16() == 404 {
         Ok(())
     } else {
@@ -538,21 +542,22 @@ async fn delete_avatar_record(
 pub async fn publish_avatar_record(
     client: &reqwest::Client,
     session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
     record: &AvatarRecord,
 ) -> Result<(), String> {
     let pds = resolve_pds(client, &session.did)
         .await
         .ok_or_else(|| "Failed to resolve PDS".to_string())?;
-    match try_put_avatar(client, &pds, session, record).await {
+    match try_put_avatar(client, &pds, session, refresh, record).await {
         PutOutcome::Ok => Ok(()),
         PutOutcome::ClientError(msg) => Err(msg),
         PutOutcome::Transport(msg) => Err(msg),
         PutOutcome::ServerError(first_err) => {
             warn!("{first_err} — retrying via delete+put for avatar");
-            delete_avatar_record(client, session)
+            delete_avatar_record(client, session, refresh)
                 .await
                 .map_err(|e| format!("{first_err}; fallback delete failed: {e}"))?;
-            match try_put_avatar(client, &pds, session, record).await {
+            match try_put_avatar(client, &pds, session, refresh, record).await {
                 PutOutcome::Ok => Ok(()),
                 PutOutcome::ClientError(m)
                 | PutOutcome::ServerError(m)

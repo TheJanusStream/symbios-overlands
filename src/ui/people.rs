@@ -167,6 +167,7 @@ pub fn incoming_offer_ui(
     dialog: Option<Res<IncomingOfferDialog>>,
     mut live_inventory: Option<ResMut<LiveInventoryRecord>>,
     session: Option<Res<AtprotoSession>>,
+    refresh_ctx: Option<Res<crate::oauth::OauthRefreshCtx>>,
     mut peers: Query<&mut RemotePeer>,
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
     mut diagnostics: ResMut<DiagnosticsLog>,
@@ -287,9 +288,14 @@ pub fn incoming_offer_ui(
             // Update schedule) drains the task and flips
             // `StoredInventoryRecord` + `InventoryPublishFeedback` on
             // completion, so we only kick off the I/O here.
-            if let Some(sess) = session.as_deref() {
+            if let (Some(sess), Some(refresh)) = (session.as_deref(), refresh_ctx.as_deref()) {
                 *inventory_feedback = InventoryPublishFeedback::Publishing;
-                spawn_inventory_publish_task(&mut commands, sess.clone(), live.0.clone());
+                spawn_inventory_publish_task(
+                    &mut commands,
+                    sess.clone(),
+                    refresh.clone(),
+                    live.0.clone(),
+                );
             }
         } else {
             // Live inventory resource absent — should not happen in
@@ -337,13 +343,14 @@ enum OfferAction {
 fn spawn_inventory_publish_task(
     commands: &mut Commands,
     session: AtprotoSession,
+    refresh: crate::oauth::OauthRefreshCtx,
     record: InventoryRecord,
 ) {
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
             let client = crate::config::http::default_client();
-            publish_inventory_record(&client, &session, &record).await
+            publish_inventory_record(&client, &session, &refresh, &record).await
         };
         #[cfg(target_arch = "wasm32")]
         {

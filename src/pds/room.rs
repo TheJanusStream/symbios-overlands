@@ -434,6 +434,7 @@ async fn try_put_record(
     _client: &reqwest::Client,
     pds: &str,
     session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
     record: &RoomRecord,
 ) -> PutOutcome {
     let url = format!("{}/xrpc/com.atproto.repo.putRecord", pds);
@@ -449,7 +450,9 @@ async fn try_put_record(
         Err(e) => return PutOutcome::Transport(format!("serialize: {e}")),
     };
     let (status, body) =
-        match crate::oauth::oauth_post_with_nonce_retry(&session.session, &url, &body_json).await {
+        match crate::oauth::oauth_post_with_refresh(&session.session, refresh, &url, &body_json)
+            .await
+        {
             Ok(pair) => pair,
             Err(e) => return PutOutcome::Transport(e),
         };
@@ -476,13 +479,14 @@ async fn try_put_record(
 pub async fn publish_room_record(
     client: &reqwest::Client,
     session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
     record: &RoomRecord,
 ) -> Result<(), String> {
     let pds = resolve_pds(client, &session.did)
         .await
         .ok_or_else(|| "Failed to resolve PDS".to_string())?;
 
-    match try_put_record(client, &pds, session, record).await {
+    match try_put_record(client, &pds, session, refresh, record).await {
         PutOutcome::Ok => Ok(()),
         PutOutcome::ClientError(msg) => Err(msg),
         PutOutcome::Transport(msg) => Err(msg),
@@ -491,10 +495,10 @@ pub async fn publish_room_record(
             // failure mode where the PDS's putRecord update path crashes on
             // a stale CID/commit but can still handle a fresh create.
             warn!("{first_err} — retrying via delete_room_record + putRecord");
-            delete_room_record(client, session)
+            delete_room_record(client, session, refresh)
                 .await
                 .map_err(|e| format!("{first_err}; fallback delete failed: {e}"))?;
-            match try_put_record(client, &pds, session, record).await {
+            match try_put_record(client, &pds, session, refresh, record).await {
                 PutOutcome::Ok => Ok(()),
                 PutOutcome::ClientError(m)
                 | PutOutcome::ServerError(m)
@@ -518,6 +522,7 @@ struct DeleteRecordRequest<'a> {
 pub async fn delete_room_record(
     client: &reqwest::Client,
     session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
 ) -> Result<(), String> {
     let pds = resolve_pds(client, &session.did)
         .await
@@ -532,7 +537,7 @@ pub async fn delete_room_record(
 
     let body_json = serde_json::to_value(&body).map_err(|e| e.to_string())?;
     let (status, body) =
-        crate::oauth::oauth_post_with_nonce_retry(&session.session, &url, &body_json).await?;
+        crate::oauth::oauth_post_with_refresh(&session.session, refresh, &url, &body_json).await?;
 
     if status.is_success() || status.as_u16() == 404 {
         Ok(())
@@ -551,8 +556,9 @@ pub async fn delete_room_record(
 pub async fn reset_room_record(
     client: &reqwest::Client,
     session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
     record: &RoomRecord,
 ) -> Result<(), String> {
-    delete_room_record(client, session).await?;
-    publish_room_record(client, session, record).await
+    delete_room_record(client, session, refresh).await?;
+    publish_room_record(client, session, refresh, record).await
 }
