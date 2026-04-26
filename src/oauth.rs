@@ -81,19 +81,24 @@ pub fn native_redirect_uri() -> String {
 ///   `bsky.social` AS expects for native callback flows; without it the
 ///   PAR endpoint rejects the request with HTTP 400.
 pub fn client_metadata() -> OAuthClientMetadata {
-    // Minimum scopes Overlands actually exercises:
-    // - `atproto` is mandatory for every OAuth session (atproto OAuth spec).
-    // - The three `network.symbios.overlands.*` NSIDs grant write access to the
-    //   exact collections we putRecord/deleteRecord against (room, avatar,
-    //   inventory). No other lexicons are touched authenticated — `bsky.app`
-    //   and blob fetches all go via the public AppView.
-    // We deliberately do NOT request `transition:generic`: it is the
-    // App-Password-equivalent broad-write scope and grants far more than this
-    // app needs. The granular `repo:<NSID>?action=*` syntax from the
-    // forthcoming Permission Sets work (atproto/discussions/4437) is not yet
-    // enforced on bsky.social, so we stay on the bare-NSID form that bsky's
-    // PAR endpoint already accepts today; revisit when Permission Sets ship.
-    let scope = "atproto network.symbios.overlands.room network.symbios.overlands.avatar network.symbios.overlands.inventory";
+    // bsky.social's authorization server currently advertises only the
+    // legacy scope vocabulary in `scopes_supported`:
+    //   ["atproto", "transition:email", "transition:generic", "transition:chat.bsky"]
+    // Granular Permission-Sets scopes (`repo:<NSID>?action=*`,
+    // `rpc:*?aud=did:web:<HOST>`, etc. — atproto/discussions/4437) are
+    // *silently dropped* by the AS today: requesting them yields a token
+    // whose granted scope is just `"atproto"`, with no `rpc:` claim — and
+    // the PDS *does* enforce the new grammar on `getServiceAuth`, so
+    // service-auth requests then 403 with `ScopeMissingError`.
+    //
+    // Until bsky.social adds the granular scopes to `scopes_supported`,
+    // `transition:generic` is the smallest scope that actually grants
+    // `getServiceAuth` against any relay. It is broader than we'd like
+    // (App-Password-equivalent: full repo + blob + rpc), so revisit and
+    // narrow this once the AS publishes the granular vocabulary. The
+    // diagnostic logs in `begin_authorization` /
+    // `complete_authorization` make that future audit cheap.
+    let scope = "atproto transition:generic";
     #[cfg(target_arch = "wasm32")]
     {
         OAuthClientMetadata {
@@ -444,6 +449,14 @@ pub async fn begin_authorization(
         .discover_server(&auth_server)
         .await
         .map_err(|e| format!("discover_server: {e}"))?;
+    info!(
+        "OAuth scope being requested: {:?}",
+        oauth_client.client_metadata.scope
+    );
+    info!(
+        "AS scopes_supported: {:?}",
+        server_metadata.scopes_supported
+    );
     let (auth_url, auth_state) = oauth_client
         .authorize(&server_metadata)
         .await
@@ -487,6 +500,7 @@ pub async fn complete_authorization(
         .callback(code, &pending.auth_state, &pending.server_metadata)
         .await
         .map_err(|e| format!("callback: {e}"))?;
+    info!("OAuth scope granted by AS: {:?}", token_set.scope);
     let did = token_set.sub.clone();
     if did.is_empty() {
         return Err("callback: token response missing `sub` (DID)".to_string());

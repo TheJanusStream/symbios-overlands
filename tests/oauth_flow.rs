@@ -26,6 +26,18 @@ fn client_metadata_redirect_matches_target() {
     }
 }
 
+#[test]
+fn client_metadata_scope_includes_transition_generic() {
+    // Until bsky.social's AS adds the granular Permission-Sets vocabulary
+    // to `scopes_supported`, `transition:generic` is the only scope that
+    // covers `com.atproto.server.getServiceAuth` against any relay.
+    // Regression guard against an over-eager scope reduction silently
+    // breaking service-auth (and therefore the entire signaller path).
+    let scope = oauth::client_metadata().scope.expect("scope must be set");
+    assert!(scope.contains("atproto"), "{scope}");
+    assert!(scope.contains("transition:generic"), "{scope}");
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn parse_callback_query_typical() {
