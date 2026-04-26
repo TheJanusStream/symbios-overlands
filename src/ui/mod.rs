@@ -13,7 +13,7 @@
 //! * [`inventory`]    — personal stash of `Generator` blueprints, with
 //!   drag-to-place onto terrain and drag-to-gift onto peer rows.
 //! * [`room`]         — owner-only tabbed World Editor (Environment /
-//!   Generators / Placements / Raw JSON), gated on `session.did == room.did`.
+//!   Region Assets / Placements / Raw JSON), gated on `session.did == room.did`.
 
 pub mod avatar;
 pub mod chat;

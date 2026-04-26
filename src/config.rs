@@ -5,7 +5,7 @@
 //! consumes each constant group.
 
 // ---------------------------------------------------------------------------
-// Lighting (main.rs)
+// Lighting (lib.rs)
 // ---------------------------------------------------------------------------
 pub mod lighting {
     /// Illuminance of the sun-like directional light (lux).
@@ -28,7 +28,7 @@ pub mod lighting {
 }
 
 // ---------------------------------------------------------------------------
-// Rover (player.rs + network.rs)
+// Rover (player/ + network.rs)
 // ---------------------------------------------------------------------------
 pub mod rover {
     // --- Suspension (Hooke's law + damping) ----------------------------------
@@ -339,7 +339,7 @@ pub mod avatar {
 }
 
 // ---------------------------------------------------------------------------
-// HTTP client defaults (main.rs, avatar.rs, social.rs, ui/{login,room}.rs)
+// HTTP client defaults (lib.rs, avatar.rs, social.rs, ui/login.rs, ui/room/)
 // ---------------------------------------------------------------------------
 pub mod http {
     use std::time::Duration;
@@ -385,7 +385,7 @@ pub mod login {
 }
 
 // ---------------------------------------------------------------------------
-// Airship vehicle (player.rs + network.rs)
+// Airship vehicle (player/ + network.rs)
 // ---------------------------------------------------------------------------
 pub mod airship {
     use super::rover;
@@ -435,7 +435,7 @@ pub mod airship {
 }
 
 // ---------------------------------------------------------------------------
-// UI panels (ui/chat.rs, ui/diagnostics.rs, ui/avatar.rs, ui/room.rs, ui/login.rs)
+// UI panels (ui/chat.rs, ui/diagnostics.rs, ui/avatar.rs, ui/room/, ui/login.rs)
 // ---------------------------------------------------------------------------
 pub mod ui {
     pub mod chat {
