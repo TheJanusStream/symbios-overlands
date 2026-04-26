@@ -1,255 +1,914 @@
-//! Generators tab — master list of named generators, add/remove/rename
-//! flows, and the per-kind detail editor that dispatches to the
-//! Terrain / LSystem / Water / Portal / Primitive sub-editors.
+//! Generators tab — unified tree-view sidebar on the left, per-node detail
+//! editor on the right. The sidebar lists every named generator in
+//! [`RoomRecord::generators`] as a tree root; each root recursively shows
+//! its `children` so the entire generator hierarchy is browsable from one
+//! place. Selecting a row in the tree drives both the on-screen editor and
+//! the 3D gizmo target — `RoomEditorState::selected_generator` and
+//! `selected_prim_path` are derived from the tree's selection each frame so
+//! `editor_gizmo` can attach the gizmo to the matching live entity.
+//!
+//! Structural operations (`+ Add child`, `Rename`, `Save to Inventory`, `−
+//! Delete`) live in the per-row right-click context menu. The context-menu
+//! closures store a [`PendingAction`] into a shared [`RefCell`]; once the
+//! tree-view widget finishes rendering, the action is drained and applied
+//! with `&mut record` access. Root deletes additionally sweep dangling
+//! `Placement` references and `traits` mappings keyed on the deleted
+//! generator name, so dropping a generator never leaves orphan references
+//! that the world compiler would log as "unknown generator_ref".
+//!
+//! Phase 3 will enable drag-to-reparent on the same tree.
+
+use std::cell::RefCell;
 
 use bevy_egui::egui;
+use egui_ltreeview::{Action, DirPosition, NodeBuilder, TreeView};
 
-use crate::pds::{Fp, Fp2, Fp3, Generator, GeneratorKind, RoomRecord, WaterSurface};
+use crate::pds::{Fp, Fp2, Fp3, Generator, GeneratorKind, Placement, RoomRecord, WaterSurface};
 use crate::state::LiveInventoryRecord;
-use crate::ui::inventory::{DropSource, PendingGeneratorDrop, is_drop_placeable};
+use crate::ui::inventory::is_drop_placeable;
 
-use super::construct::{draw_generator_tree, draw_torture, draw_universal_material};
+use super::GenNodeId;
+use super::construct::{
+    allows_children, available_kinds_for, draw_torture, draw_universal_material,
+    generator_kind_picker, make_default_for_kind,
+};
 use super::lsystem::draw_lsystem_forge;
 use super::shape::draw_shape_forge;
 use super::terrain::draw_terrain_forge;
-use super::widgets::{
-    color_picker_rgba, default_lsystem_generator, default_shape_generator, drag_u32, fp_slider,
-    unique_key,
-};
+use super::widgets::{color_picker_rgba, drag_u32, draw_transform, fp_slider, unique_key};
+
+/// Convenience alias so the per-tab function signature stays readable.
+type TreeViewState = egui_ltreeview::TreeViewState<GenNodeId>;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_generators_tab(
     ui: &mut egui::Ui,
     record: &mut RoomRecord,
-    selected: &mut Option<String>,
+    selected_generator: &mut Option<String>,
     selected_prim_path: &mut Option<Vec<usize>>,
+    tree_view_state: &mut TreeViewState,
     renaming_generator: &mut Option<(String, String)>,
-    mut inventory: Option<&mut LiveInventoryRecord>,
-    pending_drop: Option<&mut PendingGeneratorDrop>,
-    can_drag_place: bool,
+    inventory: Option<&mut LiveInventoryRecord>,
     dirty: &mut bool,
 ) {
-    // Single-column master/detail: when a generator is selected and still
-    // exists, render the detail view full-width with a back button;
-    // otherwise render the master list full-width.
-    let selected_exists = selected
-        .as_ref()
-        .is_some_and(|n| record.generators.contains_key(n));
-
-    if selected_exists {
-        let name = selected.clone().expect("selected_exists implies Some");
-        ui.horizontal(|ui| {
-            if ui.button("← Back").clicked() {
-                *selected = None;
-            }
-            ui.heading("Detail");
-        });
-        ui.add_space(4.0);
-        if *selected == Some(name.clone())
-            && let Some(g) = record.generators.get_mut(&name)
-        {
-            ui.label(format!("Generator: `{}`", name));
-            ui.add_space(4.0);
-            // Re-borrow as shared so nested tree editors can offer an "add
-            // child from inventory" picker without fighting the outer `&mut`
-            // that the master-list code still needs for the "Save to
-            // Inventory" and "From Inventory..." buttons further down.
-            let inv_shared: Option<&LiveInventoryRecord> = inventory.as_deref();
-            // Every named generator opens into the universal tree editor —
-            // that draws the root's transform + kind picker + per-kind
-            // detail (via `draw_generator_detail`) + child tree.
-            draw_generator_tree(ui, g, selected_prim_path, inv_shared, dirty);
-        }
-        return;
-    }
-
-    // Drop any stale selection so a later re-select of the same name starts
-    // cleanly and the "(Selection no longer exists.)" state never renders.
-    *selected = None;
-
-    ui.heading("Generators");
-    ui.add_space(4.0);
-
-    let mut names: Vec<String> = record.generators.keys().cloned().collect();
-    names.sort();
-
-    let mut to_remove: Option<String> = None;
-    let mut pending_drop = pending_drop;
-    for name in &names {
-        ui.horizontal(|ui| {
-            // Mirror the inventory's drag-to-place affordance: only arm a
-            // drag when (a) the viewer owns this room and (b) the generator
-            // kind is point-placeable (terrain + water are room-scoped, so
-            // spawning them at a ground hit makes no sense).
-            let is_placeable = record
-                .generators
-                .get(name)
-                .map(is_drop_placeable)
-                .unwrap_or(false);
-            let drag_armable = can_drag_place && is_placeable && pending_drop.is_some();
-            let resp = if drag_armable {
-                ui.selectable_label(false, name)
-                    .interact(egui::Sense::click_and_drag())
-            } else {
-                ui.selectable_label(false, name)
-            };
-            if resp.clicked() {
-                *selected = Some(name.clone());
-            }
-            if drag_armable
-                && resp.drag_started()
-                && let Some(pd) = pending_drop.as_deref_mut()
-            {
-                pd.generator_name = Some(name.clone());
-                pd.source = DropSource::RoomGenerators;
-            }
-            if drag_armable
-                && resp.dragged()
-                && pending_drop
-                    .as_deref()
-                    .and_then(|pd| pd.generator_name.as_deref())
-                    == Some(name.as_str())
-            {
-                // Follow-the-cursor tooltip so the owner can see what
-                // they're about to drop once the pointer leaves the row.
-                egui::Tooltip::always_open(
-                    ui.ctx().clone(),
-                    ui.layer_id(),
-                    egui::Id::new(("gen_drag_tip", name)),
-                    egui::PopupAnchor::Pointer,
-                )
-                .show(|ui| {
-                    ui.label(format!("Place “{name}”"));
-                });
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui
-                    .add(egui::Button::new("−").fill(egui::Color32::from_rgb(180, 50, 50)))
-                    .clicked()
-                {
-                    to_remove = Some(name.clone());
-                }
-                if let Some(inv) = inventory.as_deref_mut()
-                    && ui.small_button("Save to Inventory").clicked()
-                    && let Some(g) = record.generators.get(name).cloned()
-                {
-                    let safe_name = unique_key(&inv.0.generators, name);
-                    inv.0.generators.insert(safe_name, g);
-                }
-                if ui.small_button("Rename").clicked() {
-                    *renaming_generator = Some((name.clone(), name.clone()));
-                }
-            });
-        });
-    }
-    if let Some(name) = to_remove {
-        record.generators.remove(&name);
-        *dirty = true;
-    }
-
-    ui.add_space(6.0);
-    ui.separator();
-    ui.label("Add new generator:");
-    ui.horizontal_wrapped(|ui| {
-        if ui.small_button("+ Terrain").clicked() {
-            let name = unique_key(&record.generators, "terrain");
-            record.generators.insert(
-                name.clone(),
-                Generator::from_kind(GeneratorKind::Terrain(Default::default())),
+    // Inventory now flows only into the tree panel (for the root-level
+    // "+ From Inventory" toolbar, the per-row "+ From Inventory" submenu,
+    // and the apply step's "Save to Inventory" write). The detail panel
+    // never touches inventory anymore — its inventory-child picker moved
+    // into the row context menu in issue #159.
+    egui::SidePanel::left("generators_tree_panel")
+        .resizable(true)
+        .default_width(260.0)
+        .min_width(180.0)
+        .show_inside(ui, |ui| {
+            draw_tree_panel(
+                ui,
+                record,
+                selected_generator,
+                selected_prim_path,
+                tree_view_state,
+                renaming_generator,
+                inventory,
+                dirty,
             );
-            *selected = Some(name);
-            *dirty = true;
-        }
-        // No "+ Water" button: Water is child-only. Add it inside a
-        // generator's tree via the per-node "+ Add child" affordance.
-        if ui.small_button("+ LSystem").clicked() {
-            let name = unique_key(&record.generators, "lsystem");
-            record
-                .generators
-                .insert(name.clone(), default_lsystem_generator());
-            *selected = Some(name);
-            *dirty = true;
-        }
-        if ui.small_button("+ Shape").clicked() {
-            let name = unique_key(&record.generators, "shape");
-            record
-                .generators
-                .insert(name.clone(), default_shape_generator());
-            *selected = Some(name);
-            *dirty = true;
-        }
-        if ui.small_button("+ Portal").clicked() {
-            let name = unique_key(&record.generators, "portal");
-            record.generators.insert(
-                name.clone(),
-                Generator::from_kind(GeneratorKind::Portal {
-                    target_did: String::new(),
-                    target_pos: Fp3([0.0, 0.0, 0.0]),
-                }),
-            );
-            *selected = Some(name);
-            *dirty = true;
-        }
-        // Top-level parametric primitives. Each gets a sensible default
-        // from `Generator::default_primitive_for_tag`. They all carry an
-        // empty `children` list by default and can be promoted into a
-        // hierarchy by adding children inside the detail view — there is
-        // no separate "+ Construct" button anymore.
-        for (label, tag) in [
-            ("+ Cuboid", "Cuboid"),
-            ("+ Sphere", "Sphere"),
-            ("+ Cylinder", "Cylinder"),
-            ("+ Capsule", "Capsule"),
-            ("+ Cone", "Cone"),
-            ("+ Torus", "Torus"),
-            ("+ Plane", "Plane"),
-            ("+ Tetrahedron", "Tetrahedron"),
-        ] {
-            if ui.small_button(label).clicked()
-                && let Some(prim) = Generator::default_primitive_for_tag(tag)
-            {
-                let name = unique_key(&record.generators, &tag.to_lowercase());
-                record.generators.insert(name.clone(), prim);
-                *selected = Some(name);
-                *dirty = true;
-            }
-        }
-        if let Some(inv) = inventory.as_deref()
-            && !inv.0.generators.is_empty()
-        {
-            let mut insert: Option<(String, Generator)> = None;
-            egui::ComboBox::from_id_salt("from_inventory")
-                .selected_text("From Inventory...")
-                .show_ui(ui, |ui| {
-                    let mut inv_names: Vec<&String> = inv.0.generators.keys().collect();
-                    inv_names.sort();
-                    for inv_name in inv_names {
-                        if ui.selectable_label(false, inv_name).clicked()
-                            && let Some(g) = inv.0.generators.get(inv_name)
-                        {
-                            insert = Some((inv_name.clone(), g.clone()));
-                        }
-                    }
-                });
-            if let Some((inv_name, g)) = insert {
-                let new_name = unique_key(&record.generators, &inv_name);
-                record.generators.insert(new_name.clone(), g);
-                *selected = Some(new_name);
-                *dirty = true;
-            }
-        }
+        });
+
+    egui::CentralPanel::default().show_inside(ui, |ui| {
+        draw_detail_panel(ui, record, selected_generator, selected_prim_path, dirty);
     });
 }
 
+/// Out-of-band signal stored by a per-row context menu and applied after
+/// the tree-view widget finishes drawing. Each menu closure captures
+/// `&RefCell<Option<PendingAction>>` (a shared borrow), writes its action
+/// on click via `borrow_mut`, and `draw_tree_panel` drains the cell with
+/// `take()` once `show_state` returns. Buffering the actions like this
+/// keeps the closures synchronous and side-effect-free against the
+/// shared `&RoomRecord` borrow held during the tree build.
+enum PendingAction {
+    /// Append a freshly-defaulted child of the chosen kind to `parent`.
+    /// `kind_tag` is one of the `&'static str` tags returned by
+    /// [`available_kinds_for`] — the apply step calls
+    /// [`make_default_for_kind`] to materialise the variant's seed value.
+    AddChild {
+        parent: GenNodeId,
+        kind_tag: &'static str,
+    },
+    /// Append a *clone* of an inventory entry as a child of `parent`. The
+    /// clone happens at click time inside the context-menu closure (where
+    /// `&LiveInventoryRecord` is in scope), so the apply step doesn't need
+    /// to re-borrow inventory and never has to look the entry up by name.
+    /// The generator payload is boxed so the enum's stack footprint stays
+    /// small — `Generator` carries a deep tree and would otherwise dwarf
+    /// every other variant.
+    AddChildFromInventory {
+        parent: GenNodeId,
+        generator: Box<Generator>,
+    },
+    Rename(String),
+    SaveToInventory(GenNodeId),
+    Delete(GenNodeId),
+    /// Reparent triggered by drag-and-drop. `target` is the destination
+    /// directory (or the virtual root for a top-level drop) and `position`
+    /// places the source among `target`'s children.
+    Reparent {
+        source: GenNodeId,
+        target: GenNodeId,
+        position: DirPosition<GenNodeId>,
+    },
+}
+
+// ---------------------------------------------------------------------------
+// Left: tree panel
+// ---------------------------------------------------------------------------
+
+#[allow(clippy::too_many_arguments)]
+fn draw_tree_panel(
+    ui: &mut egui::Ui,
+    record: &mut RoomRecord,
+    selected_generator: &mut Option<String>,
+    selected_prim_path: &mut Option<Vec<usize>>,
+    tree_view_state: &mut TreeViewState,
+    renaming_generator: &mut Option<(String, String)>,
+    inventory: Option<&mut LiveInventoryRecord>,
+    dirty: &mut bool,
+) {
+    ui.heading("Generators");
+    ui.add_space(2.0);
+
+    ui.horizontal_wrapped(|ui| {
+        ui.menu_button("+ New", |ui| {
+            for kind_tag in available_kinds_for(true) {
+                if ui.button(kind_tag).clicked() {
+                    let prefix = kind_tag.to_lowercase();
+                    let name = unique_key(&record.generators, &prefix);
+                    let kind = make_default_for_kind(kind_tag);
+                    record
+                        .generators
+                        .insert(name.clone(), Generator::from_kind(kind));
+                    *selected_generator = Some(name.clone());
+                    *selected_prim_path = Some(Vec::new());
+                    tree_view_state.set_one_selected(GenNodeId::root(name));
+                    *dirty = true;
+                    ui.close();
+                }
+            }
+        });
+
+        if let Some(inv) = inventory.as_deref()
+            && !inv.0.generators.is_empty()
+        {
+            ui.menu_button("+ From Inventory", |ui| {
+                let mut names: Vec<&String> = inv.0.generators.keys().collect();
+                names.sort();
+                let mut picked: Option<(String, Generator)> = None;
+                for inv_name in names {
+                    if ui.button(inv_name).clicked()
+                        && let Some(g) = inv.0.generators.get(inv_name)
+                    {
+                        picked = Some((inv_name.clone(), g.clone()));
+                        ui.close();
+                    }
+                }
+                if let Some((inv_name, g)) = picked {
+                    let new_name = unique_key(&record.generators, &inv_name);
+                    record.generators.insert(new_name.clone(), g);
+                    *selected_generator = Some(new_name.clone());
+                    *selected_prim_path = Some(Vec::new());
+                    tree_view_state.set_one_selected(GenNodeId::root(new_name));
+                    *dirty = true;
+                }
+            });
+        }
+    });
+
+    ui.separator();
+
+    // The tree itself. Roots are sorted by name for stable presentation —
+    // HashMap iteration order is unspecified and would otherwise reshuffle
+    // every frame when the layout cache rebuilds.
+    let mut root_names: Vec<String> = record.generators.keys().cloned().collect();
+    root_names.sort();
+
+    // Pending-action channel shared into every per-row `context_menu`
+    // closure. Closures all hold `&pending`; clicks call `borrow_mut()` to
+    // stash an action. We drain it after `show_state` returns and apply
+    // with mutable record access — that ordering keeps the tree's
+    // immutable-ish read of `record.generators` (during the build closure)
+    // clean of structural mutations.
+    let pending: RefCell<Option<PendingAction>> = RefCell::new(None);
+
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            if root_names.is_empty() {
+                ui.label(
+                    egui::RichText::new("(no generators — click \"+ New\" above)")
+                        .small()
+                        .color(egui::Color32::GRAY),
+                );
+                return;
+            }
+            let inv_for_build: Option<&LiveInventoryRecord> = inventory.as_deref();
+            let (_resp, actions) = TreeView::new(ui.make_persistent_id("generators_tree_view"))
+                .allow_drag_and_drop(true)
+                .allow_multi_selection(false)
+                .show_state(ui, tree_view_state, |builder| {
+                    for name in &root_names {
+                        if let Some(node) = record.generators.get(name) {
+                            build_tree_node(
+                                builder,
+                                name,
+                                node,
+                                Vec::new(),
+                                true,
+                                &pending,
+                                inv_for_build,
+                            );
+                        }
+                    }
+                });
+
+            // Drain a Move (drag-commit) into the pending channel. We
+            // only honour the first move event per frame and skip if a
+            // context-menu click already staged something — collisions
+            // are improbable but it keeps single-action semantics.
+            for action in actions {
+                if let Action::Move(dnd) = action {
+                    if pending.borrow().is_some() {
+                        break;
+                    }
+                    if let Some(src) = dnd.source.into_iter().next() {
+                        *pending.borrow_mut() = Some(PendingAction::Reparent {
+                            source: src,
+                            target: dnd.target,
+                            position: dnd.position,
+                        });
+                    }
+                    break;
+                }
+            }
+        });
+
+    if let Some(action) = pending.into_inner() {
+        apply_pending(
+            action,
+            record,
+            selected_generator,
+            selected_prim_path,
+            tree_view_state,
+            renaming_generator,
+            inventory,
+            dirty,
+        );
+    }
+
+    // Sync the tree's selection back into the gizmo's source-of-truth so
+    // `editor_gizmo` can read `(selected_generator, selected_prim_path)` to
+    // attach the gizmo. Treat any selected id that no longer resolves to a
+    // live node as "no selection" — happens after a delete / kind-change /
+    // rename leaves the tree state holding a stale path.
+    let valid: Option<GenNodeId> = tree_view_state
+        .selected()
+        .first()
+        .filter(|id| find_node(record, id).is_some())
+        .cloned();
+    match valid {
+        Some(id) => {
+            if selected_generator.as_deref() != Some(id.root.as_str()) {
+                *selected_generator = Some(id.root.clone());
+                *dirty = true;
+            }
+            if selected_prim_path.as_deref() != Some(id.path.as_slice()) {
+                *selected_prim_path = Some(id.path.clone());
+                *dirty = true;
+            }
+        }
+        None => {
+            if selected_generator.is_some() {
+                *selected_generator = None;
+                *dirty = true;
+            }
+            if selected_prim_path.is_some() {
+                *selected_prim_path = None;
+                *dirty = true;
+            }
+            if !tree_view_state.selected().is_empty() {
+                tree_view_state.set_selected(Vec::new());
+            }
+        }
+    }
+}
+
+/// Drain a single buffered context-menu action and mutate the record in
+/// the right way for it. Encapsulates the structural-edit machinery — add
+/// child / rename / save to inventory / delete — so the tree-build pass
+/// stays a pure read of `record.generators`.
+#[allow(clippy::too_many_arguments)]
+fn apply_pending(
+    action: PendingAction,
+    record: &mut RoomRecord,
+    selected_generator: &mut Option<String>,
+    selected_prim_path: &mut Option<Vec<usize>>,
+    tree_view_state: &mut TreeViewState,
+    renaming_generator: &mut Option<(String, String)>,
+    inventory: Option<&mut LiveInventoryRecord>,
+    dirty: &mut bool,
+) {
+    match action {
+        PendingAction::AddChild { parent, kind_tag } => {
+            if let Some(node) = find_node_mut(record, &parent)
+                && allows_children(&node.kind)
+            {
+                let new_kind = make_default_for_kind(kind_tag);
+                node.children.push(Generator::from_kind(new_kind));
+                let new_idx = node.children.len() - 1;
+                let mut new_path = parent.path.clone();
+                new_path.push(new_idx);
+                let new_id = GenNodeId::child(&parent.root, new_path.clone());
+                *selected_generator = Some(parent.root.clone());
+                *selected_prim_path = Some(new_path);
+                tree_view_state.set_openness(parent, true);
+                tree_view_state.set_one_selected(new_id);
+                *dirty = true;
+            }
+        }
+        PendingAction::AddChildFromInventory { parent, generator } => {
+            if let Some(node) = find_node_mut(record, &parent)
+                && allows_children(&node.kind)
+            {
+                node.children.push(*generator);
+                let new_idx = node.children.len() - 1;
+                let mut new_path = parent.path.clone();
+                new_path.push(new_idx);
+                let new_id = GenNodeId::child(&parent.root, new_path.clone());
+                *selected_generator = Some(parent.root.clone());
+                *selected_prim_path = Some(new_path);
+                tree_view_state.set_openness(parent, true);
+                tree_view_state.set_one_selected(new_id);
+                *dirty = true;
+            }
+        }
+        PendingAction::Rename(root_name) => {
+            // The actual key migration + Placement / traits rewrite lives
+            // in the rename modal in `super::room_admin_ui`; we just open
+            // the modal with the current name pre-filled.
+            *renaming_generator = Some((root_name.clone(), root_name));
+        }
+        PendingAction::SaveToInventory(id) => {
+            if let Some(inv) = inventory
+                && let Some(source) = find_node(record, &id)
+            {
+                let prefix = if id.path.is_empty() {
+                    id.root.clone()
+                } else {
+                    source.kind_tag().to_lowercase()
+                };
+                let safe_name = unique_key(&inv.0.generators, &prefix);
+                inv.0.generators.insert(safe_name, source.clone());
+                *dirty = true;
+            }
+        }
+        PendingAction::Delete(id) => {
+            if id.path.is_empty() {
+                // Root delete — also sweep dangling Placements + traits
+                // referencing this generator name. Without this, the world
+                // compiler logs "unknown generator_ref" for orphaned
+                // placements and the trait mapping (`collider_heightfield`,
+                // etc.) silently keeps an entry that no longer corresponds
+                // to a live generator.
+                record.generators.remove(&id.root);
+                sweep_root_refs(record, &id.root);
+            } else if let Some(parent_id) = id.parent_id() {
+                let last_idx = *id.path.last().expect("non-root has non-empty path");
+                if let Some(parent) = find_node_mut(record, &parent_id)
+                    && last_idx < parent.children.len()
+                {
+                    parent.children.remove(last_idx);
+                }
+            }
+            *selected_generator = None;
+            *selected_prim_path = None;
+            tree_view_state.set_selected(Vec::new());
+            *dirty = true;
+        }
+        PendingAction::Reparent {
+            source,
+            target,
+            position,
+        } => {
+            apply_reparent(
+                record,
+                selected_generator,
+                selected_prim_path,
+                tree_view_state,
+                source,
+                target,
+                position,
+                dirty,
+            );
+        }
+    }
+}
+
+/// Apply a single drag-and-drop reparent. Handles the four kinds of
+/// movement that the unified tree allows:
+///
+/// * **inner → inner** — move a child subtree to a different parent in
+///   the same root tree, or to a different root tree entirely.
+/// * **inner → root** — promote a child subtree to a brand-new top-level
+///   generator, auto-keyed via `unique_key` from its kind tag.
+/// * **root → inner** — demote a top-level generator into a child of
+///   some node. The departing root's `Placement` references and `traits`
+///   mapping are swept (same discipline as a root delete) so we never
+///   leave an orphan.
+/// * **root → root** — a no-op. Top-level generators live in a `HashMap`
+///   that has no order, so reordering at the root is meaningless.
+///
+/// Cycle protection: a node can't be reparented into itself or any of
+/// its descendants. The check is conservative — when in doubt we drop
+/// the move.
+#[allow(clippy::too_many_arguments)]
+fn apply_reparent(
+    record: &mut RoomRecord,
+    selected_generator: &mut Option<String>,
+    selected_prim_path: &mut Option<Vec<usize>>,
+    tree_view_state: &mut TreeViewState,
+    source: GenNodeId,
+    target: GenNodeId,
+    position: DirPosition<GenNodeId>,
+    dirty: &mut bool,
+) {
+    if source.is_virtual_root() {
+        return;
+    }
+    // Self-move and ancestor-into-descendant moves would create cycles.
+    if source == target || is_ancestor_of(&source, &target) {
+        return;
+    }
+
+    let target_is_virtual = target.is_virtual_root();
+
+    // Reject "Inside" drops on nodes whose kind disallows children. The
+    // tree itself uses `drop_allowed(false)` to prevent this in the UX,
+    // but a defensive check at apply time keeps the model consistent
+    // even if a future widget version emits the move anyway.
+    if !target_is_virtual {
+        let Some(target_node) = find_node(record, &target) else {
+            return;
+        };
+        if !allows_children(&target_node.kind) {
+            return;
+        }
+    }
+
+    // root → root reorder is meaningless (HashMap has no order). Also
+    // skips the redundant rename / sweep pass we'd otherwise trigger.
+    if source.path.is_empty() && target_is_virtual {
+        return;
+    }
+
+    // Phase 1: extract the source subtree. For root sources we pull from
+    // the HashMap and sweep dangling refs (mirror of root-delete);
+    // for child sources we splice out of the parent's children Vec.
+    let extracted: Generator = if source.path.is_empty() {
+        let Some(node) = record.generators.remove(&source.root) else {
+            return;
+        };
+        sweep_root_refs(record, &source.root);
+        node
+    } else {
+        let Some(parent_id) = source.parent_id() else {
+            return;
+        };
+        let last_idx = *source.path.last().expect("non-root has non-empty path");
+        let Some(parent) = find_node_mut(record, &parent_id) else {
+            return;
+        };
+        if last_idx >= parent.children.len() {
+            return;
+        }
+        parent.children.remove(last_idx)
+    };
+
+    // Phase 2: insert at the destination.
+    let new_id = if target_is_virtual {
+        // Promotion to top-level. Auto-key from the kind tag — matches
+        // the "+ New" toolbar's behaviour.
+        let prefix = extracted.kind_tag().to_lowercase();
+        let new_name = unique_key(&record.generators, &prefix);
+        record.generators.insert(new_name.clone(), extracted);
+        GenNodeId::root(new_name)
+    } else {
+        // Drop into an existing dir. Translate `DirPosition` to a plain
+        // index in `target.children` *after* the source extraction, then
+        // splice the subtree in. Indices in `position` reference the
+        // pre-removal sibling layout, so we adjust when source and
+        // target share a parent and source preceded the anchor.
+        let same_parent = source
+            .parent_id()
+            .as_ref()
+            .map(|p| p == &target)
+            .unwrap_or(false);
+        let removed_index = if same_parent {
+            source.path.last().copied()
+        } else {
+            None
+        };
+
+        let target_children_len = match find_node(record, &target) {
+            Some(n) => n.children.len(),
+            None => return,
+        };
+
+        let mut idx = match position {
+            DirPosition::First => 0,
+            DirPosition::Last => target_children_len,
+            DirPosition::Before(anchor) => {
+                sibling_index_in(record, &target, &anchor).unwrap_or(target_children_len)
+            }
+            DirPosition::After(anchor) => sibling_index_in(record, &target, &anchor)
+                .map(|i| i + 1)
+                .unwrap_or(target_children_len),
+        };
+        if let Some(removed) = removed_index
+            && idx > removed
+        {
+            idx -= 1;
+        }
+        idx = idx.min(target_children_len);
+
+        let Some(target_node) = find_node_mut(record, &target) else {
+            return;
+        };
+        target_node.children.insert(idx, extracted);
+
+        let mut new_path = target.path.clone();
+        new_path.push(idx);
+        GenNodeId::child(target.root.clone(), new_path)
+    };
+
+    // Selection follows the moved subtree. Also clear stale tree-view
+    // openness state on the old id by simply not referencing it again.
+    *selected_generator = Some(new_id.root.clone());
+    *selected_prim_path = Some(new_id.path.clone());
+    tree_view_state.set_one_selected(new_id);
+    *dirty = true;
+}
+
+/// True when `ancestor` is on the path from a root to `descendant`. Used
+/// to reject reparent moves that would create a cycle (drag a node into
+/// one of its own descendants).
+fn is_ancestor_of(ancestor: &GenNodeId, descendant: &GenNodeId) -> bool {
+    if ancestor.is_virtual_root() {
+        // The virtual root is the ancestor of every real node, but
+        // dropping a root *into* the virtual root is a no-op handled
+        // separately, so reporting `true` here would needlessly block
+        // promotion-from-inner moves. Restrict the meaningful check to
+        // proper-prefix relationships within the same tree.
+        return false;
+    }
+    if ancestor.root != descendant.root {
+        return false;
+    }
+    descendant.path.starts_with(&ancestor.path) && descendant.path.len() > ancestor.path.len()
+}
+
+/// Find the index of `child` within `parent.children`, or `None` if
+/// `child` is not in fact a direct child of `parent`. Used to translate
+/// `DirPosition::Before(anchor) / After(anchor)` into a numeric index.
+fn sibling_index_in(record: &RoomRecord, parent: &GenNodeId, child: &GenNodeId) -> Option<usize> {
+    if child.root != parent.root {
+        return None;
+    }
+    if child.path.len() != parent.path.len() + 1 {
+        return None;
+    }
+    if !child.path.starts_with(&parent.path) {
+        return None;
+    }
+    let parent_node = find_node(record, parent)?;
+    let last_idx = *child.path.last()?;
+    if last_idx < parent_node.children.len() {
+        Some(last_idx)
+    } else {
+        None
+    }
+}
+
+/// Remove every `Placement` whose `generator_ref` matches the deleted root
+/// and drop the matching `traits` entry. Keeps `Placement::Unknown` (the
+/// forward-compat catch-all) since we can't see its `generator_ref` field.
+/// Mirrors the integrity-preservation discipline of the rename modal's
+/// commit path.
+fn sweep_root_refs(record: &mut RoomRecord, deleted_root: &str) {
+    record.placements.retain(|p| match p {
+        Placement::Absolute { generator_ref, .. }
+        | Placement::Scatter { generator_ref, .. }
+        | Placement::Grid { generator_ref, .. } => generator_ref != deleted_root,
+        Placement::Unknown => true,
+    });
+    record.traits.remove(deleted_root);
+}
+
+/// Recursively add `node` and its children to the tree-view builder. The
+/// label format matches the user's expectation: roots show the HashMap key
+/// (the user-given name) plus a kind hint; inner nodes show only the kind
+/// since they're positional and unnamed. Each row gets a right-click
+/// context menu wired through `pending` so structural ops (Add child /
+/// Rename / Save to Inventory / Delete) buffer cleanly until after the
+/// tree finishes drawing.
+///
+/// The lifetimes on `root_name` and `node` are independent of the builder's
+/// own working lifetime — the label is materialised as an owned `String`
+/// before being handed to [`NodeBuilder::label`], so the builder never
+/// retains a reference into `record`.
+fn build_tree_node(
+    builder: &mut egui_ltreeview::TreeViewBuilder<'_, GenNodeId>,
+    root_name: &str,
+    node: &Generator,
+    path: Vec<usize>,
+    is_root: bool,
+    pending: &RefCell<Option<PendingAction>>,
+    inventory: Option<&LiveInventoryRecord>,
+) {
+    let id = GenNodeId::child(root_name, path.clone());
+    let label = if is_root {
+        format!("{}  ({})", root_name, node.kind_tag())
+    } else {
+        node.kind_tag().to_string()
+    };
+
+    let menu_id = id.clone();
+    let menu_root = id.root.clone();
+    let menu_allows_children = allows_children(&node.kind);
+    let menu_is_root = is_root;
+    // `Option<&T>` is `Copy`, so the move closure below copies the option
+    // into its captures rather than borrowing — no extra lifetime
+    // bookkeeping needed for the "+ From Inventory" submenu inside.
+    let menu_inventory = inventory;
+    let context_menu = move |ui: &mut egui::Ui| {
+        if menu_allows_children {
+            // Mirror the toolbar's "+ New" kind picker: a submenu listing
+            // every kind valid as a child (every variant except Terrain,
+            // which is root-only). Picking a kind stages an `AddChild`
+            // action carrying that kind's static tag — `apply_pending`
+            // calls `make_default_for_kind` to build the actual node.
+            ui.menu_button("+ Add child", |ui| {
+                for kind_tag in available_kinds_for(false) {
+                    if ui.button(kind_tag).clicked() {
+                        *pending.borrow_mut() = Some(PendingAction::AddChild {
+                            parent: menu_id.clone(),
+                            kind_tag,
+                        });
+                        ui.close();
+                    }
+                }
+            });
+        }
+        if menu_allows_children
+            && let Some(inv) = menu_inventory
+            && !inv.0.generators.is_empty()
+        {
+            ui.menu_button("+ From Inventory", |ui| {
+                let mut names: Vec<&String> = inv
+                    .0
+                    .generators
+                    .iter()
+                    .filter(|(_, g)| is_drop_placeable(g))
+                    .map(|(k, _)| k)
+                    .collect();
+                names.sort();
+                if names.is_empty() {
+                    ui.label(
+                        egui::RichText::new("(no placeable inventory items)")
+                            .small()
+                            .color(egui::Color32::GRAY),
+                    );
+                    return;
+                }
+                for inv_name in names {
+                    if ui.button(inv_name).clicked()
+                        && let Some(g) = inv.0.generators.get(inv_name)
+                    {
+                        *pending.borrow_mut() = Some(PendingAction::AddChildFromInventory {
+                            parent: menu_id.clone(),
+                            generator: Box::new(g.clone()),
+                        });
+                        ui.close();
+                    }
+                }
+            });
+        }
+        // Rename rewrites the BTreeMap key plus every Placement / traits
+        // reference, so it's a root-only operation. Inner nodes are
+        // positional + unnamed and have nothing to rename.
+        if menu_is_root && ui.button("Rename").clicked() {
+            *pending.borrow_mut() = Some(PendingAction::Rename(menu_root.clone()));
+            ui.close();
+        }
+        if ui.button("Save to Inventory").clicked() {
+            *pending.borrow_mut() = Some(PendingAction::SaveToInventory(menu_id.clone()));
+            ui.close();
+        }
+        if ui.button("− Delete").clicked() {
+            *pending.borrow_mut() = Some(PendingAction::Delete(menu_id.clone()));
+            ui.close();
+        }
+    };
+
+    if allows_children(&node.kind) {
+        builder.node(
+            NodeBuilder::dir(id)
+                .label(label)
+                .default_open(is_root)
+                .context_menu(context_menu),
+        );
+        for (i, child) in node.children.iter().enumerate() {
+            let mut child_path = path.clone();
+            child_path.push(i);
+            build_tree_node(
+                builder, root_name, child, child_path, false, pending, inventory,
+            );
+        }
+        builder.close_dir();
+    } else {
+        // No-children kinds (Water, Unknown) reject every drop INTO
+        // them — `apply_reparent` enforces the same invariant defensively
+        // but `drop_allowed(false)` keeps the drop marker from rendering
+        // in the first place, so the user sees a hard "no" at hover.
+        builder.node(
+            NodeBuilder::leaf(id)
+                .label(label)
+                .drop_allowed(false)
+                .context_menu(context_menu),
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Right: detail panel
+// ---------------------------------------------------------------------------
+
+/// Renders only the *content* of the selected node — kind picker,
+/// transform, per-kind detail editor — plus a header that names the node
+/// and shows its path. Every structural operation (Add child / Add child
+/// from Inventory / Rename / Save to Inventory / Delete) lives in the
+/// per-row context menu on the tree panel; this function never mutates
+/// the tree shape.
+fn draw_detail_panel(
+    ui: &mut egui::Ui,
+    record: &mut RoomRecord,
+    selected_generator: &mut Option<String>,
+    selected_prim_path: &mut Option<Vec<usize>>,
+    dirty: &mut bool,
+) {
+    let Some(id) = current_id(selected_generator, selected_prim_path) else {
+        ui.vertical_centered(|ui| {
+            ui.add_space(40.0);
+            ui.label(
+                egui::RichText::new("Select a generator from the tree to edit.")
+                    .color(egui::Color32::GRAY),
+            );
+            ui.add_space(8.0);
+            ui.label(
+                egui::RichText::new("Right-click any tree row for: + Add child / Rename / Save to Inventory / − Delete.")
+                    .small()
+                    .color(egui::Color32::GRAY),
+            );
+        });
+        return;
+    };
+
+    let is_root = id.path.is_empty();
+    let Some(snapshot) = find_node(record, &id) else {
+        // The selection points at a node that just disappeared (e.g. its
+        // parent was kind-changed to a no-children variant). The tree
+        // panel will sync the selection to None on the next frame; show a
+        // brief placeholder for this frame.
+        ui.label("(selected node no longer exists)");
+        return;
+    };
+    let kind_tag = snapshot.kind_tag();
+
+    ui.horizontal(|ui| {
+        if is_root {
+            ui.heading(&id.root);
+            ui.label(egui::RichText::new(format!("({})", kind_tag)).color(egui::Color32::GRAY));
+        } else {
+            ui.heading(kind_tag);
+            ui.label(
+                egui::RichText::new(format!("path: /{}", path_string(&id.path)))
+                    .small()
+                    .color(egui::Color32::GRAY),
+            );
+        }
+    });
+
+    ui.separator();
+
+    let salt = node_salt(&id);
+
+    if let Some(node) = find_node_mut(record, &id) {
+        ui.horizontal(|ui| {
+            ui.label("Kind:");
+            generator_kind_picker(ui, &mut node.kind, is_root, &salt, dirty);
+        });
+
+        ui.add_space(4.0);
+        draw_transform(ui, &mut node.transform, dirty);
+        ui.add_space(4.0);
+        ui.separator();
+
+        egui::ScrollArea::vertical()
+            .id_salt(("gen_detail_scroll", &salt))
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                draw_generator_detail(ui, &salt, &mut node.kind, dirty);
+            });
+    }
+}
+
+/// Snapshot of the currently-selected node id, derived from
+/// `(selected_generator, selected_prim_path)`. Returns `None` when nothing
+/// is selected.
+fn current_id(
+    selected_generator: &Option<String>,
+    selected_prim_path: &Option<Vec<usize>>,
+) -> Option<GenNodeId> {
+    match (selected_generator.as_ref(), selected_prim_path.as_ref()) {
+        (Some(root), Some(path)) => Some(GenNodeId::child(root.clone(), path.clone())),
+        _ => None,
+    }
+}
+
+impl GenNodeId {
+    fn parent_id(&self) -> Option<Self> {
+        if self.path.is_empty() {
+            return None;
+        }
+        let mut parent = self.path.clone();
+        parent.pop();
+        Some(GenNodeId::child(&self.root, parent))
+    }
+}
+
+/// Slash-separated string form of a child path, for display in the detail
+/// header. An empty path renders as the empty string and the caller chooses
+/// whether to show "/" or omit the suffix entirely.
+fn path_string(path: &[usize]) -> String {
+    path.iter()
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// Stable per-node salt for egui IDs. Includes the root key + child path
+/// so collapsing one Cuboid never affects a sibling Cuboid drawn with the
+/// same widget set.
+fn node_salt(id: &GenNodeId) -> String {
+    let mut s = format!("gen_{}", id.root);
+    for i in &id.path {
+        s.push('_');
+        s.push_str(&i.to_string());
+    }
+    s
+}
+
+/// Walk `(root, path)` from the room record to a `&Generator`. Returns
+/// `None` if the root key is missing or any child index is out of bounds.
+fn find_node<'a>(record: &'a RoomRecord, id: &GenNodeId) -> Option<&'a Generator> {
+    let mut node = record.generators.get(&id.root)?;
+    for &i in &id.path {
+        node = node.children.get(i)?;
+    }
+    Some(node)
+}
+
+/// Mutable counterpart of [`find_node`]. Splits the same `(root, path)`
+/// walk into the matching `&mut Generator`.
+fn find_node_mut<'a>(record: &'a mut RoomRecord, id: &GenNodeId) -> Option<&'a mut Generator> {
+    let mut node = record.generators.get_mut(&id.root)?;
+    for &i in &id.path {
+        node = node.children.get_mut(i)?;
+    }
+    Some(node)
+}
+
+// ---------------------------------------------------------------------------
+// Per-kind detail dispatcher (unchanged from prior versions — every kind
+// editor lives in a sibling module and this function picks the right one).
+// ---------------------------------------------------------------------------
+
 /// Per-kind variant detail editor. Dispatches into the per-variant forges
-/// for Terrain / LSystem, owns the inline Water / Portal widgets, and uses
-/// a shared primitive editor for every parametric shape. Does NOT render
-/// the local transform or the child tree — those belong to the wrapping
-/// [`Generator`] node and are drawn by [`super::construct::draw_generator_tree`].
+/// for Terrain / LSystem / Shape, owns the inline Water / Portal widgets,
+/// and uses a shared primitive editor for every parametric shape. Does NOT
+/// render the local transform — that's drawn separately in the detail
+/// panel header.
 ///
 /// `salt` uniquely identifies this node in egui's ID stack — it's passed
-/// through to nested material widgets so collapsing one sibling never
-/// affects another when the same widget type repeats in a recursive tree.
+/// through to nested material widgets so collapsing one node never
+/// affects another when the same widget type repeats across the tree.
 pub(super) fn draw_generator_detail(
     ui: &mut egui::Ui,
     salt: &str,
@@ -693,10 +1352,6 @@ fn draw_common_primitive(
 
 /// Per-volume water editor: the single `level_offset` slider plus the full
 /// [`WaterSurface`] knob set grouped into colour / wave / material sub-panels.
-/// Room-wide water parameters (detail-normal tiling, sun glitter, scatter
-/// tint) live on the Environment tab instead — the split follows the "one
-/// room, many water bodies" intuition: different ponds can have different
-/// colour and choppiness, but they share the room's sky and atmosphere.
 fn draw_water_editor(
     ui: &mut egui::Ui,
     level_offset: &mut Fp,
@@ -781,4 +1436,311 @@ fn draw_water_editor(
                 dirty,
             );
         });
+}
+
+// ---------------------------------------------------------------------------
+// Tests — exercise `apply_reparent`, `sweep_root_refs`, and the cycle /
+// invariant guards. These cover the bug-prone parts of Phase 2 + Phase 3
+// so future refactors can't silently regress (a) dangling-Placement
+// cleanup or (b) cycle protection.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pds::{Environment, Placement, ScatterBounds, TransformData};
+    use std::collections::HashMap;
+
+    fn empty_record() -> RoomRecord {
+        RoomRecord {
+            lex_type: "network.symbios.room".to_string(),
+            environment: Environment::default(),
+            generators: HashMap::new(),
+            placements: Vec::new(),
+            traits: HashMap::new(),
+        }
+    }
+
+    fn cuboid_root() -> Generator {
+        Generator::default_cuboid()
+    }
+
+    fn absolute_pointing_at(name: &str) -> Placement {
+        Placement::Absolute {
+            generator_ref: name.to_string(),
+            transform: TransformData::default(),
+            snap_to_terrain: true,
+        }
+    }
+
+    fn scatter_pointing_at(name: &str) -> Placement {
+        Placement::Scatter {
+            generator_ref: name.to_string(),
+            bounds: ScatterBounds::default(),
+            count: 1,
+            local_seed: 0,
+            biome_filter: Default::default(),
+            snap_to_terrain: true,
+            random_yaw: true,
+        }
+    }
+
+    fn grid_pointing_at(name: &str) -> Placement {
+        Placement::Grid {
+            generator_ref: name.to_string(),
+            transform: TransformData::default(),
+            counts: [1, 1, 1],
+            gaps: crate::pds::Fp3([1.0, 1.0, 1.0]),
+            snap_to_terrain: true,
+            random_yaw: false,
+        }
+    }
+
+    /// `sweep_root_refs` removes every variant of placement that targets the
+    /// deleted root and drops the matching `traits` entry. Forward-compat
+    /// `Placement::Unknown` rows survive (we can't see their `generator_ref`).
+    #[test]
+    fn sweep_root_refs_removes_placements_and_traits() {
+        let mut record = empty_record();
+        record
+            .generators
+            .insert("victim".to_string(), cuboid_root());
+        record
+            .generators
+            .insert("survivor".to_string(), cuboid_root());
+        record.placements.push(absolute_pointing_at("victim"));
+        record.placements.push(scatter_pointing_at("victim"));
+        record.placements.push(grid_pointing_at("survivor"));
+        record.placements.push(Placement::Unknown);
+        record.traits.insert(
+            "victim".to_string(),
+            vec!["collider_heightfield".to_string()],
+        );
+        record
+            .traits
+            .insert("survivor".to_string(), vec!["sensor".to_string()]);
+
+        sweep_root_refs(&mut record, "victim");
+
+        assert_eq!(record.placements.len(), 2, "victim refs should be gone");
+        for p in &record.placements {
+            match p {
+                Placement::Absolute { generator_ref, .. }
+                | Placement::Scatter { generator_ref, .. }
+                | Placement::Grid { generator_ref, .. } => {
+                    assert_ne!(generator_ref, "victim");
+                }
+                Placement::Unknown => {}
+            }
+        }
+        assert!(!record.traits.contains_key("victim"));
+        assert!(record.traits.contains_key("survivor"));
+    }
+
+    /// Cycle protection: a node is its own ancestor in the trivial sense, so
+    /// dropping it onto itself is rejected. Dropping into a descendant of
+    /// itself (a true cycle) is also rejected. Sibling drops are allowed.
+    #[test]
+    fn is_ancestor_of_recognises_proper_descendant() {
+        let root = GenNodeId::root("a");
+        let child = GenNodeId::child("a", vec![0]);
+        let grandchild = GenNodeId::child("a", vec![0, 1]);
+        let other_root = GenNodeId::root("b");
+
+        assert!(is_ancestor_of(&root, &child));
+        assert!(is_ancestor_of(&root, &grandchild));
+        assert!(is_ancestor_of(&child, &grandchild));
+        // Self is *not* a proper ancestor — `apply_reparent` checks for
+        // self-equality separately.
+        assert!(!is_ancestor_of(&root, &root));
+        assert!(!is_ancestor_of(&child, &root));
+        assert!(!is_ancestor_of(&root, &other_root));
+    }
+
+    /// Inner → root promotion: dropping a child into the virtual root
+    /// auto-keys it from the kind tag and registers it in
+    /// `record.generators`. Selection follows the new id.
+    #[test]
+    fn reparent_inner_to_virtual_root_promotes_child() {
+        let mut record = empty_record();
+        let mut parent = cuboid_root();
+        parent
+            .children
+            .push(Generator::from_kind(GeneratorKind::default_cuboid()));
+        record.generators.insert("parent".to_string(), parent);
+
+        let mut tvs = TreeViewState::default();
+        let mut sel_gen = Some("parent".to_string());
+        let mut sel_path = Some(vec![0]);
+        let mut dirty = false;
+
+        apply_reparent(
+            &mut record,
+            &mut sel_gen,
+            &mut sel_path,
+            &mut tvs,
+            GenNodeId::child("parent", vec![0]),
+            GenNodeId::default(),
+            DirPosition::Last,
+            &mut dirty,
+        );
+
+        // parent's child list shrinks; a new top-level "cuboid" appears.
+        let parent_after = record.generators.get("parent").expect("parent still there");
+        assert!(parent_after.children.is_empty());
+        assert!(record.generators.contains_key("cuboid"));
+        // Selection should now name the promoted root.
+        assert_eq!(sel_gen.as_deref(), Some("cuboid"));
+        assert_eq!(sel_path.as_deref(), Some(&[][..]));
+        assert!(dirty);
+    }
+
+    /// Root → inner demotion: dragging a top-level generator into another
+    /// node's children removes the HashMap entry, sweeps placements/traits
+    /// targeting the demoted root, and inserts the subtree as a child of
+    /// the target.
+    #[test]
+    fn reparent_root_to_inner_demotes_and_sweeps_refs() {
+        let mut record = empty_record();
+        record.generators.insert("host".to_string(), cuboid_root());
+        record
+            .generators
+            .insert("victim".to_string(), cuboid_root());
+        record.placements.push(absolute_pointing_at("victim"));
+        record
+            .traits
+            .insert("victim".to_string(), vec!["sensor".to_string()]);
+
+        let mut tvs = TreeViewState::default();
+        let mut sel_gen = Some("victim".to_string());
+        let mut sel_path = Some(Vec::new());
+        let mut dirty = false;
+
+        apply_reparent(
+            &mut record,
+            &mut sel_gen,
+            &mut sel_path,
+            &mut tvs,
+            GenNodeId::root("victim"),
+            GenNodeId::root("host"),
+            DirPosition::Last,
+            &mut dirty,
+        );
+
+        assert!(!record.generators.contains_key("victim"));
+        let host = record.generators.get("host").expect("host still there");
+        assert_eq!(host.children.len(), 1);
+        // Dangling refs: gone.
+        assert!(record.placements.is_empty());
+        assert!(record.traits.is_empty());
+        // Selection follows the moved subtree into its new home.
+        assert_eq!(sel_gen.as_deref(), Some("host"));
+        assert_eq!(sel_path.as_deref(), Some(&[0usize][..]));
+        assert!(dirty);
+    }
+
+    /// Root → root reorder is a no-op: `record.generators` is a `HashMap`
+    /// with no order, so dragging one root next to another can't change
+    /// anything observable. The handler must NOT extract+reinsert (that
+    /// would needlessly sweep refs and break selection).
+    #[test]
+    fn reparent_root_to_virtual_root_is_noop() {
+        let mut record = empty_record();
+        record.generators.insert("a".to_string(), cuboid_root());
+        record.generators.insert("b".to_string(), cuboid_root());
+        record.placements.push(absolute_pointing_at("a"));
+
+        let mut tvs = TreeViewState::default();
+        let mut sel_gen = Some("a".to_string());
+        let mut sel_path = Some(Vec::new());
+        let mut dirty = false;
+
+        apply_reparent(
+            &mut record,
+            &mut sel_gen,
+            &mut sel_path,
+            &mut tvs,
+            GenNodeId::root("a"),
+            GenNodeId::default(),
+            DirPosition::Last,
+            &mut dirty,
+        );
+
+        assert!(record.generators.contains_key("a"));
+        assert!(record.generators.contains_key("b"));
+        assert_eq!(record.placements.len(), 1);
+        assert!(!dirty, "no-op reparent must not flip dirty");
+    }
+
+    /// Cycle protection: dragging a node into one of its own descendants
+    /// would create a loop in the tree. The handler rejects it without
+    /// mutating anything.
+    #[test]
+    fn reparent_into_own_descendant_is_rejected() {
+        let mut record = empty_record();
+        let mut root = cuboid_root();
+        root.children
+            .push(Generator::from_kind(GeneratorKind::default_cuboid()));
+        record.generators.insert("a".to_string(), root);
+
+        let mut tvs = TreeViewState::default();
+        let mut sel_gen = Some("a".to_string());
+        let mut sel_path = Some(Vec::new());
+        let mut dirty = false;
+
+        apply_reparent(
+            &mut record,
+            &mut sel_gen,
+            &mut sel_path,
+            &mut tvs,
+            GenNodeId::root("a"),
+            GenNodeId::child("a", vec![0]),
+            DirPosition::Last,
+            &mut dirty,
+        );
+
+        // `a` still exists with its child, no churn.
+        let a = record.generators.get("a").expect("a still there");
+        assert_eq!(a.children.len(), 1);
+        assert!(!dirty);
+    }
+
+    /// `drop_allowed(false)` on Water/Unknown is a UX-side guard; the
+    /// model-side check in `apply_reparent` is the second line of defence.
+    /// Dropping "Inside" a Water node must be rejected even if the widget
+    /// somehow emits the move (e.g., a future widget version).
+    #[test]
+    fn reparent_inside_no_children_kind_is_rejected() {
+        let mut record = empty_record();
+        record.generators.insert(
+            "water".to_string(),
+            Generator::from_kind(GeneratorKind::Water {
+                level_offset: crate::pds::Fp(0.0),
+                surface: crate::pds::WaterSurface::default(),
+            }),
+        );
+        record.generators.insert("cube".to_string(), cuboid_root());
+
+        let mut tvs = TreeViewState::default();
+        let mut sel_gen = Some("cube".to_string());
+        let mut sel_path = Some(Vec::new());
+        let mut dirty = false;
+
+        apply_reparent(
+            &mut record,
+            &mut sel_gen,
+            &mut sel_path,
+            &mut tvs,
+            GenNodeId::root("cube"),
+            GenNodeId::root("water"),
+            DirPosition::Last,
+            &mut dirty,
+        );
+
+        // Cube is still its own root; water still has zero children.
+        assert!(record.generators.contains_key("cube"));
+        let water = record.generators.get("water").expect("water still there");
+        assert!(water.children.is_empty());
+        assert!(!dirty);
+    }
 }

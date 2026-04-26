@@ -6,9 +6,9 @@
 use bevy_egui::egui;
 
 use crate::pds::{
-    Fp, Fp3, Fp4, Generator, GeneratorKind, PropMeshType, SovereignBarkConfig,
-    SovereignGeneratorKind, SovereignLeafConfig, SovereignMaterialSettings, SovereignTextureConfig,
-    SovereignTwigConfig, TransformData,
+    Fp, Fp3, Fp4, GeneratorKind, PropMeshType, SovereignBarkConfig, SovereignGeneratorKind,
+    SovereignLeafConfig, SovereignMaterialSettings, SovereignTextureConfig, SovereignTwigConfig,
+    TransformData,
 };
 
 pub(super) fn draw_transform(ui: &mut egui::Ui, t: &mut TransformData, dirty: &mut bool) {
@@ -250,17 +250,9 @@ pub(super) fn unique_key<T>(map: &std::collections::HashMap<String, T>, prefix: 
 /// from `lsystem-explorer`. Ships with three material slots (bark / twig /
 /// leaf) pre-wired to procedural textures, plus a prop-mapping table so the
 /// `B` terminals become leaf billboards and `~(0)` props become twig cards.
-///
-/// Returns a top-level [`Generator`] (identity transform, no children) so
-/// the master list's "+ LSystem" button can drop it directly into
-/// `RoomRecord::generators`.
-pub(super) fn default_lsystem_generator() -> Generator {
-    Generator::from_kind(default_lsystem_kind())
-}
-
-/// Same preset as [`default_lsystem_generator`] but as a bare
-/// [`GeneratorKind`], for the per-node kind picker that swaps an existing
-/// node's variant in place without touching its transform/children.
+/// Used by the per-node kind picker that swaps an existing node's variant
+/// in place without touching its transform/children, and by the "+ New"
+/// menu in the Generators tab via [`super::construct::make_default_for_kind`].
 pub(super) fn default_lsystem_kind() -> GeneratorKind {
     let mut materials = std::collections::HashMap::new();
 
@@ -318,15 +310,8 @@ pub(super) fn default_lsystem_kind() -> GeneratorKind {
 /// columnar building shipped verbatim from `symbios-shape`'s
 /// `simple_building` example, plus matching brick / glass material slots so
 /// the procedural mesh fallback renders something visually distinct out of
-/// the box. Returned as a top-level [`Generator`] for the master list's
-/// "+ Shape" button.
-pub(super) fn default_shape_generator() -> Generator {
-    Generator::from_kind(default_shape_kind())
-}
-
-/// Bare [`GeneratorKind`] form of [`default_shape_generator`] — used by the
-/// per-node kind picker when the owner swaps an existing node's variant in
-/// place without resetting its transform / children.
+/// the box. Used by the per-node kind picker and by the "+ New" menu in
+/// the Generators tab via [`super::construct::make_default_for_kind`].
 pub(super) fn default_shape_kind() -> GeneratorKind {
     use crate::pds::{
         SovereignBrickConfig, SovereignShingleConfig, SovereignStuccoConfig, SovereignWindowConfig,

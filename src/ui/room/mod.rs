@@ -52,7 +52,6 @@ use crate::pds::{self, Placement, RoomRecord};
 use crate::state::{
     CurrentRoomDid, LiveInventoryRecord, PublishFeedback, RoomRecordRecovery, StoredRoomRecord,
 };
-use crate::ui::inventory::PendingGeneratorDrop;
 
 /// Async task for publishing the room record to the owner's PDS.
 #[derive(Component)]
@@ -73,6 +72,45 @@ pub enum EditorTab {
     Raw,
 }
 
+/// Stable identifier for one node in the unified generator tree. The pair
+/// `(root, path)` walks from a top-level entry in `RoomRecord::generators`
+/// (`root` is the HashMap key) into its `children` (`path` carries the
+/// child-index chain). An empty `path` denotes the root node itself. The
+/// tree-view widget keys its selection / expansion state on this type.
+///
+/// `Default` returns an `(empty-root, empty-path)` sentinel that stands
+/// in for "the implicit virtual root" of the tree-view widget. Our
+/// `unique_key` rejects empty prefixes, so a real generator can never
+/// have `root == ""`; the sentinel is therefore unambiguous.
+#[derive(Clone, Default, PartialEq, Eq, Hash, Debug)]
+pub struct GenNodeId {
+    pub root: String,
+    pub path: Vec<usize>,
+}
+
+impl GenNodeId {
+    pub fn root(name: impl Into<String>) -> Self {
+        Self {
+            root: name.into(),
+            path: Vec::new(),
+        }
+    }
+
+    pub fn child(root: impl Into<String>, path: Vec<usize>) -> Self {
+        Self {
+            root: root.into(),
+            path,
+        }
+    }
+
+    /// True when this id is the implicit virtual root that the tree-view
+    /// widget uses as the parent of every top-level row. We treat
+    /// reparent targets pointing at this sentinel as "drop at top-level".
+    pub fn is_virtual_root(&self) -> bool {
+        self.root.is_empty() && self.path.is_empty()
+    }
+}
+
 /// Persistent editor state kept across frames. Promoted to a `Resource` so
 /// the 3D gizmo controller in `editor_gizmo` can observe which placement the
 /// owner has selected in the UI panel.
@@ -82,10 +120,17 @@ pub struct RoomEditorState {
     pub selected_generator: Option<String>,
     pub selected_placement: Option<usize>,
     /// Path through the selected named generator's tree to the node the
-    /// owner has toggled as the Gizmo target. An empty `Vec` means the
+    /// owner has selected in the unified tree view. An empty `Vec` means the
     /// generator's own root; a `Some([i0, i1, ...])` means the `i_n`-th
-    /// child at each depth. `None` means no node is currently targeted.
+    /// child at each depth. `None` means no node is currently selected. The
+    /// gizmo controller in `editor_gizmo` reads this pair `(selected_generator,
+    /// selected_prim_path)` to attach the 3D gizmo to the live entity that
+    /// matches.
     pub selected_prim_path: Option<Vec<usize>>,
+    /// State for the [`egui_ltreeview`] widget that drives the Generators
+    /// tab's left sidebar. Holds expansion + selection across frames so
+    /// resizing / scrolling doesn't reset what the owner had open.
+    pub tree_view_state: egui_ltreeview::TreeViewState<GenNodeId>,
     raw_text: String,
     raw_text_initialised: bool,
     raw_error: Option<String>,
@@ -133,7 +178,6 @@ pub fn room_admin_ui(
     mut editor: ResMut<RoomEditorState>,
     mut publish_feedback: ResMut<PublishFeedback>,
     mut inventory: Option<ResMut<LiveInventoryRecord>>,
-    mut pending_drop: ResMut<PendingGeneratorDrop>,
     time: Res<Time>,
 ) {
     let (Some(session), Some(room_did), Some(record)) = (session, room_did, room_record.as_mut())
@@ -161,6 +205,7 @@ pub fn room_admin_ui(
         selected_generator,
         selected_placement,
         selected_prim_path,
+        tree_view_state,
         raw_text,
         raw_error,
         is_dirty,
@@ -237,6 +282,11 @@ pub fn room_admin_ui(
                     record_mut.traits.insert(new_name.clone(), traits);
                 }
                 *selected_generator = Some(new_name.clone());
+                // Tree-view ids are keyed on `(root, path)`, so the rename
+                // also has to retarget the current selection at the new
+                // root key — otherwise the tree highlights nothing while
+                // the gizmo still tracks the renamed root.
+                tree_view_state.set_one_selected(GenNodeId::root(new_name.clone()));
                 widget_change = true;
             }
             if close {
@@ -250,7 +300,7 @@ pub fn room_admin_ui(
             .default_open(false)
             .collapsible(true)
             .resizable(true)
-            .default_width(560.0)
+            .default_width(820.0)
             .default_height(620.0)
             .default_pos([580.0, 10.0])
             .show(ctx, |ui| {
@@ -323,6 +373,7 @@ pub fn room_admin_ui(
                                 if tab != EditorTab::Generators {
                                     *selected_generator = None;
                                     *selected_prim_path = None;
+                                    tree_view_state.set_selected(Vec::new());
                                 }
                             }
                             *selected_tab = tab;
@@ -341,48 +392,59 @@ pub fn room_admin_ui(
                 const BODY_MIN_HEIGHT: f32 = 160.0;
                 let body_height = (ui.available_height() - FOOTER_RESERVE).max(BODY_MIN_HEIGHT);
 
-                egui::ScrollArea::vertical()
-                    .auto_shrink([true, false])
-                    .max_height(body_height)
-                    .show(ui, |ui| match *selected_tab {
-                        EditorTab::Environment => {
-                            environment::draw_environment_tab(
-                                ui,
-                                &mut record_mut.environment,
-                                &mut widget_change,
-                            );
-                        }
-                        EditorTab::Generators => {
+                // The Generators tab paints its own SidePanel + CentralPanel
+                // split, so it manages its own scrolls and bypasses the
+                // outer ScrollArea that the simpler tabs share. Wrapping a
+                // nested SidePanel inside an outer ScrollArea collapses the
+                // sidebar's height to zero.
+                match *selected_tab {
+                    EditorTab::Generators => {
+                        ui.allocate_ui(egui::vec2(ui.available_width(), body_height), |ui| {
                             generators::draw_generators_tab(
                                 ui,
                                 record_mut,
                                 selected_generator,
                                 selected_prim_path,
+                                tree_view_state,
                                 renaming_generator,
                                 inventory.as_deref_mut(),
-                                Some(&mut *pending_drop),
-                                true,
                                 &mut widget_change,
                             );
-                        }
-                        EditorTab::Placements => {
-                            placements::draw_placements_tab(
-                                ui,
-                                record_mut,
-                                selected_placement,
-                                &mut widget_change,
-                            );
-                        }
-                        EditorTab::Raw => {
-                            raw::draw_raw_tab(
-                                ui,
-                                raw_text,
-                                raw_error,
-                                record_mut,
-                                &mut widget_change,
-                            );
-                        }
-                    });
+                        });
+                    }
+                    other => {
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([true, false])
+                            .max_height(body_height)
+                            .show(ui, |ui| match other {
+                                EditorTab::Environment => {
+                                    environment::draw_environment_tab(
+                                        ui,
+                                        &mut record_mut.environment,
+                                        &mut widget_change,
+                                    );
+                                }
+                                EditorTab::Placements => {
+                                    placements::draw_placements_tab(
+                                        ui,
+                                        record_mut,
+                                        selected_placement,
+                                        &mut widget_change,
+                                    );
+                                }
+                                EditorTab::Raw => {
+                                    raw::draw_raw_tab(
+                                        ui,
+                                        raw_text,
+                                        raw_error,
+                                        record_mut,
+                                        &mut widget_change,
+                                    );
+                                }
+                                EditorTab::Generators => unreachable!(),
+                            });
+                    }
+                }
 
                 ui.separator();
 
@@ -415,6 +477,7 @@ pub fn room_admin_ui(
                         *selected_generator = None;
                         *selected_placement = None;
                         *selected_prim_path = None;
+                        tree_view_state.set_selected(Vec::new());
                         needs_broadcast = true;
                     }
 
@@ -432,6 +495,7 @@ pub fn room_admin_ui(
                         *selected_generator = None;
                         *selected_placement = None;
                         *selected_prim_path = None;
+                        tree_view_state.set_selected(Vec::new());
                         needs_broadcast = true;
                     }
                 });

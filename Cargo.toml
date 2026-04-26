@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 bevy = "0.18"
 bevy_egui = "0.39"
+egui_ltreeview = "0.6.1"
 bevy_panorbit_camera = { version = "0.34", features = ["bevy_egui"] }
 bevy_symbios = "0.3"
 bevy_symbios_ground = { version = "0.2", features = ["physics"] }
