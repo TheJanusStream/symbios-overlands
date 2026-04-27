@@ -25,6 +25,47 @@ pub mod lighting {
     pub const SKY_COLOR: [f32; 3] = [0.533, 0.533, 0.533];
     /// Uniform scale of the sky cuboid (must exceed max view distance).
     pub const SKY_SCALE: f32 = 2000.0;
+
+    /// Defaults for the procedural cloud-deck layer authored on
+    /// `pds::Environment`. The deck is a single horizontal plane at altitude
+    /// `HEIGHT` rendered with a WGSL fragment shader that synthesises
+    /// domain-warped FBM clouds, threshold-shaped by `COVER` and softened by
+    /// `SOFTNESS`, drifting in `wind_dir` at `SPEED` m/s, and fading into the
+    /// distance-fog colour at the horizon. Picked to look correct in WebGL2
+    /// without compute shaders or volumetric passes.
+    pub mod clouds {
+        /// Fraction of sky covered by clouds. `0` is empty blue, `1` is
+        /// totally overcast.
+        pub const COVER: f32 = 0.45;
+        /// Opacity multiplier for the clouds that survive the cover
+        /// threshold. Lets the user dial down a fully overcast sky into a
+        /// thin haze without remixing the noise field.
+        pub const DENSITY: f32 = 0.85;
+        /// Edge-softness band (in noise-value units) around the cover
+        /// threshold. Larger values produce wispy clouds; smaller produces
+        /// crisper towers.
+        pub const SOFTNESS: f32 = 0.18;
+        /// Cloud drift speed (m/s) along `WIND_DIR`.
+        pub const SPEED: f32 = 4.0;
+        /// World metres per UV unit for the FBM sampler. Larger ⇒ bigger
+        /// individual cloud structures.
+        pub const SCALE: f32 = 320.0;
+        /// Altitude (m) of the cloud-deck plane in world space.
+        pub const HEIGHT: f32 = 250.0;
+        /// Sunlit-top tint (sRGB), warm-white by default.
+        pub const COLOR: [f32; 3] = [1.0, 0.98, 0.94];
+        /// Underside / shadowed tint (sRGB), cool-grey by default. Mixed
+        /// with `COLOR` by the dot of the sun direction with world Y so a
+        /// low sun produces moody undersides without a real lighting pass.
+        pub const SHADOW_COLOR: [f32; 3] = [0.55, 0.62, 0.72];
+        /// 2D drift direction in world XZ (will be normalised by the
+        /// shader). Need not be unit length here.
+        pub const WIND_DIR: [f32; 2] = [1.0, 0.3];
+        /// Half-extent (m) of the cloud-deck plane mesh. Chosen well past
+        /// any reasonable `fog_visibility` so the plane edge is never
+        /// inside the visible fog band at any pitch.
+        pub const PLANE_HALF_EXTENT: f32 = 4_000.0;
+    }
 }
 
 // ---------------------------------------------------------------------------

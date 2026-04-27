@@ -21,6 +21,7 @@ use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 pub mod avatar;
 pub mod boot_params;
 pub mod camera;
+pub mod clouds;
 pub mod config;
 pub mod editor_gizmo;
 pub mod logout;
@@ -44,6 +45,8 @@ use pds::{AvatarRecord, RoomRecord};
 /// `environment.sky_color` changes.
 #[derive(Component)]
 pub struct SkyBox;
+
+pub use clouds::CloudLayer;
 
 /// Format elapsed seconds as a `MM:SS` (or `H:MM:SS`) timestamp string.
 pub fn format_elapsed_ts(elapsed_secs: f64) -> String {
@@ -110,6 +113,7 @@ pub fn run() {
         .add_plugins(EguiPlugin::default())
         .add_plugins(PhysicsPlugins::default())
         .add_plugins(transform_gizmo_bevy::TransformGizmoPlugin)
+        .add_plugins(MaterialPlugin::<clouds::CloudMaterial>::default())
         .add_plugins(terrain::TerrainPlugin)
         .add_plugins(world_builder::WorldBuilderPlugin)
         .add_plugins(player::PlayerPlugin)
@@ -205,6 +209,7 @@ fn setup_lighting(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut cloud_materials: ResMut<Assets<clouds::CloudMaterial>>,
 ) {
     let lp = config::lighting::LIGHT_POS;
     // Start with the config default; `world_builder::compile_room_record`
@@ -249,6 +254,60 @@ fn setup_lighting(
         Transform::from_scale(Vec3::splat(config::lighting::SKY_SCALE)),
         NotShadowCaster,
         SkyBox,
+    ));
+
+    // Cloud-deck — single horizontal `Plane3d` rendered through a custom
+    // `MaterialExtension` over `StandardMaterial`. The mesh is large enough
+    // (PLANE_HALF_EXTENT, default 4 km) that the plane edge sits well past
+    // any reasonable `fog_visibility`, so the shader's horizon fade is the
+    // only thing the camera ever sees at the plane boundary. Uniforms are
+    // initialised from `Environment::default()` and re-patched by
+    // `world_builder::compile::apply_environment_state` whenever the active
+    // `RoomRecord` changes — same retint pattern as the `SkyBox` cuboid.
+    let cc = config::lighting::clouds::COLOR;
+    let csh = config::lighting::clouds::SHADOW_COLOR;
+    let fc = config::camera::fog::COLOR;
+    // Initial sun direction matches the directional light spawned above:
+    // the light looks from `LIGHT_POS` toward the origin, so the unit
+    // vector *toward* the sun is `normalize(LIGHT_POS)`. The world
+    // compiler will refresh this each change tick from the live transform.
+    let sun_v = Vec3::from_array(config::lighting::LIGHT_POS).normalize_or(Vec3::Y);
+    let cloud_mat = cloud_materials.add(clouds::CloudMaterial {
+        base: StandardMaterial {
+            // The fragment shader replaces all colour math, so the base
+            // colour is only used by fallback paths (e.g. shadow caster,
+            // never wired here because shadows + prepass are disabled).
+            base_color: Color::srgba(cc[0], cc[1], cc[2], 1.0),
+            unlit: true,
+            // Cull neither side — the underside is what the player sees
+            // from below the deck, the topside is what they'd see if they
+            // climbed above it on a tall airship.
+            cull_mode: None,
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        },
+        extension: clouds::CloudExtension {
+            uniforms: clouds::CloudUniforms {
+                color: Vec4::new(cc[0], cc[1], cc[2], 1.0),
+                shadow_color: Vec4::new(csh[0], csh[1], csh[2], 1.0),
+                fog_color: Vec4::new(fc[0], fc[1], fc[2], fc[3]),
+                sun_dir: Vec4::new(sun_v.x, sun_v.y, sun_v.z, 0.0),
+                wind_dir: Vec2::from_array(config::lighting::clouds::WIND_DIR),
+                cover: config::lighting::clouds::COVER,
+                density: config::lighting::clouds::DENSITY,
+                softness: config::lighting::clouds::SOFTNESS,
+                speed: config::lighting::clouds::SPEED,
+                scale: config::lighting::clouds::SCALE,
+            },
+        },
+    });
+    let half = config::lighting::clouds::PLANE_HALF_EXTENT;
+    commands.spawn((
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(half * 2.0, half * 2.0))),
+        MeshMaterial3d(cloud_mat),
+        Transform::from_xyz(0.0, config::lighting::clouds::HEIGHT, 0.0),
+        NotShadowCaster,
+        CloudLayer,
     ));
 }
 

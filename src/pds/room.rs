@@ -7,7 +7,7 @@ use super::COLLECTION;
 use super::generator::{Generator, GeneratorKind, Placement, WaterSurface};
 use super::sanitize::{limits, sanitize_generator};
 use super::terrain::SovereignTerrainConfig;
-use super::types::{Fp, Fp3, Fp4, TransformData};
+use super::types::{Fp, Fp2, Fp3, Fp4, TransformData};
 use super::xrpc::{FetchError, PutOutcome, XrpcError, resolve_pds};
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
@@ -57,11 +57,36 @@ pub struct Environment {
     /// a depth prepass to resolve shoreline distance; stored on the record
     /// so the UI field is stable across the feature's rollout.
     pub water_shore_foam_width: Fp,
+
+    // ---- Cloud-deck (procedural FBM layer; see `crate::clouds`) -----------
+    /// Fraction of sky covered by clouds. `0` = empty blue, `1` = totally
+    /// overcast.
+    pub cloud_cover: Fp,
+    /// Opacity multiplier for the clouds that survive the cover threshold.
+    pub cloud_density: Fp,
+    /// Edge-softness band around the cover threshold. Larger ⇒ wispier.
+    pub cloud_softness: Fp,
+    /// Drift speed (m/s) along [`Self::cloud_wind_dir`].
+    pub cloud_speed: Fp,
+    /// World metres per UV unit for the cloud noise sampler.
+    pub cloud_scale: Fp,
+    /// Altitude (m) of the cloud-deck plane.
+    pub cloud_height: Fp,
+    /// 2D wind direction in world XZ. Need not be unit length — the shader
+    /// normalises a small epsilon-padded copy.
+    pub cloud_wind_dir: Fp2,
+    /// sRGB tint for the sunlit top of the cloud layer.
+    pub cloud_color: Fp3,
+    /// sRGB tint for the underside / shadowed regions, mixed with
+    /// [`Self::cloud_color`] by the dot of the sun direction with world Y.
+    pub cloud_shadow_color: Fp3,
 }
 
 impl Default for Environment {
     fn default() -> Self {
-        use crate::config::{camera::fog as f, lighting as l, terrain::water as w};
+        use crate::config::{
+            camera::fog as f, lighting as l, lighting::clouds as c, terrain::water as w,
+        };
         Self {
             sun_color: Fp3(l::SUN_COLOR),
             sun_illuminance: Fp(l::ILLUMINANCE),
@@ -81,6 +106,16 @@ impl Default for Environment {
             water_sun_glitter: Fp(w::DEFAULT_SUN_GLITTER),
             water_scatter_color: Fp3(w::DEFAULT_SCATTER_COLOR),
             water_shore_foam_width: Fp(w::DEFAULT_SHORE_FOAM_WIDTH),
+
+            cloud_cover: Fp(c::COVER),
+            cloud_density: Fp(c::DENSITY),
+            cloud_softness: Fp(c::SOFTNESS),
+            cloud_speed: Fp(c::SPEED),
+            cloud_scale: Fp(c::SCALE),
+            cloud_height: Fp(c::HEIGHT),
+            cloud_wind_dir: Fp2(c::WIND_DIR),
+            cloud_color: Fp3(c::COLOR),
+            cloud_shadow_color: Fp3(c::SHADOW_COLOR),
         }
     }
 }
@@ -152,6 +187,39 @@ impl Environment {
             50.0,
             0.0,
         ));
+
+        // Cloud-deck fields. Same NaN / range guarding as water — the cloud
+        // shader divides by `cloud_scale` and reads `cloud_height` straight
+        // into a `Transform.translation.y`, so a poisoned record must not
+        // be allowed to feed Inf or negative values into either.
+        self.cloud_cover = Fp(clamp_finite_pos(self.cloud_cover.0, 0.0, 1.0, 0.45));
+        self.cloud_density = Fp(clamp_finite_pos(self.cloud_density.0, 0.0, 1.0, 0.85));
+        self.cloud_softness = Fp(clamp_finite_pos(self.cloud_softness.0, 0.001, 1.0, 0.18));
+        self.cloud_speed = Fp(clamp_finite_pos(self.cloud_speed.0, 0.0, 200.0, 4.0));
+        self.cloud_scale = Fp(clamp_finite_pos(self.cloud_scale.0, 1.0, 10_000.0, 320.0));
+        self.cloud_height = Fp(clamp_finite_pos(self.cloud_height.0, 5.0, 10_000.0, 250.0));
+        let wd = self.cloud_wind_dir.0;
+        let wd0 = if wd[0].is_finite() {
+            wd[0].clamp(-100.0, 100.0)
+        } else {
+            1.0
+        };
+        let wd1 = if wd[1].is_finite() {
+            wd[1].clamp(-100.0, 100.0)
+        } else {
+            0.3
+        };
+        // Reject the zero vector — the shader normalises wind_dir and a
+        // bit-for-bit zero would NaN-out the noise sampling. A vanishingly
+        // small magnitude falls back to the canonical default.
+        let mag2 = wd0 * wd0 + wd1 * wd1;
+        self.cloud_wind_dir = if mag2 > 1.0e-6 {
+            Fp2([wd0, wd1])
+        } else {
+            Fp2([1.0, 0.3])
+        };
+        self.cloud_color = clamp3(self.cloud_color);
+        self.cloud_shadow_color = clamp3(self.cloud_shadow_color);
     }
 }
 

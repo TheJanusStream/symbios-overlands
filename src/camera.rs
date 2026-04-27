@@ -33,6 +33,17 @@ fn spawn_orbit_camera(mut commands: Commands) {
     let fc = cfg::fog::COLOR;
     commands.spawn((
         Camera3d::default(),
+        // Bevy's default perspective far plane is 1000 m, which clips the
+        // cloud-deck plane (at altitude ~250 m, half-extent 4 km) before
+        // the shader's horizon-fade has a chance to dissolve it. Pushing
+        // far out to 12 km keeps the entire deck and the SkyBox cuboid at
+        // SKY_SCALE = 2000 m well inside the frustum at every camera
+        // pitch, while reverse-Z depth-precision stays comfortable for
+        // foreground gameplay (Bevy uses reverse-Z by default in 0.18).
+        Projection::from(PerspectiveProjection {
+            far: 12_000.0,
+            ..default()
+        }),
         GizmoCamera,
         PanOrbitCamera {
             radius: Some(cfg::ORBIT_RADIUS),

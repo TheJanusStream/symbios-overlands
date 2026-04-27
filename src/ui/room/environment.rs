@@ -5,7 +5,7 @@
 
 use bevy_egui::egui;
 
-use crate::pds::Environment;
+use crate::pds::{Environment, Fp2};
 
 use super::widgets::{color_picker, color_picker_rgba, fp_slider};
 
@@ -33,6 +33,86 @@ pub(super) fn draw_environment_tab(ui: &mut egui::Ui, env: &mut Environment, dir
                 0.0,
                 2_000.0,
                 dirty,
+            );
+        });
+
+    egui::CollapsingHeader::new("Clouds")
+        .default_open(false)
+        .show(ui, |ui| {
+            fp_slider(ui, "Cover", &mut env.cloud_cover, 0.0, 1.0, dirty);
+            fp_slider(ui, "Density", &mut env.cloud_density, 0.0, 1.0, dirty);
+            fp_slider(
+                ui,
+                "Edge softness",
+                &mut env.cloud_softness,
+                0.001,
+                1.0,
+                dirty,
+            );
+            fp_slider(
+                ui,
+                "Drift speed (m/s)",
+                &mut env.cloud_speed,
+                0.0,
+                50.0,
+                dirty,
+            );
+            fp_slider(
+                ui,
+                "Feature scale (m)",
+                &mut env.cloud_scale,
+                10.0,
+                2_000.0,
+                dirty,
+            );
+            fp_slider(
+                ui,
+                "Altitude (m)",
+                &mut env.cloud_height,
+                10.0,
+                2_000.0,
+                dirty,
+            );
+            color_picker(ui, "Sunlit colour", &mut env.cloud_color, dirty);
+            color_picker(ui, "Shadow colour", &mut env.cloud_shadow_color, dirty);
+
+            ui.label(
+                egui::RichText::new("Wind direction (XZ)")
+                    .small()
+                    .color(egui::Color32::GRAY),
+            );
+            let mut wind = env.cloud_wind_dir.0;
+            ui.horizontal(|ui| {
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut wind[0])
+                            .speed(0.05)
+                            .range(-10.0..=10.0),
+                    )
+                    .changed()
+                {
+                    *dirty = true;
+                }
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut wind[1])
+                            .speed(0.05)
+                            .range(-10.0..=10.0),
+                    )
+                    .changed()
+                {
+                    *dirty = true;
+                }
+            });
+            env.cloud_wind_dir = Fp2(wind);
+
+            ui.label(
+                egui::RichText::new(
+                    "Cloud-deck dissolves into the distance-fog colour at the horizon, \
+                     so adjust Distance Fog → Visibility for a tighter or wider band.",
+                )
+                .small()
+                .color(egui::Color32::GRAY),
             );
         });
 
