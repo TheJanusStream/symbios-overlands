@@ -51,9 +51,8 @@ use bevy_symbios_texture::generator::{TextureError, TextureMap};
 use crate::pds::{Placement, PropMeshType, RoomRecord, ScatterBounds};
 use crate::state::AppState;
 use crate::terrain::FinishedHeightMap;
-use crate::water::WaterMaterial;
+use crate::water::{WaterMaterial, WaterSurfaces};
 
-pub use compile::first_water_in_tree;
 pub use lsystem::{LSystemMaterialCache, LSystemMeshCache};
 pub use material::build_procedural_material;
 pub use shape::{ShapeMaterialCache, ShapeMeshCache};
@@ -141,6 +140,7 @@ impl Plugin for WorldBuilderPlugin {
             .init_resource::<LSystemMeshCache>()
             .init_resource::<ShapeMaterialCache>()
             .init_resource::<ShapeMeshCache>()
+            .init_resource::<WaterSurfaces>()
             .init_resource::<portal::PortalAvatarCache>()
             .add_systems(Startup, setup_prop_assets)
             .add_systems(

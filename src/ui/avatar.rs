@@ -476,6 +476,17 @@ fn humanoid_panel(ui: &mut egui::Ui, phen: &mut HumanoidPhenotype, kin: &mut Hum
             ui.label("Linear damping");
             fp_slider(ui, &mut kin.linear_damping, 0.0..=3.0, 0.05);
         });
+
+    egui::CollapsingHeader::new("Water")
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.label("Wading speed factor");
+            fp_slider(ui, &mut kin.wading_speed_factor, 0.0..=1.0, 0.05);
+            ui.label("Swim speed (m/s)");
+            fp_slider(ui, &mut kin.swim_speed, 0.5..=8.0, 0.1);
+            ui.label("Swim vertical speed (m/s)");
+            fp_slider(ui, &mut kin.swim_vertical_speed, 0.2..=5.0, 0.1);
+        });
 }
 
 fn fp_slider(ui: &mut egui::Ui, value: &mut Fp, range: std::ops::RangeInclusive<f32>, step: f64) {

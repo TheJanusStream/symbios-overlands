@@ -282,6 +282,84 @@ fn legacy_environment_with_only_sun_color_decodes() {
     assert_eq!(back.environment.sun_color.0, [1.0, 0.5, 0.1]);
 }
 
+/// A record published before `WaterSurface::flow_strength` and
+/// `WaterSurface::flow_amount` existed must still decode — `WaterSurface`
+/// carries `#[serde(default)]` at the struct level, so missing fields fall
+/// through to [`WaterSurface::default`] (both flow fields = 0.0). Without
+/// this, the upgrade would brick every existing room with a Water generator.
+#[test]
+fn legacy_water_record_without_flow_fields_decodes() {
+    let record = RoomRecord::default_for_did(TEST_DID);
+    let mut value: serde_json::Value = serde_json::to_value(&record).expect("serialise");
+    let mut found_water = false;
+    if let Some(generators) = value
+        .get_mut("generators")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        for (_, node) in generators.iter_mut() {
+            // Water lives under terrain children — recurse into the tree.
+            strip_flow_from_water_in_tree(node, &mut found_water);
+        }
+    }
+    assert!(
+        found_water,
+        "default record must contain at least one water generator"
+    );
+    let back: RoomRecord = serde_json::from_value(value)
+        .expect("legacy record without flow_strength / flow_amount must decode");
+    // Sanity: at least one water generator round-tripped with both flow
+    // defaults — physics push and visual blend both zero on legacy records.
+    let mut saw_default = false;
+    fn walk(node: &symbios_overlands::pds::Generator, saw: &mut bool) {
+        if let GeneratorKind::Water { surface, .. } = &node.kind
+            && surface.flow_strength.0 == 0.0
+            && surface.flow_amount.0 == 0.0
+        {
+            *saw = true;
+        }
+        for child in &node.children {
+            walk(child, saw);
+        }
+    }
+    for generator in back.generators.values() {
+        walk(generator, &mut saw_default);
+    }
+    assert!(
+        saw_default,
+        "decoded water must default both flow fields to 0"
+    );
+}
+
+/// Recursively remove `flow_strength` and `flow_amount` from every
+/// `surface` object on Water generator nodes in a serialized record tree.
+/// Mutates `value` in place.
+fn strip_flow_from_water_in_tree(value: &mut serde_json::Value, found: &mut bool) {
+    let Some(obj) = value.as_object_mut() else {
+        return;
+    };
+    let is_water = obj
+        .get("$type")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|t| t == "network.symbios.gen.water");
+    if is_water
+        && let Some(surface) = obj
+            .get_mut("surface")
+            .and_then(serde_json::Value::as_object_mut)
+    {
+        surface.remove("flow_strength");
+        surface.remove("flow_amount");
+        *found = true;
+    }
+    if let Some(children) = obj
+        .get_mut("children")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for child in children {
+            strip_flow_from_water_in_tree(child, found);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------

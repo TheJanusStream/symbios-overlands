@@ -11,7 +11,7 @@ use crate::protocol::PontoonShape;
 use crate::state::{LiveAvatarRecord, LocalPlayer, TravelingTo};
 use crate::world_builder::{OverlandsFoliageTasks, build_procedural_material};
 
-use super::{CORNER_OFFSETS, HoverRoverArchetype, MastTip, RoverSail, water_level_y};
+use super::{CORNER_OFFSETS, HoverRoverArchetype, MastTip, RoverSail};
 
 #[allow(clippy::too_many_arguments)]
 pub fn rebuild_airship_children(
@@ -354,10 +354,27 @@ pub(super) fn apply_rover_uprighting_force(
     forces.apply_torque(vehicle_up.cross(Vec3::Y) * kinematics.uprighting_torque.0);
 }
 
+/// Sample the runtime water-surface registry at each chassis corner and
+/// apply per-corner buoyancy + flow current. The previous flat-only
+/// implementation used a single Y threshold and pushed every corner along
+/// world-Y; this version uses [`WaterSurfaces::query`] so the lift acts
+/// along the surface normal — meaning a tilted pond pushes an immersed
+/// rover perpendicular to its slope rather than straight up — and a
+/// non-zero `flow_strength` adds a tangent push along the surface
+/// gradient that turns a tilted pond into a flowing river.
+///
+/// Force application uses `apply_force_at_point` per corner — matching the
+/// per-corner suspension pattern in [`apply_suspension_forces`] — so
+/// asymmetric submersion produces emergent pitch and roll torques without
+/// any explicit torque computation. Per-corner buoyancy is divided by the
+/// corner count so a fully-submerged chassis sees the same integrated lift
+/// as a chassis-centre single-point version. Flow force is applied in
+/// full per corner; multiple submerged corners pushing in the same
+/// downhill direction add up to the expected total.
 #[allow(clippy::type_complexity)]
 pub(super) fn apply_buoyancy_forces(
     live: Res<LiveAvatarRecord>,
-    room_record: Option<Res<crate::pds::RoomRecord>>,
+    water_surfaces: Res<crate::water::WaterSurfaces>,
     hm_res: Option<Res<crate::terrain::FinishedHeightMap>>,
     mut query: Query<(Forces, &GlobalTransform), (With<LocalPlayer>, With<HoverRoverArchetype>)>,
 ) {
@@ -375,59 +392,48 @@ pub(super) fn apply_buoyancy_forces(
             return;
         }
     }
-    // Match `spawn_water_volume` and `find_water_level_for_filter`: under
-    // the strict generator rules, Water is a child of (typically) a
-    // Terrain root, so the buoyancy lookup walks each named generator's
-    // tree DFS for the first Water descendant. The plane Y is then the
-    // sum of:
-    //   * the visual base water level (`water_level_y`)
-    //   * the water node's `level_offset`
-    //   * the placement-Y of the *named generator* that hosts the water
-    //   * the cumulative ancestor `transform.translation.y` from the
-    //     named generator's root down through the water node itself
-    // Forgetting any of those desyncs the buoyancy plane from the visible
-    // surface when the owner shifts the water (or its parent region) via
-    // the 3D Gizmo, so the player falls through the top slab of visible
-    // water before floating somewhere beneath.
-    let (water_offset, ancestor_y, placement_y) = room_record
-        .as_ref()
-        .and_then(|r| {
-            let mut keys: Vec<&String> = r.generators.keys().collect();
-            keys.sort();
-            for k in keys {
-                let Some(generator) = r.generators.get(k) else {
-                    continue;
-                };
-                if let Some((level_offset, ancestor_y)) =
-                    crate::world_builder::first_water_in_tree(generator, 0.0)
-                {
-                    let py = r
-                        .placements
-                        .iter()
-                        .find_map(|p| match p {
-                            crate::pds::Placement::Absolute {
-                                generator_ref,
-                                transform,
-                                ..
-                            } if generator_ref == k => Some(transform.translation.0[1]),
-                            _ => None,
-                        })
-                        .unwrap_or(0.0);
-                    return Some((level_offset, ancestor_y, py));
-                }
-            }
-            None
-        })
-        .unwrap_or((0.0, 0.0, 0.0));
-    let wl =
-        water_level_y() + water_offset + ancestor_y + placement_y + kinematics.water_rest_length.0;
-    let y = global_tf.translation().y;
-    let depth = (wl - y).clamp(0.0, kinematics.buoyancy_max_depth.0);
-    if depth <= 0.0 {
-        return;
-    }
+
+    let chassis_tf = global_tf.compute_transform();
     let lin_vel = forces.linear_velocity();
-    let lift = kinematics.buoyancy_strength.0 * depth;
-    let drag = -kinematics.buoyancy_damping.0 * lin_vel.y;
-    forces.apply_force(Vec3::Y * (lift + drag));
+    let ang_vel = forces.angular_velocity();
+    let center_of_mass = global_tf.translation();
+    let buoyancy_scale = 1.0 / super::CORNER_OFFSETS.len() as f32;
+
+    for offset in super::CORNER_OFFSETS {
+        let local_offset = Vec3::from_array(offset);
+        let world_origin = chassis_tf.transform_point(local_offset);
+
+        // `water_rest_length` shifts the buoyancy plane upward relative to
+        // the visible surface so a partially-submerged chassis sits with
+        // some hull above water. The signed-distance query returns depth
+        // below the visible surface; we add `water_rest_length` so depth
+        // is taken against the buoyancy plane along the same normal.
+        let Some(q) = water_surfaces.query(world_origin) else {
+            continue;
+        };
+        let depth =
+            (q.depth + kinematics.water_rest_length.0).clamp(0.0, kinematics.buoyancy_max_depth.0);
+        if depth <= 0.0 {
+            continue;
+        }
+        let r = world_origin - center_of_mass;
+        let point_vel = lin_vel + ang_vel.cross(r);
+        // Drag opposes the velocity component along the surface normal —
+        // movement *parallel* to the surface should not be damped by
+        // buoyancy itself (water's lateral resistance is captured by the
+        // body's `linear_damping`).
+        let normal_vel = point_vel.dot(q.normal);
+        let lift = kinematics.buoyancy_strength.0 * depth;
+        let drag = -kinematics.buoyancy_damping.0 * normal_vel;
+        forces.apply_force_at_point(q.normal * ((lift + drag) * buoyancy_scale), world_origin);
+
+        // Flow current — projected gravity tangent to the surface, scaled by
+        // submerged depth so a corner barely under water feels less push
+        // than one fully immersed. Skip zero `flow_strength` and zero
+        // `flow_dir` (flat water) so the common case takes no extra work.
+        if q.flow_strength > 0.0 && q.flow_dir != Vec3::ZERO {
+            let flow_force = q.flow_dir * q.flow_strength * depth;
+            forces.apply_force_at_point(flow_force, world_origin);
+        }
+    }
 }

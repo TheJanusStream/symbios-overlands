@@ -34,7 +34,7 @@ use bevy_symbios_texture::{map_to_images, map_to_images_card};
 use crate::config::terrain as tcfg;
 use crate::pds::{Environment, SovereignMaterialSettings, SovereignTextureConfig, WaterSurface};
 use crate::terrain::WaterVolume;
-use crate::water::{WaterExtension, WaterMaterial, WaterUniforms};
+use crate::water::{WaterExtension, WaterMaterial, WaterPlane, WaterSurfaces, WaterUniforms};
 
 use super::compile::SpawnCtx;
 use super::{OverlandsFoliageTasks, RoomEntity};
@@ -66,6 +66,7 @@ fn build_water_uniforms(surface: &WaterSurface, env: &Environment) -> WaterUnifo
         refraction_strength: env.water_refraction_strength.0,
         sun_glitter: env.water_sun_glitter.0,
         shore_foam_width: env.water_shore_foam_width.0,
+        flow_amount: surface.flow_amount.0,
     }
 }
 
@@ -79,6 +80,7 @@ pub(super) fn spawn_water_volume(
     world_extent: f32,
     meshes: &mut Assets<Mesh>,
     water_materials: &mut Assets<WaterMaterial>,
+    water_surfaces: &mut WaterSurfaces,
 ) -> Entity {
     let base_wl = tcfg::water::LEVEL_FACTOR * tcfg::HEIGHT_SCALE;
     let wl = (base_wl + level_offset).max(0.001);
@@ -113,9 +115,22 @@ pub(super) fn spawn_water_volume(
     let mut tf = placement_tf;
     tf.translation.y += wl;
 
+    let half_extent = world_extent / 2.0;
+
+    // Register this surface in the runtime lookup so per-frame physics
+    // (rover buoyancy, scatter biome filter) can find it without re-walking
+    // the record. The mesh half-extent is recorded BEFORE the transform's
+    // scale is applied — `WaterSurfaces::surface_at` re-applies the scale
+    // via the inverse transform when testing containment.
+    water_surfaces.planes.push(WaterPlane {
+        world_from_local: tf,
+        local_half_extents: Vec2::splat(half_extent),
+        flow_strength: surface.flow_strength.0,
+    });
+
     commands
         .spawn((
-            Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(world_extent / 2.0)))),
+            Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(half_extent)))),
             MeshMaterial3d(water_mat),
             tf,
             WaterVolume,

@@ -73,6 +73,48 @@ fn humanoid_body_round_trips() {
 }
 
 #[test]
+fn humanoid_kinematics_legacy_record_decodes() {
+    // A record published by a client that predates the swim/wading
+    // kinematics fields must still decode — those fields carry
+    // `#[serde(default)]` so missing entries fall through to their
+    // defaults. Without this, an upgrade would brick every existing
+    // humanoid avatar record on the network.
+    let original = AvatarRecord {
+        lex_type: "network.symbios.overlands.avatar".into(),
+        body: AvatarBody::Humanoid {
+            phenotype: Box::new(HumanoidPhenotype::default()),
+            kinematics: Box::new(HumanoidKinematics::default()),
+        },
+    };
+    let mut value: serde_json::Value = serde_json::to_value(&original).unwrap();
+    // Drop the new fields from the serialized form to simulate an old
+    // record on disk.
+    let kinematics = value
+        .pointer_mut("/body/kinematics")
+        .and_then(|v| v.as_object_mut())
+        .expect("kinematics object");
+    kinematics.remove("swim_speed");
+    kinematics.remove("swim_vertical_speed");
+    kinematics.remove("wading_speed_factor");
+
+    let back: AvatarRecord =
+        serde_json::from_value(value).expect("legacy record without new fields must decode");
+    let AvatarBody::Humanoid { kinematics, .. } = back.body else {
+        panic!("expected Humanoid body");
+    };
+    let defaults = HumanoidKinematics::default();
+    assert_eq!(kinematics.swim_speed.0, defaults.swim_speed.0);
+    assert_eq!(
+        kinematics.swim_vertical_speed.0,
+        defaults.swim_vertical_speed.0
+    );
+    assert_eq!(
+        kinematics.wading_speed_factor.0,
+        defaults.wading_speed_factor.0
+    );
+}
+
+#[test]
 fn avatar_serialises_without_float_literals() {
     let a = AvatarRecord::default_for_did("did:plc:alice");
     let json = serde_json::to_string(&a).expect("serialise");

@@ -1,25 +1,33 @@
 // Fragment shader for the animated water surface.
 //
 // Step-by-step what this does vs the old sum-of-two-sines implementation:
-//   1. Wave displacement is a sum of six Gerstner waves rotated around
+//   1. A surface basis is derived from `in.world_normal` so wave UVs are
+//      measured along the *surface tangent plane*, not world XZ. On flat
+//      water (normal ≈ Y) this collapses exactly to the previous
+//      world-XZ parameterisation; on a tilted plane it tracks the slope,
+//      which keeps wave fronts horizontal-along-surface instead of
+//      stamping vertical-world bands across a sloped sheet.
+//   2. Wave displacement is a sum of six Gerstner waves rotated around
 //      the user-controlled prevailing wind direction, at golden-ratio-ish
-//      wavelengths / amplitudes / speeds. Normals are computed analytically
-//      from the Gerstner partial derivatives — not a faked vec3(x, 1, z).
-//      Rotated direction vectors kill the axis-aligned grid repetition the
-//      old implementation showed on long sightlines.
-//   2. A two-scale scrolling detail noise (near/far tiles blended by camera
-//      distance) overlays fine ripples onto the Gerstner normal to mask the
-//      wave-frequency grain at distance.
-//   3. Fresnel (Schlick) drives both the reflection strength and the final
-//      alpha, mixing a shallow/transparent tint at head-on view with a
-//      deep/opaque tint at grazing angles. This is what fixes the "sometimes
-//      very translucent" behaviour — there was no view-angle term before.
-//   4. Subsurface scatter, wave-crest foam, and a sharp sun-glitter specular
-//      highlight all ride on top of the PBR lighting pass.
-//
-// The mesh is a flat `Plane3d` in +Y — no cuboid side-face `discard` is
-// required, so the shader runs on every rasterised fragment and derivatives
-// (`fwidth`) stay well-defined across full 2×2 quads.
+//      wavelengths / amplitudes / speeds, all evaluated in surface-local
+//      UVs. Normals are computed analytically in the local frame and
+//      rotated to world via the surface basis.
+//   3. A two-scale scrolling detail noise (near/far tiles blended by
+//      camera distance) overlays fine ripples onto the Gerstner normal
+//      to mask the wave-frequency grain at distance. UVs scroll along the
+//      prevailing wind direction in still mode and along the surface's
+//      downhill tangent in flow mode (`flow_amount = 1`), with linear
+//      blending in between.
+//   4. `flow_amount` (mirrors `WaterSurface::flow_amount`) blends from
+//      classic standing-wave Gerstner (0.0) toward a river-style
+//      flow-map look (1.0): Gerstner amplitude is suppressed and the
+//      detail-normal scroll speed scales with the surface's tilt
+//      magnitude (`sin(tilt_angle)` of the gravity tangent).
+//   5. Fresnel (Schlick) drives both the reflection strength and the
+//      final alpha, mixing a shallow/transparent tint at head-on view
+//      with a deep/opaque tint at grazing angles.
+//   6. Subsurface scatter, wave-crest foam, and a sharp sun-glitter
+//      specular highlight all ride on top of the PBR lighting pass.
 //
 // All tunable values flow through the `WaterUniforms` block bound at slot
 // 100 — authored on `pds::WaterSurface` (per water body) and
@@ -49,6 +57,7 @@ struct WaterUniforms {
     refraction_strength: f32,
     sun_glitter: f32,
     shore_foam_width: f32,
+    flow_amount: f32,
 };
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> water_uniforms: WaterUniforms;
@@ -65,9 +74,9 @@ struct GerstnerOut {
 
 // Single Gerstner wave contribution. `Q` is the steepness (0 = plain sine,
 // 1 = sharpest crests that still keep the surface function-valued). Returns
-// world-space offset plus the partial derivatives of that offset with
-// respect to the undisturbed X and Z positions — enough to build an exact
-// surface normal without finite differences.
+// surface-local offset plus the partial derivatives of that offset with
+// respect to the undisturbed local U and V positions — enough to build an
+// exact surface normal in local space without finite differences.
 //
 // `phase_offset` breaks the coherence of multiple waves passing through the
 // origin at t=0. Without it all six waves peak at p=(0,0,t=0) and form a
@@ -120,6 +129,40 @@ fn rot2(v: vec2<f32>, a: f32) -> vec2<f32> {
 }
 
 // ---------------------------------------------------------------------------
+// Surface basis
+// ---------------------------------------------------------------------------
+
+// Build a (tangent, normal, bitangent) right-handed frame for the surface
+// at this fragment. Tangent is derived from the projection of world X onto
+// the surface plane, falling back to projected world Z when the surface is
+// near-vertical (so the projection of X collapses). For flat water (normal
+// ≈ Y) this picks tangent = X and bitangent = Z, exactly matching the
+// previous world-XZ parameterisation — flat-water visuals stay
+// pixel-identical to the pre-rework shader.
+//
+// Returned matrix has tangent in column 0, normal in column 1, bitangent
+// in column 2: `world_v = basis * local_v`, where local_v is in the
+// `(t, n, b)` frame.
+fn build_surface_basis(normal: vec3<f32>) -> mat3x3<f32> {
+    // Tangent ≈ projection of world X onto the surface, normalised.
+    let proj_x = vec3<f32>(1.0, 0.0, 0.0) - normal * normal.x;
+    let proj_x_len = length(proj_x);
+    var tangent: vec3<f32>;
+    if proj_x_len > 1e-3 {
+        tangent = proj_x / proj_x_len;
+    } else {
+        // Surface normal is too close to world X — fall back to projecting
+        // world Z. This branch only fires for surfaces tilted past ~88°.
+        let proj_z = vec3<f32>(0.0, 0.0, 1.0) - normal * normal.z;
+        tangent = normalize(proj_z);
+    }
+    // `cross(tangent, normal)` (not `cross(normal, tangent)`) so flat water
+    // produces bitangent = +Z to match the legacy `pos.z` convention.
+    let bitangent = normalize(cross(tangent, normal));
+    return mat3x3<f32>(tangent, normal, bitangent);
+}
+
+// ---------------------------------------------------------------------------
 // Value noise for detail normals + foam breakup
 // ---------------------------------------------------------------------------
 
@@ -162,7 +205,8 @@ fn noise2d(p: vec2<f32>) -> f32 {
 // Normal perturbation from the gradient of a value-noise field, sampled at
 // the given UV and ~one octave above. The vertical Y coefficient biases the
 // result toward +Y so the combined water normal never flips horizontal
-// (which would invert lighting on a flat pond).
+// (which would invert lighting on a flat pond). Returned in surface-local
+// frame `(t, n, b)` — caller rotates to world.
 //
 // `footprint` is the screen-space size of one UV unit at this pixel. When
 // the footprint approaches or exceeds one noise cell the finite-difference
@@ -200,6 +244,23 @@ fn fragment(
 
     let t = globals.time * water_uniforms.wave_speed;
     let pos = in.world_position.xyz;
+
+    // Surface basis. Collapses to identity on flat water so a pre-rework
+    // record renders pixel-identical. On a tilted surface this gives us
+    // the (tangent, normal, bitangent) frame; we keep basis rotation
+    // *only* for the wave normal — wave / noise sampling stays in
+    // world XZ to keep the visible pattern invariant under tilt. A
+    // previous iteration sampled in surface UV, which produced visible
+    // band artifacts on any tilt: the in-plane noise grid stretched
+    // anisotropically, and the resulting detail-normal pattern aliased
+    // with the per-fragment UV step under perspective.
+    let n_surface = normalize(in.world_normal);
+    let basis = build_surface_basis(n_surface);
+
+    // World-XZ wave coordinate. Identical to the pre-rework shader so
+    // flat-water visuals are unchanged; on a tilted plane the pattern
+    // stays world-aligned (the tilt manifests through the normal
+    // rotation below, not through stretched UVs).
     let xz = pos.xz;
 
     // Normalise the prevailing direction; guard against a zero input vector
@@ -208,7 +269,29 @@ fn fragment(
     let prevailing_in = water_uniforms.wave_direction + vec2<f32>(0.0001, 0.0);
     let prevailing = normalize(prevailing_in);
 
-    let scale = water_uniforms.wave_scale;
+    // Flow-map plumbing. Gravity projected onto the surface gives a
+    // downhill direction in world space; we keep the *world-XZ* horizontal
+    // component for UV scrolling so the noise frame is consistent with
+    // the wave-sampling frame. `flow_speed` (length of the full
+    // surface-tangent gravity vector — sin(tilt_angle)) is preserved so
+    // scroll-speed kicks at high tilt still fire.
+    let flow_amount = clamp(water_uniforms.flow_amount, 0.0, 1.0);
+    let g_world = vec3<f32>(0.0, -1.0, 0.0);
+    let tangent_g = g_world - n_surface * dot(g_world, n_surface);
+    let flow_speed = length(tangent_g);
+    var flow_dir_xz = vec2<f32>(0.0, 0.0);
+    let flow_horiz_len = length(vec2<f32>(tangent_g.x, tangent_g.z));
+    if flow_horiz_len > 1e-4 {
+        flow_dir_xz = vec2<f32>(tangent_g.x, tangent_g.z) / flow_horiz_len;
+    }
+
+    // Standing-wave amplitude is suppressed as flow_amount climbs — a
+    // streaming river is not a sum-of-Gerstner-waves visually. At
+    // `flow_amount = 1` the Gerstner term contributes only ~20% of its
+    // still-water amplitude so the surface gets most of its texture from
+    // scrolling detail normals instead.
+    let still_factor = mix(1.0, 0.2, flow_amount);
+    let scale = water_uniforms.wave_scale * still_factor;
     // Per-wave steepness — total steepness must stay ≤ 1 / (k * amplitude)
     // summed across every component to keep the surface from looping back on
     // itself. Divide the uniform by the wave count so the user-facing slider
@@ -249,15 +332,17 @@ fn fragment(
         total_dz = total_dz + w.d_dz;
     }
 
-    // Analytic normal from the accumulated partial derivatives. Tangent and
-    // bitangent include the identity world axes plus the Gerstner partials;
-    // the surface normal is their cross product.
-    let tangent = vec3<f32>(1.0, 0.0, 0.0) + total_dx;
-    let bitangent = vec3<f32>(0.0, 0.0, 1.0) + total_dz;
-    var n_gerstner = normalize(cross(bitangent, tangent));
-    if n_gerstner.y < 0.0 {
-        n_gerstner = -n_gerstner;
+    // Analytic surface normal in *local* (t, n, b) frame, then rotated to
+    // world via the surface basis. The augmented tangent `(1, 0, 0) + dx`
+    // and bitangent `(0, 0, 1) + dz` live in the local frame because the
+    // Gerstner partials are local; their cross product is a local normal.
+    let local_tangent = vec3<f32>(1.0, 0.0, 0.0) + total_dx;
+    let local_bitangent = vec3<f32>(0.0, 0.0, 1.0) + total_dz;
+    var n_gerstner_local = normalize(cross(local_bitangent, local_tangent));
+    if n_gerstner_local.y < 0.0 {
+        n_gerstner_local = -n_gerstner_local;
     }
+    let n_gerstner = normalize(basis * n_gerstner_local);
 
     // Scrolling detail normals. Two UV tiling scales are blended by camera
     // distance so the high-frequency sparkle that reads well up close fades
@@ -268,27 +353,45 @@ fn fragment(
     let far_weight = clamp(smoothstep(30.0, 180.0, dist), 0.0, 1.0);
     let near_weight = 1.0 - far_weight;
 
-    let near_uv = xz * water_uniforms.normal_scale_near + prevailing * t * 0.35;
-    let far_uv = xz * water_uniforms.normal_scale_far + prevailing * t * 0.15;
+    // Scroll direction blends from prevailing-wind drift (still water) to
+    // surface-downhill flow (river mode), and the scroll *speed* gains a
+    // tilt-proportional kick at high `flow_amount` so a steep slope reads
+    // as visibly faster water than a gentle one. Direction is in world
+    // XZ, matching the wave-sampling frame.
+    let scroll_dir = mix(prevailing, flow_dir_xz, flow_amount);
+    let scroll_speed_near = mix(0.35, 0.35 + 1.5 * flow_speed, flow_amount);
+    let scroll_speed_far = mix(0.15, 0.15 + 0.7 * flow_speed, flow_amount);
+    let near_uv = xz * water_uniforms.normal_scale_near + scroll_dir * t * scroll_speed_near;
+    let far_uv = xz * water_uniforms.normal_scale_far + scroll_dir * t * scroll_speed_far;
 
     // Pixel footprint in each UV space — drives the anti-alias fade inside
-    // detail_normal. `fwidth(xz)` is a world-space per-pixel span; multiply
-    // by the tile scale to get the UV-space equivalent.
+    // detail_normal. `fwidth(xz)` is a per-pixel span in *local* (t/b)
+    // units; multiply by the tile scale to get the UV-space equivalent.
     let world_footprint = length(fwidth(xz));
     let near_footprint = world_footprint * water_uniforms.normal_scale_near;
     let far_footprint = world_footprint * water_uniforms.normal_scale_far;
 
-    let near_n = detail_normal(near_uv, near_footprint);
-    let far_n = detail_normal(far_uv, far_footprint);
-    let detail = normalize(near_weight * near_n + far_weight * far_n);
+    let near_n_local = detail_normal(near_uv, near_footprint);
+    let far_n_local = detail_normal(far_uv, far_footprint);
+    let detail_local = normalize(near_weight * near_n_local + far_weight * far_n_local);
+    let detail = normalize(basis * detail_local);
 
     // Blend the Gerstner analytic normal with the detail ripple. Reduce the
     // detail contribution with distance so the fine-grain ripple can't
     // dominate the lit result past the scale where its cells are tiny on
     // screen — this is the secondary cushion against aliasing, on top of
-    // the footprint fade inside detail_normal itself.
-    let detail_mix = 0.35 * (1.0 - far_weight * 0.75);
-    let n = normalize(n_gerstner + detail_mix * vec3<f32>(detail.x, 0.0, detail.z));
+    // the footprint fade inside detail_normal itself. Boost the ripple
+    // contribution slightly at high `flow_amount` so a river shows visible
+    // surface texture even when its standing waves are damped.
+    let detail_mix_base = 0.35 * (1.0 - far_weight * 0.75);
+    let detail_mix = mix(detail_mix_base, detail_mix_base * 1.6, flow_amount);
+    // Project the detail normal onto the tangent plane (subtract its
+    // component along `n_surface`) before adding so detail_mix only
+    // perturbs *within the surface tangent plane* — without this the
+    // accumulated normal can drift away from the surface basis on tilted
+    // water, producing a subtle but visible "sheen drift" at grazing.
+    let detail_planar = detail - n_surface * dot(detail, n_surface);
+    let n = normalize(n_gerstner + detail_mix * detail_planar);
     pbr_input.N = n;
     pbr_input.world_normal = n;
 
@@ -309,18 +412,41 @@ fn fragment(
     let final_alpha = clamp(base_alpha + fresnel * (1.0 - base_alpha), 0.0, 1.0);
 
     // Cheap subsurface scatter: bright the crests with the scatter tint.
+    // `total_off.y` is along the local up axis = surface normal, so this
+    // stays correct on tilted water without rotation.
     let crest_strength = clamp(total_off.y * 0.6, 0.0, 1.0);
     let scatter = crest_strength * water_uniforms.scatter_color.rgb;
 
     // Procedural foam where the wave slope is steep, gated by noise so the
-    // foam breaks into clumps rather than a continuous halo.
-    let slope = clamp(1.0 - n_gerstner.y, 0.0, 1.0);
-    let foam_noise = noise2d(xz * 0.6 + prevailing * t * 0.5);
-    let foam = clamp(
+    // foam breaks into clumps rather than a continuous halo. `n_gerstner_local.y`
+    // (the surface-normal component of the Gerstner local normal) gives the
+    // tilt magnitude relative to the rest surface — same semantics as the
+    // legacy `n_gerstner.y` on flat water but invariant to the surface
+    // basis on tilted water.
+    let slope = clamp(1.0 - n_gerstner_local.y, 0.0, 1.0);
+    let foam_noise = noise2d(xz * 0.6 + scroll_dir * t * 0.5);
+    var foam = clamp(
         smoothstep(0.28, 0.8, slope * 1.3 + foam_noise * 0.4) * water_uniforms.foam_amount,
         0.0,
         1.0,
     );
+
+    // Streamline foam: at high `flow_amount` on a tilted surface, add a
+    // moving stripe pattern aligned across the flow direction so a river
+    // reads as flowing rather than just drifting. Built from a 1D noise
+    // sampled along the flow tangent in world XZ (matching the wave
+    // sampling frame); gated by `flow_amount * flow_speed` so flat water
+    // and still ponds get nothing.
+    if flow_amount > 0.001 && flow_horiz_len > 1e-3 {
+        let perp = vec2<f32>(-flow_dir_xz.y, flow_dir_xz.x);
+        let stripe_uv = vec2<f32>(
+            dot(xz, flow_dir_xz) - t * (1.5 + 2.5 * flow_speed),
+            dot(xz, perp) * 0.6,
+        );
+        let stripe = noise2d(stripe_uv * 0.7);
+        let streamline = smoothstep(0.55, 0.85, stripe) * flow_amount * flow_speed;
+        foam = clamp(foam + streamline * water_uniforms.foam_amount, 0.0, 1.0);
+    }
 
     // Push the per-volume overrides into the PBR input before lighting runs.
     // Distance-based roughness boost (Toksvig-lite): widen the specular lobe

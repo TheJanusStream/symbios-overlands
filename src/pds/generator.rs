@@ -58,6 +58,22 @@ pub struct WaterSurface {
     pub wave_choppiness: Fp,
     /// Strength of the procedural foam on wave crests (`[0, 1]`).
     pub foam_amount: Fp,
+    /// Force-per-metre-submerged applied to objects floating in this water,
+    /// directed along the steepest-descent tangent of the surface (the
+    /// projection of gravity onto the plane). `0.0` = still water; ~9.81 ≈
+    /// "free-fall along the slope" for a 1-metre-deep avatar. Has no effect
+    /// on flat water — the tangent component of gravity is then zero —
+    /// which keeps existing rooms unchanged. This is the *physics* knob;
+    /// the visual flow-map blend lives separately on `flow_amount`.
+    pub flow_strength: Fp,
+    /// Visual flow-map blend in `[0, 1]`. `0.0` = classic standing-wave
+    /// Gerstner (still pond, even on a tilt — the existing look). `1.0` =
+    /// pure flow-map mode (scrolling detail normals along the surface's
+    /// downhill direction, suppressed Gerstner amplitude — the river /
+    /// stream look). Mix in between for a choppy flowing river.
+    /// Independent of `flow_strength` so a glassy "infinity-pool" effect
+    /// (visible flow, no avatar push) is authorable.
+    pub flow_amount: Fp,
 }
 
 impl Default for WaterSurface {
@@ -77,6 +93,8 @@ impl Default for WaterSurface {
             wave_direction: Fp2([1.0, 0.3]),
             wave_choppiness: Fp(0.3),
             foam_amount: Fp(0.25),
+            flow_strength: Fp(0.0),
+            flow_amount: Fp(0.0),
         }
     }
 }

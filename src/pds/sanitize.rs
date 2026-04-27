@@ -117,6 +117,12 @@ pub mod limits {
     /// Both feed shader uniforms and a runaway value produces NaN normals.
     pub const MAX_WAVE_SCALE: f32 = 100.0;
     pub const MAX_WAVE_SPEED: f32 = 100.0;
+    /// Maximum `flow_strength` (force-per-metre-submerged) on a Water
+    /// surface. Bounded so a hostile record can't apply a near-infinite
+    /// tangent force to every floating object — earth gravity is ~9.81, so
+    /// 10× free-fall is the upper bound for any reasonable river / waterfall
+    /// effect.
+    pub const MAX_WATER_FLOW_STRENGTH: f32 = 100.0;
 }
 
 /// Recursively clamp a [`Generator`] tree. Beyond the depth and total-node
@@ -494,6 +500,13 @@ fn sanitize_water(level_offset: &mut Fp, surface: &mut WaterSurface) {
     } else {
         Fp2([1.0, 0.3])
     };
+    surface.flow_strength = Fp(clamp_finite(
+        surface.flow_strength.0,
+        0.0,
+        limits::MAX_WATER_FLOW_STRENGTH,
+        0.0,
+    ));
+    surface.flow_amount = Fp(clamp_finite(surface.flow_amount.0, 0.0, 1.0, 0.0));
 }
 
 /// Clamp the variant-specific payload of a [`GeneratorKind`] in place. Does

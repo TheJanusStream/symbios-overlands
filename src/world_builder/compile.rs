@@ -24,7 +24,7 @@ use crate::pds::{
 };
 use crate::state::CurrentRoomDid;
 use crate::terrain::{FinishedHeightMap, OutgoingTerrain, TerrainMesh};
-use crate::water::WaterMaterial;
+use crate::water::{WaterMaterial, WaterSurfaces};
 
 use super::lsystem::{LSystemMaterialCache, LSystemMeshCache, spawn_lsystem_entity};
 use super::material::{spawn_procedural_material, spawn_water_volume};
@@ -97,6 +97,7 @@ pub(super) fn compile_room_record(
     mut generator_caches: GeneratorCaches,
     current_room: Option<Res<CurrentRoomDid>>,
     mut portal_avatar_cache: ResMut<super::portal::PortalAvatarCache>,
+    mut water_surfaces: ResMut<WaterSurfaces>,
 ) {
     let Some(record) = record else {
         return;
@@ -120,6 +121,11 @@ pub(super) fn compile_room_record(
     for e in &existing {
         commands.entity(e).try_despawn();
     }
+
+    // The runtime water-surface registry is rebuilt every compile pass.
+    // Cleared here so a record patch that removes a water generator drops
+    // the corresponding entry from the lookup.
+    water_surfaces.planes.clear();
 
     // Step 2 — Environment is applied by `apply_environment_state`, which
     // runs as its own system. Splitting it out keeps `compile_room_record`
@@ -168,6 +174,7 @@ pub(super) fn compile_room_record(
         entities_spawned: &mut entities_spawned,
         budget_warned: &mut budget_warned,
         portal_avatar_cache: &mut portal_avatar_cache,
+        water_surfaces: &mut water_surfaces,
     };
 
     for (placement_index, placement) in record.placements.iter().enumerate() {
@@ -248,7 +255,7 @@ pub(super) fn compile_room_record(
         match placement {
             Placement::Absolute { generator_ref, .. } => {
                 if let Some(entity) =
-                    dispatch_top_level(&mut ctx, generator_ref, Transform::IDENTITY, false)
+                    dispatch_top_level(&mut ctx, generator_ref, Transform::IDENTITY)
                 {
                     ctx.commands.entity(anchor).add_child(entity);
                 }
@@ -319,7 +326,7 @@ pub(super) fn compile_room_record(
                             let cell_tf = Transform::from_xyz(local_x, final_local_y, local_z)
                                 .with_rotation(rotation);
                             if let Some(entity) =
-                                dispatch_top_level(&mut ctx, generator_ref, cell_tf, true)
+                                dispatch_top_level(&mut ctx, generator_ref, cell_tf)
                             {
                                 ctx.commands.entity(anchor).add_child(entity);
                             }
@@ -337,7 +344,21 @@ pub(super) fn compile_room_record(
                 ..
             } => {
                 let terrain_cfg = crate::pds::find_terrain_config(ctx.record);
-                let water_level = find_water_level_for_filter(ctx.record);
+                // Resolve the biome-filter water threshold from the runtime
+                // registry rather than the record. Each scatter uses a
+                // single global Y (matching the previous behavior), sampled
+                // at the scatter's centre — placements that come before the
+                // home-water spawn collapse to "no water" and the filter
+                // accepts by default. Realistic rooms put Terrain first so
+                // home water is in the registry by the time scatters run.
+                let scatter_center_xz = match bounds {
+                    ScatterBounds::Circle { center, .. } => Vec2::new(center.0[0], center.0[1]),
+                    ScatterBounds::Rect { center, .. } => Vec2::new(center.0[0], center.0[1]),
+                };
+                let water_level = ctx
+                    .water_surfaces
+                    .surface_at(scatter_center_xz)
+                    .map(|(_, y)| y);
                 let max_attempts = count.saturating_mul(10).max(*count);
                 let mut rng = ChaCha8Rng::seed_from_u64(*local_seed);
                 let mut spawned = 0u32;
@@ -400,8 +421,7 @@ pub(super) fn compile_room_record(
                     };
                     let cell_tf = Transform::from_translation(local_pos).with_rotation(rotation);
 
-                    if let Some(entity) = dispatch_top_level(&mut ctx, generator_ref, cell_tf, true)
-                    {
+                    if let Some(entity) = dispatch_top_level(&mut ctx, generator_ref, cell_tf) {
                         ctx.commands.entity(anchor).add_child(entity);
                     }
                     spawned += 1;
@@ -535,83 +555,6 @@ pub(super) fn sample_bounds(bounds: &ScatterBounds, rng: &mut ChaCha8Rng) -> (f3
             }
         },
     }
-}
-
-/// Compute the world-space Y of the first water node's surface for use by
-/// `BiomeFilter` water-relation checks. Under the strict generator rules,
-/// Water is child-only — so the search walks each named generator's tree
-/// (DFS) looking for the first Water descendant.
-///
-/// Walks generators in sorted key order so every peer picks the same
-/// water; when no record contains a Water node we return `None` and the
-/// filter collapses to accept-by-default.
-///
-/// The computation mirrors what `spawn_water_volume` will see at compile
-/// time:
-///
-/// * base sea level = `tcfg::water::LEVEL_FACTOR * HEIGHT_SCALE`
-/// * plus the water node's own `level_offset`
-/// * plus the placement-Y of the named generator that contains the water
-/// * plus the cumulative `transform.translation.y` from the named
-///   generator's root down through every ancestor to the water node
-///   itself (its own translation included). This matches the entity tree
-///   the spawner builds: each generator entity sits at its `transform`
-///   inside its parent, so the world Y of the water surface is the
-///   product of those nested local Ys.
-///
-/// Quaternion rotations are intentionally ignored. The buoyancy plane the
-/// rover and biome-filter code reason about is axis-aligned with world Y
-/// — water "tilted" by an ancestor rotation has no useful surface for
-/// either system, and authoring such a thing is a bug, not a feature.
-pub(super) fn find_water_level_for_filter(record: &RoomRecord) -> Option<f32> {
-    let mut keys: Vec<&String> = record.generators.keys().collect();
-    keys.sort();
-    for k in &keys {
-        let Some(generator) = record.generators.get(*k) else {
-            continue;
-        };
-        if let Some((level_offset, ancestor_y)) = first_water_in_tree(generator, 0.0) {
-            let placement_y = record
-                .placements
-                .iter()
-                .find_map(|p| match p {
-                    Placement::Absolute {
-                        generator_ref,
-                        transform,
-                        ..
-                    } if generator_ref == *k => Some(transform.translation.0[1]),
-                    _ => None,
-                })
-                .unwrap_or(0.0);
-            let base_wl = tcfg::water::LEVEL_FACTOR * tcfg::HEIGHT_SCALE;
-            let wl = (base_wl + level_offset).max(0.001);
-            return Some(placement_y + ancestor_y + wl);
-        }
-    }
-    None
-}
-
-/// DFS the tree under `node`, returning the first `(level_offset,
-/// cumulative_ancestor_y)` for a Water descendant. `accumulated_y` is the
-/// sum of `transform.translation.y` from the *parent* down to (but not
-/// including) `node`; we include `node`'s own translation here so the
-/// returned `ancestor_y` is the full world-Y contribution of the path
-/// from the named generator's root to the matched water node.
-///
-/// Children are visited in declaration order, matching the spawner's
-/// traversal — so "the first water" is unambiguous and identical across
-/// peers.
-pub fn first_water_in_tree(node: &Generator, accumulated_y: f32) -> Option<(f32, f32)> {
-    let here_y = accumulated_y + node.transform.translation.0[1];
-    if let GeneratorKind::Water { level_offset, .. } = &node.kind {
-        return Some((level_offset.0, here_y));
-    }
-    for child in &node.children {
-        if let Some(found) = first_water_in_tree(child, here_y) {
-            return Some(found);
-        }
-    }
-    None
 }
 
 /// Deterministic `[-1, 1]` sample from a `ChaCha8Rng`.
@@ -749,6 +692,10 @@ pub(super) struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// same DID enqueues its top-face material instead of issuing a fresh
     /// HTTPS round trip.
     pub(super) portal_avatar_cache: &'a mut super::portal::PortalAvatarCache,
+    /// Runtime water-surface registry. Cleared at the top of each compile
+    /// pass and pushed to from `spawn_water_volume`. Read by the scatter
+    /// biome filter (this pass) and rover buoyancy (every fixed step).
+    pub(super) water_surfaces: &'a mut WaterSurfaces,
 }
 
 /// Entry point called by the top-level `Placement` loop. Resolves the
@@ -774,7 +721,6 @@ pub(super) fn dispatch_top_level(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
     generator_ref: &str,
     cell_tf: Transform,
-    strip_water: bool,
 ) -> Option<Entity> {
     let Some(generator) = ctx.record.generators.get(generator_ref) else {
         warn!(
@@ -803,17 +749,13 @@ pub(super) fn dispatch_top_level(
     // Clone out the named generator so the recursive spawner doesn't have
     // to re-borrow `ctx.record.generators` at every depth. The clone is per
     // placement, not per scatter sample, so the cost is bounded.
-    let mut generator = generator.clone();
-    // Scattered/gridded blueprints would otherwise spawn one world-extent
-    // water plane per cell — N copies of the same flat surface stacked at
-    // the same Y, which is wasteful and produces shader z-fighting. The
-    // canonical home-world Water lives under a Terrain root anchored by an
-    // `Absolute` placement; child Water inside a scattered blueprint is
-    // dropped here rather than at sanitise time so an `Absolute` user of
-    // the same generator name still gets its water.
-    if strip_water {
-        strip_water_children(&mut generator);
-    }
+    //
+    // Water children of scattered/gridded blueprints used to be stripped here
+    // because each cell would spawn a redundant world-extent plane. With
+    // finite, transform-bounded surfaces tracked in `WaterSurfaces`, scattered
+    // ponds are now legitimate — each cell's local transform produces a
+    // distinct entry in the registry — so the strip step has been removed.
+    let generator = generator.clone();
     let root_tf = cell_tf * transform_from_data(&generator.transform);
     let entity = spawn_generator(ctx, &generator, generator_ref, &[], root_tf);
     if let Some(entity) = entity
@@ -897,6 +839,7 @@ pub(super) fn spawn_generator(
                 world_extent,
                 ctx.meshes,
                 ctx.water_materials,
+                ctx.water_surfaces,
             ))
         }
         GeneratorKind::Shape { .. } => {
@@ -977,19 +920,6 @@ fn spawn_generator_children(
         if let Some(child_entity) = spawn_generator(ctx, child, base_ref, &child_path, child_tf) {
             ctx.commands.entity(parent_entity).add_child(child_entity);
         }
-    }
-}
-
-/// Recursively drop `Water` children from a generator tree. Sanitise rules
-/// already forbid Water at a generator's root, so we only need to filter the
-/// children list at each level. Used by `dispatch_top_level` for Scatter and
-/// Grid placements where N copies of the same world-extent water plane would
-/// otherwise stack at the same Y.
-fn strip_water_children(node: &mut Generator) {
-    node.children
-        .retain(|c| !matches!(c.kind, GeneratorKind::Water { .. }));
-    for child in &mut node.children {
-        strip_water_children(child);
     }
 }
 

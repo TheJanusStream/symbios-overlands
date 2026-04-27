@@ -1436,6 +1436,35 @@ fn draw_water_editor(
                 dirty,
             );
         });
+
+    egui::CollapsingHeader::new("Flow (physics)")
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.label(
+                "Force per metre submerged applied along the surface's downhill \
+                 tangent. Zero on flat water; ~9.81 ≈ free-fall along the slope.",
+            );
+            fp_slider(
+                ui,
+                "Flow strength",
+                &mut surface.flow_strength,
+                0.0,
+                30.0,
+                dirty,
+            );
+        });
+
+    egui::CollapsingHeader::new("Flow (visual)")
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.label(
+                "Blends the surface look from classic Gerstner standing waves \
+                 (0) toward a river-style flow map (1). Independent of the \
+                 physics push — set this without flow strength for a glassy \
+                 \"infinity-pool\" effect, or both for a flowing river.",
+            );
+            fp_slider(ui, "Flow amount", &mut surface.flow_amount, 0.0, 1.0, dirty);
+        });
 }
 
 // ---------------------------------------------------------------------------

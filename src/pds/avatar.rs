@@ -201,6 +201,28 @@ pub struct HumanoidKinematics {
     pub jump_impulse: Fp,
     pub mass: Fp,
     pub linear_damping: Fp,
+    /// Target horizontal speed while swimming (head submerged, m/s). Slower
+    /// than `walk_speed` — water resists motion.
+    #[serde(default = "default_swim_speed")]
+    pub swim_speed: Fp,
+    /// Target vertical speed while swimming when Space (ascend) or
+    /// Shift / Ctrl (descend) is held (m/s).
+    #[serde(default = "default_swim_vertical_speed")]
+    pub swim_vertical_speed: Fp,
+    /// Multiplier applied to `walk_speed` while wading (feet submerged,
+    /// head above water). 1.0 = no slowdown, 0.5 = half speed.
+    #[serde(default = "default_wading_speed_factor")]
+    pub wading_speed_factor: Fp,
+}
+
+fn default_swim_speed() -> Fp {
+    Fp(2.5)
+}
+fn default_swim_vertical_speed() -> Fp {
+    Fp(1.8)
+}
+fn default_wading_speed_factor() -> Fp {
+    Fp(0.5)
 }
 
 impl Default for HumanoidKinematics {
@@ -211,6 +233,9 @@ impl Default for HumanoidKinematics {
             jump_impulse: Fp(450.0),
             mass: Fp(80.0),
             linear_damping: Fp(0.3),
+            swim_speed: default_swim_speed(),
+            swim_vertical_speed: default_swim_vertical_speed(),
+            wading_speed_factor: default_wading_speed_factor(),
         }
     }
 }
@@ -399,6 +424,13 @@ impl AvatarRecord {
                 k.jump_impulse = Fp(clamp_pos(k.jump_impulse.0, 50_000.0));
                 k.mass = Fp(k.mass.0.clamp(0.1, 10_000.0));
                 k.linear_damping = Fp(clamp_pos(k.linear_damping.0, 100.0));
+                k.swim_speed = Fp(clamp_pos(k.swim_speed.0, 50.0));
+                k.swim_vertical_speed = Fp(clamp_pos(k.swim_vertical_speed.0, 50.0));
+                k.wading_speed_factor = Fp(if k.wading_speed_factor.0.is_finite() {
+                    k.wading_speed_factor.0.clamp(0.0, 1.0)
+                } else {
+                    default_wading_speed_factor().0
+                });
             }
             AvatarBody::Unknown => {}
         }
