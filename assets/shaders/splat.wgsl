@@ -33,6 +33,7 @@
         calculate_tbn_mikktspace,
         apply_normal_mapping,
     },
+    pbr_types::STANDARD_MATERIAL_FLAGS_FLIP_NORMAL_MAP_Y,
 }
 
 #ifdef PREPASS_PIPELINE
@@ -150,8 +151,15 @@ fn triplanar_normal_world(
     //   X: T=sx·Z, B=+Y  (left-handed, tz negated) → world = (tz·sx,  ty,  tx·sx)
     //   Y: T=+X,   B=sy·Z (left-handed, tz negated) → world = (tx,    tz·sy, ty·sy)
     //   Z: T=sz·X, B=+Y   (right-handed)            → world = (tx·sz, ty,    tz·sz)
+    //
+    // The Y-projection's tx and ty are negated below to invert the
+    // horizontal perturbation direction. Without this, rock-texture bumps
+    // render as if lit from the opposite direction (i.e. as dents instead of
+    // ridges) on top-down terrain, while the standard layers (grass/dirt/snow)
+    // — which use Bevy's mesh TBN with FLIP_NORMAL_MAP_Y — render correctly.
+    // The negation makes the rock layer's lit direction match the others.
     let wn_x = vec3<f32>(tn_x.z * sign_x, tn_x.y, tn_x.x * sign_x);
-    let wn_y = vec3<f32>(tn_y.x, tn_y.z * sign_y, tn_y.y * sign_y);
+    let wn_y = vec3<f32>(-tn_y.x, tn_y.z * sign_y, -tn_y.y * sign_y);
     let wn_z = vec3<f32>(tn_z.x * sign_z, tn_z.y, tn_z.z * sign_z);
 
     return normalize(wn_x * weights.x + wn_y * weights.y + wn_z * weights.z);
@@ -223,6 +231,13 @@ fn fragment(
         // Grass, Dirt, and Snow use the mesh Mikktspace TBN (top-down UV frame);
         // Rock uses a per-axis synthesized TBN so cliff-face projections are
         // correctly oriented before contributing to the blend.
+        //
+        // FLIP_NORMAL_MAP_Y is required: bevy_mesh flips mikktspace's tangent.w
+        // sign after generation (bevy_mesh-0.18 mikktspace.rs:127), so for our
+        // terrain UVs (+V → +Z world) Bevy's bitangent ends up as -Z, opposite
+        // the +V direction that bevy_symbios_texture::normal encodes against.
+        // The flag negates Nt.y to compensate, restoring correct V/Z perturbation.
+        // (The Rock triplanar path builds its own TBN and does not need this.)
 #ifdef VERTEX_TANGENTS
         let tbn = calculate_tbn_mikktspace(in.world_normal, in.world_tangent);
 
@@ -230,9 +245,10 @@ fn fragment(
         let n0 = textureSample(normal_array, normal_array_sampler, tiled_uv, 0).rgb;
         let n1 = textureSample(normal_array, normal_array_sampler, tiled_uv, 1).rgb;
         let n3 = textureSample(normal_array, normal_array_sampler, tiled_uv, 3).rgb;
-        let wn0 = apply_normal_mapping(0u, tbn, false, is_front, n0);
-        let wn1 = apply_normal_mapping(0u, tbn, false, is_front, n1);
-        let wn3 = apply_normal_mapping(0u, tbn, false, is_front, n3);
+        let flip_y = STANDARD_MATERIAL_FLAGS_FLIP_NORMAL_MAP_Y;
+        let wn0 = apply_normal_mapping(flip_y, tbn, false, is_front, n0);
+        let wn1 = apply_normal_mapping(flip_y, tbn, false, is_front, n1);
+        let wn3 = apply_normal_mapping(flip_y, tbn, false, is_front, n3);
 
         // Rock: triplanar world-space conversion per projection plane.
         let wn2 = triplanar_normal_world(
