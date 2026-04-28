@@ -31,7 +31,8 @@
 //! * [`material`] — water volume spawn, procedural material bridge, and
 //!   foliage texture task polling.
 
-mod compile;
+pub mod avatar_spawn;
+pub(crate) mod compile;
 mod lsystem;
 mod material;
 pub mod portal;
@@ -55,6 +56,7 @@ use crate::water::{WaterMaterial, WaterSurfaces};
 
 pub use lsystem::{LSystemMaterialCache, LSystemMeshCache};
 pub use material::build_procedural_material;
+pub use prim::build_primitive_mesh;
 pub use shape::{ShapeMaterialCache, ShapeMeshCache};
 
 /// Marks an in-scene portal cube and carries the destination coordinates the

@@ -1,66 +1,92 @@
 //! Local player plugin: spawns and drives the local avatar, hot-swaps
-//! archetypes when the owner edits their PDS avatar record, and paints
-//! matching visuals on remote peers.
+//! locomotion presets when the owner edits their PDS avatar record, and
+//! paints matching visuals on remote peers.
 //!
-//! Two archetypes are supported:
+//! Avatars are now uniform: the `visuals` half of [`AvatarRecord`] is a
+//! generator tree spawned by [`visuals::spawn_avatar_visuals`] (no
+//! colliders, no per-prim markers — pure cosmetics), and the
+//! `locomotion` half selects one of five physics presets:
 //!
-//! - **HoverRover** — a `RigidBody::Dynamic` cuboid chassis with four
-//!   raycast-suspension corners, buoyancy, airship-style visual children,
-//!   and WASD drive (Hooke's-law spring, lateral grip, jump impulse).
-//! - **Humanoid** — a capsule rigid body with `LockedAxes` holding it
-//!   upright, a velocity-driven walk controller, and a jump impulse.
+//! - **HoverBoat** — `RigidBody::Dynamic` cuboid chassis with four
+//!   raycast-suspension corners + buoyancy + WASD drive (Hooke's-law
+//!   spring, lateral grip, jump impulse).
+//! - **Humanoid** — capsule rigid body with `LockedAxes` keeping it
+//!   upright, velocity-driven walk controller, jump impulse, swim/wading
+//!   modes triggered by water depth.
+//! - **Airplane** — cuboid fuselage, continuous thrust, lift proportional
+//!   to forward airspeed, pitch / roll / yaw torque from input.
+//! - **Helicopter** — cuboid fuselage, auto-stabilising hover thrust,
+//!   cyclic + strafe + yaw input, vertical climb/descend on Space/Shift.
+//! - **Car** — cuboid chassis, four-corner raycast suspension, ground
+//!   drive + steering + handbrake, no buoyancy.
 //!
-//! Both archetypes read their kinematics from the live
-//! [`LiveAvatarRecord`], so UI edits take effect the same frame the slider
-//! moves. Changing `body` *variant* triggers the hot-swap system, which
-//! tears down all archetype-specific components (colliders, markers,
-//! child meshes) and rebuilds them in the new archetype's shape without
-//! disturbing the parent `Transform` or rigid-body identity.
+//! All five read their tuning from the live [`LiveAvatarRecord`], so UI
+//! edits take effect the same frame the slider moves. Changing the
+//! locomotion *variant* triggers the hot-swap system, which tears down
+//! all preset-specific components (collider, markers, locked axes) and
+//! rebuilds them in the new preset's shape without disturbing the parent
+//! `Transform` or rigid-body identity.
 //!
 //! ## Sub-module map
 //!
-//! * [`rover`] — HoverRover rig (`rebuild_airship_children`), the V-hull
-//!   mesh builder, the per-tick physics systems (suspension / buoyancy /
-//!   drive / uprighting), and `sync_local_chassis_physics`.
-//! * [`humanoid`] — Humanoid rig (`rebuild_humanoid_children`), joint
-//!   factory, walk controller, and limb animator.
-//! * [`portal`] — `handle_portal_interaction`, `poll_portal_travel_tasks`,
-//!   and the `PortalTravelTask` async job.
+//! * [`visuals`] — generator-tree visual spawner (`spawn_avatar_visuals`
+//!   plus the `AvatarVisualEntity` marker).
+//! * [`hover_boat`] — HoverBoat preset: suspension / buoyancy / drive /
+//!   uprighting systems.
+//! * [`humanoid`] — Humanoid preset: walk controller (dry/wading/swim
+//!   modes) and the `humanoid_water_state` classifier.
+//! * [`airplane`] — Airplane preset: thrust + control-surface forces.
+//! * [`helicopter`] — Helicopter preset: auto-stabilised hover + cyclic.
+//! * [`car`] — Car preset: ground drive + steering + handbrake.
+//! * [`portal`] — `handle_portal_interaction`,
+//!   `poll_portal_travel_tasks`, and the `PortalTravelTask` async job.
 
+mod airplane;
+mod car;
+mod helicopter;
+mod hover_boat;
 mod humanoid;
 mod portal;
-mod rover;
+pub mod visuals;
 
-pub use rover::rebuild_airship_children;
+pub use visuals::AvatarVisualEntity;
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy_egui::input::egui_wants_any_keyboard_input;
 
-use crate::avatar::AvatarMaterial;
 use crate::boot_params::TargetPos;
 use crate::config::rover as cfg;
 use crate::config::terrain as tcfg;
-use crate::pds::{AvatarBody, AvatarRecord, HumanoidPhenotype};
+use crate::pds::{AvatarRecord, LocomotionConfig};
 use crate::state::{AppState, LiveAvatarRecord, LocalPlayer, PendingSpawnPlacement, RemotePeer};
 use crate::world_builder::OverlandsFoliageTasks;
 
 /// Snapshot of the last `AvatarRecord` whose visuals have been painted onto
-/// a remote peer. `detect_remote_archetype_change` listens to the broad
+/// a remote peer. `detect_remote_change` listens to the broad
 /// `Changed<RemotePeer>` signal (which also fires on mute/handle/DID edits)
 /// and compares against this snapshot so an unrelated field flip doesn't
-/// re-enter the expensive visual rebuild path. The cheaper
-/// `sync_mute_visibility` handles the mute toggle on its own.
+/// re-enter the expensive visual rebuild path.
 #[derive(Component)]
 struct AppliedAvatar(AvatarRecord);
 
-// Corner offsets in local space for the four suspension rays.
-pub(super) const CORNER_OFFSETS: [[f32; 3]; 4] = [
-    [cfg::CHASSIS_X, -cfg::CHASSIS_Y, cfg::CHASSIS_Z],
-    [-cfg::CHASSIS_X, -cfg::CHASSIS_Y, cfg::CHASSIS_Z],
-    [cfg::CHASSIS_X, -cfg::CHASSIS_Y, -cfg::CHASSIS_Z],
-    [-cfg::CHASSIS_X, -cfg::CHASSIS_Y, -cfg::CHASSIS_Z],
+// Corner offsets in local space for the four suspension rays. The
+// hover-boat and car presets share the same four-corner pattern; their
+// chassis half-extents differ but the rig topology does not.
+pub(super) const CORNER_OFFSETS_RAW: [[f32; 3]; 4] = [
+    [1.0, -1.0, 1.0],
+    [-1.0, -1.0, 1.0],
+    [1.0, -1.0, -1.0],
+    [-1.0, -1.0, -1.0],
 ];
+
+/// Multiply the canonical `CORNER_OFFSETS_RAW` by the preset's chassis
+/// half-extents to get the four world-local suspension-ray origins. Both
+/// [`hover_boat`] and [`car`] share this helper because the suspension
+/// math is identical — only the chassis size differs.
+pub(super) fn chassis_corners(half_extents: Vec3) -> [Vec3; 4] {
+    CORNER_OFFSETS_RAW.map(|raw| Vec3::new(raw[0], raw[1], raw[2]) * half_extents)
+}
 
 /// Draw an (x, z) pair uniformly distributed inside a square of
 /// `SPAWN_SCATTER_SIZE` metres per side, centred on the origin.
@@ -85,53 +111,40 @@ pub fn water_level_y() -> f32 {
     (tcfg::water::LEVEL_FACTOR * tcfg::HEIGHT_SCALE).max(0.001)
 }
 
-/// Marker placed on the solar-sail mesh child so the avatar system can find it.
+/// Marks the local or remote player as currently using the HoverBoat
+/// preset. Inserted by [`build_preset_components`]; stripped by the
+/// hot-swap system when the owner picks a different preset.
 #[derive(Component)]
-pub struct RoverSail;
+pub struct HoverBoatPreset;
 
-/// Marker placed on the mast-tip hemisphere child so the social-resonance
-/// system can light it up when a peer is a mutual follow.
+/// Marks the player as using the Humanoid preset.
 #[derive(Component)]
-pub struct MastTip;
+pub struct HumanoidPreset;
 
-/// Marks an entity as currently using the HoverRover archetype.
-/// Inserted by `build_hover_rover_archetype` and stripped by the
-/// hot-swap system when the owner picks a different body variant.
+/// Marks the player as using the Airplane preset.
 #[derive(Component)]
-pub struct HoverRoverArchetype;
+pub struct AirplanePreset;
 
-/// Marks an entity as currently using the Humanoid archetype.
+/// Marks the player as using the Helicopter preset.
 #[derive(Component)]
-pub struct HumanoidArchetype;
+pub struct HelicopterPreset;
 
-/// Intermediate visual parent on a Humanoid. The rigid body never rotates —
-/// the walk controller yaws this root to face the movement direction.
+/// Marks the player as using the Car preset.
 #[derive(Component)]
-pub struct HumanoidVisualRoot;
+pub struct CarPreset;
 
-/// Shoulder / hip joint pivots. The limb cylinder is a child offset downward,
-/// so rotating this entity swings the limb from its top (not its middle).
-#[derive(Component, Clone, Copy)]
-pub struct HumanoidJoint {
-    /// +1 for left (or forward-phase) limbs, -1 for right. Used to
-    /// counter-rotate the animation pairs.
-    pub phase_sign: f32,
-    /// Additional phase offset in radians — legs are 180° out of phase with
-    /// their paired arm so the gait alternates naturally.
-    pub phase_offset: f32,
-}
-
-/// Chest-mounted profile badge quad. The avatar system paints the owner's
-/// ATProto profile picture onto this material when one is available.
+/// Aggregate marker query target for camera follow / vehicle-yaw
+/// inheritance. Covers every preset whose physics body rotates around Y
+/// — i.e. anything except the upright-locked Humanoid.
 #[derive(Component)]
-pub struct ChestBadge;
+pub struct VehicleChassis;
 
-/// Request flag set when the local player's archetype needs to be
+/// Request flag set when the local player's locomotion needs to be
 /// rebuilt on the main thread. This exists because Avian components
 /// cannot be added/removed from `Query`-held mutable borrows — we have
 /// to defer the surgery to a commands-only system.
 #[derive(Component)]
-struct NeedsArchetypeRebuild;
+struct NeedsLocomotionRebuild;
 
 pub struct PlayerPlugin;
 
@@ -141,12 +154,11 @@ impl Plugin for PlayerPlugin {
             .add_systems(
                 Update,
                 (
-                    detect_local_archetype_change,
-                    apply_local_archetype_rebuild,
-                    detect_remote_archetype_change,
+                    detect_local_locomotion_change,
+                    apply_local_locomotion_rebuild,
+                    detect_remote_change,
                     rebuild_local_visuals,
                     lift_player_above_new_ground,
-                    humanoid::animate_humanoid_limbs,
                     portal::handle_portal_interaction,
                     portal::poll_portal_travel_tasks,
                 )
@@ -156,18 +168,22 @@ impl Plugin for PlayerPlugin {
             .add_systems(
                 FixedUpdate,
                 (
-                    rover::sync_local_chassis_physics,
-                    rover::apply_suspension_forces,
-                    rover::apply_buoyancy_forces,
-                    // Disable keyboard-driven drive/walk systems while the
+                    hover_boat::sync_hover_boat_physics,
+                    hover_boat::apply_hover_boat_suspension,
+                    hover_boat::apply_hover_boat_buoyancy,
+                    // Disable keyboard-driven control systems while the
                     // owner is typing in an egui text field — otherwise
-                    // WASD-heavy chat messages steer the rover or the
-                    // humanoid through walls. Physics (suspension, buoyancy)
-                    // and the uprighting / respawn passes still run so a
+                    // WASD-heavy chat messages steer the vehicle through
+                    // walls. Physics (suspension, buoyancy, gravity) and
+                    // the uprighting / respawn passes still run so a
                     // vehicle left mid-air keeps obeying gravity.
-                    rover::apply_rover_drive_forces.run_if(not(egui_wants_any_keyboard_input)),
-                    rover::apply_rover_uprighting_force,
+                    hover_boat::apply_hover_boat_drive.run_if(not(egui_wants_any_keyboard_input)),
+                    hover_boat::apply_hover_boat_uprighting,
                     humanoid::apply_humanoid_walk.run_if(not(egui_wants_any_keyboard_input)),
+                    airplane::apply_airplane_forces.run_if(not(egui_wants_any_keyboard_input)),
+                    helicopter::apply_helicopter_forces.run_if(not(egui_wants_any_keyboard_input)),
+                    car::apply_car_suspension,
+                    car::apply_car_drive.run_if(not(egui_wants_any_keyboard_input)),
                     respawn_if_fallen,
                 )
                     .chain()
@@ -176,6 +192,7 @@ impl Plugin for PlayerPlugin {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_local_player(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -184,6 +201,7 @@ fn spawn_local_player(
     hm_res: Res<crate::terrain::FinishedHeightMap>,
     live: Res<LiveAvatarRecord>,
     placement: Option<Res<PendingSpawnPlacement>>,
+    mut avatar_deps: visuals::AvatarSpawnDeps,
 ) {
     let hm = &hm_res.0;
     let extent = (hm.width() - 1) as f32 * hm.scale();
@@ -234,63 +252,93 @@ fn spawn_local_player(
         commands.remove_resource::<PendingSpawnPlacement>();
     }
 
-    build_archetype_components(&mut commands, entity, &live.0);
-    build_archetype_visuals(
+    build_preset_components(&mut commands, entity, &live.0.locomotion);
+    visuals::spawn_avatar_visuals(
         &mut commands,
         entity,
-        &live.0,
-        None,
+        &live.0.visuals,
         None,
         &mut meshes,
         &mut materials,
         &mut foliage_tasks,
+        &mut avatar_deps,
     );
 }
 
-/// Insert the physics components appropriate to the avatar's body variant.
-/// The caller is responsible for having removed any prior archetype's
-/// components first (or for this being a fresh entity).
-fn build_archetype_components(commands: &mut Commands, entity: Entity, record: &AvatarRecord) {
-    match &record.body {
-        AvatarBody::HoverRover { kinematics, .. } => {
+/// Insert the physics components appropriate to the avatar's locomotion
+/// preset. The caller is responsible for having stripped any prior
+/// preset's components first (or for this being a fresh entity).
+pub(super) fn build_preset_components(
+    commands: &mut Commands,
+    entity: Entity,
+    locomotion: &LocomotionConfig,
+) {
+    match locomotion {
+        LocomotionConfig::HoverBoat(p) => {
+            let half = p.chassis_half_extents.0;
             commands.entity(entity).insert((
-                Collider::cuboid(
-                    cfg::CHASSIS_X * 2.0,
-                    cfg::CHASSIS_Y * 2.0,
-                    cfg::CHASSIS_Z * 2.0,
-                ),
-                Mass(kinematics.mass.0),
-                LinearDamping(kinematics.linear_damping.0),
-                AngularDamping(kinematics.angular_damping.0),
-                HoverRoverArchetype,
+                Collider::cuboid(half[0] * 2.0, half[1] * 2.0, half[2] * 2.0),
+                Mass(p.mass.0),
+                LinearDamping(p.linear_damping.0),
+                AngularDamping(p.angular_damping.0),
+                HoverBoatPreset,
+                VehicleChassis,
             ));
         }
-        AvatarBody::Humanoid {
-            phenotype,
-            kinematics,
-        } => {
-            let (radius, length) = humanoid_capsule_dimensions(phenotype);
+        LocomotionConfig::Humanoid(p) => {
             commands.entity(entity).insert((
-                Collider::capsule(radius, length),
-                Mass(kinematics.mass.0),
-                LinearDamping(kinematics.linear_damping.0),
+                Collider::capsule(p.capsule_radius.0.max(0.05), p.capsule_length.0.max(0.1)),
+                Mass(p.mass.0),
+                LinearDamping(p.linear_damping.0),
                 AngularDamping(cfg::ANGULAR_DAMPING),
                 // Traditional character controller: lock all three rotation
                 // axes so the physics capsule slides without spinning. The
-                // walk controller rotates a child visual root to face the
-                // movement direction, keeping the rigid body stable.
+                // walk controller rotates the chassis transform itself to
+                // face the movement direction.
                 LockedAxes::new()
                     .lock_rotation_x()
                     .lock_rotation_y()
                     .lock_rotation_z(),
-                HumanoidArchetype,
+                HumanoidPreset,
             ));
         }
-        AvatarBody::Unknown => {
-            // Forward-compat shipping a record whose body type we don't
-            // model: give the entity a minimal collider so the simulation
-            // does not explode. The owner's editor should show an
-            // "unrecognised avatar" warning in this state.
+        LocomotionConfig::Airplane(p) => {
+            let half = p.chassis_half_extents.0;
+            commands.entity(entity).insert((
+                Collider::cuboid(half[0] * 2.0, half[1] * 2.0, half[2] * 2.0),
+                Mass(p.mass.0),
+                LinearDamping(p.linear_damping.0),
+                AngularDamping(p.angular_damping.0),
+                AirplanePreset,
+                VehicleChassis,
+            ));
+        }
+        LocomotionConfig::Helicopter(p) => {
+            let half = p.chassis_half_extents.0;
+            commands.entity(entity).insert((
+                Collider::cuboid(half[0] * 2.0, half[1] * 2.0, half[2] * 2.0),
+                Mass(p.mass.0),
+                LinearDamping(p.linear_damping.0),
+                AngularDamping(p.angular_damping.0),
+                HelicopterPreset,
+                VehicleChassis,
+            ));
+        }
+        LocomotionConfig::Car(p) => {
+            let half = p.chassis_half_extents.0;
+            commands.entity(entity).insert((
+                Collider::cuboid(half[0] * 2.0, half[1] * 2.0, half[2] * 2.0),
+                Mass(p.mass.0),
+                LinearDamping(p.linear_damping.0),
+                AngularDamping(p.angular_damping.0),
+                CarPreset,
+                VehicleChassis,
+            ));
+        }
+        LocomotionConfig::Unknown => {
+            // Forward-compat shipping a record whose preset we don't model:
+            // give the entity a minimal collider so the simulation does not
+            // explode. The owner's editor flags the unrecognised variant.
             commands
                 .entity(entity)
                 .insert((Collider::cuboid(0.5, 0.5, 0.5), Mass(40.0)));
@@ -298,116 +346,113 @@ fn build_archetype_components(commands: &mut Commands, entity: Entity, record: &
     }
 }
 
-fn humanoid_capsule_dimensions(phen: &HumanoidPhenotype) -> (f32, f32) {
-    // Capsule: (radius, cylindrical length). Total height ~= length + 2·radius.
-    // Clamp so a malicious/corrupt record can't panic `Capsule3d::new`.
-    let radius = phen.torso_half_width.0.max(0.05);
-    let cylinder_len = (phen.height.0 - 2.0 * radius).max(0.1);
-    (radius, cylinder_len)
-}
-
 // ---------------------------------------------------------------------------
 // Hot-swap — local player
 // ---------------------------------------------------------------------------
 
 /// Watch the live avatar record and flag the local player for rebuild
-/// whenever the body *variant* changes (kinematics-only edits are handled
-/// by the per-frame sync systems). A tiny `Local<Option<&'static str>>`
-/// memoises the last-seen kind so we don't rebuild on every frame the
-/// resource is `Changed` — the kinematics sliders fire `Changed` constantly
-/// and would otherwise drop a dozen rebuilds per second.
-fn detect_local_archetype_change(
+/// whenever the locomotion *variant* changes (intra-variant tuning edits
+/// are handled by the per-frame sync systems). A
+/// `Local<Option<&'static str>>` memoises the last-seen kind so we don't
+/// rebuild on every frame the resource is `Changed` — the kinematics
+/// sliders fire `Changed` constantly and would otherwise drop a dozen
+/// rebuilds per second.
+fn detect_local_locomotion_change(
     mut commands: Commands,
     live: Res<LiveAvatarRecord>,
     player: Query<Entity, With<LocalPlayer>>,
     mut last_kind: Local<Option<&'static str>>,
 ) {
-    let kind = live.0.body.kind_tag();
+    let kind = live.0.locomotion.kind_tag();
     if Some(kind) == *last_kind {
         return;
     }
     *last_kind = Some(kind);
     if let Ok(entity) = player.single() {
-        commands.entity(entity).insert(NeedsArchetypeRebuild);
+        commands.entity(entity).insert(NeedsLocomotionRebuild);
     }
 }
 
-/// Apply a queued archetype rebuild to the local player: strip the old
-/// archetype's components and visual children, then install the new
-/// archetype's components and visuals. Runs in `Update` on the main
-/// schedule so Avian sees the removed/inserted components on the next
-/// physics step without a race.
+/// Apply a queued locomotion rebuild to the local player: strip the old
+/// preset's components and visual children, then install the new preset's
+/// components and visuals. Runs in `Update` on the main schedule so Avian
+/// sees the removed/inserted components on the next physics step without
+/// a race.
 #[allow(clippy::type_complexity)]
-fn apply_local_archetype_rebuild(
+fn apply_local_locomotion_rebuild(
     mut commands: Commands,
-    players: Query<
-        (Entity, Option<&Children>, Option<&AvatarMaterial>),
-        (With<LocalPlayer>, With<NeedsArchetypeRebuild>),
-    >,
+    players: Query<(Entity, Option<&Children>), (With<LocalPlayer>, With<NeedsLocomotionRebuild>)>,
     live: Res<LiveAvatarRecord>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
+    mut avatar_deps: visuals::AvatarSpawnDeps,
 ) {
-    for (entity, children, avatar_mat) in players.iter() {
-        strip_archetype_components(&mut commands, entity);
-        build_archetype_components(&mut commands, entity, &live.0);
-        build_archetype_visuals(
+    for (entity, children) in players.iter() {
+        strip_preset_components(&mut commands, entity);
+        build_preset_components(&mut commands, entity, &live.0.locomotion);
+        visuals::spawn_avatar_visuals(
             &mut commands,
             entity,
-            &live.0,
+            &live.0.visuals,
             children,
-            avatar_mat.map(|m| &m.0),
             &mut meshes,
             &mut materials,
             &mut foliage_tasks,
+            &mut avatar_deps,
         );
-        commands.entity(entity).remove::<NeedsArchetypeRebuild>();
+        commands.entity(entity).remove::<NeedsLocomotionRebuild>();
     }
 }
 
-/// Remove every archetype-specific component + marker from `entity`.
+/// Remove every preset-specific component + marker from `entity`.
 /// Safe to call even if the entity currently carries only a subset — Bevy's
 /// `remove` no-ops when the component is absent.
-fn strip_archetype_components(commands: &mut Commands, entity: Entity) {
+fn strip_preset_components(commands: &mut Commands, entity: Entity) {
     commands.entity(entity).remove::<(
         Collider,
         Mass,
         LinearDamping,
         AngularDamping,
         LockedAxes,
-        HoverRoverArchetype,
-        HumanoidArchetype,
+        HoverBoatPreset,
+        HumanoidPreset,
+        AirplanePreset,
+        HelicopterPreset,
+        CarPreset,
+        VehicleChassis,
     )>();
 }
 
-/// Non-variant changes (slider tweaks inside the *same* body type) only
-/// need new visual children — rigid-body identity stays intact.
-#[allow(clippy::type_complexity)]
+/// Non-variant changes (slider tweaks inside the *same* preset, or
+/// visuals-tree edits) only need new visual children — rigid-body
+/// identity stays intact.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn rebuild_local_visuals(
     mut commands: Commands,
     live: Res<LiveAvatarRecord>,
     players: Query<
-        (Entity, Option<&Children>, Option<&AvatarMaterial>),
-        (With<LocalPlayer>, Without<NeedsArchetypeRebuild>),
+        (Entity, Option<&Children>),
+        (With<LocalPlayer>, Without<NeedsLocomotionRebuild>),
     >,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
+    mut avatar_deps: visuals::AvatarSpawnDeps,
 ) {
     if !live.is_changed() {
         return;
     }
-    for (entity, children, avatar_mat) in players.iter() {
-        build_archetype_visuals(
+    for (entity, children) in players.iter() {
+        visuals::spawn_avatar_visuals(
             &mut commands,
             entity,
-            &live.0,
+            &live.0.visuals,
             children,
-            avatar_mat.map(|m| &m.0),
             &mut meshes,
             &mut materials,
             &mut foliage_tasks,
+            &mut avatar_deps,
         );
     }
 }
@@ -417,8 +462,8 @@ fn rebuild_local_visuals(
 // ---------------------------------------------------------------------------
 
 /// Rebuild a remote peer's visual children whenever their avatar record
-/// actually changes (initial fetch, live-preview broadcast, or archetype
-/// swap). Remote peers are pure kinematic visual transforms — they never
+/// actually changes (initial fetch, live-preview broadcast, or visuals
+/// edit). Remote peers are pure kinematic visual transforms — they never
 /// carry a `RigidBody`, so installing a `Collider` / `Mass` / `LockedAxes`
 /// here would register them as Static, and every per-frame `Transform`
 /// update from `smooth_remote_transforms` would thrash the broadphase
@@ -427,8 +472,8 @@ fn rebuild_local_visuals(
 /// relabelling a peer (both of which also trigger `Changed<RemotePeer>`)
 /// doesn't redundantly despawn and rebuild every mesh — that expensive
 /// path is reserved for genuine avatar-record changes.
-#[allow(clippy::type_complexity)]
-fn detect_remote_archetype_change(
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
+fn detect_remote_change(
     mut commands: Commands,
     peers: Query<
         (
@@ -436,30 +481,30 @@ fn detect_remote_archetype_change(
             &RemotePeer,
             Option<&AppliedAvatar>,
             Option<&Children>,
-            Option<&AvatarMaterial>,
         ),
         Changed<RemotePeer>,
     >,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
+    mut avatar_deps: visuals::AvatarSpawnDeps,
 ) {
-    for (entity, peer, applied, children, avatar_mat) in peers.iter() {
+    for (entity, peer, applied, children) in peers.iter() {
         let Some(record) = peer.avatar.as_ref() else {
             continue;
         };
         if applied.is_some_and(|a| &a.0 == record) {
             continue;
         }
-        build_archetype_visuals(
+        visuals::spawn_avatar_visuals(
             &mut commands,
             entity,
-            record,
+            &record.visuals,
             children,
-            avatar_mat.map(|m| &m.0),
             &mut meshes,
             &mut materials,
             &mut foliage_tasks,
+            &mut avatar_deps,
         );
         commands
             .entity(entity)
@@ -468,57 +513,8 @@ fn detect_remote_archetype_change(
 }
 
 // ---------------------------------------------------------------------------
-// Visuals
+// Spawn pose recovery — used after terrain hot-load and fall-through
 // ---------------------------------------------------------------------------
-
-#[allow(clippy::too_many_arguments)]
-fn build_archetype_visuals(
-    commands: &mut Commands,
-    entity: Entity,
-    record: &AvatarRecord,
-    existing_children: Option<&Children>,
-    avatar_override: Option<&Handle<StandardMaterial>>,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-    foliage_tasks: &mut OverlandsFoliageTasks,
-) {
-    match &record.body {
-        AvatarBody::HoverRover { phenotype, .. } => {
-            rebuild_airship_children(
-                commands,
-                entity,
-                phenotype,
-                existing_children,
-                meshes,
-                materials,
-                foliage_tasks,
-                avatar_override,
-            );
-        }
-        AvatarBody::Humanoid { phenotype, .. } => {
-            humanoid::rebuild_humanoid_children(
-                commands,
-                entity,
-                phenotype,
-                existing_children,
-                meshes,
-                materials,
-                foliage_tasks,
-                avatar_override,
-            );
-        }
-        AvatarBody::Unknown => {
-            // Despawn any leftover children and leave the entity bare —
-            // the owner's client will flag the unrecognised variant in its
-            // editor.
-            if let Some(children) = existing_children {
-                for child in children.iter() {
-                    commands.entity(child).despawn();
-                }
-            }
-        }
-    }
-}
 
 fn lift_player_above_new_ground(
     hm_res: Option<Res<crate::terrain::FinishedHeightMap>>,

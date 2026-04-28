@@ -48,7 +48,7 @@ impl Torture {
 /// apply vertex torture when non-trivial. Returns the raw `Mesh`; the caller
 /// registers it in `Assets<Mesh>` so a single mesh can be reused when a
 /// material cache hit bypasses the allocation hot path.
-pub(super) fn build_primitive_mesh(kind: &GeneratorKind) -> Mesh {
+pub fn build_primitive_mesh(kind: &GeneratorKind) -> Mesh {
     let mut mesh = base_primitive_mesh(kind);
     let torture = torture_of(kind);
     if !torture.is_identity() {

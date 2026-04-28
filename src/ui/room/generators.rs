@@ -27,10 +27,14 @@ use crate::pds::{Fp, Fp2, Fp3, Generator, GeneratorKind, Placement, RoomRecord, 
 use crate::state::LiveInventoryRecord;
 use crate::ui::inventory::is_drop_placeable;
 
-use super::GenNodeId;
+// `GenNodeId` is defined on `super` (the room editor's mod.rs) and
+// re-exported here so external callers (e.g. `ui::avatar`) can address
+// it as `ui::room::generators::GenNodeId` without reaching back into
+// the room module's top-level surface.
+pub use super::GenNodeId;
 use super::construct::{
-    allows_children, available_kinds_for, draw_torture, draw_universal_material,
-    generator_kind_picker, make_default_for_kind,
+    AVATAR_KINDS, ROOM_CHILD_KINDS, ROOM_ROOT_KINDS, allows_children, draw_torture,
+    draw_universal_material, generator_kind_picker, make_default_for_kind,
 };
 use super::lsystem::draw_lsystem_forge;
 use super::shape::draw_shape_forge;
@@ -40,10 +44,164 @@ use super::widgets::{color_picker_rgba, drag_u32, draw_transform, fp_slider, uni
 /// Convenience alias so the per-tab function signature stays readable.
 type TreeViewState = egui_ltreeview::TreeViewState<GenNodeId>;
 
+// ---------------------------------------------------------------------------
+// Generator-tree abstraction
+// ---------------------------------------------------------------------------
+
+/// Tree-source abstraction for the unified generator editor. Implemented
+/// by [`RoomTreeSource`] (multi-root [`RoomRecord::generators`] HashMap
+/// plus dangling-reference sweeps for placements/traits) and — in a later
+/// avatar-unification phase — `AvatarVisualsTreeSource` (single-root
+/// `AvatarRecord::visuals` with a stricter allowed-kinds set).
+///
+/// The trait deliberately exposes only the structural operations the
+/// editor needs: root listing, root mutation (with implementation-specific
+/// reference sweeps hidden behind [`Self::remove_root`]), and the
+/// allowed-kinds vocabulary at root vs. child positions. Inventory access
+/// stays *outside* the trait because the borrow patterns it needs (an
+/// independent `&mut LiveInventoryRecord` held alongside the source's own
+/// `&mut`) don't fit cleanly under partial-borrow rules.
+pub(crate) trait GeneratorTreeSource {
+    /// Names of every top-level root, in display order. The room source
+    /// returns its HashMap keys sorted; an avatar source returns a single
+    /// fixed name.
+    fn root_names(&self) -> Vec<String>;
+    fn get_root(&self, name: &str) -> Option<&Generator>;
+    fn get_root_mut(&mut self, name: &str) -> Option<&mut Generator>;
+    /// `true` when the source can hold more than one root. Drives the "+
+    /// New" toolbar's behaviour and the inner→root drag-promotion path.
+    fn allow_multiple_roots(&self) -> bool;
+    /// Append a new top-level root. Implementations are free to pick a
+    /// fresh unique name based on `prefix`. Returns the assigned name, or
+    /// `None` when the source forbids multi-roots and one already exists.
+    fn add_root(&mut self, prefix: &str, generator: Generator) -> Option<String>;
+    /// Remove a top-level root, sweeping any implementation-specific
+    /// references (Placements, traits, ...). Returns the extracted
+    /// generator if it existed.
+    fn remove_root(&mut self, name: &str) -> Option<Generator>;
+    /// Allowed kind tags at the root of the tree.
+    fn allowed_kinds_for_root(&self) -> &'static [&'static str];
+    /// Allowed kind tags at child positions inside the tree.
+    fn allowed_kinds_for_child(&self) -> &'static [&'static str];
+}
+
+/// `GeneratorTreeSource` adapter for the room editor: directly mutates
+/// `RoomRecord::generators` and runs [`sweep_root_refs`] on root removal
+/// so dangling Placement / traits entries don't survive a delete or
+/// drag-out-to-promote.
+pub(crate) struct RoomTreeSource<'a> {
+    pub(crate) record: &'a mut RoomRecord,
+}
+
+impl<'a> RoomTreeSource<'a> {
+    pub(crate) fn new(record: &'a mut RoomRecord) -> Self {
+        Self { record }
+    }
+}
+
+impl GeneratorTreeSource for RoomTreeSource<'_> {
+    fn root_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.record.generators.keys().cloned().collect();
+        names.sort();
+        names
+    }
+    fn get_root(&self, name: &str) -> Option<&Generator> {
+        self.record.generators.get(name)
+    }
+    fn get_root_mut(&mut self, name: &str) -> Option<&mut Generator> {
+        self.record.generators.get_mut(name)
+    }
+    fn allow_multiple_roots(&self) -> bool {
+        true
+    }
+    fn add_root(&mut self, prefix: &str, generator: Generator) -> Option<String> {
+        let name = unique_key(&self.record.generators, prefix);
+        self.record.generators.insert(name.clone(), generator);
+        Some(name)
+    }
+    fn remove_root(&mut self, name: &str) -> Option<Generator> {
+        let removed = self.record.generators.remove(name);
+        if removed.is_some() {
+            sweep_root_refs(self.record, name);
+        }
+        removed
+    }
+    fn allowed_kinds_for_root(&self) -> &'static [&'static str] {
+        ROOM_ROOT_KINDS
+    }
+    fn allowed_kinds_for_child(&self) -> &'static [&'static str] {
+        ROOM_CHILD_KINDS
+    }
+}
+
+/// `GeneratorTreeSource` adapter for the avatar visuals tree. Wraps the
+/// single `Generator` root from `AvatarRecord::visuals` and exposes it
+/// under a fixed display name (`"visuals"`). Refuses every multi-root
+/// operation: the avatar always has exactly one visual root. Allowed
+/// kinds are primitives only — see [`AVATAR_KINDS`] for the rationale.
+pub(crate) struct AvatarVisualsTreeSource<'a> {
+    pub(crate) visuals: &'a mut Generator,
+}
+
+impl<'a> AvatarVisualsTreeSource<'a> {
+    pub(crate) fn new(visuals: &'a mut Generator) -> Self {
+        Self { visuals }
+    }
+
+    /// Fixed root key the avatar tree exposes through the source. The
+    /// underlying `AvatarRecord` doesn't actually carry per-root names —
+    /// it has a single anonymous root — but the tree-view widget keys on
+    /// `(root, path)` so we hand it a stable string here.
+    pub(crate) const ROOT_NAME: &'static str = "visuals";
+}
+
+impl GeneratorTreeSource for AvatarVisualsTreeSource<'_> {
+    fn root_names(&self) -> Vec<String> {
+        vec![Self::ROOT_NAME.to_string()]
+    }
+    fn get_root(&self, name: &str) -> Option<&Generator> {
+        if name == Self::ROOT_NAME {
+            Some(self.visuals)
+        } else {
+            None
+        }
+    }
+    fn get_root_mut(&mut self, name: &str) -> Option<&mut Generator> {
+        if name == Self::ROOT_NAME {
+            Some(self.visuals)
+        } else {
+            None
+        }
+    }
+    fn allow_multiple_roots(&self) -> bool {
+        false
+    }
+    fn add_root(&mut self, _prefix: &str, _generator: Generator) -> Option<String> {
+        // Single-root sources never accept new roots. Drag-promotion
+        // (inner → root) is filtered out upstream by
+        // `allow_multiple_roots == false`.
+        None
+    }
+    fn remove_root(&mut self, _name: &str) -> Option<Generator> {
+        // Removing the avatar's only root would leave the chassis with no
+        // visuals — refuse and let the caller treat the operation as a
+        // no-op. The root delete menu item still appears because hiding
+        // it would require a separate trait method; clicking it just
+        // does nothing.
+        None
+    }
+    fn allowed_kinds_for_root(&self) -> &'static [&'static str] {
+        AVATAR_KINDS
+    }
+    fn allowed_kinds_for_child(&self) -> &'static [&'static str] {
+        AVATAR_KINDS
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
-pub(super) fn draw_generators_tab(
+pub(crate) fn draw_generators_tab(
     ui: &mut egui::Ui,
-    record: &mut RoomRecord,
+    source: &mut dyn GeneratorTreeSource,
     selected_generator: &mut Option<String>,
     selected_prim_path: &mut Option<Vec<usize>>,
     tree_view_state: &mut TreeViewState,
@@ -63,7 +221,7 @@ pub(super) fn draw_generators_tab(
         .show_inside(ui, |ui| {
             draw_tree_panel(
                 ui,
-                record,
+                source,
                 selected_generator,
                 selected_prim_path,
                 tree_view_state,
@@ -74,7 +232,7 @@ pub(super) fn draw_generators_tab(
         });
 
     egui::CentralPanel::default().show_inside(ui, |ui| {
-        draw_detail_panel(ui, record, selected_generator, selected_prim_path, dirty);
+        draw_detail_panel(ui, source, selected_generator, selected_prim_path, dirty);
     });
 }
 
@@ -125,7 +283,7 @@ enum PendingAction {
 #[allow(clippy::too_many_arguments)]
 fn draw_tree_panel(
     ui: &mut egui::Ui,
-    record: &mut RoomRecord,
+    source: &mut dyn GeneratorTreeSource,
     selected_generator: &mut Option<String>,
     selected_prim_path: &mut Option<Vec<usize>>,
     tree_view_state: &mut TreeViewState,
@@ -136,20 +294,23 @@ fn draw_tree_panel(
     ui.heading("Generators");
     ui.add_space(2.0);
 
+    let allowed_root_kinds = source.allowed_kinds_for_root();
+    let allowed_child_kinds = source.allowed_kinds_for_child();
+    let allow_rename = source.allow_multiple_roots();
+
     ui.horizontal_wrapped(|ui| {
         ui.menu_button("+ New", |ui| {
-            for kind_tag in available_kinds_for(true) {
-                if ui.button(kind_tag).clicked() {
-                    let prefix = kind_tag.to_lowercase();
-                    let name = unique_key(&record.generators, &prefix);
+            for kind_tag in allowed_root_kinds {
+                if ui.button(*kind_tag).clicked() {
                     let kind = make_default_for_kind(kind_tag);
-                    record
-                        .generators
-                        .insert(name.clone(), Generator::from_kind(kind));
-                    *selected_generator = Some(name.clone());
-                    *selected_prim_path = Some(Vec::new());
-                    tree_view_state.set_one_selected(GenNodeId::root(name));
-                    *dirty = true;
+                    if let Some(name) =
+                        source.add_root(&kind_tag.to_lowercase(), Generator::from_kind(kind))
+                    {
+                        *selected_generator = Some(name.clone());
+                        *selected_prim_path = Some(Vec::new());
+                        tree_view_state.set_one_selected(GenNodeId::root(name));
+                        *dirty = true;
+                    }
                     ui.close();
                 }
             }
@@ -170,9 +331,9 @@ fn draw_tree_panel(
                         ui.close();
                     }
                 }
-                if let Some((inv_name, g)) = picked {
-                    let new_name = unique_key(&record.generators, &inv_name);
-                    record.generators.insert(new_name.clone(), g);
+                if let Some((inv_name, g)) = picked
+                    && let Some(new_name) = source.add_root(&inv_name, g)
+                {
                     *selected_generator = Some(new_name.clone());
                     *selected_prim_path = Some(Vec::new());
                     tree_view_state.set_one_selected(GenNodeId::root(new_name));
@@ -184,17 +345,16 @@ fn draw_tree_panel(
 
     ui.separator();
 
-    // The tree itself. Roots are sorted by name for stable presentation —
-    // HashMap iteration order is unspecified and would otherwise reshuffle
-    // every frame when the layout cache rebuilds.
-    let mut root_names: Vec<String> = record.generators.keys().cloned().collect();
-    root_names.sort();
+    // The tree itself. Roots are sorted by the source for stable
+    // presentation — HashMap iteration order would otherwise reshuffle
+    // every frame as the layout cache rebuilds.
+    let root_names: Vec<String> = source.root_names();
 
     // Pending-action channel shared into every per-row `context_menu`
     // closure. Closures all hold `&pending`; clicks call `borrow_mut()` to
     // stash an action. We drain it after `show_state` returns and apply
-    // with mutable record access — that ordering keeps the tree's
-    // immutable-ish read of `record.generators` (during the build closure)
+    // with mutable source access — that ordering keeps the tree's
+    // immutable read of the source's roots (during the build closure)
     // clean of structural mutations.
     let pending: RefCell<Option<PendingAction>> = RefCell::new(None);
 
@@ -210,18 +370,25 @@ fn draw_tree_panel(
                 return;
             }
             let inv_for_build: Option<&LiveInventoryRecord> = inventory.as_deref();
+            // Reborrow as a shared trait-object reference for the
+            // tree-build closure: it only needs read access via
+            // `get_root`, and pending-action mutations are buffered into
+            // the `RefCell` for application after the closure returns.
+            let source_ref: &dyn GeneratorTreeSource = &*source;
             let (_resp, actions) = TreeView::new(ui.make_persistent_id("generators_tree_view"))
                 .allow_drag_and_drop(true)
                 .allow_multi_selection(false)
                 .show_state(ui, tree_view_state, |builder| {
                     for name in &root_names {
-                        if let Some(node) = record.generators.get(name) {
+                        if let Some(node) = source_ref.get_root(name) {
                             build_tree_node(
                                 builder,
                                 name,
                                 node,
                                 Vec::new(),
                                 true,
+                                allowed_child_kinds,
+                                allow_rename,
                                 &pending,
                                 inv_for_build,
                             );
@@ -253,7 +420,7 @@ fn draw_tree_panel(
     if let Some(action) = pending.into_inner() {
         apply_pending(
             action,
-            record,
+            source,
             selected_generator,
             selected_prim_path,
             tree_view_state,
@@ -271,7 +438,7 @@ fn draw_tree_panel(
     let valid: Option<GenNodeId> = tree_view_state
         .selected()
         .first()
-        .filter(|id| find_node(record, id).is_some())
+        .filter(|id| find_node(&*source, id).is_some())
         .cloned();
     match valid {
         Some(id) => {
@@ -300,14 +467,14 @@ fn draw_tree_panel(
     }
 }
 
-/// Drain a single buffered context-menu action and mutate the record in
+/// Drain a single buffered context-menu action and mutate the source in
 /// the right way for it. Encapsulates the structural-edit machinery — add
 /// child / rename / save to inventory / delete — so the tree-build pass
-/// stays a pure read of `record.generators`.
+/// stays a pure read of the source's roots.
 #[allow(clippy::too_many_arguments)]
 fn apply_pending(
     action: PendingAction,
-    record: &mut RoomRecord,
+    source: &mut dyn GeneratorTreeSource,
     selected_generator: &mut Option<String>,
     selected_prim_path: &mut Option<Vec<usize>>,
     tree_view_state: &mut TreeViewState,
@@ -317,7 +484,7 @@ fn apply_pending(
 ) {
     match action {
         PendingAction::AddChild { parent, kind_tag } => {
-            if let Some(node) = find_node_mut(record, &parent)
+            if let Some(node) = find_node_mut(source, &parent)
                 && allows_children(&node.kind)
             {
                 let new_kind = make_default_for_kind(kind_tag);
@@ -334,7 +501,7 @@ fn apply_pending(
             }
         }
         PendingAction::AddChildFromInventory { parent, generator } => {
-            if let Some(node) = find_node_mut(record, &parent)
+            if let Some(node) = find_node_mut(source, &parent)
                 && allows_children(&node.kind)
             {
                 node.children.push(*generator);
@@ -357,31 +524,29 @@ fn apply_pending(
         }
         PendingAction::SaveToInventory(id) => {
             if let Some(inv) = inventory
-                && let Some(source) = find_node(record, &id)
+                && let Some(node) = find_node(&*source, &id)
             {
                 let prefix = if id.path.is_empty() {
                     id.root.clone()
                 } else {
-                    source.kind_tag().to_lowercase()
+                    node.kind_tag().to_lowercase()
                 };
                 let safe_name = unique_key(&inv.0.generators, &prefix);
-                inv.0.generators.insert(safe_name, source.clone());
+                inv.0.generators.insert(safe_name, node.clone());
                 *dirty = true;
             }
         }
         PendingAction::Delete(id) => {
             if id.path.is_empty() {
-                // Root delete — also sweep dangling Placements + traits
-                // referencing this generator name. Without this, the world
-                // compiler logs "unknown generator_ref" for orphaned
-                // placements and the trait mapping (`collider_heightfield`,
-                // etc.) silently keeps an entry that no longer corresponds
-                // to a live generator.
-                record.generators.remove(&id.root);
-                sweep_root_refs(record, &id.root);
+                // Root delete — `remove_root` also sweeps dangling
+                // Placements + traits referencing this generator name on
+                // implementations that carry such tables (room source).
+                // On sources with no such side-tables (avatar source) the
+                // sweep is a no-op.
+                source.remove_root(&id.root);
             } else if let Some(parent_id) = id.parent_id() {
                 let last_idx = *id.path.last().expect("non-root has non-empty path");
-                if let Some(parent) = find_node_mut(record, &parent_id)
+                if let Some(parent) = find_node_mut(source, &parent_id)
                     && last_idx < parent.children.len()
                 {
                     parent.children.remove(last_idx);
@@ -393,16 +558,16 @@ fn apply_pending(
             *dirty = true;
         }
         PendingAction::Reparent {
-            source,
+            source: drag_source,
             target,
             position,
         } => {
             apply_reparent(
-                record,
+                source,
                 selected_generator,
                 selected_prim_path,
                 tree_view_state,
-                source,
+                drag_source,
                 target,
                 position,
                 dirty,
@@ -430,20 +595,20 @@ fn apply_pending(
 /// the move.
 #[allow(clippy::too_many_arguments)]
 fn apply_reparent(
-    record: &mut RoomRecord,
+    source: &mut dyn GeneratorTreeSource,
     selected_generator: &mut Option<String>,
     selected_prim_path: &mut Option<Vec<usize>>,
     tree_view_state: &mut TreeViewState,
-    source: GenNodeId,
+    drag_source: GenNodeId,
     target: GenNodeId,
     position: DirPosition<GenNodeId>,
     dirty: &mut bool,
 ) {
-    if source.is_virtual_root() {
+    if drag_source.is_virtual_root() {
         return;
     }
     // Self-move and ancestor-into-descendant moves would create cycles.
-    if source == target || is_ancestor_of(&source, &target) {
+    if drag_source == target || is_ancestor_of(&drag_source, &target) {
         return;
     }
 
@@ -454,7 +619,7 @@ fn apply_reparent(
     // but a defensive check at apply time keeps the model consistent
     // even if a future widget version emits the move anyway.
     if !target_is_virtual {
-        let Some(target_node) = find_node(record, &target) else {
+        let Some(target_node) = find_node(&*source, &target) else {
             return;
         };
         if !allows_children(&target_node.kind) {
@@ -462,27 +627,38 @@ fn apply_reparent(
         }
     }
 
-    // root → root reorder is meaningless (HashMap has no order). Also
-    // skips the redundant rename / sweep pass we'd otherwise trigger.
-    if source.path.is_empty() && target_is_virtual {
+    // root → virtual-root reorder is meaningless on multi-root sources
+    // (HashMap has no order) and impossible on single-root sources. Also
+    // skips the redundant remove + sweep pass we'd otherwise trigger.
+    if drag_source.path.is_empty() && target_is_virtual {
         return;
     }
 
-    // Phase 1: extract the source subtree. For root sources we pull from
-    // the HashMap and sweep dangling refs (mirror of root-delete);
-    // for child sources we splice out of the parent's children Vec.
-    let extracted: Generator = if source.path.is_empty() {
-        let Some(node) = record.generators.remove(&source.root) else {
+    // Promotion to a new top-level root requires multi-root support; on
+    // single-root sources (e.g. avatar visuals) bail before any extraction
+    // so the move is a no-op.
+    if target_is_virtual && !source.allow_multiple_roots() {
+        return;
+    }
+
+    // Phase 1: extract the source subtree. For root sources we pull
+    // through `remove_root` (which also sweeps any implementation-specific
+    // dangling references); for child sources we splice out of the
+    // parent's children Vec.
+    let extracted: Generator = if drag_source.path.is_empty() {
+        let Some(node) = source.remove_root(&drag_source.root) else {
             return;
         };
-        sweep_root_refs(record, &source.root);
         node
     } else {
-        let Some(parent_id) = source.parent_id() else {
+        let Some(parent_id) = drag_source.parent_id() else {
             return;
         };
-        let last_idx = *source.path.last().expect("non-root has non-empty path");
-        let Some(parent) = find_node_mut(record, &parent_id) else {
+        let last_idx = *drag_source
+            .path
+            .last()
+            .expect("non-root has non-empty path");
+        let Some(parent) = find_node_mut(source, &parent_id) else {
             return;
         };
         if last_idx >= parent.children.len() {
@@ -496,8 +672,13 @@ fn apply_reparent(
         // Promotion to top-level. Auto-key from the kind tag — matches
         // the "+ New" toolbar's behaviour.
         let prefix = extracted.kind_tag().to_lowercase();
-        let new_name = unique_key(&record.generators, &prefix);
-        record.generators.insert(new_name.clone(), extracted);
+        let Some(new_name) = source.add_root(&prefix, extracted) else {
+            // Source refused the add (e.g. single-root already filled).
+            // We've already removed the source subtree above; in that
+            // unusual case the data loss is intentional — a no-op exit
+            // would silently undo the user's drag.
+            return;
+        };
         GenNodeId::root(new_name)
     } else {
         // Drop into an existing dir. Translate `DirPosition` to a plain
@@ -505,18 +686,18 @@ fn apply_reparent(
         // splice the subtree in. Indices in `position` reference the
         // pre-removal sibling layout, so we adjust when source and
         // target share a parent and source preceded the anchor.
-        let same_parent = source
+        let same_parent = drag_source
             .parent_id()
             .as_ref()
             .map(|p| p == &target)
             .unwrap_or(false);
         let removed_index = if same_parent {
-            source.path.last().copied()
+            drag_source.path.last().copied()
         } else {
             None
         };
 
-        let target_children_len = match find_node(record, &target) {
+        let target_children_len = match find_node(&*source, &target) {
             Some(n) => n.children.len(),
             None => return,
         };
@@ -525,9 +706,9 @@ fn apply_reparent(
             DirPosition::First => 0,
             DirPosition::Last => target_children_len,
             DirPosition::Before(anchor) => {
-                sibling_index_in(record, &target, &anchor).unwrap_or(target_children_len)
+                sibling_index_in(&*source, &target, &anchor).unwrap_or(target_children_len)
             }
-            DirPosition::After(anchor) => sibling_index_in(record, &target, &anchor)
+            DirPosition::After(anchor) => sibling_index_in(&*source, &target, &anchor)
                 .map(|i| i + 1)
                 .unwrap_or(target_children_len),
         };
@@ -538,7 +719,7 @@ fn apply_reparent(
         }
         idx = idx.min(target_children_len);
 
-        let Some(target_node) = find_node_mut(record, &target) else {
+        let Some(target_node) = find_node_mut(source, &target) else {
             return;
         };
         target_node.children.insert(idx, extracted);
@@ -577,7 +758,11 @@ fn is_ancestor_of(ancestor: &GenNodeId, descendant: &GenNodeId) -> bool {
 /// Find the index of `child` within `parent.children`, or `None` if
 /// `child` is not in fact a direct child of `parent`. Used to translate
 /// `DirPosition::Before(anchor) / After(anchor)` into a numeric index.
-fn sibling_index_in(record: &RoomRecord, parent: &GenNodeId, child: &GenNodeId) -> Option<usize> {
+fn sibling_index_in(
+    source: &dyn GeneratorTreeSource,
+    parent: &GenNodeId,
+    child: &GenNodeId,
+) -> Option<usize> {
     if child.root != parent.root {
         return None;
     }
@@ -587,7 +772,7 @@ fn sibling_index_in(record: &RoomRecord, parent: &GenNodeId, child: &GenNodeId) 
     if !child.path.starts_with(&parent.path) {
         return None;
     }
-    let parent_node = find_node(record, parent)?;
+    let parent_node = find_node(source, parent)?;
     let last_idx = *child.path.last()?;
     if last_idx < parent_node.children.len() {
         Some(last_idx)
@@ -612,7 +797,7 @@ fn sweep_root_refs(record: &mut RoomRecord, deleted_root: &str) {
 }
 
 /// Recursively add `node` and its children to the tree-view builder. The
-/// label format matches the user's expectation: roots show the HashMap key
+/// label format matches the user's expectation: roots show the source's key
 /// (the user-given name) plus a kind hint; inner nodes show only the kind
 /// since they're positional and unnamed. Each row gets a right-click
 /// context menu wired through `pending` so structural ops (Add child /
@@ -622,13 +807,16 @@ fn sweep_root_refs(record: &mut RoomRecord, deleted_root: &str) {
 /// The lifetimes on `root_name` and `node` are independent of the builder's
 /// own working lifetime — the label is materialised as an owned `String`
 /// before being handed to [`NodeBuilder::label`], so the builder never
-/// retains a reference into `record`.
+/// retains a reference into the source.
+#[allow(clippy::too_many_arguments)]
 fn build_tree_node(
     builder: &mut egui_ltreeview::TreeViewBuilder<'_, GenNodeId>,
     root_name: &str,
     node: &Generator,
     path: Vec<usize>,
     is_root: bool,
+    allowed_child_kinds: &'static [&'static str],
+    allow_rename: bool,
     pending: &RefCell<Option<PendingAction>>,
     inventory: Option<&LiveInventoryRecord>,
 ) {
@@ -643,6 +831,7 @@ fn build_tree_node(
     let menu_root = id.root.clone();
     let menu_allows_children = allows_children(&node.kind);
     let menu_is_root = is_root;
+    let menu_allow_rename = allow_rename;
     // `Option<&T>` is `Copy`, so the move closure below copies the option
     // into its captures rather than borrowing — no extra lifetime
     // bookkeeping needed for the "+ From Inventory" submenu inside.
@@ -650,13 +839,14 @@ fn build_tree_node(
     let context_menu = move |ui: &mut egui::Ui| {
         if menu_allows_children {
             // Mirror the toolbar's "+ New" kind picker: a submenu listing
-            // every kind valid as a child (every variant except Terrain,
-            // which is root-only). Picking a kind stages an `AddChild`
-            // action carrying that kind's static tag — `apply_pending`
-            // calls `make_default_for_kind` to build the actual node.
+            // every kind valid as a child (the source's
+            // `allowed_kinds_for_child()` set). Picking a kind stages an
+            // `AddChild` action carrying that kind's static tag —
+            // `apply_pending` calls `make_default_for_kind` to build the
+            // actual node.
             ui.menu_button("+ Add child", |ui| {
-                for kind_tag in available_kinds_for(false) {
-                    if ui.button(kind_tag).clicked() {
+                for kind_tag in allowed_child_kinds {
+                    if ui.button(*kind_tag).clicked() {
                         *pending.borrow_mut() = Some(PendingAction::AddChild {
                             parent: menu_id.clone(),
                             kind_tag,
@@ -700,10 +890,12 @@ fn build_tree_node(
                 }
             });
         }
-        // Rename rewrites the BTreeMap key plus every Placement / traits
-        // reference, so it's a root-only operation. Inner nodes are
-        // positional + unnamed and have nothing to rename.
-        if menu_is_root && ui.button("Rename").clicked() {
+        // Rename rewrites the source's root key plus every Placement /
+        // traits reference held alongside (room source). Inner nodes are
+        // positional + unnamed and have nothing to rename. Single-root
+        // sources (avatar visuals) suppress the option entirely via
+        // `allow_rename = false`.
+        if menu_is_root && menu_allow_rename && ui.button("Rename").clicked() {
             *pending.borrow_mut() = Some(PendingAction::Rename(menu_root.clone()));
             ui.close();
         }
@@ -728,7 +920,15 @@ fn build_tree_node(
             let mut child_path = path.clone();
             child_path.push(i);
             build_tree_node(
-                builder, root_name, child, child_path, false, pending, inventory,
+                builder,
+                root_name,
+                child,
+                child_path,
+                false,
+                allowed_child_kinds,
+                allow_rename,
+                pending,
+                inventory,
             );
         }
         builder.close_dir();
@@ -758,7 +958,7 @@ fn build_tree_node(
 /// the tree shape.
 fn draw_detail_panel(
     ui: &mut egui::Ui,
-    record: &mut RoomRecord,
+    source: &mut dyn GeneratorTreeSource,
     selected_generator: &mut Option<String>,
     selected_prim_path: &mut Option<Vec<usize>>,
     dirty: &mut bool,
@@ -781,15 +981,25 @@ fn draw_detail_panel(
     };
 
     let is_root = id.path.is_empty();
-    let Some(snapshot) = find_node(record, &id) else {
-        // The selection points at a node that just disappeared (e.g. its
-        // parent was kind-changed to a no-children variant). The tree
-        // panel will sync the selection to None on the next frame; show a
-        // brief placeholder for this frame.
-        ui.label("(selected node no longer exists)");
-        return;
+    // Snapshot the kind tag and choose the kind-picker vocabulary up
+    // front so the immutable borrow used for the header is released
+    // before we re-enter the source mutably for the editor body.
+    let kind_tag = match find_node(&*source, &id) {
+        Some(snapshot) => snapshot.kind_tag(),
+        None => {
+            // The selection points at a node that just disappeared (e.g.
+            // its parent was kind-changed to a no-children variant). The
+            // tree panel will sync the selection to None on the next
+            // frame; show a brief placeholder for this frame.
+            ui.label("(selected node no longer exists)");
+            return;
+        }
     };
-    let kind_tag = snapshot.kind_tag();
+    let allowed_kinds: &'static [&'static str] = if is_root {
+        source.allowed_kinds_for_root()
+    } else {
+        source.allowed_kinds_for_child()
+    };
 
     ui.horizontal(|ui| {
         if is_root {
@@ -809,10 +1019,10 @@ fn draw_detail_panel(
 
     let salt = node_salt(&id);
 
-    if let Some(node) = find_node_mut(record, &id) {
+    if let Some(node) = find_node_mut(source, &id) {
         ui.horizontal(|ui| {
             ui.label("Kind:");
-            generator_kind_picker(ui, &mut node.kind, is_root, &salt, dirty);
+            generator_kind_picker(ui, &mut node.kind, allowed_kinds, &salt, dirty);
         });
 
         ui.add_space(4.0);
@@ -875,10 +1085,10 @@ fn node_salt(id: &GenNodeId) -> String {
     s
 }
 
-/// Walk `(root, path)` from the room record to a `&Generator`. Returns
+/// Walk `(root, path)` from the source's roots to a `&Generator`. Returns
 /// `None` if the root key is missing or any child index is out of bounds.
-fn find_node<'a>(record: &'a RoomRecord, id: &GenNodeId) -> Option<&'a Generator> {
-    let mut node = record.generators.get(&id.root)?;
+fn find_node<'a>(source: &'a dyn GeneratorTreeSource, id: &GenNodeId) -> Option<&'a Generator> {
+    let mut node = source.get_root(&id.root)?;
     for &i in &id.path {
         node = node.children.get(i)?;
     }
@@ -887,8 +1097,11 @@ fn find_node<'a>(record: &'a RoomRecord, id: &GenNodeId) -> Option<&'a Generator
 
 /// Mutable counterpart of [`find_node`]. Splits the same `(root, path)`
 /// walk into the matching `&mut Generator`.
-fn find_node_mut<'a>(record: &'a mut RoomRecord, id: &GenNodeId) -> Option<&'a mut Generator> {
-    let mut node = record.generators.get_mut(&id.root)?;
+fn find_node_mut<'a>(
+    source: &'a mut dyn GeneratorTreeSource,
+    id: &GenNodeId,
+) -> Option<&'a mut Generator> {
+    let mut node = source.get_root_mut(&id.root)?;
     for &i in &id.path {
         node = node.children.get_mut(i)?;
     }
@@ -1604,7 +1817,7 @@ mod tests {
         let mut dirty = false;
 
         apply_reparent(
-            &mut record,
+            &mut RoomTreeSource::new(&mut record),
             &mut sel_gen,
             &mut sel_path,
             &mut tvs,
@@ -1646,7 +1859,7 @@ mod tests {
         let mut dirty = false;
 
         apply_reparent(
-            &mut record,
+            &mut RoomTreeSource::new(&mut record),
             &mut sel_gen,
             &mut sel_path,
             &mut tvs,
@@ -1685,7 +1898,7 @@ mod tests {
         let mut dirty = false;
 
         apply_reparent(
-            &mut record,
+            &mut RoomTreeSource::new(&mut record),
             &mut sel_gen,
             &mut sel_path,
             &mut tvs,
@@ -1718,7 +1931,7 @@ mod tests {
         let mut dirty = false;
 
         apply_reparent(
-            &mut record,
+            &mut RoomTreeSource::new(&mut record),
             &mut sel_gen,
             &mut sel_path,
             &mut tvs,
@@ -1756,7 +1969,7 @@ mod tests {
         let mut dirty = false;
 
         apply_reparent(
-            &mut record,
+            &mut RoomTreeSource::new(&mut record),
             &mut sel_gen,
             &mut sel_path,
             &mut tvs,

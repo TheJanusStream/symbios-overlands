@@ -79,11 +79,24 @@ pub struct TransformBuffer {
     pub samples: VecDeque<TransformSample>,
 }
 
+/// One row in the rolling chat HUD. The optional `did` is filled in when
+/// the message originated from a known peer entity (or from the local
+/// session) so the chat panel can look up the author's bsky profile
+/// picture in [`crate::avatar::BskyProfileCache`] and render it as a
+/// small icon next to the handle. Messages with no DID — e.g. an
+/// unauthenticated test write — render text-only with a placeholder.
+#[derive(Clone, Debug)]
+pub struct ChatEntry {
+    pub did: Option<String>,
+    pub author: String,
+    pub text: String,
+    pub timestamp: String,
+}
+
 /// Rolling chat history shown in the HUD.
-/// Each entry is `(author, text, timestamp_label)`.
 #[derive(Resource, Default)]
 pub struct ChatHistory {
-    pub messages: Vec<(String, String, String)>,
+    pub messages: Vec<ChatEntry>,
 }
 
 /// Rolling diagnostic event log with session-relative timestamps.

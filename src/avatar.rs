@@ -1,21 +1,25 @@
-//! Avatar fetch plugin: resolves a peer's Bluesky profile picture and paints
-//! it onto every [`RoverSail`] or [`ChestBadge`] descendant of their
-//! chassis — so a HoverRover flies it as a double-sided sail panel and a
-//! Humanoid wears it on the chest.
+//! Avatar fetch plugin: resolves a peer's Bluesky profile picture and
+//! caches it as both a `Handle<Image>` and an `egui::TextureId`. The
+//! cached image is consumed by the chat and People panels (where it
+//! renders as a small icon next to each author's name).
 //!
-//! On native builds the profile blob is fetched straight from `cdn.bsky.app`.
-//! On WASM that CDN lacks CORS headers, so `fetch_image_bytes` instead
-//! resolves the author's PDS from their DID document and downloads the raw
-//! blob via `com.atproto.sync.getBlob`.  Successful materials are cached on
-//! the chassis entity ([`AvatarMaterial`]) so archetype rebuilds (hot-swap
-//! HoverRover ↔ Humanoid, or a phenotype re-spawn) can re-apply the texture
-//! to the freshly spawned child without another network round trip.
+//! In-world avatar bodies do **not** carry the profile picture anymore —
+//! the unified-avatar work moved that decoration to the egui side. The
+//! cache is still keyed on DID so a peer who rejoins a room — or several
+//! peers entering a portal at once that share DIDs with peers seen
+//! earlier in the session — can skip the HTTPS round trip entirely and
+//! render with the already-resident image.
+//!
+//! On native builds the profile blob is fetched straight from
+//! `cdn.bsky.app`. On WASM that CDN lacks CORS headers, so
+//! `fetch_image_bytes` instead resolves the author's PDS from their DID
+//! document and downloads the raw blob via `com.atproto.sync.getBlob`.
 
 use bevy::prelude::*;
+use bevy_egui::{EguiTextureHandle, EguiUserTextures};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde::Deserialize;
 
-use crate::player::{ChestBadge, RoverSail};
 use crate::state::{AppState, LocalPlayer, RemotePeer};
 
 pub struct AvatarPlugin;
@@ -34,19 +38,24 @@ impl Plugin for AvatarPlugin {
     }
 }
 
-/// Baked result of a completed bsky profile fetch. Cached per-DID so a peer
-/// who rejoins a room — or several peers entering a portal at once that
-/// share DIDs with peers seen earlier in the session — can skip the HTTPS
-/// round trip entirely and render with the already-GPU-resident material.
+/// Baked result of a completed bsky profile fetch. Cached per-DID so a
+/// peer who rejoins a room — or several peers entering a portal at once
+/// that share DIDs with peers seen earlier in the session — can skip the
+/// HTTPS round trip entirely and render with the already-resident image.
 #[derive(Clone)]
 pub struct CachedBskyProfile {
-    pub material: Handle<StandardMaterial>,
+    /// Raw image asset handle. Kept so the egui texture remains valid
+    /// across rebuilds; holders take a `Handle<Image>` clone.
+    pub image: Handle<Image>,
+    /// `egui::TextureId` reference to the same image, ready to drop into
+    /// `egui::Image::from_texture` calls in chat / people panels.
+    pub egui_texture: bevy_egui::egui::TextureId,
     pub handle: Option<String>,
 }
 
-/// DID → cached bsky profile material. Cleared on logout
-/// (see `logout::cleanup_on_logout`) so a new session can't render a
-/// previous user's peer with whatever was left over in GPU asset storage.
+/// DID → cached bsky profile picture. Cleared on logout (see
+/// `logout::cleanup_on_logout`) so a new session can't render a previous
+/// user's peer with whatever was left over in GPU asset storage.
 #[derive(Resource, Default)]
 pub struct BskyProfileCache {
     by_did: std::collections::HashMap<String, CachedBskyProfile>,
@@ -55,6 +64,12 @@ pub struct BskyProfileCache {
 impl BskyProfileCache {
     pub fn clear(&mut self) {
         self.by_did.clear();
+    }
+
+    /// Look up a cached profile by DID. Returns `None` when the fetch is
+    /// still in flight or the profile has no avatar set on bsky.
+    pub fn get(&self, did: &str) -> Option<&CachedBskyProfile> {
+        self.by_did.get(did)
     }
 }
 
@@ -80,12 +95,6 @@ pub struct AvatarFetchTask {
     pub task: bevy::tasks::Task<AvatarFetchResult>,
 }
 
-/// Stores the last successfully applied avatar material on a chassis entity.
-/// Used to re-apply the material to a new sail child after an airship rebuild
-/// without triggering a redundant network fetch.
-#[derive(Component, Clone)]
-pub struct AvatarMaterial(pub Handle<StandardMaterial>);
-
 fn fetch_local_avatar(
     mut commands: Commands,
     session: Option<Res<AtprotoSession>>,
@@ -97,24 +106,19 @@ fn fetch_local_avatar(
     spawn_avatar_task(&mut commands, entity, did);
 }
 
-#[allow(clippy::too_many_arguments)]
 fn trigger_avatar_fetches(
     mut commands: Commands,
     pending: Query<(Entity, &AvatarFetchPending)>,
     cache: Res<BskyProfileCache>,
     mut peers: Query<&mut RemotePeer>,
-    children_query: Query<&Children>,
-    sail_query: Query<Entity, With<RoverSail>>,
-    badge_query: Query<Entity, With<ChestBadge>>,
 ) {
     for (entity, pending) in pending.iter() {
         let did = pending.did.clone();
         commands.entity(entity).remove::<AvatarFetchPending>();
 
-        // Cache hit — install the verified handle and paint the already-
-        // GPU-resident material onto the chassis descendants. The bsky
-        // CDN charges us a round trip per DID per session otherwise, and
-        // a portal clustering 20 familiar peers at once would stall every
+        // Cache hit — install the verified handle directly. The bsky CDN
+        // charges us a round trip per DID per session otherwise, and a
+        // portal clustering 20 familiar peers at once would stall every
         // chassis on the IoTaskPool until those fetches unwind.
         if let Some(cached) = cache.by_did.get(&did) {
             if let Some(handle) = cached.handle.clone()
@@ -122,53 +126,10 @@ fn trigger_avatar_fetches(
             {
                 peer.handle = Some(handle);
             }
-            commands
-                .entity(entity)
-                .insert(AvatarMaterial(cached.material.clone()));
-            apply_avatar_material_to_descendants(
-                &mut commands,
-                entity,
-                cached.material.clone(),
-                &children_query,
-                &sail_query,
-                &badge_query,
-            );
             continue;
         }
 
         spawn_avatar_task(&mut commands, entity, did);
-    }
-}
-
-/// Walk the chassis subtree and queue deferred `MeshMaterial3d` inserts on
-/// every `RoverSail` / `ChestBadge` descendant. The deferred closure guards
-/// against the target despawning between system execution and command
-/// flush (happens when a rover rebuild lands in the same frame).
-fn apply_avatar_material_to_descendants(
-    commands: &mut Commands,
-    root: Entity,
-    mat: Handle<StandardMaterial>,
-    children_query: &Query<&Children>,
-    sail_query: &Query<Entity, With<RoverSail>>,
-    badge_query: &Query<Entity, With<ChestBadge>>,
-) {
-    let mut targets: Vec<Entity> = Vec::new();
-    let mut stack: Vec<Entity> = vec![root];
-    while let Some(node) = stack.pop() {
-        if sail_query.get(node).is_ok() || badge_query.get(node).is_ok() {
-            targets.push(node);
-        }
-        if let Ok(children) = children_query.get(node) {
-            stack.extend(children.iter());
-        }
-    }
-    for target in targets {
-        let mat = mat.clone();
-        commands.queue(move |world: &mut World| {
-            if let Ok(mut eref) = world.get_entity_mut(target) {
-                eref.insert(MeshMaterial3d(mat));
-            }
-        });
     }
 }
 
@@ -204,11 +165,8 @@ fn poll_avatar_tasks(
     mut tasks: Query<(Entity, &mut AvatarFetchTask)>,
     mut peers: Query<&mut RemotePeer>,
     mut images: ResMut<Assets<Image>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut egui_textures: ResMut<EguiUserTextures>,
     mut cache: ResMut<BskyProfileCache>,
-    children_query: Query<&Children>,
-    sail_query: Query<Entity, With<RoverSail>>,
-    badge_query: Query<Entity, With<ChestBadge>>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
@@ -246,59 +204,22 @@ fn poll_avatar_tasks(
             bevy::asset::RenderAssetUsages::MAIN_WORLD
                 | bevy::asset::RenderAssetUsages::RENDER_WORLD,
         );
-        let tex_handle = images.add(img);
-        let new_mat = materials.add(StandardMaterial {
-            base_color_texture: Some(tex_handle),
-            base_color: Color::WHITE,
-            unlit: true,
-            double_sided: true,
-            cull_mode: None,
-            ..default()
-        });
+        let image_handle = images.add(img);
+        // `add_image` takes an `EguiTextureHandle`; wrap the strong
+        // handle so egui shares ownership and the texture survives any
+        // later release on our side. The cloned handle still lives in
+        // `CachedBskyProfile.image` so the asset stays GC-anchored even
+        // if egui drops its half.
+        let egui_texture = egui_textures.add_image(EguiTextureHandle::Strong(image_handle.clone()));
 
-        // Cache the material on the chassis so rebuilds can re-apply it without
-        // a new network fetch.
-        commands
-            .entity(entity)
-            .insert(AvatarMaterial(new_mat.clone()));
-
-        // Cache by DID so a future peer identifying with the same DID
-        // (reconnect, portal hop with shared visitors) paints immediately
-        // without re-hitting bsky / PDS. The material handle is cheap to
-        // clone and keeps the underlying GPU texture alive as long as any
-        // peer references it.
         cache.by_did.insert(
             did.clone(),
             CachedBskyProfile {
-                material: new_mat.clone(),
+                image: image_handle,
+                egui_texture,
                 handle: verified_handle,
             },
         );
-
-        // Apply the material to every RoverSail or ChestBadge descendant.
-        // Walk the full child tree because the humanoid badge sits below an
-        // intermediate `HumanoidVisualRoot`, not directly under the chassis.
-        // The deferred world closure guards against a rebuild despawning the
-        // target between system execution and command flush.
-        let mut targets: Vec<Entity> = Vec::new();
-        let mut stack: Vec<Entity> = vec![entity];
-        while let Some(node) = stack.pop() {
-            if sail_query.get(node).is_ok() || badge_query.get(node).is_ok() {
-                targets.push(node);
-            }
-            if let Ok(children) = children_query.get(node) {
-                stack.extend(children.iter());
-            }
-        }
-
-        for target in targets {
-            let mat = new_mat.clone();
-            commands.queue(move |world: &mut World| {
-                if let Ok(mut eref) = world.get_entity_mut(target) {
-                    eref.insert(MeshMaterial3d(mat));
-                }
-            });
-        }
     }
 }
 
@@ -378,3 +299,32 @@ async fn fetch_image_bytes(
 
 #[cfg(target_arch = "wasm32")]
 use crate::pds::resolve_pds;
+
+/// Render a small profile-picture icon for `did` next to a chat row or
+/// a People-panel entry. When the cache holds an `egui::TextureId` for
+/// this DID, draws an [`egui::Image`] sized at `size` px square. When
+/// the cache misses (load still in flight, no profile picture, or
+/// `did` is `None`), allocates the same square as a transparent spacer
+/// so the parent row layout doesn't shift between frames as the load
+/// resolves.
+pub fn draw_avatar_icon(
+    ui: &mut bevy_egui::egui::Ui,
+    did: Option<&str>,
+    cache: &BskyProfileCache,
+    size: f32,
+) {
+    use bevy_egui::egui;
+
+    let texture_id = did.and_then(|d| cache.get(d)).map(|p| p.egui_texture);
+    match texture_id {
+        Some(texture_id) => {
+            ui.add(egui::Image::from_texture((
+                texture_id,
+                egui::vec2(size, size),
+            )));
+        }
+        None => {
+            ui.allocate_space(egui::vec2(size, size));
+        }
+    }
+}

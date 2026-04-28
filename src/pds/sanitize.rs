@@ -601,6 +601,41 @@ pub fn sanitize_generator(generator: &mut Generator) {
     sanitize_generator_node(generator, 0, &mut count, true);
 }
 
+/// Avatar-specific sanitiser. Reuses [`sanitize_generator_node`]'s
+/// depth, total-node, and per-kind clamps, then walks the tree and
+/// rewrites every kind that is forbidden inside an avatar's visual
+/// subtree (Terrain, Water, Portal) into a default cuboid.
+///
+/// Terrain / Water / Portal are excluded by design. Terrain owns the
+/// world heightmap; allowing it inside an avatar would either spawn a
+/// second heightfield collider (Avian forbids) or be silently ignored.
+/// Water needs an ancestor whose transform anchors the volume in world
+/// space — meaningless on a vehicle. Portal would let an avatar carry
+/// a moving travel target into another peer's space, which is both
+/// abusive (drag a stranger through your portal) and confusing (the
+/// portal moves with the player).
+///
+/// Primitives + LSystem + Shape all round-trip; the avatar spawn path
+/// (`world_builder::avatar_spawn::spawn_avatar_visuals_subtree`)
+/// reuses the same dispatcher as the room compiler with the room-only
+/// behaviours (RoomEntity, PrimMarker, per-prim colliders) suppressed.
+pub fn sanitize_avatar_visuals(generator: &mut Generator) {
+    sanitize_generator(generator);
+    enforce_avatar_kinds(generator);
+}
+
+fn enforce_avatar_kinds(node: &mut Generator) {
+    if matches!(
+        &node.kind,
+        GeneratorKind::Terrain(_) | GeneratorKind::Water { .. } | GeneratorKind::Portal { .. }
+    ) {
+        node.kind = GeneratorKind::default_cuboid();
+    }
+    for child in node.children.iter_mut() {
+        enforce_avatar_kinds(child);
+    }
+}
+
 pub(crate) fn sanitize_terrain_cfg(cfg: &mut SovereignTerrainConfig) {
     cfg.grid_size = cfg.grid_size.clamp(2, limits::MAX_GRID_SIZE);
     // `cell_scale` and `height_scale` feed straight into the heightmap

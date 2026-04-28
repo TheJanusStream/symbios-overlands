@@ -1,48 +1,76 @@
-//! Avatar editor panel — the sovereign analogue of the old Airship
-//! Design window.
+//! Avatar editor — tabbed split view.
 //!
-//! The paradigm is **Live UX**: every slider mutates
-//! [`LiveAvatarRecord`] in place. The hot-swap system in `player.rs`
-//! rebuilds the local visuals the same frame the resource changes, and
-//! `network::broadcast_avatar_state` pushes a preview update to peers so
-//! they see the edit before the author commits. Three explicit buttons drive
-//! persistence and discard flows:
+//! The avatar window now has two tabs:
 //!
-//! - **Publish to PDS** writes the current `LiveAvatarRecord` to the
-//!   owner's PDS via `com.atproto.repo.putRecord` and then syncs the value
-//!   into [`StoredAvatarRecord`] on success.
-//! - **Load from PDS** drops all in-flight edits by copying
-//!   [`StoredAvatarRecord`] back into `LiveAvatarRecord`.
-//! - **Reset to default** replaces `LiveAvatarRecord` with the canonical
-//!   `AvatarRecord::default_for_did` seed — useful after a botched edit
-//!   session or as a blank slate for re-tuning.
+//!   * **Visuals** — embeds the same tree-view + detail-panel widget that
+//!     drives the room editor's Generators tab, fed by an
+//!     [`AvatarVisualsTreeSource`] adapter so the avatar's single
+//!     `visuals` root is editable through the unified vocabulary
+//!     (primitives only in v1).
+//!   * **Locomotion** — picker for the [`LocomotionConfig`] preset
+//!     (HoverBoat / Humanoid / Airplane / Helicopter / Car) plus a
+//!     per-preset slider panel for collider dimensions and physics
+//!     tuning.
+//!
+//! Live UX is preserved: every widget mutates [`LiveAvatarRecord`] in
+//! place, the player module rebuilds visuals or swaps locomotion the same
+//! frame the resource changes, and `network::broadcast_avatar_state`
+//! pushes a preview update to peers so they see the edit before the
+//! author commits. Three explicit buttons drive persistence and discard
+//! flows:
+//!
+//!   * **Publish to PDS** writes the current `LiveAvatarRecord` to the
+//!     owner's PDS via `com.atproto.repo.putRecord` and then syncs the
+//!     value into [`StoredAvatarRecord`] on success.
+//!   * **Load from PDS** drops all in-flight edits by copying
+//!     [`StoredAvatarRecord`] back into `LiveAvatarRecord`.
+//!   * **Reset to default** replaces `LiveAvatarRecord` with the canonical
+//!     [`AvatarRecord::default_for_did`] seed.
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
 use crate::pds::{
-    self, AvatarBody, AvatarRecord, Fp, HumanoidKinematics, HumanoidPhenotype, RoverKinematics,
-    RoverPhenotype,
+    self, AirplaneParams, AvatarRecord, CarParams, Fp, HelicopterParams, HoverBoatParams,
+    HumanoidParams, LocomotionConfig,
 };
-use crate::protocol::PontoonShape;
-use crate::state::{LiveAvatarRecord, LocalSettings, PublishFeedback, StoredAvatarRecord};
+use crate::state::{
+    LiveAvatarRecord, LiveInventoryRecord, LocalSettings, PublishFeedback, StoredAvatarRecord,
+};
+use crate::ui::room::generators::{AvatarVisualsTreeSource, GenNodeId, draw_generators_tab};
 
 /// Async task for publishing the avatar record to the owner's PDS.
 #[derive(Component)]
 pub struct PublishAvatarTask(pub bevy::tasks::Task<Result<(), String>>);
 
-/// Persistent avatar-editor state across frames. Holds the debounce timer
-/// that throttles slider-driven mutations into `LiveAvatarRecord`'s change
-/// tick.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum AvatarTab {
+    #[default]
+    Visuals,
+    Locomotion,
+}
+
+/// Persistent avatar-editor state across frames.
 #[derive(Default)]
 pub struct AvatarEditorState {
+    selected_tab: AvatarTab,
+    /// Tree-view selection mirrors the room editor's RoomEditorState.
+    /// `selected_generator` is always `Some(AvatarVisualsTreeSource::ROOT_NAME)`
+    /// once a node has been picked; `selected_prim_path` is the child
+    /// chain into the visuals tree.
+    selected_generator: Option<String>,
+    selected_prim_path: Option<Vec<usize>>,
+    tree_view_state: egui_ltreeview::TreeViewState<GenNodeId>,
+    /// Unused for the avatar (single-root sources have no rename) but
+    /// required by [`draw_generators_tab`]'s signature. Holding a
+    /// `Local`-owned `Option` lets us hand a `&mut` to the callee
+    /// without conditionally constructing a stack reference each frame.
+    renaming_unused: Option<(String, String)>,
     /// Seconds remaining before a pending widget change is flushed into
-    /// `LiveAvatarRecord`'s change tick. Every match-arm `&mut live.0.body`
-    /// flip or slider drag resets this to `MENU_DEBOUNCE_SECS`; the
-    /// downstream `player.rs` visual rebuild and
-    /// `network::broadcast_avatar_state` peer broadcast fire once when
-    /// the timer drains rather than every frame.
+    /// `LiveAvatarRecord`'s change tick. The downstream player rebuild
+    /// and `network::broadcast_avatar_state` peer broadcast fire once
+    /// when the timer drains rather than every frame.
     pending_flush_secs: f32,
 }
 
@@ -56,14 +84,15 @@ pub fn avatar_ui(
     session: Option<Res<AtprotoSession>>,
     refresh_ctx: Option<Res<crate::oauth::OauthRefreshCtx>>,
     mut feedback: ResMut<PublishFeedback>,
+    mut inventory: Option<ResMut<LiveInventoryRecord>>,
     mut editor: Local<AvatarEditorState>,
     time: Res<Time>,
 ) {
     use crate::config::ui::airship as cfg;
 
     // `ResMut::deref_mut` unconditionally flips the change tick, so
-    // `match &mut live.0.body` inside the egui closure would otherwise
-    // mark the resource changed every frame the editor is visible — and
+    // mutating `live.0` inside the egui closure would otherwise mark the
+    // resource changed every frame the editor is visible — and
     // `network::broadcast_avatar_state` turns that into a peer broadcast
     // storm. Route UI access through `bypass_change_detection` and call
     // `live.set_changed()` explicitly below, only after the debounce
@@ -71,11 +100,6 @@ pub fn avatar_ui(
     let mut widget_changed = false;
     {
         let live_mut = live.bypass_change_detection();
-        // Clone-compare detects every widget-driven mutation (sliders,
-        // body variant flips, Load/Reset button writes) without threading
-        // a `&mut bool` through every panel helper. `AvatarRecord` is a
-        // small POD struct of phenotype + kinematics scalars, so the
-        // per-frame clone is cheap.
         let before = live_mut.0.clone();
 
         egui::Window::new("Avatar")
@@ -85,58 +109,73 @@ pub fn avatar_ui(
             .resizable(true)
             .collapsible(true)
             .show(contexts.ctx_mut().unwrap(), |ui| {
-                // --- Body variant selector ---------------------------------
-                let current_kind = live_mut.0.body.kind_tag();
+                // --- Tab bar ----------------------------------------------
                 ui.horizontal(|ui| {
-                    ui.label("Body:");
-                    if ui
-                        .selectable_label(current_kind == "hover_rover", "Hover-Rover")
-                        .clicked()
-                        && current_kind != "hover_rover"
-                    {
-                        live_mut.0.body = AvatarBody::HoverRover {
-                            phenotype: Box::new(RoverPhenotype::default()),
-                            kinematics: Box::new(RoverKinematics::default()),
-                        };
-                    }
-                    if ui
-                        .selectable_label(current_kind == "humanoid", "Humanoid")
-                        .clicked()
-                        && current_kind != "humanoid"
-                    {
-                        live_mut.0.body = AvatarBody::Humanoid {
-                            phenotype: Box::new(HumanoidPhenotype::default()),
-                            kinematics: Box::new(HumanoidKinematics::default()),
-                        };
+                    let tabs = [
+                        (AvatarTab::Visuals, "Visuals"),
+                        (AvatarTab::Locomotion, "Locomotion"),
+                    ];
+                    for (tab, label) in tabs {
+                        if ui
+                            .selectable_label(editor.selected_tab == tab, label)
+                            .clicked()
+                        {
+                            editor.selected_tab = tab;
+                        }
                     }
                 });
-
                 ui.separator();
 
-                match &mut live_mut.0.body {
-                    AvatarBody::HoverRover {
-                        phenotype,
-                        kinematics,
-                    } => {
-                        rover_panel(ui, phenotype, kinematics);
+                // Reserve room below the tab body for the separator +
+                // Publish/Load/Reset row + feedback line; the scroll
+                // area then fills the rest of the window so dragging the
+                // window taller actually grows the tab body.
+                const FOOTER_RESERVE: f32 = 110.0;
+                const BODY_MIN_HEIGHT: f32 = 200.0;
+                let body_height = (ui.available_height() - FOOTER_RESERVE).max(BODY_MIN_HEIGHT);
+
+                let AvatarEditorState {
+                    selected_tab,
+                    selected_generator,
+                    selected_prim_path,
+                    tree_view_state,
+                    renaming_unused,
+                    ..
+                } = &mut *editor;
+
+                match *selected_tab {
+                    AvatarTab::Visuals => {
+                        ui.allocate_ui(egui::vec2(ui.available_width(), body_height), |ui| {
+                            let mut source = AvatarVisualsTreeSource::new(&mut live_mut.0.visuals);
+                            draw_generators_tab(
+                                ui,
+                                &mut source,
+                                selected_generator,
+                                selected_prim_path,
+                                tree_view_state,
+                                renaming_unused,
+                                inventory.as_deref_mut(),
+                                &mut widget_changed,
+                            );
+                        });
                     }
-                    AvatarBody::Humanoid {
-                        phenotype,
-                        kinematics,
-                    } => {
-                        humanoid_panel(ui, phenotype, kinematics);
-                    }
-                    AvatarBody::Unknown => {
-                        ui.colored_label(
-                            egui::Color32::ORANGE,
-                            "This avatar was authored against a newer schema — pick a body type above to replace it.",
-                        );
+                    AvatarTab::Locomotion => {
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([true, false])
+                            .max_height(body_height)
+                            .show(ui, |ui| {
+                                draw_locomotion_tab(
+                                    ui,
+                                    &mut live_mut.0.locomotion,
+                                    &mut widget_changed,
+                                );
+                            });
                     }
                 }
 
                 ui.separator();
 
-                // --- Networking (local-only, not broadcast) ----------------
+                // --- Networking (local-only, not broadcast) ---------------
                 egui::CollapsingHeader::new("Networking")
                     .default_open(false)
                     .show(ui, |ui| {
@@ -155,7 +194,7 @@ pub fn avatar_ui(
 
                 ui.separator();
 
-                // --- Publish / Load from PDS / Reset to default ------------
+                // --- Publish / Load from PDS / Reset to default -----------
                 let is_dirty = stored.as_ref().is_some_and(|s| s.0 != live_mut.0);
 
                 ui.horizontal(|ui| {
@@ -171,10 +210,6 @@ pub fn avatar_ui(
                         && let (Some(session), Some(refresh)) =
                             (session.as_ref(), refresh_ctx.as_ref())
                     {
-                        // Flip to `Publishing` the same frame the click fires so
-                        // the user gets immediate visual confirmation; without
-                        // this, the panel stays on `Idle` for the full PDS
-                        // round-trip and the click looks like it was dropped.
                         *feedback = PublishFeedback::Publishing;
                         spawn_publish_avatar_task(
                             &mut commands,
@@ -192,15 +227,10 @@ pub fn avatar_ui(
                         live_mut.0 = stored.0.clone();
                     }
 
-                    // Reset requires a session because the canonical default
-                    // seeds itself off the signed-in DID — skipping the button
-                    // when signed out keeps the reset path deterministic.
                     let default_record = session
                         .as_ref()
                         .map(|s| AvatarRecord::default_for_did(&s.did));
-                    let reset_enabled = default_record
-                        .as_ref()
-                        .is_some_and(|d| *d != live_mut.0);
+                    let reset_enabled = default_record.as_ref().is_some_and(|d| *d != live_mut.0);
                     if ui
                         .add_enabled(reset_enabled, egui::Button::new("Reset to default"))
                         .clicked()
@@ -239,267 +269,310 @@ pub fn avatar_ui(
     if editor.pending_flush_secs > 0.0 {
         editor.pending_flush_secs = (editor.pending_flush_secs - time.delta_secs()).max(0.0);
         if editor.pending_flush_secs <= 0.0 {
-            // Debounce drained — publish the accumulated edit to
-            // `player.rs` (visual rebuild) and `broadcast_avatar_state`
-            // (peer preview) in a single change tick.
+            // Debounce drained — publish the accumulated edit to player
+            // (visual rebuild) and `broadcast_avatar_state` (peer
+            // preview) in a single change tick.
             live.set_changed();
         }
     }
 }
 
-fn rover_panel(ui: &mut egui::Ui, phen: &mut RoverPhenotype, kin: &mut RoverKinematics) {
-    egui::CollapsingHeader::new("Hull")
-        .default_open(false)
-        .show(ui, |ui| {
-            ui.label("Length (m)");
-            fp_slider(ui, &mut phen.hull_length, 1.0..=5.0, 0.05);
-            ui.label("Width (m)");
-            fp_slider(ui, &mut phen.hull_width, 0.6..=3.0, 0.05);
-            ui.label("Keel depth (m)");
-            fp_slider(ui, &mut phen.hull_depth, 0.1..=1.5, 0.05);
-        });
+// ---------------------------------------------------------------------------
+// Locomotion tab
+// ---------------------------------------------------------------------------
 
-    egui::CollapsingHeader::new("Pontoons")
-        .default_open(false)
-        .show(ui, |ui| {
-            ui.label("Shape");
-            let shape_label = match phen.pontoon_shape {
-                PontoonShape::Capsule => "Capsule",
-                PontoonShape::VHull => "V-Hull",
-            };
-            egui::ComboBox::from_id_salt("pontoon_shape")
-                .selected_text(shape_label)
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut phen.pontoon_shape, PontoonShape::Capsule, "Capsule");
-                    ui.selectable_value(&mut phen.pontoon_shape, PontoonShape::VHull, "V-Hull");
-                });
+fn draw_locomotion_tab(ui: &mut egui::Ui, locomotion: &mut LocomotionConfig, dirty: &mut bool) {
+    let current_kind = locomotion.kind_tag();
 
-            ui.label("Spread (m)");
-            fp_slider(ui, &mut phen.pontoon_spread, 0.5..=2.5, 0.05);
-            ui.label("Length (m)");
-            fp_slider(ui, &mut phen.pontoon_length, 0.5..=3.5, 0.05);
-            ui.label("Width (m)");
-            fp_slider(ui, &mut phen.pontoon_width, 0.05..=1.0, 0.01);
-            ui.label("Height (m)");
-            fp_slider(ui, &mut phen.pontoon_height, 0.05..=1.0, 0.01);
-            ui.label("Strut drop (% keel)");
-            fp_slider(ui, &mut phen.strut_drop, 0.0..=1.0, 0.01);
-        });
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Preset:");
+        for (kind, label, ctor) in LocomotionConfig::pickers() {
+            if ui.selectable_label(current_kind == *kind, *label).clicked() && current_kind != *kind
+            {
+                *locomotion = ctor();
+                *dirty = true;
+            }
+        }
+    });
+    ui.separator();
 
-    egui::CollapsingHeader::new("Mast & Sail")
-        .default_open(false)
-        .show(ui, |ui| {
-            ui.label("Mast height (m)");
-            fp_slider(ui, &mut phen.mast_height, 0.3..=2.5, 0.05);
-            ui.label("Mast radius (m)");
-            fp_slider(ui, &mut phen.mast_radius, 0.01..=0.2, 0.005);
-            ui.label("Mast offset X (m)");
-            fp_slider_array(ui, &mut phen.mast_offset.0[0], -1.5..=1.5, 0.05);
-            ui.label("Mast offset Z (m)");
-            fp_slider_array(ui, &mut phen.mast_offset.0[1], -2.0..=2.0, 0.05);
-            ui.label("Sail size (m)");
-            fp_slider(ui, &mut phen.sail_size, 0.3..=2.5, 0.05);
-        });
+    match locomotion {
+        LocomotionConfig::HoverBoat(p) => hover_boat_panel(ui, p, dirty),
+        LocomotionConfig::Humanoid(p) => humanoid_panel(ui, p, dirty),
+        LocomotionConfig::Airplane(p) => airplane_panel(ui, p, dirty),
+        LocomotionConfig::Helicopter(p) => helicopter_panel(ui, p, dirty),
+        LocomotionConfig::Car(p) => car_panel(ui, p, dirty),
+        LocomotionConfig::Unknown => {
+            ui.colored_label(
+                egui::Color32::ORANGE,
+                "This avatar's locomotion preset was authored against a newer schema — \
+                 pick a preset above to replace it.",
+            );
+        }
+    }
+}
 
-    egui::CollapsingHeader::new("Materials")
-        .default_open(false)
+fn hover_boat_panel(ui: &mut egui::Ui, p: &mut HoverBoatParams, dirty: &mut bool) {
+    egui::CollapsingHeader::new("Chassis")
+        .default_open(true)
         .show(ui, |ui| {
-            let mut dirty = false;
-            egui::CollapsingHeader::new("Hull")
-                .default_open(false)
-                .show(ui, |ui| {
-                    super::room::draw_universal_material(
-                        ui,
-                        &mut phen.hull_material,
-                        "rover_hull",
-                        &mut dirty,
-                    );
-                });
-            egui::CollapsingHeader::new("Pontoons")
-                .default_open(false)
-                .show(ui, |ui| {
-                    super::room::draw_universal_material(
-                        ui,
-                        &mut phen.pontoon_material,
-                        "rover_pontoon",
-                        &mut dirty,
-                    );
-                });
-            egui::CollapsingHeader::new("Mast")
-                .default_open(false)
-                .show(ui, |ui| {
-                    super::room::draw_universal_material(
-                        ui,
-                        &mut phen.mast_material,
-                        "rover_mast",
-                        &mut dirty,
-                    );
-                });
-            egui::CollapsingHeader::new("Struts")
-                .default_open(false)
-                .show(ui, |ui| {
-                    super::room::draw_universal_material(
-                        ui,
-                        &mut phen.strut_material,
-                        "rover_strut",
-                        &mut dirty,
-                    );
-                });
-            egui::CollapsingHeader::new("Sail")
-                .default_open(false)
-                .show(ui, |ui| {
-                    super::room::draw_universal_material(
-                        ui,
-                        &mut phen.sail_material,
-                        "rover_sail",
-                        &mut dirty,
-                    );
-                });
-            let _ = dirty;
+            fp3_extents(
+                ui,
+                "Half-extents (X/Y/Z, m)",
+                &mut p.chassis_half_extents.0,
+                dirty,
+            );
+            ui.label("Mass (kg)");
+            fp_slider(ui, &mut p.mass, 5.0..=200.0, 1.0, dirty);
+            ui.label("Linear damping");
+            fp_slider(ui, &mut p.linear_damping, 0.0..=10.0, 0.1, dirty);
+            ui.label("Angular damping");
+            fp_slider(ui, &mut p.angular_damping, 0.0..=20.0, 0.1, dirty);
         });
 
     egui::CollapsingHeader::new("Suspension & Drive")
         .default_open(false)
         .show(ui, |ui| {
             ui.label("Suspension rest length");
-            fp_slider(ui, &mut kin.suspension_rest_length, 0.2..=2.0, 0.05);
+            fp_slider(ui, &mut p.suspension_rest_length, 0.2..=2.0, 0.05, dirty);
             ui.label("Suspension stiffness");
-            fp_slider(ui, &mut kin.suspension_stiffness, 500.0..=15_000.0, 50.0);
+            fp_slider(
+                ui,
+                &mut p.suspension_stiffness,
+                500.0..=15_000.0,
+                50.0,
+                dirty,
+            );
             ui.label("Suspension damping");
-            fp_slider(ui, &mut kin.suspension_damping, 10.0..=500.0, 5.0);
+            fp_slider(ui, &mut p.suspension_damping, 10.0..=500.0, 5.0, dirty);
             ui.label("Drive force");
-            fp_slider(ui, &mut kin.drive_force, 500.0..=10_000.0, 50.0);
+            fp_slider(ui, &mut p.drive_force, 500.0..=10_000.0, 50.0, dirty);
             ui.label("Turn torque");
-            fp_slider(ui, &mut kin.turn_torque, 200.0..=6_000.0, 50.0);
+            fp_slider(ui, &mut p.turn_torque, 200.0..=6_000.0, 50.0, dirty);
             ui.label("Lateral grip");
-            fp_slider(ui, &mut kin.lateral_grip, 500.0..=15_000.0, 100.0);
+            fp_slider(ui, &mut p.lateral_grip, 500.0..=15_000.0, 100.0, dirty);
             ui.label("Jump force");
-            fp_slider(ui, &mut kin.jump_force, 500.0..=8_000.0, 50.0);
+            fp_slider(ui, &mut p.jump_force, 500.0..=8_000.0, 50.0, dirty);
             ui.label("Uprighting torque");
-            fp_slider(ui, &mut kin.uprighting_torque, 100.0..=3_000.0, 50.0);
-        });
-
-    egui::CollapsingHeader::new("Chassis")
-        .default_open(false)
-        .show(ui, |ui| {
-            ui.label("Mass (kg)");
-            fp_slider(ui, &mut kin.mass, 5.0..=200.0, 1.0);
-            ui.label("Linear damping");
-            fp_slider(ui, &mut kin.linear_damping, 0.0..=10.0, 0.1);
-            ui.label("Angular damping");
-            fp_slider(ui, &mut kin.angular_damping, 0.0..=20.0, 0.1);
+            fp_slider(ui, &mut p.uprighting_torque, 100.0..=3_000.0, 50.0, dirty);
         });
 
     egui::CollapsingHeader::new("Buoyancy")
         .default_open(false)
         .show(ui, |ui| {
             ui.label("Water rest length (m)");
-            fp_slider(ui, &mut kin.water_rest_length, 0.0..=3.0, 0.05);
+            fp_slider(ui, &mut p.water_rest_length, 0.0..=3.0, 0.05, dirty);
             ui.label("Strength (N/m)");
-            fp_slider(ui, &mut kin.buoyancy_strength, 0.0..=10_000.0, 50.0);
+            fp_slider(ui, &mut p.buoyancy_strength, 0.0..=10_000.0, 50.0, dirty);
             ui.label("Damping (N·s/m)");
-            fp_slider(ui, &mut kin.buoyancy_damping, 0.0..=2_000.0, 10.0);
+            fp_slider(ui, &mut p.buoyancy_damping, 0.0..=2_000.0, 10.0, dirty);
             ui.label("Max depth (m)");
-            fp_slider(ui, &mut kin.buoyancy_max_depth, 0.1..=5.0, 0.05);
+            fp_slider(ui, &mut p.buoyancy_max_depth, 0.1..=5.0, 0.05, dirty);
         });
 }
 
-fn humanoid_panel(ui: &mut egui::Ui, phen: &mut HumanoidPhenotype, kin: &mut HumanoidKinematics) {
-    egui::CollapsingHeader::new("Body")
+fn humanoid_panel(ui: &mut egui::Ui, p: &mut HumanoidParams, dirty: &mut bool) {
+    egui::CollapsingHeader::new("Capsule")
         .default_open(true)
         .show(ui, |ui| {
-            ui.label("Height (m)");
-            fp_slider(ui, &mut phen.height, 0.4..=3.0, 0.05);
-            ui.label("Torso half-width (m)");
-            fp_slider(ui, &mut phen.torso_half_width, 0.1..=0.5, 0.01);
-            ui.label("Torso half-depth (m)");
-            fp_slider(ui, &mut phen.torso_half_depth, 0.05..=0.4, 0.01);
-            ui.label("Head size (m)");
-            fp_slider(ui, &mut phen.head_size, 0.1..=0.5, 0.01);
-            ui.label("Limb thickness (m)");
-            fp_slider(ui, &mut phen.limb_thickness, 0.04..=0.25, 0.005);
-            ui.label("Arm length (× torso)");
-            fp_slider(ui, &mut phen.arm_length_ratio, 0.5..=1.5, 0.01);
-            ui.label("Leg length (× height)");
-            fp_slider(ui, &mut phen.leg_length_ratio, 0.3..=0.6, 0.01);
-            ui.checkbox(&mut phen.show_badge, "Show profile badge");
-        });
-
-    egui::CollapsingHeader::new("Materials")
-        .default_open(false)
-        .show(ui, |ui| {
-            let mut dirty = false;
-            egui::CollapsingHeader::new("Body")
-                .default_open(false)
-                .show(ui, |ui| {
-                    super::room::draw_universal_material(
-                        ui,
-                        &mut phen.body_material,
-                        "humanoid_body",
-                        &mut dirty,
-                    );
-                });
-            egui::CollapsingHeader::new("Head")
-                .default_open(false)
-                .show(ui, |ui| {
-                    super::room::draw_universal_material(
-                        ui,
-                        &mut phen.head_material,
-                        "humanoid_head",
-                        &mut dirty,
-                    );
-                });
-            egui::CollapsingHeader::new("Limbs")
-                .default_open(false)
-                .show(ui, |ui| {
-                    super::room::draw_universal_material(
-                        ui,
-                        &mut phen.limb_material,
-                        "humanoid_limb",
-                        &mut dirty,
-                    );
-                });
-            let _ = dirty;
+            ui.label("Radius (m)");
+            fp_slider(ui, &mut p.capsule_radius, 0.05..=1.0, 0.01, dirty);
+            ui.label("Cylinder length (m)");
+            fp_slider(ui, &mut p.capsule_length, 0.1..=4.0, 0.05, dirty);
+            ui.label(
+                egui::RichText::new(format!(
+                    "Total height ≈ {:.2} m (length + 2·radius)",
+                    p.total_height()
+                ))
+                .small()
+                .weak(),
+            );
+            ui.label("Mass (kg)");
+            fp_slider(ui, &mut p.mass, 30.0..=150.0, 1.0, dirty);
+            ui.label("Linear damping");
+            fp_slider(ui, &mut p.linear_damping, 0.0..=3.0, 0.05, dirty);
         });
 
     egui::CollapsingHeader::new("Locomotion")
-        .default_open(false)
+        .default_open(true)
         .show(ui, |ui| {
             ui.label("Walk speed (m/s)");
-            fp_slider(ui, &mut kin.walk_speed, 1.0..=10.0, 0.1);
+            fp_slider(ui, &mut p.walk_speed, 1.0..=10.0, 0.1, dirty);
             ui.label("Acceleration (1/s)");
-            fp_slider(ui, &mut kin.acceleration, 2.0..=30.0, 0.5);
+            fp_slider(ui, &mut p.acceleration, 2.0..=30.0, 0.5, dirty);
             ui.label("Jump impulse (N·s)");
-            fp_slider(ui, &mut kin.jump_impulse, 100.0..=1500.0, 10.0);
-            ui.label("Mass (kg)");
-            fp_slider(ui, &mut kin.mass, 30.0..=150.0, 1.0);
-            ui.label("Linear damping");
-            fp_slider(ui, &mut kin.linear_damping, 0.0..=3.0, 0.05);
+            fp_slider(ui, &mut p.jump_impulse, 100.0..=1500.0, 10.0, dirty);
         });
 
     egui::CollapsingHeader::new("Water")
         .default_open(false)
         .show(ui, |ui| {
             ui.label("Wading speed factor");
-            fp_slider(ui, &mut kin.wading_speed_factor, 0.0..=1.0, 0.05);
+            fp_slider(ui, &mut p.wading_speed_factor, 0.0..=1.0, 0.05, dirty);
             ui.label("Swim speed (m/s)");
-            fp_slider(ui, &mut kin.swim_speed, 0.5..=8.0, 0.1);
+            fp_slider(ui, &mut p.swim_speed, 0.5..=8.0, 0.1, dirty);
             ui.label("Swim vertical speed (m/s)");
-            fp_slider(ui, &mut kin.swim_vertical_speed, 0.2..=5.0, 0.1);
+            fp_slider(ui, &mut p.swim_vertical_speed, 0.2..=5.0, 0.1, dirty);
         });
 }
 
-fn fp_slider(ui: &mut egui::Ui, value: &mut Fp, range: std::ops::RangeInclusive<f32>, step: f64) {
-    ui.add(egui::Slider::new(&mut value.0, range).step_by(step));
+fn airplane_panel(ui: &mut egui::Ui, p: &mut AirplaneParams, dirty: &mut bool) {
+    egui::CollapsingHeader::new("Chassis")
+        .default_open(true)
+        .show(ui, |ui| {
+            fp3_extents(
+                ui,
+                "Half-extents (X/Y/Z, m)",
+                &mut p.chassis_half_extents.0,
+                dirty,
+            );
+            ui.label("Mass (kg)");
+            fp_slider(ui, &mut p.mass, 5.0..=500.0, 1.0, dirty);
+            ui.label("Linear damping");
+            fp_slider(ui, &mut p.linear_damping, 0.0..=5.0, 0.05, dirty);
+            ui.label("Angular damping");
+            fp_slider(ui, &mut p.angular_damping, 0.0..=20.0, 0.1, dirty);
+        });
+
+    egui::CollapsingHeader::new("Thrust & control surfaces")
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.label("Thrust (N)");
+            fp_slider(ui, &mut p.thrust, 0.0..=10_000.0, 50.0, dirty);
+            ui.label("Pitch torque (N·m)");
+            fp_slider(ui, &mut p.pitch_torque, 0.0..=5_000.0, 25.0, dirty);
+            ui.label("Roll torque (N·m)");
+            fp_slider(ui, &mut p.roll_torque, 0.0..=5_000.0, 25.0, dirty);
+            ui.label("Yaw / rudder torque (N·m)");
+            fp_slider(ui, &mut p.yaw_torque, 0.0..=5_000.0, 25.0, dirty);
+        });
+
+    egui::CollapsingHeader::new("Aerodynamics")
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.label("Lift per (m/s) airspeed");
+            fp_slider(ui, &mut p.lift_per_speed, 0.0..=200.0, 1.0, dirty);
+            ui.label("Drag coefficient");
+            fp_slider(ui, &mut p.drag_coefficient, 0.0..=5.0, 0.05, dirty);
+            ui.label("Min airspeed (m/s)");
+            fp_slider(ui, &mut p.min_airspeed, 0.0..=30.0, 0.5, dirty);
+        });
 }
 
-fn fp_slider_array(
+fn helicopter_panel(ui: &mut egui::Ui, p: &mut HelicopterParams, dirty: &mut bool) {
+    egui::CollapsingHeader::new("Chassis")
+        .default_open(true)
+        .show(ui, |ui| {
+            fp3_extents(
+                ui,
+                "Half-extents (X/Y/Z, m)",
+                &mut p.chassis_half_extents.0,
+                dirty,
+            );
+            ui.label("Mass (kg)");
+            fp_slider(ui, &mut p.mass, 5.0..=500.0, 1.0, dirty);
+            ui.label("Linear damping");
+            fp_slider(ui, &mut p.linear_damping, 0.0..=10.0, 0.05, dirty);
+            ui.label("Angular damping");
+            fp_slider(ui, &mut p.angular_damping, 0.0..=20.0, 0.1, dirty);
+        });
+
+    egui::CollapsingHeader::new("Hover & cyclic")
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.label("Hover thrust (N)");
+            fp_slider(ui, &mut p.hover_thrust, 0.0..=10_000.0, 25.0, dirty);
+            ui.label("Vertical speed (m/s)");
+            fp_slider(ui, &mut p.vertical_speed, 0.0..=20.0, 0.25, dirty);
+            ui.label("Cyclic force (N)");
+            fp_slider(ui, &mut p.cyclic_force, 0.0..=5_000.0, 25.0, dirty);
+            ui.label("Strafe force (N)");
+            fp_slider(ui, &mut p.strafe_force, 0.0..=5_000.0, 25.0, dirty);
+            ui.label("Yaw torque (N·m)");
+            fp_slider(ui, &mut p.yaw_torque, 0.0..=5_000.0, 25.0, dirty);
+        });
+}
+
+fn car_panel(ui: &mut egui::Ui, p: &mut CarParams, dirty: &mut bool) {
+    egui::CollapsingHeader::new("Chassis")
+        .default_open(true)
+        .show(ui, |ui| {
+            fp3_extents(
+                ui,
+                "Half-extents (X/Y/Z, m)",
+                &mut p.chassis_half_extents.0,
+                dirty,
+            );
+            ui.label("Mass (kg)");
+            fp_slider(ui, &mut p.mass, 100.0..=5_000.0, 10.0, dirty);
+            ui.label("Linear damping");
+            fp_slider(ui, &mut p.linear_damping, 0.0..=10.0, 0.05, dirty);
+            ui.label("Angular damping");
+            fp_slider(ui, &mut p.angular_damping, 0.0..=20.0, 0.1, dirty);
+        });
+
+    egui::CollapsingHeader::new("Suspension")
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.label("Rest length (m)");
+            fp_slider(ui, &mut p.suspension_rest_length, 0.1..=2.0, 0.025, dirty);
+            ui.label("Stiffness");
+            fp_slider(
+                ui,
+                &mut p.suspension_stiffness,
+                500.0..=50_000.0,
+                100.0,
+                dirty,
+            );
+            ui.label("Damping");
+            fp_slider(ui, &mut p.suspension_damping, 10.0..=2_000.0, 10.0, dirty);
+        });
+
+    egui::CollapsingHeader::new("Drive & steering")
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.label("Drive force (N)");
+            fp_slider(ui, &mut p.drive_force, 500.0..=20_000.0, 50.0, dirty);
+            ui.label("Turn torque (N·m)");
+            fp_slider(ui, &mut p.turn_torque, 200.0..=10_000.0, 50.0, dirty);
+            ui.label("Lateral grip");
+            fp_slider(ui, &mut p.lateral_grip, 500.0..=50_000.0, 100.0, dirty);
+            ui.label("Handbrake grip factor");
+            fp_slider(ui, &mut p.handbrake_grip_factor, 0.0..=2.0, 0.01, dirty);
+        });
+}
+
+fn fp_slider(
     ui: &mut egui::Ui,
-    value: &mut f32,
+    value: &mut Fp,
     range: std::ops::RangeInclusive<f32>,
     step: f64,
+    dirty: &mut bool,
 ) {
-    ui.add(egui::Slider::new(value, range).step_by(step));
+    if ui
+        .add(egui::Slider::new(&mut value.0, range).step_by(step))
+        .changed()
+    {
+        *dirty = true;
+    }
+}
+
+/// Three-component drag editor for `Fp3` half-extents (or any other
+/// vec3-shaped numeric triple). Edits land in the underlying `[f32; 3]`
+/// directly so the caller's `Fp3` wrapper picks up the change without an
+/// intermediate copy.
+fn fp3_extents(ui: &mut egui::Ui, label: &str, value: &mut [f32; 3], dirty: &mut bool) {
+    ui.label(label);
+    ui.horizontal(|ui| {
+        for axis in value.iter_mut() {
+            if ui
+                .add(egui::DragValue::new(axis).speed(0.05).range(0.05..=20.0))
+                .changed()
+            {
+                *dirty = true;
+            }
+        }
+    });
 }
 
 fn spawn_publish_avatar_task(

@@ -371,11 +371,16 @@ pub(super) fn spawn_lsystem_entity(
     };
 
     // Parent every mesh under a single transform so the placement's
-    // rotation/position anchors the whole plant/shape as a unit.
-    let parent = ctx
-        .commands
-        .spawn((transform, Visibility::default(), RoomEntity))
-        .id();
+    // rotation/position anchors the whole plant/shape as a unit. Avatar
+    // mode skips the `RoomEntity` tag — the chassis owns the parent
+    // entity and despawns it directly through the Bevy hierarchy.
+    let parent = if ctx.avatar_mode {
+        ctx.commands.spawn((transform, Visibility::default())).id()
+    } else {
+        ctx.commands
+            .spawn((transform, Visibility::default(), RoomEntity))
+            .id()
+    };
 
     // Build material handles per slot. For foliage slots (Leaf/Twig/Bark)
     // we *also* spawn a texture-generation task so the handle receives its

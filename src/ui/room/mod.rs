@@ -29,7 +29,7 @@
 
 mod construct;
 mod environment;
-mod generators;
+pub(crate) mod generators;
 mod lsystem;
 mod material;
 mod placements;
@@ -37,12 +37,6 @@ mod raw;
 mod shape;
 mod terrain;
 mod widgets;
-
-/// Compact material editor reused by `ui::avatar` for its hull / pontoon /
-/// mast slots. Kept in [`construct`] alongside the Prim node material
-/// widget it was factored out of; re-exported here so call sites reach it
-/// as `super::room::draw_universal_material`.
-pub(crate) use construct::draw_universal_material;
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
@@ -402,9 +396,10 @@ pub fn room_admin_ui(
                 match *selected_tab {
                     EditorTab::Generators => {
                         ui.allocate_ui(egui::vec2(ui.available_width(), body_height), |ui| {
+                            let mut tree_source = generators::RoomTreeSource::new(record_mut);
                             generators::draw_generators_tab(
                                 ui,
-                                record_mut,
+                                &mut tree_source,
                                 selected_generator,
                                 selected_prim_path,
                                 tree_view_state,

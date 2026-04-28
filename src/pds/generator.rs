@@ -32,7 +32,7 @@ use std::collections::HashMap;
 /// `#[serde(default)]` at both struct and field level means a record that only
 /// carries `level_offset` (the pre-overhaul schema) round-trips cleanly with
 /// every appearance field filled in from [`WaterSurface::default`].
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct WaterSurface {
     /// sRGBA tint seen looking straight down (low alpha = transparent).
@@ -101,7 +101,7 @@ impl Default for WaterSurface {
 
 /// Variant-specific payload for a [`Generator`]. Open union: unrecognised
 /// `$type` tags deserialise to `Unknown` instead of failing the whole record.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "$type")]
 // The Terrain variant carries a full `SovereignTerrainConfig` (~400 bytes);
 // boxing it would force serde through a wrapping layer that breaks the
@@ -418,7 +418,7 @@ impl GeneratorKind {
 ///
 /// A `Vec<Generator>` is heap-allocated, so the recursion through `children`
 /// is finite-sized at compile time without an explicit `Box`.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Generator {
     #[serde(flatten)]
     pub kind: GeneratorKind,

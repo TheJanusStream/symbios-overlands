@@ -390,11 +390,16 @@ pub(super) fn spawn_shape_entity(
     };
 
     // Parent every terminal under a single transform so the placement's
-    // rotation/position anchors the whole building as a unit.
-    let parent = ctx
-        .commands
-        .spawn((transform, Visibility::default(), RoomEntity))
-        .id();
+    // rotation/position anchors the whole building as a unit. Avatar
+    // mode skips the `RoomEntity` tag for the same reason as the
+    // lsystem spawner — see `world_builder::lsystem::spawn_lsystem_entity`.
+    let parent = if ctx.avatar_mode {
+        ctx.commands.spawn((transform, Visibility::default())).id()
+    } else {
+        ctx.commands
+            .spawn((transform, Visibility::default(), RoomEntity))
+            .id()
+    };
 
     for instance in &instances {
         let material = resolve_material_handle(

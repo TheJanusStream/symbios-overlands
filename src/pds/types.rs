@@ -184,7 +184,7 @@ impl<'de> Deserialize<'de> for Fp64 {
 }
 
 /// Rigid-body transform encoded as fixed-point arrays on the wire.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct TransformData {
     pub translation: Fp3,
     /// Quaternion in `[x, y, z, w]` order.

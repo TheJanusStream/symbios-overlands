@@ -1,10 +1,13 @@
 //! Social-graph resonance — asynchronously queries the public ATProto
 //! `app.bsky.graph.getRelationships` lexicon for every newly-identified peer
-//! and lights up the mast tip of any peer that bidirectionally follows the
-//! local actor.
+//! and tags them with a [`SocialResonance`] component reflecting the
+//! mutual-follow relationship.
 //!
-//! The query is dispatched from an `AsyncComputeTaskPool` task and polled each
-//! frame so the main game loop never stalls on network I/O.
+//! The query is dispatched from the `IoTaskPool` and polled each frame so
+//! the main game loop never stalls on network I/O. The resonance tag is
+//! consumed by future chat/people-panel UI; the legacy in-world mast-tip
+//! glow was dropped together with the rest of the rover-specific marker
+//! plumbing during the avatar-unification work.
 
 use bevy::prelude::*;
 use bevy::tasks::{IoTaskPool, Task};
@@ -12,7 +15,6 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 use futures_lite::future;
 use serde::Deserialize;
 
-use crate::player::MastTip;
 use crate::state::{AppState, RemotePeer, SocialResonance};
 
 pub struct SocialPlugin;
@@ -21,12 +23,7 @@ impl Plugin for SocialPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (
-                dispatch_resonance_queries,
-                poll_resonance_tasks,
-                sync_social_resonance,
-            )
-                .run_if(in_state(AppState::InGame)),
+            (dispatch_resonance_queries, poll_resonance_tasks).run_if(in_state(AppState::InGame)),
         );
     }
 }
@@ -98,55 +95,6 @@ fn poll_resonance_tasks(
             .entity(entity)
             .remove::<ResonanceFetchTask>()
             .insert(status);
-    }
-}
-
-/// Make the mast-tip cap of every `Mutual` peer emissive in its own mast
-/// colour so mutual follows are visually obvious at a glance.  Runs each
-/// frame but only does work for peers whose resonance flag *or* whose child
-/// set has just changed — the latter catches airship redesigns.
-#[allow(clippy::type_complexity)]
-fn sync_social_resonance(
-    changed: Query<
-        (&RemotePeer, &SocialResonance, &Children),
-        Or<(Changed<SocialResonance>, Changed<Children>)>,
-    >,
-    mast_tips: Query<(), With<MastTip>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut commands: Commands,
-) {
-    for (peer, resonance, children) in changed.iter() {
-        if *resonance != SocialResonance::Mutual {
-            continue;
-        }
-        let Some(avatar) = peer.avatar.as_ref() else {
-            continue;
-        };
-        // Only hover-rover peers carry a mast. Humanoid peers skip the
-        // mutual-glow visual entirely — they express resonance through
-        // different shader paths (TBD).
-        let crate::pds::AvatarBody::HoverRover { phenotype, .. } = &avatar.body else {
-            continue;
-        };
-        let [mr, mg, mb] = phenotype.mast_material.base_color.0;
-        let intensity = crate::config::network::MUTUAL_MAST_EMISSIVE;
-        let mat = materials.add(StandardMaterial {
-            base_color: Color::srgb(mr, mg, mb),
-            emissive: LinearRgba::rgb(mr * intensity, mg * intensity, mb * intensity),
-            metallic: 0.75,
-            perceptual_roughness: 0.35,
-            ..default()
-        });
-        for child in children.iter() {
-            if mast_tips.get(child).is_ok() {
-                let handle = mat.clone();
-                commands.queue(move |world: &mut World| {
-                    if let Ok(mut eref) = world.get_entity_mut(child) {
-                        eref.insert(MeshMaterial3d(handle));
-                    }
-                });
-            }
-        }
     }
 }
 

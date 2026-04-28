@@ -11,13 +11,21 @@ use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
 
+use crate::avatar::{BskyProfileCache, draw_avatar_icon};
 use crate::protocol::OverlandsMessage;
-use crate::state::ChatHistory;
+use crate::state::{ChatEntry, ChatHistory};
 
+/// Edge length (px) of the avatar icons rendered next to each author's
+/// handle in the chat HUD. Same value used by the People panel so the
+/// two layouts line up visually.
+pub(crate) const AVATAR_ICON_PX: f32 = 18.0;
+
+#[allow(clippy::too_many_arguments)]
 pub fn chat_ui(
     mut contexts: EguiContexts,
     session: Option<Res<AtprotoSession>>,
     mut chat: ResMut<ChatHistory>,
+    profile_cache: Res<BskyProfileCache>,
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
     mut input: Local<String>,
     time: Res<Time>,
@@ -48,15 +56,25 @@ pub fn chat_ui(
                 .max_height(scroll_height)
                 .stick_to_bottom(true)
                 .show(ui, |ui| {
-                    for (author, text, ts) in &chat.messages {
+                    for entry in &chat.messages {
                         ui.horizontal_wrapped(|ui| {
-                            ui.colored_label(egui::Color32::GRAY, format!("[{}]", ts));
+                            ui.colored_label(egui::Color32::GRAY, format!("[{}]", entry.timestamp));
+                            // Profile icon by DID, or a same-sized
+                            // placeholder spacer so the row layout
+                            // doesn't shift between cache-miss and
+                            // cache-hit frames.
+                            draw_avatar_icon(
+                                ui,
+                                entry.did.as_deref(),
+                                &profile_cache,
+                                AVATAR_ICON_PX,
+                            );
                             let [r, g, b] = cfg::AUTHOR_COLOR;
                             ui.colored_label(
                                 egui::Color32::from_rgb(r, g, b),
-                                format!("[{}]", author),
+                                format!("[{}]", entry.author),
                             );
-                            ui.label(text);
+                            ui.label(&entry.text);
                         });
                     }
                 });
@@ -97,12 +115,17 @@ pub fn chat_ui(
                         input.clear();
                         response.request_focus();
 
-                        let author = session
-                            .as_ref()
-                            .map(|s| s.handle.clone())
-                            .unwrap_or_else(|| "me".into());
+                        let (did, author) = match session.as_ref() {
+                            Some(s) => (Some(s.did.clone()), s.handle.clone()),
+                            None => (None, "me".into()),
+                        };
                         let ts = crate::format_elapsed_ts(time.elapsed_secs_f64());
-                        chat.messages.push((author, text.clone(), ts));
+                        chat.messages.push(ChatEntry {
+                            did,
+                            author,
+                            text: text.clone(),
+                            timestamp: ts,
+                        });
 
                         writer.write(Broadcast {
                             payload: OverlandsMessage::Chat { text },

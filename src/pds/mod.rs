@@ -74,8 +74,8 @@ pub mod xrpc;
 // re-exported below for backwards compatibility.
 
 pub use avatar::{
-    AvatarBody, AvatarRecord, HumanoidKinematics, HumanoidPhenotype, RoverKinematics,
-    RoverPhenotype, fetch_avatar_record, publish_avatar_record,
+    AirplaneParams, AvatarRecord, CarParams, HelicopterParams, HoverBoatParams, HumanoidParams,
+    LocomotionConfig, fetch_avatar_record, publish_avatar_record,
 };
 pub use generator::{Generator, GeneratorKind, Placement, WaterSurface};
 pub use inventory::{InventoryRecord, fetch_inventory_record, publish_inventory_record};
@@ -84,7 +84,7 @@ pub use room::{
     Environment, RoomRecord, delete_room_record, fetch_room_record, find_terrain_config,
     publish_room_record, reset_room_record,
 };
-pub use sanitize::{limits, sanitize_generator};
+pub use sanitize::{limits, sanitize_avatar_visuals, sanitize_generator};
 pub use terrain::{
     SovereignGeneratorKind, SovereignMaterialConfig, SovereignSplatRule, SovereignTerrainConfig,
 };

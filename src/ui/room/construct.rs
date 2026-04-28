@@ -21,15 +21,11 @@ pub(super) fn allows_children(kind: &GeneratorKind) -> bool {
     !matches!(kind, GeneratorKind::Water { .. } | GeneratorKind::Unknown)
 }
 
-/// Variant-picker combo box for a node's [`GeneratorKind`]. The kind set
-/// depends on the node's position in the tree:
-///
-/// * **Root** of a named generator: every kind except Water (Water is
-///   child-only; the sanitizer would overwrite a Water root anyway).
-///   Terrain *is* offered at root — promoting an existing root to Terrain
-///   turns the named generator into a region blueprint.
-/// * **Child** node: every kind except Terrain (Terrain is root-only).
-///   Water *is* offered as a child option here.
+/// Variant-picker combo box for a node's [`GeneratorKind`]. `kinds` is the
+/// allowed kind-tag set for this node's position — supplied by the caller's
+/// [`super::generators::GeneratorTreeSource`] so the room editor and the
+/// avatar editor can offer different vocabularies (rooms allow
+/// Terrain/Water/Portal; avatars exclude them).
 ///
 /// Switching to a different primitive builds a fresh default for that
 /// shape; switching to a non-primitive (Terrain/Water/LSystem/Portal)
@@ -37,17 +33,15 @@ pub(super) fn allows_children(kind: &GeneratorKind) -> bool {
 pub(super) fn generator_kind_picker(
     ui: &mut egui::Ui,
     kind: &mut GeneratorKind,
-    is_root: bool,
+    kinds: &[&'static str],
     salt: &str,
     dirty: &mut bool,
 ) {
-    let kinds = available_kinds_for(is_root);
-
     let current = kind.kind_tag();
     egui::ComboBox::from_id_salt(format!("{}_kind", salt))
         .selected_text(current)
         .show_ui(ui, |ui| {
-            for k in &kinds {
+            for k in kinds {
                 if ui.selectable_label(current == *k, *k).clicked() && current != *k {
                     *kind = make_default_for_kind(k);
                     *dirty = true;
@@ -56,31 +50,60 @@ pub(super) fn generator_kind_picker(
         });
 }
 
-/// The set of kind tags eligible for a node at this position in the tree.
-/// Exposed so the "+ New root" toolbar can offer the same root-eligible set
-/// without duplicating the rules.
-pub(super) fn available_kinds_for(is_root: bool) -> Vec<&'static str> {
-    const PRIMITIVES: &[&str] = &[
-        "Cuboid",
-        "Sphere",
-        "Cylinder",
-        "Capsule",
-        "Cone",
-        "Torus",
-        "Plane",
-        "Tetrahedron",
-    ];
-    let mut kinds: Vec<&'static str> = PRIMITIVES.to_vec();
-    kinds.push("LSystem");
-    kinds.push("Shape");
-    kinds.push("Portal");
-    if is_root {
-        kinds.push("Terrain");
-    } else {
-        kinds.push("Water");
-    }
-    kinds
-}
+/// Kind tags eligible at the **root** of a room generator tree: every
+/// primitive plus LSystem / Shape / Portal / Terrain. Water is excluded
+/// (child-only). Terrain *is* offered at root — promoting an existing root
+/// to Terrain turns the named generator into a region blueprint.
+pub(super) const ROOM_ROOT_KINDS: &[&str] = &[
+    "Cuboid",
+    "Sphere",
+    "Cylinder",
+    "Capsule",
+    "Cone",
+    "Torus",
+    "Plane",
+    "Tetrahedron",
+    "LSystem",
+    "Shape",
+    "Portal",
+    "Terrain",
+];
+
+/// Kind tags eligible as a **child** anywhere in a room generator tree:
+/// every primitive plus LSystem / Shape / Portal / Water. Terrain is
+/// excluded (root-only).
+pub(super) const ROOM_CHILD_KINDS: &[&str] = &[
+    "Cuboid",
+    "Sphere",
+    "Cylinder",
+    "Capsule",
+    "Cone",
+    "Torus",
+    "Plane",
+    "Tetrahedron",
+    "LSystem",
+    "Shape",
+    "Portal",
+    "Water",
+];
+
+/// Kind tags eligible at every position inside an avatar visuals tree:
+/// primitives + LSystem + Shape. Terrain / Water / Portal are excluded
+/// (see [`crate::pds::sanitize_avatar_visuals`] for the rationale on
+/// each), and the sanitiser overwrites any record that smuggles them
+/// in to a default cuboid.
+pub(crate) const AVATAR_KINDS: &[&str] = &[
+    "Cuboid",
+    "Sphere",
+    "Cylinder",
+    "Capsule",
+    "Cone",
+    "Torus",
+    "Plane",
+    "Tetrahedron",
+    "LSystem",
+    "Shape",
+];
 
 pub(super) fn make_default_for_kind(kind: &str) -> GeneratorKind {
     if let Some(prim) = GeneratorKind::default_primitive_for_tag(kind) {

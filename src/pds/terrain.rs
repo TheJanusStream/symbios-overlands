@@ -19,7 +19,7 @@ pub enum SovereignGeneratorKind {
 /// Full terrain configuration stored inside a `Generator::Terrain` variant.
 /// This is a serialisable mirror of `ground-lab::TerrainConfig` — all `f32`
 /// fields are wrapped in [`Fp`] so the record stays DAG-CBOR compliant.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct SovereignTerrainConfig {
     // Grid / world
     pub grid_size: u32,
@@ -101,7 +101,7 @@ impl Default for SovereignTerrainConfig {
 
 /// Splat rule for a single texture layer. `[0, 1]` normalised height; slope
 /// is raw gradient magnitude in `[0, ∞)` (1.0 ≈ 45°).
-#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct SovereignSplatRule {
     pub height_min: Fp,
     pub height_max: Fp,
@@ -118,7 +118,7 @@ pub struct SovereignSplatRule {
 /// [`SovereignTextureConfig`] variant may appear in any slot — the canonical
 /// defaults are Grass / Dirt / Rock / Snow (Ground / Ground / Rock / Ground),
 /// but a room can swap any layer for e.g. `Brick`, `Cobblestone`, `Thatch`.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct SovereignMaterialConfig {
     pub texture_size: u32,
     pub tile_scale: Fp,

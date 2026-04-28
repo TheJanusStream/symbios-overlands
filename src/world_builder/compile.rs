@@ -43,7 +43,7 @@ use super::{
 /// one `SystemParam` struct keeps the signature inside the budget when
 /// future generators need their own caches alongside L-system and Shape.
 #[derive(SystemParam)]
-pub(super) struct GeneratorCaches<'w> {
+pub struct GeneratorCaches<'w> {
     pub(super) lsystem_material: ResMut<'w, LSystemMaterialCache>,
     pub(super) lsystem_mesh: ResMut<'w, LSystemMeshCache>,
     pub(super) shape_material: ResMut<'w, ShapeMaterialCache>,
@@ -176,6 +176,7 @@ pub(super) fn compile_room_record(
         budget_warned: &mut budget_warned,
         portal_avatar_cache: &mut portal_avatar_cache,
         water_surfaces: &mut water_surfaces,
+        avatar_mode: false,
     };
 
     for (placement_index, placement) in record.placements.iter().enumerate() {
@@ -671,7 +672,7 @@ pub(super) fn dominant_biome(cfg: &SovereignTerrainConfig, height_world: f32, sl
 /// SystemParam pair; we can't unify them here without making the borrow
 /// checker invariance rules break at the call site, so they get independent
 /// parameters.
-pub(super) struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
+pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     pub(super) commands: &'a mut Commands<'wc, 'sc>,
     pub(super) record: &'a RoomRecord,
     pub(super) meshes: &'a mut Assets<Mesh>,
@@ -740,6 +741,15 @@ pub(super) struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// pass and pushed to from `spawn_water_volume`. Read by the scatter
     /// biome filter (this pass) and rover buoyancy (every fixed step).
     pub(super) water_surfaces: &'a mut WaterSurfaces,
+    /// `true` when the spawner is producing avatar visuals rather than
+    /// room geometry. Avatar mode skips three room-specific behaviours
+    /// in every spawn arm: (1) `RoomEntity` insertion (avatars manage
+    /// their own cleanup via the chassis's child despawn), (2)
+    /// `PrimMarker` insertion (no gizmo on avatars in v1), and (3)
+    /// collider attachment in `spawn_primitive_entity` (the locomotion
+    /// preset's chassis collider is the only physics body on an
+    /// avatar).
+    pub(super) avatar_mode: bool,
 }
 
 /// Entry point called by the top-level `Placement` loop. Resolves the
@@ -934,10 +944,15 @@ pub(super) fn spawn_generator(
         // own internal entity counts (lsystem mesh buckets, portal top
         // face) are bounded constant multiples of this.
         *ctx.entities_spawned = ctx.entities_spawned.saturating_add(1);
-        ctx.commands.entity(e).insert(PrimMarker {
-            generator_ref: base_ref.to_string(),
-            path: path.to_vec(),
-        });
+        if !ctx.avatar_mode {
+            // Gizmo addressability is a room-only feature; avatar visuals
+            // skip the marker entirely so a stray query that scans for
+            // `PrimMarker` doesn't see avatar children as edit targets.
+            ctx.commands.entity(e).insert(PrimMarker {
+                generator_ref: base_ref.to_string(),
+                path: path.to_vec(),
+            });
+        }
         // Recurse into the children list, parenting each child entity to
         // this node's generated entity so the hierarchy mirrors the
         // blueprint shape.
@@ -1019,7 +1034,11 @@ fn spawn_primitive_entity(
     };
 
     let raw_mesh = build_primitive_mesh(kind);
-    let collider = if solid {
+    // Avatar mode strips colliders unconditionally — the locomotion
+    // preset's chassis collider is the only physics body on the avatar,
+    // and per-prim colliders here would register as Static and conflict
+    // with the chassis's dynamic body.
+    let collider = if solid && !ctx.avatar_mode {
         collider_for_primitive(kind, &raw_mesh)
     } else {
         None
@@ -1031,8 +1050,10 @@ fn spawn_primitive_entity(
         Mesh3d(mesh_handle),
         MeshMaterial3d(material_handle),
         transform,
-        RoomEntity,
     ));
+    if !ctx.avatar_mode {
+        cmd.insert(RoomEntity);
+    }
     if let Some(collider) = collider {
         cmd.insert(collider);
     }

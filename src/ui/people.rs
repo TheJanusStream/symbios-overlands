@@ -23,11 +23,13 @@ use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
 
+use crate::avatar::{BskyProfileCache, draw_avatar_icon};
 use crate::pds::{InventoryRecord, publish_inventory_record};
 use crate::protocol::OverlandsMessage;
 use crate::state::{
     DiagnosticsLog, IncomingOfferDialog, InventoryPublishFeedback, LiveInventoryRecord, RemotePeer,
 };
+use crate::ui::chat::AVATAR_ICON_PX;
 use crate::ui::inventory::{
     PeerDropTarget, PendingGeneratorDrop, PublishInventoryTask, choose_inventory_gift_key,
 };
@@ -37,6 +39,7 @@ pub fn people_ui(
     mut contexts: EguiContexts,
     session: Option<Res<AtprotoSession>>,
     mut peers: Query<&mut RemotePeer>,
+    profile_cache: Res<BskyProfileCache>,
     mut pending_drop: ResMut<PendingGeneratorDrop>,
 ) {
     use crate::config::ui::people as cfg;
@@ -78,6 +81,12 @@ pub fn people_ui(
                         let self_color = egui::Color32::from_rgb(r, g, b);
                         ui.horizontal(|ui| {
                             ui.colored_label(self_color, "●");
+                            draw_avatar_icon(
+                                ui,
+                                Some(s.did.as_str()),
+                                &profile_cache,
+                                AVATAR_ICON_PX,
+                            );
                             ui.monospace(format!("@{} (you)", s.handle));
                         });
                     }
@@ -103,6 +112,12 @@ pub fn people_ui(
                         let can_receive_gift = drag_active && !peer.muted && peer.did.is_some();
                         let row = ui.horizontal(|ui| {
                             ui.colored_label(dot_color, "●");
+                            draw_avatar_icon(
+                                ui,
+                                peer.did.as_deref(),
+                                &profile_cache,
+                                AVATAR_ICON_PX,
+                            );
                             ui.monospace(format!("@{}", handle));
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),

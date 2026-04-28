@@ -7,7 +7,6 @@ use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
 use crate::boot_params::{build_landmark_link, write_to_clipboard};
-use crate::player::HumanoidVisualRoot;
 use crate::state::{AppState, CurrentRoomDid, DiagnosticsLog, LocalPlayer, RemotePeer};
 
 #[allow(clippy::too_many_arguments)]
@@ -21,7 +20,6 @@ pub fn diagnostics_ui(
     mut landmark_status: Local<Option<(String, f64)>>,
     time: Res<Time>,
     local_player_q: Query<&Transform, With<LocalPlayer>>,
-    visual_root_q: Query<&Transform, With<HumanoidVisualRoot>>,
 ) {
     use crate::config::ui::diagnostics as cfg;
 
@@ -67,22 +65,20 @@ pub fn diagnostics_ui(
                 // visitors as well as owners (any player in the room can
                 // share where they are).
                 let player_tf = local_player_q.single().ok().copied();
-                let visual_tf = visual_root_q.single().ok().copied();
                 let can_copy = player_tf.is_some();
                 if ui
                     .add_enabled(can_copy, egui::Button::new("Copy Landmark Link"))
                     .clicked()
                     && let Some(tf) = player_tf
                 {
-                    // Humanoid locks rotation on the rigid body and yaws a
-                    // child visual root instead, so prefer the visual root
-                    // when present. HoverRover's chassis transform carries
-                    // its own yaw directly.
-                    let yaw_rad = visual_tf
-                        .map(|v| v.rotation)
-                        .unwrap_or(tf.rotation)
-                        .to_euler(EulerRot::YXZ)
-                        .0;
+                    // Every locomotion preset writes its yaw into the
+                    // chassis transform itself — the humanoid walk
+                    // controller now slerps the chassis rotation toward
+                    // the movement direction (the rigid-body solver
+                    // keeps the capsule axis-aligned via `LockedAxes`),
+                    // and the vehicle presets are torque-driven so their
+                    // chassis rotation already matches the visual yaw.
+                    let yaw_rad = tf.rotation.to_euler(EulerRot::YXZ).0;
                     let yaw_deg = yaw_rad.to_degrees();
                     let link = build_landmark_link(&room.0, tf.translation, yaw_deg);
                     let now = time.elapsed_secs_f64();

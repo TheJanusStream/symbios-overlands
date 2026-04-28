@@ -530,13 +530,20 @@ fn handle_incoming_messages(
                         .chars()
                         .map(|c| if c.is_control() && c != '\t' { ' ' } else { c })
                         .collect();
-                    let author = peers
+                    let sender_peer = peers
                         .iter()
-                        .find(|(_, peer, _, _)| peer.peer_id == msg.sender)
+                        .find(|(_, peer, _, _)| peer.peer_id == msg.sender);
+                    let did = sender_peer.and_then(|(_, peer, _, _)| peer.did.clone());
+                    let author = sender_peer
                         .and_then(|(_, peer, _, _)| peer.handle.clone())
                         .unwrap_or_else(|| msg.sender.to_string());
                     let ts = crate::format_elapsed_ts(now);
-                    chat.messages.push((author, clipped, ts));
+                    chat.messages.push(crate::state::ChatEntry {
+                        did,
+                        author,
+                        text: clipped,
+                        timestamp: ts,
+                    });
                     // Bound the rolling history so a chatty peer can't grow
                     // the scroll area unbounded — each entry re-wraps every
                     // frame once it's in egui's text layout cache.
