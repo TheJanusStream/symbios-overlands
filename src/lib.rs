@@ -46,6 +46,30 @@ use pds::{AvatarRecord, RoomRecord};
 #[derive(Component)]
 pub struct SkyBox;
 
+/// Pin the sky cuboid to the active camera each frame so its faces are
+/// always equidistant from the viewer.
+///
+/// The cuboid is sized for a "looks-far-enough" backdrop (4 km × 2 km × 2 km
+/// at the default `SKY_SCALE`), but it is fixed-size, not infinite. Without
+/// this follow it stays anchored at world origin, so once the player moves
+/// off-centre the closest face approaches the camera and its edges show up
+/// as hard seams against the more-distant adjacent faces. Pinning the
+/// cuboid's centre to the camera keeps every face at a constant distance
+/// (half the cuboid's side on that axis) regardless of where the player
+/// roams, which is what a backdrop should do anyway.
+fn track_skybox_to_camera(
+    camera: Query<&GlobalTransform, (With<Camera3d>, Without<SkyBox>)>,
+    mut skybox: Query<&mut Transform, With<SkyBox>>,
+) {
+    let Ok(cam_tx) = camera.single() else {
+        return;
+    };
+    let cam = cam_tx.translation();
+    for mut transform in skybox.iter_mut() {
+        transform.translation = cam;
+    }
+}
+
 pub use clouds::CloudLayer;
 
 /// Format elapsed seconds as a `MM:SS` (or `H:MM:SS`) timestamp string.
@@ -203,6 +227,10 @@ pub fn run() {
                 .run_if(in_state(AppState::InGame)),
         )
         .add_systems(Startup, setup_lighting)
+        .add_systems(
+            Update,
+            (clouds::track_cloud_layer_to_camera, track_skybox_to_camera),
+        )
         .run();
 }
 
@@ -245,7 +273,7 @@ fn setup_lighting(
     // Sky — large unlit cuboid tinted by the distance fog.
     let sky_c = config::lighting::SKY_COLOR;
     commands.spawn((
-        Mesh3d(meshes.add(Cuboid::new(2.0, 1.0, 1.0))),
+        Mesh3d(meshes.add(Cuboid::new(2.0, 1.0, 2.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::srgb(sky_c[0], sky_c[1], sky_c[2]),
             unlit: true,

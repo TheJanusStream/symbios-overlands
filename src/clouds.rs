@@ -92,3 +92,33 @@ pub type CloudMaterial = ExtendedMaterial<StandardMaterial, CloudExtension>;
 /// to retint the unlit sky cuboid.
 #[derive(Component)]
 pub struct CloudLayer;
+
+/// Pin the cloud-deck plane's XZ to the active camera each frame so the
+/// finite mesh is always centred on the viewer.
+///
+/// The shader's horizon fade is camera-relative — it dissolves the deck on a
+/// circle of radius `~5.671 × (cloud_height − cam_height)` around the camera.
+/// Without this follow, the mesh stays anchored at world origin, so as the
+/// player drifts off-centre the closest mesh edge can fall *inside* that
+/// fade circle and the deck terminates in a hard line on whichever side the
+/// player has moved toward, while the other three edges (still well past the
+/// fade radius) continue to dissolve cleanly.
+///
+/// The FBM is sampled in world XZ with a time-driven scroll, so the clouds
+/// stay world-anchored regardless of where the mesh sits — moving the mesh
+/// only relocates the sampling window, not the cloud silhouettes. `.y` is
+/// owned by `apply_environment_state` (it's driven by the `cloud_height`
+/// uniform) and deliberately not touched here.
+pub fn track_cloud_layer_to_camera(
+    camera: Query<&GlobalTransform, (With<Camera3d>, Without<CloudLayer>)>,
+    mut cloud_layer: Query<&mut Transform, With<CloudLayer>>,
+) {
+    let Ok(cam_tx) = camera.single() else {
+        return;
+    };
+    let cam = cam_tx.translation();
+    for mut transform in cloud_layer.iter_mut() {
+        transform.translation.x = cam.x;
+        transform.translation.z = cam.z;
+    }
+}
