@@ -266,7 +266,17 @@ pub fn poll_begin_auth_task(
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    match oauth::start_native_callback_server() {
+                    // Lift the random `state` parameter out of the
+                    // pending auth blob and hand it to the loopback
+                    // callback server so it can reject any request
+                    // whose `state=` value doesn't match — without
+                    // this, any other browser tab can brick the
+                    // listener with a forged callback. The library
+                    // always populates `app_state`; the explicit
+                    // `unwrap_or_default()` keeps us defensive against
+                    // a future library change that might omit it.
+                    let expected_state = pending.auth_state.app_state.clone().unwrap_or_default();
+                    match oauth::start_native_callback_server(expected_state) {
                         Ok(rx) => {
                             commands.insert_resource(oauth::NativeCallbackReceiver(
                                 std::sync::Mutex::new(rx),

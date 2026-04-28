@@ -169,6 +169,7 @@ pub fn run() {
                 poll_room_record_task,
                 poll_avatar_record_task,
                 poll_inventory_record_task,
+                fire_pending_record_retries,
                 check_loading_complete,
             )
                 .chain()
@@ -364,36 +365,40 @@ fn room_record_backoff_secs(attempt: u32) -> u64 {
 /// futures waiting in the browser event loop.
 const MAX_RECORD_FETCH_ATTEMPTS: u32 = 12;
 
-/// Pause the fetch future for `delay_secs` before retrying, using the
-/// correct timer primitive for each target. On native we block the
-/// single-threaded tokio runtime the task drives; on `wasm32` we rely on
-/// `gloo-timers`, which schedules a JS `setTimeout` and resolves a future
-/// that yields control back to the browser event loop — without this,
-/// the retry queued by `poll_*_record_task` would re-enter the fetch at
-/// the application framerate and hammer the PDS at 60–144 rps.
-async fn record_fetch_delay(delay_secs: u64) {
-    if delay_secs == 0 {
-        return;
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        gloo_timers::future::TimeoutFuture::new((delay_secs as u32).saturating_mul(1000)).await;
-    }
+/// In-flight retry timer for a record fetch. The previous design parked
+/// the backoff sleep *inside* the spawned `IoTaskPool` task — but
+/// `tokio::time::sleep` awaited inside `block_on(fut)` holds the
+/// underlying OS thread idle for the duration of the sleep, because
+/// `block_on` dedicates one pool thread per task tree. Several flaky
+/// fetches in retry simultaneously would saturate `IoTaskPool` (whose
+/// thread count is small) and stall every other I/O job in the engine.
+///
+/// The fix is to defer the retry on Bevy's frame loop instead: when the
+/// poll system decides to retry, it spawns one of these markers; the
+/// `fire_pending_record_retries` system below watches `Time` and only
+/// then dispatches the actual `IoTaskPool` task. The sleeping period
+/// occupies a tiny ECS entity rather than a precious worker thread.
+#[derive(Component)]
+struct PendingRoomRecordRetry {
+    did: String,
+    attempt: u32,
+    fire_at_secs: f64,
+}
+
+#[derive(Component)]
+struct PendingAvatarRecordRetry {
+    did: String,
+    attempt: u32,
+    fire_at_secs: f64,
 }
 
 fn spawn_room_record_fetch(commands: &mut Commands, did: String, attempt: u32) {
-    let delay_secs = room_record_backoff_secs(attempt);
     // `IoTaskPool` is the correct home for blocking HTTP calls — the
     // `AsyncComputeTaskPool` is sized to the CPU-core count and must not be
     // starved by threads blocked on network sockets.
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
-            record_fetch_delay(delay_secs).await;
             let client = config::http::default_client();
             pds::fetch_room_record(&client, &did).await
         };
@@ -518,7 +523,13 @@ fn poll_room_record_task(
                         "Room record fetch failed: {:?} — retrying in {}s (attempt {})",
                         err, backoff, next_attempt
                     );
-                    spawn_room_record_fetch(&mut commands, room_did.0.clone(), next_attempt);
+                    // Defer the retry through the frame-loop timer so the
+                    // backoff doesn't park an `IoTaskPool` worker thread.
+                    commands.spawn(PendingRoomRecordRetry {
+                        did: room_did.0.clone(),
+                        attempt: next_attempt,
+                        fire_at_secs: elapsed + backoff as f64,
+                    });
                     continue;
                 }
             }
@@ -555,12 +566,10 @@ struct AvatarRecordTask {
 }
 
 fn spawn_avatar_record_fetch(commands: &mut Commands, did: String, attempt: u32) {
-    let delay_secs = room_record_backoff_secs(attempt);
     let pool = bevy::tasks::IoTaskPool::get();
     let did_for_fetch = did.clone();
     let task = pool.spawn(async move {
         let fut = async {
-            record_fetch_delay(delay_secs).await;
             let client = config::http::default_client();
             pds::fetch_avatar_record(&client, &did_for_fetch).await
         };
@@ -578,6 +587,35 @@ fn spawn_avatar_record_fetch(commands: &mut Commands, did: String, attempt: u32)
         }
     });
     commands.spawn(AvatarRecordTask { did, task, attempt });
+}
+
+/// Fire any retry markers whose backoff has elapsed. Runs on Bevy's main
+/// frame loop, so an idle 60 s exponential-backoff window costs only the
+/// `Time` resource read per frame instead of a permanently-sleeping
+/// worker thread. See [`PendingRoomRecordRetry`] for the rationale.
+fn fire_pending_record_retries(
+    mut commands: Commands,
+    room_pending: Query<(Entity, &PendingRoomRecordRetry)>,
+    avatar_pending: Query<(Entity, &PendingAvatarRecordRetry)>,
+    time: Res<Time>,
+) {
+    let now = time.elapsed_secs_f64();
+    for (entity, pending) in room_pending.iter() {
+        if now >= pending.fire_at_secs {
+            let did = pending.did.clone();
+            let attempt = pending.attempt;
+            commands.entity(entity).despawn();
+            spawn_room_record_fetch(&mut commands, did, attempt);
+        }
+    }
+    for (entity, pending) in avatar_pending.iter() {
+        if now >= pending.fire_at_secs {
+            let did = pending.did.clone();
+            let attempt = pending.attempt;
+            commands.entity(entity).despawn();
+            spawn_avatar_record_fetch(&mut commands, did, attempt);
+        }
+    }
 }
 
 /// Kick off the async `getRecord` fetch for the local player's avatar.
@@ -676,7 +714,13 @@ fn poll_avatar_record_task(
                         "Avatar record fetch failed: {:?} — retrying in {}s (attempt {})",
                         err, backoff, next_attempt
                     );
-                    spawn_avatar_record_fetch(&mut commands, did, next_attempt);
+                    // Defer the retry through the frame-loop timer so the
+                    // backoff doesn't park an `IoTaskPool` worker thread.
+                    commands.spawn(PendingAvatarRecordRetry {
+                        did,
+                        attempt: next_attempt,
+                        fire_at_secs: elapsed + backoff as f64,
+                    });
                     continue;
                 }
             }

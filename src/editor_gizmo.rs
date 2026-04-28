@@ -439,10 +439,25 @@ fn manage_gizmo_drag(
         // A detached prim's `Transform` is already world-space (no parent);
         // divide out the original parent's world pose to recover the local
         // offset the recipe expects.
+        //
+        // If the parent has despawned mid-drag (a peer `RoomStateUpdate` or a
+        // background recompile lands while the user is dragging), we have no
+        // way to compute the correct local transform — falling through with
+        // the world-space `transform` would write a world pose into the
+        // recipe's local-transform field, displacing the prim by the
+        // (now-vanished) parent's translation on the next compile and
+        // irreversibly corrupting the authored recipe. Skip the commit
+        // instead: the user can redo the drag once the recompile settles.
         let new_local = if let Some(detached) = detached {
             match global_tf.get(detached.original_parent) {
                 Ok(parent_gt) => GlobalTransform::from(transform).reparented_to(parent_gt),
-                Err(_) => transform,
+                Err(_) => {
+                    warn!(
+                        "Gizmo commit skipped: original parent despawned during drag — \
+                         recipe left unchanged"
+                    );
+                    return;
+                }
             }
         } else {
             transform

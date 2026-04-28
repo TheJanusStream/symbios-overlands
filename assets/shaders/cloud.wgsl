@@ -160,8 +160,15 @@ fn fragment(in: VertexOutput) -> FragmentOutput {
     // clouds directly overhead are crisp, clouds near the horizon dissolve
     // smoothly into `fog_color`. Independent of `fog_visibility`, so the
     // distance-fog slider can vary without ever introducing a ring.
+    // `abs()` rather than a one-sided clamp: above the deck the camera looks
+    // *down* at the clouds, so `world.y - view.y` is negative — clamping the
+    // signed difference at 1.0 would force `zenith_tan` to skyrocket with even
+    // small horizontal distances and dissolve the deck into fog directly
+    // beneath an airship. Using the magnitude makes the fade band symmetric
+    // for above- and below-deck observers; the floor of 1.0 still avoids a
+    // divide-by-zero when the camera is exactly co-planar with the deck.
     let horiz = distance(world_xz, cam_xz);
-    let vertical = max(in.world_position.y - view.world_position.y, 1.0);
+    let vertical = max(abs(in.world_position.y - view.world_position.y), 1.0);
     let zenith_tan = horiz / vertical;
     // tan(30°) ≈ 0.577, tan(80°) ≈ 5.671. The band width is asymmetric on
     // purpose — the eye reads "near-horizontal" cloud as the entire fade

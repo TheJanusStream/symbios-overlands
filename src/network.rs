@@ -89,6 +89,7 @@ impl Plugin for NetworkPlugin {
                     handle_peer_connections,
                     handle_incoming_messages,
                     poll_peer_avatar_fetches,
+                    evict_stale_offer_dialog,
                     smooth_remote_transforms,
                     sync_mute_visibility,
                 )
@@ -1022,6 +1023,47 @@ fn smooth_remote_transforms(
         tf.translation = a.position * h00 + tangent_a * h10 + b.position * h01 + tangent_b * h11;
         tf.rotation = a.rotation.slerp(b.rotation, t);
     }
+}
+
+/// Auto-decline and evict an [`IncomingOfferDialog`] that has been on
+/// screen longer than [`config::network::OFFER_DIALOG_TIMEOUT_SECS`].
+///
+/// The busy-gate in `handle_incoming_messages` rejects further offers
+/// while a dialog is active, so an attacker that ships a garbage offer
+/// the user does not notice would otherwise lock the recipient out of
+/// gifting for the rest of the session. Sending the responder
+/// `ItemOfferResponse{accepted=false}` keeps the sender's pending state
+/// in sync — without it, a benign sender's UI would sit waiting forever.
+fn evict_stale_offer_dialog(
+    mut commands: Commands,
+    dialog: Option<Res<IncomingOfferDialog>>,
+    time: Res<Time>,
+    mut diagnostics: ResMut<DiagnosticsLog>,
+    mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
+) {
+    let Some(dialog) = dialog else {
+        return;
+    };
+    let now = time.elapsed_secs_f64();
+    if now - dialog.arrived_at_secs < config::network::OFFER_DIALOG_TIMEOUT_SECS {
+        return;
+    }
+    writer.write(Broadcast {
+        payload: OverlandsMessage::ItemOfferResponse {
+            offer_id: dialog.offer_id,
+            target_did: dialog.sender_did.clone(),
+            accepted: false,
+        },
+        channel: ChannelKind::Reliable,
+    });
+    diagnostics.push(
+        now,
+        format!(
+            "Auto-declined offer \"{}\" from @{} (timed out)",
+            dialog.item_name, dialog.sender_handle
+        ),
+    );
+    commands.remove_resource::<IncomingOfferDialog>();
 }
 
 /// Propagate each peer's mute flag to its `Visibility` component so that

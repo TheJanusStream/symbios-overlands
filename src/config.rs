@@ -355,6 +355,17 @@ pub mod network {
     /// Only send a transform every N-th tick while stationary.  At 60 fps this
     /// yields ~2 Hz (60 / 30 = 2).
     pub const STATIONARY_BROADCAST_DIVISOR: u32 = 30;
+
+    /// Maximum age (seconds) an `IncomingOfferDialog` is allowed to sit on
+    /// screen before it is auto-declined and evicted. Without this, an
+    /// ignored garbage offer would hold the busy-gate forever and lock the
+    /// recipient out of receiving legitimate gifts for the rest of the
+    /// session — the dialog's anti-flood property "exactly one offer at a
+    /// time" turns into a denial-of-service vector when no human is watching
+    /// to dismiss it. 90 s is long enough for an attentive user to read and
+    /// respond; past that, declining on the user's behalf is friendlier than
+    /// silently breaking gifting.
+    pub const OFFER_DIALOG_TIMEOUT_SECS: f64 = 90.0;
 }
 
 // ---------------------------------------------------------------------------
