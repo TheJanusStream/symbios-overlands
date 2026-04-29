@@ -43,8 +43,13 @@
 //! * [`prim`] — [`PropMeshType`] (the hierarchical primitive tree was
 //!   retired; every primitive is now a first-class [`Generator`] variant).
 //! * [`generator`] — the [`Generator`] hierarchical wrapper, its
-//!   variant-specific [`generator::GeneratorKind`] payload, and the
-//!   [`Placement`] open-union enum.
+//!   variant-specific [`generator::GeneratorKind`] payload (Terrain /
+//!   Water / Portal / LSystem / Shape / primitives / `Sign` /
+//!   `ParticleSystem`), the [`Placement`] open-union enum, and the
+//!   supporting open unions [`SignSource`], [`EmitterShape`],
+//!   [`ParticleBlendMode`], [`SimulationSpace`], [`AnimationFrameMode`],
+//!   [`TextureFilter`], [`AlphaModeKind`], plus the [`TextureAtlas`]
+//!   sprite-sheet config and per-volume [`WaterSurface`] payload.
 //! * [`sanitize`] — clamp helpers + [`sanitize::limits`] for every numeric
 //!   field on the wire.
 //! * [`xrpc`] — DID resolution, [`FetchError`], and the common XRPC plumbing.

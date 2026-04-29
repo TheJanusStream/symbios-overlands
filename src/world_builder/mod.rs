@@ -25,6 +25,8 @@
 //!   sibling `apply_environment_state`, the shared `SpawnCtx`, and scatter
 //!   math helpers.
 //! * [`lsystem`] — L-system geometry + material caches and the spawn path.
+//! * [`shape`] — CGA shape-grammar geometry + material caches and the
+//!   per-terminal spawn path; the architectural sibling of [`lsystem`].
 //! * [`prim`] — Construct/Prim spawners and parametric mesh/collider
 //!   builders.
 //! * [`portal`] — portal cube spawning. The top-face profile picture is
@@ -32,13 +34,22 @@
 //!   request so portals coalesce with Sign generators against the same
 //!   source.
 //! * [`image_cache`] — source-keyed coalescing cache for image fetches,
-//!   shared by Sign generators and the Portal top face. Three resolver
-//!   paths (URL / atproto blob / DID-pfp) feed into the same Pending/Ready
-//!   state machine so a room with many panels pointing at the same source
-//!   issues exactly one HTTPS round trip.
+//!   shared by Sign generators, the Portal top face, and ParticleSystem
+//!   textures. Three resolver paths (URL / atproto blob / DID-pfp) feed
+//!   into the same Pending/Ready state machine so a room with many panels
+//!   pointing at the same source issues exactly one HTTPS round trip; the
+//!   cache key includes the sampler filter so Linear panels and Nearest
+//!   pixel-art particles coexist as separate GPU images.
 //! * [`sign`] — Sign generator spawner: textured plane with the full
 //!   StandardMaterial toggles, image fetched asynchronously through
 //!   [`image_cache`].
+//! * [`particles`] — CPU + ECS particle emitter for `ParticleSystem`:
+//!   per-frame spawn / motion / age systems, optional sprite-sheet atlas
+//!   animation, and avian3d collisions.
+//! * [`avatar_spawn`] — re-entry point that walks an avatar's `visuals`
+//!   tree through the same dispatch arms with `SpawnCtx::avatar_mode = true`
+//!   so room-only behaviours (RoomEntity tag, PrimMarker, per-prim
+//!   colliders) are skipped.
 //! * [`material`] — water volume spawn, procedural material bridge, and
 //!   foliage texture task polling.
 

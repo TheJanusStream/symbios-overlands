@@ -263,9 +263,9 @@ pub enum GeneratorKind {
     },
 
     /// Hand-rolled CPU + ECS particle emitter. Spawns billboarded /
-    /// velocity-aligned coloured quads from a parametric shape (point /
-    /// sphere / box / cone), integrates them with gravity / drag /
-    /// constant acceleration, fades start→end size and colour over each
+    /// velocity-aligned quads from a parametric shape (point / sphere /
+    /// box / cone), integrates them with gravity / drag / constant
+    /// acceleration, fades start→end size and colour over each
     /// particle's lifetime, and optionally collides them against
     /// terrain / water / colliders. WASM-friendly because no GPU compute
     /// is involved.
@@ -279,10 +279,16 @@ pub enum GeneratorKind {
     /// This lets exhaust trails move correctly with airplanes /
     /// hover-boats / running humanoids without any per-vehicle code.
     ///
+    /// Optional texturing rides on the same [`SignSource`] union as the
+    /// `Sign` generator and shares the
+    /// [`BlobImageCache`](super::super::world_builder::image_cache::BlobImageCache),
+    /// so a Sign panel and a particle emitter pointing at the same
+    /// image issue one HTTPS round trip. `texture_atlas` plus
+    /// `frame_mode` turns a sprite-sheet into per-particle animation
+    /// (still / random / over-lifetime cycling).
+    ///
     /// Determinism: every emitter carries a `seed`. Networked peers
     /// stepping the same dt path produce the same particle stream.
-    /// Textured particles are tracked separately as a follow-up; this
-    /// variant ships with coloured quads only.
     #[serde(rename = "network.symbios.gen.particles")]
     ParticleSystem {
         emitter_shape: EmitterShape,
