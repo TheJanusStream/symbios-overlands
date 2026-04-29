@@ -23,7 +23,11 @@ use std::cell::RefCell;
 use bevy_egui::egui;
 use egui_ltreeview::{Action, DirPosition, NodeBuilder, TreeView};
 
-use crate::pds::{Fp, Fp2, Fp3, Generator, GeneratorKind, Placement, RoomRecord, WaterSurface};
+use crate::pds::{
+    AlphaModeKind, AnimationFrameMode, EmitterShape, Fp, Fp2, Fp3, Fp4, Generator, GeneratorKind,
+    ParticleBlendMode, Placement, RoomRecord, SignSource, SimulationSpace,
+    SovereignMaterialSettings, TextureAtlas, TextureFilter, WaterSurface,
+};
 use crate::state::LiveInventoryRecord;
 use crate::ui::inventory::is_drop_placeable;
 
@@ -1329,6 +1333,96 @@ pub(super) fn draw_generator_detail(
             taper,
             bend,
         } => draw_primitive_tetrahedron(ui, size, solid, material, twist, taper, bend, salt, dirty),
+        GeneratorKind::Sign {
+            source,
+            size,
+            uv_repeat,
+            uv_offset,
+            material,
+            double_sided,
+            alpha_mode,
+            unlit,
+        } => draw_generator_sign(
+            ui,
+            source,
+            size,
+            uv_repeat,
+            uv_offset,
+            material,
+            double_sided,
+            alpha_mode,
+            unlit,
+            salt,
+            dirty,
+        ),
+        GeneratorKind::ParticleSystem {
+            emitter_shape,
+            rate_per_second,
+            burst_count,
+            max_particles,
+            looping,
+            duration,
+            lifetime_min,
+            lifetime_max,
+            speed_min,
+            speed_max,
+            gravity_multiplier,
+            acceleration,
+            linear_drag,
+            start_size,
+            end_size,
+            start_color,
+            end_color,
+            blend_mode,
+            billboard,
+            simulation_space,
+            inherit_velocity,
+            collide_terrain,
+            collide_water,
+            collide_colliders,
+            bounce,
+            friction,
+            seed,
+            texture,
+            texture_atlas,
+            frame_mode,
+            texture_filter,
+        } => draw_generator_particles(
+            ui,
+            emitter_shape,
+            rate_per_second,
+            burst_count,
+            max_particles,
+            looping,
+            duration,
+            lifetime_min,
+            lifetime_max,
+            speed_min,
+            speed_max,
+            gravity_multiplier,
+            acceleration,
+            linear_drag,
+            start_size,
+            end_size,
+            start_color,
+            end_color,
+            blend_mode,
+            billboard,
+            simulation_space,
+            inherit_velocity,
+            collide_terrain,
+            collide_water,
+            collide_colliders,
+            bounce,
+            friction,
+            seed,
+            texture,
+            texture_atlas,
+            frame_mode,
+            texture_filter,
+            salt,
+            dirty,
+        ),
         GeneratorKind::Unknown => {
             ui.colored_label(
                 egui::Color32::from_rgb(220, 160, 80),
@@ -1561,6 +1655,715 @@ fn draw_common_primitive(
         .show(ui, |ui| {
             draw_universal_material(ui, material, salt, dirty);
         });
+}
+
+/// Editor for the [`GeneratorKind::Sign`] panel: source picker, panel
+/// size, UV repeat / offset, the StandardMaterial toggles
+/// (double_sided / unlit / alpha_mode), and the shared material PBR
+/// section.
+#[allow(clippy::too_many_arguments)]
+fn draw_generator_sign(
+    ui: &mut egui::Ui,
+    source: &mut SignSource,
+    size: &mut Fp2,
+    uv_repeat: &mut Fp2,
+    uv_offset: &mut Fp2,
+    material: &mut SovereignMaterialSettings,
+    double_sided: &mut bool,
+    alpha_mode: &mut AlphaModeKind,
+    unlit: &mut bool,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    draw_sign_source(ui, source, salt, dirty);
+    ui.add_space(4.0);
+
+    ui.horizontal(|ui| {
+        ui.label("Panel size X/Z:");
+        let mut v = size.0;
+        let mut changed = false;
+        for axis in v.iter_mut() {
+            changed |= ui
+                .add(egui::DragValue::new(axis).speed(0.1).range(0.01..=100.0))
+                .changed();
+        }
+        if changed {
+            *size = Fp2(v);
+            *dirty = true;
+        }
+    });
+
+    ui.horizontal(|ui| {
+        ui.label("UV repeat U/V:");
+        let mut v = uv_repeat.0;
+        let mut changed = false;
+        for axis in v.iter_mut() {
+            changed |= ui
+                .add(egui::DragValue::new(axis).speed(0.05).range(0.001..=1000.0))
+                .changed();
+        }
+        if changed {
+            *uv_repeat = Fp2(v);
+            *dirty = true;
+        }
+    });
+
+    ui.horizontal(|ui| {
+        ui.label("UV offset U/V:");
+        let mut v = uv_offset.0;
+        let mut changed = false;
+        for axis in v.iter_mut() {
+            changed |= ui
+                .add(
+                    egui::DragValue::new(axis)
+                        .speed(0.05)
+                        .range(-1000.0..=1000.0),
+                )
+                .changed();
+        }
+        if changed {
+            *uv_offset = Fp2(v);
+            *dirty = true;
+        }
+    });
+
+    ui.add_space(4.0);
+    if ui.checkbox(double_sided, "Double-sided").changed() {
+        *dirty = true;
+    }
+    if ui.checkbox(unlit, "Unlit").changed() {
+        *dirty = true;
+    }
+
+    draw_alpha_mode(ui, alpha_mode, salt, dirty);
+
+    ui.add_space(2.0);
+    egui::CollapsingHeader::new("Material")
+        .id_salt(format!("{}_sign_mat", salt))
+        .default_open(false)
+        .show(ui, |ui| {
+            // Sign panels paint the loaded image into `base_color_texture`
+            // and use the universal material's PBR knobs (tint /
+            // emission / roughness / metallic) on top. The procedural
+            // texture slot is intentionally hidden — the Sign's source
+            // already supplies the texture.
+            super::widgets::color_picker(ui, "Tint", &mut material.base_color, dirty);
+            super::widgets::color_picker(ui, "Emission", &mut material.emission_color, dirty);
+            fp_slider(
+                ui,
+                "Emission strength",
+                &mut material.emission_strength,
+                0.0,
+                20.0,
+                dirty,
+            );
+            fp_slider(ui, "Roughness", &mut material.roughness, 0.0, 1.0, dirty);
+            fp_slider(ui, "Metallic", &mut material.metallic, 0.0, 1.0, dirty);
+        });
+}
+
+/// Source-variant picker for a Sign generator. Combo box selects the
+/// variant (URL / atproto_blob / did_pfp); the per-variant payload
+/// fields render below. Switching variants reseeds the payload from the
+/// previous variant where possible (e.g. URL → did_pfp keeps the URL
+/// in the URL field if the user switches back) — implemented by
+/// only overwriting when the variant truly changes.
+fn draw_sign_source(ui: &mut egui::Ui, source: &mut SignSource, salt: &str, dirty: &mut bool) {
+    let current = match source {
+        SignSource::Url { .. } => "URL",
+        SignSource::AtprotoBlob { .. } => "ATProto blob",
+        SignSource::DidPfp { .. } => "DID profile picture",
+        SignSource::Unknown => "Unknown",
+    };
+
+    ui.horizontal(|ui| {
+        ui.label("Source:");
+        egui::ComboBox::from_id_salt(format!("{}_sign_source", salt))
+            .selected_text(current)
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(current == "URL", "URL").clicked()
+                    && !matches!(source, SignSource::Url { .. })
+                {
+                    *source = SignSource::Url { url: String::new() };
+                    *dirty = true;
+                }
+                if ui
+                    .selectable_label(current == "ATProto blob", "ATProto blob")
+                    .clicked()
+                    && !matches!(source, SignSource::AtprotoBlob { .. })
+                {
+                    *source = SignSource::AtprotoBlob {
+                        did: String::new(),
+                        cid: String::new(),
+                    };
+                    *dirty = true;
+                }
+                if ui
+                    .selectable_label(current == "DID profile picture", "DID profile picture")
+                    .clicked()
+                    && !matches!(source, SignSource::DidPfp { .. })
+                {
+                    *source = SignSource::DidPfp { did: String::new() };
+                    *dirty = true;
+                }
+            });
+    });
+
+    match source {
+        SignSource::Url { url } => {
+            ui.horizontal(|ui| {
+                ui.label("URL:");
+                if ui
+                    .add(egui::TextEdit::singleline(url).hint_text("https://…"))
+                    .changed()
+                {
+                    *dirty = true;
+                }
+            });
+        }
+        SignSource::AtprotoBlob { did, cid } => {
+            ui.horizontal(|ui| {
+                ui.label("DID:");
+                if ui
+                    .add(egui::TextEdit::singleline(did).hint_text("did:plc:…"))
+                    .changed()
+                {
+                    *dirty = true;
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("CID:");
+                if ui
+                    .add(egui::TextEdit::singleline(cid).hint_text("bafy…"))
+                    .changed()
+                {
+                    *dirty = true;
+                }
+            });
+        }
+        SignSource::DidPfp { did } => {
+            ui.horizontal(|ui| {
+                ui.label("DID:");
+                if ui
+                    .add(egui::TextEdit::singleline(did).hint_text("did:plc:…"))
+                    .changed()
+                {
+                    *dirty = true;
+                }
+            });
+        }
+        SignSource::Unknown => {
+            ui.colored_label(
+                egui::Color32::from_rgb(220, 160, 80),
+                "Unknown source variant — pick one above to replace it.",
+            );
+        }
+    }
+}
+
+/// Alpha-mode picker for a Sign generator. Combo selects the variant;
+/// when `Mask` is selected, the cutoff slider renders below.
+fn draw_alpha_mode(
+    ui: &mut egui::Ui,
+    alpha_mode: &mut AlphaModeKind,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    let current = match alpha_mode {
+        AlphaModeKind::Opaque => "Opaque",
+        AlphaModeKind::Mask { .. } => "Mask",
+        AlphaModeKind::Blend => "Blend",
+        AlphaModeKind::Unknown => "Unknown",
+    };
+
+    ui.horizontal(|ui| {
+        ui.label("Alpha mode:");
+        egui::ComboBox::from_id_salt(format!("{}_alpha_mode", salt))
+            .selected_text(current)
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(current == "Opaque", "Opaque").clicked()
+                    && !matches!(alpha_mode, AlphaModeKind::Opaque)
+                {
+                    *alpha_mode = AlphaModeKind::Opaque;
+                    *dirty = true;
+                }
+                if ui.selectable_label(current == "Mask", "Mask").clicked()
+                    && !matches!(alpha_mode, AlphaModeKind::Mask { .. })
+                {
+                    *alpha_mode = AlphaModeKind::Mask { cutoff: Fp(0.5) };
+                    *dirty = true;
+                }
+                if ui.selectable_label(current == "Blend", "Blend").clicked()
+                    && !matches!(alpha_mode, AlphaModeKind::Blend)
+                {
+                    *alpha_mode = AlphaModeKind::Blend;
+                    *dirty = true;
+                }
+            });
+    });
+
+    if let AlphaModeKind::Mask { cutoff } = alpha_mode {
+        fp_slider(ui, "Mask cutoff", cutoff, 0.0, 1.0, dirty);
+    }
+}
+
+/// Editor for [`GeneratorKind::ParticleSystem`]. Groups the (large)
+/// parameter set into collapsible sections so the panel stays
+/// browseable without scrolling: Emitter shape, Spawn, Lifetime / Speed,
+/// Dynamics, Visuals, Texture, Inheritance, Collisions. Every parameter is
+/// surfaced; the sanitiser owns the bounds.
+#[allow(clippy::too_many_arguments)]
+fn draw_generator_particles(
+    ui: &mut egui::Ui,
+    emitter_shape: &mut EmitterShape,
+    rate_per_second: &mut Fp,
+    burst_count: &mut u32,
+    max_particles: &mut u32,
+    looping: &mut bool,
+    duration: &mut Fp,
+    lifetime_min: &mut Fp,
+    lifetime_max: &mut Fp,
+    speed_min: &mut Fp,
+    speed_max: &mut Fp,
+    gravity_multiplier: &mut Fp,
+    acceleration: &mut Fp3,
+    linear_drag: &mut Fp,
+    start_size: &mut Fp,
+    end_size: &mut Fp,
+    start_color: &mut Fp4,
+    end_color: &mut Fp4,
+    blend_mode: &mut ParticleBlendMode,
+    billboard: &mut bool,
+    simulation_space: &mut SimulationSpace,
+    inherit_velocity: &mut Fp,
+    collide_terrain: &mut bool,
+    collide_water: &mut bool,
+    collide_colliders: &mut bool,
+    bounce: &mut Fp,
+    friction: &mut Fp,
+    seed: &mut u64,
+    texture: &mut Option<SignSource>,
+    texture_atlas: &mut Option<TextureAtlas>,
+    frame_mode: &mut AnimationFrameMode,
+    texture_filter: &mut TextureFilter,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    egui::CollapsingHeader::new("Emitter shape")
+        .id_salt(format!("{}_pe_shape", salt))
+        .default_open(true)
+        .show(ui, |ui| draw_emitter_shape(ui, emitter_shape, salt, dirty));
+
+    egui::CollapsingHeader::new("Spawn")
+        .id_salt(format!("{}_pe_spawn", salt))
+        .default_open(true)
+        .show(ui, |ui| {
+            fp_slider(ui, "Rate (per s)", rate_per_second, 0.0, 256.0, dirty);
+            drag_u32(ui, "Burst count", burst_count, 0, 512, dirty);
+            drag_u32(ui, "Max particles", max_particles, 0, 512, dirty);
+            if ui.checkbox(looping, "Looping").changed() {
+                *dirty = true;
+            }
+            fp_slider(ui, "Duration (s)", duration, 0.01, 600.0, dirty);
+        });
+
+    egui::CollapsingHeader::new("Lifetime & speed")
+        .id_salt(format!("{}_pe_life", salt))
+        .default_open(false)
+        .show(ui, |ui| {
+            fp_slider(ui, "Lifetime min", lifetime_min, 0.01, 30.0, dirty);
+            fp_slider(ui, "Lifetime max", lifetime_max, 0.01, 30.0, dirty);
+            fp_slider(ui, "Speed min", speed_min, 0.0, 100.0, dirty);
+            fp_slider(ui, "Speed max", speed_max, 0.0, 100.0, dirty);
+        });
+
+    egui::CollapsingHeader::new("Dynamics")
+        .id_salt(format!("{}_pe_dyn", salt))
+        .default_open(false)
+        .show(ui, |ui| {
+            fp_slider(
+                ui,
+                "Gravity multiplier",
+                gravity_multiplier,
+                -10.0,
+                10.0,
+                dirty,
+            );
+            ui.label("Acceleration X/Y/Z (m/s²)");
+            let mut v = acceleration.0;
+            let mut changed = false;
+            ui.horizontal(|ui| {
+                for axis in v.iter_mut() {
+                    changed |= ui
+                        .add(egui::DragValue::new(axis).speed(0.1).range(-100.0..=100.0))
+                        .changed();
+                }
+            });
+            if changed {
+                *acceleration = Fp3(v);
+                *dirty = true;
+            }
+            fp_slider(ui, "Linear drag", linear_drag, 0.0, 100.0, dirty);
+        });
+
+    egui::CollapsingHeader::new("Visuals")
+        .id_salt(format!("{}_pe_vis", salt))
+        .default_open(false)
+        .show(ui, |ui| {
+            fp_slider(ui, "Start size", start_size, 0.001, 100.0, dirty);
+            fp_slider(ui, "End size", end_size, 0.001, 100.0, dirty);
+            color_picker_rgba(ui, "Start colour", start_color, dirty);
+            color_picker_rgba(ui, "End colour", end_color, dirty);
+            draw_blend_mode(ui, blend_mode, salt, dirty);
+            if ui.checkbox(billboard, "Billboard (face camera)").changed() {
+                *dirty = true;
+            }
+        });
+
+    egui::CollapsingHeader::new("Inheritance & space")
+        .id_salt(format!("{}_pe_inh", salt))
+        .default_open(false)
+        .show(ui, |ui| {
+            draw_simulation_space(ui, simulation_space, salt, dirty);
+            fp_slider(ui, "Inherit velocity", inherit_velocity, 0.0, 2.0, dirty);
+        });
+
+    egui::CollapsingHeader::new("Collisions")
+        .id_salt(format!("{}_pe_col", salt))
+        .default_open(false)
+        .show(ui, |ui| {
+            if ui.checkbox(collide_terrain, "Collide terrain").changed() {
+                *dirty = true;
+            }
+            if ui.checkbox(collide_water, "Collide water").changed() {
+                *dirty = true;
+            }
+            if ui
+                .checkbox(collide_colliders, "Collide colliders")
+                .changed()
+            {
+                *dirty = true;
+            }
+            fp_slider(ui, "Bounce", bounce, 0.0, 1.0, dirty);
+            fp_slider(ui, "Friction", friction, 0.0, 1.0, dirty);
+        });
+
+    egui::CollapsingHeader::new("Texture")
+        .id_salt(format!("{}_pe_tex", salt))
+        .default_open(false)
+        .show(ui, |ui| {
+            draw_particle_texture(
+                ui,
+                texture,
+                texture_atlas,
+                frame_mode,
+                texture_filter,
+                salt,
+                dirty,
+            );
+        });
+
+    egui::CollapsingHeader::new("Determinism")
+        .id_salt(format!("{}_pe_det", salt))
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Seed:");
+                let mut s = seed.to_string();
+                if ui.add(egui::TextEdit::singleline(&mut s)).changed()
+                    && let Ok(parsed) = s.parse::<u64>()
+                {
+                    *seed = parsed;
+                    *dirty = true;
+                }
+            });
+        });
+}
+
+/// Texture controls for a particle emitter: optional source picker
+/// (reusing the Sign variant widget), atlas rows/cols, frame-cycling
+/// mode, and sampler-filter combo. `None` for `texture` is the v1
+/// "coloured quads only" baseline; setting a source switches to the
+/// textured-quad path.
+fn draw_particle_texture(
+    ui: &mut egui::Ui,
+    texture: &mut Option<SignSource>,
+    texture_atlas: &mut Option<TextureAtlas>,
+    frame_mode: &mut AnimationFrameMode,
+    texture_filter: &mut TextureFilter,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    let mut has_texture = texture.is_some();
+    if ui
+        .checkbox(&mut has_texture, "Use texture (else coloured quads only)")
+        .changed()
+    {
+        *texture = if has_texture {
+            Some(SignSource::default())
+        } else {
+            None
+        };
+        *dirty = true;
+    }
+
+    let Some(source) = texture else {
+        // No texture configured. Atlas / frame mode / filter still
+        // serialise — but they have no effect, so we hide the editors
+        // to avoid confusing the author.
+        return;
+    };
+
+    draw_sign_source(ui, source, &format!("{}_pe_texsrc", salt), dirty);
+    ui.add_space(4.0);
+
+    let mut has_atlas = texture_atlas.is_some();
+    if ui
+        .checkbox(&mut has_atlas, "Use sprite-sheet atlas")
+        .changed()
+    {
+        *texture_atlas = if has_atlas {
+            Some(TextureAtlas::default())
+        } else {
+            None
+        };
+        *dirty = true;
+    }
+    if let Some(atlas) = texture_atlas {
+        ui.horizontal(|ui| {
+            drag_u32(ui, "Rows", &mut atlas.rows, 1, 16, dirty);
+            drag_u32(ui, "Cols", &mut atlas.cols, 1, 16, dirty);
+        });
+    }
+
+    draw_frame_mode(ui, frame_mode, salt, dirty);
+    draw_texture_filter(ui, texture_filter, salt, dirty);
+}
+
+/// Frame-mode combo: switching variants reseeds the OverLifetime fps
+/// to a sensible default (8 fps) so the user lands somewhere visible.
+fn draw_frame_mode(ui: &mut egui::Ui, mode: &mut AnimationFrameMode, salt: &str, dirty: &mut bool) {
+    let current = match mode {
+        AnimationFrameMode::Still => "Still",
+        AnimationFrameMode::RandomFrame => "Random per particle",
+        AnimationFrameMode::OverLifetime { .. } => "Cycle over lifetime",
+        AnimationFrameMode::Unknown => "Unknown",
+    };
+    ui.horizontal(|ui| {
+        ui.label("Frame mode:");
+        egui::ComboBox::from_id_salt(format!("{}_pe_frame", salt))
+            .selected_text(current)
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(current == "Still", "Still").clicked()
+                    && !matches!(mode, AnimationFrameMode::Still)
+                {
+                    *mode = AnimationFrameMode::Still;
+                    *dirty = true;
+                }
+                if ui
+                    .selectable_label(current == "Random per particle", "Random per particle")
+                    .clicked()
+                    && !matches!(mode, AnimationFrameMode::RandomFrame)
+                {
+                    *mode = AnimationFrameMode::RandomFrame;
+                    *dirty = true;
+                }
+                if ui
+                    .selectable_label(current == "Cycle over lifetime", "Cycle over lifetime")
+                    .clicked()
+                    && !matches!(mode, AnimationFrameMode::OverLifetime { .. })
+                {
+                    *mode = AnimationFrameMode::OverLifetime { fps: Fp(8.0) };
+                    *dirty = true;
+                }
+            });
+    });
+    if let AnimationFrameMode::OverLifetime { fps } = mode {
+        fp_slider(ui, "FPS", fps, 0.0, 60.0, dirty);
+    }
+}
+
+/// Texture-filter combo for the loaded atlas image.
+fn draw_texture_filter(
+    ui: &mut egui::Ui,
+    filter: &mut TextureFilter,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    let current = match filter {
+        TextureFilter::Linear => "Linear (smooth)",
+        TextureFilter::Nearest => "Nearest (pixel-art)",
+        TextureFilter::Unknown => "Unknown",
+    };
+    ui.horizontal(|ui| {
+        ui.label("Sampler:");
+        egui::ComboBox::from_id_salt(format!("{}_pe_filter", salt))
+            .selected_text(current)
+            .show_ui(ui, |ui| {
+                if ui
+                    .selectable_label(current == "Linear (smooth)", "Linear (smooth)")
+                    .clicked()
+                    && !matches!(filter, TextureFilter::Linear)
+                {
+                    *filter = TextureFilter::Linear;
+                    *dirty = true;
+                }
+                if ui
+                    .selectable_label(current == "Nearest (pixel-art)", "Nearest (pixel-art)")
+                    .clicked()
+                    && !matches!(filter, TextureFilter::Nearest)
+                {
+                    *filter = TextureFilter::Nearest;
+                    *dirty = true;
+                }
+            });
+    });
+}
+
+/// Combo + per-variant payload editor for [`EmitterShape`]. Switching
+/// variants reseeds the payload from `default_particles`-style defaults
+/// so the user always lands on a sensible starting point.
+fn draw_emitter_shape(ui: &mut egui::Ui, shape: &mut EmitterShape, salt: &str, dirty: &mut bool) {
+    let current = match shape {
+        EmitterShape::Point => "Point",
+        EmitterShape::Sphere { .. } => "Sphere",
+        EmitterShape::Box { .. } => "Box",
+        EmitterShape::Cone { .. } => "Cone",
+        EmitterShape::Unknown => "Unknown",
+    };
+    ui.horizontal(|ui| {
+        ui.label("Shape:");
+        egui::ComboBox::from_id_salt(format!("{}_pe_shape_combo", salt))
+            .selected_text(current)
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(current == "Point", "Point").clicked()
+                    && !matches!(shape, EmitterShape::Point)
+                {
+                    *shape = EmitterShape::Point;
+                    *dirty = true;
+                }
+                if ui.selectable_label(current == "Sphere", "Sphere").clicked()
+                    && !matches!(shape, EmitterShape::Sphere { .. })
+                {
+                    *shape = EmitterShape::Sphere { radius: Fp(0.5) };
+                    *dirty = true;
+                }
+                if ui.selectable_label(current == "Box", "Box").clicked()
+                    && !matches!(shape, EmitterShape::Box { .. })
+                {
+                    *shape = EmitterShape::Box {
+                        half_extents: Fp3([0.5, 0.5, 0.5]),
+                    };
+                    *dirty = true;
+                }
+                if ui.selectable_label(current == "Cone", "Cone").clicked()
+                    && !matches!(shape, EmitterShape::Cone { .. })
+                {
+                    *shape = EmitterShape::Cone {
+                        half_angle: Fp(0.4),
+                        height: Fp(0.5),
+                    };
+                    *dirty = true;
+                }
+            });
+    });
+
+    match shape {
+        EmitterShape::Sphere { radius } => {
+            fp_slider(ui, "Radius", radius, 0.0, 100.0, dirty);
+        }
+        EmitterShape::Box { half_extents } => {
+            ui.label("Half extents X/Y/Z");
+            let mut v = half_extents.0;
+            let mut changed = false;
+            ui.horizontal(|ui| {
+                for axis in v.iter_mut() {
+                    changed |= ui
+                        .add(egui::DragValue::new(axis).speed(0.05).range(0.0..=100.0))
+                        .changed();
+                }
+            });
+            if changed {
+                *half_extents = Fp3(v);
+                *dirty = true;
+            }
+        }
+        EmitterShape::Cone { half_angle, height } => {
+            fp_slider(
+                ui,
+                "Half angle (rad)",
+                half_angle,
+                0.0,
+                std::f32::consts::PI,
+                dirty,
+            );
+            fp_slider(ui, "Height", height, 0.0, 100.0, dirty);
+        }
+        EmitterShape::Point | EmitterShape::Unknown => {}
+    }
+}
+
+/// Combo for [`ParticleBlendMode`].
+fn draw_blend_mode(ui: &mut egui::Ui, mode: &mut ParticleBlendMode, salt: &str, dirty: &mut bool) {
+    let current = match mode {
+        ParticleBlendMode::Alpha => "Alpha",
+        ParticleBlendMode::Additive => "Additive",
+        ParticleBlendMode::Unknown => "Unknown",
+    };
+    ui.horizontal(|ui| {
+        ui.label("Blend:");
+        egui::ComboBox::from_id_salt(format!("{}_pe_blend", salt))
+            .selected_text(current)
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(current == "Alpha", "Alpha").clicked()
+                    && !matches!(mode, ParticleBlendMode::Alpha)
+                {
+                    *mode = ParticleBlendMode::Alpha;
+                    *dirty = true;
+                }
+                if ui
+                    .selectable_label(current == "Additive", "Additive")
+                    .clicked()
+                    && !matches!(mode, ParticleBlendMode::Additive)
+                {
+                    *mode = ParticleBlendMode::Additive;
+                    *dirty = true;
+                }
+            });
+    });
+}
+
+/// Combo for [`SimulationSpace`].
+fn draw_simulation_space(
+    ui: &mut egui::Ui,
+    space: &mut SimulationSpace,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    let current = match space {
+        SimulationSpace::World => "World",
+        SimulationSpace::Local => "Local",
+        SimulationSpace::Unknown => "Unknown",
+    };
+    ui.horizontal(|ui| {
+        ui.label("Simulation space:");
+        egui::ComboBox::from_id_salt(format!("{}_pe_space", salt))
+            .selected_text(current)
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(current == "World", "World").clicked()
+                    && !matches!(space, SimulationSpace::World)
+                {
+                    *space = SimulationSpace::World;
+                    *dirty = true;
+                }
+                if ui.selectable_label(current == "Local", "Local").clicked()
+                    && !matches!(space, SimulationSpace::Local)
+                {
+                    *space = SimulationSpace::Local;
+                    *dirty = true;
+                }
+            });
+    });
 }
 
 /// Per-volume water editor: the single `level_offset` slider plus the full

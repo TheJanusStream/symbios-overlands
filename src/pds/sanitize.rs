@@ -9,7 +9,10 @@
 //! to the world compiler; those impls live alongside the record types and
 //! delegate into the per-variant helpers defined here.
 
-use super::generator::{Generator, GeneratorKind, WaterSurface};
+use super::generator::{
+    AlphaModeKind, AnimationFrameMode, EmitterShape, Generator, GeneratorKind, SignSource,
+    TextureAtlas, WaterSurface,
+};
 use super::terrain::SovereignTerrainConfig;
 use super::texture::{SovereignMaterialSettings, SovereignTextureConfig};
 use super::types::{Fp, Fp2, Fp3, Fp4, TransformData, truncate_on_char_boundary};
@@ -123,6 +126,87 @@ pub mod limits {
     /// 10× free-fall is the upper bound for any reasonable river / waterfall
     /// effect.
     pub const MAX_WATER_FLOW_STRENGTH: f32 = 100.0;
+    /// Maximum URL length (bytes) for a [`super::super::generator::SignSource::Url`]
+    /// payload. 2048 matches the de-facto browser cap and keeps a hostile
+    /// record from smuggling megabytes of inert string through the room
+    /// recipe.
+    pub const MAX_SIGN_URL_BYTES: usize = 2048;
+    /// Maximum DID / CID length (bytes) for a Sign source. ATProto DIDs are
+    /// well under 256 bytes and CIDs (base32 v1) are ~60 bytes; 256 matches
+    /// the existing Portal DID cap and gives forward-compat headroom.
+    pub const MAX_SIGN_DID_BYTES: usize = 256;
+    pub const MAX_SIGN_CID_BYTES: usize = 256;
+    /// Per-axis panel size (metres) for a Sign generator. Mirrors the
+    /// primitive `c_dim` envelope so a megastructure billboard stays within
+    /// the 100 m world-cell budget.
+    pub const MAX_SIGN_SIZE: f32 = 100.0;
+    /// Per-axis UV repeat factor for a Sign generator. Bounded to keep the
+    /// fragment shader from sampling at sub-pixel rates that pin the GPU
+    /// on a hostile record. The lower bound is non-zero so the fragment's
+    /// `uv * repeat` term doesn't collapse the texture to a single texel.
+    pub const MIN_SIGN_UV_REPEAT: f32 = 0.001;
+    pub const MAX_SIGN_UV_REPEAT: f32 = 1_000.0;
+    /// Per-axis UV offset for a Sign generator. Wraps in the sampler
+    /// regardless, so any reasonable bound is fine; 1_000 matches the
+    /// repeat envelope so the editor's drag widgets feel symmetric.
+    pub const MAX_SIGN_UV_OFFSET: f32 = 1_000.0;
+    /// Hard cap on simultaneously-alive particles per emitter. Each
+    /// particle is a Bevy entity in v1; 512 keeps a handful of emitters
+    /// per room well within the engine's per-frame entity-iteration
+    /// budget without precluding "fire" / "dust storm" densities.
+    pub const MAX_PARTICLES: u32 = 512;
+    /// Continuous emit rate in particles per second. With
+    /// `MAX_PARTICLES` already capping the steady-state population,
+    /// 256 / s lets a short-lived burst (~0.5 s) replenish the cap
+    /// without overshooting it dramatically.
+    pub const MAX_PARTICLE_RATE: f32 = 256.0;
+    /// Per-cycle burst-count cap. Mirrors the per-emitter cap so a
+    /// burst can fill the steady-state population in one shot but not
+    /// queue up an arbitrary one-frame spike.
+    pub const MAX_PARTICLE_BURST: u32 = 512;
+    /// Per-particle lifetime envelope (seconds). 30 s keeps a slow
+    /// trailing trail visible across a placement traversal without
+    /// allowing a permanent fog effect that would never decay.
+    pub const MIN_PARTICLE_LIFETIME: f32 = 0.01;
+    pub const MAX_PARTICLE_LIFETIME: f32 = 30.0;
+    /// Per-particle initial-speed envelope (metres per second).
+    pub const MAX_PARTICLE_SPEED: f32 = 1_000.0;
+    /// Magnitude cap on per-axis constant acceleration (m/s²). 100 is
+    /// already 10× free-fall so any reasonable wind / float effect fits
+    /// comfortably inside.
+    pub const MAX_PARTICLE_ACCEL: f32 = 100.0;
+    /// Cap on the gravity multiplier. Allowed to be negative so a
+    /// "smoke rises" effect doesn't need a custom force vector.
+    pub const MAX_PARTICLE_GRAVITY_MULT: f32 = 10.0;
+    /// Linear drag coefficient cap (per-second exponential damping).
+    pub const MAX_PARTICLE_DRAG: f32 = 100.0;
+    /// Per-particle quad-size envelope (metres). Lower bound is `0.0`
+    /// so a particle can fade out completely by end-of-life — a zero-
+    /// area quad simply draws nothing, matching the natural
+    /// "shrink to vanish" effect.
+    pub const MIN_PARTICLE_SIZE: f32 = 0.0;
+    pub const MAX_PARTICLE_SIZE: f32 = 100.0;
+    /// Inherit-velocity factor cap. `1` matches the emitter, `2` lets
+    /// exhaust-style effects jet ahead. Above 2 the trail decouples
+    /// visually and looks bug-y rather than stylish.
+    pub const MAX_PARTICLE_INHERIT_VELOCITY: f32 = 2.0;
+    /// Active-emit duration cap (seconds). Looping emitters use this as
+    /// the burst-cadence period.
+    pub const MIN_PARTICLE_DURATION: f32 = 0.01;
+    pub const MAX_PARTICLE_DURATION: f32 = 600.0;
+    /// Emitter-shape geometry caps (metres / radians).
+    pub const MAX_PARTICLE_SHAPE_RADIUS: f32 = 100.0;
+    pub const MAX_PARTICLE_SHAPE_HALF_EXTENT: f32 = 100.0;
+    pub const MAX_PARTICLE_SHAPE_HEIGHT: f32 = 100.0;
+    pub const MAX_PARTICLE_CONE_HALF_ANGLE: f32 = std::f32::consts::PI;
+    /// Per-axis sprite-sheet atlas dimension cap. 16 × 16 = 256 frames
+    /// is well past any plausible animated particle effect and keeps
+    /// the per-frame mesh cache bounded.
+    pub const MAX_PARTICLE_ATLAS_DIM: u32 = 16;
+    /// Frame-cycle FPS cap for `AnimationFrameMode::OverLifetime`. 60
+    /// matches the typical render cadence; values above that just
+    /// stutter visually since the tick system samples at frame rate.
+    pub const MAX_PARTICLE_FRAME_FPS: f32 = 60.0;
 }
 
 /// Recursively clamp a [`Generator`] tree. Beyond the depth and total-node
@@ -509,6 +593,204 @@ fn sanitize_water(level_offset: &mut Fp, surface: &mut WaterSurface) {
     surface.flow_amount = Fp(clamp_finite(surface.flow_amount.0, 0.0, 1.0, 0.0));
 }
 
+/// Clamp the per-variant payload strings of a [`SignSource`]. Used
+/// both by Sign generators and by the particle-texture sanitiser so
+/// the URL / DID / CID caps stay consistent across both call sites.
+pub(crate) fn sanitize_sign_source(source: &mut SignSource) {
+    match source {
+        SignSource::Url { url } => {
+            truncate_on_char_boundary(url, limits::MAX_SIGN_URL_BYTES);
+        }
+        SignSource::AtprotoBlob { did, cid } => {
+            truncate_on_char_boundary(did, limits::MAX_SIGN_DID_BYTES);
+            truncate_on_char_boundary(cid, limits::MAX_SIGN_CID_BYTES);
+        }
+        SignSource::DidPfp { did } => {
+            truncate_on_char_boundary(did, limits::MAX_SIGN_DID_BYTES);
+        }
+        SignSource::Unknown => {}
+    }
+}
+
+/// Clamp every numeric field on a `Sign` generator and bound its source
+/// strings. Defends against three weaponised inputs: (1) megabyte URLs that
+/// would otherwise sit in the room recipe and bloat every record fetch,
+/// (2) NaN / negative panel sizes that would smuggle a degenerate plane
+/// mesh into the GPU, and (3) UV repeat factors so high they pin the
+/// fragment shader on a sub-pixel texel pattern.
+fn sanitize_sign(
+    source: &mut SignSource,
+    size: &mut Fp2,
+    uv_repeat: &mut Fp2,
+    uv_offset: &mut Fp2,
+    material: &mut SovereignMaterialSettings,
+    alpha_mode: &mut AlphaModeKind,
+) {
+    sanitize_sign_source(source);
+
+    let s = limits::MAX_SIGN_SIZE;
+    size.0[0] = clamp_finite(size.0[0], 0.01, s, 1.0);
+    size.0[1] = clamp_finite(size.0[1], 0.01, s, 1.0);
+
+    let r_lo = limits::MIN_SIGN_UV_REPEAT;
+    let r_hi = limits::MAX_SIGN_UV_REPEAT;
+    uv_repeat.0[0] = clamp_finite(uv_repeat.0[0], r_lo, r_hi, 1.0);
+    uv_repeat.0[1] = clamp_finite(uv_repeat.0[1], r_lo, r_hi, 1.0);
+
+    let o = limits::MAX_SIGN_UV_OFFSET;
+    uv_offset.0[0] = clamp_finite(uv_offset.0[0], -o, o, 0.0);
+    uv_offset.0[1] = clamp_finite(uv_offset.0[1], -o, o, 0.0);
+
+    sanitize_material_settings(material);
+
+    if let AlphaModeKind::Mask { cutoff } = alpha_mode {
+        cutoff.0 = clamp_finite(cutoff.0, 0.0, 1.0, 0.5);
+    }
+}
+
+/// Clamp every numeric field on a `ParticleSystem` generator. Defends
+/// against the three weaponised inputs particle systems are
+/// historically vulnerable to: (1) emit rates so high they pin every
+/// frame on entity spawning, (2) lifetimes so long the steady-state
+/// population never decays, (3) acceleration / drag values that
+/// produce NaN positions inside one tick. Also enforces `min ≤ max`
+/// on the sampled ranges so the deterministic per-particle sampler
+/// can't trip on an inverted interval.
+#[allow(clippy::too_many_arguments)]
+fn sanitize_particles(
+    emitter_shape: &mut EmitterShape,
+    rate_per_second: &mut Fp,
+    burst_count: &mut u32,
+    max_particles: &mut u32,
+    duration: &mut Fp,
+    lifetime_min: &mut Fp,
+    lifetime_max: &mut Fp,
+    speed_min: &mut Fp,
+    speed_max: &mut Fp,
+    gravity_multiplier: &mut Fp,
+    acceleration: &mut Fp3,
+    linear_drag: &mut Fp,
+    start_size: &mut Fp,
+    end_size: &mut Fp,
+    start_color: &mut Fp4,
+    end_color: &mut Fp4,
+    inherit_velocity: &mut Fp,
+    bounce: &mut Fp,
+    friction: &mut Fp,
+    texture: &mut Option<SignSource>,
+    texture_atlas: &mut Option<TextureAtlas>,
+    frame_mode: &mut AnimationFrameMode,
+) {
+    *max_particles = (*max_particles).min(limits::MAX_PARTICLES);
+    rate_per_second.0 = clamp_finite(rate_per_second.0, 0.0, limits::MAX_PARTICLE_RATE, 0.0);
+    *burst_count = (*burst_count).min(limits::MAX_PARTICLE_BURST);
+    duration.0 = clamp_finite(
+        duration.0,
+        limits::MIN_PARTICLE_DURATION,
+        limits::MAX_PARTICLE_DURATION,
+        1.0,
+    );
+
+    lifetime_min.0 = clamp_finite(
+        lifetime_min.0,
+        limits::MIN_PARTICLE_LIFETIME,
+        limits::MAX_PARTICLE_LIFETIME,
+        limits::MIN_PARTICLE_LIFETIME,
+    );
+    lifetime_max.0 = clamp_finite(
+        lifetime_max.0,
+        limits::MIN_PARTICLE_LIFETIME,
+        limits::MAX_PARTICLE_LIFETIME,
+        limits::MIN_PARTICLE_LIFETIME,
+    );
+    if lifetime_max.0 < lifetime_min.0 {
+        lifetime_max.0 = lifetime_min.0;
+    }
+
+    speed_min.0 = clamp_finite(speed_min.0, 0.0, limits::MAX_PARTICLE_SPEED, 0.0);
+    speed_max.0 = clamp_finite(speed_max.0, 0.0, limits::MAX_PARTICLE_SPEED, 0.0);
+    if speed_max.0 < speed_min.0 {
+        speed_max.0 = speed_min.0;
+    }
+
+    gravity_multiplier.0 = clamp_finite(
+        gravity_multiplier.0,
+        -limits::MAX_PARTICLE_GRAVITY_MULT,
+        limits::MAX_PARTICLE_GRAVITY_MULT,
+        0.0,
+    );
+    let a = limits::MAX_PARTICLE_ACCEL;
+    acceleration.0[0] = clamp_finite(acceleration.0[0], -a, a, 0.0);
+    acceleration.0[1] = clamp_finite(acceleration.0[1], -a, a, 0.0);
+    acceleration.0[2] = clamp_finite(acceleration.0[2], -a, a, 0.0);
+    linear_drag.0 = clamp_finite(linear_drag.0, 0.0, limits::MAX_PARTICLE_DRAG, 0.0);
+
+    start_size.0 = clamp_finite(
+        start_size.0,
+        limits::MIN_PARTICLE_SIZE,
+        limits::MAX_PARTICLE_SIZE,
+        0.1,
+    );
+    end_size.0 = clamp_finite(
+        end_size.0,
+        limits::MIN_PARTICLE_SIZE,
+        limits::MAX_PARTICLE_SIZE,
+        0.1,
+    );
+
+    let unit = |v: f32, default: f32| clamp_finite(v, 0.0, 1.0, default);
+    *start_color = Fp4([
+        unit(start_color.0[0], 1.0),
+        unit(start_color.0[1], 1.0),
+        unit(start_color.0[2], 1.0),
+        unit(start_color.0[3], 1.0),
+    ]);
+    *end_color = Fp4([
+        unit(end_color.0[0], 1.0),
+        unit(end_color.0[1], 1.0),
+        unit(end_color.0[2], 1.0),
+        unit(end_color.0[3], 1.0),
+    ]);
+
+    inherit_velocity.0 = clamp_finite(
+        inherit_velocity.0,
+        0.0,
+        limits::MAX_PARTICLE_INHERIT_VELOCITY,
+        0.0,
+    );
+    bounce.0 = clamp_finite(bounce.0, 0.0, 1.0, 0.0);
+    friction.0 = clamp_finite(friction.0, 0.0, 1.0, 0.0);
+
+    if let Some(src) = texture {
+        sanitize_sign_source(src);
+    }
+    if let Some(atlas) = texture_atlas {
+        atlas.rows = atlas.rows.clamp(1, limits::MAX_PARTICLE_ATLAS_DIM);
+        atlas.cols = atlas.cols.clamp(1, limits::MAX_PARTICLE_ATLAS_DIM);
+    }
+    if let AnimationFrameMode::OverLifetime { fps } = frame_mode {
+        fps.0 = clamp_finite(fps.0, 0.0, limits::MAX_PARTICLE_FRAME_FPS, 0.0);
+    }
+
+    match emitter_shape {
+        EmitterShape::Sphere { radius } => {
+            radius.0 = clamp_finite(radius.0, 0.0, limits::MAX_PARTICLE_SHAPE_RADIUS, 0.5);
+        }
+        EmitterShape::Box { half_extents } => {
+            let h = limits::MAX_PARTICLE_SHAPE_HALF_EXTENT;
+            half_extents.0[0] = clamp_finite(half_extents.0[0], 0.0, h, 0.5);
+            half_extents.0[1] = clamp_finite(half_extents.0[1], 0.0, h, 0.5);
+            half_extents.0[2] = clamp_finite(half_extents.0[2], 0.0, h, 0.5);
+        }
+        EmitterShape::Cone { half_angle, height } => {
+            half_angle.0 =
+                clamp_finite(half_angle.0, 0.0, limits::MAX_PARTICLE_CONE_HALF_ANGLE, 0.4);
+            height.0 = clamp_finite(height.0, 0.0, limits::MAX_PARTICLE_SHAPE_HEIGHT, 0.5);
+        }
+        EmitterShape::Point | EmitterShape::Unknown => {}
+    }
+}
+
 /// Clamp the variant-specific payload of a [`GeneratorKind`] in place. Does
 /// not touch the wrapping [`Generator`]'s transform or children — those are
 /// handled by [`sanitize_generator_node`] which calls this on every node.
@@ -587,6 +869,63 @@ pub fn sanitize_kind(kind: &mut GeneratorKind) {
             level_offset,
             surface,
         } => sanitize_water(level_offset, surface),
+        GeneratorKind::Sign {
+            source,
+            size,
+            uv_repeat,
+            uv_offset,
+            material,
+            alpha_mode,
+            ..
+        } => sanitize_sign(source, size, uv_repeat, uv_offset, material, alpha_mode),
+        GeneratorKind::ParticleSystem {
+            emitter_shape,
+            rate_per_second,
+            burst_count,
+            max_particles,
+            duration,
+            lifetime_min,
+            lifetime_max,
+            speed_min,
+            speed_max,
+            gravity_multiplier,
+            acceleration,
+            linear_drag,
+            start_size,
+            end_size,
+            start_color,
+            end_color,
+            inherit_velocity,
+            bounce,
+            friction,
+            texture,
+            texture_atlas,
+            frame_mode,
+            ..
+        } => sanitize_particles(
+            emitter_shape,
+            rate_per_second,
+            burst_count,
+            max_particles,
+            duration,
+            lifetime_min,
+            lifetime_max,
+            speed_min,
+            speed_max,
+            gravity_multiplier,
+            acceleration,
+            linear_drag,
+            start_size,
+            end_size,
+            start_color,
+            end_color,
+            inherit_velocity,
+            bounce,
+            friction,
+            texture,
+            texture_atlas,
+            frame_mode,
+        ),
         GeneratorKind::Unknown => {}
     }
 }

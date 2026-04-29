@@ -262,6 +262,368 @@ pub enum GeneratorKind {
         bend: Fp3,
     },
 
+    /// Hand-rolled CPU + ECS particle emitter. Spawns billboarded /
+    /// velocity-aligned coloured quads from a parametric shape (point /
+    /// sphere / box / cone), integrates them with gravity / drag /
+    /// constant acceleration, fades start→end size and colour over each
+    /// particle's lifetime, and optionally collides them against
+    /// terrain / water / colliders. WASM-friendly because no GPU compute
+    /// is involved.
+    ///
+    /// Velocity inheritance: at spawn, each particle's initial velocity
+    /// is `init_velocity + inherit_velocity * emitter_world_velocity`,
+    /// where the emitter velocity comes from avian3d's `LinearVelocity`
+    /// on the nearest `RigidBody` ancestor (covers the "particle
+    /// generator parented under a moving avatar" case) or, failing
+    /// that, a numerical derivative of the emitter's world transform.
+    /// This lets exhaust trails move correctly with airplanes /
+    /// hover-boats / running humanoids without any per-vehicle code.
+    ///
+    /// Determinism: every emitter carries a `seed`. Networked peers
+    /// stepping the same dt path produce the same particle stream.
+    /// Textured particles are tracked separately as a follow-up; this
+    /// variant ships with coloured quads only.
+    #[serde(rename = "network.symbios.gen.particles")]
+    ParticleSystem {
+        emitter_shape: EmitterShape,
+
+        /// Continuous emit rate in particles per second.
+        rate_per_second: Fp,
+        /// Per-cycle burst count. `0` disables bursts; `>0` emits that
+        /// many particles at the start of each loop iteration (or at
+        /// emitter activation for non-looping emitters).
+        burst_count: u32,
+        /// Hard cap on simultaneously-alive particles. Exhausting this
+        /// budget causes new spawns to be skipped rather than evicting
+        /// the oldest particle, which keeps the visual style stable
+        /// under load.
+        max_particles: u32,
+        /// `true` re-emits forever; `false` stops emitting after
+        /// `duration` seconds (existing particles continue to age out).
+        looping: bool,
+        /// Active-emit duration in seconds. For looping emitters this is
+        /// the burst-cadence period.
+        duration: Fp,
+
+        /// Per-particle lifetime range in seconds. Sampled uniformly
+        /// per spawn.
+        lifetime_min: Fp,
+        lifetime_max: Fp,
+        /// Per-particle initial-speed range in metres / second. Sampled
+        /// uniformly per spawn and scales the direction vector
+        /// produced by `emitter_shape`.
+        speed_min: Fp,
+        speed_max: Fp,
+
+        /// Multiplier on world gravity applied each frame. `1.0` =
+        /// terrestrial, `0.0` = floats, `-1.0` = anti-gravity (smoke
+        /// rising effect without a custom force).
+        gravity_multiplier: Fp,
+        /// Constant per-particle acceleration in world space (m/s²).
+        /// Stacks with `gravity_multiplier * world_gravity`.
+        acceleration: Fp3,
+        /// Exponential linear damping per second. `0.0` = no drag,
+        /// higher values brake the particle quadratically over its
+        /// lifetime.
+        linear_drag: Fp,
+
+        /// Quad size at the start and end of the particle's lifetime;
+        /// linearly interpolated each frame.
+        start_size: Fp,
+        end_size: Fp,
+        /// RGBA at the start and end of lifetime; linearly
+        /// interpolated each frame.
+        start_color: Fp4,
+        end_color: Fp4,
+        blend_mode: ParticleBlendMode,
+        /// `true` orients the quad to always face the camera (classic
+        /// billboard); `false` aligns the quad along the velocity
+        /// vector (streak / spark look).
+        billboard: bool,
+
+        simulation_space: SimulationSpace,
+        /// Fraction of the emitter's world velocity added to each
+        /// particle's initial velocity at spawn. `0.0` = ignore
+        /// (sparks fly purely along their own emit direction), `1.0` =
+        /// match emitter (running-dust effect), `>1.0` = exhaust
+        /// (jets ahead). Sanitised to `[0, 2]`.
+        inherit_velocity: Fp,
+
+        /// Toggle particle collisions against the room's terrain
+        /// heightfield. `false` = visual-only (cheaper).
+        collide_terrain: bool,
+        /// Toggle collisions against finite water surfaces.
+        collide_water: bool,
+        /// Toggle collisions against arbitrary avian3d colliders
+        /// (placed primitives, walls, …).
+        collide_colliders: bool,
+        /// Restitution applied on collision: `0.0` = stick, `1.0` =
+        /// perfect bounce.
+        bounce: Fp,
+        /// Friction applied to the tangential velocity on collision:
+        /// `0.0` = frictionless slide, `1.0` = stick.
+        friction: Fp,
+
+        /// Deterministic emission seed. Same seed + same dt path on
+        /// every peer produces the same particle stream.
+        #[serde(with = "u64_as_string")]
+        seed: u64,
+
+        /// Optional per-particle texture. Resolves through the same
+        /// [`SignSource`] union Sign uses, so a "leaf falling" emitter
+        /// and a Sign signpost pointing at the same atlas image share
+        /// one HTTPS round trip via [`super::super::world_builder::image_cache::BlobImageCache`].
+        /// `None` keeps v1 behaviour: solid coloured quads tinted by
+        /// `start_color` / `end_color`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        texture: Option<SignSource>,
+        /// Treat the loaded texture as a sprite-sheet atlas of
+        /// `rows × cols` cells. `None` uses the whole image as a single
+        /// frame (the default).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        texture_atlas: Option<TextureAtlas>,
+        /// How a particle picks its current atlas frame. `Still` keeps
+        /// frame 0 forever; `RandomFrame` picks once at spawn (per-RNG-
+        /// stream draw) so different particles show different sprites
+        /// from the same atlas; `OverLifetime { fps }` cycles through
+        /// the frame array at the configured rate.
+        #[serde(default)]
+        frame_mode: AnimationFrameMode,
+        /// Sampler filter applied to the loaded image. `Linear` is the
+        /// natural smooth filtering for soft sprites; `Nearest` for
+        /// pixel-art / retro looks. The cache keys on filter so a
+        /// Linear and a Nearest request for the same source produce
+        /// two distinct GPU images, neither stomping the other.
+        #[serde(default)]
+        texture_filter: TextureFilter,
+    },
+
+    /// Image-bearing panel — a flat plane textured with a fetched image
+    /// from one of three [`SignSource`] variants. Subsumes the standalone
+    /// "profile picture panel" use case (Portal already does the same fetch
+    /// internally). `size` is the panel extent in metres, `uv_repeat` /
+    /// `uv_offset` let the user tile / pan the texture without resizing the
+    /// mesh, and the StandardMaterial toggles surface every common knob a
+    /// signpost / billboard / pfp panel might need.
+    #[serde(rename = "network.symbios.gen.sign")]
+    Sign {
+        source: SignSource,
+        /// Panel size in metres along the local X / Z axes.
+        size: Fp2,
+        /// UV repeat factor per axis. `1.0` = the texture covers the panel
+        /// once; `2.0` = tiled twice along that axis.
+        uv_repeat: Fp2,
+        /// UV offset per axis applied after the repeat. Useful for panning
+        /// across an atlas image without changing the panel size.
+        uv_offset: Fp2,
+        /// Tint + emissive + PBR knobs. The texture overrides the
+        /// procedural slot — set `texture` to `None` so the loaded image
+        /// is the only colour source.
+        material: SovereignMaterialSettings,
+        /// `true` renders both faces of the plane (and disables backface
+        /// culling). Useful for free-standing signs viewable from either
+        /// side; `false` for wall-mounted decals.
+        double_sided: bool,
+        /// Translucency mode. `Opaque` (no alpha), `Mask(cutoff)` for
+        /// punch-through PNGs (cutout signs), `Blend` for soft-edged
+        /// translucent textures. Mirrors Bevy's `AlphaMode` open-union-
+        /// style.
+        alpha_mode: AlphaModeKind,
+        /// `true` skips PBR lighting, painting the texture flat regardless
+        /// of sun angle. Critical for legibility on profile pics / signs.
+        unlit: bool,
+    },
+
+    #[serde(other)]
+    Unknown,
+}
+
+/// Image-source open union for [`GeneratorKind::Sign`]. All three
+/// variants resolve through the shared `BlobImageCache` in
+/// `world_builder::image_cache`, so a room with multiple Signs pointing at
+/// the same source issues one HTTPS round trip and reuses the resulting
+/// `Handle<Image>` across every panel. `Unknown` keeps a record authored
+/// by a future engine version round-tripping cleanly.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
+#[serde(tag = "$type")]
+pub enum SignSource {
+    /// Direct HTTPS image URL. Bytes are decoded via the `image` crate; on
+    /// WASM the request goes through the same `reqwest` client as every
+    /// other HTTP fetch. CORS is the caller's problem — a host that
+    /// doesn't serve `Access-Control-Allow-Origin: *` will fail to load on
+    /// web.
+    #[serde(rename = "network.symbios.sign.url")]
+    Url { url: String },
+    /// ATProto blob ref pinned to a specific DID. Resolves the DID's PDS
+    /// then calls `com.atproto.sync.getBlob?did=…&cid=…`. Use this when
+    /// the image is hosted on a known PDS as a content-addressed blob.
+    #[serde(rename = "network.symbios.sign.atproto_blob")]
+    AtprotoBlob { did: String, cid: String },
+    /// "This DID's current profile picture" — fetches `app.bsky.actor.
+    /// getProfile` and resolves the avatar URL through the same path
+    /// Portal uses today. Self-updating: a refresh between sessions picks
+    /// up a new pfp without changing the record.
+    #[serde(rename = "network.symbios.sign.did_pfp")]
+    DidPfp { did: String },
+
+    #[serde(other)]
+    Unknown,
+}
+
+impl Default for SignSource {
+    fn default() -> Self {
+        SignSource::Url { url: String::new() }
+    }
+}
+
+/// Open-union mirror of Bevy's `AlphaMode`. Wire-tagged so an unknown
+/// variant from a forward-compatible record decodes to `Unknown` rather
+/// than failing the whole generator.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(tag = "$type")]
+pub enum AlphaModeKind {
+    /// Fully opaque — no alpha lookup, fastest.
+    #[serde(rename = "network.symbios.alpha.opaque")]
+    #[default]
+    Opaque,
+    /// Hard cutout: alpha < `cutoff` → discard, alpha ≥ `cutoff` → opaque.
+    /// `cutoff` is in `[0, 1]`; the sanitiser clamps.
+    #[serde(rename = "network.symbios.alpha.mask")]
+    Mask { cutoff: Fp },
+    /// Standard alpha blending. Sorted by Bevy's transparent-pass writer.
+    #[serde(rename = "network.symbios.alpha.blend")]
+    Blend,
+
+    #[serde(other)]
+    Unknown,
+}
+
+/// Emitter-shape open union for [`GeneratorKind::ParticleSystem`]. Each
+/// variant defines the spawn-position distribution and the default
+/// emit-direction; per-variant payload fields tune the shape itself.
+/// `Unknown` keeps a record from a future engine version round-tripping.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(tag = "$type")]
+pub enum EmitterShape {
+    /// Single point emitter at the local origin. Default emit direction
+    /// is local +Y; particle spread comes from per-particle randomness
+    /// in the speed sample rather than the shape itself.
+    #[serde(rename = "network.symbios.particle.point")]
+    #[default]
+    Point,
+    /// Solid sphere of `radius`. Particles spawn at a uniform-random
+    /// position inside the sphere and inherit a default outward emit
+    /// direction (radial unit vector).
+    #[serde(rename = "network.symbios.particle.sphere")]
+    Sphere { radius: Fp },
+    /// Axis-aligned box of `half_extents`. Particles spawn uniformly
+    /// inside; emit direction defaults to local +Y.
+    #[serde(rename = "network.symbios.particle.box")]
+    Box { half_extents: Fp3 },
+    /// Cone with apex at the local origin pointing along local +Y.
+    /// `half_angle` (radians) bounds the spawn cone; `height` scales
+    /// the cone's depth so particles can spawn anywhere along it.
+    #[serde(rename = "network.symbios.particle.cone")]
+    Cone { half_angle: Fp, height: Fp },
+
+    #[serde(other)]
+    Unknown,
+}
+
+/// Particle blend-mode open union. `Alpha` is standard front-to-back
+/// transparency (smoke, soft sprites); `Additive` is brightness-additive
+/// (sparks, fire, glow). Mirrors the two surface-level blend modes any
+/// reasonable particle system supports without exposing the full GPU
+/// blend-state matrix.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(tag = "$type")]
+pub enum ParticleBlendMode {
+    #[serde(rename = "network.symbios.particle.blend.alpha")]
+    #[default]
+    Alpha,
+    #[serde(rename = "network.symbios.particle.blend.additive")]
+    Additive,
+
+    #[serde(other)]
+    Unknown,
+}
+
+/// Simulation-space open union for [`GeneratorKind::ParticleSystem`].
+/// `Local` parents particles under the emitter (auras and clouds that
+/// follow the emitter); `World` spawns particles unparented in world
+/// coordinates so they are left behind as the emitter moves (exhaust,
+/// dust trails).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(tag = "$type")]
+pub enum SimulationSpace {
+    #[serde(rename = "network.symbios.particle.space.world")]
+    #[default]
+    World,
+    #[serde(rename = "network.symbios.particle.space.local")]
+    Local,
+
+    #[serde(other)]
+    Unknown,
+}
+
+/// Sprite-sheet atlas dimensions for a textured particle. The image is
+/// divided into a `rows × cols` grid; each cell is one animation frame
+/// (or one randomised sprite, depending on
+/// [`AnimationFrameMode`]). The sanitiser caps each axis at 16, so an
+/// atlas tops out at 256 frames — well past any plausible particle
+/// effect and inside the per-frame mesh-cache budget.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct TextureAtlas {
+    pub rows: u32,
+    pub cols: u32,
+}
+
+impl Default for TextureAtlas {
+    fn default() -> Self {
+        Self { rows: 1, cols: 1 }
+    }
+}
+
+/// Frame-cycling mode for textured particles.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(tag = "$type")]
+pub enum AnimationFrameMode {
+    /// Single static frame (frame 0). Default — matches a solid
+    /// non-animated sprite.
+    #[serde(rename = "network.symbios.particle.frame.still")]
+    #[default]
+    Still,
+    /// Each particle picks one frame uniformly at spawn and keeps it
+    /// for its entire lifetime. Useful when an atlas holds a set of
+    /// "leaf shape" or "snowflake" variants and you want visual
+    /// variety without animation.
+    #[serde(rename = "network.symbios.particle.frame.random")]
+    RandomFrame,
+    /// Cycle through every frame in `rows × cols` order at the
+    /// configured rate. Particles whose lifetime is shorter than
+    /// `frame_count / fps` truncate; longer lifetimes loop back to
+    /// frame 0 (modulo).
+    #[serde(rename = "network.symbios.particle.frame.over_lifetime")]
+    OverLifetime { fps: Fp },
+
+    #[serde(other)]
+    Unknown,
+}
+
+/// Sampler filter applied to a textured particle's image. `Linear`
+/// smooth-filters (default; soft sprites); `Nearest` snaps to texels
+/// (pixel-art look). The image cache keys on this so a Linear and a
+/// Nearest request for the same source coexist as separate Image
+/// assets.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[serde(tag = "$type")]
+pub enum TextureFilter {
+    #[serde(rename = "network.symbios.particle.filter.linear")]
+    #[default]
+    Linear,
+    #[serde(rename = "network.symbios.particle.filter.nearest")]
+    Nearest,
+
     #[serde(other)]
     Unknown,
 }
@@ -316,6 +678,8 @@ impl GeneratorKind {
             GeneratorKind::Torus { .. } => "Torus",
             GeneratorKind::Plane { .. } => "Plane",
             GeneratorKind::Tetrahedron { .. } => "Tetrahedron",
+            GeneratorKind::Sign { .. } => "Sign",
+            GeneratorKind::ParticleSystem { .. } => "ParticleSystem",
             GeneratorKind::Unknown => "Unknown",
         }
     }
@@ -407,6 +771,66 @@ impl GeneratorKind {
             },
             _ => return None,
         })
+    }
+
+    /// Canonical default `Sign` — a 1×1 m unlit, opaque, single-sided panel
+    /// with an empty URL source. Used by the UI "+ Sign" entry and by
+    /// [`default_for_tag`].
+    pub fn default_sign() -> Self {
+        GeneratorKind::Sign {
+            source: SignSource::default(),
+            size: Fp2([1.0, 1.0]),
+            uv_repeat: Fp2([1.0, 1.0]),
+            uv_offset: Fp2([0.0, 0.0]),
+            material: SovereignMaterialSettings::default(),
+            double_sided: false,
+            alpha_mode: AlphaModeKind::Opaque,
+            unlit: true,
+        }
+    }
+
+    /// Canonical default `ParticleSystem` — a small upward-spraying
+    /// emitter with 32 particles/s, 2 s lifetime, white→fade-out
+    /// alpha-blended quads, no inheritance, no collisions. Used by
+    /// the UI "+ ParticleSystem" entry; the editor surfaces every
+    /// parameter for tuning afterwards.
+    pub fn default_particles() -> Self {
+        GeneratorKind::ParticleSystem {
+            emitter_shape: EmitterShape::Cone {
+                half_angle: Fp(0.4),
+                height: Fp(0.5),
+            },
+            rate_per_second: Fp(32.0),
+            burst_count: 0,
+            max_particles: 128,
+            looping: true,
+            duration: Fp(1.0),
+            lifetime_min: Fp(1.0),
+            lifetime_max: Fp(2.0),
+            speed_min: Fp(1.0),
+            speed_max: Fp(2.0),
+            gravity_multiplier: Fp(0.0),
+            acceleration: Fp3([0.0, 0.0, 0.0]),
+            linear_drag: Fp(0.5),
+            start_size: Fp(0.1),
+            end_size: Fp(0.0),
+            start_color: Fp4([1.0, 1.0, 1.0, 1.0]),
+            end_color: Fp4([1.0, 1.0, 1.0, 0.0]),
+            blend_mode: ParticleBlendMode::Alpha,
+            billboard: true,
+            simulation_space: SimulationSpace::World,
+            inherit_velocity: Fp(0.0),
+            collide_terrain: false,
+            collide_water: false,
+            collide_colliders: false,
+            bounce: Fp(0.3),
+            friction: Fp(0.5),
+            seed: 0xC0FFEE,
+            texture: None,
+            texture_atlas: None,
+            frame_mode: AnimationFrameMode::Still,
+            texture_filter: TextureFilter::Linear,
+        }
     }
 }
 

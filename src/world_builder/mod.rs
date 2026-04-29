@@ -27,17 +27,31 @@
 //! * [`lsystem`] — L-system geometry + material caches and the spawn path.
 //! * [`prim`] — Construct/Prim spawners and parametric mesh/collider
 //!   builders.
-//! * [`portal`] — portal cube spawning + avatar picture polling.
+//! * [`portal`] — portal cube spawning. The top-face profile picture is
+//!   delegated to [`image_cache::BlobImageCache`] via a `SignSource::DidPfp`
+//!   request so portals coalesce with Sign generators against the same
+//!   source.
+//! * [`image_cache`] — source-keyed coalescing cache for image fetches,
+//!   shared by Sign generators and the Portal top face. Three resolver
+//!   paths (URL / atproto blob / DID-pfp) feed into the same Pending/Ready
+//!   state machine so a room with many panels pointing at the same source
+//!   issues exactly one HTTPS round trip.
+//! * [`sign`] — Sign generator spawner: textured plane with the full
+//!   StandardMaterial toggles, image fetched asynchronously through
+//!   [`image_cache`].
 //! * [`material`] — water volume spawn, procedural material bridge, and
 //!   foliage texture task polling.
 
 pub mod avatar_spawn;
 pub(crate) mod compile;
+pub mod image_cache;
 mod lsystem;
 mod material;
+pub mod particles;
 pub mod portal;
 mod prim;
 mod shape;
+mod sign;
 
 use std::collections::HashMap;
 
@@ -66,20 +80,6 @@ pub use shape::{ShapeMaterialCache, ShapeMeshCache};
 pub struct PortalMarker {
     pub target_did: String,
     pub target_pos: Vec3,
-}
-
-/// In-flight ATProto profile-picture fetch for the top face of a portal cube.
-/// Drained by `poll_portal_avatar_tasks`; the task lives on its own entity so
-/// the portal itself can be despawned by a room rebuild without having to
-/// cancel the future explicitly.
-///
-/// Keyed by `did` rather than a single material handle: the
-/// [`portal::PortalAvatarCache`] resource holds the list of every portal
-/// material waiting on this DID's image, so one task fans out to N portals.
-#[derive(Component)]
-pub struct PortalAvatarTask {
-    pub(crate) task: bevy::tasks::Task<crate::avatar::AvatarFetchResult>,
-    pub(crate) did: String,
 }
 
 /// Marker attached to every entity spawned from the active `RoomRecord`.
@@ -143,7 +143,9 @@ impl Plugin for WorldBuilderPlugin {
             .init_resource::<ShapeMaterialCache>()
             .init_resource::<ShapeMeshCache>()
             .init_resource::<WaterSurfaces>()
-            .init_resource::<portal::PortalAvatarCache>()
+            .init_resource::<image_cache::BlobImageCache>()
+            .init_resource::<particles::ParticleQuadMesh>()
+            .init_resource::<particles::ParticleAtlasMeshes>()
             .add_systems(Startup, setup_prop_assets)
             .add_systems(
                 Update,
@@ -151,9 +153,19 @@ impl Plugin for WorldBuilderPlugin {
                     compile::compile_room_record,
                     compile::apply_environment_state,
                     material::poll_overlands_foliage_tasks,
-                    portal::poll_portal_avatar_tasks,
+                    image_cache::poll_blob_image_tasks,
                     draw_placement_visualizers,
                 )
+                    .run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(
+                Update,
+                (
+                    particles::update_emitter_motion,
+                    particles::tick_emitter_spawn,
+                    particles::tick_particles,
+                )
+                    .chain()
                     .run_if(in_state(AppState::InGame)),
             );
     }

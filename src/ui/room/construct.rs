@@ -63,6 +63,8 @@ pub(super) const ROOM_ROOT_KINDS: &[&str] = &[
     "Torus",
     "Plane",
     "Tetrahedron",
+    "Sign",
+    "ParticleSystem",
     "LSystem",
     "Shape",
     "Portal",
@@ -81,6 +83,8 @@ pub(super) const ROOM_CHILD_KINDS: &[&str] = &[
     "Torus",
     "Plane",
     "Tetrahedron",
+    "Sign",
+    "ParticleSystem",
     "LSystem",
     "Shape",
     "Portal",
@@ -101,6 +105,8 @@ pub(crate) const AVATAR_KINDS: &[&str] = &[
     "Torus",
     "Plane",
     "Tetrahedron",
+    "Sign",
+    "ParticleSystem",
     "LSystem",
     "Shape",
 ];
@@ -121,6 +127,8 @@ pub(super) fn make_default_for_kind(kind: &str) -> GeneratorKind {
             level_offset: Fp(0.0),
             surface: WaterSurface::default(),
         },
+        "Sign" => GeneratorKind::default_sign(),
+        "ParticleSystem" => GeneratorKind::default_particles(),
         _ => GeneratorKind::default_cuboid(),
     }
 }

@@ -27,11 +27,14 @@ use crate::state::CurrentRoomDid;
 use crate::terrain::{FinishedHeightMap, OutgoingTerrain, TerrainMesh};
 use crate::water::{WaterMaterial, WaterSurfaces};
 
+use super::image_cache::BlobImageCache;
 use super::lsystem::{LSystemMaterialCache, LSystemMeshCache, spawn_lsystem_entity};
 use super::material::{spawn_procedural_material, spawn_water_volume};
+use super::particles::{snapshot_from_record, spawn_particle_emitter_entity};
 use super::portal::spawn_portal_entity;
 use super::prim::{build_primitive_mesh, collider_for_primitive};
 use super::shape::{ShapeMaterialCache, ShapeMeshCache, spawn_shape_entity};
+use super::sign::spawn_sign_entity;
 use super::{
     OverlandsFoliageTasks, PlacementMarker, PrimMarker, PropMeshAssets, RoomEntity, apply_traits,
     reset_traits,
@@ -97,7 +100,7 @@ pub(super) fn compile_room_record(
     mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
     mut generator_caches: GeneratorCaches,
     current_room: Option<Res<CurrentRoomDid>>,
-    mut portal_avatar_cache: ResMut<super::portal::PortalAvatarCache>,
+    mut blob_image_cache: ResMut<BlobImageCache>,
     mut water_surfaces: ResMut<WaterSurfaces>,
 ) {
     let Some(record) = record else {
@@ -174,7 +177,7 @@ pub(super) fn compile_room_record(
         current_room: current_room.as_deref(),
         entities_spawned: &mut entities_spawned,
         budget_warned: &mut budget_warned,
-        portal_avatar_cache: &mut portal_avatar_cache,
+        blob_image_cache: &mut blob_image_cache,
         water_surfaces: &mut water_surfaces,
         avatar_mode: false,
     };
@@ -732,11 +735,14 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// Latch that flips on the first budget overshoot so the warning
     /// fires once per pass instead of once per skipped spawn.
     pub(super) budget_warned: &'a mut bool,
-    /// DID-coalescing cache for portal avatar fetches. The first portal to
-    /// a DID registers a pending task here; every subsequent portal to the
-    /// same DID enqueues its top-face material instead of issuing a fresh
-    /// HTTPS round trip.
-    pub(super) portal_avatar_cache: &'a mut super::portal::PortalAvatarCache,
+    /// Source-keyed coalescing cache for image fetches used by both
+    /// [`Sign`](crate::pds::GeneratorKind::Sign) generators and Portal
+    /// top-face profile pictures. The first requester for a given source
+    /// (URL / atproto blob / DID-pfp) registers a pending task here;
+    /// every subsequent requester sharing that source enqueues its
+    /// material handle on the existing pending list instead of issuing a
+    /// redundant HTTPS round trip.
+    pub(super) blob_image_cache: &'a mut BlobImageCache,
     /// Runtime water-surface registry. Cleared at the top of each compile
     /// pass and pushed to from `spawn_water_volume`. Read by the scatter
     /// biome filter (this pass) and rover buoyancy (every fixed step).
@@ -924,6 +930,96 @@ pub(super) fn spawn_generator(
         | GeneratorKind::Plane { .. }
         | GeneratorKind::Tetrahedron { .. } => {
             Some(spawn_primitive_entity(ctx, &generator.kind, transform))
+        }
+        GeneratorKind::Sign {
+            source,
+            size,
+            uv_repeat,
+            uv_offset,
+            material,
+            double_sided,
+            alpha_mode,
+            unlit,
+        } => Some(spawn_sign_entity(
+            ctx,
+            source,
+            size,
+            uv_repeat,
+            uv_offset,
+            material,
+            *double_sided,
+            alpha_mode,
+            *unlit,
+            transform,
+        )),
+        GeneratorKind::ParticleSystem {
+            emitter_shape,
+            rate_per_second,
+            burst_count,
+            max_particles,
+            looping,
+            duration,
+            lifetime_min,
+            lifetime_max,
+            speed_min,
+            speed_max,
+            gravity_multiplier,
+            acceleration,
+            linear_drag,
+            start_size,
+            end_size,
+            start_color,
+            end_color,
+            blend_mode,
+            billboard,
+            simulation_space,
+            inherit_velocity,
+            collide_terrain,
+            collide_water,
+            collide_colliders,
+            bounce,
+            friction,
+            seed,
+            texture,
+            texture_atlas,
+            frame_mode,
+            texture_filter,
+        } => {
+            let snapshot = snapshot_from_record(
+                emitter_shape,
+                rate_per_second.0,
+                *burst_count,
+                *max_particles,
+                *looping,
+                duration.0,
+                lifetime_min.0,
+                lifetime_max.0,
+                speed_min.0,
+                speed_max.0,
+                gravity_multiplier.0,
+                acceleration,
+                linear_drag.0,
+                start_size.0,
+                end_size.0,
+                start_color,
+                end_color,
+                blend_mode,
+                *billboard,
+                simulation_space,
+                inherit_velocity.0,
+                *collide_terrain,
+                *collide_water,
+                *collide_colliders,
+                bounce.0,
+                friction.0,
+                texture.clone(),
+                texture_atlas.clone(),
+                frame_mode.clone(),
+                texture_filter.clone(),
+            );
+            Some(spawn_particle_emitter_entity(
+                ctx, snapshot, *seed, transform,
+            ))
         }
         GeneratorKind::Unknown => {
             warn!("Ignoring generator `{cache_key}` of unknown $type");

@@ -22,7 +22,7 @@ use crate::state::{
     StoredRoomRecord,
 };
 use crate::world_builder::RoomEntity;
-use crate::world_builder::portal::PortalAvatarCache;
+use crate::world_builder::image_cache::BlobImageCache;
 
 pub struct LogoutPlugin;
 
@@ -42,7 +42,7 @@ fn cleanup_on_logout(
     mut diagnostics: ResMut<DiagnosticsLog>,
     mut avatar_cache: ResMut<PeerAvatarCache>,
     mut bsky_cache: ResMut<BskyProfileCache>,
-    mut portal_avatar_cache: ResMut<PortalAvatarCache>,
+    mut blob_image_cache: ResMut<BlobImageCache>,
 ) {
     // Despawn game-world entities (recursive by default in Bevy 0.18).
     //
@@ -106,10 +106,11 @@ fn cleanup_on_logout(
     // lingered on a peer's pfp we don't want to render it on someone else
     // after a DID collision.
     bsky_cache.clear();
-    // The portal pfp cache caches `Handle<Image>` by DID across compile
-    // passes; same DID-collision argument applies, and any pending tasks
-    // that complete after logout would otherwise paint the previous
-    // session's pfp into a fresh portal that happens to point at the
-    // same DID.
-    portal_avatar_cache.clear();
+    // The shared blob image cache holds `Handle<Image>` keyed by source
+    // (URL / atproto blob / DID-pfp) across compile passes for both Sign
+    // generators and Portal top-face pfps; same DID-collision argument
+    // applies, and any pending tasks that complete after logout would
+    // otherwise paint the previous session's image into a fresh
+    // generator pointing at the same source.
+    blob_image_cache.clear();
 }

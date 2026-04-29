@@ -77,7 +77,10 @@ pub use avatar::{
     AirplaneParams, AvatarRecord, CarParams, HelicopterParams, HoverBoatParams, HumanoidParams,
     LocomotionConfig, fetch_avatar_record, publish_avatar_record,
 };
-pub use generator::{Generator, GeneratorKind, Placement, WaterSurface};
+pub use generator::{
+    AlphaModeKind, AnimationFrameMode, EmitterShape, Generator, GeneratorKind, ParticleBlendMode,
+    Placement, SignSource, SimulationSpace, TextureAtlas, TextureFilter, WaterSurface,
+};
 pub use inventory::{InventoryRecord, fetch_inventory_record, publish_inventory_record};
 pub use prim::PropMeshType;
 pub use room::{

@@ -1,0 +1,363 @@
+//! Coalescing cache for image bytes fetched from a [`SignSource`]. A
+//! room scattering many [`Sign`](crate::pds::GeneratorKind::Sign) panels
+//! that all point at the same source — a banner repeated across a market
+//! stall row, ten doorplates carrying a guild logo, every tile of a
+//! gallery wall holding the same artist's pfp — would otherwise issue one
+//! HTTPS round trip and one image decode per panel. Here, the first
+//! panel records a `Pending` task and every later panel sharing that
+//! source key enqueues its material on the pending list. When the task
+//! finishes, the poll system paints the resulting texture into every
+//! queued material at once and promotes the entry to `Ready` so any
+//! *future* panel pointing at the same source paints synchronously
+//! without a fetch.
+//!
+//! Three resolver paths land here, all keyed by the same
+//! [`SignSourceKey`]:
+//!
+//! * **URL** — direct HTTPS GET via the project's shared `reqwest`
+//!   client. CORS is the host's responsibility on web; a server that
+//!   doesn't serve `Access-Control-Allow-Origin: *` produces a fetch
+//!   error logged once and the panel falls back to its tint colour.
+//! * **AtprotoBlob** — resolves the DID's PDS, then calls
+//!   `com.atproto.sync.getBlob?did=…&cid=…`. Same path Portal's avatar
+//!   fetch already uses for WASM, lifted here so any blob CID works,
+//!   not just `app.bsky.actor.profile.avatar`.
+//! * **DidPfp** — fetches `app.bsky.actor.getProfile` for the DID, then
+//!   resolves the avatar URL through the same fallback Portal already
+//!   has. Equivalent to what Portal does today, but pluggable into any
+//!   [`Sign`](crate::pds::GeneratorKind::Sign) generator rather than
+//!   only the Portal top face.
+//!
+//! `IoTaskPool` is the right home for a blocking ATProto HTTP fetch; the
+//! compute pool is sized to physical cores and pinning every worker on a
+//! socket read would hang procedural texture / terrain generation.
+
+use bevy::asset::RenderAssetUsages;
+use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
+use bevy::prelude::*;
+use bevy::tasks::{IoTaskPool, Task};
+use std::collections::HashMap;
+
+use crate::pds::SignSource;
+
+/// Sampler filter applied when an [`Image`] is registered in
+/// `Assets<Image>`. Mirrors [`crate::pds::TextureFilter`] but lives in
+/// the world-builder layer so the cache module doesn't need to depend
+/// on the open-union forward-compat fallback (every cache request
+/// resolves to a concrete filter, with `Linear` standing in for any
+/// forward-compat `Unknown` value at the call site).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub enum SamplerFilter {
+    #[default]
+    Linear,
+    Nearest,
+}
+
+impl SamplerFilter {
+    fn as_image_filter(self) -> ImageFilterMode {
+        match self {
+            SamplerFilter::Linear => ImageFilterMode::Linear,
+            SamplerFilter::Nearest => ImageFilterMode::Nearest,
+        }
+    }
+}
+
+/// Cache key for a [`SignSource`]. Mirrors the open-union variants but
+/// drops `Unknown` (which never resolves to a fetchable resource — it
+/// represents a forward-compat record from a future engine version).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum SignSourceKey {
+    Url(String),
+    AtprotoBlob { did: String, cid: String },
+    DidPfp(String),
+}
+
+impl SignSourceKey {
+    /// Try to derive a cache key from a [`SignSource`]. Returns `None`
+    /// for `Unknown` and for inputs whose required fields are empty
+    /// (e.g. a placeholder `Url` with no URL set yet — fetching an
+    /// empty string would 404 every time and we'd spin the cache).
+    pub fn from_source(source: &SignSource) -> Option<Self> {
+        match source {
+            SignSource::Url { url } if !url.is_empty() => Some(SignSourceKey::Url(url.clone())),
+            SignSource::AtprotoBlob { did, cid } if !did.is_empty() && !cid.is_empty() => {
+                Some(SignSourceKey::AtprotoBlob {
+                    did: did.clone(),
+                    cid: cid.clone(),
+                })
+            }
+            SignSource::DidPfp { did } if !did.is_empty() => {
+                Some(SignSourceKey::DidPfp(did.clone()))
+            }
+            _ => None,
+        }
+    }
+}
+
+/// Cache entry per [`SignSourceKey`]: either a list of materials waiting
+/// on the in-flight fetch, or a finished `Handle<Image>` ready to paint
+/// synchronously.
+pub enum BlobImageEntry {
+    /// HTTPS / blob fetch is in flight. Each subsequent caller for this
+    /// source pushes its material handle here so the poll system can
+    /// drain them all on completion.
+    Pending(Vec<Handle<StandardMaterial>>),
+    /// Image is GPU-resident. Subsequent callers paint synchronously by
+    /// cloning the handle into their own material.
+    Ready(Handle<Image>),
+}
+
+/// Cache key combining a source identity with its sampler filter. Two
+/// requests for the same URL with different filters produce two
+/// distinct GPU images so a smooth-Linear panel and a Nearest pixel-
+/// art panel can coexist. The fetched bytes are still shared at the
+/// network layer — the second filter request hits the same in-flight
+/// task and replays the bytes through a second decode pass.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct BlobImageKey {
+    pub source: SignSourceKey,
+    pub filter: SamplerFilter,
+}
+
+/// Source-keyed coalescing cache for image fetches. Cleared on room
+/// transitions so a new room can re-fetch sources that may have
+/// updated upstream — most relevant for `DidPfp`, which is
+/// intentionally self-updating.
+#[derive(Resource, Default)]
+pub struct BlobImageCache {
+    pub by_source: HashMap<BlobImageKey, BlobImageEntry>,
+}
+
+impl BlobImageCache {
+    pub fn clear(&mut self) {
+        self.by_source.clear();
+    }
+}
+
+/// In-flight image fetch task, attached to a throwaway entity so the
+/// task survives across room rebuilds and is naturally GC'd when its
+/// despawn-on-completion runs. Carries the cache key (source + filter)
+/// so the poll system can route the result back into the cache and
+/// build an Image with the right sampler descriptor.
+#[derive(Component)]
+pub struct BlobImageTask {
+    pub key: BlobImageKey,
+    pub task: Task<Option<Vec<u8>>>,
+}
+
+/// Resolve a [`SignSource`] to a `Handle<Image>` painting on
+/// `material`, using the default (`Linear`) sampler filter. Sign
+/// generators and the Portal top-face pfp use this path. For
+/// particles that need pixel-art `Nearest` filtering, see
+/// [`request_blob_image_filtered`].
+pub fn request_blob_image(
+    commands: &mut Commands,
+    cache: &mut BlobImageCache,
+    materials: &mut Assets<StandardMaterial>,
+    material: &Handle<StandardMaterial>,
+    source: &SignSource,
+) {
+    request_blob_image_filtered(
+        commands,
+        cache,
+        materials,
+        material,
+        source,
+        SamplerFilter::Linear,
+    );
+}
+
+/// Resolve a [`SignSource`] + sampler-filter pair to a
+/// `Handle<Image>`. Returns immediately for cache hits; for cache
+/// misses the material is enqueued and a fetch task is spawned (or
+/// attached to an existing pending entry for the same source+filter)
+/// so completion lands on every queued material at once. No-ops for
+/// `SignSource::Unknown` and for sources with empty required fields.
+pub fn request_blob_image_filtered(
+    commands: &mut Commands,
+    cache: &mut BlobImageCache,
+    materials: &mut Assets<StandardMaterial>,
+    material: &Handle<StandardMaterial>,
+    source: &SignSource,
+    filter: SamplerFilter,
+) {
+    let Some(source_key) = SignSourceKey::from_source(source) else {
+        return;
+    };
+    let key = BlobImageKey {
+        source: source_key,
+        filter,
+    };
+
+    match cache.by_source.get_mut(&key) {
+        // Cache hit — paint synchronously.
+        Some(BlobImageEntry::Ready(img_handle)) => {
+            let img = img_handle.clone();
+            if let Some(mat) = materials.get_mut(material) {
+                mat.base_color_texture = Some(img);
+            }
+        }
+        // Fetch already in flight — enqueue.
+        Some(BlobImageEntry::Pending(list)) => {
+            list.push(material.clone());
+        }
+        // First requester for this key — register pending and spawn the
+        // task.
+        None => {
+            cache
+                .by_source
+                .insert(key.clone(), BlobImageEntry::Pending(vec![material.clone()]));
+
+            let pool = IoTaskPool::get();
+            let source_for_task = key.source.clone();
+            let task = pool.spawn(async move {
+                let fut = fetch_bytes_for(source_for_task);
+                #[cfg(target_arch = "wasm32")]
+                {
+                    fut.await
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .ok()
+                        .and_then(|rt| rt.block_on(fut))
+                }
+            });
+            commands.spawn(BlobImageTask { key, task });
+        }
+    }
+}
+
+/// Drain finished blob image fetches and paint the resulting texture
+/// onto every material that was waiting on this source. Failed fetches
+/// drop the pending entry so a future request gets a fresh attempt
+/// instead of being permanently stuck on a transient network blip.
+pub fn poll_blob_image_tasks(
+    mut commands: Commands,
+    mut tasks: Query<(Entity, &mut BlobImageTask)>,
+    mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut cache: ResMut<BlobImageCache>,
+) {
+    for (entity, mut task) in tasks.iter_mut() {
+        let Some(result) =
+            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.task))
+        else {
+            continue;
+        };
+        commands.entity(entity).despawn();
+
+        // Take ownership of the pending list. If the entry was
+        // promoted by a duplicate task or removed by a room reset, drop
+        // this result.
+        let pending = match cache.by_source.remove(&task.key) {
+            Some(BlobImageEntry::Pending(list)) => list,
+            Some(other) => {
+                cache.by_source.insert(task.key.clone(), other);
+                continue;
+            }
+            None => continue,
+        };
+
+        let Some(bytes) = result else {
+            // Fetch failed. Drop the pending entry so the next requester
+            // for this key gets a fresh attempt rather than stalling
+            // forever behind a transient failure.
+            continue;
+        };
+        let Ok(dyn_img) = image::load_from_memory(&bytes) else {
+            warn!("Failed to decode image bytes for sign source");
+            continue;
+        };
+        let mut img = Image::from_dynamic(
+            dyn_img,
+            true,
+            RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+        );
+        // Honour the requested sampler filter — Linear (default) gives
+        // the soft filtering Sign panels and smooth particles want;
+        // Nearest preserves crisp texel edges for pixel-art atlases.
+        let filter = task.key.filter.as_image_filter();
+        img.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+            mag_filter: filter,
+            min_filter: filter,
+            mipmap_filter: filter,
+            address_mode_u: ImageAddressMode::ClampToEdge,
+            address_mode_v: ImageAddressMode::ClampToEdge,
+            address_mode_w: ImageAddressMode::ClampToEdge,
+            ..default()
+        });
+        let img_handle = images.add(img);
+        for mat_handle in pending {
+            if let Some(mat) = materials.get_mut(&mat_handle) {
+                mat.base_color_texture = Some(img_handle.clone());
+            }
+        }
+        cache
+            .by_source
+            .insert(task.key.clone(), BlobImageEntry::Ready(img_handle));
+    }
+}
+
+/// Fetch the raw bytes for a source key. Routes by variant: URL hits
+/// the URL directly, `AtprotoBlob` resolves the DID's PDS and calls
+/// `getBlob`, `DidPfp` calls `app.bsky.actor.getProfile` and follows
+/// the avatar URL the way `crate::avatar::fetch_avatar_bytes` already
+/// does for the Portal top face.
+async fn fetch_bytes_for(key: SignSourceKey) -> Option<Vec<u8>> {
+    let client = crate::config::http::default_client();
+    match key {
+        SignSourceKey::Url(url) => fetch_url_bytes(&client, &url).await,
+        SignSourceKey::AtprotoBlob { did, cid } => fetch_blob_bytes(&client, &did, &cid).await,
+        SignSourceKey::DidPfp(did) => {
+            // Reuse the existing pfp fetcher rather than reimplementing the
+            // bsky/atproto fork — `fetch_avatar_bytes` already handles the
+            // wasm-vs-native CDN/CORS split.
+            let result = crate::avatar::fetch_avatar_bytes(did).await;
+            result.bytes
+        }
+    }
+}
+
+/// Direct HTTPS GET. Returns `None` on connection error, non-success
+/// status, or body-read failure — every such case is logged at warn so
+/// authors can debug a typo'd URL without the panel silently going
+/// missing.
+async fn fetch_url_bytes(client: &reqwest::Client, url: &str) -> Option<Vec<u8>> {
+    let resp = match client.get(url).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            warn!("Sign URL fetch failed for {url}: {e}");
+            return None;
+        }
+    };
+    if !resp.status().is_success() {
+        warn!("Sign URL fetch returned {} for {url}", resp.status());
+        return None;
+    }
+    match resp.bytes().await {
+        Ok(b) => Some(b.to_vec()),
+        Err(e) => {
+            warn!("Sign URL body read failed for {url}: {e}");
+            None
+        }
+    }
+}
+
+/// ATProto blob fetch via `com.atproto.sync.getBlob`. Resolves the DID's
+/// PDS first, then calls the blob endpoint. Same path the WASM portal
+/// avatar fetch already takes — generalised here to any blob CID, not
+/// just an avatar.
+async fn fetch_blob_bytes(client: &reqwest::Client, did: &str, cid: &str) -> Option<Vec<u8>> {
+    let pds = match crate::pds::resolve_pds(client, did).await {
+        Some(p) => p,
+        None => {
+            warn!("Sign DID {did} did not resolve to a PDS");
+            return None;
+        }
+    };
+    let blob_url = format!("{pds}/xrpc/com.atproto.sync.getBlob?did={did}&cid={cid}");
+    fetch_url_bytes(client, &blob_url).await
+}

@@ -22,7 +22,7 @@ use crate::terrain::{FinishedHeightMap, OutgoingTerrain, TerrainMesh};
 use crate::water::{WaterMaterial, WaterSurfaces};
 use crate::world_builder::avatar_spawn::spawn_avatar_visuals_subtree;
 use crate::world_builder::compile::GeneratorCaches;
-use crate::world_builder::portal::PortalAvatarCache;
+use crate::world_builder::image_cache::BlobImageCache;
 use crate::world_builder::{OverlandsFoliageTasks, PropMeshAssets};
 
 /// Marker for every entity spawned out of an avatar's visuals tree.
@@ -50,7 +50,7 @@ pub struct AvatarSpawnDeps<'w, 's> {
     pub terrain_meshes: Query<'w, 's, Entity, (With<TerrainMesh>, Without<OutgoingTerrain>)>,
     pub prop_assets: Option<Res<'w, PropMeshAssets>>,
     pub caches: GeneratorCaches<'w>,
-    pub portal_avatar_cache: ResMut<'w, PortalAvatarCache>,
+    pub blob_image_cache: ResMut<'w, BlobImageCache>,
     pub water_surfaces: ResMut<'w, WaterSurfaces>,
     pub current_room: Option<Res<'w, CurrentRoomDid>>,
 }
@@ -100,7 +100,7 @@ pub fn spawn_avatar_visuals(
         deps.prop_assets.as_deref(),
         foliage_tasks,
         &mut deps.caches,
-        deps.portal_avatar_cache.as_mut(),
+        deps.blob_image_cache.as_mut(),
         deps.water_surfaces.as_mut(),
         &empty_record,
         deps.current_room.as_deref(),

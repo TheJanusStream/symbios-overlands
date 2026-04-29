@@ -25,7 +25,7 @@ use bevy::prelude::*;
 use bevy_symbios::materials::MaterialPalette;
 
 use super::compile::{GeneratorCaches, SpawnCtx, spawn_generator};
-use super::portal::PortalAvatarCache;
+use super::image_cache::BlobImageCache;
 use super::{OverlandsFoliageTasks, PropMeshAssets};
 use crate::pds::{Generator, RoomRecord};
 use crate::state::CurrentRoomDid;
@@ -63,7 +63,7 @@ pub fn spawn_avatar_visuals_subtree(
     prop_assets: Option<&PropMeshAssets>,
     foliage_tasks: &mut OverlandsFoliageTasks,
     caches: &mut GeneratorCaches,
-    portal_avatar_cache: &mut PortalAvatarCache,
+    blob_image_cache: &mut BlobImageCache,
     water_surfaces: &mut WaterSurfaces,
     record: &RoomRecord,
     current_room: Option<&CurrentRoomDid>,
@@ -113,7 +113,7 @@ pub fn spawn_avatar_visuals_subtree(
         current_room,
         entities_spawned: &mut entities_spawned,
         budget_warned: &mut budget_warned,
-        portal_avatar_cache,
+        blob_image_cache,
         water_surfaces,
         avatar_mode: true,
     };
