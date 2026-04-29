@@ -392,7 +392,7 @@ async fn fetch_bytes_for(key: SignSourceKey) -> Option<Vec<u8>> {
 /// asset) would otherwise pull the entire response into memory and OOM
 /// every guest who walks into the room.
 async fn fetch_url_bytes(client: &reqwest::Client, url: &str) -> Option<Vec<u8>> {
-    let mut resp = match client.get(url).send().await {
+    let resp = match client.get(url).send().await {
         Ok(r) => r,
         Err(e) => {
             warn!("Sign URL fetch failed for {url}: {e}");
@@ -411,6 +411,11 @@ async fn fetch_url_bytes(client: &reqwest::Client, url: &str) -> Option<Vec<u8>>
         warn!("Sign URL body too large: Content-Length {len} exceeds {MAX_IMAGE_BYTES} for {url}");
         return None;
     }
+    read_capped_image_body(resp, url).await
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn read_capped_image_body(mut resp: reqwest::Response, url: &str) -> Option<Vec<u8>> {
     let mut buf: Vec<u8> = Vec::new();
     loop {
         match resp.chunk().await {
@@ -430,6 +435,27 @@ async fn fetch_url_bytes(client: &reqwest::Client, url: &str) -> Option<Vec<u8>>
             }
         }
     }
+}
+
+// On WASM the browser fetch API has already buffered the body by the
+// time reqwest hands back the `Response`; `chunk()` isn't exposed and
+// mid-stream cancellation isn't possible. The `Content-Length`
+// pre-check in `fetch_url_bytes` already rejects the obvious case;
+// this post-check catches servers that lie about / omit the header.
+#[cfg(target_arch = "wasm32")]
+async fn read_capped_image_body(resp: reqwest::Response, url: &str) -> Option<Vec<u8>> {
+    let bytes = match resp.bytes().await {
+        Ok(b) => b,
+        Err(e) => {
+            warn!("Sign URL body read failed for {url}: {e}");
+            return None;
+        }
+    };
+    if bytes.len() > MAX_IMAGE_BYTES {
+        warn!("Sign URL body exceeded cap of {MAX_IMAGE_BYTES} bytes (post-fetch) for {url}");
+        return None;
+    }
+    Some(bytes.to_vec())
 }
 
 /// ATProto blob fetch via `com.atproto.sync.getBlob`. Resolves the DID's

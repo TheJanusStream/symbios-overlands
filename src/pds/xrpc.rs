@@ -29,7 +29,7 @@ pub const MAX_DID_DOCUMENT_BYTES: usize = 64 * 1024;
 /// body unconditionally, so any peer-controlled URL that streams past
 /// the cap would OOM the client before we got a chance to reject it.
 async fn fetch_capped_bytes(client: &reqwest::Client, url: &str, cap: usize) -> Option<Vec<u8>> {
-    let mut resp = client.get(url).send().await.ok()?;
+    let resp = client.get(url).send().await.ok()?;
     if !resp.status().is_success() {
         return None;
     }
@@ -38,6 +38,11 @@ async fn fetch_capped_bytes(client: &reqwest::Client, url: &str, cap: usize) -> 
     {
         return None;
     }
+    read_capped_body(resp, cap).await
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn read_capped_body(mut resp: reqwest::Response, cap: usize) -> Option<Vec<u8>> {
     let mut buf: Vec<u8> = Vec::new();
     loop {
         match resp.chunk().await {
@@ -51,6 +56,20 @@ async fn fetch_capped_bytes(client: &reqwest::Client, url: &str, cap: usize) -> 
             Err(_) => return None,
         }
     }
+}
+
+// On WASM the browser fetch API has already buffered the body by the
+// time reqwest hands back the `Response`; `chunk()` isn't exposed and
+// mid-stream cancellation isn't possible. The `Content-Length`
+// pre-check in `fetch_capped_bytes` already rejects the obvious case;
+// this post-check catches servers that lie about / omit the header.
+#[cfg(target_arch = "wasm32")]
+async fn read_capped_body(resp: reqwest::Response, cap: usize) -> Option<Vec<u8>> {
+    let bytes = resp.bytes().await.ok()?;
+    if bytes.len() > cap {
+        return None;
+    }
+    Some(bytes.to_vec())
 }
 
 /// Public size-bounded GET for binary blobs. Used by the avatar fetch
