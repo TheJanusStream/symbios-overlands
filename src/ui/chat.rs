@@ -103,7 +103,7 @@ pub fn chat_ui(
                         // room-wide DoS.
                         let trimmed = input.trim();
                         let max = cfg::MAX_MESSAGE_LEN;
-                        let text = if trimmed.len() <= max {
+                        let clipped = if trimmed.len() <= max {
                             trimmed.to_string()
                         } else {
                             let mut end = max;
@@ -112,6 +112,18 @@ pub fn chat_ui(
                             }
                             trimmed[..end].to_string()
                         };
+                        // Strip ASCII control characters (newlines,
+                        // carriage returns, form feeds, …) before either
+                        // pushing to our own HUD or broadcasting. The
+                        // receiver runs the same filter defensively, so
+                        // skipping it here previously left the local
+                        // sender's row showing a multi-line paste while
+                        // every remote peer saw a single-line version —
+                        // a permanent visual desync on the sender's HUD.
+                        let text: String = clipped
+                            .chars()
+                            .map(|c| if c.is_control() && c != '\t' { ' ' } else { c })
+                            .collect();
                         input.clear();
                         response.request_focus();
 

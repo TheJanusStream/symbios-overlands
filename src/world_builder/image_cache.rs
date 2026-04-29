@@ -304,13 +304,19 @@ pub fn poll_blob_image_tasks(
         };
         commands.entity(entity).despawn();
 
-        // Take ownership of the pending list. If the entry was
-        // promoted by a duplicate task or removed by a room reset, drop
-        // this result.
-        let pending = match cache.remove(&task.key) {
-            Some(BlobImageEntry::Pending(list)) => list,
-            Some(other) => {
-                cache.insert_bounded(task.key.clone(), other);
+        // Take ownership of the pending list while leaving the entry's
+        // FIFO position in `insert_order` intact — calling
+        // `cache.remove` here would forfeit the slot, and the
+        // subsequent `insert_bounded(Ready)` would then re-queue the
+        // key at the back of the deque, artificially extending its
+        // lifespan past what the documented FIFO contract allows. By
+        // holding the slot we let `insert_bounded` take its
+        // "key already present → leave order alone" path on
+        // promotion.
+        let pending = match cache.by_source.get_mut(&task.key) {
+            Some(BlobImageEntry::Pending(list)) => std::mem::take(list),
+            Some(BlobImageEntry::Ready(_)) => {
+                // Promoted by a duplicate task — drop this result.
                 continue;
             }
             None => continue,
@@ -320,10 +326,12 @@ pub fn poll_blob_image_tasks(
             // Fetch failed. Drop the pending entry so the next requester
             // for this key gets a fresh attempt rather than stalling
             // forever behind a transient failure.
+            cache.remove(&task.key);
             continue;
         };
         let Ok(dyn_img) = image::load_from_memory(&bytes) else {
             warn!("Failed to decode image bytes for sign source");
+            cache.remove(&task.key);
             continue;
         };
         let mut img = Image::from_dynamic(
@@ -517,6 +525,35 @@ mod tests {
         let _ = cache.remove(&k);
         assert!(cache.by_source.is_empty());
         assert!(cache.insert_order.is_empty());
+    }
+
+    /// Promoting a `Pending` entry to `Ready` via `insert_bounded` must
+    /// preserve the entry's FIFO position. The previous
+    /// `poll_blob_image_tasks` implementation called `remove` to extract
+    /// the pending list, which forfeited the slot and let
+    /// `insert_bounded` re-queue the key at the back — artificially
+    /// extending the just-completed entry's lifespan past the FIFO bound.
+    /// This test pins the documented contract.
+    #[test]
+    fn promotion_preserves_fifo_position() {
+        let mut cache = BlobImageCache::default();
+        let early = url_key("https://example.test/early");
+        let middle = url_key("https://example.test/middle");
+        let late = url_key("https://example.test/late");
+
+        cache.insert_bounded(early.clone(), BlobImageEntry::Pending(Vec::new()));
+        cache.insert_bounded(middle.clone(), BlobImageEntry::Pending(Vec::new()));
+        cache.insert_bounded(late.clone(), BlobImageEntry::Pending(Vec::new()));
+
+        // Promote the middle entry to Ready — order must not change.
+        cache.insert_bounded(middle.clone(), BlobImageEntry::Ready(Handle::default()));
+
+        let order: Vec<&BlobImageKey> = cache.insert_order.iter().collect();
+        assert_eq!(
+            order,
+            vec![&early, &middle, &late],
+            "Pending → Ready promotion must leave the entry in its original FIFO slot"
+        );
     }
 
     /// `clear` empties both the map and the order tracker so a room

@@ -467,13 +467,14 @@ pub fn tick_emitter_spawn(
         &mut EmitterState,
         &EmitterMotionTracker,
         &GlobalTransform,
+        Has<super::RoomEntity>,
     )>,
 ) {
     let dt = time.delta_secs();
     if dt <= 0.0 {
         return;
     }
-    for (entity, emitter, mut state, tracker, gxform) in emitters.iter_mut() {
+    for (entity, emitter, mut state, tracker, gxform, room_owned) in emitters.iter_mut() {
         let prev_cycle_age = state.cycle_age;
         state.age += dt;
         state.cycle_age += dt;
@@ -527,6 +528,7 @@ pub fn tick_emitter_spawn(
                 &mut atlas_meshes,
                 &mut blob_image_cache,
                 &quad_mesh,
+                room_owned,
             );
             state.alive_count += 1;
         }
@@ -546,6 +548,7 @@ fn spawn_one_particle(
     atlas_meshes: &mut ParticleAtlasMeshes,
     blob_image_cache: &mut super::image_cache::BlobImageCache,
     quad_mesh: &ParticleQuadMesh,
+    emitter_room_owned: bool,
 ) {
     let (local_pos, mut local_dir) = sample_emitter_shape(&emitter.shape, &mut state.rng);
     if local_dir.length_squared() < 1e-6 {
@@ -661,9 +664,16 @@ fn spawn_one_particle(
             cmd.insert(ChildOf(emitter_entity));
         }
         SimulationSpace::World | SimulationSpace::Unknown => {
-            // World space — keep unparented; tag with RoomEntity so the
-            // compile-pass cleanup sweeps it on rebuilds.
-            cmd.insert(super::RoomEntity);
+            // World space — keep unparented. Tag with RoomEntity only
+            // when the source emitter is itself room-owned, so the
+            // compile-pass cleanup sweeps room exhaust/dust on rebuilds
+            // without also wiping every guest avatar's vehicle trail
+            // (which the emitter has skipped RoomEntity for in avatar
+            // mode). Avatar-emitter particles ride out their natural
+            // lifetime and despawn on age-out.
+            if emitter_room_owned {
+                cmd.insert(super::RoomEntity);
+            }
         }
     }
 }
