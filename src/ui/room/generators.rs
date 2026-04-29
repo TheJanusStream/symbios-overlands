@@ -604,8 +604,8 @@ fn apply_reparent(
     selected_prim_path: &mut Option<Vec<usize>>,
     tree_view_state: &mut TreeViewState,
     drag_source: GenNodeId,
-    target: GenNodeId,
-    position: DirPosition<GenNodeId>,
+    mut target: GenNodeId,
+    mut position: DirPosition<GenNodeId>,
     dirty: &mut bool,
 ) {
     if drag_source.is_virtual_root() {
@@ -668,7 +668,25 @@ fn apply_reparent(
         if last_idx >= parent.children.len() {
             return;
         }
-        parent.children.remove(last_idx)
+        let extracted = parent.children.remove(last_idx);
+
+        // Removing index `last_idx` from `parent_id`'s children shifts the
+        // index of every later sibling — and the index at the matching
+        // depth of every descendant of those siblings — down by one. Any
+        // GenNodeId that still carries a pre-removal path through that
+        // parent is now stale and would either resolve to the wrong node
+        // or fail `find_node` outright (silently dropping the extracted
+        // subtree). Rewrite `target` and any anchor in `position` so the
+        // Phase-2 lookups land on the correct post-removal nodes.
+        adjust_path_after_removal(&mut target, &parent_id, last_idx);
+        match &mut position {
+            DirPosition::Before(anchor) | DirPosition::After(anchor) => {
+                adjust_path_after_removal(anchor, &parent_id, last_idx);
+            }
+            DirPosition::First | DirPosition::Last => {}
+        }
+
+        extracted
     };
 
     // Phase 2: insert at the destination.
@@ -686,21 +704,11 @@ fn apply_reparent(
         GenNodeId::root(new_name)
     } else {
         // Drop into an existing dir. Translate `DirPosition` to a plain
-        // index in `target.children` *after* the source extraction, then
-        // splice the subtree in. Indices in `position` reference the
-        // pre-removal sibling layout, so we adjust when source and
-        // target share a parent and source preceded the anchor.
-        let same_parent = drag_source
-            .parent_id()
-            .as_ref()
-            .map(|p| p == &target)
-            .unwrap_or(false);
-        let removed_index = if same_parent {
-            drag_source.path.last().copied()
-        } else {
-            None
-        };
-
+        // index in `target.children`. Phase 1 already rewrote `target`
+        // and any anchor in `position` to their post-removal coordinates,
+        // so `target_children_len` and `sibling_index_in` already report
+        // the correct post-removal layout — no further index fix-up is
+        // needed even when source and target share a parent.
         let target_children_len = match find_node(&*source, &target) {
             Some(n) => n.children.len(),
             None => return,
@@ -716,11 +724,6 @@ fn apply_reparent(
                 .map(|i| i + 1)
                 .unwrap_or(target_children_len),
         };
-        if let Some(removed) = removed_index
-            && idx > removed
-        {
-            idx -= 1;
-        }
         idx = idx.min(target_children_len);
 
         let Some(target_node) = find_node_mut(source, &target) else {
@@ -739,6 +742,33 @@ fn apply_reparent(
     *selected_prim_path = Some(new_id.path.clone());
     tree_view_state.set_one_selected(new_id);
     *dirty = true;
+}
+
+/// Rewrite `id` so it still names the same node after the child at
+/// `removed_idx` was spliced out of `parent_id.children`. Removing
+/// `parent.children[removed_idx]` shifts every later sibling down by
+/// one; if `id`'s path runs through `parent_id` at a sibling index
+/// greater than `removed_idx`, decrement that one digit so the post-
+/// removal lookup lands on the right node. No-ops for ids in unrelated
+/// roots, ids that don't pass through `parent_id`, and the virtual
+/// root sentinel.
+fn adjust_path_after_removal(id: &mut GenNodeId, parent_id: &GenNodeId, removed_idx: usize) {
+    if id.is_virtual_root() {
+        return;
+    }
+    if id.root != parent_id.root {
+        return;
+    }
+    let depth = parent_id.path.len();
+    if id.path.len() <= depth {
+        return;
+    }
+    if id.path[..depth] != parent_id.path[..] {
+        return;
+    }
+    if id.path[depth] > removed_idx {
+        id.path[depth] -= 1;
+    }
 }
 
 /// True when `ancestor` is on the path from a root to `descendant`. Used
@@ -2748,6 +2778,117 @@ mod tests {
         let a = record.generators.get("a").expect("a still there");
         assert_eq!(a.children.len(), 1);
         assert!(!dirty);
+    }
+
+    /// Regression: dragging a node "Inside" a sibling that comes *after*
+    /// it in the same parent's children must not silently drop the
+    /// extracted subtree. The pre-fix code resolved the target with the
+    /// stale pre-removal path, which was either out-of-bounds (None,
+    /// hits the early-return and deletes the dragged subtree) or pointed
+    /// at the *next* sibling and dropped into the wrong node.
+    #[test]
+    fn reparent_inside_later_sibling_lands_in_correct_node() {
+        let mut record = empty_record();
+        let mut root = cuboid_root();
+        // Three children A, B, C under "r".
+        root.children
+            .push(Generator::from_kind(GeneratorKind::default_cuboid()));
+        root.children
+            .push(Generator::from_kind(GeneratorKind::default_cuboid()));
+        root.children
+            .push(Generator::from_kind(GeneratorKind::default_cuboid()));
+        record.generators.insert("r".to_string(), root);
+
+        let mut tvs = TreeViewState::default();
+        let mut sel_gen = Some("r".to_string());
+        let mut sel_path = Some(vec![0]);
+        let mut dirty = false;
+
+        // Drag A (path [0]) inside C (path [2], originally — after A is
+        // extracted C lives at [1]).
+        apply_reparent(
+            &mut RoomTreeSource::new(&mut record),
+            &mut sel_gen,
+            &mut sel_path,
+            &mut tvs,
+            GenNodeId::child("r", vec![0]),
+            GenNodeId::child("r", vec![2]),
+            DirPosition::Last,
+            &mut dirty,
+        );
+
+        let r = record.generators.get("r").expect("root still there");
+        // r now has B and C at the top level; A lives inside C.
+        assert_eq!(
+            r.children.len(),
+            2,
+            "extracting A should leave two top-level children"
+        );
+        assert_eq!(
+            r.children[1].children.len(),
+            1,
+            "A should land inside what used to be C, not get dropped"
+        );
+        assert_eq!(
+            r.children[0].children.len(),
+            0,
+            "B (now at index 0) must be untouched"
+        );
+        assert_eq!(sel_path.as_deref(), Some(&[1usize, 0][..]));
+        assert!(dirty);
+    }
+
+    /// Regression: `DirPosition::After(anchor)` where the anchor is a
+    /// sibling that follows the dragged node must drop at the correct
+    /// post-removal index. With five children A,B,C,D,E and B dragged
+    /// "After E", the result should be A,C,D,E,B — not A,C,D,B,E.
+    #[test]
+    fn reparent_after_later_sibling_uses_post_removal_index() {
+        let mut record = empty_record();
+        let mut root = cuboid_root();
+        for _ in 0..5 {
+            root.children
+                .push(Generator::from_kind(GeneratorKind::default_cuboid()));
+        }
+        record.generators.insert("r".to_string(), root);
+        // Tag each child via its translation.x so we can verify the
+        // final order without depending on a per-node id field.
+        for (i, c) in record
+            .generators
+            .get_mut("r")
+            .unwrap()
+            .children
+            .iter_mut()
+            .enumerate()
+        {
+            c.transform.translation = crate::pds::Fp3([i as f32, 0.0, 0.0]);
+        }
+
+        let mut tvs = TreeViewState::default();
+        let mut sel_gen = Some("r".to_string());
+        let mut sel_path = Some(vec![1]);
+        let mut dirty = false;
+
+        apply_reparent(
+            &mut RoomTreeSource::new(&mut record),
+            &mut sel_gen,
+            &mut sel_path,
+            &mut tvs,
+            GenNodeId::child("r", vec![1]),
+            GenNodeId::root("r"),
+            DirPosition::After(GenNodeId::child("r", vec![4])),
+            &mut dirty,
+        );
+
+        let r = record.generators.get("r").expect("root still there");
+        let order: Vec<i32> = r
+            .children
+            .iter()
+            .map(|c| c.transform.translation.0[0] as i32)
+            .collect();
+        assert_eq!(order, vec![0, 2, 3, 4, 1]);
+        assert_eq!(sel_path.as_deref(), Some(&[4usize][..]));
+        assert!(dirty);
     }
 
     /// `drop_allowed(false)` on Water/Unknown is a UX-side guard; the

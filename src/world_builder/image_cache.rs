@@ -36,9 +36,28 @@ use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::*;
 use bevy::tasks::{IoTaskPool, Task};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use crate::pds::SignSource;
+
+/// Hard cap on the number of bytes a single fetched image body may
+/// contribute to the cache. A hostile [`Sign`](crate::pds::GeneratorKind::Sign)
+/// or [`ParticleSystem`](crate::pds::GeneratorKind::ParticleSystem) can
+/// otherwise point at an infinite stream (`/dev/zero` over HTTP) or a
+/// multi-gigabyte payload and OOM every connecting client. 16 MiB
+/// comfortably covers any reasonable PNG/JPEG/WebP atlas while staying
+/// well below the headroom of low-end WebGL clients.
+pub const MAX_IMAGE_BYTES: usize = 16 * 1024 * 1024;
+
+/// Maximum number of distinct source keys held in the cache before
+/// FIFO-evicting the oldest entry. Without a bound, an attacker can
+/// stream `AvatarStateUpdate`s carrying a fresh randomised
+/// [`SignSource::Url`] every frame and force every guest's client to
+/// stash unbounded textures in RAM/VRAM. Evicting a cache entry does
+/// not unpaint live materials — the `Image` asset stays alive via the
+/// material's strong handle — so the only cost of eviction is that a
+/// later request for the same URL has to re-fetch.
+pub const MAX_CACHE_ENTRIES: usize = 256;
 
 /// Sampler filter applied when an [`Image`] is registered in
 /// `Assets<Image>`. Mirrors [`crate::pds::TextureFilter`] but lives in
@@ -123,14 +142,52 @@ pub struct BlobImageKey {
 /// transitions so a new room can re-fetch sources that may have
 /// updated upstream — most relevant for `DidPfp`, which is
 /// intentionally self-updating.
+///
+/// Bounded by [`MAX_CACHE_ENTRIES`]. Insert order is tracked in a
+/// secondary `VecDeque`; when a new key would push the entry count
+/// over the cap, the oldest entry is dropped from both the map and
+/// the deque before the insert lands. Reads do not refresh order
+/// (FIFO, not LRU) — keeping the bookkeeping cheap on the read path.
 #[derive(Resource, Default)]
 pub struct BlobImageCache {
     pub by_source: HashMap<BlobImageKey, BlobImageEntry>,
+    insert_order: VecDeque<BlobImageKey>,
 }
 
 impl BlobImageCache {
     pub fn clear(&mut self) {
         self.by_source.clear();
+        self.insert_order.clear();
+    }
+
+    /// Insert (or replace) `entry` for `key`, evicting the oldest entry
+    /// first if the cache is at [`MAX_CACHE_ENTRIES`]. Replacing an
+    /// existing key (e.g. `Pending` → `Ready`) leaves its order
+    /// position alone so a recently-completed entry isn't artificially
+    /// kept around longer than the FIFO would otherwise allow.
+    pub fn insert_bounded(&mut self, key: BlobImageKey, entry: BlobImageEntry) {
+        if !self.by_source.contains_key(&key) {
+            while self.insert_order.len() >= MAX_CACHE_ENTRIES {
+                match self.insert_order.pop_front() {
+                    Some(oldest) => {
+                        self.by_source.remove(&oldest);
+                    }
+                    None => break,
+                }
+            }
+            self.insert_order.push_back(key.clone());
+        }
+        self.by_source.insert(key, entry);
+    }
+
+    /// Remove the entry for `key` from both the map and the
+    /// insertion-order deque. Returns the removed entry if any.
+    pub fn remove(&mut self, key: &BlobImageKey) -> Option<BlobImageEntry> {
+        let removed = self.by_source.remove(key);
+        if removed.is_some() {
+            self.insert_order.retain(|k| k != key);
+        }
+        removed
     }
 }
 
@@ -204,9 +261,7 @@ pub fn request_blob_image_filtered(
         // First requester for this key — register pending and spawn the
         // task.
         None => {
-            cache
-                .by_source
-                .insert(key.clone(), BlobImageEntry::Pending(vec![material.clone()]));
+            cache.insert_bounded(key.clone(), BlobImageEntry::Pending(vec![material.clone()]));
 
             let pool = IoTaskPool::get();
             let source_for_task = key.source.clone();
@@ -252,10 +307,10 @@ pub fn poll_blob_image_tasks(
         // Take ownership of the pending list. If the entry was
         // promoted by a duplicate task or removed by a room reset, drop
         // this result.
-        let pending = match cache.by_source.remove(&task.key) {
+        let pending = match cache.remove(&task.key) {
             Some(BlobImageEntry::Pending(list)) => list,
             Some(other) => {
-                cache.by_source.insert(task.key.clone(), other);
+                cache.insert_bounded(task.key.clone(), other);
                 continue;
             }
             None => continue,
@@ -295,9 +350,7 @@ pub fn poll_blob_image_tasks(
                 mat.base_color_texture = Some(img_handle.clone());
             }
         }
-        cache
-            .by_source
-            .insert(task.key.clone(), BlobImageEntry::Ready(img_handle));
+        cache.insert_bounded(task.key.clone(), BlobImageEntry::Ready(img_handle));
     }
 }
 
@@ -322,11 +375,16 @@ async fn fetch_bytes_for(key: SignSourceKey) -> Option<Vec<u8>> {
 }
 
 /// Direct HTTPS GET. Returns `None` on connection error, non-success
-/// status, or body-read failure — every such case is logged at warn so
-/// authors can debug a typo'd URL without the panel silently going
-/// missing.
+/// status, oversized body, or body-read failure — every such case is
+/// logged at warn so authors can debug a typo'd URL without the panel
+/// silently going missing.
+///
+/// The body is streamed and capped at [`MAX_IMAGE_BYTES`]: a hostile URL
+/// (an infinite stream like `/dev/zero` over HTTP, or a multi-gigabyte
+/// asset) would otherwise pull the entire response into memory and OOM
+/// every guest who walks into the room.
 async fn fetch_url_bytes(client: &reqwest::Client, url: &str) -> Option<Vec<u8>> {
-    let resp = match client.get(url).send().await {
+    let mut resp = match client.get(url).send().await {
         Ok(r) => r,
         Err(e) => {
             warn!("Sign URL fetch failed for {url}: {e}");
@@ -337,11 +395,31 @@ async fn fetch_url_bytes(client: &reqwest::Client, url: &str) -> Option<Vec<u8>>
         warn!("Sign URL fetch returned {} for {url}", resp.status());
         return None;
     }
-    match resp.bytes().await {
-        Ok(b) => Some(b.to_vec()),
-        Err(e) => {
-            warn!("Sign URL body read failed for {url}: {e}");
-            None
+    // Pre-flight check: if the server advertises a length and it already
+    // exceeds the cap, don't even start streaming.
+    if let Some(len) = resp.content_length()
+        && len as usize > MAX_IMAGE_BYTES
+    {
+        warn!("Sign URL body too large: Content-Length {len} exceeds {MAX_IMAGE_BYTES} for {url}");
+        return None;
+    }
+    let mut buf: Vec<u8> = Vec::new();
+    loop {
+        match resp.chunk().await {
+            Ok(Some(chunk)) => {
+                if buf.len().saturating_add(chunk.len()) > MAX_IMAGE_BYTES {
+                    warn!(
+                        "Sign URL body exceeded cap of {MAX_IMAGE_BYTES} bytes mid-stream for {url}"
+                    );
+                    return None;
+                }
+                buf.extend_from_slice(&chunk);
+            }
+            Ok(None) => return Some(buf),
+            Err(e) => {
+                warn!("Sign URL body read failed for {url}: {e}");
+                return None;
+            }
         }
     }
 }
@@ -360,4 +438,101 @@ async fn fetch_blob_bytes(client: &reqwest::Client, did: &str, cid: &str) -> Opt
     };
     let blob_url = format!("{pds}/xrpc/com.atproto.sync.getBlob?did={did}&cid={cid}");
     fetch_url_bytes(client, &blob_url).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn url_key(s: &str) -> BlobImageKey {
+        BlobImageKey {
+            source: SignSourceKey::Url(s.to_string()),
+            filter: SamplerFilter::Linear,
+        }
+    }
+
+    /// `insert_bounded` evicts the oldest entry once `MAX_CACHE_ENTRIES`
+    /// is reached so an attacker spamming randomised
+    /// [`SignSource::Url`] values via `AvatarStateUpdate` can't grow the
+    /// cache without bound. Replacing an existing key (e.g. Pending →
+    /// Ready) must not count as a fresh insert.
+    #[test]
+    fn cache_evicts_oldest_when_over_capacity() {
+        let mut cache = BlobImageCache::default();
+        // Fill the cache exactly to capacity. Each insert must remain.
+        for i in 0..MAX_CACHE_ENTRIES {
+            cache.insert_bounded(
+                url_key(&format!("https://example.test/{i}")),
+                BlobImageEntry::Pending(Vec::new()),
+            );
+        }
+        assert_eq!(cache.by_source.len(), MAX_CACHE_ENTRIES);
+        assert_eq!(cache.insert_order.len(), MAX_CACHE_ENTRIES);
+        assert!(
+            cache
+                .by_source
+                .contains_key(&url_key("https://example.test/0")),
+            "before overflow, the oldest entry should still be present"
+        );
+
+        // Push one over the cap. The oldest URL ("…/0") must be evicted
+        // and the newcomer kept.
+        cache.insert_bounded(
+            url_key("https://example.test/overflow"),
+            BlobImageEntry::Pending(Vec::new()),
+        );
+        assert_eq!(cache.by_source.len(), MAX_CACHE_ENTRIES);
+        assert!(
+            !cache
+                .by_source
+                .contains_key(&url_key("https://example.test/0")),
+            "oldest entry must be evicted when overflowing"
+        );
+        assert!(
+            cache
+                .by_source
+                .contains_key(&url_key("https://example.test/overflow")),
+            "new entry must land in the cache"
+        );
+
+        // Replacing an existing key (Pending → Ready style) must not
+        // re-add to the order deque (preserves FIFO position) and must
+        // not evict another entry.
+        let stable_key = url_key("https://example.test/1");
+        let prior_order_len = cache.insert_order.len();
+        cache.insert_bounded(stable_key.clone(), BlobImageEntry::Pending(Vec::new()));
+        assert_eq!(cache.insert_order.len(), prior_order_len);
+        assert!(cache.by_source.contains_key(&stable_key));
+    }
+
+    /// `remove` drops the entry from both the map and the insertion-
+    /// order deque so a removed key isn't double-counted against the
+    /// capacity ceiling on a subsequent insert.
+    #[test]
+    fn cache_remove_clears_insertion_order() {
+        let mut cache = BlobImageCache::default();
+        let k = url_key("https://example.test/x");
+        cache.insert_bounded(k.clone(), BlobImageEntry::Pending(Vec::new()));
+        assert_eq!(cache.insert_order.len(), 1);
+        let _ = cache.remove(&k);
+        assert!(cache.by_source.is_empty());
+        assert!(cache.insert_order.is_empty());
+    }
+
+    /// `clear` empties both the map and the order tracker so a room
+    /// transition resets the cache cleanly without leaking stale
+    /// insertion-order entries.
+    #[test]
+    fn cache_clear_resets_both_structures() {
+        let mut cache = BlobImageCache::default();
+        for i in 0..4 {
+            cache.insert_bounded(
+                url_key(&format!("https://example.test/{i}")),
+                BlobImageEntry::Pending(Vec::new()),
+            );
+        }
+        cache.clear();
+        assert!(cache.by_source.is_empty());
+        assert!(cache.insert_order.is_empty());
+    }
 }

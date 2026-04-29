@@ -612,6 +612,26 @@ fn handle_incoming_messages(
                     continue;
                 }
 
+                // Clamp the wire-supplied item name *before* any
+                // diagnostics or dialog state references it. The
+                // protocol field is an unbounded `String`, so a hostile
+                // sender can ship a 10 MiB blob; spamming such offers
+                // at a busy victim would otherwise force the main
+                // thread to allocate that string into every busy-gate
+                // / rejection log line. Clamping up front guarantees
+                // the rest of this handler only sees a bounded value.
+                let item_name = {
+                    let mut n: String = item_name
+                        .chars()
+                        .filter(|c| !c.is_control())
+                        .take(64)
+                        .collect();
+                    if n.is_empty() {
+                        n.push_str("(unnamed)");
+                    }
+                    n
+                };
+
                 // Busy-gate: a dialog is already up, so an attacker can't
                 // queue-flood the recipient with nested prompts. Decline
                 // and log so the user knows someone tried.
@@ -678,21 +698,6 @@ fn handle_incoming_messages(
                     );
                     continue;
                 }
-
-                // Clamp the item name to the same reasonable bounds the
-                // rest of the editor enforces so a hostile payload can't
-                // blow up the dialog's text layout.
-                let item_name = {
-                    let mut n: String = item_name
-                        .chars()
-                        .filter(|c| !c.is_control())
-                        .take(64)
-                        .collect();
-                    if n.is_empty() {
-                        n.push_str("(unnamed)");
-                    }
-                    n
-                };
 
                 diagnostics.push(
                     now,
