@@ -13,7 +13,7 @@ use symbios_turtle_3d::{SkeletonProp, TurtleConfig, TurtleInterpreter};
 use crate::pds::{Fp, Fp3, GeneratorKind, PropMeshType, SovereignMaterialSettings};
 
 use super::RoomEntity;
-use super::compile::SpawnCtx;
+use super::compile::{SpawnCtx, budget_exceeded};
 use super::material::spawn_procedural_material;
 
 /// One cached L-system slot material: the content hash of the settings that
@@ -457,7 +457,16 @@ pub(super) fn spawn_lsystem_entity(
         slot_handles.insert(id, handle);
     }
 
+    // Mesh buckets and props are real ECS entities, so they each
+    // contribute to the room-wide spawn budget. Without this, a record
+    // can put a 100k-count `Scatter` over an L-system whose skeleton
+    // produces a million props — the per-generator-node accounting in
+    // `spawn_generator` would only charge 100k of the 100B child
+    // entities, blowing past `MAX_ROOM_ENTITIES` and OOMing the ECS.
     for (material_id, mesh_handle) in &mesh_bucket_handles {
+        if budget_exceeded(*ctx.entities_spawned, ctx.budget_warned) {
+            break;
+        }
         let material = slot_handles
             .get(material_id)
             .cloned()
@@ -478,6 +487,7 @@ pub(super) fn spawn_lsystem_entity(
             ))
             .id();
         ctx.commands.entity(parent).add_child(child);
+        *ctx.entities_spawned = ctx.entities_spawned.saturating_add(1);
     }
 
     // Spawn prop billboards/primitives. Each prop inherits its material
@@ -488,6 +498,9 @@ pub(super) fn spawn_lsystem_entity(
     if let Some(prop_assets) = ctx.prop_assets {
         let ps = prop_scale.0.max(0.0);
         for prop in &props {
+            if budget_exceeded(*ctx.entities_spawned, ctx.budget_warned) {
+                break;
+            }
             let mesh_type = prop_mappings
                 .get(&prop.prop_id)
                 .copied()
@@ -513,6 +526,7 @@ pub(super) fn spawn_lsystem_entity(
                 ))
                 .id();
             ctx.commands.entity(parent).add_child(child);
+            *ctx.entities_spawned = ctx.entities_spawned.saturating_add(1);
         }
     }
 

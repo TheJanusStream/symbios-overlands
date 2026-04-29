@@ -39,6 +39,23 @@ pub mod limits {
     /// Ground / rock generator octaves.
     pub const MAX_GROUND_OCTAVES: u32 = 12;
     pub const MAX_ROCK_OCTAVES: u32 = 16;
+    /// Per-axis count cap for grid-based procedural textures (window panes,
+    /// iron grille bars, ashlar courses, wainscoting panels). The texture
+    /// pipeline iterates over `count` cells per pixel; with the
+    /// `MAX_TEXTURE_SIZE` 4096² envelope a 64×64 grid fits well under a
+    /// second of compute, while a million-cell grid would spin
+    /// `AsyncComputeTaskPool` for hours.
+    pub const MAX_TEXTURE_GRID_AXIS: u32 = 64;
+    /// Cell-count cap for Voronoi-style cell textures (stained glass).
+    /// The seed iteration is 1-D rather than per-axis, so the budget is
+    /// linear in `cell_count` — 256 keeps the worst case bounded while
+    /// still allowing dense decorative panels.
+    pub const MAX_TEXTURE_VORONOI_CELLS: u32 = 256;
+    /// Leaf-pair count cap for the foliage twig generator. The twig
+    /// generator emits a leaf pair per slot along the stem; the texture
+    /// pipeline iterates over each pair per pixel, so the budget mirrors
+    /// the grid-axis cap.
+    pub const MAX_TEXTURE_LEAF_PAIRS: u32 = 32;
     /// Scatter placement count.
     pub const MAX_SCATTER_COUNT: u32 = 100_000;
     /// L-system derivation iterations. 12 is already enough to blow out most
@@ -353,6 +370,7 @@ pub(crate) fn sanitize_material_settings(m: &mut SovereignMaterialSettings) {
 /// parameter are passed through untouched — their cost is bounded by the
 /// texture resolution cap in [`limits::MAX_TEXTURE_SIZE`].
 pub(crate) fn sanitize_texture_config(cfg: &mut SovereignTextureConfig) {
+    let axis = limits::MAX_TEXTURE_GRID_AXIS;
     match cfg {
         SovereignTextureConfig::Ground(g) => {
             g.macro_octaves = g.macro_octaves.clamp(1, limits::MAX_GROUND_OCTAVES);
@@ -373,7 +391,49 @@ pub(crate) fn sanitize_texture_config(cfg: &mut SovereignTextureConfig) {
         SovereignTextureConfig::Marble(m) => {
             m.octaves = m.octaves.clamp(1, limits::MAX_ROCK_OCTAVES);
         }
-        _ => {}
+        // Variants with explicit cell / grid loop counts — without these
+        // a peer can ship a `cell_count: 4_000_000_000` (or
+        // `bars_x: u32::MAX`) and pin every guest's procedural texture
+        // task on a per-pixel inner loop billions of iterations long.
+        SovereignTextureConfig::Twig(t) => {
+            t.leaf_pairs = t.leaf_pairs.clamp(1, limits::MAX_TEXTURE_LEAF_PAIRS);
+        }
+        SovereignTextureConfig::Window(w) => {
+            w.panes_x = w.panes_x.clamp(1, axis);
+            w.panes_y = w.panes_y.clamp(1, axis);
+        }
+        SovereignTextureConfig::StainedGlass(s) => {
+            s.cell_count = s.cell_count.clamp(1, limits::MAX_TEXTURE_VORONOI_CELLS);
+        }
+        SovereignTextureConfig::IronGrille(i) => {
+            i.bars_x = i.bars_x.clamp(1, axis);
+            i.bars_y = i.bars_y.clamp(1, axis);
+        }
+        SovereignTextureConfig::Ashlar(a) => {
+            a.rows = a.rows.clamp(1, axis);
+            a.cols = a.cols.clamp(1, axis);
+        }
+        SovereignTextureConfig::Wainscoting(w) => {
+            w.panels_x = w.panels_x.clamp(1, axis);
+            w.panels_y = w.panels_y.clamp(1, axis);
+        }
+        // Variants whose only count-shaped fields are `fp64` scale
+        // factors (Brick, Plank, Shingle, Metal, Pavers, Cobblestone,
+        // Thatch, Corrugated, Asphalt, Encaustic, Leaf): per-pixel cost
+        // is bounded by `MAX_TEXTURE_SIZE`, so no extra clamp is needed.
+        SovereignTextureConfig::None
+        | SovereignTextureConfig::Leaf(_)
+        | SovereignTextureConfig::Brick(_)
+        | SovereignTextureConfig::Plank(_)
+        | SovereignTextureConfig::Shingle(_)
+        | SovereignTextureConfig::Metal(_)
+        | SovereignTextureConfig::Pavers(_)
+        | SovereignTextureConfig::Cobblestone(_)
+        | SovereignTextureConfig::Thatch(_)
+        | SovereignTextureConfig::Corrugated(_)
+        | SovereignTextureConfig::Asphalt(_)
+        | SovereignTextureConfig::Encaustic(_)
+        | SovereignTextureConfig::Unknown => {}
     }
 }
 

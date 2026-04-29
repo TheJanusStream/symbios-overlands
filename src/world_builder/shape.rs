@@ -22,7 +22,7 @@ use symbios_shape::{FaceProfile, Interpreter, Quat as SQuat, Scope, Vec3 as SVec
 use crate::pds::{Fp3, GeneratorKind, SovereignMaterialSettings};
 
 use super::RoomEntity;
-use super::compile::SpawnCtx;
+use super::compile::{SpawnCtx, budget_exceeded};
 use super::material::spawn_procedural_material;
 
 /// One cached shape-slot material: the content hash of the settings that
@@ -401,7 +401,16 @@ pub(super) fn spawn_shape_entity(
             .id()
     };
 
+    // Each terminal is a real ECS entity, so it contributes to the
+    // room-wide spawn budget. Without this, a record can put a high-count
+    // `Scatter` over a Shape grammar that derives thousands of terminals
+    // — the per-generator-node accounting in `spawn_generator` would only
+    // charge one per scatter point regardless of terminal count, blowing
+    // past `MAX_ROOM_ENTITIES` and OOMing the ECS.
     for instance in &instances {
+        if budget_exceeded(*ctx.entities_spawned, ctx.budget_warned) {
+            break;
+        }
         let material = resolve_material_handle(
             ctx,
             generator_ref,
@@ -421,6 +430,7 @@ pub(super) fn spawn_shape_entity(
             ))
             .id();
         ctx.commands.entity(parent).add_child(child);
+        *ctx.entities_spawned = ctx.entities_spawned.saturating_add(1);
     }
 
     Some(parent)

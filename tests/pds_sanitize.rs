@@ -647,3 +647,138 @@ fn sanitize_is_idempotent_on_a_pathological_record() {
     let second: serde_json::Value = serde_json::to_value(&r).unwrap();
     assert_eq!(first, second, "sanitize drift across passes");
 }
+
+/// Texture variants whose configs carry explicit integer loop counts
+/// (Voronoi cells, grid axes, leaf pairs) used to be passed through
+/// the sanitizer untouched. A peer could ship `cell_count: u32::MAX`
+/// or `bars_x: u32::MAX` and the procedural texture pipeline would run
+/// billions of iterations per pixel, deadlocking
+/// `AsyncComputeTaskPool` the moment a scatter landed. This test
+/// pins the clamps so a regression at the sanitizer reintroduces
+/// the DoS vector immediately.
+#[test]
+fn texture_loop_counts_are_clamped() {
+    use std::collections::HashMap;
+    use symbios_overlands::pds::{
+        PropMeshType, SovereignAshlarConfig, SovereignIronGrilleConfig, SovereignMaterialSettings,
+        SovereignStainedGlassConfig, SovereignTextureConfig, SovereignTwigConfig,
+        SovereignWainscotingConfig, SovereignWindowConfig,
+    };
+
+    let exploit = u32::MAX;
+
+    let with_texture = |t: SovereignTextureConfig| SovereignMaterialSettings {
+        texture: t,
+        ..SovereignMaterialSettings::default()
+    };
+
+    let mut materials: HashMap<u8, SovereignMaterialSettings> = HashMap::new();
+    materials.insert(
+        0,
+        with_texture(SovereignTextureConfig::StainedGlass(
+            SovereignStainedGlassConfig {
+                cell_count: exploit,
+                ..SovereignStainedGlassConfig::default()
+            },
+        )),
+    );
+    materials.insert(
+        1,
+        with_texture(SovereignTextureConfig::IronGrille(
+            SovereignIronGrilleConfig {
+                bars_x: exploit,
+                bars_y: exploit,
+                ..SovereignIronGrilleConfig::default()
+            },
+        )),
+    );
+    materials.insert(
+        2,
+        with_texture(SovereignTextureConfig::Window(SovereignWindowConfig {
+            panes_x: exploit,
+            panes_y: exploit,
+            ..SovereignWindowConfig::default()
+        })),
+    );
+    materials.insert(
+        3,
+        with_texture(SovereignTextureConfig::Ashlar(SovereignAshlarConfig {
+            rows: exploit,
+            cols: exploit,
+            ..SovereignAshlarConfig::default()
+        })),
+    );
+    materials.insert(
+        4,
+        with_texture(SovereignTextureConfig::Wainscoting(
+            SovereignWainscotingConfig {
+                panels_x: exploit,
+                panels_y: exploit,
+                ..SovereignWainscotingConfig::default()
+            },
+        )),
+    );
+    materials.insert(
+        5,
+        with_texture(SovereignTextureConfig::Twig(SovereignTwigConfig {
+            leaf_pairs: exploit,
+            ..SovereignTwigConfig::default()
+        })),
+    );
+
+    let mut lsys = Generator::from_kind(GeneratorKind::LSystem {
+        source_code: "omega: F".into(),
+        finalization_code: String::new(),
+        iterations: 1,
+        seed: 0,
+        angle: Fp(25.0),
+        step: Fp(1.0),
+        width: Fp(0.1),
+        elasticity: Fp(0.0),
+        tropism: None,
+        materials,
+        prop_mappings: HashMap::<u16, PropMeshType>::new(),
+        prop_scale: Fp(1.0),
+        mesh_resolution: 8,
+    });
+    sanitize_generator(&mut lsys);
+
+    let GeneratorKind::LSystem { materials, .. } = &lsys.kind else {
+        panic!("sanitize changed LSystem variant");
+    };
+
+    let axis = limits::MAX_TEXTURE_GRID_AXIS;
+    let cells = limits::MAX_TEXTURE_VORONOI_CELLS;
+    let leaves = limits::MAX_TEXTURE_LEAF_PAIRS;
+
+    match &materials[&0].texture {
+        SovereignTextureConfig::StainedGlass(s) => assert!(s.cell_count <= cells),
+        other => panic!("StainedGlass mutated: {other:?}"),
+    }
+    match &materials[&1].texture {
+        SovereignTextureConfig::IronGrille(g) => {
+            assert!(g.bars_x <= axis && g.bars_y <= axis);
+        }
+        other => panic!("IronGrille mutated: {other:?}"),
+    }
+    match &materials[&2].texture {
+        SovereignTextureConfig::Window(w) => {
+            assert!(w.panes_x <= axis && w.panes_y <= axis);
+        }
+        other => panic!("Window mutated: {other:?}"),
+    }
+    match &materials[&3].texture {
+        SovereignTextureConfig::Ashlar(a) => assert!(a.rows <= axis && a.cols <= axis),
+        other => panic!("Ashlar mutated: {other:?}"),
+    }
+    match &materials[&4].texture {
+        SovereignTextureConfig::Wainscoting(w) => {
+            assert!(w.panels_x <= axis && w.panels_y <= axis);
+        }
+        other => panic!("Wainscoting mutated: {other:?}"),
+    }
+    match &materials[&5].texture {
+        SovereignTextureConfig::Twig(t) => assert!(t.leaf_pairs <= leaves),
+        other => panic!("Twig mutated: {other:?}"),
+    }
+}

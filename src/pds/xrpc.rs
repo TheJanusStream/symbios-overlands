@@ -3,6 +3,71 @@
 //! record-upsert helper.
 
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
+
+/// Hard cap on the bytes a single peer-controlled HTTP body may
+/// contribute to memory. A hostile PDS / DID-host can otherwise return
+/// an infinitely-streaming body (or a multi-gigabyte payload) and
+/// `reqwest::Response::bytes()` / `.json()` will buffer the whole
+/// stream into RAM until the client OOMs. 16 MiB matches the cap the
+/// world-builder's [`crate::world_builder::image_cache::MAX_IMAGE_BYTES`]
+/// already uses for [`crate::pds::SignSource`] fetches and is well past
+/// any reasonable image asset.
+pub const MAX_FETCH_BODY_BYTES: usize = 16 * 1024 * 1024;
+
+/// Tighter cap for JSON documents fetched from a DID host
+/// (`did.json`, `plc.directory`). A normal DID document is well under
+/// 4 KiB; 64 KiB leaves headroom for forward-compat fields without
+/// letting a hostile `did:web` server stream us a multi-gigabyte JSON
+/// payload that locks the async decoder buffer for the duration of
+/// the parse.
+pub const MAX_DID_DOCUMENT_BYTES: usize = 64 * 1024;
+
+/// Stream `client.get(url)` to a `Vec<u8>`, aborting if the body would
+/// exceed `cap`. Mirrors the world-builder's `fetch_url_bytes` chunk
+/// loop — the `reqwest::Response::bytes()` shortcut buffers the entire
+/// body unconditionally, so any peer-controlled URL that streams past
+/// the cap would OOM the client before we got a chance to reject it.
+async fn fetch_capped_bytes(client: &reqwest::Client, url: &str, cap: usize) -> Option<Vec<u8>> {
+    let mut resp = client.get(url).send().await.ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    if let Some(len) = resp.content_length()
+        && len as usize > cap
+    {
+        return None;
+    }
+    let mut buf: Vec<u8> = Vec::new();
+    loop {
+        match resp.chunk().await {
+            Ok(Some(chunk)) => {
+                if buf.len().saturating_add(chunk.len()) > cap {
+                    return None;
+                }
+                buf.extend_from_slice(&chunk);
+            }
+            Ok(None) => return Some(buf),
+            Err(_) => return None,
+        }
+    }
+}
+
+/// Public size-bounded GET for binary blobs. Used by the avatar fetch
+/// path so a peer-controlled CDN / PDS can't stream us a runaway body.
+pub async fn fetch_blob_bytes_capped(client: &reqwest::Client, url: &str) -> Option<Vec<u8>> {
+    fetch_capped_bytes(client, url, MAX_FETCH_BODY_BYTES).await
+}
+
+/// Stream `client.get(url)` and decode the body as JSON, aborting if
+/// the body would exceed `MAX_DID_DOCUMENT_BYTES`. Used by
+/// [`resolve_pds`] (DID document fetches) so a hostile `did:web` host
+/// cannot pin client memory inside `reqwest::Response::json()`'s
+/// internal buffer with a multi-gigabyte payload.
+async fn fetch_did_json<T: DeserializeOwned>(client: &reqwest::Client, url: &str) -> Option<T> {
+    let bytes = fetch_capped_bytes(client, url, MAX_DID_DOCUMENT_BYTES).await?;
+    serde_json::from_slice(&bytes).ok()
+}
 
 #[derive(Deserialize)]
 pub struct DidDocument {
@@ -44,7 +109,7 @@ pub async fn resolve_pds(client: &reqwest::Client, did: &str) -> Option<String> 
     } else {
         return None;
     };
-    let doc: DidDocument = client.get(&url).send().await.ok()?.json().await.ok()?;
+    let doc: DidDocument = fetch_did_json(client, &url).await?;
     doc.service
         .iter()
         .find(|s| s.id == "#atproto_pds")

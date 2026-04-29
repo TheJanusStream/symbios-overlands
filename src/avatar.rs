@@ -263,16 +263,16 @@ async fn fetch_image_bytes(
     did: &str,
     avatar_url: &str,
 ) -> Option<Vec<u8>> {
-    let resp = client.get(avatar_url).send().await.ok()?;
-    if !resp.status().is_success() {
-        bevy::log::warn!(
-            "Failed to fetch avatar image for {}: {}",
-            did,
-            resp.status()
-        );
-        return None;
+    // `crate::pds::fetch_blob_bytes_capped` streams chunks and aborts
+    // past `MAX_FETCH_BODY_BYTES`. Without this, a hostile bsky CDN /
+    // PDS hosting an attacker-controlled DID could return an
+    // infinitely-streaming body (`/dev/zero` over HTTP) and `reqwest`
+    // would buffer the whole stream into memory until the client OOMs.
+    let bytes = crate::pds::xrpc::fetch_blob_bytes_capped(client, avatar_url).await;
+    if bytes.is_none() {
+        bevy::log::warn!("Failed to fetch avatar image for {}", did);
     }
-    Some(resp.bytes().await.ok()?.to_vec())
+    bytes
 }
 
 /// WASM: cdn.bsky.app lacks CORS headers, so resolve the user's PDS from
@@ -289,12 +289,14 @@ async fn fetch_image_bytes(
         "{}/xrpc/com.atproto.sync.getBlob?did={}&cid={}",
         pds, did, cid
     );
-    let resp = client.get(&blob_url).send().await.ok()?;
-    if !resp.status().is_success() {
-        bevy::log::warn!("Failed to fetch avatar blob for {}: {}", did, resp.status());
-        return None;
+    // Same size-cap rationale as the native path — a hostile PDS
+    // serving `com.atproto.sync.getBlob` can otherwise stream a
+    // multi-gigabyte body and OOM the WASM client.
+    let bytes = crate::pds::xrpc::fetch_blob_bytes_capped(client, &blob_url).await;
+    if bytes.is_none() {
+        bevy::log::warn!("Failed to fetch avatar blob for {}", did);
     }
-    Some(resp.bytes().await.ok()?.to_vec())
+    bytes
 }
 
 #[cfg(target_arch = "wasm32")]
