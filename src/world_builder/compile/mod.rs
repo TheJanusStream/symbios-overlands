@@ -29,11 +29,11 @@ mod spawn_ctx;
 // External callers (`super::compile::SpawnCtx` etc.) reach these names
 // through this re-export. Behavioural surface is identical to the
 // pre-refactor flat `compile.rs`.
-pub use dispatch::spawn_generator;
 pub(super) use dispatch::dispatch_top_level;
+pub use dispatch::spawn_generator;
 pub(super) use environment::apply_environment_state;
-pub use spawn_ctx::{GeneratorCaches, SpawnCtx, budget_exceeded};
 pub(super) use spawn_ctx::transform_from_data;
+pub use spawn_ctx::{GeneratorCaches, SpawnCtx, budget_exceeded};
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -50,7 +50,7 @@ use crate::water::{WaterMaterial, WaterSurfaces};
 use super::image_cache::BlobImageCache;
 use super::{OverlandsFoliageTasks, PlacementMarker, PropMeshAssets, RoomEntity};
 
-use scatter::{sample_bounds, unit_f32, dominant_biome};
+use scatter::{dominant_biome, sample_bounds, unit_f32};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn compile_room_record(

@@ -23,18 +23,13 @@ pub trait LocomotionPanel {
 /// Render the picker row (one selectable label per preset, switching
 /// preset replaces `*locomotion` with the new variant's default-tuned
 /// instance) followed by the per-preset detail panel.
-pub fn draw_locomotion_tab(
-    ui: &mut egui::Ui,
-    locomotion: &mut LocomotionConfig,
-    dirty: &mut bool,
-) {
+pub fn draw_locomotion_tab(ui: &mut egui::Ui, locomotion: &mut LocomotionConfig, dirty: &mut bool) {
     let current_kind = locomotion.kind_tag();
 
     ui.horizontal_wrapped(|ui| {
         ui.label("Preset:");
         for (kind, label, ctor) in LocomotionConfig::pickers() {
-            if ui.selectable_label(current_kind == *kind, *label).clicked()
-                && current_kind != *kind
+            if ui.selectable_label(current_kind == *kind, *label).clicked() && current_kind != *kind
             {
                 *locomotion = ctor();
                 *dirty = true;

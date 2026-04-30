@@ -2,7 +2,7 @@
 
 use bevy_egui::egui;
 
-use super::{LocomotionPanel, fp3_extents, fp_slider};
+use super::{LocomotionPanel, fp_slider, fp3_extents};
 use crate::pds::AirplaneParams;
 
 impl LocomotionPanel for AirplaneParams {

@@ -99,7 +99,12 @@ pub(super) fn draw_generator_sign(
             // texture slot is intentionally hidden — the Sign's source
             // already supplies the texture.
             super::super::widgets::color_picker(ui, "Tint", &mut material.base_color, dirty);
-            super::super::widgets::color_picker(ui, "Emission", &mut material.emission_color, dirty);
+            super::super::widgets::color_picker(
+                ui,
+                "Emission",
+                &mut material.emission_color,
+                dirty,
+            );
             fp_slider(
                 ui,
                 "Emission strength",

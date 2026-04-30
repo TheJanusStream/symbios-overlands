@@ -268,9 +268,7 @@ fn sweep_root_refs(record: &mut RoomRecord, deleted_root: &str) {
 mod tests {
     use super::tree::{apply_reparent, is_ancestor_of};
     use super::*;
-    use crate::pds::{
-        Environment, GeneratorKind, Placement, ScatterBounds, TransformData,
-    };
+    use crate::pds::{Environment, GeneratorKind, Placement, ScatterBounds, TransformData};
     use egui_ltreeview::DirPosition;
     use std::collections::HashMap;
 

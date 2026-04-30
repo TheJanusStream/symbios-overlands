@@ -11,8 +11,8 @@
 use proto_blue_oauth::{OAuthServerMetadata, types::TokenSet};
 use serde::{Deserialize, Serialize};
 
-use super::{PERSISTED_SESSION_KEY, PendingAuth, SESSION_STORAGE_KEY};
 use super::discovery::WASM_REDIRECT_URI;
+use super::{PERSISTED_SESSION_KEY, PendingAuth, SESSION_STORAGE_KEY};
 
 /// Retrieve the browser's `sessionStorage`, or `None` if it is not
 /// available (private-browsing mode in some browsers).

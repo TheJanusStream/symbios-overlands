@@ -83,7 +83,9 @@ pub fn format_elapsed_ts(elapsed_secs: f64) -> String {
         format!("{m:02}:{s:02}")
     }
 }
-use state::{AppState, ChatHistory, DiagnosticsLog, InventoryPublishFeedback, LocalSettings, PublishFeedback};
+use state::{
+    AppState, ChatHistory, DiagnosticsLog, InventoryPublishFeedback, LocalSettings, PublishFeedback,
+};
 
 /// Build the Bevy `App`, register every plugin, and block on
 /// `App::run()`. Pulled out of `main.rs` so integration tests in `tests/`
@@ -345,4 +347,3 @@ fn loading_ui(mut contexts: bevy_egui::EguiContexts) {
         });
     });
 }
-

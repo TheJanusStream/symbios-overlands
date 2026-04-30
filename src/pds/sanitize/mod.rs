@@ -149,9 +149,12 @@ pub fn sanitize_kind(kind: &mut GeneratorKind) {
             // allowed to be 0.0 because most grammars `Extrude` from a flat
             // 2-D plot; the others must stay positive so the interpreter's
             // split / repeat math doesn't divide by zero.
-            footprint.0[0] = common::clamp_finite(footprint.0[0], 0.001, limits::MAX_SHAPE_FOOTPRINT, 10.0);
-            footprint.0[1] = common::clamp_finite(footprint.0[1], 0.0, limits::MAX_SHAPE_FOOTPRINT, 0.0);
-            footprint.0[2] = common::clamp_finite(footprint.0[2], 0.001, limits::MAX_SHAPE_FOOTPRINT, 10.0);
+            footprint.0[0] =
+                common::clamp_finite(footprint.0[0], 0.001, limits::MAX_SHAPE_FOOTPRINT, 10.0);
+            footprint.0[1] =
+                common::clamp_finite(footprint.0[1], 0.0, limits::MAX_SHAPE_FOOTPRINT, 0.0);
+            footprint.0[2] =
+                common::clamp_finite(footprint.0[2], 0.001, limits::MAX_SHAPE_FOOTPRINT, 10.0);
             // Cap the slot count first so the per-slot sanitiser doesn't
             // walk an attacker-supplied million-entry map. Slot keys above
             // the upstream identifier cap are dropped — they could never

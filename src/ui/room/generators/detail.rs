@@ -13,15 +13,15 @@ use super::super::lsystem::draw_lsystem_forge;
 use super::super::shape::draw_shape_forge;
 use super::super::terrain::draw_terrain_forge;
 use super::super::widgets::draw_transform;
+use super::GeneratorTreeSource;
+use super::particles::draw_generator_particles;
 use super::primitive::{
     draw_primitive_capsule, draw_primitive_cone, draw_primitive_cuboid, draw_primitive_cylinder,
     draw_primitive_plane, draw_primitive_sphere, draw_primitive_tetrahedron, draw_primitive_torus,
 };
 use super::sign::draw_generator_sign;
-use super::particles::draw_generator_particles;
-use super::water::draw_water_editor;
 use super::tree::{current_id, find_node, find_node_mut, node_salt, path_string};
-use super::GeneratorTreeSource;
+use super::water::draw_water_editor;
 
 /// Renders only the *content* of the selected node — kind picker,
 /// transform, per-kind detail editor — plus a header that names the node

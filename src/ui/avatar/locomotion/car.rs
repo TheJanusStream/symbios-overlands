@@ -2,7 +2,7 @@
 
 use bevy_egui::egui;
 
-use super::{LocomotionPanel, fp3_extents, fp_slider};
+use super::{LocomotionPanel, fp_slider, fp3_extents};
 use crate::pds::CarParams;
 
 impl LocomotionPanel for CarParams {
@@ -44,7 +44,13 @@ impl LocomotionPanel for CarParams {
                     dirty,
                 );
                 ui.label("Damping");
-                fp_slider(ui, &mut self.suspension_damping, 10.0..=2_000.0, 10.0, dirty);
+                fp_slider(
+                    ui,
+                    &mut self.suspension_damping,
+                    10.0..=2_000.0,
+                    10.0,
+                    dirty,
+                );
             });
 
         egui::CollapsingHeader::new("Drive & steering")

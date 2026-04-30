@@ -2,7 +2,7 @@
 
 use bevy_egui::egui;
 
-use super::{LocomotionPanel, fp3_extents, fp_slider};
+use super::{LocomotionPanel, fp_slider, fp3_extents};
 use crate::pds::HoverBoatParams;
 
 impl LocomotionPanel for HoverBoatParams {
@@ -28,13 +28,7 @@ impl LocomotionPanel for HoverBoatParams {
             .default_open(false)
             .show(ui, |ui| {
                 ui.label("Suspension rest length");
-                fp_slider(
-                    ui,
-                    &mut self.suspension_rest_length,
-                    0.2..=2.0,
-                    0.05,
-                    dirty,
-                );
+                fp_slider(ui, &mut self.suspension_rest_length, 0.2..=2.0, 0.05, dirty);
                 ui.label("Suspension stiffness");
                 fp_slider(
                     ui,
@@ -69,13 +63,7 @@ impl LocomotionPanel for HoverBoatParams {
                 ui.label("Water rest length (m)");
                 fp_slider(ui, &mut self.water_rest_length, 0.0..=3.0, 0.05, dirty);
                 ui.label("Strength (N/m)");
-                fp_slider(
-                    ui,
-                    &mut self.buoyancy_strength,
-                    0.0..=10_000.0,
-                    50.0,
-                    dirty,
-                );
+                fp_slider(ui, &mut self.buoyancy_strength, 0.0..=10_000.0, 50.0, dirty);
                 ui.label("Damping (N·s/m)");
                 fp_slider(ui, &mut self.buoyancy_damping, 0.0..=2_000.0, 10.0, dirty);
                 ui.label("Max depth (m)");
