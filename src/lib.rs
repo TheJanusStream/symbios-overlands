@@ -157,6 +157,8 @@ pub fn run() {
         .init_resource::<state::PendingOutgoingOffers>()
         .init_resource::<ui::login::LoginError>()
         .init_resource::<ui::room::RoomEditorState>()
+        .init_resource::<ui::avatar::AvatarEditorState>()
+        .init_resource::<editor_gizmo::GizmoFramePref>()
         .init_resource::<oauth::OauthClientRes>()
         .insert_resource(boot)
         .add_systems(

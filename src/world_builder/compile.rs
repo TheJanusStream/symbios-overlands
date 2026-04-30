@@ -180,6 +180,7 @@ pub(super) fn compile_room_record(
         blob_image_cache: &mut blob_image_cache,
         water_surfaces: &mut water_surfaces,
         avatar_mode: false,
+        local_avatar_mode: false,
     };
 
     for (placement_index, placement) in record.placements.iter().enumerate() {
@@ -751,11 +752,18 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// room geometry. Avatar mode skips three room-specific behaviours
     /// in every spawn arm: (1) `RoomEntity` insertion (avatars manage
     /// their own cleanup via the chassis's child despawn), (2)
-    /// `PrimMarker` insertion (no gizmo on avatars in v1), and (3)
+    /// `PrimMarker` insertion (room-only gizmo addressing — but see
+    /// `local_avatar_mode` for the avatar's own gizmo marker), and (3)
     /// collider attachment in `spawn_primitive_entity` (the locomotion
     /// preset's chassis collider is the only physics body on an
     /// avatar).
     pub(super) avatar_mode: bool,
+    /// `true` only when the avatar being spawned is the **local** player's
+    /// own avatar — implies `avatar_mode` is also `true`. Drives
+    /// `AvatarVisualPrim` insertion so the editor gizmo can target the
+    /// local player's visuals tree without also picking up remote peers'
+    /// avatars (whose visuals are not locally editable).
+    pub(super) local_avatar_mode: bool,
 }
 
 /// Entry point called by the top-level `Placement` loop. Resolves the
@@ -1041,13 +1049,24 @@ pub(super) fn spawn_generator(
         // face) are bounded constant multiples of this.
         *ctx.entities_spawned = ctx.entities_spawned.saturating_add(1);
         if !ctx.avatar_mode {
-            // Gizmo addressability is a room-only feature; avatar visuals
-            // skip the marker entirely so a stray query that scans for
-            // `PrimMarker` doesn't see avatar children as edit targets.
+            // Room geometry: PrimMarker carries (generator_ref, path) so
+            // the gizmo can find every live instance of a UI-selected
+            // node by matching both keys.
             ctx.commands.entity(e).insert(PrimMarker {
                 generator_ref: base_ref.to_string(),
                 path: path.to_vec(),
             });
+        } else if ctx.local_avatar_mode {
+            // Local player's own avatar: tag with `AvatarVisualPrim` so
+            // the gizmo can target a visuals node by `path`. Remote peers
+            // skip this marker — their avatars replicate from the
+            // network and aren't locally editable, so a query for
+            // `&AvatarVisualPrim` is implicitly local-player-scoped.
+            ctx.commands
+                .entity(e)
+                .insert(crate::world_builder::AvatarVisualPrim {
+                    path: path.to_vec(),
+                });
         }
         // Recurse into the children list, parenting each child entity to
         // this node's generated entity so the hierarchy mirrors the

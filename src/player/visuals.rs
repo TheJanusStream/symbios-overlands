@@ -73,6 +73,7 @@ pub fn spawn_avatar_visuals(
     materials: &mut Assets<StandardMaterial>,
     foliage_tasks: &mut OverlandsFoliageTasks,
     deps: &mut AvatarSpawnDeps,
+    is_local: bool,
 ) {
     if let Some(children) = existing_children {
         for child in children.iter() {
@@ -104,5 +105,6 @@ pub fn spawn_avatar_visuals(
         deps.water_surfaces.as_mut(),
         &empty_record,
         deps.current_room.as_deref(),
+        is_local,
     );
 }

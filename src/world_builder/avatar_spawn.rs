@@ -67,6 +67,7 @@ pub fn spawn_avatar_visuals_subtree(
     water_surfaces: &mut WaterSurfaces,
     record: &RoomRecord,
     current_room: Option<&CurrentRoomDid>,
+    is_local: bool,
 ) {
     // Touch-sets are scratch state for the room compiler's GC pass at
     // the end of compile_room_record. Avatar spawning doesn't run
@@ -116,6 +117,7 @@ pub fn spawn_avatar_visuals_subtree(
         blob_image_cache,
         water_surfaces,
         avatar_mode: true,
+        local_avatar_mode: is_local,
     };
 
     // The visuals root carries its own transform — which the spawner

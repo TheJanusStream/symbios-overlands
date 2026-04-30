@@ -60,7 +60,8 @@ use crate::config::rover as cfg;
 use crate::config::terrain as tcfg;
 use crate::pds::{AvatarRecord, LocomotionConfig};
 use crate::state::{AppState, LiveAvatarRecord, LocalPlayer, PendingSpawnPlacement, RemotePeer};
-use crate::world_builder::OverlandsFoliageTasks;
+use crate::ui::avatar::AvatarEditorState;
+use crate::world_builder::{AvatarVisualPrim, OverlandsFoliageTasks};
 
 /// Snapshot of the last `AvatarRecord` whose visuals have been painted onto
 /// a remote peer. `detect_remote_change` listens to the broad
@@ -177,19 +178,77 @@ impl Plugin for PlayerPlugin {
                     // walls. Physics (suspension, buoyancy, gravity) and
                     // the uprighting / respawn passes still run so a
                     // vehicle left mid-air keeps obeying gravity.
-                    hover_boat::apply_hover_boat_drive.run_if(not(egui_wants_any_keyboard_input)),
-                    hover_boat::apply_hover_boat_uprighting,
-                    humanoid::apply_humanoid_walk.run_if(not(egui_wants_any_keyboard_input)),
-                    airplane::apply_airplane_forces.run_if(not(egui_wants_any_keyboard_input)),
-                    helicopter::apply_helicopter_forces.run_if(not(egui_wants_any_keyboard_input)),
+                    hover_boat::apply_hover_boat_drive
+                        .run_if(not(egui_wants_any_keyboard_input))
+                        .run_if(not(avatar_visuals_row_selected)),
+                    hover_boat::apply_hover_boat_uprighting
+                        .run_if(not(avatar_visuals_row_selected)),
+                    humanoid::apply_humanoid_walk
+                        .run_if(not(egui_wants_any_keyboard_input))
+                        .run_if(not(avatar_visuals_row_selected)),
+                    airplane::apply_airplane_forces
+                        .run_if(not(egui_wants_any_keyboard_input))
+                        .run_if(not(avatar_visuals_row_selected)),
+                    helicopter::apply_helicopter_forces
+                        .run_if(not(egui_wants_any_keyboard_input))
+                        .run_if(not(avatar_visuals_row_selected)),
                     car::apply_car_suspension,
-                    car::apply_car_drive.run_if(not(egui_wants_any_keyboard_input)),
+                    car::apply_car_drive
+                        .run_if(not(egui_wants_any_keyboard_input))
+                        .run_if(not(avatar_visuals_row_selected)),
                     respawn_if_fallen,
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(
+                Update,
+                freeze_local_avatar_on_visuals_select.run_if(in_state(AppState::InGame)),
             );
     }
+}
+
+/// Run condition: true when the avatar editor has a visuals row
+/// selected. The five locomotion drive systems gate on
+/// `not(this)` so the avatar stays still while the owner is editing
+/// its visuals — both for ergonomics (the gizmo can't track a moving
+/// chassis precisely) and for correctness (the drag commit's
+/// world→local conversion uses the parent chassis's `GlobalTransform`,
+/// which is unstable while physics is integrating).
+///
+/// The uprighting torque on the hover-boat is also gated so the avatar
+/// doesn't slowly tip itself back upright during a long edit; the user
+/// can rotate the chassis with the gizmo and it stays where they put
+/// it. Suspension and gravity-style passive systems remain on so a
+/// floating avatar doesn't levitate during the edit.
+fn avatar_visuals_row_selected(avatar_editor: Option<Res<AvatarEditorState>>) -> bool {
+    avatar_editor
+        .map(|e| e.has_visuals_selection())
+        .unwrap_or(false)
+}
+
+/// On the rising edge of "avatar visuals row selected", zero the local
+/// player's linear and angular velocity. Without this, residual momentum
+/// from the moment of click drifts the chassis (and the gizmo target)
+/// for a few seconds after the freeze gate engages. The locomotion
+/// drive systems are already gated off, so they won't push velocity
+/// back up — we just need the one-shot to clear what was there.
+fn freeze_local_avatar_on_visuals_select(
+    avatar_editor: Option<Res<AvatarEditorState>>,
+    mut last_selected: Local<bool>,
+    mut q: Query<(&mut LinearVelocity, &mut AngularVelocity), With<LocalPlayer>>,
+) {
+    let now_selected = avatar_editor
+        .as_ref()
+        .map(|e| e.has_visuals_selection())
+        .unwrap_or(false);
+    if now_selected && !*last_selected {
+        for (mut lin, mut ang) in q.iter_mut() {
+            lin.0 = Vec3::ZERO;
+            ang.0 = Vec3::ZERO;
+        }
+    }
+    *last_selected = now_selected;
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -262,6 +321,7 @@ fn spawn_local_player(
         &mut materials,
         &mut foliage_tasks,
         &mut avatar_deps,
+        true,
     );
 }
 
@@ -378,10 +438,11 @@ fn detect_local_locomotion_change(
 /// components and visuals. Runs in `Update` on the main schedule so Avian
 /// sees the removed/inserted components on the next physics step without
 /// a race.
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn apply_local_locomotion_rebuild(
     mut commands: Commands,
     players: Query<(Entity, Option<&Children>), (With<LocalPlayer>, With<NeedsLocomotionRebuild>)>,
+    orphan_visuals: Query<Entity, (With<AvatarVisualPrim>, Without<ChildOf>)>,
     live: Res<LiveAvatarRecord>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -391,6 +452,7 @@ fn apply_local_locomotion_rebuild(
     for (entity, children) in players.iter() {
         strip_preset_components(&mut commands, entity);
         build_preset_components(&mut commands, entity, &live.0.locomotion);
+        despawn_orphan_avatar_visuals(&mut commands, &orphan_visuals);
         visuals::spawn_avatar_visuals(
             &mut commands,
             entity,
@@ -400,8 +462,32 @@ fn apply_local_locomotion_rebuild(
             &mut materials,
             &mut foliage_tasks,
             &mut avatar_deps,
+            true,
         );
         commands.entity(entity).remove::<NeedsLocomotionRebuild>();
+    }
+}
+
+/// Despawn any avatar-visual entity that has been orphaned from the
+/// chassis hierarchy — typically the entity the editor gizmo detached
+/// (and stamped with a world-space `Transform`) so it could render at
+/// the actual world pose during a drag. The chassis-children iteration
+/// in `spawn_avatar_visuals` cleans up the live tree, but a detached
+/// entity has no `ChildOf` link back to anything reachable from the
+/// chassis, so it survives the despawn cascade and lingers as a phantom
+/// mesh until a tag-based sweep like this finds it.
+///
+/// Selecting orphans by `Without<ChildOf>` keeps the sweep narrow —
+/// every node spawned by the avatar pipeline is parented to either the
+/// chassis or another visuals node, so a missing parent uniquely
+/// identifies the gizmo-detached case (and any future error path that
+/// leaves an avatar visual orphaned).
+fn despawn_orphan_avatar_visuals(
+    commands: &mut Commands,
+    orphan_visuals: &Query<Entity, (With<AvatarVisualPrim>, Without<ChildOf>)>,
+) {
+    for orphan in orphan_visuals.iter() {
+        commands.entity(orphan).despawn();
     }
 }
 
@@ -435,6 +521,7 @@ fn rebuild_local_visuals(
         (Entity, Option<&Children>),
         (With<LocalPlayer>, Without<NeedsLocomotionRebuild>),
     >,
+    orphan_visuals: Query<Entity, (With<AvatarVisualPrim>, Without<ChildOf>)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
@@ -443,6 +530,7 @@ fn rebuild_local_visuals(
     if !live.is_changed() {
         return;
     }
+    despawn_orphan_avatar_visuals(&mut commands, &orphan_visuals);
     for (entity, children) in players.iter() {
         visuals::spawn_avatar_visuals(
             &mut commands,
@@ -453,6 +541,7 @@ fn rebuild_local_visuals(
             &mut materials,
             &mut foliage_tasks,
             &mut avatar_deps,
+            true,
         );
     }
 }
@@ -505,6 +594,7 @@ fn detect_remote_change(
             &mut materials,
             &mut foliage_tasks,
             &mut avatar_deps,
+            false,
         );
         commands
             .entity(entity)

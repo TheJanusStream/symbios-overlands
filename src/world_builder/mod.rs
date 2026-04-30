@@ -118,6 +118,21 @@ pub struct PrimMarker {
     pub path: Vec<usize>,
 }
 
+/// Avatar-side counterpart to [`PrimMarker`], attached only to nodes
+/// spawned for the **local** player's avatar `visuals` tree. Carries the
+/// child-index chain from the visuals root so `editor_gizmo` can map an
+/// avatar-editor row selection back to a live entity and write the
+/// dragged Transform back into `LiveAvatarRecord.0.visuals`.
+///
+/// Remote peers' avatar visuals deliberately omit this marker — their
+/// pose is replicated from the network and is not editable locally — so a
+/// query for `&AvatarVisualPrim` is implicitly scoped to the local
+/// avatar without a separate `LocalPlayer` filter.
+#[derive(Component, Clone)]
+pub struct AvatarVisualPrim {
+    pub path: Vec<usize>,
+}
+
 /// Base meshes for each [`PropMeshType`] — built once at startup so every
 /// L-system spawn can share the same handles. Foliage variants (Leaf, Twig)
 /// are billboard cards whose UV layout matches the upstream

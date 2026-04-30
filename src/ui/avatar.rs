@@ -38,6 +38,7 @@ use crate::pds::{
 use crate::state::{
     LiveAvatarRecord, LiveInventoryRecord, LocalSettings, PublishFeedback, StoredAvatarRecord,
 };
+use crate::ui::room::RoomEditorState;
 use crate::ui::room::generators::{AvatarVisualsTreeSource, GenNodeId, draw_generators_tab};
 
 /// Async task for publishing the avatar record to the owner's PDS.
@@ -51,27 +52,47 @@ enum AvatarTab {
     Locomotion,
 }
 
-/// Persistent avatar-editor state across frames.
-#[derive(Default)]
+/// Persistent avatar-editor state across frames. Promoted to a `Resource`
+/// (alongside `RoomEditorState`) so the 3D gizmo controller in
+/// `editor_gizmo` and the locomotion-freeze gate in `player::mod` can
+/// observe which visuals node the owner has selected without reading
+/// through the egui closure.
+#[derive(Resource, Default)]
 pub struct AvatarEditorState {
     selected_tab: AvatarTab,
     /// Tree-view selection mirrors the room editor's RoomEditorState.
     /// `selected_generator` is always `Some(AvatarVisualsTreeSource::ROOT_NAME)`
     /// once a node has been picked; `selected_prim_path` is the child
     /// chain into the visuals tree.
-    selected_generator: Option<String>,
-    selected_prim_path: Option<Vec<usize>>,
+    pub selected_generator: Option<String>,
+    pub selected_prim_path: Option<Vec<usize>>,
     tree_view_state: egui_ltreeview::TreeViewState<GenNodeId>,
     /// Unused for the avatar (single-root sources have no rename) but
-    /// required by [`draw_generators_tab`]'s signature. Holding a
-    /// `Local`-owned `Option` lets us hand a `&mut` to the callee
-    /// without conditionally constructing a stack reference each frame.
+    /// required by [`draw_generators_tab`]'s signature. Holding an owned
+    /// `Option` lets us hand a `&mut` to the callee without
+    /// conditionally constructing a stack reference each frame.
     renaming_unused: Option<(String, String)>,
     /// Seconds remaining before a pending widget change is flushed into
     /// `LiveAvatarRecord`'s change tick. The downstream player rebuild
     /// and `network::broadcast_avatar_state` peer broadcast fire once
     /// when the timer drains rather than every frame.
     pending_flush_secs: f32,
+}
+
+impl AvatarEditorState {
+    /// True when a visuals row is currently selected. The locomotion
+    /// freeze gate and the gizmo dispatch read this.
+    pub fn has_visuals_selection(&self) -> bool {
+        self.selected_prim_path.is_some()
+    }
+
+    /// Drop the visuals selection — used when switching tabs, collapsing
+    /// the editor window, or losing the mutex to the room editor.
+    pub fn clear_visuals_selection(&mut self) {
+        self.selected_generator = None;
+        self.selected_prim_path = None;
+        self.tree_view_state.set_selected(Vec::new());
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -85,7 +106,9 @@ pub fn avatar_ui(
     refresh_ctx: Option<Res<crate::oauth::OauthRefreshCtx>>,
     mut feedback: ResMut<PublishFeedback>,
     mut inventory: Option<ResMut<LiveInventoryRecord>>,
-    mut editor: Local<AvatarEditorState>,
+    mut editor: ResMut<AvatarEditorState>,
+    mut room_editor: Option<ResMut<RoomEditorState>>,
+    mut gizmo_frame_pref: ResMut<crate::editor_gizmo::GizmoFramePref>,
     time: Res<Time>,
 ) {
     use crate::config::ui::airship as cfg;
@@ -98,11 +121,18 @@ pub fn avatar_ui(
     // `live.set_changed()` explicitly below, only after the debounce
     // timer drains.
     let mut widget_changed = false;
-    {
+    // Snapshot pre-frame selection state so we can detect (a) "selection
+    // just appeared" — the rising edge that clears the room editor's
+    // selection per the cross-editor mutex contract, and (b) tab change —
+    // switching off the Visuals tab drops the gizmo target the same way
+    // the room editor's tab bar already does.
+    let prev_visuals_selected = editor.has_visuals_selection();
+
+    let window_visible_with_body = {
         let live_mut = live.bypass_change_detection();
         let before = live_mut.0.clone();
 
-        egui::Window::new("Avatar")
+        let response = egui::Window::new("Avatar")
             .default_open(false)
             .default_pos(cfg::WINDOW_DEFAULT_POS)
             .default_width(cfg::WINDOW_DEFAULT_WIDTH)
@@ -123,6 +153,8 @@ pub fn avatar_ui(
                             editor.selected_tab = tab;
                         }
                     }
+                    ui.separator();
+                    crate::editor_gizmo::draw_gizmo_frame_toggle(ui, &mut gizmo_frame_pref);
                 });
                 ui.separator();
 
@@ -261,6 +293,44 @@ pub fn avatar_ui(
         if live_mut.0 != before {
             widget_changed = true;
         }
+
+        // `Window::show` returns `Some(InnerResponse { inner: None, .. })`
+        // when the window is rendered but collapsed (the closure does not
+        // fire). `Some(InnerResponse { inner: Some(_), .. })` means the
+        // body ran. `None` means the window is closed entirely. Treat
+        // collapsed *and* closed identically: the user can no longer see
+        // the selection in the panel, so the gizmo should detach and the
+        // mutex against the room editor should release.
+        response.as_ref().is_some_and(|r| r.inner.is_some())
+    };
+
+    // Collapse-deselect: if the window is hidden or collapsed and we still
+    // hold a visuals selection, drop it so the gizmo can detach. Mirrors
+    // the room editor's tab-switch clear, which serves the same role
+    // (selection only persists while the panel showing it is visible).
+    if !window_visible_with_body && editor.has_visuals_selection() {
+        editor.clear_visuals_selection();
+    }
+
+    // Tab-switch clear: the avatar editor doesn't gizmo-edit Locomotion,
+    // so leaving the Visuals tab also drops the selection.
+    if editor.selected_tab != AvatarTab::Visuals && editor.has_visuals_selection() {
+        editor.clear_visuals_selection();
+    }
+
+    // Cross-editor mutex: when this frame's avatar selection rose from
+    // None → Some, drop the room editor's selection so only one gizmo is
+    // attached at a time. The reverse direction is enforced by the
+    // analogous block in `room::room_admin_ui`.
+    let now_visuals_selected = editor.has_visuals_selection();
+    if now_visuals_selected
+        && !prev_visuals_selected
+        && let Some(room) = room_editor.as_deref_mut()
+    {
+        room.selected_placement = None;
+        room.selected_generator = None;
+        room.selected_prim_path = None;
+        room.tree_view_state.set_selected(Vec::new());
     }
 
     if widget_changed {

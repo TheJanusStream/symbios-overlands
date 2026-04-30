@@ -46,6 +46,7 @@ use crate::pds::{self, Placement, RoomRecord};
 use crate::state::{
     CurrentRoomDid, LiveInventoryRecord, PublishFeedback, RoomRecordRecovery, StoredRoomRecord,
 };
+use crate::ui::avatar::AvatarEditorState;
 
 /// Async task for publishing the room record to the owner's PDS.
 #[derive(Component)]
@@ -158,6 +159,23 @@ impl RoomEditorState {
     pub fn mark_dirty(&mut self) {
         self.is_dirty = true;
     }
+
+    /// True when the user has any row selected — placement, generator
+    /// node, or inferred via tab. Used by the cross-editor mutex and the
+    /// collapse-deselect logic to decide whether the gizmo should detach.
+    pub fn has_selection(&self) -> bool {
+        self.selected_placement.is_some() || self.selected_prim_path.is_some()
+    }
+
+    /// Drop placement / generator-tree selection. Used when the editor
+    /// window is collapsed or when the avatar editor takes the gizmo
+    /// over via the cross-editor mutex.
+    pub fn clear_selection(&mut self) {
+        self.selected_placement = None;
+        self.selected_generator = None;
+        self.selected_prim_path = None;
+        self.tree_view_state.set_selected(Vec::new());
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -171,6 +189,8 @@ pub fn room_admin_ui(
     stored: Option<Res<StoredRoomRecord>>,
     recovery: Option<Res<RoomRecordRecovery>>,
     mut editor: ResMut<RoomEditorState>,
+    mut avatar_editor: ResMut<AvatarEditorState>,
+    mut gizmo_frame_pref: ResMut<crate::editor_gizmo::GizmoFramePref>,
     mut publish_feedback: ResMut<PublishFeedback>,
     mut inventory: Option<ResMut<LiveInventoryRecord>>,
     time: Res<Time>,
@@ -191,6 +211,13 @@ pub fn room_admin_ui(
             .unwrap_or_else(|e| format!("// serialize error: {}", e));
         editor.raw_text_initialised = true;
     }
+
+    // Snapshot pre-frame selection so we can detect (a) "selection just
+    // appeared" — the rising edge that clears the avatar editor's
+    // selection per the cross-editor mutex, and (b) the collapse-deselect
+    // path which fires when the egui Window response reports no inner
+    // closure run.
+    let prev_room_selected = editor.has_selection();
 
     // Destructure the Local into independent field borrows so the
     // borrow-checker can see that the tab-body closure and the commit-row
@@ -292,7 +319,7 @@ pub fn room_admin_ui(
             }
         }
 
-        egui::Window::new("World Editor")
+        let world_editor_response = egui::Window::new("World Editor")
             .default_open(false)
             .collapsible(true)
             .resizable(true)
@@ -375,6 +402,8 @@ pub fn room_admin_ui(
                             *selected_tab = tab;
                         }
                     }
+                    ui.separator();
+                    crate::editor_gizmo::draw_gizmo_frame_toggle(ui, &mut gizmo_frame_pref);
                 });
                 ui.separator();
 
@@ -525,6 +554,34 @@ pub fn room_admin_ui(
                     }
                 }
             });
+
+        // `Window::show` returns `Some(InnerResponse { inner: None, .. })`
+        // when the window is rendered but collapsed (the closure does
+        // not fire). `Some(InnerResponse { inner: Some(_), .. })` means
+        // the body ran. `None` means the window is closed entirely.
+        // Treat collapsed and closed identically: the user can no
+        // longer see the selection in the panel, so the gizmo should
+        // detach.
+        let body_visible = world_editor_response
+            .as_ref()
+            .is_some_and(|r| r.inner.is_some());
+        if !body_visible {
+            *selected_placement = None;
+            *selected_generator = None;
+            *selected_prim_path = None;
+            tree_view_state.set_selected(Vec::new());
+        }
+    }
+
+    // Cross-editor mutex: when this frame's room selection rose from
+    // None → Some, drop the avatar editor's visuals selection so only
+    // one gizmo is attached at a time. The reverse direction is
+    // enforced by the analogous block in `avatar::avatar_ui`. Read
+    // selection state via the destructured fields — `editor` is still
+    // mutably borrowed until end of function.
+    let now_room_selected = selected_placement.is_some() || selected_prim_path.is_some();
+    if now_room_selected && !prev_room_selected && avatar_editor.has_visuals_selection() {
+        avatar_editor.clear_visuals_selection();
     }
 
     if widget_change {
