@@ -1,4 +1,5 @@
-//! Hand-rolled CPU + ECS particle emitter for [`GeneratorKind::ParticleSystem`].
+//! Hand-rolled CPU + ECS particle emitter for
+//! [`crate::pds::GeneratorKind::ParticleSystem`].
 //! WASM-friendly: no GPU compute, no `bevy_hanabi` dependency. Each
 //! particle is a Bevy entity with a billboarded / velocity-aligned quad
 //! mesh, ticked by three systems each frame:

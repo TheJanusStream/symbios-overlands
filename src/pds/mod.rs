@@ -26,9 +26,12 @@
 //! it sees `0.98` in a record body. Every float-bearing field is therefore
 //! wrapped in [`Fp`] (or its fixed-length array siblings [`Fp2`], [`Fp3`],
 //! [`Fp4`]), which multiply by `FP_SCALE` and round to `i32` on the wire.
-//! The wrappers are fully transparent in editor code (`.0` returns the
-//! underlying `f32`), so the heightmap / splat / L-system callers never see
-//! the fixed-point hop.
+//! [`Fp64`] is the double-precision sibling used where the editor needs
+//! `f64` precision in memory (e.g. world-builder math); it still encodes
+//! to a fixed-point `i32` on the wire, just with more headroom in editor
+//! code. The wrappers are transparent in editor code (`.0` returns the
+//! underlying `f32` for `Fp*` and `f64` for `Fp64`), so the heightmap /
+//! splat / L-system callers never see the fixed-point hop.
 //!
 //! ## Submodule map
 //!

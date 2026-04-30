@@ -304,7 +304,7 @@ use crate::pds::resolve_pds;
 
 /// Render a small profile-picture icon for `did` next to a chat row or
 /// a People-panel entry. When the cache holds an `egui::TextureId` for
-/// this DID, draws an [`egui::Image`] sized at `size` px square. When
+/// this DID, draws a `bevy_egui::egui::Image` sized at `size` px square. When
 /// the cache misses (load still in flight, no profile picture, or
 /// `did` is `None`), allocates the same square as a transparent spacer
 /// so the parent row layout doesn't shift between frames as the load

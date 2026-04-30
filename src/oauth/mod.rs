@@ -30,7 +30,7 @@
 //!   `refresh_session` helper.
 //! * [`auth_flow`] — `begin_authorization` and `complete_authorization`
 //!   plus the `CompletedAuth` bundle.
-//! * [`wasm`] — browser-side `sessionStorage` / `localStorage` plumbing
+//! * `wasm` — browser-side `sessionStorage` / `localStorage` plumbing
 //!   (compiled only on `wasm32`).
 //! * [`native_server`] — the `tiny_http` loopback callback listener
 //!   (compiled only on native).

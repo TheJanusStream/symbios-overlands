@@ -12,6 +12,15 @@
 //! `InGame`, so slower PDS round-trips cannot be silently dropped and
 //! gameplay never runs with half-loaded recipes.
 
+// This crate is an application, not a published library — the lib target
+// exists so integration tests can import the module tree. Module docstrings
+// freely reference sibling sub-modules (e.g. a "Sub-module map" listing
+// internal helpers) for contributor navigation under
+// `cargo doc --document-private-items`. Bumping those sub-modules to `pub`
+// just to satisfy the lint would widen the real API surface, so we opt
+// out of the warning at the crate root instead.
+#![allow(rustdoc::private_intra_doc_links)]
+
 use avian3d::PhysicsPlugins;
 use bevy::light::{CascadeShadowConfigBuilder, GlobalAmbientLight, NotShadowCaster};
 use bevy::log::LogPlugin;

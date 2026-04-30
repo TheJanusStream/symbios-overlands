@@ -1,5 +1,6 @@
-//! Avatar-side generator-tree spawner. Walks an [`AvatarRecord`]'s
-//! `visuals: Generator` tree and spawns one Bevy entity per node,
+//! Avatar-side generator-tree spawner. Walks an
+//! [`crate::pds::AvatarRecord`]'s `visuals: Generator` tree and spawns
+//! one Bevy entity per node,
 //! parented into the chassis hierarchy. Routes through
 //! [`crate::world_builder::avatar_spawn::spawn_avatar_visuals_subtree`]
 //! so the avatar dispatch arms reuse the same primitive / LSystem /

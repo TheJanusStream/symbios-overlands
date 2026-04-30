@@ -52,9 +52,9 @@
 //!   attach/detach + the world-space-detach trick.
 //! * [`drag`] — drag-session state machine (rising / active / falling
 //!   edges), Escape abort, copy-on-drag ghost rendering.
-//! * [`commit`] — drag-end writeback into [`RoomRecord`] /
-//!   [`LiveAvatarRecord`] (placement vs prim split, copy-on-drag clone,
-//!   path-walked transform overwrite).
+//! * [`commit`] — drag-end writeback into [`crate::pds::RoomRecord`] /
+//!   [`crate::state::LiveAvatarRecord`] (placement vs prim split,
+//!   copy-on-drag clone, path-walked transform overwrite).
 
 mod commit;
 mod drag;

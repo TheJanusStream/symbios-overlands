@@ -23,9 +23,10 @@
 //!
 //! Legacy `network.symbios.avatar.hover_rover` / `…humanoid` body records
 //! published before this schema land deserialize to
-//! [`LocomotionConfig::Unknown`] / [`Generator::Unknown`] respectively, and
-//! the fetch path falls through to [`AvatarRecord::default_for_did`]. There
-//! is no automatic migration — old records require a manual republish.
+//! [`LocomotionConfig::Unknown`] / [`super::generator::GeneratorKind::Unknown`]
+//! respectively, and the fetch path falls through to
+//! [`AvatarRecord::default_for_did`]. There is no automatic migration —
+//! old records require a manual republish.
 
 pub mod locomotion;
 

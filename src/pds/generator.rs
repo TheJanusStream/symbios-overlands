@@ -668,7 +668,8 @@ impl GeneratorKind {
     }
 
     /// Short human-readable tag for the variant — used by the UI combo box
-    /// to show the current kind and to drive `default_for_tag`.
+    /// to show the current kind and to key into
+    /// `ui::room::construct::make_default_for_kind`.
     pub fn kind_tag(&self) -> &'static str {
         match self {
             GeneratorKind::Terrain(_) => "Terrain",
@@ -781,7 +782,7 @@ impl GeneratorKind {
 
     /// Canonical default `Sign` — a 1×1 m unlit, opaque, single-sided panel
     /// with an empty URL source. Used by the UI "+ Sign" entry and by
-    /// [`default_for_tag`].
+    /// `ui::room::construct::make_default_for_kind`.
     pub fn default_sign() -> Self {
         GeneratorKind::Sign {
             source: SignSource::default(),

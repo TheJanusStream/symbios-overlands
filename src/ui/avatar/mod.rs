@@ -7,10 +7,10 @@
 //!     [`AvatarVisualsTreeSource`] adapter so the avatar's single
 //!     `visuals` root is editable through the unified vocabulary
 //!     (primitives only in v1).
-//!   * **Locomotion** — picker for the [`LocomotionConfig`] preset
-//!     (HoverBoat / Humanoid / Airplane / Helicopter / Car) plus a
+//!   * **Locomotion** — picker for the [`crate::pds::LocomotionConfig`]
+//!     preset (HoverBoat / Humanoid / Airplane / Helicopter / Car) plus a
 //!     per-preset slider panel for collider dimensions and physics
-//!     tuning. Each preset's panel lives in [`locomotion`].
+//!     tuning. Each preset's panel lives in `locomotion`.
 //!
 //! Live UX is preserved: every widget mutates [`LiveAvatarRecord`] in
 //! place, the player module rebuilds visuals or swaps locomotion the same
