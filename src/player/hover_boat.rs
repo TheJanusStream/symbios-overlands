@@ -181,10 +181,14 @@ pub(super) fn apply_hover_boat_buoyancy(
 
         // `water_rest_length` shifts the buoyancy plane upward relative to
         // the visible surface so a partially-submerged chassis sits with
-        // some hull above water. The signed-distance query returns depth
-        // below the visible surface; we add `water_rest_length` so depth
-        // is taken against the buoyancy plane along the same normal.
-        let Some(q) = water_surfaces.query(world_origin) else {
+        // some hull above water. `query_signed` returns the signed depth
+        // below the visible surface (negative when the corner is above
+        // it); adding `water_rest_length` re-references the depth to the
+        // buoyancy plane. Without `query_signed`, an above-surface corner
+        // received `None` and skipped the lift entirely, so the chassis
+        // fell until it pierced the surface and then took a step-function
+        // force — a violent oscillation instead of a stable hover.
+        let Some(q) = water_surfaces.query_signed(world_origin) else {
             continue;
         };
         let depth = (q.depth + p.water_rest_length.0).clamp(0.0, p.buoyancy_max_depth.0);

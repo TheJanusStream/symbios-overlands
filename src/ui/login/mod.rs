@@ -86,6 +86,37 @@ pub struct CompleteAuthTask(bevy::tasks::Task<CompleteOutcome>);
 #[derive(Resource, Default)]
 pub struct LoginError(pub Option<String>);
 
+/// One-shot latches used by [`login_ui`] to drive the URL/CLI boot-param
+/// pre-fill and the matching auto-submit. Tracked as a `Resource` rather
+/// than `Local`s on the UI system because `Local`s persist for the whole
+/// app lifetime: once a user logged in once with `boot.autosubmit=true`,
+/// logged out, and returned to the login screen, the `Local`-backed
+/// flags would still read `true`, and a still-valid `boot.autosubmit`
+/// would silently fail to refire. Resetting this resource on
+/// [`reset_login_ui_latch`] (run on `OnEnter(AppState::Login)`) lets a
+/// re-entry behave the same as a fresh page load without forcing the
+/// user to reload.
+#[derive(Resource, Default)]
+pub struct LoginUiLatch {
+    /// Set the first frame the form copies values from `BootParams`.
+    /// After that, `BootParams` is ignored so user edits to the form
+    /// fields aren't silently overwritten by a re-render.
+    pub prefilled: bool,
+    /// Set the first frame the form fires the auto-submit (when
+    /// `BootParams::autosubmit` is set). Latched so a re-render before
+    /// the [`BeginAuthTask`] entity becomes visible doesn't double-fire.
+    pub autosubmitted: bool,
+}
+
+/// Reset the [`LoginUiLatch`] when the app (re)enters
+/// [`crate::state::AppState::Login`]. Fires on initial state entry too,
+/// which is harmless: the resource starts at default already. The
+/// load-bearing case is the *re-entry* after logout — without this,
+/// `BootParams` would never refire `autosubmit` for the second visit.
+pub fn reset_login_ui_latch(mut latch: ResMut<LoginUiLatch>) {
+    *latch = LoginUiLatch::default();
+}
+
 #[derive(Clone)]
 pub struct LoginFormState {
     pds: String,
@@ -108,8 +139,7 @@ pub fn login_ui(
     mut contexts: EguiContexts,
     mut commands: Commands,
     mut form: Local<LoginFormState>,
-    mut prefilled: Local<bool>,
-    mut autosubmitted: Local<bool>,
+    mut latch: ResMut<LoginUiLatch>,
     boot: Option<Res<BootParams>>,
     login_error: Res<LoginError>,
     oauth_client: Res<OauthClientRes>,
@@ -117,11 +147,11 @@ pub fn login_ui(
     complete_tasks: Query<&CompleteAuthTask>,
 ) {
     // First-frame pre-fill from URL/CLI boot params. Done as a one-shot
-    // (`*prefilled` latch) so a subsequent re-render does not stomp on
+    // (`latch.prefilled`) so a subsequent re-render does not stomp on
     // edits the user made after landing on the form. `pds` / `relay`
     // fall back to the form defaults when not provided so an empty boot
     // input behaves identically to the prior release.
-    if !*prefilled
+    if !latch.prefilled
         && let Some(boot) = boot.as_deref()
         && boot.is_any()
     {
@@ -134,7 +164,7 @@ pub fn login_ui(
         if let Some(relay) = &boot.relay {
             form.relay_host = relay.clone();
         }
-        *prefilled = true;
+        latch.prefilled = true;
     }
     egui::Window::new("Symbios Overlands — Login")
         .collapsible(false)
@@ -166,10 +196,10 @@ pub fn login_ui(
                     begin_now = true;
                 }
                 // Auto-submit when the URL/CLI supplied a destination DID.
-                // Latched on `*autosubmitted` so we never double-fire even
-                // if the form re-renders before the BeginAuthTask spawns.
-                // Only `did` triggers this; `pds` / `relay` alone pre-fill
-                // but leave the click to the user.
+                // Latched on `latch.autosubmitted` so we never double-fire
+                // even if the form re-renders before the BeginAuthTask
+                // spawns. Only `did` triggers this; `pds` / `relay` alone
+                // pre-fill but leave the click to the user.
                 //
                 // On WASM, a persisted session resume is preferred: it
                 // skips the OAuth redirect entirely and `check_wasm_resume`
@@ -180,13 +210,13 @@ pub fn login_ui(
                 let has_persisted = oauth::wasm::load_persisted().is_some();
                 #[cfg(not(target_arch = "wasm32"))]
                 let has_persisted = false;
-                if !*autosubmitted
+                if !latch.autosubmitted
                     && !has_persisted
                     && let Some(b) = boot.as_deref()
                     && b.autosubmit
                 {
                     begin_now = true;
-                    *autosubmitted = true;
+                    latch.autosubmitted = true;
                 }
                 if !begin_now {
                     // Idle state — render nothing extra. The button above

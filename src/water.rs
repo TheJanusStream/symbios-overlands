@@ -226,46 +226,81 @@ impl WaterSurfaces {
     pub fn query(&self, world_p: Vec3) -> Option<WaterQuery> {
         let mut best: Option<WaterQuery> = None;
         for (i, plane) in self.planes.iter().enumerate() {
-            let local = plane
-                .world_from_local
-                .compute_affine()
-                .inverse()
-                .transform_point3(world_p);
-            if local.x.abs() > plane.local_half_extents.x
-                || local.z.abs() > plane.local_half_extents.y
-            {
+            let Some(q) = self.signed_query_against(plane, i, world_p) else {
+                continue;
+            };
+            if q.depth <= 0.0 {
                 continue;
             }
-
-            let raw_normal = (plane.world_from_local.rotation * Vec3::Y).normalize_or(Vec3::Y);
-            // Yaw-only guard: an effectively-flat surface (whether
-            // intentionally or via authoring jitter) gets flat-water
-            // physics — vertical lift, no tangent flow — instead of
-            // microscopically tilted forces that compound over time.
-            let (normal, flow_dir) = if raw_normal.y > 1.0 - YAW_ONLY_EPS {
-                (Vec3::Y, Vec3::ZERO)
-            } else {
-                let g = Vec3::NEG_Y;
-                let tangent = g - raw_normal * g.dot(raw_normal);
-                (raw_normal, tangent.normalize_or_zero())
-            };
-            let signed = (world_p - plane.world_from_local.translation).dot(normal);
-            let depth = -signed;
-            if depth <= 0.0 {
-                continue;
-            }
-            let q = WaterQuery {
-                surface_idx: i,
-                normal,
-                depth,
-                flow_dir,
-                flow_strength: plane.flow_strength,
-            };
-            if best.is_none_or(|prev| depth < prev.depth) {
+            if best.is_none_or(|prev| q.depth < prev.depth) {
                 best = Some(q);
             }
         }
         best
+    }
+
+    /// Like [`Self::query`], but does not cull points above the visible
+    /// surface — `depth` may be negative (point above surface) or
+    /// positive (submerged). Picks the surface with the smallest absolute
+    /// depth (closest plane along the normal). Used by the HoverBoat
+    /// buoyancy computation, which intentionally rests `water_rest_length`
+    /// *above* the visible water and needs continuous signed feedback to
+    /// keep its rest position stable. Without this, `query` returning
+    /// `None` for the hovering position produced a step-function lift
+    /// the moment the chassis pierced the surface, slamming the boat
+    /// into the water instead of letting it settle.
+    pub fn query_signed(&self, world_p: Vec3) -> Option<WaterQuery> {
+        let mut best: Option<WaterQuery> = None;
+        for (i, plane) in self.planes.iter().enumerate() {
+            let Some(q) = self.signed_query_against(plane, i, world_p) else {
+                continue;
+            };
+            if best.is_none_or(|prev: WaterQuery| q.depth.abs() < prev.depth.abs()) {
+                best = Some(q);
+            }
+        }
+        best
+    }
+
+    /// Shared XZ-bounds + signed-distance computation used by both
+    /// [`Self::query`] and [`Self::query_signed`]. Returns `None` when
+    /// the point's projection falls outside the plane's local rectangle;
+    /// the caller decides whether to honour the sign of `depth`.
+    fn signed_query_against(
+        &self,
+        plane: &WaterPlane,
+        idx: usize,
+        world_p: Vec3,
+    ) -> Option<WaterQuery> {
+        let local = plane
+            .world_from_local
+            .compute_affine()
+            .inverse()
+            .transform_point3(world_p);
+        if local.x.abs() > plane.local_half_extents.x || local.z.abs() > plane.local_half_extents.y
+        {
+            return None;
+        }
+        let raw_normal = (plane.world_from_local.rotation * Vec3::Y).normalize_or(Vec3::Y);
+        // Yaw-only guard: an effectively-flat surface (whether
+        // intentionally or via authoring jitter) gets flat-water
+        // physics — vertical lift, no tangent flow — instead of
+        // microscopically tilted forces that compound over time.
+        let (normal, flow_dir) = if raw_normal.y > 1.0 - YAW_ONLY_EPS {
+            (Vec3::Y, Vec3::ZERO)
+        } else {
+            let g = Vec3::NEG_Y;
+            let tangent = g - raw_normal * g.dot(raw_normal);
+            (raw_normal, tangent.normalize_or_zero())
+        };
+        let signed = (world_p - plane.world_from_local.translation).dot(normal);
+        Some(WaterQuery {
+            surface_idx: idx,
+            normal,
+            depth: -signed,
+            flow_dir,
+            flow_strength: plane.flow_strength,
+        })
     }
 }
 
@@ -475,6 +510,50 @@ mod tests {
         assert_eq!(q.normal, Vec3::Y);
         assert_eq!(q.flow_dir, Vec3::ZERO);
         assert!((q.depth - 2.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn query_signed_returns_negative_depth_above_surface() {
+        // A point above the surface returns `Some` with negative depth,
+        // unlike `query` which culls above-water hits. This is the
+        // hoverboat-rest-position case: the chassis sits above the
+        // visible water but still needs continuous lift feedback.
+        let surfaces = WaterSurfaces {
+            planes: vec![flat_plane(0.0, Vec2::splat(50.0))],
+        };
+        let q = surfaces.query_signed(Vec3::new(0.0, 0.5, 0.0)).unwrap();
+        assert_eq!(q.surface_idx, 0);
+        assert!((q.depth + 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn query_signed_returns_none_outside_extents() {
+        let surfaces = WaterSurfaces {
+            planes: vec![flat_plane(0.0, Vec2::splat(2.0))],
+        };
+        // Outside XZ rectangle returns None even with the more
+        // permissive signed query.
+        assert!(surfaces.query_signed(Vec3::new(10.0, 0.5, 0.0)).is_none());
+    }
+
+    #[test]
+    fn query_signed_picks_closest_by_absolute_depth() {
+        // Stacked sea (y=0) + elevated pond (y=10). A hoverboat corner at
+        // y = 0.5 (resting above the sea) is 0.5m above sea, 9.5m below
+        // pond — closest by absolute distance is the sea.
+        let surfaces = WaterSurfaces {
+            planes: vec![
+                flat_plane(0.0, Vec2::splat(100.0)),
+                WaterPlane {
+                    world_from_local: Transform::from_xyz(0.0, 10.0, 0.0),
+                    local_half_extents: Vec2::splat(100.0),
+                    flow_strength: 0.0,
+                },
+            ],
+        };
+        let q = surfaces.query_signed(Vec3::new(0.0, 0.5, 0.0)).unwrap();
+        assert_eq!(q.surface_idx, 0);
+        assert!((q.depth + 0.5).abs() < 1e-5);
     }
 
     #[test]

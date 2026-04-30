@@ -720,11 +720,16 @@ pub fn tick_particles(
         }
 
         let Ok(emitter) = emitter_lookup.get(particle.emitter) else {
-            // Source emitter was despawned (room rebuild). Let the
-            // particle finish its own lifetime by reading its current
-            // age vs lifetime — no further integration once the
-            // emitter's snapshot is gone (we don't know its blend
-            // mode / curves any more).
+            // Source emitter was despawned (room rebuild). Keep
+            // integrating the particle's own velocity so it coasts to
+            // age-out instead of freezing mid-air — we just can't
+            // refresh the size/colour curves or apply emitter-authored
+            // forces (gravity_multiplier, drag, acceleration), which
+            // lived only on the snapshot. The orientation update at the
+            // bottom of the loop does need the `emitter` snapshot so we
+            // skip it for orphaned particles, but the existing rotation
+            // remains visually fine for a brief residual lifetime.
+            transform.translation += particle.velocity * dt;
             continue;
         };
 

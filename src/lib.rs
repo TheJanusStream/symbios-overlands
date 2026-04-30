@@ -162,6 +162,8 @@ pub fn run() {
         .init_resource::<ui::inventory::PendingGeneratorDrop>()
         .init_resource::<state::PendingOutgoingOffers>()
         .init_resource::<ui::login::LoginError>()
+        .init_resource::<ui::login::LoginUiLatch>()
+        .add_systems(OnEnter(AppState::Login), ui::login::reset_login_ui_latch)
         .init_resource::<ui::room::RoomEditorState>()
         .init_resource::<ui::avatar::AvatarEditorState>()
         .init_resource::<editor_gizmo::GizmoFramePref>()
