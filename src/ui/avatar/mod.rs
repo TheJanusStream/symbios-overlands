@@ -1,6 +1,6 @@
 //! Avatar editor — tabbed split view.
 //!
-//! The avatar window now has two tabs:
+//! The avatar window has two tabs:
 //!
 //!   * **Visuals** — embeds the same tree-view + detail-panel widget that
 //!     drives the room editor's Generators tab, fed by an
@@ -10,7 +10,7 @@
 //!   * **Locomotion** — picker for the [`LocomotionConfig`] preset
 //!     (HoverBoat / Humanoid / Airplane / Helicopter / Car) plus a
 //!     per-preset slider panel for collider dimensions and physics
-//!     tuning.
+//!     tuning. Each preset's panel lives in [`locomotion`].
 //!
 //! Live UX is preserved: every widget mutates [`LiveAvatarRecord`] in
 //! place, the player module rebuilds visuals or swaps locomotion the same
@@ -27,19 +27,20 @@
 //!   * **Reset to default** replaces `LiveAvatarRecord` with the canonical
 //!     [`AvatarRecord::default_for_did`] seed.
 
+mod locomotion;
+
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
-use crate::pds::{
-    self, AirplaneParams, AvatarRecord, CarParams, Fp, HelicopterParams, HoverBoatParams,
-    HumanoidParams, LocomotionConfig,
-};
+use crate::pds::{self, AvatarRecord};
 use crate::state::{
     LiveAvatarRecord, LiveInventoryRecord, LocalSettings, PublishFeedback, StoredAvatarRecord,
 };
 use crate::ui::room::RoomEditorState;
 use crate::ui::room::generators::{AvatarVisualsTreeSource, GenNodeId, draw_generators_tab};
+
+use locomotion::draw_locomotion_tab;
 
 /// Async task for publishing the avatar record to the owner's PDS.
 #[derive(Component)]
@@ -345,304 +346,6 @@ pub fn avatar_ui(
             live.set_changed();
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// Locomotion tab
-// ---------------------------------------------------------------------------
-
-fn draw_locomotion_tab(ui: &mut egui::Ui, locomotion: &mut LocomotionConfig, dirty: &mut bool) {
-    let current_kind = locomotion.kind_tag();
-
-    ui.horizontal_wrapped(|ui| {
-        ui.label("Preset:");
-        for (kind, label, ctor) in LocomotionConfig::pickers() {
-            if ui.selectable_label(current_kind == *kind, *label).clicked() && current_kind != *kind
-            {
-                *locomotion = ctor();
-                *dirty = true;
-            }
-        }
-    });
-    ui.separator();
-
-    match locomotion {
-        LocomotionConfig::HoverBoat(p) => hover_boat_panel(ui, p, dirty),
-        LocomotionConfig::Humanoid(p) => humanoid_panel(ui, p, dirty),
-        LocomotionConfig::Airplane(p) => airplane_panel(ui, p, dirty),
-        LocomotionConfig::Helicopter(p) => helicopter_panel(ui, p, dirty),
-        LocomotionConfig::Car(p) => car_panel(ui, p, dirty),
-        LocomotionConfig::Unknown => {
-            ui.colored_label(
-                egui::Color32::ORANGE,
-                "This avatar's locomotion preset was authored against a newer schema — \
-                 pick a preset above to replace it.",
-            );
-        }
-    }
-}
-
-fn hover_boat_panel(ui: &mut egui::Ui, p: &mut HoverBoatParams, dirty: &mut bool) {
-    egui::CollapsingHeader::new("Chassis")
-        .default_open(true)
-        .show(ui, |ui| {
-            fp3_extents(
-                ui,
-                "Half-extents (X/Y/Z, m)",
-                &mut p.chassis_half_extents.0,
-                dirty,
-            );
-            ui.label("Mass (kg)");
-            fp_slider(ui, &mut p.mass, 5.0..=200.0, 1.0, dirty);
-            ui.label("Linear damping");
-            fp_slider(ui, &mut p.linear_damping, 0.0..=10.0, 0.1, dirty);
-            ui.label("Angular damping");
-            fp_slider(ui, &mut p.angular_damping, 0.0..=20.0, 0.1, dirty);
-        });
-
-    egui::CollapsingHeader::new("Suspension & Drive")
-        .default_open(false)
-        .show(ui, |ui| {
-            ui.label("Suspension rest length");
-            fp_slider(ui, &mut p.suspension_rest_length, 0.2..=2.0, 0.05, dirty);
-            ui.label("Suspension stiffness");
-            fp_slider(
-                ui,
-                &mut p.suspension_stiffness,
-                500.0..=15_000.0,
-                50.0,
-                dirty,
-            );
-            ui.label("Suspension damping");
-            fp_slider(ui, &mut p.suspension_damping, 10.0..=500.0, 5.0, dirty);
-            ui.label("Drive force");
-            fp_slider(ui, &mut p.drive_force, 500.0..=10_000.0, 50.0, dirty);
-            ui.label("Turn torque");
-            fp_slider(ui, &mut p.turn_torque, 200.0..=6_000.0, 50.0, dirty);
-            ui.label("Lateral grip");
-            fp_slider(ui, &mut p.lateral_grip, 500.0..=15_000.0, 100.0, dirty);
-            ui.label("Jump force");
-            fp_slider(ui, &mut p.jump_force, 500.0..=8_000.0, 50.0, dirty);
-            ui.label("Uprighting torque");
-            fp_slider(ui, &mut p.uprighting_torque, 100.0..=3_000.0, 50.0, dirty);
-        });
-
-    egui::CollapsingHeader::new("Buoyancy")
-        .default_open(false)
-        .show(ui, |ui| {
-            ui.label("Water rest length (m)");
-            fp_slider(ui, &mut p.water_rest_length, 0.0..=3.0, 0.05, dirty);
-            ui.label("Strength (N/m)");
-            fp_slider(ui, &mut p.buoyancy_strength, 0.0..=10_000.0, 50.0, dirty);
-            ui.label("Damping (N·s/m)");
-            fp_slider(ui, &mut p.buoyancy_damping, 0.0..=2_000.0, 10.0, dirty);
-            ui.label("Max depth (m)");
-            fp_slider(ui, &mut p.buoyancy_max_depth, 0.1..=5.0, 0.05, dirty);
-        });
-}
-
-fn humanoid_panel(ui: &mut egui::Ui, p: &mut HumanoidParams, dirty: &mut bool) {
-    egui::CollapsingHeader::new("Capsule")
-        .default_open(true)
-        .show(ui, |ui| {
-            ui.label("Radius (m)");
-            fp_slider(ui, &mut p.capsule_radius, 0.05..=1.0, 0.01, dirty);
-            ui.label("Cylinder length (m)");
-            fp_slider(ui, &mut p.capsule_length, 0.1..=4.0, 0.05, dirty);
-            ui.label(
-                egui::RichText::new(format!(
-                    "Total height ≈ {:.2} m (length + 2·radius)",
-                    p.total_height()
-                ))
-                .small()
-                .weak(),
-            );
-            ui.label("Mass (kg)");
-            fp_slider(ui, &mut p.mass, 30.0..=150.0, 1.0, dirty);
-            ui.label("Linear damping");
-            fp_slider(ui, &mut p.linear_damping, 0.0..=3.0, 0.05, dirty);
-        });
-
-    egui::CollapsingHeader::new("Locomotion")
-        .default_open(true)
-        .show(ui, |ui| {
-            ui.label("Walk speed (m/s)");
-            fp_slider(ui, &mut p.walk_speed, 1.0..=10.0, 0.1, dirty);
-            ui.label("Acceleration (1/s)");
-            fp_slider(ui, &mut p.acceleration, 2.0..=30.0, 0.5, dirty);
-            ui.label("Jump impulse (N·s)");
-            fp_slider(ui, &mut p.jump_impulse, 100.0..=1500.0, 10.0, dirty);
-        });
-
-    egui::CollapsingHeader::new("Water")
-        .default_open(false)
-        .show(ui, |ui| {
-            ui.label("Wading speed factor");
-            fp_slider(ui, &mut p.wading_speed_factor, 0.0..=1.0, 0.05, dirty);
-            ui.label("Swim speed (m/s)");
-            fp_slider(ui, &mut p.swim_speed, 0.5..=8.0, 0.1, dirty);
-            ui.label("Swim vertical speed (m/s)");
-            fp_slider(ui, &mut p.swim_vertical_speed, 0.2..=5.0, 0.1, dirty);
-        });
-}
-
-fn airplane_panel(ui: &mut egui::Ui, p: &mut AirplaneParams, dirty: &mut bool) {
-    egui::CollapsingHeader::new("Chassis")
-        .default_open(true)
-        .show(ui, |ui| {
-            fp3_extents(
-                ui,
-                "Half-extents (X/Y/Z, m)",
-                &mut p.chassis_half_extents.0,
-                dirty,
-            );
-            ui.label("Mass (kg)");
-            fp_slider(ui, &mut p.mass, 5.0..=500.0, 1.0, dirty);
-            ui.label("Linear damping");
-            fp_slider(ui, &mut p.linear_damping, 0.0..=5.0, 0.05, dirty);
-            ui.label("Angular damping");
-            fp_slider(ui, &mut p.angular_damping, 0.0..=20.0, 0.1, dirty);
-        });
-
-    egui::CollapsingHeader::new("Thrust & control surfaces")
-        .default_open(true)
-        .show(ui, |ui| {
-            ui.label("Thrust (N)");
-            fp_slider(ui, &mut p.thrust, 0.0..=10_000.0, 50.0, dirty);
-            ui.label("Pitch torque (N·m)");
-            fp_slider(ui, &mut p.pitch_torque, 0.0..=5_000.0, 25.0, dirty);
-            ui.label("Roll torque (N·m)");
-            fp_slider(ui, &mut p.roll_torque, 0.0..=5_000.0, 25.0, dirty);
-            ui.label("Yaw / rudder torque (N·m)");
-            fp_slider(ui, &mut p.yaw_torque, 0.0..=5_000.0, 25.0, dirty);
-        });
-
-    egui::CollapsingHeader::new("Aerodynamics")
-        .default_open(false)
-        .show(ui, |ui| {
-            ui.label("Lift per (m/s) airspeed");
-            fp_slider(ui, &mut p.lift_per_speed, 0.0..=200.0, 1.0, dirty);
-            ui.label("Drag coefficient");
-            fp_slider(ui, &mut p.drag_coefficient, 0.0..=5.0, 0.05, dirty);
-            ui.label("Min airspeed (m/s)");
-            fp_slider(ui, &mut p.min_airspeed, 0.0..=30.0, 0.5, dirty);
-        });
-}
-
-fn helicopter_panel(ui: &mut egui::Ui, p: &mut HelicopterParams, dirty: &mut bool) {
-    egui::CollapsingHeader::new("Chassis")
-        .default_open(true)
-        .show(ui, |ui| {
-            fp3_extents(
-                ui,
-                "Half-extents (X/Y/Z, m)",
-                &mut p.chassis_half_extents.0,
-                dirty,
-            );
-            ui.label("Mass (kg)");
-            fp_slider(ui, &mut p.mass, 5.0..=500.0, 1.0, dirty);
-            ui.label("Linear damping");
-            fp_slider(ui, &mut p.linear_damping, 0.0..=10.0, 0.05, dirty);
-            ui.label("Angular damping");
-            fp_slider(ui, &mut p.angular_damping, 0.0..=20.0, 0.1, dirty);
-        });
-
-    egui::CollapsingHeader::new("Hover & cyclic")
-        .default_open(true)
-        .show(ui, |ui| {
-            ui.label("Hover thrust (N)");
-            fp_slider(ui, &mut p.hover_thrust, 0.0..=10_000.0, 25.0, dirty);
-            ui.label("Vertical speed (m/s)");
-            fp_slider(ui, &mut p.vertical_speed, 0.0..=20.0, 0.25, dirty);
-            ui.label("Cyclic force (N)");
-            fp_slider(ui, &mut p.cyclic_force, 0.0..=5_000.0, 25.0, dirty);
-            ui.label("Strafe force (N)");
-            fp_slider(ui, &mut p.strafe_force, 0.0..=5_000.0, 25.0, dirty);
-            ui.label("Yaw torque (N·m)");
-            fp_slider(ui, &mut p.yaw_torque, 0.0..=5_000.0, 25.0, dirty);
-        });
-}
-
-fn car_panel(ui: &mut egui::Ui, p: &mut CarParams, dirty: &mut bool) {
-    egui::CollapsingHeader::new("Chassis")
-        .default_open(true)
-        .show(ui, |ui| {
-            fp3_extents(
-                ui,
-                "Half-extents (X/Y/Z, m)",
-                &mut p.chassis_half_extents.0,
-                dirty,
-            );
-            ui.label("Mass (kg)");
-            fp_slider(ui, &mut p.mass, 100.0..=5_000.0, 10.0, dirty);
-            ui.label("Linear damping");
-            fp_slider(ui, &mut p.linear_damping, 0.0..=10.0, 0.05, dirty);
-            ui.label("Angular damping");
-            fp_slider(ui, &mut p.angular_damping, 0.0..=20.0, 0.1, dirty);
-        });
-
-    egui::CollapsingHeader::new("Suspension")
-        .default_open(false)
-        .show(ui, |ui| {
-            ui.label("Rest length (m)");
-            fp_slider(ui, &mut p.suspension_rest_length, 0.1..=2.0, 0.025, dirty);
-            ui.label("Stiffness");
-            fp_slider(
-                ui,
-                &mut p.suspension_stiffness,
-                500.0..=50_000.0,
-                100.0,
-                dirty,
-            );
-            ui.label("Damping");
-            fp_slider(ui, &mut p.suspension_damping, 10.0..=2_000.0, 10.0, dirty);
-        });
-
-    egui::CollapsingHeader::new("Drive & steering")
-        .default_open(true)
-        .show(ui, |ui| {
-            ui.label("Drive force (N)");
-            fp_slider(ui, &mut p.drive_force, 500.0..=20_000.0, 50.0, dirty);
-            ui.label("Turn torque (N·m)");
-            fp_slider(ui, &mut p.turn_torque, 200.0..=10_000.0, 50.0, dirty);
-            ui.label("Lateral grip");
-            fp_slider(ui, &mut p.lateral_grip, 500.0..=50_000.0, 100.0, dirty);
-            ui.label("Handbrake grip factor");
-            fp_slider(ui, &mut p.handbrake_grip_factor, 0.0..=2.0, 0.01, dirty);
-        });
-}
-
-fn fp_slider(
-    ui: &mut egui::Ui,
-    value: &mut Fp,
-    range: std::ops::RangeInclusive<f32>,
-    step: f64,
-    dirty: &mut bool,
-) {
-    if ui
-        .add(egui::Slider::new(&mut value.0, range).step_by(step))
-        .changed()
-    {
-        *dirty = true;
-    }
-}
-
-/// Three-component drag editor for `Fp3` half-extents (or any other
-/// vec3-shaped numeric triple). Edits land in the underlying `[f32; 3]`
-/// directly so the caller's `Fp3` wrapper picks up the change without an
-/// intermediate copy.
-fn fp3_extents(ui: &mut egui::Ui, label: &str, value: &mut [f32; 3], dirty: &mut bool) {
-    ui.label(label);
-    ui.horizontal(|ui| {
-        for axis in value.iter_mut() {
-            if ui
-                .add(egui::DragValue::new(axis).speed(0.05).range(0.05..=20.0))
-                .changed()
-            {
-                *dirty = true;
-            }
-        }
-    });
 }
 
 fn spawn_publish_avatar_task(
