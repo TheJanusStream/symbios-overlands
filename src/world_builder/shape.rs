@@ -15,9 +15,12 @@ use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use bevy::prelude::*;
+use bevy_symbios_shape::cache::{
+    MeshCacheKey, ProfileKey, ShapeMeshCache as UpstreamShapeMeshCache,
+};
 use bevy_symbios_shape::{mesh::build_profiled_mesh, transform::scope_to_transform};
 use symbios_shape::grammar::parse_rule;
-use symbios_shape::{FaceProfile, Interpreter, Quat as SQuat, Scope, Vec3 as SVec3};
+use symbios_shape::{Interpreter, Quat as SQuat, Scope, Vec3 as SVec3};
 
 use crate::pds::{Fp3, GeneratorKind, SovereignMaterialSettings};
 
@@ -126,43 +129,10 @@ fn material_fingerprint(settings: &SovereignMaterialSettings) -> u64 {
     hasher.finish()
 }
 
-/// Mesh-bucket key. The procedural mesh is unit-sized and centered at the
-/// origin (the per-terminal `Transform::scale` from `scope_to_transform`
-/// stretches it to the scope), but its UVs encode world-space tiling — so
-/// two terminals with the same profile but different sizes need different
-/// mesh assets. Profile and size triple together compose the cache key,
-/// using bit-exact `u32::to_bits` of each `f32` coordinate (the grammar
-/// always emits the same f32 values for the same input, so equality here
-/// is correct).
-#[derive(Clone, PartialEq, Eq, Hash)]
-enum ProfileKey {
-    Rectangle,
-    Taper(u32),
-    Triangle(u32),
-    Trapezoid(u32, u32),
-    Polygon(Vec<(u32, u32)>),
-}
-
-impl ProfileKey {
-    fn from_profile(profile: &FaceProfile) -> Self {
-        match profile {
-            FaceProfile::Rectangle => Self::Rectangle,
-            FaceProfile::Taper(t) => Self::Taper((*t as f32).to_bits()),
-            FaceProfile::Triangle { peak_offset } => {
-                Self::Triangle((*peak_offset as f32).to_bits())
-            }
-            FaceProfile::Trapezoid {
-                top_width,
-                offset_x,
-            } => Self::Trapezoid((*top_width as f32).to_bits(), (*offset_x as f32).to_bits()),
-            FaceProfile::Polygon(pts) => Self::Polygon(
-                pts.iter()
-                    .map(|p| ((p.x as f32).to_bits(), (p.y as f32).to_bits()))
-                    .collect(),
-            ),
-        }
-    }
-}
+// Mesh dedup keys (`MeshCacheKey`, `ProfileKey`) and the cross-spawn
+// [`UpstreamShapeMeshCache`] resource live in `bevy_symbios_shape::cache` —
+// importing them at the top of this module keeps mesh handle reuse
+// consistent across every consumer of the shape grammar.
 
 /// Parse the multi-line grammar source line-by-line, populate the
 /// interpreter, derive the model from the supplied footprint, and return
@@ -181,6 +151,7 @@ fn build_shape_geometry(
     seed: u64,
     generator_ref: &str,
     meshes: &mut Assets<Mesh>,
+    upstream_cache: &mut UpstreamShapeMeshCache,
 ) -> Option<Vec<ShapeInstance>> {
     let mut interpreter = Interpreter::new();
     interpreter.seed = seed;
@@ -242,10 +213,12 @@ fn build_shape_geometry(
         return None;
     }
 
-    // Dedupe meshes within this build pass: every terminal sharing the same
-    // (profile, size) triple gets the same `Handle<Mesh>` so a 1000-window
-    // facade allocates one window mesh, not 1000.
-    let mut mesh_handles: HashMap<(ProfileKey, u32, u32, u32), Handle<Mesh>> = HashMap::new();
+    // Dedupe meshes through the upstream `ShapeMeshCache` resource so two
+    // different generators that produce terminals with the same
+    // `(profile, size)` triple share the same `Handle<Mesh>` — a 1000-window
+    // facade allocates one window mesh, not 1000, AND a second building
+    // generator with the same window pattern reuses the existing handle
+    // instead of uploading a duplicate.
     let mut instances = Vec::with_capacity(model.terminals.len());
     for terminal in &model.terminals {
         let transform = scope_to_transform(&terminal.scope);
@@ -254,20 +227,20 @@ fn build_shape_geometry(
             terminal.scope.size.y as f32,
             terminal.scope.size.z as f32,
         );
-        let key = (
-            ProfileKey::from_profile(&terminal.face_profile),
-            size.x.to_bits(),
-            size.y.to_bits(),
-            size.z.to_bits(),
-        );
-        let mesh = mesh_handles
-            .entry(key)
-            .or_insert_with(|| meshes.add(build_profiled_mesh(&terminal.face_profile, size, false)))
-            .clone();
+        let key = MeshCacheKey {
+            profile: ProfileKey::from_profile(&terminal.face_profile),
+            size_x_bits: size.x.to_bits(),
+            size_y_bits: size.y.to_bits(),
+            size_z_bits: size.z.to_bits(),
+            stretch_uvs: false,
+        };
+        let mesh = upstream_cache.get_or_insert_with(key, || {
+            meshes.add(build_profiled_mesh(&terminal.face_profile, size, false))
+        });
         instances.push(ShapeInstance {
             transform,
             mesh,
-            material_id: terminal.material.clone(),
+            material_id: terminal.material.as_ref().map(|m| m.id.clone()),
         });
     }
 
@@ -370,6 +343,7 @@ pub(super) fn spawn_shape_entity(
                 *seed,
                 generator_ref,
                 ctx.meshes,
+                ctx.upstream_shape_mesh_cache,
             ) else {
                 // Grammar rejected, root rule missing, or empty model —
                 // evict any stale entry so a later edit that fixes the

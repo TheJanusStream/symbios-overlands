@@ -48,7 +48,7 @@ use crate::terrain::{FinishedHeightMap, OutgoingTerrain, TerrainMesh};
 use crate::water::{WaterMaterial, WaterSurfaces};
 
 use super::image_cache::BlobImageCache;
-use super::{OverlandsFoliageTasks, PlacementMarker, PropMeshAssets, RoomEntity};
+use super::{PlacementMarker, PropMeshAssets, RoomEntity};
 
 use scatter::{dominant_biome, sample_bounds, unit_f32};
 
@@ -62,9 +62,9 @@ pub(super) fn compile_room_record(
     mut meshes: ResMut<Assets<Mesh>>,
     mut std_materials: ResMut<Assets<StandardMaterial>>,
     mut water_materials: ResMut<Assets<WaterMaterial>>,
+    mut images: ResMut<Assets<Image>>,
     palette: Option<Res<MaterialPalette>>,
     prop_assets: Option<Res<PropMeshAssets>>,
-    mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
     mut generator_caches: GeneratorCaches,
     current_room: Option<Res<CurrentRoomDid>>,
     mut blob_image_cache: ResMut<BlobImageCache>,
@@ -107,7 +107,7 @@ pub(super) fn compile_room_record(
     // Resource). Track which `(generator_ref, slot)` keys were touched this
     // pass so we can drop stale entries at the end — a generator removed
     // from the record would otherwise keep its handles pinned forever.
-    let mut lsystem_cache_touched: HashSet<(String, u8)> = HashSet::new();
+    let mut lsystem_cache_touched: HashSet<(String, u16)> = HashSet::new();
     // Parallel touch-set for the per-generator mesh cache (see `LSystemMeshCache`).
     let mut lsystem_mesh_touched: HashSet<String> = HashSet::new();
     // Sister touch-sets for the Shape generator caches.
@@ -128,11 +128,11 @@ pub(super) fn compile_room_record(
         meshes: &mut meshes,
         std_materials: &mut std_materials,
         water_materials: &mut water_materials,
+        images: &mut images,
         palette: palette.as_deref(),
         heightmap: heightmap.as_deref(),
         terrain_meshes: &terrain_meshes,
         prop_assets: prop_assets.as_deref(),
-        foliage_tasks: &mut foliage_tasks,
         lsystem_material_cache: &mut generator_caches.lsystem_material,
         lsystem_cache_touched: &mut lsystem_cache_touched,
         lsystem_mesh_cache: &mut generator_caches.lsystem_mesh,
@@ -140,6 +140,7 @@ pub(super) fn compile_room_record(
         shape_material_cache: &mut generator_caches.shape_material,
         shape_material_touched: &mut shape_material_touched,
         shape_mesh_cache: &mut generator_caches.shape_mesh,
+        upstream_shape_mesh_cache: &mut generator_caches.upstream_shape_mesh,
         shape_mesh_touched: &mut shape_mesh_touched,
         current_room: current_room.as_deref(),
         entities_spawned: &mut entities_spawned,

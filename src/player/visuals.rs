@@ -21,10 +21,10 @@ use crate::pds::Generator;
 use crate::state::CurrentRoomDid;
 use crate::terrain::{FinishedHeightMap, OutgoingTerrain, TerrainMesh};
 use crate::water::{WaterMaterial, WaterSurfaces};
+use crate::world_builder::PropMeshAssets;
 use crate::world_builder::avatar_spawn::spawn_avatar_visuals_subtree;
 use crate::world_builder::compile::GeneratorCaches;
 use crate::world_builder::image_cache::BlobImageCache;
-use crate::world_builder::{OverlandsFoliageTasks, PropMeshAssets};
 
 /// Marker for every entity spawned out of an avatar's visuals tree.
 /// Used only as a defensive sweep target — the chassis itself owns the
@@ -72,7 +72,7 @@ pub fn spawn_avatar_visuals(
     existing_children: Option<&Children>,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
-    foliage_tasks: &mut OverlandsFoliageTasks,
+    images: &mut Assets<Image>,
     deps: &mut AvatarSpawnDeps,
     is_local: bool,
 ) {
@@ -96,11 +96,11 @@ pub fn spawn_avatar_visuals(
         meshes,
         materials,
         deps.water_materials.as_mut(),
+        images,
         deps.palette.as_deref(),
         deps.heightmap.as_deref(),
         &deps.terrain_meshes,
         deps.prop_assets.as_deref(),
-        foliage_tasks,
         &mut deps.caches,
         deps.blob_image_cache.as_mut(),
         deps.water_surfaces.as_mut(),

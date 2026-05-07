@@ -378,7 +378,7 @@ fn lsystem_material_octaves_are_clamped() {
         PropMeshType, SovereignBarkConfig, SovereignMaterialSettings, SovereignTextureConfig,
     };
 
-    let mut materials: HashMap<u8, SovereignMaterialSettings> = HashMap::new();
+    let mut materials: HashMap<u16, SovereignMaterialSettings> = HashMap::new();
     let bark_slot = SovereignMaterialSettings {
         emission_strength: Fp(f32::NAN),
         uv_scale: Fp(f32::INFINITY),
@@ -672,7 +672,7 @@ fn texture_loop_counts_are_clamped() {
         ..SovereignMaterialSettings::default()
     };
 
-    let mut materials: HashMap<u8, SovereignMaterialSettings> = HashMap::new();
+    let mut materials: HashMap<u16, SovereignMaterialSettings> = HashMap::new();
     materials.insert(
         0,
         with_texture(SovereignTextureConfig::StainedGlass(

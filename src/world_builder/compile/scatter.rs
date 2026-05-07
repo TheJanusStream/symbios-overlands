@@ -1,11 +1,13 @@
 //! Scatter / grid placement helpers: deterministic sampling inside a
-//! [`ScatterBounds`], the splat-rule weight evaluator, and the dominant-
-//! biome lookup the scatter biome filter consults.
+//! [`ScatterBounds`] and the dominant-biome lookup the scatter biome filter
+//! consults. The biome lookup delegates to `bevy_symbios_ground::SplatRule`
+//! so the splat-rule weight formula stays single-sourced upstream.
 
+use bevy_symbios_ground::SplatRule;
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::RngCore;
 
-use crate::pds::{ScatterBounds, SovereignTerrainConfig};
+use crate::pds::{ScatterBounds, SovereignSplatRule, SovereignTerrainConfig};
 
 /// Uniform sample inside the scatter region. Circle bounds use rejection
 /// sampling so the distribution stays flat instead of clumping at the
@@ -44,27 +46,15 @@ pub(crate) fn unit_f32(rng: &mut ChaCha8Rng) -> f32 {
 // Biome evaluation
 // ---------------------------------------------------------------------------
 
-/// Inline port of `SplatRule::weight` so we can evaluate a single
-/// world-space point without running a full `SplatMapper::generate` pass
-/// over the whole heightmap on every scatter attempt.
-pub(crate) fn rule_weight(r: &crate::pds::SovereignSplatRule, h: f32, slope: f32) -> f32 {
-    let h_w = smooth_range(h, r.height_min.0, r.height_max.0, r.sharpness.0);
-    let s_w = smooth_range(slope, r.slope_min.0, r.slope_max.0, r.sharpness.0);
-    h_w * s_w
-}
-
-pub(crate) fn smooth_range(value: f32, lo: f32, hi: f32, sharpness: f32) -> f32 {
-    if lo >= hi {
-        return if (value - lo).abs() < f32::EPSILON {
-            1.0
-        } else {
-            0.0
-        };
-    }
-    let mid = (lo + hi) * 0.5;
-    let half = (hi - lo) * 0.5;
-    let dist = (value - mid).abs();
-    (1.0 - (dist / half).min(1.0)).powf(sharpness.max(0.001))
+/// Convert a wire-format [`SovereignSplatRule`] into an upstream [`SplatRule`]
+/// so the weight formula can be evaluated by [`SplatRule::weight`] directly,
+/// without re-implementing the smooth-range logic locally.
+fn convert_rule(r: &SovereignSplatRule) -> SplatRule {
+    SplatRule::new(
+        (r.height_min.0, r.height_max.0),
+        (r.slope_min.0, r.slope_max.0),
+        r.sharpness.0,
+    )
 }
 
 /// Return the dominant biome index (0=Grass, 1=Dirt, 2=Rock, 3=Snow) at the
@@ -78,10 +68,10 @@ pub(crate) fn dominant_biome(cfg: &SovereignTerrainConfig, height_world: f32, sl
         0.0
     };
     let weights = [
-        rule_weight(&cfg.material.rules[0], height_norm, slope),
-        rule_weight(&cfg.material.rules[1], height_norm, slope),
-        rule_weight(&cfg.material.rules[2], height_norm, slope),
-        rule_weight(&cfg.material.rules[3], height_norm, slope),
+        convert_rule(&cfg.material.rules[0]).weight(height_norm, slope),
+        convert_rule(&cfg.material.rules[1]).weight(height_norm, slope),
+        convert_rule(&cfg.material.rules[2]).weight(height_norm, slope),
+        convert_rule(&cfg.material.rules[3]).weight(height_norm, slope),
     ];
     let mut best = 0;
     let mut max_w = weights[0];

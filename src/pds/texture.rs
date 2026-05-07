@@ -566,6 +566,43 @@ impl SovereignTextureConfig {
             _ => (AlphaMode::Opaque, false, Some(Face::Back), false),
         }
     }
+
+    /// Convert this wire-format variant into the upstream
+    /// [`bevy_symbios_texture::TextureConfig`] tagged-union the
+    /// `build_procedural_material_async` helper consumes.
+    ///
+    /// `None` and the catch-all `Unknown` variant both collapse to
+    /// `TextureConfig::None` so a future variant deserialised by an older
+    /// binary lands cleanly on the no-texture path instead of panicking.
+    pub fn to_texture_config(&self) -> bevy_symbios_texture::TextureConfig {
+        use bevy_symbios_texture::TextureConfig as T;
+        match self {
+            Self::None | Self::Unknown => T::None,
+            Self::Leaf(c) => T::Leaf(c.to_native()),
+            Self::Twig(c) => T::Twig(c.to_native()),
+            Self::Bark(c) => T::Bark(c.to_native()),
+            Self::Window(c) => T::Window(c.to_native()),
+            Self::StainedGlass(c) => T::StainedGlass(c.to_native()),
+            Self::IronGrille(c) => T::IronGrille(c.to_native()),
+            Self::Ground(c) => T::Ground(c.to_native()),
+            Self::Rock(c) => T::Rock(c.to_native()),
+            Self::Brick(c) => T::Brick(c.to_native()),
+            Self::Plank(c) => T::Plank(c.to_native()),
+            Self::Shingle(c) => T::Shingle(c.to_native()),
+            Self::Stucco(c) => T::Stucco(c.to_native()),
+            Self::Concrete(c) => T::Concrete(c.to_native()),
+            Self::Metal(c) => T::Metal(c.to_native()),
+            Self::Pavers(c) => T::Pavers(c.to_native()),
+            Self::Ashlar(c) => T::Ashlar(c.to_native()),
+            Self::Cobblestone(c) => T::Cobblestone(c.to_native()),
+            Self::Thatch(c) => T::Thatch(c.to_native()),
+            Self::Marble(c) => T::Marble(c.to_native()),
+            Self::Corrugated(c) => T::Corrugated(c.to_native()),
+            Self::Asphalt(c) => T::Asphalt(c.to_native()),
+            Self::Wainscoting(c) => T::Wainscoting(c.to_native()),
+            Self::Encaustic(c) => T::Encaustic(c.to_native()),
+        }
+    }
 }
 
 /// Per-slot material settings for an L-system generator — mirrors
@@ -599,6 +636,26 @@ impl Default for SovereignMaterialSettings {
             metallic: Fp(0.0),
             uv_scale: Fp(1.0),
             texture: SovereignTextureConfig::None,
+        }
+    }
+}
+
+impl SovereignMaterialSettings {
+    /// Convert to the upstream PBR settings struct
+    /// [`bevy_symbios_texture::MaterialSettings`] consumed by
+    /// [`bevy_symbios_texture::build_procedural_material_async`]. The
+    /// `Fp`-wrapped fields collapse to plain `f32`/`[f32; 3]`, and the
+    /// embedded [`SovereignTextureConfig`] is forwarded through
+    /// [`SovereignTextureConfig::to_texture_config`].
+    pub fn to_native(&self) -> bevy_symbios_texture::MaterialSettings {
+        bevy_symbios_texture::MaterialSettings {
+            base_color: self.base_color.0,
+            emission_color: self.emission_color.0,
+            emission_strength: self.emission_strength.0,
+            roughness: self.roughness.0,
+            metallic: self.metallic.0,
+            uv_scale: self.uv_scale.0,
+            texture: self.texture.to_texture_config(),
         }
     }
 }

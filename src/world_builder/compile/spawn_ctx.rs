@@ -4,6 +4,7 @@
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_symbios::materials::MaterialPalette;
+use bevy_symbios_shape::cache::ShapeMeshCache as UpstreamShapeMeshCache;
 use std::collections::HashSet;
 
 use crate::pds::{RoomRecord, TransformData};
@@ -11,10 +12,10 @@ use crate::state::CurrentRoomDid;
 use crate::terrain::{FinishedHeightMap, OutgoingTerrain, TerrainMesh};
 use crate::water::{WaterMaterial, WaterSurfaces};
 
+use super::super::PropMeshAssets;
 use super::super::image_cache::BlobImageCache;
 use super::super::lsystem::{LSystemMaterialCache, LSystemMeshCache};
 use super::super::shape::{ShapeMaterialCache, ShapeMeshCache};
-use super::super::{OverlandsFoliageTasks, PropMeshAssets};
 
 /// Bundled per-generator caches for the compile pass. Bevy 0.18 imposes a
 /// 16-parameter ceiling on `IntoSystem`, and `compile_room_record` already
@@ -27,6 +28,11 @@ pub struct GeneratorCaches<'w> {
     pub(crate) lsystem_mesh: ResMut<'w, LSystemMeshCache>,
     pub(crate) shape_material: ResMut<'w, ShapeMaterialCache>,
     pub(crate) shape_mesh: ResMut<'w, ShapeMeshCache>,
+    /// Mesh-asset dedup shared with every other consumer of
+    /// `bevy_symbios_shape` (e.g. avatar visualisers): a generator's
+    /// `(profile, size)` mesh handle is reused across compile passes and
+    /// across generators with the same terminal geometry.
+    pub(crate) upstream_shape_mesh: ResMut<'w, UpstreamShapeMeshCache>,
 }
 
 /// Hard ceiling on the number of `spawn_generator` calls a single
@@ -81,12 +87,17 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     pub(crate) meshes: &'a mut Assets<Mesh>,
     pub(crate) std_materials: &'a mut Assets<StandardMaterial>,
     pub(crate) water_materials: &'a mut Assets<WaterMaterial>,
+    /// Image asset store. Threaded through so every procedural material
+    /// helper can hand it to
+    /// [`bevy_symbios_texture::build_procedural_material_async`] for the
+    /// fast cache-hit path (the helper writes generated `Handle<Image>`s
+    /// directly into the just-built material when the cache fires).
+    pub(crate) images: &'a mut Assets<Image>,
     pub(crate) palette: Option<&'a MaterialPalette>,
     pub(crate) heightmap: Option<&'a FinishedHeightMap>,
     pub(crate) terrain_meshes:
         &'a Query<'wq, 'sq, Entity, (With<TerrainMesh>, Without<OutgoingTerrain>)>,
     pub(crate) prop_assets: Option<&'a PropMeshAssets>,
-    pub(crate) foliage_tasks: &'a mut OverlandsFoliageTasks,
     /// Persistent, hash-invalidated material cache. A single scatter
     /// placement with count=100 would otherwise allocate 100 fresh
     /// `StandardMaterial`s *and* enqueue 100 identical foliage texture
@@ -97,7 +108,7 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     pub(crate) lsystem_material_cache: &'a mut LSystemMaterialCache,
     /// `(generator_ref, slot)` keys touched this compile pass. Populated
     /// as we resolve material handles so the caller can GC stale entries.
-    pub(crate) lsystem_cache_touched: &'a mut HashSet<(String, u8)>,
+    pub(crate) lsystem_cache_touched: &'a mut HashSet<(String, u16)>,
     /// Persistent mesh cache. A single scatter placement with `count=100_000`
     /// would otherwise re-derive / re-interpret / re-mesh the L-system on
     /// every spawn, pegging the main thread for minutes and allocating
@@ -120,6 +131,11 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// `(generator_ref, geometry_hash)` pair and shares the per-terminal
     /// `Handle<Mesh>` list across every scatter/grid spawn.
     pub(crate) shape_mesh_cache: &'a mut ShapeMeshCache,
+    /// Upstream mesh-asset dedup. Whereas `shape_mesh_cache` caches the full
+    /// post-derivation instance list per generator, this cache dedupes
+    /// individual `Handle<Mesh>` by `(profile, size)` across every generator
+    /// in the world.
+    pub(crate) upstream_shape_mesh_cache: &'a mut UpstreamShapeMeshCache,
     /// `generator_ref` keys touched this compile pass so the caller can GC
     /// shape meshes belonging to generators removed from the record.
     pub(crate) shape_mesh_touched: &'a mut HashSet<String>,

@@ -24,9 +24,9 @@ use std::collections::HashSet;
 use bevy::prelude::*;
 use bevy_symbios::materials::MaterialPalette;
 
+use super::PropMeshAssets;
 use super::compile::{GeneratorCaches, SpawnCtx, spawn_generator};
 use super::image_cache::BlobImageCache;
-use super::{OverlandsFoliageTasks, PropMeshAssets};
 use crate::pds::{Generator, RoomRecord};
 use crate::state::CurrentRoomDid;
 use crate::terrain::{FinishedHeightMap, OutgoingTerrain, TerrainMesh};
@@ -57,11 +57,11 @@ pub fn spawn_avatar_visuals_subtree(
     meshes: &mut Assets<Mesh>,
     std_materials: &mut Assets<StandardMaterial>,
     water_materials: &mut Assets<WaterMaterial>,
+    images: &mut Assets<Image>,
     palette: Option<&MaterialPalette>,
     heightmap: Option<&FinishedHeightMap>,
     terrain_meshes: &Query<Entity, (With<TerrainMesh>, Without<OutgoingTerrain>)>,
     prop_assets: Option<&PropMeshAssets>,
-    foliage_tasks: &mut OverlandsFoliageTasks,
     caches: &mut GeneratorCaches,
     blob_image_cache: &mut BlobImageCache,
     water_surfaces: &mut WaterSurfaces,
@@ -78,7 +78,7 @@ pub fn spawn_avatar_visuals_subtree(
     // through the regular GC because the keys carry the avatar's
     // generator-ref string. Pinning is fine: a cached LSystem mesh is
     // cheap to keep until the avatar editor drops the kind.
-    let mut lsystem_cache_touched: HashSet<(String, u8)> = HashSet::new();
+    let mut lsystem_cache_touched: HashSet<(String, u16)> = HashSet::new();
     let mut lsystem_mesh_touched: HashSet<String> = HashSet::new();
     let mut shape_material_touched: HashSet<(String, String)> = HashSet::new();
     let mut shape_mesh_touched: HashSet<String> = HashSet::new();
@@ -98,11 +98,11 @@ pub fn spawn_avatar_visuals_subtree(
         meshes,
         std_materials,
         water_materials,
+        images,
         palette,
         heightmap,
         terrain_meshes,
         prop_assets,
-        foliage_tasks,
         lsystem_material_cache: &mut caches.lsystem_material,
         lsystem_cache_touched: &mut lsystem_cache_touched,
         lsystem_mesh_cache: &mut caches.lsystem_mesh,
@@ -110,6 +110,7 @@ pub fn spawn_avatar_visuals_subtree(
         shape_material_cache: &mut caches.shape_material,
         shape_material_touched: &mut shape_material_touched,
         shape_mesh_cache: &mut caches.shape_mesh,
+        upstream_shape_mesh_cache: &mut caches.upstream_shape_mesh,
         shape_mesh_touched: &mut shape_mesh_touched,
         current_room,
         entities_spawned: &mut entities_spawned,

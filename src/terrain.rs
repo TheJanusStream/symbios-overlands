@@ -20,13 +20,13 @@ use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerD
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat}; // Added TextureFormat
 use bevy::tasks::AsyncComputeTaskPool;
-use bevy_symbios_ground::{HeightMapMeshBuilder, NormalMethod, build_heightfield_collider};
+use bevy_symbios_ground::{
+    DiamondSquare, FbmNoise, HeightMap, HeightMapMeshBuilder, HydraulicErosion, NormalMethod,
+    SplatMapper, SplatRule, TerrainGenerator, ThermalErosion, VoronoiTerracing,
+    build_heightfield_collider,
+};
 use bevy_symbios_texture::SymbiosTexturePlugin;
 use bevy_symbios_texture::async_gen::{PendingTexture, TextureReady};
-use symbios_ground::{
-    DiamondSquare, FbmNoise, HeightMap, HydraulicErosion, SplatMapper, SplatRule, TerrainGenerator,
-    ThermalErosion, VoronoiTerracing,
-};
 
 use crate::config::terrain as tcfg;
 use crate::pds::{
@@ -114,7 +114,7 @@ pub struct TerrainPlugin;
 
 impl Plugin for TerrainPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(SymbiosTexturePlugin)
+        app.add_plugins(SymbiosTexturePlugin::default())
             .add_plugins(MaterialPlugin::<SplatTerrainMaterial>::default())
             .init_resource::<TerrainSplatState>()
             .init_resource::<LastTerrainConfigJson>()
@@ -725,6 +725,7 @@ fn generate_terrain(cfg: &SovereignTerrainConfig) -> HeightMap {
             capacity_factor: cfg.capacity_factor.0,
             min_slope: tcfg::hydraulic::MIN_SLOPE,
             water_level: tcfg::hydraulic::WATER_LEVEL,
+            ..HydraulicErosion::new(cfg.seed)
         }
         .erode(&mut hm);
     }

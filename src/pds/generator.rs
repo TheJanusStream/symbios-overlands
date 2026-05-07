@@ -15,8 +15,8 @@ use super::prim::PropMeshType;
 use super::terrain::SovereignTerrainConfig;
 use super::texture::SovereignMaterialSettings;
 use super::types::{
-    BiomeFilter, Fp, Fp2, Fp3, Fp4, ScatterBounds, TransformData, default_true, map_u8_as_string,
-    map_u16_as_string, u64_as_string,
+    BiomeFilter, Fp, Fp2, Fp3, Fp4, ScatterBounds, TransformData, default_true, map_u16_as_string,
+    u64_as_string,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -135,8 +135,8 @@ pub enum GeneratorKind {
         elasticity: Fp,
         tropism: Option<Fp3>,
         /// Material slot id → PBR settings.
-        #[serde(with = "map_u8_as_string")]
-        materials: HashMap<u8, SovereignMaterialSettings>,
+        #[serde(with = "map_u16_as_string")]
+        materials: HashMap<u16, SovereignMaterialSettings>,
         /// Prop id → mesh shape.
         #[serde(with = "map_u16_as_string")]
         prop_mappings: HashMap<u16, PropMeshType>,

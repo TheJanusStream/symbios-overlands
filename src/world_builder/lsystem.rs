@@ -37,7 +37,7 @@ pub(super) struct CachedLSystemMaterial {
 /// pinning their handles in `Assets<StandardMaterial>`.
 #[derive(Resource, Default)]
 pub struct LSystemMaterialCache {
-    pub(super) entries: HashMap<(String, u8), CachedLSystemMaterial>,
+    pub(super) entries: HashMap<(String, u16), CachedLSystemMaterial>,
 }
 
 /// Cached geometry for a single L-system generator: the fingerprint of the
@@ -47,7 +47,7 @@ pub struct LSystemMaterialCache {
 /// current generator settings.
 pub(super) struct CachedLSystemGeometry {
     pub geometry_hash: u64,
-    pub mesh_buckets: Vec<(u8, Handle<Mesh>)>,
+    pub mesh_buckets: Vec<(u16, Handle<Mesh>)>,
     pub props: Vec<SkeletonProp>,
 }
 
@@ -134,7 +134,7 @@ pub(super) fn lsystem_geometry_fingerprint(
 
 /// Pair of raw mesh buckets (keyed by material id) and the skeleton's prop
 /// list — the cacheable output of an L-system build pass.
-type LSystemGeometryBuild = (Vec<(u8, Mesh)>, Vec<SkeletonProp>);
+type LSystemGeometryBuild = (Vec<(u16, Mesh)>, Vec<SkeletonProp>);
 
 /// Parse, derive, interpret and mesh an L-system generator. Returns the raw
 /// mesh buckets keyed by material id, plus the skeleton's prop list. `None`
@@ -273,7 +273,7 @@ pub(super) fn build_lsystem_geometry(
     let skeleton = interpreter.build_skeleton(&sys.state);
 
     // Each material ID produces a separate mesh bucket.
-    let mesh_buckets: Vec<(u8, Mesh)> = LSystemMeshBuilder::new()
+    let mesh_buckets: Vec<(u16, Mesh)> = LSystemMeshBuilder::new()
         .with_resolution(mesh_resolution.max(3))
         .build(&skeleton)
         .into_iter()
@@ -354,7 +354,7 @@ pub(super) fn spawn_lsystem_entity(
                 ctx.lsystem_mesh_cache.entries.remove(generator_ref);
                 return None;
             };
-            let bucket_handles: Vec<(u8, Handle<Mesh>)> = mesh_buckets_raw
+            let bucket_handles: Vec<(u16, Handle<Mesh>)> = mesh_buckets_raw
                 .into_iter()
                 .map(|(mat_id, mesh)| (mat_id, ctx.meshes.add(mesh)))
                 .collect();
@@ -388,7 +388,7 @@ pub(super) fn spawn_lsystem_entity(
     // still wins when `bevy_symbios::materials::sync_*` has already
     // resolved a shared palette slot for us — in that case we skip the
     // task, because the palette owns texture sync.
-    let mut slot_handles: HashMap<u8, Handle<StandardMaterial>> = HashMap::new();
+    let mut slot_handles: HashMap<u16, Handle<StandardMaterial>> = HashMap::new();
     for (&slot, settings) in lsys_materials.iter() {
         let handle = if let Some(palette) = ctx.palette
             && let Some(h) = palette.materials.get(&slot)
@@ -429,10 +429,10 @@ pub(super) fn spawn_lsystem_entity(
     // *adds* a real `SovereignMaterialSettings` for the slot triggers a
     // rebuild instead of reusing the bare default.
     const FALLBACK_SENTINEL_HASH: u64 = u64::MAX;
-    let mut referenced_ids: std::collections::HashSet<u8> =
+    let mut referenced_ids: std::collections::HashSet<u16> =
         mesh_bucket_handles.iter().map(|(id, _)| *id).collect();
     for prop in &props {
-        referenced_ids.insert(prop.material_id);
+        referenced_ids.insert(prop.material_id as u16);
     }
     for id in referenced_ids {
         if slot_handles.contains_key(&id) {
@@ -509,7 +509,7 @@ pub(super) fn spawn_lsystem_entity(
                 continue;
             };
             let material = slot_handles
-                .get(&prop.material_id)
+                .get(&(prop.material_id as u16))
                 .cloned()
                 .unwrap_or_else(|| ctx.std_materials.add(StandardMaterial::default()));
 

@@ -61,7 +61,7 @@ use crate::config::terrain as tcfg;
 use crate::pds::{AvatarRecord, LocomotionConfig};
 use crate::state::{AppState, LiveAvatarRecord, LocalPlayer, PendingSpawnPlacement, RemotePeer};
 use crate::ui::avatar::AvatarEditorState;
-use crate::world_builder::{AvatarVisualPrim, OverlandsFoliageTasks};
+use crate::world_builder::AvatarVisualPrim;
 
 /// Snapshot of the last `AvatarRecord` whose visuals have been painted onto
 /// a remote peer. `detect_remote_change` listens to the broad
@@ -256,7 +256,7 @@ fn spawn_local_player(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
+    mut images: ResMut<Assets<Image>>,
     hm_res: Res<crate::terrain::FinishedHeightMap>,
     live: Res<LiveAvatarRecord>,
     placement: Option<Res<PendingSpawnPlacement>>,
@@ -319,7 +319,7 @@ fn spawn_local_player(
         None,
         &mut meshes,
         &mut materials,
-        &mut foliage_tasks,
+        &mut images,
         &mut avatar_deps,
         true,
     );
@@ -446,7 +446,7 @@ fn apply_local_locomotion_rebuild(
     live: Res<LiveAvatarRecord>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
+    mut images: ResMut<Assets<Image>>,
     mut avatar_deps: visuals::AvatarSpawnDeps,
 ) {
     for (entity, children) in players.iter() {
@@ -460,7 +460,7 @@ fn apply_local_locomotion_rebuild(
             children,
             &mut meshes,
             &mut materials,
-            &mut foliage_tasks,
+            &mut images,
             &mut avatar_deps,
             true,
         );
@@ -524,7 +524,7 @@ fn rebuild_local_visuals(
     orphan_visuals: Query<Entity, (With<AvatarVisualPrim>, Without<ChildOf>)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
+    mut images: ResMut<Assets<Image>>,
     mut avatar_deps: visuals::AvatarSpawnDeps,
 ) {
     if !live.is_changed() {
@@ -539,7 +539,7 @@ fn rebuild_local_visuals(
             children,
             &mut meshes,
             &mut materials,
-            &mut foliage_tasks,
+            &mut images,
             &mut avatar_deps,
             true,
         );
@@ -575,7 +575,7 @@ fn detect_remote_change(
     >,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut foliage_tasks: ResMut<OverlandsFoliageTasks>,
+    mut images: ResMut<Assets<Image>>,
     mut avatar_deps: visuals::AvatarSpawnDeps,
 ) {
     for (entity, peer, applied, children) in peers.iter() {
@@ -592,7 +592,7 @@ fn detect_remote_change(
             children,
             &mut meshes,
             &mut materials,
-            &mut foliage_tasks,
+            &mut images,
             &mut avatar_deps,
             false,
         );

@@ -66,18 +66,15 @@ mod sign;
 
 use std::collections::HashMap;
 
+use crate::pds::{Placement, PropMeshType, RoomRecord, ScatterBounds};
+use crate::state::AppState;
+use crate::terrain::FinishedHeightMap;
+use crate::water::{WaterMaterial, WaterSurfaces};
 use avian3d::prelude::Sensor;
 use bevy::asset::RenderAssetUsages;
 use bevy::math::Isometry3d;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
-use bevy::tasks::Task;
-use bevy_symbios_texture::generator::{TextureError, TextureMap};
-
-use crate::pds::{Placement, PropMeshType, RoomRecord, ScatterBounds};
-use crate::state::AppState;
-use crate::terrain::FinishedHeightMap;
-use crate::water::{WaterMaterial, WaterSurfaces};
 
 pub use lsystem::{LSystemMaterialCache, LSystemMeshCache};
 pub use material::build_procedural_material;
@@ -142,32 +139,16 @@ pub struct PropMeshAssets {
     pub meshes: HashMap<PropMeshType, Handle<Mesh>>,
 }
 
-/// A single in-flight foliage texture task: the async generator future, the
-/// material handle whose textures should be populated when the result
-/// arrives, and a `is_card` flag selecting between `map_to_images` (tileable)
-/// and `map_to_images_card` (clamp-to-edge) upload paths.
-pub type FoliageTask = (
-    Task<Result<TextureMap, TextureError>>,
-    Handle<StandardMaterial>,
-    bool,
-);
-
-/// In-flight foliage texture tasks, drained by `poll_overlands_foliage_tasks`.
-#[derive(Resource, Default)]
-pub struct OverlandsFoliageTasks {
-    pub tasks: Vec<FoliageTask>,
-}
-
 pub struct WorldBuilderPlugin;
 
 impl Plugin for WorldBuilderPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<WaterMaterial>::default())
-            .init_resource::<OverlandsFoliageTasks>()
             .init_resource::<LSystemMaterialCache>()
             .init_resource::<LSystemMeshCache>()
             .init_resource::<ShapeMaterialCache>()
             .init_resource::<ShapeMeshCache>()
+            .init_resource::<bevy_symbios_shape::cache::ShapeMeshCache>()
             .init_resource::<WaterSurfaces>()
             .init_resource::<image_cache::BlobImageCache>()
             .init_resource::<particles::ParticleQuadMesh>()
@@ -178,7 +159,6 @@ impl Plugin for WorldBuilderPlugin {
                 (
                     compile::compile_room_record,
                     compile::apply_environment_state,
-                    material::poll_overlands_foliage_tasks,
                     image_cache::poll_blob_image_tasks,
                     draw_placement_visualizers,
                 )

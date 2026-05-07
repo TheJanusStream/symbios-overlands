@@ -20,7 +20,7 @@ pub(super) fn draw_lsystem_forge(
     width: &mut Fp,
     elasticity: &mut Fp,
     tropism: &mut Option<Fp3>,
-    materials: &mut std::collections::HashMap<u8, SovereignMaterialSettings>,
+    materials: &mut std::collections::HashMap<u16, SovereignMaterialSettings>,
     prop_mappings: &mut std::collections::HashMap<u16, PropMeshType>,
     prop_scale: &mut Fp,
     mesh_resolution: &mut u32,
@@ -107,9 +107,9 @@ pub(super) fn draw_lsystem_forge(
     egui::CollapsingHeader::new("Material slots")
         .default_open(false)
         .show(ui, |ui| {
-            let mut slot_ids: Vec<u8> = materials.keys().copied().collect();
+            let mut slot_ids: Vec<u16> = materials.keys().copied().collect();
             slot_ids.sort_unstable();
-            let mut to_remove: Option<u8> = None;
+            let mut to_remove: Option<u16> = None;
             for id in slot_ids {
                 let Some(m) = materials.get_mut(&id) else {
                     continue;
@@ -147,7 +147,7 @@ pub(super) fn draw_lsystem_forge(
                 *dirty = true;
             }
             if ui.button("+ Add material slot").clicked() {
-                let next = (0u8..=255).find(|k| !materials.contains_key(k));
+                let next = (0u16..=u16::MAX).find(|k| !materials.contains_key(k));
                 if let Some(k) = next {
                     materials.insert(k, SovereignMaterialSettings::default());
                     *dirty = true;
