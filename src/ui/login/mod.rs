@@ -30,6 +30,7 @@ mod begin;
 mod complete;
 #[cfg(not(target_arch = "wasm32"))]
 mod native_callback;
+mod posts;
 #[cfg(target_arch = "wasm32")]
 mod wasm_resume;
 
@@ -37,6 +38,7 @@ pub use begin::poll_begin_auth_task;
 pub use complete::poll_complete_auth_task;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native_callback::poll_native_callback;
+pub use posts::{LoginPostFeed, poll_login_feed_fetch, start_login_feed_fetch};
 #[cfg(target_arch = "wasm32")]
 pub use wasm_resume::{check_wasm_callback, check_wasm_resume, poll_resume_task};
 
@@ -145,6 +147,7 @@ pub fn login_ui(
     oauth_client: Res<OauthClientRes>,
     begin_tasks: Query<&BeginAuthTask>,
     complete_tasks: Query<&CompleteAuthTask>,
+    mut feed: ResMut<LoginPostFeed>,
 ) {
     // First-frame pre-fill from URL/CLI boot params. Done as a one-shot
     // (`latch.prefilled`) so a subsequent re-render does not stomp on
@@ -281,6 +284,19 @@ pub fn login_ui(
 
             if let Some(err) = &login_error.0 {
                 ui.colored_label(egui::Color32::RED, err);
+            }
+
+            // Latest #Overlands posts from the configured Bluesky handle.
+            // The render helper is action-driven so the parent system
+            // owns the side-effects (browser open, fetch retry).
+            match posts::render_login_feed_panel(ui, &feed) {
+                posts::LoginFeedAction::None => {}
+                posts::LoginFeedAction::Retry => {
+                    posts::retry_fetch(&mut commands, &mut feed);
+                }
+                posts::LoginFeedAction::OpenUrl(url) => {
+                    posts::open_url_in_browser(&url);
+                }
             }
         });
 }

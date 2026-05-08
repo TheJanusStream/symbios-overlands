@@ -24,6 +24,8 @@
 use avian3d::PhysicsPlugins;
 use bevy::light::{CascadeShadowConfigBuilder, GlobalAmbientLight, NotShadowCaster};
 use bevy::log::LogPlugin;
+#[cfg(not(target_arch = "wasm32"))]
+use bevy::pbr::wireframe::WireframePlugin;
 use bevy::prelude::*;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 
@@ -110,8 +112,8 @@ pub fn run() {
     let boot = boot_params::detect();
 
     let fc = config::camera::fog::COLOR;
-    App::new()
-        .insert_resource(ClearColor(Color::srgba(fc[0], fc[1], fc[2], fc[3])))
+    let mut app = App::new();
+    app.insert_resource(ClearColor(Color::srgba(fc[0], fc[1], fc[2], fc[3])))
         .add_plugins(
             DefaultPlugins
                 .set(WindowPlugin {
@@ -140,8 +142,15 @@ pub fn run() {
                     ..default()
                 }),
         )
-        .add_plugins(EguiPlugin::default())
-        .add_plugins(PhysicsPlugins::default())
+        .add_plugins(EguiPlugin::default());
+    // Native-only: WebGL2 lacks the POLYGON_MODE_LINE wgpu feature the
+    // wireframe plugin depends on, and Overlands' WASM build can land on
+    // either WebGPU or WebGL2 depending on the browser, so the safer
+    // default is to omit the plugin entirely on web. The diagnostics
+    // wireframe checkbox is gated under the same cfg.
+    #[cfg(not(target_arch = "wasm32"))]
+    app.add_plugins(WireframePlugin::default());
+    app.add_plugins(PhysicsPlugins::default())
         .add_plugins(transform_gizmo_bevy::TransformGizmoPlugin)
         .add_plugins(MaterialPlugin::<clouds::CloudMaterial>::default())
         .add_plugins(terrain::TerrainPlugin)
@@ -163,7 +172,14 @@ pub fn run() {
         .init_resource::<state::PendingOutgoingOffers>()
         .init_resource::<ui::login::LoginError>()
         .init_resource::<ui::login::LoginUiLatch>()
-        .add_systems(OnEnter(AppState::Login), ui::login::reset_login_ui_latch)
+        .init_resource::<ui::login::LoginPostFeed>()
+        .add_systems(
+            OnEnter(AppState::Login),
+            (
+                ui::login::reset_login_ui_latch,
+                ui::login::start_login_feed_fetch,
+            ),
+        )
         .init_resource::<ui::room::RoomEditorState>()
         .init_resource::<ui::avatar::AvatarEditorState>()
         .init_resource::<editor_gizmo::GizmoFramePref>()
@@ -178,6 +194,7 @@ pub fn run() {
             (
                 ui::login::poll_begin_auth_task,
                 ui::login::poll_complete_auth_task,
+                ui::login::poll_login_feed_fetch,
                 #[cfg(target_arch = "wasm32")]
                 ui::login::check_wasm_callback,
                 #[cfg(target_arch = "wasm32")]

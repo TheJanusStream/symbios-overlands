@@ -2,6 +2,8 @@
 //! peer mute toggles, a scrolling event log, and the log-out button that
 //! transitions the app back to `AppState::Login`.
 
+#[cfg(not(target_arch = "wasm32"))]
+use bevy::pbr::wireframe::WireframeConfig;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
@@ -20,6 +22,9 @@ pub fn diagnostics_ui(
     mut landmark_status: Local<Option<(String, f64)>>,
     time: Res<Time>,
     local_player_q: Query<&Transform, With<LocalPlayer>>,
+    // Native-only: the wireframe plugin (and the resource it inserts) is
+    // skipped on WASM so this parameter only exists off-web.
+    #[cfg(not(target_arch = "wasm32"))] mut wireframe: ResMut<WireframeConfig>,
 ) {
     use crate::config::ui::diagnostics as cfg;
 
@@ -47,6 +52,16 @@ pub fn diagnostics_ui(
 
             if ui.button("Log out").clicked() {
                 next_state.set(AppState::Login);
+            }
+
+            // Render-debug toggles. Wireframe is native-only because the
+            // wgpu POLYGON_MODE_LINE feature isn't available on WebGL2;
+            // the plugin is registered with the same cfg in lib.rs.
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                ui.separator();
+                ui.label("Render");
+                ui.checkbox(&mut wireframe.global, "Wireframe mode");
             }
 
             ui.separator();
