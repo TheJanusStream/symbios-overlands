@@ -8,12 +8,14 @@
 //! `bevy_symbios_multiuser` docs).
 
 use bevy::prelude::*;
-use bevy_symbios_multiuser::auth::AtprotoSession;
+use bevy::tasks::IoTaskPool;
+use bevy_symbios_multiuser::auth::{AtprotoSession, logout as revoke_oauth_tokens};
 use bevy_symbios_multiuser::prelude::SymbiosMultiuserConfig;
 use bevy_symbios_multiuser::signaller::TokenSourceRes;
 
 use crate::avatar::BskyProfileCache;
 use crate::network::PeerAvatarCache;
+use crate::oauth::OauthRefreshCtx;
 use crate::pds::RoomRecord;
 use crate::protocol::OverlandsMessage;
 use crate::state::{
@@ -38,12 +40,53 @@ fn cleanup_on_logout(
     players: Query<Entity, With<LocalPlayer>>,
     peers: Query<Entity, With<RemotePeer>>,
     room_entities: Query<Entity, With<RoomEntity>>,
+    session: Option<Res<AtprotoSession>>,
+    refresh_ctx: Option<Res<OauthRefreshCtx>>,
     mut chat: ResMut<ChatHistory>,
     mut diagnostics: ResMut<DiagnosticsLog>,
     mut avatar_cache: ResMut<PeerAvatarCache>,
     mut bsky_cache: ResMut<BskyProfileCache>,
     mut blob_image_cache: ResMut<BlobImageCache>,
 ) {
+    // Best-effort: revoke the OAuth tokens at the user's PDS (RFC 7009)
+    // before we drop the session. Fire-and-forget on IoTaskPool because
+    // the network round-trip mustn't block the OnExit transition or
+    // delay the local-state cleanup below — local state is wiped
+    // regardless of the network outcome.
+    //
+    // See `bevy_symbios_multiuser::auth::logout` for the refresh-then-access
+    // ordering rationale and the documented best-effort semantics.
+    if let (Some(session), Some(ctx)) = (session.as_deref(), refresh_ctx.as_deref()) {
+        let session = session.clone();
+        let client = ctx.client.clone();
+        let metadata = ctx.server_metadata.clone();
+        IoTaskPool::get()
+            .spawn(async move {
+                let fut = revoke_oauth_tokens(&session, &client, &metadata);
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    // Same IoTaskPool + tokio current-thread runtime
+                    // bridge the avatar / social fetchers use — see
+                    // `social.rs` for the rationale (the IoTaskPool
+                    // workers don't carry a tokio reactor on their own).
+                    if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        && let Err(e) = rt.block_on(fut)
+                    {
+                        warn!("OAuth token revocation failed; clearing local state anyway: {e}");
+                    }
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    if let Err(e) = fut.await {
+                        tracing::warn!(%e, "OAuth token revocation failed; clearing local state anyway");
+                    }
+                }
+            })
+            .detach();
+    }
+
     // Despawn game-world entities (recursive by default in Bevy 0.18).
     //
     // `try_despawn` swallows the `EntityMutableFetchError` that fires

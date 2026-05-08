@@ -52,8 +52,28 @@ pub use peer_cache::PeerAvatarCache;
 use bevy::prelude::*;
 use bevy_symbios_multiuser::prelude::*;
 
+use crate::config;
 use crate::protocol::OverlandsMessage;
 use crate::state::AppState;
+
+/// Bevy resource holding the [`SmootherConfig`] for the per-peer transform
+/// jitter buffer. Constructed once at plugin build time from the constants
+/// in [`crate::config::network`] so the upstream smoother can be tuned for
+/// our broadcast cadence and play-space bounds without forking the module.
+#[derive(Resource, Clone, Copy)]
+pub struct SmootherConfigRes(pub SmootherConfig);
+
+impl Default for SmootherConfigRes {
+    fn default() -> Self {
+        Self(SmootherConfig {
+            buffer_capacity: config::network::KINEMATIC_BUFFER_CAPACITY,
+            expected_send_interval_secs: config::network::EXPECTED_BROADCAST_INTERVAL_SECS,
+            max_jitter_drift_secs: config::network::MAX_JITTER_DRIFT_SECS,
+            render_delay_secs: config::network::KINEMATIC_RENDER_DELAY_SECS,
+            max_coord_abs: config::network::MAX_REMOTE_COORD_ABS,
+        })
+    }
+}
 
 pub struct NetworkPlugin;
 
@@ -61,6 +81,7 @@ impl Plugin for NetworkPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(SymbiosMultiuserPlugin::<OverlandsMessage>::deferred())
             .init_resource::<PeerAvatarCache>()
+            .init_resource::<SmootherConfigRes>()
             .add_systems(
                 Update,
                 (

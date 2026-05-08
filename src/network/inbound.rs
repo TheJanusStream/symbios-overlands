@@ -16,20 +16,20 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
 
 use crate::avatar::AvatarFetchPending;
-use crate::config;
 use crate::pds::RoomRecord;
 use crate::protocol::OverlandsMessage;
 use crate::state::{
     ChatHistory, CurrentRoomDid, DiagnosticsLog, IncomingOfferDialog, PendingOutgoingOffers,
-    RemotePeer, TransformBuffer, TransformSample,
+    RemotePeer,
 };
 
+use super::SmootherConfigRes;
 use super::peer_cache::{PeerAvatarCache, spawn_peer_avatar_fetch};
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn handle_incoming_messages(
     mut commands: Commands,
-    mut queue: ResMut<NetworkQueue<OverlandsMessage>>,
+    mut messages_received: MessagesReceived<OverlandsMessage>,
     mut chat: ResMut<ChatHistory>,
     mut peers: Query<(
         Entity,
@@ -45,14 +45,15 @@ pub(super) fn handle_incoming_messages(
     mut diagnostics: ResMut<DiagnosticsLog>,
     incoming_dialog: Option<Res<IncomingOfferDialog>>,
     mut pending_offers: ResMut<PendingOutgoingOffers>,
-    mut offer_writer: MessageWriter<Broadcast<OverlandsMessage>>,
+    mut sender: SendMessage<OverlandsMessage>,
     mut avatar_cache: ResMut<PeerAvatarCache>,
+    smoother_cfg: Res<SmootherConfigRes>,
 ) {
     let now = time.elapsed_secs_f64();
     // Drain the whole queue into a buffer so we can dedupe `Identity`
     // messages per sender. A burst of Identity messages would otherwise
     // fire N redundant avatar fetches against the peer's PDS.
-    let messages: Vec<_> = queue.drain().collect();
+    let messages: Vec<_> = messages_received.drain().collect();
     let mut last_identity_idx: std::collections::HashMap<PeerId, usize> =
         std::collections::HashMap::new();
     for (i, msg) in messages.iter().enumerate() {
@@ -68,77 +69,21 @@ pub(super) fn handle_incoming_messages(
         }
         match msg.payload {
             OverlandsMessage::Transform { position, rotation } => {
+                // Hand the wire-supplied pose to the upstream jitter buffer.
+                // `push_sample` performs every guard the local code used to
+                // do inline (NaN / Inf rejection, magnitude clamp via
+                // `max_coord_abs`, quaternion normalisation, playout-timestamp
+                // anchoring against same-frame bursts and clock-skew drift)
+                // so the worst a malicious peer can do is have their packet
+                // silently discarded.
                 for (_, peer, _tf, mut buf) in peers.iter_mut() {
                     if peer.peer_id == msg.sender {
-                        // Assign a *playout* timestamp rather than the raw
-                        // arrival time.  WebRTC data channels frequently
-                        // deliver bursts of 2–3 packets in the same frame;
-                        // stamping them with identical `now` values collapses
-                        // the Hermite spline's dt to ~0 and launches the
-                        // remote mesh to infinity via a divide-by-near-zero
-                        // velocity tangent.  Instead, advance the stamp by the
-                        // expected send interval, anchored to `now` so bursts
-                        // can't drift arbitrarily into the future.
-                        //
-                        // The `(last + expected).max(now)` form alone would
-                        // wind up permanently if the sender's clock runs
-                        // faster than ours — every packet pushes `next`
-                        // slightly ahead of `now`, and after a few minutes
-                        // `render_time = now - delay` falls behind the
-                        // oldest sample and the spline degenerates into a
-                        // snap to the earliest buffered sample. Clamp the
-                        // forward drift so the assigned timestamp can never
-                        // sit more than `MAX_JITTER_DRIFT_SECS` ahead of
-                        // `now`, rebasing to live wall-clock on overrun.
-                        let expected = config::network::EXPECTED_BROADCAST_INTERVAL_SECS;
-                        let max_drift = config::network::MAX_JITTER_DRIFT_SECS;
-                        let raw_next = match buf.samples.back() {
-                            Some(last) => (last.timestamp + expected).max(now),
-                            None => now,
-                        };
-                        let ceiling = now + max_drift;
-                        let next = if raw_next > ceiling {
-                            ceiling
-                        } else {
-                            raw_next
-                        };
-                        // Reject non-finite positions and normalise the
-                        // quaternion before it reaches `Quat::slerp` in the
-                        // kinematic smoother — `slerp` on an unnormalised or
-                        // NaN quat propagates NaN into every peer's
-                        // Transform, which then NaN-poisons the avian3d
-                        // broadphase for the *local* rigid body. Drop
-                        // garbage packets silently; the peer broadcasts
-                        // Transform at 60 Hz so the next well-formed one
-                        // overrides within ~16 ms.
-                        let pos_vec = Vec3::from_array(position);
-                        if !pos_vec.is_finite() {
-                            continue;
-                        }
-                        // `is_finite` accepts `f32::MAX`, but subtracting two
-                        // such values inside the Hermite tangent computation
-                        // below overflows to `+Inf`, producing NaN/Inf in
-                        // `Transform.translation` and poisoning the avian3d
-                        // broadphase. Reject any component whose magnitude
-                        // exceeds the play-space bound so arithmetic stays
-                        // well clear of the f32 overflow threshold.
-                        if pos_vec.abs().max_element() > config::network::MAX_REMOTE_COORD_ABS {
-                            continue;
-                        }
-                        let raw_rot = Quat::from_array(rotation);
-                        let rot = if raw_rot.is_finite() && raw_rot.length_squared() > 1e-6 {
-                            raw_rot.normalize()
-                        } else {
-                            Quat::IDENTITY
-                        };
-                        buf.samples.push_back(TransformSample {
-                            position: pos_vec,
-                            rotation: rot,
-                            timestamp: next,
-                        });
-                        while buf.samples.len() > config::network::KINEMATIC_BUFFER_CAPACITY {
-                            buf.samples.pop_front();
-                        }
+                        buf.push_sample(
+                            Vec3::from_array(position),
+                            Quat::from_array(rotation),
+                            now,
+                            &smoother_cfg.0,
+                        );
                     }
                 }
             }
@@ -406,14 +351,15 @@ pub(super) fn handle_incoming_messages(
                     .unwrap_or_else(|| sender_did.clone());
 
                 if sender_muted {
-                    offer_writer.write(Broadcast {
-                        payload: OverlandsMessage::ItemOfferResponse {
+                    sender.to(
+                        msg.sender,
+                        OverlandsMessage::ItemOfferResponse {
                             offer_id,
                             target_did: sender_did.clone(),
                             accepted: false,
                         },
-                        channel: ChannelKind::Reliable,
-                    });
+                        ChannelKind::Reliable,
+                    );
                     continue;
                 }
 
@@ -441,14 +387,15 @@ pub(super) fn handle_incoming_messages(
                 // queue-flood the recipient with nested prompts. Decline
                 // and log so the user knows someone tried.
                 if incoming_dialog.is_some() {
-                    offer_writer.write(Broadcast {
-                        payload: OverlandsMessage::ItemOfferResponse {
+                    sender.to(
+                        msg.sender,
+                        OverlandsMessage::ItemOfferResponse {
                             offer_id,
                             target_did: sender_did.clone(),
                             accepted: false,
                         },
-                        channel: ChannelKind::Reliable,
-                    });
+                        ChannelKind::Reliable,
+                    );
                     diagnostics.push(
                         now,
                         format!(
@@ -463,14 +410,15 @@ pub(super) fn handle_incoming_messages(
                 // error — auto-decline and log.
                 let Some(mut generator) = OverlandsMessage::decode_item_offer(&generator_json)
                 else {
-                    offer_writer.write(Broadcast {
-                        payload: OverlandsMessage::ItemOfferResponse {
+                    sender.to(
+                        msg.sender,
+                        OverlandsMessage::ItemOfferResponse {
                             offer_id,
                             target_did: sender_did.clone(),
                             accepted: false,
                         },
-                        channel: ChannelKind::Reliable,
-                    });
+                        ChannelKind::Reliable,
+                    );
                     diagnostics.push(
                         now,
                         format!(
@@ -487,14 +435,15 @@ pub(super) fn handle_incoming_messages(
                 // can't stuff an unplaceable item into the recipient's
                 // stash via the accept path.
                 if !crate::ui::inventory::is_drop_placeable(&generator) {
-                    offer_writer.write(Broadcast {
-                        payload: OverlandsMessage::ItemOfferResponse {
+                    sender.to(
+                        msg.sender,
+                        OverlandsMessage::ItemOfferResponse {
                             offer_id,
                             target_did: sender_did.clone(),
                             accepted: false,
                         },
-                        channel: ChannelKind::Reliable,
-                    });
+                        ChannelKind::Reliable,
+                    );
                     diagnostics.push(
                         now,
                         format!(

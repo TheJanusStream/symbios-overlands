@@ -11,8 +11,6 @@
 //! sent but not yet received a response for, keyed by a session-unique
 //! `offer_id` the recipient echoes back in its reply.
 
-use std::collections::VecDeque;
-
 use bevy::prelude::*;
 
 use crate::pds::{AvatarRecord, Generator, InventoryRecord, RoomRecord};
@@ -61,22 +59,6 @@ pub enum SocialResonance {
     None,
     /// Query finished: both `following` and `followedBy` were present.
     Mutual,
-}
-
-/// Per-peer transform sample captured off the network.
-#[derive(Clone, Copy, Debug)]
-pub struct TransformSample {
-    pub position: Vec3,
-    pub rotation: Quat,
-    /// Seconds since application start, taken from `Time::elapsed_secs_f64`.
-    pub timestamp: f64,
-}
-
-/// Ring buffer of incoming transform samples, used by the kinematic-smoothing
-/// system to hide single-packet drops with Hermite interpolation.
-#[derive(Component, Default)]
-pub struct TransformBuffer {
-    pub samples: VecDeque<TransformSample>,
 }
 
 /// One row in the rolling chat HUD. The optional `did` is filled in when

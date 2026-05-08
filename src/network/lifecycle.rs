@@ -8,7 +8,7 @@ use bevy_symbios_multiuser::prelude::*;
 
 use crate::config;
 use crate::protocol::OverlandsMessage;
-use crate::state::{DiagnosticsLog, IncomingOfferDialog, RemotePeer, TransformBuffer};
+use crate::state::{DiagnosticsLog, IncomingOfferDialog, RemotePeer};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn handle_peer_connections(
@@ -18,7 +18,7 @@ pub(super) fn handle_peer_connections(
     peers: Query<(Entity, &RemotePeer)>,
     time: Res<Time>,
     session: Option<Res<AtprotoSession>>,
-    mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
+    mut sender: SendMessage<OverlandsMessage>,
 ) {
     let elapsed = time.elapsed_secs_f64();
     for event in peer_events.drain() {
@@ -49,13 +49,13 @@ pub(super) fn handle_peer_connections(
                 // broadcast (~1 s), during which a RoomStateUpdate from us
                 // would fail the owner-DID check and be silently dropped.
                 if let Some(sess) = &session {
-                    writer.write(Broadcast {
-                        payload: OverlandsMessage::Identity {
+                    sender.broadcast(
+                        OverlandsMessage::Identity {
                             did: sess.did.clone(),
                             handle: sess.handle.clone(),
                         },
-                        channel: ChannelKind::Reliable,
-                    });
+                        ChannelKind::Reliable,
+                    );
                 }
             }
             PeerConnectionState::Disconnected => {
@@ -92,7 +92,7 @@ pub(super) fn evict_stale_offer_dialog(
     dialog: Option<Res<IncomingOfferDialog>>,
     time: Res<Time>,
     mut diagnostics: ResMut<DiagnosticsLog>,
-    mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
+    mut sender: SendMessage<OverlandsMessage>,
 ) {
     let Some(dialog) = dialog else {
         return;
@@ -101,14 +101,19 @@ pub(super) fn evict_stale_offer_dialog(
     if now - dialog.arrived_at_secs < config::network::OFFER_DIALOG_TIMEOUT_SECS {
         return;
     }
-    writer.write(Broadcast {
-        payload: OverlandsMessage::ItemOfferResponse {
+    // Targeted reply: the original sender's PeerId is on the dialog
+    // resource (recorded when the offer arrived), so we can return the
+    // auto-decline directly to that peer rather than broadcasting it for
+    // the room to filter out.
+    sender.to(
+        dialog.sender_peer_id,
+        OverlandsMessage::ItemOfferResponse {
             offer_id: dialog.offer_id,
             target_did: dialog.sender_did.clone(),
             accepted: false,
         },
-        channel: ChannelKind::Reliable,
-    });
+        ChannelKind::Reliable,
+    );
     diagnostics.push(
         now,
         format!(

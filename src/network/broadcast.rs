@@ -15,7 +15,7 @@ use crate::state::{CurrentRoomDid, LiveAvatarRecord, LocalPlayer};
 pub(super) fn broadcast_local_state(
     query: Query<(&Transform, &LinearVelocity, &AngularVelocity), With<LocalPlayer>>,
     session: Option<Res<AtprotoSession>>,
-    mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
+    mut sender: SendMessage<OverlandsMessage>,
     mut tick: Local<u32>,
     mut was_stationary: Local<bool>,
 ) {
@@ -40,25 +40,25 @@ pub(super) fn broadcast_local_state(
         || tick.is_multiple_of(config::network::STATIONARY_BROADCAST_DIVISOR);
 
     if should_send {
-        writer.write(Broadcast {
-            payload: OverlandsMessage::Transform {
+        sender.broadcast(
+            OverlandsMessage::Transform {
                 position: tf.translation.to_array(),
                 rotation: tf.rotation.to_array(),
             },
-            channel: ChannelKind::Unreliable,
-        });
+            ChannelKind::Unreliable,
+        );
     }
 
     if tick.is_multiple_of(config::network::IDENTITY_BROADCAST_INTERVAL_TICKS)
         && let Some(sess) = &session
     {
-        writer.write(Broadcast {
-            payload: OverlandsMessage::Identity {
+        sender.broadcast(
+            OverlandsMessage::Identity {
                 did: sess.did.clone(),
                 handle: sess.handle.clone(),
             },
-            channel: ChannelKind::Reliable,
-        });
+            ChannelKind::Reliable,
+        );
     }
 }
 
@@ -69,15 +69,15 @@ pub(super) fn broadcast_local_state(
 /// continuous transforms.
 pub(super) fn broadcast_avatar_state(
     live: Res<LiveAvatarRecord>,
-    mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
+    mut sender: SendMessage<OverlandsMessage>,
 ) {
     if !live.is_changed() {
         return;
     }
-    writer.write(Broadcast {
-        payload: OverlandsMessage::avatar_state_update(&live.0),
-        channel: ChannelKind::Reliable,
-    });
+    sender.broadcast(
+        OverlandsMessage::avatar_state_update(&live.0),
+        ChannelKind::Reliable,
+    );
 }
 
 /// Broadcast a live-preview `RoomStateUpdate` whenever the owner mutates
@@ -89,7 +89,7 @@ pub(super) fn broadcast_room_state(
     record: Option<Res<RoomRecord>>,
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
-    mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
+    mut sender: SendMessage<OverlandsMessage>,
 ) {
     let (Some(record), Some(session), Some(room_did)) = (record, session, room_did) else {
         return;
@@ -100,8 +100,8 @@ pub(super) fn broadcast_room_state(
     if !record.is_changed() {
         return;
     }
-    writer.write(Broadcast {
-        payload: OverlandsMessage::room_state_update(&record),
-        channel: ChannelKind::Reliable,
-    });
+    sender.broadcast(
+        OverlandsMessage::room_state_update(&record),
+        ChannelKind::Reliable,
+    );
 }
