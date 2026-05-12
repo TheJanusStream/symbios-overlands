@@ -80,7 +80,7 @@ fn cleanup_on_logout(
                 #[cfg(target_arch = "wasm32")]
                 {
                     if let Err(e) = fut.await {
-                        tracing::warn!(%e, "OAuth token revocation failed; clearing local state anyway");
+                        warn!("OAuth token revocation failed; clearing local state anyway: {e}");
                     }
                 }
             })
