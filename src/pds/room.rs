@@ -224,7 +224,8 @@ impl Environment {
 }
 
 /// The full recipe: environment + generators + placements + traits. Acts as
-/// a Bevy `Resource` so `world_builder.rs` can compile it into ECS entities.
+/// a Bevy `Resource` so the [`crate::world_builder`] module can compile it
+/// into ECS entities.
 #[derive(Serialize, Deserialize, Clone, Debug, Resource)]
 pub struct RoomRecord {
     #[serde(rename = "$type")]

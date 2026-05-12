@@ -10,9 +10,9 @@
 //! concatenated into a 2D texture array and the `SplatExtension` material is
 //! flipped from placeholder flat-colour mode to triplanar PBR splat blending.
 //!
-//! Water is spawned by `world_builder.rs` from the `Water` generator in the
-//! active `RoomRecord` — this plugin only produces the terrain mesh and
-//! heightfield collider.
+//! Water is spawned by the [`crate::world_builder`] module from the `Water`
+//! generator in the active `RoomRecord` — this plugin only produces the
+//! terrain mesh and heightfield collider.
 
 use avian3d::prelude::*;
 use bevy::asset::RenderAssetUsages;
@@ -479,8 +479,8 @@ fn spawn_terrain_mesh(
             ));
         });
 
-    // Water is spawned separately by `world_builder.rs` from whichever
-    // `Water` generator the active `RoomRecord` declares.
+    // Water is spawned separately by the `world_builder` module from
+    // whichever `Water` generator the active `RoomRecord` declares.
 }
 
 /// Consume `TextureReady` components attached by `SymbiosTexturePlugin` and

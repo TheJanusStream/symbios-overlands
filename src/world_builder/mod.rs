@@ -21,14 +21,16 @@
 //!
 //! ## Sub-module map
 //!
-//! * [`compile`] — the main `compile_room_record` system, its atmospheric
-//!   sibling `apply_environment_state`, the shared `SpawnCtx`, and scatter
-//!   math helpers.
+//! * [`compile`] — the main `compile_room_record` system + its
+//!   per-`GeneratorKind` dispatcher, its atmospheric sibling
+//!   `apply_environment_state`, the shared `SpawnCtx`, and the scatter /
+//!   biome math helpers.
 //! * [`lsystem`] — L-system geometry + material caches and the spawn path.
 //! * [`shape`] — CGA shape-grammar geometry + material caches and the
 //!   per-terminal spawn path; the architectural sibling of [`lsystem`].
-//! * [`prim`] — Construct/Prim spawners and parametric mesh/collider
-//!   builders.
+//! * [`prim`] — Primitive-generator spawners (Cuboid / Sphere / Cylinder /
+//!   Capsule / Cone / Torus / Plane / Tetrahedron) and the parametric
+//!   mesh/collider builders shared by their spawn arm.
 //! * [`portal`] — portal cube spawning. The top-face profile picture is
 //!   delegated to [`image_cache::BlobImageCache`] via a `SignSource::DidPfp`
 //!   request so portals coalesce with Sign generators against the same
@@ -103,10 +105,10 @@ pub struct RoomEntity;
 #[derive(Component)]
 pub struct PlacementMarker(pub usize);
 
-/// Tags every entity spawned from a node in a `Generator::Construct`
+/// Tags every entity spawned from a node inside a named [`crate::pds::Generator`]
 /// blueprint. Carries the generator's name plus the child-index chain from
 /// the blueprint root so `editor_gizmo` can (a) find every live instance
-/// matching a UI-selected prim and (b) resolve the dragged Transform back
+/// matching a UI-selected node and (b) resolve the dragged Transform back
 /// to its slot in the recipe. The path for the blueprint root is an empty
 /// `Vec`; each descendant appends its child index at each depth.
 #[derive(Component, Clone)]

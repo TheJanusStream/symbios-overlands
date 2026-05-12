@@ -69,7 +69,7 @@ pub mod lighting {
 }
 
 // ---------------------------------------------------------------------------
-// Rover (player/ + network.rs)
+// Rover (player/ + network/)
 // ---------------------------------------------------------------------------
 pub mod rover {
     // --- Suspension (Hooke's law + damping) ----------------------------------
@@ -305,7 +305,7 @@ pub mod terrain {
 }
 
 // ---------------------------------------------------------------------------
-// Network (network.rs)
+// Network (network/)
 // ---------------------------------------------------------------------------
 pub mod network {
     /// Broadcast identity to peers every N fixed-update ticks.
@@ -437,7 +437,7 @@ pub mod login {
 }
 
 // ---------------------------------------------------------------------------
-// Airship vehicle (player/ + network.rs)
+// Airship vehicle (player/ + network/)
 // ---------------------------------------------------------------------------
 pub mod airship {
     use super::rover;

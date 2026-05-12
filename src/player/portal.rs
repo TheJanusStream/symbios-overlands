@@ -222,7 +222,7 @@ pub(super) fn poll_portal_travel_tasks(
         };
         new_record.sanitize();
 
-        // 2. Hot-swap the ECS Resources (Triggers world_builder.rs automatically!)
+        // 2. Hot-swap the ECS Resources (Triggers `world_builder` automatically!)
         if let Some(rec) = room_record.as_mut() {
             **rec = new_record.clone();
         }

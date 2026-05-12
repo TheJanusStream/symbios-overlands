@@ -2,7 +2,7 @@
 //!
 //! The actual texture generation and weight-map setup live in [`crate::terrain`].
 //! This module contains only the Bevy asset / shader plumbing so it can be
-//! referenced from both `terrain.rs` and `main.rs` without creating a cycle.
+//! referenced from both `terrain.rs` and the crate root without creating a cycle.
 
 use bevy::{
     pbr::{ExtendedMaterial, MaterialExtension},

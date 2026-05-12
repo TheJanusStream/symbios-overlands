@@ -7,19 +7,28 @@
 //! | [`AvatarRecord`]   | `network.symbios.overlands.avatar`       | `self` |
 //! | [`InventoryRecord`] | `network.symbios.overlands.inventory`   | `self` |
 //!
-//! A `RoomRecord` is composed of three open unions:
+//! A `RoomRecord` is composed of three top-level collections:
 //!
-//! * `generators`  — named hierarchical generators (terrain / water / shape /
-//!   lsystem / portal). Every generator carries a transform and a `children`
-//!   list, so a single named entry can describe an entire fractal blueprint.
-//! * `placements`  — how and where those generators are instantiated
-//!   (absolute / scatter / grid)
-//! * `traits`      — ECS components attached to entities a generator spawns
+//! * `generators`  — name → [`Generator`] map. Each entry is a hierarchical
+//!   node carrying a [`GeneratorKind`] (Terrain / Water / Portal / LSystem /
+//!   Shape / `Sign` / `ParticleSystem` / one of the eight primitives
+//!   Cuboid / Sphere / Cylinder / Capsule / Cone / Torus / Plane /
+//!   Tetrahedron), a local [`TransformData`], and a `Vec<Generator>` of
+//!   children — so a single named entry can describe an entire fractal
+//!   blueprint.
+//! * `placements`  — open-union [`Placement`] list describing how and where
+//!   those named generators are instantiated (Absolute / Scatter / Grid).
+//! * `traits`      — name → ECS-component-tag list attached to entities a
+//!   generator spawns (e.g. `"sensor"` to mark a portal collider as a
+//!   trigger).
 //!
-//! Every union uses `#[serde(other)] Unknown` so a client visiting a record
-//! authored by a newer version of the engine skips the unrecognised variants
-//! instead of crashing its deserializer. This is how the schema evolves
-//! without breaking older clients.
+//! Both [`GeneratorKind`] and [`Placement`] (and every supporting open
+//! union — [`SignSource`], [`EmitterShape`], [`ParticleBlendMode`],
+//! [`SimulationSpace`], [`AnimationFrameMode`], [`TextureFilter`],
+//! [`AlphaModeKind`], [`LocomotionConfig`]) carry `#[serde(other)] Unknown`
+//! so a client visiting a record authored by a newer version of the engine
+//! skips the unrecognised variants instead of crashing its deserializer.
+//! This is how the schema evolves without breaking older clients.
 //!
 //! **DAG-CBOR float ban.** ATProto records are encoded as DAG-CBOR, which
 //! forbids floats entirely — a PDS returns `400 InvalidRequest` the moment

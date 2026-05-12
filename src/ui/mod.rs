@@ -1,6 +1,6 @@
 //! Egui overlay panels. Each submodule exposes at least one system function
-//! that `main.rs` registers under the appropriate [`crate::state::AppState`]
-//! and schedule.
+//! that the library entry point in [`crate::run`] registers under the
+//! appropriate [`crate::state::AppState`] and schedule.
 //!
 //! * [`login`]        — OAuth 2.0 + DPoP login form, runs in `AppState::Login`.
 //! * [`diagnostics`]  — peer roster, mute toggles, event log, logout button.

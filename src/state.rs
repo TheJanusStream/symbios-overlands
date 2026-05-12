@@ -248,9 +248,9 @@ pub enum InventoryPublishFeedback {
 /// their client up answering queued prompts.
 ///
 /// Muted senders never reach this resource — see
-/// `handle_incoming_messages` in `network.rs`, which short-circuits
-/// muted-peer offers into a silent auto-decline before the dialog is
-/// constructed.
+/// [`crate::network`]'s `inbound::handle_incoming_messages`, which
+/// short-circuits muted-peer offers into a silent auto-decline before the
+/// dialog is constructed.
 #[derive(Resource, Clone, Debug)]
 pub struct IncomingOfferDialog {
     pub offer_id: u64,

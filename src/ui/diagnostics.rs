@@ -1,6 +1,10 @@
 //! Diagnostics HUD: local identity, current room DID, peer roster with per-
-//! peer mute toggles, a scrolling event log, and the log-out button that
-//! transitions the app back to `AppState::Login`.
+//! peer mute toggles, the "Copy Landmark Link" share button (bundles the
+//! current room DID + player position + yaw into a URL that the WASM build
+//! opens directly and the native build accepts as `--did=… --pos=… --rot=…`),
+//! a native-only wireframe-mode checkbox (skipped on WebGL2 where
+//! `POLYGON_MODE_LINE` is unavailable), a scrolling event log, and the
+//! log-out button that transitions the app back to `AppState::Login`.
 
 #[cfg(not(target_arch = "wasm32"))]
 use bevy::pbr::wireframe::WireframeConfig;
