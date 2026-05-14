@@ -163,7 +163,7 @@ fn build_surface_basis(normal: vec3<f32>) -> mat3x3<f32> {
 }
 
 // ---------------------------------------------------------------------------
-// Value noise for detail normals + foam breakup
+// Gradient noise for detail normals + foam breakup
 // ---------------------------------------------------------------------------
 
 // David Hoskins' sine-free scalar hash ("Hash without Sine", Shadertoy
@@ -191,43 +191,109 @@ fn hash21(p: vec2<f32>) -> f32 {
     return fract((p3.x + p3.y) * p3.z);
 }
 
-fn noise2d(p: vec2<f32>) -> f32 {
-    let i = floor(p);
-    let f = fract(p);
-    let a = hash21(i);
-    let b = hash21(i + vec2<f32>(1.0, 0.0));
-    let c = hash21(i + vec2<f32>(0.0, 1.0));
-    let d = hash21(i + vec2<f32>(1.0, 1.0));
-    let u = f * f * (3.0 - 2.0 * f);
-    return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+// Hash a 2D integer lattice point to a unit-length 2D gradient. Polar
+// form (random angle → unit vector) gives uniform distribution on the
+// circle, which is what we want — the naive `(h*2-1, h2*2-1)` form is
+// uniform on a square and biases gradients toward the four corner
+// directions, which would reintroduce axis-aligned cell artifacts.
+fn hash_grad(p: vec2<f32>) -> vec2<f32> {
+    let h = hash21(p);
+    let angle = h * 6.2831853;
+    return vec2<f32>(cos(angle), sin(angle));
 }
 
-// Normal perturbation from the gradient of a value-noise field, sampled at
-// the given UV and ~one octave above. The vertical Y coefficient biases the
-// result toward +Y so the combined water normal never flips horizontal
-// (which would invert lighting on a flat pond). Returned in surface-local
-// frame `(t, n, b)` — caller rotates to world.
+// Perlin-style gradient noise with quintic interpolation. Two reasons
+// we chose this over the previous bilinear value noise for the detail-
+// normal path:
 //
-// `footprint` is the screen-space size of one UV unit at this pixel. When
-// the footprint approaches or exceeds one noise cell the finite-difference
-// gradient aliases hard: the characteristic symptom is a diagonal hash-cell
-// grid becoming visible at grazing angles, especially when amplified by a
-// low-roughness specular lobe. We fade the gradient amplitude inversely to
-// the footprint so under-sampled regions collapse to a flat normal rather
-// than producing garbage derivatives.
+//   1. Value noise's smoothstep interpolant (`f²(3−2f)`) has zero
+//      derivative at f=0 and f=1, so the noise gradient *vanishes on
+//      every cell edge* and peaks in cell centres. Visualised through
+//      a finite-difference normal map this reads as bright/dark
+//      diamond shapes inside axis-aligned cells — the "grid look"
+//      that became obvious whenever `normal_scale_near` was small
+//      enough that one cell covered many pixels.
+//   2. Gradient noise has value zero at every corner (gradient · 0
+//      offset = 0), so cell edges don't form coherent
+//      bright/dark axis-aligned ridges. Combined with quintic fade
+//      (C², zero 1st and 2nd derivative at boundaries) the cell
+//      structure is no longer visible at any practical scale.
 //
-// The coefficient below is chosen so a pixel covering ~40% of a noise cell
-// is already half-faded — erring on the side of too much smoothing, which
-// is cheaper visually than leaving spiky residue on the specular lobe.
+// Output is remapped to roughly [0, 1] to match the call-site
+// semantics of the previous `noise2d`. The exact range of raw 2D
+// gradient noise is ±√2/2 ≈ ±0.707, so we scale by 1/√2 then bias.
+fn gradient_noise(p: vec2<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let ga = hash_grad(i);
+    let gb = hash_grad(i + vec2<f32>(1.0, 0.0));
+    let gc = hash_grad(i + vec2<f32>(0.0, 1.0));
+    let gd = hash_grad(i + vec2<f32>(1.0, 1.0));
+    let va = dot(ga, f);
+    let vb = dot(gb, f - vec2<f32>(1.0, 0.0));
+    let vc = dot(gc, f - vec2<f32>(0.0, 1.0));
+    let vd = dot(gd, f - vec2<f32>(1.0, 1.0));
+    let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    let raw = mix(mix(va, vb, u.x), mix(vc, vd, u.x), u.y);
+    return raw * 0.7071 + 0.5;
+}
+
+// Normal perturbation from the gradient of a two-octave gradient-noise
+// field. The vertical Y coefficient biases the result toward +Y so the
+// combined water normal never flips horizontal (which would invert
+// lighting on a flat pond). Returned in surface-local frame `(t, n, b)`
+// — caller rotates to world.
+//
+// Each octave is sampled in a UV frame rotated by a different non-axis
+// angle. Without these rotations the noise lattice aligns with world
+// XZ, and even with gradient noise (no per-cell edge brightness) the
+// finite-difference gradient inherits a faint axis bias visible as
+// world-aligned bands at grazing angles. The two angles are chosen to
+// be ~40° apart from each other and roughly 40° / 97° from world X so
+// the two octaves' cell directions don't reinforce.
+//
+// The octave scale ratio (`OCT2_SCALE`) is a deliberately non-harmonic
+// 1.937 rather than the previous 2.17. 2.17 sat very close to 13/6 ≈
+// 2.1667 — a low-order rational that synchronised the two octaves
+// every six base cells along the world axes, planting a soft
+// equidistant-band beat pattern across the surface. 1.937 has no
+// nearby simple ratio under 30, so the octaves drift across each other
+// indefinitely.
+//
+// `footprint` is the screen-space size of one UV unit at this pixel.
+// When the footprint approaches or exceeds one noise cell the
+// finite-difference gradient aliases hard. We fade the gradient
+// amplitude inversely to the footprint so under-sampled regions
+// collapse to a flat normal rather than producing garbage derivatives.
+// The coefficient is chosen so a pixel covering ~40% of a noise cell
+// is already half-faded — erring on the side of too much smoothing,
+// which is cheaper visually than leaving spiky residue on the
+// specular lobe.
 fn detail_normal(uv: vec2<f32>, footprint: f32) -> vec3<f32> {
     let fade = clamp(1.0 - footprint * 2.5, 0.0, 1.0);
     if fade < 0.01 {
         return vec3<f32>(0.0, 1.0, 0.0);
     }
     let eps = 0.05;
-    let v = noise2d(uv) + 0.5 * noise2d(uv * 2.17);
-    let dx = (noise2d(uv + vec2<f32>(eps, 0.0)) + 0.5 * noise2d((uv + vec2<f32>(eps, 0.0)) * 2.17)) - v;
-    let dz = (noise2d(uv + vec2<f32>(0.0, eps)) + 0.5 * noise2d((uv + vec2<f32>(0.0, eps)) * 2.17)) - v;
+
+    // mat2x2 is column-major: columns (c, s) and (-s, c) form the
+    // CCW rotation by the angle whose (cos, sin) is (c, s).
+    let r1 = mat2x2<f32>(0.7648, 0.6442, -0.6442, 0.7648); // ≈ 40° CCW
+    let r2 = mat2x2<f32>(-0.1288, 0.9917, -0.9917, -0.1288); // ≈ 97° CCW
+    let oct2_scale = 1.937;
+
+    let p1 = r1 * uv;
+    let p2 = r2 * uv * oct2_scale;
+    let dp1_x = r1 * vec2<f32>(eps, 0.0);
+    let dp1_z = r1 * vec2<f32>(0.0, eps);
+    let dp2_x = r2 * vec2<f32>(eps * oct2_scale, 0.0);
+    let dp2_z = r2 * vec2<f32>(0.0, eps * oct2_scale);
+
+    let v   = gradient_noise(p1)         + 0.5 * gradient_noise(p2);
+    let vx  = gradient_noise(p1 + dp1_x) + 0.5 * gradient_noise(p2 + dp2_x);
+    let vz  = gradient_noise(p1 + dp1_z) + 0.5 * gradient_noise(p2 + dp2_z);
+    let dx = vx - v;
+    let dz = vz - v;
     return normalize(vec3<f32>(-dx / eps * fade, 3.0, -dz / eps * fade));
 }
 
@@ -424,7 +490,7 @@ fn fragment(
     // legacy `n_gerstner.y` on flat water but invariant to the surface
     // basis on tilted water.
     let slope = clamp(1.0 - n_gerstner_local.y, 0.0, 1.0);
-    let foam_noise = noise2d(xz * 0.6 + scroll_dir * t * 0.5);
+    let foam_noise = gradient_noise(xz * 0.6 + scroll_dir * t * 0.5);
     var foam = clamp(
         smoothstep(0.28, 0.8, slope * 1.3 + foam_noise * 0.4) * water_uniforms.foam_amount,
         0.0,
@@ -443,7 +509,7 @@ fn fragment(
             dot(xz, flow_dir_xz) - t * (1.5 + 2.5 * flow_speed),
             dot(xz, perp) * 0.6,
         );
-        let stripe = noise2d(stripe_uv * 0.7);
+        let stripe = gradient_noise(stripe_uv * 0.7);
         let streamline = smoothstep(0.55, 0.85, stripe) * flow_amount * flow_speed;
         foam = clamp(foam + streamline * water_uniforms.foam_amount, 0.0, 1.0);
     }
