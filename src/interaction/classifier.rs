@@ -316,44 +316,6 @@ fn emit_for_avatar(
     let curr = probe_surface(world_pos, total_height, was_in_contact, water);
     let (transitions, new_state) = compute_transitions(last, curr);
 
-    // TEMP DIAGNOSTIC #254 — remove once the settle-burst root cause is
-    // confirmed. Gated on OVERLANDS_WAKE_DEBUG so default builds, tests
-    // and normal runtime are byte-for-byte unaffected. Tests the
-    // hypothesis that a pitching/heaving HoverBoat settle lifts the
-    // axis-aligned body-bottom probe past CONTACT_EXIT_SLACK, flipping
-    // contact Some<->None and shedding an Enter/Exit SplashRing burst.
-    if std::env::var_os("OVERLANDS_WAKE_DEBUG").is_some() {
-        let body_bottom = Vec3::new(world_pos.x, world_pos.y - 0.5 * total_height, world_pos.z);
-        let signed_depth = water.query_signed(body_bottom).map(|q| q.depth);
-        // Relevance gate: only emit near/at/leaving water or on any
-        // transition. Boat-on-land-far-from-water frames stay silent so
-        // every captured line is the contact/settle window.
-        let near_water = signed_depth.is_some_and(|d| d > -3.0);
-        if was_in_contact || curr.is_some() || !transitions.is_empty() || near_water {
-            let slack = if was_in_contact {
-                wcfg::CONTACT_EXIT_SLACK
-            } else {
-                wcfg::CONTACT_SLACK
-            };
-            let phases: Vec<ContactPhase> = transitions.iter().map(|t| t.phase).collect();
-            info!(
-                target: "wake_debug",
-                "probe avatar={:?} origin_y={:.4} h={:.3} body_bottom_y={:.4} \
-                 signed_depth={:?} was_in_contact={} slack={:.2} \
-                 curr_some={} -> phases={:?}",
-                avatar,
-                world_pos.y,
-                total_height,
-                body_bottom.y,
-                signed_depth.map(|d| (d * 1000.0).round() / 1000.0),
-                was_in_contact,
-                slack,
-                curr.is_some(),
-                phases,
-            );
-        }
-    }
-
     for t in transitions {
         let intensity = intensity_for(&t.surface, locomotion);
         out.push(ContactSample {

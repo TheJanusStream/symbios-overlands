@@ -233,21 +233,40 @@ pub mod terrain {
             /// Lifetime of a `SplashRing` spawned on water Enter/Exit. Short
             /// — an entry splash is a brief event, not a lingering swell.
             pub const SPLASH_LIFETIME: f32 = 0.9;
-            /// Lifetime of a `RadialRipple` shed during slow Dwell. Long
-            /// enough that a footfall ring is still visibly expanding after
-            /// the avatar has taken a few more steps.
+            /// Lifetime of a `RadialRipple` shed during slow Dwell.
+            ///
+            /// NOTE: with `DWELL_MIN_SPEED` (2.0) ≥
+            /// `DIRECTIONAL_SPEED_THRESHOLD` (1.2), every Dwell stamp is
+            /// now a `DirectionalWake` — the `RadialRipple` Dwell path
+            /// (and therefore this constant) is currently unreachable.
+            /// Kept because slow-wade ripples were a deliberate design
+            /// casualty of the #254 raw-speed gate, not a removed
+            /// feature; restoring them would re-enable this path.
             pub const RIPPLE_LIFETIME: f32 = 2.2;
-            /// Lifetime of a `DirectionalWake` shed during fast Dwell. The
-            /// V-trail behind a moving avatar should persist clearly after
-            /// it has moved on, then fade.
-            pub const WAKE_LIFETIME: f32 = 3.0;
-            /// Distance (m) an avatar must travel through water to shed
-            /// one Dwell perturbation. Emission is *distance*-gated, not
-            /// time-gated: spatial density is fixed at one per
-            /// `DWELL_SPACING` regardless of speed or framerate, so a
-            /// fast mover doesn't pile dozens of overlapping ripples and
-            /// a still avatar (no distance accrued) sheds nothing.
-            pub const DWELL_SPACING: f32 = 0.6;
+            /// Lifetime of a `DirectionalWake` shed during Dwell. Long
+            /// enough that the trail persists clearly behind a moving
+            /// boat then fades. Bounded deliberately: at the widened
+            /// `DWELL_SPACING` this keeps the live-stamp count well
+            /// under the 32-slot per-plane uniform cap even at high
+            /// speed (e.g. 20 m/s ÷ 2.5 m × 2.0 s ≈ 16), so the shader
+            /// sums a sparse readable wake instead of a saturated pile.
+            pub const WAKE_LIFETIME: f32 = 2.0;
+            /// Distance (m) of avatar travel per shed Dwell
+            /// perturbation. Distance-gated (not time-gated), so the
+            /// spatial wake density is a fixed one-per-`DWELL_SPACING`
+            /// regardless of speed or framerate.
+            ///
+            /// Tuned as a *vehicle-wake* knob: since Dwell only fires
+            /// at raw speed ≥ `DWELL_MIN_SPEED` (2.0 m/s), this is no
+            /// longer a footfall cadence. A single shader teardrop is
+            /// `wake_decay_radius·(0.8 + 0.3·speed)` long — ≥ 5.6 m
+            /// even at the 2 m/s gate with the default decay radius of
+            /// 4.0 — so consecutive stamps at 2.5 m still overlap into
+            /// a continuous wake with no dotting, while emitting ~4×
+            /// fewer overlapping stamps than the old 0.6 m (which
+            /// saturated the uniform cap into an unrealistic
+            /// accumulation ridge, chainlink #254).
+            pub const DWELL_SPACING: f32 = 2.5;
             /// Minimum speed (m/s) for Dwell to shed anything. Gated on
             /// the **raw** contact-sample velocity
             /// (avian `LinearVelocity` for the local player) — *not* a
@@ -275,7 +294,14 @@ pub mod terrain {
             /// as a teleport (portal warp): the track resets with no
             /// emission instead of stamping a line of ripples between
             /// the old and new position.
-            pub const DWELL_TELEPORT_DIST: f32 = 8.0;
+            ///
+            /// Must sit comfortably ABOVE `DWELL_MAX_BURST ·
+            /// DWELL_SPACING` (4 · 2.5 = 10 m) so that a legitimate
+            /// frame hitch — e.g. a 30 m/s boat through a ~0.4 s stall
+            /// ≈ 12 m — produces a *capped* burst rather than being
+            /// misread as a warp and silently dropping the wake. Only a
+            /// genuine portal jump (well beyond a hitch) should reset.
+            pub const DWELL_TELEPORT_DIST: f32 = 16.0;
             /// Speed (m/s) at or above which Dwell sheds `DirectionalWake`
             /// instead of `RadialRipple`. Below this the avatar is moving
             /// too slowly for a directional trail to read.

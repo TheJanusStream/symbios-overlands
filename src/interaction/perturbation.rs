@@ -409,20 +409,6 @@ pub fn spawn_perturbations(
         let speed = vel.length();
         let dir = if speed > 1e-3 { vel / speed } else { Vec2::X };
 
-        // TEMP DIAGNOSTIC #254 — remove once the settle-burst root
-        // cause is confirmed. Env-gated; zero cost / no output when
-        // OVERLANDS_WAKE_DEBUG is unset. Pairs with the classifier
-        // probe log to show, near a stop, whether the burst is
-        // Enter/Exit SplashRing chatter or Dwell-path emission.
-        let debug_wake = std::env::var_os("OVERLANDS_WAKE_DEBUG").is_some();
-        if debug_wake {
-            info!(
-                target: "wake_debug",
-                "sample avatar={:?} phase={:?} speed={:.3} pos=({:.2},{:.2})",
-                sample.avatar, sample.phase, speed, pos.x, pos.y,
-            );
-        }
-
         match sample.phase {
             ContactPhase::Enter | ContactPhase::Exit => {
                 if let Some(p) = spawn_for_phase(
@@ -434,14 +420,6 @@ pub fn spawn_perturbations(
                     sample.intensity,
                     sample.footprint_radius,
                 ) {
-                    if debug_wake {
-                        info!(
-                            target: "wake_debug",
-                            "  push SplashRing ({:?}) pool_len={}",
-                            sample.phase,
-                            pool.live.len() + 1,
-                        );
-                    }
                     pool.live.push(p);
                 }
             }
@@ -450,15 +428,6 @@ pub fn spawn_perturbations(
                 let prev = spawn_state.tracks.get(&sample.avatar).copied();
                 let (next_track, count) = step_dwell_distance(prev, pos, speed);
                 spawn_state.tracks.insert(sample.avatar, next_track);
-                if debug_wake && count > 0 {
-                    info!(
-                        target: "wake_debug",
-                        "  push {}x {:?} (Dwell) pool_len={}",
-                        count,
-                        dwell_kind(speed),
-                        pool.live.len() + count as usize,
-                    );
-                }
                 for _ in 0..count {
                     pool.live.push(spawn_dwell(
                         plane_idx,
@@ -533,7 +502,8 @@ mod tests {
         let mut track = step_dwell_distance(None, Vec2::ZERO, FAST).0;
         let mut x = 0.0_f32;
 
-        // Phase A — 3 s straight run at 20 m/s (≈ 60 m).
+        // Phase A — 3 s straight run at 20 m/s (≈ 60 m → ~24 stamps
+        // at the 2.5 m spacing).
         let mut run_total = 0u32;
         for _ in 0..180 {
             x += 20.0 * DT;
@@ -542,7 +512,7 @@ mod tests {
             run_total += c;
         }
         assert!(
-            run_total > 50,
+            run_total > 15,
             "the fast run itself must lay a trail, got {run_total}"
         );
 
@@ -634,10 +604,10 @@ mod tests {
             track = t;
             total += c;
         }
-        // 50 m / 0.6 m spacing ≈ 83, with no EMA warm-up lag.
+        // 50 m / 2.5 m spacing ≈ 20, with no EMA warm-up lag.
         assert!(
-            (78..=85).contains(&total),
-            "expected a dense even trail (~83), got {total}"
+            (18..=21).contains(&total),
+            "expected an even trail (~20), got {total}"
         );
     }
 
@@ -652,12 +622,12 @@ mod tests {
 
     #[test]
     fn dwell_burst_is_capped_and_reanchored() {
-        // Anchor many spacings behind; one fast step jumps 5 m. Raw
-        // count (5 / 0.6 ≈ 8) exceeds DWELL_MAX_BURST, so emission is
+        // Anchor many spacings behind; one fast step jumps 15 m. Raw
+        // count (15 / 2.5 = 6) exceeds DWELL_MAX_BURST, so emission is
         // capped and the anchor re-bases to the live position so the
         // backlog can't burst again next frame.
         let prev = track_at(Vec2::ZERO);
-        let curr = Vec2::new(5.0, 0.0);
+        let curr = Vec2::new(15.0, 0.0);
         let (track, count) = step(prev, curr, FAST);
         assert_eq!(count, wcfg::DWELL_MAX_BURST);
         assert!(
