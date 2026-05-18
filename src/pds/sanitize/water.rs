@@ -61,6 +61,28 @@ impl Sanitize for WaterSurface {
             0.0,
         ));
         self.flow_amount = Fp(clamp_finite(self.flow_amount.0, 0.0, 1.0, 0.0));
+        self.wake_strength = Fp(clamp_finite(
+            self.wake_strength.0,
+            0.0,
+            limits::MAX_WATER_WAKE_STRENGTH,
+            0.0,
+        ));
+        // Lower bound of 0.05 m matches the per-pixel footprint fade
+        // threshold in detail_normal — anything finer reads as noise.
+        self.wake_ripple_wavelength = Fp(clamp_finite(
+            self.wake_ripple_wavelength.0,
+            0.05,
+            limits::MAX_WATER_WAKE_RIPPLE_WAVELENGTH,
+            1.5,
+        ));
+        // Lower bound of 0.1 m keeps the exp(-r/R) factor from dividing
+        // by a near-zero radius and producing NaN.
+        self.wake_decay_radius = Fp(clamp_finite(
+            self.wake_decay_radius.0,
+            0.1,
+            limits::MAX_WATER_WAKE_DECAY_RADIUS,
+            4.0,
+        ));
     }
 }
 

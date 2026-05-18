@@ -12,7 +12,10 @@ use bevy_symbios_texture::build_procedural_material_async;
 use crate::config::terrain as tcfg;
 use crate::pds::{Environment, SovereignMaterialSettings, WaterSurface};
 use crate::terrain::WaterVolume;
-use crate::water::{WaterExtension, WaterMaterial, WaterPlane, WaterSurfaces, WaterUniforms};
+use crate::water::{
+    WAKE_SAMPLES_MAX, WaterExtension, WaterMaterial, WaterPlane, WaterPlaneIndex, WaterSurfaces,
+    WaterUniforms,
+};
 
 use super::RoomEntity;
 use super::compile::SpawnCtx;
@@ -45,6 +48,18 @@ fn build_water_uniforms(surface: &WaterSurface, env: &Environment) -> WaterUnifo
         sun_glitter: env.water_sun_glitter.0,
         shore_foam_width: env.water_shore_foam_width.0,
         flow_amount: surface.flow_amount.0,
+        // Wake perturbation channel. Both arrays zeroed at spawn;
+        // `feed_water_wakes` (interaction consumer) overwrites entries
+        // 0..wake_active_count each frame the volume has live
+        // perturbations. Default `wake_strength = 0` in PDS means a
+        // freshly spawned volume contributes nothing visible until
+        // authored on.
+        wake_samples_a: [Vec4::ZERO; WAKE_SAMPLES_MAX],
+        wake_samples_b: [Vec4::ZERO; WAKE_SAMPLES_MAX],
+        wake_active_count: 0,
+        wake_strength: surface.wake_strength.0,
+        wake_ripple_wavelength: surface.wake_ripple_wavelength.0,
+        wake_decay_radius: surface.wake_decay_radius.0,
     }
 }
 
@@ -100,6 +115,14 @@ pub(super) fn spawn_water_volume(
     // the record. The mesh half-extent is recorded BEFORE the transform's
     // scale is applied — `WaterSurfaces::surface_at` re-applies the scale
     // via the inverse transform when testing containment.
+    //
+    // `plane_idx` is captured before the push so it can be attached to
+    // the spawned entity as a `WaterPlaneIndex`. The interaction
+    // framework's water-wake consumer walks every `WaterVolume` and
+    // uses this index to route contact samples (which the
+    // ContactClassifier emits indexed against `WaterSurfaces.planes`)
+    // to the correct material asset.
+    let plane_idx = water_surfaces.planes.len();
     water_surfaces.planes.push(WaterPlane {
         world_from_local: tf,
         local_half_extents: Vec2::splat(half_extent),
@@ -112,6 +135,7 @@ pub(super) fn spawn_water_volume(
             MeshMaterial3d(water_mat),
             tf,
             WaterVolume,
+            WaterPlaneIndex(plane_idx),
             RoomEntity,
         ))
         .id()

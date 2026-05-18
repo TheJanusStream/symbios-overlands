@@ -74,6 +74,19 @@ pub struct WaterSurface {
     /// Independent of `flow_strength` so a glassy "infinity-pool" effect
     /// (visible flow, no avatar push) is authorable.
     pub flow_amount: Fp,
+    /// Strength of the avatar-wake ripple effect (Phase 1 of the
+    /// interaction framework — see [`crate::interaction`]). `0.0`
+    /// disables the effect entirely so existing scenes render
+    /// unchanged. Higher values amplify the ripple per contact sample.
+    pub wake_strength: Fp,
+    /// Distance between ripple peaks in the wake, world metres.
+    /// Smaller = tighter, busier ripples; larger = broader swells.
+    pub wake_ripple_wavelength: Fp,
+    /// Radial distance at which a single wake sample's contribution
+    /// falls to `1/e` (~37%). Larger values produce wider wakes that
+    /// reach further from the avatar; smaller values keep effects
+    /// tightly localised.
+    pub wake_decay_radius: Fp,
 }
 
 impl Default for WaterSurface {
@@ -95,6 +108,11 @@ impl Default for WaterSurface {
             foam_amount: Fp(0.25),
             flow_strength: Fp(0.0),
             flow_amount: Fp(0.0),
+            // Wake effect off by default — existing rooms read as
+            // pre-wake, only opt-in volumes show the ripples.
+            wake_strength: Fp(0.0),
+            wake_ripple_wavelength: Fp(1.5),
+            wake_decay_radius: Fp(4.0),
         }
     }
 }

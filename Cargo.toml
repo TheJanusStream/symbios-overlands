@@ -67,8 +67,8 @@ js-sys = "0.3.82"
 gloo-timers = { version = "0.3", features = ["futures"] }
 
 [profile.release]
-opt-level = "s"   # Optimize for size (helps wasm-bindgen)
-lto = "fat"       # Enable full Link Time Optimization (CRITICAL FIX)
-codegen-units = 1 # Reduce parallelism to improve optimization quality
-strip = true      # Strip symbols to clean up the binary tables
-panic = "abort"   # Reduce binary size by removing stack unwinding
+#opt-level = "s"   # Optimize for size (helps wasm-bindgen)
+#lto = "fat"       # Enable full Link Time Optimization (CRITICAL FIX)
+#codegen-units = 1 # Reduce parallelism to improve optimization quality
+#strip = true      # Strip symbols to clean up the binary tables
+#panic = "abort"   # Reduce binary size by removing stack unwinding

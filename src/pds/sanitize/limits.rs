@@ -125,6 +125,21 @@ pub const MAX_WAVE_SPEED: f32 = 100.0;
 /// 10× free-fall is the upper bound for any reasonable river / waterfall
 /// effect.
 pub const MAX_WATER_FLOW_STRENGTH: f32 = 100.0;
+/// Maximum amplitude multiplier on the per-volume avatar-wake effect.
+/// The shader scales each impulse by `wake_strength`; values above ~5
+/// produce surface deformations that read as cartoonish "tidal-wave"
+/// trails. Bounded so a hostile record can't push a vertical spike.
+pub const MAX_WATER_WAKE_STRENGTH: f32 = 5.0;
+/// Maximum metres between wake ripple peaks. Below ~0.1 m the ripple
+/// frequency aliases with the per-pixel footprint and reads as noise;
+/// above ~10 m the ripple wavelength dominates the entire plane and
+/// stops looking like a wake.
+pub const MAX_WATER_WAKE_RIPPLE_WAVELENGTH: f32 = 10.0;
+/// Maximum 1/e decay radius for one wake-sample's contribution. A
+/// 50-metre wake from a single avatar covers most of a typical pond
+/// and is the practical upper bound before the effect loses spatial
+/// locality.
+pub const MAX_WATER_WAKE_DECAY_RADIUS: f32 = 50.0;
 /// Maximum URL length (bytes) for a [`crate::pds::SignSource::Url`]
 /// payload. 2048 matches the de-facto browser cap and keeps a hostile
 /// record from smuggling megabytes of inert string through the room

@@ -222,6 +222,100 @@ pub mod terrain {
         /// Default shore-foam band width (m). Defaults to 0.0 until the
         /// depth-prepass path needed to resolve shoreline depth is wired in.
         pub const DEFAULT_SHORE_FOAM_WIDTH: f32 = 0.0;
+
+        // --- Avatar-wake perturbation simulation -------------------------
+        // Behaviour constants for the CPU perturbation pool
+        // (`crate::interaction::perturbation`). These are engine-tuning
+        // values, not authored per-volume — the per-volume amplitude /
+        // wavelength / decay knobs live on `pds::WaterSurface`. Lifetimes
+        // are seconds; rates are spawns-per-second.
+        pub mod wake {
+            /// Lifetime of a `SplashRing` spawned on water Enter/Exit. Short
+            /// — an entry splash is a brief event, not a lingering swell.
+            pub const SPLASH_LIFETIME: f32 = 0.9;
+            /// Lifetime of a `RadialRipple` shed during slow Dwell. Long
+            /// enough that a footfall ring is still visibly expanding after
+            /// the avatar has taken a few more steps.
+            pub const RIPPLE_LIFETIME: f32 = 2.2;
+            /// Lifetime of a `DirectionalWake` shed during fast Dwell. The
+            /// V-trail behind a moving avatar should persist clearly after
+            /// it has moved on, then fade.
+            pub const WAKE_LIFETIME: f32 = 3.0;
+            /// Distance (m) an avatar must travel through water to shed
+            /// one Dwell perturbation. Emission is *distance*-gated, not
+            /// time-gated: spatial density is fixed at one per
+            /// `DWELL_SPACING` regardless of speed or framerate, so a
+            /// fast mover doesn't pile dozens of overlapping ripples and
+            /// a still avatar (no distance accrued) sheds nothing.
+            pub const DWELL_SPACING: f32 = 0.6;
+            /// Time constant (s) of the **fast** position low-pass.
+            /// `smooth_pos` (this τ) places the trail and measures
+            /// spatial spacing; it is compared against the slow
+            /// `ref_pos` EMA (`DWELL_REF_SMOOTH_TAU`) to decide whether
+            /// the avatar is making *sustained directional progress*.
+            pub const DWELL_POS_SMOOTH_TAU: f32 = 0.5;
+            /// Time constant (s) of the **slow** position low-pass
+            /// (`ref_pos`). The Dwell progress gate emits only when the
+            /// fast average is meaningfully *ahead* of the slow one.
+            ///
+            /// Why this is the decisive discriminator: a bounded
+            /// oscillation (a settling/rocking hull) drives *both*
+            /// EMAs to the same stationary centre, so their difference
+            /// → 0 regardless of how fast, how large, or how long it
+            /// rocks — and with no seed-decay (a velocity EMA seeded
+            /// from cruising speed only *decayed*, merely shortening
+            /// the burst). Sustained one-way travel separates the two
+            /// EMAs by ≈ `speed · (τ_ref − τ_fast)`. Must be well
+            /// longer than any rock half-cycle.
+            pub const DWELL_REF_SMOOTH_TAU: f32 = 1.5;
+            /// Minimum sustained progress speed (m/s). Below it — slow
+            /// drift, rocking, a hull settling to a stop, a dead
+            /// standstill — Dwell emits **nothing**. Implemented as a
+            /// threshold on `|smooth_pos − ref_pos|`, which equals
+            /// `speed · (τ_ref − τ_fast)` for steady travel, so this is
+            /// a true m/s figure. Raise it to require brisker motion
+            /// before the water wakes; lower it to wake on gentler
+            /// movement (at the cost of more settle sensitivity).
+            pub const DWELL_MIN_SPEED: f32 = 0.5;
+            /// Max Dwell perturbations one avatar may shed in a single
+            /// frame. Bounds a large-`dt` hitch; a genuine teleport is
+            /// caught earlier by `DWELL_TELEPORT_DIST`.
+            pub const DWELL_MAX_BURST: u32 = 4;
+            /// Single-frame travel (m) above which the move is treated
+            /// as a teleport (portal warp): the track resets with no
+            /// emission instead of stamping a line of ripples between
+            /// the old and new position.
+            pub const DWELL_TELEPORT_DIST: f32 = 8.0;
+            /// Speed (m/s) at or above which Dwell sheds `DirectionalWake`
+            /// instead of `RadialRipple`. Below this the avatar is moving
+            /// too slowly for a directional trail to read.
+            pub const DIRECTIONAL_SPEED_THRESHOLD: f32 = 1.2;
+            /// Global cap on live perturbations across every water plane.
+            /// When exceeded the oldest are culled first. 512 covers a
+            /// busy multiplayer lake; the per-plane uniform cap
+            /// (`WAKE_SAMPLES_MAX`) bounds what actually reaches the GPU.
+            pub const POOL_MAX: usize = 512;
+            /// Waterline tolerance (m) for *entering* water contact.
+            /// The classifier probes the avatar's *body bottom*
+            /// (`origin.y − total_height/2`); contact begins when that
+            /// point is within `CONTACT_SLACK` above the surface or
+            /// anywhere below it. The slack catches a hull resting
+            /// exactly at the waterline (e.g. a buoyant hover-boat that
+            /// hovers a hair above the surface) without making an
+            /// avatar flying well clear of the water emit ripples.
+            pub const CONTACT_SLACK: f32 = 0.15;
+            /// Waterline tolerance (m) for *leaving* water contact —
+            /// the wide arm of a Schmitt trigger. Once an avatar is in
+            /// contact it stays in contact until its body bottom rises
+            /// more than `CONTACT_EXIT_SLACK` above the surface. Must
+            /// exceed the settling-bob amplitude of a decelerating
+            /// hull: without it, a boat coming to rest bobs across the
+            /// tight enter threshold every frame, flipping
+            /// Exit→Enter→Exit and spawning a burst of splash rings.
+            /// The asymmetry (0.15 in, 0.6 out) is the hysteresis band
+            /// that absorbs that chatter.
+            pub const CONTACT_EXIT_SLACK: f32 = 0.6;
+        }
     }
 
     // --- Splat material ------------------------------------------------------

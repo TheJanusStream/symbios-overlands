@@ -40,6 +40,11 @@
     forward_io::{VertexOutput, FragmentOutput},
 }
 
+// Must match `WAKE_SAMPLES_MAX` in `src/water.rs` exactly. The shader
+// reads `wake_active_count` for the live extent; capacity is fixed at
+// 32 so the WGSL array length is a constant the std140 layout needs.
+const WAKE_SAMPLES_MAX: u32 = 32u;
+
 struct WaterUniforms {
     shallow_color: vec4<f32>,
     deep_color: vec4<f32>,
@@ -58,6 +63,21 @@ struct WaterUniforms {
     sun_glitter: f32,
     shore_foam_width: f32,
     flow_amount: f32,
+    // Avatar-wake perturbation channel (Phase 1, revised). Each live
+    // perturbation occupies one slot across two parallel arrays:
+    //   wake_samples_a[i] = (pos.x, pos.z, dir.x, dir.z)
+    //   wake_samples_b[i] = (age_norm, amplitude, kind, speed)
+    // where age_norm ∈ [0,1] drives the lifetime envelope and kind is
+    // 0 RadialRipple / 1 DirectionalWake / 2 SplashRing.
+    // `wake_active_count` is the number of valid slots;
+    // `wake_strength = 0` (default) makes the shader skip the loop
+    // entirely so existing scenes render pixel-identical.
+    wake_samples_a: array<vec4<f32>, WAKE_SAMPLES_MAX>,
+    wake_samples_b: array<vec4<f32>, WAKE_SAMPLES_MAX>,
+    wake_active_count: u32,
+    wake_strength: f32,
+    wake_ripple_wavelength: f32,
+    wake_decay_radius: f32,
 };
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> water_uniforms: WaterUniforms;
@@ -298,6 +318,149 @@ fn detail_normal(uv: vec2<f32>, footprint: f32) -> vec3<f32> {
 }
 
 // ---------------------------------------------------------------------------
+// Avatar-wake perturbation field (Phase 1, revised — see
+// `crate::interaction::perturbation`)
+// ---------------------------------------------------------------------------
+
+// Per-fragment height contribution from every live perturbation.
+//
+// A perturbation is a typed, aging disturbance shed by an avatar
+// contact event — it is NOT the avatar's live position. `age_norm`
+// (∈[0,1]) drives a birth→death amplitude envelope, so a wake persists
+// and fades in place after the avatar has moved on.
+//
+// Three kinds (encoded in `wake_samples_b[i].z`):
+//   0 RadialRipple   — isotropic concentric ring; slow-Dwell footfall.
+//   1 DirectionalWake — a faded teardrop trailing BEHIND the spawn
+//                       point along the frozen heading: the vehicle
+//                       sits at the front tip (apex), the half-width
+//                       swells mid-trail and closes at the far end,
+//                       and the lateral edges + far end fade out. A
+//                       single smooth lobe (not a repeating sinusoid)
+//                       so consecutive fast-Dwell stamps blend into a
+//                       continuous wake instead of beating into a
+//                       stacked pile. Fast-Dwell trail.
+//   2 SplashRing      — a single crest whose radius grows with age;
+//                       water Enter (splash) and Exit (settle).
+//
+// Bails out cheaply when the channel is disabled (`wake_strength` 0 or
+// `wake_active_count` 0) so the fast path on un-waked water stays
+// pixel-identical to the pre-wake shader. Per-sample early-out skips
+// fragments far past the contribution's spatial support.
+fn wake_height_at(xz: vec2<f32>, t: f32) -> f32 {
+    let strength = water_uniforms.wake_strength;
+    let count = water_uniforms.wake_active_count;
+    if strength <= 0.0 || count == 0u {
+        return 0.0;
+    }
+    let R = max(water_uniforms.wake_decay_radius, 0.05);
+    let lambda = max(water_uniforms.wake_ripple_wavelength, 0.05);
+    let k = 6.2831853 / lambda;
+    // Ripple phase velocity — brisk enough to read as propagating
+    // without competing with the Gerstner animation.
+    let omega = 4.0;
+    // How far (in decay radii) a SplashRing crest travels over its
+    // life, and the crest's gaussian half-width.
+    let splash_expand = 5.0;
+    let splash_w = lambda * 0.5;
+
+    var h = 0.0;
+    for (var i = 0u; i < count; i = i + 1u) {
+        let a = water_uniforms.wake_samples_a[i];
+        let b = water_uniforms.wake_samples_b[i];
+        let sp = vec2<f32>(a.x, a.y);
+        let o = xz - sp;
+        let r2 = dot(o, o);
+        let age_norm = clamp(b.x, 0.0, 1.0);
+        let amp_p = b.y;
+        let kind = b.z;
+        let spd = b.w;
+
+        // Per-sample early-out. The spatial support differs by kind:
+        // a SplashRing crest reaches ~5R, the radial ripple is
+        // visually zero past ~7R (exp(-7) ≈ 9e-4), and a fast
+        // DirectionalWake's teardrop runs back R·(0.8+0.3·spd). Take
+        // the max so a fast vehicle's long trail isn't clipped while
+        // slow / non-directional samples still cut off tight.
+        let reach = max(
+            7.0 * R,
+            max(splash_expand * R + 3.0 * splash_w, R * (0.8 + 0.3 * spd)),
+        );
+        if r2 > reach * reach {
+            continue;
+        }
+
+        // Birth→death envelope: linear fade-out, plus a ~3% fade-in so
+        // a freshly spawned perturbation doesn't pop on for one frame.
+        let env = clamp(1.0 - age_norm, 0.0, 1.0)
+            * smoothstep(0.0, 0.03, age_norm);
+        if env <= 0.0 {
+            continue;
+        }
+
+        var contribution = 0.0;
+        if kind < 0.5 {
+            // RadialRipple — isotropic.
+            let r = sqrt(r2);
+            contribution = exp(-r / R) * sin(k * r - omega * t);
+        } else if kind < 1.5 {
+            // DirectionalWake — a teardrop trailing strictly behind the
+            // spawn point (the avatar apex). Build a vehicle-relative
+            // frame: `along` is distance forward of the apex (>0 ahead,
+            // <0 behind), `across` is the lateral offset.
+            let sdir = vec2<f32>(a.z, a.w);
+            let dir = select(
+                vec2<f32>(1.0, 0.0),
+                normalize(sdir),
+                dot(sdir, sdir) > 1e-6,
+            );
+            let perp = vec2<f32>(-dir.y, dir.x);
+            let along = dot(o, dir);
+            let across = dot(o, perp);
+            // Trail length / max half-width scale with spawn speed:
+            // faster movers throw a longer, slightly broader wake.
+            let len = R * (0.8 + 0.3 * spd);
+            let half_max = R * 0.4 * (1.0 + 0.1 * spd);
+            // Normalised distance behind the apex: 0 at the vehicle,
+            // 1 at the far end. Everything ahead (along > 0) or past
+            // the tail contributes nothing.
+            let u = -along / max(len, 1e-3);
+            if along <= 0.0 && u <= 1.0 {
+                // Leaf half-width: 0 at the apex (u=0), peak near
+                // u≈0.5, back to 0 at the far end (u=1) — a closed
+                // teardrop entirely behind the vehicle.
+                let halfw = half_max * sqrt(max(0.0, 4.0 * u * (1.0 - u)));
+                let vn = select(
+                    2.0,
+                    across / halfw,
+                    halfw > 1e-4,
+                );
+                if abs(vn) < 1.0 {
+                    // Lateral edges fade to 0; a single longitudinal
+                    // lobe fades in at the apex and out at the far end
+                    // (the "fade-out at the ends"). A faint travelling
+                    // ripple adds texture but is kept low so adjacent
+                    // stamps blend instead of beating into a stack.
+                    let lateral = 1.0 - vn * vn;
+                    let lon = sin(3.1415927 * u);
+                    let ripple = 1.0 + 0.25 * sin(k * (-along) - omega * t);
+                    contribution = lateral * lon * ripple;
+                }
+            }
+        } else {
+            // SplashRing — a single crest expanding with age.
+            let r = sqrt(r2);
+            let ring_r = age_norm * R * splash_expand;
+            let d = r - ring_r;
+            contribution = exp(-(d * d) / (2.0 * splash_w * splash_w));
+        }
+
+        h = h + env * amp_p * contribution;
+    }
+    return h * strength;
+}
+
+// ---------------------------------------------------------------------------
 // Fragment entry
 // ---------------------------------------------------------------------------
 
@@ -408,6 +571,32 @@ fn fragment(
     if n_gerstner_local.y < 0.0 {
         n_gerstner_local = -n_gerstner_local;
     }
+
+    // Avatar-wake perturbation. Sample the wake height field at this
+    // fragment and at two small offsets, finite-difference the gradient,
+    // and tilt the local-frame normal by that slope. Wake math lives in
+    // world XZ (matching the Gerstner sampling frame), so on a tilted
+    // water plane the wake follows the surface plane the same way
+    // Gerstner waves do — the basis rotation downstream takes care of
+    // orienting the perturbed normal back to world space.
+    //
+    // The `wake_height_at` function bails out cheaply when the channel
+    // is disabled, so this whole block costs ~one branch + three trivial
+    // function calls on un-waked water.
+    let wake_eps = 0.05;
+    let h0 = wake_height_at(xz, t);
+    let h_dx = wake_height_at(xz + vec2<f32>(wake_eps, 0.0), t) - h0;
+    let h_dz = wake_height_at(xz + vec2<f32>(0.0, wake_eps), t) - h0;
+    // Tilt the local normal away from the slope direction. Adding
+    // `(-grad_x, 0, -grad_z)` to the (0, 1, 0)-aligned local normal
+    // rotates it toward the height field's downhill direction.
+    n_gerstner_local = normalize(
+        n_gerstner_local + vec3<f32>(-h_dx / wake_eps, 0.0, -h_dz / wake_eps),
+    );
+    if n_gerstner_local.y < 0.0 {
+        n_gerstner_local = -n_gerstner_local;
+    }
+
     let n_gerstner = normalize(basis * n_gerstner_local);
 
     // Scrolling detail normals. Two UV tiling scales are blended by camera

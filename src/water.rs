@@ -18,6 +18,17 @@ use bevy::{
 
 const WATER_SHADER_PATH: &str = "shaders/water.wgsl";
 
+/// Maximum number of live perturbations a single water plane renders
+/// per frame. Each occupies one slot across the two `wake_samples_*`
+/// arrays. The fragment shader iterates `0..wake_active_count` and
+/// sums a per-kind displacement.
+///
+/// Sized at 32 so a busy multiplayer lake still shows a rich trail;
+/// beyond that the consumer keeps the newest 32 per plane (see
+/// `crate::interaction::perturbation::pack_plane`). Total cost: 2 × 512
+/// bytes per water material — negligible against a 64 KB uniform block.
+pub const WAKE_SAMPLES_MAX: usize = 32;
+
 /// GPU uniform block shared with `water.wgsl`. Field ordering is chosen so
 /// `Vec4`s lead (16-byte aligned), `Vec2` sits where 8-byte alignment is
 /// cheapest, and scalars bring up the rear — the `ShaderType` derive still
@@ -65,6 +76,43 @@ pub struct WaterUniforms {
     /// standing-wave look; `1` = pure flow-map (scrolling detail normals
     /// along the surface's downhill tangent, suppressed standing waves).
     pub flow_amount: f32,
+
+    // ---------------------------------------------------------------------
+    // Avatar-wake perturbation channel (Phase 1, revised — see
+    // `crate::interaction::perturbation`).
+    //
+    // Per-frame data fed by `crate::interaction::water_channel` from the
+    // CPU perturbation pool. Each live perturbation occupies one slot
+    // across two parallel arrays (std140 needs each `array<vec4>`
+    // 16-aligned, so two arrays of `vec4` is cheaper than one array of
+    // a struct):
+    //
+    // - `wake_samples_a[i]` = `(pos.x, pos.z, dir.x, dir.z)` — world-XZ
+    //   spawn position and the frozen heading (used by
+    //   DirectionalWake).
+    // - `wake_samples_b[i]` = `(age_norm, amplitude, kind, speed)` —
+    //   `age_norm` in `[0,1]` drives the lifetime envelope; `kind` is
+    //   `0` RadialRipple / `1` DirectionalWake / `2` SplashRing.
+    //
+    // `wake_active_count` is the number of valid slots. Tunables mirror
+    // the per-volume fields on `pds::WaterSurface`; `wake_strength = 0`
+    // (default) makes the shader skip the loop entirely so existing
+    // scenes render pixel-identical.
+    // ---------------------------------------------------------------------
+    /// Per-frame: `(pos.x, pos.z, dir.x, dir.z)` per live perturbation.
+    pub wake_samples_a: [Vec4; WAKE_SAMPLES_MAX],
+    /// Per-frame: `(age_norm, amplitude, kind, speed)` per perturbation.
+    pub wake_samples_b: [Vec4; WAKE_SAMPLES_MAX],
+    /// Per-frame: number of valid entries in the `wake_samples_*` arrays.
+    pub wake_active_count: u32,
+    /// Per-volume: overall amplitude multiplier on the wake effect.
+    /// `0.0` disables the effect (default).
+    pub wake_strength: f32,
+    /// Per-volume: distance between ripple peaks, world metres.
+    pub wake_ripple_wavelength: f32,
+    /// Per-volume: radial distance at which a single perturbation's
+    /// contribution falls to ~37% (1/e). Larger = broader wakes.
+    pub wake_decay_radius: f32,
 }
 
 /// [`MaterialExtension`] that drives `water.wgsl`.
@@ -97,6 +145,15 @@ impl MaterialExtension for WaterExtension {
 
 /// Convenience alias for the full extended-material type used by the water volume.
 pub type WaterMaterial = ExtendedMaterial<StandardMaterial, WaterExtension>;
+
+/// Marker carrying the water plane's index into
+/// [`WaterSurfaces::planes`]. Attached to the rendered water-volume
+/// entity by `spawn_water_volume`. Used by the
+/// `crate::interaction::water_channel` consumer to route avatar contact
+/// samples (which reference planes by index) to the right material
+/// asset for per-frame uniform updates.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct WaterPlaneIndex(pub usize);
 
 /// Runtime registry of every water plane currently in the scene. Populated
 /// by `world_builder::compile_room_record` as it spawns each `WaterVolume`,

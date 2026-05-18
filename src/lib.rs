@@ -35,6 +35,7 @@ pub mod camera;
 pub mod clouds;
 pub mod config;
 pub mod editor_gizmo;
+pub mod interaction;
 pub mod loading;
 pub mod logout;
 pub mod network;
@@ -162,6 +163,7 @@ pub fn run() {
         .add_plugins(social::SocialPlugin)
         .add_plugins(logout::LogoutPlugin)
         .add_plugins(editor_gizmo::EditorGizmoPlugin)
+        .add_plugins(interaction::InteractionPlugin)
         .init_state::<AppState>()
         .init_resource::<ChatHistory>()
         .init_resource::<DiagnosticsLog>()

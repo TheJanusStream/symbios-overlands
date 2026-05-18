@@ -121,4 +121,32 @@ pub(super) fn draw_water_editor(
             );
             fp_slider(ui, "Flow amount", &mut surface.flow_amount, 0.0, 1.0, dirty);
         });
+
+    egui::CollapsingHeader::new("Avatar wakes")
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.label(
+                "Per-avatar ripples shed by every avatar currently in contact \
+                 with this water plane (local player + remote peers). Strength \
+                 0 disables the effect entirely so existing rooms render \
+                 unchanged.",
+            );
+            fp_slider(ui, "Strength", &mut surface.wake_strength, 0.0, 5.0, dirty);
+            fp_slider(
+                ui,
+                "Ripple wavelength (m)",
+                &mut surface.wake_ripple_wavelength,
+                0.05,
+                10.0,
+                dirty,
+            );
+            fp_slider(
+                ui,
+                "Decay radius (m)",
+                &mut surface.wake_decay_radius,
+                0.1,
+                50.0,
+                dirty,
+            );
+        });
 }
