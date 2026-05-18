@@ -248,35 +248,25 @@ pub mod terrain {
             /// fast mover doesn't pile dozens of overlapping ripples and
             /// a still avatar (no distance accrued) sheds nothing.
             pub const DWELL_SPACING: f32 = 0.6;
-            /// Time constant (s) of the **fast** position low-pass.
-            /// `smooth_pos` (this τ) places the trail and measures
-            /// spatial spacing; it is compared against the slow
-            /// `ref_pos` EMA (`DWELL_REF_SMOOTH_TAU`) to decide whether
-            /// the avatar is making *sustained directional progress*.
-            pub const DWELL_POS_SMOOTH_TAU: f32 = 0.5;
-            /// Time constant (s) of the **slow** position low-pass
-            /// (`ref_pos`). The Dwell progress gate emits only when the
-            /// fast average is meaningfully *ahead* of the slow one.
-            ///
-            /// Why this is the decisive discriminator: a bounded
-            /// oscillation (a settling/rocking hull) drives *both*
-            /// EMAs to the same stationary centre, so their difference
-            /// → 0 regardless of how fast, how large, or how long it
-            /// rocks — and with no seed-decay (a velocity EMA seeded
-            /// from cruising speed only *decayed*, merely shortening
-            /// the burst). Sustained one-way travel separates the two
-            /// EMAs by ≈ `speed · (τ_ref − τ_fast)`. Must be well
-            /// longer than any rock half-cycle.
-            pub const DWELL_REF_SMOOTH_TAU: f32 = 1.5;
-            /// Minimum sustained progress speed (m/s). Below it — slow
-            /// drift, rocking, a hull settling to a stop, a dead
-            /// standstill — Dwell emits **nothing**. Implemented as a
-            /// threshold on `|smooth_pos − ref_pos|`, which equals
-            /// `speed · (τ_ref − τ_fast)` for steady travel, so this is
-            /// a true m/s figure. Raise it to require brisker motion
-            /// before the water wakes; lower it to wake on gentler
-            /// movement (at the cost of more settle sensitivity).
-            pub const DWELL_MIN_SPEED: f32 = 0.5;
+            /// Minimum speed (m/s) for Dwell to shed anything. Gated on
+            /// the **raw** contact-sample velocity
+            /// (avian `LinearVelocity` for the local player) — *not* a
+            /// smoothed position signal. The earlier dual-EMA gate
+            /// (fast vs slow position low-pass) was abandoned: a
+            /// position EMA has a relaxation tail proportional to the
+            /// prior speed, so after a fast straight run the smoothed
+            /// position keeps drifting forward for seconds *after the
+            /// boat has physically stopped*, holding the gate open and
+            /// stamping a dense stack of concentric ripples right where
+            /// it halts (chainlink #254, confirmed by in-engine
+            /// instrumentation). Raw physics velocity has no tail and no
+            /// seed-decay — it reads ~0 the instant the body stops — so
+            /// `speed < DWELL_MIN_SPEED` cleanly suppresses the
+            /// decelerate-to-halt burst (a settling/rocking hull also
+            /// has near-zero net velocity, so it is covered too). Raise
+            /// to require brisker motion before the water wakes; lower
+            /// to wake on gentler movement.
+            pub const DWELL_MIN_SPEED: f32 = 2.0;
             /// Max Dwell perturbations one avatar may shed in a single
             /// frame. Bounds a large-`dt` hitch; a genuine teleport is
             /// caught earlier by `DWELL_TELEPORT_DIST`.

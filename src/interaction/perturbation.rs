@@ -115,32 +115,23 @@ pub struct PerturbationPool {
     pub live: Vec<Perturbation>,
 }
 
-/// Per-avatar Dwell emission track.
+/// Per-avatar Dwell emission track — just the spacing anchor: the
+/// position at which the last perturbation was shed (or the live
+/// position while emission is gated off).
 ///
-/// Two position low-passes plus the spacing anchor:
-///
-/// - `smooth_pos` — **fast** EMA ([`wcfg::DWELL_POS_SMOOTH_TAU`]);
-///   places the trail and measures spatial spacing.
-/// - `ref_pos` — **slow** EMA ([`wcfg::DWELL_REF_SMOOTH_TAU`]); the
-///   sustained-progress reference.
-/// - `anchor` — `smooth_pos` at the last shed point.
-///
-/// Dwell emits only when the fast average is meaningfully *ahead* of
-/// the slow one (`|smooth_pos − ref_pos| ≥
-/// DWELL_MIN_SPEED·(τ_ref−τ_fast)`) **and** the fast average has moved
-/// a [`wcfg::DWELL_SPACING`] from the anchor.
-///
-/// The progress gate is the decisive part: a bounded oscillation (a
-/// settling/rocking hull) drives *both* EMAs to the same stationary
-/// centre, so their difference → 0 for *any* amplitude, frequency or
-/// duration, with no seed-decay. Slow drift and a dead stop fail it
-/// too — by design, slow movement wakes nothing. Only sustained
-/// directional travel separates the two averages.
+/// There is deliberately **no** position low-pass here. The earlier
+/// dual-EMA design (a fast `smooth_pos` vs a slow `ref_pos`) was the
+/// root cause of the decelerate-to-halt burst (chainlink #254): a
+/// position EMA's relaxation tail is proportional to the prior speed,
+/// so after a fast straight run the smoothed position kept drifting
+/// forward for *seconds after the boat had physically stopped*,
+/// holding the gate open and stamping a dense stack of concentric
+/// ripples right where it halted. Gating on the **raw** contact-sample
+/// velocity (avian `LinearVelocity`) instead has no tail and no
+/// seed-decay — it reads ~0 the instant the body stops.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct DwellTrack {
     pub anchor: Vec2,
-    pub smooth_pos: Vec2,
-    pub ref_pos: Vec2,
 }
 
 /// Per-avatar Dwell tracks, keyed by avatar entity. Separate resource
@@ -171,81 +162,58 @@ pub(crate) fn spawn_amplitude(intensity: f32, footprint_radius: f32) -> f32 {
 /// perturbations to shed.
 ///
 /// Gates, in order:
-/// 1. **Teleport** — a raw single-frame jump beyond
-///    [`wcfg::DWELL_TELEPORT_DIST`] hard-resets both EMAs (no line of
-///    ripples across a portal warp).
-/// 2. **Sustained progress** — emit only if the fast position average
-///    is ahead of the slow one by at least
-///    `DWELL_MIN_SPEED · (τ_ref − τ_fast)`. A bounded oscillation
-///    keeps both averages on the same stationary centre → difference
-///    → 0, so a rocking/settling hull (any amplitude/frequency/
-///    duration) — and any genuinely slow drift — emits **nothing**.
-/// 3. **Spacing** — among genuinely-progressing motion, shed one
-///    perturbation per [`wcfg::DWELL_SPACING`] of fast-average travel
-///    from the anchor (capped at [`wcfg::DWELL_MAX_BURST`]).
+/// 1. **Teleport** — a raw single-frame jump from the anchor beyond
+///    [`wcfg::DWELL_TELEPORT_DIST`] re-anchors with no emission (no
+///    line of ripples across a portal warp).
+/// 2. **Speed** — emit only while the avatar's *raw* speed is at or
+///    above [`wcfg::DWELL_MIN_SPEED`]. Below it (decelerating to a
+///    halt, a settling/rocking hull, slow drift, a dead standstill)
+///    the track re-anchors at the live position and sheds
+///    **nothing**. Raw physics velocity has no relaxation tail, so a
+///    boat that has stopped stops waking the water immediately —
+///    unlike the abandoned position-EMA gate whose tail kept emitting
+///    for seconds after the stop (chainlink #254).
+/// 3. **Spacing** — among genuinely-moving avatars, shed one
+///    perturbation per [`wcfg::DWELL_SPACING`] of *raw* travel from
+///    the anchor (capped at [`wcfg::DWELL_MAX_BURST`]).
 ///
 /// - `track`: previous track, or `None` on first sighting.
 /// - `curr_pos`: avatar XZ this frame.
-/// - `dt`: frame delta (s) for the EMAs.
+/// - `speed`: avatar's raw speed (m/s) this frame — the magnitude of
+///   the contact sample's world velocity.
 ///
-/// First sighting / teleport seed `anchor = smooth_pos = ref_pos =
-/// curr_pos`.
+/// First sighting / teleport / sub-speed seed `anchor = curr_pos`.
 pub(crate) fn step_dwell_distance(
     track: Option<DwellTrack>,
     curr_pos: Vec2,
-    dt: f32,
+    speed: f32,
 ) -> (DwellTrack, u32) {
-    let fresh = DwellTrack {
-        anchor: curr_pos,
-        smooth_pos: curr_pos,
-        ref_pos: curr_pos,
-    };
+    let fresh = DwellTrack { anchor: curr_pos };
 
     let Some(prev) = track else {
         return (fresh, 0);
     };
 
-    // Teleport guard on the RAW jump (before folding into the EMAs).
-    if (curr_pos - prev.smooth_pos).length() > wcfg::DWELL_TELEPORT_DIST {
+    // Gate 1 — teleport guard on the RAW jump from the anchor.
+    if (curr_pos - prev.anchor).length() > wcfg::DWELL_TELEPORT_DIST {
         return (fresh, 0);
     }
 
-    // `alpha = 1 - e^{-dt/tau}` — framerate-independent EMA weight.
-    let dt = dt.max(0.0);
-    let a_fast = 1.0 - (-dt / wcfg::DWELL_POS_SMOOTH_TAU.max(1e-3)).exp();
-    let a_slow = 1.0 - (-dt / wcfg::DWELL_REF_SMOOTH_TAU.max(1e-3)).exp();
-    let smooth_pos = prev.smooth_pos + (curr_pos - prev.smooth_pos) * a_fast;
-    let ref_pos = prev.ref_pos + (curr_pos - prev.ref_pos) * a_slow;
-
-    // Gate 2 — sustained directional progress. For steady travel the
-    // two EMAs settle a fixed `speed·(τ_ref−τ_fast)` apart, so the
-    // threshold is a true m/s figure. A rock collapses both onto one
-    // centre → separation → 0 → nothing emitted; slow drift likewise.
-    let progress_min =
-        wcfg::DWELL_MIN_SPEED * (wcfg::DWELL_REF_SMOOTH_TAU - wcfg::DWELL_POS_SMOOTH_TAU).max(0.0);
-    if (smooth_pos - ref_pos).length() < progress_min {
-        return (
-            DwellTrack {
-                // Re-anchor so resuming real motion starts a fresh
-                // trail from here rather than catching up a backlog.
-                anchor: smooth_pos,
-                smooth_pos,
-                ref_pos,
-            },
-            0,
-        );
+    // Gate 2 — raw-speed gate. Re-anchor at the live position so that
+    // when real motion resumes the trail starts fresh from here rather
+    // than discharging a backlog accrued while slow/stopped.
+    if speed < wcfg::DWELL_MIN_SPEED {
+        return (fresh, 0);
     }
 
-    // Gate 3 — spatial spacing of the trail.
-    let d = smooth_pos - prev.anchor;
+    // Gate 3 — spatial spacing of the trail (raw travel, no smoothing).
+    let d = curr_pos - prev.anchor;
     let dist = d.length();
     let spacing = wcfg::DWELL_SPACING.max(1e-3);
     if dist < spacing {
         return (
             DwellTrack {
                 anchor: prev.anchor,
-                smooth_pos,
-                ref_pos,
             },
             0,
         );
@@ -254,21 +222,14 @@ pub(crate) fn step_dwell_distance(
     let raw = (dist / spacing).floor() as u32; // ≥ 1 here
     let count = raw.min(wcfg::DWELL_MAX_BURST);
     let anchor = if raw > wcfg::DWELL_MAX_BURST {
-        // Large (but sub-teleport) smoothed jump — drop the backlog
-        // and re-anchor at the smoothed position.
-        smooth_pos
+        // Large (but sub-teleport) single-step jump — drop the backlog
+        // and re-anchor at the live position.
+        curr_pos
     } else {
         let dir = d / dist; // dist ≥ spacing > 0
         prev.anchor + dir * (count as f32 * spacing)
     };
-    (
-        DwellTrack {
-            anchor,
-            smooth_pos,
-            ref_pos,
-        },
-        count,
-    )
+    (DwellTrack { anchor }, count)
 }
 
 /// Which kind a Dwell perturbation should be at the given speed.
@@ -425,15 +386,13 @@ pub fn tick_perturbations(time: Res<Time>, mut pool: ResMut<PerturbationPool>) {
 }
 
 /// Translate this frame's [`AvatarContacts`] into new perturbations.
-/// `Time` is needed for the Dwell gate's velocity low-pass (the
-/// spatial spacing itself stays framerate-independent).
+/// No `Time` dependency: the Dwell gate keys off the contact sample's
+/// raw velocity and raw position spacing, both framerate-independent.
 pub fn spawn_perturbations(
-    time: Res<Time>,
     contacts: Res<AvatarContacts>,
     mut pool: ResMut<PerturbationPool>,
     mut spawn_state: ResMut<PerturbationSpawnState>,
 ) {
-    let dt = time.delta_secs();
     // Track which avatars produced a Dwell this frame so track
     // entries for avatars that left the water get pruned.
     let mut dwelling: Vec<Entity> = Vec::new();
@@ -450,6 +409,20 @@ pub fn spawn_perturbations(
         let speed = vel.length();
         let dir = if speed > 1e-3 { vel / speed } else { Vec2::X };
 
+        // TEMP DIAGNOSTIC #254 — remove once the settle-burst root
+        // cause is confirmed. Env-gated; zero cost / no output when
+        // OVERLANDS_WAKE_DEBUG is unset. Pairs with the classifier
+        // probe log to show, near a stop, whether the burst is
+        // Enter/Exit SplashRing chatter or Dwell-path emission.
+        let debug_wake = std::env::var_os("OVERLANDS_WAKE_DEBUG").is_some();
+        if debug_wake {
+            info!(
+                target: "wake_debug",
+                "sample avatar={:?} phase={:?} speed={:.3} pos=({:.2},{:.2})",
+                sample.avatar, sample.phase, speed, pos.x, pos.y,
+            );
+        }
+
         match sample.phase {
             ContactPhase::Enter | ContactPhase::Exit => {
                 if let Some(p) = spawn_for_phase(
@@ -461,14 +434,31 @@ pub fn spawn_perturbations(
                     sample.intensity,
                     sample.footprint_radius,
                 ) {
+                    if debug_wake {
+                        info!(
+                            target: "wake_debug",
+                            "  push SplashRing ({:?}) pool_len={}",
+                            sample.phase,
+                            pool.live.len() + 1,
+                        );
+                    }
                     pool.live.push(p);
                 }
             }
             ContactPhase::Dwell => {
                 dwelling.push(sample.avatar);
                 let prev = spawn_state.tracks.get(&sample.avatar).copied();
-                let (next_track, count) = step_dwell_distance(prev, pos, dt);
+                let (next_track, count) = step_dwell_distance(prev, pos, speed);
                 spawn_state.tracks.insert(sample.avatar, next_track);
+                if debug_wake && count > 0 {
+                    info!(
+                        target: "wake_debug",
+                        "  push {}x {:?} (Dwell) pool_len={}",
+                        count,
+                        dwell_kind(speed),
+                        pool.live.len() + count as usize,
+                    );
+                }
                 for _ in 0..count {
                     pool.live.push(spawn_dwell(
                         plane_idx,
@@ -508,80 +498,113 @@ mod tests {
         assert!(spawn_amplitude(1.0, 0.01) > 0.0);
     }
 
-    /// 60 fps frame delta for the position-EMA tests.
+    /// 60 fps frame delta — used only to advance the *position* in
+    /// trail tests; the gate itself is time-independent now.
     const DT: f32 = 1.0 / 60.0;
 
-    /// A converged track sitting at rest at `at` (every average ==
-    /// anchor == `at`), as if the avatar had been stationary there.
+    /// A track whose anchor sits at `at`.
     fn track_at(at: Vec2) -> DwellTrack {
-        DwellTrack {
-            anchor: at,
-            smooth_pos: at,
-            ref_pos: at,
-        }
+        DwellTrack { anchor: at }
     }
 
-    /// Drive the gate one frame at the 60 fps delta.
-    fn step(track: DwellTrack, pos: Vec2) -> (DwellTrack, u32) {
-        step_dwell_distance(Some(track), pos, DT)
+    /// Drive the gate one frame with an explicit raw speed.
+    fn step(track: DwellTrack, pos: Vec2, speed: f32) -> (DwellTrack, u32) {
+        step_dwell_distance(Some(track), pos, speed)
     }
+
+    /// A raw speed comfortably above the gate.
+    const FAST: f32 = wcfg::DWELL_MIN_SPEED + 5.0;
 
     #[test]
-    fn dwell_first_sighting_seeds_all_averages() {
+    fn dwell_first_sighting_seeds_anchor() {
         let p = Vec2::new(3.0, 7.0);
-        let (track, count) = step_dwell_distance(None, p, DT);
+        let (track, count) = step_dwell_distance(None, p, FAST);
         assert_eq!(count, 0);
         assert_eq!(track.anchor, p);
-        assert_eq!(track.smooth_pos, p);
-        assert_eq!(track.ref_pos, p);
     }
 
-    /// #254: a hull rocking in place — a continuous (settling)
-    /// sinusoid, far larger than `DWELL_SPACING`, for 10 s — emits
-    /// *nothing*. Both position EMAs collapse onto the stationary
-    /// oscillation centre, so the progress gate never opens regardless
-    /// of amplitude, frequency or duration.
+    /// #254 REGRESSION — the real failing signal: a long fast straight
+    /// run, then a deceleration to a dead stop while the position still
+    /// creeps a little. Once raw speed drops below `DWELL_MIN_SPEED`
+    /// **nothing more is shed**, even though the avatar keeps inching
+    /// forward — exactly the burst the old position-EMA tail produced.
     #[test]
-    fn dwell_continuous_rock_emits_nothing() {
-        let centre = Vec2::new(20.0, -3.0);
-        let mut track = step_dwell_distance(None, centre, DT).0;
-        let f = 1.5_f32; // Hz — a brisk settle wobble
-        let frames = 600; // 10 s
-        let mut total = 0u32;
-        for i in 0..frames {
-            let t_s = i as f32 * DT;
-            // Amplitude decays as it settles; starts well over spacing.
-            let amp = (wcfg::DWELL_SPACING * 1.5) * (1.0 - t_s / 12.0).max(0.0);
-            let x = amp * (std::f32::consts::TAU * f * t_s).sin();
-            let (tk, c) = step(track, centre + Vec2::new(x, 0.0));
-            track = tk;
-            total += c;
+    fn dwell_fast_run_then_decel_stops_emitting() {
+        let mut track = step_dwell_distance(None, Vec2::ZERO, FAST).0;
+        let mut x = 0.0_f32;
+
+        // Phase A — 3 s straight run at 20 m/s (≈ 60 m).
+        let mut run_total = 0u32;
+        for _ in 0..180 {
+            x += 20.0 * DT;
+            let (t, c) = step(track, Vec2::new(x, 0.0), 20.0);
+            track = t;
+            run_total += c;
         }
-        assert_eq!(total, 0, "a rocking hull must shed nothing");
+        assert!(
+            run_total > 50,
+            "the fast run itself must lay a trail, got {run_total}"
+        );
+
+        // Phase B — linear decel 20 → 0 over 3 s. Position keeps
+        // advancing (momentum) but speed falls through the gate.
+        let mut tail_after_cutoff = 0u32;
+        for i in 0..180 {
+            let speed = 20.0 * (1.0 - i as f32 / 180.0); // 20 → 0
+            x += speed * DT;
+            let (t, c) = step(track, Vec2::new(x, 0.0), speed);
+            track = t;
+            if speed < wcfg::DWELL_MIN_SPEED {
+                tail_after_cutoff += c;
+            }
+        }
+        assert_eq!(
+            tail_after_cutoff, 0,
+            "no perturbation may be shed once raw speed < DWELL_MIN_SPEED"
+        );
     }
 
-    /// #254: deliberately slow steady travel (below the progress
-    /// threshold) also emits nothing — by design, slow movement does
-    /// not wake the water.
+    /// Steady slow travel below the speed gate emits nothing, however
+    /// far it ultimately travels (covers slow drift, gentle docking).
     #[test]
-    fn dwell_slow_translate_emits_nothing() {
-        // 0.3 m/s < DWELL_MIN_SPEED (0.5).
-        let v = 0.3_f32;
-        let mut track = step_dwell_distance(None, Vec2::ZERO, DT).0;
+    fn dwell_below_min_speed_emits_nothing() {
+        let slow = wcfg::DWELL_MIN_SPEED * 0.5;
+        let mut track = step_dwell_distance(None, Vec2::ZERO, slow).0;
         let mut total = 0u32;
         let mut x = 0.0_f32;
         for _ in 0..600 {
-            x += v * DT;
-            let (t, c) = step(track, Vec2::new(x, 0.0));
+            x += slow * DT;
+            let (t, c) = step(track, Vec2::new(x, 0.0), slow);
             track = t;
             total += c;
         }
-        assert_eq!(total, 0, "slow drift must not wake the water");
+        assert_eq!(total, 0, "sub-speed motion must not wake the water");
     }
 
-    /// Sub-spacing jitter never advances the fast average.
+    /// While gated off (sub-speed) the anchor re-bases to the live
+    /// position every frame, so resuming motion does NOT discharge a
+    /// backlog accrued while slow/stopped.
     #[test]
-    fn dwell_sub_spacing_jitter_emits_nothing() {
+    fn dwell_gated_off_reanchors_no_backlog() {
+        // Anchor far behind; avatar now well ahead but moving slowly.
+        let prev = track_at(Vec2::ZERO);
+        let far = Vec2::new(5.0, 0.0); // many spacings from anchor
+        let slow = wcfg::DWELL_MIN_SPEED * 0.5;
+        let (track, count) = step(prev, far, slow);
+        assert_eq!(count, 0, "sub-speed: nothing shed");
+        assert_eq!(track.anchor, far, "anchor re-bases to live position");
+
+        // Resume real speed but only a sub-spacing nudge from here —
+        // the backlog from the 5 m gap must NOT burst out.
+        let nudge = far + Vec2::new(wcfg::DWELL_SPACING * 0.5, 0.0);
+        let (_, c2) = step(track, nudge, FAST);
+        assert_eq!(c2, 0, "no backlog discharge after re-anchor");
+    }
+
+    /// Sub-spacing displacement sheds nothing even at full speed: a
+    /// fixed anchor never accrues `DWELL_SPACING` of travel.
+    #[test]
+    fn dwell_sub_spacing_emits_nothing() {
         let origin = Vec2::new(12.0, -4.0);
         let mut track = track_at(origin);
         let offsets = [0.08_f32, -0.07, 0.06, -0.08, 0.05, -0.06];
@@ -589,34 +612,32 @@ mod tests {
         for i in 0..200usize {
             let off = offsets[i % offsets.len()];
             let p = origin + Vec2::new(off, off * 0.5);
-            let (t, c) = step(track, p);
+            let (t, c) = step(track, p, FAST);
             track = t;
             total += c;
         }
-        assert_eq!(total, 0, "sub-spacing jitter must not shed");
+        assert_eq!(total, 0, "sub-spacing motion must not shed");
     }
 
-    /// Genuine brisk travel (well above the progress threshold) sheds
-    /// a substantial, roughly even trail.
+    /// Genuine brisk travel sheds a dense, roughly even trail at one
+    /// stamp per `DWELL_SPACING` of raw travel (no EMA lag now).
     #[test]
     fn dwell_steady_travel_emits_even_trail() {
         let v = 5.0_f32; // m/s ≫ DWELL_MIN_SPEED
-        let mut track = step_dwell_distance(None, Vec2::ZERO, DT).0;
+        let mut track = step_dwell_distance(None, Vec2::ZERO, v).0;
         let frames = 600; // 10 s → 50 m travelled
         let mut total = 0u32;
         let mut x = 0.0_f32;
         for _ in 0..frames {
             x += v * DT;
-            let (t, c) = step(track, Vec2::new(x, 0.0));
+            let (t, c) = step(track, Vec2::new(x, 0.0), v);
             track = t;
             total += c;
         }
-        // ~50 m of travel at 0.6 m spacing ≈ 70-83 once the EMA lag
-        // and gate warm-up are accounted for. Assert a generous band:
-        // the point is that brisk travel produces a dense even trail.
+        // 50 m / 0.6 m spacing ≈ 83, with no EMA warm-up lag.
         assert!(
-            (60..=85).contains(&total),
-            "expected a dense even trail (~60-85), got {total}"
+            (78..=85).contains(&total),
+            "expected a dense even trail (~83), got {total}"
         );
     }
 
@@ -624,30 +645,24 @@ mod tests {
     fn dwell_teleport_reanchors_without_emitting() {
         let prev = track_at(Vec2::ZERO);
         let warped = Vec2::new(wcfg::DWELL_TELEPORT_DIST + 5.0, 0.0);
-        let (track, count) = step(prev, warped);
+        let (track, count) = step(prev, warped, FAST);
         assert_eq!(count, 0);
         assert_eq!(track.anchor, warped);
-        assert_eq!(track.smooth_pos, warped);
-        assert_eq!(track.ref_pos, warped);
     }
 
     #[test]
     fn dwell_burst_is_capped_and_reanchored() {
-        // Sustained fast travel already established (fast average well
-        // ahead of the slow one → progress gate open) with the anchor
-        // many spacings behind. One step caps emission at
-        // DWELL_MAX_BURST and re-bases the anchor at the fast average
-        // so the backlog can't burst again.
-        let prev = DwellTrack {
-            anchor: Vec2::ZERO,
-            smooth_pos: Vec2::new(5.0, 0.0), // 5 m ahead of anchor
-            ref_pos: Vec2::ZERO,             // far behind → gate open
-        };
-        let (track, count) = step(prev, Vec2::new(5.0, 0.0));
+        // Anchor many spacings behind; one fast step jumps 5 m. Raw
+        // count (5 / 0.6 ≈ 8) exceeds DWELL_MAX_BURST, so emission is
+        // capped and the anchor re-bases to the live position so the
+        // backlog can't burst again next frame.
+        let prev = track_at(Vec2::ZERO);
+        let curr = Vec2::new(5.0, 0.0);
+        let (track, count) = step(prev, curr, FAST);
         assert_eq!(count, wcfg::DWELL_MAX_BURST);
         assert!(
-            (track.anchor - track.smooth_pos).length() < 1e-3,
-            "anchor re-bases at the fast average on cap"
+            (track.anchor - curr).length() < 1e-3,
+            "anchor re-bases at the live position on cap"
         );
     }
 

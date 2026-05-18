@@ -647,18 +647,29 @@ fn build_texture_array(
         merged.extend_from_slice(img.data.as_ref()?);
     }
 
-    let mut array_img = Image::new(
+    // Each procedural layer image carries a full mipchain (see
+    // `bevy_symbios_texture`'s `generate_mipmaps`), so `merged` is
+    // mip-inclusive. `Image::new` `debug_assert`s `merged.len()` against
+    // the descriptor's *default* `mip_level_count = 1` and panics — the
+    // post-hoc `mip_level_count` assignment used to land too late for
+    // that assert (and in release the check is compiled out, leaving a
+    // descriptor that mismatches the data). Build via `new_uninit`,
+    // which performs no length check, then set the real mip count and
+    // attach the data. The per-layer concatenation above is layer-major,
+    // matching the default `TextureDataOrder::LayerMajor` the uninit
+    // descriptor carries.
+    let mut array_img = Image::new_uninit(
         Extent3d {
             width: w,
             height: h,
             depth_or_array_layers: 4,
         },
         TextureDimension::D2,
-        merged,
         format,
         RenderAssetUsages::RENDER_WORLD,
     );
     array_img.texture_descriptor.mip_level_count = mip_count;
+    array_img.data = Some(merged);
     array_img.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
         address_mode_u: ImageAddressMode::Repeat,
         address_mode_v: ImageAddressMode::Repeat,
