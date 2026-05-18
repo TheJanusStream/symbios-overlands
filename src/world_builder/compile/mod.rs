@@ -21,6 +21,7 @@
 //!   spawner module (`prim`, `lsystem`, `shape`, `sign`, `portal`,
 //!   `particles`, `material::spawn_water_volume`).
 
+mod contact_recipes;
 mod dispatch;
 mod environment;
 mod scatter;
@@ -29,6 +30,7 @@ mod spawn_ctx;
 // External callers (`super::compile::SpawnCtx` etc.) reach these names
 // through this re-export. Behavioural surface is identical to the
 // pre-refactor flat `compile.rs`.
+pub(super) use contact_recipes::apply_contact_recipes;
 pub(super) use dispatch::dispatch_top_level;
 pub use dispatch::spawn_generator;
 pub(super) use environment::apply_environment_state;

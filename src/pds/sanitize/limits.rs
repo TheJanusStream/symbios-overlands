@@ -221,3 +221,22 @@ pub const MAX_PARTICLE_ATLAS_DIM: u32 = 16;
 /// matches the typical render cadence; values above that just
 /// stutter visually since the tick system samples at frame rate.
 pub const MAX_PARTICLE_FRAME_FPS: f32 = 60.0;
+
+/// Max authored contact-effect recipes per room (#246). Excess
+/// recipes are dropped (keeping the lexicographically-first by name so
+/// the survivor set is deterministic across peers). Generous — a busy
+/// room rarely needs more than a handful of distinct effects.
+pub const MAX_CONTACT_RECIPES: usize = 64;
+/// Cap on a recipe's `name` length (chars) — bounds a pathological
+/// authored string without truncating any sane identifier.
+pub const MAX_CONTACT_RECIPE_NAME: usize = 64;
+/// Multiplier a recipe applies to the sample footprint when sizing its
+/// emitter shape. Bounds a hostile value from producing a kilometre-
+/// wide spawn volume.
+pub const MAX_CONTACT_RADIUS_SCALE: f32 = 16.0;
+/// Per-avatar emission cooldown cap (s) for a continuous recipe.
+pub const MAX_CONTACT_COOLDOWN: f32 = 60.0;
+/// Cap on a recipe's `min_speed` trigger gate (m/s) — finite, sane.
+pub const MAX_CONTACT_MIN_SPEED: f32 = 1_000.0;
+/// Cap on the per-frame particle ceiling a room may request.
+pub const MAX_CONTACT_PARTICLES_PER_FRAME: u32 = 4_096;

@@ -27,9 +27,13 @@ use crate::state::AppState;
 
 use super::classifier::{ContactPersistence, PeerVelocityCache, classify_contacts};
 use super::contact::AvatarContacts;
+use super::particle_channel::{
+    ParticleDispatchState, particle_dispatcher, retire_transient_emitters,
+};
 use super::perturbation::{
     PerturbationPool, PerturbationSpawnState, spawn_perturbations, tick_perturbations,
 };
+use super::recipes::ContactRecipeRegistry;
 use super::water_channel::feed_water_wakes;
 
 /// System set the classifier runs in. Consumers configure their
@@ -53,6 +57,8 @@ impl Plugin for InteractionPlugin {
             .init_resource::<ContactPersistence>()
             .init_resource::<PerturbationPool>()
             .init_resource::<PerturbationSpawnState>()
+            .init_resource::<ContactRecipeRegistry>()
+            .init_resource::<ParticleDispatchState>()
             .add_systems(
                 Update,
                 classify_contacts
@@ -75,6 +81,17 @@ impl Plugin for InteractionPlugin {
                 Update,
                 feed_water_wakes
                     .after(PerturbationSet)
+                    .run_if(in_state(AppState::InGame)),
+            )
+            // Particle consumer (Phase 2): dispatch contact→burst after
+            // the producer so it sees this frame's contacts, and reclaim
+            // finished transient emitters so they don't leak.
+            .add_systems(
+                Update,
+                (
+                    particle_dispatcher.after(ContactProducerSet),
+                    retire_transient_emitters,
+                )
                     .run_if(in_state(AppState::InGame)),
             );
     }

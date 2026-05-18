@@ -4,8 +4,9 @@
 //! owner's PDS.
 
 use super::COLLECTION;
+use super::contact_effects::ContactEffects;
 use super::generator::{Generator, GeneratorKind, Placement, WaterSurface};
-use super::sanitize::{limits, sanitize_generator};
+use super::sanitize::{Sanitize, limits, sanitize_generator};
 use super::terrain::SovereignTerrainConfig;
 use super::types::{Fp, Fp2, Fp3, Fp4, TransformData};
 use super::xrpc::{FetchError, PutOutcome, XrpcError, resolve_pds};
@@ -226,6 +227,13 @@ pub struct RoomRecord {
     /// `"collider_heightfield"`, `"sensor"`) the world compiler should attach
     /// to every entity that generator spawns.
     pub traits: HashMap<String, Vec<String>>,
+    /// Authored avatar-world contact-effect recipes (#246). `#[serde(default)]`
+    /// so pre-Phase-4 records (which lack the key) deserialize with the
+    /// canonical defaults and behave exactly as the old hardcoded
+    /// registry; `RoomRecord` carries no `deny_unknown_fields`, so older
+    /// clients reading a newer record simply ignore the extra key.
+    #[serde(default)]
+    pub contact_effects: ContactEffects,
 }
 
 impl RoomRecord {
@@ -285,6 +293,7 @@ impl RoomRecord {
             generators,
             placements,
             traits,
+            contact_effects: ContactEffects::default(),
         }
     }
 
@@ -298,6 +307,9 @@ impl RoomRecord {
         // else, and guarantees the world compiler never hands NaN or a zero
         // visibility to `FogFalloff::from_visibility_colors`.
         self.environment.sanitize();
+        // Authored contact-effect recipes: clamp every numeric, bound
+        // the recipe list deterministically (#246).
+        self.contact_effects.sanitize();
         // Bound the total number of generators before touching any of them.
         // Drop entries in lexicographic key order so the survivor set is
         // deterministic across peers — otherwise a record with 1000

@@ -448,7 +448,7 @@ mod tests {
 
     #[test]
     fn intensity_saturates_when_fully_submerged() {
-        let cfg = LocomotionConfig::Humanoid(Box::new(crate::pds::HumanoidParams::default()));
+        let cfg = LocomotionConfig::Humanoid(Box::default());
         let height = locomotion_total_height(&cfg);
         let shallow = intensity_for(&water_contact(0, 0.1), &cfg);
         let mid = intensity_for(&water_contact(0, height * 0.5), &cfg);

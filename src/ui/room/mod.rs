@@ -28,6 +28,7 @@
 //! ternary-tree L-system preset used when adding a new generator.
 
 mod construct;
+mod contact_effects;
 mod environment;
 pub(crate) mod generators;
 mod lsystem;
@@ -64,6 +65,7 @@ pub enum EditorTab {
     Environment,
     Generators,
     Placements,
+    Effects,
     Raw,
 }
 
@@ -373,6 +375,7 @@ pub fn room_admin_ui(
                         (EditorTab::Environment, "Environment"),
                         (EditorTab::Generators, "Region Assets"),
                         (EditorTab::Placements, "Placements"),
+                        (EditorTab::Effects, "Effects"),
                         (EditorTab::Raw, "Raw JSON"),
                     ];
                     for (tab, label) in tabs {
@@ -455,6 +458,13 @@ pub fn room_admin_ui(
                                         ui,
                                         record_mut,
                                         selected_placement,
+                                        &mut widget_change,
+                                    );
+                                }
+                                EditorTab::Effects => {
+                                    contact_effects::draw_contact_effects_tab(
+                                        ui,
+                                        &mut record_mut.contact_effects,
                                         &mut widget_change,
                                     );
                                 }

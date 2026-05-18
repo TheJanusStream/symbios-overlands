@@ -39,11 +39,15 @@
 pub mod classifier;
 pub mod contact;
 pub mod locomotion;
+pub mod particle_channel;
 pub mod perturbation;
 pub mod plugin;
+pub mod recipes;
 pub mod water_channel;
 
 pub use contact::{AvatarContacts, ContactPhase, ContactSample, SurfaceContact, SurfaceKind};
 pub use locomotion::{LocomotionFootprint, locomotion_footprint};
+pub use particle_channel::{ParticleDispatchState, TransientEmitter};
 pub use perturbation::{Perturbation, PerturbationKind, PerturbationPool};
 pub use plugin::{ContactProducerSet, InteractionPlugin};
+pub use recipes::{ContactEffectRecipe, ContactRecipeRegistry, ContactTrigger, ParticleBurst};

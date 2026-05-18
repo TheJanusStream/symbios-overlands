@@ -120,8 +120,10 @@ mod tests {
 
     #[test]
     fn cuboid_footprint_uses_larger_of_x_or_z() {
-        let mut hb = HoverBoatParams::default();
-        hb.chassis_half_extents = Fp3([1.0, 0.4, 3.0]);
+        let mut hb = HoverBoatParams {
+            chassis_half_extents: Fp3([1.0, 0.4, 3.0]),
+            ..Default::default()
+        };
         assert!((hb.footprint_radius() - 3.0).abs() < 1e-5);
         hb.chassis_half_extents = Fp3([4.0, 0.4, 0.5]);
         assert!((hb.footprint_radius() - 4.0).abs() < 1e-5);

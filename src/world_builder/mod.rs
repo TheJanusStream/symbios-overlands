@@ -161,6 +161,7 @@ impl Plugin for WorldBuilderPlugin {
                 (
                     compile::compile_room_record,
                     compile::apply_environment_state,
+                    compile::apply_contact_recipes,
                     image_cache::poll_blob_image_tasks,
                     draw_placement_visualizers,
                 )

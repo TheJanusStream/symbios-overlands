@@ -279,6 +279,7 @@ mod tests {
             generators: HashMap::new(),
             placements: Vec::new(),
             traits: HashMap::new(),
+            contact_effects: Default::default(),
         }
     }
 

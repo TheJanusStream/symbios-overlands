@@ -75,6 +75,7 @@ pub(crate) const AVATAR_COLLECTION: &str = "network.symbios.overlands.avatar";
 pub const INVENTORY_COLLECTION: &str = "network.symbios.overlands.inventory";
 
 pub mod avatar;
+pub mod contact_effects;
 pub mod generator;
 pub mod inventory;
 pub mod prim;
@@ -93,6 +94,10 @@ pub mod xrpc;
 pub use avatar::{
     AirplaneParams, AvatarRecord, CarParams, HelicopterParams, HoverBoatParams, HumanoidParams,
     LocomotionConfig, fetch_avatar_record, publish_avatar_record,
+};
+pub use contact_effects::{
+    ContactEffectRecord, ContactEffects, ContactPhaseKind, ContactSurfaceKind, CountModel,
+    RecipeParticle, default_contact_effects,
 };
 pub use generator::{
     AlphaModeKind, AnimationFrameMode, EmitterShape, Generator, GeneratorKind, ParticleBlendMode,

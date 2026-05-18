@@ -19,6 +19,7 @@
 //! the trait off.
 
 mod common;
+mod contact_effects;
 pub mod limits;
 mod material;
 mod particles;

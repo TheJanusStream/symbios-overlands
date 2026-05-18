@@ -296,9 +296,31 @@ pub(super) fn spawn_particle_emitter_entity(
     seed: u64,
     transform: Transform,
 ) -> Entity {
+    // Room/world-builder emitters are room-owned unless we're compiling
+    // a guest avatar (whose trail must survive room rebuilds).
+    spawn_particle_emitter(ctx.commands, snapshot, seed, transform, !ctx.avatar_mode)
+}
+
+/// `Commands`-level emitter spawn — the `SpawnCtx`-free core, callable
+/// from any system (e.g. the interaction-framework particle dispatcher,
+/// which has `Commands` but no world-builder context). Spawns the
+/// parameter snapshot + deterministic RNG + motion tracker; child
+/// particles are produced per-frame by [`tick_emitter_spawn`].
+///
+/// `tag_room_entity` inserts [`super::RoomEntity`] so the compile-pass
+/// cleanup sweeps the emitter on a room rebuild — pass `false` for
+/// avatar-scoped / transient effect emitters that should instead ride
+/// their own retirement (or their parent avatar's despawn).
+pub fn spawn_particle_emitter(
+    commands: &mut Commands,
+    snapshot: ParticleEmitter,
+    seed: u64,
+    transform: Transform,
+    tag_room_entity: bool,
+) -> Entity {
     let rng = ChaCha8Rng::seed_from_u64(seed);
 
-    let mut cmd = ctx.commands.spawn((
+    let mut cmd = commands.spawn((
         snapshot,
         EmitterState {
             age: 0.0,
@@ -312,7 +334,7 @@ pub(super) fn spawn_particle_emitter_entity(
         transform,
         Visibility::default(),
     ));
-    if !ctx.avatar_mode {
+    if tag_room_entity {
         cmd.insert(super::RoomEntity);
     }
     cmd.id()
