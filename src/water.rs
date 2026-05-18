@@ -65,11 +65,10 @@ pub struct WaterUniforms {
     pub normal_scale_near: f32,
     /// Global: far-distance detail normal tiling (1/world-m).
     pub normal_scale_far: f32,
-    /// Global: reserved for screen-space refraction distortion.
-    pub refraction_strength: f32,
     /// Global: specular sun-glitter intensity.
     pub sun_glitter: f32,
-    /// Global: shoreline foam band width (m). Reserved.
+    /// Global: shoreline foam band width (m). `0` disables; consumed
+    /// by `water.wgsl` via the opaque depth prepass.
     pub shore_foam_width: f32,
     /// Per-volume: flow-map blend in `[0, 1]`. Mirrors
     /// [`crate::pds::WaterSurface::flow_amount`]. `0` = full Gerstner

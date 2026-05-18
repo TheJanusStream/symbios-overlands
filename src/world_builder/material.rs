@@ -44,7 +44,6 @@ fn build_water_uniforms(surface: &WaterSurface, env: &Environment) -> WaterUnifo
         foam_amount: surface.foam_amount.0,
         normal_scale_near: env.water_normal_scale_near.0,
         normal_scale_far: env.water_normal_scale_far.0,
-        refraction_strength: env.water_refraction_strength.0,
         sun_glitter: env.water_sun_glitter.0,
         shore_foam_width: env.water_shore_foam_width.0,
         flow_amount: surface.flow_amount.0,

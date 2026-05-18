@@ -44,18 +44,14 @@ pub struct Environment {
     pub water_normal_scale_near: Fp,
     /// Tiling frequency for the far-distance scrolling detail normal map.
     pub water_normal_scale_far: Fp,
-    /// Screen-space refraction distortion strength. Currently reserved — the
-    /// shader honours the value but falls back to a no-op when no depth
-    /// prepass is wired. Kept on the record so the field is stable.
-    pub water_refraction_strength: Fp,
     /// Intensity of the sharp specular sun-glitter highlight on the water
     /// surface. `0` disables; ~2.0 is a pleasing default.
     pub water_sun_glitter: Fp,
     /// sRGB tint added to wave crests to simulate cheap subsurface scatter.
     pub water_scatter_color: Fp3,
-    /// Width (m) of the procedural shoreline foam band. Reserved — requires
-    /// a depth prepass to resolve shoreline distance; stored on the record
-    /// so the UI field is stable across the feature's rollout.
+    /// Width (m) of the procedural shoreline foam band. `0` disables;
+    /// consumed by the water shader via the camera's opaque depth
+    /// prepass to fade foam in where the water meets terrain.
     pub water_shore_foam_width: Fp,
 
     // ---- Cloud-deck (procedural FBM layer; see `crate::clouds`) -----------
@@ -102,7 +98,6 @@ impl Default for Environment {
 
             water_normal_scale_near: Fp(w::DEFAULT_NORMAL_SCALE_NEAR),
             water_normal_scale_far: Fp(w::DEFAULT_NORMAL_SCALE_FAR),
-            water_refraction_strength: Fp(w::DEFAULT_REFRACTION_STRENGTH),
             water_sun_glitter: Fp(w::DEFAULT_SUN_GLITTER),
             water_scatter_color: Fp3(w::DEFAULT_SCATTER_COLOR),
             water_shore_foam_width: Fp(w::DEFAULT_SHORE_FOAM_WIDTH),
@@ -172,12 +167,6 @@ impl Environment {
             0.0,
             64.0,
             0.08,
-        ));
-        self.water_refraction_strength = Fp(clamp_finite_pos(
-            self.water_refraction_strength.0,
-            0.0,
-            4.0,
-            0.0,
         ));
         self.water_sun_glitter = Fp(clamp_finite_pos(self.water_sun_glitter.0, 0.0, 16.0, 1.8));
         self.water_scatter_color = clamp3(self.water_scatter_color);

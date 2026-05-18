@@ -6,6 +6,7 @@
 //! is rotated by the delta of the rover's yaw so steering rotates the world
 //! around the player instead of whipping the view around.
 
+use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::{post_process::bloom::Bloom, prelude::*};
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
@@ -44,6 +45,15 @@ fn spawn_orbit_camera(mut commands: Commands) {
             far: 12_000.0,
             ..default()
         }),
+        // Opaque depth prepass. The transparent water material is
+        // `AlphaMode::Blend` and keeps `enable_prepass() -> false`, so
+        // it never *writes* prepass depth (writing it would occlude
+        // every fragment the main pass blends underneath). It only
+        // *reads* this opaque-geometry depth texture, to resolve the
+        // water-to-bottom distance for the shoreline-foam band (#257).
+        // Cost: opaque scene geometry now runs a depth-only pre-pass;
+        // non-water materials are otherwise visually unchanged.
+        DepthPrepass,
         GizmoCamera,
         PanOrbitCamera {
             radius: Some(cfg::ORBIT_RADIUS),

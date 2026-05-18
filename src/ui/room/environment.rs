@@ -186,14 +186,6 @@ pub(super) fn draw_environment_tab(ui: &mut egui::Ui, env: &mut Environment, dir
             ui.add_space(4.0);
             fp_slider(
                 ui,
-                "Refraction strength",
-                &mut env.water_refraction_strength,
-                0.0,
-                2.0,
-                dirty,
-            );
-            fp_slider(
-                ui,
                 "Shoreline foam width (m)",
                 &mut env.water_shore_foam_width,
                 0.0,
@@ -202,9 +194,8 @@ pub(super) fn draw_environment_tab(ui: &mut egui::Ui, env: &mut Environment, dir
             );
             ui.label(
                 egui::RichText::new(
-                    "Refraction + shoreline foam are reserved for a future depth-prepass pass; \
-                     the fields round-trip through the record so rooms authored now will \
-                     light up once the wiring lands.",
+                    "Shoreline foam fades in where water meets terrain, over \
+                     this many metres of water depth. 0 disables it.",
                 )
                 .small()
                 .color(egui::Color32::GRAY),

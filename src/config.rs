@@ -212,15 +212,15 @@ pub mod terrain {
         /// showing the per-pixel grain that produced the "repetitive at a
         /// distance" artifact on the old sum-of-sines implementation.
         pub const DEFAULT_NORMAL_SCALE_FAR: f32 = 0.08;
-        /// Screen-space refraction offset strength. Defaults to 0.0 — the
-        /// shader reserves the channel for a future depth-prepass wiring.
-        pub const DEFAULT_REFRACTION_STRENGTH: f32 = 0.0;
         /// Specular sun-glitter highlight strength.
         pub const DEFAULT_SUN_GLITTER: f32 = 1.8;
         /// sRGB tint applied to wave crests via cheap subsurface scattering.
         pub const DEFAULT_SCATTER_COLOR: [f32; 3] = [0.18, 0.45, 0.42];
-        /// Default shore-foam band width (m). Defaults to 0.0 until the
-        /// depth-prepass path needed to resolve shoreline depth is wired in.
+        /// Default shore-foam band width (m). Defaults to 0.0 (no
+        /// shoreline foam) so un-authored rooms render unchanged;
+        /// raise it per water body to fade foam in where the water
+        /// meets terrain (consumed via the camera's opaque depth
+        /// prepass).
         pub const DEFAULT_SHORE_FOAM_WIDTH: f32 = 0.0;
 
         // --- Avatar-wake perturbation simulation -------------------------

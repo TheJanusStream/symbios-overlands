@@ -38,6 +38,12 @@
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
     mesh_view_bindings::{globals, view},
     forward_io::{VertexOutput, FragmentOutput},
+    // Shoreline foam reads the opaque DEPTH prepass (camera-side
+    // `DepthPrepass`) to find how far the bottom sits behind the water.
+    // `prepass_utils::prepass_depth` only exists under `#ifdef
+    // DEPTH_PREPASS`, so every call is guarded by that def.
+    prepass_utils,
+    view_transformations,
 }
 
 // Must match `WAKE_SAMPLES_MAX` in `src/water.rs` exactly. The shader
@@ -59,7 +65,6 @@ struct WaterUniforms {
     foam_amount: f32,
     normal_scale_near: f32,
     normal_scale_far: f32,
-    refraction_strength: f32,
     sun_glitter: f32,
     shore_foam_width: f32,
     flow_amount: f32,
@@ -702,6 +707,44 @@ fn fragment(
         let streamline = smoothstep(0.55, 0.85, stripe) * flow_amount * flow_speed;
         foam = clamp(foam + streamline * water_uniforms.foam_amount, 0.0, 1.0);
     }
+
+    // Shoreline foam — a wash band where the water surface meets the
+    // opaque geometry behind it (beach, bank, submerged rock, cliff
+    // base). It needs the camera's opaque DEPTH prepass to know how far
+    // the bottom sits behind this fragment. `shore_foam_width = 0`
+    // (the default) skips the whole block, so un-authored scenes — and
+    // any build without the prepass — stay pixel-identical. Folded into
+    // the same `foam` accumulator the crest/streamline foam uses, so it
+    // shares one foam colour and one noise breakup (no second look),
+    // and is scaled by `foam_amount` like the streamline term.
+#ifdef DEPTH_PREPASS
+    if water_uniforms.shore_foam_width > 0.0 {
+        let scene_ndc = prepass_utils::prepass_depth(in.position, 0u);
+        // Reverse-Z: the depth buffer clears to 0 (far / no geometry);
+        // only foam where real opaque geometry was written behind the
+        // water, and guard the `-near / ndc` perspective division.
+        if scene_ndc > 0.0 {
+            // View-space Z of the water surface vs the opaque bottom;
+            // their separation is the water column along the view ray
+            // (≈ true depth at the near-top-down angles water is
+            // usually viewed at — exact enough for a cosmetic band).
+            let z_water = view_transformations::depth_ndc_to_view_z(in.position.z);
+            let z_scene = view_transformations::depth_ndc_to_view_z(scene_ndc);
+            let column = abs(z_water - z_scene);
+            // 1 at the waterline, fading out across `shore_foam_width`
+            // metres of water-column depth.
+            let shore = 1.0 - smoothstep(0.0, water_uniforms.shore_foam_width, column);
+            // Break the band into drifting wash with the same gradient
+            // noise + scroll the crest foam uses.
+            let wash = smoothstep(
+                0.30,
+                0.75,
+                gradient_noise(xz * 0.5 + scroll_dir * t * 0.4),
+            );
+            foam = clamp(foam + shore * wash * water_uniforms.foam_amount, 0.0, 1.0);
+        }
+    }
+#endif // DEPTH_PREPASS
 
     // Push the per-volume overrides into the PBR input before lighting runs.
     // Distance-based roughness boost (Toksvig-lite): widen the specular lobe
