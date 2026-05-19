@@ -12,7 +12,9 @@
 use super::Sanitize;
 use super::common::clamp_finite;
 use super::limits;
-use crate::pds::contact_effects::{ContactEffectRecord, ContactEffects, RecipeParticle};
+use crate::pds::contact_effects::{
+    ContactEffectKind, ContactEffectRecord, ContactEffects, DecalParams, RecipeParticle,
+};
 use crate::pds::generator::EmitterShape;
 
 impl Sanitize for ContactEffects {
@@ -45,32 +47,68 @@ impl Sanitize for ContactEffectRecord {
                 .collect();
         }
 
+        // Shared trigger gates (kind-independent).
         self.min_speed.0 = clamp_finite(self.min_speed.0, 0.0, limits::MAX_CONTACT_MIN_SPEED, 0.0);
         self.min_intensity.0 = clamp_finite(self.min_intensity.0, 0.0, 1.0, 0.0);
-        self.radius_scale.0 = clamp_finite(
-            self.radius_scale.0,
-            0.0,
-            limits::MAX_CONTACT_RADIUS_SCALE,
-            1.0,
-        );
-        self.velocity_inherit.0 = clamp_finite(
-            self.velocity_inherit.0,
-            0.0,
-            limits::MAX_PARTICLE_INHERIT_VELOCITY,
-            0.0,
-        );
         self.cooldown.0 = clamp_finite(self.cooldown.0, 0.0, limits::MAX_CONTACT_COOLDOWN, 0.0);
 
-        // Count model: finite coefficients, burst-capped max, min ≤ max.
-        let burst_cap = limits::MAX_PARTICLE_BURST as f32;
-        self.count.gain.0 = clamp_finite(self.count.gain.0, -burst_cap, burst_cap, 0.0);
-        self.count.base.0 = clamp_finite(self.count.base.0, 0.0, burst_cap, 0.0);
-        self.count.max = self.count.max.min(limits::MAX_PARTICLE_BURST);
-        if self.count.min > self.count.max {
-            self.count.min = self.count.max;
+        // Per-effect-kind payload bounds.
+        match &mut self.effect {
+            ContactEffectKind::ParticleBurst {
+                count,
+                radius_scale,
+                velocity_inherit,
+                particle,
+            } => {
+                radius_scale.0 =
+                    clamp_finite(radius_scale.0, 0.0, limits::MAX_CONTACT_RADIUS_SCALE, 1.0);
+                velocity_inherit.0 = clamp_finite(
+                    velocity_inherit.0,
+                    0.0,
+                    limits::MAX_PARTICLE_INHERIT_VELOCITY,
+                    0.0,
+                );
+                // Count model: finite coefficients, burst-capped max,
+                // min ≤ max.
+                let burst_cap = limits::MAX_PARTICLE_BURST as f32;
+                count.gain.0 = clamp_finite(count.gain.0, -burst_cap, burst_cap, 0.0);
+                count.base.0 = clamp_finite(count.base.0, 0.0, burst_cap, 0.0);
+                count.max = count.max.min(limits::MAX_PARTICLE_BURST);
+                if count.min > count.max {
+                    count.min = count.max;
+                }
+                particle.sanitize();
+            }
+            ContactEffectKind::DecalStamp { decal } => decal.sanitize(),
+            // A future/unknown effect kind has no fields we can bound;
+            // the runtime mapper drops it anyway.
+            ContactEffectKind::Unknown => {}
         }
+    }
+}
 
-        self.particle.sanitize();
+impl Sanitize for DecalParams {
+    fn sanitize(&mut self) {
+        self.ttl.0 = clamp_finite(
+            self.ttl.0,
+            limits::MIN_CONTACT_DECAL_TTL,
+            limits::MAX_CONTACT_DECAL_TTL,
+            limits::MIN_CONTACT_DECAL_TTL,
+        );
+        self.start_size.0 =
+            clamp_finite(self.start_size.0, 0.0, limits::MAX_CONTACT_DECAL_SIZE, 0.45);
+        self.end_size.0 = clamp_finite(self.end_size.0, 0.0, limits::MAX_CONTACT_DECAL_SIZE, 0.85);
+        self.start_alpha.0 = clamp_finite(self.start_alpha.0, 0.0, 1.0, 0.55);
+        self.end_alpha.0 = clamp_finite(self.end_alpha.0, 0.0, 1.0, 0.0);
+        self.normal_offset.0 = clamp_finite(
+            self.normal_offset.0,
+            0.0,
+            limits::MAX_CONTACT_DECAL_NORMAL_OFFSET,
+            0.02,
+        );
+        for c in &mut self.color.0 {
+            *c = clamp_finite(*c, 0.0, 1.0, 0.0);
+        }
     }
 }
 
@@ -153,8 +191,27 @@ impl Sanitize for RecipeParticle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pds::contact_effects::{CountModel, default_contact_effects};
-    use crate::pds::types::{Fp, Fp4};
+    use crate::pds::contact_effects::{
+        ContactEffectRecord, ContactPhaseKind, ContactSurfaceKind, CountModel,
+        default_contact_effects,
+    };
+    use crate::pds::types::{Fp, Fp3, Fp4};
+
+    /// Mutable access to a record's ParticleBurst payload (every
+    /// canonical default recipe is one).
+    fn burst(
+        r: &mut ContactEffectRecord,
+    ) -> (&mut CountModel, &mut Fp, &mut Fp, &mut RecipeParticle) {
+        match &mut r.effect {
+            ContactEffectKind::ParticleBurst {
+                count,
+                radius_scale,
+                velocity_inherit,
+                particle,
+            } => (count, radius_scale, velocity_inherit, particle),
+            _ => unreachable!("canonical defaults are ParticleBurst"),
+        }
+    }
 
     #[test]
     fn defaults_survive_sanitise_unchanged() {
@@ -167,41 +224,84 @@ mod tests {
     #[test]
     fn hostile_values_are_clamped_and_bounded() {
         let mut e = default_contact_effects();
-        let r = &mut e.recipes[0];
-        r.min_speed = Fp(f32::NAN);
-        r.min_intensity = Fp(99.0);
-        r.radius_scale = Fp(1.0e9);
-        r.cooldown = Fp(-5.0);
-        r.count = CountModel {
-            gain: Fp(f32::INFINITY),
-            base: Fp(1.0e9),
-            min: 9_999,
-            max: 1,
-        };
-        r.particle.start_color = Fp4([2.0, -1.0, f32::NAN, 5.0]);
-        r.particle.lifetime_min = Fp(10.0);
-        r.particle.lifetime_max = Fp(1.0);
-        r.particle.max_particles = u32::MAX;
+        {
+            let r = &mut e.recipes[0];
+            r.min_speed = Fp(f32::NAN);
+            r.min_intensity = Fp(99.0);
+            r.cooldown = Fp(-5.0);
+            let (count, radius_scale, _vi, particle) = burst(r);
+            *radius_scale = Fp(1.0e9);
+            *count = CountModel {
+                gain: Fp(f32::INFINITY),
+                base: Fp(1.0e9),
+                min: 9_999,
+                max: 1,
+            };
+            particle.start_color = Fp4([2.0, -1.0, f32::NAN, 5.0]);
+            particle.lifetime_min = Fp(10.0);
+            particle.lifetime_max = Fp(1.0);
+            particle.max_particles = u32::MAX;
+        }
         e.max_particles_per_frame = u32::MAX;
         e.sanitize();
 
-        let r = &e.recipes[0];
+        let r = &mut e.recipes[0];
         assert_eq!(r.min_speed.0, 0.0); // NaN → default
         assert_eq!(r.min_intensity.0, 1.0); // clamped to 1
-        assert!(r.radius_scale.0 <= limits::MAX_CONTACT_RADIUS_SCALE);
         assert_eq!(r.cooldown.0, 0.0); // negative → default
-        assert!(r.count.max <= limits::MAX_PARTICLE_BURST);
-        assert!(r.count.min <= r.count.max);
+        let (count, radius_scale, _vi, particle) = burst(r);
+        assert!(radius_scale.0 <= limits::MAX_CONTACT_RADIUS_SCALE);
+        assert!(count.max <= limits::MAX_PARTICLE_BURST);
+        assert!(count.min <= count.max);
         assert!(
-            r.particle
+            particle
                 .start_color
                 .0
                 .iter()
                 .all(|&c| (0.0..=1.0).contains(&c))
         );
-        assert!(r.particle.lifetime_max.0 >= r.particle.lifetime_min.0);
-        assert!(r.particle.max_particles <= limits::MAX_PARTICLES);
+        assert!(particle.lifetime_max.0 >= particle.lifetime_min.0);
+        assert!(particle.max_particles <= limits::MAX_PARTICLES);
         assert!(e.max_particles_per_frame <= limits::MAX_CONTACT_PARTICLES_PER_FRAME);
+    }
+
+    #[test]
+    fn hostile_decal_params_are_clamped() {
+        let mut e = default_contact_effects();
+        e.recipes.push(ContactEffectRecord {
+            name: "evil_decal".into(),
+            surface: ContactSurfaceKind::Terrain,
+            phase: ContactPhaseKind::Dwell,
+            min_speed: Fp(0.0),
+            min_intensity: Fp(0.0),
+            cooldown: Fp(0.0),
+            enabled: true,
+            effect: ContactEffectKind::DecalStamp {
+                decal: DecalParams {
+                    ttl: Fp(f32::INFINITY),
+                    start_size: Fp(1.0e9),
+                    end_size: Fp(-3.0),
+                    start_alpha: Fp(9.0),
+                    end_alpha: Fp(f32::NAN),
+                    color: Fp3([2.0, -1.0, f32::NAN]),
+                    normal_offset: Fp(1.0e6),
+                },
+            },
+        });
+        e.sanitize();
+        let d = match &e.recipes.last().unwrap().effect {
+            ContactEffectKind::DecalStamp { decal } => *decal,
+            _ => unreachable!(),
+        };
+        assert!(
+            d.ttl.0 >= limits::MIN_CONTACT_DECAL_TTL && d.ttl.0 <= limits::MAX_CONTACT_DECAL_TTL
+        );
+        assert!(d.start_size.0 >= 0.0 && d.start_size.0 <= limits::MAX_CONTACT_DECAL_SIZE);
+        assert!(d.end_size.0 >= 0.0 && d.end_size.0 <= limits::MAX_CONTACT_DECAL_SIZE);
+        assert!((0.0..=1.0).contains(&d.start_alpha.0));
+        assert!((0.0..=1.0).contains(&d.end_alpha.0));
+        assert!(d.color.0.iter().all(|&c| (0.0..=1.0).contains(&c)));
+        assert!(d.normal_offset.0 <= limits::MAX_CONTACT_DECAL_NORMAL_OFFSET);
     }
 
     #[test]

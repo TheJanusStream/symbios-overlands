@@ -17,7 +17,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::generator::{EmitterShape, ParticleBlendMode};
-use super::types::{Fp, Fp4};
+use super::types::{Fp, Fp3, Fp4};
 
 /// Serializable mirror of `interaction::contact::SurfaceKind`. Open
 /// union (`$type` tag + [`Self::Unknown`]) so a record authored by a
@@ -88,8 +88,86 @@ pub struct RecipeParticle {
     pub max_particles: u32,
 }
 
-/// One authored recipe: trigger predicate + burst description.
+/// A flat, short-lived contact decal (consumer channel C, #261/#246).
+/// Authored per-recipe; the runtime `interaction::decal` channel stamps
+/// a quad that grows from `start_size`→`end_size` and fades
+/// `start_alpha`→`end_alpha` over `ttl`, lifted `normal_offset` off the
+/// surface to avoid z-fighting. v1 is a flat-colour quad (no texture
+/// atlas yet — a textured source is a later extension).
+///
+/// [`Default`] is the canonical seed (mirrors the engine values that
+/// were previously `config::interaction::decal` consts), so a freshly
+/// added decal recipe already looks reasonable.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct DecalParams {
+    pub ttl: Fp,
+    pub start_size: Fp,
+    pub end_size: Fp,
+    pub start_alpha: Fp,
+    pub end_alpha: Fp,
+    /// sRGB tint of the mark.
+    pub color: Fp3,
+    /// Lift (m) along the surface normal to avoid z-fighting.
+    pub normal_offset: Fp,
+}
+
+impl Default for DecalParams {
+    fn default() -> Self {
+        Self {
+            ttl: Fp(6.0),
+            start_size: Fp(0.45),
+            end_size: Fp(0.85),
+            start_alpha: Fp(0.55),
+            end_alpha: Fp(0.0),
+            color: Fp3([0.14, 0.11, 0.09]),
+            normal_offset: Fp(0.02),
+        }
+    }
+}
+
+/// The effect a matched contact produces. Open union (`$type` tag +
+/// [`Self::Unknown`]) — same forward-compat contract as
+/// [`ContactSurfaceKind`]: a record authored against a future effect
+/// kind (e.g. the audio cue in #262) decodes to `Unknown` here and is
+/// skipped at compile time rather than failing the whole room.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(tag = "$type")]
+pub enum ContactEffectKind {
+    /// Transient particle burst (the Phase-2 effect; the only kind
+    /// before #261).
+    #[serde(rename = "network.symbios.contact.effect.particle")]
+    ParticleBurst {
+        count: CountModel,
+        /// Multiplier on the sample footprint that sizes the emitter
+        /// shape.
+        radius_scale: Fp,
+        /// Fraction of avatar velocity the particles inherit.
+        velocity_inherit: Fp,
+        particle: RecipeParticle,
+    },
+    /// Flat fading ground decal.
+    #[serde(rename = "network.symbios.contact.effect.decal")]
+    DecalStamp { decal: DecalParams },
+    /// A future/unknown effect kind — decoded, never authored. Dropped
+    /// by the runtime mapper.
+    #[serde(other)]
+    Unknown,
+}
+
+/// One authored recipe: shared trigger predicate + a tagged effect
+/// payload ([`ContactEffectKind`]).
+///
+/// `Serialize` is derived (we always *write* the current tagged shape);
+/// `Deserialize` is hand-written ([`RawContactEffectRecord`]) so a
+/// **pre-#261 record** — which carried `count` / `radius_scale` /
+/// `velocity_inherit` / `particle` *flat on the record* with no
+/// `effect` key — still loads, folded into a
+/// [`ContactEffectKind::ParticleBurst`]. (Forward-compat caveat: a
+/// pre-#261 *client* cannot read a migrated room's new `effect` shape;
+/// acceptable for this single-binary app where clients upgrade
+/// together, and consistent with the surface/phase open-union
+/// evolution.)
+#[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct ContactEffectRecord {
     /// Stable identifier (debug + the per-avatar cooldown key).
     pub name: String,
@@ -97,17 +175,126 @@ pub struct ContactEffectRecord {
     pub phase: ContactPhaseKind,
     pub min_speed: Fp,
     pub min_intensity: Fp,
-    pub count: CountModel,
-    /// Multiplier on the sample footprint that sizes the emitter shape.
-    pub radius_scale: Fp,
-    /// Fraction of avatar velocity the particles inherit.
-    pub velocity_inherit: Fp,
     /// Min seconds between emissions per avatar (`0` = every matching
     /// frame; throttles continuous `Dwell` recipes).
     pub cooldown: Fp,
     /// Designer kill-switch — `false` skips the recipe.
     pub enabled: bool,
-    pub particle: RecipeParticle,
+    pub effect: ContactEffectKind,
+}
+
+fn default_enabled() -> bool {
+    true
+}
+
+/// Deserialize shim accepting **both** the #261 tagged shape and the
+/// legacy pre-#261 flat shape. Every field is optional so a partial /
+/// legacy record never hard-errors; missing pieces fall back to sane
+/// canonical values.
+#[derive(Deserialize)]
+struct RawContactEffectRecord {
+    name: String,
+    #[serde(default)]
+    surface: ContactSurfaceKind,
+    #[serde(default)]
+    phase: ContactPhaseKind,
+    #[serde(default)]
+    min_speed: Fp,
+    #[serde(default)]
+    min_intensity: Fp,
+    #[serde(default)]
+    cooldown: Fp,
+    #[serde(default = "default_enabled")]
+    enabled: bool,
+    /// #261 tagged payload.
+    #[serde(default)]
+    effect: Option<ContactEffectKind>,
+    // --- legacy pre-#261 flat particle fields ---
+    #[serde(default)]
+    count: Option<CountModel>,
+    #[serde(default)]
+    radius_scale: Option<Fp>,
+    #[serde(default)]
+    velocity_inherit: Option<Fp>,
+    #[serde(default)]
+    particle: Option<RecipeParticle>,
+}
+
+impl<'de> Deserialize<'de> for ContactEffectRecord {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = RawContactEffectRecord::deserialize(d)?;
+        let effect = match raw.effect {
+            // New tagged shape — use it as authored.
+            Some(e) => e,
+            // No `effect` key: fold the legacy flat particle fields
+            // into a ParticleBurst. A legacy record always carried
+            // `particle`; if it somehow doesn't, default the burst so
+            // the recipe is still well-formed (the sanitiser + runtime
+            // mapper bound/skip it as needed).
+            None => ContactEffectKind::ParticleBurst {
+                count: raw.count.unwrap_or(CountModel {
+                    gain: Fp(0.0),
+                    base: Fp(1.0),
+                    min: 1,
+                    max: 1,
+                }),
+                radius_scale: raw.radius_scale.unwrap_or(Fp(1.0)),
+                velocity_inherit: raw.velocity_inherit.unwrap_or(Fp(0.0)),
+                particle: raw.particle.unwrap_or_else(canonical_particle),
+            },
+        };
+        Ok(ContactEffectRecord {
+            name: raw.name,
+            surface: raw.surface,
+            phase: raw.phase,
+            min_speed: raw.min_speed,
+            min_intensity: raw.min_intensity,
+            cooldown: raw.cooldown,
+            enabled: raw.enabled,
+            effect,
+        })
+    }
+}
+
+/// The canonical splash particle — the fallback used when a malformed
+/// legacy record omits `particle` entirely. Kept tiny and benign.
+fn canonical_particle() -> RecipeParticle {
+    let (start_color, end_color) = droplet_colours();
+    RecipeParticle {
+        shape: EmitterShape::Sphere { radius: Fp(0.2) },
+        lifetime_min: Fp(0.3),
+        lifetime_max: Fp(0.6),
+        speed_min: Fp(1.0),
+        speed_max: Fp(2.0),
+        gravity_multiplier: Fp(1.0),
+        linear_drag: Fp(0.4),
+        start_size: Fp(0.1),
+        end_size: Fp(0.02),
+        start_color,
+        end_color,
+        blend_mode: ParticleBlendMode::Alpha,
+        billboard: true,
+        max_particles: 32,
+    }
+}
+
+/// Build a [`ContactEffectKind::ParticleBurst`] — keeps the default
+/// recipe builders readable now the payload is nested.
+fn particle_effect(
+    count: CountModel,
+    radius_scale: Fp,
+    velocity_inherit: Fp,
+    particle: RecipeParticle,
+) -> ContactEffectKind {
+    ContactEffectKind::ParticleBurst {
+        count,
+        radius_scale,
+        velocity_inherit,
+        particle,
+    }
 }
 
 /// Room-level authored effect set. Stored on [`super::RoomRecord`] under
@@ -155,37 +342,39 @@ pub fn default_contact_effects() -> ContactEffects {
                 phase: ContactPhaseKind::Enter,
                 min_speed: Fp(1.5),
                 min_intensity: Fp(0.0),
-                // clamp(speed*8, 0, 40)
-                count: CountModel {
-                    gain: Fp(8.0),
-                    base: Fp(0.0),
-                    min: 0,
-                    max: 40,
-                },
-                radius_scale: Fp(1.0),
-                velocity_inherit: Fp(0.5),
                 cooldown: Fp(0.0),
                 enabled: true,
-                particle: RecipeParticle {
-                    // Upward fan; `height` scaled by footprint at compile.
-                    shape: EmitterShape::Cone {
-                        half_angle: Fp(0.7),
-                        height: Fp(0.4),
+                effect: particle_effect(
+                    // clamp(speed*8, 0, 40)
+                    CountModel {
+                        gain: Fp(8.0),
+                        base: Fp(0.0),
+                        min: 0,
+                        max: 40,
                     },
-                    lifetime_min: Fp(0.3),
-                    lifetime_max: Fp(0.6),
-                    speed_min: Fp(2.0),
-                    speed_max: Fp(4.0),
-                    gravity_multiplier: Fp(1.0),
-                    linear_drag: Fp(0.4),
-                    start_size: Fp(0.13),
-                    end_size: Fp(0.03),
-                    start_color,
-                    end_color,
-                    blend_mode: ParticleBlendMode::Alpha,
-                    billboard: true,
-                    max_particles: 64,
-                },
+                    Fp(1.0),
+                    Fp(0.5),
+                    RecipeParticle {
+                        // Upward fan; `height` scaled by footprint at compile.
+                        shape: EmitterShape::Cone {
+                            half_angle: Fp(0.7),
+                            height: Fp(0.4),
+                        },
+                        lifetime_min: Fp(0.3),
+                        lifetime_max: Fp(0.6),
+                        speed_min: Fp(2.0),
+                        speed_max: Fp(4.0),
+                        gravity_multiplier: Fp(1.0),
+                        linear_drag: Fp(0.4),
+                        start_size: Fp(0.13),
+                        end_size: Fp(0.03),
+                        start_color,
+                        end_color,
+                        blend_mode: ParticleBlendMode::Alpha,
+                        billboard: true,
+                        max_particles: 64,
+                    },
+                ),
             },
             ContactEffectRecord {
                 name: "water_droplet".into(),
@@ -193,33 +382,35 @@ pub fn default_contact_effects() -> ContactEffects {
                 phase: ContactPhaseKind::Dwell,
                 min_speed: Fp(0.5),
                 min_intensity: Fp(0.25),
-                // Flat trickle: const 2.
-                count: CountModel {
-                    gain: Fp(0.0),
-                    base: Fp(2.0),
-                    min: 2,
-                    max: 2,
-                },
-                radius_scale: Fp(0.6),
-                velocity_inherit: Fp(0.7),
                 cooldown: Fp(0.25),
                 enabled: true,
-                particle: RecipeParticle {
-                    shape: EmitterShape::Sphere { radius: Fp(0.2) },
-                    lifetime_min: Fp(0.3),
-                    lifetime_max: Fp(0.5),
-                    speed_min: Fp(0.6),
-                    speed_max: Fp(1.4),
-                    gravity_multiplier: Fp(1.0),
-                    linear_drag: Fp(0.4),
-                    start_size: Fp(0.06),
-                    end_size: Fp(0.015),
-                    start_color,
-                    end_color,
-                    blend_mode: ParticleBlendMode::Alpha,
-                    billboard: true,
-                    max_particles: 16,
-                },
+                effect: particle_effect(
+                    // Flat trickle: const 2.
+                    CountModel {
+                        gain: Fp(0.0),
+                        base: Fp(2.0),
+                        min: 2,
+                        max: 2,
+                    },
+                    Fp(0.6),
+                    Fp(0.7),
+                    RecipeParticle {
+                        shape: EmitterShape::Sphere { radius: Fp(0.2) },
+                        lifetime_min: Fp(0.3),
+                        lifetime_max: Fp(0.5),
+                        speed_min: Fp(0.6),
+                        speed_max: Fp(1.4),
+                        gravity_multiplier: Fp(1.0),
+                        linear_drag: Fp(0.4),
+                        start_size: Fp(0.06),
+                        end_size: Fp(0.015),
+                        start_color,
+                        end_color,
+                        blend_mode: ParticleBlendMode::Alpha,
+                        billboard: true,
+                        max_particles: 16,
+                    },
+                ),
             },
             // Ground dust — the recipe #244 deliberately deferred until
             // the Phase 3 `Terrain` surface existed (#245). A brisk run
@@ -247,36 +438,38 @@ fn ground_dust_record() -> ContactEffectRecord {
         // stays 0 (the speed gate alone selects "running").
         min_speed: Fp(4.0),
         min_intensity: Fp(0.0),
-        // clamp(speed*3, 4, 18) — denser puff the faster you run.
-        count: CountModel {
-            gain: Fp(3.0),
-            base: Fp(0.0),
-            min: 4,
-            max: 18,
-        },
-        radius_scale: Fp(0.8),
-        velocity_inherit: Fp(0.3),
         // Throttle the continuous Dwell so it puffs a few times a
         // second instead of spawning an emitter every frame.
         cooldown: Fp(0.2),
         enabled: true,
-        particle: RecipeParticle {
-            shape: EmitterShape::Sphere { radius: Fp(0.25) },
-            lifetime_min: Fp(0.4),
-            lifetime_max: Fp(0.9),
-            speed_min: Fp(0.3),
-            speed_max: Fp(1.2),
-            // Dust hangs — almost no gravity, heavy drag.
-            gravity_multiplier: Fp(0.15),
-            linear_drag: Fp(0.6),
-            start_size: Fp(0.18),
-            end_size: Fp(0.05),
-            start_color,
-            end_color,
-            blend_mode: ParticleBlendMode::Alpha,
-            billboard: true,
-            max_particles: 48,
-        },
+        effect: particle_effect(
+            // clamp(speed*3, 4, 18) — denser puff the faster you run.
+            CountModel {
+                gain: Fp(3.0),
+                base: Fp(0.0),
+                min: 4,
+                max: 18,
+            },
+            Fp(0.8),
+            Fp(0.3),
+            RecipeParticle {
+                shape: EmitterShape::Sphere { radius: Fp(0.25) },
+                lifetime_min: Fp(0.4),
+                lifetime_max: Fp(0.9),
+                speed_min: Fp(0.3),
+                speed_max: Fp(1.2),
+                // Dust hangs — almost no gravity, heavy drag.
+                gravity_multiplier: Fp(0.15),
+                linear_drag: Fp(0.6),
+                start_size: Fp(0.18),
+                end_size: Fp(0.05),
+                start_color,
+                end_color,
+                blend_mode: ParticleBlendMode::Alpha,
+                billboard: true,
+                max_particles: 48,
+            },
+        ),
     }
 }
 
@@ -327,5 +520,85 @@ mod tests {
         let p: ContactPhaseKind =
             serde_json::from_str(r#"{"$type":"network.symbios.contact.phase.graze"}"#).unwrap();
         assert_eq!(p, ContactPhaseKind::Unknown);
+    }
+
+    #[test]
+    fn unknown_effect_kind_falls_back_not_error() {
+        // A record authored against a future effect kind (e.g. the
+        // #262 audio cue) must decode to Unknown, not fail the room.
+        let e: ContactEffectKind =
+            serde_json::from_str(r#"{"$type":"network.symbios.contact.effect.audio","clip":"x"}"#)
+                .unwrap();
+        assert_eq!(e, ContactEffectKind::Unknown);
+    }
+
+    #[test]
+    fn legacy_flat_record_decodes_into_particle_burst() {
+        // A pre-#261 record carried count/radius_scale/velocity_inherit
+        // /particle FLAT on the record with no `effect` key. It must
+        // still load, folded into a ParticleBurst.
+        let canonical = &default_contact_effects().recipes[0];
+        let (rs, vi, count, particle) = match &canonical.effect {
+            ContactEffectKind::ParticleBurst {
+                radius_scale,
+                velocity_inherit,
+                count,
+                particle,
+            } => (*radius_scale, *velocity_inherit, *count, particle.clone()),
+            _ => unreachable!("canonical splash is a ParticleBurst"),
+        };
+        // Hand-build the legacy flat JSON shape.
+        let legacy = serde_json::json!({
+            "name": "legacy_splash",
+            "surface": canonical.surface,
+            "phase": canonical.phase,
+            "min_speed": canonical.min_speed,
+            "min_intensity": canonical.min_intensity,
+            "count": count,
+            "radius_scale": rs,
+            "velocity_inherit": vi,
+            "cooldown": canonical.cooldown,
+            "enabled": true,
+            "particle": particle,
+        });
+        let rec: ContactEffectRecord = serde_json::from_value(legacy).unwrap();
+        assert_eq!(rec.name, "legacy_splash");
+        match rec.effect {
+            ContactEffectKind::ParticleBurst {
+                radius_scale,
+                velocity_inherit,
+                count: c,
+                particle: p,
+            } => {
+                assert_eq!(radius_scale, rs);
+                assert_eq!(velocity_inherit, vi);
+                assert_eq!(c, count);
+                assert_eq!(p, particle);
+            }
+            _ => panic!("legacy flat record must fold into ParticleBurst"),
+        }
+    }
+
+    #[test]
+    fn decal_recipe_round_trips() {
+        let mut e = ContactEffects::default();
+        e.recipes.push(ContactEffectRecord {
+            name: "wet_footprint".into(),
+            surface: ContactSurfaceKind::Terrain,
+            phase: ContactPhaseKind::Dwell,
+            min_speed: Fp(0.0),
+            min_intensity: Fp(0.0),
+            cooldown: Fp(0.4),
+            enabled: true,
+            effect: ContactEffectKind::DecalStamp {
+                decal: DecalParams::default(),
+            },
+        });
+        let json = serde_json::to_string(&e).unwrap();
+        let back: ContactEffects = serde_json::from_str(&json).unwrap();
+        assert_eq!(e, back);
+        assert!(json.contains("network.symbios.contact.effect.decal"));
+        // The seeded particle recipes still serialize tagged.
+        assert!(json.contains("network.symbios.contact.effect.particle"));
     }
 }

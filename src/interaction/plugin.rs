@@ -104,5 +104,13 @@ impl Plugin for InteractionPlugin {
                 )
                     .run_if(in_state(AppState::InGame)),
             );
+
+        // Optional Phase-4 consumer channels (#246 remainder). Each
+        // registers its own resources + systems and is inert by
+        // default (decal: `DecalStamper::enabled == false`; audio: no
+        // `ContactAudioHook` installed), so the shipped Phase 1-3
+        // behaviour is unchanged until a downstream app opts in.
+        super::decal::build(app);
+        super::audio::build(app);
     }
 }

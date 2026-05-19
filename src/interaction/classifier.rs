@@ -85,6 +85,15 @@ impl TerrainSurfaceQuery {
         Self { query, half_extent }
     }
 
+    /// World-space ground height and unit surface normal at a world XZ.
+    /// Public accessor for consumers that need to anchor something on
+    /// the ground (e.g. the Phase-4 decal stamper) without re-deriving
+    /// the heightmap-local offset.
+    pub fn ground_at(&self, world_x: f32, world_z: f32) -> (f32, Vec3) {
+        let (h, _, n) = self.sample(world_x, world_z);
+        (h, n)
+    }
+
     /// Ground height, normalised `[Grass, Dirt, Rock, Snow]` splat
     /// weights and unit surface normal at a world XZ.
     fn sample(&self, world_x: f32, world_z: f32) -> (f32, [f32; 4], Vec3) {

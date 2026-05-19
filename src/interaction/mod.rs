@@ -36,8 +36,11 @@
 //! avatar (hover-boat, helicopter) produces bigger effects than a
 //! humanoid without any per-channel scaling.
 
+pub mod audio;
+pub mod audio_example;
 pub mod classifier;
 pub mod contact;
+pub mod decal;
 pub mod locomotion;
 pub mod particle_channel;
 pub mod perturbation;
@@ -46,11 +49,15 @@ pub mod recipes;
 pub mod stains;
 pub mod water_channel;
 
+pub use audio::{ContactAudioDispatch, ContactAudioHook};
+pub use audio_example::FootstepAudioHook;
 pub use classifier::TerrainSurfaceQuery;
 pub use contact::{AvatarContacts, ContactPhase, ContactSample, SurfaceContact, SurfaceKind};
 pub use locomotion::{LocomotionFootprint, locomotion_footprint};
 pub use particle_channel::{ParticleDispatchState, TransientEmitter};
 pub use perturbation::{Perturbation, PerturbationKind, PerturbationPool};
 pub use plugin::{ContactProducerSet, InteractionPlugin};
-pub use recipes::{ContactEffectRecipe, ContactRecipeRegistry, ContactTrigger, ParticleBurst};
+pub use recipes::{
+    ContactEffectRecipe, ContactRecipeRegistry, ContactTrigger, DecalEffectRecipe, ParticleBurst,
+};
 pub use stains::StainsImage;

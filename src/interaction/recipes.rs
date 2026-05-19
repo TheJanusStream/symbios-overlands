@@ -15,8 +15,9 @@
 use bevy::prelude::*;
 
 use crate::pds::{
-    AnimationFrameMode, ContactEffects, ContactPhaseKind, ContactSurfaceKind, EmitterShape, Fp,
-    ParticleBlendMode, RecipeParticle, SimulationSpace, TextureFilter,
+    AnimationFrameMode, ContactEffectKind, ContactEffects, ContactPhaseKind, ContactSurfaceKind,
+    DecalParams, EmitterShape, Fp, ParticleBlendMode, RecipeParticle, SimulationSpace,
+    TextureFilter,
 };
 use crate::world_builder::particles::ParticleEmitter;
 
@@ -106,10 +107,57 @@ pub struct ContactEffectRecipe {
     pub enabled: bool,
 }
 
+/// Runtime mirror of [`crate::pds::DecalParams`] — plain `f32`s so the
+/// decal channel doesn't reach back into PDS types.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DecalRuntimeParams {
+    pub ttl: f32,
+    pub start_size: f32,
+    pub end_size: f32,
+    pub start_alpha: f32,
+    pub end_alpha: f32,
+    pub color: [f32; 3],
+    pub normal_offset: f32,
+}
+
+impl From<&DecalParams> for DecalRuntimeParams {
+    fn from(p: &DecalParams) -> Self {
+        Self {
+            ttl: p.ttl.0,
+            start_size: p.start_size.0,
+            end_size: p.end_size.0,
+            start_alpha: p.start_alpha.0,
+            end_alpha: p.end_alpha.0,
+            color: p.color.0,
+            normal_offset: p.normal_offset.0,
+        }
+    }
+}
+
+/// One declarative decal rule — the [`ContactEffectKind::DecalStamp`]
+/// analogue of [`ContactEffectRecipe`], consumed by
+/// [`super::decal::stamp_decals`].
+#[derive(Clone)]
+pub struct DecalEffectRecipe {
+    pub name: String,
+    pub trigger: ContactTrigger,
+    pub params: DecalRuntimeParams,
+    /// Min seconds between stamps from one avatar for this recipe
+    /// (per-recipe, like [`ParticleBurst::cooldown`]).
+    pub cooldown: f32,
+    pub enabled: bool,
+}
+
 /// Active recipe set + the global emission ceiling.
+///
+/// One registry now carries every effect kind, split by runtime
+/// channel: [`Self::recipes`] feeds the particle dispatcher,
+/// [`Self::decals`] feeds the decal stamper. (Audio joins as a third
+/// list under #262.)
 #[derive(Resource)]
 pub struct ContactRecipeRegistry {
     pub recipes: Vec<ContactEffectRecipe>,
+    pub decals: Vec<DecalEffectRecipe>,
     /// Hard cap on particles spawned across *all* recipes and avatars
     /// in a single frame. Bounds a stutter-frame / many-avatar spike
     /// (a long frame can match many `Enter`s at once); excess is
@@ -121,6 +169,9 @@ impl Default for ContactRecipeRegistry {
     fn default() -> Self {
         Self {
             recipes: default_water_recipes(),
+            // No decal is seeded by default — the shipped behaviour is
+            // particle-only; decals are opt-in per room (#261).
+            decals: Vec::new(),
             max_particles_per_frame: 240,
         }
     }
@@ -377,41 +428,67 @@ fn recipe_particle_to_emitter(p: &RecipeParticle) -> ParticleEmitter {
 
 impl ContactRecipeRegistry {
     /// Compile an authored [`ContactEffects`] record into the runtime
-    /// registry. Recipes whose surface/phase is an unknown (future)
-    /// tag are dropped — the engine can't dispatch a kind it doesn't
-    /// model. The numeric fields are assumed already sanitised by
-    /// [`crate::pds::RoomRecord::sanitize`].
+    /// registry, routing each recipe to its channel by effect kind. A
+    /// recipe is dropped (not guessed) when its surface/phase tag is
+    /// unknown, or its effect kind is unknown — the engine can't
+    /// dispatch a kind it doesn't model. Numeric fields are assumed
+    /// already sanitised by [`crate::pds::RoomRecord::sanitize`].
     pub fn from_effects(effects: &ContactEffects) -> Self {
-        let recipes = effects
-            .recipes
-            .iter()
-            .filter_map(|r| {
-                Some(ContactEffectRecipe {
+        let mut recipes = Vec::new();
+        let mut decals = Vec::new();
+
+        for r in &effects.recipes {
+            // Shared trigger; a record with an unknown surface/phase is
+            // skipped wholesale regardless of effect kind.
+            let (Some(surface_kind), Some(phase)) = (map_surface(r.surface), map_phase(r.phase))
+            else {
+                continue;
+            };
+            let trigger = ContactTrigger {
+                surface_kind,
+                phase,
+                min_speed: r.min_speed.0,
+                min_intensity: r.min_intensity.0,
+            };
+
+            match &r.effect {
+                ContactEffectKind::ParticleBurst {
+                    count,
+                    radius_scale,
+                    velocity_inherit,
+                    particle,
+                } => recipes.push(ContactEffectRecipe {
                     name: r.name.clone(),
-                    trigger: ContactTrigger {
-                        surface_kind: map_surface(r.surface)?,
-                        phase: map_phase(r.phase)?,
-                        min_speed: r.min_speed.0,
-                        min_intensity: r.min_intensity.0,
-                    },
+                    trigger,
                     spawn: ParticleBurst {
-                        template: recipe_particle_to_emitter(&r.particle),
+                        template: recipe_particle_to_emitter(particle),
                         count: CountCurve {
-                            gain: r.count.gain.0,
-                            base: r.count.base.0,
-                            min: r.count.min,
-                            max: r.count.max,
+                            gain: count.gain.0,
+                            base: count.base.0,
+                            min: count.min,
+                            max: count.max,
                         },
-                        radius_scale: r.radius_scale.0,
-                        velocity_inherit: r.velocity_inherit.0,
+                        radius_scale: radius_scale.0,
+                        velocity_inherit: velocity_inherit.0,
                         cooldown: r.cooldown.0,
                     },
                     enabled: r.enabled,
-                })
-            })
-            .collect();
+                }),
+                ContactEffectKind::DecalStamp { decal } => decals.push(DecalEffectRecipe {
+                    name: r.name.clone(),
+                    trigger,
+                    params: DecalRuntimeParams::from(decal),
+                    cooldown: r.cooldown.0,
+                    enabled: r.enabled,
+                }),
+                // Future/unknown effect kind — can't dispatch it.
+                ContactEffectKind::Unknown => {}
+            }
+        }
+
         Self {
             recipes,
+            decals,
             max_particles_per_frame: effects.max_particles_per_frame,
         }
     }
@@ -501,6 +578,9 @@ mod tests {
         let reg = ContactRecipeRegistry::from_effects(&crate::pds::default_contact_effects());
         let fallback = ContactRecipeRegistry::default();
         assert_eq!(reg.recipes.len(), fallback.recipes.len());
+        // No decal is seeded by default on either side.
+        assert!(reg.decals.is_empty());
+        assert!(fallback.decals.is_empty());
         assert_eq!(
             reg.max_particles_per_frame,
             fallback.max_particles_per_frame
@@ -574,5 +654,37 @@ mod tests {
             ..terrain(ContactPhase::Dwell, 6.0)
         };
         assert!(!dust.trigger.matches(&water));
+    }
+
+    #[test]
+    fn decal_record_routes_to_the_decal_channel() {
+        use crate::pds::{
+            ContactEffectKind, ContactEffectRecord, ContactPhaseKind, ContactSurfaceKind,
+            DecalParams, Fp,
+        };
+        let mut effects = crate::pds::default_contact_effects();
+        effects.recipes.push(ContactEffectRecord {
+            name: "scuff".into(),
+            surface: ContactSurfaceKind::Terrain,
+            phase: ContactPhaseKind::Enter,
+            min_speed: Fp(0.0),
+            min_intensity: Fp(0.0),
+            cooldown: Fp(0.4),
+            enabled: true,
+            effect: ContactEffectKind::DecalStamp {
+                decal: DecalParams::default(),
+            },
+        });
+        let reg = ContactRecipeRegistry::from_effects(&effects);
+        // The 3 seeded particle recipes still land in `recipes`; the
+        // decal lands in `decals`, not as a particle.
+        assert_eq!(reg.recipes.len(), 3);
+        assert_eq!(reg.decals.len(), 1);
+        let d = &reg.decals[0];
+        assert_eq!(d.name, "scuff");
+        assert_eq!(d.trigger.surface_kind, SurfaceKind::Terrain);
+        assert_eq!(d.trigger.phase, ContactPhase::Enter);
+        assert!((d.cooldown - 0.4).abs() < 1e-6);
+        assert!((d.params.ttl - DecalParams::default().ttl.0).abs() < 1e-6);
     }
 }

@@ -96,8 +96,8 @@ pub use avatar::{
     LocomotionConfig, fetch_avatar_record, publish_avatar_record,
 };
 pub use contact_effects::{
-    ContactEffectRecord, ContactEffects, ContactPhaseKind, ContactSurfaceKind, CountModel,
-    RecipeParticle, default_contact_effects,
+    ContactEffectKind, ContactEffectRecord, ContactEffects, ContactPhaseKind, ContactSurfaceKind,
+    CountModel, DecalParams, RecipeParticle, default_contact_effects,
 };
 pub use generator::{
     AlphaModeKind, AnimationFrameMode, EmitterShape, Generator, GeneratorKind, ParticleBlendMode,

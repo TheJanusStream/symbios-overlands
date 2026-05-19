@@ -240,3 +240,19 @@ pub const MAX_CONTACT_COOLDOWN: f32 = 60.0;
 pub const MAX_CONTACT_MIN_SPEED: f32 = 1_000.0;
 /// Cap on the per-frame particle ceiling a room may request.
 pub const MAX_CONTACT_PARTICLES_PER_FRAME: u32 = 4_096;
+
+// --- Contact decal effect (#261) ----------------------------------------
+/// Lower bound (s) on an authored decal's time-to-live — a decal must
+/// live at least long enough to be seen (and to never divide-by-zero in
+/// the runtime `age / ttl` interpolant).
+pub const MIN_CONTACT_DECAL_TTL: f32 = 0.05;
+/// Upper bound (s) on a decal's time-to-live. Generous (a long-lived
+/// scorch mark) but finite so a hostile value can't pin quads forever;
+/// the global live cap still bounds the population regardless.
+pub const MAX_CONTACT_DECAL_TTL: f32 = 600.0;
+/// Cap (m) on a decal quad's start/end side length — bounds a hostile
+/// value from carpeting the world with one quad.
+pub const MAX_CONTACT_DECAL_SIZE: f32 = 64.0;
+/// Cap (m) on the surface-normal lift used to avoid z-fighting. Small —
+/// a large value would float the decal visibly off the ground.
+pub const MAX_CONTACT_DECAL_NORMAL_OFFSET: f32 = 1.0;

@@ -504,6 +504,27 @@ pub mod terrain {
 }
 
 // ---------------------------------------------------------------------------
+// Avatar-world interaction framework (interaction/)
+// ---------------------------------------------------------------------------
+/// Engine-tuning constants for the optional Phase-4 consumer channels
+/// (#246 remainder). These are behaviour constants by design, not
+/// authored per-room.
+pub mod interaction {
+    /// Projected-decal stamper (consumer channel C). Per-recipe decal
+    /// appearance (ttl / size / alpha / colour / normal offset) is
+    /// **PDS-authored** since #261 — see
+    /// [`crate::pds::DecalParams`] (whose `Default` is the canonical
+    /// seed). The only knob left here is the engine-side population
+    /// cap, which is a behaviour bound, not artistic per-room data.
+    pub mod decal {
+        /// Hard cap on simultaneously-live decals. When exceeded the
+        /// oldest are despawned first, so a long session can't grow an
+        /// unbounded quad pile regardless of authored ttl.
+        pub const MAX_LIVE: usize = 64;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Network (network/)
 // ---------------------------------------------------------------------------
 pub mod network {

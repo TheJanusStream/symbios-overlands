@@ -8,12 +8,13 @@
 use bevy_egui::egui;
 
 use crate::pds::contact_effects::{
-    ContactEffectRecord, ContactEffects, ContactPhaseKind, ContactSurfaceKind,
+    ContactEffectKind, ContactEffectRecord, ContactEffects, ContactPhaseKind, ContactSurfaceKind,
+    DecalParams,
 };
 use crate::pds::generator::EmitterShape;
 use crate::pds::types::{Fp, Fp3};
 
-use super::widgets::{color_picker_rgba, drag_u32, fp_slider};
+use super::widgets::{color_picker, color_picker_rgba, drag_u32, fp_slider};
 
 /// A reasonable starting point for a freshly-added recipe (a copy of
 /// the canonical splash, renamed) so "Add" yields something that
@@ -82,86 +83,91 @@ pub(super) fn draw_contact_effects_tab(
                     fp_slider(ui, "Min intensity", &mut r.min_intensity, 0.0, 1.0, dirty);
                 });
 
-                ui.collapsing("Count = clamp(speed·gain + base, min, max)", |ui| {
-                    fp_slider(ui, "Gain", &mut r.count.gain, 0.0, 40.0, dirty);
-                    fp_slider(ui, "Base", &mut r.count.base, 0.0, 40.0, dirty);
-                    drag_u32(ui, "Min", &mut r.count.min, 0, 512, dirty);
-                    drag_u32(ui, "Max", &mut r.count.max, 0, 512, dirty);
-                });
-
-                fp_slider(ui, "Radius scale", &mut r.radius_scale, 0.0, 8.0, dirty);
-                fp_slider(
-                    ui,
-                    "Velocity inherit",
-                    &mut r.velocity_inherit,
-                    0.0,
-                    2.0,
-                    dirty,
-                );
                 fp_slider(ui, "Cooldown (s)", &mut r.cooldown, 0.0, 5.0, dirty);
 
-                ui.collapsing("Particle", |ui| {
-                    shape_combo(ui, i, &mut r.particle.shape, dirty);
-                    fp_slider(
-                        ui,
-                        "Lifetime min (s)",
-                        &mut r.particle.lifetime_min,
-                        0.0,
-                        5.0,
-                        dirty,
-                    );
-                    fp_slider(
-                        ui,
-                        "Lifetime max (s)",
-                        &mut r.particle.lifetime_max,
-                        0.0,
-                        5.0,
-                        dirty,
-                    );
-                    fp_slider(ui, "Speed min", &mut r.particle.speed_min, 0.0, 20.0, dirty);
-                    fp_slider(ui, "Speed max", &mut r.particle.speed_max, 0.0, 20.0, dirty);
-                    fp_slider(
-                        ui,
-                        "Gravity ×",
-                        &mut r.particle.gravity_multiplier,
-                        -2.0,
-                        2.0,
-                        dirty,
-                    );
-                    fp_slider(
-                        ui,
-                        "Linear drag",
-                        &mut r.particle.linear_drag,
-                        0.0,
-                        5.0,
-                        dirty,
-                    );
-                    fp_slider(
-                        ui,
-                        "Start size",
-                        &mut r.particle.start_size,
-                        0.0,
-                        1.0,
-                        dirty,
-                    );
-                    fp_slider(ui, "End size", &mut r.particle.end_size, 0.0, 1.0, dirty);
-                    color_picker_rgba(ui, "Start colour", &mut r.particle.start_color, dirty);
-                    color_picker_rgba(ui, "End colour", &mut r.particle.end_color, dirty);
-                    if ui
-                        .checkbox(&mut r.particle.billboard, "Billboard")
-                        .changed()
-                    {
-                        *dirty = true;
+                effect_kind_combo(ui, i, &mut r.effect, dirty);
+                match &mut r.effect {
+                    ContactEffectKind::ParticleBurst {
+                        count,
+                        radius_scale,
+                        velocity_inherit,
+                        particle,
+                    } => {
+                        ui.collapsing("Count = clamp(speed·gain + base, min, max)", |ui| {
+                            fp_slider(ui, "Gain", &mut count.gain, 0.0, 40.0, dirty);
+                            fp_slider(ui, "Base", &mut count.base, 0.0, 40.0, dirty);
+                            drag_u32(ui, "Min", &mut count.min, 0, 512, dirty);
+                            drag_u32(ui, "Max", &mut count.max, 0, 512, dirty);
+                        });
+                        fp_slider(ui, "Radius scale", radius_scale, 0.0, 8.0, dirty);
+                        fp_slider(ui, "Velocity inherit", velocity_inherit, 0.0, 2.0, dirty);
+                        ui.collapsing("Particle", |ui| {
+                            shape_combo(ui, i, &mut particle.shape, dirty);
+                            fp_slider(
+                                ui,
+                                "Lifetime min (s)",
+                                &mut particle.lifetime_min,
+                                0.0,
+                                5.0,
+                                dirty,
+                            );
+                            fp_slider(
+                                ui,
+                                "Lifetime max (s)",
+                                &mut particle.lifetime_max,
+                                0.0,
+                                5.0,
+                                dirty,
+                            );
+                            fp_slider(ui, "Speed min", &mut particle.speed_min, 0.0, 20.0, dirty);
+                            fp_slider(ui, "Speed max", &mut particle.speed_max, 0.0, 20.0, dirty);
+                            fp_slider(
+                                ui,
+                                "Gravity ×",
+                                &mut particle.gravity_multiplier,
+                                -2.0,
+                                2.0,
+                                dirty,
+                            );
+                            fp_slider(
+                                ui,
+                                "Linear drag",
+                                &mut particle.linear_drag,
+                                0.0,
+                                5.0,
+                                dirty,
+                            );
+                            fp_slider(ui, "Start size", &mut particle.start_size, 0.0, 1.0, dirty);
+                            fp_slider(ui, "End size", &mut particle.end_size, 0.0, 1.0, dirty);
+                            color_picker_rgba(ui, "Start colour", &mut particle.start_color, dirty);
+                            color_picker_rgba(ui, "End colour", &mut particle.end_color, dirty);
+                            if ui.checkbox(&mut particle.billboard, "Billboard").changed() {
+                                *dirty = true;
+                            }
+                            drag_u32(
+                                ui,
+                                "Max particles",
+                                &mut particle.max_particles,
+                                0,
+                                512,
+                                dirty,
+                            );
+                        });
                     }
-                    drag_u32(
-                        ui,
-                        "Max particles",
-                        &mut r.particle.max_particles,
-                        0,
-                        512,
-                        dirty,
-                    );
-                });
+                    ContactEffectKind::DecalStamp { decal } => {
+                        decal_form(ui, decal, dirty);
+                    }
+                    ContactEffectKind::Unknown => {
+                        ui.label(
+                            egui::RichText::new(
+                                "Unknown effect kind (authored by a newer client) \
+                                 — shown read-only; re-pick a kind above to author it.",
+                            )
+                            .small()
+                            .color(egui::Color32::GRAY),
+                        );
+                    }
+                }
 
                 if ui
                     .button(egui::RichText::new("Remove recipe").color(egui::Color32::LIGHT_RED))
@@ -233,6 +239,74 @@ fn phase_combo(ui: &mut egui::Ui, salt: usize, p: &mut ContactPhaseKind, dirty: 
             }
         });
     ui.label("Phase");
+}
+
+/// The canonical ParticleBurst payload (the seeded splash effect), used
+/// as the sane default when an author switches a recipe *to* Particle.
+fn default_particle_effect() -> ContactEffectKind {
+    crate::pds::default_contact_effects()
+        .recipes
+        .swap_remove(0)
+        .effect
+}
+
+fn effect_kind_label(e: &ContactEffectKind) -> &'static str {
+    match e {
+        ContactEffectKind::ParticleBurst { .. } => "particle burst",
+        ContactEffectKind::DecalStamp { .. } => "decal",
+        ContactEffectKind::Unknown => "unknown",
+    }
+}
+
+/// Effect-kind picker. Switching kind swaps in that kind's canonical
+/// default (so the sub-form below is immediately valid); re-picking the
+/// current kind is a no-op. `Unknown` is never offered — it's a
+/// forward-compat decode fallback, not an authorable choice.
+fn effect_kind_combo(
+    ui: &mut egui::Ui,
+    salt: usize,
+    effect: &mut ContactEffectKind,
+    dirty: &mut bool,
+) {
+    egui::ComboBox::from_id_salt(("effect_kind", salt))
+        .selected_text(effect_kind_label(effect))
+        .show_ui(ui, |ui| {
+            if ui.selectable_label(false, "particle burst").clicked()
+                && !matches!(effect, ContactEffectKind::ParticleBurst { .. })
+            {
+                *effect = default_particle_effect();
+                *dirty = true;
+            }
+            if ui.selectable_label(false, "decal").clicked()
+                && !matches!(effect, ContactEffectKind::DecalStamp { .. })
+            {
+                *effect = ContactEffectKind::DecalStamp {
+                    decal: DecalParams::default(),
+                };
+                *dirty = true;
+            }
+        });
+    ui.label("Effect kind");
+}
+
+/// Editor for a [`DecalParams`] payload.
+fn decal_form(ui: &mut egui::Ui, decal: &mut DecalParams, dirty: &mut bool) {
+    ui.collapsing("Decal", |ui| {
+        fp_slider(ui, "TTL (s)", &mut decal.ttl, 0.05, 60.0, dirty);
+        fp_slider(ui, "Start size (m)", &mut decal.start_size, 0.0, 8.0, dirty);
+        fp_slider(ui, "End size (m)", &mut decal.end_size, 0.0, 8.0, dirty);
+        fp_slider(ui, "Start alpha", &mut decal.start_alpha, 0.0, 1.0, dirty);
+        fp_slider(ui, "End alpha", &mut decal.end_alpha, 0.0, 1.0, dirty);
+        color_picker(ui, "Colour", &mut decal.color, dirty);
+        fp_slider(
+            ui,
+            "Normal offset (m)",
+            &mut decal.normal_offset,
+            0.0,
+            1.0,
+            dirty,
+        );
+    });
 }
 
 fn shape_combo(ui: &mut egui::Ui, salt: usize, shape: &mut EmitterShape, dirty: &mut bool) {
