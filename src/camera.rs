@@ -6,6 +6,7 @@
 //! is rotated by the delta of the rover's yaw so steering rotates the world
 //! around the player instead of whipping the view around.
 
+use bevy::audio::SpatialListener;
 use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::{post_process::bloom::Bloom, prelude::*};
@@ -13,6 +14,7 @@ use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 use transform_gizmo_bevy::GizmoCamera;
 
 use crate::config::camera as cfg;
+use crate::config::interaction::audio as audio_cfg;
 use crate::player::VehicleChassis;
 use crate::state::{AppState, LocalPlayer};
 
@@ -87,6 +89,10 @@ fn spawn_orbit_camera(mut commands: Commands) {
             ),
         },
         Bloom::NATURAL, // Enable Bloom
+        // Spatial-audio listener for contact-effect cues (#262). Ears a
+        // head-width apart (Bevy's 4 m default over-pans); inert for
+        // non-spatial audio, so this is purely additive.
+        SpatialListener::new(audio_cfg::LISTENER_EAR_GAP),
     ));
 }
 

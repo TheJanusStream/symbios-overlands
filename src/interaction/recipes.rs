@@ -15,9 +15,9 @@
 use bevy::prelude::*;
 
 use crate::pds::{
-    AnimationFrameMode, ContactEffectKind, ContactEffects, ContactPhaseKind, ContactSurfaceKind,
-    DecalParams, EmitterShape, Fp, ParticleBlendMode, RecipeParticle, SimulationSpace,
-    TextureFilter,
+    AnimationFrameMode, AudioClipSource, AudioParams, ContactEffectKind, ContactEffects,
+    ContactPhaseKind, ContactSurfaceKind, DecalParams, EmitterShape, Fp, ParticleBlendMode,
+    RecipeParticle, SimulationSpace, TextureFilter,
 };
 use crate::world_builder::particles::ParticleEmitter;
 
@@ -148,16 +148,65 @@ pub struct DecalEffectRecipe {
     pub enabled: bool,
 }
 
+/// Runtime mirror of [`crate::pds::AudioParams`]. The clip source is
+/// the PDS enum verbatim (small, and the consumer needs exactly it to
+/// key the audio cache — no parallel enum to drift).
+#[derive(Clone, Debug, PartialEq)]
+pub struct AudioRuntimeParams {
+    pub source: AudioClipSource,
+    pub volume: f32,
+    pub volume_per_speed: f32,
+    pub pitch: f32,
+    pub pitch_jitter: f32,
+    pub spatial: bool,
+}
+
+impl AudioRuntimeParams {
+    /// Effective linear volume for a matched sample:
+    /// `clamp(volume + speed·volume_per_speed, 0, 4)` (the 4 ceiling
+    /// matches the sanitiser's `MAX_CONTACT_AUDIO_VOLUME`).
+    pub fn volume_for(&self, sample: &ContactSample) -> f32 {
+        (self.volume + sample.world_vel.length() * self.volume_per_speed).clamp(0.0, 4.0)
+    }
+}
+
+impl From<&AudioParams> for AudioRuntimeParams {
+    fn from(p: &AudioParams) -> Self {
+        Self {
+            source: p.source.clone(),
+            volume: p.volume.0,
+            volume_per_speed: p.volume_per_speed.0,
+            pitch: p.pitch.0,
+            pitch_jitter: p.pitch_jitter.0,
+            spatial: p.spatial,
+        }
+    }
+}
+
+/// One declarative audio-cue rule — the [`ContactEffectKind::AudioCue`]
+/// analogue of [`ContactEffectRecipe`], consumed by
+/// [`super::audio::play_contact_audio`].
+#[derive(Clone)]
+pub struct AudioCueRecipe {
+    pub name: String,
+    pub trigger: ContactTrigger,
+    pub params: AudioRuntimeParams,
+    /// Min seconds between cues from one avatar for this recipe.
+    pub cooldown: f32,
+    pub enabled: bool,
+}
+
 /// Active recipe set + the global emission ceiling.
 ///
-/// One registry now carries every effect kind, split by runtime
-/// channel: [`Self::recipes`] feeds the particle dispatcher,
-/// [`Self::decals`] feeds the decal stamper. (Audio joins as a third
-/// list under #262.)
+/// One registry carries every effect kind, split by runtime channel:
+/// [`Self::recipes`] feeds the particle dispatcher, [`Self::decals`]
+/// the decal stamper, [`Self::audio`] the bevy_audio cue consumer
+/// (#262).
 #[derive(Resource)]
 pub struct ContactRecipeRegistry {
     pub recipes: Vec<ContactEffectRecipe>,
     pub decals: Vec<DecalEffectRecipe>,
+    pub audio: Vec<AudioCueRecipe>,
     /// Hard cap on particles spawned across *all* recipes and avatars
     /// in a single frame. Bounds a stutter-frame / many-avatar spike
     /// (a long frame can match many `Enter`s at once); excess is
@@ -169,9 +218,11 @@ impl Default for ContactRecipeRegistry {
     fn default() -> Self {
         Self {
             recipes: default_water_recipes(),
-            // No decal is seeded by default — the shipped behaviour is
-            // particle-only; decals are opt-in per room (#261).
+            // No decal / audio cue is seeded by default — the shipped
+            // behaviour is particle-only; both are opt-in per room
+            // (#261 / #262).
             decals: Vec::new(),
+            audio: Vec::new(),
             max_particles_per_frame: 240,
         }
     }
@@ -436,6 +487,7 @@ impl ContactRecipeRegistry {
     pub fn from_effects(effects: &ContactEffects) -> Self {
         let mut recipes = Vec::new();
         let mut decals = Vec::new();
+        let mut audio = Vec::new();
 
         for r in &effects.recipes {
             // Shared trigger; a record with an unknown surface/phase is
@@ -481,6 +533,13 @@ impl ContactRecipeRegistry {
                     cooldown: r.cooldown.0,
                     enabled: r.enabled,
                 }),
+                ContactEffectKind::AudioCue { audio: a } => audio.push(AudioCueRecipe {
+                    name: r.name.clone(),
+                    trigger,
+                    params: AudioRuntimeParams::from(a),
+                    cooldown: r.cooldown.0,
+                    enabled: r.enabled,
+                }),
                 // Future/unknown effect kind — can't dispatch it.
                 ContactEffectKind::Unknown => {}
             }
@@ -489,6 +548,7 @@ impl ContactRecipeRegistry {
         Self {
             recipes,
             decals,
+            audio,
             max_particles_per_frame: effects.max_particles_per_frame,
         }
     }
@@ -578,9 +638,11 @@ mod tests {
         let reg = ContactRecipeRegistry::from_effects(&crate::pds::default_contact_effects());
         let fallback = ContactRecipeRegistry::default();
         assert_eq!(reg.recipes.len(), fallback.recipes.len());
-        // No decal is seeded by default on either side.
+        // No decal / audio cue is seeded by default on either side.
         assert!(reg.decals.is_empty());
         assert!(fallback.decals.is_empty());
+        assert!(reg.audio.is_empty());
+        assert!(fallback.audio.is_empty());
         assert_eq!(
             reg.max_particles_per_frame,
             fallback.max_particles_per_frame
@@ -686,5 +748,62 @@ mod tests {
         assert_eq!(d.trigger.phase, ContactPhase::Enter);
         assert!((d.cooldown - 0.4).abs() < 1e-6);
         assert!((d.params.ttl - DecalParams::default().ttl.0).abs() < 1e-6);
+        assert!(reg.audio.is_empty());
+    }
+
+    #[test]
+    fn audio_record_routes_to_the_audio_channel() {
+        use crate::pds::{
+            AudioClipSource, AudioParams, ContactEffectKind, ContactEffectRecord, ContactPhaseKind,
+            ContactSurfaceKind, Fp,
+        };
+        let mut effects = crate::pds::default_contact_effects();
+        effects.recipes.push(ContactEffectRecord {
+            name: "splash_sfx".into(),
+            surface: ContactSurfaceKind::Water,
+            phase: ContactPhaseKind::Enter,
+            min_speed: Fp(1.0),
+            min_intensity: Fp(0.0),
+            cooldown: Fp(0.2),
+            enabled: true,
+            effect: ContactEffectKind::AudioCue {
+                audio: AudioParams {
+                    source: AudioClipSource::Url {
+                        url: "https://x.test/splash.ogg".into(),
+                    },
+                    volume: Fp(0.5),
+                    volume_per_speed: Fp(0.1),
+                    pitch: Fp(1.0),
+                    pitch_jitter: Fp(0.2),
+                    spatial: true,
+                },
+            },
+        });
+        let reg = ContactRecipeRegistry::from_effects(&effects);
+        // Particle defaults untouched; the cue routes to `audio`, not
+        // `recipes`/`decals`.
+        assert_eq!(reg.recipes.len(), 3);
+        assert!(reg.decals.is_empty());
+        assert_eq!(reg.audio.len(), 1);
+        let a = &reg.audio[0];
+        assert_eq!(a.name, "splash_sfx");
+        assert_eq!(a.trigger.surface_kind, SurfaceKind::Water);
+        assert!((a.cooldown - 0.2).abs() < 1e-6);
+        assert!(a.params.spatial);
+        // volume_for scales with contact speed: 0.5 + speed*0.1.
+        let s = ContactSample {
+            avatar: Entity::PLACEHOLDER,
+            world_pos: Vec3::ZERO,
+            world_vel: Vec3::new(3.0, 0.0, 0.0),
+            footprint_radius: 0.5,
+            surface: super::super::contact::SurfaceContact::Water {
+                plane_idx: 0,
+                depth: 1.0,
+                flow_dir: Vec2::ZERO,
+            },
+            intensity: 0.5,
+            phase: ContactPhase::Enter,
+        };
+        assert!((a.params.volume_for(&s) - 0.8).abs() < 1e-5);
     }
 }

@@ -256,3 +256,18 @@ pub const MAX_CONTACT_DECAL_SIZE: f32 = 64.0;
 /// Cap (m) on the surface-normal lift used to avoid z-fighting. Small —
 /// a large value would float the decal visibly off the ground.
 pub const MAX_CONTACT_DECAL_NORMAL_OFFSET: f32 = 1.0;
+
+// --- Contact audio cue (#262) -------------------------------------------
+/// Cap on an authored cue's linear volume floor / per-speed gain — a
+/// hostile value can't blow out a listener's ears or clip the mixer.
+pub const MAX_CONTACT_AUDIO_VOLUME: f32 = 4.0;
+/// Min/max playback-speed (pitch) multiplier. Bounded so a cue can't
+/// be slowed to a multi-hour drone or sped into an inaudible chirp.
+pub const MIN_CONTACT_AUDIO_PITCH: f32 = 0.1;
+pub const MAX_CONTACT_AUDIO_PITCH: f32 = 4.0;
+/// Cap on the random ± pitch jitter (multiplier units).
+pub const MAX_CONTACT_AUDIO_PITCH_JITTER: f32 = 1.0;
+/// Cap (chars) on an authored audio URL / DID / CID — bounds a
+/// pathological string the same way the Sign sanitiser does.
+pub const MAX_CONTACT_AUDIO_URL: usize = 2_048;
+pub const MAX_CONTACT_AUDIO_ID: usize = 256;

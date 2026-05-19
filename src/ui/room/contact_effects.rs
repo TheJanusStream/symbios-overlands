@@ -8,8 +8,8 @@
 use bevy_egui::egui;
 
 use crate::pds::contact_effects::{
-    ContactEffectKind, ContactEffectRecord, ContactEffects, ContactPhaseKind, ContactSurfaceKind,
-    DecalParams,
+    AudioClipSource, AudioParams, ContactEffectKind, ContactEffectRecord, ContactEffects,
+    ContactPhaseKind, ContactSurfaceKind, DecalParams,
 };
 use crate::pds::generator::EmitterShape;
 use crate::pds::types::{Fp, Fp3};
@@ -157,6 +157,9 @@ pub(super) fn draw_contact_effects_tab(
                     ContactEffectKind::DecalStamp { decal } => {
                         decal_form(ui, decal, dirty);
                     }
+                    ContactEffectKind::AudioCue { audio } => {
+                        audio_form(ui, i, audio, dirty);
+                    }
                     ContactEffectKind::Unknown => {
                         ui.label(
                             egui::RichText::new(
@@ -254,6 +257,7 @@ fn effect_kind_label(e: &ContactEffectKind) -> &'static str {
     match e {
         ContactEffectKind::ParticleBurst { .. } => "particle burst",
         ContactEffectKind::DecalStamp { .. } => "decal",
+        ContactEffectKind::AudioCue { .. } => "audio cue",
         ContactEffectKind::Unknown => "unknown",
     }
 }
@@ -285,8 +289,111 @@ fn effect_kind_combo(
                 };
                 *dirty = true;
             }
+            if ui.selectable_label(false, "audio cue").clicked()
+                && !matches!(effect, ContactEffectKind::AudioCue { .. })
+            {
+                *effect = ContactEffectKind::AudioCue {
+                    audio: AudioParams::default(),
+                };
+                *dirty = true;
+            }
         });
     ui.label("Effect kind");
+}
+
+/// Editor for an [`AudioParams`] payload. v1 clips are Ogg/Vorbis
+/// (Bevy's default audio feature); the source is fetched + cached the
+/// same way Sign textures are.
+fn audio_form(ui: &mut egui::Ui, salt: usize, audio: &mut AudioParams, dirty: &mut bool) {
+    ui.collapsing("Audio cue", |ui| {
+        // Source kind (Url | AtprotoBlob). `Unknown` is a forward-compat
+        // decode fallback, not offered for authoring.
+        let src_label = match &audio.source {
+            AudioClipSource::Url { .. } => "url",
+            AudioClipSource::AtprotoBlob { .. } => "atproto blob",
+            AudioClipSource::Unknown => "unknown",
+        };
+        egui::ComboBox::from_id_salt(("audio_src", salt))
+            .selected_text(src_label)
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(false, "url").clicked()
+                    && !matches!(audio.source, AudioClipSource::Url { .. })
+                {
+                    audio.source = AudioClipSource::Url { url: String::new() };
+                    *dirty = true;
+                }
+                if ui.selectable_label(false, "atproto blob").clicked()
+                    && !matches!(audio.source, AudioClipSource::AtprotoBlob { .. })
+                {
+                    audio.source = AudioClipSource::AtprotoBlob {
+                        did: String::new(),
+                        cid: String::new(),
+                    };
+                    *dirty = true;
+                }
+            });
+        ui.label("Clip source");
+
+        match &mut audio.source {
+            AudioClipSource::Url { url } => {
+                ui.horizontal(|ui| {
+                    ui.label("URL (.ogg)");
+                    if ui.text_edit_singleline(url).changed() {
+                        *dirty = true;
+                    }
+                });
+            }
+            AudioClipSource::AtprotoBlob { did, cid } => {
+                ui.horizontal(|ui| {
+                    ui.label("DID");
+                    if ui.text_edit_singleline(did).changed() {
+                        *dirty = true;
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("CID");
+                    if ui.text_edit_singleline(cid).changed() {
+                        *dirty = true;
+                    }
+                });
+            }
+            AudioClipSource::Unknown => {
+                ui.label(
+                    egui::RichText::new(
+                        "Unknown clip source (newer client) — read-only; \
+                         re-pick a source kind above.",
+                    )
+                    .small()
+                    .color(egui::Color32::GRAY),
+                );
+            }
+        }
+
+        fp_slider(ui, "Volume", &mut audio.volume, 0.0, 4.0, dirty);
+        fp_slider(
+            ui,
+            "Volume / (m/s)",
+            &mut audio.volume_per_speed,
+            0.0,
+            2.0,
+            dirty,
+        );
+        fp_slider(ui, "Pitch ×", &mut audio.pitch, 0.1, 4.0, dirty);
+        fp_slider(
+            ui,
+            "Pitch jitter ±",
+            &mut audio.pitch_jitter,
+            0.0,
+            1.0,
+            dirty,
+        );
+        if ui
+            .checkbox(&mut audio.spatial, "Spatial (positional)")
+            .changed()
+        {
+            *dirty = true;
+        }
+    });
 }
 
 /// Editor for a [`DecalParams`] payload.

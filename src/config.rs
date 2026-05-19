@@ -522,6 +522,29 @@ pub mod interaction {
         /// unbounded quad pile regardless of authored ttl.
         pub const MAX_LIVE: usize = 64;
     }
+
+    /// Audio-cue consumer (#262). Per-cue appearance (clip / volume /
+    /// pitch / spatial) is PDS-authored ([`crate::pds::AudioParams`]);
+    /// the knobs here are engine-side safety/voice bounds.
+    pub mod audio {
+        /// Hard cap on simultaneously-playing contact cue voices. A
+        /// many-avatar room or a spammy recipe can't drown the mixer /
+        /// exhaust audio device voices; over the cap, new cues are
+        /// dropped (never queued).
+        pub const MAX_CONCURRENT_VOICES: usize = 24;
+        /// Distance (m) between the spatial listener's ears, mounted on
+        /// the camera. Roughly a head width — Bevy's 4 m default is far
+        /// too wide and over-pans contact cues.
+        pub const LISTENER_EAR_GAP: f32 = 0.3;
+        /// Cap on a fetched audio clip body (bytes). Generous for a
+        /// short Ogg SFX while bounding a hostile/oversized stream the
+        /// same way the image cache does.
+        pub const MAX_CLIP_BYTES: usize = 4 * 1024 * 1024;
+        /// FIFO bound on distinct cached clips before the oldest is
+        /// evicted (an attacker streaming randomised source URLs can't
+        /// grow client memory without bound).
+        pub const MAX_CACHE_ENTRIES: usize = 64;
+    }
 }
 
 // ---------------------------------------------------------------------------

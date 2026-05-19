@@ -56,6 +56,7 @@
 //!   foliage texture task polling.
 
 pub mod avatar_spawn;
+pub(crate) mod blob_fetch;
 pub(crate) mod compile;
 pub mod image_cache;
 mod lsystem;

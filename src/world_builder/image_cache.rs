@@ -370,8 +370,12 @@ pub fn poll_blob_image_tasks(
 async fn fetch_bytes_for(key: SignSourceKey) -> Option<Vec<u8>> {
     let client = crate::config::http::default_client();
     match key {
-        SignSourceKey::Url(url) => fetch_url_bytes(&client, &url).await,
-        SignSourceKey::AtprotoBlob { did, cid } => fetch_blob_bytes(&client, &did, &cid).await,
+        SignSourceKey::Url(url) => {
+            super::blob_fetch::fetch_url_bytes(&client, &url, MAX_IMAGE_BYTES, "Sign").await
+        }
+        SignSourceKey::AtprotoBlob { did, cid } => {
+            super::blob_fetch::fetch_blob_bytes(&client, &did, &cid, MAX_IMAGE_BYTES, "Sign").await
+        }
         SignSourceKey::DidPfp(did) => {
             // Reuse the existing pfp fetcher rather than reimplementing the
             // bsky/atproto fork — `fetch_avatar_bytes` already handles the
@@ -382,97 +386,10 @@ async fn fetch_bytes_for(key: SignSourceKey) -> Option<Vec<u8>> {
     }
 }
 
-/// Direct HTTPS GET. Returns `None` on connection error, non-success
-/// status, oversized body, or body-read failure — every such case is
-/// logged at warn so authors can debug a typo'd URL without the panel
-/// silently going missing.
-///
-/// The body is streamed and capped at [`MAX_IMAGE_BYTES`]: a hostile URL
-/// (an infinite stream like `/dev/zero` over HTTP, or a multi-gigabyte
-/// asset) would otherwise pull the entire response into memory and OOM
-/// every guest who walks into the room.
-async fn fetch_url_bytes(client: &reqwest::Client, url: &str) -> Option<Vec<u8>> {
-    let resp = match client.get(url).send().await {
-        Ok(r) => r,
-        Err(e) => {
-            warn!("Sign URL fetch failed for {url}: {e}");
-            return None;
-        }
-    };
-    if !resp.status().is_success() {
-        warn!("Sign URL fetch returned {} for {url}", resp.status());
-        return None;
-    }
-    // Pre-flight check: if the server advertises a length and it already
-    // exceeds the cap, don't even start streaming.
-    if let Some(len) = resp.content_length()
-        && len as usize > MAX_IMAGE_BYTES
-    {
-        warn!("Sign URL body too large: Content-Length {len} exceeds {MAX_IMAGE_BYTES} for {url}");
-        return None;
-    }
-    read_capped_image_body(resp, url).await
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-async fn read_capped_image_body(mut resp: reqwest::Response, url: &str) -> Option<Vec<u8>> {
-    let mut buf: Vec<u8> = Vec::new();
-    loop {
-        match resp.chunk().await {
-            Ok(Some(chunk)) => {
-                if buf.len().saturating_add(chunk.len()) > MAX_IMAGE_BYTES {
-                    warn!(
-                        "Sign URL body exceeded cap of {MAX_IMAGE_BYTES} bytes mid-stream for {url}"
-                    );
-                    return None;
-                }
-                buf.extend_from_slice(&chunk);
-            }
-            Ok(None) => return Some(buf),
-            Err(e) => {
-                warn!("Sign URL body read failed for {url}: {e}");
-                return None;
-            }
-        }
-    }
-}
-
-// On WASM the browser fetch API has already buffered the body by the
-// time reqwest hands back the `Response`; `chunk()` isn't exposed and
-// mid-stream cancellation isn't possible. The `Content-Length`
-// pre-check in `fetch_url_bytes` already rejects the obvious case;
-// this post-check catches servers that lie about / omit the header.
-#[cfg(target_arch = "wasm32")]
-async fn read_capped_image_body(resp: reqwest::Response, url: &str) -> Option<Vec<u8>> {
-    let bytes = match resp.bytes().await {
-        Ok(b) => b,
-        Err(e) => {
-            warn!("Sign URL body read failed for {url}: {e}");
-            return None;
-        }
-    };
-    if bytes.len() > MAX_IMAGE_BYTES {
-        warn!("Sign URL body exceeded cap of {MAX_IMAGE_BYTES} bytes (post-fetch) for {url}");
-        return None;
-    }
-    Some(bytes.to_vec())
-}
-
-/// ATProto blob fetch via `com.atproto.sync.getBlob`. Resolves the DID's
-/// PDS first, then calls the blob endpoint. Same path the WASM portal
-/// avatar fetch already takes — generalised here to any blob CID, not
-/// just an avatar.
-async fn fetch_blob_bytes(client: &reqwest::Client, did: &str, cid: &str) -> Option<Vec<u8>> {
-    let pds = match crate::pds::resolve_pds(client, did).await {
-        Some(p) => p,
-        None => {
-            warn!("Sign DID {did} did not resolve to a PDS");
-            return None;
-        }
-    };
-    let blob_url = format!("{pds}/xrpc/com.atproto.sync.getBlob?did={did}&cid={cid}");
-    fetch_url_bytes(client, &blob_url).await
-}
+// The capped HTTPS GET + ATProto `getBlob` fetch live in the shared
+// `super::blob_fetch` module (#262) so the audio-cue cache reuses the
+// exact same wasm/native streaming + OOM-guard path. `MAX_IMAGE_BYTES`
+// is the image-side cap passed through.
 
 #[cfg(test)]
 mod tests {

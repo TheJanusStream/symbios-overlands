@@ -125,11 +125,75 @@ impl Default for DecalParams {
     }
 }
 
+/// Where an authored audio cue's clip comes from. Open union (`$type`
+/// tag + [`Self::Unknown`]) — the forward-compat seam for a future
+/// **procedurally synthesised** source (a planned
+/// `bevy_symbios_synthesizer`): such a record decodes to `Unknown` on
+/// today's clients and is skipped, never an error. Named
+/// `AudioClipSource` (not `AudioSource`) to avoid colliding with
+/// `bevy_audio::AudioSource` in the runtime consumer.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(tag = "$type")]
+pub enum AudioClipSource {
+    /// Direct HTTPS audio URL. v1 decodes Ogg/Vorbis (Bevy's default
+    /// audio feature); other containers need extra `bevy` features.
+    #[serde(rename = "network.symbios.contact.audio.url")]
+    Url { url: String },
+    /// ATProto blob pinned to a DID — resolves the PDS then
+    /// `com.atproto.sync.getBlob`, same path Sign textures use.
+    #[serde(rename = "network.symbios.contact.audio.atproto_blob")]
+    AtprotoBlob { did: String, cid: String },
+    /// A future/unknown source (e.g. forthcoming procedural synthesis)
+    /// — decoded, never authored on this client; the cue is skipped.
+    #[serde(other)]
+    Unknown,
+}
+
+impl Default for AudioClipSource {
+    fn default() -> Self {
+        Self::Url { url: String::new() }
+    }
+}
+
+/// Authored audio cue payload. Loudness scales with contact speed
+/// (`volume = clamp(volume + speed*volume_per_speed, 0, cap)`); pitch
+/// is a playback-speed multiplier with optional per-play random jitter
+/// so repeats don't sound mechanical.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct AudioParams {
+    pub source: AudioClipSource,
+    /// Linear volume floor (0 = silent, 1 = unity).
+    pub volume: Fp,
+    /// Extra linear volume per m/s of contact speed.
+    pub volume_per_speed: Fp,
+    /// Playback-speed multiplier (rodio couples speed+pitch); 1 = as
+    /// recorded.
+    pub pitch: Fp,
+    /// Uniform ± random added to `pitch` each play (0 = none).
+    pub pitch_jitter: Fp,
+    /// Positional audio at the contact point (needs the camera's
+    /// `SpatialListener`); `false` = non-positional.
+    pub spatial: bool,
+}
+
+impl Default for AudioParams {
+    fn default() -> Self {
+        Self {
+            source: AudioClipSource::default(),
+            volume: Fp(0.8),
+            volume_per_speed: Fp(0.0),
+            pitch: Fp(1.0),
+            pitch_jitter: Fp(0.0),
+            spatial: true,
+        }
+    }
+}
+
 /// The effect a matched contact produces. Open union (`$type` tag +
 /// [`Self::Unknown`]) — same forward-compat contract as
 /// [`ContactSurfaceKind`]: a record authored against a future effect
-/// kind (e.g. the audio cue in #262) decodes to `Unknown` here and is
-/// skipped at compile time rather than failing the whole room.
+/// kind decodes to `Unknown` here and is skipped at compile time
+/// rather than failing the whole room.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "$type")]
 pub enum ContactEffectKind {
@@ -148,6 +212,9 @@ pub enum ContactEffectKind {
     /// Flat fading ground decal.
     #[serde(rename = "network.symbios.contact.effect.decal")]
     DecalStamp { decal: DecalParams },
+    /// One-shot audio cue played through `bevy_audio` (#262).
+    #[serde(rename = "network.symbios.contact.effect.audio")]
+    AudioCue { audio: AudioParams },
     /// A future/unknown effect kind — decoded, never authored. Dropped
     /// by the runtime mapper.
     #[serde(other)]
@@ -524,12 +591,47 @@ mod tests {
 
     #[test]
     fn unknown_effect_kind_falls_back_not_error() {
-        // A record authored against a future effect kind (e.g. the
-        // #262 audio cue) must decode to Unknown, not fail the room.
+        // A record authored against a still-future effect kind must
+        // decode to Unknown, not fail the room. (`audio` is now a real
+        // variant as of #262, so use a tag that is still unmodelled.)
         let e: ContactEffectKind =
-            serde_json::from_str(r#"{"$type":"network.symbios.contact.effect.audio","clip":"x"}"#)
+            serde_json::from_str(r#"{"$type":"network.symbios.contact.effect.hologram","glow":1}"#)
                 .unwrap();
         assert_eq!(e, ContactEffectKind::Unknown);
+    }
+
+    #[test]
+    fn audio_cue_round_trips_and_unknown_source_falls_back() {
+        let mut e = ContactEffects::default();
+        e.recipes.push(ContactEffectRecord {
+            name: "footstep".into(),
+            surface: ContactSurfaceKind::Terrain,
+            phase: ContactPhaseKind::Enter,
+            min_speed: Fp(0.0),
+            min_intensity: Fp(0.0),
+            cooldown: Fp(0.15),
+            enabled: true,
+            effect: ContactEffectKind::AudioCue {
+                audio: AudioParams {
+                    source: AudioClipSource::AtprotoBlob {
+                        did: "did:plc:abc".into(),
+                        cid: "bafyclip".into(),
+                    },
+                    ..AudioParams::default()
+                },
+            },
+        });
+        let json = serde_json::to_string(&e).unwrap();
+        let back: ContactEffects = serde_json::from_str(&json).unwrap();
+        assert_eq!(e, back);
+        assert!(json.contains("network.symbios.contact.effect.audio"));
+        assert!(json.contains("network.symbios.contact.audio.atproto_blob"));
+
+        // A future procedural source decodes to Unknown, not an error.
+        let s: AudioClipSource =
+            serde_json::from_str(r#"{"$type":"network.symbios.contact.audio.synth","wave":"saw"}"#)
+                .unwrap();
+        assert_eq!(s, AudioClipSource::Unknown);
     }
 
     #[test]

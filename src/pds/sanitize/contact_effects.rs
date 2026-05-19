@@ -13,7 +13,8 @@ use super::Sanitize;
 use super::common::clamp_finite;
 use super::limits;
 use crate::pds::contact_effects::{
-    ContactEffectKind, ContactEffectRecord, ContactEffects, DecalParams, RecipeParticle,
+    AudioClipSource, AudioParams, ContactEffectKind, ContactEffectRecord, ContactEffects,
+    DecalParams, RecipeParticle,
 };
 use crate::pds::generator::EmitterShape;
 
@@ -80,6 +81,7 @@ impl Sanitize for ContactEffectRecord {
                 particle.sanitize();
             }
             ContactEffectKind::DecalStamp { decal } => decal.sanitize(),
+            ContactEffectKind::AudioCue { audio } => audio.sanitize(),
             // A future/unknown effect kind has no fields we can bound;
             // the runtime mapper drops it anyway.
             ContactEffectKind::Unknown => {}
@@ -108,6 +110,46 @@ impl Sanitize for DecalParams {
         );
         for c in &mut self.color.0 {
             *c = clamp_finite(*c, 0.0, 1.0, 0.0);
+        }
+    }
+}
+
+/// Truncate a string to at most `max` chars (char-, not byte-, bounded
+/// so a multibyte URL never splits mid-codepoint).
+fn truncate_chars(s: &mut String, max: usize) {
+    if s.chars().count() > max {
+        *s = s.chars().take(max).collect();
+    }
+}
+
+impl Sanitize for AudioParams {
+    fn sanitize(&mut self) {
+        self.volume.0 = clamp_finite(self.volume.0, 0.0, limits::MAX_CONTACT_AUDIO_VOLUME, 0.8);
+        self.volume_per_speed.0 = clamp_finite(
+            self.volume_per_speed.0,
+            0.0,
+            limits::MAX_CONTACT_AUDIO_VOLUME,
+            0.0,
+        );
+        self.pitch.0 = clamp_finite(
+            self.pitch.0,
+            limits::MIN_CONTACT_AUDIO_PITCH,
+            limits::MAX_CONTACT_AUDIO_PITCH,
+            1.0,
+        );
+        self.pitch_jitter.0 = clamp_finite(
+            self.pitch_jitter.0,
+            0.0,
+            limits::MAX_CONTACT_AUDIO_PITCH_JITTER,
+            0.0,
+        );
+        match &mut self.source {
+            AudioClipSource::Url { url } => truncate_chars(url, limits::MAX_CONTACT_AUDIO_URL),
+            AudioClipSource::AtprotoBlob { did, cid } => {
+                truncate_chars(did, limits::MAX_CONTACT_AUDIO_ID);
+                truncate_chars(cid, limits::MAX_CONTACT_AUDIO_ID);
+            }
+            AudioClipSource::Unknown => {}
         }
     }
 }
@@ -192,8 +234,8 @@ impl Sanitize for RecipeParticle {
 mod tests {
     use super::*;
     use crate::pds::contact_effects::{
-        ContactEffectRecord, ContactPhaseKind, ContactSurfaceKind, CountModel,
-        default_contact_effects,
+        AudioClipSource, AudioParams, ContactEffectRecord, ContactPhaseKind, ContactSurfaceKind,
+        CountModel, default_contact_effects,
     };
     use crate::pds::types::{Fp, Fp3, Fp4};
 
@@ -318,5 +360,46 @@ mod tests {
         assert_eq!(e.recipes.len(), limits::MAX_CONTACT_RECIPES);
         // Name-sorted survivor set: first MAX by name.
         assert_eq!(e.recipes[0].name, "r000");
+    }
+
+    #[test]
+    fn hostile_audio_params_are_clamped_and_strings_trimmed() {
+        let mut e = default_contact_effects();
+        e.recipes.push(ContactEffectRecord {
+            name: "evil_audio".into(),
+            surface: ContactSurfaceKind::Terrain,
+            phase: ContactPhaseKind::Enter,
+            min_speed: Fp(0.0),
+            min_intensity: Fp(0.0),
+            cooldown: Fp(0.0),
+            enabled: true,
+            effect: ContactEffectKind::AudioCue {
+                audio: AudioParams {
+                    source: AudioClipSource::Url {
+                        url: "h".repeat(limits::MAX_CONTACT_AUDIO_URL + 500),
+                    },
+                    volume: Fp(1.0e9),
+                    volume_per_speed: Fp(f32::NAN),
+                    pitch: Fp(0.0),
+                    pitch_jitter: Fp(50.0),
+                    spatial: true,
+                },
+            },
+        });
+        e.sanitize();
+        let a = match &e.recipes.last().unwrap().effect {
+            ContactEffectKind::AudioCue { audio } => audio.clone(),
+            _ => unreachable!(),
+        };
+        assert!(a.volume.0 <= limits::MAX_CONTACT_AUDIO_VOLUME);
+        assert_eq!(a.volume_per_speed.0, 0.0); // NaN → default
+        assert!(a.pitch.0 >= limits::MIN_CONTACT_AUDIO_PITCH);
+        assert!(a.pitch_jitter.0 <= limits::MAX_CONTACT_AUDIO_PITCH_JITTER);
+        match a.source {
+            AudioClipSource::Url { url } => {
+                assert_eq!(url.chars().count(), limits::MAX_CONTACT_AUDIO_URL);
+            }
+            _ => unreachable!(),
+        }
     }
 }
