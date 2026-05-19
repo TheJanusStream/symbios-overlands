@@ -188,6 +188,7 @@ pub(super) fn draw_contact_effects_tab(
 fn surface_label(s: ContactSurfaceKind) -> &'static str {
     match s {
         ContactSurfaceKind::Water => "water",
+        ContactSurfaceKind::Terrain => "terrain",
         ContactSurfaceKind::Unknown => "unknown",
     }
 }
@@ -202,16 +203,16 @@ fn phase_label(p: ContactPhaseKind) -> &'static str {
 }
 
 fn surface_combo(ui: &mut egui::Ui, salt: usize, s: &mut ContactSurfaceKind, dirty: &mut bool) {
-    // Water is the only modelled surface today (terrain lands in Phase
-    // 3); the combo still exists so the UI is ready for it.
+    // Water and terrain are the modelled surfaces (terrain landed in
+    // Phase 3, #245). `Unknown` is intentionally not offered — it's a
+    // forward-compat deserialize fallback, not an authorable choice.
     egui::ComboBox::from_id_salt(("surface", salt))
         .selected_text(surface_label(*s))
         .show_ui(ui, |ui| {
-            if ui
-                .selectable_value(s, ContactSurfaceKind::Water, "water")
-                .clicked()
-            {
-                *dirty = true;
+            for opt in [ContactSurfaceKind::Water, ContactSurfaceKind::Terrain] {
+                if ui.selectable_value(s, opt, surface_label(opt)).clicked() {
+                    *dirty = true;
+                }
             }
         });
     ui.label("Surface");

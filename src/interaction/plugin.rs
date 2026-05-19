@@ -34,6 +34,7 @@ use super::perturbation::{
     PerturbationPool, PerturbationSpawnState, spawn_perturbations, tick_perturbations,
 };
 use super::recipes::ContactRecipeRegistry;
+use super::stains::{WetCarry, setup_stains, update_stains};
 use super::water_channel::feed_water_wakes;
 
 /// System set the classifier runs in. Consumers configure their
@@ -59,6 +60,10 @@ impl Plugin for InteractionPlugin {
             .init_resource::<PerturbationSpawnState>()
             .init_resource::<ContactRecipeRegistry>()
             .init_resource::<ParticleDispatchState>()
+            .init_resource::<WetCarry>()
+            // Allocate the (zeroed) stains image once at startup so the
+            // terrain material can bind it as soon as it's built.
+            .add_systems(Startup, setup_stains)
             .add_systems(
                 Update,
                 classify_contacts
@@ -86,11 +91,16 @@ impl Plugin for InteractionPlugin {
             // Particle consumer (Phase 2): dispatch contact→burst after
             // the producer so it sees this frame's contacts, and reclaim
             // finished transient emitters so they don't leak.
+            //
+            // Stains consumer (Phase 3): stamp/decay/upload the terrain
+            // overlay, also after the producer so it sees this frame's
+            // terrain contacts.
             .add_systems(
                 Update,
                 (
                     particle_dispatcher.after(ContactProducerSet),
                     retire_transient_emitters,
+                    update_stains.after(ContactProducerSet),
                 )
                     .run_if(in_state(AppState::InGame)),
             );

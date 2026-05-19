@@ -206,13 +206,37 @@ fn water_droplet_template() -> ParticleEmitter {
     }
 }
 
-/// The hardcoded initial water recipe set — the pre-Phase-4 fallback
-/// used by [`ContactRecipeRegistry::default`] until a room compiles its
+/// Dusty tan ground puff that hangs then settles — kicked up by a
+/// brisk run on terrain. Mirrors
+/// `crate::pds::contact_effects::ground_dust_record`'s `RecipeParticle`
+/// (the from-effects equivalence test guards the recipe-level fields).
+fn ground_dust_template() -> ParticleEmitter {
+    ParticleEmitter {
+        shape: EmitterShape::Sphere { radius: Fp(0.25) },
+        max_particles: 48,
+        lifetime_min: 0.4,
+        lifetime_max: 0.9,
+        speed_min: 0.3,
+        speed_max: 1.2,
+        // Dust hangs — almost no gravity, heavy drag.
+        gravity_multiplier: 0.15,
+        linear_drag: 0.6,
+        start_size: 0.18,
+        end_size: 0.05,
+        start_color: LinearRgba::new(0.55, 0.45, 0.32, 0.70),
+        end_color: LinearRgba::new(0.50, 0.42, 0.30, 0.0),
+        ..transient_base()
+    }
+}
+
+/// The hardcoded initial recipe set — the pre-Phase-4 fallback used by
+/// [`ContactRecipeRegistry::default`] until a room compiles its
 /// authored [`crate::pds::ContactEffects`]. Must stay value-equal to
 /// [`crate::pds::default_contact_effects`] so a record that omits the
-/// key behaves identically. Recipe 3 (ground dust) needs the Phase 3
-/// `SurfaceContact::Terrain` variant and is intentionally absent until
-/// #245 lands; the types above already accommodate it.
+/// key behaves identically (enforced by
+/// [`tests::from_effects_maps_defaults_equivalently`]). As of Phase 3
+/// (#245) this includes the `ground_dust` terrain recipe that #244
+/// deliberately deferred.
 pub fn default_water_recipes() -> Vec<ContactEffectRecipe> {
     vec![
         ContactEffectRecipe {
@@ -263,6 +287,32 @@ pub fn default_water_recipes() -> Vec<ContactEffectRecipe> {
             },
             enabled: true,
         },
+        ContactEffectRecipe {
+            name: "ground_dust".into(),
+            trigger: ContactTrigger {
+                surface_kind: SurfaceKind::Terrain,
+                phase: ContactPhase::Dwell,
+                // Brisk run, not a walk. Terrain intensity floors at
+                // the grounded value so the speed gate alone selects
+                // "running" (min_intensity stays 0).
+                min_speed: 4.0,
+                min_intensity: 0.0,
+            },
+            spawn: ParticleBurst {
+                template: ground_dust_template(),
+                // clamp(speed*3, 4, 18)
+                count: CountCurve {
+                    gain: 3.0,
+                    base: 0.0,
+                    min: 4,
+                    max: 18,
+                },
+                radius_scale: 0.8,
+                velocity_inherit: 0.3,
+                cooldown: 0.2,
+            },
+            enabled: true,
+        },
     ]
 }
 
@@ -273,6 +323,7 @@ pub fn default_water_recipes() -> Vec<ContactEffectRecipe> {
 fn map_surface(s: ContactSurfaceKind) -> Option<SurfaceKind> {
     match s {
         ContactSurfaceKind::Water => Some(SurfaceKind::Water),
+        ContactSurfaceKind::Terrain => Some(SurfaceKind::Terrain),
         // A future/unknown surface tag can't map to a runtime kind —
         // skip the recipe rather than guessing.
         ContactSurfaceKind::Unknown => None,
@@ -466,18 +517,62 @@ mod tests {
     }
 
     #[test]
-    fn default_registry_has_enabled_water_recipes() {
+    fn default_registry_has_enabled_water_and_ground_recipes() {
         let reg = ContactRecipeRegistry::default();
-        assert_eq!(reg.recipes.len(), 2);
+        assert_eq!(reg.recipes.len(), 3);
         assert!(reg.recipes.iter().all(|r| r.enabled));
         assert!(reg.max_particles_per_frame > 0);
         // Enter recipe fires once (no cooldown); Dwell trickle is
         // cooldown-throttled so it can't spawn an emitter every frame.
         let splash = &reg.recipes[0];
         let droplet = &reg.recipes[1];
+        let dust = &reg.recipes[2];
         assert_eq!(splash.trigger.phase, ContactPhase::Enter);
+        assert_eq!(splash.trigger.surface_kind, SurfaceKind::Water);
         assert_eq!(splash.spawn.cooldown, 0.0);
         assert_eq!(droplet.trigger.phase, ContactPhase::Dwell);
         assert!(droplet.spawn.cooldown > 0.0);
+        // Ground dust: terrain Dwell, speed-gated to a run, throttled.
+        assert_eq!(dust.name, "ground_dust");
+        assert_eq!(dust.trigger.surface_kind, SurfaceKind::Terrain);
+        assert_eq!(dust.trigger.phase, ContactPhase::Dwell);
+        assert_eq!(dust.trigger.min_speed, 4.0);
+        assert!(dust.spawn.cooldown > 0.0);
+    }
+
+    #[test]
+    fn ground_dust_recipe_fires_only_on_fast_terrain_dwell() {
+        let reg = ContactRecipeRegistry::default();
+        let dust = reg
+            .recipes
+            .iter()
+            .find(|r| r.name == "ground_dust")
+            .unwrap();
+        let terrain = |phase, speed| ContactSample {
+            avatar: Entity::PLACEHOLDER,
+            world_pos: Vec3::ZERO,
+            world_vel: Vec3::new(speed, 0.0, 0.0),
+            footprint_radius: 0.5,
+            surface: super::super::contact::SurfaceContact::Terrain {
+                material_blend: [1.0, 0.0, 0.0, 0.0],
+                normal: Vec3::Y,
+            },
+            intensity: 0.12,
+            phase,
+        };
+        // Running on terrain → match.
+        assert!(dust.trigger.matches(&terrain(ContactPhase::Dwell, 6.0)));
+        // Walking (below the 4 m/s gate) → no dust.
+        assert!(!dust.trigger.matches(&terrain(ContactPhase::Dwell, 2.0)));
+        // A water sample never matches a terrain recipe.
+        let water = ContactSample {
+            surface: super::super::contact::SurfaceContact::Water {
+                plane_idx: 0,
+                depth: 1.0,
+                flow_dir: Vec2::ZERO,
+            },
+            ..terrain(ContactPhase::Dwell, 6.0)
+        };
+        assert!(!dust.trigger.matches(&water));
     }
 }

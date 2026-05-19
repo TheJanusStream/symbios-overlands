@@ -22,13 +22,15 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat}; 
 use bevy::tasks::AsyncComputeTaskPool;
 use bevy_symbios_ground::{
     DiamondSquare, FbmNoise, HeightMap, HeightMapMeshBuilder, HydraulicErosion, NormalMethod,
-    SplatMapper, SplatRule, TerrainGenerator, ThermalErosion, VoronoiTerracing,
+    SplatMapper, SplatRule, TerrainGenerator, TerrainQuery, ThermalErosion, VoronoiTerracing,
     build_heightfield_collider,
 };
 use bevy_symbios_texture::SymbiosTexturePlugin;
 use bevy_symbios_texture::async_gen::{PendingTexture, TextureReady};
 
 use crate::config::terrain as tcfg;
+use crate::config::terrain::stains as scfg;
+use crate::interaction::{StainsImage, TerrainSurfaceQuery};
 use crate::pds::{
     RoomRecord, SovereignGeneratorKind, SovereignTerrainConfig, SovereignTextureConfig,
 };
@@ -199,6 +201,9 @@ fn cleanup_terrain(
     commands.remove_resource::<SplatMaterialHandle>();
     commands.remove_resource::<TextureTasksStarted>();
     commands.remove_resource::<TerrainTask>();
+    // Drop the interaction CPU terrain mirror with its terrain so the
+    // classifier doesn't probe a stale heightmap after logout.
+    commands.remove_resource::<TerrainSurfaceQuery>();
 }
 
 /// Watch the active room record for terrain-config changes. When the owner
@@ -499,11 +504,14 @@ fn collect_texture_results(
 
 /// Once all four layers are ready, build the texture arrays, generate the
 /// weight map, and enable splat blending on the terrain material.
+#[allow(clippy::too_many_arguments)]
 fn apply_splat_textures(
+    mut commands: Commands,
     mut state: ResMut<TerrainSplatState>,
     hm_res: Option<Res<FinishedHeightMap>>,
     splat_mat: Option<Res<SplatMaterialHandle>>,
     record: Option<Res<RoomRecord>>,
+    stains: Option<Res<StainsImage>>,
     mut materials: ResMut<Assets<SplatTerrainMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
@@ -584,6 +592,20 @@ fn apply_splat_textures(
         ),
     ]);
     let weight_map = mapper.generate(hm);
+
+    // CPU mirror for the avatar-world interaction classifier (#245):
+    // the same heightmap + splat rules the GPU sees, queryable for
+    // ground height / normal / splat weights at any world XZ. The
+    // heightfield collider *is* this heightmap, so this is the terrain
+    // analogue of `WaterSurfaces` (a CPU analytic query, not a physics
+    // raycast). `mapper` is moved in (unused after `generate`); the
+    // heightmap is deep-cloned once per terrain build (~1 MiB at the
+    // default 512 grid). Overwrites any prior query on regenerate.
+    commands.insert_resource(TerrainSurfaceQuery::new(
+        TerrainQuery::new(hm.clone(), mapper),
+        world_extent * 0.5,
+    ));
+
     // Build the weight-map image manually so we can use RENDER_WORLD-only
     // storage — the CPU bytes are never needed again after upload.
     let wm_bytes: Vec<u8> = weight_map
@@ -620,6 +642,15 @@ fn apply_splat_textures(
         mat.extension.normal_array = normal_array;
         mat.extension.uniforms.enabled = 1;
         mat.extension.uniforms.triplanar_scale = tcfg::TILE_SCALE / world_extent.max(1.0);
+
+        // Bind the avatar-interaction stains overlay (#245). The image
+        // is allocated zeroed at startup, so enabling it now is inert
+        // until the stamper writes contacts — backward-compatible.
+        if let Some(stains) = stains.as_ref() {
+            mat.extension.stains_tex = stains.handle.clone();
+            mat.extension.stains.world_period = scfg::WORLD_PERIOD;
+            mat.extension.stains.enabled = 1;
+        }
     }
 
     state.applied = true;

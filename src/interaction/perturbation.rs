@@ -403,6 +403,10 @@ pub fn spawn_perturbations(
         // than silently continuing.
         let plane_idx = match sample.surface {
             SurfaceContact::Water { plane_idx, .. } => plane_idx,
+            // `iter_kind(Water)` guarantees this is unreachable; keep
+            // the match total so a new surface variant is a compile
+            // error to ignore here, not a silent misroute.
+            SurfaceContact::Terrain { .. } => continue,
         };
         let pos = Vec2::new(sample.world_pos.x, sample.world_pos.z);
         let vel = Vec2::new(sample.world_vel.x, sample.world_vel.z);

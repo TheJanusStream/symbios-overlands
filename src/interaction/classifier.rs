@@ -26,7 +26,9 @@ use std::collections::HashMap;
 
 use avian3d::prelude::LinearVelocity;
 use bevy::prelude::*;
+use bevy_symbios_ground::TerrainQuery;
 
+use crate::config::terrain::ground as gcfg;
 use crate::config::terrain::water::wake as wcfg;
 use crate::pds::LocomotionConfig;
 use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
@@ -53,6 +55,48 @@ pub struct ContactPersistence {
     pub(crate) last_surface: HashMap<Entity, SurfaceContact>,
 }
 
+/// CPU mirror of the terrain surface, the land analogue of
+/// [`WaterSurfaces`]. Wraps a [`TerrainQuery`] (heightmap + splat
+/// mapper) so the classifier can read ground height, surface normal and
+/// splat weights at any world XZ without a physics raycast — the
+/// heightfield collider *is* this heightmap, so a height query is
+/// equivalent to (and cheaper / deterministic vs.) casting a ray at it.
+///
+/// Populated by `terrain.rs::apply_splat_textures` once the heightmap
+/// and the record's splat rules are both resolved, and rebuilt in place
+/// whenever the terrain regenerates.
+///
+/// Memory: the wrapped [`TerrainQuery`] owns a clone of the heightmap
+/// (`grid² × 4` bytes — ~1 MiB at the default 512 grid) plus the tiny
+/// [`SplatMapper`](bevy_symbios_ground::SplatMapper). One copy total, on
+/// the main world only.
+#[derive(Resource)]
+pub struct TerrainSurfaceQuery {
+    query: TerrainQuery,
+    /// Half the world extent. The terrain mesh is rendered offset by
+    /// `-half` (`terrain.rs`), so world XZ → heightmap-local XZ is
+    /// `world + half` before handing to [`TerrainQuery`] (whose
+    /// coordinate origin is the heightmap corner).
+    half_extent: f32,
+}
+
+impl TerrainSurfaceQuery {
+    pub fn new(query: TerrainQuery, half_extent: f32) -> Self {
+        Self { query, half_extent }
+    }
+
+    /// Ground height, normalised `[Grass, Dirt, Rock, Snow]` splat
+    /// weights and unit surface normal at a world XZ.
+    fn sample(&self, world_x: f32, world_z: f32) -> (f32, [f32; 4], Vec3) {
+        let lx = world_x + self.half_extent;
+        let lz = world_z + self.half_extent;
+        let h = self.query.height_at(lx, lz);
+        let w = self.query.splat_weights_at(lx, lz);
+        let n = self.query.normal_at(lx, lz);
+        (h, w, Vec3::new(n[0], n[1], n[2]))
+    }
+}
+
 /// One transition the classifier might emit for an avatar this frame.
 /// In the case of a surface-kind change (water plane A → water plane
 /// B, or eventually water → terrain) two transitions are emitted: an
@@ -63,10 +107,11 @@ pub(crate) struct Transition {
     pub phase: ContactPhase,
 }
 
-/// Probe every surface registry against an avatar and return the
-/// strongest contact, or `None` if the avatar isn't touching any
-/// tracked surface. Phase 0 only probes water; Phase 3 extends this to
-/// add a terrain raycast.
+/// Probe the water registry against an avatar's body bottom. Returns
+/// `Some(SurfaceContact::Water)` when in contact, else `None`. Terrain
+/// is probed separately by [`probe_terrain`]; [`emit_for_avatar`]
+/// selects between them (water wins when both hit — an avatar wading in
+/// a shallow pond reads as "in water", not "on ground").
 ///
 /// Contact is tested at the avatar's **body bottom**
 /// (`world_pos.y − total_height/2`), not the chassis origin. Probing
@@ -91,7 +136,7 @@ pub(crate) struct Transition {
 /// bottom's submersion (clamped ≥ 0), so the downstream
 /// `intensity_for` (depth ÷ total_height) still reads 0 at the
 /// waterline and saturates when fully submerged.
-pub(crate) fn probe_surface(
+pub(crate) fn probe_water(
     world_pos: Vec3,
     total_height: f32,
     was_in_contact: bool,
@@ -115,6 +160,55 @@ pub(crate) fn probe_surface(
         depth: q.depth.max(0.0),
         flow_dir: Vec2::new(q.flow_dir.x, q.flow_dir.z),
     })
+}
+
+/// Pure terrain-contact decision, split out of [`probe_terrain`] so the
+/// Schmitt-trigger / slack logic is unit-testable without a
+/// [`TerrainQuery`]. `surface_y`, `weights` and `normal` are the
+/// heightmap sample at the body-bottom XZ.
+///
+/// Mirrors the water Schmitt trigger ([`probe_water`]): the body bottom
+/// must be within [`gcfg::CONTACT_SLACK`] above the ground to *enter*
+/// contact, and stays in contact until it rises past the wider
+/// [`gcfg::CONTACT_EXIT_SLACK`] — the hysteresis absorbs the few-cm
+/// jitter of a capsule resting on a heightfield so a standing avatar
+/// does not chatter Exit→Enter (which would restart footprint
+/// stamping every frame).
+pub(crate) fn classify_terrain_contact(
+    body_bottom_y: f32,
+    surface_y: f32,
+    was_in_contact: bool,
+    weights: [f32; 4],
+    normal: Vec3,
+) -> Option<SurfaceContact> {
+    // Positive when the body bottom is at/below the ground surface.
+    let penetration = surface_y - body_bottom_y;
+    let slack = if was_in_contact {
+        gcfg::CONTACT_EXIT_SLACK
+    } else {
+        gcfg::CONTACT_SLACK
+    };
+    if penetration < -slack {
+        return None;
+    }
+    Some(SurfaceContact::Terrain {
+        material_blend: weights,
+        normal,
+    })
+}
+
+/// Probe the terrain heightmap against an avatar's body bottom. `None`
+/// when the terrain CPU mirror isn't resident yet (still loading) or
+/// the avatar is airborne above the ground.
+pub(crate) fn probe_terrain(
+    world_pos: Vec3,
+    total_height: f32,
+    was_in_contact: bool,
+    terrain: &TerrainSurfaceQuery,
+) -> Option<SurfaceContact> {
+    let body_bottom_y = world_pos.y - 0.5 * total_height;
+    let (surface_y, weights, normal) = terrain.sample(world_pos.x, world_pos.z);
+    classify_terrain_contact(body_bottom_y, surface_y, was_in_contact, weights, normal)
 }
 
 /// Pure phase-transition logic. Independent of the rest of the system
@@ -186,17 +280,38 @@ fn same_specific_surface(a: &SurfaceContact, b: &SurfaceContact) -> bool {
             SurfaceContact::Water { plane_idx: ai, .. },
             SurfaceContact::Water { plane_idx: bi, .. },
         ) => ai == bi,
+        // There is exactly one terrain — any two terrain contacts are
+        // the same specific surface (so a stationary avatar dwells
+        // rather than re-entering every frame).
+        (SurfaceContact::Terrain { .. }, SurfaceContact::Terrain { .. }) => true,
+        // Mixed-kind pairs are already filtered by the kind() check
+        // above; this arm is unreachable but keeps the match total.
+        _ => false,
     }
 }
 
-/// 0..1 engagement scalar driven by the surface-specific payload. For
-/// water this is depth normalised by avatar height — fully submerged
-/// reads as 1.0. The caller's surface enum determines the formula.
-pub(crate) fn intensity_for(contact: &SurfaceContact, locomotion: &LocomotionConfig) -> f32 {
+/// 0..1 engagement scalar driven by the surface-specific payload.
+///
+/// - Water: submersion depth normalised by avatar height — fully
+///   submerged reads as 1.0 (`world_vel` unused).
+/// - Terrain: downward impact speed normalised by
+///   [`gcfg::INTENSITY_VEL_REF`], floored at
+///   [`gcfg::INTENSITY_GROUNDED_FLOOR`] so a still, grounded avatar
+///   keeps a faint continuous contact (footprints accrue while
+///   standing). A hard landing saturates at 1.0.
+pub(crate) fn intensity_for(
+    contact: &SurfaceContact,
+    world_vel: Vec3,
+    locomotion: &LocomotionConfig,
+) -> f32 {
     match contact {
         SurfaceContact::Water { depth, .. } => {
             let denom = locomotion_total_height(locomotion).max(0.01);
             (depth / denom).clamp(0.0, 1.0)
+        }
+        SurfaceContact::Terrain { .. } => {
+            let down = (-world_vel.y).max(0.0);
+            (down / gcfg::INTENSITY_VEL_REF).clamp(gcfg::INTENSITY_GROUNDED_FLOOR, 1.0)
         }
     }
 }
@@ -207,6 +322,7 @@ pub(crate) fn intensity_for(contact: &SurfaceContact, locomotion: &LocomotionCon
 pub fn classify_contacts(
     time: Res<Time>,
     water: Option<Res<WaterSurfaces>>,
+    terrain: Option<Res<TerrainSurfaceQuery>>,
     live_avatar: Option<Res<LiveAvatarRecord>>,
     locals: Query<(Entity, &Transform, &LinearVelocity), With<LocalPlayer>>,
     peers: Query<(Entity, &Transform, &RemotePeer), Without<LocalPlayer>>,
@@ -219,9 +335,12 @@ pub fn classify_contacts(
     let Some(water) = water.as_deref() else {
         // No water registry yet (still loading) — keep persistence
         // intact so a partial frame doesn't fabricate an Exit, and
-        // skip emission entirely.
+        // skip emission entirely. (Water is spawned per room before
+        // the terrain CPU mirror resolves, so gating on water alone
+        // also avoids a terrain-only partial frame.)
         return;
     };
+    let terrain = terrain.as_deref();
 
     let elapsed = time.elapsed_secs();
     let unknown = LocomotionConfig::Unknown;
@@ -240,6 +359,7 @@ pub fn classify_contacts(
             local_footprint,
             local_cfg,
             water,
+            terrain,
             &mut persistence,
             &mut contacts.samples,
         );
@@ -273,6 +393,7 @@ pub fn classify_contacts(
             footprint,
             cfg,
             water,
+            terrain,
             &mut persistence,
             &mut contacts.samples,
         );
@@ -305,19 +426,25 @@ fn emit_for_avatar(
     footprint_radius: f32,
     locomotion: &LocomotionConfig,
     water: &WaterSurfaces,
+    terrain: Option<&TerrainSurfaceQuery>,
     persistence: &mut ContactPersistence,
     out: &mut Vec<ContactSample>,
 ) {
     let total_height = locomotion_total_height(locomotion);
     let last = persistence.last_surface.get(&avatar).copied();
-    // Schmitt trigger: if we were already in water contact, probe with
-    // the wide exit threshold so a settling bob can't chatter.
-    let was_in_contact = matches!(last, Some(SurfaceContact::Water { .. }));
-    let curr = probe_surface(world_pos, total_height, was_in_contact, water);
+    // Per-kind Schmitt trigger: probe with the wide exit threshold only
+    // for the surface kind we were *already* on, so a settling bob (or
+    // a capsule jittering on the heightfield) can't chatter Exit→Enter.
+    let was_water = matches!(last, Some(SurfaceContact::Water { .. }));
+    let was_terrain = matches!(last, Some(SurfaceContact::Terrain { .. }));
+    // Water wins when both hit: an avatar wading in a shallow pond is
+    // "in water", not "on ground".
+    let curr = probe_water(world_pos, total_height, was_water, water)
+        .or_else(|| terrain.and_then(|t| probe_terrain(world_pos, total_height, was_terrain, t)));
     let (transitions, new_state) = compute_transitions(last, curr);
 
     for t in transitions {
-        let intensity = intensity_for(&t.surface, locomotion);
+        let intensity = intensity_for(&t.surface, world_vel, locomotion);
         out.push(ContactSample {
             avatar,
             world_pos,
@@ -341,6 +468,7 @@ fn emit_for_avatar(
 
 #[cfg(test)]
 mod tests {
+    use super::super::contact::SurfaceKind;
     use super::*;
 
     fn water_contact(plane_idx: usize, depth: f32) -> SurfaceContact {
@@ -379,19 +507,19 @@ mod tests {
         // enter slack (0.15) but inside the wide exit slack (0.6).
         let just_above = pos_for_body_bottom(0.3, h);
         // Not yet in contact → tight threshold rejects it.
-        assert!(probe_surface(just_above, h, false, &water).is_none());
+        assert!(probe_water(just_above, h, false, &water).is_none());
         // Already in contact → hysteresis holds it (no Exit chatter).
-        assert!(probe_surface(just_above, h, true, &water).is_some());
+        assert!(probe_water(just_above, h, true, &water).is_some());
 
         // Clearly clear of the water (1.0 m > exit slack) → Exit even
         // with hysteresis: a genuine departure still ends contact.
         let clear = pos_for_body_bottom(1.0, h);
-        assert!(probe_surface(clear, h, true, &water).is_none());
+        assert!(probe_water(clear, h, true, &water).is_none());
 
         // Submerged → in contact regardless of prior state.
         let under = pos_for_body_bottom(-0.1, h);
-        assert!(probe_surface(under, h, false, &water).is_some());
-        assert!(probe_surface(under, h, true, &water).is_some());
+        assert!(probe_water(under, h, false, &water).is_some());
+        assert!(probe_water(under, h, true, &water).is_some());
     }
 
     #[test]
@@ -450,11 +578,95 @@ mod tests {
     fn intensity_saturates_when_fully_submerged() {
         let cfg = LocomotionConfig::Humanoid(Box::default());
         let height = locomotion_total_height(&cfg);
-        let shallow = intensity_for(&water_contact(0, 0.1), &cfg);
-        let mid = intensity_for(&water_contact(0, height * 0.5), &cfg);
-        let submerged = intensity_for(&water_contact(0, height * 5.0), &cfg);
+        let v = Vec3::ZERO;
+        let shallow = intensity_for(&water_contact(0, 0.1), v, &cfg);
+        let mid = intensity_for(&water_contact(0, height * 0.5), v, &cfg);
+        let submerged = intensity_for(&water_contact(0, height * 5.0), v, &cfg);
         assert!(shallow > 0.0 && shallow < 0.2);
         assert!((mid - 0.5).abs() < 1e-3);
         assert!((submerged - 1.0).abs() < 1e-6);
+    }
+
+    fn terrain_contact() -> SurfaceContact {
+        SurfaceContact::Terrain {
+            material_blend: [1.0, 0.0, 0.0, 0.0],
+            normal: Vec3::Y,
+        }
+    }
+
+    #[test]
+    fn terrain_contact_uses_hysteresis_like_water() {
+        let w = [1.0, 0.0, 0.0, 0.0];
+        let n = Vec3::Y;
+        // Body bottom 0.4 m above ground: past the tight enter slack
+        // (0.30) but inside the wide exit slack (0.55).
+        // surface_y = 0, body_bottom_y = 0.4.
+        assert!(classify_terrain_contact(0.4, 0.0, false, w, n).is_none());
+        assert!(classify_terrain_contact(0.4, 0.0, true, w, n).is_some());
+        // 0.8 m clear → genuine departure even with hysteresis.
+        assert!(classify_terrain_contact(0.8, 0.0, true, w, n).is_none());
+        // Penetrating the ground → contact regardless of prior state.
+        assert!(classify_terrain_contact(-0.1, 0.0, false, w, n).is_some());
+    }
+
+    #[test]
+    fn terrain_contact_carries_blend_and_normal() {
+        let w = [0.1, 0.2, 0.6, 0.1];
+        let n = Vec3::new(0.0, 0.8, 0.6).normalize();
+        let c = classify_terrain_contact(0.0, 0.0, false, w, n).unwrap();
+        match c {
+            SurfaceContact::Terrain {
+                material_blend,
+                normal,
+            } => {
+                assert_eq!(material_blend, w);
+                assert!((normal - n).length() < 1e-6);
+            }
+            _ => panic!("expected Terrain"),
+        }
+        assert_eq!(c.kind(), SurfaceKind::Terrain);
+    }
+
+    #[test]
+    fn terrain_intensity_floors_when_grounded_and_saturates_on_hard_landing() {
+        let cfg = LocomotionConfig::Humanoid(Box::default());
+        let c = terrain_contact();
+        // Standing still (no vertical speed) keeps the grounded floor so
+        // footprints still accrue.
+        let still = intensity_for(&c, Vec3::ZERO, &cfg);
+        assert!((still - gcfg::INTENSITY_GROUNDED_FLOOR).abs() < 1e-6);
+        // Upward velocity is not an impact — still just the floor.
+        let rising = intensity_for(&c, Vec3::new(0.0, 3.0, 0.0), &cfg);
+        assert!((rising - gcfg::INTENSITY_GROUNDED_FLOOR).abs() < 1e-6);
+        // Half the reference downward speed → ~0.5.
+        let mid = intensity_for(
+            &c,
+            Vec3::new(0.0, -gcfg::INTENSITY_VEL_REF * 0.5, 0.0),
+            &cfg,
+        );
+        assert!((mid - 0.5).abs() < 1e-3);
+        // Hard landing saturates at 1.0.
+        let slam = intensity_for(&c, Vec3::new(0.0, -100.0, 0.0), &cfg);
+        assert!((slam - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn terrain_dwell_does_not_re_enter_each_frame() {
+        // Two terrain contacts are the same specific surface, so a
+        // standing avatar dwells (one sample) rather than Exit+Enter.
+        let (trans, state) = compute_transitions(Some(terrain_contact()), Some(terrain_contact()));
+        assert_eq!(trans.len(), 1);
+        assert_eq!(trans[0].phase, ContactPhase::Dwell);
+        assert_eq!(state, Some(terrain_contact()));
+    }
+
+    #[test]
+    fn water_to_terrain_emits_exit_then_enter() {
+        let (trans, _) = compute_transitions(Some(water_contact(0, 0.5)), Some(terrain_contact()));
+        assert_eq!(trans.len(), 2);
+        assert_eq!(trans[0].phase, ContactPhase::Exit);
+        assert_eq!(trans[0].surface.kind(), SurfaceKind::Water);
+        assert_eq!(trans[1].phase, ContactPhase::Enter);
+        assert_eq!(trans[1].surface.kind(), SurfaceKind::Terrain);
     }
 }

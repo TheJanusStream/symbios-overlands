@@ -28,6 +28,8 @@ pub enum ContactSurfaceKind {
     #[serde(rename = "network.symbios.contact.surface.water")]
     #[default]
     Water,
+    #[serde(rename = "network.symbios.contact.surface.terrain")]
+    Terrain,
     #[serde(other)]
     Unknown,
 }
@@ -131,6 +133,13 @@ fn droplet_colours() -> (Fp4, Fp4) {
     (Fp4([0.85, 0.93, 1.0, 0.95]), Fp4([0.70, 0.85, 1.0, 0.0]))
 }
 
+/// Dusty tan → transparent — the kicked-up ground-dust puff. Kept in
+/// sync with `interaction::recipes::ground_dust_template` (the
+/// from-effects equivalence test guards the recipe-level fields).
+fn dust_colours() -> (Fp4, Fp4) {
+    (Fp4([0.55, 0.45, 0.32, 0.70]), Fp4([0.50, 0.42, 0.30, 0.0]))
+}
+
 /// The canonical seeded recipe set — the exact behaviour of the
 /// pre-Phase-4 hardcoded `interaction::recipes::default_water_recipes`,
 /// expressed as authored data so seeded and upgraded rooms are
@@ -212,7 +221,62 @@ pub fn default_contact_effects() -> ContactEffects {
                     max_particles: 16,
                 },
             },
+            // Ground dust — the recipe #244 deliberately deferred until
+            // the Phase 3 `Terrain` surface existed (#245). A brisk run
+            // (raw speed ≥ 4 m/s) kicks up a short-lived tan puff;
+            // throttled by a Dwell cooldown so it puffs a few times a
+            // second rather than every frame.
+            ground_dust_record(),
         ],
+    }
+}
+
+/// The seeded `ground_dust` recipe. Factored out so it can be reused
+/// and so the runtime mirror
+/// (`interaction::recipes::default_water_recipes`) can be kept
+/// byte-for-byte value-equal (enforced by
+/// `recipes::tests::from_effects_maps_defaults_equivalently`).
+fn ground_dust_record() -> ContactEffectRecord {
+    let (start_color, end_color) = dust_colours();
+    ContactEffectRecord {
+        name: "ground_dust".into(),
+        surface: ContactSurfaceKind::Terrain,
+        phase: ContactPhaseKind::Dwell,
+        // Raw contact speed gate: a brisk run, not a walk. Terrain
+        // intensity floors at the grounded value, so `min_intensity`
+        // stays 0 (the speed gate alone selects "running").
+        min_speed: Fp(4.0),
+        min_intensity: Fp(0.0),
+        // clamp(speed*3, 4, 18) — denser puff the faster you run.
+        count: CountModel {
+            gain: Fp(3.0),
+            base: Fp(0.0),
+            min: 4,
+            max: 18,
+        },
+        radius_scale: Fp(0.8),
+        velocity_inherit: Fp(0.3),
+        // Throttle the continuous Dwell so it puffs a few times a
+        // second instead of spawning an emitter every frame.
+        cooldown: Fp(0.2),
+        enabled: true,
+        particle: RecipeParticle {
+            shape: EmitterShape::Sphere { radius: Fp(0.25) },
+            lifetime_min: Fp(0.4),
+            lifetime_max: Fp(0.9),
+            speed_min: Fp(0.3),
+            speed_max: Fp(1.2),
+            // Dust hangs — almost no gravity, heavy drag.
+            gravity_multiplier: Fp(0.15),
+            linear_drag: Fp(0.6),
+            start_size: Fp(0.18),
+            end_size: Fp(0.05),
+            start_color,
+            end_color,
+            blend_mode: ParticleBlendMode::Alpha,
+            billboard: true,
+            max_particles: 48,
+        },
     }
 }
 
@@ -221,15 +285,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_has_two_enabled_water_recipes() {
+    fn default_has_seeded_water_and_ground_recipes() {
         let e = ContactEffects::default();
-        assert_eq!(e.recipes.len(), 2);
+        assert_eq!(e.recipes.len(), 3);
         assert!(e.recipes.iter().all(|r| r.enabled));
         assert_eq!(e.max_particles_per_frame, 240);
         assert_eq!(e.recipes[0].name, "water_splash");
+        assert_eq!(e.recipes[0].surface, ContactSurfaceKind::Water);
         assert_eq!(e.recipes[0].phase, ContactPhaseKind::Enter);
         assert_eq!(e.recipes[1].name, "water_droplet");
+        assert_eq!(e.recipes[1].surface, ContactSurfaceKind::Water);
         assert_eq!(e.recipes[1].phase, ContactPhaseKind::Dwell);
+        assert_eq!(e.recipes[2].name, "ground_dust");
+        assert_eq!(e.recipes[2].surface, ContactSurfaceKind::Terrain);
+        assert_eq!(e.recipes[2].phase, ContactPhaseKind::Dwell);
+        assert_eq!(e.recipes[2].min_speed, Fp(4.0));
+    }
+
+    #[test]
+    fn terrain_surface_kind_round_trips() {
+        let json = serde_json::to_string(&ContactSurfaceKind::Terrain).unwrap();
+        assert!(json.contains("network.symbios.contact.surface.terrain"));
+        let back: ContactSurfaceKind = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, ContactSurfaceKind::Terrain);
     }
 
     #[test]

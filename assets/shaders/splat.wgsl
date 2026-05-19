@@ -78,6 +78,22 @@ struct SplatUniforms {
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(106) var<uniform> splat_uniforms: SplatUniforms;
 
+/// Avatar-interaction stains overlay (Phase 3, #245). RGBA:
+///   R = wetness, G = kicked-up dust, B = footprint indent, A = reserved.
+/// Sampled toroidally at `fract(world.xz / world_period)` with a Repeat
+/// sampler — no camera recenter, so no origin pop.
+@group(#{MATERIAL_BIND_GROUP}) @binding(107) var stains_tex: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(108) var stains_sampler: sampler;
+
+struct StainsUniforms {
+    /// World-space side length (m) the stains texture tiles over.
+    world_period: f32,
+    /// Non-zero enables stains modulation; zero = terrain unchanged.
+    enabled: u32,
+}
+
+@group(#{MATERIAL_BIND_GROUP}) @binding(109) var<uniform> stains_uniforms: StainsUniforms;
+
 // ---------------------------------------------------------------------------
 // Triplanar helpers (used for the Rock layer only)
 // ---------------------------------------------------------------------------
@@ -260,6 +276,40 @@ fn fragment(
             wn0 * weights.r + wn1 * weights.g + wn2 * weights.b + wn3 * weights.a
         );
 #endif // VERTEX_TANGENTS
+    }
+
+    // --- Avatar-interaction stains overlay (#245) ----------------------
+    // Toroidal world→uv (matches the CPU stamper's wrapped texel math);
+    // Repeat sampler handles the seam. When `enabled == 0` the binding
+    // is the default 1×1 image and this whole block is skipped, so the
+    // terrain renders exactly as before (backward-compat).
+    if stains_uniforms.enabled != 0u {
+        let stains_uv = fract(in.world_position.xz / stains_uniforms.world_period);
+        let st = textureSample(stains_tex, stains_sampler, stains_uv);
+        let wet = st.r;
+        let dust = st.g;
+        let foot = st.b;
+
+        var albedo = pbr_input.material.base_color.rgb;
+
+        // Wetness: darken and drop roughness toward a wet sheen.
+        albedo *= mix(1.0, 0.78, wet);
+        pbr_input.material.perceptual_roughness *= mix(1.0, 0.35, wet);
+
+        // Footprint: a trodden patch reads darker than its surroundings.
+        albedo *= mix(1.0, 0.70, foot);
+
+        // Dust: lighten + desaturate toward a pale haze sitting on top.
+        let lum = dot(albedo, vec3<f32>(0.299, 0.587, 0.114));
+        let dusty = mix(albedo, vec3<f32>(lum) * 1.15 + vec3<f32>(0.06, 0.05, 0.04), 0.65);
+        albedo = mix(albedo, dusty, dust);
+
+        pbr_input.material.base_color = vec4<f32>(albedo, pbr_input.material.base_color.a);
+
+        // Footprint indents the surface: flatten the up-component of the
+        // shading normal so the depression catches light differently.
+        let n = pbr_input.N;
+        pbr_input.N = normalize(vec3<f32>(n.x, n.y * (1.0 - 0.2 * foot), n.z));
     }
 
 #ifdef PREPASS_PIPELINE

@@ -47,15 +47,14 @@ pub enum ContactPhase {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SurfaceKind {
     Water,
-    // Terrain: reserved for Phase 3.
+    /// Solid ground (the splat heightmap). Phase 3 (#245).
+    Terrain,
 }
 
 /// World-space description of the surface the avatar is currently
 /// engaged with. Returned wrapped in `Option<_>` by the producer's
 /// internal probe step — `None` means "in the air, no contact".
 ///
-/// Variants are intentionally non-exhaustive (a `Terrain` variant lands
-/// in Phase 3 carrying `material_blend: [f32; 4]` and `normal: Vec3`).
 /// Consumers should pattern-match the variants they handle and ignore
 /// the rest.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -74,6 +73,22 @@ pub enum SurfaceContact {
         depth: f32,
         flow_dir: Vec2,
     },
+    /// Avatar's body bottom is resting on the splat terrain.
+    ///
+    /// - `material_blend` — normalised `[Grass, Dirt, Rock, Snow]`
+    ///   splat weights sampled from the heightmap at the contact XZ
+    ///   (same channel order as the splat weight map / shader). Lets a
+    ///   recipe key dust colour off the dominant ground material.
+    /// - `normal` — world-space surface normal at the contact point
+    ///   (unit, `y` up), from the heightmap's central-difference normal.
+    ///
+    /// Terrain has no sub-surface index (unlike water planes): there is
+    /// exactly one terrain, so any two terrain contacts count as the
+    /// same specific surface for phase tracking.
+    Terrain {
+        material_blend: [f32; 4],
+        normal: Vec3,
+    },
 }
 
 impl SurfaceContact {
@@ -81,6 +96,7 @@ impl SurfaceContact {
     pub fn kind(&self) -> SurfaceKind {
         match self {
             SurfaceContact::Water { .. } => SurfaceKind::Water,
+            SurfaceContact::Terrain { .. } => SurfaceKind::Terrain,
         }
     }
 }

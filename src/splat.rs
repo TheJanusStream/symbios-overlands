@@ -27,6 +27,18 @@ pub struct SplatUniforms {
     pub triplanar_sharpness: f32,
 }
 
+/// GPU uniform block for the avatar-interaction stains overlay
+/// (Phase 3, #245), shared with `splat.wgsl`.
+#[derive(Debug, Clone, Default, ShaderType)]
+pub struct StainsUniforms {
+    /// World-space side length (m) the toroidal stains texture tiles
+    /// over. Shader samples it at `fract(world.xz / world_period)`.
+    pub world_period: f32,
+    /// Non-zero enables the stains modulation; zero passes terrain
+    /// through unchanged (backward-compat when no stamper is active).
+    pub enabled: u32,
+}
+
 /// [`MaterialExtension`] that drives `splat.wgsl`.
 ///
 /// Bind-group slots (group `MATERIAL_BIND_GROUP`, 100 +):
@@ -34,6 +46,8 @@ pub struct SplatUniforms {
 /// - 102/103  albedo `texture_2d_array` (4 layers) + sampler
 /// - 104/105  normal `texture_2d_array` (4 layers) + sampler
 /// - 106      [`SplatUniforms`] uniform
+/// - 107/108  stains overlay (RGBA: wet/dust/footprint) + sampler
+/// - 109      [`StainsUniforms`] uniform
 #[derive(Asset, TypePath, AsBindGroup, Clone, Default)]
 pub struct SplatExtension {
     #[texture(100)]
@@ -50,6 +64,16 @@ pub struct SplatExtension {
 
     #[uniform(106)]
     pub uniforms: SplatUniforms,
+
+    /// Avatar-interaction stains overlay (#245). Defaults to Bevy's
+    /// 1×1 white image; `stains.enabled` stays 0 until the stamper
+    /// binds the real texture, so terrain renders unchanged meanwhile.
+    #[texture(107)]
+    #[sampler(108)]
+    pub stains_tex: Handle<Image>,
+
+    #[uniform(109)]
+    pub stains: StainsUniforms,
 }
 
 impl MaterialExtension for SplatExtension {

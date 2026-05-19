@@ -334,6 +334,95 @@ pub mod terrain {
         }
     }
 
+    // --- Avatar–terrain contact (interaction Phase 3, #245) ------------------
+    /// Engine-tuning constants for the terrain side of the
+    /// avatar-world interaction framework
+    /// ([`crate::interaction::classifier`]). These are behaviour
+    /// constants by design (mirroring `water::wake`), not authored
+    /// per-room.
+    pub mod ground {
+        /// Grounding tolerance (m) for *entering* terrain contact. The
+        /// classifier probes the avatar's body bottom
+        /// (`origin.y − total_height/2`) against the heightmap surface
+        /// height at that XZ; contact begins when the body bottom is
+        /// within this distance above the surface (or below it). Sized
+        /// to the humanoid grounded-ray pad (0.1 m at
+        /// `src/player/humanoid.rs`) plus a margin for capsule rest
+        /// height and heightmap bilerp error.
+        pub const CONTACT_SLACK: f32 = 0.30;
+        /// Grounding tolerance (m) for *leaving* terrain contact — the
+        /// wide arm of a Schmitt trigger, identical in spirit to
+        /// `water::wake::CONTACT_EXIT_SLACK`. Absorbs the few-cm
+        /// physics jitter of a capsule resting on a heightfield so a
+        /// standing avatar does not chatter Exit→Enter (which would
+        /// reset footprint stamping every frame).
+        pub const CONTACT_EXIT_SLACK: f32 = 0.55;
+        /// Reference downward speed (m/s) that maps a terrain contact's
+        /// `intensity` to 1.0. Vertical impact speed at or above this
+        /// (a hard landing) is a full-strength contact; gentler motion
+        /// scales linearly below it.
+        pub const INTENSITY_VEL_REF: f32 = 5.0;
+        /// Intensity floor while simply grounded (no vertical speed).
+        /// Keeps a standing avatar registering a faint, continuous
+        /// contact so footprints accrue when standing still — the
+        /// "stand still → faint footprint" acceptance criterion.
+        pub const INTENSITY_GROUNDED_FLOOR: f32 = 0.12;
+    }
+
+    // --- Splat stains overlay (interaction Phase 3, #245) -------------------
+    /// CPU-stamped wetness / dust / footprint overlay sampled by
+    /// `splat.wgsl`. The texture addresses the world toroidally: world
+    /// XZ → `fract(xz / WORLD_PERIOD)`, sampled with a Repeat sampler.
+    /// There is therefore no camera-recentred ring buffer and no
+    /// origin-pop (the "follows camera without re-centering pop"
+    /// criterion is met by construction); the trade-off is that stains
+    /// repeat every `WORLD_PERIOD` metres, invisible in practice for
+    /// ephemeral marks at this period.
+    pub mod stains {
+        /// Square stains-texture resolution (texels per side). RGBA8 on
+        /// the GPU; an f32 shadow buffer of the same dimensions is kept
+        /// CPU-side for slow-decay precision (a 5-minute footprint
+        /// half-life would otherwise quantise to a fixed u8 and never
+        /// fade).
+        pub const TEXEL_DIM: usize = 256;
+        /// World-space side length (m) the texture tiles over. At
+        /// `TEXEL_DIM` 256 this is `WORLD_PERIOD / 256` ≈ 0.25 m per
+        /// texel — fine enough for a footprint, coarse enough that the
+        /// window comfortably surrounds the local avatar.
+        pub const WORLD_PERIOD: f32 = 64.0;
+        /// Seconds between `decay_stains` passes. Decay is computed from
+        /// the real elapsed time since the last pass, so the cadence
+        /// only bounds cost, not the fade curve.
+        pub const DECAY_INTERVAL: f32 = 0.25;
+        /// Half-life (s) of the wetness channel (R). ~4 half-lives in
+        /// 30 s ⇒ a wet patch is visually gone after ~30 s.
+        pub const WET_HALFLIFE: f32 = 8.0;
+        /// Half-life (s) of the dust channel (G) — a brief haze that
+        /// flashes the albedo lighter then clears within ~2 s.
+        pub const DUST_HALFLIFE: f32 = 0.4;
+        /// Half-life (s) of the footprint-indent channel (B). ~4
+        /// half-lives in 300 s ⇒ a footprint decays over ~5 min.
+        pub const FOOTPRINT_HALFLIFE: f32 = 70.0;
+        /// Seconds after an avatar's last water contact during which
+        /// terrain contacts still deposit wetness (tracked feet carry
+        /// water onto land).
+        pub const WET_CARRY_SECS: f32 = 6.0;
+        /// Per-stamp additive footprint deposit (channel B), before the
+        /// Gaussian falloff. Small so a footprint builds up over a few
+        /// dwell frames rather than saturating instantly.
+        pub const FOOTPRINT_DEPOSIT: f32 = 0.05;
+        /// Per-stamp dust deposit (channel G) at full intensity, scaled
+        /// by contact intensity. Larger than the footprint deposit so a
+        /// fast pass reads as a visible (if short-lived) haze.
+        pub const DUST_DEPOSIT: f32 = 0.35;
+        /// Wetness deposit (channel R) per stamp while the avatar is
+        /// still carrying water. Saturates the patch quickly.
+        pub const WET_DEPOSIT: f32 = 0.6;
+        /// Multiplier on the contact `footprint_radius` that sizes the
+        /// Gaussian stamp disc in world metres.
+        pub const STAMP_RADIUS_SCALE: f32 = 1.0;
+    }
+
     // --- Splat material ------------------------------------------------------
     pub mod splat {
         /// Base colour of the terrain material before textures are uploaded.
