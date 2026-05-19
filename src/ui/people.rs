@@ -28,6 +28,7 @@ use crate::pds::{InventoryRecord, publish_inventory_record};
 use crate::protocol::OverlandsMessage;
 use crate::state::{
     DiagnosticsLog, IncomingOfferDialog, InventoryPublishFeedback, LiveInventoryRecord, RemotePeer,
+    SocialResonance,
 };
 use crate::ui::chat::AVATAR_ICON_PX;
 use crate::ui::inventory::{
@@ -38,7 +39,7 @@ use crate::ui::inventory::{
 pub fn people_ui(
     mut contexts: EguiContexts,
     session: Option<Res<AtprotoSession>>,
-    mut peers: Query<&mut RemotePeer>,
+    mut peers: Query<(&mut RemotePeer, Option<&SocialResonance>)>,
     profile_cache: Res<BskyProfileCache>,
     mut pending_drop: ResMut<PendingGeneratorDrop>,
 ) {
@@ -94,7 +95,7 @@ pub fn people_ui(
                     // Remote peers. Handshake-in-progress peers show as
                     // "identifying…" so their presence is visible before
                     // the handle resolves.
-                    for mut peer in peers.iter_mut() {
+                    for (mut peer, resonance) in peers.iter_mut() {
                         let handle = peer.handle.as_deref().unwrap_or("identifying…").to_owned();
                         let dot_color = if peer.muted {
                             egui::Color32::GRAY
@@ -118,7 +119,22 @@ pub fn people_ui(
                                 &profile_cache,
                                 AVATAR_ICON_PX,
                             );
-                            ui.monospace(format!("@{}", handle));
+                            // A peer the local user mutually follows gets
+                            // the shared warm-gold name + a ★ so the cue
+                            // also survives a colour-blind / greyscale
+                            // viewer. `SocialResonance` is absent until the
+                            // async getRelationships query lands; treat
+                            // missing / Unknown / None as "not a mutual".
+                            if matches!(resonance, Some(SocialResonance::Mutual)) {
+                                let [mr, mg, mb] = crate::config::ui::chat::MUTUAL_COLOR;
+                                ui.colored_label(
+                                    egui::Color32::from_rgb(mr, mg, mb),
+                                    egui::RichText::new(format!("★ @{handle}")).monospace(),
+                                )
+                                .on_hover_text("You and this peer follow each other");
+                            } else {
+                                ui.monospace(format!("@{}", handle));
+                            }
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {

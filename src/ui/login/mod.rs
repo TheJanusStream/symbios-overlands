@@ -195,7 +195,23 @@ pub fn login_ui(
             let completing = !complete_tasks.is_empty();
             let mut begin_now = false;
             if !redirecting && !completing {
-                if ui.button("Enter the Overlands").clicked() {
+                // Primary call to action — deliberately oversized and
+                // filled green so it reads as *the* thing to do on the
+                // login screen rather than a peer of the text fields.
+                let [er, eg, eb] = crate::config::ui::login::ENTER_BUTTON_COLOR;
+                let enter = ui.add(
+                    egui::Button::new(
+                        egui::RichText::new("Enter the Overlands")
+                            .size(crate::config::ui::login::ENTER_BUTTON_TEXT_SIZE)
+                            .strong()
+                            .color(egui::Color32::WHITE),
+                    )
+                    .fill(egui::Color32::from_rgb(er, eg, eb))
+                    .min_size(egui::Vec2::from(
+                        crate::config::ui::login::ENTER_BUTTON_MIN_SIZE,
+                    )),
+                );
+                if enter.clicked() {
                     begin_now = true;
                 }
                 // Auto-submit when the URL/CLI supplied a destination DID.

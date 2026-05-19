@@ -13,7 +13,7 @@ use bevy_symbios_multiuser::prelude::*;
 
 use crate::avatar::{BskyProfileCache, draw_avatar_icon};
 use crate::protocol::OverlandsMessage;
-use crate::state::{ChatEntry, ChatHistory};
+use crate::state::{ChatEntry, ChatHistory, RemotePeer, SocialResonance};
 
 /// Edge length (px) of the avatar icons rendered next to each author's
 /// handle in the chat HUD. Same value used by the People panel so the
@@ -29,8 +29,22 @@ pub fn chat_ui(
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
     mut input: Local<String>,
     time: Res<Time>,
+    peers: Query<(&RemotePeer, Option<&SocialResonance>)>,
 ) {
     use crate::config::ui::chat as cfg;
+
+    // DIDs of peers the local user mutually follows — their chat author
+    // tag gets the same warm-gold ★ as their People-panel row. Built
+    // once per frame from the live peer set; `SocialResonance` is absent
+    // until the async getRelationships query lands, so a brand-new peer
+    // simply renders un-highlighted until then. The local user is not a
+    // peer entity, so their own messages never match (you are not your
+    // own mutual).
+    let mutual_dids: std::collections::HashSet<&str> = peers
+        .iter()
+        .filter(|(_, r)| matches!(r, Some(SocialResonance::Mutual)))
+        .filter_map(|(p, _)| p.did.as_deref())
+        .collect();
 
     egui::Window::new("Chat")
         .default_pos(cfg::WINDOW_DEFAULT_POS)
@@ -69,11 +83,27 @@ pub fn chat_ui(
                                 &profile_cache,
                                 AVATAR_ICON_PX,
                             );
-                            let [r, g, b] = cfg::AUTHOR_COLOR;
-                            ui.colored_label(
-                                egui::Color32::from_rgb(r, g, b),
-                                format!("[{}]", entry.author),
-                            );
+                            let is_mutual = entry
+                                .did
+                                .as_deref()
+                                .is_some_and(|d| mutual_dids.contains(d));
+                            let (tag_color, tag_text) = if is_mutual {
+                                let [r, g, b] = cfg::MUTUAL_COLOR;
+                                (
+                                    egui::Color32::from_rgb(r, g, b),
+                                    format!("★ [{}]", entry.author),
+                                )
+                            } else {
+                                let [r, g, b] = cfg::AUTHOR_COLOR;
+                                (
+                                    egui::Color32::from_rgb(r, g, b),
+                                    format!("[{}]", entry.author),
+                                )
+                            };
+                            let tag = ui.colored_label(tag_color, tag_text);
+                            if is_mutual {
+                                tag.on_hover_text("You and this peer follow each other");
+                            }
                             ui.label(&entry.text);
                         });
                     }

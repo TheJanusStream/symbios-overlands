@@ -746,6 +746,13 @@ pub mod ui {
         pub const MAX_HISTORY_ENTRIES: usize = 500;
         /// Author label colour [R, G, B].
         pub const AUTHOR_COLOR: [u8; 3] = [100, 180, 255];
+        /// Name colour [R, G, B] for a peer the local user *mutually*
+        /// follows (`SocialResonance::Mutual`). Shared by the People
+        /// panel and the chat author tag — same cross-window-reuse
+        /// precedent as [`AUTHOR_COLOR`] — so a friend reads the same
+        /// warm gold everywhere. Paired with a `★` glyph so the cue
+        /// survives a colour-blind viewer / greyscale capture.
+        pub const MUTUAL_COLOR: [u8; 3] = [240, 190, 70];
         /// Default egui window geometry.
         pub const WINDOW_DEFAULT_WIDTH: f32 = 380.0;
         pub const WINDOW_DEFAULT_HEIGHT: f32 = 400.0;
@@ -765,6 +772,20 @@ pub mod ui {
         pub const WINDOW_DEFAULT_WIDTH: f32 = 280.0;
         pub const WINDOW_DEFAULT_HEIGHT: f32 = 300.0;
         pub const WINDOW_DEFAULT_POS: [f32; 2] = [770.0, 10.0];
+    }
+
+    pub mod login {
+        /// Fill colour [R, G, B] of the primary "Enter the Overlands"
+        /// action button. A confident actionable green so the one
+        /// thing to do on the login screen is unmistakable.
+        pub const ENTER_BUTTON_COLOR: [u8; 3] = [46, 160, 67];
+        /// Minimum button size (px). Sized well above the default
+        /// label-hugging button so it reads as the screen's primary
+        /// call to action, not just another control.
+        pub const ENTER_BUTTON_MIN_SIZE: [f32; 2] = [240.0, 40.0];
+        /// Button label text size (px) — larger than body text to
+        /// match the enlarged hit area.
+        pub const ENTER_BUTTON_TEXT_SIZE: f32 = 18.0;
     }
 
     pub mod airship {
