@@ -105,11 +105,13 @@ impl Plugin for InteractionPlugin {
                     .run_if(in_state(AppState::InGame)),
             );
 
-        // Optional Phase-4 consumer channels (#246 remainder). Each
-        // registers its own resources + systems and is inert by
-        // default (decal: `DecalStamper::enabled == false`; audio: no
-        // `ContactAudioHook` installed), so the shipped Phase 1-3
-        // behaviour is unchanged until a downstream app opts in.
+        // PDS-authored consumer channels (#261 decal / #262 audio).
+        // Each registers its own resources + systems but stays inert
+        // (early-returns, zero cost) until a room authors the matching
+        // `ContactEffectKind` recipe — `registry.decals` /
+        // `registry.audio` are empty by default — so a room that omits
+        // `contact_effects` keeps the particle-only water-wake / stains
+        // behaviour unchanged.
         super::decal::build(app);
         super::audio::build(app);
     }

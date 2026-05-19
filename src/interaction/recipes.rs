@@ -1,16 +1,23 @@
-//! Declarative contact→particle effect recipes (Phase 2, #244).
+//! Declarative contact-effect recipes (#244 particles, #261 decals,
+//! #262 audio).
 //!
 //! A [`ContactEffectRecipe`] pairs a [`ContactTrigger`] predicate over a
 //! [`ContactSample`] with a [`ParticleBurst`] describing the emitter to
-//! spawn when it matches. The [`ContactRecipeRegistry`] resource holds
-//! the active set; [`super::particle_channel::particle_dispatcher`]
-//! walks `AvatarContacts × recipes` each frame.
+//! spawn when it matches; [`DecalEffectRecipe`] / `AudioCueRecipe` are
+//! the decal / audio analogues. The [`ContactRecipeRegistry`] resource
+//! holds the active set split by channel; the particle, decal and audio
+//! consumers each walk `AvatarContacts × recipes` per frame.
 //!
-//! Templates are hardcoded coloured-quad [`ParticleEmitter`] snapshots
-//! (no atlas / asset dependency — the `texture: None` path renders solid
-//! billboarded quads). Designers iterate by flipping
-//! [`ContactEffectRecipe::enabled`] or tuning the table here; a PDS-
-//! authoring path is deferred to Phase 4 (#246).
+//! The registry is **PDS-authored**: the world compiler builds it from
+//! a room's [`crate::pds::ContactEffects`] via
+//! [`ContactRecipeRegistry::from_effects`]. A room that omits the
+//! `contact_effects` block falls back to [`default_water_recipes`]
+//! (value-equal to [`crate::pds::default_contact_effects`]), so the
+//! shipped default is the coloured-quad water splash / droplet pair with
+//! no decal or audio. Particle templates stay solid coloured quads (no
+//! atlas / asset dependency — the `texture: None` path renders
+//! billboarded quads); everything else is tuned from the room editor's
+//! Effects tab.
 
 use bevy::prelude::*;
 
@@ -331,14 +338,14 @@ fn ground_dust_template() -> ParticleEmitter {
     }
 }
 
-/// The hardcoded initial recipe set — the pre-Phase-4 fallback used by
+/// The built-in fallback recipe set used by
 /// [`ContactRecipeRegistry::default`] until a room compiles its
 /// authored [`crate::pds::ContactEffects`]. Must stay value-equal to
 /// [`crate::pds::default_contact_effects`] so a record that omits the
 /// key behaves identically (enforced by
-/// [`tests::from_effects_maps_defaults_equivalently`]). As of Phase 3
-/// (#245) this includes the `ground_dust` terrain recipe that #244
-/// deliberately deferred.
+/// [`tests::from_effects_maps_defaults_equivalently`]). Includes the
+/// `ground_dust` terrain recipe added with the `Terrain` surface in
+/// #245 (deliberately deferred by #244 until that surface existed).
 pub fn default_water_recipes() -> Vec<ContactEffectRecipe> {
     vec![
         ContactEffectRecipe {

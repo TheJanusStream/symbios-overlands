@@ -1,9 +1,10 @@
-//! Avatar-world interaction effects framework — Phase 0 primitives.
+//! Avatar-world interaction effects framework.
 //!
-//! Phase 0 ships the data layer and the per-frame producer that builds it.
-//! Every later phase (water wakes, particle splashes, splat-stain footprints,
-//! authored effect recipes) reads from the [`contact::AvatarContacts`]
-//! resource that [`classifier::classify_contacts`] writes each frame.
+//! A single per-frame producer ([`classifier::classify_contacts`])
+//! classifies every avatar (local + peer) against the surface it
+//! touches and writes the [`contact::AvatarContacts`] resource. A set
+//! of independent consumer channels each read that resource the same
+//! frame and turn contacts into effects. All channels are shipped:
 //!
 //! ## Architecture
 //!
@@ -13,17 +14,25 @@
 //!                                                                     │
 //!                                       ┌─────────────────────────────┘
 //!                                       ▼
-//!                  consumer channels (added by later phases):
-//!                  - water shader-impulse feeder (Phase 1)
-//!                  - particle dispatcher          (Phase 2)
-//!                  - splat-stain stamper          (Phase 3)
-//!                  - decal stamper / audio hook   (Phase 4)
+//!                  consumer channels (all live):
+//!                  - water shader-impulse feeder   (perturbation pool → water uniforms)
+//!                  - particle-burst dispatcher     (transient coloured-quad emitters)
+//!                  - splat-stain stamper           (wet/dust terrain-overlay texture)
+//!                  - projected-decal stamper       (fading surface-aligned quads)
+//!                  - bevy_audio cue consumer       (one-shot, optionally spatial voices)
 //! ```
 //!
-//! The producer is intentionally surface-agnostic at the call site:
-//! [`contact::SurfaceContact`] is an enum, and Phase 3 will fill in its
-//! `Terrain` variant without touching consumers that only care about
-//! water. Consumers filter on the variant they want.
+//! The particle / decal / audio channels are **PDS-authored**: a room's
+//! `network.symbios.overlands.room` record carries a `contact_effects`
+//! block ([`crate::pds::ContactEffects`]) that the world compiler
+//! translates into the [`recipes::ContactRecipeRegistry`]; a room that
+//! omits it falls back to the default water-splash / droplet set with
+//! no decal or audio. The water-wake and stains channels are always-on
+//! and locomotion-scaled (see "Footprint radius" below).
+//!
+//! The producer is surface-agnostic at the call site:
+//! [`contact::SurfaceContact`] is an enum (`Water` / `Terrain`) and each
+//! consumer filters on the variant it wants.
 //!
 //! ## Footprint radius
 //!
