@@ -7,7 +7,8 @@ use bevy::prelude::*;
 
 use crate::pds::{FetchError, RoomRecord, fetch_room_record};
 use crate::state::{
-    CurrentRoomDid, DiagnosticsLog, LocalPlayer, RemotePeer, RoomRecordRecovery, TravelingTo,
+    CurrentRoomDid, DiagnosticsLog, LiveRoomRecord, LocalPlayer, RemotePeer, RoomRecordRecovery,
+    TravelingTo,
 };
 use crate::world_builder::PortalMarker;
 
@@ -142,7 +143,7 @@ pub(super) fn poll_portal_travel_tasks(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut PortalTravelTask)>,
     traveling: Option<Res<TravelingTo>>,
-    mut room_record: Option<ResMut<RoomRecord>>,
+    mut room_record: Option<ResMut<LiveRoomRecord>>,
     mut stored_room: Option<ResMut<crate::state::StoredRoomRecord>>,
     mut current_did: Option<ResMut<CurrentRoomDid>>,
     mut chat: ResMut<crate::state::ChatHistory>,
@@ -224,7 +225,7 @@ pub(super) fn poll_portal_travel_tasks(
 
         // 2. Hot-swap the ECS Resources (Triggers `world_builder` automatically!)
         if let Some(rec) = room_record.as_mut() {
-            **rec = new_record.clone();
+            rec.0 = new_record.clone();
         }
         if let Some(stored) = stored_room.as_mut() {
             **stored = crate::state::StoredRoomRecord(new_record);

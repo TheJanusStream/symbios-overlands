@@ -8,9 +8,8 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
 
 use crate::config;
-use crate::pds::RoomRecord;
 use crate::protocol::OverlandsMessage;
-use crate::state::{CurrentRoomDid, LiveAvatarRecord, LocalPlayer};
+use crate::state::{CurrentRoomDid, LiveAvatarRecord, LiveRoomRecord, LocalPlayer};
 
 pub(super) fn broadcast_local_state(
     query: Query<(&Transform, &LinearVelocity, &AngularVelocity), With<LocalPlayer>>,
@@ -86,7 +85,7 @@ pub(super) fn broadcast_avatar_state(
 /// (whose `RoomRecord` is also rewritten by inbound `RoomStateUpdate`
 /// handling) do not echo the owner's broadcast back to the relay.
 pub(super) fn broadcast_room_state(
-    record: Option<Res<RoomRecord>>,
+    record: Option<Res<LiveRoomRecord>>,
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
     mut sender: SendMessage<OverlandsMessage>,
@@ -101,7 +100,7 @@ pub(super) fn broadcast_room_state(
         return;
     }
     sender.broadcast(
-        OverlandsMessage::room_state_update(&record),
+        OverlandsMessage::room_state_update(&record.0),
         ChannelKind::Reliable,
     );
 }

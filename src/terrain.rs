@@ -31,11 +31,9 @@ use bevy_symbios_texture::async_gen::{PendingTexture, TextureReady};
 use crate::config::terrain as tcfg;
 use crate::config::terrain::stains as scfg;
 use crate::interaction::{StainsImage, TerrainSurfaceQuery};
-use crate::pds::{
-    RoomRecord, SovereignGeneratorKind, SovereignTerrainConfig, SovereignTextureConfig,
-};
+use crate::pds::{SovereignGeneratorKind, SovereignTerrainConfig, SovereignTextureConfig};
 use crate::splat::{SplatExtension, SplatTerrainMaterial, SplatUniforms};
-use crate::state::AppState;
+use crate::state::{AppState, LiveRoomRecord};
 
 /// Marker inserted once the texture-layer spawn step has run, so the
 /// Loading-phase scheduler doesn't kick the same four tasks twice while
@@ -131,12 +129,12 @@ impl Plugin for TerrainPlugin {
                 Update,
                 (
                     start_terrain_generation.run_if(
-                        resource_exists::<RoomRecord>
+                        resource_exists::<LiveRoomRecord>
                             .and(not(resource_exists::<TerrainTask>))
                             .and(not(resource_exists::<FinishedHeightMap>)),
                     ),
                     start_texture_tasks.run_if(
-                        resource_exists::<RoomRecord>
+                        resource_exists::<LiveRoomRecord>
                             .and(not(resource_exists::<TextureTasksStarted>)),
                     ),
                     poll_terrain_task.run_if(resource_exists::<TerrainTask>),
@@ -150,7 +148,7 @@ impl Plugin for TerrainPlugin {
             .add_systems(
                 Update,
                 (
-                    maybe_regenerate_terrain.run_if(resource_exists::<RoomRecord>),
+                    maybe_regenerate_terrain.run_if(resource_exists::<LiveRoomRecord>),
                     collect_texture_results,
                     apply_splat_textures,
                 )
@@ -217,7 +215,7 @@ fn cleanup_terrain(
 #[allow(clippy::too_many_arguments)]
 fn maybe_regenerate_terrain(
     mut commands: Commands,
-    record: Res<RoomRecord>,
+    record: Res<LiveRoomRecord>,
     mut last_cfg: ResMut<LastTerrainConfigJson>,
     mut pending_cfg: ResMut<PendingTerrainConfigJson>,
     terrain_q: Query<Entity, (With<TerrainMesh>, Without<OutgoingTerrain>)>,
@@ -234,7 +232,7 @@ fn maybe_regenerate_terrain(
     // non-trivial (deeply nested record), so we still gate it on
     // `is_changed` rather than rebuilding every frame.
     if record.is_changed()
-        && let Some(cfg) = crate::pds::find_terrain_config(&record)
+        && let Some(cfg) = crate::pds::find_terrain_config(&record.0)
         && let Ok(fp) = serde_json::to_string(cfg)
     {
         pending_cfg.0 = Some(fp);
@@ -288,12 +286,12 @@ fn maybe_regenerate_terrain(
 // Loading state — terrain generation + async texture tasks
 // ---------------------------------------------------------------------------
 
-fn start_terrain_generation(mut commands: Commands, record: Res<RoomRecord>) {
+fn start_terrain_generation(mut commands: Commands, record: Res<LiveRoomRecord>) {
     // `find_terrain_config` walks the generator map in sorted-key order so
     // every peer compiling this record picks the same entry — `HashMap`
     // iteration is SipHash-randomised per process, and without the helper
     // two clients could generate different terrains from the same record.
-    let cfg = crate::pds::find_terrain_config(&record)
+    let cfg = crate::pds::find_terrain_config(&record.0)
         .cloned()
         .unwrap_or_default();
 
@@ -307,8 +305,8 @@ fn start_terrain_generation(mut commands: Commands, record: Res<RoomRecord>) {
 /// `SymbiosTexturePlugin` polls them every frame and attaches `TextureReady`
 /// when done. A `TextureTasksStarted` marker is inserted to make this a
 /// one-shot inside the Loading-phase scheduler loop.
-fn start_texture_tasks(mut commands: Commands, record: Res<RoomRecord>) {
-    let mat = crate::pds::find_terrain_config(&record)
+fn start_texture_tasks(mut commands: Commands, record: Res<LiveRoomRecord>) {
+    let mat = crate::pds::find_terrain_config(&record.0)
         .map(|c| c.material.clone())
         .unwrap_or_default();
 
@@ -510,7 +508,7 @@ fn apply_splat_textures(
     mut state: ResMut<TerrainSplatState>,
     hm_res: Option<Res<FinishedHeightMap>>,
     splat_mat: Option<Res<SplatMaterialHandle>>,
-    record: Option<Res<RoomRecord>>,
+    record: Option<Res<LiveRoomRecord>>,
     stains: Option<Res<StainsImage>>,
     mut materials: ResMut<Assets<SplatTerrainMaterial>>,
     mut images: ResMut<Assets<Image>>,
@@ -544,7 +542,7 @@ fn apply_splat_textures(
     let (rules_src, hs) = record
         .as_ref()
         .and_then(|r| {
-            crate::pds::find_terrain_config(r).map(|c| (c.material.rules, c.height_scale.0))
+            crate::pds::find_terrain_config(&r.0).map(|c| (c.material.rules, c.height_scale.0))
         })
         .unwrap_or_else(|| {
             (

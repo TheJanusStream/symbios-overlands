@@ -13,11 +13,12 @@ use bevy_egui::EguiContexts;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
 
-use crate::pds::{Fp3, Fp4, Generator, Placement, RoomRecord, TransformData};
+use crate::pds::{Fp3, Fp4, Generator, Placement, TransformData};
 use crate::protocol::OverlandsMessage;
-use crate::state::{CurrentRoomDid, DiagnosticsLog, LiveInventoryRecord, PendingOutgoingOffers};
+use crate::state::{
+    CurrentRoomDid, DiagnosticsLog, LiveInventoryRecord, LiveRoomRecord, PendingOutgoingOffers,
+};
 use crate::terrain::TerrainMesh;
-use crate::ui::room::RoomEditorState;
 
 use super::{DropSource, PendingGeneratorDrop, is_drop_placeable};
 
@@ -57,8 +58,7 @@ pub fn handle_generator_drop(
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
     inventory: Option<Res<LiveInventoryRecord>>,
-    mut room: Option<ResMut<RoomRecord>>,
-    mut editor_state: ResMut<RoomEditorState>,
+    mut room: Option<ResMut<LiveRoomRecord>>,
     mut pending_offers: ResMut<PendingOutgoingOffers>,
     mut diagnostics: ResMut<DiagnosticsLog>,
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
@@ -109,7 +109,7 @@ pub fn handle_generator_drop(
                 .and_then(|inv| inv.0.generators.get(&name).cloned()),
             DropSource::RoomGenerators => room
                 .as_deref()
-                .and_then(|r| r.generators.get(&name).cloned()),
+                .and_then(|r| r.0.generators.get(&name).cloned()),
         };
         let Some(generator) = generator_opt else {
             warn!("Peer-gift drop: source generator '{}' not found", name);
@@ -144,11 +144,8 @@ pub fn handle_generator_drop(
             "Sent ItemOffer #{} \"{}\" to @{} ({})",
             offer_id, name, target.handle, target.did
         );
-        // `editor_state` is untouched on this branch (gifts don't mutate
-        // the room record), and `sess` served its purpose as a session
-        // presence guard — silence the unused warnings without sprinkling
-        // `#[allow]` attributes across the function.
-        let _ = &mut editor_state;
+        // `sess` served its purpose as a session presence guard — silence
+        // the unused warning without sprinkling `#[allow]` across the fn.
         let _ = sess;
         return;
     }
@@ -218,6 +215,10 @@ pub fn handle_generator_drop(
     let Some(record) = room.as_mut() else {
         return;
     };
+    // `room.as_mut()` already tripped the `LiveRoomRecord` change tick
+    // (the late borrow above is deliberate — see the gate-order comment);
+    // unwrap to the inner record for the field writes below.
+    let record = &mut record.0;
 
     let gen_key = match source {
         DropSource::Inventory => {
@@ -258,7 +259,10 @@ pub fn handle_generator_drop(
         "Placed generator '{}' (as '{}') from {:?} at ({:.2}, {:.2}, {:.2})",
         name, gen_key, source, hit_point.x, hit_point.y, hit_point.z
     );
-    editor_state.mark_dirty();
+    // No dirty flag to set — the World Editor derives "dirty" from
+    // `records_differ(stored, live)`, and the push above mutated the
+    // live record (the `room.as_mut()` borrow already set its change
+    // tick, driving the recompile + peer broadcast).
 }
 
 /// Pick a key under which to store a dropped generator in the room's

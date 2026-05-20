@@ -45,9 +45,11 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 
 use crate::pds::{self, Placement, RoomRecord};
 use crate::state::{
-    CurrentRoomDid, LiveInventoryRecord, PublishFeedback, RoomRecordRecovery, StoredRoomRecord,
+    CurrentRoomDid, LiveInventoryRecord, LiveRoomRecord, PublishFeedback, PublishStatus,
+    RoomRecordRecovery, StoredRoomRecord, records_differ,
 };
 use crate::ui::avatar::AvatarEditorState;
+use crate::ui::editable::{RecordAction, publish_status_line, save_load_reset_row};
 
 /// Async task for publishing the room record to the owner's PDS.
 #[derive(Component)]
@@ -131,10 +133,6 @@ pub struct RoomEditorState {
     raw_text: String,
     raw_text_initialised: bool,
     raw_error: Option<String>,
-    /// True once a widget mutates the live record relative to the last
-    /// committed / loaded / reset state — drives the Publish button
-    /// colouring.
-    is_dirty: bool,
     /// Seconds remaining before a pending widget change is flushed into
     /// the live `RoomRecord`'s change tick. Dragging a slider resets
     /// this to `MENU_DEBOUNCE_SECS`; the downstream terrain rebuild,
@@ -149,19 +147,6 @@ pub struct RoomEditorState {
 }
 
 impl RoomEditorState {
-    /// Flag the editor as having uncommitted edits so the Publish and Load
-    /// buttons light up. Used by out-of-band edit paths — the 3D gizmo
-    /// commit, drag-drop placement from the Inventory — that mutate the
-    /// live `RoomRecord` without going through the egui widget flow that
-    /// normally sets [`Self::is_dirty`] via `widget_change`.
-    ///
-    /// Does not touch `pending_flush_secs`: those edit paths call
-    /// `record.set_changed()` themselves at commit time, so the debounce
-    /// timer that collapses slider drags has no work to do here.
-    pub fn mark_dirty(&mut self) {
-        self.is_dirty = true;
-    }
-
     /// True when the user has any row selected — placement, generator
     /// node, or inferred via tab. Used by the cross-editor mutex and the
     /// collapse-deselect logic to decide whether the gizmo should detach.
@@ -187,13 +172,13 @@ pub fn room_admin_ui(
     session: Option<Res<AtprotoSession>>,
     refresh_ctx: Option<Res<crate::oauth::OauthRefreshCtx>>,
     room_did: Option<Res<CurrentRoomDid>>,
-    mut room_record: Option<ResMut<RoomRecord>>,
+    mut room_record: Option<ResMut<LiveRoomRecord>>,
     stored: Option<Res<StoredRoomRecord>>,
     recovery: Option<Res<RoomRecordRecovery>>,
     mut editor: ResMut<RoomEditorState>,
     mut avatar_editor: ResMut<AvatarEditorState>,
     mut gizmo_frame_pref: ResMut<crate::editor_gizmo::GizmoFramePref>,
-    mut publish_feedback: ResMut<PublishFeedback>,
+    mut publish_feedback: ResMut<PublishFeedback<RoomRecord>>,
     mut inventory: Option<ResMut<LiveInventoryRecord>>,
     time: Res<Time>,
 ) {
@@ -209,7 +194,7 @@ pub fn room_admin_ui(
     }
 
     if !editor.raw_text_initialised {
-        editor.raw_text = serde_json::to_string_pretty(record.as_ref())
+        editor.raw_text = serde_json::to_string_pretty(&record.0)
             .unwrap_or_else(|e| format!("// serialize error: {}", e));
         editor.raw_text_initialised = true;
     }
@@ -233,7 +218,6 @@ pub fn room_admin_ui(
         tree_view_state,
         raw_text,
         raw_error,
-        is_dirty,
         pending_flush_secs,
         renaming_generator,
         ..
@@ -252,7 +236,7 @@ pub fn room_admin_ui(
     let mut needs_broadcast = false;
 
     {
-        let record_mut: &mut RoomRecord = record.bypass_change_detection();
+        let record_mut: &mut RoomRecord = &mut record.bypass_change_detection().0;
 
         // Rename modal — rendered as an independent top-level egui Window so
         // it floats above the World Editor. Cloning the `(old, draft)` pair
@@ -356,7 +340,6 @@ pub fn room_admin_ui(
                             *raw_text =
                                 serde_json::to_string_pretty(&default_record).unwrap_or_default();
                             *raw_error = None;
-                            *is_dirty = false;
                             needs_broadcast = true;
                             // Use the delete-then-put reset path. The vanilla
                             // putRecord upsert can return 500 when the stored
@@ -484,85 +467,59 @@ pub fn room_admin_ui(
 
                 ui.separator();
 
-                // Publish / Load from PDS / Reset to default
-                ui.horizontal(|ui| {
-                    let publish_button = egui::Button::new(
-                        egui::RichText::new("Publish to PDS").color(if *is_dirty {
-                            egui::Color32::LIGHT_GREEN
-                        } else {
-                            egui::Color32::GRAY
-                        }),
-                    );
-                    if ui.add_enabled(*is_dirty, publish_button).clicked() {
-                        let new_record = record_mut.clone();
-                        *is_dirty = false;
-                        *publish_feedback = PublishFeedback::Publishing;
-                        spawn_publish_task(&mut commands, &session, &refresh_ctx, new_record);
+                // Publish / Load from PDS / Reset to default — the shared
+                // row + status line used by every editor (`ui::editable`).
+                // `dirty` is *derived* (the live record serialises
+                // differently from the stored snapshot) rather than a
+                // flag: a failed publish stays dirty and retryable, and an
+                // out-of-band edit (the 3D gizmo, an inventory drop) lights
+                // the row up with no explicit `mark_dirty` call.
+                let default_record = pds::RoomRecord::default_for_did(&room_did.0);
+                let dirty = stored
+                    .as_ref()
+                    .map(|s| records_differ(&s.0, &*record_mut))
+                    .unwrap_or(true);
+                let can_reset = records_differ(&default_record, &*record_mut);
+                // `session` + `refresh_ctx` are guaranteed present (the
+                // early return at the top bails otherwise), so the PDS
+                // write can always be attempted while dirty.
+                match save_load_reset_row(ui, dirty, true, can_reset) {
+                    RecordAction::None => {}
+                    RecordAction::Publish => {
+                        publish_feedback.status = PublishStatus::Publishing;
+                        spawn_publish_task(
+                            &mut commands,
+                            &session,
+                            &refresh_ctx,
+                            record_mut.clone(),
+                        );
                     }
-
-                    let can_load = stored.is_some() && *is_dirty;
-                    if ui
-                        .add_enabled(can_load, egui::Button::new("Load from PDS"))
-                        .clicked()
-                        && let Some(stored) = stored.as_ref()
-                    {
-                        *record_mut = stored.0.clone();
+                    RecordAction::Load => {
+                        if let Some(stored) = stored.as_ref() {
+                            *record_mut = stored.0.clone();
+                            *raw_text =
+                                serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
+                            *raw_error = None;
+                            *selected_generator = None;
+                            *selected_placement = None;
+                            *selected_prim_path = None;
+                            tree_view_state.set_selected(Vec::new());
+                            needs_broadcast = true;
+                        }
+                    }
+                    RecordAction::Reset => {
+                        *record_mut = default_record;
                         *raw_text = serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
                         *raw_error = None;
-                        *is_dirty = false;
                         *selected_generator = None;
                         *selected_placement = None;
                         *selected_prim_path = None;
                         tree_view_state.set_selected(Vec::new());
                         needs_broadcast = true;
-                    }
-
-                    if ui.button("Reset to default").clicked() {
-                        *record_mut = pds::RoomRecord::default_for_did(&room_did.0);
-                        *raw_text = serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
-                        *raw_error = None;
-                        *is_dirty = stored
-                            .as_ref()
-                            .map(|s| {
-                                serde_json::to_value(&s.0).ok()
-                                    != serde_json::to_value(&*record_mut).ok()
-                            })
-                            .unwrap_or(true);
-                        *selected_generator = None;
-                        *selected_placement = None;
-                        *selected_prim_path = None;
-                        tree_view_state.set_selected(Vec::new());
-                        needs_broadcast = true;
-                    }
-                });
-
-                // Publish status indicator. `Idle` stays silent; other states
-                // render a coloured one-liner so the owner knows whether the
-                // PDS round-trip actually landed without having to tail the
-                // console.
-                match publish_feedback.as_ref() {
-                    PublishFeedback::Idle => {}
-                    PublishFeedback::Publishing => {
-                        ui.colored_label(
-                            egui::Color32::from_rgb(220, 200, 80),
-                            "⟳ Publishing to PDS…",
-                        );
-                    }
-                    PublishFeedback::Success { at_secs } => {
-                        let ago = (time.elapsed_secs_f64() - at_secs).max(0.0);
-                        ui.colored_label(
-                            egui::Color32::from_rgb(80, 200, 120),
-                            format!("✓ Published to PDS ({:.0}s ago)", ago),
-                        );
-                    }
-                    PublishFeedback::Failed { at_secs, message } => {
-                        let ago = (time.elapsed_secs_f64() - at_secs).max(0.0);
-                        ui.colored_label(
-                            egui::Color32::from_rgb(220, 90, 90),
-                            format!("✗ Publish failed ({:.0}s ago): {}", ago, message),
-                        );
                     }
                 }
+
+                publish_status_line(ui, &publish_feedback.status, time.elapsed_secs_f64());
             });
 
         // `Window::show` returns `Some(InnerResponse { inner: None, .. })`
@@ -594,8 +551,10 @@ pub fn room_admin_ui(
         avatar_editor.clear_visuals_selection();
     }
 
+    // A widget edit only arms the broadcast/recompile debounce now —
+    // the Publish/Load row's dirty state is derived from
+    // `records_differ`, so there is no flag to set here.
     if widget_change {
-        *is_dirty = true;
         *pending_flush_secs = crate::config::ui::editor::MENU_DEBOUNCE_SECS;
     }
     // Drain the debounce timer and flip `needs_broadcast` on the frame it
@@ -694,9 +653,9 @@ pub fn poll_publish_tasks(
     mut commands: Commands,
     mut publish_tasks: Query<(Entity, &mut PublishRoomTask)>,
     mut reset_tasks: Query<(Entity, &mut ResetRoomTask)>,
-    live: Option<Res<RoomRecord>>,
+    live: Option<Res<LiveRoomRecord>>,
     mut stored: Option<ResMut<StoredRoomRecord>>,
-    mut publish_feedback: ResMut<PublishFeedback>,
+    mut publish_feedback: ResMut<PublishFeedback<RoomRecord>>,
     time: Res<Time>,
 ) {
     for (entity, mut task) in publish_tasks.iter_mut() {
@@ -712,13 +671,13 @@ pub fn poll_publish_tasks(
             Ok(()) => {
                 info!("Room record saved to PDS");
                 if let (Some(live), Some(stored)) = (live.as_ref(), stored.as_mut()) {
-                    stored.0 = live.as_ref().clone();
+                    stored.0 = live.0.clone();
                 }
-                *publish_feedback = PublishFeedback::Success { at_secs: now };
+                publish_feedback.status = PublishStatus::Success { at_secs: now };
             }
             Err(e) => {
                 warn!("Failed to save room record: {}", e);
-                *publish_feedback = PublishFeedback::Failed {
+                publish_feedback.status = PublishStatus::Failed {
                     at_secs: now,
                     message: e,
                 };
@@ -738,13 +697,13 @@ pub fn poll_publish_tasks(
             Ok(()) => {
                 info!("Room record reset on PDS (delete + put)");
                 if let (Some(live), Some(stored)) = (live.as_ref(), stored.as_mut()) {
-                    stored.0 = live.as_ref().clone();
+                    stored.0 = live.0.clone();
                 }
-                *publish_feedback = PublishFeedback::Success { at_secs: now };
+                publish_feedback.status = PublishStatus::Success { at_secs: now };
             }
             Err(e) => {
                 warn!("Failed to reset room record: {}", e);
-                *publish_feedback = PublishFeedback::Failed {
+                publish_feedback.status = PublishStatus::Failed {
                     at_secs: now,
                     message: e,
                 };

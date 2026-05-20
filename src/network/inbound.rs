@@ -16,11 +16,10 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
 
 use crate::avatar::AvatarFetchPending;
-use crate::pds::RoomRecord;
 use crate::protocol::OverlandsMessage;
 use crate::state::{
-    ChatHistory, CurrentRoomDid, DiagnosticsLog, IncomingOfferDialog, PendingOutgoingOffers,
-    RemotePeer,
+    ChatHistory, CurrentRoomDid, DiagnosticsLog, IncomingOfferDialog, LiveRoomRecord,
+    PendingOutgoingOffers, RemotePeer,
 };
 
 use super::SmootherConfigRes;
@@ -39,7 +38,7 @@ pub(super) fn handle_incoming_messages(
     )>,
     time: Res<Time>,
     room_did: Option<Res<CurrentRoomDid>>,
-    mut room_record: Option<ResMut<RoomRecord>>,
+    mut room_record: Option<ResMut<LiveRoomRecord>>,
     peer_sessions: Res<PeerSessionMapRes>,
     session: Option<Res<AtprotoSession>>,
     mut diagnostics: ResMut<DiagnosticsLog>,
@@ -245,7 +244,7 @@ pub(super) fn handle_incoming_messages(
                 // observes the resource change and rebuilds every compiled
                 // entity (water, sun colour, scattered shapes) in one pass.
                 if let Some(record) = room_record.as_mut() {
-                    **record = new_record;
+                    record.0 = new_record;
                     info!("Room state updated from owner broadcast");
                 }
             }

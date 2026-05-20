@@ -95,9 +95,8 @@ pub fn format_elapsed_ts(elapsed_secs: f64) -> String {
         format!("{m:02}:{s:02}")
     }
 }
-use state::{
-    AppState, ChatHistory, DiagnosticsLog, InventoryPublishFeedback, LocalSettings, PublishFeedback,
-};
+use pds::{AvatarRecord, InventoryRecord, RoomRecord};
+use state::{AppState, ChatHistory, DiagnosticsLog, LocalSettings, PublishFeedback};
 
 /// Build the Bevy `App`, register every plugin, and block on
 /// `App::run()`. Pulled out of `main.rs` so integration tests in `tests/`
@@ -168,8 +167,12 @@ pub fn run() {
         .init_resource::<ChatHistory>()
         .init_resource::<DiagnosticsLog>()
         .init_resource::<LocalSettings>()
-        .init_resource::<PublishFeedback>()
-        .init_resource::<InventoryPublishFeedback>()
+        // One publish-status resource per editable record — never
+        // shared, so publishing one no longer stamps another editor's
+        // status line.
+        .init_resource::<PublishFeedback<RoomRecord>>()
+        .init_resource::<PublishFeedback<AvatarRecord>>()
+        .init_resource::<PublishFeedback<InventoryRecord>>()
         .init_resource::<ui::inventory::PendingGeneratorDrop>()
         .init_resource::<state::PendingOutgoingOffers>()
         .init_resource::<ui::login::LoginError>()

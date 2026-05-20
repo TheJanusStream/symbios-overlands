@@ -20,6 +20,7 @@
 pub mod avatar;
 pub mod chat;
 pub mod diagnostics;
+pub mod editable;
 pub mod inventory;
 pub mod login;
 pub mod people;

@@ -16,12 +16,12 @@ use bevy_symbios_multiuser::signaller::TokenSourceRes;
 use crate::avatar::BskyProfileCache;
 use crate::network::PeerAvatarCache;
 use crate::oauth::OauthRefreshCtx;
-use crate::pds::RoomRecord;
+use crate::pds::{AvatarRecord, InventoryRecord, RoomRecord};
 use crate::protocol::OverlandsMessage;
 use crate::state::{
-    AppState, ChatHistory, DiagnosticsLog, LiveAvatarRecord, LiveInventoryRecord, LocalPlayer,
-    RelayHost, RemotePeer, RoomRecordRecovery, StoredAvatarRecord, StoredInventoryRecord,
-    StoredRoomRecord,
+    AppState, ChatHistory, DiagnosticsLog, LiveAvatarRecord, LiveInventoryRecord, LiveRoomRecord,
+    LocalPlayer, PublishFeedback, RelayHost, RemotePeer, RoomRecordRecovery, StoredAvatarRecord,
+    StoredInventoryRecord, StoredRoomRecord,
 };
 use crate::world_builder::RoomEntity;
 use crate::world_builder::image_cache::BlobImageCache;
@@ -114,7 +114,7 @@ fn cleanup_on_logout(
 
     // Drop the active recipe so a later login does not compile the old
     // room's contents into the new session's scene graph.
-    commands.remove_resource::<RoomRecord>();
+    commands.remove_resource::<LiveRoomRecord>();
     commands.remove_resource::<StoredRoomRecord>();
     commands.remove_resource::<LiveAvatarRecord>();
     commands.remove_resource::<StoredAvatarRecord>();
@@ -123,6 +123,15 @@ fn cleanup_on_logout(
     // Clear any recovery marker from this session so a fresh login does
     // not start with the "incompatible record" banner still showing.
     commands.remove_resource::<RoomRecordRecovery>();
+
+    // Reset (don't remove — these are app-lifetime `init_resource`s, so
+    // a missing one would panic the next editor frame) every per-record
+    // publish-status line back to `Idle`, so re-logging in as a
+    // different user never shows the previous session's stale
+    // "✓ Saved (Ns ago)".
+    commands.insert_resource(PublishFeedback::<RoomRecord>::default());
+    commands.insert_resource(PublishFeedback::<AvatarRecord>::default());
+    commands.insert_resource(PublishFeedback::<InventoryRecord>::default());
 
     // Hard logout path: tear down every session + networking resource.
     commands.remove_resource::<AtprotoSession>();

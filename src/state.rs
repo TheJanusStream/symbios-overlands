@@ -11,6 +11,8 @@
 //! sent but not yet received a response for, keyed by a session-unique
 //! `offer_id` the recipient echoes back in its reply.
 
+use std::marker::PhantomData;
+
 use bevy::prelude::*;
 
 use crate::pds::{AvatarRecord, Generator, InventoryRecord, RoomRecord};
@@ -140,13 +142,14 @@ pub struct PendingSpawnPlacement {
     pub yaw_deg: Option<f32>,
 }
 
-/// Most recent result of a "Publish to PDS" attempt from the World or
-/// Avatar editor. The UI watches this resource to render a status line
-/// beside the Publish/Load/Reset buttons so the owner gets visual confirmation
-/// that the PDS round-trip actually succeeded instead of relying on the
-/// console log.
-#[derive(Resource, Clone, Debug, Default)]
-pub enum PublishFeedback {
+/// Outcome of the most recent "Publish to PDS" round-trip for one
+/// editable record. Carried inside the per-record [`PublishFeedback`]
+/// resource and rendered verbatim by the shared
+/// [`crate::ui::editable::publish_status_line`], so every editor's
+/// status line looks and counts identically (the same `(Ns ago)` timer
+/// for both Success *and* Failed).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum PublishStatus {
     #[default]
     Idle,
     Publishing,
@@ -158,6 +161,34 @@ pub enum PublishFeedback {
         message: String,
     },
 }
+
+/// Per-record publish-status resource. Generic over the record type so
+/// the Room, Avatar and Inventory editors each get their **own**
+/// instance: publishing one record can no longer overwrite another
+/// editor's status line — the bug that came from a single shared
+/// `PublishFeedback`. One is registered per record in [`crate::run`]
+/// (`PublishFeedback<RoomRecord>`, `<AvatarRecord>`,
+/// `<InventoryRecord>`).
+pub struct PublishFeedback<R: Send + Sync + 'static> {
+    pub status: PublishStatus,
+    _record: PhantomData<fn() -> R>,
+}
+
+// Hand-written (not derived): `#[derive(Default)]` would wrongly demand
+// `R: Default`, but no record type implements `Default` the same way
+// (Room/Avatar are DID-seeded). `PhantomData<fn() -> R>` is
+// `Send + Sync` for *any* `R`, so the resource bound only needs
+// `R: 'static`.
+impl<R: Send + Sync + 'static> Default for PublishFeedback<R> {
+    fn default() -> Self {
+        Self {
+            status: PublishStatus::Idle,
+            _record: PhantomData,
+        }
+    }
+}
+
+impl<R: Send + Sync + 'static> Resource for PublishFeedback<R> {}
 
 /// Present when the room-record fetch fell through to the default homeworld
 /// because the PDS response could not be decoded against the current
@@ -185,11 +216,23 @@ pub struct LiveAvatarRecord(pub AvatarRecord);
 #[derive(Resource, Clone)]
 pub struct StoredAvatarRecord(pub AvatarRecord);
 
-/// The last known PDS-persisted room record. The live `RoomRecord`
-/// resource is mutated immediately by the world editor; this one stays
-/// pinned to the committed state so "Load from PDS" can discard
-/// uncommitted edits and the Publish button's dirty indicator has a
-/// reference point to diff against.
+/// The local **live** room record — what the World Editor's widgets,
+/// the 3D gizmo commit and the inventory drag-drop mutate in place, and
+/// what the world compiler / terrain / network broadcast read each
+/// frame. Diverges from [`StoredRoomRecord`] until the owner Publishes
+/// (or reverts via Load / Reset). This is the same Live/Stored split
+/// [`LiveAvatarRecord`] and [`LiveInventoryRecord`] use, so all three
+/// editors share one mental model and one Save/Load/Reset
+/// implementation ([`crate::ui::editable`]).
+#[derive(Resource, Clone)]
+pub struct LiveRoomRecord(pub RoomRecord);
+
+/// The last known PDS-persisted room record. [`LiveRoomRecord`] is
+/// mutated immediately by the world editor; this one stays pinned to
+/// the committed state so "Load from PDS" can discard uncommitted edits
+/// and the derived dirty indicator (`records_differ(live, stored)`) has
+/// a reference point to diff against. Only the publish-poll system
+/// repins it (on success), so the dirty check stays meaningful.
 #[derive(Resource, Clone)]
 pub struct StoredRoomRecord(pub RoomRecord);
 
@@ -223,22 +266,52 @@ pub struct LiveInventoryRecord(pub InventoryRecord);
 #[derive(Resource, Clone)]
 pub struct StoredInventoryRecord(pub InventoryRecord);
 
-/// Most recent outcome of an inventory publish attempt. Mirrors
-/// [`PublishFeedback`] but is kept separate so publishing the inventory
-/// doesn't clobber the status line rendered next to the room editor's own
-/// Publish button.
-#[derive(Resource, Clone, Debug, Default)]
-pub enum InventoryPublishFeedback {
-    #[default]
-    Idle,
-    Publishing,
-    Success {
-        at_secs: f64,
-    },
-    Failed {
-        at_secs: f64,
-        message: String,
-    },
+/// One editable, PDS-backed record. Lets the Room / Avatar / Inventory
+/// editors share a single Save / Load / Reset implementation
+/// ([`crate::ui::editable`]) instead of three subtly-divergent
+/// hand-rolled variants.
+pub trait EditableRecord: Clone + serde::Serialize + Send + Sync + 'static {
+    /// The canonical default record for a DID. Room and Avatar seed
+    /// deterministic content from the DID; Inventory ignores it (its
+    /// default is an empty stash).
+    fn default_for_did(did: &str) -> Self;
+    /// Lower-case noun used by the shared status line ("room" → "✓
+    /// Saved …"). The editor window title carries the fuller context.
+    const NOUN: &'static str;
+}
+
+impl EditableRecord for RoomRecord {
+    fn default_for_did(did: &str) -> Self {
+        RoomRecord::default_for_did(did)
+    }
+    const NOUN: &'static str = "room";
+}
+
+impl EditableRecord for AvatarRecord {
+    fn default_for_did(did: &str) -> Self {
+        AvatarRecord::default_for_did(did)
+    }
+    const NOUN: &'static str = "avatar";
+}
+
+impl EditableRecord for InventoryRecord {
+    fn default_for_did(_did: &str) -> Self {
+        InventoryRecord::default()
+    }
+    const NOUN: &'static str = "inventory";
+}
+
+/// Canonical equality for the dirty check. `RoomRecord` and
+/// `InventoryRecord` deliberately don't derive `PartialEq` (the
+/// `Generator` tree carries data the editor never compares
+/// structurally), so all three editors diff through the same serde
+/// model that is already DAG-CBOR / round-trip tested: "dirty" means
+/// "would serialise differently to the stored record" — exactly what a
+/// Publish would change. Used uniformly so Avatar no longer behaves
+/// differently from Room/Inventory just because it happens to derive
+/// `PartialEq`.
+pub fn records_differ<R: serde::Serialize>(a: &R, b: &R) -> bool {
+    serde_json::to_value(a).ok() != serde_json::to_value(b).ok()
 }
 
 /// A currently-displayed incoming item-offer modal. Exactly one can be

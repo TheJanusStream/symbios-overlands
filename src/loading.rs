@@ -17,7 +17,8 @@ use crate::config;
 use crate::pds::{self, AvatarRecord, RoomRecord};
 use crate::state::{
     AppState, CurrentRoomDid, DiagnosticsLog, LiveAvatarRecord, LiveInventoryRecord,
-    RoomRecordRecovery, StoredAvatarRecord, StoredInventoryRecord, StoredRoomRecord,
+    LiveRoomRecord, RoomRecordRecovery, StoredAvatarRecord, StoredInventoryRecord,
+    StoredRoomRecord,
 };
 use crate::terrain;
 
@@ -245,7 +246,7 @@ pub(crate) fn poll_room_record_task(
         // uncommitted edits). The two start identical — any divergence is
         // authored by the owner.
         commands.insert_resource(StoredRoomRecord(record.clone()));
-        commands.insert_resource(record);
+        commands.insert_resource(LiveRoomRecord(record));
     }
 }
 
@@ -511,7 +512,7 @@ pub(crate) fn poll_inventory_record_task(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn check_loading_complete(
     finished_hm: Option<Res<terrain::FinishedHeightMap>>,
-    room_record: Option<Res<RoomRecord>>,
+    room_record: Option<Res<LiveRoomRecord>>,
     stored_room: Option<Res<StoredRoomRecord>>,
     live_avatar: Option<Res<LiveAvatarRecord>>,
     stored_avatar: Option<Res<StoredAvatarRecord>>,

@@ -44,8 +44,8 @@ use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 use std::collections::HashSet;
 
-use crate::pds::{Placement, RoomRecord, ScatterBounds};
-use crate::state::CurrentRoomDid;
+use crate::pds::{Placement, ScatterBounds};
+use crate::state::{CurrentRoomDid, LiveRoomRecord};
 use crate::terrain::{FinishedHeightMap, OutgoingTerrain, TerrainMesh};
 use crate::water::{WaterMaterial, WaterSurfaces};
 
@@ -57,7 +57,7 @@ use scatter::{dominant_biome, sample_bounds, unit_f32};
 #[allow(clippy::too_many_arguments)]
 pub(super) fn compile_room_record(
     mut commands: Commands,
-    record: Option<Res<RoomRecord>>,
+    record: Option<Res<LiveRoomRecord>>,
     existing: Query<Entity, With<RoomEntity>>,
     terrain_meshes: Query<Entity, (With<TerrainMesh>, Without<OutgoingTerrain>)>,
     heightmap: Option<Res<FinishedHeightMap>>,
@@ -79,6 +79,9 @@ pub(super) fn compile_room_record(
     if !record.is_changed() && !heightmap_changed {
         return;
     }
+    // The change tick above is read off the `Res<LiveRoomRecord>`
+    // wrapper; everything below wants the inner `RoomRecord`.
+    let record = &record.0;
 
     // Step 1 — Cleanup. Despawn every entity previously compiled out of
     // this record. Terrain is NOT a `RoomEntity` (it is owned by the
@@ -126,7 +129,7 @@ pub(super) fn compile_room_record(
     // its own deterministic RNG so every peer reproduces the same layout.
     let mut ctx = SpawnCtx {
         commands: &mut commands,
-        record: &record,
+        record,
         meshes: &mut meshes,
         std_materials: &mut std_materials,
         water_materials: &mut water_materials,

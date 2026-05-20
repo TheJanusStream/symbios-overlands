@@ -7,7 +7,8 @@ use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 
 use crate::clouds::{CloudLayer, CloudMaterial};
-use crate::pds::{Fp3, Fp4, RoomRecord};
+use crate::pds::{Fp3, Fp4};
+use crate::state::LiveRoomRecord;
 
 /// Apply the active `RoomRecord`'s `Environment` to every atmospheric
 /// resource in the scene — sun, ambient, sky cuboid, clear colour, and
@@ -20,7 +21,7 @@ use crate::pds::{Fp3, Fp4, RoomRecord};
 /// resource borrows don't conflict.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_environment_state(
-    record: Option<Res<RoomRecord>>,
+    record: Option<Res<LiveRoomRecord>>,
     // `Without<CloudLayer>` keeps this query disjoint from the
     // `cloud_layer` query below (which holds `&mut Transform`). Bevy's
     // borrow checker conservatively assumes any pair of queries that
@@ -42,6 +43,7 @@ pub(crate) fn apply_environment_state(
     if !record.is_changed() {
         return;
     }
+    let record = &record.0;
     let env = &record.environment;
 
     let Fp3(sun_c) = env.sun_color;

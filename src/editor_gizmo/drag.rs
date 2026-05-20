@@ -7,8 +7,7 @@
 use bevy::prelude::*;
 use transform_gizmo_bevy::GizmoTarget;
 
-use crate::pds::RoomRecord;
-use crate::state::LiveAvatarRecord;
+use crate::state::{LiveAvatarRecord, LiveRoomRecord};
 use crate::ui::room::RoomEditorState;
 use crate::world_builder::{AvatarVisualPrim, PlacementMarker, PrimMarker};
 
@@ -76,7 +75,7 @@ pub(super) fn manage_gizmo_drag(
         Without<PrimMarker>,
     >,
     global_tf: Query<&GlobalTransform>,
-    room_record: Option<ResMut<RoomRecord>>,
+    room_record: Option<ResMut<LiveRoomRecord>>,
     avatar_record: Option<ResMut<LiveAvatarRecord>>,
 ) {
     // Find the entity (if any) whose gizmo reports active this frame, and
@@ -210,11 +209,14 @@ pub(super) fn manage_gizmo_drag(
                 &placement_query,
                 &prim_query,
                 &global_tf,
-                &mut record,
+                &mut record.0,
                 &mut room_editor,
             ) {
                 info!("Gizmo drag committed (room). Rebuilding world.");
-                room_editor.mark_dirty();
+                // No dirty flag to set: the World Editor derives "dirty"
+                // from `records_differ(stored, live)`, and this commit
+                // just mutated the live record. `set_changed()` still
+                // drives the recompile + peer broadcast.
                 record.set_changed();
             }
         }

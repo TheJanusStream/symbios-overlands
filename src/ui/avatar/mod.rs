@@ -35,8 +35,10 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 
 use crate::pds::{self, AvatarRecord};
 use crate::state::{
-    LiveAvatarRecord, LiveInventoryRecord, LocalSettings, PublishFeedback, StoredAvatarRecord,
+    LiveAvatarRecord, LiveInventoryRecord, LocalSettings, PublishFeedback, PublishStatus,
+    StoredAvatarRecord, records_differ,
 };
+use crate::ui::editable::{RecordAction, publish_status_line, save_load_reset_row};
 use crate::ui::room::RoomEditorState;
 use crate::ui::room::generators::{AvatarVisualsTreeSource, GenNodeId, draw_generators_tab};
 
@@ -105,7 +107,7 @@ pub fn avatar_ui(
     mut settings: ResMut<LocalSettings>,
     session: Option<Res<AtprotoSession>>,
     refresh_ctx: Option<Res<crate::oauth::OauthRefreshCtx>>,
-    mut feedback: ResMut<PublishFeedback>,
+    mut feedback: ResMut<PublishFeedback<AvatarRecord>>,
     mut inventory: Option<ResMut<LiveInventoryRecord>>,
     mut editor: ResMut<AvatarEditorState>,
     mut room_editor: Option<ResMut<RoomEditorState>>,
@@ -228,67 +230,50 @@ pub fn avatar_ui(
                 ui.separator();
 
                 // --- Publish / Load from PDS / Reset to default -----------
-                let is_dirty = stored.as_ref().is_some_and(|s| s.0 != live_mut.0);
+                // Same shared row + status line as the World and Inventory
+                // editors (`ui::editable`). Dirty is derived through
+                // `records_differ` — the *same* canonical equality the
+                // other two use — instead of `AvatarRecord`'s `PartialEq`,
+                // so all three editors behave identically.
+                let dirty = stored
+                    .as_ref()
+                    .is_some_and(|s| records_differ(&s.0, &live_mut.0));
+                let can_publish = session.is_some() && refresh_ctx.is_some();
+                let default_record = session
+                    .as_ref()
+                    .map(|s| AvatarRecord::default_for_did(&s.did));
+                let can_reset = default_record
+                    .as_ref()
+                    .is_some_and(|d| records_differ(d, &live_mut.0));
 
-                ui.horizontal(|ui| {
-                    let publish_button = egui::Button::new(
-                        egui::RichText::new("Publish to PDS").color(if is_dirty {
-                            egui::Color32::LIGHT_GREEN
-                        } else {
-                            egui::Color32::GRAY
-                        }),
-                    );
-                    let publish_enabled = is_dirty && session.is_some() && refresh_ctx.is_some();
-                    if ui.add_enabled(publish_enabled, publish_button).clicked()
-                        && let (Some(session), Some(refresh)) =
+                match save_load_reset_row(ui, dirty, can_publish, can_reset) {
+                    RecordAction::None => {}
+                    RecordAction::Publish => {
+                        if let (Some(session), Some(refresh)) =
                             (session.as_ref(), refresh_ctx.as_ref())
-                    {
-                        *feedback = PublishFeedback::Publishing;
-                        spawn_publish_avatar_task(
-                            &mut commands,
-                            session,
-                            refresh,
-                            live_mut.0.clone(),
-                        );
+                        {
+                            feedback.status = PublishStatus::Publishing;
+                            spawn_publish_avatar_task(
+                                &mut commands,
+                                session,
+                                refresh,
+                                live_mut.0.clone(),
+                            );
+                        }
                     }
-
-                    if ui
-                        .add_enabled(is_dirty, egui::Button::new("Load from PDS"))
-                        .clicked()
-                        && let Some(stored) = &stored
-                    {
-                        live_mut.0 = stored.0.clone();
+                    RecordAction::Load => {
+                        if let Some(stored) = &stored {
+                            live_mut.0 = stored.0.clone();
+                        }
                     }
-
-                    let default_record = session
-                        .as_ref()
-                        .map(|s| AvatarRecord::default_for_did(&s.did));
-                    let reset_enabled = default_record.as_ref().is_some_and(|d| *d != live_mut.0);
-                    if ui
-                        .add_enabled(reset_enabled, egui::Button::new("Reset to default"))
-                        .clicked()
-                        && let Some(default_record) = default_record
-                    {
-                        live_mut.0 = default_record;
-                    }
-                });
-
-                // --- Status line ------------------------------------------
-                match &*feedback {
-                    PublishFeedback::Idle => {}
-                    PublishFeedback::Publishing => {
-                        ui.label(egui::RichText::new("Publishing…").italics().weak());
-                    }
-                    PublishFeedback::Success { .. } => {
-                        ui.colored_label(egui::Color32::LIGHT_GREEN, "Published ✓");
-                    }
-                    PublishFeedback::Failed { message, .. } => {
-                        ui.colored_label(
-                            egui::Color32::LIGHT_RED,
-                            format!("Publish failed: {message}"),
-                        );
+                    RecordAction::Reset => {
+                        if let Some(default_record) = default_record {
+                            live_mut.0 = default_record;
+                        }
                     }
                 }
+
+                publish_status_line(ui, &feedback.status, time.elapsed_secs_f64());
             });
 
         if live_mut.0 != before {
@@ -386,7 +371,7 @@ pub fn poll_publish_avatar_tasks(
     mut tasks: Query<(Entity, &mut PublishAvatarTask)>,
     live: Res<LiveAvatarRecord>,
     mut stored: Option<ResMut<StoredAvatarRecord>>,
-    mut feedback: ResMut<PublishFeedback>,
+    mut feedback: ResMut<PublishFeedback<AvatarRecord>>,
     time: Res<Time>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
@@ -403,11 +388,11 @@ pub fn poll_publish_avatar_tasks(
                 if let Some(stored) = stored.as_mut() {
                     stored.0 = live.0.clone();
                 }
-                *feedback = PublishFeedback::Success { at_secs: now };
+                feedback.status = PublishStatus::Success { at_secs: now };
             }
             Err(e) => {
                 warn!("Failed to save avatar record: {}", e);
-                *feedback = PublishFeedback::Failed {
+                feedback.status = PublishStatus::Failed {
                     at_secs: now,
                     message: e,
                 };

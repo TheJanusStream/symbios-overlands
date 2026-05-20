@@ -70,7 +70,7 @@ mod sign;
 use std::collections::HashMap;
 
 use crate::pds::{Placement, PropMeshType, RoomRecord, ScatterBounds};
-use crate::state::AppState;
+use crate::state::{AppState, LiveRoomRecord};
 use crate::terrain::FinishedHeightMap;
 use crate::water::{WaterMaterial, WaterSurfaces};
 use avian3d::prelude::Sensor;
@@ -263,12 +263,13 @@ fn reset_traits(commands: &mut Commands, entity: Entity) {
 fn draw_placement_visualizers(
     mut gizmos: Gizmos,
     editor_state: Res<crate::ui::room::RoomEditorState>,
-    record: Option<Res<RoomRecord>>,
+    record: Option<Res<LiveRoomRecord>>,
     heightmap: Option<Res<FinishedHeightMap>>,
 ) {
     let Some(record) = record else {
         return;
     };
+    let record = &record.0;
     if editor_state.selected_tab != crate::ui::room::EditorTab::Placements {
         return;
     }

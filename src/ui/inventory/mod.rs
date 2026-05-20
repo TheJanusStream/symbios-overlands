@@ -31,10 +31,12 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
-use crate::pds::{Generator, GeneratorKind};
+use crate::pds::{Generator, GeneratorKind, InventoryRecord};
 use crate::state::{
-    CurrentRoomDid, InventoryPublishFeedback, LiveInventoryRecord, StoredInventoryRecord,
+    CurrentRoomDid, LiveInventoryRecord, PublishFeedback, PublishStatus, StoredInventoryRecord,
+    records_differ,
 };
+use crate::ui::editable::{RecordAction, publish_status_line, save_load_reset_row};
 
 /// Persistent UI-only state for the Inventory window. Held in a `Local` so
 /// it lives for the lifetime of the system without polluting the global
@@ -100,7 +102,7 @@ pub fn inventory_ui(
     room_did: Option<Res<CurrentRoomDid>>,
     mut live: Option<ResMut<LiveInventoryRecord>>,
     stored: Option<Res<StoredInventoryRecord>>,
-    mut feedback: ResMut<InventoryPublishFeedback>,
+    mut feedback: ResMut<PublishFeedback<InventoryRecord>>,
     mut pending_drop: ResMut<PendingGeneratorDrop>,
     mut state: Local<InventoryEditorState>,
     time: Res<Time>,
@@ -119,10 +121,6 @@ pub fn inventory_ui(
         .map(|r| r.0 == session.did)
         .unwrap_or(false);
 
-    // `InventoryRecord` lacks `PartialEq`, so we diff through serde_json —
-    // identical JSON means identical contents for our purposes. The two
-    // values are small (at most 50 generators) so this is cheap per frame.
-    let mut is_dirty = serde_json::to_value(&live.0).ok() != serde_json::to_value(&stored.0).ok();
     let ctx = contexts.ctx_mut().unwrap();
 
     // Rename modal — independent top-level egui Window so it floats above
@@ -151,7 +149,6 @@ pub fn inventory_ui(
             && let Some(g) = live.0.generators.remove(&old_name)
         {
             live.0.generators.insert(new_name.clone(), g);
-            is_dirty = true;
         }
         if close {
             state.renaming_generator = None;
@@ -254,21 +251,27 @@ pub fn inventory_ui(
                     }
                     if let Some(name) = to_remove {
                         live.0.generators.remove(&name);
-                        is_dirty = true;
                     }
                 });
 
             ui.separator();
-            ui.horizontal(|ui| {
-                let publish_button =
-                    egui::Button::new(egui::RichText::new("Publish to PDS").color(if is_dirty {
-                        egui::Color32::LIGHT_GREEN
-                    } else {
-                        egui::Color32::GRAY
-                    }));
 
-                if ui.add_enabled(is_dirty, publish_button).clicked() {
-                    *feedback = InventoryPublishFeedback::Publishing;
+            // Shared Save / Load / Reset row + status line
+            // (`ui::editable`), identical to the World and Avatar
+            // editors. Dirty is derived (`records_differ` vs the stored
+            // snapshot) so the row needs no per-edit flag; Inventory now
+            // also gets Load-from-PDS (revert) and Reset-to-default
+            // (empty the stash) — it previously had Publish only.
+            let dirty = records_differ(&live.0, &stored.0);
+            let default_record = InventoryRecord::default();
+            let can_reset = records_differ(&live.0, &default_record);
+            // `session` + `refresh_ctx` are guaranteed present (the early
+            // return above bails otherwise), so a publish is always
+            // attemptable while dirty.
+            match save_load_reset_row(ui, dirty, true, can_reset) {
+                RecordAction::None => {}
+                RecordAction::Publish => {
+                    feedback.status = PublishStatus::Publishing;
 
                     let session_clone = session.clone();
                     let refresh_clone = refresh_ctx.clone();
@@ -300,33 +303,15 @@ pub fn inventory_ui(
                     });
                     commands.spawn(PublishInventoryTask(task));
                 }
-            });
-
-            match feedback.as_ref() {
-                InventoryPublishFeedback::Idle => {}
-                InventoryPublishFeedback::Publishing => {
-                    ui.colored_label(egui::Color32::from_rgb(220, 200, 80), "⟳ Publishing…");
+                RecordAction::Load => {
+                    live.0 = stored.0.clone();
                 }
-                InventoryPublishFeedback::Success { at_secs } => {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(80, 200, 120),
-                        format!(
-                            "✓ Saved ({:.0}s ago)",
-                            (time.elapsed_secs_f64() - at_secs).max(0.0)
-                        ),
-                    );
-                }
-                InventoryPublishFeedback::Failed { at_secs, message } => {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(220, 90, 90),
-                        format!(
-                            "✗ Failed ({:.0}s ago): {}",
-                            (time.elapsed_secs_f64() - at_secs).max(0.0),
-                            message
-                        ),
-                    );
+                RecordAction::Reset => {
+                    live.0 = default_record;
                 }
             }
+
+            publish_status_line(ui, &feedback.status, time.elapsed_secs_f64());
         });
 }
 
@@ -335,7 +320,7 @@ pub fn poll_publish_inventory_tasks(
     mut tasks: Query<(Entity, &mut PublishInventoryTask)>,
     live: Option<Res<LiveInventoryRecord>>,
     mut stored: Option<ResMut<StoredInventoryRecord>>,
-    mut feedback: ResMut<InventoryPublishFeedback>,
+    mut feedback: ResMut<PublishFeedback<InventoryRecord>>,
     time: Res<Time>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
@@ -353,11 +338,11 @@ pub fn poll_publish_inventory_tasks(
                 if let (Some(live), Some(stored)) = (live.as_ref(), stored.as_mut()) {
                     stored.0 = live.0.clone();
                 }
-                *feedback = InventoryPublishFeedback::Success { at_secs: now };
+                feedback.status = PublishStatus::Success { at_secs: now };
             }
             Err(e) => {
                 warn!("Failed to save inventory record: {}", e);
-                *feedback = InventoryPublishFeedback::Failed {
+                feedback.status = PublishStatus::Failed {
                     at_secs: now,
                     message: e,
                 };

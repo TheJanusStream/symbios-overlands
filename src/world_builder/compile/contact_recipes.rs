@@ -11,10 +11,10 @@
 use bevy::prelude::*;
 
 use crate::interaction::ContactRecipeRegistry;
-use crate::pds::RoomRecord;
+use crate::state::LiveRoomRecord;
 
 pub(crate) fn apply_contact_recipes(
-    record: Option<Res<RoomRecord>>,
+    record: Option<Res<LiveRoomRecord>>,
     mut registry: ResMut<ContactRecipeRegistry>,
 ) {
     let Some(record) = record else {
@@ -23,6 +23,7 @@ pub(crate) fn apply_contact_recipes(
     if !record.is_changed() {
         return;
     }
+    let record = &record.0;
     // The record is sanitised before the world compiler ever sees it
     // (`RoomRecord::sanitize`), so every numeric here is already bounded.
     *registry = ContactRecipeRegistry::from_effects(&record.contact_effects);

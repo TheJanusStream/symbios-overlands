@@ -27,8 +27,8 @@ use crate::avatar::{BskyProfileCache, draw_avatar_icon};
 use crate::pds::{InventoryRecord, publish_inventory_record};
 use crate::protocol::OverlandsMessage;
 use crate::state::{
-    DiagnosticsLog, IncomingOfferDialog, InventoryPublishFeedback, LiveInventoryRecord, RemotePeer,
-    SocialResonance,
+    DiagnosticsLog, IncomingOfferDialog, LiveInventoryRecord, PublishFeedback, PublishStatus,
+    RemotePeer, SocialResonance,
 };
 use crate::ui::chat::AVATAR_ICON_PX;
 use crate::ui::inventory::{
@@ -202,7 +202,7 @@ pub fn incoming_offer_ui(
     mut peers: Query<&mut RemotePeer>,
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
     mut diagnostics: ResMut<DiagnosticsLog>,
-    mut inventory_feedback: ResMut<InventoryPublishFeedback>,
+    mut inventory_feedback: ResMut<PublishFeedback<InventoryRecord>>,
     time: Res<Time>,
 ) {
     let Some(dialog) = dialog else {
@@ -317,10 +317,10 @@ pub fn incoming_offer_ui(
             // before they click the Inventory's Publish button. The
             // `poll_publish_inventory_tasks` system (already in the
             // Update schedule) drains the task and flips
-            // `StoredInventoryRecord` + `InventoryPublishFeedback` on
-            // completion, so we only kick off the I/O here.
+            // `StoredInventoryRecord` + `PublishFeedback<InventoryRecord>`
+            // on completion, so we only kick off the I/O here.
             if let (Some(sess), Some(refresh)) = (session.as_deref(), refresh_ctx.as_deref()) {
-                *inventory_feedback = InventoryPublishFeedback::Publishing;
+                inventory_feedback.status = PublishStatus::Publishing;
                 spawn_inventory_publish_task(
                     &mut commands,
                     sess.clone(),
