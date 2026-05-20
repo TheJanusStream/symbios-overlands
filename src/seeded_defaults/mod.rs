@@ -33,7 +33,9 @@ pub mod oklch;
 pub mod room;
 pub mod scene;
 
-pub use avatar::{AvatarBody, AvatarGait, AvatarPalette, BodyArchetype};
+pub use avatar::{
+    AvatarBody, AvatarGait, AvatarPalette, BodyArchetype, BowStyle, VesselArchetype, VesselDesign,
+};
 pub use hash::fnv1a_64;
 pub use room::{
     Atmosphere, BiomeTextures, GeneratorKind, GroundTextureParams, RockTextureParams, RoomPalette,

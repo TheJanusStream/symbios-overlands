@@ -21,7 +21,9 @@
 pub mod body;
 pub mod gait;
 pub mod palette;
+pub mod vessel;
 
 pub use body::{AvatarBody, BodyArchetype};
 pub use gait::AvatarGait;
 pub use palette::AvatarPalette;
+pub use vessel::{BowStyle, VesselArchetype, VesselDesign};
