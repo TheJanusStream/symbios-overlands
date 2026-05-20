@@ -43,6 +43,7 @@ pub mod oauth;
 pub mod pds;
 pub mod player;
 pub mod protocol;
+pub mod seeded_defaults;
 pub mod social;
 pub mod splat;
 pub mod state;

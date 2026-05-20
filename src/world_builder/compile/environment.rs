@@ -28,7 +28,7 @@ pub(crate) fn apply_environment_state(
     // touch `Transform` could match the same entity unless we tell it
     // otherwise — and a directional light entity never carries the
     // `CloudLayer` marker, so the filter has no runtime cost.
-    mut lights: Query<(&mut DirectionalLight, &Transform), Without<CloudLayer>>,
+    mut lights: Query<(&mut DirectionalLight, &mut Transform), Without<CloudLayer>>,
     mut clear_color: ResMut<ClearColor>,
     mut ambient_light: ResMut<GlobalAmbientLight>,
     mut fog: Query<&mut DistanceFog>,
@@ -53,9 +53,19 @@ pub(crate) fn apply_environment_state(
     // toward its target, so the unit toward-sun vector is `-forward()`.
     // Falls back to world Y when the light's transform is degenerate.
     let mut sun_dir = Vec3::Y;
-    for (mut light, transform) in lights.iter_mut() {
+    let Fp3(sp) = env.sun_position;
+    let sun_pos = Vec3::new(sp[0], sp[1], sp[2]);
+    for (mut light, mut transform) in lights.iter_mut() {
         light.color = Color::srgb(sun_c[0], sun_c[1], sun_c[2]);
         light.illuminance = env.sun_illuminance.0;
+        // Re-orient the directional light so its forward points toward
+        // the origin from `sun_position`. Sanitise has already rejected
+        // a zero-length vector, but `look_at` still requires the
+        // target ≠ eye, so the eye/origin coincidence guard stays.
+        if sun_pos.length_squared() > 1.0e-6 {
+            transform.translation = sun_pos;
+            transform.look_at(Vec3::ZERO, Vec3::Y);
+        }
         sun_dir = (-transform.forward().as_vec3()).normalize_or(Vec3::Y);
     }
 

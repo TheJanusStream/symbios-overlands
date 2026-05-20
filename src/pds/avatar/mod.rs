@@ -65,29 +65,42 @@ pub struct AvatarRecord {
 }
 
 impl AvatarRecord {
-    /// Synthesise a starting avatar with a deterministic palette derived
-    /// from the owner's DID — every fresh player gets a unique-coloured
-    /// hover-boat without ever touching the editor.
+    /// Synthesise a starting avatar with a deterministic palette and
+    /// body proportions derived from the owner's DID — every fresh
+    /// player gets a unique-coloured, uniquely-shaped hover-boat
+    /// without ever touching the editor.
     ///
-    /// The visual tree mirrors the spirit of the legacy hover-rover: a
-    /// cuboid hull with two capsule pontoons, an upright cylinder mast
-    /// crowned by a sphere finial, and a flat sail. Materials carry the
-    /// DID-hashed palette (`hue(0)` hull, `hue(3)` pontoons, `hue(7)` mast,
-    /// `hue(11)` accents) so two peers spawning side-by-side never look
-    /// identical.
+    /// The visual tree mirrors the spirit of the legacy hover-rover:
+    /// a cuboid hull with two capsule pontoons, an upright cylinder
+    /// mast crowned by a sphere finial, and a flat sail. Colours come
+    /// from the coordinated OkLCH avatar palette
+    /// ([`crate::seeded_defaults::AvatarPalette`]); dimensions are
+    /// multiplied by the seeded body proportions
+    /// ([`crate::seeded_defaults::AvatarBody`]) so two peers spawning
+    /// side-by-side differ in both tint *and* silhouette.
     pub fn default_for_did(did: &str) -> Self {
-        let hash = fnv1a_64(did);
-        let hue = |n: u32| -> [f32; 3] {
-            let r = ((hash.rotate_left(n) & 0xFF) as f32) / 255.0;
-            let g = ((hash.rotate_left(n + 8) & 0xFF) as f32) / 255.0;
-            let b = ((hash.rotate_left(n + 16) & 0xFF) as f32) / 255.0;
-            // Bias away from near-black so new players aren't invisible.
-            [0.25 + r * 0.70, 0.25 + g * 0.70, 0.25 + b * 0.70]
-        };
-        let hull_color = hue(0);
-        let pontoon_color = hue(3);
-        let mast_color = hue(7);
-        let accent_color = hue(11);
+        use crate::seeded_defaults::{AvatarBody, AvatarPalette};
+
+        let palette = AvatarPalette::for_did(did);
+        let body = AvatarBody::for_did(did);
+
+        // Colour assignments: primary accent = hull (most visible);
+        // secondary = pontoons (lateral hull); tertiary = mast (small
+        // vertical detail); eye colour = finial jewel (a single small
+        // accent gem at the mast top).
+        let hull_color = palette.primary_accent;
+        let pontoon_color = palette.secondary_accent;
+        let mast_color = palette.tertiary_accent;
+        let accent_color = palette.eye_color;
+
+        // Body proportions read as multiplicative scalars on the
+        // nominal dimensions. Height applies everywhere; shoulder
+        // width to lateral hull / pontoon spread; limb thickness to
+        // pontoon radius + mast radius; head scale to the finial.
+        let h = body.height_scale;
+        let w = body.shoulder_width_scale;
+        let limb = body.limb_thickness_scale;
+        let head = body.head_scale;
 
         let metal_mat = |color: [f32; 3]| SovereignMaterialSettings {
             base_color: Fp3(color),
@@ -104,7 +117,7 @@ impl AvatarRecord {
 
         let hull = Generator {
             kind: GeneratorKind::Cuboid {
-                size: Fp3([1.6, 0.4, 2.4]),
+                size: Fp3([1.6 * w, 0.4 * h, 2.4 * h]),
                 solid: false,
                 material: metal_mat(hull_color),
                 twist: Fp(0.0),
@@ -116,8 +129,8 @@ impl AvatarRecord {
                 // Left pontoon — capsule lying on its side.
                 Generator {
                     kind: GeneratorKind::Capsule {
-                        radius: Fp(0.18),
-                        length: Fp(2.0),
+                        radius: Fp(0.18 * limb),
+                        length: Fp(2.0 * h),
                         latitudes: 8,
                         longitudes: 16,
                         solid: false,
@@ -127,7 +140,7 @@ impl AvatarRecord {
                         bend: Fp3([0.0, 0.0, 0.0]),
                     },
                     transform: TransformData {
-                        translation: Fp3([-0.85, -0.25, 0.0]),
+                        translation: Fp3([-0.85 * w, -0.25 * h, 0.0]),
                         rotation: quat_xyzw(quat_x(std::f32::consts::FRAC_PI_2)),
                         scale: Fp3([1.0, 1.0, 1.0]),
                     },
@@ -136,8 +149,8 @@ impl AvatarRecord {
                 // Right pontoon.
                 Generator {
                     kind: GeneratorKind::Capsule {
-                        radius: Fp(0.18),
-                        length: Fp(2.0),
+                        radius: Fp(0.18 * limb),
+                        length: Fp(2.0 * h),
                         latitudes: 8,
                         longitudes: 16,
                         solid: false,
@@ -147,7 +160,7 @@ impl AvatarRecord {
                         bend: Fp3([0.0, 0.0, 0.0]),
                     },
                     transform: TransformData {
-                        translation: Fp3([0.85, -0.25, 0.0]),
+                        translation: Fp3([0.85 * w, -0.25 * h, 0.0]),
                         rotation: quat_xyzw(quat_x(std::f32::consts::FRAC_PI_2)),
                         scale: Fp3([1.0, 1.0, 1.0]),
                     },
@@ -156,8 +169,8 @@ impl AvatarRecord {
                 // Mast — vertical cylinder rising from the deck.
                 Generator {
                     kind: GeneratorKind::Cylinder {
-                        radius: Fp(0.06),
-                        height: Fp(1.4),
+                        radius: Fp(0.06 * limb),
+                        height: Fp(1.4 * h),
                         resolution: 16,
                         solid: false,
                         material: metal_mat(mast_color),
@@ -166,7 +179,7 @@ impl AvatarRecord {
                         bend: Fp3([0.0, 0.0, 0.0]),
                     },
                     transform: TransformData {
-                        translation: Fp3([0.0, 0.9, 0.0]),
+                        translation: Fp3([0.0, 0.9 * h, 0.0]),
                         rotation: quat_xyzw([0.0, 0.0, 0.0, 1.0]),
                         scale: Fp3([1.0, 1.0, 1.0]),
                     },
@@ -175,7 +188,7 @@ impl AvatarRecord {
                         // the mast's local +Y so it caps the cylinder.
                         Generator {
                             kind: GeneratorKind::Sphere {
-                                radius: Fp(0.12),
+                                radius: Fp(0.12 * head),
                                 resolution: 3,
                                 solid: false,
                                 material: metal_mat(accent_color),
@@ -184,7 +197,7 @@ impl AvatarRecord {
                                 bend: Fp3([0.0, 0.0, 0.0]),
                             },
                             transform: TransformData {
-                                translation: Fp3([0.0, 0.7, 0.0]),
+                                translation: Fp3([0.0, 0.7 * h, 0.0]),
                                 rotation: quat_xyzw([0.0, 0.0, 0.0, 1.0]),
                                 scale: Fp3([1.0, 1.0, 1.0]),
                             },
@@ -195,7 +208,7 @@ impl AvatarRecord {
                 // Sail — flat plane hanging beside the mast, cloth-like.
                 Generator {
                     kind: GeneratorKind::Cuboid {
-                        size: Fp3([0.05, 0.9, 0.9]),
+                        size: Fp3([0.05, 0.9 * h, 0.9 * h]),
                         solid: false,
                         material: cloth_mat([0.95, 0.95, 0.92]),
                         twist: Fp(0.0),
@@ -203,7 +216,7 @@ impl AvatarRecord {
                         bend: Fp3([0.0, 0.0, 0.0]),
                     },
                     transform: TransformData {
-                        translation: Fp3([0.0, 1.05, -0.5]),
+                        translation: Fp3([0.0, 1.05 * h, -0.5 * h]),
                         rotation: quat_xyzw([0.0, 0.0, 0.0, 1.0]),
                         scale: Fp3([1.0, 1.0, 1.0]),
                     },
@@ -226,18 +239,6 @@ impl AvatarRecord {
         sanitize_avatar_visuals(&mut self.visuals);
         self.locomotion.sanitize();
     }
-}
-
-/// FNV-1a 64-bit hash of a string. Matches the hash used by
-/// [`crate::pds::room::RoomRecord::default_for_did`] so peer rooms and
-/// avatars derive their colour palettes from the same DID-derived seed.
-fn fnv1a_64(s: &str) -> u64 {
-    let mut hash: u64 = 0xcbf29ce484222325;
-    for byte in s.bytes() {
-        hash ^= byte as u64;
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    hash
 }
 
 /// Build a normalised quaternion `[x, y, z, w]` from a half-angle rotation

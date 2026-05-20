@@ -8,7 +8,7 @@ use super::contact_effects::ContactEffects;
 use super::generator::{Generator, GeneratorKind, Placement, WaterSurface};
 use super::sanitize::{Sanitize, limits, sanitize_generator};
 use super::terrain::SovereignTerrainConfig;
-use super::types::{Fp, Fp2, Fp3, Fp4, TransformData};
+use super::types::{Fp, Fp2, Fp3, Fp4, Fp64, TransformData};
 use super::xrpc::{FetchError, PutOutcome, XrpcError, resolve_pds};
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
@@ -30,6 +30,14 @@ pub struct Environment {
     pub sun_illuminance: Fp,
     pub ambient_brightness: Fp,
     pub sky_color: Fp3,
+    /// World-space position of the directional sun light. The
+    /// renderer reads this as a direction (origin → position normalised
+    /// is the unit vector *toward* the sun); the magnitude is informally
+    /// "far away", any value with a sensible direction works. Authored
+    /// per-room so seeded atmospheres can vary sun altitude / azimuth.
+    /// `#[serde(default)]` on the parent struct lets pre-`sun_position`
+    /// records round-trip with the canonical constant.
+    pub sun_position: Fp3,
 
     pub fog_color: Fp4,
     pub fog_visibility: Fp,
@@ -89,6 +97,7 @@ impl Default for Environment {
             sun_illuminance: Fp(l::ILLUMINANCE),
             ambient_brightness: Fp(l::AMBIENT_BRIGHTNESS),
             sky_color: Fp3(l::SKY_COLOR),
+            sun_position: Fp3(l::LIGHT_POS),
 
             fog_color: Fp4(f::COLOR),
             fog_visibility: Fp(f::VISIBILITY),
@@ -141,6 +150,25 @@ impl Environment {
 
         self.sun_illuminance = Fp(self.sun_illuminance.0.clamp(0.0, 100_000.0));
         self.ambient_brightness = Fp(self.ambient_brightness.0.clamp(0.0, 10_000.0));
+
+        // Sun-position guard: each component must be finite and the
+        // vector cannot collapse to the origin (it's used as a
+        // direction by `looking_at`). On any failure, fall back to the
+        // canonical constant — that always gives a valid direction.
+        let sp = self.sun_position.0;
+        let bad = !sp[0].is_finite()
+            || !sp[1].is_finite()
+            || !sp[2].is_finite()
+            || (sp[0] * sp[0] + sp[1] * sp[1] + sp[2] * sp[2]) < 1.0e-6;
+        if bad {
+            self.sun_position = Fp3(crate::config::lighting::LIGHT_POS);
+        } else {
+            self.sun_position = Fp3([
+                sp[0].clamp(-10_000.0, 10_000.0),
+                sp[1].clamp(-10_000.0, 10_000.0),
+                sp[2].clamp(-10_000.0, 10_000.0),
+            ]);
+        }
         // A zero visibility would make `FogFalloff::from_visibility_colors`
         // blow up (it divides by `visibility` internally). Floor at 10 m so
         // the falloff remains well-defined even under an adversarial record.
@@ -241,22 +269,40 @@ impl RoomRecord {
     /// has never saved a custom record, this builds the canonical default
     /// recipe on the fly — a base terrain plus a base water plane — so the
     /// world builder always has something valid to compile.
+    ///
+    /// Every seedable parameter (terrain seed, biome palette, water tint,
+    /// fog, clouds) is derived from the DID via `crate::seeded_defaults`,
+    /// so freshly-visited overlands are visibly distinct per owner without
+    /// requiring anyone to touch the editor. Authored records that have
+    /// been published to a PDS keep their stored values verbatim — the
+    /// seed pipeline only fills in the blank-record case here.
     pub fn default_for_did(did: &str) -> Self {
-        // Synthesise a per-owner terrain seed from the DID so every freshly
-        // visited overland has unique topography without requiring the owner
-        // to touch their record. FNV-1a 64-bit — deterministic across peers.
-        let did_seed = {
-            let mut hash: u64 = 0xcbf29ce484222325;
-            for byte in did.bytes() {
-                hash ^= byte as u64;
-                hash = hash.wrapping_mul(0x100000001b3);
-            }
-            hash
+        use crate::seeded_defaults::{
+            Atmosphere, BiomeTextures, RoomPalette, SceneCharacter, TerrainShape, WaterDynamics,
+            fnv1a_64,
         };
-        let terrain_cfg = SovereignTerrainConfig {
+
+        let did_seed = fnv1a_64(did);
+        let scene = SceneCharacter::for_seed(did_seed);
+        let palette = RoomPalette::from_scene(&scene, did_seed);
+        let shape = TerrainShape::from_scene(&scene, did_seed);
+        let textures = BiomeTextures::from_scene(&scene, did_seed);
+        let atmosphere = Atmosphere::from_scene(&scene, did_seed);
+        let water_dynamics = WaterDynamics::from_scene(&scene, did_seed);
+
+        let mut terrain_cfg = SovereignTerrainConfig {
             seed: did_seed,
             ..SovereignTerrainConfig::default()
         };
+        apply_shape_to_terrain_config(&shape, &mut terrain_cfg);
+        apply_palette_to_material(&palette, &mut terrain_cfg.material);
+        apply_shape_to_material(&shape, &mut terrain_cfg.material);
+        apply_textures_to_material(&textures, &mut terrain_cfg.material);
+
+        let mut water_surface = WaterSurface::default();
+        water_surface.shallow_color = Fp4(palette.water_shallow);
+        water_surface.deep_color = Fp4(palette.water_deep);
+        apply_water_dynamics(&water_dynamics, &mut water_surface);
 
         // Strict scheme: a single named generator describes the whole
         // region. Terrain sits at the root (only valid position for
@@ -269,7 +315,7 @@ impl RoomRecord {
             .children
             .push(Generator::from_kind(GeneratorKind::Water {
                 level_offset: Fp(0.0),
-                surface: WaterSurface::default(),
+                surface: water_surface,
             }));
 
         let mut generators = HashMap::new();
@@ -287,9 +333,12 @@ impl RoomRecord {
             vec!["collider_heightfield".to_string(), "ground".to_string()],
         );
 
+        let mut environment = environment_from_palette(&palette);
+        apply_atmosphere_to_environment(&atmosphere, &mut environment);
+
         Self {
             lex_type: COLLECTION.into(),
-            environment: Environment::default(),
+            environment,
             generators,
             placements,
             traits,
@@ -398,6 +447,202 @@ impl Default for RoomRecord {
     fn default() -> Self {
         Self::default_for_did("")
     }
+}
+
+/// Build an [`Environment`] whose colour fields are taken from a
+/// DID-seeded [`crate::seeded_defaults::RoomPalette`]; every non-colour
+/// field (cloud density, fog visibility, water normal scales, ...) is
+/// preserved at its constant default. Later phases (atmosphere
+/// derivers) will overwrite those non-colour fields too.
+fn environment_from_palette(palette: &crate::seeded_defaults::RoomPalette) -> Environment {
+    Environment {
+        sun_color: Fp3(palette.sun_color),
+        sky_color: Fp3(palette.sky_color),
+        fog_color: Fp4(palette.fog_color),
+        fog_extinction: Fp3(palette.fog_extinction),
+        fog_inscattering: Fp3(palette.fog_inscattering),
+        fog_sun_color: Fp4(palette.fog_sun_color),
+        water_scatter_color: Fp3(palette.water_scatter),
+        cloud_color: Fp3(palette.cloud_sunlit),
+        cloud_shadow_color: Fp3(palette.cloud_shadow),
+        ..Environment::default()
+    }
+}
+
+/// Overwrite the per-layer colour fields on the four splat layers with
+/// the seeded palette. Layer roles are positional (R=Grass, G=Dirt,
+/// B=Rock, A=Snow) and the `Ground` / `Rock` variants are matched out
+/// to assign each layer's idiomatic dry/moist or light/dark channel
+/// pair. Layers that have been swapped out for a non-Ground / non-Rock
+/// texture variant (e.g. a custom `Brick` snow layer) are left
+/// unchanged so author intent is not silently overwritten.
+fn apply_palette_to_material(
+    palette: &crate::seeded_defaults::RoomPalette,
+    material: &mut crate::pds::terrain::SovereignMaterialConfig,
+) {
+    use crate::pds::texture::SovereignTextureConfig;
+
+    // R — Grass
+    if let SovereignTextureConfig::Ground(g) = &mut material.layers[0] {
+        g.color_dry = Fp3(palette.grass_dry);
+        g.color_moist = Fp3(palette.grass_moist);
+    }
+    // G — Dirt
+    if let SovereignTextureConfig::Ground(g) = &mut material.layers[1] {
+        g.color_dry = Fp3(palette.dirt_dry);
+        g.color_moist = Fp3(palette.dirt_moist);
+    }
+    // B — Rock
+    if let SovereignTextureConfig::Rock(r) = &mut material.layers[2] {
+        r.color_light = Fp3(palette.rock_light);
+        r.color_dark = Fp3(palette.rock_dark);
+    }
+    // A — Snow
+    if let SovereignTextureConfig::Ground(g) = &mut material.layers[3] {
+        g.color_dry = Fp3(palette.snow_dry);
+        g.color_moist = Fp3(palette.snow_moist);
+    }
+}
+
+/// Write a [`crate::seeded_defaults::TerrainShape`] onto every
+/// heightmap-shape field of a `SovereignTerrainConfig` — generator
+/// algorithm, FBM / Voronoi knobs, height/cell scale, erosion. The
+/// `seed`, `grid_size`, and `material` fields are intentionally left
+/// alone: `seed` is set separately from the room DID, `grid_size` is
+/// a fixed resolution choice, and `material` (splat layers + rules)
+/// is updated by [`apply_shape_to_material`] / `apply_palette_to_material`.
+fn apply_shape_to_terrain_config(
+    shape: &crate::seeded_defaults::TerrainShape,
+    cfg: &mut SovereignTerrainConfig,
+) {
+    use crate::pds::terrain::SovereignGeneratorKind;
+    use crate::seeded_defaults::GeneratorKind;
+
+    cfg.generator_kind = match shape.generator_kind {
+        GeneratorKind::FbmNoise => SovereignGeneratorKind::FbmNoise,
+        GeneratorKind::DiamondSquare => SovereignGeneratorKind::DiamondSquare,
+        GeneratorKind::VoronoiTerracing => SovereignGeneratorKind::VoronoiTerracing,
+    };
+    cfg.octaves = shape.octaves;
+    cfg.persistence = Fp(shape.persistence);
+    cfg.lacunarity = Fp(shape.lacunarity);
+    cfg.base_frequency = Fp(shape.base_frequency);
+    cfg.ds_roughness = Fp(shape.ds_roughness);
+    cfg.voronoi_num_seeds = shape.voronoi_num_seeds;
+    cfg.voronoi_num_terraces = shape.voronoi_num_terraces;
+    cfg.height_scale = Fp(shape.height_scale);
+    cfg.cell_scale = Fp(shape.cell_scale);
+    cfg.erosion_enabled = shape.erosion_enabled;
+    cfg.erosion_drops = shape.erosion_drops;
+    cfg.erosion_rate = Fp(shape.erosion_rate);
+    cfg.deposition_rate = Fp(shape.deposition_rate);
+    cfg.capacity_factor = Fp(shape.capacity_factor);
+    cfg.thermal_enabled = shape.thermal_enabled;
+    cfg.thermal_iterations = shape.thermal_iterations;
+    cfg.thermal_talus_angle = Fp(shape.thermal_talus_angle);
+}
+
+/// Write seeded splat rules onto the four-layer material. Biome
+/// distribution (where grass/dirt/rock/snow each read as dominant on
+/// the slope/height surface) is the visible payoff here — an alpine
+/// room has a dramatically lower snow line than an arid one even
+/// before the textures themselves differ.
+fn apply_shape_to_material(
+    shape: &crate::seeded_defaults::TerrainShape,
+    material: &mut crate::pds::terrain::SovereignMaterialConfig,
+) {
+    for (i, rule) in shape.splat_rules.iter().enumerate() {
+        material.rules[i] = crate::pds::terrain::SovereignSplatRule {
+            height_min: Fp(rule.height_min),
+            height_max: Fp(rule.height_max),
+            slope_min: Fp(rule.slope_min),
+            slope_max: Fp(rule.slope_max),
+            sharpness: Fp(rule.sharpness),
+        };
+    }
+}
+
+/// Overwrite the per-layer procedural-texture knobs (seed, macro/micro
+/// scales, octaves, micro weight, normal strength) with the
+/// DID-seeded values. Each Ground / Rock layer keeps its existing
+/// colour (which was just set by `apply_palette_to_material`). As
+/// with the palette helper, layers that were swapped to a non-Ground
+/// / non-Rock variant are left alone.
+fn apply_textures_to_material(
+    textures: &crate::seeded_defaults::BiomeTextures,
+    material: &mut crate::pds::terrain::SovereignMaterialConfig,
+) {
+    use crate::pds::texture::SovereignTextureConfig;
+
+    if let SovereignTextureConfig::Ground(g) = &mut material.layers[0] {
+        apply_ground(&textures.grass, g);
+    }
+    if let SovereignTextureConfig::Ground(g) = &mut material.layers[1] {
+        apply_ground(&textures.dirt, g);
+    }
+    if let SovereignTextureConfig::Rock(r) = &mut material.layers[2] {
+        r.seed = textures.rock.seed;
+        r.scale = Fp64(textures.rock.scale);
+        r.octaves = textures.rock.octaves;
+        r.attenuation = Fp64(textures.rock.attenuation);
+        r.normal_strength = Fp(textures.rock.normal_strength);
+    }
+    if let SovereignTextureConfig::Ground(g) = &mut material.layers[3] {
+        apply_ground(&textures.snow, g);
+    }
+}
+
+fn apply_ground(
+    src: &crate::seeded_defaults::GroundTextureParams,
+    dst: &mut crate::pds::texture::SovereignGroundConfig,
+) {
+    dst.seed = src.seed;
+    dst.macro_scale = Fp64(src.macro_scale);
+    dst.macro_octaves = src.macro_octaves;
+    dst.micro_scale = Fp64(src.micro_scale);
+    dst.micro_octaves = src.micro_octaves;
+    dst.micro_weight = Fp64(src.micro_weight);
+    dst.normal_strength = Fp(src.normal_strength);
+}
+
+/// Project per-volume water dynamics onto a [`WaterSurface`]. Leaves
+/// flow / wake / colour fields alone — colours were already set from
+/// the palette, and flow / wake are opt-in features the seeded
+/// defaults shouldn't enable wholesale.
+fn apply_water_dynamics(src: &crate::seeded_defaults::WaterDynamics, dst: &mut WaterSurface) {
+    dst.wave_direction = Fp2(src.wave_direction);
+    dst.wave_scale = Fp(src.wave_scale);
+    dst.wave_speed = Fp(src.wave_speed);
+    dst.wave_choppiness = Fp(src.wave_choppiness);
+    dst.foam_amount = Fp(src.foam_amount);
+    dst.roughness = Fp(src.roughness);
+}
+
+/// Project the room-global [`crate::seeded_defaults::Atmosphere`]
+/// onto an [`Environment`]. Colours are already set from the palette
+/// (sun_color, sky_color, fog_color, cloud_color, etc.); this pass
+/// fills in everything else — sun position, illuminance, ambient,
+/// fog visibility, cloud cover / softness / motion, and the global
+/// water normal-map / glitter knobs.
+fn apply_atmosphere_to_environment(
+    src: &crate::seeded_defaults::Atmosphere,
+    env: &mut Environment,
+) {
+    env.sun_position = Fp3(src.sun_position);
+    env.sun_illuminance = Fp(src.sun_illuminance);
+    env.ambient_brightness = Fp(src.ambient_brightness);
+    env.fog_visibility = Fp(src.fog_visibility);
+    env.fog_sun_exponent = Fp(src.fog_sun_exponent);
+    env.water_normal_scale_near = Fp(src.water_normal_scale_near);
+    env.water_normal_scale_far = Fp(src.water_normal_scale_far);
+    env.water_sun_glitter = Fp(src.water_sun_glitter);
+    env.cloud_cover = Fp(src.cloud_cover);
+    env.cloud_density = Fp(src.cloud_density);
+    env.cloud_softness = Fp(src.cloud_softness);
+    env.cloud_speed = Fp(src.cloud_speed);
+    env.cloud_scale = Fp(src.cloud_scale);
+    env.cloud_height = Fp(src.cloud_height);
+    env.cloud_wind_dir = Fp2(src.cloud_wind_dir);
 }
 
 /// Return the terrain generator with the lexicographically smallest key.
