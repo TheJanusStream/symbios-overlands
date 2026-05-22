@@ -7,6 +7,7 @@
 //! around the player instead of whipping the view around.
 
 use bevy::audio::SpatialListener;
+#[cfg(not(target_arch = "wasm32"))]
 use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::{post_process::bloom::Bloom, prelude::*};
@@ -66,6 +67,19 @@ fn spawn_orbit_camera(mut commands: Commands) {
         // water-to-bottom distance for the shoreline-foam band (#257).
         // Cost: opaque scene geometry now runs a depth-only pre-pass;
         // non-water materials are otherwise visually unchanged.
+        //
+        // WebGL2 caveat: enabling the prepass also defines `DEPTH_PREPASS`
+        // for the main-pass PBR shaders, and Bevy's prepass-depth read
+        // path uses `textureLoad` on a depth texture — which naga's GLSL
+        // backend rejects with "WGSL `textureLoad` from depth textures is
+        // not supported in GLSL", panicking pipeline creation for every
+        // alpha-blend PBR material (cloud, water). The shoreline-foam
+        // block in water.wgsl is the only consumer in this codebase and
+        // is already `#ifdef DEPTH_PREPASS`-guarded, so omitting the
+        // component on wasm32 cleanly disables the feature — shore foam
+        // is the only visual loss on WebGL2, and only on water bodies
+        // whose room record sets `shore_foam_width > 0`.
+        #[cfg(not(target_arch = "wasm32"))]
         DepthPrepass,
         GizmoCamera,
         PanOrbitCamera {
