@@ -189,10 +189,7 @@ pub fn sanitize_kind(kind: &mut GeneratorKind) {
         | GeneratorKind::Torus { .. }
         | GeneratorKind::Plane { .. }
         | GeneratorKind::Tetrahedron { .. } => sanitize_primitive(kind),
-        GeneratorKind::Water {
-            level_offset,
-            surface,
-        } => sanitize_water(level_offset, surface),
+        GeneratorKind::Water { surface } => sanitize_water(surface),
         GeneratorKind::Sign {
             source,
             size,

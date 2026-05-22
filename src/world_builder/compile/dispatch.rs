@@ -141,10 +141,7 @@ pub fn spawn_generator(
         // place an unparented infinite cuboid at the world water level,
         // which is exactly the "stray top-level water" case the strict
         // rule forbids.
-        GeneratorKind::Water {
-            level_offset,
-            surface,
-        } => {
+        GeneratorKind::Water { surface } => {
             if !in_blueprint {
                 warn!("Water generator ignored at root at `{cache_key}`");
                 return None;
@@ -155,7 +152,6 @@ pub fn spawn_generator(
                 .unwrap_or_else(|| (tcfg::GRID_SIZE - 1) as f32 * tcfg::CELL_SCALE);
             Some(spawn_water_volume(
                 ctx.commands,
-                level_offset.0,
                 surface,
                 &ctx.record.environment,
                 transform,

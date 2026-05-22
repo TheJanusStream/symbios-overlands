@@ -311,12 +311,24 @@ impl RoomRecord {
         // captures the entire homeworld — heightmap + water — as one
         // portable blueprint.
         let mut base_region = Generator::from_kind(GeneratorKind::Terrain(terrain_cfg));
-        base_region
-            .children
-            .push(Generator::from_kind(GeneratorKind::Water {
-                level_offset: Fp(0.0),
+        // Historical sea level: 10 % of the canonical HEIGHT_SCALE. The
+        // spawner previously baked this baseline into every Water volume
+        // implicitly via `base_wl`; with that removed (and `level_offset`
+        // removed from the schema), the default homeworld preserves the
+        // same waterline by placing the Water generator at exactly that
+        // altitude via its placement transform.
+        let default_water_y =
+            crate::config::terrain::water::LEVEL_FACTOR * crate::config::terrain::HEIGHT_SCALE;
+        base_region.children.push(Generator {
+            kind: GeneratorKind::Water {
                 surface: water_surface,
-            }));
+            },
+            transform: TransformData {
+                translation: Fp3([0.0, default_water_y, 0.0]),
+                ..TransformData::default()
+            },
+            children: Vec::new(),
+        });
 
         let mut generators = HashMap::new();
         generators.insert("base_terrain".to_string(), base_region);
@@ -493,9 +505,17 @@ fn apply_palette_to_material(
         g.color_moist = Fp3(palette.dirt_moist);
     }
     // B — Rock
+    //
+    // The texture crate's field names are misleading: `color_light` is
+    // the GAP between stones (UI label "Color Gaps") and `color_dark`
+    // is the STONE face (UI label "Color Stone"). The ridged-multi-
+    // fractal noise peaks become the visible gap pattern, hence the
+    // counter-intuitive mapping. We name our palette fields after
+    // intent (rock_stone, rock_gap) and swap them here so the result
+    // reads correctly in-engine.
     if let SovereignTextureConfig::Rock(r) = &mut material.layers[2] {
-        r.color_light = Fp3(palette.rock_light);
-        r.color_dark = Fp3(palette.rock_dark);
+        r.color_light = Fp3(palette.rock_gap);
+        r.color_dark = Fp3(palette.rock_stone);
     }
     // A — Snow
     if let SovereignTextureConfig::Ground(g) = &mut material.layers[3] {

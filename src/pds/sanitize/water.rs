@@ -1,9 +1,8 @@
-//! Sanitiser for [`WaterSurface`] plus a paired helper that clamps the
-//! sibling `level_offset` field that lives on the `GeneratorKind::Water`
-//! variant. Without these clamps a hostile record can push NaN/infinity
-//! into the volume transform or into the per-fragment Gerstner-wave
-//! math, producing world-corrupting normals or a portalled-away
-//! `Plane3d` whose collider cannot be built.
+//! Sanitiser for [`WaterSurface`] plus a thin helper invoked by the
+//! `GeneratorKind::Water` arm of [`super::sanitize_generator`].
+//! Without these clamps a hostile record can push NaN/infinity into
+//! the per-fragment Gerstner-wave math, producing world-corrupting
+//! normals.
 
 use super::Sanitize;
 use super::common::clamp_finite;
@@ -86,13 +85,11 @@ impl Sanitize for WaterSurface {
     }
 }
 
-/// Clamp the `level_offset` + `WaterSurface` pair carried by the
-/// `GeneratorKind::Water` variant. Sits next to [`Sanitize for
-/// WaterSurface`] because the kind dispatcher unpacks both fields
-/// together and the level-offset clamp is only meaningful in that
-/// context.
-pub(super) fn sanitize_water(level_offset: &mut Fp, surface: &mut WaterSurface) {
-    let off = limits::MAX_WATER_LEVEL_OFFSET;
-    level_offset.0 = clamp_finite(level_offset.0, -off, off, 0.0);
+/// Sanitise the `WaterSurface` carried by the
+/// `GeneratorKind::Water` variant. Stays a free function (rather than
+/// folding into the `Sanitize` impl) so the kind dispatcher in
+/// [`super::sanitize_generator`] has one consistent call shape across
+/// every variant.
+pub(super) fn sanitize_water(surface: &mut WaterSurface) {
     surface.sanitize();
 }

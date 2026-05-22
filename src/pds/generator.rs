@@ -130,9 +130,13 @@ pub enum GeneratorKind {
     #[serde(rename = "network.symbios.gen.terrain")]
     Terrain(SovereignTerrainConfig),
 
+    /// Water volume. Vertical position comes from the placement
+    /// transform's translation.y — no separate level_offset field
+    /// (removed as redundant; see [`crate::pds::room`]'s
+    /// `default_for_did` for how the canonical homeworld places its
+    /// water at the historical altitude via the placement transform).
     #[serde(rename = "network.symbios.gen.water")]
     Water {
-        level_offset: Fp,
         #[serde(default)]
         surface: WaterSurface,
     },

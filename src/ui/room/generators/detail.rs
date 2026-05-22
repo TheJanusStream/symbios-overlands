@@ -129,11 +129,8 @@ fn draw_generator_detail(
 ) {
     match kind {
         GeneratorKind::Terrain(cfg) => draw_terrain_forge(ui, cfg, dirty),
-        GeneratorKind::Water {
-            level_offset,
-            surface,
-        } => {
-            draw_water_editor(ui, level_offset, surface, dirty);
+        GeneratorKind::Water { surface } => {
+            draw_water_editor(ui, surface, dirty);
         }
         GeneratorKind::LSystem {
             source_code,

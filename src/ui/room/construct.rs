@@ -124,7 +124,6 @@ pub(super) fn make_default_for_kind(kind: &str) -> GeneratorKind {
         },
         "Terrain" => GeneratorKind::Terrain(Default::default()),
         "Water" => GeneratorKind::Water {
-            level_offset: Fp(0.0),
             surface: WaterSurface::default(),
         },
         "Sign" => GeneratorKind::default_sign(),

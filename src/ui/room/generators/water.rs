@@ -1,22 +1,15 @@
-//! Per-volume water editor: the single `level_offset` slider plus the full
-//! [`WaterSurface`] knob set grouped into colour / wave / material / flow
-//! sub-panels.
+//! Per-volume water editor: the full [`WaterSurface`] knob set
+//! grouped into colour / wave / material / flow sub-panels. Vertical
+//! position is set via the generator's placement transform — there's
+//! no separate level-offset slider any more.
 
 use bevy_egui::egui;
 
-use crate::pds::{Fp, WaterSurface};
+use crate::pds::WaterSurface;
 
 use super::super::widgets::{color_picker_rgba, fp_slider};
 
-pub(super) fn draw_water_editor(
-    ui: &mut egui::Ui,
-    level_offset: &mut Fp,
-    surface: &mut WaterSurface,
-    dirty: &mut bool,
-) {
-    fp_slider(ui, "Level offset", level_offset, -20.0, 20.0, dirty);
-    ui.add_space(4.0);
-
+pub(super) fn draw_water_editor(ui: &mut egui::Ui, surface: &mut WaterSurface, dirty: &mut bool) {
     egui::CollapsingHeader::new("Colour")
         .default_open(true)
         .show(ui, |ui| {

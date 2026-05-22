@@ -52,8 +52,18 @@ pub struct RoomPalette {
     pub grass_moist: [f32; 3],
     pub dirt_dry: [f32; 3],
     pub dirt_moist: [f32; 3],
-    pub rock_light: [f32; 3],
-    pub rock_dark: [f32; 3],
+    /// Raised stone face — the lighter of the two rock colours. Maps
+    /// (after a deliberate swap, see [`crate::seeded_defaults`] →
+    /// `apply_palette_to_material`) onto `SovereignRockConfig::
+    /// color_dark`, which despite its name is what the texture crate
+    /// renders as the stone face (UI label "Color Stone").
+    pub rock_stone: [f32; 3],
+    /// Crack / gap between stones — much darker than the face so the
+    /// ridge pattern reads as shadow. Maps onto
+    /// `SovereignRockConfig::color_light` (UI label "Color Gaps"); the
+    /// texture crate uses ridged-multifractal noise where peak ridges
+    /// become the gap lines, hence the inverted-looking name.
+    pub rock_gap: [f32; 3],
     pub snow_dry: [f32; 3],
     pub snow_moist: [f32; 3],
 }
@@ -311,15 +321,19 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     );
 
     // Rocks: low chroma, hue lightly biased by base_hue so two rooms with
-    // the same biome read as different through their rocks.
+    // the same biome read as different through their rocks. `rock_gap`
+    // samples from a deliberately low lightness band so the crack
+    // pattern reads as shadow against the stone face — see the
+    // `RoomPalette` field docstrings for the texture-crate mapping
+    // that flips these two before they reach `SovereignRockConfig`.
     let rock_hue = base_hue + jitter(rng, 30.0);
-    let rock_light = col(
+    let rock_stone = col(
         range_f32(rng, 0.42, 0.54),
         0.04 * bt.rock_chroma_scale + jitter(rng, 0.01),
         rock_hue,
     );
-    let rock_dark = col(
-        range_f32(rng, 0.20, 0.30),
+    let rock_gap = col(
+        range_f32(rng, 0.08, 0.20),
         0.04 * bt.rock_chroma_scale + jitter(rng, 0.01),
         rock_hue + jitter(rng, 12.0),
     );
@@ -355,8 +369,8 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
         grass_moist,
         dirt_dry,
         dirt_moist,
-        rock_light,
-        rock_dark,
+        rock_stone,
+        rock_gap,
         snow_dry,
         snow_moist,
     }
@@ -410,8 +424,8 @@ mod tests {
                 assert!(finite_rgb(p.grass_moist));
                 assert!(finite_rgb(p.dirt_dry));
                 assert!(finite_rgb(p.dirt_moist));
-                assert!(finite_rgb(p.rock_light));
-                assert!(finite_rgb(p.rock_dark));
+                assert!(finite_rgb(p.rock_stone));
+                assert!(finite_rgb(p.rock_gap));
                 assert!(finite_rgb(p.snow_dry));
                 assert!(finite_rgb(p.snow_moist));
             }

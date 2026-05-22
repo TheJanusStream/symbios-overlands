@@ -647,7 +647,6 @@ mod tests {
         record.generators.insert(
             "water".to_string(),
             Generator::from_kind(GeneratorKind::Water {
-                level_offset: crate::pds::Fp(0.0),
                 surface: crate::pds::WaterSurface::default(),
             }),
         );

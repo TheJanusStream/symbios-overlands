@@ -110,11 +110,6 @@ pub const MAX_TORTURE_TAPER: f32 = 0.99;
 /// dramatic curl on a 1 m primitive; beyond that the vertex torture pass
 /// produces visually degenerate meshes the collider can't hug.
 pub const MAX_TORTURE_BEND: f32 = 10.0;
-/// Maximum absolute `level_offset` (metres) on a Water node. The compiler
-/// adds this to a base sea level and writes it into the volume's transform
-/// Y; an unbounded value would smuggle infinity into the entity transform
-/// and the water shader's per-fragment uniforms.
-pub const MAX_WATER_LEVEL_OFFSET: f32 = 10_000.0;
 /// Maximum Gerstner amplitude / time multiplier on a Water surface.
 /// Both feed shader uniforms and a runaway value produces NaN normals.
 pub const MAX_WAVE_SCALE: f32 = 100.0;

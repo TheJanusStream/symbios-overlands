@@ -9,7 +9,6 @@
 use bevy::prelude::*;
 use bevy_symbios_texture::build_procedural_material_async;
 
-use crate::config::terrain as tcfg;
 use crate::pds::{Environment, SovereignMaterialSettings, WaterSurface};
 use crate::terrain::WaterVolume;
 use crate::water::{
@@ -65,7 +64,6 @@ fn build_water_uniforms(surface: &WaterSurface, env: &Environment) -> WaterUnifo
 #[allow(clippy::too_many_arguments)]
 pub(super) fn spawn_water_volume(
     commands: &mut Commands,
-    level_offset: f32,
     surface: &WaterSurface,
     env: &Environment,
     placement_tf: Transform,
@@ -74,8 +72,12 @@ pub(super) fn spawn_water_volume(
     water_materials: &mut Assets<WaterMaterial>,
     water_surfaces: &mut WaterSurfaces,
 ) -> Entity {
-    let base_wl = tcfg::water::LEVEL_FACTOR * tcfg::HEIGHT_SCALE;
-    let wl = (base_wl + level_offset).max(0.001);
+    // Water sits at the placement transform's altitude exactly — the
+    // record no longer carries a `level_offset` field, and the old
+    // implicit `base_wl` baseline (LEVEL_FACTOR * HEIGHT_SCALE) is
+    // gone too. The default homeworld preserves its historical
+    // waterline by setting that altitude on the Water generator's
+    // placement transform inside `RoomRecord::default_for_did`.
 
     // Straight-down view colour seeds the StandardMaterial base colour for
     // any non-shader-overridden path (shadow-caster fallback, editor outline,
@@ -98,14 +100,14 @@ pub(super) fn spawn_water_volume(
         },
     });
 
-    // Flat `Plane3d` at the water-surface altitude. The previous iteration
-    // spawned a 1×1×1 `Cuboid` scaled to `(world_extent, wl, world_extent)`
-    // and then discarded five out of six faces in the fragment shader — a
-    // lot of rasterisation work for zero visible fragments, and
-    // `fwidth`-after-`discard` is only well-defined under uniform quad
-    // control flow. The plane eliminates both.
-    let mut tf = placement_tf;
-    tf.translation.y += wl;
+    // Flat `Plane3d` at the placement transform's altitude. The
+    // previous iteration spawned a 1×1×1 `Cuboid` scaled to
+    // `(world_extent, wl, world_extent)` and then discarded five out
+    // of six faces in the fragment shader — a lot of rasterisation
+    // work for zero visible fragments, and `fwidth`-after-`discard`
+    // is only well-defined under uniform quad control flow. The plane
+    // eliminates both.
+    let tf = placement_tf;
 
     let half_extent = world_extent / 2.0;
 
