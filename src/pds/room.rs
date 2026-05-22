@@ -311,20 +311,20 @@ impl RoomRecord {
         // captures the entire homeworld — heightmap + water — as one
         // portable blueprint.
         let mut base_region = Generator::from_kind(GeneratorKind::Terrain(terrain_cfg));
-        // Historical sea level: 10 % of the canonical HEIGHT_SCALE. The
-        // spawner previously baked this baseline into every Water volume
-        // implicitly via `base_wl`; with that removed (and `level_offset`
-        // removed from the schema), the default homeworld preserves the
-        // same waterline by placing the Water generator at exactly that
-        // altitude via its placement transform.
-        let default_water_y =
-            crate::config::terrain::water::LEVEL_FACTOR * crate::config::terrain::HEIGHT_SCALE;
+        // Water altitude is the seeded `water_level_fraction` of the
+        // seeded `height_scale`. Expressed as a fraction so a tall
+        // craggy room and a short rolling room can both read as "30 %
+        // submerged" — the absolute Y differs but the proportion of
+        // land vs water stays meaningful. Archetype + biome biases
+        // happen inside `TerrainShape::from_scene`; here we just
+        // multiply out.
+        let seeded_water_y = shape.water_level_fraction * shape.height_scale;
         base_region.children.push(Generator {
             kind: GeneratorKind::Water {
                 surface: water_surface,
             },
             transform: TransformData {
-                translation: Fp3([0.0, default_water_y, 0.0]),
+                translation: Fp3([0.0, seeded_water_y, 0.0]),
                 ..TransformData::default()
             },
             children: Vec::new(),

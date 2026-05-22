@@ -69,6 +69,17 @@ pub struct TerrainShape {
 
     /// Per-layer splat rule (R Grass, G Dirt, B Rock, A Snow).
     pub splat_rules: [SplatRule; 4],
+
+    /// Sea-level altitude expressed as a fraction of [`Self::
+    /// height_scale`]. Lives on `TerrainShape` rather than the
+    /// atmosphere deriver because the meaningful coordinate system
+    /// is the terrain's own (a "30 % submerged" room reads the same
+    /// at any seeded height scale). Biased by landform (archipelago
+    /// pushes water high so islands stand proud, mesa/craggy pull it
+    /// low) and by biome (arid / volcanic dry it down a notch). The
+    /// caller multiplies by `height_scale` to get the world-Y the
+    /// Water generator's placement transform should sit at.
+    pub water_level_fraction: f32,
 }
 
 impl TerrainShape {
@@ -109,6 +120,11 @@ struct LandformProfile {
     voronoi_num_terraces: (u32, u32),
     /// Voronoi seed point count.
     voronoi_num_seeds: (u32, u32),
+    /// Water level as a fraction of `height_scale`. Archipelago is
+    /// high (lots of islands), mesa/craggy/volcanic are low (mostly
+    /// dry); the biome-side multiplier in [`derive`] biases this
+    /// further.
+    water_level_fraction: (f32, f32),
 }
 
 fn landform_profile(l: LandformArchetype) -> LandformProfile {
@@ -128,6 +144,7 @@ fn landform_profile(l: LandformArchetype) -> LandformProfile {
             base_frequency: (2.5, 4.5),
             voronoi_num_terraces: (1, 2),
             voronoi_num_seeds: (600, 1200),
+            water_level_fraction: (0.10, 0.25),
         },
         Craggy => LandformProfile {
             generator_kind: FbmNoise,
@@ -142,6 +159,7 @@ fn landform_profile(l: LandformArchetype) -> LandformProfile {
             base_frequency: (4.0, 7.0),
             voronoi_num_terraces: (1, 2),
             voronoi_num_seeds: (800, 1600),
+            water_level_fraction: (0.05, 0.18),
         },
         Mesa => LandformProfile {
             generator_kind: VoronoiTerracing,
@@ -156,6 +174,7 @@ fn landform_profile(l: LandformArchetype) -> LandformProfile {
             base_frequency: (3.0, 5.5),
             voronoi_num_terraces: (3, 6),
             voronoi_num_seeds: (400, 900),
+            water_level_fraction: (0.05, 0.15),
         },
         Archipelago => LandformProfile {
             generator_kind: FbmNoise,
@@ -170,6 +189,7 @@ fn landform_profile(l: LandformArchetype) -> LandformProfile {
             base_frequency: (2.0, 3.5),
             voronoi_num_terraces: (1, 2),
             voronoi_num_seeds: (600, 1200),
+            water_level_fraction: (0.28, 0.48),
         },
         Valleys => LandformProfile {
             generator_kind: FbmNoise,
@@ -184,6 +204,7 @@ fn landform_profile(l: LandformArchetype) -> LandformProfile {
             base_frequency: (3.0, 5.0),
             voronoi_num_terraces: (1, 2),
             voronoi_num_seeds: (700, 1400),
+            water_level_fraction: (0.12, 0.28),
         },
     }
 }
@@ -340,7 +361,28 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> TerrainShape {
         thermal_iterations,
         thermal_talus_angle: sample_f32(rng, lp.thermal_talus_angle),
         splat_rules,
+        water_level_fraction: derive_water_level_fraction(scene, rng, &lp),
     }
+}
+
+/// Sample the water level (fraction of `height_scale`) from the
+/// landform's range, then bias it by biome. Arid / volcanic / tundra
+/// dry the planet down; lush / coastal raise it. The final value is
+/// clamped into a sane band so even adversarial multipliers can't
+/// drown every terrain or strand all the water.
+fn derive_water_level_fraction(
+    scene: &SceneCharacter,
+    rng: &mut ChaCha8Rng,
+    lp: &LandformProfile,
+) -> f32 {
+    let base = sample_f32(rng, lp.water_level_fraction);
+    let biome_mul = match scene.biome {
+        BiomeArchetype::Arid | BiomeArchetype::Volcanic => 0.70,
+        BiomeArchetype::Tundra | BiomeArchetype::Alpine => 0.85,
+        BiomeArchetype::Lush => 1.05,
+        BiomeArchetype::Coastal => 1.15,
+    };
+    (base * biome_mul).clamp(0.02, 0.55)
 }
 
 // ---------------------------------------------------------------------------
@@ -404,6 +446,46 @@ mod tests {
                         assert!(rule.height_min <= rule.height_max);
                         assert!(rule.sharpness > 0.0);
                     }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn archipelago_floats_higher_than_mesa() {
+        // Archipelago vessels need a high water line so the landforms
+        // read as islands; mesa rooms keep water low so the plateaus
+        // read as dry. Average across many seeds to dampen the
+        // sampling jitter and the biome multiplier.
+        let mut arch_total = 0.0;
+        let mut mesa_total = 0.0;
+        for s in 0u64..64 {
+            let mut arch = SceneCharacter::for_seed(s);
+            arch.landform = LandformArchetype::Archipelago;
+            arch_total += TerrainShape::from_scene(&arch, s).water_level_fraction;
+
+            let mut mesa = SceneCharacter::for_seed(s);
+            mesa.landform = LandformArchetype::Mesa;
+            mesa_total += TerrainShape::from_scene(&mesa, s).water_level_fraction;
+        }
+        assert!(
+            arch_total > mesa_total,
+            "archipelago water={arch_total} should sit above mesa={mesa_total}"
+        );
+    }
+
+    #[test]
+    fn water_level_fraction_in_safe_range() {
+        // The clamp in `derive_water_level_fraction` should keep the
+        // value well away from 0 (dry world) and 1 (drowned world).
+        for landform in LandformArchetype::ALL {
+            for biome in BiomeArchetype::ALL {
+                for s in 0u64..4 {
+                    let mut scene = SceneCharacter::for_seed(s);
+                    scene.landform = landform;
+                    scene.biome = biome;
+                    let f = TerrainShape::from_scene(&scene, s).water_level_fraction;
+                    assert!((0.02..=0.55).contains(&f), "{landform:?}/{biome:?}: {f}");
                 }
             }
         }
