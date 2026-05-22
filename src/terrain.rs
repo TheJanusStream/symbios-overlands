@@ -644,11 +644,20 @@ fn apply_splat_textures(
         // Bind the avatar-interaction stains overlay (#245). The image
         // is allocated zeroed at startup, so enabling it now is inert
         // until the stamper writes contacts — backward-compatible.
+        //
+        // wasm32 (WebGL2) skips this binding entirely — see the note on
+        // `SplatExtension::stains_tex` in `crate::splat`: the GLES backend
+        // caps fragment shaders at 16 texture slots and the splat material
+        // already sits at that ceiling, so the stains overlay is gated off
+        // and the consumer assignments below are unreachable on wasm.
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(stains) = stains.as_ref() {
             mat.extension.stains_tex = stains.handle.clone();
             mat.extension.stains.world_period = scfg::WORLD_PERIOD;
             mat.extension.stains.enabled = 1;
         }
+        #[cfg(target_arch = "wasm32")]
+        let _ = stains;
     }
 
     state.applied = true;

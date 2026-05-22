@@ -78,17 +78,25 @@ struct SplatUniforms {
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(106) var<uniform> splat_uniforms: SplatUniforms;
 
-/// Avatar-interaction stains overlay (Phase 3, #245). RGBA:
-///   R = wetness, G = kicked-up dust, B = footprint indent, A = reserved.
-/// Sampled toroidally at `fract(world.xz / world_period)` with a Repeat
-/// sampler — no camera recenter, so no origin pop.
+// Avatar-interaction stains overlay (Phase 3, #245). RGBA:
+//   R = wetness, G = kicked-up dust, B = footprint indent, A = reserved.
+// Sampled toroidally at `fract(world.xz / world_period)` with a Repeat
+// sampler — no camera recenter, so no origin pop.
+//
+// `STAINS_BINDING` is emitted by `SplatExtension::specialize` only on
+// non-wasm targets — on wasm32 (WebGL2) the GLES backend caps fragment
+// shaders at 16 texture slots and the rest of the splat material plus
+// Bevy's view-group / StandardMaterial textures already occupy it.
+// Skipping bindings 107/108/109 and the consuming code path keeps the
+// pipeline under the cap; terrain renders without the overlay there.
+#ifdef STAINS_BINDING
 @group(#{MATERIAL_BIND_GROUP}) @binding(107) var stains_tex: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(108) var stains_sampler: sampler;
 
 struct StainsUniforms {
-    /// World-space side length (m) the stains texture tiles over.
+    // World-space side length (m) the stains texture tiles over.
     world_period: f32,
-    /// Non-zero enables stains modulation; zero = terrain unchanged.
+    // Non-zero enables stains modulation; zero = terrain unchanged.
     enabled: u32,
     // Pad to 16 bytes — WebGL2 (DownlevelFlags::BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED
     // unsupported) requires every uniform block be a multiple of 16 bytes.
@@ -98,6 +106,7 @@ struct StainsUniforms {
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(109) var<uniform> stains_uniforms: StainsUniforms;
+#endif // STAINS_BINDING
 
 // ---------------------------------------------------------------------------
 // Triplanar helpers (used for the Rock layer only)
@@ -288,6 +297,11 @@ fn fragment(
     // Repeat sampler handles the seam. When `enabled == 0` the binding
     // is the default 1×1 image and this whole block is skipped, so the
     // terrain renders exactly as before (backward-compat).
+    //
+    // Gated by `STAINS_BINDING` because bindings 107/108/109 are only
+    // declared on non-wasm targets — see the explanation at the binding
+    // site above.
+#ifdef STAINS_BINDING
     if stains_uniforms.enabled != 0u {
         let stains_uv = fract(in.world_position.xz / stains_uniforms.world_period);
         let st = textureSample(stains_tex, stains_sampler, stains_uv);
@@ -316,6 +330,7 @@ fn fragment(
         let n = pbr_input.N;
         pbr_input.N = normalize(vec3<f32>(n.x, n.y * (1.0 - 0.2 * foot), n.z));
     }
+#endif // STAINS_BINDING
 
 #ifdef PREPASS_PIPELINE
     let out = deferred_output(in, pbr_input);

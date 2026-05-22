@@ -53,8 +53,22 @@ pub struct StainsUniforms {
 /// - 102/103  albedo `texture_2d_array` (4 layers) + sampler
 /// - 104/105  normal `texture_2d_array` (4 layers) + sampler
 /// - 106      [`SplatUniforms`] uniform
-/// - 107/108  stains overlay (RGBA: wet/dust/footprint) + sampler
-/// - 109      [`StainsUniforms`] uniform
+/// - 107/108  stains overlay (RGBA: wet/dust/footprint) + sampler (native only — see below)
+/// - 109      [`StainsUniforms`] uniform (native only — see below)
+///
+/// The stains overlay (bindings 107/108/109) is disabled on `wasm32`
+/// because wgpu-hal's GLES backend caps each fragment shader at
+/// `MAX_TEXTURE_SLOTS = 16` (matches WebGL2's `MAX_TEXTURE_IMAGE_UNITS`).
+/// Counting Bevy's view-group shadow + IBL textures plus `StandardMaterial`'s
+/// PBR textures, the splat material already sits right at that ceiling; the
+/// stains overlay was the +1 that pushed pipeline creation into a panic at
+/// wgpu-hal-27.0.4/src/gles/device.rs:87 (`self.sampler_map[16]` overflow).
+/// Native + WebGPU keep the feature; WebGL2 simply skips the avatar-stains
+/// overlay (terrain renders as it did before #245 landed).
+///
+/// The corresponding bindings in `assets/shaders/splat.wgsl` are guarded
+/// by `#ifdef STAINS_BINDING`, and [`SplatExtension::specialize`] emits
+/// that shader-def only on non-wasm targets.
 #[derive(Asset, TypePath, AsBindGroup, Clone, Default)]
 pub struct SplatExtension {
     #[texture(100)]
@@ -75,10 +89,12 @@ pub struct SplatExtension {
     /// Avatar-interaction stains overlay (#245). Defaults to Bevy's
     /// 1×1 white image; `stains.enabled` stays 0 until the stamper
     /// binds the real texture, so terrain renders unchanged meanwhile.
+    #[cfg(not(target_arch = "wasm32"))]
     #[texture(107)]
     #[sampler(108)]
     pub stains_tex: Handle<Image>,
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[uniform(109)]
     pub stains: StainsUniforms,
 }
@@ -90,6 +106,26 @@ impl MaterialExtension for SplatExtension {
 
     fn deferred_fragment_shader() -> ShaderRef {
         SPLAT_SHADER_PATH.into()
+    }
+
+    fn specialize(
+        _pipeline: &bevy::pbr::MaterialExtensionPipeline,
+        descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
+        _layout: &bevy::mesh::MeshVertexBufferLayoutRef,
+        _key: bevy::pbr::MaterialExtensionKey<Self>,
+    ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
+        // Gate the stains bindings in `splat.wgsl` so they only exist
+        // on targets that have the corresponding Rust-side fields.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use bevy::shader::ShaderDefVal;
+            let def: ShaderDefVal = "STAINS_BINDING".into();
+            descriptor.vertex.shader_defs.push(def.clone());
+            if let Some(fragment) = descriptor.fragment.as_mut() {
+                fragment.shader_defs.push(def);
+            }
+        }
+        Ok(())
     }
 }
 
