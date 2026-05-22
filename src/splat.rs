@@ -29,6 +29,11 @@ pub struct SplatUniforms {
 
 /// GPU uniform block for the avatar-interaction stains overlay
 /// (Phase 3, #245), shared with `splat.wgsl`.
+///
+/// Padded to 16 bytes so the UBO meets WebGL2's `min_uniform_buffer_offset_alignment`
+/// /  binding-size constraint (DownlevelFlags::BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED
+/// is unsupported on WebGL2; the device-side validator rejects a struct sized 8).
+/// Mirror the trailing `_pad` fields in `StainsUniforms` in `splat.wgsl`.
 #[derive(Debug, Clone, Default, ShaderType)]
 pub struct StainsUniforms {
     /// World-space side length (m) the toroidal stains texture tiles
@@ -37,6 +42,8 @@ pub struct StainsUniforms {
     /// Non-zero enables the stains modulation; zero passes terrain
     /// through unchanged (backward-compat when no stamper is active).
     pub enabled: u32,
+    pub _pad0: u32,
+    pub _pad1: u32,
 }
 
 /// [`MaterialExtension`] that drives `splat.wgsl`.

@@ -90,6 +90,11 @@ struct StainsUniforms {
     world_period: f32,
     /// Non-zero enables stains modulation; zero = terrain unchanged.
     enabled: u32,
+    // Pad to 16 bytes — WebGL2 (DownlevelFlags::BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED
+    // unsupported) requires every uniform block be a multiple of 16 bytes.
+    // Mirrors `_pad0`/`_pad1` on the Rust `StainsUniforms`.
+    _pad0: u32,
+    _pad1: u32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(109) var<uniform> stains_uniforms: StainsUniforms;
