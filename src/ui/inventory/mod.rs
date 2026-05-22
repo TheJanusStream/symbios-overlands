@@ -51,15 +51,19 @@ pub struct InventoryEditorState {
 #[derive(Component)]
 pub struct PublishInventoryTask(pub bevy::tasks::Task<Result<(), String>>);
 
-/// Origin of a drag-to-place operation. The raycast + placement path is
-/// identical for both sources; only the generator lookup differs — inventory
-/// drops copy a blueprint into the room's `generators` map under a
-/// collision-safe key, while room-editor drops reuse the existing key.
+/// Origin of a drag-to-place operation. The raycast + placement path
+/// is identical for every source; only the generator lookup differs.
+/// Inventory drops copy a blueprint into the room's `generators` map
+/// under a collision-safe key; room-editor drops reuse the existing
+/// key; catalogue drops resolve the slug against
+/// [`crate::catalogue::by_slug`] and stamp a fresh deep-copied
+/// blueprint into the room's `generators` map.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub enum DropSource {
     #[default]
     Inventory,
     RoomGenerators,
+    Catalogue,
 }
 
 /// Egui → world drag handoff. The UI side sets the generator name and source

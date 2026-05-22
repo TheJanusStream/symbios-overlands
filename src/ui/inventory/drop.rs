@@ -110,6 +110,7 @@ pub fn handle_generator_drop(
             DropSource::RoomGenerators => room
                 .as_deref()
                 .and_then(|r| r.0.generators.get(&name).cloned()),
+            DropSource::Catalogue => crate::catalogue::by_slug(&name).map(|entry| entry.build()),
         };
         let Some(generator) = generator_opt else {
             warn!("Peer-gift drop: source generator '{}' not found", name);
@@ -165,8 +166,10 @@ pub fn handle_generator_drop(
     if session.did != room_did.0 {
         return;
     }
-    // Inventory-sourced drops need the live stash to pull the blueprint from;
-    // room-generator drops don't touch the inventory resource at all.
+    // Inventory-sourced drops need the live stash to pull the
+    // blueprint from; room-generator drops don't touch the inventory
+    // resource at all; catalogue drops resolve a slug against the
+    // code-shipped registry and never look at the inventory.
     let inventory = match source {
         DropSource::Inventory => {
             let Some(inv) = inventory else {
@@ -174,7 +177,7 @@ pub fn handle_generator_drop(
             };
             Some(inv)
         }
-        DropSource::RoomGenerators => None,
+        DropSource::RoomGenerators | DropSource::Catalogue => None,
     };
 
     // Releasing over any egui area (notably the Inventory window itself) is
@@ -243,6 +246,25 @@ pub fn handle_generator_drop(
                 return;
             }
             name.clone()
+        }
+        DropSource::Catalogue => {
+            // `name` carries the catalogue entry's slug. Resolve to
+            // its trait object and build a fresh generator tree on
+            // every drop — the catalogue is a stamp library, not a
+            // reference type, so each placement is fully
+            // independent. Drops referencing an unknown slug (e.g.
+            // pending state from a build that removed the entry)
+            // silently no-op.
+            let Some(entry) = crate::catalogue::by_slug(&name) else {
+                return;
+            };
+            let generator = entry.build();
+            if !is_drop_placeable(&generator) {
+                return;
+            }
+            let key = choose_room_generator_key(&record.generators, &name, &generator);
+            record.generators.entry(key.clone()).or_insert(generator);
+            key
         }
     };
 

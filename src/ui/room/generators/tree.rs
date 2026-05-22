@@ -118,6 +118,52 @@ pub(super) fn draw_tree_panel(
                 }
             });
         }
+
+        // Catalogue submenu — the client-shipped sibling of Inventory.
+        // Same shape as "+ From Inventory": click an entry to stamp a
+        // fresh copy into the tree as a new root. Category headers
+        // (Buildings / Plants / Patterns) come from
+        // [`crate::catalogue::CatalogueCategory::ALL`] and are skipped
+        // when empty so the menu stays compact as new categories are
+        // added.
+        if !crate::catalogue::ENTRIES.is_empty() {
+            ui.menu_button("+ From Catalogue", |ui| {
+                let mut picked: Option<(String, Generator)> = None;
+                for category in crate::catalogue::CatalogueCategory::ALL {
+                    let entries_here: Vec<_> = crate::catalogue::ENTRIES
+                        .iter()
+                        .copied()
+                        .filter(|e| e.category() == category)
+                        .collect();
+                    if entries_here.is_empty() {
+                        continue;
+                    }
+                    ui.label(
+                        bevy_egui::egui::RichText::new(category.label())
+                            .strong()
+                            .color(bevy_egui::egui::Color32::from_rgb(180, 180, 220)),
+                    );
+                    for entry in entries_here {
+                        if ui
+                            .button(entry.name())
+                            .on_hover_text(entry.description())
+                            .clicked()
+                        {
+                            picked = Some((entry.slug().to_string(), entry.build()));
+                            ui.close();
+                        }
+                    }
+                }
+                if let Some((slug, g)) = picked
+                    && let Some(new_name) = source.add_root(&slug, g)
+                {
+                    *selected_generator = Some(new_name.clone());
+                    *selected_prim_path = Some(Vec::new());
+                    tree_view_state.set_one_selected(GenNodeId::root(new_name));
+                    *dirty = true;
+                }
+            });
+        }
     });
 
     ui.separator();

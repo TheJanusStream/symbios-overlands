@@ -14,10 +14,14 @@
 //!   Car preset picker with per-preset physics tuning).
 //! * [`inventory`]    — personal stash of `Generator` blueprints, with
 //!   drag-to-place onto terrain and drag-to-gift onto peer rows.
+//! * [`catalogue`]    — read-only browser for client-shipped catalogue
+//!   entries (see [`crate::catalogue`]), with the same drag-to-place
+//!   semantics as `inventory`.
 //! * [`room`]         — owner-only tabbed World Editor (Environment /
 //!   Region Assets / Placements / Raw JSON), gated on `session.did == room.did`.
 
 pub mod avatar;
+pub mod catalogue;
 pub mod chat;
 pub mod diagnostics;
 pub mod editable;

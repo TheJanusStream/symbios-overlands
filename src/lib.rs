@@ -32,6 +32,7 @@ use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 pub mod avatar;
 pub mod boot_params;
 pub mod camera;
+pub mod catalogue;
 pub mod clouds;
 pub mod config;
 pub mod editor_gizmo;
@@ -246,6 +247,7 @@ pub fn run() {
                 ui::avatar::avatar_ui,
                 ui::room::room_admin_ui,
                 ui::inventory::inventory_ui,
+                ui::catalogue::catalogue_ui,
             )
                 .run_if(in_state(AppState::InGame)),
         )
