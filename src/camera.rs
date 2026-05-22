@@ -36,6 +36,17 @@ fn spawn_orbit_camera(mut commands: Commands) {
     let fc = cfg::fog::COLOR;
     commands.spawn((
         Camera3d::default(),
+        // WebGL2's `glow` backend has no `tex_storage_2d_multisample`
+        // entrypoint, so Bevy's default `Msaa::Sample4` panics during
+        // render-target allocation as soon as the first frame renders
+        // (panicked at glow-0.16.0/.../web_sys.rs: "Tex storage 2D
+        // multisample is not supported"). Native and WebGPU paths handle
+        // MSAA fine; only WebGL2 needs the opt-out. Disabling on every
+        // wasm build is the safe superset — modern browsers exposing
+        // WebGPU still work with MSAA off, and we don't depend on
+        // anti-aliased edges anywhere visually critical.
+        #[cfg(target_arch = "wasm32")]
+        Msaa::Off,
         // Bevy's default perspective far plane is 1000 m, which clips the
         // cloud-deck plane (at altitude ~250 m, half-extent 4 km) before
         // the shader's horizon-fade has a chance to dissolve it. Pushing
