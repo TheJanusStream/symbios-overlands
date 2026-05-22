@@ -15,6 +15,7 @@ pub mod lsys_sympodial_tree;
 pub mod lsys_ternary_gravity;
 pub mod lsys_ternary_props;
 pub mod medieval_castle;
+pub mod my_teleporter;
 pub mod villa;
 
 /// The full set of catalogue entries the client ships with. Order is
@@ -33,6 +34,8 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &lsys_branching::BranchingPattern,
     &lsys_koch_island::QuadraticKochIsland,
     &lsys_sierpinski::SierpinskiGasket,
+    // Tools — utility items personalised at build time.
+    &my_teleporter::MyTeleporter,
 ];
 
 /// Resolve a slug to its entry. Returns `None` if the slug doesn't

@@ -25,7 +25,7 @@ impl CatalogueEntry for BranchingPattern {
     fn category(&self) -> CatalogueCategory {
         CatalogueCategory::Patterns
     }
-    fn build(&self) -> Generator {
+    fn build(&self, _local_did: &str) -> Generator {
         Generator::from_kind(build_kind())
     }
 }
@@ -68,7 +68,7 @@ mod tests {
 
     #[test]
     fn build_round_trips_through_sanitize() {
-        let mut g = BranchingPattern.build();
+        let mut g = BranchingPattern.build("");
         sanitize_generator(&mut g);
         assert!(matches!(g.kind, GeneratorKind::LSystem { .. }));
     }

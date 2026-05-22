@@ -252,8 +252,10 @@ pub(super) fn unique_key<T>(map: &std::collections::HashMap<String, T>, prefix: 
 /// (drag-to-place).
 pub(super) fn default_lsystem_kind() -> GeneratorKind {
     use crate::catalogue::CatalogueEntry;
+    // Only the kind discriminant is consumed here; the local-DID
+    // parameter is irrelevant for TernaryPropsTree (no DID slot).
     crate::catalogue::items::lsys_ternary_props::TernaryPropsTree
-        .build()
+        .build("")
         .kind
 }
 
@@ -268,5 +270,7 @@ pub(super) fn default_lsystem_kind() -> GeneratorKind {
 /// [`super::construct::make_default_for_kind`].
 pub(super) fn default_shape_kind() -> GeneratorKind {
     use crate::catalogue::CatalogueEntry;
-    crate::catalogue::items::villa::Villa.build().kind
+    // Only the kind discriminant is consumed here; Villa has no DID
+    // slot, so the local-DID parameter is irrelevant.
+    crate::catalogue::items::villa::Villa.build("").kind
 }

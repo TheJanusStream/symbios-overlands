@@ -25,7 +25,7 @@ impl CatalogueEntry for SympodialTree {
     fn category(&self) -> CatalogueCategory {
         CatalogueCategory::Plants
     }
-    fn build(&self) -> Generator {
+    fn build(&self, _local_did: &str) -> Generator {
         Generator::from_kind(build_kind())
     }
 }
@@ -74,7 +74,7 @@ mod tests {
 
     #[test]
     fn build_round_trips_through_sanitize() {
-        let mut g = SympodialTree.build();
+        let mut g = SympodialTree.build("");
         sanitize_generator(&mut g);
         assert!(matches!(g.kind, GeneratorKind::LSystem { .. }));
     }

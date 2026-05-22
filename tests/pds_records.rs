@@ -51,9 +51,14 @@ fn default_record_serialises_without_floats() {
     let mut record = RoomRecord::default_for_did("did:plc:test");
     record.environment.sun_color = Fp3([0.98, 0.95, 0.82]);
     if let Some(g) = record.generators.get_mut("base_water")
-        && let GeneratorKind::Water { level_offset, .. } = &mut g.kind
+        && let GeneratorKind::Water { surface } = &mut g.kind
     {
-        *level_offset = Fp(2.5);
+        // Introduce a non-trivial Fp value on the surface to keep the
+        // regression covering Water's serialised float-shape — the
+        // standalone `level_offset` field was retired (the placement
+        // transform's Y now anchors vertical position), so we pin a
+        // distinctive value on a remaining Fp field instead.
+        surface.wave_scale = Fp(2.5);
     }
     record.placements.push(Placement::Scatter {
         generator_ref: "base_terrain".to_string(),

@@ -110,7 +110,9 @@ pub fn handle_generator_drop(
             DropSource::RoomGenerators => room
                 .as_deref()
                 .and_then(|r| r.0.generators.get(&name).cloned()),
-            DropSource::Catalogue => crate::catalogue::by_slug(&name).map(|entry| entry.build()),
+            DropSource::Catalogue => {
+                crate::catalogue::by_slug(&name).map(|entry| entry.build(&sess.did))
+            }
         };
         let Some(generator) = generator_opt else {
             warn!("Peer-gift drop: source generator '{}' not found", name);
@@ -258,7 +260,7 @@ pub fn handle_generator_drop(
             let Some(entry) = crate::catalogue::by_slug(&name) else {
                 return;
             };
-            let generator = entry.build();
+            let generator = entry.build(&session.did);
             if !is_drop_placeable(&generator) {
                 return;
             }

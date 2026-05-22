@@ -159,7 +159,6 @@ fn scatter_pointing_at_water_root_is_dropped() {
     r.generators.insert(
         "rogue_water".into(),
         Generator::from_kind(GeneratorKind::Water {
-            level_offset: Fp(0.0),
             surface: WaterSurface::default(),
         }),
     );
@@ -288,7 +287,6 @@ fn generator_rejects_water_at_root() {
     // every Water volume in a record has an ancestor whose transform
     // anchors it (typically a Terrain root in a region blueprint).
     let mut root = Generator::from_kind(GeneratorKind::Water {
-        level_offset: Fp(0.0),
         surface: Default::default(),
     });
     sanitize_generator(&mut root);
@@ -307,7 +305,6 @@ fn water_is_allowed_as_child() {
     let mut root = Generator::from_kind(GeneratorKind::Terrain(Default::default()));
     root.children
         .push(Generator::from_kind(GeneratorKind::Water {
-            level_offset: Fp(0.0),
             surface: Default::default(),
         }));
 
@@ -332,7 +329,6 @@ fn terrain_root_keeps_authored_children() {
     terrain_root
         .children
         .push(Generator::from_kind(GeneratorKind::Water {
-            level_offset: Fp(0.0),
             surface: Default::default(),
         }));
 
@@ -351,7 +347,6 @@ fn water_child_strips_authored_grandchildren() {
     // spawner in sync.
     let mut root = Generator::default();
     let mut water_child = Generator::from_kind(GeneratorKind::Water {
-        level_offset: Fp(0.0),
         surface: Default::default(),
     });
     water_child.children.push(Generator::default_cuboid());

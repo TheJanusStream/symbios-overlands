@@ -149,7 +149,14 @@ pub(super) fn draw_tree_panel(
                             .on_hover_text(entry.description())
                             .clicked()
                         {
-                            picked = Some((entry.slug().to_string(), entry.build()));
+                            // Stamp without the local DID here — this
+                            // submenu seeds the editor with a fresh
+                            // blueprint, and personalisable entries
+                            // (e.g. Teleporter) get their DID filled
+                            // in at gift/drop time. Editors can also
+                            // type it into the target_did field by
+                            // hand.
+                            picked = Some((entry.slug().to_string(), entry.build("")));
                             ui.close();
                         }
                     }

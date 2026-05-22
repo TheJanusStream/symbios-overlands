@@ -102,7 +102,11 @@ fn draw_row(
     // The build call is cheap (a few HashMap inserts + a string clone)
     // and only runs once per row per frame; `Resp::on_hover_text` below
     // gives the user the description tooltip without an extra build.
-    let placeable = is_drop_placeable(&entry.build());
+    // Placeability only inspects the kind discriminant, so the
+    // local-DID stamp is irrelevant — pass an empty placeholder. The
+    // real drag-release path in [`crate::ui::inventory::drop`] threads
+    // the session DID when it materialises the actual generator.
+    let placeable = is_drop_placeable(&entry.build(""));
 
     ui.horizontal(|ui| {
         if can_drag_place && placeable {

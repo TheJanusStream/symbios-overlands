@@ -34,7 +34,7 @@ impl CatalogueEntry for Villa {
     fn category(&self) -> CatalogueCategory {
         CatalogueCategory::Buildings
     }
-    fn build(&self) -> Generator {
+    fn build(&self, _local_did: &str) -> Generator {
         Generator::from_kind(build_kind())
     }
 }
@@ -248,7 +248,7 @@ mod tests {
 
     #[test]
     fn build_round_trips_through_sanitize() {
-        let mut g = Villa.build();
+        let mut g = Villa.build("");
         sanitize_generator(&mut g);
         match &g.kind {
             GeneratorKind::Shape {

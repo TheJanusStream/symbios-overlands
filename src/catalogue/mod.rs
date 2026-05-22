@@ -29,16 +29,18 @@ use crate::pds::Generator;
 /// Top-level grouping for catalogue items. Used by the catalogue
 /// window to section the list — `Buildings` shows the architectural
 /// shape entries, `Plants` shows the L-system trees, `Patterns` is
-/// for the abstract fractal demos (Koch, Sierpinski, branching).
+/// for the abstract fractal demos (Koch, Sierpinski, branching),
+/// `Tools` is for utility items like portals.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CatalogueCategory {
     Buildings,
     Plants,
     Patterns,
+    Tools,
 }
 
 impl CatalogueCategory {
-    pub const ALL: [Self; 3] = [Self::Buildings, Self::Plants, Self::Patterns];
+    pub const ALL: [Self; 4] = [Self::Buildings, Self::Plants, Self::Patterns, Self::Tools];
 
     /// Display label shown as a section header in the catalogue
     /// window.
@@ -47,6 +49,7 @@ impl CatalogueCategory {
             Self::Buildings => "Buildings",
             Self::Plants => "Plants",
             Self::Patterns => "Patterns",
+            Self::Tools => "Tools",
         }
     }
 }
@@ -72,8 +75,12 @@ pub trait CatalogueEntry: Sync {
     /// window.
     fn category(&self) -> CatalogueCategory;
 
-    /// Build a fresh, independent [`Generator`] tree. Pure function
-    /// (no DID-seeding per the v1 design); every call returns an
-    /// equivalent deep-cloned blueprint.
-    fn build(&self) -> Generator;
+    /// Build a fresh, independent [`Generator`] tree. Most entries
+    /// are pure and ignore `local_did`; the personalisable ones
+    /// ([`items::my_teleporter::MyTeleporter`]) stamp the local
+    /// user's DID into a slot inside the generator so the resulting
+    /// blueprint is pre-targeted at the caller. Every call still
+    /// returns a fresh deep-cloned tree — the parameter only changes
+    /// what literal values populate it, never aliasing.
+    fn build(&self, local_did: &str) -> Generator;
 }
