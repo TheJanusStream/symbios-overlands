@@ -18,7 +18,8 @@
 //!   entries (see [`crate::catalogue`]), with the same drag-to-place
 //!   semantics as `inventory`.
 //! * [`room`]         — owner-only tabbed World Editor (Environment /
-//!   Region Assets / Placements / Raw JSON), gated on `session.did == room.did`.
+//!   Region Assets / Placements / Effects / Raw JSON), gated on
+//!   `session.did == room.did`.
 
 pub mod avatar;
 pub mod catalogue;

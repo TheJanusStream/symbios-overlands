@@ -42,6 +42,10 @@
 //!   pointing at the same source issues exactly one HTTPS round trip; the
 //!   cache key includes the sampler filter so Linear panels and Nearest
 //!   pixel-art particles coexist as separate GPU images.
+//! * [`blob_fetch`] — shared capped HTTPS / ATProto-blob byte fetcher
+//!   used by [`image_cache`] and the [`crate::interaction::audio`] cue
+//!   cache, so the wasm/native split and the OOM-guarding chunk loop
+//!   live in exactly one place.
 //! * [`sign`] — Sign generator spawner: textured plane with the full
 //!   StandardMaterial toggles, image fetched asynchronously through
 //!   [`image_cache`].

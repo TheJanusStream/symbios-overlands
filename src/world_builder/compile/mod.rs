@@ -20,6 +20,10 @@
 //!   walker. Routes each [`GeneratorKind`] variant into its sibling
 //!   spawner module (`prim`, `lsystem`, `shape`, `sign`, `portal`,
 //!   `particles`, `material::spawn_water_volume`).
+//! * [`contact_recipes`] — [`apply_contact_recipes`] system that
+//!   translates the active [`crate::pds::ContactEffects`] block into the
+//!   runtime [`crate::interaction::recipes::ContactRecipeRegistry`] each
+//!   time the room record changes.
 
 mod contact_recipes;
 mod dispatch;

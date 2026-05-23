@@ -62,7 +62,7 @@ pub struct SkyBox;
 /// Pin the sky cuboid to the active camera each frame so its faces are
 /// always equidistant from the viewer.
 ///
-/// The cuboid is sized for a "looks-far-enough" backdrop (4 km × 2 km × 2 km
+/// The cuboid is sized for a "looks-far-enough" backdrop (4 km × 2 km × 4 km
 /// at the default `SKY_SCALE`), but it is fixed-size, not infinite. Without
 /// this follow it stays anchored at world origin, so once the player moves
 /// off-centre the closest face approaches the camera and its edges show up

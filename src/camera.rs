@@ -1,10 +1,11 @@
 //! Third-person orbit camera driven by `bevy_panorbit_camera`.
 //!
 //! Configures distance fog (which also tints the sky cuboid and clear
-//! colour) and a follow system that tracks the local rover: the camera's
-//! `target_focus` is kept on the chassis each frame, and its `target_yaw`
-//! is rotated by the delta of the rover's yaw so steering rotates the world
-//! around the player instead of whipping the view around.
+//! colour) and a follow system that tracks the local player's chassis:
+//! the camera's `target_focus` is kept on the chassis each frame, and
+//! its `target_yaw` is rotated by the delta of the chassis yaw so
+//! steering rotates the world around the player instead of whipping
+//! the view around.
 
 use bevy::audio::SpatialListener;
 #[cfg(not(target_arch = "wasm32"))]

@@ -12,11 +12,15 @@
 //! The shared [`Sanitize`] trait factors out the "this type knows how to
 //! clamp itself in place" capability so callers can write
 //! `material.sanitize()` rather than `sanitize_material_settings(material)`.
-//! Per-domain impls live in the sibling modules ([`transform`],
-//! [`material`], [`terrain`], [`water`], [`sign`]); the [`GeneratorKind`]
-//! variants with inline fields go through the [`sanitize_kind`] dispatcher
-//! defined here, since they don't have separate parameter structs to hang
-//! the trait off.
+//! Per-domain impls live in the sibling modules — [`transform`],
+//! [`material`], [`terrain`], [`water`], [`sign`], [`particles`],
+//! [`primitive`], and [`contact_effects`] — with [`common`] holding
+//! shared clamp helpers (NaN-finite checks, allow-list filters) and
+//! [`limits`] holding every numeric bound as a `pub const` so callers
+//! and tests can share the envelope. The [`GeneratorKind`] variants
+//! with inline fields go through the [`sanitize_kind`] dispatcher
+//! defined here, since they don't have separate parameter structs to
+//! hang the trait off.
 
 mod common;
 mod contact_effects;

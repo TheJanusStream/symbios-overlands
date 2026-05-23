@@ -1,101 +1,91 @@
 # Symbios Overlands
 
-A peer-to-peer spatial web of user-owned virtual worlds for the ATProto network.
-
-## 🚧 Prototype in active development 🚧
+> A peer-to-peer spatial web of user-owned virtual worlds for the ATProto network.
 
 🌍 **[Enter the Overlands (Live Browser / WASM Demo)](https://thejanusstream.github.io/symbios-overlands)**
 
-**Symbios Overlands** transforms your ATProto decentralized identity (DID) into a persistent, 3D virtual world. Built in Rust using the [Bevy](https://bevyengine.org/) engine, it acts as a true, sovereign spatial web.
+> 🚧 Prototype in active development
 
-There are no central game servers to shut down, and no walled gardens. Every artifact—from the shape of your avatar to the layout of your terrain—is authored as a data-driven recipe and stored exclusively on your own ATProto Personal Data Server (PDS). You own your space, your body, and your creations.
+## What it is
 
-## Core Features
+Sign in with your ATProto identity, walk into a 3D world that belongs to you. Edit the terrain, scatter buildings, dress your avatar, then step through a portal into someone else's overland — all without ever hitting a loading screen. There are no central game servers hosting the worlds; only a small broker for the WebRTC handshake. Once peers connect, every transform, edit and chat message flows directly between them.
 
-* **Your DID is Your Domain:** Authenticate securely via ATProto OAuth 2.0 + DPoP. The app never sees your password. Your room is deterministically seeded by your DID, meaning every user has a unique homeworld from the moment they log in.
-* **Live World Building:** Your world is a JSON recipe (`network.symbios.overlands.room`). The owner-only World Editor (Environment / Region Assets / Placements / Effects / Raw JSON tabs) sculpts terrain, atmosphere and water, spawns parametric primitives / L-systems / shape grammars / portals, and arranges them via Absolute, Scatter or Grid placements. Every widget mutates the live record in place — the world recompiles, the 3D transform gizmo follows the selection, and remote peers mirror each edit before you press **Publish to PDS**.
-* **Hierarchical Generator Engine:** Every generator is a tree. A node carries variant-specific parameters — `Terrain`, `Water`, `Portal`, `LSystem`, `Shape` (CGA shape grammars), `Sign` (image-bearing panel), `ParticleSystem` (CPU emitter), or one of the `Cuboid` / `Sphere` / `Cylinder` / `Capsule` / `Cone` / `Torus` / `Plane` / `Tetrahedron` primitives (each with its own twist/taper/bend vertex torture and PBR material) — a local transform, and a `Vec<Generator>` of children. A whole house, tree, or region becomes one named generator you can scatter, grid-array, or stash in your inventory. Strict positional rules keep the wire format unambiguous: `Terrain` may only sit at the root of a named generator (and may carry children — the "region blueprint" shape) and `Water` may only sit as a child of another generator (and is itself a leaf).
-* **Image Panels & CPU Particles:** `Sign` generators paint a flat plane with an image fetched from one of three [`SignSource`] variants — a direct URL, an `atproto` blob, or a DID's profile picture — with per-panel UV repeat / offset, alpha mode, double-sided toggle and the rest of the StandardMaterial knobs. `ParticleSystem` generators emit billboarded or velocity-aligned quads from a parametric shape (point / sphere / box / cone) with gravity, drag, lifetime fade, optional terrain / water / collider collisions, and velocity inheritance from the avatar (or any moving rigid body) the emitter is parented under — so an exhaust trail tracks the airplane that authored it without per-vehicle wiring. Both generators read their images through a shared coalescing `BlobImageCache`, so a row of signs and a particle emitter pointing at the same atlas image issue exactly one HTTPS round trip, and atlas-textured particles can pick a still / random / over-lifetime cycling animation per emitter.
-* **The Seamless Spatial Web:** Walk through physical portal doorways to travel to other users' DIDs. The engine hot-swaps the PDS data and the WebRTC mesh in the background, allowing you to traverse the federated network without ever hitting a loading screen.
-* **Persistent Inventory:** Stash custom-tuned generator hierarchies (a procedural tree, a region blueprint, an L-system) into your personal inventory (`network.symbios.overlands.inventory`). Carry your creations across the network to deploy in your home room — or gift them to fellow travellers by dragging a stash entry onto their row in the People window. The recipient gets an Accept / Decline / Mute & Decline modal; concurrent offers are auto-declined as "busy" so a malicious peer cannot spam dialogs.
-* **Peer-to-Peer Presence:** A lightweight broker server handles the initial SDP handshake and identity verification, then steps aside. All 60 Hz physics transforms, spatial syncing, and chat messages flow directly between peers over WebRTC. Peer DIDs are authenticated against the relay-signed session map so a peer cannot impersonate another identity over the unauthenticated data channel.
-* **Parametric Avatars:** An avatar is two disjoint halves on the same record: a `visuals` generator tree (cuboids, capsules, L-systems, shape grammars — the same vocabulary as room generators) parented under your chassis, and a `locomotion` tagged-union picking one of five physics presets — `HoverBoat` (4-corner-suspension cuboid with buoyancy + drive), `Humanoid` (upright capsule with walking / wading / swimming modes), `Airplane` (continuous-thrust arcade flight), `Helicopter` (auto-stabilising hover) or `Car` (ground vehicle with handbrake). Every physical dimension and material is mutable and portable, and visual / locomotion edits stream to peers as a live preview before you commit them to your PDS. Your Bluesky profile picture is fetched directly from your PDS and rendered as your icon in the chat HUD and the People panel.
-* **Living Contact Effects:** Every avatar—yours and every peer's—is classified against the surface beneath it each frame, and the contact drives a stack of effects: Gerstner-wave **water wakes** that ripple out from a hull or a swimmer, transient **particle bursts** (splash, spray, ground dust), a persistent wet / dust **splat-stain** baked into the terrain overlay, fading **projected decals**, and one-shot, optionally-spatial **audio cues**. The wake and stain channels are always-on and scale with the avatar's locomotion footprint (a hover-boat throws a bigger wake than a swimmer); the particle / decal / audio channels are **PDS-authored**—a room's `contact_effects` block tunes triggers (surface, phase, speed, intensity), burst-count curves, decal fades and clip sources from the World Editor's Effects tab, and a room that omits the block gets a sensible water-splash default.
-* **Atmosphere & Sky:** A horizontal cloud-deck plane is rendered through a custom WGSL fragment shader that synthesises domain-warped FBM clouds, threshold-shaped by `cover`, softened by `softness`, drifting with `wind_dir × speed`, lit by the sun direction, and faded into the room's distance-fog colour at the horizon. Cover, density, softness, drift, height and tint are all authored on the room's `Environment` and re-uniformed in place when the owner edits them — no mesh rebuild. The deck is pure-fragment work — no compute, no storage textures — so it ships on WebGL2.
-* **Shareable Landmark Links:** The Diagnostics window's "Copy Landmark Link" button bundles the destination DID, the local player's current position, and yaw into a URL. Recipients on WASM open it directly in the browser; native users paste the same params into the CLI as `--did=… --pos=… --rot=…` and drop into the linked overland at the linked pose without any extra navigation. `--pds` and `--relay` overrides round-trip the same way.
+Built in Rust on the [Bevy](https://bevyengine.org/) engine. The same binary runs natively or in any modern browser via WASM.
+
+## Core ideas
+
+**Your DID is your domain.** Authenticate via ATProto OAuth 2.0 + DPoP — the app never sees a password. Your world is deterministically seeded from your DID, so a brand-new user already has a unique homeworld before they touch the editor.
+
+**Worlds are recipes, not assets.** A room is a JSON record (`network.symbios.overlands.room`) carrying a tree of `Generator` nodes — terrain, water, portals, parametric primitives, L-systems, CGA shape grammars, image-bearing signs, and CPU particle emitters. Every widget in the owner-only World Editor mutates the live record in place: the world recompiles, the 3D transform gizmo follows the selection, and remote peers mirror each edit before you press **Publish to PDS**. A whole region — a house, a forest, a market square — becomes one named generator you can scatter, grid-array, or stash in your inventory.
+
+**Avatars are recipes too.** A `visuals` generator tree (same vocabulary as a room) is parented under one of five physics presets — `HoverBoat`, `Humanoid`, `Airplane`, `Helicopter` or `Car`. Visual and locomotion edits stream to peers as a live preview before you commit them.
+
+**The web is seamless.** Walk through a portal doorway and the engine hot-swaps the destination PDS data and the peer mesh in the background. Shareable landmark links bundle a destination DID, position and yaw into a URL (or CLI flags on native) so anyone can drop into a specific spot in someone else's world.
+
+**Contact effects bring it to life.** Every avatar — yours and every peer's — is classified against the surface beneath it each frame, and the contact drives a stack of effects: Gerstner-wave water wakes, transient particle bursts, persistent splat-stains baked into the terrain, fading projected decals, and spatial audio cues. Wakes and stains are always-on; particle / decal / audio channels are PDS-authored per room.
+
+**Persistence and gifting.** Inventories live on your PDS (`network.symbios.overlands.inventory`). Stash a custom-tuned tree or a whole region blueprint, carry it across the network, and drag it onto a peer's row in the People panel to gift it. A code-shipped Catalogue ships a small starter set (villa, castle, several L-system trees, a teleporter) alongside whatever you've authored.
 
 ## Architecture
 
-The project is built on a "Thin Client, Heavy World" philosophy:
+The project is "thin client, heavy world":
 
-* **Engine:** Bevy 0.18 + Avian3D 0.6 (physics) + `bevy_egui` (UI) + `bevy_panorbit_camera` (third-person orbit) + `transform-gizmo-bevy` (in-world editor handles).
-* **Procedural Ecosystem:** The sovereign `symbios` family powers every recipe — `symbios-ground` for deterministic terrain (Voronoi terracing, hydraulic and thermal erosion), `symbios` + `symbios-turtle-3d` for L-system derivation, `symbios-shape` + `bevy_symbios_shape` for CGA shape grammars, and `bevy_symbios_texture` for the procedural PBR catalogue (ground, rock, bark, leaf, twig, brick, plank, shingle, marble, ashlar, stained-glass, asphalt, cobblestone, concrete, corrugated, encaustic, iron-grille, metal, pavers, stucco, thatch, wainscoting, window). Every layer mirror exposed in a record is DAG-CBOR safe.
-* **Networking:** `bevy_symbios_multiuser` over `matchbox` (WebRTC) for the peer mesh + `proto-blue-oauth` (OAuth 2.0 + DPoP) and `proto-blue-api` (XRPC client) for ATProto identity and PDS plumbing.
-* **State Machine:** A three-stage `AppState` (`Login` → `Loading` → `InGame`). The loading gate blocks on **all** of the heightmap task, the room record fetch, the avatar record fetch, and the inventory record fetch before gameplay starts, so a slow PDS round-trip cannot leave the world half-loaded or let a "Publish" click clobber a real record with a default.
-* **Protocol Safety:** ATProto's DAG-CBOR encoding strictly forbids floating-point numbers. Overlands wraps all continuous spatial data in fixed-point (`Fp` / `Fp2` / `Fp3` / `Fp4` / `Fp64`) structures, safely serialising complex 3D state to the PDS without violating protocol rules. Every record class also carries a `sanitize()` step that clamps grid sizes, scatter counts, L-system iterations, generator-tree depth and node count, and PBR octaves so a hostile or malformed payload from the network cannot OOM or crash the engine.
+- **Engine:** Bevy 0.18 + Avian3D 0.6 (physics) + [`bevy_egui`](https://github.com/vladbat00/bevy_egui) (UI) + [`bevy_panorbit_camera`](https://github.com/Plonq/bevy_panorbit_camera) (third-person orbit) + [`transform-gizmo-bevy`](https://github.com/urholaukkarinen/transform-gizmo) (in-world editor handles).
+- **Procedural ecosystem:** the sovereign `symbios` family — [`symbios-ground`](https://github.com/TheJanusStream/symbios-ground) (Voronoi terracing + hydraulic and thermal erosion), [`symbios` + `symbios-turtle-3d`](https://github.com/TheJanusStream/symbios) (L-systems), [`symbios-shape`](https://github.com/TheJanusStream/symbios-shape) (CGA shape grammars), and [`bevy_symbios_texture`](https://github.com/TheJanusStream/bevy_symbios_texture) (~23-material procedural PBR catalogue).
+- **Networking:** [`bevy_symbios_multiuser`](https://github.com/TheJanusStream/bevy_symbios_multiuser) over WebRTC ([`matchbox`](https://github.com/johanhelsing/matchbox)) for the peer mesh; [`proto-blue-oauth` + `proto-blue-api`](https://github.com/dollspace-gay/proto-blue) for ATProto identity and PDS plumbing. Peer DIDs are authenticated against the relay-signed session map so a peer can't impersonate another identity over the unauthenticated data channel.
+- **Protocol safety.** ATProto's DAG-CBOR encoding forbids floats, so every continuous spatial value is wrapped in fixed-point (`Fp` / `Fp2` / `Fp3` / `Fp4` / `Fp64`). Every record class also carries a `sanitize()` step that clamps sizes, counts, depths and octaves so a malformed payload from a hostile peer can't OOM or crash the engine.
+- **State machine.** A three-stage `AppState` (`Login` → `Loading` → `InGame`). The loading gate waits on the heightmap *and* the room / avatar / inventory PDS fetches before gameplay starts, so a slow round-trip can't leave the world half-loaded.
 
-## Project Layout
+## Project layout
 
-* [src/main.rs](src/main.rs) / [src/lib.rs](src/lib.rs) — Binary shim and library entry: App wiring, plugin registration, lighting + sky-cuboid + cloud-deck setup, and the three-stage state machine.
-* [src/loading.rs](src/loading.rs) — Parallel `AppState::Loading` plumbing: room / avatar / inventory PDS-fetch state machines with capped exponential backoff for transient failures, and the all-resources-present gate that unblocks `InGame`.
-* [src/state.rs](src/state.rs) — `AppState`, the live/stored record resources, marker components, jitter buffer, chat + diagnostics logs, and item-offer bookkeeping.
-* [src/boot_params.rs](src/boot_params.rs) — URL query string (WASM) and CLI args (native) for landmark deep links: destination DID, spawn pose, PDS / relay overrides, plus the `Copy Landmark Link` clipboard helper.
-* [src/pds/](src/pds/) — Sovereign record schemas (`RoomRecord`, `AvatarRecord`, `InventoryRecord`), the `Generator` / `GeneratorKind` / `Placement` / `LocomotionConfig` open unions plus the supporting `SignSource` / `EmitterShape` / `ParticleBlendMode` / `SimulationSpace` / `AnimationFrameMode` / `TextureFilter` / `AlphaModeKind` unions and the `TextureAtlas` / `WaterSurface` payloads, the `ContactEffects` recipe block (the `ContactEffectKind` (`ParticleBurst` / `DecalStamp` / `AudioCue`) tagged open union plus `DecalParams` / `AudioParams` / `AudioClipSource` / `CountModel` / `RecipeParticle` / `ContactSurfaceKind` / `ContactPhaseKind`), fixed-point wire types (`Fp`/`Fp2`/`Fp3`/`Fp4`/`Fp64`), the per-variant `sanitize` clamps, and the shared XRPC plumbing (DID resolution, `FetchError`, `PutOutcome`).
-* [src/world_builder/](src/world_builder/) — Recipe → ECS compiler: the recursive `compile_room_record` system ([`compile/`](src/world_builder/compile/) — split into `mod.rs` for the top-level system, `dispatch.rs` for the per-`GeneratorKind` arms, `environment.rs` for the atmosphere re-uniform pass, `scatter.rs` for deterministic scatter math, `spawn_ctx.rs` for the shared `SpawnCtx`, and `contact_recipes.rs` for the `ContactEffects` → `ContactRecipeRegistry` translation), the L-system ([`lsystem.rs`](src/world_builder/lsystem.rs)) / shape-grammar ([`shape.rs`](src/world_builder/shape.rs)) / primitive ([`prim.rs`](src/world_builder/prim.rs)) / portal ([`portal.rs`](src/world_builder/portal.rs)) / sign ([`sign.rs`](src/world_builder/sign.rs)) / particle ([`particles.rs`](src/world_builder/particles.rs)) / material ([`material.rs`](src/world_builder/material.rs)) spawn arms, the cross-compile geometry & material caches, the shared [`blob_fetch.rs`](src/world_builder/blob_fetch.rs) capped HTTPS / ATProto-blob byte fetcher (reused by both the image cache and the contact-audio cue cache), the source-keyed [`image_cache.rs`](src/world_builder/image_cache.rs) coalescing image fetcher shared by Sign / Portal / textured particles, and [`avatar_spawn.rs`](src/world_builder/avatar_spawn.rs) — the avatar-side wrapper that re-uses the same dispatch arms with `SpawnCtx::avatar_mode = true` so visuals trees skip room-only behaviours (RoomEntity tag, per-prim colliders).
-* [src/terrain.rs](src/terrain.rs) / [src/splat.rs](src/splat.rs) / [src/water.rs](src/water.rs) / [src/clouds.rs](src/clouds.rs) — Heightmap generation + Avian heightfield collider, the four-layer splat material extension, the Gerstner-wave water shader extension, and the FBM cloud-deck shader extension.
-* [src/player/](src/player/) — Local player rig: locomotion preset hot-swap, [`hover_boat`](src/player/hover_boat.rs) / [`humanoid`](src/player/humanoid.rs) / [`airplane`](src/player/airplane.rs) / [`helicopter`](src/player/helicopter.rs) / [`car`](src/player/car.rs) physics presets, the [`visuals`](src/player/visuals.rs) generator-tree spawner, and [`portal`](src/player/portal.rs) interaction / inter-room travel.
-* [src/interaction/](src/interaction/) — Avatar-world contact-effects framework. [`classifier.rs`](src/interaction/classifier.rs) builds the per-frame [`AvatarContacts`](src/interaction/contact.rs) (every avatar × the surface it touches, sized by its [`locomotion.rs`](src/interaction/locomotion.rs) footprint); independent consumer channels turn that into effects — the [`perturbation.rs`](src/interaction/perturbation.rs) pool feeding [`water_channel.rs`](src/interaction/water_channel.rs), the [`particle_channel.rs`](src/interaction/particle_channel.rs) burst dispatcher, the [`stains.rs`](src/interaction/stains.rs) terrain-overlay stamper, the [`decal.rs`](src/interaction/decal.rs) projected-quad stamper, and the [`audio.rs`](src/interaction/audio.rs) `bevy_audio` cue consumer. [`recipes.rs`](src/interaction/recipes.rs) is the PDS-authored `ContactRecipeRegistry` the particle / decal / audio channels read; [`plugin.rs`](src/interaction/plugin.rs) wires the producer → tick → consumer system order.
-* [src/avatar.rs](src/avatar.rs) — Bluesky profile-picture fetch and the per-DID image / `egui::TextureId` cache that backs the chat and People panels' author icons.
-* [src/camera.rs](src/camera.rs) — Third-person orbit camera (`bevy_panorbit_camera`), distance fog, chassis-yaw-following so steering rotates the world around the player, and the `SpatialListener` that anchors contact-audio cue panning to the player.
-* [src/network/](src/network/) / [src/protocol.rs](src/protocol.rs) — P2P message wire format, jitter-buffered transform smoothing, peer avatar cache, live preview broadcast for room / avatar edits, and item-offer routing. The `network` folder splits along role: [`broadcast.rs`](src/network/broadcast.rs) (outbound transform / identity / room / avatar writers, fixed-tick paced), [`inbound.rs`](src/network/inbound.rs) (the message dispatcher, identity authentication, item-offer arbitration), [`lifecycle.rs`](src/network/lifecycle.rs) (peer connect/disconnect, mute-visibility sync, stale-dialog evictor), [`peer_cache.rs`](src/network/peer_cache.rs) (DID-keyed peer-avatar cache + async fetch task), and [`smoother.rs`](src/network/smoother.rs) (cubic-Hermite jitter-buffered playout).
-* [src/social.rs](src/social.rs) — Asynchronous `app.bsky.graph.getRelationships` query that tags each remote peer with a [`SocialResonance`] component (Mutual / None / Unknown), reserved for future chat / People-panel adornments.
-* [src/ui/](src/ui/) — Egui panels: [login](src/ui/login/) (folder: begin / complete, WASM resume, native callback, and a hashtag-filtered Bluesky [posts](src/ui/login/posts.rs) news-feed shown on the login screen), [diagnostics](src/ui/diagnostics.rs) (peer roster, mute toggles, event log, native-only wireframe toggle, Copy Landmark Link, logout), [chat](src/ui/chat.rs), [people](src/ui/people.rs) (with drag-to-gift drop targets and the incoming-offer modal), [avatar editor](src/ui/avatar/) (Visuals + Locomotion tabs), [inventory](src/ui/inventory/) (panel + drag-to-place / drag-to-gift drop logic), and the owner-only [world editor](src/ui/room/) (Environment / Region Assets / Placements / Effects / Raw JSON tabs).
-* [src/oauth/](src/oauth/) — ATProto OAuth 2.0 + DPoP flow (WASM redirect / native loopback) plus token refresh on 401 / DPoP-nonce challenge. Split into [`discovery.rs`](src/oauth/discovery.rs) (client metadata + authorization-server discovery), [`auth_flow.rs`](src/oauth/auth_flow.rs) (`begin_authorization` / `complete_authorization`), [`refresh.rs`](src/oauth/refresh.rs) (DPoP-nonce + refresh-on-expiry retry helpers), [`wasm.rs`](src/oauth/wasm.rs) (browser `sessionStorage` / `localStorage` plumbing, `wasm32` only), and [`native_server.rs`](src/oauth/native_server.rs) (loopback `tiny_http` callback listener, native only).
-* [src/editor_gizmo/](src/editor_gizmo/) — Bridge between the editor selection and the in-world 3D transform gizmo, including the proximity-targeting + world-space-detach trick that keeps the gizmo on the closest live instance of a many-placement generator. Split into [`sync.rs`](src/editor_gizmo/sync.rs) (per-frame target resolution + `GizmoTarget` attach/detach + the world-space-detach trick), [`drag.rs`](src/editor_gizmo/drag.rs) (drag-session state machine, Escape abort, copy-on-drag ghost), and [`commit.rs`](src/editor_gizmo/commit.rs) (drag-end writeback into `RoomRecord` / `LiveAvatarRecord`).
-* [src/logout.rs](src/logout.rs) — Cleanup on `OnExit(InGame)`: despawns world entities, drops session + room/avatar/inventory resources, and clears the per-DID material caches so a re-login can't render the previous user's peers.
-* [src/config.rs](src/config.rs) — Centralised tuneable constants for lighting (sun, ambient, sky, cloud deck), camera + fog, locomotion physics, terrain generation, splat layers, the contact-effect channels (perturbation / water-wake pool, splat stains, decals, audio voices), networking, HTTP timeouts, and UI windows.
-* [tests/](tests/) — Integration suite: record round-trips ([room](tests/pds_records.rs), [avatar](tests/avatar_record.rs), [inventory](tests/inventory_record.rs), [`Sign`](tests/sign_generator.rs) and [`ParticleSystem`](tests/particle_generator.rs) generators), [sanitiser bounds](tests/pds_sanitize.rs), [OAuth flow](tests/oauth_flow.rs), [biome filters](tests/biome_filter.rs), [fixed-point precision](tests/fixed_point.rs), [open-union forward compatibility](tests/open_union_unknown.rs), and the [`format_elapsed_ts` / DID-document URL helpers](tests/misc.rs).
+The crate is a library with a thin `main.rs` shim so integration tests in [`tests/`](tests/) can import the module tree directly.
 
-## Running Locally
+- [`src/pds/`](src/pds/) — record schemas (`RoomRecord`, `AvatarRecord`, `InventoryRecord`), the `Generator` / `Placement` / `LocomotionConfig` open unions, fixed-point wrappers, per-variant sanitisers, and the shared XRPC plumbing.
+- [`src/world_builder/`](src/world_builder/) — the recipe → ECS compiler. Per-generator spawn arms (terrain, water, portal, sign, particles, L-system, shape grammar, primitives), the cross-compile geometry / material caches, and the source-keyed [image cache](src/world_builder/image_cache.rs) shared by signs / portals / particles.
+- [`src/terrain.rs`](src/terrain.rs), [`src/splat.rs`](src/splat.rs), [`src/water.rs`](src/water.rs), [`src/clouds.rs`](src/clouds.rs) — heightmap + Avian heightfield collider, four-layer splat material extension, Gerstner-wave water shader, FBM cloud-deck shader.
+- [`src/player/`](src/player/) — the five locomotion presets and portal interaction.
+- [`src/interaction/`](src/interaction/) — the contact-effects framework: one classifier feeds independent water-wake / particle-burst / splat-stain / decal / audio channels.
+- [`src/network/`](src/network/), [`src/protocol.rs`](src/protocol.rs) — peer wire format, jitter-buffered transform smoothing, identity authentication, live preview broadcast, item-offer arbitration.
+- [`src/ui/`](src/ui/) — egui panels: [login](src/ui/login/), [chat](src/ui/chat.rs), [people](src/ui/people.rs) (with drag-to-gift), [avatar editor](src/ui/avatar/), [inventory](src/ui/inventory/), [catalogue](src/ui/catalogue.rs), [diagnostics](src/ui/diagnostics.rs), and the owner-only [world editor](src/ui/room/) (Environment / Region Assets / Placements / Effects / Raw JSON tabs).
+- [`src/oauth/`](src/oauth/) — ATProto OAuth 2.0 + DPoP (WASM redirect / native loopback) and token refresh.
+- [`src/seeded_defaults/`](src/seeded_defaults/) — DID-seeded deterministic defaults for terrain, palette, atmosphere, avatar body / palette / gait. Record-authored values always win; the derivers fill in only what's unset, so a fresh account is already a fully-furnished room.
+- [`src/catalogue/`](src/catalogue/) — code-shipped read-only library of starter generator blueprints, functionally analogous to a user inventory but always present.
+- [`src/editor_gizmo/`](src/editor_gizmo/) — bridge between the editor selection and the in-world 3D transform gizmo.
+- [`src/loading.rs`](src/loading.rs), [`src/state.rs`](src/state.rs), [`src/boot_params.rs`](src/boot_params.rs), [`src/logout.rs`](src/logout.rs) — state-machine plumbing, shared resources, landmark-link parsing, and the on-logout cache teardown.
+- [`src/config.rs`](src/config.rs) — centralised tuneable constants (lighting, fog, locomotion physics, terrain, splat layers, contact-effect pools, networking, HTTP timeouts, UI windows).
 
-To interact with other players, the client must connect to a `bevy_symbios_multiuser` relay server. The login UI defaults to a public instance if one is available.
+## Running locally
 
-### Native (Desktop)
+To meet other players the client connects to a `bevy_symbios_multiuser` relay; the login UI defaults to a public instance if one is available.
 
-For optimal physics and terrain generation performance, run in release mode:
+### Native
 
 ```bash
 cargo run --release
 ```
 
-The native build accepts the same parameters as a hosted landmark link:
+The native build also accepts the same parameters a landmark link encodes:
 
 ```bash
 cargo run --release -- \
     --did=did:plc:example \
-    --pos=10,5,-3 \    # x,z (heightmap-resolved) or x,y,z (exact)
-    --rot=90 \         # spawn yaw in degrees
+    --pos=10,5,-3 \          # x,z (heightmap-resolved) or x,y,z (exact)
+    --rot=90 \               # spawn yaw in degrees
     --pds=https://bsky.social \
     --relay=relay.example.com
 ```
 
-`--did` is sufficient to drop into someone else's overland; everything else is optional.
+`--did` alone is enough to drop into someone else's overland.
 
-### WebAssembly (Browser)
-
-The exact same codebase compiles to WASM and runs natively in modern browsers.
+### WebAssembly
 
 ```bash
-# Install prerequisites
 rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version 0.2.121
+cargo install wasm-bindgen-cli --version 0.2.122
 
-# Build
 cargo build --release --target wasm32-unknown-unknown
-
-# Generate Bindings
 wasm-bindgen --out-dir ./out --target web \
     target/wasm32-unknown-unknown/release/symbios-overlands.wasm
 ```
 
-Serve `./out` and `./assets` alongside `index.html` using any static web server (e.g., `python -m http.server`).
+Serve `./out` and `./assets` alongside `index.html` with any static web server (e.g. `python -m http.server`).

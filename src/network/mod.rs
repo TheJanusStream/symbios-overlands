@@ -2,10 +2,11 @@
 //! throttling, and the jitter-buffered kinematic smoother.
 //!
 //! Outbound `Transform` broadcasts are driven by `FixedUpdate` (not `Update`)
-//! so the packet rate is independent of render FPS.  When the local rover is
-//! nearly stationary the broadcast rate drops from ~60 Hz to ~2 Hz to save
-//! bandwidth and downstream CPU — with a forced "final frame" broadcast on
-//! the tick we cross into rest so remote peers land on the true parked pose.
+//! so the packet rate is independent of render FPS.  When the local avatar
+//! is nearly stationary the broadcast rate drops from ~60 Hz to ~2 Hz to
+//! save bandwidth and downstream CPU — with a forced "final frame"
+//! broadcast on the tick we cross into rest so remote peers land on the
+//! true parked pose.
 //!
 //! Inbound `Transform` samples are pushed into a per-peer ring buffer and
 //! replayed `KINEMATIC_RENDER_DELAY_SECS` in the past; the playout position

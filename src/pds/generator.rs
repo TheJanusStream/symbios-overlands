@@ -8,8 +8,12 @@
 //! [`TransformData`], and a `Vec<Generator>` of children. Any kind — primitive,
 //! L-system, portal — can have children, so a portal can wear a doorframe, a
 //! cuboid can carry a chimney, and Constructs are no longer a distinct kind.
-//! `Terrain` and `Water` remain room-scoped and are sanitised away when a
-//! hostile record tries to nest them as children or hang children off them.
+//! Two positional rules survive sanitisation: `Terrain` is **root-only**
+//! (it may carry children — the "region blueprint" shape — but a Terrain
+//! nested as a child is rewritten to a default cuboid because the terrain
+//! plugin owns the single world heightmap), and `Water` is **child-only
+//! and leaf-only** (it needs an ancestor's transform to anchor its volume,
+//! and its own `children` list is cleared at sanitisation time).
 
 use super::prim::PropMeshType;
 use super::terrain::SovereignTerrainConfig;
