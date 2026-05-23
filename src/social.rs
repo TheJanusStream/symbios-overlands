@@ -69,12 +69,7 @@ fn dispatch_resonance_queries(
             }
             #[cfg(not(target_arch = "wasm32"))]
             {
-                tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .ok()
-                    .map(|rt| rt.block_on(fut))
-                    .unwrap_or(SocialResonance::None)
+                crate::config::http::block_on(fut)
             }
         });
         commands.entity(entity).insert(ResonanceFetchTask(task));

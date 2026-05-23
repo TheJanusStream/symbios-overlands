@@ -685,6 +685,39 @@ pub mod http {
             .connect_timeout(CONNECT_TIMEOUT);
         builder.build().unwrap_or_default()
     }
+
+    /// Process-wide shared Tokio runtime, lazily constructed on first
+    /// use and reused for every native HTTP `block_on` call. Replaces
+    /// the per-request `Builder::new_current_thread().build()…block_on`
+    /// boilerplate that used to be duplicated across ~18 fetch sites
+    /// — each of which paid for a fresh `mio` reactor, an epoll fd,
+    /// and a timer wheel only to drop them at the end of the call.
+    ///
+    /// `multi_thread` (not `current_thread`) so concurrent `block_on`s
+    /// from multiple `IoTaskPool` workers can drive their futures in
+    /// parallel; `current_thread` would serialise them through the one
+    /// driver thread.
+    #[cfg(not(target_arch = "wasm32"))]
+    static SHARED_RUNTIME: std::sync::LazyLock<tokio::runtime::Runtime> =
+        std::sync::LazyLock::new(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .thread_name("symbios-http")
+                .build()
+                .expect("failed to build shared Tokio runtime for HTTP block_on")
+        });
+
+    /// Run `fut` to completion on the shared HTTP Tokio runtime,
+    /// blocking the calling thread until it resolves. Use from inside an
+    /// `IoTaskPool::spawn(async move { … })` task on native — the pool
+    /// worker thread has no Tokio reactor of its own, and reqwest's
+    /// async machinery needs one. On WASM the browser's fetch event
+    /// loop drives futures directly, so this helper is native-only;
+    /// call sites already cfg-gate the native/WASM split.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+        SHARED_RUNTIME.block_on(fut)
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -109,11 +109,7 @@ fn spawn_room_record_fetch(commands: &mut Commands, did: String, attempt: u32) {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap()
-                .block_on(fut)
+            crate::config::http::block_on(fut)
         }
     });
     commands.spawn(RoomRecordTask { task, attempt });
@@ -280,11 +276,7 @@ fn spawn_avatar_record_fetch(commands: &mut Commands, did: String, attempt: u32)
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap()
-                .block_on(fut)
+            crate::config::http::block_on(fut)
         }
     });
     commands.spawn(AvatarRecordTask { did, task, attempt });
@@ -465,11 +457,7 @@ pub(crate) fn start_inventory_record_fetch(
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap()
-                .block_on(fut)
+            crate::config::http::block_on(fut)
         }
     });
     commands.spawn(InventoryRecordTask(task));

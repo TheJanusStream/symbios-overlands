@@ -125,11 +125,7 @@ pub(super) fn handle_portal_interaction(
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .unwrap()
-                        .block_on(fut)
+                    crate::config::http::block_on(fut)
                 }
             });
             commands.spawn(PortalTravelTask(task));

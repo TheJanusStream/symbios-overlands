@@ -176,11 +176,7 @@ fn spawn_fetch(commands: &mut Commands, key: AudioClipKey) {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .ok()
-                .and_then(|rt| rt.block_on(fut))
+            crate::config::http::block_on(fut)
         }
     });
     commands.spawn(AudioClipTask { key, task });

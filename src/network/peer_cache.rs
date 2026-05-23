@@ -95,11 +95,7 @@ pub(super) fn spawn_peer_avatar_fetch(commands: &mut Commands, peer_id: PeerId, 
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap()
-                .block_on(fut)
+            config::http::block_on(fut)
         }
     });
     commands.spawn(PeerAvatarFetchTask { peer_id, did, task });

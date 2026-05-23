@@ -66,15 +66,11 @@ fn cleanup_on_logout(
                 let fut = revoke_oauth_tokens(&session, &client, &metadata);
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    // Same IoTaskPool + tokio current-thread runtime
-                    // bridge the avatar / social fetchers use — see
-                    // `social.rs` for the rationale (the IoTaskPool
-                    // workers don't carry a tokio reactor on their own).
-                    if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        && let Err(e) = rt.block_on(fut)
-                    {
+                    // Reuses the process-shared Tokio runtime — see
+                    // `crate::config::http::block_on` — so logout's
+                    // best-effort token revocation no longer constructs
+                    // a one-shot runtime just to drop it again.
+                    if let Err(e) = crate::config::http::block_on(fut) {
                         warn!("OAuth token revocation failed; clearing local state anyway: {e}");
                     }
                 }

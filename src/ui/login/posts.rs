@@ -150,11 +150,7 @@ fn spawn_post_fetch_task(commands: &mut Commands) {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| format!("tokio runtime: {e}"))?;
-            rt.block_on(fut)
+            crate::config::http::block_on(fut)
         }
     });
     commands.spawn(LoginFeedFetchTask(task));

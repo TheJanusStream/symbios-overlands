@@ -273,11 +273,7 @@ pub fn request_blob_image_filtered(
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .ok()
-                        .and_then(|rt| rt.block_on(fut))
+                    crate::config::http::block_on(fut)
                 }
             });
             commands.spawn(BlobImageTask { key, task });
