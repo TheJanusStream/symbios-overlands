@@ -20,6 +20,14 @@ use crate::state::{DiagnosticsLog, RemotePeer};
 /// record load from memory without any network I/O, and keeps subsequent
 /// reconnects of the same DID within a session essentially free.
 ///
+/// The cache is FIFO-bounded at
+/// [`config::network::MAX_PEER_AVATAR_CACHE_ENTRIES`]: a busy hub-room or
+/// a malicious relay cycling thousands of authenticated DIDs would
+/// otherwise grow the resident set without bound across a long session
+/// (the cache used to only clear on logout). Re-inserting an existing key
+/// promotes it to the back of the FIFO so live peers in a steady-state
+/// room are not evicted by churn from short-lived joiners.
+///
 /// The cache is invalidated through the same channels that would invalidate
 /// a stale in-memory copy: an inbound `AvatarStateUpdate` from the owner
 /// overwrites it, and [`crate::state::AppState::InGame`] exit (`logout`)
@@ -27,6 +35,7 @@ use crate::state::{DiagnosticsLog, RemotePeer};
 #[derive(Resource, Default)]
 pub struct PeerAvatarCache {
     by_did: std::collections::HashMap<String, AvatarRecord>,
+    order: std::collections::VecDeque<String>,
 }
 
 impl PeerAvatarCache {
@@ -35,11 +44,25 @@ impl PeerAvatarCache {
     }
 
     pub(super) fn insert(&mut self, did: String, record: AvatarRecord) {
+        if self.by_did.contains_key(&did) {
+            self.order.retain(|d| d != &did);
+        } else {
+            while self.order.len() >= config::network::MAX_PEER_AVATAR_CACHE_ENTRIES {
+                match self.order.pop_front() {
+                    Some(oldest) => {
+                        self.by_did.remove(&oldest);
+                    }
+                    None => break,
+                }
+            }
+        }
+        self.order.push_back(did.clone());
         self.by_did.insert(did, record);
     }
 
     pub fn clear(&mut self) {
         self.by_did.clear();
+        self.order.clear();
     }
 }
 

@@ -8,7 +8,7 @@ use bevy_symbios_multiuser::prelude::*;
 
 use crate::config;
 use crate::protocol::OverlandsMessage;
-use crate::state::{DiagnosticsLog, IncomingOfferDialog, RemotePeer};
+use crate::state::{DiagnosticsLog, IncomingOfferDialog, PendingOutgoingOffers, RemotePeer};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn handle_peer_connections(
@@ -122,6 +122,38 @@ pub(super) fn evict_stale_offer_dialog(
         ),
     );
     commands.remove_resource::<IncomingOfferDialog>();
+}
+
+/// Sweep [`PendingOutgoingOffers`] entries older than
+/// [`config::network::PENDING_OFFER_TIMEOUT_SECS`]. A peer that drops the
+/// reply (offline, malicious client, network hiccup) would otherwise leak
+/// the entry forever — across a long session, an attacker could provoke
+/// the local user into spraying offers and tie up unbounded memory.
+pub(super) fn sweep_stale_pending_offers(
+    time: Res<Time>,
+    mut pending: ResMut<PendingOutgoingOffers>,
+    mut diagnostics: ResMut<DiagnosticsLog>,
+) {
+    let now = time.elapsed_secs_f64();
+    let ttl = config::network::PENDING_OFFER_TIMEOUT_SECS;
+    let before = pending.by_id.len();
+    if before == 0 {
+        return;
+    }
+    let mut expired: Vec<(u64, String, String)> = Vec::new();
+    pending.by_id.retain(|&id, entry| {
+        let alive = now - entry.sent_at_secs < ttl;
+        if !alive {
+            expired.push((id, entry.target_handle.clone(), entry.item_name.clone()));
+        }
+        alive
+    });
+    for (_id, handle, item_name) in expired {
+        diagnostics.push(
+            now,
+            format!("Offer \"{item_name}\" to @{handle} timed out (no response)"),
+        );
+    }
 }
 
 /// Propagate each peer's mute flag to its `Visibility` component so that

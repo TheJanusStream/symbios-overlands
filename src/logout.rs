@@ -20,8 +20,8 @@ use crate::pds::{AvatarRecord, InventoryRecord, RoomRecord};
 use crate::protocol::OverlandsMessage;
 use crate::state::{
     AppState, ChatHistory, DiagnosticsLog, LiveAvatarRecord, LiveInventoryRecord, LiveRoomRecord,
-    LocalPlayer, PublishFeedback, RelayHost, RemotePeer, RoomRecordRecovery, StoredAvatarRecord,
-    StoredInventoryRecord, StoredRoomRecord,
+    LocalPlayer, PendingOutgoingOffers, PublishFeedback, RelayHost, RemotePeer, RoomRecordRecovery,
+    StoredAvatarRecord, StoredInventoryRecord, StoredRoomRecord,
 };
 use crate::world_builder::RoomEntity;
 use crate::world_builder::image_cache::BlobImageCache;
@@ -47,6 +47,7 @@ fn cleanup_on_logout(
     mut avatar_cache: ResMut<PeerAvatarCache>,
     mut bsky_cache: ResMut<BskyProfileCache>,
     mut blob_image_cache: ResMut<BlobImageCache>,
+    mut pending_offers: ResMut<PendingOutgoingOffers>,
 ) {
     // Best-effort: revoke the OAuth tokens at the user's PDS (RFC 7009)
     // before we drop the session. Fire-and-forget on IoTaskPool because
@@ -165,4 +166,9 @@ fn cleanup_on_logout(
     // otherwise paint the previous session's image into a fresh
     // generator pointing at the same source.
     blob_image_cache.clear();
+    // Pending outgoing offers are session-scoped — a new login must not
+    // inherit the previous user's outstanding gifts (different DID, the
+    // recipient could never authenticate a response back into the map).
+    pending_offers.by_id.clear();
+    pending_offers.next_id = 0;
 }

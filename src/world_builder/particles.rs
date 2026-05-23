@@ -915,14 +915,19 @@ fn sample_emitter_shape(shape: &EmitterShape, rng: &mut ChaCha8Rng) -> (Vec3, Ve
             (v, Vec3::Y)
         }
         EmitterShape::Cone { half_angle, height } => {
-            // Sample a random direction inside the cone (apex at origin,
-            // axis +Y), then scale by a random depth in [0, height] so
-            // particles can spawn anywhere inside the volume.
-            let depth = unit_f32(rng) * height.0;
-            let theta = unit_f32(rng) * half_angle.0;
+            // Uniform sampling inside the cone volume (apex at origin,
+            // axis +Y). Naïve linear sampling — `depth = U * height` and
+            // `theta = U * half_angle` — clusters particles at the apex
+            // and along the axis: cone volume scales as `depth³` (each
+            // cross-section disk's area grows quadratically with depth)
+            // and per-direction-cap surface scales as `(1 − cos θ)`, so
+            // both axes need inverse-CDF sampling for a uniform fill.
+            let depth = unit_f32(rng).cbrt() * height.0;
+            let cos_max = half_angle.0.cos();
+            let cos_t = 1.0 - unit_f32(rng) * (1.0 - cos_max);
+            let sin_t = (1.0 - cos_t * cos_t).max(0.0).sqrt();
             let phi = unit_f32(rng) * 2.0 * std::f32::consts::PI;
-            let sin_t = theta.sin();
-            let dir = Vec3::new(sin_t * phi.cos(), theta.cos(), sin_t * phi.sin());
+            let dir = Vec3::new(sin_t * phi.cos(), cos_t, sin_t * phi.sin());
             (dir * depth, dir)
         }
         EmitterShape::Unknown => (Vec3::ZERO, Vec3::Y),
@@ -938,13 +943,20 @@ fn unit_signed(rng: &mut ChaCha8Rng) -> f32 {
 fn sample_unit_sphere(rng: &mut ChaCha8Rng) -> Vec3 {
     // Rejection-sample inside the unit cube; cheap and avoids the bias
     // a sin/cos parametric sample produces for non-unit-radius shapes.
-    for _ in 0..8 {
+    // The accept rate is π/6 ≈ 52.3%, so 32 attempts drives the
+    // fall-through probability to (1 − π/6)³² ≈ 1.5e-10 — effectively
+    // unreachable. The previous 8-attempt cap let ~0.26% of all samples
+    // hit the `Vec3::ZERO` fallback, which manifested as a permanent
+    // dense dot at the centre of every spherical emitter. The fallback
+    // now also returns a finite non-origin point so the truly
+    // unreachable case can't reintroduce that artefact.
+    for _ in 0..32 {
         let v = Vec3::new(unit_signed(rng), unit_signed(rng), unit_signed(rng));
         if v.length_squared() <= 1.0 {
             return v;
         }
     }
-    Vec3::ZERO
+    Vec3::new(0.5, 0.0, 0.0)
 }
 
 fn lerp_unit(t: f32, a: f32, b: f32) -> f32 {

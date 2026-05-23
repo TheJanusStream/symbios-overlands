@@ -89,6 +89,7 @@ impl Plugin for NetworkPlugin {
                     inbound::handle_incoming_messages,
                     peer_cache::poll_peer_avatar_fetches,
                     lifecycle::evict_stale_offer_dialog,
+                    lifecycle::sweep_stale_pending_offers,
                     smoother::smooth_remote_transforms,
                     lifecycle::sync_mute_visibility,
                 )

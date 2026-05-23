@@ -609,6 +609,25 @@ pub mod network {
     /// respond; past that, declining on the user's behalf is friendlier than
     /// silently breaking gifting.
     pub const OFFER_DIALOG_TIMEOUT_SECS: f64 = 90.0;
+
+    /// Maximum age (seconds) an entry in `PendingOutgoingOffers` is kept
+    /// before it is treated as abandoned and swept. A peer that goes
+    /// offline, ignores the packet, or runs a modified client that drops
+    /// the response would otherwise leave the sender's entry resident
+    /// forever — across a long session, that's an unbounded leak any
+    /// peer can provoke. Picked well above
+    /// [`OFFER_DIALOG_TIMEOUT_SECS`] so a genuine reply (declined-on-
+    /// timeout from the recipient) still races its own pending entry.
+    pub const PENDING_OFFER_TIMEOUT_SECS: f64 = 180.0;
+
+    /// Maximum number of (DID → `AvatarRecord`) entries kept in
+    /// `PeerAvatarCache`. The cache is only cleared on logout, so a
+    /// busy hub-room — or a malicious relay cycling thousands of
+    /// authenticated DIDs in and out — would otherwise grow the
+    /// resident set without bound across a long session. 256 covers
+    /// the vast majority of real rooms (a portal-cluster hop brings
+    /// in low-double-digit peers) while bounding worst-case memory.
+    pub const MAX_PEER_AVATAR_CACHE_ENTRIES: usize = 256;
 }
 
 // ---------------------------------------------------------------------------

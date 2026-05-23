@@ -61,10 +61,21 @@ pub(crate) fn apply_environment_state(
         // Re-orient the directional light so its forward points toward
         // the origin from `sun_position`. Sanitise has already rejected
         // a zero-length vector, but `look_at` still requires the
-        // target ≠ eye, so the eye/origin coincidence guard stays.
+        // target ≠ eye AND a non-collinear up vector — a `sun_position`
+        // sitting on the world Y axis would make forward ‖ Vec3::Y and
+        // panic the cross-product inside `look_at`. Swap to Vec3::Z as
+        // the up reference when that happens (any non-Y axis works
+        // because the resulting roll is invisible for a directional
+        // light — only the forward direction is observed).
         if sun_pos.length_squared() > 1.0e-6 {
             transform.translation = sun_pos;
-            transform.look_at(Vec3::ZERO, Vec3::Y);
+            let forward = -sun_pos.normalize();
+            let up = if forward.x.abs() < 1.0e-4 && forward.z.abs() < 1.0e-4 {
+                Vec3::Z
+            } else {
+                Vec3::Y
+            };
+            transform.look_at(Vec3::ZERO, up);
         }
         sun_dir = (-transform.forward().as_vec3()).normalize_or(Vec3::Y);
     }
