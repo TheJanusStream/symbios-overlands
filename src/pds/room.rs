@@ -173,7 +173,7 @@ impl Environment {
         // blow up (it divides by `visibility` internally). Floor at 10 m so
         // the falloff remains well-defined even under an adversarial record.
         self.fog_visibility = Fp(self.fog_visibility.0.clamp(10.0, 10_000.0));
-        self.fog_sun_exponent = Fp(self.fog_sun_exponent.0.clamp(1.0, 100.0));
+        self.fog_sun_exponent = Fp(self.fog_sun_exponent.0.clamp(0.0, 200.0));
 
         // Water-environment fields. Keep every channel in a finite,
         // physically-sane range — a NaN or negative normal-tiling scale
@@ -277,9 +277,12 @@ impl RoomRecord {
     /// been published to a PDS keep their stored values verbatim — the
     /// seed pipeline only fills in the blank-record case here.
     pub fn default_for_did(did: &str) -> Self {
+        use crate::catalogue::CatalogueEntry;
+        use crate::catalogue::items::lsys_ternary_props::TernaryPropsTree;
+        use crate::pds::types::{BiomeFilter, ScatterBounds, WaterRelation};
         use crate::seeded_defaults::{
-            Atmosphere, BiomeTextures, RoomPalette, SceneCharacter, TerrainShape, WaterDynamics,
-            fnv1a_64,
+            Atmosphere, BiomeTextures, RoomPalette, SceneCharacter, TerrainShape, TreeScatters,
+            WaterDynamics, fnv1a_64,
         };
 
         let did_seed = fnv1a_64(did);
@@ -289,6 +292,7 @@ impl RoomRecord {
         let textures = BiomeTextures::from_scene(&scene, did_seed);
         let atmosphere = Atmosphere::from_scene(&scene, did_seed);
         let water_dynamics = WaterDynamics::from_scene(&scene, did_seed);
+        let tree_scatters = TreeScatters::from_scene(&scene, did_seed);
 
         let mut terrain_cfg = SovereignTerrainConfig {
             seed: did_seed,
@@ -299,9 +303,11 @@ impl RoomRecord {
         apply_shape_to_material(&shape, &mut terrain_cfg.material);
         apply_textures_to_material(&textures, &mut terrain_cfg.material);
 
-        let mut water_surface = WaterSurface::default();
-        water_surface.shallow_color = Fp4(palette.water_shallow);
-        water_surface.deep_color = Fp4(palette.water_deep);
+        let mut water_surface = WaterSurface {
+            shallow_color: Fp4(palette.water_shallow),
+            deep_color: Fp4(palette.water_deep),
+            ..WaterSurface::default()
+        };
         apply_water_dynamics(&water_dynamics, &mut water_surface);
 
         // Strict scheme: a single named generator describes the whole
@@ -333,11 +339,48 @@ impl RoomRecord {
         let mut generators = HashMap::new();
         generators.insert("base_terrain".to_string(), base_region);
 
-        let placements = vec![Placement::Absolute {
+        let mut placements = vec![Placement::Absolute {
             generator_ref: "base_terrain".to_string(),
             transform: TransformData::default(),
             snap_to_terrain: false,
         }];
+
+        // Seeded tree scatters: one named `lsys_ternary_props` generator
+        // per scatter (so each scatter's `iterations_delta` actually
+        // affects what gets compiled) plus a matching `Placement::
+        // Scatter` referencing it with a grass-and-dirt-above-water
+        // biome filter so trees land on walkable land, not rock faces
+        // or the seabed.
+        for (idx, scatter) in tree_scatters.scatters.iter().enumerate() {
+            let mut tree_gen = TernaryPropsTree.build(did);
+            if let GeneratorKind::LSystem { iterations, .. } = &mut tree_gen.kind {
+                // Catalogue ships iterations=6; the deriver only ever
+                // emits delta ∈ {-1, 0, +1} so the post-delta band is
+                // [5, 7], well inside healthy LSystem expansion costs.
+                // Clamp to ≥ 2 as belt-and-braces against future
+                // catalogue tweaks.
+                let new_iters = (*iterations as i32 + scatter.iterations_delta).max(2) as u32;
+                *iterations = new_iters;
+            }
+            let scatter_gen_name = format!("tree_scatter_{idx}");
+            generators.insert(scatter_gen_name.clone(), tree_gen);
+            placements.push(Placement::Scatter {
+                generator_ref: scatter_gen_name,
+                bounds: ScatterBounds::Circle {
+                    center: Fp2(scatter.center),
+                    radius: Fp(scatter.radius),
+                },
+                count: scatter.count,
+                local_seed: scatter.local_seed,
+                biome_filter: BiomeFilter {
+                    // 0=Grass, 1=Dirt (walkable land layers).
+                    biomes: vec![0, 1],
+                    water: WaterRelation::Above,
+                },
+                snap_to_terrain: true,
+                random_yaw: true,
+            });
+        }
 
         let mut traits = HashMap::new();
         traits.insert(
@@ -636,6 +679,9 @@ fn apply_water_dynamics(src: &crate::seeded_defaults::WaterDynamics, dst: &mut W
     dst.wave_choppiness = Fp(src.wave_choppiness);
     dst.foam_amount = Fp(src.foam_amount);
     dst.roughness = Fp(src.roughness);
+    dst.wake_strength = Fp(src.wake_strength);
+    dst.wake_ripple_wavelength = Fp(src.wake_ripple_wavelength);
+    dst.wake_decay_radius = Fp(src.wake_decay_radius);
 }
 
 /// Project the room-global [`crate::seeded_defaults::Atmosphere`]
@@ -656,6 +702,7 @@ fn apply_atmosphere_to_environment(
     env.water_normal_scale_near = Fp(src.water_normal_scale_near);
     env.water_normal_scale_far = Fp(src.water_normal_scale_far);
     env.water_sun_glitter = Fp(src.water_sun_glitter);
+    env.water_shore_foam_width = Fp(src.shore_foam_width);
     env.cloud_cover = Fp(src.cloud_cover);
     env.cloud_density = Fp(src.cloud_density);
     env.cloud_softness = Fp(src.cloud_softness);

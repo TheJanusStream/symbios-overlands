@@ -135,8 +135,8 @@ pub(super) fn draw_environment_tab(ui: &mut egui::Ui, env: &mut Environment, dir
                 ui,
                 "Sun glow exponent",
                 &mut env.fog_sun_exponent,
-                1.0,
-                100.0,
+                0.0,
+                200.0,
                 dirty,
             );
         });

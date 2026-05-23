@@ -30,6 +30,17 @@ pub struct WaterDynamics {
     pub wave_choppiness: f32,
     pub foam_amount: f32,
     pub roughness: f32,
+    /// Avatar-wake amplitude multiplier (`WaterSurface::wake_strength`).
+    /// Sampled positive on every fresh room — earlier defaults left this
+    /// at 0 (channel disabled) so a freshly-seeded pond stayed glassy
+    /// when an avatar walked into it. The seeded range sits below the
+    /// sanitiser's `MAX_WATER_WAKE_STRENGTH = 5.0` cap so values still
+    /// pass through `sanitize_water` unchanged.
+    pub wake_strength: f32,
+    /// Metres between consecutive ripple peaks on a wake.
+    pub wake_ripple_wavelength: f32,
+    /// 1/e decay radius for one wake-sample's contribution, in metres.
+    pub wake_decay_radius: f32,
 }
 
 impl WaterDynamics {
@@ -55,6 +66,10 @@ pub struct Atmosphere {
     pub water_normal_scale_near: f32,
     pub water_normal_scale_far: f32,
     pub water_sun_glitter: f32,
+    /// Shore-foam width in metres (`Environment::water_shore_foam_width`).
+    /// `0` reads as a calm pond with no surf band; ~8 reads as a
+    /// dramatic surf line. Sampled uniformly across the slider envelope.
+    pub shore_foam_width: f32,
 
     pub cloud_cover: f32,
     pub cloud_density: f32,
@@ -79,13 +94,17 @@ impl Atmosphere {
 fn derive_water(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> WaterDynamics {
     // Landform decides how lively the water reads: archipelago and
     // coastal rooms get more chop / faster speed, alpine and tundra
-    // calm down.
+    // calm down. Wave-scale (amplitude) is held inside 0.01..0.10
+    // across every landform — anything taller reads as ocean swells
+    // breaking through the surface plane on these compact rooms.
+    // Landform shifts each band within the 0.01..0.10 envelope so
+    // archipelago still reads choppier than mesa.
     let (chop_lo, chop_hi, speed_lo, speed_hi, scale_lo, scale_hi) = match scene.landform {
-        LandformArchetype::Archipelago => (0.30, 0.55, 0.9, 1.5, 0.7, 1.1),
-        LandformArchetype::Valleys => (0.20, 0.40, 0.8, 1.3, 0.5, 0.9),
-        LandformArchetype::Rolling => (0.15, 0.35, 0.6, 1.1, 0.5, 0.9),
-        LandformArchetype::Craggy => (0.25, 0.50, 0.8, 1.4, 0.6, 1.0),
-        LandformArchetype::Mesa => (0.15, 0.35, 0.7, 1.2, 0.4, 0.8),
+        LandformArchetype::Archipelago => (0.30, 0.55, 0.9, 1.5, 0.05, 0.10),
+        LandformArchetype::Valleys => (0.20, 0.40, 0.8, 1.3, 0.02, 0.07),
+        LandformArchetype::Rolling => (0.15, 0.35, 0.6, 1.1, 0.01, 0.05),
+        LandformArchetype::Craggy => (0.25, 0.50, 0.8, 1.4, 0.03, 0.08),
+        LandformArchetype::Mesa => (0.15, 0.35, 0.7, 1.2, 0.01, 0.05),
     };
     // Alpine and tundra biomes settle the water further.
     let (chop_lo, chop_hi, speed_lo, speed_hi) = match scene.biome {
@@ -118,6 +137,13 @@ fn derive_water(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> WaterDynamics {
         wave_choppiness: range_f32(rng, chop_lo, chop_hi),
         foam_amount: range_f32(rng, 0.15, 0.40),
         roughness: range_f32(rng, 0.10, 0.18),
+        // Avatar-wake channel: seeded on by default so a fresh pond
+        // already responds when an avatar steps in. Ranges sit
+        // comfortably below `MAX_WATER_WAKE_*` so the sanitiser is a
+        // pass-through.
+        wake_strength: range_f32(rng, 0.2, 1.1),
+        wake_ripple_wavelength: range_f32(rng, 3.0, 6.0),
+        wake_decay_radius: range_f32(rng, 2.0, 7.0),
     }
 }
 
@@ -150,12 +176,16 @@ fn derive_atmosphere(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> Atmosphere
         BiomeArchetype::Volcanic => (180.0, 320.0),
     };
     let fog_visibility = range_f32(rng, vis_lo, vis_hi);
-    let fog_sun_exponent = range_f32(rng, 18.0, 50.0);
+    let fog_sun_exponent = range_f32(rng, 50.0, 150.0);
 
     // -- Water-global -------------------------------------------------------
     let water_normal_scale_near = range_f32(rng, 0.55, 1.20);
     let water_normal_scale_far = range_f32(rng, 0.05, 0.14);
     let water_sun_glitter = range_f32(rng, 1.2, 2.8);
+    // Shoreline foam: uniformly sampled across the slider envelope so
+    // some rooms read as calm ponds (≈0) while others get a dramatic
+    // surf band (≈8 m).
+    let shore_foam_width = range_f32(rng, 0.0, 8.0);
 
     // -- Clouds -------------------------------------------------------------
     // Biome biases cover; tundra/alpine overcast more, arid clearer.
@@ -188,6 +218,7 @@ fn derive_atmosphere(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> Atmosphere
         water_normal_scale_near,
         water_normal_scale_far,
         water_sun_glitter,
+        shore_foam_width,
         cloud_cover,
         cloud_density,
         cloud_softness,

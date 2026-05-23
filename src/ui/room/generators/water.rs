@@ -33,7 +33,7 @@ pub(super) fn draw_water_editor(ui: &mut egui::Ui, surface: &mut WaterSurface, d
                 "Scale (amplitude)",
                 &mut surface.wave_scale,
                 0.0,
-                4.0,
+                0.4,
                 dirty,
             );
             fp_slider(ui, "Speed", &mut surface.wave_speed, 0.0, 4.0, dirty);

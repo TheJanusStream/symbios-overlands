@@ -154,9 +154,9 @@ mod tests {
         // doesn't, the sampler skipped the curation step.
         for s in 0u64..16 {
             let p = AvatarPalette::for_did(&format!("did:test:{s}"));
-            assert!(SKIN_TONES.iter().any(|c| *c == p.skin_tone));
-            assert!(HAIR_COLORS.iter().any(|c| *c == p.hair_color));
-            assert!(EYE_COLORS.iter().any(|c| *c == p.eye_color));
+            assert!(SKIN_TONES.contains(&p.skin_tone));
+            assert!(HAIR_COLORS.contains(&p.hair_color));
+            assert!(EYE_COLORS.contains(&p.eye_color));
         }
     }
 }

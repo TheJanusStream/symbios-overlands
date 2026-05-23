@@ -191,12 +191,13 @@ fn build_surface_basis(normal: vec3<f32>) -> mat3x3<f32> {
 // Gradient noise for detail normals + foam breakup
 // ---------------------------------------------------------------------------
 
-// David Hoskins' sine-free scalar hash ("Hash without Sine", Shadertoy
-// XlGcRh). We need this specifically because the water's integer-coordinate
-// lattice can reach magnitudes of several hundred — `xz * normal_scale_near`
-// over a ~256 m world extent puts `floor(p)` well past 200 on each axis.
+// PCG2D bitwise integer hash (Jarzynski & Olano, "Hash Functions for GPU
+// Rendering", JCGT 2020 §4.4) collapsed to a u32 → unit-f32 output. Used
+// strictly via `gradient_noise`'s `floor(p)`, so every input here is an
+// integer-valued float in a small range; converting to u32 and running
+// the lattice through real bit-mixing decorrelates adjacent cells fully.
 //
-// Two earlier iterations failed here:
+// Earlier float-domain iterations all eventually banded:
 //   1. `fract(p * 123.34, 456.21) + dot(...)` — 123.34 = 6167/50, so
 //      `fract(i.x * 123.34)` had period 50, planting a rigid 50×100 grid
 //      across the water. Denser near-tile scaling tiled that grid thicker
@@ -205,15 +206,33 @@ fn build_surface_basis(normal: vec3<f32>) -> mat3x3<f32> {
 //      integer `p` above ~100, the argument to sin() exceeds ~10⁴ and
 //      f32 argument-reduction quantises runs of adjacent cells onto
 //      identical hash values, reading as hard-edged square splotches.
+//   3. David Hoskins' "hash without sine" — `fract(vec3(p.xyx) *
+//      0.1031); p3 += dot(p3, p3.yzx + 33.33); fract((p3.x + p3.y) *
+//      p3.z)`. For integer-lattice inputs the drift sequence
+//      `fract(k * 0.1031)` has a soft quasi-period of ~10 cells per
+//      axis; the dot mixing decorrelates most adjacent cells but
+//      enough residual coherence remained to read as a faint grid
+//      when world cells shrank (i.e. at any non-trivial
+//      `normal_scale_near`), and the grid grew denser as the tile
+//      scale climbed.
 //
-// Hoskins' construction stays in the numerically well-conditioned range
-// `[0, 1)` throughout (multiplier `0.1031`), uses a 3-component spread so
-// the returned scalar mixes all three carriers, and has no transcendental
-// dependency — so it's immune to both period and precision failure modes.
+// PCG operates entirely on u32, so there is no float-domain
+// periodicity to leak through — every integer cell gets an
+// independent uniform output.
+//
+// The `+ 32768.0` bias before `u32(...)` brings the float-domain
+// lattice (which can be slightly negative at the world's edge) into
+// the non-negative range u32 conversion expects, without altering
+// inter-cell decorrelation — every cell still receives a distinct
+// integer.
 fn hash21(p: vec2<f32>) -> f32 {
-    var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
-    p3 = p3 + dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
+    var v = vec2<u32>(u32(p.x + 32768.0), u32(p.y + 32768.0));
+    v = v * 1664525u + 1013904223u;
+    v.x = v.x + v.y * 1664525u;
+    v.y = v.y + v.x * 1664525u;
+    v = v ^ (v >> vec2<u32>(16u));
+    v.x = v.x + v.y * 1664525u;
+    return f32(v.x) * (1.0 / 4294967296.0);
 }
 
 // Hash a 2D integer lattice point to a unit-length 2D gradient. Polar

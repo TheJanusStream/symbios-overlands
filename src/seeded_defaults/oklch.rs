@@ -29,6 +29,14 @@ fn linear_to_srgb(c: f32) -> f32 {
 }
 
 /// Linear sRGB → OkLab.
+//
+// Coefficients are copied verbatim from Ottosson's published article
+// (linked above) so anyone cross-referencing the implementation against
+// the paper sees an exact match. The extra decimals past f32's ~7-digit
+// limit are silently rounded at compile time — keeping them lets the
+// compiler do a single round-to-nearest from the published values
+// instead of inheriting whatever shorter literal we'd hand-truncate to.
+#[allow(clippy::excessive_precision)]
 pub fn linear_srgb_to_oklab([r, g, b]: [f32; 3]) -> [f32; 3] {
     let l = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b;
     let m = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b;
@@ -46,6 +54,11 @@ pub fn linear_srgb_to_oklab([r, g, b]: [f32; 3]) -> [f32; 3] {
 /// OkLab → linear sRGB. May produce out-of-gamut negative values for
 /// high-chroma inputs — the public sRGB helpers clamp after the inverse
 /// transfer function.
+//
+// As above: coefficients are kept at paper precision so the compiler
+// performs a single round-to-nearest to f32 rather than inheriting a
+// hand-truncated approximation.
+#[allow(clippy::excessive_precision)]
 pub fn oklab_to_linear_srgb([l, a, b]: [f32; 3]) -> [f32; 3] {
     let l_ = l + 0.3963377774 * a + 0.2158037573 * b;
     let m_ = l - 0.1055613458 * a - 0.0638541728 * b;

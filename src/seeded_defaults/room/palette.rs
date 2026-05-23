@@ -1,22 +1,25 @@
-//! Coordinated palette derivation for a DID-seeded room.
+//! Full-fantasy palette derivation for a DID-seeded room.
 //!
 //! Produces every colour the room consumes (terrain biomes, water, sky,
-//! fog, sun, clouds) from the shared [`SceneCharacter`] anchor in OkLCH
-//! space. A single base-hue + temperature + biome anchor drives every
-//! sample, so the palette is internally coherent: a warm Lush room
-//! reads as a warm Lush room across grass, water, fog and clouds
-//! rather than each channel rolling independently into mud.
+//! fog, sun, clouds) by sampling freely across the OkLCH gamut.
+//! Biome identity no longer pins channels to "earthly" hues — a tundra
+//! room can read as cyan glass, a lush room as magenta meadows — so
+//! every fresh DID feels like its own planet rather than a variation
+//! on the same Earth.
 //!
-//! Each colour group documents its own L / C / H range and the biome
-//! biases that shift it; the per-group jitter is small (a few % of the
-//! span) so two seeds with the same archetype produce visibly-related
-//! but not identical rooms.
+//! Coherence is provided by the [`SceneCharacter`] anchor: every
+//! channel's hue is sampled relative to `base_hue_deg`, with chroma
+//! biased by `temperature` (warm bias floors saturation up, cool bias
+//! lets cooler tints stay muted). The role of each channel —
+//! "vegetation", "water", "snow", "rock" — still constrains *lightness*
+//! so the splat layers read in the expected order (snow brighter than
+//! rock, moist grass darker than dry, etc.), but hue and chroma roam.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
 use crate::seeded_defaults::oklch::{oklch_to_srgb, wrap_hue_deg};
-use crate::seeded_defaults::scene::{BiomeArchetype, SceneCharacter, range_f32};
+use crate::seeded_defaults::scene::{SceneCharacter, range_f32};
 
 /// Sub-stream salt for the palette RNG, distinct from other derivers
 /// so each (terrain shape, atmosphere, textures) advances its own RNG
@@ -80,100 +83,6 @@ impl RoomPalette {
 }
 
 // ---------------------------------------------------------------------------
-// Biome-specific palette traits
-// ---------------------------------------------------------------------------
-
-/// Per-biome palette shape: which absolute hues anchor each terrain
-/// surface, how saturated the overall palette runs, how warm/cool the
-/// snow line reads.
-struct BiomeTraits {
-    /// Grass anchor hue in degrees (OkLCH). Absolute — biome identity
-    /// dominates the room's base_hue for vegetation.
-    grass_hue_deg: f32,
-    /// Grass chroma at full saturation.
-    grass_chroma: f32,
-    /// Dirt anchor hue.
-    dirt_hue_deg: f32,
-    /// Dirt chroma at full saturation.
-    dirt_chroma: f32,
-    /// Rock chroma scale (multiplier on a small base chroma).
-    rock_chroma_scale: f32,
-    /// Snow warmth bias: `-1` cool blue tint, `+1` warm cream tint.
-    snow_warmth_bias: f32,
-    /// Global chroma multiplier — Tundra/Volcanic mute everything,
-    /// Lush/Coastal stay saturated.
-    palette_chroma_scale: f32,
-    /// Water anchor hue (degrees). Lush leans aqua, Volcanic darker,
-    /// Tundra near-cyan.
-    water_hue_deg: f32,
-}
-
-fn biome_traits(b: BiomeArchetype) -> BiomeTraits {
-    match b {
-        BiomeArchetype::Lush => BiomeTraits {
-            grass_hue_deg: 130.0,
-            grass_chroma: 0.16,
-            dirt_hue_deg: 55.0,
-            dirt_chroma: 0.14,
-            rock_chroma_scale: 1.0,
-            snow_warmth_bias: 0.0,
-            palette_chroma_scale: 1.0,
-            water_hue_deg: 200.0,
-        },
-        BiomeArchetype::Arid => BiomeTraits {
-            grass_hue_deg: 90.0,
-            grass_chroma: 0.10,
-            dirt_hue_deg: 60.0,
-            dirt_chroma: 0.18,
-            rock_chroma_scale: 1.2,
-            snow_warmth_bias: 0.6,
-            palette_chroma_scale: 1.0,
-            water_hue_deg: 210.0,
-        },
-        BiomeArchetype::Alpine => BiomeTraits {
-            grass_hue_deg: 140.0,
-            grass_chroma: 0.08,
-            dirt_hue_deg: 45.0,
-            dirt_chroma: 0.08,
-            rock_chroma_scale: 0.5,
-            snow_warmth_bias: -0.5,
-            palette_chroma_scale: 0.7,
-            water_hue_deg: 215.0,
-        },
-        BiomeArchetype::Volcanic => BiomeTraits {
-            grass_hue_deg: 100.0,
-            grass_chroma: 0.06,
-            dirt_hue_deg: 30.0,
-            dirt_chroma: 0.16,
-            rock_chroma_scale: 0.4,
-            snow_warmth_bias: 0.4,
-            palette_chroma_scale: 0.8,
-            water_hue_deg: 230.0,
-        },
-        BiomeArchetype::Coastal => BiomeTraits {
-            grass_hue_deg: 125.0,
-            grass_chroma: 0.14,
-            dirt_hue_deg: 70.0,
-            dirt_chroma: 0.10,
-            rock_chroma_scale: 0.8,
-            snow_warmth_bias: 0.5,
-            palette_chroma_scale: 0.9,
-            water_hue_deg: 195.0,
-        },
-        BiomeArchetype::Tundra => BiomeTraits {
-            grass_hue_deg: 150.0,
-            grass_chroma: 0.04,
-            dirt_hue_deg: 40.0,
-            dirt_chroma: 0.06,
-            rock_chroma_scale: 0.3,
-            snow_warmth_bias: -0.5,
-            palette_chroma_scale: 0.5,
-            water_hue_deg: 220.0,
-        },
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
 
@@ -196,161 +105,176 @@ fn jitter(rng: &mut ChaCha8Rng, span: f32) -> f32 {
 // ---------------------------------------------------------------------------
 
 fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
-    let bt = biome_traits(scene.biome);
     let base_hue = scene.base_hue_deg;
     let temp = scene.temperature; // -1 cool ↔ +1 warm
     let tod = scene.time_of_day_bias.abs(); // proximity to horizon, 0..1
 
+    // Hue "axes" rooted at base_hue: each role samples its own absolute
+    // hue with very wide jitter, so two same-archetype rooms can land
+    // on completely different colour worlds while still feeling like
+    // intentional palettes (every channel still relates to base_hue
+    // somehow, even after the jitter folds them around).
+    let vegetation_hue = base_hue + jitter(rng, 150.0);
+    let water_hue = base_hue + 180.0 + jitter(rng, 130.0);
+    let rock_hue = base_hue + 60.0 + jitter(rng, 150.0);
+    let snow_hue = base_hue + 30.0 + jitter(rng, 180.0); // snow is "free"
+    let sky_hue = base_hue + jitter(rng, 180.0); // any-hue sky is the point
+    let dirt_hue = vegetation_hue + jitter(rng, 90.0);
+
+    // Warm temperatures lift saturation across every channel; cool
+    // temperatures let it drop low. Centre stays high (this is fantasy
+    // mode — most rooms read saturated).
+    let chroma_floor = 0.06 + temp.max(0.0) * 0.04;
+
     // ---------------- SUN ----------------
-    // Sunlight runs warm by default; cool rooms only slightly desaturate it,
-    // and near-horizon time-of-day pulls hue down toward amber (~25°).
-    let sun_hue = lerp(70.0, 25.0, tod);
-    let sun_chroma = lerp(0.04, 0.10, tod) + (temp.max(0.0) * 0.02);
-    let sun_l = lerp(0.95, 0.88, tod);
+    // Sun colour drifts from amber-warm at horizon to cool/cyan when
+    // high — and in fantasy mode "cool sun" can mean any hue at all.
     let sun_color = col(
-        sun_l + jitter(rng, 0.02),
-        sun_chroma + jitter(rng, 0.01),
-        sun_hue + jitter(rng, 6.0),
+        lerp(0.95, 0.86, tod) + jitter(rng, 0.04),
+        chroma_floor + range_f32(rng, 0.02, 0.14),
+        base_hue + 30.0 + jitter(rng, 220.0),
     );
 
     // ---------------- SKY ----------------
-    // Sky is a backdrop; the visible atmosphere is dominated by fog. Keep
-    // sky cool-blue, biased very slightly by base_hue so two rooms with
-    // very different bases differ in zenith tint.
-    let sky_hue = lerp(245.0, 230.0, tod) + (base_hue - 180.0) * 0.05;
-    let sky_chroma = 0.04 * bt.palette_chroma_scale;
-    let sky_l = lerp(0.78, 0.62, tod);
+    // No more "blue sky always": the sky picks its own hue from the
+    // room's tonic. Lightness still tracks time-of-day so dusk reads
+    // dimmer than noon.
     let sky_color = col(
-        sky_l + jitter(rng, 0.03),
-        sky_chroma + jitter(rng, 0.01),
-        sky_hue + jitter(rng, 8.0),
+        lerp(0.78, 0.55, tod) + jitter(rng, 0.06),
+        chroma_floor + range_f32(rng, 0.04, 0.18),
+        sky_hue,
     );
 
     // ---------------- FOG ----------------
-    // Fog is the most visible atmosphere channel. Anchor near sky, but
-    // slightly warmer; near-horizon TOD pushes pink/orange ("sunset
-    // band"). Alpha is always 1.0 — fog colour is fully-opaque tint, the
-    // visibility distance does the distance falloff.
-    let fog_hue = lerp(sky_hue, 30.0, tod * 0.5);
-    let fog_chroma = lerp(0.06, 0.12, tod) * bt.palette_chroma_scale;
-    let fog_l = lerp(0.62, 0.55, tod);
-    let fog_rgb = col(
-        fog_l + jitter(rng, 0.03),
-        fog_chroma + jitter(rng, 0.02),
-        fog_hue + jitter(rng, 8.0),
-    );
+    // Fog is the most visible atmosphere channel; lean its hue toward
+    // the sky (rooms read coherently) but allow a healthy wander.
+    let fog_hue = sky_hue + jitter(rng, 60.0);
+    let fog_chroma = chroma_floor + range_f32(rng, 0.04, 0.18);
+    let fog_l = lerp(0.62, 0.50, tod);
+    let fog_rgb = col(fog_l + jitter(rng, 0.06), fog_chroma, fog_hue);
     let fog_color = col4(fog_rgb, 1.0);
 
-    // Extinction (light *lost* to absorption): slightly cooler & duller
-    // than fog colour.
+    // Extinction (light *lost* to absorption): a step darker and
+    // slightly off-hue from the fog body.
     let fog_extinction = col(
-        fog_l - 0.05 + jitter(rng, 0.02),
-        fog_chroma + jitter(rng, 0.01),
-        fog_hue - 12.0 + jitter(rng, 6.0),
+        (fog_l - 0.08 + jitter(rng, 0.04)).max(0.05),
+        fog_chroma + jitter(rng, 0.02),
+        fog_hue + jitter(rng, 30.0),
     );
-    // Inscattering (light *gained* from the sun direction): warmer, brighter.
+    // Inscattering (light *gained* from the sun direction): a step
+    // brighter and pulled toward the sun's hue.
     let fog_inscattering = col(
-        (fog_l + 0.18 + jitter(rng, 0.03)).min(0.95),
-        (fog_chroma * 0.5 + jitter(rng, 0.01)).max(0.02),
-        sun_hue + jitter(rng, 10.0),
+        (fog_l + 0.20 + jitter(rng, 0.04)).min(0.97),
+        (fog_chroma * 0.5 + jitter(rng, 0.03)).max(0.02),
+        base_hue + jitter(rng, 120.0),
     );
-    // Fog-sun colour: a warm tint mixed with the directional light.
-    let fog_sun_rgb = col(0.9 + jitter(rng, 0.04), 0.06, sun_hue + jitter(rng, 6.0));
+    // Fog-sun colour: a saturated tint behind directional light. In
+    // fantasy mode this can be any colour the deriver lands on.
+    let fog_sun_rgb = col(
+        0.88 + jitter(rng, 0.06),
+        chroma_floor + range_f32(rng, 0.04, 0.20),
+        base_hue + jitter(rng, 180.0),
+    );
     let fog_sun_color = col4(fog_sun_rgb, 0.5);
 
     // ---------------- CLOUDS ----------------
-    // Sunlit top inherits sun warmth; shadowed underside inherits sky cool.
+    // Sunlit top is bright; shadowed underside is mid. Hue is loose —
+    // a magenta cloud against a green sky is fair game.
     let cloud_sunlit = col(
-        0.95 + jitter(rng, 0.02),
-        0.04 + (temp.max(0.0) * 0.02) + jitter(rng, 0.01),
-        sun_hue + jitter(rng, 6.0),
+        0.93 + jitter(rng, 0.04),
+        chroma_floor + range_f32(rng, 0.02, 0.12),
+        base_hue + jitter(rng, 180.0),
     );
     let cloud_shadow = col(
-        0.62 + jitter(rng, 0.03),
-        0.05 + jitter(rng, 0.01),
-        sky_hue + jitter(rng, 6.0),
+        0.55 + jitter(rng, 0.06),
+        chroma_floor + range_f32(rng, 0.02, 0.14),
+        sky_hue + jitter(rng, 90.0),
     );
 
     // ---------------- WATER ----------------
     // Per-volume colours: shallow (head-on) low-alpha, deep (grazing)
-    // high-alpha. Both at the biome's water anchor hue, perturbed by
-    // base_hue so users with the same biome still differ visibly.
-    let water_hue = bt.water_hue_deg + (base_hue - 180.0) * 0.10;
+    // high-alpha. Both at the water hue, perturbed independently.
+    let water_chroma = chroma_floor + range_f32(rng, 0.06, 0.22);
     let water_shallow_rgb = col(
-        0.55 + jitter(rng, 0.03),
-        0.10 * bt.palette_chroma_scale + jitter(rng, 0.02),
-        water_hue + jitter(rng, 6.0),
+        range_f32(rng, 0.48, 0.65),
+        water_chroma + jitter(rng, 0.03),
+        water_hue + jitter(rng, 25.0),
     );
     let water_deep_rgb = col(
-        0.18 + jitter(rng, 0.03),
-        0.08 * bt.palette_chroma_scale + jitter(rng, 0.02),
-        water_hue + 15.0 + jitter(rng, 6.0),
+        range_f32(rng, 0.12, 0.22),
+        water_chroma + jitter(rng, 0.03),
+        water_hue + jitter(rng, 35.0),
     );
     let water_shallow = col4(water_shallow_rgb, range_f32(rng, 0.18, 0.28));
     let water_deep = col4(water_deep_rgb, range_f32(rng, 0.85, 0.92));
 
     // Room-global subsurface scatter (`water_scatter_color` on
-    // `Environment`): greener than the water hue, picks up the crests.
+    // `Environment`): picks up the crests with a strong hue shift
+    // from the body water.
     let water_scatter = col(
-        0.42 + jitter(rng, 0.03),
-        0.12 * bt.palette_chroma_scale + jitter(rng, 0.02),
-        water_hue - 35.0 + jitter(rng, 8.0),
+        range_f32(rng, 0.38, 0.55),
+        water_chroma + jitter(rng, 0.04),
+        water_hue + jitter(rng, 80.0),
     );
 
     // ---------------- TERRAIN BIOMES ----------------
+    // Vegetation: any-hue grass with high chroma. Moist is darker than
+    // dry so the splat blend still reads the right way; hue stays
+    // anchored to `vegetation_hue` (the deriver picked one above).
+    let grass_chroma = chroma_floor + range_f32(rng, 0.06, 0.22);
     let grass_dry = col(
-        range_f32(rng, 0.18, 0.28),
-        bt.grass_chroma * bt.palette_chroma_scale + jitter(rng, 0.02),
-        bt.grass_hue_deg + jitter(rng, 6.0),
+        range_f32(rng, 0.18, 0.32),
+        grass_chroma,
+        vegetation_hue + jitter(rng, 25.0),
     );
     let grass_moist = col(
-        range_f32(rng, 0.10, 0.16),
-        bt.grass_chroma * bt.palette_chroma_scale + jitter(rng, 0.02),
-        bt.grass_hue_deg - 6.0 + jitter(rng, 4.0),
+        range_f32(rng, 0.08, 0.18),
+        grass_chroma + jitter(rng, 0.02),
+        vegetation_hue + jitter(rng, 20.0),
     );
 
+    let dirt_chroma = chroma_floor + range_f32(rng, 0.06, 0.20);
     let dirt_dry = col(
-        range_f32(rng, 0.42, 0.52),
-        bt.dirt_chroma * bt.palette_chroma_scale + jitter(rng, 0.02),
-        bt.dirt_hue_deg + jitter(rng, 8.0),
+        range_f32(rng, 0.40, 0.55),
+        dirt_chroma,
+        dirt_hue + jitter(rng, 30.0),
     );
     let dirt_moist = col(
-        range_f32(rng, 0.22, 0.32),
-        bt.dirt_chroma * bt.palette_chroma_scale + jitter(rng, 0.02),
-        bt.dirt_hue_deg - 4.0 + jitter(rng, 6.0),
+        range_f32(rng, 0.20, 0.32),
+        dirt_chroma + jitter(rng, 0.02),
+        dirt_hue + jitter(rng, 25.0),
     );
 
-    // Rocks: low chroma, hue lightly biased by base_hue so two rooms with
-    // the same biome read as different through their rocks. `rock_gap`
-    // samples from a deliberately low lightness band so the crack
-    // pattern reads as shadow against the stone face — see the
-    // `RoomPalette` field docstrings for the texture-crate mapping
-    // that flips these two before they reach `SovereignRockConfig`.
-    let rock_hue = base_hue + jitter(rng, 30.0);
+    // Rocks: low-to-mid chroma so they read as solid mass, but in
+    // fantasy mode the rock can be lavender, teal, magenta… anything
+    // the deriver picked for `rock_hue`. `rock_gap` lifts the chroma
+    // (the crack often reads more colourful than the face) and drops
+    // lightness so the ridged-multifractal seam still looks like shadow.
+    let rock_chroma = chroma_floor + range_f32(rng, 0.02, 0.14);
     let rock_stone = col(
-        range_f32(rng, 0.42, 0.54),
-        0.04 * bt.rock_chroma_scale + jitter(rng, 0.01),
-        rock_hue,
+        range_f32(rng, 0.40, 0.58),
+        rock_chroma,
+        rock_hue + jitter(rng, 20.0),
     );
     let rock_gap = col(
-        range_f32(rng, 0.08, 0.20),
-        0.04 * bt.rock_chroma_scale + jitter(rng, 0.01),
-        rock_hue + jitter(rng, 12.0),
+        range_f32(rng, 0.06, 0.20),
+        rock_chroma + range_f32(rng, 0.02, 0.10),
+        rock_hue + jitter(rng, 40.0),
     );
 
-    // Snow: near-white, tinted by `snow_warmth_bias` and `temperature`
-    // (warm cream vs cool blue).
-    let snow_warmth = (bt.snow_warmth_bias + temp).clamp(-1.0, 1.0);
-    let snow_hue = lerp(225.0, 60.0, (snow_warmth + 1.0) * 0.5);
+    // Snow: bright and pale on average, but in fantasy mode it can be
+    // a bold tint (pink ice, cyan frost). Stays the brightest layer so
+    // the snow line still reads as snow against the rock face.
+    let snow_chroma = chroma_floor + range_f32(rng, 0.01, 0.16);
     let snow_dry = col(
-        range_f32(rng, 0.92, 0.97),
-        0.02 + jitter(rng, 0.01),
-        snow_hue + jitter(rng, 6.0),
+        range_f32(rng, 0.88, 0.97),
+        snow_chroma * 0.5,
+        snow_hue + jitter(rng, 40.0),
     );
     let snow_moist = col(
-        range_f32(rng, 0.80, 0.86),
-        0.03 + jitter(rng, 0.01),
-        snow_hue + jitter(rng, 6.0),
+        range_f32(rng, 0.74, 0.86),
+        snow_chroma,
+        snow_hue + jitter(rng, 30.0),
     );
 
     RoomPalette {
@@ -387,6 +311,7 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
 mod tests {
     use super::*;
     use crate::seeded_defaults::hash::fnv1a_64;
+    use crate::seeded_defaults::scene::BiomeArchetype;
 
     fn finite_rgb(c: [f32; 3]) -> bool {
         c.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v))
@@ -397,8 +322,9 @@ mod tests {
 
     #[test]
     fn all_channels_are_finite_in_gamut() {
-        // Cover every biome with a few seeds each — catches a deriver
-        // that produces NaN or out-of-range channels under any branch.
+        // Sweep biomes for parity with the old test surface — the new
+        // deriver doesn't branch on biome, but covering every archetype
+        // still catches any RNG sub-stream regression.
         for biome in BiomeArchetype::ALL {
             for s in 0u64..4 {
                 let mut scene = SceneCharacter::for_seed(s);
@@ -454,5 +380,25 @@ mod tests {
             || a.water_shallow != b.water_shallow
             || a.fog_color != b.fog_color;
         assert!(any_diff);
+    }
+
+    #[test]
+    fn moist_darker_than_dry() {
+        // The splat blend reads "moist soil under dry soil" — that
+        // ordering needs to survive the wider colour rolls. Average
+        // luminance across many seeds rather than asserting per-seed
+        // (any single roll can land tightly on either side).
+        let mut dry_lum = 0.0;
+        let mut moist_lum = 0.0;
+        for s in 0u64..64 {
+            let scene = SceneCharacter::for_seed(s);
+            let p = RoomPalette::from_scene(&scene, s);
+            dry_lum += p.grass_dry[0] + p.grass_dry[1] + p.grass_dry[2];
+            moist_lum += p.grass_moist[0] + p.grass_moist[1] + p.grass_moist[2];
+        }
+        assert!(
+            moist_lum < dry_lum,
+            "moist grass should average darker than dry (moist={moist_lum} dry={dry_lum})"
+        );
     }
 }
