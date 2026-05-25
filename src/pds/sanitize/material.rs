@@ -87,6 +87,10 @@ impl Sanitize for SovereignTextureConfig {
                 w.panels_x = w.panels_x.clamp(1, axis);
                 w.panels_y = w.panels_y.clamp(1, axis);
             }
+            // Forward to the asset-reference sanitiser — caps URL / DID /
+            // CID lengths so a hostile peer can't smuggle a megabyte URL
+            // through a referenced texture slot.
+            SovereignTextureConfig::Referenced { source } => source.sanitize(),
             // Variants whose only count-shaped fields are `fp64` scale
             // factors (Brick, Plank, Shingle, Metal, Pavers, Cobblestone,
             // Thatch, Corrugated, Asphalt, Encaustic, Leaf): per-pixel cost

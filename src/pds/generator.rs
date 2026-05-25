@@ -470,43 +470,20 @@ pub enum GeneratorKind {
     Unknown,
 }
 
-/// Image-source open union for [`GeneratorKind::Sign`]. All three
-/// variants resolve through the shared `BlobImageCache` in
-/// `world_builder::image_cache`, so a room with multiple Signs pointing at
-/// the same source issues one HTTPS round trip and reuses the resulting
-/// `Handle<Image>` across every panel. `Unknown` keeps a record authored
-/// by a future engine version round-tripping cleanly.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
-#[serde(tag = "$type")]
-pub enum SignSource {
-    /// Direct HTTPS image URL. Bytes are decoded via the `image` crate; on
-    /// WASM the request goes through the same `reqwest` client as every
-    /// other HTTP fetch. CORS is the caller's problem — a host that
-    /// doesn't serve `Access-Control-Allow-Origin: *` will fail to load on
-    /// web.
-    #[serde(rename = "network.symbios.sign.url")]
-    Url { url: String },
-    /// ATProto blob ref pinned to a specific DID. Resolves the DID's PDS
-    /// then calls `com.atproto.sync.getBlob?did=…&cid=…`. Use this when
-    /// the image is hosted on a known PDS as a content-addressed blob.
-    #[serde(rename = "network.symbios.sign.atproto_blob")]
-    AtprotoBlob { did: String, cid: String },
-    /// "This DID's current profile picture" — fetches `app.bsky.actor.
-    /// getProfile` and resolves the avatar URL through the same path
-    /// Portal uses today. Self-updating: a refresh between sessions picks
-    /// up a new pfp without changing the record.
-    #[serde(rename = "network.symbios.sign.did_pfp")]
-    DidPfp { did: String },
-
-    #[serde(other)]
-    Unknown,
-}
-
-impl Default for SignSource {
-    fn default() -> Self {
-        SignSource::Url { url: String::new() }
-    }
-}
+/// Image-source alias retained for backwards compatibility. The canonical
+/// type is [`SovereignAssetReference`] — the same enum was originally
+/// introduced here as `SignSource` but generalised when texture and audio
+/// dropdowns gained their own Referenced variants. The `$type` wire tags
+/// (`network.symbios.sign.*`) are unchanged so already-published records
+/// keep deserialising; only the in-code name moved.
+///
+/// All three variants still resolve through the shared `BlobImageCache`
+/// in `world_builder::image_cache` for image consumers (Sign panels,
+/// particle textures); audio consumers go through the sibling
+/// `BlobAudioCache` pattern.
+///
+/// [`SovereignAssetReference`]: crate::pds::asset_reference::SovereignAssetReference
+pub use crate::pds::asset_reference::SovereignAssetReference as SignSource;
 
 /// Open-union mirror of Bevy's `AlphaMode`. Wire-tagged so an unknown
 /// variant from a forward-compatible record decodes to `Unknown` rather

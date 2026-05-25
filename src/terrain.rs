@@ -361,9 +361,15 @@ fn pending_texture_from_sovereign(layer: &SovereignTextureConfig, size: u32) -> 
         SovereignTextureConfig::IronGrille(c) => {
             PendingTexture::iron_grille(c.to_native(), size, size)
         }
-        // None / Unknown — fall back to an opaque placeholder via GroundConfig
-        // default so the splat array always has four live textures to sample.
-        SovereignTextureConfig::None | SovereignTextureConfig::Unknown => PendingTexture::ground(
+        // None / Unknown / Referenced — fall back to an opaque placeholder
+        // via GroundConfig default so the splat array always has four live
+        // textures to sample. For Referenced the fallback is what the splat
+        // shows BEFORE the resolver paints the fetched image in; once
+        // BlobImageCache delivers the handle the layer's StandardMaterial
+        // base_color_texture is swapped over the placeholder.
+        SovereignTextureConfig::None
+        | SovereignTextureConfig::Unknown
+        | SovereignTextureConfig::Referenced { .. } => PendingTexture::ground(
             crate::pds::SovereignGroundConfig::default().to_native(),
             size,
             size,

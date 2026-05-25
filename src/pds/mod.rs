@@ -44,6 +44,9 @@
 //!
 //! ## Submodule map
 //!
+//! * [`asset_reference`] — canonical [`SovereignAssetReference`] open union
+//!   (Url / AtprotoBlob / DidPfp / Unknown) shared by every "URL or DID"
+//!   slot in the engine; [`SignSource`] is retained as a type alias.
 //! * [`types`] — fixed-point wrappers ([`Fp`]/[`Fp2`]/[`Fp3`]/[`Fp4`]/[`Fp64`]),
 //!   [`TransformData`], [`BiomeFilter`], [`ScatterBounds`], and the string-key
 //!   serde helpers ([`u64_as_string`], [`map_u8_as_string`], [`map_u16_as_string`]).
@@ -74,6 +77,7 @@ pub(crate) const COLLECTION: &str = "network.symbios.overlands.room";
 pub(crate) const AVATAR_COLLECTION: &str = "network.symbios.overlands.avatar";
 pub const INVENTORY_COLLECTION: &str = "network.symbios.overlands.inventory";
 
+pub mod asset_reference;
 pub mod avatar;
 pub mod contact_effects;
 pub mod generator;
@@ -91,6 +95,7 @@ pub mod xrpc;
 // `pds::sanitize::limits`) — the old top-level `limits` module path is still
 // re-exported below for backwards compatibility.
 
+pub use asset_reference::SovereignAssetReference;
 pub use avatar::{
     AirplaneParams, AvatarRecord, CarParams, HelicopterParams, HoverBoatParams, HumanoidParams,
     LocomotionConfig, fetch_avatar_record, publish_avatar_record,

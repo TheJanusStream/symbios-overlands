@@ -72,13 +72,20 @@ fn scatter_count_clamped_to_max() {
         random_yaw: true,
     });
     r.sanitize();
-    let scatters: Vec<&Placement> = r
+    // Filter for the specific scatter this test injected — the default
+    // record carries its own seeded `tree_scatter_*` placements (see
+    // `seeded_defaults::room::scatters`) which are irrelevant here.
+    let injected: Vec<&Placement> = r
         .placements
         .iter()
-        .filter(|p| matches!(p, Placement::Scatter { .. }))
+        .filter(|p| matches!(p, Placement::Scatter { generator_ref, .. } if generator_ref == "scatterable"))
         .collect();
-    assert_eq!(scatters.len(), 1, "non-Terrain Scatter must survive");
-    if let Placement::Scatter { count, .. } = scatters[0] {
+    assert_eq!(
+        injected.len(),
+        1,
+        "injected non-Terrain Scatter must survive"
+    );
+    if let Placement::Scatter { count, .. } = injected[0] {
         assert!(*count <= limits::MAX_SCATTER_COUNT);
     }
 }
@@ -118,10 +125,15 @@ fn scatter_pointing_at_terrain_root_is_dropped() {
         random_yaw: true,
     });
     r.sanitize();
+    // Filter for the specific scatter this test injected — the default
+    // record carries its own seeded `tree_scatter_*` Scatter placements
+    // (legitimate, targeting non-Terrain generators) that must NOT be
+    // dropped by sanitise.
     assert!(
-        !r.placements
-            .iter()
-            .any(|p| matches!(p, Placement::Scatter { .. })),
+        !r.placements.iter().any(|p| matches!(
+            p,
+            Placement::Scatter { generator_ref, .. } if generator_ref == "base_terrain"
+        )),
         "Scatter targeting Terrain root must be dropped"
     );
 }
@@ -139,10 +151,15 @@ fn grid_pointing_at_terrain_root_is_dropped() {
         random_yaw: false,
     });
     r.sanitize();
+    // Filter for the specific Grid this test injected — same robustness
+    // fix as the sibling scatter-on-terrain test (no Grid placements
+    // currently ship in the default record, but the filter keeps the
+    // assertion durable if that changes).
     assert!(
-        !r.placements
-            .iter()
-            .any(|p| matches!(p, Placement::Grid { .. })),
+        !r.placements.iter().any(|p| matches!(
+            p,
+            Placement::Grid { generator_ref, .. } if generator_ref == "base_terrain"
+        )),
         "Grid targeting Terrain root must be dropped"
     );
 }

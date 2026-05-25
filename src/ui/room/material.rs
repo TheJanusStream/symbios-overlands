@@ -79,6 +79,15 @@ pub(super) fn draw_texture_bridge(
                 }};
             }
             opt!("None", SovereignTextureConfig::None);
+            // Slotted between None and the procedural-generator list so
+            // the existing 24-variant order stays contiguous — muscle
+            // memory survives the addition.
+            opt!(
+                "Referenced",
+                SovereignTextureConfig::Referenced {
+                    source: Default::default()
+                }
+            );
             opt!("Leaf", SovereignTextureConfig::Leaf(Default::default()));
             opt!("Twig", SovereignTextureConfig::Twig(Default::default()));
             opt!("Bark", SovereignTextureConfig::Bark(Default::default()));
@@ -145,6 +154,12 @@ pub(super) fn draw_texture_bridge(
 
     match texture {
         SovereignTextureConfig::None | SovereignTextureConfig::Unknown => {}
+        // Referenced has its own sub-source editor (URL / AtprotoBlob /
+        // DidPfp) wired up in the asset-reference UI ticket; for now the
+        // variant exists on the type so room records can round-trip it.
+        SovereignTextureConfig::Referenced { source } => {
+            super::widgets::draw_asset_reference_editor(ui, source, salt, dirty);
+        }
         SovereignTextureConfig::Leaf(c) => run!(
             c,
             SovereignLeafConfig,

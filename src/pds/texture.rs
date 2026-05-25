@@ -484,6 +484,23 @@ define_sovereign_texture_cfg!(SovereignEncausticConfig => bevy_symbios_texture::
 pub enum SovereignTextureConfig {
     #[default]
     None,
+    /// External asset pointer — an HTTPS URL or an ATProto-blob CID hosted
+    /// on a peer's PDS. Resolved at room-compile time through the shared
+    /// [`BlobImageCache`] and slotted into the layer / construct material
+    /// the same way a procedurally-baked variant would be. Lets a room
+    /// pull in explicit textures (hand-authored, photographed, traded
+    /// across the network) alongside the procedural-generator catalogue
+    /// without having to encode every pixel in the room record.
+    ///
+    /// `source` is held inside a named field rather than as a tuple
+    /// payload so the inner [`SovereignAssetReference`]'s own
+    /// `#[serde(tag = "$type")]` discriminator nests cleanly inside the
+    /// outer texture-config discriminator instead of colliding with it.
+    ///
+    /// [`BlobImageCache`]: crate::world_builder::image_cache::BlobImageCache
+    Referenced {
+        source: super::asset_reference::SovereignAssetReference,
+    },
     Leaf(SovereignLeafConfig),
     Twig(SovereignTwigConfig),
     Bark(SovereignBarkConfig),
@@ -516,6 +533,7 @@ impl SovereignTextureConfig {
     pub fn label(&self) -> &'static str {
         match self {
             Self::None => "None",
+            Self::Referenced { .. } => "Referenced",
             Self::Leaf(_) => "Leaf",
             Self::Twig(_) => "Twig",
             Self::Bark(_) => "Bark",
@@ -577,7 +595,11 @@ impl SovereignTextureConfig {
     pub fn to_texture_config(&self) -> bevy_symbios_texture::TextureConfig {
         use bevy_symbios_texture::TextureConfig as T;
         match self {
-            Self::None | Self::Unknown => T::None,
+            // `Referenced` collapses to `None` here because the upstream
+            // procedural-texture builder has no equivalent variant — the
+            // referenced asset is materialised on a separate resolver path
+            // (BlobImageCache) and painted into the material once fetched.
+            Self::None | Self::Unknown | Self::Referenced { .. } => T::None,
             Self::Leaf(c) => T::Leaf(c.to_native()),
             Self::Twig(c) => T::Twig(c.to_native()),
             Self::Bark(c) => T::Bark(c.to_native()),

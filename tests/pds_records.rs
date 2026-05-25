@@ -369,14 +369,54 @@ fn strip_flow_from_water_in_tree(value: &mut serde_json::Value, found: &mut bool
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-/// Scan a record's JSON encoding for IEEE-float literals.
-/// Defuses DAG-CBOR rejections at the edit boundary instead of at the PDS.
+/// Walk a record's JSON encoding and panic if any *number* value is
+/// non-integral. Defuses DAG-CBOR rejections at the edit boundary
+/// instead of at the PDS.
+///
+/// Earlier versions scanned the raw byte stream for `<digit>.<digit>`,
+/// but that false-positives on numeric-looking content embedded in
+/// strings (e.g. the literal `0.035` in an L-system grammar's
+/// `#define th 0.035` line — see commit c60e870 'Improve did-seeding'
+/// for the default record that introduced this). DAG-CBOR only rejects
+/// real JSON numbers; bytes inside strings are out of scope. Walking
+/// the deserialised `serde_json::Value` tree and inspecting only
+/// `Value::Number` nodes is the correct semantic.
 fn assert_no_floats(record: &RoomRecord) {
-    let json = serde_json::to_string(record).expect("serialise");
-    let bytes = json.as_bytes();
-    for i in 1..bytes.len().saturating_sub(1) {
-        if bytes[i] == b'.' && bytes[i - 1].is_ascii_digit() && bytes[i + 1].is_ascii_digit() {
-            panic!("expected fixed-point integers, got float in `{json}`");
+    let value: serde_json::Value =
+        serde_json::to_value(record).expect("serialise record to serde Value");
+    assert_no_float_numbers(&value, &mut Vec::new());
+}
+
+/// Recursive walker for [`assert_no_floats`]. Builds a slash-separated
+/// path so a failure points at the exact field rather than dumping the
+/// whole record.
+fn assert_no_float_numbers(value: &serde_json::Value, path: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Number(n) => {
+            // `serde_json::Number::is_f64` is `true` for any number that
+            // doesn't fit `i64` / `u64` — exactly the DAG-CBOR hazard.
+            if !(n.is_i64() || n.is_u64()) {
+                panic!(
+                    "expected fixed-point integers, got float `{}` at `/{}`",
+                    n,
+                    path.join("/"),
+                );
+            }
         }
+        serde_json::Value::Array(items) => {
+            for (i, item) in items.iter().enumerate() {
+                path.push(i.to_string());
+                assert_no_float_numbers(item, path);
+                path.pop();
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for (k, v) in map {
+                path.push(k.clone());
+                assert_no_float_numbers(v, path);
+                path.pop();
+            }
+        }
+        serde_json::Value::String(_) | serde_json::Value::Bool(_) | serde_json::Value::Null => {}
     }
 }

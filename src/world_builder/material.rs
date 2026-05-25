@@ -9,7 +9,7 @@
 use bevy::prelude::*;
 use bevy_symbios_texture::build_procedural_material_async;
 
-use crate::pds::{Environment, SovereignMaterialSettings, WaterSurface};
+use crate::pds::{Environment, SovereignMaterialSettings, SovereignTextureConfig, WaterSurface};
 use crate::terrain::WaterVolume;
 use crate::water::{
     WAKE_SAMPLES_MAX, WaterExtension, WaterMaterial, WaterPlane, WaterPlaneIndex, WaterSurfaces,
@@ -149,7 +149,28 @@ pub(super) fn spawn_procedural_material(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
     settings: &SovereignMaterialSettings,
 ) -> Handle<StandardMaterial> {
-    build_procedural_material(ctx.commands, ctx.std_materials, ctx.images, settings)
+    let handle = build_procedural_material(ctx.commands, ctx.std_materials, ctx.images, settings);
+
+    // Referenced textures leave `base_color_texture` empty (see
+    // `SovereignTextureConfig::to_texture_config`, which collapses
+    // Referenced to `TextureConfig::None`). Enqueue a BlobImageCache fetch
+    // so the resolved bytes are painted into the same material slot once
+    // the async fetch completes. Until then the material renders with the
+    // procedural builder's flat fallback colour from
+    // `SovereignMaterialSettings::base_color`. The cache coalesces
+    // duplicate requests, so a room with many references to the same
+    // source issues one HTTPS round-trip total.
+    if let SovereignTextureConfig::Referenced { source } = &settings.texture {
+        super::image_cache::request_blob_image(
+            ctx.commands,
+            ctx.blob_image_cache,
+            ctx.std_materials,
+            &handle,
+            source,
+        );
+    }
+
+    handle
 }
 
 /// Free-function core of [`spawn_procedural_material`] — takes the three

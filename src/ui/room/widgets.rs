@@ -5,7 +5,9 @@
 
 use bevy_egui::egui;
 
-use crate::pds::{Fp, Fp3, Fp4, GeneratorKind, SovereignGeneratorKind, TransformData};
+use crate::pds::{
+    Fp, Fp3, Fp4, GeneratorKind, SovereignAssetReference, SovereignGeneratorKind, TransformData,
+};
 
 pub(super) fn draw_transform(ui: &mut egui::Ui, t: &mut TransformData, dirty: &mut bool) {
     ui.label("Translation");
@@ -225,6 +227,93 @@ pub(super) fn generator_combo(
                 }
             }
         });
+}
+
+/// Sub-source picker + per-variant editor for a [`SovereignAssetReference`].
+///
+/// Shared by the texture-bridge dropdown (when "Referenced" is selected)
+/// and the future audio-bridge dropdown, so the same UX shape (URL /
+/// AtProto blob / DID profile picture) is presented for every asset class.
+///
+/// `salt` namespaces the inner combo box so multiple references on the
+/// same egui frame (e.g. four terrain layers each pointing at a different
+/// referenced texture) don't collide on the egui id stack.
+pub(super) fn draw_asset_reference_editor(
+    ui: &mut egui::Ui,
+    value: &mut SovereignAssetReference,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    egui::ComboBox::from_id_salt(format!("{}_ref_src", salt))
+        .selected_text(value.label())
+        .show_ui(ui, |ui| {
+            // Each source preset starts with empty strings; the user fills
+            // them in via the body editor below. Switching variants resets
+            // the payload because the strings of one variant are not the
+            // strings of another (a URL is not a DID, etc).
+            let presets: [(&'static str, SovereignAssetReference); 3] = [
+                ("URL", SovereignAssetReference::Url { url: String::new() }),
+                (
+                    "ATProto Blob (DID + CID)",
+                    SovereignAssetReference::AtprotoBlob {
+                        did: String::new(),
+                        cid: String::new(),
+                    },
+                ),
+                (
+                    "DID Profile Picture",
+                    SovereignAssetReference::DidPfp { did: String::new() },
+                ),
+            ];
+            for (label, preset) in presets {
+                // Variant-tag comparison: same discriminant → already selected.
+                let selected = std::mem::discriminant(value) == std::mem::discriminant(&preset);
+                if ui.selectable_label(selected, label).clicked() && !selected {
+                    *value = preset;
+                    *dirty = true;
+                }
+            }
+        });
+
+    match value {
+        SovereignAssetReference::Url { url } => {
+            ui.horizontal(|ui| {
+                ui.label("URL");
+                if ui.text_edit_singleline(url).changed() {
+                    *dirty = true;
+                }
+            });
+        }
+        SovereignAssetReference::AtprotoBlob { did, cid } => {
+            ui.horizontal(|ui| {
+                ui.label("DID");
+                if ui.text_edit_singleline(did).changed() {
+                    *dirty = true;
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("CID");
+                if ui.text_edit_singleline(cid).changed() {
+                    *dirty = true;
+                }
+            });
+        }
+        SovereignAssetReference::DidPfp { did } => {
+            ui.horizontal(|ui| {
+                ui.label("DID");
+                if ui.text_edit_singleline(did).changed() {
+                    *dirty = true;
+                }
+            });
+        }
+        SovereignAssetReference::Unknown => {
+            ui.label(
+                egui::RichText::new("Unrecognised source — authored by a newer client.")
+                    .small()
+                    .color(egui::Color32::GRAY),
+            );
+        }
+    }
 }
 
 pub(super) fn unique_key<T>(map: &std::collections::HashMap<String, T>, prefix: &str) -> String {
