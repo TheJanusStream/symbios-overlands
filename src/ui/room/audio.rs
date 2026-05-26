@@ -3,14 +3,17 @@
 //!
 //! Renders a [`SovereignAudioConfig`] picker plus the per-variant body
 //! editor: shared asset-reference editor for the `Referenced` variant,
-//! and a multi-line JSON text area for the procedural `Patch` /
-//! `Sequence` variants (until follow-up #311 lands proper structured
-//! Sovereign* mirrors of the audio crate's authoring types).
+//! and a read-only JSON preview for the procedural `Patch` /
+//! `Sequence` variants until a structured node-graph editor lands as
+//! a follow-up. Variant presets are still selectable from the
+//! dropdown, so a room author can drop in a default ambient bed and
+//! tune it via the catalogue / runtime mutation API for now.
 
 use bevy_egui::egui;
 
 use crate::pds::SovereignAudioConfig;
 use crate::pds::asset_reference::SovereignAssetReference;
+use crate::pds::audio::{SovereignAudioPatch, SovereignSequenceRecipe};
 
 /// Variant picker + per-variant editor for an audio slot.
 ///
@@ -27,8 +30,7 @@ pub(super) fn draw_audio_bridge(
         .selected_text(audio.label())
         .show_ui(ui, |ui| {
             // Variant presets — switching variants resets the inner
-            // payload because the strings of one variant are not the
-            // strings of another (a URL is not patch JSON, etc).
+            // payload because each variant carries different state.
             let presets: [(&'static str, SovereignAudioConfig); 4] = [
                 ("None", SovereignAudioConfig::None),
                 (
@@ -40,13 +42,13 @@ pub(super) fn draw_audio_bridge(
                 (
                     "Patch",
                     SovereignAudioConfig::Patch {
-                        patch_json: String::new(),
+                        patch: SovereignAudioPatch::default(),
                     },
                 ),
                 (
                     "Sequence",
                     SovereignAudioConfig::Sequence {
-                        recipe_json: String::new(),
+                        recipe: SovereignSequenceRecipe::default(),
                     },
                 ),
             ];
@@ -64,47 +66,41 @@ pub(super) fn draw_audio_bridge(
         SovereignAudioConfig::Referenced { source } => {
             super::widgets::draw_asset_reference_editor(ui, source, salt, dirty);
         }
-        SovereignAudioConfig::Patch { patch_json } => {
-            ui.label(
-                egui::RichText::new(
-                    "Paste a `bevy_symbios_audio::AudioPatch` JSON blob. The CLI \
-                     (`symbios-audio-cli`) is a convenient way to author one offline.",
-                )
-                .small()
-                .color(egui::Color32::GRAY),
-            );
-            if ui
-                .add(
-                    egui::TextEdit::multiline(patch_json)
-                        .desired_rows(8)
-                        .desired_width(f32::INFINITY)
-                        .code_editor(),
-                )
-                .changed()
-            {
-                *dirty = true;
-            }
+        SovereignAudioConfig::Patch { patch } => {
+            draw_structured_preview(ui, "AudioPatch", patch);
         }
-        SovereignAudioConfig::Sequence { recipe_json } => {
-            ui.label(
-                egui::RichText::new(
-                    "Paste a `bevy_symbios_audio::SequenceRecipe` JSON blob. Set \
-                     `loop_start_beats` for a seamless ambient loop.",
-                )
-                .small()
-                .color(egui::Color32::GRAY),
-            );
-            if ui
-                .add(
-                    egui::TextEdit::multiline(recipe_json)
-                        .desired_rows(12)
-                        .desired_width(f32::INFINITY)
-                        .code_editor(),
-                )
-                .changed()
-            {
-                *dirty = true;
-            }
+        SovereignAudioConfig::Sequence { recipe } => {
+            draw_structured_preview(ui, "SequenceRecipe", recipe);
         }
     }
+}
+
+/// Read-only structured-JSON preview of a Sovereign* value. Until the
+/// structured node-graph editor lands, this lets the room owner
+/// inspect what's slotted (e.g. confirm the seeded ambient was
+/// authored as expected) without exposing a JSON-paste path that
+/// would round-trip lossy against the Fp-quantised wire format.
+fn draw_structured_preview<T: serde::Serialize>(ui: &mut egui::Ui, label: &str, value: &T) {
+    ui.label(
+        egui::RichText::new(format!(
+            "{label} (structured, Fp-encoded). Structured node-graph editor coming in a \
+             follow-up; today the catalogue and runtime mutation APIs are the authoring paths."
+        ))
+        .small()
+        .color(egui::Color32::GRAY),
+    );
+    let json = serde_json::to_string_pretty(value)
+        .unwrap_or_else(|e| format!("// failed to serialise: {e}"));
+    // Hold the rendered text in a local copy because egui's
+    // TextEdit::multiline wants &mut str even for read-only display;
+    // marking the widget non-interactive turns the keyboard input
+    // off without preventing rendering.
+    let mut display = json;
+    ui.add_enabled(
+        false,
+        egui::TextEdit::multiline(&mut display)
+            .desired_rows(10)
+            .desired_width(f32::INFINITY)
+            .code_editor(),
+    );
 }

@@ -74,6 +74,7 @@ pub(super) fn compile_room_record(
     mut generator_caches: GeneratorCaches,
     current_room: Option<Res<CurrentRoomDid>>,
     mut blob_image_cache: ResMut<BlobImageCache>,
+    mut blob_audio_cache: ResMut<super::audio_resolver::BlobAudioCache>,
     mut water_surfaces: ResMut<WaterSurfaces>,
 ) {
     let Some(record) = record else {
@@ -155,6 +156,7 @@ pub(super) fn compile_room_record(
         entities_spawned: &mut entities_spawned,
         budget_warned: &mut budget_warned,
         blob_image_cache: &mut blob_image_cache,
+        blob_audio_cache: &mut blob_audio_cache,
         water_surfaces: &mut water_surfaces,
         avatar_mode: false,
         local_avatar_mode: false,

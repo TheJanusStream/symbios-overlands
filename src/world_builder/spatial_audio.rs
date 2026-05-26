@@ -64,27 +64,45 @@ pub struct SpatialAudioBakeTask {
 /// once the bytes are ready.
 pub fn dispatch_construct_audio(
     commands: &mut Commands,
+    audio_cache: &mut super::audio_resolver::BlobAudioCache,
     target: Entity,
     audio: &SovereignAudioConfig,
 ) {
-    // Clone the config so the background task owns it. The enum is
-    // small (at most a String inside), so cloning is cheap.
-    let audio = audio.clone();
-    if matches!(
-        &audio,
-        SovereignAudioConfig::None
-            | SovereignAudioConfig::Unknown
-            | SovereignAudioConfig::Referenced { .. }
-    ) {
-        return;
+    match audio {
+        // Silent / forward-compat — nothing to dispatch.
+        SovereignAudioConfig::None | SovereignAudioConfig::Unknown => {}
+        // External asset — hand the reference to the audio resolver,
+        // which fetches and attaches the spatial-looping AudioPlayer
+        // to `target` once bytes arrive. The settings shape matches
+        // what poll_spatial_audio_tasks would apply for the
+        // LoopingConstruct mode (spatial=true + LOOP).
+        SovereignAudioConfig::Referenced { source } => {
+            super::audio_resolver::request_blob_audio(
+                commands,
+                audio_cache,
+                source,
+                super::audio_resolver::AudioReferenceTarget::AttachToEntity {
+                    entity: target,
+                    settings: PlaybackSettings {
+                        spatial: true,
+                        ..PlaybackSettings::LOOP
+                    },
+                },
+            );
+        }
+        // Procedural — bake on AsyncComputeTaskPool. Clone before
+        // moving into the task so we don't borrow the caller's slot.
+        SovereignAudioConfig::Patch { .. } | SovereignAudioConfig::Sequence { .. } => {
+            let audio = audio.clone();
+            let pool = AsyncComputeTaskPool::get();
+            let task = pool.spawn(async move { bake_construct_wav_bytes(&audio) });
+            commands.spawn(SpatialAudioBakeTask {
+                target,
+                task,
+                mode: BakeAttachmentMode::LoopingConstruct,
+            });
+        }
     }
-    let pool = AsyncComputeTaskPool::get();
-    let task = pool.spawn(async move { bake_construct_wav_bytes(&audio) });
-    commands.spawn(SpatialAudioBakeTask {
-        target,
-        task,
-        mode: BakeAttachmentMode::LoopingConstruct,
-    });
 }
 
 /// Spawn a transient one-shot audio entity at `position` and dispatch
@@ -208,13 +226,7 @@ fn bake_construct_wav_bytes(audio: &SovereignAudioConfig) -> Option<(Vec<u8>, u3
             // Construct one-shot patches loop on a 1-second window —
             // long enough that fast transient noises read clearly,
             // short enough that the loop seam isn't perceptible.
-            let patch = match audio.parse_patch()? {
-                Ok(p) => p,
-                Err(e) => {
-                    warn!("construct Patch JSON failed to parse: {e}");
-                    return None;
-                }
-            };
+            let patch = audio.parse_patch()?;
             let samples = bevy_symbios_audio::bake(&patch, 44_100, 1.0);
             Some((
                 bevy_symbios_audio::samples_to_wav_bytes(&samples, 44_100),
@@ -222,13 +234,7 @@ fn bake_construct_wav_bytes(audio: &SovereignAudioConfig) -> Option<(Vec<u8>, u3
             ))
         }
         SovereignAudioConfig::Sequence { .. } => {
-            let recipe = match audio.parse_sequence()? {
-                Ok(r) => r,
-                Err(e) => {
-                    warn!("construct Sequence JSON failed to parse: {e}");
-                    return None;
-                }
-            };
+            let recipe = audio.parse_sequence()?;
             let sample_rate = recipe.sample_rate;
             let samples = bevy_symbios_audio::bake_sequence(&recipe);
             Some((
@@ -323,21 +329,25 @@ mod tests {
     }
 
     #[test]
-    fn malformed_json_returns_none() {
-        let bad_patch = SovereignAudioConfig::Patch {
-            patch_json: "not even close".into(),
+    fn default_variants_bake_to_silent_buffers() {
+        // The structured mirror (#311) replaces the JSON-stash with
+        // typed fields, so there's no longer a "malformed JSON" failure
+        // path at this layer. A default Patch / Sequence carries an
+        // empty graph that bakes to a buffer of zeros — non-None.
+        let p = SovereignAudioConfig::Patch {
+            patch: crate::pds::audio::SovereignAudioPatch::default(),
         };
-        let bad_seq = SovereignAudioConfig::Sequence {
-            recipe_json: "{wrong}".into(),
+        let s = SovereignAudioConfig::Sequence {
+            recipe: crate::pds::audio::SovereignSequenceRecipe::default(),
         };
-        assert!(bake_construct_wav_bytes(&bad_patch).is_none());
-        assert!(bake_construct_wav_bytes(&bad_seq).is_none());
+        assert!(bake_construct_wav_bytes(&p).is_some());
+        assert!(bake_construct_wav_bytes(&s).is_some());
     }
 
     #[test]
     fn teleporter_hum_bakes_to_audible_wav() {
         let patch = teleporter_hum_patch();
-        let stash = SovereignAudioConfig::from_patch(&patch).expect("stash");
+        let stash = SovereignAudioConfig::from_patch(&patch);
         let (bytes, sample_rate) =
             bake_construct_wav_bytes(&stash).expect("hum bakes successfully");
         assert!(bytes.starts_with(b"RIFF"), "WAV header present");

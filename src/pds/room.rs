@@ -413,15 +413,13 @@ impl RoomRecord {
 
         // Seed the room's ambient track from the same scene anchor that
         // drives palette / terrain / atmosphere. The deriver returns a
-        // native `bevy_symbios_audio::SequenceRecipe`; we wrap it in the
-        // DAG-CBOR-safe JSON-stash variant (proper structured mirror is
-        // tracked under #311). A serialise failure here would be a bug
-        // in the audio crate's serde impls — fall back to `None` rather
-        // than panicking, so a botched recipe never blocks room load.
+        // native `bevy_symbios_audio::SequenceRecipe`; we mirror it
+        // into the DAG-CBOR-safe SovereignSequenceRecipe (structured
+        // Fp-wrapped form, per #311). Conversion is infallible — the
+        // structural walk just wraps each float in `Fp`.
         let ambient = crate::seeded_defaults::AmbientRecipe::from_scene(&scene, did_seed);
         environment.ambient_audio =
-            crate::pds::audio::SovereignAudioConfig::from_sequence(&ambient.recipe)
-                .unwrap_or(crate::pds::audio::SovereignAudioConfig::None);
+            crate::pds::audio::SovereignAudioConfig::from_sequence(&ambient.recipe);
 
         Self {
             lex_type: COLLECTION.into(),

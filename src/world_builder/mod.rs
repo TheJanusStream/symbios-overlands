@@ -59,6 +59,7 @@
 //! * [`material`] — water volume spawn, procedural material bridge, and
 //!   foliage texture task polling.
 
+pub mod audio_resolver;
 pub mod avatar_spawn;
 pub(crate) mod blob_fetch;
 pub(crate) mod compile;
@@ -159,6 +160,7 @@ impl Plugin for WorldBuilderPlugin {
             .init_resource::<bevy_symbios_shape::cache::ShapeMeshCache>()
             .init_resource::<WaterSurfaces>()
             .init_resource::<image_cache::BlobImageCache>()
+            .init_resource::<audio_resolver::BlobAudioCache>()
             .init_resource::<particles::ParticleQuadMesh>()
             .init_resource::<particles::ParticleAtlasMeshes>()
             .add_systems(Startup, setup_prop_assets)
@@ -174,6 +176,11 @@ impl Plugin for WorldBuilderPlugin {
                 )
                     .run_if(in_state(AppState::InGame)),
             )
+            // Audio-reference resolver poll runs in Loading too — the
+            // loading gate's ambient-bake path dispatches Referenced
+            // fetches before InGame is entered, and the gate would
+            // hang if the resolver wasn't polling yet.
+            .add_systems(Update, audio_resolver::poll_blob_audio_tasks)
             .add_systems(
                 Update,
                 (

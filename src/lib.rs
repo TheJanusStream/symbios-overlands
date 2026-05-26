@@ -217,6 +217,7 @@ pub fn run() {
         .add_systems(
             OnEnter(AppState::Loading),
             (
+                loading::reset_ambient_bake_state,
                 loading::start_room_record_fetch,
                 loading::start_avatar_record_fetch,
                 loading::start_inventory_record_fetch,

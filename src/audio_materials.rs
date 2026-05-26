@@ -413,10 +413,7 @@ pub fn play_terrain_impacts(
         }
 
         let recipe = impact_recipe_for(texture, volume);
-        let audio = match crate::pds::SovereignAudioConfig::from_sequence(&recipe) {
-            Ok(a) => a,
-            Err(_) => continue,
-        };
+        let audio = crate::pds::SovereignAudioConfig::from_sequence(&recipe);
         crate::world_builder::spatial_audio::dispatch_one_shot_audio(
             &mut commands,
             sample.world_pos,

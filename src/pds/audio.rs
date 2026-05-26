@@ -1,64 +1,67 @@
-//! Sovereign mirror of the [`bevy_symbios_audio`] crate's authoring types
-//! for use in DAG-CBOR-encoded ATProto records.
+//! Sovereign (DAG-CBOR-safe) mirrors of the [`bevy_symbios_audio`]
+//! crate's authoring types. Every `f32` field is wrapped in [`Fp`] so
+//! the wire stream carries fixed-point integers — DAG-CBOR forbids
+//! floats and the PDS would reject any record carrying them otherwise.
 //!
-//! # Why JSON-as-string for the procedural variants
+//! # Type hierarchy
 //!
-//! The audio crate's `AudioPatch` and `SequenceRecipe` are pure-`f32`
-//! types — fine for in-memory baking but incompatible with DAG-CBOR,
-//! which forbids floats. Mirroring all 13 [`NodeKind`] variants and
-//! every [`SequenceRecipe`] field with the project's `Fp` / `Fp64`
-//! fixed-point wrappers is a substantial undertaking (see follow-up
-//! issue #311). To unblock the rest of milestone #2 today, the
-//! procedural variants ([`SovereignAudioConfig::Patch`] and
-//! [`SovereignAudioConfig::Sequence`]) instead carry the patch /
-//! recipe as a serde-JSON-encoded `String`. The DAG-CBOR encoder sees
-//! a single opaque string with no floats, so the record round-trips
-//! through the PDS unchanged; baking-time consumers re-parse the
-//! string via `serde_json::from_str` into the native types.
+//! - [`SovereignAudioConfig`] is the top-level enum users drop into a
+//!   slot. Variants: `None` / `Referenced{source}` /
+//!   `Patch{patch}` / `Sequence{recipe}` / `Unknown`.
+//! - [`SovereignAudioPatch`] mirrors `bevy_symbios_audio::AudioPatch`.
+//! - [`SovereignNodeGraph`] mirrors `NodeGraph` — the DAG topology.
+//! - [`SovereignGraphNode`] mirrors `GraphNode` — one node placed in
+//!   the graph.
+//! - [`SovereignNodeKind`] mirrors the closed `NodeKind` enum, with a
+//!   forward-compat `Unknown` arm that maps to `Silence` on
+//!   `to_native`.
+//! - [`SovereignConnection`] mirrors `Connection` (constant / wired
+//!   output).
+//! - [`SovereignSequenceRecipe`] mirrors `SequenceRecipe`,
+//!   [`SovereignInstrument`] mirrors `Instrument`, [`SovereignTrack`]
+//!   mirrors `Track`, [`SovereignEvent`] mirrors `Event`.
 //!
-//! The trade-off is that an in-editor structured node editor isn't
-//! possible against the string blob — the bridge UI exposes a
-//! multi-line text area for now, mirroring how the L-system editor
-//! treats its `source_code` field. Structured editing lands with
-//! #311's proper Sovereign* mirrors.
+//! # Conversion
 //!
+//! Every Sovereign type carries `to_native` (returns the
+//! `bevy_symbios_audio` equivalent) and `from_native` (builds the
+//! sovereign mirror from a native value). The round-trip is loss-free
+//! modulo `Fp` quantisation (each float quantises to its nearest
+//! `Fp_SCALE` tick — ~0.0001 precision, well below audio-rate
+//! perceptual thresholds for any field these types carry).
+//!
+//! [`Fp`]: super::types::Fp
 //! [`bevy_symbios_audio`]: bevy_symbios_audio
-//! [`NodeKind`]: bevy_symbios_audio::NodeKind
-//! [`SequenceRecipe`]: bevy_symbios_audio::SequenceRecipe
+
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
 use super::asset_reference::SovereignAssetReference;
+use super::types::Fp;
 
-/// Open-union enum describing where audio data for a slot comes from.
-/// Mirrors the structural shape of [`SovereignTextureConfig`] so the
-/// editor bridges behave identically across asset classes: one
-/// "Referenced" variant for explicit URL / DID-pinned blobs, one or
-/// more procedural variants, and forward-compat [`Self::Unknown`].
-///
-/// The procedural variants embed the audio crate's authoring JSON as a
-/// `String`. The bake-time consumer re-parses via
-/// `serde_json::from_str::<bevy_symbios_audio::AudioPatch>` (or the
-/// sequence equivalent) and hands the result to the crate's bake
-/// pipeline.
-///
-/// [`SovereignTextureConfig`]: crate::pds::texture::SovereignTextureConfig
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+// ===========================================================================
+// Top-level config
+// ===========================================================================
+
+/// Open-union describing where audio data for a slot comes from.
+/// Mirrors the structural shape of
+/// [`crate::pds::SovereignTextureConfig`] so the editor bridges behave
+/// identically across asset classes.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "$type")]
 pub enum SovereignAudioConfig {
     /// No audio for this slot.
     None,
     /// External asset pointer — fetched bytes are decoded by the
-    /// resolver into a `Handle<AudioSource>`.
+    /// audio resolver into a `Handle<AudioSource>`.
     Referenced { source: SovereignAssetReference },
-    /// Procedural single-voice patch — the audio crate's
-    /// [`bevy_symbios_audio::AudioPatch`] serialised to JSON. Re-parse
-    /// at consumption time. See module-level docstring for the
-    /// DAG-CBOR rationale.
-    Patch { patch_json: String },
-    /// Procedural multi-voice mixdown — the audio crate's
-    /// [`bevy_symbios_audio::SequenceRecipe`] serialised to JSON.
-    Sequence { recipe_json: String },
+    /// Procedural single-voice patch — full structured mirror of
+    /// [`bevy_symbios_audio::AudioPatch`].
+    Patch { patch: SovereignAudioPatch },
+    /// Procedural multi-voice mixdown — full structured mirror of
+    /// [`bevy_symbios_audio::SequenceRecipe`].
+    Sequence { recipe: SovereignSequenceRecipe },
     /// Forward-compat seam — a record from a future engine version
     /// decodes here rather than failing the whole load.
     #[serde(other)]
@@ -72,8 +75,7 @@ impl Default for SovereignAudioConfig {
 }
 
 impl SovereignAudioConfig {
-    /// Human-readable variant name for UI combo boxes — the strings
-    /// match the dropdown labels in `draw_audio_bridge`.
+    /// Human-readable variant name for UI combo boxes.
     pub fn label(&self) -> &'static str {
         match self {
             Self::None => "None",
@@ -84,48 +86,965 @@ impl SovereignAudioConfig {
         }
     }
 
-    /// Construct a `Patch` variant from a native
-    /// [`bevy_symbios_audio::AudioPatch`]. Returns the underlying
-    /// `serde_json` error if the patch can't be serialised — should
-    /// not happen for any patch the audio crate itself produces, but
-    /// defensible.
-    pub fn from_patch(patch: &bevy_symbios_audio::AudioPatch) -> Result<Self, serde_json::Error> {
-        Ok(SovereignAudioConfig::Patch {
-            patch_json: serde_json::to_string(patch)?,
-        })
+    /// Build a `Patch` variant from a native
+    /// [`bevy_symbios_audio::AudioPatch`]. Conversion is infallible —
+    /// the structural walk wraps every float in [`Fp`] without losing
+    /// data outside `Fp_SCALE` quantisation.
+    pub fn from_patch(patch: &bevy_symbios_audio::AudioPatch) -> Self {
+        SovereignAudioConfig::Patch {
+            patch: SovereignAudioPatch::from_native(patch),
+        }
     }
 
-    /// Construct a `Sequence` variant from a native
+    /// Build a `Sequence` variant from a native
     /// [`bevy_symbios_audio::SequenceRecipe`].
-    pub fn from_sequence(
-        recipe: &bevy_symbios_audio::SequenceRecipe,
-    ) -> Result<Self, serde_json::Error> {
-        Ok(SovereignAudioConfig::Sequence {
-            recipe_json: serde_json::to_string(recipe)?,
-        })
+    pub fn from_sequence(recipe: &bevy_symbios_audio::SequenceRecipe) -> Self {
+        SovereignAudioConfig::Sequence {
+            recipe: SovereignSequenceRecipe::from_native(recipe),
+        }
     }
 
-    /// If this is a `Patch` variant, decode the embedded JSON back to
-    /// the native type. Returns `None` for every other variant;
-    /// `Some(Err(_))` if the embedded string is malformed JSON (the
-    /// bake consumer should fall back to silence in that case).
-    pub fn parse_patch(&self) -> Option<Result<bevy_symbios_audio::AudioPatch, serde_json::Error>> {
+    /// If this is a `Patch` variant, convert it back to the native
+    /// [`bevy_symbios_audio::AudioPatch`]. Returns `None` for every
+    /// other variant.
+    pub fn parse_patch(&self) -> Option<bevy_symbios_audio::AudioPatch> {
         match self {
-            SovereignAudioConfig::Patch { patch_json } => Some(serde_json::from_str(patch_json)),
+            SovereignAudioConfig::Patch { patch } => Some(patch.to_native()),
             _ => None,
         }
     }
 
-    /// If this is a `Sequence` variant, decode the embedded JSON back
-    /// to the native [`bevy_symbios_audio::SequenceRecipe`].
-    pub fn parse_sequence(
-        &self,
-    ) -> Option<Result<bevy_symbios_audio::SequenceRecipe, serde_json::Error>> {
+    /// If this is a `Sequence` variant, convert it back to the native
+    /// [`bevy_symbios_audio::SequenceRecipe`].
+    pub fn parse_sequence(&self) -> Option<bevy_symbios_audio::SequenceRecipe> {
         match self {
-            SovereignAudioConfig::Sequence { recipe_json } => {
-                Some(serde_json::from_str(recipe_json))
-            }
+            SovereignAudioConfig::Sequence { recipe } => Some(recipe.to_native()),
             _ => None,
+        }
+    }
+}
+
+// ===========================================================================
+// AudioPatch + graph topology
+// ===========================================================================
+
+/// Mirror of [`bevy_symbios_audio::AudioPatch`].
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct SovereignAudioPatch {
+    pub seed: u32,
+    pub graph: SovereignNodeGraph,
+}
+
+impl SovereignAudioPatch {
+    pub fn to_native(&self) -> bevy_symbios_audio::AudioPatch {
+        bevy_symbios_audio::AudioPatch {
+            seed: self.seed,
+            graph: self.graph.to_native(),
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::AudioPatch) -> Self {
+        Self {
+            seed: n.seed,
+            graph: SovereignNodeGraph::from_native(&n.graph),
+        }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::NodeGraph`].
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SovereignNodeGraph {
+    pub nodes: Vec<SovereignGraphNode>,
+    pub output: SovereignNodeId,
+}
+
+impl Default for SovereignNodeGraph {
+    fn default() -> Self {
+        // Match the native default — one Silence node at NodeId(0).
+        Self {
+            nodes: vec![SovereignGraphNode::default()],
+            output: SovereignNodeId::default(),
+        }
+    }
+}
+
+impl SovereignNodeGraph {
+    pub fn to_native(&self) -> bevy_symbios_audio::NodeGraph {
+        bevy_symbios_audio::NodeGraph {
+            nodes: self
+                .nodes
+                .iter()
+                .map(SovereignGraphNode::to_native)
+                .collect(),
+            output: self.output.to_native(),
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::NodeGraph) -> Self {
+        Self {
+            nodes: n
+                .nodes
+                .iter()
+                .map(SovereignGraphNode::from_native)
+                .collect(),
+            output: SovereignNodeId::from_native(n.output),
+        }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::GraphNode`].
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct SovereignGraphNode {
+    pub id: SovereignNodeId,
+    pub kind: SovereignNodeKind,
+    #[serde(default)]
+    pub inputs: BTreeMap<String, SovereignConnection>,
+}
+
+impl SovereignGraphNode {
+    pub fn to_native(&self) -> bevy_symbios_audio::GraphNode {
+        bevy_symbios_audio::GraphNode {
+            id: self.id.to_native(),
+            kind: self.kind.to_native(),
+            inputs: self
+                .inputs
+                .iter()
+                .map(|(k, v)| (k.clone(), v.to_native()))
+                .collect(),
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::GraphNode) -> Self {
+        Self {
+            id: SovereignNodeId::from_native(n.id),
+            kind: SovereignNodeKind::from_native(&n.kind),
+            inputs: n
+                .inputs
+                .iter()
+                .map(|(k, v)| (k.clone(), SovereignConnection::from_native(v)))
+                .collect(),
+        }
+    }
+}
+
+/// Transparent newtype mirroring [`bevy_symbios_audio::NodeId`].
+#[derive(
+    Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord,
+)]
+#[serde(transparent)]
+pub struct SovereignNodeId(pub u32);
+
+impl SovereignNodeId {
+    pub fn to_native(self) -> bevy_symbios_audio::NodeId {
+        bevy_symbios_audio::NodeId(self.0)
+    }
+
+    pub fn from_native(n: bevy_symbios_audio::NodeId) -> Self {
+        Self(n.0)
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::Connection`] with [`Fp`] floats.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(tag = "source", rename_all = "snake_case")]
+pub enum SovereignConnection {
+    Constant {
+        value: Fp,
+    },
+    Node {
+        id: SovereignNodeId,
+        #[serde(default = "default_connection_output")]
+        output: String,
+        #[serde(default = "default_connection_amount")]
+        amount: Fp,
+    },
+    /// Forward-compat — a future Connection variant decodes here.
+    /// Mapped to `Constant { value: 0.0 }` (silent) on `to_native`.
+    #[serde(other)]
+    Unknown,
+}
+
+fn default_connection_output() -> String {
+    "out".to_string()
+}
+
+fn default_connection_amount() -> Fp {
+    Fp(1.0)
+}
+
+impl Default for SovereignConnection {
+    fn default() -> Self {
+        Self::Constant { value: Fp(0.0) }
+    }
+}
+
+impl SovereignConnection {
+    pub fn to_native(&self) -> bevy_symbios_audio::Connection {
+        match self {
+            Self::Constant { value } => bevy_symbios_audio::Connection::Constant { value: value.0 },
+            Self::Node { id, output, amount } => bevy_symbios_audio::Connection::Node {
+                id: id.to_native(),
+                output: output.clone(),
+                amount: amount.0,
+            },
+            Self::Unknown => bevy_symbios_audio::Connection::Constant { value: 0.0 },
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::Connection) -> Self {
+        match n {
+            bevy_symbios_audio::Connection::Constant { value } => {
+                Self::Constant { value: Fp(*value) }
+            }
+            bevy_symbios_audio::Connection::Node { id, output, amount } => Self::Node {
+                id: SovereignNodeId::from_native(*id),
+                output: output.clone(),
+                amount: Fp(*amount),
+            },
+        }
+    }
+}
+
+// ===========================================================================
+// NodeKind (closed enum mirror)
+// ===========================================================================
+
+/// Mirror of [`bevy_symbios_audio::NodeKind`]. `Unknown` is the
+/// forward-compat seam — a future variant added in a newer audio
+/// crate version decodes here and maps to `Silence` on `to_native`
+/// (mute fallback).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(tag = "kind")]
+pub enum SovereignNodeKind {
+    #[default]
+    Silence,
+    Sine(SovereignSineOsc),
+    Square(SovereignSquareOsc),
+    Sawtooth(SovereignSawtoothOsc),
+    Triangle(SovereignTriangleOsc),
+    WhiteNoise(SovereignWhiteNoise),
+    PinkNoise(SovereignPinkNoise),
+    BrownNoise(SovereignBrownNoise),
+    Adsr(SovereignAdsrEnvelope),
+    BiquadLowpass(SovereignBiquadLowpass),
+    BiquadHighpass(SovereignBiquadHighpass),
+    BiquadBandpass(SovereignBiquadBandpass),
+    Lfo(SovereignLfo),
+    #[serde(other)]
+    Unknown,
+}
+
+impl SovereignNodeKind {
+    /// Human-readable variant name for editor pickers.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Silence => "Silence",
+            Self::Sine(_) => "Sine",
+            Self::Square(_) => "Square",
+            Self::Sawtooth(_) => "Sawtooth",
+            Self::Triangle(_) => "Triangle",
+            Self::WhiteNoise(_) => "White noise",
+            Self::PinkNoise(_) => "Pink noise",
+            Self::BrownNoise(_) => "Brown noise",
+            Self::Adsr(_) => "ADSR",
+            Self::BiquadLowpass(_) => "Lowpass",
+            Self::BiquadHighpass(_) => "Highpass",
+            Self::BiquadBandpass(_) => "Bandpass",
+            Self::Lfo(_) => "LFO",
+            Self::Unknown => "Unknown",
+        }
+    }
+
+    pub fn to_native(&self) -> bevy_symbios_audio::NodeKind {
+        use bevy_symbios_audio::NodeKind as N;
+        match self {
+            Self::Silence | Self::Unknown => N::Silence,
+            Self::Sine(c) => N::Sine(c.to_native()),
+            Self::Square(c) => N::Square(c.to_native()),
+            Self::Sawtooth(c) => N::Sawtooth(c.to_native()),
+            Self::Triangle(c) => N::Triangle(c.to_native()),
+            Self::WhiteNoise(c) => N::WhiteNoise(c.to_native()),
+            Self::PinkNoise(c) => N::PinkNoise(c.to_native()),
+            Self::BrownNoise(c) => N::BrownNoise(c.to_native()),
+            Self::Adsr(c) => N::Adsr(c.to_native()),
+            Self::BiquadLowpass(c) => N::BiquadLowpass(c.to_native()),
+            Self::BiquadHighpass(c) => N::BiquadHighpass(c.to_native()),
+            Self::BiquadBandpass(c) => N::BiquadBandpass(c.to_native()),
+            Self::Lfo(c) => N::Lfo(c.to_native()),
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::NodeKind) -> Self {
+        use bevy_symbios_audio::NodeKind as N;
+        match n {
+            N::Silence => Self::Silence,
+            N::Sine(c) => Self::Sine(SovereignSineOsc::from_native(c)),
+            N::Square(c) => Self::Square(SovereignSquareOsc::from_native(c)),
+            N::Sawtooth(c) => Self::Sawtooth(SovereignSawtoothOsc::from_native(c)),
+            N::Triangle(c) => Self::Triangle(SovereignTriangleOsc::from_native(c)),
+            N::WhiteNoise(c) => Self::WhiteNoise(SovereignWhiteNoise::from_native(c)),
+            N::PinkNoise(c) => Self::PinkNoise(SovereignPinkNoise::from_native(c)),
+            N::BrownNoise(c) => Self::BrownNoise(SovereignBrownNoise::from_native(c)),
+            N::Adsr(c) => Self::Adsr(SovereignAdsrEnvelope::from_native(c)),
+            N::BiquadLowpass(c) => Self::BiquadLowpass(SovereignBiquadLowpass::from_native(c)),
+            N::BiquadHighpass(c) => Self::BiquadHighpass(SovereignBiquadHighpass::from_native(c)),
+            N::BiquadBandpass(c) => Self::BiquadBandpass(SovereignBiquadBandpass::from_native(c)),
+            N::Lfo(c) => Self::Lfo(SovereignLfo::from_native(c)),
+            // NodeKind is `#[non_exhaustive]` — a future variant added
+            // in the audio crate is decoded as Unknown by mirror clients
+            // that don't yet know it.
+            _ => Self::Unknown,
+        }
+    }
+}
+
+// ===========================================================================
+// Node configs
+// ===========================================================================
+
+/// Mirror of [`bevy_symbios_audio::SineOsc`].
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SovereignSineOsc {
+    pub freq_hz: Fp,
+    pub phase_offset: Fp,
+    #[serde(default = "default_amplitude")]
+    pub amplitude: Fp,
+}
+
+impl Default for SovereignSineOsc {
+    fn default() -> Self {
+        Self {
+            freq_hz: Fp(440.0),
+            phase_offset: Fp(0.0),
+            amplitude: Fp(1.0),
+        }
+    }
+}
+
+impl SovereignSineOsc {
+    pub fn to_native(&self) -> bevy_symbios_audio::SineOsc {
+        bevy_symbios_audio::SineOsc {
+            freq_hz: self.freq_hz.0,
+            phase_offset: self.phase_offset.0,
+            amplitude: self.amplitude.0,
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::SineOsc) -> Self {
+        Self {
+            freq_hz: Fp(n.freq_hz),
+            phase_offset: Fp(n.phase_offset),
+            amplitude: Fp(n.amplitude),
+        }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::SquareOsc`].
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SovereignSquareOsc {
+    pub freq_hz: Fp,
+    pub duty: Fp,
+    #[serde(default = "default_amplitude")]
+    pub amplitude: Fp,
+}
+
+impl Default for SovereignSquareOsc {
+    fn default() -> Self {
+        Self {
+            freq_hz: Fp(440.0),
+            duty: Fp(0.5),
+            amplitude: Fp(1.0),
+        }
+    }
+}
+
+impl SovereignSquareOsc {
+    pub fn to_native(&self) -> bevy_symbios_audio::SquareOsc {
+        bevy_symbios_audio::SquareOsc {
+            freq_hz: self.freq_hz.0,
+            duty: self.duty.0,
+            amplitude: self.amplitude.0,
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::SquareOsc) -> Self {
+        Self {
+            freq_hz: Fp(n.freq_hz),
+            duty: Fp(n.duty),
+            amplitude: Fp(n.amplitude),
+        }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::SawtoothOsc`].
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SovereignSawtoothOsc {
+    pub freq_hz: Fp,
+    pub polarity: SovereignSawPolarity,
+    #[serde(default = "default_amplitude")]
+    pub amplitude: Fp,
+}
+
+impl Default for SovereignSawtoothOsc {
+    fn default() -> Self {
+        Self {
+            freq_hz: Fp(440.0),
+            polarity: SovereignSawPolarity::Up,
+            amplitude: Fp(1.0),
+        }
+    }
+}
+
+impl SovereignSawtoothOsc {
+    pub fn to_native(&self) -> bevy_symbios_audio::SawtoothOsc {
+        bevy_symbios_audio::SawtoothOsc {
+            freq_hz: self.freq_hz.0,
+            polarity: self.polarity.to_native(),
+            amplitude: self.amplitude.0,
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::SawtoothOsc) -> Self {
+        Self {
+            freq_hz: Fp(n.freq_hz),
+            polarity: SovereignSawPolarity::from_native(n.polarity),
+            amplitude: Fp(n.amplitude),
+        }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::SawPolarity`].
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SovereignSawPolarity {
+    #[default]
+    Up,
+    Down,
+    #[serde(other)]
+    Unknown,
+}
+
+impl SovereignSawPolarity {
+    pub fn to_native(self) -> bevy_symbios_audio::SawPolarity {
+        match self {
+            // Unknown -> Up matches the audio crate's Default impl.
+            Self::Up | Self::Unknown => bevy_symbios_audio::SawPolarity::Up,
+            Self::Down => bevy_symbios_audio::SawPolarity::Down,
+        }
+    }
+
+    pub fn from_native(n: bevy_symbios_audio::SawPolarity) -> Self {
+        match n {
+            bevy_symbios_audio::SawPolarity::Up => Self::Up,
+            bevy_symbios_audio::SawPolarity::Down => Self::Down,
+        }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::TriangleOsc`].
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SovereignTriangleOsc {
+    pub freq_hz: Fp,
+    #[serde(default = "default_amplitude")]
+    pub amplitude: Fp,
+}
+
+impl Default for SovereignTriangleOsc {
+    fn default() -> Self {
+        Self {
+            freq_hz: Fp(440.0),
+            amplitude: Fp(1.0),
+        }
+    }
+}
+
+impl SovereignTriangleOsc {
+    pub fn to_native(&self) -> bevy_symbios_audio::TriangleOsc {
+        bevy_symbios_audio::TriangleOsc {
+            freq_hz: self.freq_hz.0,
+            amplitude: self.amplitude.0,
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::TriangleOsc) -> Self {
+        Self {
+            freq_hz: Fp(n.freq_hz),
+            amplitude: Fp(n.amplitude),
+        }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::WhiteNoise`].
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SovereignWhiteNoise {
+    pub amplitude: Fp,
+}
+
+impl Default for SovereignWhiteNoise {
+    fn default() -> Self {
+        Self { amplitude: Fp(0.5) }
+    }
+}
+
+impl SovereignWhiteNoise {
+    pub fn to_native(&self) -> bevy_symbios_audio::WhiteNoise {
+        bevy_symbios_audio::WhiteNoise {
+            amplitude: self.amplitude.0,
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::WhiteNoise) -> Self {
+        Self {
+            amplitude: Fp(n.amplitude),
+        }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::PinkNoise`].
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SovereignPinkNoise {
+    pub amplitude: Fp,
+}
+
+impl Default for SovereignPinkNoise {
+    fn default() -> Self {
+        Self { amplitude: Fp(0.5) }
+    }
+}
+
+impl SovereignPinkNoise {
+    pub fn to_native(&self) -> bevy_symbios_audio::PinkNoise {
+        bevy_symbios_audio::PinkNoise {
+            amplitude: self.amplitude.0,
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::PinkNoise) -> Self {
+        Self {
+            amplitude: Fp(n.amplitude),
+        }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::BrownNoise`].
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SovereignBrownNoise {
+    pub amplitude: Fp,
+}
+
+impl Default for SovereignBrownNoise {
+    fn default() -> Self {
+        Self { amplitude: Fp(0.5) }
+    }
+}
+
+impl SovereignBrownNoise {
+    pub fn to_native(&self) -> bevy_symbios_audio::BrownNoise {
+        bevy_symbios_audio::BrownNoise {
+            amplitude: self.amplitude.0,
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::BrownNoise) -> Self {
+        Self {
+            amplitude: Fp(n.amplitude),
+        }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::AdsrEnvelope`].
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SovereignAdsrEnvelope {
+    pub attack_s: Fp,
+    pub decay_s: Fp,
+    pub sustain_level: Fp,
+    pub release_s: Fp,
+    pub curve: SovereignAdsrCurve,
+}
+
+impl Default for SovereignAdsrEnvelope {
+    fn default() -> Self {
+        Self {
+            attack_s: Fp(0.01),
+            decay_s: Fp(0.1),
+            sustain_level: Fp(0.7),
+            release_s: Fp(0.2),
+            curve: SovereignAdsrCurve::Linear,
+        }
+    }
+}
+
+impl SovereignAdsrEnvelope {
+    pub fn to_native(&self) -> bevy_symbios_audio::AdsrEnvelope {
+        bevy_symbios_audio::AdsrEnvelope {
+            attack_s: self.attack_s.0,
+            decay_s: self.decay_s.0,
+            sustain_level: self.sustain_level.0,
+            release_s: self.release_s.0,
+            curve: self.curve.to_native(),
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::AdsrEnvelope) -> Self {
+        Self {
+            attack_s: Fp(n.attack_s),
+            decay_s: Fp(n.decay_s),
+            sustain_level: Fp(n.sustain_level),
+            release_s: Fp(n.release_s),
+            curve: SovereignAdsrCurve::from_native(n.curve),
+        }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::AdsrCurve`].
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SovereignAdsrCurve {
+    #[default]
+    Linear,
+    Exponential,
+    #[serde(other)]
+    Unknown,
+}
+
+impl SovereignAdsrCurve {
+    pub fn to_native(self) -> bevy_symbios_audio::AdsrCurve {
+        match self {
+            Self::Linear | Self::Unknown => bevy_symbios_audio::AdsrCurve::Linear,
+            Self::Exponential => bevy_symbios_audio::AdsrCurve::Exponential,
+        }
+    }
+
+    pub fn from_native(n: bevy_symbios_audio::AdsrCurve) -> Self {
+        match n {
+            bevy_symbios_audio::AdsrCurve::Linear => Self::Linear,
+            bevy_symbios_audio::AdsrCurve::Exponential => Self::Exponential,
+        }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::BiquadLowpass`].
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SovereignBiquadLowpass {
+    pub cutoff_hz: Fp,
+    pub q: Fp,
+}
+
+impl Default for SovereignBiquadLowpass {
+    fn default() -> Self {
+        Self {
+            cutoff_hz: Fp(1_000.0),
+            q: Fp(0.707),
+        }
+    }
+}
+
+impl SovereignBiquadLowpass {
+    pub fn to_native(&self) -> bevy_symbios_audio::BiquadLowpass {
+        bevy_symbios_audio::BiquadLowpass {
+            cutoff_hz: self.cutoff_hz.0,
+            q: self.q.0,
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::BiquadLowpass) -> Self {
+        Self {
+            cutoff_hz: Fp(n.cutoff_hz),
+            q: Fp(n.q),
+        }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::BiquadHighpass`].
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SovereignBiquadHighpass {
+    pub cutoff_hz: Fp,
+    pub q: Fp,
+}
+
+impl Default for SovereignBiquadHighpass {
+    fn default() -> Self {
+        Self {
+            cutoff_hz: Fp(1_000.0),
+            q: Fp(0.707),
+        }
+    }
+}
+
+impl SovereignBiquadHighpass {
+    pub fn to_native(&self) -> bevy_symbios_audio::BiquadHighpass {
+        bevy_symbios_audio::BiquadHighpass {
+            cutoff_hz: self.cutoff_hz.0,
+            q: self.q.0,
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::BiquadHighpass) -> Self {
+        Self {
+            cutoff_hz: Fp(n.cutoff_hz),
+            q: Fp(n.q),
+        }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::BiquadBandpass`].
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SovereignBiquadBandpass {
+    pub center_hz: Fp,
+    pub q: Fp,
+}
+
+impl Default for SovereignBiquadBandpass {
+    fn default() -> Self {
+        Self {
+            center_hz: Fp(1_000.0),
+            q: Fp(1.0),
+        }
+    }
+}
+
+impl SovereignBiquadBandpass {
+    pub fn to_native(&self) -> bevy_symbios_audio::BiquadBandpass {
+        bevy_symbios_audio::BiquadBandpass {
+            center_hz: self.center_hz.0,
+            q: self.q.0,
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::BiquadBandpass) -> Self {
+        Self {
+            center_hz: Fp(n.center_hz),
+            q: Fp(n.q),
+        }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::Lfo`].
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SovereignLfo {
+    pub rate_hz: Fp,
+    pub shape: SovereignLfoShape,
+    pub depth: Fp,
+    pub offset: Fp,
+}
+
+impl Default for SovereignLfo {
+    fn default() -> Self {
+        Self {
+            rate_hz: Fp(1.0),
+            shape: SovereignLfoShape::Sine,
+            depth: Fp(1.0),
+            offset: Fp(0.0),
+        }
+    }
+}
+
+impl SovereignLfo {
+    pub fn to_native(&self) -> bevy_symbios_audio::Lfo {
+        bevy_symbios_audio::Lfo {
+            rate_hz: self.rate_hz.0,
+            shape: self.shape.to_native(),
+            depth: self.depth.0,
+            offset: self.offset.0,
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::Lfo) -> Self {
+        Self {
+            rate_hz: Fp(n.rate_hz),
+            shape: SovereignLfoShape::from_native(n.shape),
+            depth: Fp(n.depth),
+            offset: Fp(n.offset),
+        }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::LfoShape`].
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SovereignLfoShape {
+    #[default]
+    Sine,
+    Triangle,
+    Square,
+    Saw,
+    Random,
+    #[serde(other)]
+    Unknown,
+}
+
+impl SovereignLfoShape {
+    pub fn to_native(self) -> bevy_symbios_audio::LfoShape {
+        match self {
+            Self::Sine | Self::Unknown => bevy_symbios_audio::LfoShape::Sine,
+            Self::Triangle => bevy_symbios_audio::LfoShape::Triangle,
+            Self::Square => bevy_symbios_audio::LfoShape::Square,
+            Self::Saw => bevy_symbios_audio::LfoShape::Saw,
+            Self::Random => bevy_symbios_audio::LfoShape::Random,
+        }
+    }
+
+    pub fn from_native(n: bevy_symbios_audio::LfoShape) -> Self {
+        match n {
+            bevy_symbios_audio::LfoShape::Sine => Self::Sine,
+            bevy_symbios_audio::LfoShape::Triangle => Self::Triangle,
+            bevy_symbios_audio::LfoShape::Square => Self::Square,
+            bevy_symbios_audio::LfoShape::Saw => Self::Saw,
+            bevy_symbios_audio::LfoShape::Random => Self::Random,
+        }
+    }
+}
+
+fn default_amplitude() -> Fp {
+    Fp(1.0)
+}
+
+// ===========================================================================
+// SequenceRecipe + Instrument + Track + Event
+// ===========================================================================
+
+/// Mirror of [`bevy_symbios_audio::SequenceRecipe`].
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SovereignSequenceRecipe {
+    pub bpm: Fp,
+    pub sample_rate: u32,
+    pub duration_beats: Fp,
+    /// `None` = play once, no loop.
+    #[serde(default)]
+    pub loop_start_beats: Option<Fp>,
+    pub loop_crossfade_beats: Fp,
+    pub instruments: Vec<SovereignInstrument>,
+    pub tracks: Vec<SovereignTrack>,
+}
+
+impl Default for SovereignSequenceRecipe {
+    fn default() -> Self {
+        Self {
+            bpm: Fp(120.0),
+            sample_rate: 44_100,
+            duration_beats: Fp(4.0),
+            loop_start_beats: None,
+            loop_crossfade_beats: Fp(0.0),
+            instruments: Vec::new(),
+            tracks: Vec::new(),
+        }
+    }
+}
+
+impl SovereignSequenceRecipe {
+    pub fn to_native(&self) -> bevy_symbios_audio::SequenceRecipe {
+        bevy_symbios_audio::SequenceRecipe {
+            bpm: self.bpm.0,
+            sample_rate: self.sample_rate,
+            duration_beats: self.duration_beats.0,
+            loop_start_beats: self.loop_start_beats.map(|fp| fp.0),
+            loop_crossfade_beats: self.loop_crossfade_beats.0,
+            instruments: self
+                .instruments
+                .iter()
+                .map(SovereignInstrument::to_native)
+                .collect(),
+            tracks: self.tracks.iter().map(SovereignTrack::to_native).collect(),
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::SequenceRecipe) -> Self {
+        Self {
+            bpm: Fp(n.bpm),
+            sample_rate: n.sample_rate,
+            duration_beats: Fp(n.duration_beats),
+            loop_start_beats: n.loop_start_beats.map(Fp),
+            loop_crossfade_beats: Fp(n.loop_crossfade_beats),
+            instruments: n
+                .instruments
+                .iter()
+                .map(SovereignInstrument::from_native)
+                .collect(),
+            tracks: n.tracks.iter().map(SovereignTrack::from_native).collect(),
+        }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::Instrument`].
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct SovereignInstrument {
+    pub id: String,
+    pub patch: SovereignAudioPatch,
+}
+
+impl SovereignInstrument {
+    pub fn to_native(&self) -> bevy_symbios_audio::Instrument {
+        bevy_symbios_audio::Instrument {
+            id: self.id.clone(),
+            patch: self.patch.to_native(),
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::Instrument) -> Self {
+        Self {
+            id: n.id.clone(),
+            patch: SovereignAudioPatch::from_native(&n.patch),
+        }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::Track`].
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct SovereignTrack {
+    pub events: Vec<SovereignEvent>,
+}
+
+impl SovereignTrack {
+    pub fn to_native(&self) -> bevy_symbios_audio::Track {
+        bevy_symbios_audio::Track {
+            events: self.events.iter().map(SovereignEvent::to_native).collect(),
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::Track) -> Self {
+        Self {
+            events: n.events.iter().map(SovereignEvent::from_native).collect(),
+        }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::Event`].
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SovereignEvent {
+    pub time_beats: Fp,
+    pub instrument_id: String,
+    pub pitch_multiplier: Fp,
+    pub volume: Fp,
+    pub gate_beats: Fp,
+}
+
+impl Default for SovereignEvent {
+    fn default() -> Self {
+        Self {
+            time_beats: Fp(0.0),
+            instrument_id: String::new(),
+            pitch_multiplier: Fp(1.0),
+            volume: Fp(1.0),
+            gate_beats: Fp(1.0),
+        }
+    }
+}
+
+impl SovereignEvent {
+    pub fn to_native(&self) -> bevy_symbios_audio::Event {
+        bevy_symbios_audio::Event {
+            time_beats: self.time_beats.0,
+            instrument_id: self.instrument_id.clone(),
+            pitch_multiplier: self.pitch_multiplier.0,
+            volume: self.volume.0,
+            gate_beats: self.gate_beats.0,
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::Event) -> Self {
+        Self {
+            time_beats: Fp(n.time_beats),
+            instrument_id: n.instrument_id.clone(),
+            pitch_multiplier: Fp(n.pitch_multiplier),
+            volume: Fp(n.volume),
+            gate_beats: Fp(n.gate_beats),
         }
     }
 }

@@ -24,10 +24,10 @@ fn label_returns_distinct_strings_per_variant() {
         source: SovereignAssetReference::default(),
     };
     let p = SovereignAudioConfig::Patch {
-        patch_json: String::new(),
+        patch: symbios_overlands::pds::audio::SovereignAudioPatch::default(),
     };
     let s = SovereignAudioConfig::Sequence {
-        recipe_json: String::new(),
+        recipe: symbios_overlands::pds::audio::SovereignSequenceRecipe::default(),
     };
     let u = SovereignAudioConfig::Unknown;
     let labels = [none.label(), r.label(), p.label(), s.label(), u.label()];
@@ -72,37 +72,72 @@ fn referenced_variant_round_trips() {
 }
 
 #[test]
-fn patch_variant_round_trips_as_opaque_string() {
-    let blob = r#"{"seed":42,"graph":{"nodes":[],"output":0}}"#.to_string();
+fn patch_variant_round_trips_as_structured() {
     let original = SovereignAudioConfig::Patch {
-        patch_json: blob.clone(),
+        patch: symbios_overlands::pds::audio::SovereignAudioPatch::default(),
     };
     let json = serde_json::to_string(&original).expect("serialise");
-    // The patch JSON is encapsulated as a string at the DAG-CBOR
-    // boundary — the outer document sees one big escaped string, no
-    // inner numbers leak through.
-    let outer: serde_json::Value = serde_json::from_str(&json).expect("outer value");
-    let patch_json_field = outer
-        .get("patch_json")
-        .and_then(|v| v.as_str())
-        .expect("patch_json field is a string");
-    assert_eq!(patch_json_field, blob.as_str());
+    // Structured form — no inner floats at this wire level. The Fp
+    // wrapper encodes as a fixed-point integer when its underlying
+    // value is non-zero; the empty default produces minimal output.
     let back: SovereignAudioConfig = serde_json::from_str(&json).expect("deserialise");
     assert_eq!(back, original);
 }
 
 #[test]
-fn sequence_variant_round_trips_as_opaque_string() {
-    let blob = r#"{"bpm":120.0,"sample_rate":44100,"duration_beats":4.0,
-                  "loop_start_beats":null,"loop_crossfade_beats":0.0,
-                  "instruments":[],"tracks":[]}"#
-        .to_string();
+fn sequence_variant_round_trips_as_structured() {
     let original = SovereignAudioConfig::Sequence {
-        recipe_json: blob.clone(),
+        recipe: symbios_overlands::pds::audio::SovereignSequenceRecipe::default(),
     };
     let json = serde_json::to_string(&original).expect("serialise");
     let back: SovereignAudioConfig = serde_json::from_str(&json).expect("deserialise");
     assert_eq!(back, original);
+}
+
+#[test]
+fn structured_patch_wire_has_no_inner_floats() {
+    // The whole point of #311's structured mirrors over the JSON-stash
+    // approach: the wire format carries Fp-encoded integers, never a
+    // raw float. Walk the serialised JSON Value and assert that every
+    // Number node is integral. (Mirrors the assert_no_floats pattern
+    // from tests/pds_records.rs but scoped to the audio config.)
+    let mut native = bevy_symbios_audio::AudioPatch::default();
+    native.seed = 7;
+    // Patch the default Silence node with a SineOsc carrying real
+    // floats — exercises the Fp-wrapping path.
+    native.graph.nodes[0].kind = bevy_symbios_audio::NodeKind::Sine(bevy_symbios_audio::SineOsc {
+        freq_hz: 440.5,
+        phase_offset: 0.25,
+        amplitude: 0.9,
+    });
+    let stash = SovereignAudioConfig::from_patch(&native);
+    let json: serde_json::Value = serde_json::to_value(&stash).expect("serialise");
+    fn walk_no_floats(v: &serde_json::Value, path: &mut Vec<String>) {
+        match v {
+            serde_json::Value::Number(n) => assert!(
+                n.is_i64() || n.is_u64(),
+                "Number at /{} is a float ({}); structured wire must be all integers",
+                path.join("/"),
+                n
+            ),
+            serde_json::Value::Array(items) => {
+                for (i, item) in items.iter().enumerate() {
+                    path.push(i.to_string());
+                    walk_no_floats(item, path);
+                    path.pop();
+                }
+            }
+            serde_json::Value::Object(m) => {
+                for (k, v) in m {
+                    path.push(k.clone());
+                    walk_no_floats(v, path);
+                    path.pop();
+                }
+            }
+            _ => {}
+        }
+    }
+    walk_no_floats(&json, &mut Vec::new());
 }
 
 // ---------------------------------------------------------------------------
@@ -128,11 +163,8 @@ fn from_patch_round_trips_through_native_audio_patch() {
         seed: 7,
         graph: bevy_symbios_audio::NodeGraph::default(),
     };
-    let stash = SovereignAudioConfig::from_patch(&native).expect("stash");
-    let recovered = stash
-        .parse_patch()
-        .expect("Patch variant returns Some")
-        .expect("parsed cleanly");
+    let stash = SovereignAudioConfig::from_patch(&native);
+    let recovered = stash.parse_patch().expect("Patch variant returns Some");
     assert_eq!(recovered, native);
 }
 
@@ -152,11 +184,10 @@ fn parse_patch_returns_none_for_other_variants() {
 #[test]
 fn from_sequence_round_trips_through_native_recipe() {
     let native = bevy_symbios_audio::SequenceRecipe::default();
-    let stash = SovereignAudioConfig::from_sequence(&native).expect("stash");
+    let stash = SovereignAudioConfig::from_sequence(&native);
     let recovered = stash
         .parse_sequence()
-        .expect("Sequence variant returns Some")
-        .expect("parsed cleanly");
+        .expect("Sequence variant returns Some");
     assert_eq!(recovered, native);
 }
 

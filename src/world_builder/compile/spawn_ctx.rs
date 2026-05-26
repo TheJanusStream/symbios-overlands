@@ -13,6 +13,7 @@ use crate::terrain::{FinishedHeightMap, OutgoingTerrain, TerrainMesh};
 use crate::water::{WaterMaterial, WaterSurfaces};
 
 use super::super::PropMeshAssets;
+use super::super::audio_resolver::BlobAudioCache;
 use super::super::image_cache::BlobImageCache;
 use super::super::lsystem::{LSystemMaterialCache, LSystemMeshCache};
 use super::super::shape::{ShapeMaterialCache, ShapeMeshCache};
@@ -159,6 +160,13 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// material handle on the existing pending list instead of issuing a
     /// redundant HTTPS round trip.
     pub(crate) blob_image_cache: &'a mut BlobImageCache,
+    /// Source-keyed coalescing cache for Referenced-audio fetches —
+    /// the sister of [`blob_image_cache`] for ambient + per-construct
+    /// audio that comes from an URL or ATProto blob. Constructs with
+    /// a `SovereignAudioConfig::Referenced` audio field flow through
+    /// this cache on every spawn so a room scattering many constructs
+    /// pointing at the same source pays one round-trip.
+    pub(crate) blob_audio_cache: &'a mut BlobAudioCache,
     /// Runtime water-surface registry. Cleared at the top of each compile
     /// pass and pushed to from `spawn_water_volume`. Read by the scatter
     /// biome filter (this pass) and rover buoyancy (every fixed step).

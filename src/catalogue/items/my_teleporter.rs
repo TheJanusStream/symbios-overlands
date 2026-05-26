@@ -40,12 +40,10 @@ impl CatalogueEntry for MyTeleporter {
         });
         // Concrete proof-of-concept for #301's per-construct audio
         // pipeline: a gentle low-frequency hum baked from a sine +
-        // filter-swept LFO. JSON-stashed via SovereignAudioConfig so
-        // it survives the PDS round-trip; the world-builder bakes
-        // and attaches the spatial AudioPlayer at spawn time.
-        if let Ok(audio) = SovereignAudioConfig::from_patch(&teleporter_hum_patch()) {
-            g.audio = audio;
-        }
+        // filter-swept LFO. Mirrored via SovereignAudioConfig so it
+        // survives the PDS round-trip; the world-builder bakes and
+        // attaches the spatial AudioPlayer at spawn time.
+        g.audio = SovereignAudioConfig::from_patch(&teleporter_hum_patch());
         g
     }
 }

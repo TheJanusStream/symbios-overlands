@@ -52,6 +52,7 @@ pub struct AvatarSpawnDeps<'w, 's> {
     pub prop_assets: Option<Res<'w, PropMeshAssets>>,
     pub caches: GeneratorCaches<'w>,
     pub blob_image_cache: ResMut<'w, BlobImageCache>,
+    pub blob_audio_cache: ResMut<'w, crate::world_builder::audio_resolver::BlobAudioCache>,
     pub water_surfaces: ResMut<'w, WaterSurfaces>,
     pub current_room: Option<Res<'w, CurrentRoomDid>>,
 }
@@ -103,6 +104,7 @@ pub fn spawn_avatar_visuals(
         deps.prop_assets.as_deref(),
         &mut deps.caches,
         deps.blob_image_cache.as_mut(),
+        deps.blob_audio_cache.as_mut(),
         deps.water_surfaces.as_mut(),
         &empty_record,
         deps.current_room.as_deref(),
