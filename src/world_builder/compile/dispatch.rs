@@ -323,6 +323,15 @@ pub fn spawn_generator(
         // this node's generated entity so the hierarchy mirrors the
         // blueprint shape.
         spawn_generator_children(ctx, generator, e, base_ref, path);
+
+        // Per-construct spatial audio (#301). Mute-by-default — the
+        // dispatcher no-ops on `SovereignAudioConfig::None` /
+        // `Unknown` / `Referenced`, so the typical empty `audio`
+        // field costs nothing. For non-None procedural variants this
+        // spawns a background bake task; the poll system
+        // (`spatial_audio::poll_spatial_audio_tasks`) attaches a
+        // looping spatial AudioPlayer once the bake completes.
+        super::super::spatial_audio::dispatch_construct_audio(ctx.commands, e, &generator.audio);
     }
 
     entity

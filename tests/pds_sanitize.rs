@@ -528,6 +528,7 @@ fn generator_node_transform_rejects_non_finite_fields() {
             scale: Fp3([-1.0, 0.0, f32::INFINITY]),
         },
         children: Vec::new(),
+        audio: symbios_overlands::pds::SovereignAudioConfig::None,
     };
     // Must not panic.
     sanitize_generator(&mut generator);

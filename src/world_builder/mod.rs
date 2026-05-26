@@ -70,6 +70,7 @@ pub mod portal;
 mod prim;
 mod shape;
 mod sign;
+pub mod spatial_audio;
 
 use std::collections::HashMap;
 
@@ -168,6 +169,7 @@ impl Plugin for WorldBuilderPlugin {
                     compile::apply_environment_state,
                     compile::apply_contact_recipes,
                     image_cache::poll_blob_image_tasks,
+                    spatial_audio::poll_spatial_audio_tasks,
                     draw_placement_visualizers,
                 )
                     .run_if(in_state(AppState::InGame)),

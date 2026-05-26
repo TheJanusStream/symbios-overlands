@@ -176,6 +176,7 @@ impl AvatarRecord {
                 scale: Fp3([1.0, 1.0, 1.0]),
             },
             children: Vec::new(),
+            audio: crate::pds::SovereignAudioConfig::None,
         };
 
         // ---- Mast subtree -----------------------------------------------
@@ -197,6 +198,7 @@ impl AvatarRecord {
                 scale: Fp3([1.0, 1.0, 1.0]),
             },
             children: Vec::new(),
+            audio: crate::pds::SovereignAudioConfig::None,
         });
         // Antenna (Solar / Hybrid only): thin spire above the finial.
         if vessel.archetype.has_antenna() {
@@ -218,6 +220,7 @@ impl AvatarRecord {
                     scale: Fp3([1.0, 1.0, 1.0]),
                 },
                 children: Vec::new(),
+                audio: crate::pds::SovereignAudioConfig::None,
             });
         }
         // Flag — Sign panel showing the owner's bsky profile picture.
@@ -253,6 +256,7 @@ impl AvatarRecord {
                 scale: Fp3([1.0, 1.0, 1.0]),
             },
             children: Vec::new(),
+            audio: crate::pds::SovereignAudioConfig::None,
         });
 
         let mast = Generator {
@@ -272,6 +276,7 @@ impl AvatarRecord {
                 scale: Fp3([1.0, 1.0, 1.0]),
             },
             children: mast_children,
+            audio: crate::pds::SovereignAudioConfig::None,
         };
 
         // ---- Bow ornament (conditional on BowStyle) ---------------------
@@ -297,6 +302,7 @@ impl AvatarRecord {
                     scale: Fp3([1.0, 1.0, 1.0]),
                 },
                 children: Vec::new(),
+                audio: crate::pds::SovereignAudioConfig::None,
             }),
             BowStyle::Sphere => Some(Generator {
                 kind: GeneratorKind::Sphere {
@@ -314,6 +320,7 @@ impl AvatarRecord {
                     scale: Fp3([1.0, 1.0, 1.0]),
                 },
                 children: Vec::new(),
+                audio: crate::pds::SovereignAudioConfig::None,
             }),
             BowStyle::Beak => Some(Generator {
                 kind: GeneratorKind::Cone {
@@ -332,6 +339,7 @@ impl AvatarRecord {
                     scale: Fp3([1.0, 1.0, 1.0]),
                 },
                 children: Vec::new(),
+                audio: crate::pds::SovereignAudioConfig::None,
             }),
             BowStyle::None => None,
         };
@@ -371,6 +379,7 @@ impl AvatarRecord {
                         scale: Fp3([1.0, 1.0, 1.0]),
                     },
                     children: Vec::new(),
+                    audio: crate::pds::SovereignAudioConfig::None,
                 });
             }
         }
@@ -392,6 +401,7 @@ impl AvatarRecord {
                     scale: Fp3([1.0, 1.0, 1.0]),
                 },
                 children: Vec::new(),
+                audio: crate::pds::SovereignAudioConfig::None,
             })
         } else {
             None
@@ -421,6 +431,7 @@ impl AvatarRecord {
             },
             transform: TransformData::default(),
             children,
+            audio: crate::pds::SovereignAudioConfig::None,
         };
 
         Self {

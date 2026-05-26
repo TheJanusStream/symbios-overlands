@@ -15,7 +15,8 @@
 //! [`ItemOffer`]: crate::network::OverlandsMessage
 
 use crate::catalogue::{CatalogueCategory, CatalogueEntry};
-use crate::pds::{Fp3, Generator, GeneratorKind};
+use crate::pds::{Fp3, Generator, GeneratorKind, SovereignAudioConfig};
+use crate::world_builder::spatial_audio::teleporter_hum_patch;
 
 pub struct MyTeleporter;
 
@@ -33,10 +34,19 @@ impl CatalogueEntry for MyTeleporter {
         CatalogueCategory::Tools
     }
     fn build(&self, local_did: &str) -> Generator {
-        Generator::from_kind(GeneratorKind::Portal {
+        let mut g = Generator::from_kind(GeneratorKind::Portal {
             target_did: local_did.to_string(),
             target_pos: Fp3([0.0, 0.0, 0.0]),
-        })
+        });
+        // Concrete proof-of-concept for #301's per-construct audio
+        // pipeline: a gentle low-frequency hum baked from a sine +
+        // filter-swept LFO. JSON-stashed via SovereignAudioConfig so
+        // it survives the PDS round-trip; the world-builder bakes
+        // and attaches the spatial AudioPlayer at spawn time.
+        if let Ok(audio) = SovereignAudioConfig::from_patch(&teleporter_hum_patch()) {
+            g.audio = audio;
+        }
+        g
     }
 }
 

@@ -860,6 +860,15 @@ pub struct Generator {
     pub transform: TransformData,
     #[serde(default)]
     pub children: Vec<Generator>,
+    /// Optional emissive audio source attached to this node — spatially
+    /// played at the node's world position by Bevy's spatial audio
+    /// pipeline. Forward-compat across older records: missing field
+    /// decodes via `#[serde(default)]` to
+    /// [`SovereignAudioConfig::None`] (silent). Set non-None by
+    /// catalogue entries that want a construct to hum / chime / drone
+    /// at its location (e.g. the teleporter's portal core).
+    #[serde(default)]
+    pub audio: super::audio::SovereignAudioConfig,
 }
 
 impl Generator {
@@ -871,6 +880,7 @@ impl Generator {
             kind,
             transform: TransformData::default(),
             children: Vec::new(),
+            audio: super::audio::SovereignAudioConfig::None,
         }
     }
 

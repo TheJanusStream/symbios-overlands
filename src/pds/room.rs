@@ -353,6 +353,7 @@ impl RoomRecord {
                 ..TransformData::default()
             },
             children: Vec::new(),
+            audio: crate::pds::SovereignAudioConfig::None,
         });
 
         let mut generators = HashMap::new();

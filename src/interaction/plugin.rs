@@ -114,5 +114,17 @@ impl Plugin for InteractionPlugin {
         // behaviour unchanged.
         super::decal::build(app);
         super::audio::build(app);
+
+        // Procedural impact channel (#300): generate material-keyed
+        // footstep / landing SFX from the dominant splat layer at the
+        // contact point. Always-on baseline; ordered after the
+        // producer so it sees this frame's Enter samples.
+        app.init_resource::<crate::audio_materials::ImpactCooldowns>()
+            .add_systems(
+                Update,
+                crate::audio_materials::play_terrain_impacts
+                    .after(ContactProducerSet)
+                    .run_if(in_state(AppState::InGame)),
+            );
     }
 }

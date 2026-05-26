@@ -29,6 +29,7 @@ use bevy::pbr::wireframe::WireframePlugin;
 use bevy::prelude::*;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 
+pub mod audio_materials;
 pub mod avatar;
 pub mod boot_params;
 pub mod camera;

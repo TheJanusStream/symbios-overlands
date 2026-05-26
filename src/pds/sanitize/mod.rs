@@ -77,6 +77,10 @@ pub(crate) trait Sanitize {
 fn sanitize_generator_node(node: &mut Generator, depth: u32, count: &mut u32, is_root: bool) {
     *count += 1;
     node.transform.sanitize();
+    // Forward to the asset-class sanitiser — caps embedded patch /
+    // sequence JSON length and any Referenced URL/DID/CID strings on
+    // the node's spatial-audio source.
+    node.audio.sanitize();
 
     if !is_root && matches!(&node.kind, GeneratorKind::Terrain(_)) {
         // Terrain at non-root: not a valid position. Overwrite rather than
