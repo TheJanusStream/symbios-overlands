@@ -7,12 +7,14 @@
 //! [`super`] for the full data flow.
 
 pub mod atmosphere;
+pub mod audio;
 pub mod palette;
 pub mod scatters;
 pub mod terrain;
 pub mod textures;
 
 pub use atmosphere::{Atmosphere, WaterDynamics};
+pub use audio::AmbientRecipe;
 pub use palette::RoomPalette;
 pub use scatters::{TreeScatter, TreeScatters};
 pub use terrain::{GeneratorKind, SplatRule, TerrainShape};

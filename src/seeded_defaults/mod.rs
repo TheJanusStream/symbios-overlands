@@ -38,8 +38,9 @@ pub use avatar::{
 };
 pub use hash::fnv1a_64;
 pub use room::{
-    Atmosphere, BiomeTextures, GeneratorKind, GroundTextureParams, RockTextureParams, RoomPalette,
-    SplatRule, TerrainShape, TreeScatter, TreeScatters, WaterDynamics,
+    AmbientRecipe, Atmosphere, BiomeTextures, GeneratorKind, GroundTextureParams,
+    RockTextureParams, RoomPalette, SplatRule, TerrainShape, TreeScatter, TreeScatters,
+    WaterDynamics,
 };
 pub use scene::{
     BiomeArchetype, LandformArchetype, SceneCharacter, pick, range_f32, signed_unit_f32, unit_f32,

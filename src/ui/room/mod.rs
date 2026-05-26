@@ -27,6 +27,7 @@
 //! egui helpers (sliders, colour pickers, transform editor), plus the
 //! ternary-tree L-system preset used when adding a new generator.
 
+mod audio;
 mod construct;
 mod contact_effects;
 mod environment;

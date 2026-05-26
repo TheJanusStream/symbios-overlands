@@ -85,6 +85,17 @@ pub struct Environment {
     /// sRGB tint for the underside / shadowed regions, mixed with
     /// [`Self::cloud_color`] by the dot of the sun direction with world Y.
     pub cloud_shadow_color: Fp3,
+
+    /// Ambient audio for the room — a procedurally-baked
+    /// [`AudioPatch`] / [`SequenceRecipe`] or a URL/DID-referenced
+    /// clip. `None` (the default) plays no ambient track. Forward-
+    /// compat across older records: `#[serde(default)]` on the parent
+    /// struct lets pre-audio records decode cleanly with this field
+    /// elided.
+    ///
+    /// [`AudioPatch`]: bevy_symbios_audio::AudioPatch
+    /// [`SequenceRecipe`]: bevy_symbios_audio::SequenceRecipe
+    pub ambient_audio: crate::pds::audio::SovereignAudioConfig,
 }
 
 impl Default for Environment {
@@ -121,6 +132,8 @@ impl Default for Environment {
             cloud_wind_dir: Fp2(c::WIND_DIR),
             cloud_color: Fp3(c::COLOR),
             cloud_shadow_color: Fp3(c::SHADOW_COLOR),
+
+            ambient_audio: crate::pds::audio::SovereignAudioConfig::None,
         }
     }
 }
@@ -238,6 +251,12 @@ impl Environment {
         };
         self.cloud_color = clamp3(self.cloud_color);
         self.cloud_shadow_color = clamp3(self.cloud_shadow_color);
+
+        // Forward to the asset-class sanitiser — caps the embedded
+        // patch / sequence JSON length and Referenced URL / DID / CID
+        // strings so a hostile peer can't smuggle a megabyte through
+        // the audio slot.
+        self.ambient_audio.sanitize();
     }
 }
 
@@ -390,6 +409,18 @@ impl RoomRecord {
 
         let mut environment = environment_from_palette(&palette);
         apply_atmosphere_to_environment(&atmosphere, &mut environment);
+
+        // Seed the room's ambient track from the same scene anchor that
+        // drives palette / terrain / atmosphere. The deriver returns a
+        // native `bevy_symbios_audio::SequenceRecipe`; we wrap it in the
+        // DAG-CBOR-safe JSON-stash variant (proper structured mirror is
+        // tracked under #311). A serialise failure here would be a bug
+        // in the audio crate's serde impls — fall back to `None` rather
+        // than panicking, so a botched recipe never blocks room load.
+        let ambient = crate::seeded_defaults::AmbientRecipe::from_scene(&scene, did_seed);
+        environment.ambient_audio =
+            crate::pds::audio::SovereignAudioConfig::from_sequence(&ambient.recipe)
+                .unwrap_or(crate::pds::audio::SovereignAudioConfig::None);
 
         Self {
             lex_type: COLLECTION.into(),

@@ -201,4 +201,10 @@ pub(super) fn draw_environment_tab(ui: &mut egui::Ui, env: &mut Environment, dir
                 .color(egui::Color32::GRAY),
             );
         });
+
+    egui::CollapsingHeader::new("Ambient audio")
+        .default_open(false)
+        .show(ui, |ui| {
+            super::audio::draw_audio_bridge(ui, &mut env.ambient_audio, "environment", dirty);
+        });
 }

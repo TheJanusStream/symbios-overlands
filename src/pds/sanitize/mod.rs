@@ -22,6 +22,7 @@
 //! defined here, since they don't have separate parameter structs to
 //! hang the trait off.
 
+mod audio;
 mod common;
 mod contact_effects;
 pub mod limits;

@@ -9,11 +9,10 @@ bevy_egui = "0.39"
 egui_ltreeview = "0.6.1"
 bevy_panorbit_camera = { version = "0.34", features = ["bevy_egui"] }
 bevy_symbios = "0.4"
-bevy_symbios_ground = { version = "0.3", features = [
-    "physics",
-] }
+bevy_symbios_ground = { version = "0.3", features = ["physics"] }
 bevy_symbios_multiuser = "0.5"
 bevy_symbios_texture = { version = "0.4", features = ["egui"] }
+bevy_symbios_audio = { path = "../bevy_symbios_audio" }
 transform-gizmo-bevy = "0.9"
 symbios = "1.5"
 symbios-turtle-3d = "0.5"

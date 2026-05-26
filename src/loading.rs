@@ -484,6 +484,189 @@ pub(crate) fn poll_inventory_record_task(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Ambient audio bake (5th loading-gate task)
+// ---------------------------------------------------------------------------
+
+/// Resolved ambient-track handle for the active room. Inserted exactly
+/// once during `AppState::Loading` so the loading gate is unblocked
+/// even when a room carries no ambient audio (`None` / `Referenced` /
+/// `Unknown` / parse-error variants all land here as `AmbientHandle(None)`).
+///
+/// A `Some(_)` value is the [`Handle<AudioSource>`] the world-builder
+/// will hand to a Bevy `AudioPlayer` once the InGame state takes over;
+/// `None` is the explicit "no ambient track" signal, distinct from
+/// "still baking".
+#[derive(Resource, Debug, Clone)]
+pub struct AmbientHandle(pub Option<Handle<bevy::audio::AudioSource>>);
+
+/// In-flight ambient-bake task. Carries WAV bytes (mono IEEE float)
+/// produced by the audio crate's [`bake_sequence`] / [`bake`] +
+/// [`samples_to_wav_bytes`] pipeline. The poll system wraps these as
+/// [`AudioSource`] and writes [`AmbientHandle`].
+#[derive(Component)]
+pub(crate) struct AmbientBakeTask(bevy::tasks::Task<Option<Vec<u8>>>);
+
+/// Bake the room's ambient track into WAV bytes off the main thread.
+///
+/// Returns `Some(bytes)` for successfully baked procedural variants;
+/// `None` for variants that yield no audio under this loading-gate
+/// path:
+///
+/// * [`SovereignAudioConfig::None`] / [`SovereignAudioConfig::Unknown`]:
+///   no ambient track requested.
+/// * [`SovereignAudioConfig::Referenced`]: handled by the audio
+///   resolver path (filed under #308); this gate inserts `None` so the
+///   loading gate progresses, and the resolver patches the handle in
+///   later once bytes arrive.
+/// * Malformed JSON inside `Patch` / `Sequence`: logged at warn-level
+///   by the caller, treated as "no audio" so a corrupt record never
+///   blocks room load.
+fn bake_ambient_wav_bytes(audio: &crate::pds::SovereignAudioConfig) -> Option<Vec<u8>> {
+    use crate::pds::SovereignAudioConfig;
+
+    match audio {
+        SovereignAudioConfig::None
+        | SovereignAudioConfig::Unknown
+        | SovereignAudioConfig::Referenced { .. } => None,
+        SovereignAudioConfig::Patch { .. } => {
+            // Parse and one-shot bake. Default duration of 4.0s matches
+            // the audio crate's example envelope; future iterations can
+            // pull the duration from a Patch-side wrapper.
+            let patch = match audio.parse_patch()? {
+                Ok(p) => p,
+                Err(e) => {
+                    warn!("ambient Patch JSON failed to parse: {e}; falling back to silence");
+                    return None;
+                }
+            };
+            let samples = bevy_symbios_audio::bake(&patch, 44_100, 4.0);
+            Some(bevy_symbios_audio::samples_to_wav_bytes(&samples, 44_100))
+        }
+        SovereignAudioConfig::Sequence { .. } => {
+            let recipe = match audio.parse_sequence()? {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!("ambient Sequence JSON failed to parse: {e}; falling back to silence");
+                    return None;
+                }
+            };
+            let sample_rate = recipe.sample_rate;
+            let samples = bevy_symbios_audio::bake_sequence(&recipe);
+            Some(bevy_symbios_audio::samples_to_wav_bytes(
+                &samples,
+                sample_rate,
+            ))
+        }
+    }
+}
+
+/// Dispatch the ambient bake the frame `LiveRoomRecord` lands. Reads
+/// the room's `environment.ambient_audio`, picks the right baker, and
+/// spawns a single task entity. Subsequent frames are no-ops because
+/// [`AmbientHandle`] either gets inserted directly (no-audio variants)
+/// or the [`AmbientBakeTask`] component is in flight.
+pub(crate) fn start_ambient_bake(
+    mut commands: Commands,
+    room_record: Option<Res<LiveRoomRecord>>,
+    ambient_handle: Option<Res<AmbientHandle>>,
+    in_flight: Query<(), With<AmbientBakeTask>>,
+) {
+    // Wait until the room record has landed and we haven't already
+    // dispatched a bake (the handle being present *or* a task in
+    // flight both count as "already started").
+    let Some(record) = room_record else {
+        return;
+    };
+    if ambient_handle.is_some() || !in_flight.is_empty() {
+        return;
+    }
+
+    // Clone the audio config out so the task can run after we drop the
+    // resource borrow. AudioConfig is `Clone` (it's a small enum
+    // wrapping a String at most), so this is cheap.
+    let audio = record.0.environment.ambient_audio.clone();
+
+    // No-audio fast path — insert the resource directly so the loading
+    // gate unblocks without spinning up a task that would just return
+    // `None`.
+    if matches!(
+        &audio,
+        crate::pds::SovereignAudioConfig::None
+            | crate::pds::SovereignAudioConfig::Unknown
+            | crate::pds::SovereignAudioConfig::Referenced { .. }
+    ) {
+        commands.insert_resource(AmbientHandle(None));
+        return;
+    }
+
+    // AsyncComputeTaskPool is the right home for CPU-bound DSP — and
+    // it works on both native and wasm without the rayon/wasm split.
+    let pool = bevy::tasks::AsyncComputeTaskPool::get();
+    let task = pool.spawn(async move { bake_ambient_wav_bytes(&audio) });
+    commands.spawn(AmbientBakeTask(task));
+}
+
+/// Marker for the entity that plays the room's ambient track. One
+/// per active room — despawned (along with its `AudioPlayer`) when the
+/// room transitions or the player logs out.
+#[derive(Component)]
+pub struct AmbientPlayer;
+
+/// Spawn the ambient-track player once `AppState::InGame` is entered.
+/// Reads [`AmbientHandle`] — `None` is a valid "no ambient track"
+/// signal and no entity is spawned in that case.
+///
+/// Looping is requested explicitly via `PlaybackSettings::LOOP`; the
+/// seamless tail-crossfade pre-mix baked into the buffer by the audio
+/// crate's mixdown means a hard rodio loop still sounds seamless at
+/// the seam.
+pub(crate) fn spawn_ambient_player(mut commands: Commands, ambient: Option<Res<AmbientHandle>>) {
+    let Some(ambient) = ambient else {
+        // Loading gate would have inserted AmbientHandle before
+        // transitioning; only reachable if someone forces the state
+        // out of band. Stay silent rather than panicking.
+        return;
+    };
+    let Some(handle) = ambient.0.clone() else {
+        // Explicit "no ambient" — nothing to spawn.
+        return;
+    };
+    commands.spawn((
+        bevy::audio::AudioPlayer::new(handle),
+        bevy::audio::PlaybackSettings::LOOP,
+        AmbientPlayer,
+    ));
+    info!("Ambient track playing on loop");
+}
+
+/// Drain a finished ambient-bake task: wrap the WAV bytes in
+/// [`AudioSource`] and insert [`AmbientHandle`].
+pub(crate) fn poll_ambient_bake_task(
+    mut commands: Commands,
+    mut tasks: Query<(Entity, &mut AmbientBakeTask)>,
+    mut audio_sources: ResMut<Assets<bevy::audio::AudioSource>>,
+) {
+    for (entity, mut task) in tasks.iter_mut() {
+        let Some(result) =
+            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.0))
+        else {
+            continue;
+        };
+        commands.entity(entity).despawn();
+
+        let handle = result.map(|bytes| {
+            audio_sources.add(bevy::audio::AudioSource {
+                bytes: bytes.into(),
+            })
+        });
+        if handle.is_some() {
+            info!("Ambient audio baked");
+        }
+        commands.insert_resource(AmbientHandle(handle));
+    }
+}
+
 /// Transition out of `Loading` only once *every* resource the first
 /// `InGame` frame relies on is present:
 ///
@@ -493,6 +676,7 @@ pub(crate) fn poll_inventory_record_task(
 /// - [`LiveAvatarRecord`] — live avatar driving `spawn_local_player`
 /// - [`StoredAvatarRecord`] — committed snapshot used by the Load-from-PDS button
 /// - [`LiveInventoryRecord`] / [`StoredInventoryRecord`] — owner's Generator stash
+/// - [`AmbientHandle`] — ambient audio either baked or explicitly absent
 ///
 /// Advancing early leaves the poll systems orphaned (they only run in
 /// `Loading`), which would strand a slower PDS round-trip and leave the
@@ -506,6 +690,7 @@ pub(crate) fn check_loading_complete(
     stored_avatar: Option<Res<StoredAvatarRecord>>,
     live_inventory: Option<Res<LiveInventoryRecord>>,
     stored_inventory: Option<Res<StoredInventoryRecord>>,
+    ambient: Option<Res<AmbientHandle>>,
     mut next_state: ResMut<NextState<AppState>>,
 ) {
     if finished_hm.is_some()
@@ -515,7 +700,83 @@ pub(crate) fn check_loading_complete(
         && stored_avatar.is_some()
         && live_inventory.is_some()
         && stored_inventory.is_some()
+        && ambient.is_some()
     {
         next_state.set(AppState::InGame);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Pure-function tests for [`bake_ambient_wav_bytes`]. ECS-level
+    //! flow (the system order, the AsyncComputeTaskPool dispatch, the
+    //! loading-gate transition) is exercised by manual smoke-tests
+    //! rather than wired up here — bringing up a full Bevy `App` just
+    //! to drive a one-shot loading transition is heavier than the
+    //! coverage warrants for an isolated bake helper.
+    use super::*;
+    use crate::pds::{SovereignAssetReference, SovereignAudioConfig};
+
+    #[test]
+    fn none_variant_returns_no_bytes() {
+        assert!(bake_ambient_wav_bytes(&SovereignAudioConfig::None).is_none());
+    }
+
+    #[test]
+    fn referenced_variant_returns_no_bytes() {
+        let r = SovereignAudioConfig::Referenced {
+            source: SovereignAssetReference::default(),
+        };
+        assert!(bake_ambient_wav_bytes(&r).is_none());
+    }
+
+    #[test]
+    fn unknown_variant_returns_no_bytes() {
+        assert!(bake_ambient_wav_bytes(&SovereignAudioConfig::Unknown).is_none());
+    }
+
+    #[test]
+    fn malformed_patch_json_returns_no_bytes() {
+        let r = SovereignAudioConfig::Patch {
+            patch_json: "not json".to_string(),
+        };
+        assert!(bake_ambient_wav_bytes(&r).is_none());
+    }
+
+    #[test]
+    fn malformed_sequence_json_returns_no_bytes() {
+        let r = SovereignAudioConfig::Sequence {
+            recipe_json: "{not valid}".to_string(),
+        };
+        assert!(bake_ambient_wav_bytes(&r).is_none());
+    }
+
+    #[test]
+    fn sequence_variant_produces_wav_bytes() {
+        // Use the seeded deriver so the recipe is realistic — same
+        // wiring the default homeworld produces at runtime.
+        let scene = crate::seeded_defaults::SceneCharacter::for_did("did:plc:bake_test");
+        let recipe = crate::seeded_defaults::AmbientRecipe::from_scene(&scene, 42).recipe;
+        let stash = SovereignAudioConfig::from_sequence(&recipe).expect("stash");
+        let bytes = bake_ambient_wav_bytes(&stash).expect("bake produces bytes");
+        // RIFF/WAVE header check — the audio crate emits IEEE-float
+        // mono WAV; "RIFF" at offset 0, "WAVEfmt " at offset 8.
+        assert!(
+            bytes.starts_with(b"RIFF"),
+            "bytes must start with RIFF header"
+        );
+        assert!(
+            bytes[8..16] == *b"WAVEfmt ",
+            "bytes must carry WAVEfmt subchunk"
+        );
+        // Sanity-check size — 16 beats at 60 BPM = 16 seconds, plus
+        // crossfade tail, at 44.1 kHz mono float = at least 16 s ×
+        // 44_100 × 4 bytes = 2.8 MiB. WAV header (~44 bytes) is
+        // dwarfed by the data chunk.
+        assert!(
+            bytes.len() > 2_000_000,
+            "wav bytes should be at least 2 MB for a 16-beat loop at 60 BPM, got {}",
+            bytes.len()
+        );
     }
 }

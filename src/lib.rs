@@ -221,6 +221,7 @@ pub fn run() {
                 loading::start_inventory_record_fetch,
             ),
         )
+        .add_systems(OnEnter(AppState::InGame), loading::spawn_ambient_player)
         .add_systems(
             Update,
             (
@@ -228,6 +229,12 @@ pub fn run() {
                 loading::poll_avatar_record_task,
                 loading::poll_inventory_record_task,
                 loading::fire_pending_record_retries,
+                // Ambient bake is chained AFTER the room-record poll so
+                // the dispatch sees `LiveRoomRecord` in the same frame
+                // it arrives — without `.chain()` the starter would
+                // miss the rising edge and stall the gate.
+                loading::start_ambient_bake,
+                loading::poll_ambient_bake_task,
                 loading::check_loading_complete,
             )
                 .chain()

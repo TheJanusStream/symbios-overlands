@@ -78,6 +78,7 @@ pub(crate) const AVATAR_COLLECTION: &str = "network.symbios.overlands.avatar";
 pub const INVENTORY_COLLECTION: &str = "network.symbios.overlands.inventory";
 
 pub mod asset_reference;
+pub mod audio;
 pub mod avatar;
 pub mod contact_effects;
 pub mod generator;
@@ -96,6 +97,7 @@ pub mod xrpc;
 // re-exported below for backwards compatibility.
 
 pub use asset_reference::SovereignAssetReference;
+pub use audio::SovereignAudioConfig;
 pub use avatar::{
     AirplaneParams, AvatarRecord, CarParams, HelicopterParams, HoverBoatParams, HumanoidParams,
     LocomotionConfig, fetch_avatar_record, publish_avatar_record,
