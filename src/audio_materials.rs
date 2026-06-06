@@ -356,8 +356,9 @@ fn build_impact_patch(params: ImpactParams) -> AudioPatch {
 // ---------------------------------------------------------------------------
 
 /// Per-avatar cooldown clock so footsteps don't stack into a muddy
-/// continuous noise burst. Inserted by the [`SymbiosOverlandsAudioPlugin`]
-/// (registered in lib.rs); read + updated by [`play_terrain_impacts`].
+/// continuous noise burst. Inserted by the
+/// [`InteractionPlugin`](crate::interaction::InteractionPlugin); read +
+/// updated by [`play_terrain_impacts`].
 #[derive(bevy::prelude::Resource, Default)]
 pub struct ImpactCooldowns {
     last_play_secs: std::collections::HashMap<bevy::prelude::Entity, f64>,
@@ -372,10 +373,12 @@ const IMPACT_COOLDOWN_SECS: f64 = 0.18;
 /// entirely (saves the cost of a bake whose result will be inaudible).
 const IMPACT_VOLUME_FLOOR: f32 = 0.05;
 
-/// Read this frame's [`AvatarContacts`] and play a procedural terrain
-/// impact for every `Enter` sample. The played sound's material is
-/// looked up from the dominant splat-layer at the contact point via
-/// the room's [`SovereignTerrainConfig::material`] layers.
+/// Read this frame's [`AvatarContacts`](crate::interaction::AvatarContacts)
+/// and play a procedural terrain impact for every `Enter` sample. The
+/// played sound's material is looked up from the dominant splat-layer at
+/// the contact point via the room's
+/// [`SovereignTerrainConfig::material`](crate::pds::SovereignTerrainConfig::material)
+/// layers.
 ///
 /// Scheduling: `.after(ContactProducerSet)` so it runs in the same
 /// frame the classifier emits the `Enter` sample. Inert when no room

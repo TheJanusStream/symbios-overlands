@@ -5,7 +5,7 @@
 //! Shape grammars are the architecture-shaped sibling of the L-system
 //! generator: instead of a stack-based turtle, the upstream
 //! [`symbios_shape::Interpreter`] expands a queue of named rules into a flat
-//! list of [`Terminal`] panels carrying a face-profiled cuboid scope. We bake
+//! list of [`Terminal`](symbios_shape::Terminal) panels carrying a face-profiled cuboid scope. We bake
 //! one unit-sized procedural mesh per `(profile, size)` pair and cache the
 //! resulting per-terminal spawn list, so a `Placement::Scatter` with
 //! `count = 100_000` re-uses the same baked terminals across every cell

@@ -12,7 +12,7 @@
 //! predictable inside the sender's room without depending on a
 //! seeded-defaults round-trip.
 //!
-//! [`ItemOffer`]: crate::network::OverlandsMessage
+//! [`ItemOffer`]: crate::protocol::OverlandsMessage::ItemOffer
 
 use crate::catalogue::{CatalogueCategory, CatalogueEntry};
 use crate::pds::{Fp3, Generator, GeneratorKind, SovereignAudioConfig};

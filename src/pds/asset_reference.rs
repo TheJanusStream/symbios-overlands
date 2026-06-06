@@ -4,7 +4,8 @@
 //!
 //! # Scope
 //!
-//! Originally introduced as `SignSource` to back the [`Sign`] image source
+//! Originally introduced as `SignSource` to back the
+//! [`Sign`](crate::pds::GeneratorKind::Sign) image source
 //! union; generalised here so [`SovereignTextureConfig::Referenced`] and
 //! the future `SovereignAudioConfig::Referenced` can reuse the same wire
 //! shape and resolver path. [`SignSource`] is retained as a type alias so
@@ -13,18 +14,19 @@
 //!
 //! # Variants
 //!
-//! * [`Url`] — direct HTTPS GET via the shared `reqwest` client. CORS is
-//!   the host's responsibility on web.
-//! * [`AtprotoBlob`] — resolves the DID's PDS then calls
-//!   `com.atproto.sync.getBlob?did=…&cid=…`. Pinned, content-addressed,
-//!   reproducible.
-//! * [`DidPfp`] — fetches `app.bsky.actor.getProfile` and follows the
-//!   avatar URL. Self-updating: a refresh between sessions picks up a new
-//!   pfp without changing the record. Image-only — the audio bridge UI
-//!   should hide this variant from its sub-picker since a JPEG isn't an
-//!   audio source.
-//! * [`Unknown`] — forward-compat seam. A record authored by a newer
-//!   engine version round-trips intact through older clients.
+//! * [`Url`](SovereignAssetReference::Url) — direct HTTPS GET via the
+//!   shared `reqwest` client. CORS is the host's responsibility on web.
+//! * [`AtprotoBlob`](SovereignAssetReference::AtprotoBlob) — resolves the
+//!   DID's PDS then calls `com.atproto.sync.getBlob?did=…&cid=…`. Pinned,
+//!   content-addressed, reproducible.
+//! * [`DidPfp`](SovereignAssetReference::DidPfp) — fetches
+//!   `app.bsky.actor.getProfile` and follows the avatar URL.
+//!   Self-updating: a refresh between sessions picks up a new pfp without
+//!   changing the record. Image-only — the audio bridge UI should hide
+//!   this variant from its sub-picker since a JPEG isn't an audio source.
+//! * [`Unknown`](SovereignAssetReference::Unknown) — forward-compat seam.
+//!   A record authored by a newer engine version round-trips intact
+//!   through older clients.
 //!
 //! # Wire format
 //!

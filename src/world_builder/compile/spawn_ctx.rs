@@ -161,7 +161,7 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// redundant HTTPS round trip.
     pub(crate) blob_image_cache: &'a mut BlobImageCache,
     /// Source-keyed coalescing cache for Referenced-audio fetches —
-    /// the sister of [`blob_image_cache`] for ambient + per-construct
+    /// the sister of [`blob_image_cache`](Self::blob_image_cache) for ambient + per-construct
     /// audio that comes from an URL or ATProto blob. Constructs with
     /// a `SovereignAudioConfig::Referenced` audio field flow through
     /// this cache on every spawn so a room scattering many constructs

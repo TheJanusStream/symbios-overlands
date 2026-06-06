@@ -4,7 +4,7 @@
 //! example.
 //!
 //! Was the hard-coded default Shape generator under
-//! [`crate::ui::room::widgets`] before the catalogue existed; relocated
+//! `crate::ui::room::widgets` before the catalogue existed; relocated
 //! here so all multi-material "complete building" entries live in one
 //! place. The widgets' `default_shape_kind` now delegates to this
 //! entry via [`super::super::by_slug`].

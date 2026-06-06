@@ -9,7 +9,7 @@
 //!
 //! Structural operations (`+ Add child`, `Rename`, `Save to Inventory`, `−
 //! Delete`) live in the per-row right-click context menu. The context-menu
-//! closures store a [`tree::PendingAction`] into a shared [`std::cell::RefCell`];
+//! closures store a `tree::PendingAction` into a shared [`std::cell::RefCell`];
 //! once the tree-view widget finishes rendering, the action is drained and
 //! applied with `&mut record` access. Root deletes additionally sweep
 //! dangling `Placement` references and `traits` mappings keyed on the
@@ -19,7 +19,7 @@
 //! ## Sub-module map
 //!
 //! * [`tree`] — left-hand tree panel, drag-and-drop reparent,
-//!   [`tree::PendingAction`] application.
+//!   `tree::PendingAction` application.
 //! * [`detail`] — right-hand detail panel + per-kind dispatcher.
 //! * [`primitive`] — Cuboid / Sphere / Cylinder / Capsule / Cone / Torus
 //!   / Plane / Tetrahedron detail editors + shared torture+material tail.

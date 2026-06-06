@@ -1,5 +1,6 @@
 //! Drains [`BeginAuthTask`]s — the in-flight `authorize()` round-trip
-//! that produces the AS authorization URL plus a [`PendingAuth`] blob.
+//! that produces the AS authorization URL plus a
+//! [`PendingAuth`](crate::oauth::PendingAuth) blob.
 //! On WASM we navigate the tab to the URL; on native we start the
 //! loopback callback server and launch the system browser.
 

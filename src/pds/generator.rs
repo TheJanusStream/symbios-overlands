@@ -864,7 +864,8 @@ pub struct Generator {
     /// played at the node's world position by Bevy's spatial audio
     /// pipeline. Forward-compat across older records: missing field
     /// decodes via `#[serde(default)]` to
-    /// [`SovereignAudioConfig::None`] (silent). Set non-None by
+    /// [`SovereignAudioConfig::None`](super::audio::SovereignAudioConfig::None)
+    /// (silent). Set non-None by
     /// catalogue entries that want a construct to hum / chime / drone
     /// at its location (e.g. the teleporter's portal core).
     #[serde(default)]

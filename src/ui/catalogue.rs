@@ -6,7 +6,7 @@
 //!
 //! Drag mechanics are identical to [`crate::ui::inventory::inventory_ui`]
 //! — the only difference is the drop source (`DropSource::Catalogue`),
-//! which makes [`crate::ui::inventory::drop::handle_generator_drop`]
+//! which makes [`handle_generator_drop`](crate::ui::inventory::handle_generator_drop)
 //! resolve the dragged `generator_name` against the catalogue
 //! registry instead of the user's stash. Authentication / ownership
 //! gating is identical (the user must own the active room to actually

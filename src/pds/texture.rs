@@ -493,7 +493,9 @@ pub enum SovereignTextureConfig {
     /// without having to encode every pixel in the room record.
     ///
     /// `source` is held inside a named field rather than as a tuple
-    /// payload so the inner [`SovereignAssetReference`]'s own
+    /// payload so the inner
+    /// [`SovereignAssetReference`](super::asset_reference::SovereignAssetReference)'s
+    /// own
     /// `#[serde(tag = "$type")]` discriminator nests cleanly inside the
     /// outer texture-config discriminator instead of colliding with it.
     ///

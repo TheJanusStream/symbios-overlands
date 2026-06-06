@@ -1,5 +1,6 @@
 //! HoverBoat preset — the 4-corner-suspension cuboid chassis with WASD
-//! drive + buoyancy. Parameters live on [`HoverBoatParams`] and are read
+//! drive + buoyancy. Parameters live on
+//! [`HoverBoatParams`](crate::pds::avatar::HoverBoatParams) and are read
 //! every fixed step so slider edits take effect without a rebuild.
 
 use avian3d::prelude::*;
@@ -144,7 +145,8 @@ pub(super) fn apply_hover_boat_uprighting(
 
 /// Sample the runtime water-surface registry at each chassis corner and
 /// apply per-corner buoyancy + flow current. Mirror of the legacy hover-
-/// rover system, retargeted to read params from [`HoverBoatParams`] and
+/// rover system, retargeted to read params from
+/// [`HoverBoatParams`](crate::pds::avatar::HoverBoatParams) and
 /// to derive corner offsets from the preset's authored chassis size.
 #[allow(clippy::type_complexity)]
 pub(super) fn apply_hover_boat_buoyancy(

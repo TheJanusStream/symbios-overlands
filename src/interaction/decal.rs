@@ -4,7 +4,8 @@
 //! Where Phase 3's stains texture covers the splat terrain, this
 //! channel drops short-lived, surface-aligned quads for contact marks
 //! the stains texture can't carry. As of #261 it is **PDS-authored**:
-//! the channel consumes the [`ContactEffectKind::DecalStamp`] recipes
+//! the channel consumes the
+//! [`ContactEffectKind::DecalStamp`](crate::pds::ContactEffectKind::DecalStamp) recipes
 //! that [`ContactRecipeRegistry::from_effects`] routes into
 //! [`ContactRecipeRegistry::decals`] — same trigger + per-recipe
 //! cooldown machinery as the particle dispatcher. No decal is seeded by

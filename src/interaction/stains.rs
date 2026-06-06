@@ -1,7 +1,8 @@
 //! Splat-stains overlay — the terrain consumer of the interaction
 //! framework (Phase 3, #245).
 //!
-//! A low-res RGBA texture is CPU-stamped from terrain [`ContactSample`]s
+//! A low-res RGBA texture is CPU-stamped from terrain
+//! [`ContactSample`](crate::interaction::ContactSample)s
 //! and re-uploaded so `splat.wgsl` can darken/wet/dust the ground where
 //! avatars have been:
 //!
@@ -207,7 +208,7 @@ pub fn setup_stains(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
 /// (stamp / decay / upload) into one to avoid double `get_mut` of the
 /// image and a stamp→upload latency gap:
 ///
-/// 1. Stamp every terrain [`ContactSample`] into the f32 shadow.
+/// 1. Stamp every terrain [`ContactSample`](crate::interaction::ContactSample) into the f32 shadow.
 /// 2. On the [`scfg::DECAY_INTERVAL`] cadence, multiplicatively decay
 ///    the shadow (real elapsed `dt`, so the fade curve is cadence-
 ///    independent).

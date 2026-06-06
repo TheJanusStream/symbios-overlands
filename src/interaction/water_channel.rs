@@ -3,7 +3,7 @@
 //! fragment shader can render per-kind, age-enveloped displacement.
 //!
 //! Mirrors the per-frame material-patching pattern established by
-//! [`crate::world_builder::compile::environment::apply_environment_state`]
+//! `world_builder::compile::environment::apply_environment_state`
 //! for clouds: query the entity, fetch the asset mutably, write into
 //! the extension's uniform block in place.
 //!

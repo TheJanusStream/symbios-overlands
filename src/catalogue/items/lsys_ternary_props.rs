@@ -3,7 +3,7 @@
 //! and a three-slot material stack (bark / twig / leaf).
 //!
 //! This is the LSystem entry that previously lived as the hard-coded
-//! `default_lsystem_kind` under [`crate::ui::room::widgets`] — it's
+//! `default_lsystem_kind` under `crate::ui::room::widgets` — it's
 //! the richest of the lsystem-explorer presets and the most visually
 //! complete starter for "I want a tree".
 

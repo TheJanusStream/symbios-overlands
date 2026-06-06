@@ -1,10 +1,11 @@
 //! Avatar-scope DID-seeded derivers.
 //!
 //! Mirrors [`super::room`] in shape: each submodule owns one
-//! parameter group (palette, body proportions, gait) and is fully
-//! independent — the avatar deriver doesn't read the room deriver
-//! (a user's avatar looks the same regardless of which room they
-//! visit) and the per-submodule outputs don't depend on each other.
+//! parameter group (palette, body proportions, gait, vessel design)
+//! and is fully independent — the avatar deriver doesn't read the room
+//! deriver (a user's avatar looks the same regardless of which room
+//! they visit) and the per-submodule outputs don't depend on each
+//! other.
 //!
 //! What's wired today vs. computed-but-unused:
 //!
@@ -15,6 +16,9 @@
 //!   `head_scale`, `limb_thickness_scale` map onto the hover-boat's
 //!   cuboid / capsule / cylinder / sphere sizes. `torso_leg_ratio`
 //!   is computed but unused.
+//! - [`VesselDesign`] — hull radius, mast height, smokestack count and
+//!   the archetype / bow-style enums shape the default hover-boat
+//!   avatar (the one body the deriver currently spawns).
 //! - [`AvatarGait`] — fully unused; surface defined so a future
 //!   humanoid spawn path can read it without extending the deriver.
 

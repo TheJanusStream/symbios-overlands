@@ -17,7 +17,10 @@
 //!         · room::terrain    (heightmap shape + erosion)
 //!         · room::textures   (per-biome procedural generator knobs)
 //!         · room::atmosphere (water, clouds, sun, fog)
+//!         · room::scatters   (biome-biased tree-scatter specs)
+//!         · room::audio      (biome-matched ambient bed)
 //!         · avatar::body     (proportions)
+//!         · avatar::vessel   (hover-boat hull/mast/stack design)
 //!         · avatar::palette  (skin/hair/accent)
 //!         · avatar::gait     (cadence/bounce/sway)
 //! ```

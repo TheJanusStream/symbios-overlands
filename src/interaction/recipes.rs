@@ -342,8 +342,8 @@ fn ground_dust_template() -> ParticleEmitter {
 /// [`ContactRecipeRegistry::default`] until a room compiles its
 /// authored [`crate::pds::ContactEffects`]. Must stay value-equal to
 /// [`crate::pds::default_contact_effects`] so a record that omits the
-/// key behaves identically (enforced by
-/// [`tests::from_effects_maps_defaults_equivalently`]). Includes the
+/// key behaves identically (enforced by the
+/// `from_effects_maps_defaults_equivalently` unit test). Includes the
 /// `ground_dust` terrain recipe added with the `Terrain` surface in
 /// #245 (deliberately deferred by #244 until that surface existed).
 pub fn default_water_recipes() -> Vec<ContactEffectRecipe> {

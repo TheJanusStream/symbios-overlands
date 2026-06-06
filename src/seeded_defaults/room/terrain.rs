@@ -122,7 +122,7 @@ struct LandformProfile {
     voronoi_num_seeds: (u32, u32),
     /// Water level as a fraction of `height_scale`. Archipelago is
     /// high (lots of islands), mesa/craggy/volcanic are low (mostly
-    /// dry); the biome-side multiplier in [`derive`] biases this
+    /// dry); the biome-side multiplier in [`derive()`] biases this
     /// further.
     water_level_fraction: (f32, f32),
 }

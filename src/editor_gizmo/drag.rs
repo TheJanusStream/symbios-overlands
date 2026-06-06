@@ -1,8 +1,9 @@
 //! Drag-session state machine: rising-edge (mouse-down on the gizmo,
 //! Shift selects copy-on-drag), every-frame Escape watch + ghost
 //! drawing, falling-edge commit when `GizmoTarget::is_active()` flips
-//! back to `false`. Writebacks are routed to [`commit::commit_room_drag`]
-//! / [`commit::commit_avatar_drag`].
+//! back to `false`. Writebacks are routed to
+//! [`commit::commit_room_drag`](super::commit::commit_room_drag) /
+//! [`commit::commit_avatar_drag`](super::commit::commit_avatar_drag).
 
 use bevy::prelude::*;
 use transform_gizmo_bevy::GizmoTarget;

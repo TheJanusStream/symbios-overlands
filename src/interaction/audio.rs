@@ -11,7 +11,7 @@
 //! recipe.
 //!
 //! Clips are fetched once and cached ([`AudioClipCache`]) via the
-//! shared [`blob_fetch`](crate::world_builder::blob_fetch) path (URL or
+//! shared [`blob_fetch`] path (URL or
 //! ATProto `getBlob`, same as Sign textures). The first trigger for an
 //! uncached clip primes the cache asynchronously and is silent; every
 //! later trigger plays synchronously. Decoding is rodio's — Bevy's

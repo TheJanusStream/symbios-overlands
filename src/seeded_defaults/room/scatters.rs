@@ -7,7 +7,7 @@
 //! iteration count optionally bumped by ±1 so two scatters in the
 //! same room read as different ages of the same tree species.
 //!
-//! The wiring layer ([`crate::pds::room::default_for_did`]) reads
+//! The wiring layer ([`RoomRecord::default_for_did`](crate::pds::RoomRecord::default_for_did)) reads
 //! these specs to build one named generator per scatter (so the
 //! `iterations_delta` actually affects what gets compiled) and emits
 //! a matching `Placement::Scatter` referencing each generator with a

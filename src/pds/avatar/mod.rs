@@ -80,7 +80,7 @@ impl AvatarRecord {
     /// [`crate::seeded_defaults::AvatarPalette`]; dimensions from
     /// [`crate::seeded_defaults::AvatarBody`] +
     /// [`crate::seeded_defaults::VesselDesign`]; the archetype +
-    /// bow-style enums in [`VesselDesign`] gate which ornament arms
+    /// bow-style enums in [`VesselDesign`](crate::seeded_defaults::VesselDesign) gate which ornament arms
     /// actually appear, so two peers spawning side-by-side differ in
     /// tint *and* silhouette *and* fitted ornaments.
     pub fn default_for_did(did: &str) -> Self {

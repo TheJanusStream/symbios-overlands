@@ -3,8 +3,8 @@
 //! Serializable mirror of the runtime `interaction::recipes` types so
 //! designers can tune splash / droplet effects from the room editor
 //! without a recompile. The world compiler
-//! ([`crate::world_builder::compile::apply_contact_recipes`]) translates
-//! this record into the runtime `ContactRecipeRegistry`.
+//! (`world_builder::compile::contact_recipes::apply_contact_recipes`)
+//! translates this record into the runtime `ContactRecipeRegistry`.
 //!
 //! Decoupled from `GeneratorKind::ParticleSystem` on purpose: the
 //! particle template here ([`RecipeParticle`]) is a *trimmed*,

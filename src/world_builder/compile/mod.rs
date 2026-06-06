@@ -8,16 +8,17 @@
 //!
 //! * [`spawn_ctx`] — [`SpawnCtx`] (the per-pass write-context shared with
 //!   every sibling spawner module), [`GeneratorCaches`] system param,
-//!   [`MAX_ROOM_ENTITIES`] cap + [`budget_exceeded`] gate, and
+//!   [`MAX_ROOM_ENTITIES`](spawn_ctx::MAX_ROOM_ENTITIES) cap +
+//!   [`budget_exceeded`] gate, and
 //!   [`transform_from_data`] helper.
 //! * [`environment`] — [`apply_environment_state`] (runs as its own
 //!   system; split out so the combined signature stays under Bevy's
 //!   16-param `IntoSystem` ceiling).
 //! * [`scatter`] — placement sampling helpers ([`sample_bounds`],
-//!   [`unit_f32`]) and the biome-rule evaluator ([`rule_weight`],
-//!   [`smooth_range`], [`dominant_biome`]).
+//!   [`unit_f32`]) and the biome-rule evaluator (`convert_rule` +
+//!   [`dominant_biome`]).
 //! * [`dispatch`] — recursive [`spawn_generator`] + [`dispatch_top_level`]
-//!   walker. Routes each [`GeneratorKind`] variant into its sibling
+//!   walker. Routes each [`GeneratorKind`](crate::pds::GeneratorKind) variant into its sibling
 //!   spawner module (`prim`, `lsystem`, `shape`, `sign`, `portal`,
 //!   `particles`, `material::spawn_water_volume`).
 //! * [`contact_recipes`] — [`apply_contact_recipes`] system that

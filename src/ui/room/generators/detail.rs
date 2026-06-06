@@ -1,8 +1,9 @@
 //! Right-side detail panel: a header naming the selected node + its
 //! kind picker + transform editor, followed by the per-kind detail
-//! editor (delegated to [`primitive`], [`sign`], [`particles`],
-//! [`water`], or the Terrain / LSystem / Shape forges in sibling
-//! modules of the room editor).
+//! editor (delegated to [`primitive`](super::primitive),
+//! [`sign`](super::sign), [`particles`](super::particles),
+//! [`water`](super::water), or the Terrain / LSystem / Shape forges in
+//! sibling modules of the room editor).
 
 use bevy_egui::egui;
 

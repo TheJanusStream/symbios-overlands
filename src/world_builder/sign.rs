@@ -1,4 +1,4 @@
-//! Spawner for [`GeneratorKind::Sign`]: a flat panel textured with an
+//! Spawner for [`GeneratorKind::Sign`](crate::pds::GeneratorKind::Sign): a flat panel textured with an
 //! image fetched from a [`SignSource`]. The mesh is a `Plane3d` sized by
 //! the variant's `size`, with UV coordinates pre-baked to honour
 //! `uv_repeat` and `uv_offset` so the user can tile / pan the image
@@ -21,7 +21,7 @@ use super::compile::SpawnCtx;
 use super::image_cache::request_blob_image;
 
 /// Spawn a Sign entity: a textured plane with the StandardMaterial
-/// toggles surfaced by the [`GeneratorKind::Sign`] variant. Returns the
+/// toggles surfaced by the [`GeneratorKind::Sign`](crate::pds::GeneratorKind::Sign) variant. Returns the
 /// spawned entity so the caller can parent it under the placement
 /// anchor and the recursive walker can attach children.
 ///

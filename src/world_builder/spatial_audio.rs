@@ -1,7 +1,8 @@
 //! Per-construct spatial-audio bake-and-attach.
 //!
 //! Mirrors the [`crate::loading`] ambient-bake pipeline but at the
-//! per-entity granularity that constructs need: when a [`Generator`]
+//! per-entity granularity that constructs need: when a
+//! [`Generator`](crate::pds::Generator)
 //! carries a non-`None` [`SovereignAudioConfig`] on its `audio` field,
 //! we dispatch a background bake on
 //! [`bevy::tasks::AsyncComputeTaskPool`] and, on completion, attach a
@@ -55,9 +56,11 @@ pub struct SpatialAudioBakeTask {
 }
 
 /// Dispatch a background bake for the given construct's audio config.
-/// No-op when the variant carries no procedural data ([`None`] /
-/// [`Unknown`] / [`Referenced`] — Referenced will eventually flow
-/// through the audio resolver, #308).
+/// No-op when the variant carries no procedural data
+/// ([`None`](crate::pds::SovereignAudioConfig::None) /
+/// [`Unknown`](crate::pds::SovereignAudioConfig::Unknown) /
+/// [`Referenced`](crate::pds::SovereignAudioConfig::Referenced) —
+/// Referenced will eventually flow through the audio resolver, #308).
 ///
 /// The bake runs off the main thread on `AsyncComputeTaskPool`; the
 /// poll system below attaches the resulting `AudioPlayer` to `target`

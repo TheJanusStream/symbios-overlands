@@ -1,5 +1,6 @@
 //! Atmospheric `Environment` projection: sun, ambient, sky, fog, and the
-//! cloud-deck shader uniforms. Reads the active [`RoomRecord::environment`]
+//! cloud-deck shader uniforms. Reads the active
+//! [`RoomRecord::environment`](crate::pds::RoomRecord::environment)
 //! and re-paints every renderer-side resource the editor sliders touch.
 
 use bevy::light::GlobalAmbientLight;

@@ -501,16 +501,19 @@ pub(crate) fn poll_inventory_record_task(
 pub struct AmbientHandle(pub Option<Handle<bevy::audio::AudioSource>>);
 
 /// In-flight ambient-bake task. Carries WAV bytes (mono IEEE float)
-/// produced by the audio crate's [`bake_sequence`] / [`bake`] +
-/// [`samples_to_wav_bytes`] pipeline. The poll system wraps these as
-/// [`AudioSource`] and writes [`AmbientHandle`].
+/// produced by the audio crate's [`bake_sequence`](bevy_symbios_audio::bake_sequence)
+/// / [`bake`](bevy_symbios_audio::bake()) +
+/// [`samples_to_wav_bytes`](bevy_symbios_audio::samples_to_wav_bytes)
+/// pipeline. The poll system wraps these as [`AudioSource`] and
+/// writes [`AmbientHandle`].
 #[derive(Component)]
 pub(crate) struct AmbientBakeTask(bevy::tasks::Task<Option<Vec<u8>>>);
 
 /// Latch flipped on by [`start_ambient_bake`] once it has either
 /// inserted [`AmbientHandle`] directly (no-audio fast path) or kicked
 /// off the dispatch — bake task for procedural variants, resolver
-/// fetch for [`SovereignAssetReference`] Referenced variants. Without
+/// fetch for [`SovereignAssetReference`](crate::pds::SovereignAssetReference)
+/// Referenced variants. Without
 /// this guard the Referenced path would re-queue itself every frame
 /// during the resolver fetch window.
 #[derive(Resource)]
@@ -522,9 +525,10 @@ pub(crate) struct AmbientBakeStarted;
 /// `None` for variants that yield no audio under this loading-gate
 /// path:
 ///
-/// * [`SovereignAudioConfig::None`] / [`SovereignAudioConfig::Unknown`]:
+/// * [`SovereignAudioConfig::None`](crate::pds::SovereignAudioConfig::None)
+///   / [`SovereignAudioConfig::Unknown`](crate::pds::SovereignAudioConfig::Unknown):
 ///   no ambient track requested.
-/// * [`SovereignAudioConfig::Referenced`]: handled by the audio
+/// * [`SovereignAudioConfig::Referenced`](crate::pds::SovereignAudioConfig::Referenced): handled by the audio
 ///   resolver path (filed under #308); this gate inserts `None` so the
 ///   loading gate progresses, and the resolver patches the handle in
 ///   later once bytes arrive.

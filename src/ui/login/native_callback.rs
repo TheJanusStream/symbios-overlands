@@ -1,6 +1,8 @@
-//! Native-only callback handoff: poll the loopback [`NativeCallbackReceiver`]
-//! channel, drain the matching [`NativePendingAuthRes`], and spawn the
-//! exchange task.
+//! Native-only callback handoff: poll the loopback
+//! [`NativeCallbackReceiver`](crate::oauth::NativeCallbackReceiver)
+//! channel, drain the matching
+//! [`NativePendingAuthRes`](crate::oauth::NativePendingAuthRes), and spawn
+//! the exchange task.
 
 use bevy::prelude::*;
 
