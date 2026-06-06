@@ -32,6 +32,35 @@
             pointer-events: none;
         }
     </style>
+    <script>
+        // Browser autoplay policy: an AudioContext starts suspended and may
+        // only be resumed after a user gesture. cpal (Bevy -> rodio) creates
+        // its context during wasm init -- before any gesture -- so it stays
+        // suspended and no audio plays. Track every context the page creates,
+        // then resume them on the first user interaction. This classic script
+        // runs synchronously, ahead of the deferred module below, so the
+        // constructor is patched before init() spins up the audio backend.
+        (function () {
+            const Original = window.AudioContext || window.webkitAudioContext;
+            if (!Original) return;
+            const contexts = [];
+            function Tracked() {
+                const ctx = new Original(...arguments);
+                contexts.push(ctx);
+                return ctx;
+            }
+            Tracked.prototype = Original.prototype;
+            window.AudioContext = window.webkitAudioContext = Tracked;
+
+            const resumeAll = () =>
+                contexts.forEach(c => c.state === "suspended" && c.resume());
+            // Not { once: true }: the context can be re-suspended when the tab
+            // is backgrounded, so we resume again on the next interaction.
+            ["pointerdown", "keydown", "touchend"].forEach(e =>
+                window.addEventListener(e, resumeAll)
+            );
+        })();
+    </script>
 </head>
 
 <body>

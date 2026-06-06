@@ -7,8 +7,7 @@
 //! we dispatch a background bake on
 //! [`bevy::tasks::AsyncComputeTaskPool`] and, on completion, attach a
 //! looping spatial [`AudioPlayer`] to the construct's spawned entity.
-//! Bevy's built-in spatial-audio attenuation (no HRTF, no Doppler —
-//! per Pascal's "single line for now" scope on issue #301) does the
+//! Bevy's built-in spatial-audio attenuation does the
 //! positional panning at runtime.
 //!
 //! # Listener
