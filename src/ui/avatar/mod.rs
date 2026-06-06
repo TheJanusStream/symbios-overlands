@@ -80,6 +80,10 @@ pub struct AvatarEditorState {
     /// and `network::broadcast_avatar_state` peer broadcast fire once
     /// when the timer drains rather than every frame.
     pending_flush_secs: f32,
+    /// Pop-out audio editor state for the per-construct audio slot on
+    /// avatar visuals generators. Shares the same widget as the room
+    /// editor; see [`crate::ui::room::audio::AudioEditorState`].
+    audio_editor: crate::ui::room::audio::AudioEditorState,
 }
 
 impl AvatarEditorState {
@@ -112,6 +116,8 @@ pub fn avatar_ui(
     mut editor: ResMut<AvatarEditorState>,
     mut room_editor: Option<ResMut<RoomEditorState>>,
     mut gizmo_frame_pref: ResMut<crate::editor_gizmo::GizmoFramePref>,
+    audio_monitor: Res<bevy_symbios_audio::ui::AudioMonitor>,
+    mut audio_requests: MessageWriter<bevy_symbios_audio::ui::MonitorRequest>,
     time: Res<Time>,
 ) {
     use crate::config::ui::airship as cfg;
@@ -175,6 +181,7 @@ pub fn avatar_ui(
                     selected_prim_path,
                     tree_view_state,
                     renaming_unused,
+                    audio_editor,
                     ..
                 } = &mut *editor;
 
@@ -190,6 +197,7 @@ pub fn avatar_ui(
                                 tree_view_state,
                                 renaming_unused,
                                 inventory.as_deref_mut(),
+                                audio_editor,
                                 &mut widget_changed,
                             );
                         });
@@ -289,6 +297,19 @@ pub fn avatar_ui(
         // mutex against the room editor should release.
         response.as_ref().is_some_and(|r| r.inner.is_some())
     };
+
+    // Pop-out audio editor for the per-construct slot on avatar visuals
+    // generators — a top-level Window sibling to the Avatar window.
+    // Rendered after the Avatar window's borrow of the egui context is
+    // released. Slot-agnostic: it stages committed edits in
+    // `audio_editor.committed`, which the construct's bridge in the
+    // Visuals tab picks up next frame and writes into the live record.
+    crate::ui::room::audio::draw_audio_editor_window(
+        contexts.ctx_mut().unwrap(),
+        &mut editor.audio_editor,
+        &audio_monitor,
+        &mut audio_requests,
+    );
 
     // Collapse-deselect: if the window is hidden or collapsed and we still
     // hold a visuals selection, drop it so the gizmo can detach. Mirrors

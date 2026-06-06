@@ -262,7 +262,7 @@ fn apply_target(
         AudioReferenceTarget::AttachToEntity { entity, settings } => {
             commands
                 .entity(*entity)
-                .insert((AudioPlayer::new(handle), settings.clone()));
+                .insert((AudioPlayer::new(handle), *settings));
         }
         AudioReferenceTarget::AmbientHandle => {
             commands.insert_resource(crate::loading::AmbientHandle(Some(handle)));

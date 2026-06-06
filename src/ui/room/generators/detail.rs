@@ -34,6 +34,7 @@ pub(super) fn draw_detail_panel(
     source: &mut dyn GeneratorTreeSource,
     selected_generator: &mut Option<String>,
     selected_prim_path: &mut Option<Vec<usize>>,
+    audio_editor: &mut super::super::audio::AudioEditorState,
     dirty: &mut bool,
 ) {
     let Some(id) = current_id(selected_generator, selected_prim_path) else {
@@ -108,6 +109,25 @@ pub(super) fn draw_detail_panel(
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 draw_generator_detail(ui, &salt, &mut node.kind, dirty);
+
+                // Per-construct audio slot (#314). The bridge writes back
+                // any committed pop-out edit and offers the variant picker
+                // + "Edit audio…" button, salted by node so each
+                // construct keeps its own slot in egui's id stack.
+                ui.add_space(6.0);
+                ui.separator();
+                ui.label(
+                    egui::RichText::new("Audio")
+                        .strong()
+                        .color(egui::Color32::LIGHT_GRAY),
+                );
+                super::super::audio::draw_audio_bridge(
+                    ui,
+                    &mut node.audio,
+                    &salt,
+                    dirty,
+                    audio_editor,
+                );
             });
     }
 }

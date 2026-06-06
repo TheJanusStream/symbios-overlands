@@ -126,5 +126,13 @@ impl Plugin for InteractionPlugin {
                     .after(ContactProducerSet)
                     .run_if(in_state(AppState::InGame)),
             );
+
+        // Audio editor monitor (#314): the room-admin audio editor's
+        // "Audition" button bakes the patch/sequence off-thread and
+        // loops it through Bevy's audio. Registering the crate's plugin
+        // adds the `MonitorRequest` message + `AudioMonitor` resource
+        // and the bake/poll systems; the editor UI writes requests and
+        // reads `AudioMonitor::last_samples` for its waveform.
+        app.add_plugins(bevy_symbios_audio::ui::AudioEditorPlugin);
     }
 }

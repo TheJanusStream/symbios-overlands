@@ -48,10 +48,11 @@ use super::types::Fp;
 /// Mirrors the structural shape of
 /// [`crate::pds::SovereignTextureConfig`] so the editor bridges behave
 /// identically across asset classes.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(tag = "$type")]
 pub enum SovereignAudioConfig {
     /// No audio for this slot.
+    #[default]
     None,
     /// External asset pointer — fetched bytes are decoded by the
     /// audio resolver into a `Handle<AudioSource>`.
@@ -66,12 +67,6 @@ pub enum SovereignAudioConfig {
     /// decodes here rather than failing the whole load.
     #[serde(other)]
     Unknown,
-}
-
-impl Default for SovereignAudioConfig {
-    fn default() -> Self {
-        SovereignAudioConfig::None
-    }
 }
 
 impl SovereignAudioConfig {
@@ -197,8 +192,13 @@ impl SovereignNodeGraph {
 pub struct SovereignGraphNode {
     pub id: SovereignNodeId,
     pub kind: SovereignNodeKind,
+    /// Wired inputs, keyed by port name. Each port holds a *list* of
+    /// connections whose resolved values are summed at bake time, so
+    /// several sources can feed one port (signal mixing, modulation
+    /// stacking) — mirrors `GraphNode::inputs` after the audio crate's
+    /// single-`Connection` → `Vec<Connection>` change.
     #[serde(default)]
-    pub inputs: BTreeMap<String, SovereignConnection>,
+    pub inputs: BTreeMap<String, Vec<SovereignConnection>>,
 }
 
 impl SovereignGraphNode {
@@ -209,7 +209,12 @@ impl SovereignGraphNode {
             inputs: self
                 .inputs
                 .iter()
-                .map(|(k, v)| (k.clone(), v.to_native()))
+                .map(|(k, v)| {
+                    (
+                        k.clone(),
+                        v.iter().map(SovereignConnection::to_native).collect(),
+                    )
+                })
                 .collect(),
         }
     }
@@ -221,7 +226,12 @@ impl SovereignGraphNode {
             inputs: n
                 .inputs
                 .iter()
-                .map(|(k, v)| (k.clone(), SovereignConnection::from_native(v)))
+                .map(|(k, v)| {
+                    (
+                        k.clone(),
+                        v.iter().map(SovereignConnection::from_native).collect(),
+                    )
+                })
                 .collect(),
         }
     }
@@ -253,8 +263,6 @@ pub enum SovereignConnection {
     },
     Node {
         id: SovereignNodeId,
-        #[serde(default = "default_connection_output")]
-        output: String,
         #[serde(default = "default_connection_amount")]
         amount: Fp,
     },
@@ -262,10 +270,6 @@ pub enum SovereignConnection {
     /// Mapped to `Constant { value: 0.0 }` (silent) on `to_native`.
     #[serde(other)]
     Unknown,
-}
-
-fn default_connection_output() -> String {
-    "out".to_string()
 }
 
 fn default_connection_amount() -> Fp {
@@ -282,9 +286,8 @@ impl SovereignConnection {
     pub fn to_native(&self) -> bevy_symbios_audio::Connection {
         match self {
             Self::Constant { value } => bevy_symbios_audio::Connection::Constant { value: value.0 },
-            Self::Node { id, output, amount } => bevy_symbios_audio::Connection::Node {
+            Self::Node { id, amount } => bevy_symbios_audio::Connection::Node {
                 id: id.to_native(),
-                output: output.clone(),
                 amount: amount.0,
             },
             Self::Unknown => bevy_symbios_audio::Connection::Constant { value: 0.0 },
@@ -296,9 +299,8 @@ impl SovereignConnection {
             bevy_symbios_audio::Connection::Constant { value } => {
                 Self::Constant { value: Fp(*value) }
             }
-            bevy_symbios_audio::Connection::Node { id, output, amount } => Self::Node {
+            bevy_symbios_audio::Connection::Node { id, amount } => Self::Node {
                 id: SovereignNodeId::from_native(*id),
-                output: output.clone(),
                 amount: Fp(*amount),
             },
         }
@@ -330,6 +332,11 @@ pub enum SovereignNodeKind {
     BiquadHighpass(SovereignBiquadHighpass),
     BiquadBandpass(SovereignBiquadBandpass),
     Lfo(SovereignLfo),
+    Mix(SovereignMix),
+    Gain(SovereignGain),
+    Gate(SovereignGate),
+    Chorus(SovereignChorus),
+    Reverb(SovereignReverb),
     #[serde(other)]
     Unknown,
 }
@@ -351,6 +358,11 @@ impl SovereignNodeKind {
             Self::BiquadHighpass(_) => "Highpass",
             Self::BiquadBandpass(_) => "Bandpass",
             Self::Lfo(_) => "LFO",
+            Self::Mix(_) => "Mix",
+            Self::Gain(_) => "Gain (VCA)",
+            Self::Gate(_) => "Gate",
+            Self::Chorus(_) => "Chorus",
+            Self::Reverb(_) => "Reverb",
             Self::Unknown => "Unknown",
         }
     }
@@ -371,6 +383,11 @@ impl SovereignNodeKind {
             Self::BiquadHighpass(c) => N::BiquadHighpass(c.to_native()),
             Self::BiquadBandpass(c) => N::BiquadBandpass(c.to_native()),
             Self::Lfo(c) => N::Lfo(c.to_native()),
+            Self::Mix(c) => N::Mix(c.to_native()),
+            Self::Gain(c) => N::Gain(c.to_native()),
+            Self::Gate(c) => N::Gate(c.to_native()),
+            Self::Chorus(c) => N::Chorus(c.to_native()),
+            Self::Reverb(c) => N::Reverb(c.to_native()),
         }
     }
 
@@ -390,6 +407,11 @@ impl SovereignNodeKind {
             N::BiquadHighpass(c) => Self::BiquadHighpass(SovereignBiquadHighpass::from_native(c)),
             N::BiquadBandpass(c) => Self::BiquadBandpass(SovereignBiquadBandpass::from_native(c)),
             N::Lfo(c) => Self::Lfo(SovereignLfo::from_native(c)),
+            N::Mix(c) => Self::Mix(SovereignMix::from_native(c)),
+            N::Gain(c) => Self::Gain(SovereignGain::from_native(c)),
+            N::Gate(c) => Self::Gate(SovereignGate::from_native(c)),
+            N::Chorus(c) => Self::Chorus(SovereignChorus::from_native(c)),
+            N::Reverb(c) => Self::Reverb(SovereignReverb::from_native(c)),
             // NodeKind is `#[non_exhaustive]` — a future variant added
             // in the audio crate is decoded as Unknown by mirror clients
             // that don't yet know it.
@@ -446,6 +468,11 @@ pub struct SovereignSquareOsc {
     pub duty: Fp,
     #[serde(default = "default_amplitude")]
     pub amplitude: Fp,
+    /// Band-limiting mode. `#[serde(default)]` so records authored
+    /// before this field existed decode to `Naive` — matching the audio
+    /// crate's own back-compat default.
+    #[serde(default)]
+    pub anti_alias: SovereignAntiAlias,
 }
 
 impl Default for SovereignSquareOsc {
@@ -454,6 +481,7 @@ impl Default for SovereignSquareOsc {
             freq_hz: Fp(440.0),
             duty: Fp(0.5),
             amplitude: Fp(1.0),
+            anti_alias: SovereignAntiAlias::Naive,
         }
     }
 }
@@ -464,6 +492,7 @@ impl SovereignSquareOsc {
             freq_hz: self.freq_hz.0,
             duty: self.duty.0,
             amplitude: self.amplitude.0,
+            anti_alias: self.anti_alias.to_native(),
         }
     }
 
@@ -472,6 +501,7 @@ impl SovereignSquareOsc {
             freq_hz: Fp(n.freq_hz),
             duty: Fp(n.duty),
             amplitude: Fp(n.amplitude),
+            anti_alias: SovereignAntiAlias::from_native(n.anti_alias),
         }
     }
 }
@@ -483,6 +513,10 @@ pub struct SovereignSawtoothOsc {
     pub polarity: SovereignSawPolarity,
     #[serde(default = "default_amplitude")]
     pub amplitude: Fp,
+    /// Band-limiting mode. `#[serde(default)]` so pre-existing records
+    /// decode to `Naive`.
+    #[serde(default)]
+    pub anti_alias: SovereignAntiAlias,
 }
 
 impl Default for SovereignSawtoothOsc {
@@ -491,6 +525,7 @@ impl Default for SovereignSawtoothOsc {
             freq_hz: Fp(440.0),
             polarity: SovereignSawPolarity::Up,
             amplitude: Fp(1.0),
+            anti_alias: SovereignAntiAlias::Naive,
         }
     }
 }
@@ -501,6 +536,7 @@ impl SovereignSawtoothOsc {
             freq_hz: self.freq_hz.0,
             polarity: self.polarity.to_native(),
             amplitude: self.amplitude.0,
+            anti_alias: self.anti_alias.to_native(),
         }
     }
 
@@ -509,6 +545,7 @@ impl SovereignSawtoothOsc {
             freq_hz: Fp(n.freq_hz),
             polarity: SovereignSawPolarity::from_native(n.polarity),
             amplitude: Fp(n.amplitude),
+            anti_alias: SovereignAntiAlias::from_native(n.anti_alias),
         }
     }
 }
@@ -540,12 +577,55 @@ impl SovereignSawPolarity {
     }
 }
 
+/// Mirror of [`bevy_symbios_audio::AntiAlias`] — band-limiting mode for
+/// the discontinuous oscillators (square / saw / triangle).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SovereignAntiAlias {
+    /// Raw generator — aliased, the historical default.
+    #[default]
+    Naive,
+    /// PolyBLEP / polyBLAMP band-limited generator.
+    PolyBlep,
+    #[serde(other)]
+    Unknown,
+}
+
+impl SovereignAntiAlias {
+    /// Human-readable label for editor pickers.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Naive => "Naive",
+            Self::PolyBlep => "PolyBLEP",
+            Self::Unknown => "Unknown",
+        }
+    }
+
+    pub fn to_native(self) -> bevy_symbios_audio::AntiAlias {
+        match self {
+            // Unknown -> Naive matches the audio crate's Default impl.
+            Self::Naive | Self::Unknown => bevy_symbios_audio::AntiAlias::Naive,
+            Self::PolyBlep => bevy_symbios_audio::AntiAlias::PolyBlep,
+        }
+    }
+
+    pub fn from_native(n: bevy_symbios_audio::AntiAlias) -> Self {
+        match n {
+            bevy_symbios_audio::AntiAlias::Naive => Self::Naive,
+            bevy_symbios_audio::AntiAlias::PolyBlep => Self::PolyBlep,
+        }
+    }
+}
+
 /// Mirror of [`bevy_symbios_audio::TriangleOsc`].
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct SovereignTriangleOsc {
     pub freq_hz: Fp,
     #[serde(default = "default_amplitude")]
     pub amplitude: Fp,
+    /// Band-limiting mode. `#[serde(default)]` so pre-existing records
+    /// decode to `Naive`.
+    #[serde(default)]
+    pub anti_alias: SovereignAntiAlias,
 }
 
 impl Default for SovereignTriangleOsc {
@@ -553,6 +633,7 @@ impl Default for SovereignTriangleOsc {
         Self {
             freq_hz: Fp(440.0),
             amplitude: Fp(1.0),
+            anti_alias: SovereignAntiAlias::Naive,
         }
     }
 }
@@ -562,6 +643,7 @@ impl SovereignTriangleOsc {
         bevy_symbios_audio::TriangleOsc {
             freq_hz: self.freq_hz.0,
             amplitude: self.amplitude.0,
+            anti_alias: self.anti_alias.to_native(),
         }
     }
 
@@ -569,6 +651,7 @@ impl SovereignTriangleOsc {
         Self {
             freq_hz: Fp(n.freq_hz),
             amplitude: Fp(n.amplitude),
+            anti_alias: SovereignAntiAlias::from_native(n.anti_alias),
         }
     }
 }
@@ -896,6 +979,162 @@ fn default_amplitude() -> Fp {
     Fp(1.0)
 }
 
+/// Default gain (`1.0`) for [`SovereignMix`] / [`SovereignGain`] —
+/// unity pass-through.
+fn default_gain() -> Fp {
+    Fp(1.0)
+}
+
+/// Mirror of [`bevy_symbios_audio::Mix`] — additive bus, sums all wired
+/// input ports scaled by `gain`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SovereignMix {
+    #[serde(default = "default_gain")]
+    pub gain: Fp,
+}
+
+impl Default for SovereignMix {
+    fn default() -> Self {
+        Self { gain: Fp(1.0) }
+    }
+}
+
+impl SovereignMix {
+    pub fn to_native(&self) -> bevy_symbios_audio::Mix {
+        bevy_symbios_audio::Mix { gain: self.gain.0 }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::Mix) -> Self {
+        Self { gain: Fp(n.gain) }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::Gain`] — voltage-controlled
+/// amplifier, `in * (gain + input("gain"))`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SovereignGain {
+    #[serde(default = "default_gain")]
+    pub gain: Fp,
+}
+
+impl Default for SovereignGain {
+    fn default() -> Self {
+        Self { gain: Fp(1.0) }
+    }
+}
+
+impl SovereignGain {
+    pub fn to_native(&self) -> bevy_symbios_audio::Gain {
+        bevy_symbios_audio::Gain { gain: self.gain.0 }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::Gain) -> Self {
+        Self { gain: Fp(n.gain) }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::Gate`] — note-gate signal driven by
+/// the sequencer's gate window. `invert` is a plain `bool` (no `Fp`).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct SovereignGate {
+    #[serde(default)]
+    pub invert: bool,
+}
+
+impl SovereignGate {
+    pub fn to_native(&self) -> bevy_symbios_audio::Gate {
+        bevy_symbios_audio::Gate {
+            invert: self.invert,
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::Gate) -> Self {
+        Self { invert: n.invert }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::Chorus`] — internally-modulated
+/// fractional-delay chorus effect.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SovereignChorus {
+    pub rate_hz: Fp,
+    pub depth_ms: Fp,
+    pub base_delay_ms: Fp,
+    pub feedback: Fp,
+    pub mix: Fp,
+}
+
+impl Default for SovereignChorus {
+    fn default() -> Self {
+        Self {
+            rate_hz: Fp(0.8),
+            depth_ms: Fp(2.0),
+            base_delay_ms: Fp(8.0),
+            feedback: Fp(0.0),
+            mix: Fp(0.5),
+        }
+    }
+}
+
+impl SovereignChorus {
+    pub fn to_native(&self) -> bevy_symbios_audio::Chorus {
+        bevy_symbios_audio::Chorus {
+            rate_hz: self.rate_hz.0,
+            depth_ms: self.depth_ms.0,
+            base_delay_ms: self.base_delay_ms.0,
+            feedback: self.feedback.0,
+            mix: self.mix.0,
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::Chorus) -> Self {
+        Self {
+            rate_hz: Fp(n.rate_hz),
+            depth_ms: Fp(n.depth_ms),
+            base_delay_ms: Fp(n.base_delay_ms),
+            feedback: Fp(n.feedback),
+            mix: Fp(n.mix),
+        }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::Reverb`] — mono Freeverb
+/// reverberator.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SovereignReverb {
+    pub room_size: Fp,
+    pub damping: Fp,
+    pub mix: Fp,
+}
+
+impl Default for SovereignReverb {
+    fn default() -> Self {
+        Self {
+            room_size: Fp(0.5),
+            damping: Fp(0.5),
+            mix: Fp(0.3),
+        }
+    }
+}
+
+impl SovereignReverb {
+    pub fn to_native(&self) -> bevy_symbios_audio::Reverb {
+        bevy_symbios_audio::Reverb {
+            room_size: self.room_size.0,
+            damping: self.damping.0,
+            mix: self.mix.0,
+        }
+    }
+
+    pub fn from_native(n: &bevy_symbios_audio::Reverb) -> Self {
+        Self {
+            room_size: Fp(n.room_size),
+            damping: Fp(n.damping),
+            mix: Fp(n.mix),
+        }
+    }
+}
+
 // ===========================================================================
 // SequenceRecipe + Instrument + Track + Event
 // ===========================================================================
@@ -1013,6 +1252,19 @@ pub struct SovereignEvent {
     pub pitch_multiplier: Fp,
     pub volume: Fp,
     pub gate_beats: Fp,
+    /// Extra tail baked *after* the gate closes, in beats — enough for
+    /// the envelope's release to ring out. `0.0` cuts the note the
+    /// instant the gate closes (a hard one-shot). `#[serde(default)]`
+    /// so records authored before this field existed decode as `0.0`,
+    /// matching the audio crate's own back-compat default.
+    #[serde(default)]
+    pub release_beats: Fp,
+    /// How `pitch_multiplier` is realised — resample (`Varispeed`,
+    /// default) or synthesis-time retune (`TimePreserving`).
+    /// `#[serde(default)]` keeps pre-existing recipes on the historical
+    /// resample path.
+    #[serde(default)]
+    pub pitch_mode: SovereignPitchMode,
 }
 
 impl Default for SovereignEvent {
@@ -1023,6 +1275,8 @@ impl Default for SovereignEvent {
             pitch_multiplier: Fp(1.0),
             volume: Fp(1.0),
             gate_beats: Fp(1.0),
+            release_beats: Fp(0.0),
+            pitch_mode: SovereignPitchMode::Varispeed,
         }
     }
 }
@@ -1035,6 +1289,8 @@ impl SovereignEvent {
             pitch_multiplier: self.pitch_multiplier.0,
             volume: self.volume.0,
             gate_beats: self.gate_beats.0,
+            release_beats: self.release_beats.0,
+            pitch_mode: self.pitch_mode.to_native(),
         }
     }
 
@@ -1045,6 +1301,49 @@ impl SovereignEvent {
             pitch_multiplier: Fp(n.pitch_multiplier),
             volume: Fp(n.volume),
             gate_beats: Fp(n.gate_beats),
+            release_beats: Fp(n.release_beats),
+            pitch_mode: SovereignPitchMode::from_native(n.pitch_mode),
+        }
+    }
+}
+
+/// Mirror of [`bevy_symbios_audio::PitchMode`] — how an event's
+/// `pitch_multiplier` is realised at mixdown time.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SovereignPitchMode {
+    /// Resample the native bake — pitch and duration coupled (the
+    /// historical default).
+    #[default]
+    Varispeed,
+    /// Retune oscillators at synthesis time — pitch and duration
+    /// independent.
+    TimePreserving,
+    #[serde(other)]
+    Unknown,
+}
+
+impl SovereignPitchMode {
+    /// Human-readable label for editor pickers.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Varispeed => "Varispeed",
+            Self::TimePreserving => "Time-preserving",
+            Self::Unknown => "Unknown",
+        }
+    }
+
+    pub fn to_native(self) -> bevy_symbios_audio::PitchMode {
+        match self {
+            // Unknown -> Varispeed matches the audio crate's Default.
+            Self::Varispeed | Self::Unknown => bevy_symbios_audio::PitchMode::Varispeed,
+            Self::TimePreserving => bevy_symbios_audio::PitchMode::TimePreserving,
+        }
+    }
+
+    pub fn from_native(n: bevy_symbios_audio::PitchMode) -> Self {
+        match n {
+            bevy_symbios_audio::PitchMode::Varispeed => Self::Varispeed,
+            bevy_symbios_audio::PitchMode::TimePreserving => Self::TimePreserving,
         }
     }
 }

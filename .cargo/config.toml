@@ -1,0 +1,8 @@
+# Cap parallel build jobs so `cargo test` doesn't link all ~15 Bevy
+# integration-test binaries at once. Each test binary statically links a
+# full Bevy app; ~32 simultaneous multi-GB links (the default = nproc)
+# exhaust system RAM and destabilise the machine. The ceiling here is at
+# *link* time, not test run time, so a small job count keeps only a few
+# heavy links in flight. Raise this if you move to a higher-RAM box.
+[build]
+jobs = 6

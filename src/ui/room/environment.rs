@@ -9,7 +9,12 @@ use crate::pds::{Environment, Fp2};
 
 use super::widgets::{color_picker, color_picker_rgba, fp_slider};
 
-pub(super) fn draw_environment_tab(ui: &mut egui::Ui, env: &mut Environment, dirty: &mut bool) {
+pub(super) fn draw_environment_tab(
+    ui: &mut egui::Ui,
+    env: &mut Environment,
+    dirty: &mut bool,
+    audio_editor: &mut super::audio::AudioEditorState,
+) {
     ui.heading("Environment");
     ui.add_space(4.0);
 
@@ -205,6 +210,12 @@ pub(super) fn draw_environment_tab(ui: &mut egui::Ui, env: &mut Environment, dir
     egui::CollapsingHeader::new("Ambient audio")
         .default_open(false)
         .show(ui, |ui| {
-            super::audio::draw_audio_bridge(ui, &mut env.ambient_audio, "environment", dirty);
+            super::audio::draw_audio_bridge(
+                ui,
+                &mut env.ambient_audio,
+                "environment",
+                dirty,
+                audio_editor,
+            );
         });
 }

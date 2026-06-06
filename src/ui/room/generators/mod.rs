@@ -213,6 +213,7 @@ pub(crate) fn draw_generators_tab(
     tree_view_state: &mut TreeViewState,
     renaming_generator: &mut Option<(String, String)>,
     inventory: Option<&mut LiveInventoryRecord>,
+    audio_editor: &mut super::audio::AudioEditorState,
     dirty: &mut bool,
 ) {
     // Inventory now flows only into the tree panel (for the root-level
@@ -238,7 +239,14 @@ pub(crate) fn draw_generators_tab(
         });
 
     egui::CentralPanel::default().show_inside(ui, |ui| {
-        detail::draw_detail_panel(ui, source, selected_generator, selected_prim_path, dirty);
+        detail::draw_detail_panel(
+            ui,
+            source,
+            selected_generator,
+            selected_prim_path,
+            audio_editor,
+            dirty,
+        );
     });
 }
 

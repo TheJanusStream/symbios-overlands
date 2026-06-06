@@ -26,7 +26,7 @@
 
 use bevy_symbios_audio::{
     AudioPatch, BiquadLowpass, BrownNoise, Connection, Event, GraphNode, Instrument, Lfo, LfoShape,
-    NodeGraph, NodeId, NodeKind, PinkNoise, SequenceRecipe, Track, WhiteNoise,
+    NodeGraph, NodeId, NodeKind, PinkNoise, PitchMode, Reverb, SequenceRecipe, Track, WhiteNoise,
 };
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
@@ -45,6 +45,7 @@ const INSTRUMENT_ID: &str = "ambient_bed";
 const NOISE_ID: NodeId = NodeId(0);
 const LFO_ID: NodeId = NodeId(1);
 const FILTER_ID: NodeId = NodeId(2);
+const REVERB_ID: NodeId = NodeId(3);
 
 /// Tunable parameters extracted before patch construction so each piece
 /// of the wiring graph can be read in one place.
@@ -64,6 +65,15 @@ struct AmbientParams {
     /// Noise amplitude. Quieter for sustained drones to avoid pumping
     /// the master into the soft clip.
     noise_amplitude: f32,
+    /// Reverb room size in `[0, 1]` — larger biomes/landforms ring
+    /// longer, placing the bed in a bigger acoustic space.
+    reverb_room_size: f32,
+    /// Reverb damping in `[0, 1]` — darker (more absorbed highs) for
+    /// dense/muffled biomes, brighter for open ones.
+    reverb_damping: f32,
+    /// Reverb dry/wet mix in `[0, 1]` — kept modest so the bed stays
+    /// readable rather than washing out.
+    reverb_mix: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -108,6 +118,12 @@ impl AmbientRecipe {
                     // Hold the gate open for the full loop window so
                     // the noise + filter sustain rather than gating.
                     gate_beats: 16.0,
+                    // No release tail — the bed loops on the gate window
+                    // and the crossfade smooths the seam.
+                    release_beats: 0.0,
+                    // Ambient bed plays at native pitch; resample mode is
+                    // irrelevant at pitch_multiplier 1.0, keep the default.
+                    pitch_mode: PitchMode::Varispeed,
                 }],
             }],
         };
@@ -151,8 +167,26 @@ fn derive_params(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> AmbientParams 
         _ => range_f32(rng, 0.5, 1.0),
     };
     // Noise amplitude well below unity so the master never clips after
-    // the volume scale in the Event (0.6) compounds.
-    let noise_amplitude = range_f32(rng, 0.6, 0.9);
+    // the volume scale in the Event (0.6) compounds. The reverb's wet
+    // tail adds energy on top, so trim the dry noise a touch here.
+    let noise_amplitude = range_f32(rng, 0.55, 0.8);
+    // Reverb places the bed in an acoustic space. Bigger skies
+    // (Mesa/Rolling) get a larger room; valleys/archipelago stay
+    // tighter. Damping follows biome brightness — dark/dense biomes
+    // absorb highs faster, open/arid ones keep them.
+    let reverb_room_size = match scene.landform {
+        LandformArchetype::Mesa => range_f32(rng, 0.7, 0.9),
+        LandformArchetype::Rolling => range_f32(rng, 0.6, 0.8),
+        LandformArchetype::Craggy | LandformArchetype::Valleys => range_f32(rng, 0.45, 0.65),
+        LandformArchetype::Archipelago => range_f32(rng, 0.4, 0.6),
+    };
+    let reverb_damping = match scene.biome {
+        BiomeArchetype::Volcanic | BiomeArchetype::Lush => range_f32(rng, 0.6, 0.85),
+        BiomeArchetype::Arid | BiomeArchetype::Coastal => range_f32(rng, 0.2, 0.45),
+        _ => range_f32(rng, 0.4, 0.6),
+    };
+    // Modest wet so the loop stays readable rather than washing out.
+    let reverb_mix = range_f32(rng, 0.15, 0.3);
     AmbientParams {
         noise_kind,
         base_cutoff_hz,
@@ -160,6 +194,9 @@ fn derive_params(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> AmbientParams 
         lfo_rate_hz,
         filter_q,
         noise_amplitude,
+        reverb_room_size,
+        reverb_damping,
+        reverb_mix,
     }
 }
 
@@ -196,14 +233,14 @@ fn build_patch(params: &AmbientParams, seed: u64) -> AudioPatch {
     };
 
     let mut filter_inputs = BTreeMap::new();
-    filter_inputs.insert("in".to_string(), Connection::from_node(NOISE_ID));
+    filter_inputs.insert("in".to_string(), vec![Connection::from_node(NOISE_ID)]);
     // LFO output is in [-1, 1] (depth=1, offset=0); the `modulation`
     // constructor scales it by `cutoff_sweep_hz` before delivery to the
     // filter's cutoff input, which is then added to the filter's base
     // cutoff inside its per-sample loop.
     filter_inputs.insert(
         "cutoff_hz".to_string(),
-        Connection::modulation(LFO_ID, params.cutoff_sweep_hz),
+        vec![Connection::modulation(LFO_ID, params.cutoff_sweep_hz)],
     );
     let filter_node = GraphNode {
         id: FILTER_ID,
@@ -212,6 +249,21 @@ fn build_patch(params: &AmbientParams, seed: u64) -> AudioPatch {
             q: params.filter_q,
         }),
         inputs: filter_inputs,
+    };
+
+    // Reverb tail places the filtered bed in an acoustic space — the
+    // graph output. Wired only on `in`; room size / damping / mix are
+    // the seeded character.
+    let mut reverb_inputs = BTreeMap::new();
+    reverb_inputs.insert("in".to_string(), vec![Connection::from_node(FILTER_ID)]);
+    let reverb_node = GraphNode {
+        id: REVERB_ID,
+        kind: NodeKind::Reverb(Reverb {
+            room_size: params.reverb_room_size,
+            damping: params.reverb_damping,
+            mix: params.reverb_mix,
+        }),
+        inputs: reverb_inputs,
     };
 
     AudioPatch {
@@ -223,8 +275,8 @@ fn build_patch(params: &AmbientParams, seed: u64) -> AudioPatch {
         // indistinguishable at ambient time scales.
         seed: (seed & 0xFFFF_FFFF) as u32,
         graph: NodeGraph {
-            nodes: vec![noise_node, lfo_node, filter_node],
-            output: FILTER_ID,
+            nodes: vec![noise_node, lfo_node, filter_node, reverb_node],
+            output: REVERB_ID,
         },
     }
 }

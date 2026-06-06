@@ -286,12 +286,12 @@ pub fn teleporter_hum_patch() -> bevy_symbios_audio::AudioPatch {
         inputs: BTreeMap::new(),
     };
     let mut filter_inputs = BTreeMap::new();
-    filter_inputs.insert("in".to_string(), Connection::from_node(sine_id));
+    filter_inputs.insert("in".to_string(), vec![Connection::from_node(sine_id)]);
     // LFO sweeps the filter cutoff between ~150 Hz and ~650 Hz, so the
     // 110 Hz sine fundamental plus its harmonics breathe in and out.
     filter_inputs.insert(
         "cutoff_hz".to_string(),
-        Connection::modulation(lfo_id, 500.0),
+        vec![Connection::modulation(lfo_id, 500.0)],
     );
     let filter = GraphNode {
         id: filter_id,

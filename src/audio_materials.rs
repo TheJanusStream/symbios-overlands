@@ -42,7 +42,7 @@
 use std::collections::BTreeMap;
 
 use bevy_symbios_audio::{
-    AdsrCurve, AdsrEnvelope, AudioPatch, BiquadLowpass, BrownNoise, Connection, GraphNode,
+    AdsrCurve, AdsrEnvelope, AudioPatch, BiquadLowpass, BrownNoise, Connection, Gain, GraphNode,
     Instrument, NodeGraph, NodeId, NodeKind, PinkNoise, SequenceRecipe, Track, WhiteNoise,
 };
 
@@ -51,6 +51,7 @@ use crate::pds::SovereignTextureConfig;
 const NOISE_ID: NodeId = NodeId(0);
 const ADSR_ID: NodeId = NodeId(1);
 const FILTER_ID: NodeId = NodeId(2);
+const GAIN_ID: NodeId = NodeId(3);
 
 /// Material-class identifier — the perceptual bucket a texture maps to.
 /// One impact recipe per class; multiple texture variants can share a
@@ -257,6 +258,11 @@ pub fn impact_recipe_for(texture: &SovereignTextureConfig, volume: f32) -> Seque
                 pitch_multiplier: 1.0,
                 volume: volume.clamp(0.0, 1.0),
                 gate_beats: duration_beats,
+                // Gate spans the whole timeline and the ADSR release is
+                // ~1 ms, so no extra tail is needed past the gate close.
+                release_beats: 0.0,
+                // One-shot impact: keep the default resample behaviour.
+                pitch_mode: bevy_symbios_audio::PitchMode::Varispeed,
             }],
         }],
     }
@@ -283,7 +289,10 @@ fn build_impact_patch(params: ImpactParams) -> AudioPatch {
     // ADSR gate is permanently asserted; with sustain=0 the envelope
     // shape is purely attack + decay before going (and staying) silent.
     let mut adsr_inputs = BTreeMap::new();
-    adsr_inputs.insert("gate".to_string(), Connection::Constant { value: 1.0 });
+    adsr_inputs.insert(
+        "gate".to_string(),
+        vec![Connection::Constant { value: 1.0 }],
+    );
     let adsr_node = GraphNode {
         id: ADSR_ID,
         kind: NodeKind::Adsr(AdsrEnvelope {
@@ -300,10 +309,10 @@ fn build_impact_patch(params: ImpactParams) -> AudioPatch {
     // until the ADSR drives it up. ADSR output is [0, 1]; the
     // modulation `amount` scales that into Hz of cutoff sweep.
     let mut filter_inputs = BTreeMap::new();
-    filter_inputs.insert("in".to_string(), Connection::from_node(NOISE_ID));
+    filter_inputs.insert("in".to_string(), vec![Connection::from_node(NOISE_ID)]);
     filter_inputs.insert(
         "cutoff_hz".to_string(),
-        Connection::modulation(ADSR_ID, params.peak_cutoff_hz),
+        vec![Connection::modulation(ADSR_ID, params.peak_cutoff_hz)],
     );
     let filter_node = GraphNode {
         id: FILTER_ID,
@@ -314,6 +323,20 @@ fn build_impact_patch(params: ImpactParams) -> AudioPatch {
         inputs: filter_inputs,
     };
 
+    // VCA: the same ADSR that sweeps the cutoff also shapes the output
+    // amplitude. With base gain 0.0 the envelope on the `gain` port is
+    // the whole amplitude contour, so the impact's tail decays in level
+    // (not just in brightness) — a cleaner one-shot than relying on the
+    // filter sweep alone. ADSR output is [0, 1], a clean VCA control.
+    let mut gain_inputs = BTreeMap::new();
+    gain_inputs.insert("in".to_string(), vec![Connection::from_node(FILTER_ID)]);
+    gain_inputs.insert("gain".to_string(), vec![Connection::from_node(ADSR_ID)]);
+    let gain_node = GraphNode {
+        id: GAIN_ID,
+        kind: NodeKind::Gain(Gain { gain: 0.0 }),
+        inputs: gain_inputs,
+    };
+
     AudioPatch {
         // Impact patches are authored, not seeded — a fixed seed gives
         // the same bit-identical impact every collision. The noise
@@ -322,8 +345,8 @@ fn build_impact_patch(params: ImpactParams) -> AudioPatch {
         // wanted later.
         seed: 0,
         graph: NodeGraph {
-            nodes: vec![noise_node, adsr_node, filter_node],
-            output: FILTER_ID,
+            nodes: vec![noise_node, adsr_node, filter_node, gain_node],
+            output: GAIN_ID,
         },
     }
 }

@@ -27,7 +27,7 @@
 //! egui helpers (sliders, colour pickers, transform editor), plus the
 //! ternary-tree L-system preset used when adding a new generator.
 
-mod audio;
+pub mod audio;
 mod construct;
 mod contact_effects;
 mod environment;
@@ -145,6 +145,11 @@ pub struct RoomEditorState {
     /// owner clicks "Rename" on a generator; cleared when the modal
     /// applies the rename or is dismissed.
     pub renaming_generator: Option<(String, String)>,
+    /// Pop-out audio editor state — native working copy + canvas
+    /// view-state for the structured node-graph / sequence editor. Held
+    /// here so the editor's layout/selection persists across frames and
+    /// survives tab switches. See [`audio::AudioEditorState`].
+    pub audio_editor: audio::AudioEditorState,
 }
 
 impl RoomEditorState {
@@ -181,6 +186,8 @@ pub fn room_admin_ui(
     mut gizmo_frame_pref: ResMut<crate::editor_gizmo::GizmoFramePref>,
     mut publish_feedback: ResMut<PublishFeedback<RoomRecord>>,
     mut inventory: Option<ResMut<LiveInventoryRecord>>,
+    audio_monitor: Res<bevy_symbios_audio::ui::AudioMonitor>,
+    mut audio_requests: MessageWriter<bevy_symbios_audio::ui::MonitorRequest>,
     time: Res<Time>,
 ) {
     let (Some(session), Some(refresh_ctx), Some(room_did), Some(record)) =
@@ -221,6 +228,7 @@ pub fn room_admin_ui(
         raw_error,
         pending_flush_secs,
         renaming_generator,
+        audio_editor,
         ..
     } = &mut *editor;
 
@@ -421,6 +429,7 @@ pub fn room_admin_ui(
                                 tree_view_state,
                                 renaming_generator,
                                 inventory.as_deref_mut(),
+                                audio_editor,
                                 &mut widget_change,
                             );
                         });
@@ -435,6 +444,7 @@ pub fn room_admin_ui(
                                         ui,
                                         &mut record_mut.environment,
                                         &mut widget_change,
+                                        audio_editor,
                                     );
                                 }
                                 EditorTab::Placements => {
@@ -522,6 +532,14 @@ pub fn room_admin_ui(
 
                 publish_status_line(ui, &publish_feedback.status, time.elapsed_secs_f64());
             });
+
+        // Pop-out audio editor — a top-level Window sibling to the World
+        // Editor so its node canvas has room to pan/zoom. Slot-agnostic:
+        // it edits a native working copy and stages the committed result
+        // in `audio_editor.committed`, which the matching slot's bridge
+        // (room-ambient here, per-construct in the Generators tab) picks
+        // up on its next frame and writes into the live record.
+        audio::draw_audio_editor_window(ctx, audio_editor, &audio_monitor, &mut audio_requests);
 
         // `Window::show` returns `Some(InnerResponse { inner: None, .. })`
         // when the window is rendered but collapsed (the closure does

@@ -67,8 +67,8 @@ fn ambient_recipe_carries_one_instrument_with_filter_chain() {
     let recipe = AmbientRecipe::from_scene(&scene, 1).recipe;
     assert_eq!(recipe.instruments.len(), 1, "ambient bed is a single voice");
     let patch = &recipe.instruments[0].patch;
-    // The wiring is noise → filter, with the LFO driving cutoff. Look
-    // for the filter as the graph's output node.
+    // The wiring is noise → filter (LFO driving cutoff) → reverb, with
+    // the reverb tail as the graph's output node.
     let output_id = patch.graph.output;
     let output_node = patch
         .graph
@@ -77,15 +77,27 @@ fn ambient_recipe_carries_one_instrument_with_filter_chain() {
         .find(|n| n.id == output_id)
         .expect("output node present");
     assert!(
-        matches!(output_node.kind, NodeKind::BiquadLowpass(_)),
-        "ambient patch output must be the lowpass filter; got {:?}",
+        matches!(output_node.kind, NodeKind::Reverb(_)),
+        "ambient patch output must be the reverb tail; got {:?}",
         output_node.kind
     );
-    // Cutoff input is wired (the modulation connection from the LFO).
+    // The reverb's `in` port must be fed by the rest of the chain.
     assert!(
-        output_node.inputs.contains_key("cutoff_hz"),
-        "lowpass `cutoff_hz` input must be wired to the LFO; got inputs {:?}",
+        output_node.inputs.contains_key("in"),
+        "reverb `in` input must be wired; got inputs {:?}",
         output_node.inputs.keys().collect::<Vec<_>>()
+    );
+    // The lowpass is still present with its LFO-driven cutoff sweep.
+    let filter = patch
+        .graph
+        .nodes
+        .iter()
+        .find(|n| matches!(n.kind, NodeKind::BiquadLowpass(_)))
+        .expect("lowpass filter present in the chain");
+    assert!(
+        filter.inputs.contains_key("cutoff_hz"),
+        "lowpass `cutoff_hz` input must be wired to the LFO; got inputs {:?}",
+        filter.inputs.keys().collect::<Vec<_>>()
     );
 }
 
