@@ -21,10 +21,18 @@
 //! spawn_generator()                       Update
 //!     │                                     │
 //!     └── dispatch_construct_audio()  ──>  poll_spatial_audio_tasks()
-//!         spawns                            drains finished, inserts
-//!         SpatialAudioBakeTask{target}      AudioPlayer + Spatial
-//!                                           on `target` entity
+//!         resolves via BakedAudioCache:     drains finished bakes,
+//!         Ready  → attach immediately       promotes cache → Ready,
+//!         Pending→ join waiter list         attaches AudioPlayer +
+//!         miss   → register + spawn         Spatial to every waiter
+//!         SpatialAudioBakeTask{key}
 //! ```
+//!
+//! The cache ([`BakedAudioCache`]) is keyed by the serialised audio
+//! config, so identical constructs — within one compile pass and
+//! across the recompiles every World Editor edit triggers — share a
+//! single bake. On the wasm build the bake pool *is* the main thread,
+//! so every cache hit is a frame stall avoided.
 
 use std::collections::BTreeMap;
 
@@ -45,13 +53,147 @@ pub enum BakeAttachmentMode {
     OneShot { volume: f32 },
 }
 
-/// In-flight per-entity audio bake. `target` is the construct entity
-/// the resulting [`AudioPlayer`] should be inserted onto.
+/// In-flight audio bake for one cache key. Targets waiting on the
+/// result live in the [`BakedAudioCache`]'s `Pending` entry for `key`,
+/// so any number of identical constructs (or repeated impacts) share a
+/// single bake.
 #[derive(Component)]
 pub struct SpatialAudioBakeTask {
-    pub target: Entity,
+    pub key: String,
     pub task: Task<Option<(Vec<u8>, u32)>>,
-    pub mode: BakeAttachmentMode,
+}
+
+/// Hard cap on retained baked buffers. Keys are full serialised audio
+/// configs and values pin `AudioSource` byte buffers, so the cache must
+/// stay bounded across long editing sessions and portal hops; FIFO
+/// eviction (Ready entries only — evicting a Pending entry would orphan
+/// its waiters) keeps the most recently authored sounds resident.
+const MAX_BAKED_AUDIO_ENTRIES: usize = 64;
+
+/// One cache slot: a bake in flight (with the entities to attach once
+/// it lands) or the finished shared buffer.
+enum BakedAudioEntry {
+    Pending(Vec<(Entity, BakeAttachmentMode)>),
+    Ready(Handle<AudioSource>),
+}
+
+/// Content-keyed cache of baked procedural audio buffers.
+///
+/// The key is the serialised [`SovereignAudioConfig`], so the cache is
+/// hit by: identical constructs within one compile pass (five
+/// teleporters bake one hum), the same constructs across recompiles
+/// (every World Editor edit used to re-bake every audio-carrying
+/// construct from scratch), and repeated terrain impacts on the same
+/// material (which used to bake per footstep). This matters most on
+/// wasm, where the "async" bake pool runs on the main thread and every
+/// avoided bake is an avoided frame stall.
+///
+/// Reset by `logout::cleanup_on_logout`, FIFO-bounded at
+/// [`MAX_BAKED_AUDIO_ENTRIES`] otherwise.
+#[derive(Resource, Default)]
+pub struct BakedAudioCache {
+    entries: std::collections::HashMap<String, BakedAudioEntry>,
+    /// Insertion order for FIFO eviction.
+    order: std::collections::VecDeque<String>,
+}
+
+impl BakedAudioCache {
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.order.clear();
+    }
+
+    /// Evict oldest `Ready` entries until under the cap. `Pending`
+    /// entries are never evicted — their waiter lists must survive
+    /// until the bake lands.
+    fn evict_to_cap(&mut self) {
+        while self.entries.len() > MAX_BAKED_AUDIO_ENTRIES {
+            let Some(pos) = self
+                .order
+                .iter()
+                .position(|k| matches!(self.entries.get(k), Some(BakedAudioEntry::Ready(_))))
+            else {
+                // Everything is Pending (pathological) — nothing safely
+                // evictable; allow temporary overshoot.
+                break;
+            };
+            if let Some(key) = self.order.remove(pos) {
+                self.entries.remove(&key);
+            }
+        }
+    }
+}
+
+/// Attach the baked buffer to `target` with the playback shape `mode`
+/// asks for. Insert on a despawned target is a no-op (Bevy queues and
+/// drops) — the orphan case (room rebuild between dispatch and bake
+/// completion) is common enough during editing that warn-logs would
+/// drown the channel.
+fn attach_baked_audio(
+    commands: &mut Commands,
+    target: Entity,
+    mode: BakeAttachmentMode,
+    handle: Handle<AudioSource>,
+) {
+    let settings = match mode {
+        BakeAttachmentMode::LoopingConstruct => PlaybackSettings {
+            spatial: true,
+            ..PlaybackSettings::LOOP
+        },
+        BakeAttachmentMode::OneShot { volume } => PlaybackSettings {
+            mode: PlaybackMode::Despawn,
+            spatial: true,
+            volume: Volume::Linear(volume.clamp(0.0, 1.0)),
+            ..PlaybackSettings::ONCE
+        },
+    };
+    commands
+        .entity(target)
+        .insert((AudioPlayer::new(handle), settings));
+}
+
+/// Resolve `audio` through the bake cache: attach immediately on a
+/// `Ready` hit, join the waiter list of an in-flight bake, or register
+/// a fresh `Pending` entry and dispatch the bake task. Callers have
+/// already filtered the non-procedural variants.
+fn request_baked_audio(
+    commands: &mut Commands,
+    bake_cache: &mut BakedAudioCache,
+    audio: &SovereignAudioConfig,
+    target: Entity,
+    mode: BakeAttachmentMode,
+) {
+    let key = match serde_json::to_string(audio) {
+        Ok(key) => key,
+        Err(e) => {
+            // Plain-data types — this is unreachable in practice, and a
+            // construct without its hum is the right degraded mode.
+            warn!("Construct audio config failed to serialise for bake cache: {e}");
+            return;
+        }
+    };
+
+    match bake_cache.entries.get_mut(&key) {
+        Some(BakedAudioEntry::Ready(handle)) => {
+            let handle = handle.clone();
+            attach_baked_audio(commands, target, mode, handle);
+        }
+        Some(BakedAudioEntry::Pending(waiters)) => {
+            waiters.push((target, mode));
+        }
+        None => {
+            bake_cache
+                .entries
+                .insert(key.clone(), BakedAudioEntry::Pending(vec![(target, mode)]));
+            bake_cache.order.push_back(key.clone());
+            bake_cache.evict_to_cap();
+
+            let audio = audio.clone();
+            let pool = AsyncComputeTaskPool::get();
+            let task = pool.spawn(async move { bake_construct_wav_bytes(&audio) });
+            commands.spawn(SpatialAudioBakeTask { key, task });
+        }
+    }
 }
 
 /// Dispatch a background bake for the given construct's audio config.
@@ -67,6 +209,7 @@ pub struct SpatialAudioBakeTask {
 pub fn dispatch_construct_audio(
     commands: &mut Commands,
     audio_cache: &mut super::audio_resolver::BlobAudioCache,
+    bake_cache: &mut BakedAudioCache,
     target: Entity,
     audio: &SovereignAudioConfig,
 ) {
@@ -92,17 +235,18 @@ pub fn dispatch_construct_audio(
                 },
             );
         }
-        // Procedural — bake on AsyncComputeTaskPool. Clone before
-        // moving into the task so we don't borrow the caller's slot.
+        // Procedural — resolve through the content-keyed bake cache:
+        // identical configs (the same construct re-spawned by a room
+        // recompile, or N copies of one catalogue item) share a single
+        // bake and a single buffer.
         SovereignAudioConfig::Patch { .. } | SovereignAudioConfig::Sequence { .. } => {
-            let audio = audio.clone();
-            let pool = AsyncComputeTaskPool::get();
-            let task = pool.spawn(async move { bake_construct_wav_bytes(&audio) });
-            commands.spawn(SpatialAudioBakeTask {
+            request_baked_audio(
+                commands,
+                bake_cache,
+                audio,
                 target,
-                task,
-                mode: BakeAttachmentMode::LoopingConstruct,
-            });
+                BakeAttachmentMode::LoopingConstruct,
+            );
         }
     }
 }
@@ -118,13 +262,13 @@ pub fn dispatch_construct_audio(
 /// through to Bevy's `Volume::Linear` unchanged.
 pub fn dispatch_one_shot_audio(
     commands: &mut Commands,
+    bake_cache: &mut BakedAudioCache,
     position: Vec3,
     audio: &SovereignAudioConfig,
     volume: f32,
 ) {
-    let audio = audio.clone();
     if matches!(
-        &audio,
+        audio,
         SovereignAudioConfig::None
             | SovereignAudioConfig::Unknown
             | SovereignAudioConfig::Referenced { .. }
@@ -132,10 +276,10 @@ pub fn dispatch_one_shot_audio(
         return;
     }
     // Pre-spawn the carrier entity at the impact location so the
-    // bake-task component can target it deterministically. Bevy's
-    // spatial audio reads the entity's Transform, so positioning here
-    // (rather than only inserting AudioPlayer on completion) means a
-    // very fast bake still has a stable source position.
+    // attach (cache hit: this frame; cache miss: when the bake lands)
+    // can target it deterministically. Bevy's spatial audio reads the
+    // entity's Transform, so positioning here means even an immediate
+    // attach has a stable source position.
     let target = commands
         .spawn((
             Transform::from_translation(position),
@@ -145,13 +289,16 @@ pub fn dispatch_one_shot_audio(
             crate::world_builder::RoomEntity,
         ))
         .id();
-    let pool = AsyncComputeTaskPool::get();
-    let task = pool.spawn(async move { bake_construct_wav_bytes(&audio) });
-    commands.spawn(SpatialAudioBakeTask {
+    // Cached path: repeated impacts on the same material (the caller
+    // bakes at unit volume and scales at playback) hit `Ready` after
+    // the first bake and never touch the bake pool again.
+    request_baked_audio(
+        commands,
+        bake_cache,
+        audio,
         target,
-        task,
-        mode: BakeAttachmentMode::OneShot { volume },
-    });
+        BakeAttachmentMode::OneShot { volume },
+    );
 }
 
 /// Marker on a transient one-shot voice entity. Carries the requested
@@ -162,18 +309,17 @@ pub struct OneShotAudioVoice {
     pub volume: f32,
 }
 
-/// Drain finished spatial bakes and attach a looping spatial
-/// `AudioPlayer` to the corresponding construct entity.
+/// Drain finished spatial bakes: promote the cache entry to `Ready`
+/// and attach the shared buffer to every entity that queued on it.
 ///
-/// If the target entity has been despawned between dispatch and
-/// completion (room transition, sanitiser eviction), the insert is a
-/// no-op via Bevy's `get_entity()` check — silently dropping the
-/// orphaned bake rather than logging at warn-level, because rapid
-/// room rebuilds during editing make orphan bakes common.
+/// Targets despawned between dispatch and completion (room transition,
+/// recompile) make the insert a queued-and-dropped no-op — rapid room
+/// rebuilds during editing make orphan waiters common, so no warn-log.
 pub fn poll_spatial_audio_tasks(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut SpatialAudioBakeTask)>,
     mut audio_sources: ResMut<Assets<AudioSource>>,
+    mut bake_cache: ResMut<BakedAudioCache>,
 ) {
     for (task_entity, mut bake) in tasks.iter_mut() {
         let Some(result) =
@@ -182,34 +328,39 @@ pub fn poll_spatial_audio_tasks(
             continue;
         };
         commands.entity(task_entity).despawn();
+
+        // Pull the waiter list out of the Pending slot. A missing entry
+        // means the cache was cleared (logout) mid-bake — nothing to
+        // attach, nothing to retain.
+        let waiters = match bake_cache.entries.remove(&bake.key) {
+            Some(BakedAudioEntry::Pending(waiters)) => waiters,
+            Some(ready @ BakedAudioEntry::Ready(_)) => {
+                // Shouldn't happen (one task per key), but restoring the
+                // Ready entry beats discarding a usable buffer.
+                bake_cache.entries.insert(bake.key.clone(), ready);
+                Vec::new()
+            }
+            None => Vec::new(),
+        };
+
         let Some((bytes, _sample_rate)) = result else {
-            // bake_construct_wav_bytes returned None — malformed JSON
+            // bake_construct_wav_bytes returned None — malformed config
             // or future variants. Silent fallback is correct here; a
-            // construct with broken audio just doesn't hum.
+            // construct with broken audio just doesn't hum. The entry
+            // stays removed so a corrected config can re-bake.
+            bake_cache.order.retain(|k| k != &bake.key);
             continue;
         };
         let handle = audio_sources.add(AudioSource {
             bytes: bytes.into(),
         });
-        // Insert on a despawned target is a no-op (Bevy queues and
-        // drops); we don't pre-check because the orphan-bake case
-        // (room rebuild between dispatch and completion) is common
-        // enough that the warn-log noise would drown the channel.
-        let settings = match bake.mode {
-            BakeAttachmentMode::LoopingConstruct => PlaybackSettings {
-                spatial: true,
-                ..PlaybackSettings::LOOP
-            },
-            BakeAttachmentMode::OneShot { volume } => PlaybackSettings {
-                mode: PlaybackMode::Despawn,
-                spatial: true,
-                volume: Volume::Linear(volume.clamp(0.0, 1.0)),
-                ..PlaybackSettings::ONCE
-            },
-        };
-        commands
-            .entity(bake.target)
-            .insert((AudioPlayer::new(handle), settings));
+        bake_cache
+            .entries
+            .insert(bake.key.clone(), BakedAudioEntry::Ready(handle.clone()));
+
+        for (target, mode) in waiters {
+            attach_baked_audio(&mut commands, target, mode, handle.clone());
+        }
     }
 }
 
@@ -317,6 +468,69 @@ pub fn teleporter_hum_patch() -> bevy_symbios_audio::AudioPatch {
 mod tests {
     use super::*;
     use crate::pds::SovereignAssetReference;
+
+    fn ready_entry() -> BakedAudioEntry {
+        BakedAudioEntry::Ready(Handle::default())
+    }
+
+    #[test]
+    fn bake_cache_evicts_oldest_ready_at_cap() {
+        let mut cache = BakedAudioCache::default();
+        for i in 0..=MAX_BAKED_AUDIO_ENTRIES {
+            let key = format!("cfg-{i}");
+            cache.entries.insert(key.clone(), ready_entry());
+            cache.order.push_back(key);
+            cache.evict_to_cap();
+        }
+        assert_eq!(cache.entries.len(), MAX_BAKED_AUDIO_ENTRIES);
+        // FIFO: the first-inserted key is the one that went.
+        assert!(!cache.entries.contains_key("cfg-0"));
+        assert!(
+            cache
+                .entries
+                .contains_key(&format!("cfg-{}", MAX_BAKED_AUDIO_ENTRIES))
+        );
+    }
+
+    #[test]
+    fn bake_cache_never_evicts_pending_entries() {
+        let mut cache = BakedAudioCache::default();
+        // Oldest entry is Pending — it must survive eviction because
+        // its waiter list points at live entities.
+        cache.entries.insert(
+            "pending-0".into(),
+            BakedAudioEntry::Pending(vec![(
+                Entity::PLACEHOLDER,
+                BakeAttachmentMode::LoopingConstruct,
+            )]),
+        );
+        cache.order.push_back("pending-0".into());
+        for i in 1..=MAX_BAKED_AUDIO_ENTRIES {
+            let key = format!("cfg-{i}");
+            cache.entries.insert(key.clone(), ready_entry());
+            cache.order.push_back(key);
+            cache.evict_to_cap();
+        }
+        assert!(cache.entries.contains_key("pending-0"));
+        // The oldest READY entry was sacrificed instead.
+        assert!(!cache.entries.contains_key("cfg-1"));
+    }
+
+    #[test]
+    fn identical_configs_serialise_to_identical_cache_keys() {
+        // The whole caching scheme rests on this: two constructs (or
+        // two recompile passes) carrying equal configs must coalesce.
+        let a = SovereignAudioConfig::Patch {
+            patch: crate::pds::audio::SovereignAudioPatch::from_native(&teleporter_hum_patch()),
+        };
+        let b = SovereignAudioConfig::Patch {
+            patch: crate::pds::audio::SovereignAudioPatch::from_native(&teleporter_hum_patch()),
+        };
+        assert_eq!(
+            serde_json::to_string(&a).unwrap(),
+            serde_json::to_string(&b).unwrap()
+        );
+    }
 
     #[test]
     fn no_audio_variants_return_none() {

@@ -156,6 +156,15 @@ impl Plugin for TerrainPlugin {
                 )
                     .run_if(not(in_state(AppState::Login))),
             )
+            // `not(Login)` rather than `in_state(InGame)`: the splat
+            // array assembly (~4 × full-mipchain layers concatenated
+            // into one texture array) is a noticeable main-thread cost
+            // on wasm, so it runs during `Loading` — behind the loading
+            // screen — as soon as the four texture bakes land, instead
+            // of in the first visible `InGame` frames.
+            // `maybe_regenerate_terrain`'s first observation merely
+            // records the config fingerprint, so running it earlier
+            // does not change the regen semantics.
             .add_systems(
                 Update,
                 (
@@ -165,7 +174,7 @@ impl Plugin for TerrainPlugin {
                     splat::apply_splat_textures,
                 )
                     .chain()
-                    .run_if(in_state(AppState::InGame)),
+                    .run_if(not(in_state(AppState::Login))),
             )
             .add_systems(OnExit(AppState::InGame), lifecycle::cleanup_terrain);
     }

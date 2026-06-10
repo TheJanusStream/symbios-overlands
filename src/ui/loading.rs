@@ -1,7 +1,7 @@
 //! Loading-screen progress panel.
 //!
-//! `AppState::Loading` gates on five tasks (heightmap, room / avatar /
-//! inventory record fetches, ambient-audio bake — see
+//! `AppState::Loading` gates on six tasks (heightmap, room / avatar /
+//! inventory record fetches, ambient-audio bake, room compile — see
 //! [`crate::loading::check_loading_complete`]), and a slow PDS
 //! round-trip can hold the gate for many seconds while the fetch
 //! machinery retries with exponential backoff. A bare spinner gives the
@@ -101,6 +101,7 @@ pub fn loading_ui(
     live_avatar: Option<Res<LiveAvatarRecord>>,
     live_inventory: Option<Res<LiveInventoryRecord>>,
     ambient: Option<Res<AmbientHandle>>,
+    world_compiled: Option<Res<crate::world_builder::WorldCompiled>>,
     room_retries: Query<&PendingRecordRetry<RoomRecord>>,
     avatar_retries: Query<&PendingRecordRetry<AvatarRecord>>,
     time: Res<Time>,
@@ -133,6 +134,15 @@ pub fn loading_ui(
     } else {
         RowStatus::Active
     };
+    // The compile pass needs the heightmap-backed terrain mesh and the
+    // room record before it can run (see the WorldBuilderPlugin
+    // registration note); until then it is genuinely waiting on the
+    // rows above — shown active anyway, same rationale as ambient.
+    let world_status = if world_compiled.is_some() {
+        RowStatus::Done
+    } else {
+        RowStatus::Active
+    };
 
     egui::CentralPanel::default().show(ctx, |ui| {
         ui.vertical_centered(|ui| {
@@ -151,6 +161,7 @@ pub fn loading_ui(
                     draw_row(ui, "Avatar record", avatar_status);
                     draw_row(ui, "Inventory", inventory_status);
                     draw_row(ui, "Ambient soundscape", ambient_status);
+                    draw_row(ui, "Building world", world_status);
                 });
             });
         });

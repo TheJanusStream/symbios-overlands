@@ -67,6 +67,12 @@ use crate::terrain;
 /// - [`StoredAvatarRecord`] — committed snapshot used by the Load-from-PDS button
 /// - [`LiveInventoryRecord`] / [`StoredInventoryRecord`] — owner's Generator stash
 /// - [`AmbientHandle`] — ambient audio either baked or explicitly absent
+/// - [`WorldCompiled`](crate::world_builder::WorldCompiled) — the room
+///   compile has produced the world's entities. The compile runs during
+///   `Loading` (see the registration note in
+///   [`crate::world_builder::WorldBuilderPlugin`]) precisely so its
+///   multi-second wasm main-thread stall lands behind the loading
+///   screen instead of right after an "everything done" checklist.
 ///
 /// Advancing early leaves the poll systems orphaned (they only run in
 /// `Loading`), which would strand a slower PDS round-trip and leave the
@@ -81,6 +87,7 @@ pub(crate) fn check_loading_complete(
     live_inventory: Option<Res<LiveInventoryRecord>>,
     stored_inventory: Option<Res<StoredInventoryRecord>>,
     ambient: Option<Res<AmbientHandle>>,
+    world_compiled: Option<Res<crate::world_builder::WorldCompiled>>,
     mut next_state: ResMut<NextState<AppState>>,
 ) {
     if finished_hm.is_some()
@@ -91,6 +98,7 @@ pub(crate) fn check_loading_complete(
         && live_inventory.is_some()
         && stored_inventory.is_some()
         && ambient.is_some()
+        && world_compiled.is_some()
     {
         next_state.set(AppState::InGame);
     }

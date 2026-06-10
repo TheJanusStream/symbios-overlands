@@ -105,6 +105,17 @@ pub struct PortalMarker {
 #[derive(Component)]
 pub struct RoomEntity;
 
+/// Present once `compile_room_record` has completed at least one pass
+/// for the active session. The loading gate
+/// ([`crate::loading::check_loading_complete`]) waits on this, so the
+/// all-green checklist can't hand over to `InGame` while the world is
+/// still an empty heightfield — on wasm the first compile is the
+/// longest single-frame stall of the whole boot, and it belongs behind
+/// the loading screen. Removed by `logout::cleanup_on_logout` so the
+/// next login waits again.
+#[derive(Resource)]
+pub struct WorldCompiled;
+
 /// Tags the root entity of a `Placement::Absolute` with its index into the
 /// live `RoomRecord::placements` vec. `editor_gizmo` reads this to map a
 /// selected-in-UI placement to its 3D entity and to commit the gizmo's
@@ -158,23 +169,37 @@ impl Plugin for WorldBuilderPlugin {
             .init_resource::<ShapeMaterialCache>()
             .init_resource::<ShapeMeshCache>()
             .init_resource::<bevy_symbios_shape::cache::ShapeMeshCache>()
+            .init_resource::<compile::CompiledWorldFingerprint>()
             .init_resource::<WaterSurfaces>()
             .init_resource::<image_cache::BlobImageCache>()
             .init_resource::<audio_resolver::BlobAudioCache>()
+            .init_resource::<spatial_audio::BakedAudioCache>()
             .init_resource::<particles::ParticleQuadMesh>()
             .init_resource::<particles::ParticleAtlasMeshes>()
             .add_systems(Startup, setup_prop_assets)
+            // `not(Login)` rather than `in_state(InGame)`: the room
+            // compile is by far the longest single-frame stall on the
+            // wasm build (every entity + collider + L-system / shape
+            // derivation lands synchronously on the main thread), so it
+            // now runs during `Loading` — behind the loading screen —
+            // and the gate waits on [`WorldCompiled`] before unveiling
+            // the world. The compile additionally waits for a terrain
+            // mesh entity: `dispatch_top_level` applies the record's
+            // traits to it, and during Loading the mesh only spawns a
+            // frame after `FinishedHeightMap` lands — compiling inside
+            // that gap would silently skip the terrain traits.
             .add_systems(
                 Update,
                 (
-                    compile::compile_room_record,
+                    compile::compile_room_record
+                        .run_if(any_with_component::<crate::terrain::TerrainMesh>),
                     compile::apply_environment_state,
                     compile::apply_contact_recipes,
                     image_cache::poll_blob_image_tasks,
                     spatial_audio::poll_spatial_audio_tasks,
                     draw_placement_visualizers,
                 )
-                    .run_if(in_state(AppState::InGame)),
+                    .run_if(not(in_state(AppState::Login))),
             )
             // Audio-reference resolver poll runs in Loading too — the
             // loading gate's ambient-bake path dispatches Referenced

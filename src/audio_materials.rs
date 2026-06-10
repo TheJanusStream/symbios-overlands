@@ -389,6 +389,7 @@ pub fn play_terrain_impacts(
     room_record: Option<bevy::prelude::Res<crate::state::LiveRoomRecord>>,
     time: bevy::prelude::Res<bevy::prelude::Time>,
     mut cooldowns: bevy::prelude::ResMut<ImpactCooldowns>,
+    mut bake_cache: bevy::prelude::ResMut<crate::world_builder::spatial_audio::BakedAudioCache>,
 ) {
     use crate::interaction::{ContactPhase, SurfaceContact, SurfaceKind};
 
@@ -438,10 +439,16 @@ pub fn play_terrain_impacts(
             continue;
         }
 
-        let recipe = impact_recipe_for(texture, volume);
+        // Bake at unit volume and scale at playback (the one-shot's
+        // `PlaybackSettings` carries `Volume::Linear(volume)`): keeping
+        // the recipe volume-independent makes the serialised config —
+        // the bake-cache key — identical across impacts, so each
+        // material bakes once per session instead of once per footstep.
+        let recipe = impact_recipe_for(texture, 1.0);
         let audio = crate::pds::SovereignAudioConfig::from_sequence(&recipe);
         crate::world_builder::spatial_audio::dispatch_one_shot_audio(
             &mut commands,
+            &mut bake_cache,
             sample.world_pos,
             &audio,
             volume,

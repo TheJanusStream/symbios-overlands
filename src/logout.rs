@@ -48,6 +48,7 @@ fn cleanup_on_logout(
     mut bsky_cache: ResMut<BskyProfileCache>,
     mut blob_image_cache: ResMut<BlobImageCache>,
     mut pending_offers: ResMut<PendingOutgoingOffers>,
+    mut baked_audio_cache: ResMut<crate::world_builder::spatial_audio::BakedAudioCache>,
 ) {
     // Best-effort: revoke the OAuth tokens at the user's PDS (RFC 7009)
     // before we drop the session. Fire-and-forget on IoTaskPool because
@@ -124,6 +125,12 @@ fn cleanup_on_logout(
     // but if anything else ever drives the InGame→Login edge while a
     // dialog is open, a stale guard must not greet the next login.
     commands.remove_resource::<crate::ui::unsaved_guard::UnsavedGuard>();
+    // The world this session compiled is being despawned just below, so
+    // the next login's loading gate must wait for a fresh compile pass —
+    // and the compile fingerprint must not short-circuit it into
+    // skipping the rebuild of a now-empty scene.
+    commands.remove_resource::<crate::world_builder::WorldCompiled>();
+    commands.insert_resource(crate::world_builder::compile::CompiledWorldFingerprint::default());
 
     // Reset (don't remove — these are app-lifetime `init_resource`s, so
     // a missing one would panic the next editor frame) every per-record
@@ -175,4 +182,9 @@ fn cleanup_on_logout(
     // recipient could never authenticate a response back into the map).
     pending_offers.by_id.clear();
     pending_offers.next_id = 0;
+    // Baked-audio buffers are content-keyed (not session-keyed), but
+    // dropping them on logout releases the pinned AudioSource bytes and
+    // any in-flight Pending waiter lists that point at entities the
+    // teardown above just despawned.
+    baked_audio_cache.clear();
 }

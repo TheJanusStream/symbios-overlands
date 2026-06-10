@@ -6,12 +6,13 @@
 //!
 //! [`run`] wires every gameplay plugin, initialises the shared ECS resources,
 //! and coordinates the three-stage state machine (`Login` → `Loading` →
-//! `InGame`). The loading gate explicitly waits on **all five** loading
+//! `InGame`). The loading gate explicitly waits on **all six** loading
 //! tasks — heightmap generation, the ATProto PDS room-record fetch, the
-//! avatar-record fetch, the inventory-record fetch, *and* the seeded
-//! ambient-audio bake — before entering `InGame`, so slower PDS round-trips
-//! cannot be silently dropped and gameplay never runs with half-loaded
-//! recipes or a silent world.
+//! avatar-record fetch, the inventory-record fetch, the seeded
+//! ambient-audio bake, *and* the room compile itself — before entering
+//! `InGame`, so slower PDS round-trips cannot be silently dropped, gameplay
+//! never runs with half-loaded recipes or a silent world, and the wasm
+//! build's long synchronous compile stall stays behind the loading screen.
 
 // This crate is an application, not a published library — the lib target
 // exists so integration tests can import the module tree. Module docstrings

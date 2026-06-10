@@ -335,6 +335,7 @@ pub fn spawn_generator(
         super::super::spatial_audio::dispatch_construct_audio(
             ctx.commands,
             ctx.blob_audio_cache,
+            ctx.baked_audio_cache,
             e,
             &generator.audio,
         );

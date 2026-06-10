@@ -118,6 +118,7 @@ pub fn spawn_avatar_visuals_subtree(
         budget_warned: &mut budget_warned,
         blob_image_cache,
         blob_audio_cache,
+        baked_audio_cache: &mut caches.baked_audio,
         water_surfaces,
         avatar_mode: true,
         local_avatar_mode: is_local,

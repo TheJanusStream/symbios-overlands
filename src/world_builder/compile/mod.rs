@@ -59,6 +59,38 @@ use super::{PlacementMarker, PropMeshAssets, RoomEntity};
 
 use scatter::{dominant_biome, sample_bounds, unit_f32};
 
+/// Fingerprint of the *spawnable* slice of the record currently
+/// compiled into the ECS — `generators`, `placements` and `traits`,
+/// the only fields the despawn-and-respawn pass reads. Everything else
+/// the record carries is applied by cheaper change-driven systems
+/// (`apply_environment_state` for sky / fog / sun / clouds,
+/// `apply_contact_recipes` for the effects block), so an edit that
+/// only touches those must not pay for a full world rebuild — on the
+/// wasm build a rebuild is a multi-second main-thread stall, and
+/// environment sliders are the most-dragged widgets in the editor.
+///
+/// Reset to `None` by `logout::cleanup_on_logout`: the teardown
+/// despawns every `RoomEntity`, so an identical record on the next
+/// login must still compile from scratch.
+#[derive(Resource, Default)]
+pub struct CompiledWorldFingerprint(pub(crate) Option<String>);
+
+/// Serialise the spawnable record slice into a stable string.
+///
+/// Routed through `serde_json::to_value` (not straight to a string):
+/// `generators` / `traits` are `HashMap`s with SipHash-randomised
+/// iteration order, while `Value::Object` is BTreeMap-backed (the
+/// `preserve_order` feature is off) and therefore key-sorted. `None`
+/// on serialisation failure — callers treat that as "always rebuild".
+fn world_fingerprint(record: &RoomRecord) -> Option<String> {
+    let v = serde_json::json!({
+        "generators": serde_json::to_value(&record.generators).ok()?,
+        "placements": serde_json::to_value(&record.placements).ok()?,
+        "traits": serde_json::to_value(&record.traits).ok()?,
+    });
+    Some(v.to_string())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn compile_room_record(
     mut commands: Commands,
@@ -88,6 +120,25 @@ pub(super) fn compile_room_record(
     // The change tick above is read off the `Res<LiveRoomRecord>`
     // wrapper; everything below wants the inner `RoomRecord`.
     let record = &record.0;
+
+    // Skip the despawn-and-respawn entirely when the spawnable slice of
+    // the record is byte-identical to what is already compiled — i.e.
+    // the change tick fired for an environment / effects / metadata
+    // edit that the cheaper change-driven systems handle on their own.
+    // A heightmap swap always rebuilds regardless: snapped placements
+    // sampled the old surface. A `None` fingerprint (serialisation
+    // failure) also always rebuilds.
+    let fingerprint = world_fingerprint(record);
+    if !heightmap_changed
+        && fingerprint.is_some()
+        && generator_caches.world_fingerprint.0 == fingerprint
+    {
+        // The world for this fingerprint already exists, so the loading
+        // gate may release even though this pass spawned nothing.
+        commands.insert_resource(super::WorldCompiled);
+        return;
+    }
+    generator_caches.world_fingerprint.0 = fingerprint;
 
     // Step 1 — Cleanup. Despawn every entity previously compiled out of
     // this record. Terrain is NOT a `RoomEntity` (it is owned by the
@@ -158,6 +209,7 @@ pub(super) fn compile_room_record(
         budget_warned: &mut budget_warned,
         blob_image_cache: &mut blob_image_cache,
         blob_audio_cache: &mut blob_audio_cache,
+        baked_audio_cache: &mut generator_caches.baked_audio,
         water_surfaces: &mut water_surfaces,
         avatar_mode: false,
         local_avatar_mode: false,
@@ -479,6 +531,11 @@ pub(super) fn compile_room_record(
         .shape_mesh
         .entries
         .retain(|k, _| shape_mesh_touched.contains(k));
+
+    // Unblock the loading gate: at least one full compile pass has
+    // produced the world this record describes. Idempotent on later
+    // passes; removed by `logout::cleanup_on_logout`.
+    commands.insert_resource(super::WorldCompiled);
 }
 
 /// The room's sea level: the highest Water child under any
@@ -497,6 +554,54 @@ fn room_water_level(record: &RoomRecord) -> Option<f32> {
         .fold(None, |acc: Option<f32>, y| {
             Some(acc.map_or(y, |a| a.max(y)))
         })
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests for the rebuild-skip fingerprint. The full compile pass
+    //! needs a Bevy `App` + asset stores; the fingerprint is the pure
+    //! decision input, so it is what gets unit coverage.
+    use super::world_fingerprint;
+    use crate::pds::{Fp, RoomRecord};
+
+    #[test]
+    fn fingerprint_is_stable_across_serialisations() {
+        let record = RoomRecord::default_for_did("did:plc:fp_test");
+        // Two fingerprints of the same record must agree even though
+        // `generators` is a HashMap — the helper routes through
+        // `serde_json::Value`'s key-sorted Object representation.
+        assert_eq!(world_fingerprint(&record), world_fingerprint(&record));
+        assert!(world_fingerprint(&record).is_some());
+    }
+
+    #[test]
+    fn fingerprint_ignores_environment_edits() {
+        let mut record = RoomRecord::default_for_did("did:plc:fp_test");
+        let before = world_fingerprint(&record);
+        // The most-dragged editor sliders: sky and fog. Neither feeds
+        // the despawn-and-respawn pass, so neither may force a rebuild.
+        record.environment.sky_color.0 = [0.1, 0.2, 0.3];
+        record.environment.fog_visibility = Fp(123.0);
+        assert_eq!(world_fingerprint(&record), before);
+    }
+
+    #[test]
+    fn fingerprint_tracks_generator_and_placement_edits() {
+        let mut record = RoomRecord::default_for_did("did:plc:fp_test");
+        let before = world_fingerprint(&record);
+        record
+            .generators
+            .insert("fp-probe".into(), crate::pds::Generator::default_cuboid());
+        let with_generator = world_fingerprint(&record);
+        assert_ne!(with_generator, before, "generator edits must rebuild");
+
+        record.placements.pop();
+        assert_ne!(
+            world_fingerprint(&record),
+            with_generator,
+            "placement edits must rebuild"
+        );
+    }
 }
 
 /// Slide a water-avoiding anchor along its bearing through the origin

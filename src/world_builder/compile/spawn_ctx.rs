@@ -34,6 +34,16 @@ pub struct GeneratorCaches<'w> {
     /// `(profile, size)` mesh handle is reused across compile passes and
     /// across generators with the same terminal geometry.
     pub(crate) upstream_shape_mesh: ResMut<'w, UpstreamShapeMeshCache>,
+    /// Fingerprint of the spawnable record slice compiled into the ECS
+    /// — see [`super::CompiledWorldFingerprint`]. Bundled here (rather
+    /// than as its own system param) to stay under Bevy's 16-parameter
+    /// `IntoSystem` ceiling on `compile_room_record`.
+    pub(crate) world_fingerprint: ResMut<'w, super::CompiledWorldFingerprint>,
+    /// Content-keyed baked-audio buffers shared across constructs and
+    /// compile passes — see
+    /// [`BakedAudioCache`](super::super::spatial_audio::BakedAudioCache).
+    /// Bundled here for the same 16-parameter reason.
+    pub(crate) baked_audio: ResMut<'w, super::super::spatial_audio::BakedAudioCache>,
 }
 
 /// Hard ceiling on the number of `spawn_generator` calls a single
@@ -167,6 +177,11 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// this cache on every spawn so a room scattering many constructs
     /// pointing at the same source pays one round-trip.
     pub(crate) blob_audio_cache: &'a mut BlobAudioCache,
+    /// Content-keyed baked-audio buffers (see
+    /// [`BakedAudioCache`](super::super::spatial_audio::BakedAudioCache)):
+    /// procedural construct audio resolves through this so identical
+    /// configs — within a pass and across recompiles — share one bake.
+    pub(crate) baked_audio_cache: &'a mut super::super::spatial_audio::BakedAudioCache,
     /// Runtime water-surface registry. Cleared at the top of each compile
     /// pass and pushed to from `spawn_water_volume`. Read by the scatter
     /// biome filter (this pass) and rover buoyancy (every fixed step).
