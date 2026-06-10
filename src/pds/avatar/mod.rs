@@ -28,6 +28,7 @@
 //! [`AvatarRecord::default_for_did`]. There is no automatic migration —
 //! old records require a manual republish.
 
+pub mod default_visuals;
 pub mod locomotion;
 
 pub use locomotion::{
@@ -36,10 +37,8 @@ pub use locomotion::{
 };
 
 use super::AVATAR_COLLECTION;
-use super::generator::{AlphaModeKind, Generator, GeneratorKind, SignSource};
+use super::generator::Generator;
 use super::sanitize::sanitize_avatar_visuals;
-use super::texture::SovereignMaterialSettings;
-use super::types::{Fp, Fp2, Fp3, TransformData};
 use super::xrpc::{FetchError, PutOutcome, XrpcError, resolve_pds};
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
@@ -65,379 +64,25 @@ pub struct AvatarRecord {
 }
 
 impl AvatarRecord {
-    /// Synthesise a starting avatar with a deterministic palette,
-    /// body proportions, and vessel design derived from the owner's
-    /// DID — every fresh player gets a unique-coloured,
-    /// uniquely-shaped catamaran without ever touching the editor.
+    /// Synthesise a starting avatar derived entirely from the owner's
+    /// DID — every fresh player gets a unique chassis without ever
+    /// touching the editor.
     ///
-    /// The visual tree is a stylised steampunk/scifi catamaran: a
-    /// thin deck cuboid bridging two longitudinal hull capsules, a
-    /// central mast crowned by a glowing finial, a flag panel
-    /// ([`SignSource::DidPfp`]) hanging behind the mast, an optional
-    /// prow ornament, and either smokestacks (Steam / Hybrid
-    /// archetypes) or a tilted solar panel + antenna (Solar /
-    /// Hybrid). Colour assignments come from
-    /// [`crate::seeded_defaults::AvatarPalette`]; dimensions from
-    /// [`crate::seeded_defaults::AvatarBody`] +
-    /// [`crate::seeded_defaults::VesselDesign`]; the archetype +
-    /// bow-style enums in [`VesselDesign`](crate::seeded_defaults::VesselDesign) gate which ornament arms
-    /// actually appear, so two peers spawning side-by-side differ in
-    /// tint *and* silhouette *and* fitted ornaments.
+    /// The DID first resolves to one of four visual families
+    /// ([`crate::seeded_defaults::ChassisFamily`]: hover-boat,
+    /// airship, humanoid figure, land-skiff); the matching builder in
+    /// [`default_visuals`] then shapes the silhouette from that
+    /// family's design deriver, colours it from
+    /// [`crate::seeded_defaults::AvatarPalette`], and scales it from
+    /// [`crate::seeded_defaults::AvatarBody`]. Locomotion follows the
+    /// family (boat → HoverBoat, airship → Helicopter, humanoid →
+    /// Humanoid, skiff → Car) so the chassis drives like it looks.
     pub fn default_for_did(did: &str) -> Self {
-        use crate::seeded_defaults::{AvatarBody, AvatarPalette, BowStyle, VesselDesign};
-
-        let palette = AvatarPalette::for_did(did);
-        let body = AvatarBody::for_did(did);
-        let vessel = VesselDesign::for_did(did);
-
-        // Colour assignments:
-        //   deck            = primary_accent  (largest visible surface)
-        //   hulls           = secondary_accent
-        //   mast / ornaments= tertiary_accent
-        //   bow jewel / finial = eye_color    (small "gem" slot)
-        //   smokestacks / panel / antenna = hair_color
-        //                     (a darker techy / brass tone — taken
-        //                     from the curated hair-colour table so it
-        //                     reads as metallic, not as accent paint)
-        let deck_color = palette.primary_accent;
-        let hull_color = palette.secondary_accent;
-        let mast_color = palette.tertiary_accent;
-        let jewel_color = palette.eye_color;
-        let metal_color = palette.hair_color;
-
-        // Two-level scaling: AvatarBody = avatar-wide size (humanoid-
-        // tight band, ±15 %); VesselDesign = vessel-specific
-        // proportions (wider band per knob).
-        let h = body.height_scale;
-        let w = body.shoulder_width_scale;
-        let limb = body.limb_thickness_scale;
-        let head = body.head_scale;
-
-        // Vessel-level scales.
-        let hull_r = 0.28 * limb * vessel.hull_radius_scale;
-        let hull_len = 2.4 * h * vessel.hull_length_scale;
-        let hull_x = 0.80 * w * vessel.hull_spread_scale;
-        let hull_y = -0.30 * h * vessel.hull_drop_scale;
-
-        let deck_x = 1.6 * w * vessel.hull_spread_scale;
-        let deck_y = 0.12;
-        let deck_z = 2.0 * h * vessel.hull_length_scale;
-        let deck_half_z = deck_z * 0.5;
-
-        let mast_r = 0.05 * limb * vessel.mast_radius_scale;
-        let mast_h = 1.4 * h * vessel.mast_height_scale;
-        // Mast cylinder sits with its centre at this Y so the base
-        // rests on the deck top surface and the top is at deck_top +
-        // mast_h. Used as the mast's `translation.y`.
-        let mast_origin_y = 0.5 * deck_y + mast_h * 0.5;
-
-        let metal_mat = |color: [f32; 3]| SovereignMaterialSettings {
-            base_color: Fp3(color),
-            metallic: Fp(0.4),
-            roughness: Fp(0.45),
-            ..Default::default()
-        };
-        let brass_mat = |color: [f32; 3]| SovereignMaterialSettings {
-            base_color: Fp3(color),
-            metallic: Fp(0.7),
-            roughness: Fp(0.35),
-            ..Default::default()
-        };
-        let glow_mat = |color: [f32; 3]| SovereignMaterialSettings {
-            base_color: Fp3(color),
-            metallic: Fp(0.4),
-            roughness: Fp(0.40),
-            emission_color: Fp3(color),
-            emission_strength: Fp(5.0),
-            ..Default::default()
-        };
-
-        // Identity rotation reused in every transform that doesn't
-        // turn its child.
-        let id_quat = quat_xyzw([0.0, 0.0, 0.0, 1.0]);
-        let pontoon_lay_quat = quat_xyzw(quat_x(std::f32::consts::FRAC_PI_2));
-
-        // ---- Catamaran hulls (two horizontal capsules along Z) ----
-        let make_hull = |x: f32| Generator {
-            kind: GeneratorKind::Capsule {
-                radius: Fp(hull_r),
-                length: Fp(hull_len),
-                latitudes: 8,
-                longitudes: 16,
-                solid: false,
-                material: metal_mat(hull_color),
-                twist: Fp(0.0),
-                taper: Fp(0.0),
-                bend: Fp3([0.0, 0.0, 0.0]),
-            },
-            transform: TransformData {
-                translation: Fp3([x, hull_y, 0.0]),
-                rotation: pontoon_lay_quat,
-                scale: Fp3([1.0, 1.0, 1.0]),
-            },
-            children: Vec::new(),
-            audio: crate::pds::SovereignAudioConfig::None,
-        };
-
-        // ---- Mast subtree -----------------------------------------------
-        let mut mast_children: Vec<Generator> = Vec::new();
-        // Glowing finial on top.
-        mast_children.push(Generator {
-            kind: GeneratorKind::Sphere {
-                radius: Fp(0.10 * head),
-                resolution: 3,
-                solid: false,
-                material: glow_mat(jewel_color),
-                twist: Fp(0.0),
-                taper: Fp(0.0),
-                bend: Fp3([0.0, 0.0, 0.0]),
-            },
-            transform: TransformData {
-                translation: Fp3([0.0, mast_h * 0.5, 0.0]),
-                rotation: id_quat,
-                scale: Fp3([1.0, 1.0, 1.0]),
-            },
-            children: Vec::new(),
-            audio: crate::pds::SovereignAudioConfig::None,
-        });
-        // Antenna (Solar / Hybrid only): thin spire above the finial.
-        if vessel.archetype.has_antenna() {
-            let antenna_h = 0.45 * mast_h;
-            mast_children.push(Generator {
-                kind: GeneratorKind::Cylinder {
-                    radius: Fp(0.015 * limb),
-                    height: Fp(antenna_h),
-                    resolution: 8,
-                    solid: false,
-                    material: brass_mat(metal_color),
-                    twist: Fp(0.0),
-                    taper: Fp(0.0),
-                    bend: Fp3([0.0, 0.0, 0.0]),
-                },
-                transform: TransformData {
-                    translation: Fp3([0.0, mast_h * 0.5 + antenna_h * 0.5 + 0.08, 0.0]),
-                    rotation: id_quat,
-                    scale: Fp3([1.0, 1.0, 1.0]),
-                },
-                children: Vec::new(),
-                audio: crate::pds::SovereignAudioConfig::None,
-            });
-        }
-        // Flag — Sign panel showing the owner's bsky profile picture.
-        // The Sign mesh is a plane in local XZ (normal +Y); rotating
-        // the parent transform by π/2 around Z stands it up in YZ
-        // (normal ±X), so the panel is visible from the boat's left
-        // and right sides like a heraldic banner. `double_sided`
-        // makes both views render. `unlit` keeps the pfp legible
-        // regardless of sun angle.
-        let flag_height = 0.55;
-        let flag_width = 0.40;
-        mast_children.push(Generator {
-            kind: GeneratorKind::Sign {
-                source: SignSource::DidPfp {
-                    did: did.to_owned(),
-                },
-                size: Fp2([flag_height, flag_width]),
-                uv_repeat: Fp2([1.0, 1.0]),
-                uv_offset: Fp2([0.0, 0.0]),
-                material: SovereignMaterialSettings {
-                    base_color: Fp3([1.0, 1.0, 1.0]),
-                    roughness: Fp(0.6),
-                    metallic: Fp(0.0),
-                    ..Default::default()
-                },
-                double_sided: true,
-                alpha_mode: AlphaModeKind::Opaque,
-                unlit: true,
-            },
-            transform: TransformData {
-                translation: Fp3([0.0, mast_h * 0.2, flag_width * 0.5 + 0.05]),
-                rotation: quat_xyzw(quat_z(std::f32::consts::FRAC_PI_2)),
-                scale: Fp3([1.0, 1.0, 1.0]),
-            },
-            children: Vec::new(),
-            audio: crate::pds::SovereignAudioConfig::None,
-        });
-
-        let mast = Generator {
-            kind: GeneratorKind::Cylinder {
-                radius: Fp(mast_r),
-                height: Fp(mast_h),
-                resolution: 16,
-                solid: false,
-                material: metal_mat(mast_color),
-                twist: Fp(0.0),
-                taper: Fp(0.0),
-                bend: Fp3([0.0, 0.0, 0.0]),
-            },
-            transform: TransformData {
-                translation: Fp3([0.0, mast_origin_y, 0.0]),
-                rotation: id_quat,
-                scale: Fp3([1.0, 1.0, 1.0]),
-            },
-            children: mast_children,
-            audio: crate::pds::SovereignAudioConfig::None,
-        };
-
-        // ---- Bow ornament (conditional on BowStyle) ---------------------
-        let bow_z = -deck_half_z - 0.10; // just past the deck front edge
-        let bow_y = 0.5 * deck_y + 0.05;
-        let bow_ornament: Option<Generator> = match vessel.bow_style {
-            BowStyle::Spike => Some(Generator {
-                kind: GeneratorKind::Cone {
-                    radius: Fp(0.06 * vessel.bow_scale),
-                    height: Fp(0.30 * vessel.bow_scale),
-                    resolution: 12,
-                    solid: false,
-                    material: brass_mat(metal_color),
-                    twist: Fp(0.0),
-                    taper: Fp(0.0),
-                    bend: Fp3([0.0, 0.0, 0.0]),
-                },
-                transform: TransformData {
-                    translation: Fp3([0.0, bow_y + 0.05, bow_z]),
-                    // Bevy `Cone` axis is +Y; rotate around X by
-                    // -π/2 to point the apex along -Z (forward).
-                    rotation: quat_xyzw(quat_x(-std::f32::consts::FRAC_PI_2)),
-                    scale: Fp3([1.0, 1.0, 1.0]),
-                },
-                children: Vec::new(),
-                audio: crate::pds::SovereignAudioConfig::None,
-            }),
-            BowStyle::Sphere => Some(Generator {
-                kind: GeneratorKind::Sphere {
-                    radius: Fp(0.10 * vessel.bow_scale),
-                    resolution: 3,
-                    solid: false,
-                    material: glow_mat(jewel_color),
-                    twist: Fp(0.0),
-                    taper: Fp(0.0),
-                    bend: Fp3([0.0, 0.0, 0.0]),
-                },
-                transform: TransformData {
-                    translation: Fp3([0.0, bow_y, bow_z]),
-                    rotation: id_quat,
-                    scale: Fp3([1.0, 1.0, 1.0]),
-                },
-                children: Vec::new(),
-                audio: crate::pds::SovereignAudioConfig::None,
-            }),
-            BowStyle::Beak => Some(Generator {
-                kind: GeneratorKind::Cone {
-                    radius: Fp(0.10 * vessel.bow_scale),
-                    height: Fp(0.50 * vessel.bow_scale),
-                    resolution: 12,
-                    solid: false,
-                    material: brass_mat(metal_color),
-                    twist: Fp(0.0),
-                    taper: Fp(0.0),
-                    bend: Fp3([0.0, 0.0, 0.0]),
-                },
-                transform: TransformData {
-                    translation: Fp3([0.0, bow_y, bow_z - 0.10]),
-                    rotation: quat_xyzw(quat_x(-std::f32::consts::FRAC_PI_2)),
-                    scale: Fp3([1.0, 1.0, 1.0]),
-                },
-                children: Vec::new(),
-                audio: crate::pds::SovereignAudioConfig::None,
-            }),
-            BowStyle::None => None,
-        };
-
-        // ---- Smokestacks (Steam / Hybrid) -------------------------------
-        // Symmetric placement around the deck stern. 1 → centred; 2 →
-        // ±0.25 X; 3 → centre + ±0.30 X. The visual variety comes
-        // from per-vessel count + height jitter (`smokestack_count`,
-        // `smokestack_height_scale`) so two Steam vessels still read
-        // as distinct configurations.
-        let mut smokestacks: Vec<Generator> = Vec::new();
-        if vessel.archetype.has_smokestacks() && vessel.smokestack_count > 0 {
-            let stack_radius = 0.055 * limb;
-            let stack_height = 0.40 * h * vessel.smokestack_height_scale;
-            let stack_y = 0.5 * deck_y + stack_height * 0.5;
-            let stack_z = deck_half_z - 0.30;
-            let xs: &[f32] = match vessel.smokestack_count {
-                1 => &[0.0],
-                2 => &[-0.25, 0.25],
-                _ => &[0.0, -0.30, 0.30],
-            };
-            for x in xs {
-                smokestacks.push(Generator {
-                    kind: GeneratorKind::Cylinder {
-                        radius: Fp(stack_radius),
-                        height: Fp(stack_height),
-                        resolution: 12,
-                        solid: false,
-                        material: brass_mat(metal_color),
-                        twist: Fp(0.0),
-                        taper: Fp(0.0),
-                        bend: Fp3([0.0, 0.0, 0.0]),
-                    },
-                    transform: TransformData {
-                        translation: Fp3([*x * w, stack_y, stack_z]),
-                        rotation: id_quat,
-                        scale: Fp3([1.0, 1.0, 1.0]),
-                    },
-                    children: Vec::new(),
-                    audio: crate::pds::SovereignAudioConfig::None,
-                });
-            }
-        }
-
-        // ---- Solar panel (Solar / Hybrid) -------------------------------
-        let solar_panel: Option<Generator> = if vessel.archetype.has_solar_panel() {
-            Some(Generator {
-                kind: GeneratorKind::Cuboid {
-                    size: Fp3([0.65 * w, 0.03, 0.75 * h]),
-                    solid: false,
-                    material: brass_mat(metal_color),
-                    twist: Fp(0.0),
-                    taper: Fp(0.0),
-                    bend: Fp3([0.0, 0.0, 0.0]),
-                },
-                transform: TransformData {
-                    translation: Fp3([0.0, 0.5 * deck_y + 0.18, 0.25 * h]),
-                    rotation: quat_xyzw(quat_x(vessel.solar_panel_tilt_rad)),
-                    scale: Fp3([1.0, 1.0, 1.0]),
-                },
-                children: Vec::new(),
-                audio: crate::pds::SovereignAudioConfig::None,
-            })
-        } else {
-            None
-        };
-
-        // ---- Assemble the deck root and its children --------------------
-        let mut children: Vec<Generator> = Vec::with_capacity(8);
-        children.push(make_hull(-hull_x));
-        children.push(make_hull(hull_x));
-        if let Some(b) = bow_ornament {
-            children.push(b);
-        }
-        children.push(mast);
-        children.extend(smokestacks);
-        if let Some(p) = solar_panel {
-            children.push(p);
-        }
-
-        let deck = Generator {
-            kind: GeneratorKind::Cuboid {
-                size: Fp3([deck_x, deck_y, deck_z]),
-                solid: false,
-                material: metal_mat(deck_color),
-                twist: Fp(0.0),
-                taper: Fp(0.0),
-                bend: Fp3([0.0, 0.0, 0.0]),
-            },
-            transform: TransformData::default(),
-            children,
-            audio: crate::pds::SovereignAudioConfig::None,
-        };
-
+        let (visuals, locomotion) = default_visuals::build_for_did(did);
         Self {
             lex_type: AVATAR_COLLECTION.into(),
-            visuals: deck,
-            locomotion: HoverBoatParams::default_config(),
+            visuals,
+            locomotion,
         }
     }
 
@@ -448,27 +93,6 @@ impl AvatarRecord {
         sanitize_avatar_visuals(&mut self.visuals);
         self.locomotion.sanitize();
     }
-}
-
-/// Build a normalised quaternion `[x, y, z, w]` from a half-angle rotation
-/// around the X axis. Used by [`AvatarRecord::default_for_did`] to lay
-/// hull capsules on their side and to point bow-ornament cones forward.
-fn quat_x(angle_rad: f32) -> [f32; 4] {
-    let half = angle_rad * 0.5;
-    [half.sin(), 0.0, 0.0, half.cos()]
-}
-
-/// Sister of [`quat_x`] for rotations around the Z axis. Used by the
-/// avatar default's flag panel to stand the Sign plane up in YZ
-/// (normal along ±X) so the bsky pfp reads as a heraldic banner
-/// from the boat's left and right.
-fn quat_z(angle_rad: f32) -> [f32; 4] {
-    let half = angle_rad * 0.5;
-    [0.0, 0.0, half.sin(), half.cos()]
-}
-
-fn quat_xyzw(q: [f32; 4]) -> super::types::Fp4 {
-    super::types::Fp4(q)
 }
 
 // ---------------------------------------------------------------------------

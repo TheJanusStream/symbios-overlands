@@ -1,33 +1,43 @@
 //! Avatar-scope DID-seeded derivers.
 //!
 //! Mirrors [`super::room`] in shape: each submodule owns one
-//! parameter group (palette, body proportions, gait, vessel design)
-//! and is fully independent — the avatar deriver doesn't read the room
-//! deriver (a user's avatar looks the same regardless of which room
-//! they visit) and the per-submodule outputs don't depend on each
-//! other.
+//! parameter group and is fully independent — the avatar deriver
+//! doesn't read the room deriver (a user's avatar looks the same
+//! regardless of which room they visit) and the per-submodule outputs
+//! don't depend on each other.
 //!
-//! What's wired today vs. computed-but-unused:
+//! The top-level discrete pick is [`ChassisFamily`]: a DID resolves
+//! to exactly one visual family (boat / airship / humanoid / skiff),
+//! and the wiring layer (`crate::pds::avatar::default_visuals`) reads
+//! only that family's design deriver:
 //!
-//! - [`AvatarPalette`] — primary / secondary / tertiary accents are
-//!   applied to the default hover-boat visuals. Skin, hair, and eye
-//!   tones are computed but unused (no humanoid surface yet).
-//! - [`AvatarBody`] — `height_scale`, `shoulder_width_scale`,
-//!   `head_scale`, `limb_thickness_scale` map onto the hover-boat's
-//!   cuboid / capsule / cylinder / sphere sizes. `torso_leg_ratio`
-//!   is computed but unused.
-//! - [`VesselDesign`] — hull radius, mast height, smokestack count and
-//!   the archetype / bow-style enums shape the default hover-boat
-//!   avatar (the one body the deriver currently spawns).
-//! - [`AvatarGait`] — fully unused; surface defined so a future
-//!   humanoid spawn path can read it without extending the deriver.
+//! - [`ChassisFamily::Boat`] → [`VesselDesign`] (hull form, ornament
+//!   kit, prow rake, mast taper).
+//! - [`ChassisFamily::Airship`] → [`AirshipDesign`] (envelope form,
+//!   gondola, fins, engine pods).
+//! - [`ChassisFamily::Humanoid`] → [`HumanoidStyle`] +
+//!   [`AvatarGait`]; this is the family that consumes the
+//!   skin / hair / eye colours and `torso_leg_ratio` directly.
+//! - [`ChassisFamily::Skiff`] → [`SkiffDesign`] (running gear,
+//!   canopy, exhausts).
+//!
+//! [`AvatarBody`] (proportions) and [`AvatarPalette`] (colours) are
+//! family-agnostic and feed every builder.
 
+pub mod airship;
 pub mod body;
+pub mod chassis;
 pub mod gait;
+pub mod humanoid_style;
 pub mod palette;
+pub mod skiff;
 pub mod vessel;
 
+pub use airship::{AirshipDesign, EnvelopeForm};
 pub use body::{AvatarBody, BodyArchetype};
+pub use chassis::ChassisFamily;
 pub use gait::AvatarGait;
+pub use humanoid_style::{HatStyle, HumanoidStyle};
 pub use palette::AvatarPalette;
-pub use vessel::{BowStyle, VesselArchetype, VesselDesign};
+pub use skiff::{CanopyStyle, SkiffDesign, SkiffForm};
+pub use vessel::{BowStyle, HullForm, VesselArchetype, VesselDesign};

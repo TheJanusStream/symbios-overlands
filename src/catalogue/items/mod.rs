@@ -7,6 +7,7 @@
 
 use super::CatalogueEntry;
 
+pub mod lighthouse;
 pub mod lsys_branching;
 pub mod lsys_koch_island;
 pub mod lsys_monopodial_tree;
@@ -16,15 +17,32 @@ pub mod lsys_ternary_gravity;
 pub mod lsys_ternary_props;
 pub mod medieval_castle;
 pub mod my_teleporter;
+pub mod observatory;
+pub mod ruined_temple;
+pub mod stone_circle;
 pub mod villa;
+pub mod watchtower;
+pub mod ziggurat;
+
+mod util;
+
+#[cfg(test)]
+mod shape_grammar_test;
 
 /// The full set of catalogue entries the client ships with. Order is
 /// preserved by the UI for display, so think of this as the
 /// alphabetic-within-category presentation order.
 pub const ENTRIES: &[&dyn CatalogueEntry] = &[
-    // Buildings — architectural shape-grammar entries.
+    // Buildings — architectural entries (shape-grammar and
+    // primitive-built).
     &villa::Villa,
     &medieval_castle::MedievalCastle,
+    &watchtower::Watchtower,
+    &ruined_temple::RuinedTemple,
+    &lighthouse::Lighthouse,
+    &stone_circle::StoneCircle,
+    &ziggurat::Ziggurat,
+    &observatory::Observatory,
     // Plants — L-system tree entries.
     &lsys_monopodial_tree::MonopodialTree,
     &lsys_sympodial_tree::SympodialTree,

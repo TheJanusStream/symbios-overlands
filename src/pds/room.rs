@@ -296,12 +296,16 @@ impl RoomRecord {
     /// been published to a PDS keep their stored values verbatim — the
     /// seed pipeline only fills in the blank-record case here.
     pub fn default_for_did(did: &str) -> Self {
-        use crate::catalogue::CatalogueEntry;
-        use crate::catalogue::items::lsys_ternary_props::TernaryPropsTree;
+        use crate::pds::generator::{
+            AnimationFrameMode, EmitterShape, ParticleBlendMode, SimulationSpace, TextureFilter,
+        };
+        use crate::pds::texture::{
+            SovereignMaterialSettings, SovereignRockConfig, SovereignTextureConfig,
+        };
         use crate::pds::types::{BiomeFilter, ScatterBounds, WaterRelation};
         use crate::seeded_defaults::{
-            Atmosphere, BiomeTextures, RoomPalette, SceneCharacter, TerrainShape, TreeScatters,
-            WaterDynamics, fnv1a_64,
+            AmbientParticles, Atmosphere, BiomeTextures, Landmark, RockScatters, RoomPalette,
+            SceneCharacter, TerrainShape, TreeScatters, WaterDynamics, fnv1a_64,
         };
 
         let did_seed = fnv1a_64(did);
@@ -312,6 +316,8 @@ impl RoomRecord {
         let atmosphere = Atmosphere::from_scene(&scene, did_seed);
         let water_dynamics = WaterDynamics::from_scene(&scene, did_seed);
         let tree_scatters = TreeScatters::from_scene(&scene, did_seed);
+        let rock_scatters = RockScatters::from_scene(&scene, did_seed);
+        let ambient_particles = AmbientParticles::from_scene(&scene, did_seed);
 
         let mut terrain_cfg = SovereignTerrainConfig {
             seed: did_seed,
@@ -363,20 +369,29 @@ impl RoomRecord {
             generator_ref: "base_terrain".to_string(),
             transform: TransformData::default(),
             snap_to_terrain: false,
+            avoid_water: false,
+            avoid_water_clearance: Fp(0.0),
         }];
 
-        // Seeded tree scatters: one named `lsys_ternary_props` generator
-        // per scatter (so each scatter's `iterations_delta` actually
-        // affects what gets compiled) plus a matching `Placement::
-        // Scatter` referencing it with a grass-and-dirt-above-water
-        // biome filter so trees land on walkable land, not rock faces
-        // or the seabed.
+        // Seeded tree scatters: one named generator per scatter (so
+        // each scatter's species + `iterations_delta` actually affect
+        // what gets compiled) plus a matching `Placement::Scatter`
+        // referencing it with a grass-and-dirt-above-water biome
+        // filter so trees land on walkable land, not rock faces or
+        // the seabed.
         for (idx, scatter) in tree_scatters.scatters.iter().enumerate() {
-            let mut tree_gen = TernaryPropsTree.build(did);
+            let Some(species_entry) = crate::catalogue::by_slug(scatter.species.slug()) else {
+                // Pool slugs are compile-time constants verified by the
+                // landmark/scatter tests; an unresolved slug means a
+                // catalogue rename and is safest skipped.
+                continue;
+            };
+            let mut tree_gen = species_entry.build(did);
             if let GeneratorKind::LSystem { iterations, .. } = &mut tree_gen.kind {
-                // Catalogue ships iterations=6; the deriver only ever
-                // emits delta ∈ {-1, 0, +1} so the post-delta band is
-                // [5, 7], well inside healthy LSystem expansion costs.
+                // The deriver only ever emits delta ∈ {-1, 0, +1}, so
+                // the post-delta band stays within one step of each
+                // species' shipped iteration count (6–10 across the
+                // pool) — inside healthy LSystem expansion costs.
                 // Clamp to ≥ 2 as belt-and-braces against future
                 // catalogue tweaks.
                 let new_iters = (*iterations as i32 + scatter.iterations_delta).max(2) as u32;
@@ -399,6 +414,137 @@ impl RoomRecord {
                 },
                 snap_to_terrain: true,
                 random_yaw: true,
+            });
+        }
+
+        // Seeded boulder scatters: one per-room boulder design (a
+        // low-res icosphere sheared by taper/twist so it reads hewn,
+        // coloured from the palette's rock channels) scattered across
+        // dirt-and-rock ground. The trees' biome filter excludes rock
+        // faces; boulders invert that and *prefer* them.
+        let boulder = Generator::from_kind(GeneratorKind::Sphere {
+            radius: Fp(rock_scatters.boulder_radius),
+            resolution: 1,
+            // Solid: a walk-through boulder breaks the fiction the
+            // moment someone drives into one.
+            solid: true,
+            material: SovereignMaterialSettings {
+                base_color: Fp3(palette.rock_stone),
+                roughness: Fp(0.95),
+                uv_scale: Fp(1.5),
+                texture: SovereignTextureConfig::Rock(SovereignRockConfig {
+                    color_light: Fp3(palette.rock_stone),
+                    color_dark: Fp3(palette.rock_gap),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            twist: Fp(rock_scatters.boulder_twist),
+            taper: Fp(rock_scatters.boulder_taper),
+            bend: Fp3([0.0, 0.0, 0.0]),
+        });
+        generators.insert("boulder".to_string(), boulder);
+        for rock in rock_scatters.scatters.iter() {
+            placements.push(Placement::Scatter {
+                generator_ref: "boulder".to_string(),
+                bounds: ScatterBounds::Circle {
+                    center: Fp2(rock.center),
+                    radius: Fp(rock.radius),
+                },
+                count: rock.count,
+                local_seed: rock.local_seed,
+                biome_filter: BiomeFilter {
+                    // 1=Dirt, 2=Rock — boulders avoid manicured grass.
+                    biomes: vec![1, 2],
+                    water: WaterRelation::Above,
+                },
+                snap_to_terrain: true,
+                random_yaw: true,
+            });
+        }
+
+        // Seeded ambient particles: one biome-mood emitter (fireflies /
+        // snow / embers / dust / mist) centred on spawn. Spec numbers
+        // are pre-clamped to the particle sanitiser budget.
+        let p = &ambient_particles;
+        let particle_gen = Generator::from_kind(GeneratorKind::ParticleSystem {
+            emitter_shape: EmitterShape::Box {
+                half_extents: Fp3(p.emitter_half_extents),
+            },
+            rate_per_second: Fp(p.rate_per_second),
+            burst_count: 0,
+            max_particles: p.max_particles,
+            looping: true,
+            duration: Fp(10.0),
+            lifetime_min: Fp(p.lifetime.0),
+            lifetime_max: Fp(p.lifetime.1),
+            speed_min: Fp(p.speed.0),
+            speed_max: Fp(p.speed.1),
+            gravity_multiplier: Fp(p.gravity_multiplier),
+            acceleration: Fp3(p.acceleration),
+            linear_drag: Fp(p.linear_drag),
+            start_size: Fp(p.start_size),
+            end_size: Fp(p.end_size),
+            start_color: Fp4(p.start_color),
+            end_color: Fp4(p.end_color),
+            blend_mode: if p.additive {
+                ParticleBlendMode::Additive
+            } else {
+                ParticleBlendMode::Alpha
+            },
+            billboard: true,
+            simulation_space: SimulationSpace::World,
+            inherit_velocity: Fp(0.0),
+            collide_terrain: false,
+            collide_water: false,
+            collide_colliders: false,
+            bounce: Fp(0.0),
+            friction: Fp(0.0),
+            seed: p.seed,
+            texture: None,
+            texture_atlas: None,
+            frame_mode: AnimationFrameMode::default(),
+            texture_filter: TextureFilter::default(),
+        });
+        generators.insert("ambient_particles".to_string(), particle_gen);
+        placements.push(Placement::Absolute {
+            generator_ref: "ambient_particles".to_string(),
+            transform: TransformData {
+                translation: Fp3([0.0, p.emitter_y, 0.0]),
+                ..TransformData::default()
+            },
+            snap_to_terrain: true,
+            avoid_water: false,
+            avoid_water_clearance: Fp(0.0),
+        });
+
+        // Seeded landmark: every home region gets exactly one
+        // biome-appropriate structure near spawn (the region's
+        // "heart"). Shape-grammar entries get their stochastic seed
+        // restamped per DID so two users sharing a structure type
+        // still see different derivations; the placement faces the
+        // structure toward the spawn origin and snaps it to terrain.
+        let landmark = Landmark::from_scene(&scene, did_seed);
+        if let Some(entry) = crate::catalogue::by_slug(landmark.slug) {
+            let mut landmark_gen = entry.build(did);
+            if let GeneratorKind::Shape { seed, .. } = &mut landmark_gen.kind {
+                *seed = landmark.grammar_seed;
+            }
+            generators.insert("landmark".to_string(), landmark_gen);
+            let half_yaw = landmark.yaw_rad * 0.5;
+            placements.push(Placement::Absolute {
+                generator_ref: "landmark".to_string(),
+                transform: TransformData {
+                    // Sunk 0.35 m below the terrain snap so foundations
+                    // bite into slopes instead of leaving daylight gaps
+                    // under the downhill edge.
+                    translation: Fp3([landmark.offset[0], -0.35, landmark.offset[1]]),
+                    rotation: Fp4([0.0, half_yaw.sin(), 0.0, half_yaw.cos()]),
+                    scale: Fp3([landmark.scale, landmark.scale, landmark.scale]),
+                },
+                snap_to_terrain: true,
+                avoid_water: true,
+                avoid_water_clearance: Fp(landmark.clearance),
             });
         }
 
@@ -973,4 +1119,85 @@ pub async fn reset_room_record(
 ) -> Result<(), String> {
     delete_room_record(client, session, refresh).await?;
     publish_room_record(client, session, refresh, record).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_room_carries_one_landmark() {
+        for s in 0u64..8 {
+            let record = RoomRecord::default_for_did(&format!("did:test:{s}"));
+            let landmark = record
+                .generators
+                .get("landmark")
+                .expect("every seeded room must carry a landmark generator");
+            // Landmarks are buildings — never Terrain/Water (those are
+            // positionally invalid outside the base_terrain tree).
+            assert!(!matches!(
+                landmark.kind,
+                GeneratorKind::Terrain(_) | GeneratorKind::Water { .. }
+            ));
+            let placement = record
+                .placements
+                .iter()
+                .find_map(|p| match p {
+                    Placement::Absolute {
+                        generator_ref,
+                        transform,
+                        snap_to_terrain,
+                        ..
+                    } if generator_ref == "landmark" => Some((transform, snap_to_terrain)),
+                    _ => None,
+                })
+                .expect("landmark generator must have an Absolute placement");
+            let (transform, snap) = placement;
+            assert!(*snap, "landmark must snap to terrain");
+            let [x, _, z] = transform.translation.0;
+            let dist = (x * x + z * z).sqrt();
+            assert!(
+                (20.0..=160.0).contains(&dist),
+                "landmark should sit near (but not on) spawn; got {dist} m"
+            );
+        }
+    }
+
+    #[test]
+    fn default_room_carries_micro_detail_layers() {
+        for s in 0u64..4 {
+            let record = RoomRecord::default_for_did(&format!("did:test:{s}"));
+            assert!(
+                record.generators.contains_key("boulder"),
+                "seeded room lost its boulder generator"
+            );
+            assert!(
+                record.generators.contains_key("ambient_particles"),
+                "seeded room lost its ambient particle emitter"
+            );
+            let rock_scatters = record
+                .placements
+                .iter()
+                .filter(|p| {
+                    matches!(p, Placement::Scatter { generator_ref, .. } if generator_ref == "boulder")
+                })
+                .count();
+            assert!(
+                (1..=2).contains(&rock_scatters),
+                "expected 1–2 boulder scatters, got {rock_scatters}"
+            );
+        }
+    }
+
+    #[test]
+    fn default_room_survives_sanitize() {
+        for s in 0u64..4 {
+            let mut record = RoomRecord::default_for_did(&format!("did:test:{s}"));
+            let generators_before = record.generators.len();
+            let placements_before = record.placements.len();
+            record.sanitize();
+            assert_eq!(record.generators.len(), generators_before);
+            assert_eq!(record.placements.len(), placements_before);
+        }
+    }
 }

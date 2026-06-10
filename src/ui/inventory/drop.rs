@@ -277,6 +277,8 @@ pub fn handle_generator_drop(
             rotation: Fp4([0.0, 0.0, 0.0, 1.0]),
             scale: Fp3([1.0, 1.0, 1.0]),
         },
+        avoid_water: false,
+        avoid_water_clearance: crate::pds::Fp(0.0),
         snap_to_terrain: false,
     });
     info!(

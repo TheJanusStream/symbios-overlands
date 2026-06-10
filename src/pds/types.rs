@@ -255,12 +255,22 @@ impl BiomeFilter {
     /// no water generator — in that case water-relative filters collapse to
     /// accept so a filter targeted at land-only biomes still behaves
     /// sensibly on dry-land records.
+    ///
+    /// `Above` demands a freeboard margin, not just `y >= wl`: a sample
+    /// exactly at the waterline puts a tree trunk in the surf (and the
+    /// water shader's wave displacement floods anything marginal), so
+    /// "above water" means "far enough above to read as land".
     pub fn accepts(&self, biome: u8, y: f32, water_level: Option<f32>) -> bool {
+        /// Required terrain clearance (m) over the water line for
+        /// [`WaterRelation::Above`] — covers visual wave amplitude plus
+        /// a believable dry bank.
+        const ABOVE_FREEBOARD: f32 = 0.5;
+
         if !self.biomes.is_empty() && !self.biomes.contains(&biome) {
             return false;
         }
         match (self.water, water_level) {
-            (WaterRelation::Above, Some(wl)) => y >= wl,
+            (WaterRelation::Above, Some(wl)) => y >= wl + ABOVE_FREEBOARD,
             (WaterRelation::Below, Some(wl)) => y < wl,
             _ => true,
         }

@@ -2,16 +2,17 @@
 //!
 //! Emits 0–4 large-radius scatter specs per room, biased by biome —
 //! lush / coastal rooms get a forested feel, arid / volcanic rooms
-//! stay sparse, tundra / alpine sit in the middle. Each scatter
-//! references `lsys_ternary_props` from the catalogue, with its
-//! iteration count optionally bumped by ±1 so two scatters in the
-//! same room read as different ages of the same tree species.
+//! stay sparse, tundra / alpine sit in the middle. Each scatter picks
+//! a [`TreeSpecies`] from a biome-weighted pool (conifers on alpine
+//! ridges, gnarled gravity-bent trees in deserts, broadleaf mixes in
+//! lush valleys), with its iteration count optionally bumped by ±1 so
+//! two scatters of the same species read as different ages.
 //!
 //! The wiring layer ([`RoomRecord::default_for_did`](crate::pds::RoomRecord::default_for_did)) reads
 //! these specs to build one named generator per scatter (so the
-//! `iterations_delta` actually affects what gets compiled) and emits
-//! a matching `Placement::Scatter` referencing each generator with a
-//! grass-and-dirt-above-water biome filter.
+//! species and `iterations_delta` actually affect what gets compiled)
+//! and emits a matching `Placement::Scatter` referencing each
+//! generator with a grass-and-dirt-above-water biome filter.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
@@ -28,11 +29,53 @@ const SCATTER_STREAM_SALT: u64 = 0x5CA7_0000_5CA7_5CA7;
 /// world compiler samples instance positions.
 const SCATTER_LOCAL_SEED_SALT: u64 = 0x7E55_7E55_7E55_7E55;
 
+/// Tree species available to seeded scatters — each maps onto one of
+/// the catalogue's L-system plant entries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TreeSpecies {
+    /// Broadleaf with foliage props (`lsys_ternary_props`).
+    TernaryProps,
+    /// Conifer-like single leader (`lsys_monopodial_tree`).
+    Monopodial,
+    /// Broad sympodial crown (`lsys_sympodial_tree`).
+    Sympodial,
+    /// Gnarled, gravity-bent silhouette (`lsys_ternary_gravity`).
+    TernaryGravity,
+}
+
+impl TreeSpecies {
+    /// Catalogue slug for [`crate::catalogue::by_slug`].
+    pub fn slug(self) -> &'static str {
+        match self {
+            Self::TernaryProps => "lsys_ternary_props",
+            Self::Monopodial => "lsys_monopodial_tree",
+            Self::Sympodial => "lsys_sympodial_tree",
+            Self::TernaryGravity => "lsys_ternary_gravity",
+        }
+    }
+}
+
+/// Biome-weighted species pool. Repetition is weighting — lush rooms
+/// roll broadleaf twice as often as conifer; tundra is conifer-only.
+fn species_pool(biome: BiomeArchetype) -> &'static [TreeSpecies] {
+    use TreeSpecies::*;
+    match biome {
+        BiomeArchetype::Lush => &[TernaryProps, TernaryProps, Sympodial, Monopodial],
+        BiomeArchetype::Coastal => &[TernaryProps, Sympodial, Sympodial],
+        BiomeArchetype::Alpine => &[Monopodial, Monopodial, TernaryProps],
+        BiomeArchetype::Tundra => &[Monopodial],
+        BiomeArchetype::Arid => &[TernaryGravity, TernaryGravity, Sympodial],
+        BiomeArchetype::Volcanic => &[TernaryGravity, Monopodial],
+    }
+}
+
 /// One seeded tree scatter — what the wiring layer turns into a
-/// catalogue-built `lsys_ternary_props` generator plus a matching
-/// `Placement::Scatter` referencing it.
+/// catalogue-built generator for [`TreeScatter::species`] plus a
+/// matching `Placement::Scatter` referencing it.
 #[derive(Clone, Copy, Debug)]
 pub struct TreeScatter {
+    /// Which catalogue plant this scatter instantiates.
+    pub species: TreeSpecies,
     /// Added to `lsys_ternary_props`'s base iteration count. The
     /// deriver only samples `{-1, 0, +1}` — anything wider risks
     /// compile times spiking on a stray `+2` roll, or empty stubs on
@@ -82,8 +125,10 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng, room_seed: u64) -> TreeS
     let (lo, hi) = count_range(scene.biome);
     let n = sample_inclusive(rng, lo, hi);
 
+    let pool = species_pool(scene.biome);
     let mut scatters = Vec::with_capacity(n as usize);
     for i in 0..n {
+        let species = pool[((unit_f32(rng) * pool.len() as f32) as usize).min(pool.len() - 1)];
         // Centre is held inside a 200 m square so a 300 m radius
         // scatter still fits comfortably inside the ~1024 m playable
         // terrain plane.
@@ -102,6 +147,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng, room_seed: u64) -> TreeS
             .wrapping_mul(0x9E37_79B9_7F4A_7C15)
             .wrapping_add((i as u64).wrapping_mul(SCATTER_LOCAL_SEED_SALT));
         scatters.push(TreeScatter {
+            species,
             iterations_delta,
             count,
             center: [cx, cz],
@@ -135,6 +181,7 @@ mod tests {
         let b = TreeScatters::from_scene(&scene, 42);
         assert_eq!(a.scatters.len(), b.scatters.len());
         for (lhs, rhs) in a.scatters.iter().zip(b.scatters.iter()) {
+            assert_eq!(lhs.species, rhs.species);
             assert_eq!(lhs.count, rhs.count);
             assert_eq!(lhs.iterations_delta, rhs.iterations_delta);
             assert_eq!(lhs.center, rhs.center);
@@ -157,6 +204,11 @@ mod tests {
                     ts.scatters.len()
                 );
                 for sc in &ts.scatters {
+                    assert!(
+                        species_pool(biome).contains(&sc.species),
+                        "{biome:?} rolled out-of-pool species {:?}",
+                        sc.species
+                    );
                     assert!(sc.count >= 5 && sc.count <= 50, "count {} OOR", sc.count);
                     assert!(
                         sc.iterations_delta >= -1 && sc.iterations_delta <= 1,

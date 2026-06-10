@@ -8,14 +8,20 @@
 
 pub mod atmosphere;
 pub mod audio;
+pub mod landmark;
 pub mod palette;
+pub mod particles;
+pub mod rocks;
 pub mod scatters;
 pub mod terrain;
 pub mod textures;
 
 pub use atmosphere::{Atmosphere, WaterDynamics};
 pub use audio::AmbientRecipe;
+pub use landmark::Landmark;
 pub use palette::RoomPalette;
-pub use scatters::{TreeScatter, TreeScatters};
+pub use particles::{AmbientParticles, ParticleMood};
+pub use rocks::{RockScatter, RockScatters};
+pub use scatters::{TreeScatter, TreeScatters, TreeSpecies};
 pub use terrain::{GeneratorKind, SplatRule, TerrainShape};
 pub use textures::{BiomeTextures, GroundTextureParams, RockTextureParams};

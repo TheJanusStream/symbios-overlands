@@ -99,6 +99,8 @@ fn placements_over_cap_are_trimmed() {
             generator_ref: "base_terrain".into(),
             transform: TransformData::default(),
             snap_to_terrain: false,
+            avoid_water: false,
+            avoid_water_clearance: Fp(0.0),
         });
     }
     r.sanitize();

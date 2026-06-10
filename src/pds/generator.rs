@@ -925,6 +925,21 @@ pub enum Placement {
         transform: TransformData,
         #[serde(default = "default_true")]
         snap_to_terrain: bool,
+        /// When terrain-snapped, refuse submerged ground: the compiler
+        /// walks the anchor along its bearing through the origin
+        /// (preserving a spawn-facing yaw) until the terrain rises
+        /// above the room's water line. Used by the seeded landmark so
+        /// a coastal villa doesn't spawn waist-deep in the sea.
+        /// `#[serde(default)]` keeps older records decoding unchanged.
+        #[serde(default)]
+        avoid_water: bool,
+        /// Dry-land clearance radius (m) for [`Self::Absolute::avoid_water`]:
+        /// the walk requires the centre *and* a ring of samples at this
+        /// radius to clear the water line, so a wide footprint can't pass
+        /// on a dry anchor while the rest of the building floods. `0`
+        /// checks the centre only.
+        #[serde(default)]
+        avoid_water_clearance: Fp,
     },
 
     #[serde(rename = "network.symbios.place.scatter")]

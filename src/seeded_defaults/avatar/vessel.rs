@@ -59,6 +59,28 @@ impl VesselArchetype {
     }
 }
 
+/// Hull skeleton family. Unlike [`VesselArchetype`] (which only swaps
+/// ornaments), the hull form changes the actual silhouette: how many
+/// hulls there are, how wide the deck sits, and how the mass is
+/// distributed. Two boats with different hull forms read as different
+/// vessels from across a room, not as the same boat re-trimmed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HullForm {
+    /// Single fat centre hull under a narrow deck — sleek launch.
+    Monohull,
+    /// Two symmetric hulls — the classic wide catamaran.
+    Catamaran,
+    /// Fat centre hull plus two short outriggers — busiest waterline.
+    Trimaran,
+    /// No capsule hulls at all: one wide, shallow, tapered slab under
+    /// an oversized deck. Reads as an industrial flat-top.
+    Barge,
+}
+
+impl HullForm {
+    pub const ALL: [Self; 4] = [Self::Monohull, Self::Catamaran, Self::Trimaran, Self::Barge];
+}
+
 /// Prow ornament family. `None` is a valid pick — some avatars skip
 /// the bow piece entirely and let the asymmetric stern (smokestacks /
 /// solar panel + flag) carry the directional cue.
@@ -84,6 +106,7 @@ impl BowStyle {
 #[derive(Clone, Copy, Debug)]
 pub struct VesselDesign {
     pub archetype: VesselArchetype,
+    pub hull_form: HullForm,
     pub bow_style: BowStyle,
 
     /// Catamaran hull capsule radius scale.
@@ -115,6 +138,17 @@ pub struct VesselDesign {
     /// Solar panel tilt angle (radians, around X). Unused when the
     /// archetype skips the panel (Steam).
     pub solar_panel_tilt_rad: f32,
+
+    /// Upward rake of the hull prow, in metres of vertex-torture bend
+    /// applied to each hull capsule's bow end. `0.0` is a straight
+    /// log; higher values read as a sled / gondola sweep.
+    pub prow_rake: f32,
+    /// Mast taper fraction (`1 - taper` top width). Tapered masts read
+    /// as ship spars instead of scaffold pipes.
+    pub mast_taper: f32,
+    /// Smokestack flare — *negative* taper so the stack opens outward
+    /// at the crown like a Victorian funnel.
+    pub stack_flare: f32,
 }
 
 impl VesselDesign {
@@ -122,6 +156,7 @@ impl VesselDesign {
         let mut rng = ChaCha8Rng::seed_from_u64(fnv1a_64(did) ^ AVATAR_VESSEL_SALT);
 
         let archetype = pick(&VesselArchetype::ALL, &mut rng);
+        let hull_form = pick(&HullForm::ALL, &mut rng);
         let bow_style = pick(&BowStyle::ALL, &mut rng);
 
         // Wider continuous ranges than `AvatarBody` carries — vessels
@@ -154,8 +189,20 @@ impl VesselDesign {
         let solar_panel_tilt_rad =
             range_f32(&mut rng, -30.0_f32.to_radians(), 30.0_f32.to_radians());
 
+        // Hull-rake band depends on the hull form: barges stay nearly
+        // flat (a swept slab reads as melted, not raked), monohulls
+        // take the strongest gondola sweep.
+        let prow_rake = match hull_form {
+            HullForm::Barge => range_f32(&mut rng, 0.0, 0.08),
+            HullForm::Monohull => range_f32(&mut rng, 0.20, 0.50),
+            HullForm::Catamaran | HullForm::Trimaran => range_f32(&mut rng, 0.10, 0.35),
+        };
+        let mast_taper = range_f32(&mut rng, 0.15, 0.45);
+        let stack_flare = range_f32(&mut rng, -0.35, -0.12);
+
         Self {
             archetype,
+            hull_form,
             bow_style,
             hull_radius_scale,
             hull_length_scale,
@@ -167,6 +214,9 @@ impl VesselDesign {
             smokestack_count,
             smokestack_height_scale,
             solar_panel_tilt_rad,
+            prow_rake,
+            mast_taper,
+            stack_flare,
         }
     }
 }
@@ -186,9 +236,11 @@ mod tests {
         let a = VesselDesign::for_did("did:plc:test");
         let b = VesselDesign::for_did("did:plc:test");
         assert_eq!(a.archetype, b.archetype);
+        assert_eq!(a.hull_form, b.hull_form);
         assert_eq!(a.bow_style, b.bow_style);
         assert_eq!(a.hull_radius_scale, b.hull_radius_scale);
         assert_eq!(a.smokestack_count, b.smokestack_count);
+        assert_eq!(a.prow_rake, b.prow_rake);
     }
 
     #[test]
@@ -203,7 +255,24 @@ mod tests {
             assert!((0.7..=1.7).contains(&v.bow_scale));
             assert!(v.smokestack_count <= 3);
             assert!(v.solar_panel_tilt_rad.is_finite());
+            assert!((0.0..=0.5).contains(&v.prow_rake));
+            assert!((0.15..=0.45).contains(&v.mast_taper));
+            assert!((-0.35..=-0.12).contains(&v.stack_flare));
         }
+    }
+
+    #[test]
+    fn all_hull_forms_reachable() {
+        let mut seen = [false; 4];
+        for s in 0u64..200 {
+            let v = VesselDesign::for_did(&format!("did:test:{s}"));
+            let i = HullForm::ALL
+                .iter()
+                .position(|f| *f == v.hull_form)
+                .unwrap();
+            seen[i] = true;
+        }
+        assert_eq!(seen, [true; 4], "some hull form never sampled");
     }
 
     #[test]

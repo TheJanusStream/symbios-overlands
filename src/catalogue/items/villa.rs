@@ -35,7 +35,16 @@ impl CatalogueEntry for Villa {
         CatalogueCategory::Buildings
     }
     fn build(&self, _local_did: &str) -> Generator {
-        Generator::from_kind(build_kind())
+        // The centred foundation plinth is the root; the corner-origin
+        // 20×16 grammar hangs beneath it offset by -footprint/2, so the
+        // whole entry is centred on its anchor (placement yaw turns the
+        // building around its middle, and the dry-land clearance ring
+        // measures from the true centre).
+        let mut root = super::util::foundation_block(21.0, 17.0, [0.0, 0.0], 3.0);
+        let mut house = Generator::from_kind(build_kind());
+        house.transform.translation = crate::pds::Fp3([-10.0, 0.0, -8.0]);
+        root.children.push(house);
+        root
     }
 }
 
@@ -250,7 +259,15 @@ mod tests {
     fn build_round_trips_through_sanitize() {
         let mut g = Villa.build("");
         sanitize_generator(&mut g);
-        match &g.kind {
+        // The entry root is now the centred foundation plinth; the
+        // grammar hangs beneath it as the first child.
+        assert!(
+            matches!(g.kind, GeneratorKind::Cuboid { solid: true, .. }),
+            "{} root must be the solid foundation plinth",
+            "villa"
+        );
+        let shape = &g.children[0];
+        match &shape.kind {
             GeneratorKind::Shape {
                 grammar_source,
                 root_rule,

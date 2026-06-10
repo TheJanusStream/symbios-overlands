@@ -16,7 +16,9 @@
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
-use crate::seeded_defaults::scene::{BiomeArchetype, LandformArchetype, SceneCharacter, range_f32};
+use crate::seeded_defaults::scene::{
+    BiomeArchetype, LandformArchetype, SceneCharacter, pick, range_f32,
+};
 
 /// Sub-stream salt for terrain-shape sampling. Distinct from
 /// [`super::palette`]'s salt so the palette deriver and the shape
@@ -26,7 +28,7 @@ const TERRAIN_SHAPE_STREAM_SALT: u64 = 0x5EED_5AFE_E000_0000;
 /// Heightmap algorithm. Mirrors [`crate::pds::SovereignGeneratorKind`]
 /// so the `apply_to_terrain_config` mapping is one-to-one with no
 /// translation table.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum GeneratorKind {
     FbmNoise,
     DiamondSquare,
@@ -97,7 +99,16 @@ impl TerrainShape {
 /// the sampling band for that archetype; the deriver draws one value
 /// per call from `range_f32(rng, lo, hi)`.
 struct LandformProfile {
-    generator_kind: GeneratorKind,
+    /// Candidate heightmap algorithms; one is picked per room, with
+    /// repetition acting as weighting. Mesa stays Voronoi-only (the
+    /// terracing *is* the archetype); the noise-driven landforms mix
+    /// FBM with Diamond-Square so two Rolling rooms can differ in
+    /// macro character, not just in knob values.
+    generator_kinds: &'static [GeneratorKind],
+    /// Diamond-Square roughness band — only consumed when the picked
+    /// algorithm is [`GeneratorKind::DiamondSquare`], but sampled
+    /// unconditionally to keep the RNG stream stable.
+    ds_roughness: (f32, f32),
     /// Total terrain amplitude (m). Rolling=low, Craggy=high.
     height_scale: (f32, f32),
     /// Hydraulic erosion drop count. Valleys=very high.
@@ -132,7 +143,8 @@ fn landform_profile(l: LandformArchetype) -> LandformProfile {
     use LandformArchetype::*;
     match l {
         Rolling => LandformProfile {
-            generator_kind: FbmNoise,
+            generator_kinds: &[FbmNoise, FbmNoise, DiamondSquare],
+            ds_roughness: (0.30, 0.45),
             height_scale: (25.0, 40.0),
             erosion_drops: (15_000, 35_000),
             erosion_rate: (0.15, 0.30),
@@ -147,7 +159,8 @@ fn landform_profile(l: LandformArchetype) -> LandformProfile {
             water_level_fraction: (0.10, 0.25),
         },
         Craggy => LandformProfile {
-            generator_kind: FbmNoise,
+            generator_kinds: &[FbmNoise, DiamondSquare],
+            ds_roughness: (0.55, 0.75),
             height_scale: (60.0, 90.0),
             erosion_drops: (25_000, 55_000),
             erosion_rate: (0.30, 0.45),
@@ -162,7 +175,8 @@ fn landform_profile(l: LandformArchetype) -> LandformProfile {
             water_level_fraction: (0.05, 0.18),
         },
         Mesa => LandformProfile {
-            generator_kind: VoronoiTerracing,
+            generator_kinds: &[VoronoiTerracing],
+            ds_roughness: (0.40, 0.50),
             height_scale: (50.0, 75.0),
             erosion_drops: (8_000, 25_000),
             erosion_rate: (0.15, 0.30),
@@ -177,7 +191,8 @@ fn landform_profile(l: LandformArchetype) -> LandformProfile {
             water_level_fraction: (0.05, 0.15),
         },
         Archipelago => LandformProfile {
-            generator_kind: FbmNoise,
+            generator_kinds: &[FbmNoise, FbmNoise, DiamondSquare],
+            ds_roughness: (0.45, 0.60),
             height_scale: (35.0, 65.0),
             erosion_drops: (25_000, 50_000),
             erosion_rate: (0.20, 0.35),
@@ -192,7 +207,8 @@ fn landform_profile(l: LandformArchetype) -> LandformProfile {
             water_level_fraction: (0.28, 0.48),
         },
         Valleys => LandformProfile {
-            generator_kind: FbmNoise,
+            generator_kinds: &[FbmNoise, FbmNoise, DiamondSquare],
+            ds_roughness: (0.45, 0.60),
             height_scale: (45.0, 70.0),
             erosion_drops: (60_000, 120_000),
             erosion_rate: (0.30, 0.45),
@@ -299,6 +315,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> TerrainShape {
     let lp = landform_profile(scene.landform);
     let bp = biome_splat_profile(scene.biome);
 
+    let generator_kind = pick(lp.generator_kinds, rng);
     let octaves = sample_u32(rng, lp.octaves);
     let height_scale = sample_f32(rng, lp.height_scale);
     let erosion_drops = sample_u32(rng, lp.erosion_drops);
@@ -338,16 +355,14 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> TerrainShape {
     ];
 
     TerrainShape {
-        generator_kind: lp.generator_kind,
+        generator_kind,
         octaves,
         persistence: sample_f32(rng, lp.persistence),
         lacunarity: sample_f32(rng, lp.lacunarity),
         base_frequency: sample_f32(rng, lp.base_frequency),
-        // Diamond-Square roughness isn't used unless the algorithm
-        // happens to be DiamondSquare (none of the current profiles
-        // pick it, but the field is sampled anyway so a future profile
-        // change doesn't introduce uninitialised-feeling defaults).
-        ds_roughness: range_f32(rng, 0.35, 0.65),
+        // Sampled unconditionally (FBM rooms ignore it) so the RNG
+        // stream doesn't shift between algorithm picks.
+        ds_roughness: sample_f32(rng, lp.ds_roughness),
         voronoi_num_seeds: sample_u32(rng, lp.voronoi_num_seeds),
         voronoi_num_terraces: sample_u32(rng, lp.voronoi_num_terraces),
         height_scale,
@@ -449,6 +464,29 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn noise_landforms_mix_algorithms_and_mesa_stays_voronoi() {
+        let mut rolling_kinds = std::collections::HashSet::new();
+        for s in 0u64..96 {
+            let mut scene = SceneCharacter::for_seed(s);
+            scene.landform = LandformArchetype::Rolling;
+            rolling_kinds.insert(TerrainShape::from_scene(&scene, s).generator_kind);
+
+            let mut mesa = SceneCharacter::for_seed(s);
+            mesa.landform = LandformArchetype::Mesa;
+            assert_eq!(
+                TerrainShape::from_scene(&mesa, s).generator_kind,
+                GeneratorKind::VoronoiTerracing,
+                "mesa must stay Voronoi-terraced"
+            );
+        }
+        assert!(
+            rolling_kinds.contains(&GeneratorKind::FbmNoise)
+                && rolling_kinds.contains(&GeneratorKind::DiamondSquare),
+            "rolling rooms should mix FBM and Diamond-Square; saw {rolling_kinds:?}"
+        );
     }
 
     #[test]

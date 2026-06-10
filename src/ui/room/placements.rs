@@ -110,6 +110,8 @@ pub(super) fn draw_placements_tab(
                 generator_ref: all_names.first().cloned().unwrap_or_default(),
                 transform: TransformData::default(),
                 snap_to_terrain: true,
+                avoid_water: false,
+                avoid_water_clearance: crate::pds::Fp(0.0),
             });
             *selected = Some(record.placements.len() - 1);
             *dirty = true;
@@ -165,10 +167,37 @@ fn draw_placement_detail(
             generator_ref,
             transform,
             snap_to_terrain,
+            avoid_water,
+            avoid_water_clearance,
         } => {
             generator_combo(ui, "Generator", generator_ref, all_names, dirty);
             if ui.checkbox(snap_to_terrain, "Snap to Terrain").changed() {
                 *dirty = true;
+            }
+            if ui
+                .checkbox(avoid_water, "Avoid Water")
+                .on_hover_text(
+                    "When snapped, slide the anchor along its bearing to the \
+                     nearest ground above the room's water line.",
+                )
+                .changed()
+            {
+                *dirty = true;
+            }
+            if *avoid_water {
+                ui.horizontal(|ui| {
+                    ui.label("Clearance (m)");
+                    if ui
+                        .add(egui::DragValue::new(&mut avoid_water_clearance.0).range(0.0..=100.0))
+                        .on_hover_text(
+                            "Dry-land radius the walk must clear — roughly the \
+                             structure's footprint radius. 0 checks the centre only.",
+                        )
+                        .changed()
+                    {
+                        *dirty = true;
+                    }
+                });
             }
             draw_transform_no_scale(ui, transform, dirty);
         }

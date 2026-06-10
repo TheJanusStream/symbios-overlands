@@ -18,9 +18,16 @@
 //!         · room::textures   (per-biome procedural generator knobs)
 //!         · room::atmosphere (water, clouds, sun, fog)
 //!         · room::scatters   (biome-biased tree-scatter specs)
+//!         · room::rocks      (landform-biased boulder scatters)
+//!         · room::particles  (biome-mood ambient emitter)
+//!         · room::landmark   (biome-matched structure near spawn)
 //!         · room::audio      (biome-matched ambient bed)
+//!         · avatar::chassis  (visual family: boat/airship/humanoid/skiff)
 //!         · avatar::body     (proportions)
-//!         · avatar::vessel   (hover-boat hull/mast/stack design)
+//!         · avatar::vessel   (boat hull-form/mast/stack design)
+//!         · avatar::airship  (envelope/gondola/fin design)
+//!         · avatar::skiff    (running gear/canopy design)
+//!         · avatar::humanoid_style (hat/backpack/eye-glow costume)
 //!         · avatar::palette  (skin/hair/accent)
 //!         · avatar::gait     (cadence/bounce/sway)
 //! ```
@@ -37,13 +44,15 @@ pub mod room;
 pub mod scene;
 
 pub use avatar::{
-    AvatarBody, AvatarGait, AvatarPalette, BodyArchetype, BowStyle, VesselArchetype, VesselDesign,
+    AirshipDesign, AvatarBody, AvatarGait, AvatarPalette, BodyArchetype, BowStyle, CanopyStyle,
+    ChassisFamily, EnvelopeForm, HatStyle, HullForm, HumanoidStyle, SkiffDesign, SkiffForm,
+    VesselArchetype, VesselDesign,
 };
 pub use hash::fnv1a_64;
 pub use room::{
-    AmbientRecipe, Atmosphere, BiomeTextures, GeneratorKind, GroundTextureParams,
-    RockTextureParams, RoomPalette, SplatRule, TerrainShape, TreeScatter, TreeScatters,
-    WaterDynamics,
+    AmbientParticles, AmbientRecipe, Atmosphere, BiomeTextures, GeneratorKind, GroundTextureParams,
+    Landmark, ParticleMood, RockScatters, RockTextureParams, RoomPalette, SplatRule, TerrainShape,
+    TreeScatter, TreeScatters, TreeSpecies, WaterDynamics,
 };
 pub use scene::{
     BiomeArchetype, LandformArchetype, SceneCharacter, pick, range_f32, signed_unit_f32, unit_f32,

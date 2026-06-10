@@ -300,6 +300,8 @@ mod tests {
             generator_ref: name.to_string(),
             transform: TransformData::default(),
             snap_to_terrain: true,
+            avoid_water: false,
+            avoid_water_clearance: crate::pds::Fp(0.0),
         }
     }
 

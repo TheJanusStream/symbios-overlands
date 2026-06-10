@@ -141,6 +141,8 @@ fn every_placement_variant_round_trips() {
         generator_ref: "base_terrain".into(),
         transform: TransformData::default(),
         snap_to_terrain: false,
+        avoid_water: false,
+        avoid_water_clearance: Fp(0.0),
     });
     record.placements.push(Placement::Scatter {
         generator_ref: "base_terrain".into(),
