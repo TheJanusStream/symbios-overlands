@@ -7,7 +7,7 @@
 //! as they're ready — no Overlands-side polling resource required.
 
 use bevy::prelude::*;
-use bevy_symbios_texture::build_procedural_material_async;
+use bevy_symbios_texture::{TextureCache, build_procedural_material_async};
 
 use crate::pds::{Environment, SovereignMaterialSettings, SovereignTextureConfig, WaterSurface};
 use crate::terrain::WaterVolume;
@@ -159,7 +159,13 @@ pub(super) fn spawn_procedural_material(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
     settings: &SovereignMaterialSettings,
 ) -> Handle<StandardMaterial> {
-    let handle = build_procedural_material(ctx.commands, ctx.std_materials, ctx.images, settings);
+    let handle = build_procedural_material(
+        ctx.commands,
+        ctx.std_materials,
+        ctx.images,
+        ctx.texture_cache,
+        settings,
+    );
 
     // Referenced textures leave `base_color_texture` empty (see
     // `SovereignTextureConfig::to_texture_config`, which collapses
@@ -183,28 +189,42 @@ pub(super) fn spawn_procedural_material(
     handle
 }
 
-/// Free-function core of [`spawn_procedural_material`] — takes the three
+/// Free-function core of [`spawn_procedural_material`] — takes the
 /// resources upstream's
 /// [`bevy_symbios_texture::build_procedural_material_async`] needs instead
 /// of the full [`SpawnCtx`], so avatar builders can reuse it without
 /// constructing a world-builder context.
 ///
 /// Returns a [`StandardMaterial`] handle whose texture slots are populated
-/// asynchronously once the texture-generator task finishes. The actual
-/// patching is performed by `patch_procedural_material_textures`,
-/// auto-registered by [`bevy_symbios_texture::SymbiosTexturePlugin`].
+/// asynchronously once the texture-generator task finishes — or
+/// synchronously when `texture_cache` already holds the config's
+/// fingerprint, in which case no task is spawned at all. The async-path
+/// patching is performed by `patch_procedural_material_textures`
+/// (auto-registered by [`bevy_symbios_texture::SymbiosTexturePlugin`]),
+/// which also writes completed bakes back into the cache.
 pub fn build_procedural_material(
     commands: &mut Commands,
     std_materials: &mut Assets<StandardMaterial>,
     images: &mut Assets<Image>,
+    texture_cache: &mut TextureCache,
     settings: &SovereignMaterialSettings,
 ) -> Handle<StandardMaterial> {
     let native = settings.to_native();
     // 512×512 matches the size Overlands has historically generated; the
     // upstream helper hands every variant the same dimensions so foliage
-    // cards and tiling surfaces share the cache layout. No `TextureCache`
-    // is supplied — Overlands' generator-level caches already amortise the
-    // common case; cross-generator dedup at the texture level is filed as
-    // a follow-up.
-    build_procedural_material_async(commands, std_materials, images, None, &native, 512, 512)
+    // cards and tiling surfaces share the cache layout. The `TextureCache`
+    // dedups by content fingerprint *across* generators — crucially it
+    // covers primitives, which have no generator-level material cache, so
+    // N identical boulders bake one texture set and an unchanged config
+    // re-bakes nothing on a rebuild. On wasm every cache miss bakes on the
+    // main thread, so each avoided task is a directly skipped frame stall.
+    build_procedural_material_async(
+        commands,
+        std_materials,
+        images,
+        Some(texture_cache),
+        &native,
+        512,
+        512,
+    )
 }

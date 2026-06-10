@@ -113,6 +113,7 @@ pub fn spawn_avatar_visuals_subtree(
         shape_mesh_cache: &mut caches.shape_mesh,
         upstream_shape_mesh_cache: &mut caches.upstream_shape_mesh,
         shape_mesh_touched: &mut shape_mesh_touched,
+        texture_cache: &mut caches.texture,
         current_room,
         entities_spawned: &mut entities_spawned,
         budget_warned: &mut budget_warned,

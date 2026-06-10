@@ -162,6 +162,7 @@ pub(super) fn compile_room_record(
             shape_mesh_cache: &mut generator_caches.shape_mesh,
             upstream_shape_mesh_cache: &mut generator_caches.upstream_shape_mesh,
             shape_mesh_touched: &mut job.touched.shape_mesh,
+            texture_cache: &mut generator_caches.texture,
             current_room: current_room.as_deref(),
             entities_spawned: &mut job.entities_spawned,
             budget_warned: &mut job.budget_warned,

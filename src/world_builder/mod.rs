@@ -187,6 +187,19 @@ pub struct WorldBuilderPlugin;
 impl Plugin for WorldBuilderPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<WaterMaterial>::default())
+            // Content-fingerprinted procedural-texture dedup, consulted by
+            // `build_procedural_material` before dispatching a bake and
+            // populated by the upstream `patch_procedural_material_textures`
+            // system (which takes it as an optional resource — inserting it
+            // here is what switches caching on). Survives room changes by
+            // design: keys are pure content hashes, so a revisited room
+            // re-uses its textures. Capacity note: at the 512² bake size one
+            // entry pins ~3 MiB of pixel data (albedo + normal + ORM), so
+            // the upstream 256-entry default would allow ~768 MiB — too much
+            // headroom for the wasm heap. 64 entries (~192 MiB worst case,
+            // far less in practice) covers several rooms' worth of distinct
+            // configs before FIFO eviction kicks in.
+            .insert_resource(bevy_symbios_texture::TextureCache::memory(64))
             .init_resource::<LSystemMaterialCache>()
             .init_resource::<LSystemMeshCache>()
             .init_resource::<ShapeMaterialCache>()

@@ -5,6 +5,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_symbios::materials::MaterialPalette;
 use bevy_symbios_shape::cache::ShapeMeshCache as UpstreamShapeMeshCache;
+use bevy_symbios_texture::TextureCache;
 use std::collections::HashSet;
 
 use crate::pds::{RoomRecord, TransformData};
@@ -41,6 +42,14 @@ pub struct GeneratorCaches<'w> {
     /// Bevy's 16-parameter `IntoSystem` ceiling on
     /// `compile_room_record`; same for the fields below.
     pub(crate) baked_audio: ResMut<'w, super::super::spatial_audio::BakedAudioCache>,
+    /// Content-fingerprinted procedural-texture dedup shared with the
+    /// upstream `bevy_symbios_texture` patch system. Consulted by
+    /// `build_procedural_material_async` *before* it dispatches a bake,
+    /// so identical configs (every boulder of a rock scatter, a rebuilt
+    /// unchanged prim) clone three `Handle<Image>`s instead of queueing
+    /// a fresh 512² generation task — which on wasm would run
+    /// monolithically on the main thread.
+    pub(crate) texture: ResMut<'w, TextureCache>,
     /// Per-placement compiled state (fingerprints + anchors) the diff
     /// planner reads and the executor commits into — see
     /// [`CompiledWorld`](super::job::CompiledWorld).
@@ -159,6 +168,12 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// `generator_ref` keys touched this compile pass so the caller can GC
     /// shape meshes belonging to generators removed from the record.
     pub(crate) shape_mesh_touched: &'a mut HashSet<String>,
+    /// Cross-generator procedural-texture dedup — see
+    /// [`GeneratorCaches::texture`]. Unlike the per-generator material
+    /// caches above it also covers primitives, which have no
+    /// generator-level cache of their own: without it every boulder of
+    /// a rebuilt rock scatter re-bakes an identical texture set.
+    pub(crate) texture_cache: &'a mut TextureCache,
     /// DID of the room we're currently compiling. Portal generators skip the
     /// ATProto profile-picture fetch when `target_did` equals this (an
     /// intra-room portal has no remote identity to paint onto its top face).
