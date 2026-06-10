@@ -177,6 +177,7 @@ pub fn run() {
         .init_resource::<PublishFeedback<RoomRecord>>()
         .init_resource::<PublishFeedback<AvatarRecord>>()
         .init_resource::<PublishFeedback<InventoryRecord>>()
+        .init_resource::<ui::toolbar::UiPanels>()
         .init_resource::<ui::inventory::PendingGeneratorDrop>()
         .init_resource::<state::PendingOutgoingOffers>()
         .init_resource::<ui::login::LoginError>()
@@ -228,10 +229,15 @@ pub fn run() {
         .add_systems(
             Update,
             (
-                loading::poll_room_record_task,
-                loading::poll_avatar_record_task,
-                loading::poll_inventory_record_task,
-                loading::fire_pending_record_retries,
+                loading::poll_record_task::<RoomRecord>,
+                loading::poll_record_task::<AvatarRecord>,
+                loading::poll_record_task::<InventoryRecord>,
+                loading::fire_pending_record_retries::<RoomRecord>,
+                loading::fire_pending_record_retries::<AvatarRecord>,
+                // No retry instance for InventoryRecord: its fetch is
+                // best-effort (MAX_ATTEMPTS = 0), so no retry marker is
+                // ever spawned for it.
+                //
                 // Ambient bake is chained AFTER the room-record poll so
                 // the dispatch sees `LiveRoomRecord` in the same frame
                 // it arrives — without `.chain()` the starter would
@@ -245,11 +251,17 @@ pub fn run() {
         )
         .add_systems(
             EguiPrimaryContextPass,
-            loading_ui.run_if(in_state(AppState::Loading)),
+            ui::loading::loading_ui.run_if(in_state(AppState::Loading)),
         )
         .add_systems(
             EguiPrimaryContextPass,
             (
+                // The toolbar is chained first so its TopBottomPanel
+                // claims screen space before any window lays out — egui
+                // wants panels added before floating windows within a
+                // frame. (The egui systems already serialise on the
+                // shared context, so the chain costs no parallelism.)
+                ui::toolbar::toolbar_ui,
                 ui::diagnostics::diagnostics_ui,
                 ui::chat::chat_ui,
                 ui::people::people_ui,
@@ -258,8 +270,16 @@ pub fn run() {
                 ui::room::room_admin_ui,
                 ui::inventory::inventory_ui,
                 ui::catalogue::catalogue_ui,
+                ui::toolbar::controls_hint_ui,
             )
+                .chain()
                 .run_if(in_state(AppState::InGame)),
+        )
+        .add_systems(
+            EguiPrimaryContextPass,
+            ui::unsaved_guard::unsaved_guard_ui
+                .run_if(in_state(AppState::InGame))
+                .run_if(resource_exists::<ui::unsaved_guard::UnsavedGuard>),
         )
         .add_systems(
             Update,
@@ -383,13 +403,4 @@ fn setup_lighting(
         NotShadowCaster,
         CloudLayer,
     ));
-}
-
-fn loading_ui(mut contexts: bevy_egui::EguiContexts) {
-    bevy_egui::egui::CentralPanel::default().show(contexts.ctx_mut().unwrap(), |ui| {
-        ui.centered_and_justified(|ui| {
-            ui.heading("Generating the overlands…");
-            ui.spinner();
-        });
-    });
 }

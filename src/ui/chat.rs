@@ -23,6 +23,7 @@ pub(crate) const AVATAR_ICON_PX: f32 = 18.0;
 #[allow(clippy::too_many_arguments)]
 pub fn chat_ui(
     mut contexts: EguiContexts,
+    mut panels: ResMut<crate::ui::toolbar::UiPanels>,
     session: Option<Res<AtprotoSession>>,
     mut chat: ResMut<ChatHistory>,
     profile_cache: Res<BskyProfileCache>,
@@ -47,6 +48,7 @@ pub fn chat_ui(
         .collect();
 
     egui::Window::new("Chat")
+        .open(&mut panels.chat)
         .default_pos(cfg::WINDOW_DEFAULT_POS)
         .default_size([cfg::WINDOW_DEFAULT_WIDTH, cfg::WINDOW_DEFAULT_HEIGHT])
         .resizable(true)

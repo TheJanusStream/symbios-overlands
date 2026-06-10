@@ -40,6 +40,9 @@
 //! * [`car`] — Car preset: ground drive + steering + handbrake.
 //! * [`portal`] — `handle_portal_interaction`,
 //!   `poll_portal_travel_tasks`, and the `PortalTravelTask` async job.
+//!   `begin_portal_travel` / `PortalCooldown` are re-exported for the
+//!   unsaved-edits guard in [`crate::ui::unsaved_guard`], which owns the
+//!   confirm step between portal contact and the actual travel fetch.
 
 mod airplane;
 mod car;
@@ -49,6 +52,8 @@ mod humanoid;
 mod portal;
 pub mod visuals;
 
+pub use portal::PortalCooldown;
+pub(crate) use portal::begin_portal_travel;
 pub use visuals::AvatarVisualEntity;
 
 use avian3d::prelude::*;

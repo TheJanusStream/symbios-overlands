@@ -23,6 +23,7 @@ use crate::ui::inventory::{DropSource, PendingGeneratorDrop, is_drop_placeable};
 #[allow(clippy::too_many_arguments)]
 pub fn catalogue_ui(
     mut contexts: EguiContexts,
+    mut panels: ResMut<crate::ui::toolbar::UiPanels>,
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
     mut pending_drop: ResMut<PendingGeneratorDrop>,
@@ -42,7 +43,7 @@ pub fn catalogue_ui(
     };
 
     egui::Window::new("Catalogue")
-        .default_open(false)
+        .open(&mut panels.catalogue)
         .default_pos([390.0, 420.0])
         .default_size([300.0, 380.0])
         .resizable(true)

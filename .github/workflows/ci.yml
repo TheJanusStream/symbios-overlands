@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # rust-toolchain.toml pins the channel + rustfmt/clippy components;
+      # the action just makes sure a matching toolchain is installed.
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # Bevy's default features link ALSA (bevy_audio) and udev
+      # (bevy_winit input enumeration) on Linux, so the native test
+      # build needs their dev packages even though the tests run
+      # headless.
+      - name: Install Bevy system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+
+      - name: rustfmt
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --all-targets -- -D warnings
+
+      # .cargo/config.toml caps build.jobs at 6 so the ~15 statically
+      # linked Bevy test binaries don't all link at once; the runner's
+      # 16 GB is enough under that cap.
+      - name: Test
+        run: cargo test

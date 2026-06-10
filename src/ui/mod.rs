@@ -20,6 +20,12 @@
 //! * [`room`]         — owner-only tabbed World Editor (Environment /
 //!   Region Assets / Placements / Effects / Raw JSON), gated on
 //!   `session.did == room.did`.
+//! * [`unsaved_guard`] — confirm dialog that gates portal travel and
+//!   logout while any editable record has unpublished edits.
+//! * [`loading`]      — per-task progress panel for the
+//!   `AppState::Loading` gate (fetch / retry / bake status rows).
+//! * [`toolbar`]      — top toolbar with per-panel toggle buttons
+//!   ([`toolbar::UiPanels`]) and the first-run controls hint.
 
 pub mod avatar;
 pub mod catalogue;
@@ -27,6 +33,9 @@ pub mod chat;
 pub mod diagnostics;
 pub mod editable;
 pub mod inventory;
+pub mod loading;
 pub mod login;
 pub mod people;
 pub mod room;
+pub mod toolbar;
+pub mod unsaved_guard;

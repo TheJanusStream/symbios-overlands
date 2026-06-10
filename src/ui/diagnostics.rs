@@ -4,7 +4,8 @@
 //! opens directly and the native build accepts as `--did=… --pos=… --rot=…`),
 //! a native-only wireframe-mode checkbox (skipped on WebGL2 where
 //! `POLYGON_MODE_LINE` is unavailable), a scrolling event log, and the
-//! log-out button that transitions the app back to `AppState::Login`.
+//! log-out button (routed through [`crate::ui::unsaved_guard`] so
+//! unpublished edits are never silently discarded).
 
 #[cfg(not(target_arch = "wasm32"))]
 use bevy::pbr::wireframe::WireframeConfig;
@@ -13,16 +14,18 @@ use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
 use crate::boot_params::{build_landmark_link, write_to_clipboard};
-use crate::state::{AppState, CurrentRoomDid, DiagnosticsLog, LocalPlayer, RemotePeer};
+use crate::state::{CurrentRoomDid, DiagnosticsLog, LocalPlayer, RemotePeer};
+use crate::ui::unsaved_guard::{GuardedAction, UnsavedGuard};
 
 #[allow(clippy::too_many_arguments)]
 pub fn diagnostics_ui(
+    mut commands: Commands,
     mut contexts: EguiContexts,
+    mut panels: ResMut<crate::ui::toolbar::UiPanels>,
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
     mut peers: Query<&mut RemotePeer>,
     diagnostics: Res<DiagnosticsLog>,
-    mut next_state: ResMut<NextState<AppState>>,
     mut landmark_status: Local<Option<(String, f64)>>,
     time: Res<Time>,
     local_player_q: Query<&Transform, With<LocalPlayer>>,
@@ -33,7 +36,7 @@ pub fn diagnostics_ui(
     use crate::config::ui::diagnostics as cfg;
 
     egui::Window::new("Diagnostics")
-        .default_open(false)
+        .open(&mut panels.diagnostics)
         .default_pos(cfg::WINDOW_DEFAULT_POS)
         .default_size([cfg::WINDOW_DEFAULT_WIDTH, cfg::WINDOW_DEFAULT_HEIGHT])
         .resizable(true)
@@ -55,7 +58,11 @@ pub fn diagnostics_ui(
             }
 
             if ui.button("Log out").clicked() {
-                next_state.set(AppState::Login);
+                // Route through the unsaved-edits guard instead of
+                // flipping the state directly: it transitions to
+                // `AppState::Login` immediately when nothing is dirty,
+                // and otherwise offers Publish / Discard / Cancel first.
+                commands.insert_resource(UnsavedGuard::new(GuardedAction::Logout));
             }
 
             // Render-debug toggles. Wireframe is native-only because the

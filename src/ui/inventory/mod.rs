@@ -100,6 +100,7 @@ pub struct PeerDropTarget {
 #[allow(clippy::too_many_arguments)]
 pub fn inventory_ui(
     mut contexts: EguiContexts,
+    mut panels: ResMut<crate::ui::toolbar::UiPanels>,
     mut commands: Commands,
     session: Option<Res<AtprotoSession>>,
     refresh_ctx: Option<Res<crate::oauth::OauthRefreshCtx>>,
@@ -162,7 +163,7 @@ pub fn inventory_ui(
     }
 
     egui::Window::new("Inventory")
-        .default_open(false)
+        .open(&mut panels.inventory)
         .default_pos([390.0, 10.0])
         .default_size([300.0, 400.0])
         .resizable(true)
@@ -276,32 +277,12 @@ pub fn inventory_ui(
                 RecordAction::None => {}
                 RecordAction::Publish => {
                     feedback.status = PublishStatus::Publishing;
-
-                    let session_clone = session.clone();
-                    let refresh_clone = refresh_ctx.clone();
-                    let record_clone = live.0.clone();
-                    let pool = bevy::tasks::IoTaskPool::get();
-                    let task = pool.spawn(async move {
-                        let fut = async {
-                            let client = crate::config::http::default_client();
-                            crate::pds::publish_inventory_record(
-                                &client,
-                                &session_clone,
-                                &refresh_clone,
-                                &record_clone,
-                            )
-                            .await
-                        };
-                        #[cfg(target_arch = "wasm32")]
-                        {
-                            fut.await
-                        }
-                        #[cfg(not(target_arch = "wasm32"))]
-                        {
-                            crate::config::http::block_on(fut)
-                        }
-                    });
-                    commands.spawn(PublishInventoryTask(task));
+                    spawn_publish_inventory_task(
+                        &mut commands,
+                        &session,
+                        &refresh_ctx,
+                        live.0.clone(),
+                    );
                 }
                 RecordAction::Load => {
                     live.0 = stored.0.clone();
@@ -313,6 +294,37 @@ pub fn inventory_ui(
 
             publish_status_line(ui, &feedback.status, time.elapsed_secs_f64());
         });
+}
+
+/// Spawn the async inventory-record publish. `pub(crate)` because the
+/// unsaved-edits guard ([`crate::ui::unsaved_guard`]) drives the same
+/// pipeline for its "Publish & log out" path — the shared
+/// [`poll_publish_inventory_tasks`] system lands the result either way.
+pub(crate) fn spawn_publish_inventory_task(
+    commands: &mut Commands,
+    session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
+    record: InventoryRecord,
+) {
+    let session_clone = session.clone();
+    let refresh_clone = refresh.clone();
+    let pool = bevy::tasks::IoTaskPool::get();
+    let task = pool.spawn(async move {
+        let fut = async {
+            let client = crate::config::http::default_client();
+            crate::pds::publish_inventory_record(&client, &session_clone, &refresh_clone, &record)
+                .await
+        };
+        #[cfg(target_arch = "wasm32")]
+        {
+            fut.await
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            crate::config::http::block_on(fut)
+        }
+    });
+    commands.spawn(PublishInventoryTask(task));
 }
 
 pub fn poll_publish_inventory_tasks(

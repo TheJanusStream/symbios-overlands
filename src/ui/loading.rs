@@ -1,0 +1,158 @@
+//! Loading-screen progress panel.
+//!
+//! `AppState::Loading` gates on five tasks (heightmap, room / avatar /
+//! inventory record fetches, ambient-audio bake — see
+//! [`crate::loading::check_loading_complete`]), and a slow PDS
+//! round-trip can hold the gate for many seconds while the fetch
+//! machinery retries with exponential backoff. A bare spinner gives the
+//! user no way to tell "still working" from "stuck", so this panel
+//! lists each gate task with its live status, including the retry
+//! countdown the backoff markers carry.
+//!
+//! Everything shown here is read straight from the same ECS state the
+//! gate itself checks: a row is *done* exactly when the resource the
+//! gate waits on is present, and *retrying* exactly while a
+//! [`PendingRecordRetry`] marker exists for that record type.
+
+use bevy::prelude::*;
+use bevy_egui::{EguiContexts, egui};
+
+use crate::loading::AmbientHandle;
+use crate::loading::fetch::{LoadedRecord, PendingRecordRetry};
+use crate::pds::{AvatarRecord, RoomRecord};
+use crate::state::{LiveAvatarRecord, LiveInventoryRecord, LiveRoomRecord};
+use crate::terrain::FinishedHeightMap;
+
+/// Display state of one gate task.
+enum RowStatus {
+    /// The gate resource is present.
+    Done,
+    /// Work is in flight (fetching / generating / baking).
+    Active,
+    /// A transient fetch failure is waiting out its backoff window.
+    Retrying {
+        attempt: u32,
+        max: u32,
+        in_secs: f64,
+    },
+}
+
+/// Derive a record row's status from its gate resource and retry
+/// markers. The fetch task itself doesn't need probing: while neither
+/// the resource nor a retry marker exists the fetch is in flight (the
+/// start systems dispatch on the first Loading frame).
+fn record_row<R: LoadedRecord>(
+    resource_present: bool,
+    retries: &Query<&PendingRecordRetry<R>>,
+    now: f64,
+) -> RowStatus {
+    if resource_present {
+        return RowStatus::Done;
+    }
+    if let Some(marker) = retries.iter().next() {
+        return RowStatus::Retrying {
+            attempt: marker.attempt(),
+            max: R::MAX_ATTEMPTS,
+            in_secs: (marker.fire_at_secs() - now).max(0.0),
+        };
+    }
+    RowStatus::Active
+}
+
+/// One labelled status line: check-mark, spinner, or retry countdown.
+fn draw_row(ui: &mut egui::Ui, label: &str, status: RowStatus) {
+    ui.horizontal(|ui| {
+        match status {
+            RowStatus::Done => {
+                ui.colored_label(egui::Color32::LIGHT_GREEN, "✔");
+                ui.label(label);
+            }
+            RowStatus::Active => {
+                ui.spinner();
+                ui.label(label);
+            }
+            RowStatus::Retrying {
+                attempt,
+                max,
+                in_secs,
+            } => {
+                ui.spinner();
+                ui.label(label);
+                ui.colored_label(
+                    egui::Color32::YELLOW,
+                    format!(
+                        "retrying in {:.0}s (attempt {attempt}/{max})",
+                        in_secs.ceil()
+                    ),
+                );
+            }
+        };
+    });
+}
+
+/// Render the loading screen: heading plus one live status row per gate
+/// task. Registered in `crate::run` under `EguiPrimaryContextPass`
+/// while in `AppState::Loading`.
+#[allow(clippy::too_many_arguments)]
+pub fn loading_ui(
+    mut contexts: EguiContexts,
+    heightmap: Option<Res<FinishedHeightMap>>,
+    live_room: Option<Res<LiveRoomRecord>>,
+    live_avatar: Option<Res<LiveAvatarRecord>>,
+    live_inventory: Option<Res<LiveInventoryRecord>>,
+    ambient: Option<Res<AmbientHandle>>,
+    room_retries: Query<&PendingRecordRetry<RoomRecord>>,
+    avatar_retries: Query<&PendingRecordRetry<AvatarRecord>>,
+    time: Res<Time>,
+) {
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
+    let now = time.elapsed_secs_f64();
+
+    let terrain_status = if heightmap.is_some() {
+        RowStatus::Done
+    } else {
+        RowStatus::Active
+    };
+    let room_status = record_row::<RoomRecord>(live_room.is_some(), &room_retries, now);
+    let avatar_status = record_row::<AvatarRecord>(live_avatar.is_some(), &avatar_retries, now);
+    // Inventory never retries (best-effort fetch), so its row is a
+    // plain present/absent check — no retry query needed.
+    let inventory_status = if live_inventory.is_some() {
+        RowStatus::Done
+    } else {
+        RowStatus::Active
+    };
+    // The ambient bake only dispatches once the room record lands, so
+    // until then the row is genuinely waiting on the room row above —
+    // shown as active anyway: from the user's perspective the
+    // soundscape *is* still being worked on.
+    let ambient_status = if ambient.is_some() {
+        RowStatus::Done
+    } else {
+        RowStatus::Active
+    };
+
+    egui::CentralPanel::default().show(ctx, |ui| {
+        ui.vertical_centered(|ui| {
+            // Push the block toward the vertical centre without
+            // `centered_and_justified` (which would stack the rows on
+            // one line).
+            ui.add_space(ui.available_height() * 0.35);
+            ui.heading("Generating the overlands…");
+            ui.add_space(12.0);
+            // Fixed-width child so the five rows left-align with each
+            // other while the block as a whole stays centred.
+            ui.allocate_ui(egui::vec2(340.0, 0.0), |ui| {
+                ui.vertical(|ui| {
+                    draw_row(ui, "Terrain heightmap", terrain_status);
+                    draw_row(ui, "World recipe (room record)", room_status);
+                    draw_row(ui, "Avatar record", avatar_status);
+                    draw_row(ui, "Inventory", inventory_status);
+                    draw_row(ui, "Ambient soundscape", ambient_status);
+                });
+            });
+        });
+    });
+}

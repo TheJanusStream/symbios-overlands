@@ -120,6 +120,10 @@ fn cleanup_on_logout(
     // Clear any recovery marker from this session so a fresh login does
     // not start with the "incompatible record" banner still showing.
     commands.remove_resource::<RoomRecordRecovery>();
+    // Defensive: the unsaved-edits guard removes itself when it proceeds,
+    // but if anything else ever drives the InGame→Login edge while a
+    // dialog is open, a stale guard must not greet the next login.
+    commands.remove_resource::<crate::ui::unsaved_guard::UnsavedGuard>();
 
     // Reset (don't remove — these are app-lifetime `init_resource`s, so
     // a missing one would panic the next editor frame) every per-record
@@ -127,6 +131,10 @@ fn cleanup_on_logout(
     // different user never shows the previous session's stale
     // "✓ Saved (Ns ago)".
     commands.insert_resource(PublishFeedback::<RoomRecord>::default());
+    // Same reset-don't-remove treatment for the toolbar's panel flags:
+    // the next session starts from the defaults, including a fresh
+    // first-run controls hint.
+    commands.insert_resource(crate::ui::toolbar::UiPanels::default());
     commands.insert_resource(PublishFeedback::<AvatarRecord>::default());
     commands.insert_resource(PublishFeedback::<InventoryRecord>::default());
 

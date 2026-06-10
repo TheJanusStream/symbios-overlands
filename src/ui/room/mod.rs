@@ -174,6 +174,7 @@ impl RoomEditorState {
 #[allow(clippy::too_many_arguments)]
 pub fn room_admin_ui(
     mut contexts: EguiContexts,
+    mut panels: ResMut<crate::ui::toolbar::UiPanels>,
     mut commands: Commands,
     session: Option<Res<AtprotoSession>>,
     refresh_ctx: Option<Res<crate::oauth::OauthRefreshCtx>>,
@@ -186,10 +187,15 @@ pub fn room_admin_ui(
     mut gizmo_frame_pref: ResMut<crate::editor_gizmo::GizmoFramePref>,
     mut publish_feedback: ResMut<PublishFeedback<RoomRecord>>,
     mut inventory: Option<ResMut<LiveInventoryRecord>>,
-    audio_monitor: Res<bevy_symbios_audio::ui::AudioMonitor>,
-    mut audio_requests: MessageWriter<bevy_symbios_audio::ui::MonitorRequest>,
+    // Grouped into one tuple param to stay under Bevy's 16-parameter
+    // `IntoSystem` ceiling (tuples of SystemParams are SystemParams).
+    audio: (
+        Res<bevy_symbios_audio::ui::AudioMonitor>,
+        MessageWriter<bevy_symbios_audio::ui::MonitorRequest>,
+    ),
     time: Res<Time>,
 ) {
+    let (audio_monitor, mut audio_requests) = audio;
     let (Some(session), Some(refresh_ctx), Some(room_did), Some(record)) =
         (session, refresh_ctx, room_did, room_record.as_mut())
     else {
@@ -315,7 +321,7 @@ pub fn room_admin_ui(
         }
 
         let world_editor_response = egui::Window::new("World Editor")
-            .default_open(false)
+            .open(&mut panels.world_editor)
             .collapsible(true)
             .resizable(true)
             .default_width(820.0)
@@ -498,7 +504,7 @@ pub fn room_admin_ui(
                     RecordAction::None => {}
                     RecordAction::Publish => {
                         publish_feedback.status = PublishStatus::Publishing;
-                        spawn_publish_task(
+                        spawn_room_publish_task(
                             &mut commands,
                             &session,
                             &refresh_ctx,
@@ -600,7 +606,11 @@ pub fn room_admin_ui(
 // Publish pipeline
 // ---------------------------------------------------------------------------
 
-fn spawn_publish_task(
+/// Spawn the async room-record publish. `pub(crate)` because the
+/// unsaved-edits guard ([`crate::ui::unsaved_guard`]) drives the same
+/// pipeline for its "Publish & continue" path — the shared
+/// [`poll_publish_tasks`] system lands the result either way.
+pub(crate) fn spawn_room_publish_task(
     commands: &mut Commands,
     session: &AtprotoSession,
     refresh: &crate::oauth::OauthRefreshCtx,

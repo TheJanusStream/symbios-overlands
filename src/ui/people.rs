@@ -38,6 +38,7 @@ use crate::ui::inventory::{
 #[allow(clippy::too_many_arguments)]
 pub fn people_ui(
     mut contexts: EguiContexts,
+    mut panels: ResMut<crate::ui::toolbar::UiPanels>,
     session: Option<Res<AtprotoSession>>,
     mut peers: Query<(&mut RemotePeer, Option<&SocialResonance>)>,
     profile_cache: Res<BskyProfileCache>,
@@ -59,7 +60,7 @@ pub fn people_ui(
 
     let ctx = contexts.ctx_mut().unwrap();
     egui::Window::new("People")
-        .default_open(false)
+        .open(&mut panels.people)
         .default_pos(cfg::WINDOW_DEFAULT_POS)
         .default_size([cfg::WINDOW_DEFAULT_WIDTH, cfg::WINDOW_DEFAULT_HEIGHT])
         .resizable(true)

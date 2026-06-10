@@ -10,6 +10,7 @@ use crate::state::{
     CurrentRoomDid, DiagnosticsLog, LiveRoomRecord, LocalPlayer, RemotePeer, RoomRecordRecovery,
     TravelingTo,
 };
+use crate::ui::unsaved_guard::{GuardedAction, UnsavedGuard};
 use crate::world_builder::PortalMarker;
 
 #[derive(Component)]
@@ -29,12 +30,13 @@ pub(super) struct PortalTravelTask(
 /// is "long enough for a humanoid to walk out of a typical portal
 /// collider, short enough that deliberate re-entry feels responsive."
 #[derive(Resource)]
-pub(super) struct PortalCooldown {
-    pub(super) until_secs: f64,
+pub struct PortalCooldown {
+    pub until_secs: f64,
 }
 
 const PORTAL_COOLDOWN_SECS: f64 = 0.75;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn handle_portal_interaction(
     mut commands: Commands,
     mut players: Query<
@@ -49,6 +51,7 @@ pub(super) fn handle_portal_interaction(
     portals: Query<&PortalMarker>,
     current_room: Option<Res<CurrentRoomDid>>,
     traveling: Option<Res<TravelingTo>>,
+    guard: Option<Res<UnsavedGuard>>,
     cooldown: Option<Res<PortalCooldown>>,
     time: Res<Time>,
 ) {
@@ -57,6 +60,11 @@ pub(super) fn handle_portal_interaction(
     // this check the Update system would spawn a fresh IoTaskPool fetch each
     // frame, flooding the pool and stalling every other background task.
     if traveling.is_some() {
+        return;
+    }
+    // An unsaved-edits dialog is already pending (for this portal or for
+    // a logout) — don't stack another action behind it.
+    if guard.is_some() {
         return;
     }
     // Post-teleport cooldown: keeps a portal-overlapping arrival from
@@ -93,45 +101,62 @@ pub(super) fn handle_portal_interaction(
                 until_secs: now + PORTAL_COOLDOWN_SECS,
             });
         } else {
-            // Inter-room portal: Freeze the player and start the async fetch.
-            // Zero momentum so the player doesn't re-collide with the portal
-            // on the next frame before the travel task resolves.
+            // Inter-room portal: Freeze the player and hand the travel to
+            // the unsaved-edits guard. Zero momentum so the player doesn't
+            // re-collide with the portal on the next frame.
+            //
+            // The guard owns the dirty decision: when the local user has
+            // no unpublished room edits it calls [`begin_portal_travel`]
+            // on the very next frame without showing anything; when they
+            // do, it offers Publish / Discard / Stay first. Starting the
+            // fetch directly here would bypass that choice and silently
+            // overwrite the live record.
             lv.0 = Vec3::ZERO;
             av.0 = Vec3::ZERO;
-            commands.insert_resource(TravelingTo {
+            commands.insert_resource(UnsavedGuard::new(GuardedAction::PortalTravel {
                 target_did: portal.target_did.clone(),
                 target_pos: portal.target_pos,
-            });
-
-            let did_clone = portal.target_did.clone();
-            let pool = bevy::tasks::IoTaskPool::get();
-            // `reqwest` spawns internal timer/IO futures the moment it issues
-            // a request, which panics with "there is no reactor running"
-            // unless the future is driven inside a tokio runtime. The
-            // `IoTaskPool` is a plain async-executor, so on native we build
-            // a per-task single-threaded runtime (same pattern as every
-            // other HTTP-spawning site in the crate — see
-            // `network::spawn_peer_avatar_fetch` /
-            // `lib::spawn_avatar_record_fetch`). wasm32 has no tokio; the
-            // browser's JS runtime backs `fetch`, so the bare future works.
-            let task = pool.spawn(async move {
-                let fut = async {
-                    let client = crate::config::http::default_client();
-                    fetch_room_record(&client, &did_clone).await
-                };
-                #[cfg(target_arch = "wasm32")]
-                {
-                    fut.await
-                }
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    crate::config::http::block_on(fut)
-                }
-            });
-            commands.spawn(PortalTravelTask(task));
+            }));
         }
         break;
     }
+}
+
+/// Start the inter-room travel: pin [`TravelingTo`] (which suppresses
+/// further portal interaction until the swap completes or fails) and
+/// dispatch the async destination room-record fetch. Called by the
+/// unsaved-edits guard once any dirty-record question is settled.
+pub(crate) fn begin_portal_travel(commands: &mut Commands, target_did: String, target_pos: Vec3) {
+    commands.insert_resource(TravelingTo {
+        target_did: target_did.clone(),
+        target_pos,
+    });
+
+    let pool = bevy::tasks::IoTaskPool::get();
+    // `reqwest` spawns internal timer/IO futures the moment it issues
+    // a request, which panics with "there is no reactor running"
+    // unless the future is driven inside a tokio runtime. The
+    // `IoTaskPool` is a plain async-executor, so on native we build
+    // a per-task single-threaded runtime (same pattern as every
+    // other HTTP-spawning site in the crate — see
+    // `network::spawn_peer_avatar_fetch` /
+    // `lib::spawn_avatar_record_fetch`). wasm32 has no tokio; the
+    // browser's JS runtime backs `fetch`, so the bare future works.
+    let task = pool.spawn(async move {
+        let fut = async {
+            let client = crate::config::http::default_client();
+            fetch_room_record(&client, &target_did).await
+        };
+        #[cfg(target_arch = "wasm32")]
+        {
+            fut.await
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            crate::config::http::block_on(fut)
+        }
+    });
+    commands.spawn(PortalTravelTask(task));
 }
 
 #[allow(clippy::too_many_arguments)]

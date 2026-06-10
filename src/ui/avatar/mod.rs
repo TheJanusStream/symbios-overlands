@@ -105,6 +105,7 @@ impl AvatarEditorState {
 #[allow(clippy::too_many_arguments)]
 pub fn avatar_ui(
     mut contexts: EguiContexts,
+    mut panels: ResMut<crate::ui::toolbar::UiPanels>,
     mut commands: Commands,
     mut live: ResMut<LiveAvatarRecord>,
     stored: Option<Res<StoredAvatarRecord>>,
@@ -142,7 +143,7 @@ pub fn avatar_ui(
         let before = live_mut.0.clone();
 
         let response = egui::Window::new("Avatar")
-            .default_open(false)
+            .open(&mut panels.avatar)
             .default_pos(cfg::WINDOW_DEFAULT_POS)
             .default_width(cfg::WINDOW_DEFAULT_WIDTH)
             .resizable(true)
@@ -354,7 +355,11 @@ pub fn avatar_ui(
     }
 }
 
-fn spawn_publish_avatar_task(
+/// Spawn the async avatar-record publish. `pub(crate)` because the
+/// unsaved-edits guard ([`crate::ui::unsaved_guard`]) drives the same
+/// pipeline for its "Publish & log out" path — the shared
+/// [`poll_publish_avatar_tasks`] system lands the result either way.
+pub(crate) fn spawn_publish_avatar_task(
     commands: &mut Commands,
     session: &AtprotoSession,
     refresh: &crate::oauth::OauthRefreshCtx,
