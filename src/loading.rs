@@ -1,15 +1,26 @@
 //! Loading-phase plumbing: parallel record-fetch state machines (room /
-//! avatar / inventory), exponential-backoff retry, and the
-//! all-resources-present gate that unblocks `AppState::InGame`.
+//! avatar / inventory), exponential-backoff retry, the seeded
+//! ambient-audio bake, and the all-resources-present gate that unblocks
+//! `AppState::InGame`.
 //!
 //! All three fetches run in parallel during [`AppState::Loading`]. Room
 //! and avatar fetches retry transient failures with capped exponential
 //! backoff (deferred through the frame loop, not by parking
 //! `IoTaskPool` workers); inventory is best-effort and falls through to
-//! an empty stash on any failure. [`check_loading_complete`] only
-//! transitions to `InGame` once every resource the first `InGame` frame
-//! depends on is present, so a slow PDS round-trip cannot strand a
-//! half-loaded recipe behind the world builder.
+//! an empty stash on any failure.
+//!
+//! The frame the room record lands, [`start_ambient_bake`] dispatches
+//! the gate's fifth task: rendering the room's
+//! `environment.ambient_audio` recipe to WAV off the main thread (or
+//! handing a `Referenced` source to
+//! [`crate::world_builder::audio_resolver`]) and publishing the result
+//! as [`AmbientHandle`]; [`spawn_ambient_player`] turns that handle
+//! into the looping ambient player on `InGame` entry.
+//!
+//! [`check_loading_complete`] only transitions to `InGame` once every
+//! resource the first `InGame` frame depends on is present, so a slow
+//! PDS round-trip cannot strand a half-loaded recipe behind the world
+//! builder — or start gameplay silent.
 
 use bevy::prelude::*;
 

@@ -17,11 +17,12 @@ use bevy::prelude::*;
 
 use crate::pds::{AvatarRecord, Generator, InventoryRecord, RoomRecord};
 
-/// Application state machine. `Loading` waits on the async heightmap
-/// generation task, the ATProto PDS room-record fetch, the local
-/// avatar-record fetch, *and* the local inventory-record fetch before
-/// handing off to `InGame`, so the terrain collider is solid and every
-/// recipe (room + avatar + inventory) is resident when the first gameplay
+/// Application state machine. `Loading` waits on all five loading tasks —
+/// the async heightmap generation task, the ATProto PDS room-record fetch,
+/// the local avatar-record fetch, the local inventory-record fetch, *and*
+/// the seeded ambient-audio bake — before handing off to `InGame`, so the
+/// terrain collider is solid, every recipe (room + avatar + inventory) is
+/// resident, and the ambient bed is ready to play when the first gameplay
 /// frame runs.
 #[derive(States, Default, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AppState {

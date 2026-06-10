@@ -26,7 +26,7 @@ Built in Rust on the [Bevy](https://bevyengine.org/) engine. The same binary run
 
 **Contact effects bring it to life.** Every avatar — yours and every peer's — is classified against the surface beneath it each frame, and the contact drives a stack of effects: Gerstner-wave water wakes, transient particle bursts, persistent splat-stains baked into the terrain, fading projected decals, and spatial audio cues. Wakes and stains are always-on; particle / decal / audio channels are PDS-authored per room.
 
-**Persistence and gifting.** Inventories live on your PDS (`network.symbios.overlands.inventory`). Stash a custom-tuned tree or a whole region blueprint, carry it across the network, and drag it onto a peer's row in the People panel to gift it. A code-shipped Catalogue ships a small starter set (villa, castle, several L-system trees, a teleporter) alongside whatever you've authored.
+**Persistence and gifting.** Inventories live on your PDS (`network.symbios.overlands.inventory`). Stash a custom-tuned tree or a whole region blueprint, carry it across the network, and drag it onto a peer's row in the People panel to gift it. A code-shipped Catalogue ships a starter library alongside whatever you've authored: eight buildings (villa, medieval castle, watchtower, ruined temple, lighthouse, stone circle, ziggurat, observatory), four L-system trees, three fractal patterns, and a teleporter pre-targeted at your own overland.
 
 ## Architecture
 
@@ -52,7 +52,7 @@ The crate is a library with a thin `main.rs` shim so integration tests in [`test
 - [`src/camera.rs`](src/camera.rs), [`src/avatar.rs`](src/avatar.rs), [`src/social.rs`](src/social.rs) — the third-person orbit camera + distance fog, the peer profile-picture cache that backs the chat / People panel icons, and the ATProto social-graph (mutual-follow) resonance tagger.
 - [`src/ui/`](src/ui/) — egui panels: [login](src/ui/login/), [chat](src/ui/chat.rs), [people](src/ui/people.rs) (with drag-to-gift), [avatar editor](src/ui/avatar/), [inventory](src/ui/inventory/), [catalogue](src/ui/catalogue.rs), [diagnostics](src/ui/diagnostics.rs), and the owner-only [world editor](src/ui/room/) (Environment / Region Assets / Placements / Effects / Raw JSON tabs, plus a pop-out [audio editor](src/ui/room/audio.rs) hosting the node-graph + sequence canvas).
 - [`src/oauth/`](src/oauth/) — ATProto OAuth 2.0 + DPoP (WASM redirect / native loopback) and token refresh.
-- [`src/seeded_defaults/`](src/seeded_defaults/) — DID-seeded deterministic defaults for terrain, palette, atmosphere, tree scatters, ambient audio, and avatar body / vessel / palette / gait. Record-authored values always win; the derivers fill in only what's unset, so a fresh account is already a fully-furnished room.
+- [`src/seeded_defaults/`](src/seeded_defaults/) — DID-seeded deterministic defaults. Room side: terrain, palette, biome textures, atmosphere, tree / rock / particle scatters, a biome-matched landmark structure near spawn, and the ambient-audio bed. Avatar side: one of four chassis families (boat / airship / humanoid / skiff) plus its per-family design, body proportions, palette, and gait. Record-authored values always win; the derivers fill in only what's unset, so a fresh account is already a fully-furnished room.
 - [`src/catalogue/`](src/catalogue/) — code-shipped read-only library of starter generator blueprints, functionally analogous to a user inventory but always present.
 - [`src/editor_gizmo/`](src/editor_gizmo/) — bridge between the editor selection and the in-world 3D transform gizmo.
 - [`src/loading.rs`](src/loading.rs), [`src/state.rs`](src/state.rs), [`src/boot_params.rs`](src/boot_params.rs), [`src/logout.rs`](src/logout.rs) — state-machine plumbing, shared resources, landmark-link parsing, and the on-logout cache teardown.
@@ -85,11 +85,19 @@ cargo run --release -- \
 
 ```bash
 rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version 0.2.122
+# The CLI must match the `wasm-bindgen` crate version cargo resolves —
+# check Cargo.lock after the build (0.2.123 at the time of writing).
+cargo install wasm-bindgen-cli --version 0.2.123
 
 cargo build --release --target wasm32-unknown-unknown
-wasm-bindgen --out-dir ./out --target web \
+wasm-bindgen --out-dir ./dist --target web \
     target/wasm32-unknown-unknown/release/symbios-overlands.wasm
+
+# index.html imports ./symbios-overlands.js relative to itself, so
+# assemble a flat site directory (mirrors .github/workflows/deploy.yml):
+cp index.html dist/
+cp -r assets dist/
+cp assets/client-metadata.json dist/   # OAuth client metadata sits at the site root
 ```
 
-Serve `./out` and `./assets` alongside `index.html` with any static web server (e.g. `python -m http.server`).
+Serve `./dist` with any static web server (e.g. `python -m http.server -d dist`).

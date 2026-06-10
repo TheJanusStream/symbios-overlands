@@ -46,9 +46,12 @@ fn water_above_rejects_points_below_surface() {
     };
     assert!(f.accepts(0, 5.0, Some(0.0)));
     assert!(!f.accepts(0, -1.0, Some(0.0)));
-    // Exactly on the surface is "Above" — the filter must be inclusive,
-    // otherwise a placement anchored to water level would be rejected.
-    assert!(f.accepts(0, 0.0, Some(0.0)));
+    // `Above` demands a freeboard margin (0.5 m) over the water line —
+    // the water shader's wave displacement would flood a placement
+    // sitting exactly on the surface, so on-surface samples are
+    // rejected too. The margin itself is inclusive.
+    assert!(!f.accepts(0, 0.0, Some(0.0)));
+    assert!(f.accepts(0, 0.5, Some(0.0)));
 }
 
 #[test]
@@ -60,7 +63,8 @@ fn water_below_rejects_points_at_or_above_surface() {
     assert!(!f.accepts(0, 5.0, Some(0.0)));
     assert!(f.accepts(0, -1.0, Some(0.0)));
     // `Below` is strictly below — `y < water_level`. At exactly water
-    // level, the point is "on" the surface, which we treat as Above.
+    // level, the point is "on" the surface and rejected (it sits inside
+    // `Above`'s freeboard band as well).
     assert!(!f.accepts(0, 0.0, Some(0.0)));
 }
 

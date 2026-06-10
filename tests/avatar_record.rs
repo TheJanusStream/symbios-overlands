@@ -8,16 +8,37 @@ use symbios_overlands::pds::{
     AirplaneParams, AvatarRecord, CarParams, Fp, Fp3, HelicopterParams, HoverBoatParams,
     HumanoidParams, LocomotionConfig,
 };
+use symbios_overlands::seeded_defaults::ChassisFamily;
 
 // ---------------------------------------------------------------------------
 // Defaults
 // ---------------------------------------------------------------------------
 
 #[test]
-fn default_avatar_uses_hover_boat_locomotion() {
-    let a = AvatarRecord::default_for_did("did:plc:alice");
-    assert!(matches!(a.locomotion, LocomotionConfig::HoverBoat(_)));
-    assert_eq!(a.locomotion.kind_tag(), "hover_boat");
+fn default_avatar_locomotion_matches_seeded_chassis_family() {
+    // The default is DID-seeded: each chassis family maps to the
+    // locomotion preset that matches its visuals (boat → HoverBoat,
+    // airship → Helicopter, humanoid → Humanoid, skiff → Car) — see
+    // `pds::avatar::default_visuals::build_for_did`.
+    for did in [
+        "did:plc:alice",
+        "did:plc:bob",
+        "did:plc:carol",
+        "did:plc:dave",
+    ] {
+        let a = AvatarRecord::default_for_did(did);
+        let expected = match ChassisFamily::for_did(did) {
+            ChassisFamily::Boat => "hover_boat",
+            ChassisFamily::Airship => "helicopter",
+            ChassisFamily::Humanoid => "humanoid",
+            ChassisFamily::Skiff => "car",
+        };
+        assert_eq!(
+            a.locomotion.kind_tag(),
+            expected,
+            "{did}: locomotion preset must match the seeded chassis family"
+        );
+    }
 }
 
 #[test]
@@ -186,12 +207,13 @@ fn avatar_sanitize_clamps_non_finite_chassis_dimensions() {
     // clamp NaN/infinity/negative back into a safe positive range before
     // the spawner uses them for `Collider::cuboid`, which panics on
     // non-finite or non-positive sides.
+    // Pin the HoverBoat preset explicitly — the DID-seeded default may
+    // land on any chassis family.
     let mut avatar = AvatarRecord::default_for_did("did:plc:alice");
-    let LocomotionConfig::HoverBoat(params) = &mut avatar.locomotion else {
-        panic!("default avatar must start on HoverBoat");
-    };
+    let mut params = Box::<HoverBoatParams>::default();
     params.chassis_half_extents = Fp3([f32::NAN, f32::INFINITY, -1.0]);
     params.mass = Fp(f32::NAN);
+    avatar.locomotion = LocomotionConfig::HoverBoat(params);
 
     avatar.sanitize();
 

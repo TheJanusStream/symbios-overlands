@@ -62,13 +62,20 @@ fn ambient_recipe_uses_a_loopable_window() {
 }
 
 #[test]
-fn ambient_recipe_carries_one_instrument_with_filter_chain() {
+fn ambient_recipe_carries_four_layers_with_bed_filter_chain() {
     let scene = SceneCharacter::for_did(TEST_DID);
     let recipe = AmbientRecipe::from_scene(&scene, 1).recipe;
-    assert_eq!(recipe.instruments.len(), 1, "ambient bed is a single voice");
+    // Bed + gusts + chimes + punctuation — see the "Sound design"
+    // docstring on `seeded_defaults::room::audio`.
+    assert_eq!(
+        recipe.instruments.len(),
+        4,
+        "ambient recipe carries the four-layer soundscape"
+    );
+    // Layer 1 (the bed, instrument 0) is the sustained voice wired
+    // noise → biquad filter (LFO driving cutoff) → reverb, with the
+    // reverb tail as the graph's output node.
     let patch = &recipe.instruments[0].patch;
-    // The wiring is noise → filter (LFO driving cutoff) → reverb, with
-    // the reverb tail as the graph's output node.
     let output_id = patch.graph.output;
     let output_node = patch
         .graph
@@ -78,7 +85,7 @@ fn ambient_recipe_carries_one_instrument_with_filter_chain() {
         .expect("output node present");
     assert!(
         matches!(output_node.kind, NodeKind::Reverb(_)),
-        "ambient patch output must be the reverb tail; got {:?}",
+        "bed patch output must be the reverb tail; got {:?}",
         output_node.kind
     );
     // The reverb's `in` port must be fed by the rest of the chain.
@@ -87,16 +94,23 @@ fn ambient_recipe_carries_one_instrument_with_filter_chain() {
         "reverb `in` input must be wired; got inputs {:?}",
         output_node.inputs.keys().collect::<Vec<_>>()
     );
-    // The lowpass is still present with its LFO-driven cutoff sweep.
+    // The bed filter family is biome-keyed (lowpass for warm biomes,
+    // highpass for arid/tundra) — either way the cutoff must ride the
+    // LFO sweep.
     let filter = patch
         .graph
         .nodes
         .iter()
-        .find(|n| matches!(n.kind, NodeKind::BiquadLowpass(_)))
-        .expect("lowpass filter present in the chain");
+        .find(|n| {
+            matches!(
+                n.kind,
+                NodeKind::BiquadLowpass(_) | NodeKind::BiquadHighpass(_)
+            )
+        })
+        .expect("biquad filter present in the bed chain");
     assert!(
         filter.inputs.contains_key("cutoff_hz"),
-        "lowpass `cutoff_hz` input must be wired to the LFO; got inputs {:?}",
+        "bed filter `cutoff_hz` input must be wired to the LFO; got inputs {:?}",
         filter.inputs.keys().collect::<Vec<_>>()
     );
 }
