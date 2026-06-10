@@ -71,6 +71,7 @@ pub(super) fn spawn_water_volume(
     meshes: &mut Assets<Mesh>,
     water_materials: &mut Assets<WaterMaterial>,
     water_surfaces: &mut WaterSurfaces,
+    owner: usize,
 ) -> Entity {
     // Water sits at the placement transform's altitude exactly — the
     // record no longer carries a `level_offset` field, and the old
@@ -128,6 +129,10 @@ pub(super) fn spawn_water_volume(
         world_from_local: tf,
         local_half_extents: Vec2::splat(half_extent),
         flow_strength: surface.flow_strength.0,
+        // Placement ownership lets the incremental compiler retire
+        // exactly this plane when its placement is rebuilt. Avatar-mode
+        // spawns carry NO_OWNER and only fall to full-pass clears.
+        owner,
     });
 
     commands
@@ -138,6 +143,11 @@ pub(super) fn spawn_water_volume(
             WaterVolume,
             WaterPlaneIndex(plane_idx),
             RoomEntity,
+            // Same owner as the registry plane above: the incremental
+            // compiler's flat unit sweep retires this mesh even when the
+            // gizmo has detached it from its anchor hierarchy (the
+            // "duplicate water layer after a Y drag" bug).
+            super::PlacementUnit(owner),
         ))
         .id()
 }

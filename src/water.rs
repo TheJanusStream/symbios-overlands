@@ -160,7 +160,9 @@ pub struct WaterPlaneIndex(pub usize);
 /// classifier) and the scatter biome filter so multiple water generators in
 /// a room all participate in the same lookup.
 ///
-/// Cleared and rebuilt every compile pass; nothing else mutates it.
+/// Cleared and rebuilt on full compile passes; incremental rebuilds
+/// drop and re-add only the planes whose owning placement changed (see
+/// [`WaterPlane::owner`]). Nothing else mutates it.
 #[derive(Resource, Default, Debug, Clone)]
 pub struct WaterSurfaces {
     pub planes: Vec<WaterPlane>,
@@ -185,6 +187,19 @@ pub struct WaterPlane {
     pub world_from_local: Transform,
     pub local_half_extents: Vec2,
     pub flow_strength: f32,
+    /// Index of the `RoomRecord` placement whose compile pass spawned
+    /// this plane, or [`WaterPlane::NO_OWNER`] for planes outside the
+    /// placement system (avatar visuals, tests). The incremental
+    /// compiler uses this to drop exactly the planes belonging to a
+    /// rebuilt placement instead of clearing the whole registry.
+    pub owner: usize,
+}
+
+impl WaterPlane {
+    /// `owner` sentinel for planes that no placement owns. Never matches
+    /// a placement index, so such planes survive incremental rebuilds
+    /// and are only dropped by a full-pass registry clear.
+    pub const NO_OWNER: usize = usize::MAX;
 }
 
 /// Result of a 3D water-volume query. Returned by [`WaterSurfaces::query`]
@@ -369,6 +384,7 @@ mod tests {
             world_from_local: Transform::from_xyz(0.0, y, 0.0),
             local_half_extents: half,
             flow_strength: 0.0,
+            owner: WaterPlane::NO_OWNER,
         }
     }
 
@@ -429,6 +445,7 @@ mod tests {
                 .with_scale(Vec3::new(0.1, 1.0, 0.1)),
             local_half_extents: Vec2::splat(10.0),
             flow_strength: 0.0,
+            owner: WaterPlane::NO_OWNER,
         };
         let surfaces = WaterSurfaces {
             planes: vec![plane],
@@ -446,6 +463,7 @@ mod tests {
                 .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_4)),
             local_half_extents: Vec2::new(5.0, 10.0),
             flow_strength: 0.0,
+            owner: WaterPlane::NO_OWNER,
         };
         let surfaces = WaterSurfaces {
             planes: vec![plane],
@@ -465,6 +483,7 @@ mod tests {
                 .with_rotation(Quat::from_rotation_x(tilt_radians)),
             local_half_extents: half,
             flow_strength: flow,
+            owner: WaterPlane::NO_OWNER,
         }
     }
 
@@ -558,6 +577,7 @@ mod tests {
                 .with_rotation(Quat::from_rotation_y(0.7)),
             local_half_extents: Vec2::splat(10.0),
             flow_strength: 5.0,
+            owner: WaterPlane::NO_OWNER,
         };
         let surfaces = WaterSurfaces {
             planes: vec![plane],
@@ -604,6 +624,7 @@ mod tests {
                     world_from_local: Transform::from_xyz(0.0, 10.0, 0.0),
                     local_half_extents: Vec2::splat(100.0),
                     flow_strength: 0.0,
+                    owner: WaterPlane::NO_OWNER,
                 },
             ],
         };
@@ -624,6 +645,7 @@ mod tests {
                     world_from_local: Transform::from_xyz(0.0, 5.0, 0.0),
                     local_half_extents: Vec2::splat(2.0),
                     flow_strength: 0.0,
+                    owner: WaterPlane::NO_OWNER,
                 },
             ],
         };

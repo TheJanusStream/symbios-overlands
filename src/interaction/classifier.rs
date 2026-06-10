@@ -497,6 +497,7 @@ mod tests {
                 world_from_local: Transform::from_translation(Vec3::ZERO),
                 local_half_extents: Vec2::splat(100.0),
                 flow_strength: 0.0,
+                owner: WaterPlane::NO_OWNER,
             }],
         }
     }

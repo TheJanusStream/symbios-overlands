@@ -43,6 +43,7 @@ pub(super) fn spawn_portal_entity(
                 target_pos: Vec3::from_array(target_pos.0),
             },
             RoomEntity,
+            super::PlacementUnit(ctx.placement_index),
         ))
         .id();
 

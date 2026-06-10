@@ -371,7 +371,12 @@ pub(super) fn spawn_shape_entity(
         ctx.commands.spawn((transform, Visibility::default())).id()
     } else {
         ctx.commands
-            .spawn((transform, Visibility::default(), RoomEntity))
+            .spawn((
+                transform,
+                Visibility::default(),
+                RoomEntity,
+                super::PlacementUnit(ctx.placement_index),
+            ))
             .id()
     };
 

@@ -34,16 +34,25 @@ pub struct GeneratorCaches<'w> {
     /// `(profile, size)` mesh handle is reused across compile passes and
     /// across generators with the same terminal geometry.
     pub(crate) upstream_shape_mesh: ResMut<'w, UpstreamShapeMeshCache>,
-    /// Fingerprint of the spawnable record slice compiled into the ECS
-    /// — see [`super::CompiledWorldFingerprint`]. Bundled here (rather
-    /// than as its own system param) to stay under Bevy's 16-parameter
-    /// `IntoSystem` ceiling on `compile_room_record`.
-    pub(crate) world_fingerprint: ResMut<'w, super::CompiledWorldFingerprint>,
     /// Content-keyed baked-audio buffers shared across constructs and
     /// compile passes — see
     /// [`BakedAudioCache`](super::super::spatial_audio::BakedAudioCache).
-    /// Bundled here for the same 16-parameter reason.
+    /// Bundled here (rather than as its own system param) to stay under
+    /// Bevy's 16-parameter `IntoSystem` ceiling on
+    /// `compile_room_record`; same for the fields below.
     pub(crate) baked_audio: ResMut<'w, super::super::spatial_audio::BakedAudioCache>,
+    /// Per-placement compiled state (fingerprints + anchors) the diff
+    /// planner reads and the executor commits into — see
+    /// [`CompiledWorld`](super::job::CompiledWorld).
+    pub(crate) world: ResMut<'w, super::job::CompiledWorld>,
+    /// The in-flight sliced compile job, if any — see
+    /// [`CompileJob`](super::job::CompileJob).
+    pub(crate) job: ResMut<'w, super::job::CompileJob>,
+    /// Clock for the executor's per-slice frame budget and the
+    /// telemetry timestamp.
+    pub(crate) time: Res<'w, Time>,
+    /// Sink for the per-job compile telemetry line.
+    pub(crate) diagnostics: ResMut<'w, crate::state::DiagnosticsLog>,
 }
 
 /// Hard ceiling on the number of `spawn_generator` calls a single
@@ -186,6 +195,12 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// pass and pushed to from `spawn_water_volume`. Read by the scatter
     /// biome filter (this pass) and rover buoyancy (every fixed step).
     pub(crate) water_surfaces: &'a mut WaterSurfaces,
+    /// Index of the `RoomRecord` placement currently being compiled —
+    /// stamped onto the water planes this unit spawns so the
+    /// incremental compiler can retire exactly them on a rebuild.
+    /// [`WaterPlane::NO_OWNER`](crate::water::WaterPlane::NO_OWNER) in
+    /// avatar mode (no placement owns avatar visuals).
+    pub(crate) placement_index: usize,
     /// `true` when the spawner is producing avatar visuals rather than
     /// room geometry. Avatar mode skips three room-specific behaviours
     /// in every spawn arm: (1) `RoomEntity` insertion (avatars manage

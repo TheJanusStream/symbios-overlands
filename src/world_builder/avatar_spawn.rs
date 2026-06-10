@@ -120,6 +120,10 @@ pub fn spawn_avatar_visuals_subtree(
         blob_audio_cache,
         baked_audio_cache: &mut caches.baked_audio,
         water_surfaces,
+        // No placement owns avatar visuals — any water plane an avatar
+        // tree spawns survives incremental room rebuilds and only falls
+        // to a full-pass registry clear.
+        placement_index: crate::water::WaterPlane::NO_OWNER,
         avatar_mode: true,
         local_avatar_mode: is_local,
     };

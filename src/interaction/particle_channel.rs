@@ -146,6 +146,7 @@ pub fn particle_dispatcher(
                 seed,
                 Transform::from_translation(Vec3::ZERO),
                 false,
+                crate::world_builder::PlacementUnit::NONE,
             );
             commands
                 .entity(e)

@@ -17,7 +17,7 @@ use super::super::portal::spawn_portal_entity;
 use super::super::prim::{build_primitive_mesh, collider_for_primitive};
 use super::super::shape::spawn_shape_entity;
 use super::super::sign::spawn_sign_entity;
-use super::super::{PrimMarker, RoomEntity, apply_traits, reset_traits};
+use super::super::{PlacementUnit, PrimMarker, RoomEntity, apply_traits, reset_traits};
 
 use super::spawn_ctx::{SpawnCtx, budget_exceeded, transform_from_data};
 
@@ -133,7 +133,12 @@ pub fn spawn_generator(
             }
             Some(
                 ctx.commands
-                    .spawn((transform, Visibility::default(), RoomEntity))
+                    .spawn((
+                        transform,
+                        Visibility::default(),
+                        RoomEntity,
+                        PlacementUnit(ctx.placement_index),
+                    ))
                     .id(),
             )
         }
@@ -159,6 +164,7 @@ pub fn spawn_generator(
                 ctx.meshes,
                 ctx.water_materials,
                 ctx.water_surfaces,
+                ctx.placement_index,
             ))
         }
         GeneratorKind::Shape { .. } => {
@@ -434,7 +440,10 @@ fn spawn_primitive_entity(
         transform,
     ));
     if !ctx.avatar_mode {
-        cmd.insert(RoomEntity);
+        // The unit marker (not just RoomEntity) is what lets the
+        // incremental compiler reclaim this prim even after the gizmo
+        // detaches it from its anchor hierarchy.
+        cmd.insert((RoomEntity, PlacementUnit(ctx.placement_index)));
     }
     if let Some(collider) = collider {
         cmd.insert(collider);

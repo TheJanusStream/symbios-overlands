@@ -298,6 +298,7 @@ mod tests {
                 world_from_local: Transform::from_xyz(0.0, y, 0.0),
                 local_half_extents: Vec2::splat(half),
                 flow_strength: 0.0,
+                owner: WaterPlane::NO_OWNER,
             }],
         }
     }
@@ -363,11 +364,13 @@ mod tests {
                     world_from_local: Transform::from_xyz(0.0, 0.0, 0.0),
                     local_half_extents: Vec2::splat(100.0),
                     flow_strength: 0.0,
+                    owner: WaterPlane::NO_OWNER,
                 },
                 WaterPlane {
                     world_from_local: Transform::from_xyz(0.0, 5.0, 0.0),
                     local_half_extents: Vec2::splat(2.0),
                     flow_strength: 0.0,
+                    owner: WaterPlane::NO_OWNER,
                 },
             ],
         };

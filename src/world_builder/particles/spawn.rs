@@ -28,7 +28,14 @@ pub(in super::super) fn spawn_particle_emitter_entity(
 ) -> Entity {
     // Room/world-builder emitters are room-owned unless we're compiling
     // a guest avatar (whose trail must survive room rebuilds).
-    spawn_particle_emitter(ctx.commands, snapshot, seed, transform, !ctx.avatar_mode)
+    spawn_particle_emitter(
+        ctx.commands,
+        snapshot,
+        seed,
+        transform,
+        !ctx.avatar_mode,
+        ctx.placement_index,
+    )
 }
 
 /// `Commands`-level emitter spawn — the `SpawnCtx`-free core, callable
@@ -43,12 +50,18 @@ pub(in super::super) fn spawn_particle_emitter_entity(
 /// compile-pass cleanup sweeps the emitter on a room rebuild — pass
 /// `false` for avatar-scoped / transient effect emitters that should
 /// instead ride their own retirement (or their parent avatar's despawn).
+///
+/// `unit_owner` is the owning placement index for room-compiled
+/// emitters ([`PlacementUnit::NONE`](super::super::PlacementUnit::NONE)
+/// for runtime effect emitters) — it lets the incremental compiler's
+/// flat unit sweep retire the emitter on a placement rebuild.
 pub fn spawn_particle_emitter(
     commands: &mut Commands,
     snapshot: ParticleEmitter,
     seed: u64,
     transform: Transform,
     tag_room_entity: bool,
+    unit_owner: usize,
 ) -> Entity {
     let rng = ChaCha8Rng::seed_from_u64(seed);
 
@@ -67,7 +80,10 @@ pub fn spawn_particle_emitter(
         Visibility::default(),
     ));
     if tag_room_entity {
-        cmd.insert(super::super::RoomEntity);
+        cmd.insert((
+            super::super::RoomEntity,
+            super::super::PlacementUnit(unit_owner),
+        ));
     }
     cmd.id()
 }

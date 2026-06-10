@@ -127,10 +127,12 @@ fn cleanup_on_logout(
     commands.remove_resource::<crate::ui::unsaved_guard::UnsavedGuard>();
     // The world this session compiled is being despawned just below, so
     // the next login's loading gate must wait for a fresh compile pass —
-    // and the compile fingerprint must not short-circuit it into
-    // skipping the rebuild of a now-empty scene.
+    // and the per-unit fingerprints must not short-circuit it into
+    // skipping the rebuild of a now-empty scene. Any in-flight sliced
+    // job is dropped with them (its queue indexes the old record).
     commands.remove_resource::<crate::world_builder::WorldCompiled>();
-    commands.insert_resource(crate::world_builder::compile::CompiledWorldFingerprint::default());
+    commands.insert_resource(crate::world_builder::compile::CompiledWorld::default());
+    commands.insert_resource(crate::world_builder::compile::CompileJob::default());
 
     // Reset (don't remove — these are app-lifetime `init_resource`s, so
     // a missing one would panic the next editor frame) every per-record

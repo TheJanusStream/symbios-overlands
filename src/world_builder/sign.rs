@@ -65,7 +65,7 @@ pub(super) fn spawn_sign_entity(
         transform,
     ));
     if !ctx.avatar_mode {
-        cmd.insert(super::RoomEntity);
+        cmd.insert((super::RoomEntity, super::PlacementUnit(ctx.placement_index)));
     }
     cmd.id()
 }

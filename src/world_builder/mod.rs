@@ -105,6 +105,29 @@ pub struct PortalMarker {
 #[derive(Component)]
 pub struct RoomEntity;
 
+/// Index of the `RoomRecord` placement whose compile pass spawned this
+/// entity. The incremental compiler's unit teardown despawns by a flat
+/// sweep over this marker — NOT by anchor-recursive despawn alone —
+/// because entities can leave their anchor's hierarchy after spawning:
+/// the 3D gizmo detaches a dragged prim from its parent
+/// (`GizmoDetachedPrim`) and the detachment outlives the drag. Before
+/// this marker existed, rebuilding a gizmo-edited placement left the
+/// detached subtree behind as a duplicate (most visibly: a second
+/// water plane after dragging the water layer's Y).
+///
+/// Avatar-mode spawns carry [`PlacementUnit::NONE`] — no placement owns
+/// them, and only the full-pass `RoomEntity` sweep (which ignores this
+/// marker) or their own lifecycle retires them.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlacementUnit(pub usize);
+
+impl PlacementUnit {
+    /// Sentinel for spawns outside the placement system. Shares the
+    /// value of [`WaterPlane::NO_OWNER`](crate::water::WaterPlane::NO_OWNER)
+    /// — both mean "no placement index will ever match this".
+    pub const NONE: usize = crate::water::WaterPlane::NO_OWNER;
+}
+
 /// Present once `compile_room_record` has completed at least one pass
 /// for the active session. The loading gate
 /// ([`crate::loading::check_loading_complete`]) waits on this, so the
@@ -169,7 +192,8 @@ impl Plugin for WorldBuilderPlugin {
             .init_resource::<ShapeMaterialCache>()
             .init_resource::<ShapeMeshCache>()
             .init_resource::<bevy_symbios_shape::cache::ShapeMeshCache>()
-            .init_resource::<compile::CompiledWorldFingerprint>()
+            .init_resource::<compile::CompiledWorld>()
+            .init_resource::<compile::CompileJob>()
             .init_resource::<WaterSurfaces>()
             .init_resource::<image_cache::BlobImageCache>()
             .init_resource::<audio_resolver::BlobAudioCache>()
