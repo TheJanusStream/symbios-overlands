@@ -27,14 +27,17 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      # Bevy's default features link ALSA (bevy_audio) and udev
-      # (bevy_winit input enumeration) on Linux, so the native test
-      # build needs their dev packages even though the tests run
+      # Bevy's default features link ALSA (bevy_audio), udev
+      # (bevy_winit input enumeration) and Wayland (`wayland-sys`
+      # pkg-config-probes wayland-client at build time; libxkbcommon is
+      # winit's keyboard-handling companion) on Linux, so the native
+      # test build needs their dev packages even though the tests run
       # headless.
       - name: Install Bevy system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
