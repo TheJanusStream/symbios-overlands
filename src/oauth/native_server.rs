@@ -20,16 +20,61 @@ pub struct NativeCallbackReceiver(
     pub std::sync::Mutex<std::sync::mpsc::Receiver<(String, String)>>,
 );
 
+/// Owning handle to a running loopback listener. The accept loop blocks
+/// in `incoming_requests()` until an authorized callback arrives, so an
+/// abandoned login attempt (browser tab closed before the redirect)
+/// would otherwise pin the port forever and make every retry fail with
+/// `AddrInUse` until an app restart. [`shutdown`](Self::shutdown) — also
+/// run on drop — unblocks the loop and joins the thread, releasing the
+/// port for the next bind.
+pub struct NativeCallbackServerHandle {
+    server: std::sync::Arc<tiny_http::Server>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl NativeCallbackServerHandle {
+    /// Unblock the accept loop and join the listener thread. Dropping
+    /// the last `Arc<Server>` closes the socket, so a subsequent
+    /// [`start_native_callback_server`] can rebind the port immediately.
+    /// Idempotent; the join is prompt because `tiny_http::Server::
+    /// unblock` queues a sentinel even when the thread is mid-response.
+    pub fn shutdown(&mut self) {
+        self.server.unblock();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+impl Drop for NativeCallbackServerHandle {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+/// Bevy resource owning the current listener (if any). `Option` so the
+/// login-begin system can `take()` and shut down a leftover listener
+/// before binding a fresh one.
+#[derive(Resource)]
+pub struct NativeCallbackServerRes(pub Option<NativeCallbackServerHandle>);
+
 /// Start a one-shot `tiny_http` server on the configured port, parse the
 /// first `/callback?code=&state=` request whose `state` query parameter
 /// matches `expected_state`, send the pair through a channel, and shut
 /// down. Runs on a detached thread so the Bevy frame loop is not blocked.
 ///
-/// Returns the receive side of the channel — the caller is expected to
-/// insert it as [`NativeCallbackReceiver`] and poll it in a Bevy system.
+/// Returns the receive side of the channel plus the server handle — the
+/// caller is expected to insert them as [`NativeCallbackReceiver`] /
+/// [`NativeCallbackServerRes`] and poll the channel in a Bevy system.
 pub fn start_native_callback_server(
     expected_state: String,
-) -> Result<std::sync::mpsc::Receiver<(String, String)>, String> {
+) -> Result<
+    (
+        std::sync::mpsc::Receiver<(String, String)>,
+        NativeCallbackServerHandle,
+    ),
+    String,
+> {
     use std::thread;
 
     use super::discovery::NATIVE_CALLBACK_PORT;
@@ -44,10 +89,13 @@ pub fn start_native_callback_server(
 
     let (tx, rx) = std::sync::mpsc::channel();
     let addr = format!("127.0.0.1:{NATIVE_CALLBACK_PORT}");
-    let server = tiny_http::Server::http(&addr).map_err(|e| format!("bind {addr}: {e}"))?;
+    let server = std::sync::Arc::new(
+        tiny_http::Server::http(&addr).map_err(|e| format!("bind {addr}: {e}"))?,
+    );
 
-    thread::spawn(move || {
-        for req in server.incoming_requests() {
+    let server_for_thread = std::sync::Arc::clone(&server);
+    let thread = thread::spawn(move || {
+        for req in server_for_thread.incoming_requests() {
             let url = req.url().to_string();
             let path_ok = url
                 .split('?')
@@ -92,7 +140,13 @@ pub fn start_native_callback_server(
         }
     });
 
-    Ok(rx)
+    Ok((
+        rx,
+        NativeCallbackServerHandle {
+            server,
+            thread: Some(thread),
+        },
+    ))
 }
 
 /// Parse `code` and `state` out of a URL like `/callback?code=abc&state=xyz`.

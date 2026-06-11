@@ -119,3 +119,125 @@ pub(crate) async fn fetch_blob_bytes(
     let blob_url = format!("{pds}/xrpc/com.atproto.sync.getBlob?did={did}&cid={cid}");
     fetch_url_bytes(client, &blob_url, max_bytes, ctx).await
 }
+
+/// Largest per-axis pixel dimension accepted from a fetched image.
+///
+/// The byte caps above bound the *compressed* transfer, but a "pixel
+/// bomb" — a kilobyte-sized PNG declaring e.g. 30000×30000 of uniform
+/// colour — expands by orders of magnitude on decode and can OOM the
+/// WASM heap in one allocation. Capping each axis bounds the decoded
+/// frame to 4096×4096×4 B ≈ 64 MiB worst-case, generous for every
+/// legitimate avatar / sign / splat source.
+pub(crate) const MAX_IMAGE_DIMENSION: u32 = 4096;
+
+/// Decode fetched image bytes after a header-only dimension probe.
+///
+/// Returns `None` (logged at warn, tagged with `ctx`) when the format
+/// can't be sniffed or either axis exceeds [`MAX_IMAGE_DIMENSION`] —
+/// the full-frame allocation never happens for a rejected image. All
+/// decode paths for network-supplied image bytes (peer avatars, sign
+/// sources, Referenced splat layers) must come through here rather
+/// than calling `image::load_from_memory` directly.
+pub(crate) fn decode_image_capped(bytes: &[u8], ctx: &str) -> Option<image::DynamicImage> {
+    let reader = match image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format() {
+        Ok(reader) => reader,
+        Err(e) => {
+            warn!("{ctx} image format probe failed: {e}");
+            return None;
+        }
+    };
+    let (w, h) = match reader.into_dimensions() {
+        Ok(dims) => dims,
+        Err(e) => {
+            warn!("{ctx} image dimension probe failed: {e}");
+            return None;
+        }
+    };
+    if w == 0 || h == 0 || w > MAX_IMAGE_DIMENSION || h > MAX_IMAGE_DIMENSION {
+        warn!("{ctx} image rejected: {w}×{h} px exceeds the {MAX_IMAGE_DIMENSION} px per-axis cap");
+        return None;
+    }
+    match image::load_from_memory(bytes) {
+        Ok(img) => Some(img),
+        Err(e) => {
+            warn!("{ctx} image decode failed: {e}");
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// PNG IEEE CRC-32 (reflected, poly 0xEDB88320) — enough to build a
+    /// syntactically valid header chunk without pulling in a crc crate.
+    fn crc32(data: &[u8]) -> u32 {
+        let mut crc = 0xFFFF_FFFFu32;
+        for &b in data {
+            crc ^= b as u32;
+            for _ in 0..8 {
+                let mask = (crc & 1).wrapping_neg();
+                crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+            }
+        }
+        !crc
+    }
+
+    fn png_chunk(ty: &[u8; 4], data: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        out.extend_from_slice(ty);
+        out.extend_from_slice(data);
+        let mut crc_input = ty.to_vec();
+        crc_input.extend_from_slice(data);
+        out.extend_from_slice(&crc32(&crc_input).to_be_bytes());
+        out
+    }
+
+    /// A header-only PNG declaring `w × h` 8-bit RGBA — the shape of a
+    /// "pixel bomb": tiny on the wire, enormous after decode.
+    fn png_declaring(w: u32, h: u32) -> Vec<u8> {
+        let mut bytes = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        let mut ihdr = Vec::new();
+        ihdr.extend_from_slice(&w.to_be_bytes());
+        ihdr.extend_from_slice(&h.to_be_bytes());
+        // bit depth 8, colour type 6 (RGBA), deflate, std filter, no interlace
+        ihdr.extend_from_slice(&[8, 6, 0, 0, 0]);
+        bytes.extend(png_chunk(b"IHDR", &ihdr));
+        bytes.extend(png_chunk(b"IDAT", &[]));
+        bytes
+    }
+
+    #[test]
+    fn rejects_pixel_bomb_before_decode() {
+        // ~3.4 GiB decoded from under 100 bytes on the wire. The
+        // dimension probe must reject it without attempting the
+        // allocation.
+        let bomb = png_declaring(30_000, 30_000);
+        assert!(bomb.len() < 100, "bomb should be tiny on the wire");
+        assert!(decode_image_capped(&bomb, "test").is_none());
+    }
+
+    #[test]
+    fn rejects_single_oversized_axis() {
+        assert!(decode_image_capped(&png_declaring(1, MAX_IMAGE_DIMENSION + 1), "test").is_none());
+        assert!(decode_image_capped(&png_declaring(MAX_IMAGE_DIMENSION + 1, 1), "test").is_none());
+    }
+
+    #[test]
+    fn accepts_small_real_image() {
+        let img = image::DynamicImage::new_rgba8(4, 4);
+        let mut buf = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
+            .unwrap();
+        let decoded = decode_image_capped(&buf, "test").expect("4×4 PNG must decode");
+        assert_eq!((decoded.width(), decoded.height()), (4, 4));
+    }
+
+    #[test]
+    fn rejects_garbage_bytes() {
+        assert!(decode_image_capped(&[0u8; 16], "test").is_none());
+        assert!(decode_image_capped(&[], "test").is_none());
+    }
+}

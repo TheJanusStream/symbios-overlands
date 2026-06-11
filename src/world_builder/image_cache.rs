@@ -325,8 +325,7 @@ pub fn poll_blob_image_tasks(
             cache.remove(&task.key);
             continue;
         };
-        let Ok(dyn_img) = image::load_from_memory(&bytes) else {
-            warn!("Failed to decode image bytes for sign source");
+        let Some(dyn_img) = super::blob_fetch::decode_image_capped(&bytes, "Sign source") else {
             cache.remove(&task.key);
             continue;
         };

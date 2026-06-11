@@ -598,6 +598,13 @@ pub fn room_admin_ui(
         // timer so a concurrently-debounced slider flush cannot double-fire
         // set_changed() on the very next frame.
         *pending_flush_secs = 0.0;
+        // Clamp through the same bounds the network-ingress path enforces
+        // before the world compiler sees the tick — egui's DragValue
+        // parses typed `NaN`/`inf` and its range clamp passes NaN
+        // through, so a widget edit can otherwise carry NaN into mesh /
+        // collider construction. The raw-JSON tab already sanitizes on
+        // parse; this covers the visual-tab widgets.
+        record.bypass_change_detection().0.sanitize();
         record.set_changed();
     }
 }

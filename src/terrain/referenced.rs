@@ -150,13 +150,7 @@ fn decode_and_upload_splat_layer(
     texture_size: u32,
     images: &mut Assets<Image>,
 ) -> Option<bevy_symbios_texture::GeneratedHandles> {
-    let dyn_img = match image::load_from_memory(bytes) {
-        Ok(img) => img,
-        Err(e) => {
-            warn!("Splat layer fetch decoded with image::load_from_memory error: {e}");
-            return None;
-        }
-    };
+    let dyn_img = crate::world_builder::blob_fetch::decode_image_capped(bytes, "Splat layer")?;
     let resized = dyn_img
         .resize_exact(
             texture_size,

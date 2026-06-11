@@ -285,11 +285,24 @@ pub fn write_to_clipboard(text: &str) -> Result<(), String> {
 #[cfg(target_arch = "wasm32")]
 pub fn write_to_clipboard(text: &str) -> Result<(), String> {
     let window = web_sys::window().ok_or_else(|| "no window".to_string())?;
-    let clipboard = window.navigator().clipboard();
+    let navigator = window.navigator();
+    // `navigator.clipboard` is undefined outside secure contexts (plain
+    // HTTP, sandboxed iframes without clipboard permission). web-sys
+    // projects the property as always-present, and calling `write_text`
+    // through an undefined reference throws a JS TypeError that unwinds
+    // straight through the Bevy frame loop — probe for it first.
+    let clipboard_prop = js_sys::Reflect::get(
+        navigator.as_ref(),
+        &wasm_bindgen::JsValue::from_str("clipboard"),
+    )
+    .map_err(|_| "clipboard probe failed".to_string())?;
+    if clipboard_prop.is_undefined() || clipboard_prop.is_null() {
+        return Err("Clipboard API unavailable (insecure context or sandboxed iframe)".to_string());
+    }
     // The returned Promise resolves asynchronously; we don't await it
     // because the egui button click is synchronous. The browser will
     // surface any failure in DevTools; we treat the call as best-effort.
-    let _ = clipboard.write_text(text);
+    let _ = navigator.clipboard().write_text(text);
     Ok(())
 }
 

@@ -306,14 +306,22 @@ pub fn poll_audio_clip_tasks(
     }
 }
 
-/// Room exit: stop every live cue voice and clear the clip cache so a
-/// new room starts silent and re-fetches (sources may have changed).
+/// Room exit: stop every live cue voice, drop in-flight clip fetches,
+/// and clear the clip cache so a new room starts silent and re-fetches
+/// (sources may have changed).
+///
+/// In-flight [`AudioClipTask`] entities must go too:
+/// [`poll_audio_clip_tasks`] only runs in `AppState::InGame`, so a task
+/// outstanding at exit would otherwise sit unpolled in the ECS world
+/// for as long as the app stays out of game (e.g. after a logout).
+/// Despawning drops the `Task`, which cancels the fetch.
 pub fn cleanup_audio(
     mut commands: Commands,
     voices: Query<Entity, With<ContactAudioVoice>>,
+    tasks: Query<Entity, With<AudioClipTask>>,
     mut cache: ResMut<AudioClipCache>,
 ) {
-    for e in voices.iter() {
+    for e in voices.iter().chain(tasks.iter()) {
         commands.entity(e).despawn();
     }
     cache.clear();

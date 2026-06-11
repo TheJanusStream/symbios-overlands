@@ -47,5 +47,9 @@ pub fn poll_native_callback(
     };
     commands.remove_resource::<oauth::NativeCallbackReceiver>();
     commands.remove_resource::<oauth::NativePendingAuthRes>();
+    // The listener thread broke its accept loop right after sending the
+    // pair; dropping the resource joins it and closes the socket so the
+    // port is free for any future login (e.g. after a logout).
+    commands.remove_resource::<oauth::NativeCallbackServerRes>();
     spawn_complete_task(&mut commands, oauth_client.0.clone(), pending, code);
 }

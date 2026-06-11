@@ -57,7 +57,8 @@ pub use discovery::{NATIVE_CALLBACK_PORT, native_redirect_uri};
 pub use discovery::{client_metadata, discover_auth_server};
 #[cfg(not(target_arch = "wasm32"))]
 pub use native_server::{
-    NativeCallbackReceiver, parse_callback_query, start_native_callback_server,
+    NativeCallbackReceiver, NativeCallbackServerHandle, NativeCallbackServerRes,
+    parse_callback_query, start_native_callback_server,
 };
 pub use refresh::{
     fetch_session_identity, oauth_get_with_nonce_retry, oauth_get_with_refresh,

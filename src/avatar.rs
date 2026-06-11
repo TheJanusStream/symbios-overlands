@@ -189,8 +189,9 @@ fn poll_avatar_tasks(
 
         let Some(bytes) = result.bytes else { continue };
 
-        let Ok(dyn_img) = image::load_from_memory(&bytes) else {
-            bevy::log::warn!("Failed to decode avatar image");
+        let Some(dyn_img) =
+            crate::world_builder::blob_fetch::decode_image_capped(&bytes, "Avatar image")
+        else {
             continue;
         };
 

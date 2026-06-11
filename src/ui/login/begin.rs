@@ -17,6 +17,9 @@ pub fn poll_begin_auth_task(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut BeginAuthTask)>,
     mut login_error: ResMut<LoginError>,
+    #[cfg(not(target_arch = "wasm32"))] mut callback_server: Option<
+        ResMut<oauth::NativeCallbackServerRes>,
+    >,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
@@ -50,11 +53,24 @@ pub fn poll_begin_auth_task(
                     // `unwrap_or_default()` keeps us defensive against
                     // a future library change that might omit it.
                     let expected_state = pending.auth_state.app_state.clone().unwrap_or_default();
+                    // An abandoned earlier attempt (browser tab closed
+                    // before the redirect) leaves its listener blocked
+                    // in accept, still holding the port — shut it down
+                    // first or the bind below fails with `AddrInUse`
+                    // and the user can't retry until an app restart.
+                    if let Some(res) = callback_server.as_mut()
+                        && let Some(mut old) = res.0.take()
+                    {
+                        old.shutdown();
+                    }
                     match oauth::start_native_callback_server(expected_state) {
-                        Ok(rx) => {
+                        Ok((rx, server_handle)) => {
                             commands.insert_resource(oauth::NativeCallbackReceiver(
                                 std::sync::Mutex::new(rx),
                             ));
+                            commands.insert_resource(oauth::NativeCallbackServerRes(Some(
+                                server_handle,
+                            )));
                             commands.insert_resource(oauth::NativePendingAuthRes(
                                 std::sync::Mutex::new(Some(pending)),
                             ));

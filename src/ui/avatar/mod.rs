@@ -347,9 +347,14 @@ pub fn avatar_ui(
     if editor.pending_flush_secs > 0.0 {
         editor.pending_flush_secs = (editor.pending_flush_secs - time.delta_secs()).max(0.0);
         if editor.pending_flush_secs <= 0.0 {
-            // Debounce drained — publish the accumulated edit to player
-            // (visual rebuild) and `broadcast_avatar_state` (peer
-            // preview) in a single change tick.
+            // Debounce drained — clamp the accumulated edit through the
+            // same bounds the network-ingress path enforces, then publish
+            // it to player (visual rebuild) and `broadcast_avatar_state`
+            // (peer preview) in a single change tick. The clamp matters:
+            // egui's DragValue parses typed `NaN`/`inf` and its range
+            // clamp passes NaN through, so an unsanitized flush could
+            // hand NaN half-extents straight to the collider builders.
+            live.bypass_change_detection().0.sanitize();
             live.set_changed();
         }
     }
