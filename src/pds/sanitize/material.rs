@@ -187,11 +187,13 @@ mod tests {
     /// texture task can't be told to iterate billions of times per pixel.
     #[test]
     fn hostile_sprite_counts_are_clamped() {
-        let mut snow = SovereignSnowflakeConfig::default();
-        snow.variant_rows = u32::MAX;
-        snow.variant_cols = u32::MAX;
-        snow.arms = u32::MAX;
-        snow.branch_pairs = u32::MAX;
+        let snow = SovereignSnowflakeConfig {
+            variant_rows: u32::MAX,
+            variant_cols: u32::MAX,
+            arms: u32::MAX,
+            branch_pairs: u32::MAX,
+            ..Default::default()
+        };
         let mut cfg = SovereignTextureConfig::Snowflake(snow);
         cfg.sanitize();
         let SovereignTextureConfig::Snowflake(s) = cfg else {
@@ -202,9 +204,11 @@ mod tests {
         assert!(s.arms <= limits::MAX_SPRITE_SNOWFLAKE_ARMS);
         assert!(s.branch_pairs <= limits::MAX_SPRITE_SNOWFLAKE_BRANCH_PAIRS);
 
-        let mut flower = SovereignFlowerConfig::default();
-        flower.petal_count = u32::MAX;
-        flower.variant_rows = 0; // below the floor
+        let flower = SovereignFlowerConfig {
+            petal_count: u32::MAX,
+            variant_rows: 0, // below the floor
+            ..Default::default()
+        };
         let mut cfg = SovereignTextureConfig::Flower(flower);
         cfg.sanitize();
         let SovereignTextureConfig::Flower(f) = cfg else {
