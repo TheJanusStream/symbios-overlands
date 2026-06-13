@@ -327,6 +327,7 @@ impl RoomRecord {
         apply_palette_to_material(&palette, &mut terrain_cfg.material);
         apply_shape_to_material(&shape, &mut terrain_cfg.material);
         apply_textures_to_material(&textures, &mut terrain_cfg.material);
+        apply_biome_signature_surface(scene.biome, did_seed, &mut terrain_cfg.material);
 
         let mut water_surface = WaterSurface {
             shallow_color: Fp4(palette.water_shallow),
@@ -502,9 +503,13 @@ impl RoomRecord {
             friction: Fp(0.0),
             seed: p.seed,
             texture: None,
+            // Atlas dims are derived at compile time from the sprite's
+            // variant grid, so the record leaves this `None`.
             texture_atlas: None,
-            frame_mode: AnimationFrameMode::default(),
+            // Every mood sprite bakes a variant atlas; draw one per particle.
+            frame_mode: AnimationFrameMode::RandomFrame,
             texture_filter: TextureFilter::default(),
+            procedural_texture: p.sprite_texture(),
         });
         generators.insert("ambient_particles".to_string(), particle_gen);
         placements.push(Placement::Absolute {
@@ -831,6 +836,55 @@ fn apply_textures_to_material(
     }
 }
 
+/// Swap one terrain splat layer for a biome-signature surface generator,
+/// using the tileable surfaces added in `bevy_symbios_texture` 0.6:
+///
+/// * **Arid / Coastal** — sand on the low/flat Grass layer (desert floor,
+///   beach).
+/// * **Volcanic** — molten lava crust on the low/flat layer; its emissive
+///   glow map is auto-wired by the upstream patch system.
+/// * **Tundra / Alpine** — real crystalline snow on the high-altitude Snow
+///   layer (layer 3), replacing the plain white Ground.
+/// * **Lush** — unchanged; keeps the grassy Ground stack.
+///
+/// Runs after [`apply_textures_to_material`] so the swapped layer carries
+/// the new generator's own appearance rather than a seeded Ground config.
+/// The splat *rules* (height/slope → layer) are untouched, so layer 0 still
+/// paints low/flat ground and layer 3 the high peaks.
+fn apply_biome_signature_surface(
+    biome: crate::seeded_defaults::BiomeArchetype,
+    seed: u64,
+    material: &mut crate::pds::terrain::SovereignMaterialConfig,
+) {
+    use crate::pds::texture::{
+        SovereignLavaConfig, SovereignSandConfig, SovereignSnowConfig, SovereignTextureConfig as T,
+    };
+    use crate::seeded_defaults::BiomeArchetype;
+
+    let sig = (seed ^ 0x5163_0001) as u32;
+    match biome {
+        BiomeArchetype::Arid | BiomeArchetype::Coastal => {
+            material.layers[0] = T::Sand(SovereignSandConfig {
+                seed: sig,
+                ..Default::default()
+            });
+        }
+        BiomeArchetype::Volcanic => {
+            material.layers[0] = T::Lava(SovereignLavaConfig {
+                seed: sig,
+                ..Default::default()
+            });
+        }
+        BiomeArchetype::Tundra | BiomeArchetype::Alpine => {
+            material.layers[3] = T::Snow(SovereignSnowConfig {
+                seed: sig,
+                ..Default::default()
+            });
+        }
+        BiomeArchetype::Lush => {}
+    }
+}
+
 fn apply_ground(
     src: &crate::seeded_defaults::GroundTextureParams,
     dst: &mut crate::pds::texture::SovereignGroundConfig,
@@ -1124,6 +1178,41 @@ pub async fn reset_room_record(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn biome_signature_surface_swaps_expected_layer() {
+        use crate::pds::texture::SovereignTextureConfig as T;
+        use crate::seeded_defaults::BiomeArchetype;
+
+        let fresh = crate::pds::terrain::SovereignMaterialConfig::default;
+
+        // Arid / Coastal → sand on the low/flat Grass layer (0).
+        for biome in [BiomeArchetype::Arid, BiomeArchetype::Coastal] {
+            let mut m = fresh();
+            apply_biome_signature_surface(biome, 9, &mut m);
+            assert!(matches!(m.layers[0], T::Sand(_)), "{biome:?} → layer0 sand");
+        }
+
+        // Volcanic → molten lava crust on the low/flat layer.
+        let mut m = fresh();
+        apply_biome_signature_surface(BiomeArchetype::Volcanic, 9, &mut m);
+        assert!(matches!(m.layers[0], T::Lava(_)));
+
+        // Tundra / Alpine → real snow on the high-altitude Snow layer (3),
+        // leaving the low/flat layer as its Ground default.
+        for biome in [BiomeArchetype::Tundra, BiomeArchetype::Alpine] {
+            let mut m = fresh();
+            apply_biome_signature_surface(biome, 9, &mut m);
+            assert!(matches!(m.layers[3], T::Snow(_)), "{biome:?} → layer3 snow");
+            assert!(matches!(m.layers[0], T::Ground(_)));
+        }
+
+        // Lush keeps the entire grassy Ground stack.
+        let mut m = fresh();
+        apply_biome_signature_surface(BiomeArchetype::Lush, 9, &mut m);
+        assert!(matches!(m.layers[0], T::Ground(_)));
+        assert!(matches!(m.layers[3], T::Ground(_)));
+    }
 
     #[test]
     fn default_room_carries_one_landmark() {

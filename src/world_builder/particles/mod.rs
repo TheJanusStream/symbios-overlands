@@ -111,6 +111,14 @@ pub struct ParticleEmitter {
     /// `Assets<Image>` — `Linear` for soft sprites, `Nearest` for
     /// pixel-art looks.
     pub texture_filter: TextureFilter,
+    /// Locally-baked particle sprite. `Some(_)` only when the record's
+    /// `procedural_texture` was set and the legacy `texture` was not; the
+    /// ramp baker generates this once (cached) at
+    /// [`crate::config::textures::PARTICLE_CELL`] per atlas cell and points
+    /// every ramp material's `base_color_texture` at the resulting albedo.
+    /// Already converted from the wire `SovereignTextureConfig` to the
+    /// upstream native config at compile time.
+    pub procedural_texture: Option<bevy_symbios_texture::TextureConfig>,
 }
 
 /// Mutable per-emitter scratch state: the spawn accumulator, the

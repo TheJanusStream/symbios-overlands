@@ -14,6 +14,10 @@
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
+use crate::pds::{
+    Fp3, Fp64, SovereignPuffConfig, SovereignSnowflakeConfig, SovereignSoftDiscConfig,
+    SovereignSparkConfig, SovereignTextureConfig,
+};
 use crate::seeded_defaults::scene::{BiomeArchetype, SceneCharacter, range_f32};
 
 /// Sub-stream salt distinct from every sibling room deriver.
@@ -61,6 +65,68 @@ impl AmbientParticles {
     pub fn from_scene(scene: &SceneCharacter, room_seed: u64) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(room_seed ^ PARTICLE_STREAM_SALT);
         derive(scene, &mut rng, room_seed)
+    }
+
+    /// Procedural sprite matched to the mood, baked locally by the particle
+    /// emitter. Additive moods (fireflies, embers) use bright near-white
+    /// shapes so the emitter's colour ramp tints them through the texture
+    /// multiply; alpha moods (snow, dust, mist) carry their own colour.
+    /// Every mood bakes a small variant atlas so a `RandomFrame` draw shows
+    /// a different shape per particle, and the per-room `seed` decorrelates
+    /// one room's flakes / motes from the next.
+    pub fn sprite_texture(&self) -> SovereignTextureConfig {
+        let seed = (self.seed ^ 0x5917_E000) as u32;
+        match self.mood {
+            ParticleMood::Fireflies => SovereignTextureConfig::SoftDisc(SovereignSoftDiscConfig {
+                seed,
+                variant_rows: 2,
+                variant_cols: 2,
+                color_core: Fp3([1.0, 1.0, 0.92]),
+                color_halo: Fp3([1.0, 0.95, 0.72]),
+                core_radius: Fp64(0.12),
+                falloff: Fp64(2.2),
+                scale_jitter: Fp64(0.3),
+                ..Default::default()
+            }),
+            ParticleMood::Snowfall => SovereignTextureConfig::Snowflake(SovereignSnowflakeConfig {
+                seed,
+                variant_rows: 4,
+                variant_cols: 4,
+                ..Default::default()
+            }),
+            ParticleMood::Embers => SovereignTextureConfig::Spark(SovereignSparkConfig {
+                seed,
+                variant_rows: 3,
+                variant_cols: 3,
+                points: 4,
+                color_core: Fp3([1.0, 1.0, 0.85]),
+                color_tip: Fp3([1.0, 0.6, 0.2]),
+                length_jitter: Fp64(0.4),
+                ..Default::default()
+            }),
+            ParticleMood::DustMotes => SovereignTextureConfig::Puff(SovereignPuffConfig {
+                seed,
+                variant_rows: 3,
+                variant_cols: 3,
+                color_base: Fp3([0.85, 0.76, 0.55]),
+                color_shadow: Fp3([0.62, 0.52, 0.36]),
+                density: Fp64(0.85),
+                edge_falloff: Fp64(2.4),
+                contrast: Fp64(1.2),
+                ..Default::default()
+            }),
+            ParticleMood::MistMotes => SovereignTextureConfig::Puff(SovereignPuffConfig {
+                seed,
+                variant_rows: 2,
+                variant_cols: 2,
+                color_base: Fp3([0.92, 0.96, 1.0]),
+                color_shadow: Fp3([0.72, 0.82, 0.94]),
+                density: Fp64(0.7),
+                edge_falloff: Fp64(1.6),
+                contrast: Fp64(1.1),
+                ..Default::default()
+            }),
+        }
     }
 }
 
@@ -206,5 +272,45 @@ mod tests {
                 assert!(p.speed.0 <= p.speed.1);
             }
         }
+    }
+
+    #[test]
+    fn sprite_texture_matches_mood_and_is_deterministic() {
+        for biome in BiomeArchetype::ALL {
+            let mut scene = SceneCharacter::for_seed(7);
+            scene.biome = biome;
+            let p = AmbientParticles::from_scene(&scene, 7);
+
+            let a = p.sprite_texture();
+            // Deterministic: the same spec always yields the same sprite.
+            assert_eq!(a, p.sprite_texture());
+
+            let expected = match p.mood {
+                ParticleMood::Fireflies => "Soft Disc",
+                ParticleMood::Snowfall => "Snowflake",
+                ParticleMood::Embers => "Spark",
+                ParticleMood::DustMotes | ParticleMood::MistMotes => "Puff",
+            };
+            assert_eq!(a.label(), expected, "mood {:?} sprite", p.mood);
+
+            // The baked atlas is a real multi-cell grid inside the sanitiser
+            // bound, so RandomFrame has variants to choose between.
+            let (rows, cols) = a.sprite_atlas_dims().expect("mood sprite has an atlas");
+            assert!((1..=16).contains(&rows) && (1..=16).contains(&cols));
+            assert!(
+                rows * cols >= 4,
+                "expected a variant atlas, got {rows}×{cols}"
+            );
+        }
+    }
+
+    #[test]
+    fn different_rooms_get_different_sprite_seeds() {
+        let scene = SceneCharacter::for_seed(1);
+        let p1 = AmbientParticles::from_scene(&scene, 1);
+        let p2 = AmbientParticles::from_scene(&scene, 2);
+        // Same biome/mood, but the per-room seed decorrelates the variants.
+        assert_eq!(p1.sprite_texture().label(), p2.sprite_texture().label());
+        assert_ne!(p1.sprite_texture(), p2.sprite_texture());
     }
 }

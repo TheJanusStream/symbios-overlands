@@ -107,6 +107,10 @@ fn pending_texture_from_sovereign(layer: &SovereignTextureConfig, size: u32) -> 
         SovereignTextureConfig::IronGrille(c) => {
             PendingTexture::iron_grille(c.to_native(), size, size)
         }
+        SovereignTextureConfig::ChainLink(c) => {
+            PendingTexture::chain_link(c.to_native(), size, size)
+        }
+        SovereignTextureConfig::LogEnd(c) => PendingTexture::log_end(c.to_native(), size, size),
         // None / Unknown / Referenced — fall back to an opaque placeholder
         // via GroundConfig default so the splat array always has four live
         // textures to sample. For Referenced the fallback is what the splat

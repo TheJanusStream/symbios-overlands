@@ -160,6 +160,8 @@ impl Sanitize for SovereignTextureConfig {
             | SovereignTextureConfig::Sand(_)
             | SovereignTextureConfig::Ice(_)
             | SovereignTextureConfig::Lava(_)
+            | SovereignTextureConfig::ChainLink(_)
+            | SovereignTextureConfig::LogEnd(_)
             | SovereignTextureConfig::Unknown => {}
         }
     }

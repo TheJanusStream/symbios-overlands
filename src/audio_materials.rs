@@ -196,7 +196,9 @@ fn classify(texture: &SovereignTextureConfig) -> ImpactMaterial {
         | SovereignTextureConfig::Bark(_)
         | SovereignTextureConfig::Twig(_)
         | SovereignTextureConfig::Shingle(_)
-        | SovereignTextureConfig::Wainscoting(_) => ImpactMaterial::Wood,
+        | SovereignTextureConfig::Wainscoting(_)
+        // A cut-log end is a wooden surface.
+        | SovereignTextureConfig::LogEnd(_) => ImpactMaterial::Wood,
         SovereignTextureConfig::Brick(_)
         | SovereignTextureConfig::Concrete(_)
         | SovereignTextureConfig::Stucco(_)
@@ -208,7 +210,9 @@ fn classify(texture: &SovereignTextureConfig) -> ImpactMaterial {
         | SovereignTextureConfig::Lava(_) => ImpactMaterial::Stone,
         SovereignTextureConfig::Metal(_)
         | SovereignTextureConfig::Corrugated(_)
-        | SovereignTextureConfig::IronGrille(_) => ImpactMaterial::Metal,
+        | SovereignTextureConfig::IronGrille(_)
+        // A chain-link fence is woven steel wire.
+        | SovereignTextureConfig::ChainLink(_) => ImpactMaterial::Metal,
         // Foliage / petal sprite cards sound like plant matter, same as the
         // leaf surface card.
         SovereignTextureConfig::Leaf(_)

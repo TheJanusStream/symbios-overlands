@@ -231,6 +231,7 @@ pub fn sanitize_kind(kind: &mut GeneratorKind) {
             texture,
             texture_atlas,
             frame_mode,
+            procedural_texture,
             ..
         } => sanitize_particles(
             emitter_shape,
@@ -255,6 +256,7 @@ pub fn sanitize_kind(kind: &mut GeneratorKind) {
             texture,
             texture_atlas,
             frame_mode,
+            procedural_texture,
         ),
         GeneratorKind::Unknown => {}
     }

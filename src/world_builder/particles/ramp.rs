@@ -21,10 +21,14 @@
 //! Size fade is untouched by quantisation — it lives on
 //! `Transform::scale` and stays perfectly smooth.
 
+use std::sync::Arc;
+
 use bevy::prelude::*;
+use bevy_symbios_texture::{TextureCache, TextureCacheKey, TextureConfig, map_to_images_card};
 
 use super::super::image_cache::{BlobImageCache, SamplerFilter, request_blob_image_filtered};
 use super::ParticleEmitter;
+use crate::config::textures::PARTICLE_CELL;
 use crate::pds::{ParticleBlendMode, TextureFilter};
 
 /// Number of colour buckets a fading emitter bakes. 16 steps along a
@@ -84,6 +88,8 @@ fn sampler_filter_for(filter: &TextureFilter) -> SamplerFilter {
 pub(super) fn build_emitter_ramp(
     commands: &mut Commands,
     materials: &mut Assets<StandardMaterial>,
+    images: &mut Assets<Image>,
+    texture_cache: &mut TextureCache,
     blob_image_cache: &mut BlobImageCache,
     emitter: &ParticleEmitter,
 ) -> EmitterMaterialRamp {
@@ -91,6 +97,30 @@ pub(super) fn build_emitter_ramp(
         1
     } else {
         RAMP_STEPS
+    };
+
+    // Bake the procedural sprite once (if any) before the bucket loop: every
+    // ramp material shares the one albedo handle. The atlas dimensions were
+    // resolved onto the emitter at compile time, so the bake is
+    // `cols × rows` cells of `PARTICLE_CELL` each. The legacy fetched
+    // `texture` takes precedence and is handled per-bucket below.
+    let procedural_albedo = if emitter.texture.is_none() {
+        emitter.procedural_texture.as_ref().and_then(|tc| {
+            let (rows, cols) = emitter
+                .texture_atlas
+                .as_ref()
+                .map(|a| (a.rows.max(1), a.cols.max(1)))
+                .unwrap_or((1, 1));
+            bake_procedural_albedo(
+                tc,
+                cols * PARTICLE_CELL,
+                rows * PARTICLE_CELL,
+                texture_cache,
+                images,
+            )
+        })
+    } else {
+        None
     };
     let additive = matches!(
         emitter.blend_mode,
@@ -129,6 +159,8 @@ pub(super) fn build_emitter_ramp(
         let handle = materials.add(material);
 
         if let Some(source) = &emitter.texture {
+            // Legacy fetched texture: registered against the blob cache,
+            // which patches `base_color_texture` when the bytes arrive.
             request_blob_image_filtered(
                 commands,
                 blob_image_cache,
@@ -137,11 +169,56 @@ pub(super) fn build_emitter_ramp(
                 source,
                 sampler_filter_for(&emitter.texture_filter),
             );
+        } else if let Some(albedo) = &procedural_albedo {
+            // Procedural sprite: the albedo is already baked and uploaded, so
+            // paint it straight onto this bucket's material.
+            if let Some(mat) = materials.get_mut(&handle) {
+                mat.base_color_texture = Some(albedo.clone());
+            }
         }
         handles.push(handle);
     }
 
     EmitterMaterialRamp { handles }
+}
+
+/// Bake (or fetch from cache) the albedo image for a procedural particle
+/// sprite. Generation runs synchronously here because the ramp is built
+/// once per emitter (first emission) and particle bakes are small
+/// (`PARTICLE_CELL`-sized cells); the [`TextureCache`] dedups identical
+/// configs across emitters, and on wasm a cache hit avoids the main-thread
+/// stall entirely. Returns `None` for a non-generator config
+/// ([`TextureConfig::None`]) or a generation failure (logged).
+fn bake_procedural_albedo(
+    config: &TextureConfig,
+    width: u32,
+    height: u32,
+    texture_cache: &mut TextureCache,
+    images: &mut Assets<Image>,
+) -> Option<Handle<Image>> {
+    let key = TextureCacheKey {
+        kind: config.label(),
+        fingerprint: config.fingerprint(),
+        width,
+        height,
+    };
+    if let Some(handles) = texture_cache.get(&key, images) {
+        return Some(handles.albedo.clone());
+    }
+    match config.generate_sync(width, height)? {
+        Ok(map) => {
+            // Sprites are alpha-silhouette cards: clamp-to-edge upload so the
+            // transparent border doesn't bleed across atlas-cell seams.
+            let handles = Arc::new(map_to_images_card(map, images));
+            let albedo = handles.albedo.clone();
+            texture_cache.insert(key, handles);
+            Some(albedo)
+        }
+        Err(e) => {
+            warn!("procedural particle sprite generation failed: {e}");
+            None
+        }
+    }
 }
 
 #[cfg(test)]
@@ -178,5 +255,40 @@ mod tests {
         // A particle that swapped to bucket 15 before its emitter was
         // rebuilt with a shorter ramp must not panic.
         let _ = ramp.handle(15);
+    }
+
+    /// The procedural bake produces an albedo handle for a sprite config and
+    /// populates the cache, so a second bake of the same key is a cache hit.
+    #[test]
+    fn procedural_albedo_bakes_and_caches() {
+        let mut images = Assets::<Image>::default();
+        let mut cache = TextureCache::memory(4);
+        let config = TextureConfig::SoftDisc(Default::default());
+
+        let first = bake_procedural_albedo(&config, 64, 64, &mut cache, &mut images);
+        assert!(first.is_some(), "sprite config must bake an albedo image");
+
+        // Same key → served from cache (still Some, no second generation).
+        let key = TextureCacheKey {
+            kind: config.label(),
+            fingerprint: config.fingerprint(),
+            width: 64,
+            height: 64,
+        };
+        assert!(
+            cache.get(&key, &mut images).is_some(),
+            "first bake must have populated the cache"
+        );
+    }
+
+    /// `TextureConfig::None` is not a generator, so the baker returns `None`
+    /// rather than panicking or uploading an empty image.
+    #[test]
+    fn procedural_albedo_none_config_is_none() {
+        let mut images = Assets::<Image>::default();
+        let mut cache = TextureCache::memory(4);
+        assert!(
+            bake_procedural_albedo(&TextureConfig::None, 64, 64, &mut cache, &mut images).is_none()
+        );
     }
 }

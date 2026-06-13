@@ -276,6 +276,7 @@ fn transient_base() -> ParticleEmitter {
         texture_atlas: None,
         frame_mode: AnimationFrameMode::Still,
         texture_filter: TextureFilter::Linear,
+        procedural_texture: None,
     }
 }
 

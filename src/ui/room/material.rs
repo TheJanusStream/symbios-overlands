@@ -7,16 +7,17 @@ use bevy_egui::egui;
 
 use crate::pds::{
     SovereignAshlarConfig, SovereignAsphaltConfig, SovereignBarkConfig, SovereignBrickConfig,
-    SovereignCobblestoneConfig, SovereignConcreteConfig, SovereignCorrugatedConfig,
-    SovereignEncausticConfig, SovereignFabricConfig, SovereignFlameConfig, SovereignFlowerConfig,
-    SovereignGroundConfig, SovereignIceConfig, SovereignIronGrilleConfig, SovereignLavaConfig,
-    SovereignLeafConfig, SovereignLeafSpriteConfig, SovereignMarbleConfig, SovereignMaterialConfig,
-    SovereignMetalConfig, SovereignPaversConfig, SovereignPetalConfig, SovereignPlankConfig,
-    SovereignPuffConfig, SovereignRingConfig, SovereignRockConfig, SovereignSandConfig,
-    SovereignShardConfig, SovereignShingleConfig, SovereignSnowConfig, SovereignSnowflakeConfig,
-    SovereignSoftDiscConfig, SovereignSparkConfig, SovereignSplatRule, SovereignStainedGlassConfig,
-    SovereignStuccoConfig, SovereignTextureConfig, SovereignThatchConfig, SovereignTwigConfig,
-    SovereignWainscotingConfig, SovereignWindowConfig,
+    SovereignChainLinkConfig, SovereignCobblestoneConfig, SovereignConcreteConfig,
+    SovereignCorrugatedConfig, SovereignEncausticConfig, SovereignFabricConfig,
+    SovereignFlameConfig, SovereignFlowerConfig, SovereignGroundConfig, SovereignIceConfig,
+    SovereignIronGrilleConfig, SovereignLavaConfig, SovereignLeafConfig, SovereignLeafSpriteConfig,
+    SovereignLogEndConfig, SovereignMarbleConfig, SovereignMaterialConfig, SovereignMetalConfig,
+    SovereignPaversConfig, SovereignPetalConfig, SovereignPlankConfig, SovereignPuffConfig,
+    SovereignRingConfig, SovereignRockConfig, SovereignSandConfig, SovereignShardConfig,
+    SovereignShingleConfig, SovereignSnowConfig, SovereignSnowflakeConfig, SovereignSoftDiscConfig,
+    SovereignSparkConfig, SovereignSplatRule, SovereignStainedGlassConfig, SovereignStuccoConfig,
+    SovereignTextureConfig, SovereignThatchConfig, SovereignTwigConfig, SovereignWainscotingConfig,
+    SovereignWindowConfig,
 };
 
 use super::widgets::{drag_u32, fp_slider};
@@ -70,6 +71,21 @@ pub(super) fn draw_texture_bridge(
     salt: &str,
     dirty: &mut bool,
 ) {
+    draw_texture_bridge_opts(ui, texture, salt, dirty, true);
+}
+
+/// Body of [`draw_texture_bridge`] with an `allow_referenced` switch.
+/// Particle emitters pass `false`: their procedural slot sits alongside a
+/// dedicated legacy fetched-source picker, so the `Referenced` asset
+/// pointer would be a confusing duplicate (and is inert on the particle
+/// bake path anyway).
+pub(super) fn draw_texture_bridge_opts(
+    ui: &mut egui::Ui,
+    texture: &mut SovereignTextureConfig,
+    salt: &str,
+    dirty: &mut bool,
+    allow_referenced: bool,
+) {
     egui::ComboBox::from_id_salt(format!("{}_tex_ty", salt))
         .selected_text(texture.label())
         .show_ui(ui, |ui| {
@@ -86,12 +102,14 @@ pub(super) fn draw_texture_bridge(
             // Slotted between None and the procedural-generator list so
             // the existing 24-variant order stays contiguous — muscle
             // memory survives the addition.
-            opt!(
-                "Referenced",
-                SovereignTextureConfig::Referenced {
-                    source: Default::default()
-                }
-            );
+            if allow_referenced {
+                opt!(
+                    "Referenced",
+                    SovereignTextureConfig::Referenced {
+                        source: Default::default()
+                    }
+                );
+            }
             opt!("Leaf", SovereignTextureConfig::Leaf(Default::default()));
             opt!("Twig", SovereignTextureConfig::Twig(Default::default()));
             opt!("Bark", SovereignTextureConfig::Bark(Default::default()));
@@ -168,6 +186,15 @@ pub(super) fn draw_texture_bridge(
             opt!("Snow", SovereignTextureConfig::Snow(Default::default()));
             opt!("Ice", SovereignTextureConfig::Ice(Default::default()));
             opt!("Lava", SovereignTextureConfig::Lava(Default::default()));
+            // Alpha-masked mesh cards.
+            opt!(
+                "Chain Link",
+                SovereignTextureConfig::ChainLink(Default::default())
+            );
+            opt!(
+                "Log End",
+                SovereignTextureConfig::LogEnd(Default::default())
+            );
         });
 
     let id = egui::Id::new(salt);
@@ -379,6 +406,16 @@ pub(super) fn draw_texture_bridge(
             c,
             SovereignLavaConfig,
             bevy_symbios_texture::ui::lava_config_editor
+        ),
+        SovereignTextureConfig::ChainLink(c) => run!(
+            c,
+            SovereignChainLinkConfig,
+            bevy_symbios_texture::ui::chain_link_config_editor
+        ),
+        SovereignTextureConfig::LogEnd(c) => run!(
+            c,
+            SovereignLogEndConfig,
+            bevy_symbios_texture::ui::log_end_config_editor
         ),
     }
 }

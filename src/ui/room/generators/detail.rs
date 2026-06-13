@@ -400,6 +400,7 @@ fn draw_generator_detail(
             texture_atlas,
             frame_mode,
             texture_filter,
+            procedural_texture,
         } => draw_generator_particles(
             ui,
             emitter_shape,
@@ -433,6 +434,7 @@ fn draw_generator_detail(
             texture_atlas,
             frame_mode,
             texture_filter,
+            procedural_texture,
             salt,
             dirty,
         ),

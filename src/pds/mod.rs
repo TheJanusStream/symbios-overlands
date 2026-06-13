@@ -123,16 +123,17 @@ pub use terrain::{
 };
 pub use texture::{
     SovereignAshlarConfig, SovereignAsphaltConfig, SovereignBarkConfig, SovereignBrickConfig,
-    SovereignCobblestoneConfig, SovereignConcreteConfig, SovereignCorrugatedConfig,
-    SovereignEncausticConfig, SovereignFabricConfig, SovereignFlameConfig, SovereignFlowerConfig,
-    SovereignGroundConfig, SovereignIceConfig, SovereignIronGrilleConfig, SovereignLavaConfig,
-    SovereignLeafConfig, SovereignLeafSpriteConfig, SovereignMarbleConfig,
-    SovereignMaterialSettings, SovereignMetalConfig, SovereignPaversConfig, SovereignPetalConfig,
-    SovereignPlankConfig, SovereignPuffConfig, SovereignRingConfig, SovereignRockConfig,
-    SovereignSandConfig, SovereignShardConfig, SovereignShingleConfig, SovereignSnowConfig,
-    SovereignSnowflakeConfig, SovereignSoftDiscConfig, SovereignSparkConfig,
-    SovereignStainedGlassConfig, SovereignStuccoConfig, SovereignTextureConfig,
-    SovereignThatchConfig, SovereignTwigConfig, SovereignWainscotingConfig, SovereignWindowConfig,
+    SovereignChainLinkConfig, SovereignCobblestoneConfig, SovereignConcreteConfig,
+    SovereignCorrugatedConfig, SovereignEncausticConfig, SovereignFabricConfig,
+    SovereignFlameConfig, SovereignFlowerConfig, SovereignGroundConfig, SovereignIceConfig,
+    SovereignIronGrilleConfig, SovereignLavaConfig, SovereignLeafConfig, SovereignLeafSpriteConfig,
+    SovereignLogEndConfig, SovereignMarbleConfig, SovereignMaterialSettings, SovereignMetalConfig,
+    SovereignPaversConfig, SovereignPetalConfig, SovereignPlankConfig, SovereignPuffConfig,
+    SovereignRingConfig, SovereignRockConfig, SovereignSandConfig, SovereignShardConfig,
+    SovereignShingleConfig, SovereignSnowConfig, SovereignSnowflakeConfig, SovereignSoftDiscConfig,
+    SovereignSparkConfig, SovereignStainedGlassConfig, SovereignStuccoConfig,
+    SovereignTextureConfig, SovereignThatchConfig, SovereignTwigConfig, SovereignWainscotingConfig,
+    SovereignWindowConfig,
 };
 pub use types::{
     BiomeFilter, FP_SCALE, Fp, Fp2, Fp3, Fp4, Fp64, ScatterBounds, TransformData, WaterRelation,

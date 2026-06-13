@@ -428,6 +428,18 @@ pub enum GeneratorKind {
         /// two distinct GPU images, neither stomping the other.
         #[serde(default)]
         texture_filter: TextureFilter,
+        /// Procedurally-baked particle sprite, generated locally instead of
+        /// fetched. When this is set (non-`None`) and `texture` is `None`,
+        /// the emitter bakes this generator at
+        /// [`crate::config::textures::PARTICLE_CELL`] per atlas cell and
+        /// uses the result as the particle albedo. The sprite generators
+        /// (SoftDisc, Snowflake, Flame, …) carry `variant_rows × variant_cols`,
+        /// which auto-derives the `texture_atlas` so a `RandomFrame` emitter
+        /// draws a different variant per particle from one bake. The legacy
+        /// `texture` reference wins when both are set, so already-published
+        /// records are unaffected.
+        #[serde(default)]
+        procedural_texture: super::texture::SovereignTextureConfig,
     },
 
     /// Image-bearing panel — a flat plane textured with a fetched image
@@ -840,6 +852,7 @@ impl GeneratorKind {
             texture_atlas: None,
             frame_mode: AnimationFrameMode::Still,
             texture_filter: TextureFilter::Linear,
+            procedural_texture: super::texture::SovereignTextureConfig::None,
         }
     }
 }

@@ -7,7 +7,7 @@ use rand_chacha::rand_core::{RngCore, SeedableRng};
 
 use crate::pds::{
     AnimationFrameMode, EmitterShape, Fp3, Fp4, ParticleBlendMode, SignSource, SimulationSpace,
-    TextureAtlas, TextureFilter,
+    SovereignTextureConfig, TextureAtlas, TextureFilter,
 };
 
 use super::super::compile::SpawnCtx;
@@ -123,7 +123,31 @@ pub(in super::super) fn snapshot_from_record(
     texture_atlas: Option<TextureAtlas>,
     frame_mode: AnimationFrameMode,
     texture_filter: TextureFilter,
+    procedural_texture: &SovereignTextureConfig,
 ) -> ParticleEmitter {
+    // A procedural sprite bakes locally; it applies only when no legacy
+    // fetched `texture` reference is set (that one wins for wire compat).
+    // `Referenced` is an asset pointer, not a generator, so it never bakes
+    // here. When a sprite drives the texture, its `variant_rows × cols`
+    // override the atlas so `RandomFrame` shows one variant per particle.
+    let procedural_native = if texture.is_none() {
+        match procedural_texture {
+            SovereignTextureConfig::None
+            | SovereignTextureConfig::Unknown
+            | SovereignTextureConfig::Referenced { .. } => None,
+            other => Some(other.to_texture_config()),
+        }
+    } else {
+        None
+    };
+    let texture_atlas = if procedural_native.is_some() {
+        procedural_texture
+            .sprite_atlas_dims()
+            .map(|(rows, cols)| TextureAtlas { rows, cols })
+    } else {
+        texture_atlas
+    };
+
     ParticleEmitter {
         shape: emitter_shape.clone(),
         rate_per_second,
@@ -165,6 +189,7 @@ pub(in super::super) fn snapshot_from_record(
         texture_atlas,
         frame_mode,
         texture_filter,
+        procedural_texture: procedural_native,
     }
 }
 
@@ -188,6 +213,8 @@ pub fn tick_emitter_spawn(
     mut commands: Commands,
     time: Res<Time>,
     mut std_materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
+    mut texture_cache: ResMut<bevy_symbios_texture::TextureCache>,
     mut meshes: ResMut<Assets<Mesh>>,
     quad_mesh: Res<ParticleQuadMesh>,
     mut atlas_meshes: ResMut<ParticleAtlasMeshes>,
@@ -257,6 +284,8 @@ pub fn tick_emitter_spawn(
                 let built = build_emitter_ramp(
                     &mut commands,
                     &mut std_materials,
+                    &mut images,
+                    &mut texture_cache,
                     &mut blob_image_cache,
                     emitter,
                 );

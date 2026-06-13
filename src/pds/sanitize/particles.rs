@@ -10,6 +10,7 @@ use super::Sanitize;
 use super::common::clamp_finite;
 use super::limits;
 use crate::pds::generator::{AnimationFrameMode, EmitterShape, SignSource, TextureAtlas};
+use crate::pds::texture::SovereignTextureConfig;
 use crate::pds::types::{Fp, Fp3, Fp4};
 
 #[allow(clippy::too_many_arguments)]
@@ -36,8 +37,13 @@ pub(super) fn sanitize_particles(
     texture: &mut Option<SignSource>,
     texture_atlas: &mut Option<TextureAtlas>,
     frame_mode: &mut AnimationFrameMode,
+    procedural_texture: &mut SovereignTextureConfig,
 ) {
     *max_particles = (*max_particles).min(limits::MAX_PARTICLES);
+    // Clamp the procedural sprite's atlas dims + per-feature loop counts
+    // (the `SovereignTextureConfig` sanitiser) so a hostile emitter can't
+    // smuggle an unbounded sprite bake through the particle slot.
+    procedural_texture.sanitize();
     rate_per_second.0 = clamp_finite(rate_per_second.0, 0.0, limits::MAX_PARTICLE_RATE, 0.0);
     *burst_count = (*burst_count).min(limits::MAX_PARTICLE_BURST);
     duration.0 = clamp_finite(

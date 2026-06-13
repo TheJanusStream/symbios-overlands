@@ -680,6 +680,36 @@ define_sovereign_texture_cfg!(SovereignLavaConfig => bevy_symbios_texture::lava:
     fp   : normal_strength = 4.0,
 });
 
+// --- Alpha-masked mesh cards -----------------------------------------------
+// Card-kind silhouettes (like Leaf / Window): clamp-to-edge, alpha-masked.
+// ChainLink fences a wire mesh; LogEnd is a cut-log cross-section. Their
+// `cell_count` / `ring_count` / `crack_count` are `fp64` frequencies bounded
+// by the texture size, so they need no extra sanitiser clamp.
+
+define_sovereign_texture_cfg!(SovereignChainLinkConfig => bevy_symbios_texture::chain_link::ChainLinkConfig {
+    u32  : seed = 83,
+    fp64 : cell_count = 8.0,
+    fp64 : wire_radius = 0.07,
+    fp64 : weave_depth = 0.6,
+    fp64 : rust_level = 0.2,
+    fp3  : color_wire = [0.62, 0.64, 0.66],
+    fp3  : color_rust = [0.45, 0.24, 0.10],
+    fp   : normal_strength = 3.0,
+});
+
+define_sovereign_texture_cfg!(SovereignLogEndConfig => bevy_symbios_texture::log_end::LogEndConfig {
+    u32  : seed = 7,
+    fp64 : ring_count = 14.0,
+    fp64 : ring_warp = 0.35,
+    fp64 : ring_contrast = 1.8,
+    fp64 : crack_count = 5.0,
+    fp64 : bark_width = 0.07,
+    fp3  : color_early = [0.78, 0.62, 0.42],
+    fp3  : color_late = [0.48, 0.33, 0.18],
+    fp3  : color_bark = [0.30, 0.20, 0.12],
+    fp   : normal_strength = 2.5,
+});
+
 /// Internally-tagged enum carrying the full configuration of any supported
 /// `bevy_symbios_texture` generator. Serialises with a `$type` discriminant
 /// so newer variants round-trip safely through older clients via
@@ -748,6 +778,9 @@ pub enum SovereignTextureConfig {
     Snow(SovereignSnowConfig),
     Ice(SovereignIceConfig),
     Lava(SovereignLavaConfig),
+    // Alpha-masked mesh cards.
+    ChainLink(SovereignChainLinkConfig),
+    LogEnd(SovereignLogEndConfig),
     #[serde(other)]
     Unknown,
 }
@@ -796,6 +829,8 @@ impl SovereignTextureConfig {
             Self::Snow(_) => "Snow",
             Self::Ice(_) => "Ice",
             Self::Lava(_) => "Lava",
+            Self::ChainLink(_) => "Chain Link",
+            Self::LogEnd(_) => "Log End",
             Self::Unknown => "Unknown",
         }
     }
@@ -834,7 +869,9 @@ impl SovereignTextureConfig {
             | Self::Shard(_)
             | Self::LeafSprite(_)
             | Self::Flame(_)
-            | Self::Flower(_) => (AlphaMode::Mask(0.5), true, None, true),
+            | Self::Flower(_)
+            | Self::ChainLink(_)
+            | Self::LogEnd(_) => (AlphaMode::Mask(0.5), true, None, true),
             _ => (AlphaMode::Opaque, false, Some(Face::Back), false),
         }
     }
@@ -892,6 +929,31 @@ impl SovereignTextureConfig {
             Self::Snow(c) => T::Snow(c.to_native()),
             Self::Ice(c) => T::Ice(c.to_native()),
             Self::Lava(c) => T::Lava(c.to_native()),
+            Self::ChainLink(c) => T::ChainLink(c.to_native()),
+            Self::LogEnd(c) => T::LogEnd(c.to_native()),
+        }
+    }
+
+    /// Atlas dimensions `(rows, cols)` for a particle sprite-card variant,
+    /// or `None` for non-sprite configs (surfaces, foliage cards, None).
+    ///
+    /// When a sprite drives a procedural particle texture, these are the
+    /// `variant_rows × variant_cols` of the baked atlas — one cell per
+    /// seeded variant — which the emitter copies onto its `texture_atlas`
+    /// so a `RandomFrame` draw shows a different variant per particle.
+    pub fn sprite_atlas_dims(&self) -> Option<(u32, u32)> {
+        match self {
+            Self::SoftDisc(c) => Some((c.variant_rows, c.variant_cols)),
+            Self::Spark(c) => Some((c.variant_rows, c.variant_cols)),
+            Self::Snowflake(c) => Some((c.variant_rows, c.variant_cols)),
+            Self::Puff(c) => Some((c.variant_rows, c.variant_cols)),
+            Self::Ring(c) => Some((c.variant_rows, c.variant_cols)),
+            Self::Petal(c) => Some((c.variant_rows, c.variant_cols)),
+            Self::Shard(c) => Some((c.variant_rows, c.variant_cols)),
+            Self::LeafSprite(c) => Some((c.variant_rows, c.variant_cols)),
+            Self::Flame(c) => Some((c.variant_rows, c.variant_cols)),
+            Self::Flower(c) => Some((c.variant_rows, c.variant_cols)),
+            _ => None,
         }
     }
 }
@@ -985,6 +1047,8 @@ mod tests {
         rt!(SovereignSnowConfig);
         rt!(SovereignIceConfig);
         rt!(SovereignLavaConfig);
+        rt!(SovereignChainLinkConfig);
+        rt!(SovereignLogEndConfig);
     }
 
     /// The new tileable surfaces must be fully wired (label + dispatch) and
@@ -1039,5 +1103,29 @@ mod tests {
             let (_, _, _, is_card) = v.render_properties();
             assert!(is_card, "{v:?} should be a card");
         }
+    }
+
+    /// `sprite_atlas_dims` reports a sprite's variant grid and `None` for
+    /// non-sprite configs — the switch the particle baker uses to size the
+    /// atlas and decide whether `RandomFrame` has anything to vary.
+    #[test]
+    fn sprite_atlas_dims_only_for_sprites() {
+        let snow = SovereignTextureConfig::Snowflake(SovereignSnowflakeConfig {
+            variant_rows: 4,
+            variant_cols: 3,
+            ..Default::default()
+        });
+        assert_eq!(snow.sprite_atlas_dims(), Some((4, 3)));
+
+        // Surfaces, foliage cards, and None are not atlas sprites.
+        assert_eq!(
+            SovereignTextureConfig::Lava(Default::default()).sprite_atlas_dims(),
+            None
+        );
+        assert_eq!(
+            SovereignTextureConfig::Bark(Default::default()).sprite_atlas_dims(),
+            None
+        );
+        assert_eq!(SovereignTextureConfig::None.sprite_atlas_dims(), None);
     }
 }

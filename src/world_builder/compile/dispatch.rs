@@ -249,6 +249,7 @@ pub fn spawn_generator(
             texture_atlas,
             frame_mode,
             texture_filter,
+            procedural_texture,
         } => {
             let snapshot = snapshot_from_record(
                 emitter_shape,
@@ -281,6 +282,7 @@ pub fn spawn_generator(
                 texture_atlas.clone(),
                 frame_mode.clone(),
                 texture_filter.clone(),
+                procedural_texture,
             );
             Some(spawn_particle_emitter_entity(
                 ctx, snapshot, *seed, transform,

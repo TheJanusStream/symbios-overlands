@@ -6,9 +6,10 @@ use bevy_egui::egui;
 
 use crate::pds::{
     AnimationFrameMode, EmitterShape, Fp, Fp3, Fp4, ParticleBlendMode, SignSource, SimulationSpace,
-    TextureAtlas, TextureFilter,
+    SovereignTextureConfig, TextureAtlas, TextureFilter,
 };
 
+use super::super::material::draw_texture_bridge_opts;
 use super::super::widgets::{color_picker_rgba, drag_u32, fp_slider};
 use super::sign::draw_sign_source;
 
@@ -51,6 +52,7 @@ pub(super) fn draw_generator_particles(
     texture_atlas: &mut Option<TextureAtlas>,
     frame_mode: &mut AnimationFrameMode,
     texture_filter: &mut TextureFilter,
+    procedural_texture: &mut SovereignTextureConfig,
     salt: &str,
     dirty: &mut bool,
 ) {
@@ -163,6 +165,7 @@ pub(super) fn draw_generator_particles(
                 texture_atlas,
                 frame_mode,
                 texture_filter,
+                procedural_texture,
                 salt,
                 dirty,
             );
@@ -190,20 +193,56 @@ pub(super) fn draw_generator_particles(
 /// mode, and sampler-filter combo. `None` for `texture` is the v1
 /// "coloured quads only" baseline; setting a source switches to the
 /// textured-quad path.
+#[allow(clippy::too_many_arguments)]
 fn draw_particle_texture(
     ui: &mut egui::Ui,
     texture: &mut Option<SignSource>,
     texture_atlas: &mut Option<TextureAtlas>,
     frame_mode: &mut AnimationFrameMode,
     texture_filter: &mut TextureFilter,
+    procedural_texture: &mut SovereignTextureConfig,
     salt: &str,
     dirty: &mut bool,
 ) {
+    // --- Procedural sprite (baked locally) ---------------------------------
+    // The full generator dropdown + sub-editor, minus the `Referenced`
+    // pointer (the fetched-source picker below already covers that). Pick a
+    // sprite (Soft Disc, Snowflake, Flame, …) and its `variant_rows × cols`
+    // drive the baked atlas automatically.
+    ui.label("Procedural sprite:");
+    draw_texture_bridge_opts(
+        ui,
+        procedural_texture,
+        &format!("{}_pe_proc", salt),
+        dirty,
+        false,
+    );
+    let has_procedural = !matches!(
+        procedural_texture,
+        SovereignTextureConfig::None | SovereignTextureConfig::Unknown
+    );
+    if has_procedural {
+        ui.label(
+            egui::RichText::new(
+                "Atlas size comes from the sprite's Variant Rows/Cols; \
+                 set Frame mode = Random per particle for per-particle variety.",
+            )
+            .small()
+            .weak(),
+        );
+    }
+    ui.add_space(6.0);
+
+    // --- Legacy fetched texture (URL / ATProto blob / pfp) -----------------
+    // Wins over the procedural sprite when set, so already-published records
+    // are unaffected.
     let mut has_texture = texture.is_some();
-    if ui
-        .checkbox(&mut has_texture, "Use texture (else coloured quads only)")
-        .changed()
-    {
+    let fetch_label = if has_procedural {
+        "Use fetched texture (overrides procedural sprite)"
+    } else {
+        "Use fetched texture (else coloured quads / procedural)"
+    };
+    if ui.checkbox(&mut has_texture, fetch_label).changed() {
         *texture = if has_texture {
             Some(SignSource::default())
         } else {
@@ -212,37 +251,37 @@ fn draw_particle_texture(
         *dirty = true;
     }
 
-    let Some(source) = texture else {
-        // No texture configured. Atlas / frame mode / filter still
-        // serialise — but they have no effect, so we hide the editors
-        // to avoid confusing the author.
-        return;
-    };
+    if let Some(source) = texture {
+        draw_sign_source(ui, source, &format!("{}_pe_texsrc", salt), dirty);
+        ui.add_space(4.0);
 
-    draw_sign_source(ui, source, &format!("{}_pe_texsrc", salt), dirty);
-    ui.add_space(4.0);
-
-    let mut has_atlas = texture_atlas.is_some();
-    if ui
-        .checkbox(&mut has_atlas, "Use sprite-sheet atlas")
-        .changed()
-    {
-        *texture_atlas = if has_atlas {
-            Some(TextureAtlas::default())
-        } else {
-            None
-        };
-        *dirty = true;
-    }
-    if let Some(atlas) = texture_atlas {
-        ui.horizontal(|ui| {
-            drag_u32(ui, "Rows", &mut atlas.rows, 1, 16, dirty);
-            drag_u32(ui, "Cols", &mut atlas.cols, 1, 16, dirty);
-        });
+        // Manual atlas only applies to a fetched sprite sheet; the
+        // procedural path derives its atlas from the sprite's variant dims.
+        let mut has_atlas = texture_atlas.is_some();
+        if ui
+            .checkbox(&mut has_atlas, "Use sprite-sheet atlas")
+            .changed()
+        {
+            *texture_atlas = if has_atlas {
+                Some(TextureAtlas::default())
+            } else {
+                None
+            };
+            *dirty = true;
+        }
+        if let Some(atlas) = texture_atlas {
+            ui.horizontal(|ui| {
+                drag_u32(ui, "Rows", &mut atlas.rows, 1, 16, dirty);
+                drag_u32(ui, "Cols", &mut atlas.cols, 1, 16, dirty);
+            });
+        }
     }
 
-    draw_frame_mode(ui, frame_mode, salt, dirty);
-    draw_texture_filter(ui, texture_filter, salt, dirty);
+    // Frame mode + filter apply to whichever texture is active.
+    if has_procedural || texture.is_some() {
+        draw_frame_mode(ui, frame_mode, salt, dirty);
+        draw_texture_filter(ui, texture_filter, salt, dirty);
+    }
 }
 
 /// Frame-mode combo: switching variants reseeds the OverLifetime fps
