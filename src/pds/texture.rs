@@ -239,6 +239,7 @@ define_sovereign_texture_cfg!(SovereignBarkConfig => bevy_symbios_texture::bark:
     usize : octaves = 6,
     fp64  : warp_u = 0.15,
     fp64  : warp_v = 0.55,
+    usize : warp_octaves = 3,
     fp3   : color_light = [0.45, 0.28, 0.14],
     fp3   : color_dark = [0.09, 0.05, 0.03],
     fp    : normal_strength = 3.0,
@@ -418,6 +419,7 @@ define_sovereign_texture_cfg!(SovereignMarbleConfig => bevy_symbios_texture::mar
     fp64  : scale = 3.0,
     usize : octaves = 5,
     fp64  : warp_strength = 0.6,
+    usize : warp_octaves = 3,
     fp64  : vein_frequency = 3.0,
     fp64  : vein_sharpness = 2.0,
     fp64  : roughness = 0.08,
@@ -475,6 +477,209 @@ define_sovereign_texture_cfg!(SovereignEncausticConfig => bevy_symbios_texture::
     fp   : normal_strength = 3.0,
 });
 
+// --- Particle sprite cards -------------------------------------------------
+// Alpha-silhouette billboard sheets. `variant_rows`/`variant_cols` bake an
+// N×M atlas of per-cell-seeded variants; the particle system's RandomFrame
+// mode draws one cell per particle for per-particle shape variety. Every
+// count-shaped field is clamped by the upstream generator at bake time, and
+// re-clamped at the record boundary in `sanitize/material.rs`.
+
+define_sovereign_texture_cfg!(SovereignSoftDiscConfig => bevy_symbios_texture::soft_disc::SoftDiscConfig {
+    u32   : seed = 0,
+    usize : variant_rows = 1,
+    usize : variant_cols = 1,
+    fp3   : color_core = [1.0, 0.98, 0.9],
+    fp3   : color_halo = [1.0, 0.72, 0.25],
+    fp64  : core_radius = 0.15,
+    fp64  : falloff = 2.5,
+    fp64  : ellipticity = 0.0,
+    fp64  : scale_jitter = 0.15,
+    fp    : normal_strength = 1.0,
+});
+
+define_sovereign_texture_cfg!(SovereignSparkConfig => bevy_symbios_texture::spark::SparkConfig {
+    u32   : seed = 0,
+    usize : variant_rows = 2,
+    usize : variant_cols = 2,
+    usize : points = 4,
+    fp3   : color_core = [1.0, 0.95, 0.8],
+    fp3   : color_tip = [1.0, 0.45, 0.1],
+    fp64  : core_radius = 0.12,
+    fp64  : arm_sharpness = 3.0,
+    fp64  : falloff = 1.8,
+    fp64  : length_jitter = 0.3,
+    fp    : normal_strength = 1.0,
+});
+
+define_sovereign_texture_cfg!(SovereignSnowflakeConfig => bevy_symbios_texture::snowflake::SnowflakeConfig {
+    u32   : seed = 0,
+    usize : variant_rows = 2,
+    usize : variant_cols = 2,
+    usize : arms = 6,
+    fp3   : color = [0.92, 0.96, 1.0],
+    fp64  : core_radius = 0.12,
+    fp64  : arm_width = 0.045,
+    usize : branch_pairs = 3,
+    fp64  : branch_angle = 1.05,
+    fp64  : branch_scale = 0.45,
+    fp64  : softness = 0.02,
+    fp    : normal_strength = 1.5,
+});
+
+define_sovereign_texture_cfg!(SovereignPuffConfig => bevy_symbios_texture::puff::PuffConfig {
+    u32   : seed = 0,
+    usize : variant_rows = 2,
+    usize : variant_cols = 2,
+    fp3   : color_base = [0.86, 0.86, 0.9],
+    fp3   : color_shadow = [0.52, 0.52, 0.58],
+    fp64  : noise_scale = 3.0,
+    usize : octaves = 4,
+    fp64  : warp = 0.45,
+    fp64  : density = 0.9,
+    fp64  : edge_falloff = 2.0,
+    fp64  : contrast = 1.3,
+    fp    : normal_strength = 1.0,
+});
+
+define_sovereign_texture_cfg!(SovereignRingConfig => bevy_symbios_texture::ring::RingConfig {
+    u32   : seed = 0,
+    usize : variant_rows = 1,
+    usize : variant_cols = 1,
+    fp3   : color = [0.85, 0.93, 1.0],
+    fp64  : radius = 0.6,
+    fp64  : thickness = 0.12,
+    fp64  : falloff = 2.0,
+    fp64  : waviness = 0.0,
+    usize : wave_count = 6,
+    fp64  : radius_jitter = 0.1,
+    fp    : normal_strength = 1.0,
+});
+
+define_sovereign_texture_cfg!(SovereignPetalConfig => bevy_symbios_texture::petal::PetalConfig {
+    u32   : seed = 0,
+    usize : variant_rows = 2,
+    usize : variant_cols = 2,
+    fp3   : color_base = [0.98, 0.72, 0.82],
+    fp3   : color_edge = [0.93, 0.5, 0.66],
+    fp3   : color_throat = [0.99, 0.88, 0.55],
+    fp64  : length = 0.92,
+    fp64  : width = 0.6,
+    fp64  : peak = 0.65,
+    fp64  : tip_notch = 0.08,
+    fp64  : curl = 0.4,
+    fp64  : asymmetry = 0.15,
+    fp    : normal_strength = 1.5,
+});
+
+define_sovereign_texture_cfg!(SovereignShardConfig => bevy_symbios_texture::shard::ShardConfig {
+    u32   : seed = 0,
+    usize : variant_rows = 2,
+    usize : variant_cols = 2,
+    fp3   : color_base = [0.46, 0.43, 0.4],
+    fp3   : color_edge = [0.24, 0.22, 0.21],
+    usize : sides = 5,
+    fp64  : irregularity = 0.45,
+    fp64  : edge_band = 0.18,
+    fp64  : grain = 0.35,
+    fp    : normal_strength = 2.5,
+});
+
+define_sovereign_texture_cfg!(SovereignLeafSpriteConfig => bevy_symbios_texture::leaf_sprite::LeafSpriteConfig {
+    u32   : seed = 0,
+    usize : variant_rows = 2,
+    usize : variant_cols = 2,
+    nested(SovereignLeafConfig) : leaf = SovereignLeafConfig::default(),
+    fp64  : shape_jitter = 0.5,
+    fp    : tint_jitter = 0.25,
+});
+
+define_sovereign_texture_cfg!(SovereignFlameConfig => bevy_symbios_texture::flame::FlameConfig {
+    u32   : seed = 0,
+    usize : variant_rows = 2,
+    usize : variant_cols = 2,
+    fp64  : elongation = 1.6,
+    fp64  : turbulence = 0.55,
+    fp64  : lean_jitter = 0.25,
+    fp64  : falloff = 1.6,
+    fp3   : color_core = [1.0, 0.97, 0.78],
+    fp3   : color_mid = [1.0, 0.55, 0.10],
+    fp3   : color_tip = [0.85, 0.16, 0.02],
+    fp    : normal_strength = 1.0,
+});
+
+define_sovereign_texture_cfg!(SovereignFlowerConfig => bevy_symbios_texture::flower::FlowerConfig {
+    u32   : seed = 0,
+    usize : variant_rows = 2,
+    usize : variant_cols = 2,
+    nested(SovereignPetalConfig) : petal = SovereignPetalConfig::default(),
+    usize : petal_count = 6,
+    fp64  : center_radius = 0.14,
+    fp3   : center_color = [0.96, 0.78, 0.25],
+    fp64  : dot_density = 0.5,
+    fp    : normal_strength = 1.5,
+});
+
+// --- Additional tileable surfaces ------------------------------------------
+// Opaque repeat-tiling textures (the render-properties catch-all already
+// treats them as surfaces). `Lava` additionally emits a glow map: the
+// upstream patch system wires `emissive_texture` and defaults the emissive
+// factor to white, so the crust glows without any extra material wiring.
+
+define_sovereign_texture_cfg!(SovereignFabricConfig => bevy_symbios_texture::fabric::FabricConfig {
+    u32  : seed = 29,
+    fp64 : thread_count = 24.0,
+    fp64 : thread_width = 0.85,
+    fp64 : weave_contrast = 0.6,
+    fp64 : fuzz = 0.35,
+    fp3  : color_warp = [0.55, 0.36, 0.24],
+    fp3  : color_weft = [0.62, 0.44, 0.30],
+    fp   : normal_strength = 3.0,
+});
+
+define_sovereign_texture_cfg!(SovereignSandConfig => bevy_symbios_texture::sand::SandConfig {
+    u32  : seed = 91,
+    fp64 : ripple_count = 10.0,
+    fp64 : ripple_warp = 0.6,
+    fp64 : grain_density = 0.12,
+    fp64 : grain_scale = 24.0,
+    fp3  : color_crest = [0.86, 0.74, 0.52],
+    fp3  : color_trough = [0.62, 0.50, 0.34],
+    fp   : normal_strength = 2.5,
+});
+
+define_sovereign_texture_cfg!(SovereignSnowConfig => bevy_symbios_texture::snow::SnowConfig {
+    u32   : seed = 73,
+    fp64  : drift_scale = 2.5,
+    usize : drift_octaves = 4,
+    fp64  : sparkle_density = 0.08,
+    fp64  : crust_roughness = 0.85,
+    fp3   : color_snow = [0.93, 0.95, 0.99],
+    fp3   : color_shadow = [0.62, 0.70, 0.86],
+    fp    : normal_strength = 1.8,
+});
+
+define_sovereign_texture_cfg!(SovereignIceConfig => bevy_symbios_texture::ice::IceConfig {
+    u32  : seed = 117,
+    fp64 : scale = 3.0,
+    fp64 : crack_density = 4.0,
+    fp64 : vein_sharpness = 7.0,
+    fp64 : frost_level = 0.25,
+    fp3  : color_ice = [0.72, 0.84, 0.94],
+    fp3  : color_crack = [0.30, 0.44, 0.62],
+    fp   : normal_strength = 1.5,
+});
+
+define_sovereign_texture_cfg!(SovereignLavaConfig => bevy_symbios_texture::lava::LavaConfig {
+    u32  : seed = 666,
+    fp64 : plate_scale = 6.0,
+    fp64 : crack_width = 0.14,
+    fp64 : glow_falloff = 1.6,
+    fp3  : color_crust = [0.08, 0.07, 0.07],
+    fp3  : color_glow = [1.0, 0.45, 0.06],
+    fp   : emissive_intensity = 1.0,
+    fp   : normal_strength = 4.0,
+});
+
 /// Internally-tagged enum carrying the full configuration of any supported
 /// `bevy_symbios_texture` generator. Serialises with a `$type` discriminant
 /// so newer variants round-trip safely through older clients via
@@ -526,6 +731,23 @@ pub enum SovereignTextureConfig {
     Asphalt(SovereignAsphaltConfig),
     Wainscoting(SovereignWainscotingConfig),
     Encaustic(SovereignEncausticConfig),
+    // Particle sprite cards (alpha-silhouette billboard atlases).
+    SoftDisc(SovereignSoftDiscConfig),
+    Spark(SovereignSparkConfig),
+    Snowflake(SovereignSnowflakeConfig),
+    Puff(SovereignPuffConfig),
+    Ring(SovereignRingConfig),
+    Petal(SovereignPetalConfig),
+    Shard(SovereignShardConfig),
+    LeafSprite(SovereignLeafSpriteConfig),
+    Flame(SovereignFlameConfig),
+    Flower(SovereignFlowerConfig),
+    // Additional tileable surfaces.
+    Fabric(SovereignFabricConfig),
+    Sand(SovereignSandConfig),
+    Snow(SovereignSnowConfig),
+    Ice(SovereignIceConfig),
+    Lava(SovereignLavaConfig),
     #[serde(other)]
     Unknown,
 }
@@ -559,6 +781,21 @@ impl SovereignTextureConfig {
             Self::Asphalt(_) => "Asphalt",
             Self::Wainscoting(_) => "Wainscoting",
             Self::Encaustic(_) => "Encaustic",
+            Self::SoftDisc(_) => "Soft Disc",
+            Self::Spark(_) => "Spark",
+            Self::Snowflake(_) => "Snowflake",
+            Self::Puff(_) => "Puff",
+            Self::Ring(_) => "Ring",
+            Self::Petal(_) => "Petal",
+            Self::Shard(_) => "Shard",
+            Self::LeafSprite(_) => "Leaf Sprite",
+            Self::Flame(_) => "Flame",
+            Self::Flower(_) => "Flower",
+            Self::Fabric(_) => "Fabric",
+            Self::Sand(_) => "Sand",
+            Self::Snow(_) => "Snow",
+            Self::Ice(_) => "Ice",
+            Self::Lava(_) => "Lava",
             Self::Unknown => "Unknown",
         }
     }
@@ -578,11 +815,26 @@ impl SovereignTextureConfig {
         use bevy::prelude::AlphaMode;
         use bevy::render::render_resource::Face;
         match self {
+            // Hard-silhouette and soft-sprite cards alike: clamp-to-edge,
+            // double-sided, no culling. The sprite cards carry soft
+            // fractional alpha, but this material path mirrors the upstream
+            // `card_render_properties` (which masks at 0.5); the particle
+            // path sets its own additive/alpha blend and never consults this.
             Self::Leaf(_)
             | Self::Twig(_)
             | Self::Window(_)
             | Self::StainedGlass(_)
-            | Self::IronGrille(_) => (AlphaMode::Mask(0.5), true, None, true),
+            | Self::IronGrille(_)
+            | Self::SoftDisc(_)
+            | Self::Spark(_)
+            | Self::Snowflake(_)
+            | Self::Puff(_)
+            | Self::Ring(_)
+            | Self::Petal(_)
+            | Self::Shard(_)
+            | Self::LeafSprite(_)
+            | Self::Flame(_)
+            | Self::Flower(_) => (AlphaMode::Mask(0.5), true, None, true),
             _ => (AlphaMode::Opaque, false, Some(Face::Back), false),
         }
     }
@@ -625,6 +877,21 @@ impl SovereignTextureConfig {
             Self::Asphalt(c) => T::Asphalt(c.to_native()),
             Self::Wainscoting(c) => T::Wainscoting(c.to_native()),
             Self::Encaustic(c) => T::Encaustic(c.to_native()),
+            Self::SoftDisc(c) => T::SoftDisc(c.to_native()),
+            Self::Spark(c) => T::Spark(c.to_native()),
+            Self::Snowflake(c) => T::Snowflake(c.to_native()),
+            Self::Puff(c) => T::Puff(c.to_native()),
+            Self::Ring(c) => T::Ring(c.to_native()),
+            Self::Petal(c) => T::Petal(c.to_native()),
+            Self::Shard(c) => T::Shard(c.to_native()),
+            Self::LeafSprite(c) => T::LeafSprite(c.to_native()),
+            Self::Flame(c) => T::Flame(c.to_native()),
+            Self::Flower(c) => T::Flower(c.to_native()),
+            Self::Fabric(c) => T::Fabric(c.to_native()),
+            Self::Sand(c) => T::Sand(c.to_native()),
+            Self::Snow(c) => T::Snow(c.to_native()),
+            Self::Ice(c) => T::Ice(c.to_native()),
+            Self::Lava(c) => T::Lava(c.to_native()),
         }
     }
 }
@@ -680,6 +947,97 @@ impl SovereignMaterialSettings {
             metallic: self.metallic.0,
             uv_scale: self.uv_scale.0,
             texture: self.texture.to_texture_config(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Each sprite-card mirror must survive a `to_native()` → `from_native()`
+    /// round trip unchanged. A wrong field kind or a missing field in the
+    /// `define_sovereign_texture_cfg!` invocation would diverge here.
+    #[test]
+    fn sprite_mirrors_round_trip() {
+        macro_rules! rt {
+            ($sov:ty) => {{
+                let c = <$sov>::default();
+                assert_eq!(
+                    c,
+                    <$sov>::from_native(&c.to_native()),
+                    concat!(stringify!($sov), " round trip diverged")
+                );
+            }};
+        }
+        rt!(SovereignSoftDiscConfig);
+        rt!(SovereignSparkConfig);
+        rt!(SovereignSnowflakeConfig);
+        rt!(SovereignPuffConfig);
+        rt!(SovereignRingConfig);
+        rt!(SovereignPetalConfig);
+        rt!(SovereignShardConfig);
+        rt!(SovereignLeafSpriteConfig);
+        rt!(SovereignFlameConfig);
+        rt!(SovereignFlowerConfig);
+        rt!(SovereignFabricConfig);
+        rt!(SovereignSandConfig);
+        rt!(SovereignSnowConfig);
+        rt!(SovereignIceConfig);
+        rt!(SovereignLavaConfig);
+    }
+
+    /// The new tileable surfaces must be fully wired (label + dispatch) and
+    /// classified as surfaces, not cards — they ride the opaque repeat-tiling
+    /// render path via the `render_properties` catch-all.
+    #[test]
+    fn surface_variants_are_wired_as_surfaces() {
+        use bevy_symbios_texture::TextureConfig as T;
+        let variants = [
+            SovereignTextureConfig::Fabric(Default::default()),
+            SovereignTextureConfig::Sand(Default::default()),
+            SovereignTextureConfig::Snow(Default::default()),
+            SovereignTextureConfig::Ice(Default::default()),
+            SovereignTextureConfig::Lava(Default::default()),
+        ];
+        for v in &variants {
+            assert_ne!(v.label(), "Unknown", "{v:?} missing label arm");
+            assert!(
+                !matches!(v.to_texture_config(), T::None),
+                "{v:?} collapsed to TextureConfig::None"
+            );
+            let (_, _, _, is_card) = v.render_properties();
+            assert!(!is_card, "{v:?} should be a tiling surface, not a card");
+        }
+    }
+
+    /// Every sprite variant must carry a non-"Unknown" label and convert to a
+    /// non-`None` upstream `TextureConfig` — i.e. it is wired through all the
+    /// dispatch arms, not silently collapsing to the no-texture path.
+    #[test]
+    fn sprite_variants_are_fully_wired() {
+        use bevy_symbios_texture::TextureConfig as T;
+        let variants = [
+            SovereignTextureConfig::SoftDisc(Default::default()),
+            SovereignTextureConfig::Spark(Default::default()),
+            SovereignTextureConfig::Snowflake(Default::default()),
+            SovereignTextureConfig::Puff(Default::default()),
+            SovereignTextureConfig::Ring(Default::default()),
+            SovereignTextureConfig::Petal(Default::default()),
+            SovereignTextureConfig::Shard(Default::default()),
+            SovereignTextureConfig::LeafSprite(Default::default()),
+            SovereignTextureConfig::Flame(Default::default()),
+            SovereignTextureConfig::Flower(Default::default()),
+        ];
+        for v in &variants {
+            assert_ne!(v.label(), "Unknown", "{v:?} missing label arm");
+            assert!(
+                !matches!(v.to_texture_config(), T::None),
+                "{v:?} collapsed to TextureConfig::None"
+            );
+            // Sprite cards classify as alpha-masked cards, not surfaces.
+            let (_, _, _, is_card) = v.render_properties();
+            assert!(is_card, "{v:?} should be a card");
         }
     }
 }

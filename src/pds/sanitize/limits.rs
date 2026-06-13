@@ -38,6 +38,19 @@ pub const MAX_TEXTURE_VORONOI_CELLS: u32 = 256;
 /// pipeline iterates over each pair per pixel, so the budget mirrors
 /// the grid-axis cap.
 pub const MAX_TEXTURE_LEAF_PAIRS: u32 = 32;
+/// Per-feature count caps for the particle sprite-card generators. Each
+/// bounds a per-pixel inner loop (arms / sides / waves) or a per-frame
+/// sub-feature loop (snowflake branches, flower petals); the values mirror
+/// the upstream generator's own internal clamps so a hostile record is
+/// bounded even if a future upstream version relaxes them. The shared atlas
+/// dimension cap lives at [`MAX_PARTICLE_ATLAS_DIM`].
+pub const MAX_SPRITE_SPARK_POINTS: u32 = 12;
+pub const MAX_SPRITE_SNOWFLAKE_ARMS: u32 = 8;
+pub const MAX_SPRITE_SNOWFLAKE_BRANCH_PAIRS: u32 = 5;
+pub const MAX_SPRITE_PUFF_OCTAVES: u32 = 8;
+pub const MAX_SPRITE_RING_WAVES: u32 = 16;
+pub const MAX_SPRITE_SHARD_SIDES: u32 = 9;
+pub const MAX_SPRITE_FLOWER_PETALS: u32 = 12;
 /// Scatter placement count.
 pub const MAX_SCATTER_COUNT: u32 = 100_000;
 /// L-system derivation iterations. 12 is already enough to blow out most

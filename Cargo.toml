@@ -11,7 +11,7 @@ bevy_panorbit_camera = { version = "0.34", features = ["bevy_egui"] }
 bevy_symbios = "0.4"
 bevy_symbios_ground = { version = "0.3", features = ["physics"] }
 bevy_symbios_multiuser = "0.5"
-bevy_symbios_texture = { version = "0.4", features = ["egui"] }
+bevy_symbios_texture = { version = "0.6", features = ["egui"] }
 bevy_symbios_audio = { version = "0.2", features = ["egui"] }
 transform-gizmo-bevy = "0.9"
 symbios = "1.5"

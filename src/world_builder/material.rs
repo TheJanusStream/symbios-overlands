@@ -210,21 +210,25 @@ pub fn build_procedural_material(
     settings: &SovereignMaterialSettings,
 ) -> Handle<StandardMaterial> {
     let native = settings.to_native();
-    // 512×512 matches the size Overlands has historically generated; the
-    // upstream helper hands every variant the same dimensions so foliage
-    // cards and tiling surfaces share the cache layout. The `TextureCache`
-    // dedups by content fingerprint *across* generators — crucially it
-    // covers primitives, which have no generator-level material cache, so
-    // N identical boulders bake one texture set and an unchanged config
-    // re-bakes nothing on a rebuild. On wasm every cache miss bakes on the
-    // main thread, so each avoided task is a directly skipped frame stall.
+    // Every procedural material — catalogue constructs, primitives, foliage
+    // cards, avatars — bakes at the shared surface/card resolution
+    // (`config::textures::SURFACE`); the ground-splat path is separate and
+    // stays at its own higher resolution. The upstream helper hands every
+    // variant the same dimensions so foliage cards and tiling surfaces share
+    // the cache layout. The `TextureCache` dedups by content fingerprint
+    // *across* generators — crucially it covers primitives, which have no
+    // generator-level material cache, so N identical boulders bake one
+    // texture set and an unchanged config re-bakes nothing on a rebuild. On
+    // wasm every cache miss bakes on the main thread, so each avoided task is
+    // a directly skipped frame stall.
+    let size = crate::config::textures::SURFACE;
     build_procedural_material_async(
         commands,
         std_materials,
         images,
         Some(texture_cache),
         &native,
-        512,
-        512,
+        size,
+        size,
     )
 }

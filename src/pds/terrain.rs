@@ -131,7 +131,7 @@ pub struct SovereignMaterialConfig {
 impl Default for SovereignMaterialConfig {
     fn default() -> Self {
         Self {
-            texture_size: 512,
+            texture_size: crate::config::textures::SPLAT,
             tile_scale: Fp(90.0),
             rules: [
                 // R — Grass

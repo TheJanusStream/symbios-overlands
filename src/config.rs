@@ -178,8 +178,6 @@ pub mod terrain {
     }
     /// How many times the tiling textures repeat across the terrain.
     pub const TILE_SCALE: f32 = 90.0;
-    /// Resolution of each procedurally generated texture layer (pixels).
-    pub const TEXTURE_SIZE: u32 = 512;
 
     // --- Voronoi terracing ---------------------------------------------------
     pub mod voronoi {
@@ -501,6 +499,37 @@ pub mod terrain {
         pub const SLOPE_MAX: f32 = 1.0;
         pub const BLEND: f32 = 4.0;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Procedural texture resolutions (per render class)
+// ---------------------------------------------------------------------------
+/// Bake resolutions for the procedural-texture pipeline, split by render
+/// class so each can be tuned independently. These are the single source of
+/// truth for the dimensions handed to `bevy_symbios_texture`; a future
+/// revision may promote them to per-record or per-quality-tier settings, but
+/// for now they are behaviour constants.
+pub mod textures {
+    /// Ground-splat layer resolution (pixels per side). Terrain layers are
+    /// viewed up close and tile across the whole world, so they stay at the
+    /// historical high resolution. This is the default for a fresh terrain
+    /// record's `texture_size`; an authored record may override it.
+    pub const SPLAT: u32 = 512;
+    /// General surface- and card-material resolution (pixels per side) for
+    /// every procedural material baked through
+    /// [`crate::world_builder::build_procedural_material`] — catalogue
+    /// constructs, primitives, foliage cards, avatars. Halved from the old
+    /// 512 to cut bake time and memory; close-up architecture is the main
+    /// place the drop is visible, and the per-class split lets that be
+    /// raised again in isolation if needed.
+    pub const SURFACE: u32 = 256;
+    /// Per-atlas-cell resolution (pixels per side) for particle sprite
+    /// sheets. A sprite emitter bakes one `variant_rows × variant_cols`
+    /// atlas; multiplying this by the cell count gives the image size, so a
+    /// lone glow is 128² while a 4×4 variant atlas is 512². Particles are
+    /// small and short-lived on screen, so the per-cell budget is the
+    /// smallest of the three classes.
+    pub const PARTICLE_CELL: u32 = 128;
 }
 
 // ---------------------------------------------------------------------------

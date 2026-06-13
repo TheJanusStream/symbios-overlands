@@ -189,7 +189,9 @@ fn classify(texture: &SovereignTextureConfig) -> ImpactMaterial {
         SovereignTextureConfig::Pavers(_)
         | SovereignTextureConfig::Cobblestone(_)
         | SovereignTextureConfig::Ashlar(_) => ImpactMaterial::Rock,
-        SovereignTextureConfig::Ground(_) => ImpactMaterial::Ground,
+        SovereignTextureConfig::Ground(_) | SovereignTextureConfig::Sand(_) => {
+            ImpactMaterial::Ground
+        }
         SovereignTextureConfig::Plank(_)
         | SovereignTextureConfig::Bark(_)
         | SovereignTextureConfig::Twig(_)
@@ -200,18 +202,38 @@ fn classify(texture: &SovereignTextureConfig) -> ImpactMaterial {
         | SovereignTextureConfig::Stucco(_)
         | SovereignTextureConfig::Marble(_)
         | SovereignTextureConfig::Asphalt(_)
-        | SovereignTextureConfig::Encaustic(_) => ImpactMaterial::Stone,
+        | SovereignTextureConfig::Encaustic(_)
+        // Frozen / molten rock crust both read as hard stone underfoot.
+        | SovereignTextureConfig::Ice(_)
+        | SovereignTextureConfig::Lava(_) => ImpactMaterial::Stone,
         SovereignTextureConfig::Metal(_)
         | SovereignTextureConfig::Corrugated(_)
         | SovereignTextureConfig::IronGrille(_) => ImpactMaterial::Metal,
-        SovereignTextureConfig::Leaf(_) | SovereignTextureConfig::Thatch(_) => ImpactMaterial::Soft,
+        // Foliage / petal sprite cards sound like plant matter, same as the
+        // leaf surface card.
+        SovereignTextureConfig::Leaf(_)
+        | SovereignTextureConfig::Thatch(_)
+        | SovereignTextureConfig::LeafSprite(_)
+        | SovereignTextureConfig::Petal(_)
+        | SovereignTextureConfig::Flower(_)
+        // Cloth and powder snow both give a muffled, soft footfall.
+        | SovereignTextureConfig::Fabric(_)
+        | SovereignTextureConfig::Snow(_) => ImpactMaterial::Soft,
         // Delicate / non-impactable decorative variants fall to the
         // generic thud — you don't normally walk on a window pane, but
         // the impact trigger may still fire on edge cases (clipping,
-        // construct collisions) and silent is worse than a thud.
-        SovereignTextureConfig::Window(_) | SovereignTextureConfig::StainedGlass(_) => {
-            ImpactMaterial::Generic
-        }
+        // construct collisions) and silent is worse than a thud. The
+        // intangible particle sprites (glows, sparks, flames, rings) have
+        // no real impact sound, so they thud generically too.
+        SovereignTextureConfig::Window(_)
+        | SovereignTextureConfig::StainedGlass(_)
+        | SovereignTextureConfig::SoftDisc(_)
+        | SovereignTextureConfig::Spark(_)
+        | SovereignTextureConfig::Snowflake(_)
+        | SovereignTextureConfig::Puff(_)
+        | SovereignTextureConfig::Ring(_)
+        | SovereignTextureConfig::Shard(_)
+        | SovereignTextureConfig::Flame(_) => ImpactMaterial::Generic,
         SovereignTextureConfig::None
         | SovereignTextureConfig::Referenced { .. }
         | SovereignTextureConfig::Unknown => ImpactMaterial::Generic,

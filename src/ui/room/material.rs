@@ -8,11 +8,15 @@ use bevy_egui::egui;
 use crate::pds::{
     SovereignAshlarConfig, SovereignAsphaltConfig, SovereignBarkConfig, SovereignBrickConfig,
     SovereignCobblestoneConfig, SovereignConcreteConfig, SovereignCorrugatedConfig,
-    SovereignEncausticConfig, SovereignGroundConfig, SovereignIronGrilleConfig,
-    SovereignLeafConfig, SovereignMarbleConfig, SovereignMaterialConfig, SovereignMetalConfig,
-    SovereignPaversConfig, SovereignPlankConfig, SovereignRockConfig, SovereignShingleConfig,
-    SovereignSplatRule, SovereignStainedGlassConfig, SovereignStuccoConfig, SovereignTextureConfig,
-    SovereignThatchConfig, SovereignTwigConfig, SovereignWainscotingConfig, SovereignWindowConfig,
+    SovereignEncausticConfig, SovereignFabricConfig, SovereignFlameConfig, SovereignFlowerConfig,
+    SovereignGroundConfig, SovereignIceConfig, SovereignIronGrilleConfig, SovereignLavaConfig,
+    SovereignLeafConfig, SovereignLeafSpriteConfig, SovereignMarbleConfig, SovereignMaterialConfig,
+    SovereignMetalConfig, SovereignPaversConfig, SovereignPetalConfig, SovereignPlankConfig,
+    SovereignPuffConfig, SovereignRingConfig, SovereignRockConfig, SovereignSandConfig,
+    SovereignShardConfig, SovereignShingleConfig, SovereignSnowConfig, SovereignSnowflakeConfig,
+    SovereignSoftDiscConfig, SovereignSparkConfig, SovereignSplatRule, SovereignStainedGlassConfig,
+    SovereignStuccoConfig, SovereignTextureConfig, SovereignThatchConfig, SovereignTwigConfig,
+    SovereignWainscotingConfig, SovereignWindowConfig,
 };
 
 use super::widgets::{drag_u32, fp_slider};
@@ -138,6 +142,32 @@ pub(super) fn draw_texture_bridge(
                 "Encaustic",
                 SovereignTextureConfig::Encaustic(Default::default())
             );
+            // Particle sprite cards.
+            opt!(
+                "Soft Disc",
+                SovereignTextureConfig::SoftDisc(Default::default())
+            );
+            opt!("Spark", SovereignTextureConfig::Spark(Default::default()));
+            opt!(
+                "Snowflake",
+                SovereignTextureConfig::Snowflake(Default::default())
+            );
+            opt!("Puff", SovereignTextureConfig::Puff(Default::default()));
+            opt!("Ring", SovereignTextureConfig::Ring(Default::default()));
+            opt!("Petal", SovereignTextureConfig::Petal(Default::default()));
+            opt!("Shard", SovereignTextureConfig::Shard(Default::default()));
+            opt!(
+                "Leaf Sprite",
+                SovereignTextureConfig::LeafSprite(Default::default())
+            );
+            opt!("Flame", SovereignTextureConfig::Flame(Default::default()));
+            opt!("Flower", SovereignTextureConfig::Flower(Default::default()));
+            // Additional tileable surfaces.
+            opt!("Fabric", SovereignTextureConfig::Fabric(Default::default()));
+            opt!("Sand", SovereignTextureConfig::Sand(Default::default()));
+            opt!("Snow", SovereignTextureConfig::Snow(Default::default()));
+            opt!("Ice", SovereignTextureConfig::Ice(Default::default()));
+            opt!("Lava", SovereignTextureConfig::Lava(Default::default()));
         });
 
     let id = egui::Id::new(salt);
@@ -274,6 +304,81 @@ pub(super) fn draw_texture_bridge(
             c,
             SovereignEncausticConfig,
             bevy_symbios_texture::ui::encaustic_config_editor
+        ),
+        SovereignTextureConfig::SoftDisc(c) => run!(
+            c,
+            SovereignSoftDiscConfig,
+            bevy_symbios_texture::ui::soft_disc_config_editor
+        ),
+        SovereignTextureConfig::Spark(c) => run!(
+            c,
+            SovereignSparkConfig,
+            bevy_symbios_texture::ui::spark_config_editor
+        ),
+        SovereignTextureConfig::Snowflake(c) => run!(
+            c,
+            SovereignSnowflakeConfig,
+            bevy_symbios_texture::ui::snowflake_config_editor
+        ),
+        SovereignTextureConfig::Puff(c) => run!(
+            c,
+            SovereignPuffConfig,
+            bevy_symbios_texture::ui::puff_config_editor
+        ),
+        SovereignTextureConfig::Ring(c) => run!(
+            c,
+            SovereignRingConfig,
+            bevy_symbios_texture::ui::ring_config_editor
+        ),
+        SovereignTextureConfig::Petal(c) => run!(
+            c,
+            SovereignPetalConfig,
+            bevy_symbios_texture::ui::petal_config_editor
+        ),
+        SovereignTextureConfig::Shard(c) => run!(
+            c,
+            SovereignShardConfig,
+            bevy_symbios_texture::ui::shard_config_editor
+        ),
+        SovereignTextureConfig::LeafSprite(c) => run!(
+            c,
+            SovereignLeafSpriteConfig,
+            bevy_symbios_texture::ui::leaf_sprite_config_editor
+        ),
+        SovereignTextureConfig::Flame(c) => run!(
+            c,
+            SovereignFlameConfig,
+            bevy_symbios_texture::ui::flame_config_editor
+        ),
+        SovereignTextureConfig::Flower(c) => run!(
+            c,
+            SovereignFlowerConfig,
+            bevy_symbios_texture::ui::flower_config_editor
+        ),
+        SovereignTextureConfig::Fabric(c) => run!(
+            c,
+            SovereignFabricConfig,
+            bevy_symbios_texture::ui::fabric_config_editor
+        ),
+        SovereignTextureConfig::Sand(c) => run!(
+            c,
+            SovereignSandConfig,
+            bevy_symbios_texture::ui::sand_config_editor
+        ),
+        SovereignTextureConfig::Snow(c) => run!(
+            c,
+            SovereignSnowConfig,
+            bevy_symbios_texture::ui::snow_config_editor
+        ),
+        SovereignTextureConfig::Ice(c) => run!(
+            c,
+            SovereignIceConfig,
+            bevy_symbios_texture::ui::ice_config_editor
+        ),
+        SovereignTextureConfig::Lava(c) => run!(
+            c,
+            SovereignLavaConfig,
+            bevy_symbios_texture::ui::lava_config_editor
         ),
     }
 }

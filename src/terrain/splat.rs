@@ -91,6 +91,13 @@ fn pending_texture_from_sovereign(layer: &SovereignTextureConfig, size: u32) -> 
         SovereignTextureConfig::Encaustic(c) => {
             PendingTexture::encaustic(c.to_native(), size, size)
         }
+        // Additional tileable surfaces — usable as biome splat layers (sand
+        // for desert, snow for tundra, lava for volcanic crust).
+        SovereignTextureConfig::Fabric(c) => PendingTexture::fabric(c.to_native(), size, size),
+        SovereignTextureConfig::Sand(c) => PendingTexture::sand(c.to_native(), size, size),
+        SovereignTextureConfig::Snow(c) => PendingTexture::snow(c.to_native(), size, size),
+        SovereignTextureConfig::Ice(c) => PendingTexture::ice(c.to_native(), size, size),
+        SovereignTextureConfig::Lava(c) => PendingTexture::lava(c.to_native(), size, size),
         SovereignTextureConfig::Leaf(c) => PendingTexture::leaf(c.to_native(), size, size),
         SovereignTextureConfig::Twig(c) => PendingTexture::twig(c.to_native(), size, size),
         SovereignTextureConfig::Window(c) => PendingTexture::window(c.to_native(), size, size),
@@ -106,9 +113,25 @@ fn pending_texture_from_sovereign(layer: &SovereignTextureConfig, size: u32) -> 
         // shows BEFORE the resolver paints the fetched image in; once
         // BlobImageCache delivers the handle the layer's StandardMaterial
         // base_color_texture is swapped over the placeholder.
+        //
+        // The particle sprite cards share the SovereignTextureConfig dropdown
+        // but are alpha-silhouette billboards, not tileable surfaces — tiling
+        // one across terrain would repeat its transparent holes. They fall
+        // back to the ground placeholder here; they're meant for the particle
+        // texture slot, not terrain layers.
         SovereignTextureConfig::None
         | SovereignTextureConfig::Unknown
-        | SovereignTextureConfig::Referenced { .. } => PendingTexture::ground(
+        | SovereignTextureConfig::Referenced { .. }
+        | SovereignTextureConfig::SoftDisc(_)
+        | SovereignTextureConfig::Spark(_)
+        | SovereignTextureConfig::Snowflake(_)
+        | SovereignTextureConfig::Puff(_)
+        | SovereignTextureConfig::Ring(_)
+        | SovereignTextureConfig::Petal(_)
+        | SovereignTextureConfig::Shard(_)
+        | SovereignTextureConfig::LeafSprite(_)
+        | SovereignTextureConfig::Flame(_)
+        | SovereignTextureConfig::Flower(_) => PendingTexture::ground(
             crate::pds::SovereignGroundConfig::default().to_native(),
             size,
             size,

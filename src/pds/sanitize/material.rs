@@ -61,6 +61,9 @@ impl Sanitize for SovereignTextureConfig {
             SovereignTextureConfig::Marble(m) => {
                 m.octaves = m.octaves.clamp(1, limits::MAX_ROCK_OCTAVES);
             }
+            SovereignTextureConfig::Snow(s) => {
+                s.drift_octaves = s.drift_octaves.clamp(1, limits::MAX_ROCK_OCTAVES);
+            }
             // Variants with explicit cell / grid loop counts — without these
             // a peer can ship a `cell_count: 4_000_000_000` (or
             // `bars_x: u32::MAX`) and pin every guest's procedural texture
@@ -87,14 +90,60 @@ impl Sanitize for SovereignTextureConfig {
                 w.panels_x = w.panels_x.clamp(1, axis);
                 w.panels_y = w.panels_y.clamp(1, axis);
             }
+            // Particle sprite cards. Each atlas dimension drives a cell
+            // count (rows × cols cell constructions) and each count-shaped
+            // field drives a per-pixel inner loop; clamp both at the record
+            // boundary so a hostile record can't depend on the upstream
+            // generator's internal clamps still being present.
+            SovereignTextureConfig::SoftDisc(s) => {
+                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
+            }
+            SovereignTextureConfig::Spark(s) => {
+                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
+                s.points = s.points.clamp(2, limits::MAX_SPRITE_SPARK_POINTS);
+            }
+            SovereignTextureConfig::Snowflake(s) => {
+                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
+                s.arms = s.arms.clamp(3, limits::MAX_SPRITE_SNOWFLAKE_ARMS);
+                s.branch_pairs = s
+                    .branch_pairs
+                    .min(limits::MAX_SPRITE_SNOWFLAKE_BRANCH_PAIRS);
+            }
+            SovereignTextureConfig::Puff(s) => {
+                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
+                s.octaves = s.octaves.clamp(1, limits::MAX_SPRITE_PUFF_OCTAVES);
+            }
+            SovereignTextureConfig::Ring(s) => {
+                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
+                s.wave_count = s.wave_count.clamp(2, limits::MAX_SPRITE_RING_WAVES);
+            }
+            SovereignTextureConfig::Shard(s) => {
+                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
+                s.sides = s.sides.clamp(3, limits::MAX_SPRITE_SHARD_SIDES);
+            }
+            SovereignTextureConfig::Petal(s) => {
+                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
+            }
+            SovereignTextureConfig::Flame(s) => {
+                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
+            }
+            SovereignTextureConfig::LeafSprite(s) => {
+                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
+            }
+            SovereignTextureConfig::Flower(s) => {
+                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
+                s.petal_count = s.petal_count.clamp(4, limits::MAX_SPRITE_FLOWER_PETALS);
+            }
             // Forward to the asset-reference sanitiser — caps URL / DID /
             // CID lengths so a hostile peer can't smuggle a megabyte URL
             // through a referenced texture slot.
             SovereignTextureConfig::Referenced { source } => source.sanitize(),
             // Variants whose only count-shaped fields are `fp64` scale
             // factors (Brick, Plank, Shingle, Metal, Pavers, Cobblestone,
-            // Thatch, Corrugated, Asphalt, Encaustic, Leaf): per-pixel cost
-            // is bounded by `MAX_TEXTURE_SIZE`, so no extra clamp is needed.
+            // Thatch, Corrugated, Asphalt, Encaustic, Leaf; and the Fabric /
+            // Sand / Ice / Lava surfaces, whose thread / ripple / crack
+            // counts are likewise `fp64` frequencies): per-pixel cost is
+            // bounded by `MAX_TEXTURE_SIZE`, so no extra clamp is needed.
             SovereignTextureConfig::None
             | SovereignTextureConfig::Leaf(_)
             | SovereignTextureConfig::Brick(_)
@@ -107,7 +156,59 @@ impl Sanitize for SovereignTextureConfig {
             | SovereignTextureConfig::Corrugated(_)
             | SovereignTextureConfig::Asphalt(_)
             | SovereignTextureConfig::Encaustic(_)
+            | SovereignTextureConfig::Fabric(_)
+            | SovereignTextureConfig::Sand(_)
+            | SovereignTextureConfig::Ice(_)
+            | SovereignTextureConfig::Lava(_)
             | SovereignTextureConfig::Unknown => {}
         }
+    }
+}
+
+/// Clamp a sprite atlas's `(rows, cols)` into `1..=MAX_PARTICLE_ATLAS_DIM`.
+///
+/// The upstream `generate_atlas` clamps these before allocating cells, but
+/// clamping at the record boundary keeps the cost bound independent of the
+/// installed `bevy_symbios_texture` version.
+fn clamp_atlas(rows: &mut u32, cols: &mut u32) {
+    *rows = (*rows).clamp(1, limits::MAX_PARTICLE_ATLAS_DIM);
+    *cols = (*cols).clamp(1, limits::MAX_PARTICLE_ATLAS_DIM);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pds::{SovereignFlowerConfig, SovereignSnowflakeConfig};
+
+    /// A hostile record can set count-shaped sprite fields to `u32::MAX`; the
+    /// sanitiser must bring them back inside the per-feature loop budget so the
+    /// texture task can't be told to iterate billions of times per pixel.
+    #[test]
+    fn hostile_sprite_counts_are_clamped() {
+        let mut snow = SovereignSnowflakeConfig::default();
+        snow.variant_rows = u32::MAX;
+        snow.variant_cols = u32::MAX;
+        snow.arms = u32::MAX;
+        snow.branch_pairs = u32::MAX;
+        let mut cfg = SovereignTextureConfig::Snowflake(snow);
+        cfg.sanitize();
+        let SovereignTextureConfig::Snowflake(s) = cfg else {
+            panic!("variant changed under sanitize");
+        };
+        assert!(s.variant_rows <= limits::MAX_PARTICLE_ATLAS_DIM);
+        assert!(s.variant_cols <= limits::MAX_PARTICLE_ATLAS_DIM);
+        assert!(s.arms <= limits::MAX_SPRITE_SNOWFLAKE_ARMS);
+        assert!(s.branch_pairs <= limits::MAX_SPRITE_SNOWFLAKE_BRANCH_PAIRS);
+
+        let mut flower = SovereignFlowerConfig::default();
+        flower.petal_count = u32::MAX;
+        flower.variant_rows = 0; // below the floor
+        let mut cfg = SovereignTextureConfig::Flower(flower);
+        cfg.sanitize();
+        let SovereignTextureConfig::Flower(f) = cfg else {
+            panic!("variant changed under sanitize");
+        };
+        assert!(f.petal_count <= limits::MAX_SPRITE_FLOWER_PETALS);
+        assert!(f.variant_rows >= 1, "atlas dim floored to at least 1");
     }
 }

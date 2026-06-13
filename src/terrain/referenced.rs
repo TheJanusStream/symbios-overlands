@@ -176,6 +176,10 @@ fn decode_and_upload_splat_layer(
         albedo,
         normal,
         roughness,
+        // No glow layer on a decoded splat image, and the base level is the
+        // only level we synthesise — `map_to_images` mip-chains it on upload.
+        emissive: None,
+        mip_level_count: 1,
         width: texture_size,
         height: texture_size,
     };
