@@ -9,7 +9,8 @@
 
 use symbios_overlands::pds::{
     AnimationFrameMode, EmitterShape, Fp, Fp3, Fp4, Generator, GeneratorKind, ParticleBlendMode,
-    SignSource, SimulationSpace, TextureAtlas, TextureFilter, limits, sanitize_generator,
+    SignSource, SimulationSpace, SovereignTextureConfig, TextureAtlas, TextureFilter, limits,
+    sanitize_generator,
 };
 
 /// Helper: build a ParticleSystem generator with the supplied
@@ -52,6 +53,7 @@ fn sample_particles(
         texture_atlas: None,
         frame_mode: AnimationFrameMode::Still,
         texture_filter: TextureFilter::Linear,
+        procedural_texture: SovereignTextureConfig::None,
     })
 }
 
