@@ -10,7 +10,7 @@
 use super::INVENTORY_COLLECTION;
 use super::generator::Generator;
 use super::sanitize::sanitize_generator;
-use super::xrpc::{FetchError, XrpcError, resolve_pds};
+use super::xrpc::{FetchError, XrpcError, decode_record_json, resolve_pds};
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde::{Deserialize, Serialize};
@@ -95,10 +95,8 @@ pub async fn fetch_inventory_record(
         }
         return Err(FetchError::PdsError(status.as_u16()));
     }
-    let mut record = resp
-        .json::<GetInventoryResponse>()
-        .await
-        .map_err(|e| FetchError::Decode(e.to_string()))?
+    let mut record = decode_record_json::<GetInventoryResponse>(resp)
+        .await?
         .value;
     record.sanitize();
     Ok(Some(record))

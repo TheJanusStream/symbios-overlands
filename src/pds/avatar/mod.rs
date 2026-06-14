@@ -39,7 +39,7 @@ pub use locomotion::{
 use super::AVATAR_COLLECTION;
 use super::generator::Generator;
 use super::sanitize::sanitize_avatar_visuals;
-use super::xrpc::{FetchError, PutOutcome, XrpcError, resolve_pds};
+use super::xrpc::{FetchError, PutOutcome, XrpcError, decode_record_json, resolve_pds};
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde::{Deserialize, Serialize};
@@ -139,10 +139,7 @@ pub async fn fetch_avatar_record(
         }
         return Err(FetchError::PdsError(status.as_u16()));
     }
-    let wrapper: GetAvatarResponse = resp
-        .json()
-        .await
-        .map_err(|e| FetchError::Decode(e.to_string()))?;
+    let wrapper: GetAvatarResponse = decode_record_json(resp).await?;
     let mut record = wrapper.value;
     record.sanitize();
     Ok(Some(record))

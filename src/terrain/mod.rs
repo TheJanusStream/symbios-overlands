@@ -109,17 +109,24 @@ struct SplatMaterialHandle(Handle<SplatTerrainMaterial>);
 #[derive(Resource, Default)]
 struct LastTerrainConfigJson(Option<String>);
 
-/// Latest observed record fingerprint that has not yet been acted on.
+/// Latest observed terrain target that has not yet been acted on.
 ///
 /// `Res::is_changed()` ticks are per-system and consumed the moment this
 /// system runs — so a change observed while a previous terrain task was
 /// still in flight used to vanish: we'd return early, the tick would
 /// clear, and subsequent frames would never re-fire because the record
-/// didn't mutate again. Stashing the fingerprint here lets us survive
-/// any number of in-flight frames and apply the edit as soon as the
-/// async generator finishes.
+/// didn't mutate again. Stashing the target here lets us survive any
+/// number of in-flight frames and apply the edit as soon as the async
+/// generator finishes.
+///
+/// The nesting is load-bearing: the outer `Option` is "is there a pending
+/// change to apply", while the inner `Option<String>` is the *target* —
+/// `Some(fingerprint)` for a terrain config, or `None` when the owner has
+/// deleted the terrain generator and the live heightfield must be torn
+/// down. Collapsing these would lose the deletion signal and leave the
+/// old mesh as orphaned geometry.
 #[derive(Resource, Default)]
-struct PendingTerrainConfigJson(Option<String>);
+struct PendingTerrainConfigJson(Option<Option<String>>);
 
 pub struct TerrainPlugin;
 

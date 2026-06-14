@@ -442,6 +442,20 @@ pub(super) fn apply_reparent(
         return;
     }
 
+    // Dropping a node immediately before or after *itself* is a no-op.
+    // The anchor still carries the pre-removal path, so an `After(self)`
+    // would (post-extraction) resolve to the slot the right sibling
+    // shifted into and insert the node one position too far right —
+    // `adjust_path_after_removal` deliberately leaves the removed index
+    // unchanged, so `sibling_index_in` can't compensate. Bail before any
+    // mutation rather than fix it up downstream.
+    match &position {
+        DirPosition::Before(anchor) | DirPosition::After(anchor) if anchor == &drag_source => {
+            return;
+        }
+        _ => {}
+    }
+
     let target_is_virtual = target.is_virtual_root();
 
     // Reject "Inside" drops on nodes whose kind disallows children. The

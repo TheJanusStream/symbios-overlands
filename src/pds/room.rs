@@ -9,7 +9,7 @@ use super::generator::{Generator, GeneratorKind, Placement, WaterSurface};
 use super::sanitize::{Sanitize, limits, sanitize_generator};
 use super::terrain::SovereignTerrainConfig;
 use super::types::{Fp, Fp2, Fp3, Fp4, Fp64, TransformData};
-use super::xrpc::{FetchError, PutOutcome, XrpcError, resolve_pds};
+use super::xrpc::{FetchError, PutOutcome, XrpcError, decode_record_json, resolve_pds};
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde::{Deserialize, Serialize};
@@ -1020,10 +1020,7 @@ pub async fn fetch_room_record(
         }
         return Err(FetchError::PdsError(status.as_u16()));
     }
-    let wrapper: GetRecordResponse = resp
-        .json()
-        .await
-        .map_err(|e| FetchError::Decode(e.to_string()))?;
+    let wrapper: GetRecordResponse = decode_record_json(resp).await?;
     let mut record = wrapper.value;
     record.sanitize();
     Ok(Some(record))

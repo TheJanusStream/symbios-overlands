@@ -78,6 +78,38 @@ pub async fn fetch_blob_bytes_capped(client: &reqwest::Client, url: &str) -> Opt
     fetch_capped_bytes(client, url, MAX_FETCH_BODY_BYTES).await
 }
 
+/// Decode the body of an already-successful XRPC `getRecord` response as
+/// JSON, streaming it under [`MAX_FETCH_BODY_BYTES`] instead of buffering
+/// the whole thing.
+///
+/// The `reqwest::Response::json()` shortcut every record fetch used to
+/// call buffers the entire body into RAM before parsing, so a hostile PDS
+/// named in a peer's DID document could answer `com.atproto.repo.getRecord`
+/// with an infinitely-streaming (or multi-gigabyte) body and OOM any
+/// client that fetches that peer's room / avatar / inventory record. The
+/// caller has already validated the status code (and peeled off the
+/// 404 / `RecordNotFound` cases), so this only handles the success path.
+pub(crate) async fn decode_record_json<T: DeserializeOwned>(
+    resp: reqwest::Response,
+) -> Result<T, FetchError> {
+    // Cheap early reject when the server is honest about an oversized body.
+    if let Some(len) = resp.content_length()
+        && len as usize > MAX_FETCH_BODY_BYTES
+    {
+        return Err(FetchError::Decode(format!(
+            "record body {len} bytes exceeds {MAX_FETCH_BODY_BYTES}-byte cap"
+        )));
+    }
+    let bytes = read_capped_body(resp, MAX_FETCH_BODY_BYTES)
+        .await
+        .ok_or_else(|| {
+            FetchError::Decode(format!(
+                "record body exceeded {MAX_FETCH_BODY_BYTES}-byte cap"
+            ))
+        })?;
+    serde_json::from_slice(&bytes).map_err(|e| FetchError::Decode(e.to_string()))
+}
+
 /// Stream `client.get(url)` and decode the body as JSON, aborting if
 /// the body would exceed `MAX_DID_DOCUMENT_BYTES`. Used by
 /// [`resolve_pds`] (DID document fetches) so a hostile `did:web` host

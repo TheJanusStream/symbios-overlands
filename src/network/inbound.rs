@@ -25,6 +25,28 @@ use crate::state::{
 use super::SmootherConfigRes;
 use super::peer_cache::{PeerAvatarCache, spawn_peer_avatar_fetch};
 
+/// Message kinds that can be coalesced to the latest-per-sender within a
+/// single drain. Each fully supersedes any earlier instance from the same
+/// peer — `Identity` re-kicks one avatar fetch per DID change, and
+/// `AvatarStateUpdate` overwrites `peer.avatar` wholesale — so decoding and
+/// sanitising the stale ones is pure wasted work a flooding peer could
+/// weaponise into a main-thread DoS (the sanitize pass on a deeply-nested
+/// generator tree is not cheap). Dropping all but the last is behaviour-
+/// preserving because only the final value ever survives.
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+enum CoalesceKey {
+    Identity,
+    AvatarState,
+}
+
+fn coalesce_key(msg: &OverlandsMessage) -> Option<CoalesceKey> {
+    match msg {
+        OverlandsMessage::Identity { .. } => Some(CoalesceKey::Identity),
+        OverlandsMessage::AvatarStateUpdate { .. } => Some(CoalesceKey::AvatarState),
+        _ => None,
+    }
+}
+
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn handle_incoming_messages(
     mut commands: Commands,
@@ -49,20 +71,30 @@ pub(super) fn handle_incoming_messages(
     smoother_cfg: Res<SmootherConfigRes>,
 ) {
     let now = time.elapsed_secs_f64();
-    // Drain the whole queue into a buffer so we can dedupe `Identity`
-    // messages per sender. A burst of Identity messages would otherwise
-    // fire N redundant avatar fetches against the peer's PDS.
+    // Drain the whole queue into a buffer so we can coalesce per
+    // (sender, kind): a burst of `Identity` or `AvatarStateUpdate`
+    // messages from one peer would otherwise fire N redundant avatar
+    // fetches / run the heavy decode+sanitize pass N times, letting a
+    // flooding peer pin the main thread. Only the last of each kind per
+    // sender survives — see [`CoalesceKey`].
     let messages: Vec<_> = messages_received.drain().collect();
-    let mut last_identity_idx: std::collections::HashMap<PeerId, usize> =
+    let mut last_coalesced_idx: std::collections::HashMap<(PeerId, CoalesceKey), usize> =
         std::collections::HashMap::new();
     for (i, msg) in messages.iter().enumerate() {
-        if matches!(msg.payload, OverlandsMessage::Identity { .. }) {
-            last_identity_idx.insert(msg.sender, i);
+        if let Some(key) = coalesce_key(&msg.payload) {
+            last_coalesced_idx.insert((msg.sender, key), i);
         }
     }
+    // Tracks whether an incoming-offer dialog is (or will be) up this
+    // frame. Seeded from the resource and flipped to `true` the moment we
+    // stage one via `commands.insert_resource` — `Commands` don't apply
+    // until end-of-system, so reading the resource again would report the
+    // stale pre-frame state and let a peer pack many `ItemOffer`s into one
+    // frame, bypassing the busy-gate.
+    let mut dialog_open = incoming_dialog.is_some();
     for (i, msg) in messages.into_iter().enumerate() {
-        if matches!(msg.payload, OverlandsMessage::Identity { .. })
-            && last_identity_idx.get(&msg.sender) != Some(&i)
+        if let Some(key) = coalesce_key(&msg.payload)
+            && last_coalesced_idx.get(&(msg.sender, key)) != Some(&i)
         {
             continue;
         }
@@ -382,10 +414,11 @@ pub(super) fn handle_incoming_messages(
                     n
                 };
 
-                // Busy-gate: a dialog is already up, so an attacker can't
-                // queue-flood the recipient with nested prompts. Decline
-                // and log so the user knows someone tried.
-                if incoming_dialog.is_some() {
+                // Busy-gate: a dialog is already up (or was staged earlier
+                // this same frame), so an attacker can't queue-flood the
+                // recipient with nested prompts. Decline and log so the
+                // user knows someone tried.
+                if dialog_open {
                     sender.to(
                         msg.sender,
                         OverlandsMessage::ItemOfferResponse {
@@ -465,6 +498,10 @@ pub(super) fn handle_incoming_messages(
                     generator,
                     arrived_at_secs: now,
                 });
+                // Slam the gate shut for the rest of this frame so any
+                // further offers in the same drain auto-decline instead of
+                // racing the deferred `insert_resource` above.
+                dialog_open = true;
             }
             OverlandsMessage::ItemOfferResponse {
                 offer_id,
