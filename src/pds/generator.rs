@@ -813,9 +813,11 @@ impl GeneratorKind {
 
     /// Canonical default `ParticleSystem` — a small upward-spraying
     /// emitter with 32 particles/s, 2 s lifetime, white→fade-out
-    /// alpha-blended quads, no inheritance, no collisions. Used by
-    /// the UI "+ ParticleSystem" entry; the editor surfaces every
-    /// parameter for tuning afterwards.
+    /// alpha-blended particles on a soft-disc sprite (#367, so a
+    /// freshly-added emitter reads as soft motes rather than hard
+    /// squares), no inheritance, no collisions. Used by the UI
+    /// "+ ParticleSystem" entry; the editor surfaces every parameter —
+    /// including the sprite picker — for tuning afterwards.
     pub fn default_particles() -> Self {
         GeneratorKind::ParticleSystem {
             emitter_shape: EmitterShape::Cone {
@@ -852,7 +854,9 @@ impl GeneratorKind {
             texture_atlas: None,
             frame_mode: AnimationFrameMode::Still,
             texture_filter: TextureFilter::Linear,
-            procedural_texture: super::texture::SovereignTextureConfig::None,
+            procedural_texture: super::texture::SovereignTextureConfig::SoftDisc(
+                super::texture::SovereignSoftDiscConfig::default(),
+            ),
         }
     }
 }

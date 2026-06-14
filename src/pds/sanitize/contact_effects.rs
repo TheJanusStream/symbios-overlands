@@ -158,6 +158,13 @@ impl Sanitize for RecipeParticle {
     fn sanitize(&mut self) {
         self.max_particles = self.max_particles.min(limits::MAX_PARTICLES);
 
+        // Clamp the procedural sprite's atlas dims + per-feature loop
+        // counts (the shared `SovereignTextureConfig` sanitiser) so a
+        // hostile record can't smuggle an unbounded sprite bake through
+        // the contact-burst slot — the same guard the ParticleSystem
+        // sanitiser applies to its procedural texture.
+        self.procedural_texture.sanitize();
+
         self.lifetime_min.0 = clamp_finite(
             self.lifetime_min.0,
             limits::MIN_PARTICLE_LIFETIME,

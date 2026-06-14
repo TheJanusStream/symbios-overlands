@@ -152,6 +152,22 @@ pub(super) fn draw_contact_effects_tab(
                                 512,
                                 dirty,
                             );
+                            // Procedural sprite billboard (#367). Reuses the
+                            // material tab's picker; `allow_referenced =
+                            // false` because the contact-burst bake path
+                            // ignores fetched-asset references (same as the
+                            // ParticleSystem generator's procedural slot).
+                            // `None` falls back to a flat coloured quad.
+                            ui.horizontal(|ui| {
+                                ui.label("Sprite");
+                                super::material::draw_texture_bridge_opts(
+                                    ui,
+                                    &mut particle.procedural_texture,
+                                    &format!("contact_particle_sprite_{i}"),
+                                    dirty,
+                                    false,
+                                );
+                            });
                         });
                     }
                     ContactEffectKind::DecalStamp { decal } => {

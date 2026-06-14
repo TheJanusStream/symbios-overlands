@@ -17,7 +17,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::generator::{EmitterShape, ParticleBlendMode};
-use super::types::{Fp, Fp3, Fp4};
+use super::texture::{SovereignPuffConfig, SovereignSoftDiscConfig, SovereignTextureConfig};
+use super::types::{Fp, Fp3, Fp4, Fp64};
 
 /// Serializable mirror of `interaction::contact::SurfaceKind`. Open
 /// union (`$type` tag + [`Self::Unknown`]) so a record authored by a
@@ -86,6 +87,17 @@ pub struct RecipeParticle {
     /// Hard per-emitter alive cap (also raised to the burst count at
     /// spawn so a big splash is never silently truncated).
     pub max_particles: u32,
+    /// Procedural sprite billboard for the burst particles (#367). The
+    /// baked alpha silhouette replaces the flat coloured quad; the
+    /// emitter's `start_color`→`end_color` ramp still tints it through
+    /// the texture multiply (so a near-white sprite carries the authored
+    /// colour). `#[serde(default)]` → a pre-#367 record (no key) decodes
+    /// to [`SovereignTextureConfig::None`], keeping its untextured
+    /// flat-quad look byte-identical. The seeded defaults set an
+    /// appropriate card: SoftDisc droplets for water, a Puff cloud for
+    /// ground dust.
+    #[serde(default)]
+    pub procedural_texture: SovereignTextureConfig,
 }
 
 /// A flat, short-lived contact decal (consumer channel C, #261/#246).
@@ -194,6 +206,13 @@ impl Default for AudioParams {
 /// [`ContactSurfaceKind`]: a record authored against a future effect
 /// kind decodes to `Unknown` here and is skipped at compile time
 /// rather than failing the whole room.
+// The `ParticleBurst` variant carries a `RecipeParticle` whose
+// `procedural_texture` is a full `SovereignTextureConfig` (~288 bytes,
+// #367). Boxing it would force serde through a wrapping layer and churn
+// the round-trip tests / deserialize shim for no real gain — recipes
+// live in a small per-room `Vec`, never a hot path — so the size penalty
+// is fine, consistent with how `GeneratorKind` handles the same config.
+#[allow(clippy::large_enum_variant)]
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "$type")]
 pub enum ContactEffectKind {
@@ -326,6 +345,41 @@ impl<'de> Deserialize<'de> for ContactEffectRecord {
     }
 }
 
+/// Soft round droplet sprite for water splash / droplet bursts (#367).
+/// Near-white so the emitter's blue-white colour ramp tints it through
+/// the texture multiply (the same convention the seeded ambient
+/// particles use). A single variant — the transient burst draws frame 0
+/// (`AnimationFrameMode::Still`), so a multi-cell atlas would bake cells
+/// the burst never shows.
+///
+/// Shared with `interaction::recipes` (the hardcoded runtime fallback
+/// templates) so the authored default and the fallback can't drift — the
+/// `from_effects_maps_defaults_equivalently` test guards the pairing.
+pub(crate) fn droplet_sprite() -> SovereignTextureConfig {
+    SovereignTextureConfig::SoftDisc(SovereignSoftDiscConfig {
+        variant_rows: 1,
+        variant_cols: 1,
+        color_core: Fp3([1.0, 1.0, 1.0]),
+        color_halo: Fp3([0.92, 0.96, 1.0]),
+        ..Default::default()
+    })
+}
+
+/// Soft cloud puff sprite for the ground-dust burst (#367). Neutral grey
+/// so the emitter's tan colour ramp drives the hue through the texture
+/// multiply. Single variant for the same `Still`-mode reason as
+/// [`droplet_sprite`].
+pub(crate) fn dust_sprite() -> SovereignTextureConfig {
+    SovereignTextureConfig::Puff(SovereignPuffConfig {
+        variant_rows: 1,
+        variant_cols: 1,
+        color_base: Fp3([0.94, 0.94, 0.94]),
+        color_shadow: Fp3([0.58, 0.58, 0.58]),
+        edge_falloff: Fp64(2.2),
+        ..Default::default()
+    })
+}
+
 /// The canonical splash particle — the fallback used when a malformed
 /// legacy record omits `particle` entirely. Kept tiny and benign.
 fn canonical_particle() -> RecipeParticle {
@@ -345,6 +399,7 @@ fn canonical_particle() -> RecipeParticle {
         blend_mode: ParticleBlendMode::Alpha,
         billboard: true,
         max_particles: 32,
+        procedural_texture: droplet_sprite(),
     }
 }
 
@@ -440,6 +495,7 @@ pub fn default_contact_effects() -> ContactEffects {
                         blend_mode: ParticleBlendMode::Alpha,
                         billboard: true,
                         max_particles: 64,
+                        procedural_texture: droplet_sprite(),
                     },
                 ),
             },
@@ -476,6 +532,7 @@ pub fn default_contact_effects() -> ContactEffects {
                         blend_mode: ParticleBlendMode::Alpha,
                         billboard: true,
                         max_particles: 16,
+                        procedural_texture: droplet_sprite(),
                     },
                 ),
             },
@@ -535,6 +592,7 @@ fn ground_dust_record() -> ContactEffectRecord {
                 blend_mode: ParticleBlendMode::Alpha,
                 billboard: true,
                 max_particles: 48,
+                procedural_texture: dust_sprite(),
             },
         ),
     }

@@ -13,22 +13,46 @@
 //! [`ContactRecipeRegistry::from_effects`]. A room that omits the
 //! `contact_effects` block falls back to [`default_water_recipes`]
 //! (value-equal to [`crate::pds::default_contact_effects`]), so the
-//! shipped default is the coloured-quad water splash / droplet pair with
-//! no decal or audio. Particle templates stay solid coloured quads (no
-//! atlas / asset dependency — the `texture: None` path renders
-//! billboarded quads); everything else is tuned from the room editor's
-//! Effects tab.
+//! shipped default is the water splash / droplet pair (baked onto
+//! soft-disc sprites, #367) with no decal or audio. Particle templates
+//! carry a procedural sprite billboard — a SoftDisc droplet for water, a
+//! Puff cloud for ground dust — tinted by the emitter's colour ramp;
+//! everything is tuned from the room editor's Effects tab.
 
 use bevy::prelude::*;
 
+use bevy_symbios_texture::TextureConfig;
+
+use crate::pds::contact_effects::{droplet_sprite, dust_sprite};
 use crate::pds::{
     AnimationFrameMode, AudioClipSource, AudioParams, ContactEffectKind, ContactEffects,
     ContactPhaseKind, ContactSurfaceKind, DecalParams, EmitterShape, Fp, ParticleBlendMode,
-    RecipeParticle, SimulationSpace, TextureFilter,
+    RecipeParticle, SimulationSpace, SovereignTextureConfig, TextureAtlas, TextureFilter,
 };
 use crate::world_builder::particles::ParticleEmitter;
 
 use super::contact::{ContactPhase, ContactSample, SurfaceKind};
+
+/// Resolve a sovereign sprite config into the runtime emitter's
+/// `(procedural_texture, texture_atlas)` pair — the same rule the
+/// world-builder's `snapshot_from_record` applies. `None` / `Unknown` /
+/// `Referenced` take the untextured flat-quad path; a sprite card bakes
+/// its `variant_rows × cols` atlas so the emitter sizes its frames to it.
+fn sprite_emitter_texture(
+    cfg: &SovereignTextureConfig,
+) -> (Option<TextureConfig>, Option<TextureAtlas>) {
+    match cfg {
+        SovereignTextureConfig::None
+        | SovereignTextureConfig::Unknown
+        | SovereignTextureConfig::Referenced { .. } => (None, None),
+        other => (
+            Some(other.to_texture_config()),
+            other
+                .sprite_atlas_dims()
+                .map(|(rows, cols)| TextureAtlas { rows, cols }),
+        ),
+    }
+}
 
 /// Predicate side of a recipe: which samples it fires on.
 #[derive(Debug, Clone, Copy)]
@@ -236,7 +260,7 @@ impl Default for ContactRecipeRegistry {
 }
 
 // ---------------------------------------------------------------------------
-// Hardcoded templates (coloured billboard quads — no texture/atlas)
+// Hardcoded templates (sprite-textured billboards, #367)
 // ---------------------------------------------------------------------------
 
 /// Shared base: a non-looping, burst-only, world-space coloured-quad
@@ -282,6 +306,7 @@ fn transient_base() -> ParticleEmitter {
 
 /// Splash on fast water entry — an upward droplet fan.
 fn water_splash_template() -> ParticleEmitter {
+    let (procedural_texture, texture_atlas) = sprite_emitter_texture(&droplet_sprite());
     ParticleEmitter {
         // Cone apex at origin pointing local +Y: an upward spray. The
         // dispatcher scales `height` by the avatar footprint so a
@@ -297,12 +322,15 @@ fn water_splash_template() -> ParticleEmitter {
         speed_max: 4.0,
         start_size: 0.13,
         end_size: 0.03,
+        procedural_texture,
+        texture_atlas,
         ..transient_base()
     }
 }
 
 /// Low trickle of droplets while swimming/wading (continuous `Dwell`).
 fn water_droplet_template() -> ParticleEmitter {
+    let (procedural_texture, texture_atlas) = sprite_emitter_texture(&droplet_sprite());
     ParticleEmitter {
         shape: EmitterShape::Sphere { radius: Fp(0.2) },
         max_particles: 16,
@@ -312,6 +340,8 @@ fn water_droplet_template() -> ParticleEmitter {
         speed_max: 1.4,
         start_size: 0.06,
         end_size: 0.015,
+        procedural_texture,
+        texture_atlas,
         ..transient_base()
     }
 }
@@ -321,6 +351,7 @@ fn water_droplet_template() -> ParticleEmitter {
 /// `crate::pds::contact_effects::ground_dust_record`'s `RecipeParticle`
 /// (the from-effects equivalence test guards the recipe-level fields).
 fn ground_dust_template() -> ParticleEmitter {
+    let (procedural_texture, texture_atlas) = sprite_emitter_texture(&dust_sprite());
     ParticleEmitter {
         shape: EmitterShape::Sphere { radius: Fp(0.25) },
         max_particles: 48,
@@ -335,6 +366,8 @@ fn ground_dust_template() -> ParticleEmitter {
         end_size: 0.05,
         start_color: LinearRgba::new(0.55, 0.45, 0.32, 0.70),
         end_color: LinearRgba::new(0.50, 0.42, 0.30, 0.0),
+        procedural_texture,
+        texture_atlas,
         ..transient_base()
     }
 }
@@ -451,11 +484,12 @@ fn map_phase(p: ContactPhaseKind) -> Option<ContactPhase> {
 
 /// Build a runtime emitter snapshot from an authored
 /// [`RecipeParticle`]. The fixed transient-burst fields (no rate /
-/// loop, tiny duration, World space, no texture/collision; the
-/// dispatcher overrides `burst_count`, `inherit_velocity` and the
-/// footprint-scaled shape) come from [`transient_base`]; everything the
-/// designer controls is overlaid here.
+/// loop, tiny duration, World space, no collision; the dispatcher
+/// overrides `burst_count`, `inherit_velocity` and the footprint-scaled
+/// shape) come from [`transient_base`]; everything the designer controls
+/// — including the procedural sprite (#367) — is overlaid here.
 fn recipe_particle_to_emitter(p: &RecipeParticle) -> ParticleEmitter {
+    let (procedural_texture, texture_atlas) = sprite_emitter_texture(&p.procedural_texture);
     ParticleEmitter {
         shape: p.shape.clone(),
         lifetime_min: p.lifetime_min.0,
@@ -481,6 +515,8 @@ fn recipe_particle_to_emitter(p: &RecipeParticle) -> ParticleEmitter {
         blend_mode: p.blend_mode.clone(),
         billboard: p.billboard,
         max_particles: p.max_particles,
+        procedural_texture,
+        texture_atlas,
         ..transient_base()
     }
 }
@@ -663,6 +699,25 @@ mod tests {
             assert_eq!(a.spawn.count, b.spawn.count);
             assert!((a.spawn.cooldown - b.spawn.cooldown).abs() < 1e-6);
             assert!((a.spawn.radius_scale - b.spawn.radius_scale).abs() < 1e-6);
+            // #367: both paths source the sprite from the same
+            // `droplet_sprite` / `dust_sprite` helpers, so the seeded
+            // template must be sprite-textured with a matching atlas on
+            // both sides (the authored default and the hardcoded
+            // fallback) — guards against the two drifting apart.
+            assert!(
+                a.spawn.template.procedural_texture.is_some(),
+                "authored default `{}` must carry a procedural sprite",
+                a.name
+            );
+            assert!(
+                b.spawn.template.procedural_texture.is_some(),
+                "fallback `{}` must carry a procedural sprite",
+                b.name
+            );
+            assert_eq!(
+                a.spawn.template.texture_atlas,
+                b.spawn.template.texture_atlas
+            );
         }
     }
 
