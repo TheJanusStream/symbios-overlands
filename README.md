@@ -33,7 +33,7 @@ Built in Rust on the [Bevy](https://bevyengine.org/) engine. The same binary run
 The project is "thin client, heavy world":
 
 - **Engine:** Bevy 0.18 + Avian3D 0.6 (physics) + [`bevy_egui`](https://github.com/vladbat00/bevy_egui) (UI) + [`bevy_panorbit_camera`](https://github.com/Plonq/bevy_panorbit_camera) (third-person orbit) + [`transform-gizmo-bevy`](https://github.com/urholaukkarinen/transform-gizmo) (in-world editor handles).
-- **Procedural ecosystem:** the sovereign `symbios` family — [`symbios-ground`](https://github.com/TheJanusStream/symbios-ground) (Voronoi terracing + hydraulic and thermal erosion), [`symbios` + `symbios-turtle-3d`](https://github.com/TheJanusStream/symbios) (L-systems), [`symbios-shape`](https://github.com/TheJanusStream/symbios-shape) (CGA shape grammars), [`bevy_symbios_texture`](https://github.com/TheJanusStream/bevy_symbios_texture) (~23-material procedural PBR catalogue), and [`bevy_symbios_audio`](https://github.com/TheJanusStream/bevy_symbios_audio) (node-graph synthesis + step-sequencer mixdown).
+- **Procedural ecosystem:** the sovereign `symbios` family — [`symbios-ground`](https://github.com/TheJanusStream/symbios-ground) (Voronoi terracing + hydraulic and thermal erosion), [`symbios` + `symbios-turtle-3d`](https://github.com/TheJanusStream/symbios) (L-systems), [`symbios-shape`](https://github.com/TheJanusStream/symbios-shape) (CGA shape grammars), [`bevy_symbios_texture`](https://github.com/TheJanusStream/bevy_symbios_texture) (~30-material procedural PBR catalogue + particle-sprite atlases), and [`bevy_symbios_audio`](https://github.com/TheJanusStream/bevy_symbios_audio) (node-graph synthesis + step-sequencer mixdown).
 - **Networking:** [`bevy_symbios_multiuser`](https://github.com/TheJanusStream/bevy_symbios_multiuser) over WebRTC ([`matchbox`](https://github.com/johanhelsing/matchbox)) for the peer mesh; [`proto-blue-oauth` + `proto-blue-api`](https://github.com/dollspace-gay/proto-blue) for ATProto identity and PDS plumbing. Peer DIDs are authenticated against the relay-signed session map so a peer can't impersonate another identity over the unauthenticated data channel.
 - **Protocol safety.** ATProto's DAG-CBOR encoding forbids floats, so every continuous spatial value is wrapped in fixed-point (`Fp` / `Fp2` / `Fp3` / `Fp4` / `Fp64`). Every record class also carries a `sanitize()` step that clamps sizes, counts, depths and octaves so a malformed payload from a hostile peer can't OOM or crash the engine.
 - **State machine.** A three-stage `AppState` (`Login` → `Loading` → `InGame`). The loading gate waits on the heightmap, the seeded ambient-audio bake, the room / avatar / inventory PDS fetches, *and* the room compile itself before gameplay starts, so a slow round-trip can't leave the world half-loaded or silent — and the browser build's long synchronous world build stays behind the loading screen instead of freezing the first visible frame.
@@ -85,9 +85,7 @@ cargo run --release -- \
 
 ```bash
 rustup target add wasm32-unknown-unknown
-# The CLI must match the `wasm-bindgen` crate version cargo resolves —
-# check Cargo.lock after the build (0.2.123 at the time of writing).
-cargo install wasm-bindgen-cli --version 0.2.123
+cargo install wasm-bindgen-cli --version 0.2
 
 cargo build --release --target wasm32-unknown-unknown
 wasm-bindgen --out-dir ./dist --target web \
