@@ -296,6 +296,16 @@ impl RoomRecord {
     /// been published to a PDS keep their stored values verbatim — the
     /// seed pipeline only fills in the blank-record case here.
     pub fn default_for_did(did: &str) -> Self {
+        Self::default_for_seed(crate::seeded_defaults::fnv1a_64(did), did)
+    }
+
+    /// Build the seeded default room from a pre-computed seed — the
+    /// manual re-roll path. `seed` drives every derived value (terrain
+    /// shape, palette, atmosphere, scatters, landmark, audio, …); `did`
+    /// is kept only for the per-species generator builders that take the
+    /// local DID. `default_for_did` is exactly
+    /// `default_for_seed(fnv1a_64(did), did)`.
+    pub fn default_for_seed(seed: u64, did: &str) -> Self {
         use crate::pds::generator::{
             AnimationFrameMode, EmitterShape, ParticleBlendMode, SimulationSpace, TextureFilter,
         };
@@ -305,10 +315,10 @@ impl RoomRecord {
         use crate::pds::types::{BiomeFilter, ScatterBounds, WaterRelation};
         use crate::seeded_defaults::{
             AmbientParticles, Atmosphere, BiomeTextures, Landmark, RockScatters, RoomPalette,
-            SceneCharacter, TerrainShape, TreeScatters, WaterDynamics, fnv1a_64,
+            SceneCharacter, TerrainShape, TreeScatters, WaterDynamics,
         };
 
-        let did_seed = fnv1a_64(did);
+        let did_seed = seed;
         let scene = SceneCharacter::for_seed(did_seed);
         let palette = RoomPalette::from_scene(&scene, did_seed);
         let shape = TerrainShape::from_scene(&scene, did_seed);
@@ -1247,6 +1257,42 @@ mod tests {
                 "landmark should sit near (but not on) spawn; got {dist} m"
             );
         }
+    }
+
+    /// The DID path must equal the seed path fed the hashed DID — the
+    /// contract that keeps `default_for_did` untouched while the manual
+    /// re-roll uses `default_for_seed`. Compared through the same serde
+    /// equality the editor's dirty check uses.
+    #[test]
+    fn default_for_did_equals_default_for_seed_of_hashed_did() {
+        for s in 0u64..16 {
+            let did = format!("did:test:{s}");
+            let from_did = RoomRecord::default_for_did(&did);
+            let from_seed =
+                RoomRecord::default_for_seed(crate::seeded_defaults::fnv1a_64(&did), &did);
+            assert!(
+                !crate::state::records_differ(&from_did, &from_seed),
+                "default_for_did diverged from default_for_seed(fnv1a_64(did)) for {did}"
+            );
+        }
+    }
+
+    #[test]
+    fn default_for_seed_is_deterministic() {
+        let a = RoomRecord::default_for_seed(0xABCD_1234, "did:test:reroll");
+        let b = RoomRecord::default_for_seed(0xABCD_1234, "did:test:reroll");
+        assert!(!crate::state::records_differ(&a, &b));
+    }
+
+    #[test]
+    fn distinct_seeds_yield_distinct_rooms() {
+        // A re-roll must actually change the room (same DID, new seed).
+        let a = RoomRecord::default_for_seed(1, "did:test:reroll");
+        let b = RoomRecord::default_for_seed(2, "did:test:reroll");
+        assert!(
+            crate::state::records_differ(&a, &b),
+            "re-roll produced an identical room for two seeds"
+        );
     }
 
     #[test]

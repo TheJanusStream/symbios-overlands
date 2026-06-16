@@ -38,7 +38,9 @@ use crate::state::{
     LiveAvatarRecord, LiveInventoryRecord, LocalSettings, PublishFeedback, PublishStatus,
     StoredAvatarRecord, records_differ,
 };
-use crate::ui::editable::{RecordAction, publish_status_line, save_load_reset_row};
+use crate::ui::editable::{
+    RecordAction, SeedAction, publish_status_line, save_load_reset_row, seed_row,
+};
 use crate::ui::room::RoomEditorState;
 use crate::ui::room::generators::{AvatarVisualsTreeSource, GenNodeId, draw_generators_tab};
 
@@ -84,6 +86,10 @@ pub struct AvatarEditorState {
     /// avatar visuals generators. Shares the same widget as the room
     /// editor; see [`crate::ui::room::audio::AudioEditorState`].
     audio_editor: crate::ui::room::audio::AudioEditorState,
+    /// Buffer for the manual re-roll "Random seed" row — defaults to the
+    /// owner's DID seed, editable to re-roll the whole avatar. See
+    /// [`crate::ui::editable::seed_row`].
+    seed_row_state: crate::ui::editable::SeedRowState,
 }
 
 impl AvatarEditorState {
@@ -183,6 +189,7 @@ pub fn avatar_ui(
                     tree_view_state,
                     renaming_unused,
                     audio_editor,
+                    seed_row_state,
                     ..
                 } = &mut *editor;
 
@@ -244,6 +251,25 @@ pub fn avatar_ui(
                 // `records_differ` — the *same* canonical equality the
                 // other two use — instead of `AvatarRecord`'s `PartialEq`,
                 // so all three editors behave identically.
+
+                // Manual re-roll — the same DID-seeded engine as the
+                // defaults, with an owner-chosen master seed. Replaces the
+                // whole working avatar like "Reset to default" (which is
+                // this with seed = fnv1a_64(did)). The pfp banner tracks
+                // the DID, not the seed, so it survives a re-roll.
+                if let Some(s) = session.as_ref() {
+                    let reroll = seed_row(
+                        ui,
+                        seed_row_state,
+                        crate::seeded_defaults::fnv1a_64(&s.did),
+                        time.elapsed_secs_f64(),
+                    );
+                    if let SeedAction::Reroll(seed) = reroll {
+                        live_mut.0 = AvatarRecord::default_for_seed(seed, &s.did);
+                    }
+                }
+                ui.separator();
+
                 let dirty = stored
                     .as_ref()
                     .is_some_and(|s| records_differ(&s.0, &live_mut.0));

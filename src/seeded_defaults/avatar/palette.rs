@@ -88,7 +88,13 @@ pub struct AvatarPalette {
 
 impl AvatarPalette {
     pub fn for_did(did: &str) -> Self {
-        let mut rng = ChaCha8Rng::seed_from_u64(fnv1a_64(did) ^ AVATAR_PALETTE_SALT);
+        Self::for_seed(fnv1a_64(did))
+    }
+
+    /// Derive from a pre-computed seed — the manual re-roll path.
+    /// `for_did(did)` is exactly `for_seed(fnv1a_64(did))`.
+    pub fn for_seed(seed: u64) -> Self {
+        let mut rng = ChaCha8Rng::seed_from_u64(seed ^ AVATAR_PALETTE_SALT);
 
         let base_hue_deg = unit_f32(&mut rng) * 360.0;
 

@@ -42,7 +42,9 @@ mod ambient;
 
 pub use ambient::{AmbientHandle, AmbientPlayer};
 pub(crate) use ambient::{
-    poll_ambient_bake_task, reset_ambient_bake_state, spawn_ambient_player, start_ambient_bake,
+    LiveAmbientConfig, PlayingAmbient, poll_ambient_bake_task, poll_ambient_rebake_task,
+    rebake_ambient_on_record_change, reset_ambient_bake_state, spawn_ambient_player,
+    start_ambient_bake, swap_ambient_player_to_handle,
 };
 pub(crate) use fetch::{fire_pending_record_retries, poll_record_task};
 pub(crate) use records::{

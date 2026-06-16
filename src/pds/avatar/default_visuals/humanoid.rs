@@ -30,10 +30,12 @@ use super::common::{
     prim, quat_xyzw, quat_z, skin_mat, sphere, torus, with_torture,
 };
 
-pub(super) fn build(did: &str) -> Generator {
-    let palette = AvatarPalette::for_did(did);
-    let body = AvatarBody::for_did(did);
-    let style = HumanoidStyle::for_did(did);
+/// `seed` drives the derived look (re-roll re-seeds this); `did` is kept
+/// only for identity references the seed must not touch — the pfp banner.
+pub(super) fn build(seed: u64, did: &str) -> Generator {
+    let palette = AvatarPalette::for_seed(seed);
+    let body = AvatarBody::for_seed(seed);
+    let style = HumanoidStyle::for_seed(seed);
 
     let skin = palette.skin_tone;
     let hair = palette.hair_color;

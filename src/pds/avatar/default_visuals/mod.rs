@@ -19,7 +19,7 @@ mod skiff;
 
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp;
-use crate::seeded_defaults::{AvatarBody, AvatarGait, ChassisFamily};
+use crate::seeded_defaults::{AvatarBody, AvatarGait, ChassisFamily, fnv1a_64};
 
 use super::locomotion::{
     CarParams, HelicopterParams, HoverBoatParams, HumanoidParams, LocomotionConfig,
@@ -29,11 +29,23 @@ use super::locomotion::{
 /// Build the full seeded default avatar (visuals + locomotion) for a
 /// DID. Deterministic: every peer derives the identical record.
 pub fn build_for_did(did: &str) -> (Generator, LocomotionConfig) {
-    match ChassisFamily::for_did(did) {
-        ChassisFamily::Boat => (boat::build(did), HoverBoatParams::default_config()),
-        ChassisFamily::Airship => (airship::build(did), HelicopterParams::default_config()),
-        ChassisFamily::Humanoid => (humanoid::build(did), humanoid_locomotion(did)),
-        ChassisFamily::Skiff => (skiff::build(did), CarParams::default_config()),
+    build_for_seed(fnv1a_64(did), did)
+}
+
+/// Build from a pre-computed seed — the manual re-roll path. `seed`
+/// chooses the chassis family and drives every derived value; `did` is
+/// threaded through only for identity references (the pfp banner) that
+/// must survive a re-roll. `build_for_did(did)` is exactly
+/// `build_for_seed(fnv1a_64(did), did)`.
+pub fn build_for_seed(seed: u64, did: &str) -> (Generator, LocomotionConfig) {
+    match ChassisFamily::for_seed(seed) {
+        ChassisFamily::Boat => (boat::build(seed, did), HoverBoatParams::default_config()),
+        ChassisFamily::Airship => (
+            airship::build(seed, did),
+            HelicopterParams::default_config(),
+        ),
+        ChassisFamily::Humanoid => (humanoid::build(seed, did), humanoid_locomotion(seed)),
+        ChassisFamily::Skiff => (skiff::build(seed, did), CarParams::default_config()),
     }
 }
 
@@ -42,9 +54,9 @@ pub fn build_for_did(did: &str) -> (Generator, LocomotionConfig) {
 /// seeded gait cadence (nominal 2.2 steps/s ↔ the preset's default
 /// 4.0 m/s), so a long-legged strider actually covers ground faster
 /// than a short-stepped walker.
-fn humanoid_locomotion(did: &str) -> LocomotionConfig {
-    let body = AvatarBody::for_did(did);
-    let gait = AvatarGait::for_did(did);
+fn humanoid_locomotion(seed: u64) -> LocomotionConfig {
+    let body = AvatarBody::for_seed(seed);
+    let gait = AvatarGait::for_seed(seed);
     let mut p = HumanoidParams::default();
     let total_h = 1.70 * body.height_scale;
     p.capsule_radius = Fp(0.28 * body.shoulder_width_scale);
@@ -149,6 +161,68 @@ mod tests {
         for (fam, did) in family_dids() {
             let (built, _) = build_for_did(&did);
             assert!(has_sign(&built), "{fam:?} avatar lost its pfp banner");
+        }
+    }
+
+    /// The DID path must be exactly the seed path fed the hashed DID —
+    /// this is the contract that lets `build_for_did` keep working
+    /// untouched while the manual re-roll uses `build_for_seed`.
+    #[test]
+    fn build_for_did_equals_build_for_seed_of_hashed_did() {
+        for (_, did) in family_dids() {
+            let (va, la) = build_for_did(&did);
+            let (vb, lb) = build_for_seed(fnv1a_64(&did), &did);
+            assert_eq!(
+                va, vb,
+                "visuals diverged from the hashed-DID seed for {did}"
+            );
+            assert_eq!(
+                la, lb,
+                "locomotion diverged from the hashed-DID seed for {did}"
+            );
+        }
+    }
+
+    #[test]
+    fn build_for_seed_is_deterministic() {
+        let (a, la) = build_for_seed(0xC0FF_EE12_3456_789A, "did:plc:reroll");
+        let (b, lb) = build_for_seed(0xC0FF_EE12_3456_789A, "did:plc:reroll");
+        assert_eq!(a, b);
+        assert_eq!(la, lb);
+    }
+
+    #[test]
+    fn distinct_seeds_yield_distinct_avatars() {
+        // A re-roll must actually change the look (same DID, new seed).
+        let (a, _) = build_for_seed(1, "did:plc:reroll");
+        let (b, _) = build_for_seed(2, "did:plc:reroll");
+        assert_ne!(a, b, "re-roll produced an identical avatar for two seeds");
+    }
+
+    /// Re-rolling changes the look but not *whose* avatar it is: the pfp
+    /// banner's DID is threaded straight through and must be independent
+    /// of the seed.
+    #[test]
+    fn pfp_banner_did_is_seed_independent() {
+        use crate::pds::generator::{GeneratorKind, SignSource};
+        fn find_pfp_did(g: &Generator) -> Option<&str> {
+            if let GeneratorKind::Sign {
+                source: SignSource::DidPfp { did },
+                ..
+            } = &g.kind
+            {
+                return Some(did);
+            }
+            g.children.iter().find_map(find_pfp_did)
+        }
+        let did = "did:plc:identity";
+        for seed in [1u64, 7, 999_999, u64::MAX] {
+            let (built, _) = build_for_seed(seed, did);
+            assert_eq!(
+                find_pfp_did(&built),
+                Some(did),
+                "pfp banner lost the owner DID at seed {seed}"
+            );
         }
     }
 }

@@ -25,10 +25,12 @@ use super::common::{
     pastel, pfp_banner, prim, quat_x, quat_xyzw, quat_z, rubber_mat, sphere, torus, with_torture,
 };
 
-pub(super) fn build(did: &str) -> Generator {
-    let palette = AvatarPalette::for_did(did);
-    let body = AvatarBody::for_did(did);
-    let skiff = SkiffDesign::for_did(did);
+/// `seed` drives the derived look (re-roll re-seeds this); `did` is kept
+/// only for identity references the seed must not touch — the pfp banner.
+pub(super) fn build(seed: u64, did: &str) -> Generator {
+    let palette = AvatarPalette::for_seed(seed);
+    let body = AvatarBody::for_seed(seed);
+    let skiff = SkiffDesign::for_seed(seed);
 
     let chassis_color = palette.primary_accent;
     let canopy_color = palette.secondary_accent;

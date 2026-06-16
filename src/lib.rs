@@ -193,6 +193,8 @@ pub fn run() {
         )
         .init_resource::<ui::room::RoomEditorState>()
         .init_resource::<ui::avatar::AvatarEditorState>()
+        .init_resource::<loading::LiveAmbientConfig>()
+        .init_resource::<loading::PlayingAmbient>()
         .init_resource::<editor_gizmo::GizmoFramePref>()
         .init_resource::<oauth::OauthClientRes>()
         .insert_resource(boot)
@@ -249,6 +251,21 @@ pub fn run() {
             )
                 .chain()
                 .run_if(in_state(AppState::Loading)),
+        )
+        // In-game ambient re-bake: editor edits (manual re-roll, Reset to
+        // default, a direct audio edit) mutate `LiveRoomRecord`'s
+        // `ambient_audio`, and this trio re-bakes + hot-swaps the looping
+        // bed the same way the loading gate does on entry. Chained so a
+        // finished bake's handle is swapped in the same frame it lands.
+        .add_systems(
+            Update,
+            (
+                loading::rebake_ambient_on_record_change,
+                loading::poll_ambient_rebake_task,
+                loading::swap_ambient_player_to_handle,
+            )
+                .chain()
+                .run_if(in_state(AppState::InGame)),
         )
         .add_systems(
             EguiPrimaryContextPass,

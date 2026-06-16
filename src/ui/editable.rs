@@ -108,3 +108,105 @@ pub fn publish_status_line(ui: &mut egui::Ui, status: &PublishStatus, now_secs: 
         }
     }
 }
+
+/// Outcome of the manual re-roll [`seed_row`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SeedAction {
+    /// Nothing actionable this frame.
+    None,
+    /// "Apply" clicked with a parseable seed — the caller re-rolls the
+    /// whole record from it (`live = T::default_for_seed(seed, did)`).
+    Reroll(u64),
+}
+
+/// Editor-owned state for the manual re-roll seed row. Embed one in each
+/// editor's state resource and hand a `&mut` to [`seed_row`].
+#[derive(Default)]
+pub struct SeedRowState {
+    /// The text the owner is editing. Empty until first synced.
+    buf: String,
+    /// DID-derived seed the buffer was last synced to. Re-syncs the
+    /// buffer whenever the active DID (hence its seed) changes — e.g.
+    /// after logging in as a different user — so the field never shows a
+    /// stale owner's seed.
+    synced_for: Option<u64>,
+}
+
+/// Render the "Random seed" re-roll row shared by the World and Avatar
+/// editors.
+///
+/// The field shows `did_seed` — the master seed the DID-derived defaults
+/// are built from — by default. The owner can type any `u64`, roll a
+/// fresh one (🎲), or restore the DID seed (↺), then click **Apply** to
+/// re-roll the whole record from that seed. This is exactly the existing
+/// "Reset to default" with an owner-chosen seed instead of
+/// `fnv1a_64(did)`. `now_secs` seeds the dice without a system clock
+/// (wasm has none). Returns [`SeedAction::Reroll`] only on Apply with a
+/// parseable seed.
+pub fn seed_row(
+    ui: &mut egui::Ui,
+    state: &mut SeedRowState,
+    did_seed: u64,
+    now_secs: f64,
+) -> SeedAction {
+    // (Re)initialise the buffer to the DID seed on first use and whenever
+    // the active DID's seed changes.
+    if state.synced_for != Some(did_seed) {
+        state.buf = did_seed.to_string();
+        state.synced_for = Some(did_seed);
+    }
+
+    let mut action = SeedAction::None;
+    ui.horizontal(|ui| {
+        ui.label("Random seed:");
+
+        // `parse` returns an owned `Result`, so this immutable borrow of
+        // `buf` ends before the `&mut buf` the TextEdit takes below.
+        let parsed = state.buf.trim().parse::<u64>();
+        let mut field = egui::TextEdit::singleline(&mut state.buf).desired_width(190.0);
+        if parsed.is_err() {
+            field = field.text_color(egui::Color32::from_rgb(220, 90, 90));
+        }
+        ui.add(field).on_hover_text(
+            "Master seed for the DID-derived defaults. Edit, then Apply to re-roll.",
+        );
+
+        if ui
+            .button("🎲")
+            .on_hover_text("Roll a fresh random seed")
+            .clicked()
+        {
+            state.buf = dice_seed(now_secs, did_seed).to_string();
+        }
+        let apply_clicked = ui
+            .add_enabled(parsed.is_ok(), egui::Button::new("Apply"))
+            .on_hover_text("Re-roll the whole record from this seed")
+            .clicked();
+        if let (true, Ok(seed)) = (apply_clicked, parsed) {
+            action = SeedAction::Reroll(seed);
+        }
+        if ui
+            .button("↺")
+            .on_hover_text("Restore the DID-derived seed")
+            .clicked()
+        {
+            state.buf = did_seed.to_string();
+        }
+    });
+    action
+}
+
+/// Diffuse a frame-time float + the DID seed into a fresh pseudo-random
+/// `u64` for the 🎲 button. Not cryptographic — it only needs to look
+/// random and differ frame-to-frame. `SystemTime` is unavailable on
+/// wasm, so the entropy is the caller's elapsed-seconds clock.
+fn dice_seed(now_secs: f64, salt: u64) -> u64 {
+    // splitmix64 over the time bits combined with the DID seed.
+    let mut z = now_secs
+        .to_bits()
+        .wrapping_add(salt)
+        .wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}

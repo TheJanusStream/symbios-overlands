@@ -32,6 +32,27 @@ pub struct AmbientHandle(pub Option<Handle<bevy::audio::AudioSource>>);
 #[derive(Component)]
 pub(crate) struct AmbientBakeTask(bevy::tasks::Task<Option<Vec<u8>>>);
 
+/// In-flight *in-game* ambient re-bake task — the editor counterpart of
+/// [`AmbientBakeTask`]. Kept as a distinct component so the loading-gate
+/// poll and the in-game poll never drain each other's tasks (the two run
+/// in different `AppState`s and own separate pipelines).
+#[derive(Component)]
+pub(crate) struct AmbientRebakeTask(bevy::tasks::Task<Option<Vec<u8>>>);
+
+/// Wrap freshly-baked WAV bytes into an [`AudioSource`](bevy::audio::AudioSource)
+/// handle, or `None` for the no-audio variants. Shared by the loading-gate
+/// poll and the in-game re-bake poll.
+fn wrap_baked_handle(
+    result: Option<Vec<u8>>,
+    audio_sources: &mut Assets<bevy::audio::AudioSource>,
+) -> Option<Handle<bevy::audio::AudioSource>> {
+    result.map(|bytes| {
+        audio_sources.add(bevy::audio::AudioSource {
+            bytes: bytes.into(),
+        })
+    })
+}
+
 /// Latch flipped on by [`start_ambient_bake`] once it has either
 /// inserted [`AmbientHandle`] directly (no-audio fast path) or kicked
 /// off the dispatch — bake task for procedural variants, resolver
@@ -41,6 +62,26 @@ pub(crate) struct AmbientBakeTask(bevy::tasks::Task<Option<Vec<u8>>>);
 /// during the resolver fetch window.
 #[derive(Resource)]
 pub(crate) struct AmbientBakeStarted;
+
+/// The ambient config currently realised as the playing [`AmbientPlayer`].
+///
+/// The loading gate bakes the ambient bed exactly once; this resource lets
+/// the *in-game* re-bake ([`rebake_ambient_on_record_change`]) tell apart a
+/// record edit that touched the ambient bed (a re-roll, a "Reset to
+/// default", a direct audio edit — restart the loop) from one that didn't
+/// (a terrain or colour tweak — leave the music alone). Initialised by
+/// [`start_ambient_bake`] and cleared by [`reset_ambient_bake_state`].
+#[derive(Resource, Default)]
+pub(crate) struct LiveAmbientConfig(Option<crate::pds::SovereignAudioConfig>);
+
+/// The audio handle currently fed to the live [`AmbientPlayer`].
+///
+/// [`swap_ambient_player_to_handle`] respawns the looping player only when
+/// [`AmbientHandle`] differs from this — so a re-bake landing a new handle
+/// swaps the loop, while an unchanged handle is a no-op (no per-frame
+/// churn, no reliance on a fragile change-tick across schedules).
+#[derive(Resource, Default)]
+pub(crate) struct PlayingAmbient(Option<Handle<bevy::audio::AudioSource>>);
 
 /// Bake the room's ambient track into WAV bytes off the main thread.
 ///
@@ -95,6 +136,7 @@ pub(crate) fn start_ambient_bake(
     room_record: Option<Res<LiveRoomRecord>>,
     started: Option<Res<AmbientBakeStarted>>,
     mut audio_cache: ResMut<crate::world_builder::audio_resolver::BlobAudioCache>,
+    mut live_cfg: ResMut<LiveAmbientConfig>,
 ) {
     // Wait until the room record has landed and we haven't already
     // dispatched the ambient pipeline (the latch flips on the frame
@@ -107,6 +149,10 @@ pub(crate) fn start_ambient_bake(
     }
 
     let audio = record.0.environment.ambient_audio.clone();
+    // Anchor the in-game re-bake against the config the loading gate is
+    // baking now, so the first real edit (not the record landing) is what
+    // triggers a live re-bake.
+    live_cfg.0 = Some(audio.clone());
 
     match &audio {
         // No-audio fast path — insert the handle directly so the
@@ -149,9 +195,17 @@ pub struct AmbientPlayer;
 /// re-entry into Loading (room transition, log-out/log-in cycle) gets
 /// a fresh dispatch instead of inheriting the previous room's
 /// AmbientHandle / latch.
-pub(crate) fn reset_ambient_bake_state(mut commands: Commands) {
+pub(crate) fn reset_ambient_bake_state(
+    mut commands: Commands,
+    mut live_cfg: ResMut<LiveAmbientConfig>,
+    mut playing: ResMut<PlayingAmbient>,
+) {
     commands.remove_resource::<AmbientHandle>();
     commands.remove_resource::<AmbientBakeStarted>();
+    // Forget the previous room's ambient bed and player handle so the next
+    // room bakes fresh and the player respawns from its new handle.
+    live_cfg.0 = None;
+    playing.0 = None;
 }
 
 /// Spawn the ambient-track player once `AppState::InGame` is entered.
@@ -162,7 +216,11 @@ pub(crate) fn reset_ambient_bake_state(mut commands: Commands) {
 /// seamless tail-crossfade pre-mix baked into the buffer by the audio
 /// crate's mixdown means a hard rodio loop still sounds seamless at
 /// the seam.
-pub(crate) fn spawn_ambient_player(mut commands: Commands, ambient: Option<Res<AmbientHandle>>) {
+pub(crate) fn spawn_ambient_player(
+    mut commands: Commands,
+    ambient: Option<Res<AmbientHandle>>,
+    mut playing: ResMut<PlayingAmbient>,
+) {
     let Some(ambient) = ambient else {
         // Loading gate would have inserted AmbientHandle before
         // transitioning; only reachable if someone forces the state
@@ -170,15 +228,121 @@ pub(crate) fn spawn_ambient_player(mut commands: Commands, ambient: Option<Res<A
         return;
     };
     let Some(handle) = ambient.0.clone() else {
-        // Explicit "no ambient" — nothing to spawn.
+        // Explicit "no ambient" — nothing to spawn. Record the silence so
+        // the in-game swap doesn't mistake it for "needs a player".
+        playing.0 = None;
         return;
     };
     commands.spawn((
-        bevy::audio::AudioPlayer::new(handle),
+        bevy::audio::AudioPlayer::new(handle.clone()),
         bevy::audio::PlaybackSettings::LOOP,
         AmbientPlayer,
     ));
+    playing.0 = Some(handle);
     info!("Ambient track playing on loop");
+}
+
+/// Re-bake the ambient bed when the live room record's `ambient_audio`
+/// changes in-game — the editor counterpart of the loading-gate bake.
+///
+/// Mirrors [`start_ambient_bake`]'s pipeline split (None/Referenced/
+/// procedural) but is driven by `LiveRoomRecord`'s change tick instead of
+/// the one-shot loading gate, so a manual re-roll, a "Reset to default",
+/// or a direct audio edit all restart the looping bed. Edits that leave
+/// `ambient_audio` untouched (terrain, colours, scatters) compare equal
+/// against [`LiveAmbientConfig`] and are skipped, so the music doesn't
+/// stutter on every slider drag. The resulting handle lands in
+/// [`AmbientHandle`] (directly, via the resolver, or via the baked task)
+/// and [`swap_ambient_player_to_handle`] swaps the player.
+pub(crate) fn rebake_ambient_on_record_change(
+    mut commands: Commands,
+    room_record: Option<Res<LiveRoomRecord>>,
+    mut live_cfg: ResMut<LiveAmbientConfig>,
+    mut audio_cache: ResMut<crate::world_builder::audio_resolver::BlobAudioCache>,
+    in_flight: Query<Entity, With<AmbientRebakeTask>>,
+) {
+    let Some(record) = room_record else {
+        return;
+    };
+    if !record.is_changed() {
+        return;
+    }
+    let audio = record.0.environment.ambient_audio.clone();
+    if live_cfg.0.as_ref() == Some(&audio) {
+        // The edit didn't touch the ambient bed — leave the loop playing.
+        return;
+    }
+    live_cfg.0 = Some(audio.clone());
+
+    // Cancel any still-running re-bake so a rapid re-roll burst doesn't
+    // race several tasks into AmbientHandle (last-finished would otherwise
+    // win non-deterministically).
+    for entity in &in_flight {
+        commands.entity(entity).despawn();
+    }
+
+    match &audio {
+        crate::pds::SovereignAudioConfig::None | crate::pds::SovereignAudioConfig::Unknown => {
+            // Silence: publish the absence; the swap system despawns the
+            // player.
+            commands.insert_resource(AmbientHandle(None));
+        }
+        crate::pds::SovereignAudioConfig::Referenced { source } => {
+            crate::world_builder::audio_resolver::request_blob_audio(
+                &mut commands,
+                &mut audio_cache,
+                source,
+                crate::world_builder::audio_resolver::AudioReferenceTarget::AmbientHandle,
+            );
+        }
+        crate::pds::SovereignAudioConfig::Patch { .. }
+        | crate::pds::SovereignAudioConfig::Sequence { .. } => {
+            let pool = bevy::tasks::AsyncComputeTaskPool::get();
+            let task = pool.spawn(async move { bake_ambient_wav_bytes(&audio) });
+            commands.spawn(AmbientRebakeTask(task));
+        }
+    }
+}
+
+/// Swap the looping [`AmbientPlayer`] whenever [`AmbientHandle`] changes.
+///
+/// The single in-game authority over the player entity: it despawns the
+/// old loop and spawns the new one (or none, for silence) only when the
+/// desired handle differs from [`PlayingAmbient`]. Both the resolver
+/// (Referenced) and the baked-task poll feed `AmbientHandle`, so this
+/// covers every variant uniformly. Holding the old loop until the new
+/// handle lands means a procedural re-bake doesn't leave an audible gap.
+pub(crate) fn swap_ambient_player_to_handle(
+    mut commands: Commands,
+    ambient: Option<Res<AmbientHandle>>,
+    mut playing: ResMut<PlayingAmbient>,
+    players: Query<Entity, With<AmbientPlayer>>,
+) {
+    let Some(ambient) = ambient else {
+        return;
+    };
+    if ambient.0 == playing.0 {
+        return;
+    }
+    // Desired ambient differs from what's looping — swap atomically.
+    for entity in &players {
+        commands.entity(entity).despawn();
+    }
+    match ambient.0.clone() {
+        Some(handle) => {
+            commands.spawn((
+                bevy::audio::AudioPlayer::new(handle.clone()),
+                bevy::audio::PlaybackSettings::LOOP,
+                AmbientPlayer,
+            ));
+            playing.0 = Some(handle);
+            info!("Ambient track re-baked — loop swapped");
+        }
+        None => {
+            playing.0 = None;
+            info!("Ambient bed cleared — loop stopped");
+        }
+    }
 }
 
 /// Drain a finished ambient-bake task: wrap the WAV bytes in
@@ -196,15 +360,31 @@ pub(crate) fn poll_ambient_bake_task(
         };
         commands.entity(entity).despawn();
 
-        let handle = result.map(|bytes| {
-            audio_sources.add(bevy::audio::AudioSource {
-                bytes: bytes.into(),
-            })
-        });
+        let handle = wrap_baked_handle(result, &mut audio_sources);
         if handle.is_some() {
             info!("Ambient audio baked");
         }
         commands.insert_resource(AmbientHandle(handle));
+    }
+}
+
+/// Drain a finished in-game re-bake ([`AmbientRebakeTask`]) and publish the
+/// handle into [`AmbientHandle`]; [`swap_ambient_player_to_handle`] then
+/// swaps the looping player. The loading-gate counterpart is
+/// [`poll_ambient_bake_task`].
+pub(crate) fn poll_ambient_rebake_task(
+    mut commands: Commands,
+    mut tasks: Query<(Entity, &mut AmbientRebakeTask)>,
+    mut audio_sources: ResMut<Assets<bevy::audio::AudioSource>>,
+) {
+    for (entity, mut task) in tasks.iter_mut() {
+        let Some(result) =
+            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.0))
+        else {
+            continue;
+        };
+        commands.entity(entity).despawn();
+        commands.insert_resource(AmbientHandle(wrap_baked_handle(result, &mut audio_sources)));
     }
 }
 

@@ -50,7 +50,9 @@ use crate::state::{
     RoomRecordRecovery, StoredRoomRecord, records_differ,
 };
 use crate::ui::avatar::AvatarEditorState;
-use crate::ui::editable::{RecordAction, publish_status_line, save_load_reset_row};
+use crate::ui::editable::{
+    RecordAction, SeedAction, publish_status_line, save_load_reset_row, seed_row,
+};
 
 /// Async task for publishing the room record to the owner's PDS.
 #[derive(Component)]
@@ -150,6 +152,10 @@ pub struct RoomEditorState {
     /// here so the editor's layout/selection persists across frames and
     /// survives tab switches. See [`audio::AudioEditorState`].
     pub audio_editor: audio::AudioEditorState,
+    /// Buffer for the manual re-roll "Random seed" row — defaults to the
+    /// owner's DID seed, editable to re-roll the whole room. See
+    /// [`crate::ui::editable::seed_row`].
+    seed_row_state: crate::ui::editable::SeedRowState,
 }
 
 impl RoomEditorState {
@@ -235,6 +241,7 @@ pub fn room_admin_ui(
         pending_flush_secs,
         renaming_generator,
         audio_editor,
+        seed_row_state,
         ..
     } = &mut *editor;
 
@@ -480,6 +487,30 @@ pub fn room_admin_ui(
                                 EditorTab::Generators => unreachable!(),
                             });
                     }
+                }
+
+                ui.separator();
+
+                // Manual re-roll: the same DID-seeded engine that builds
+                // the defaults, but with an owner-chosen master seed.
+                // Re-rolling replaces the whole working record exactly
+                // like "Reset to default" (which is this with seed =
+                // fnv1a_64(did)) — clear selections, refresh the raw-JSON
+                // mirror, and arm a broadcast/recompile.
+                if let SeedAction::Reroll(seed) = seed_row(
+                    ui,
+                    seed_row_state,
+                    crate::seeded_defaults::fnv1a_64(&room_did.0),
+                    time.elapsed_secs_f64(),
+                ) {
+                    *record_mut = pds::RoomRecord::default_for_seed(seed, &room_did.0);
+                    *raw_text = serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
+                    *raw_error = None;
+                    *selected_generator = None;
+                    *selected_placement = None;
+                    *selected_prim_path = None;
+                    tree_view_state.set_selected(Vec::new());
+                    needs_broadcast = true;
                 }
 
                 ui.separator();
