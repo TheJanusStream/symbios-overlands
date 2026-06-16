@@ -2,11 +2,11 @@
 //!
 //! Produces a deterministic [`bevy_symbios_audio::SequenceRecipe`] for a
 //! room, varying by [`SceneCharacter`] so each player's homeworld has a
-//! sonically distinct ambient bed — Lush biomes get a warm filtered
-//! brown-noise hum, Tundra a high-pass white-noise wind, Volcanic a
-//! deep rumble, and so on. The same `(scene, seed)` pair always yields
-//! the same recipe, matching the determinism contract the rest of the
-//! room derivers already honour.
+//! sonically distinct ambient bed — Lush biomes get a warm low-passed
+//! pink-noise hum, Tundra a high-passed airy wind, Volcanic a deep
+//! brown-noise rumble, and so on. The same `(scene, seed)` pair always
+//! yields the same recipe, matching the determinism contract the rest of
+//! the room derivers already honour.
 //!
 //! # Sound design
 //!
@@ -14,7 +14,7 @@
 //!
 //! 1. **Bed** — one sustained voice (noise → biquad → reverb) with a
 //!    slow LFO sweeping the cutoff. Lowpass for the warm biomes;
-//!    arid/tundra run highpass so their wind sits in a thin hissy
+//!    arid/tundra run highpass so their wind sits in a thin airy
 //!    band instead of the universal low rumble.
 //! 2. **Gusts** — band-passed noise riding a slow loop-synced sine
 //!    VCA just above the bed's cutoff, so the wind breathes.
@@ -97,12 +97,13 @@ const REVERB_ID: NodeId = NodeId(3);
 /// Tunable parameters extracted before patch construction so each piece
 /// of the wiring graph can be read in one place.
 struct AmbientParams {
-    /// Which noise colour the bed uses. Brown for low-rumble biomes,
-    /// pink for warm/lush, white for arid/coastal hiss.
+    /// Which noise colour the bed uses. Brown for the low-rumble biomes,
+    /// pink for the rest. White noise is never a bed (only a band-passed
+    /// punctuation accent) — even high-passed it reads as harsh hiss.
     noise_kind: NoiseKind,
     /// Which biquad shapes the bed. Lowpass is the classic warm wind;
     /// arid and tundra run *highpass* so their wind sits in a thin,
-    /// hissy band the ear immediately separates from the lush rumble.
+    /// airy band the ear immediately separates from the lush rumble.
     filter_kind: BedFilter,
     /// Base cutoff (Hz) of the lowpass.
     base_cutoff_hz: f32,
@@ -129,7 +130,6 @@ struct AmbientParams {
 
 #[derive(Clone, Copy)]
 enum NoiseKind {
-    White,
     Pink,
     Brown,
 }
@@ -206,7 +206,11 @@ impl AmbientRecipe {
             ],
             tracks: vec![
                 Track {
-                    events: vec![sustained(INSTRUMENT_ID, 0.6)],
+                    // Bed event volume trimmed (was 0.6) so the bed +
+                    // gust + chime + punctuation sum stays under the
+                    // mixdown tanh knee — see noise_amplitude in
+                    // derive_params for the saturation rationale.
+                    events: vec![sustained(INSTRUMENT_ID, 0.5)],
                 },
                 Track {
                     events: vec![sustained(GUST_INSTRUMENT_ID, gust.volume)],
@@ -224,15 +228,19 @@ impl AmbientRecipe {
 }
 
 fn derive_params(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> AmbientParams {
-    // Noise colour follows biome character — low/dark for dense-mass
-    // biomes, bright/hissy for sparse ones.
+    // Noise colour follows biome character — brown for the low/dark,
+    // dense-mass biomes, pink for the breezier ones. White noise is
+    // deliberately *not* used for any bed: even high-passed it reads as
+    // harsh, over-saturated hiss rather than wind. (It survives only as a
+    // sparse, tightly band-passed punctuation accent.) Arid/Tundra still
+    // separate from the lush rumble through their high-pass bed filter.
     let noise_kind = match scene.biome {
         BiomeArchetype::Lush => NoiseKind::Pink,
         BiomeArchetype::Volcanic => NoiseKind::Brown,
         BiomeArchetype::Alpine => NoiseKind::Brown,
-        BiomeArchetype::Arid => NoiseKind::White,
+        BiomeArchetype::Arid => NoiseKind::Pink,
         BiomeArchetype::Coastal => NoiseKind::Pink,
-        BiomeArchetype::Tundra => NoiseKind::White,
+        BiomeArchetype::Tundra => NoiseKind::Pink,
     };
     let filter_kind = match scene.biome {
         BiomeArchetype::Arid | BiomeArchetype::Tundra => BedFilter::Highpass,
@@ -257,17 +265,21 @@ fn derive_params(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> AmbientParams 
     // identical at the loop start and loop end and the seam never
     // jumps mid-sweep.
     let lfo_rate_hz = loop_synced_rate(rng, 1, 4);
-    // Soft Q for a wide bed unless the biome pushes toward a more
-    // dramatic sweep — Tundra and Volcanic both want a whistlier
-    // feel from their landform's character.
+    // Soft Q for a wide bed. Tundra/Volcanic lean a touch whistlier from
+    // their landform character, but the peak is kept modest — a high
+    // resonant Q on the high-pass bed sings a harsh tone rather than
+    // breathing as wind.
     let filter_q = match scene.biome {
-        BiomeArchetype::Tundra | BiomeArchetype::Volcanic => range_f32(rng, 1.2, 2.0),
+        BiomeArchetype::Tundra | BiomeArchetype::Volcanic => range_f32(rng, 0.8, 1.3),
         _ => range_f32(rng, 0.5, 1.0),
     };
-    // Noise amplitude well below unity so the master never clips after
-    // the volume scale in the Event (0.6) compounds. The reverb's wet
-    // tail adds energy on top, so trim the dry noise a touch here.
-    let noise_amplitude = range_f32(rng, 0.55, 0.8);
+    // Noise amplitude kept low. The four layers sum and pass through the
+    // mixdown's tanh soft-clip; at the old 0.55–0.8 the bed alone pushed
+    // the sum into saturation, which flattens the noise spectrum into the
+    // harsh "over-saturated white noise" the wind used to read as. Trim it
+    // (and the Event volume below) so the summed peak stays in tanh's
+    // near-linear region and the bed reads as soft air, not clipped hiss.
+    let noise_amplitude = range_f32(rng, 0.35, 0.55);
     // Reverb places the bed in an acoustic space. Bigger skies
     // (Mesa/Rolling) get a larger room; valleys/archipelago stay
     // tighter. Damping follows biome brightness — dark/dense biomes
@@ -303,9 +315,6 @@ fn build_patch(params: &AmbientParams, seed: u64) -> AudioPatch {
     let noise_node = GraphNode {
         id: NOISE_ID,
         kind: match params.noise_kind {
-            NoiseKind::White => NodeKind::WhiteNoise(WhiteNoise {
-                amplitude: params.noise_amplitude,
-            }),
             NoiseKind::Pink => NodeKind::PinkNoise(PinkNoise {
                 amplitude: params.noise_amplitude,
             }),
@@ -420,7 +429,9 @@ fn derive_gust(params: &AmbientParams, rng: &mut ChaCha8Rng) -> GustParams {
         center_hz: params.base_cutoff_hz * range_f32(rng, 1.1, 1.6),
         q: range_f32(rng, 1.4, 2.4),
         swell_rate_hz: loop_synced_rate(rng, 1, 2),
-        volume: range_f32(rng, 0.22, 0.38),
+        // Trimmed (was 0.22–0.38) so the band-passed gust rides over the
+        // softened bed without re-introducing the saturated-sum harshness.
+        volume: range_f32(rng, 0.16, 0.28),
     }
 }
 
@@ -436,8 +447,11 @@ const GUST_REVERB_ID: NodeId = NodeId(4);
 /// reading as wind gusts moving through the bed.
 fn build_gust_patch(gust: &GustParams, params: &AmbientParams, seed: u64) -> AudioPatch {
     let noise_node = GraphNode {
+        // Band-passed white noise reads as a moving whoosh (not broadband
+        // hiss), but the source amplitude is trimmed (was 0.8) to keep the
+        // gust's contribution to the summed mix gentle.
         id: GUST_NOISE_ID,
-        kind: NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.8 }),
+        kind: NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.5 }),
         inputs: BTreeMap::new(),
     };
 

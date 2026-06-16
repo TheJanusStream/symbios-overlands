@@ -4,8 +4,9 @@
 //! room's `environment.ambient_audio`, picks the right pipeline
 //! (no-audio fast path / referenced-asset resolver / procedural bake on
 //! `AsyncComputeTaskPool`), and publishes the result as
-//! [`AmbientHandle`]; [`spawn_ambient_player`] turns that handle into
-//! the looping ambient player on `InGame` entry.
+//! [`AmbientHandle`]; [`swap_ambient_player_to_handle`] turns that handle
+//! into the looping ambient player in-game, once the [`AmbientSettle`]
+//! quiet window has drained so the sink isn't born mid-stall.
 
 use bevy::prelude::*;
 
@@ -39,7 +40,7 @@ pub(crate) struct AmbientBakeTask(bevy::tasks::Task<Option<Vec<u8>>>);
 #[derive(Component)]
 pub(crate) struct AmbientRebakeTask(bevy::tasks::Task<Option<Vec<u8>>>);
 
-/// Wrap freshly-baked WAV bytes into an [`AudioSource`](bevy::audio::AudioSource)
+/// Wrap freshly-baked WAV bytes into an [`AudioSource`]
 /// handle, or `None` for the no-audio variants. Shared by the loading-gate
 /// poll and the in-game re-bake poll.
 fn wrap_baked_handle(
@@ -82,6 +83,16 @@ pub(crate) struct LiveAmbientConfig(Option<crate::pds::SovereignAudioConfig>);
 /// churn, no reliance on a fragile change-tick across schedules).
 #[derive(Resource, Default)]
 pub(crate) struct PlayingAmbient(Option<Handle<bevy::audio::AudioSource>>);
+
+impl PlayingAmbient {
+    /// Forget the currently-playing handle. Called from the logout
+    /// teardown after the [`AmbientPlayer`] entity is despawned, so a
+    /// later login doesn't think a (now-gone) loop is still playing and
+    /// releases the baked `AudioSource` bytes promptly.
+    pub(crate) fn clear(&mut self) {
+        self.0 = None;
+    }
+}
 
 /// Bake the room's ambient track into WAV bytes off the main thread.
 ///
@@ -191,6 +202,17 @@ pub(crate) fn start_ambient_bake(
 #[derive(Component)]
 pub struct AmbientPlayer;
 
+/// Looping playback settings for the ambient bed, born muted when the
+/// master mute is engaged. Spawning pre-muted (rather than relying solely
+/// on the per-frame reconcile in [`crate::audio_mute`]) means launching
+/// muted never leaks even a one-frame blip of the loop's attack.
+fn ambient_playback_settings(muted: bool) -> bevy::audio::PlaybackSettings {
+    bevy::audio::PlaybackSettings {
+        muted,
+        ..bevy::audio::PlaybackSettings::LOOP
+    }
+}
+
 /// Clear ambient-bake state on `OnEnter(AppState::Loading)` so a
 /// re-entry into Loading (room transition, log-out/log-in cycle) gets
 /// a fresh dispatch instead of inheriting the previous room's
@@ -208,38 +230,57 @@ pub(crate) fn reset_ambient_bake_state(
     playing.0 = None;
 }
 
-/// Spawn the ambient-track player once `AppState::InGame` is entered.
-/// Reads [`AmbientHandle`] — `None` is a valid "no ambient track"
-/// signal and no entity is spawned in that case.
+/// Quiet window the ambient (re)start waits out before it spawns or
+/// swaps the looping sink.
 ///
-/// Looping is requested explicitly via `PlaybackSettings::LOOP`; the
-/// seamless tail-crossfade pre-mix baked into the buffer by the audio
-/// crate's mixdown means a hard rodio loop still sounds seamless at
-/// the seam.
-pub(crate) fn spawn_ambient_player(
-    mut commands: Commands,
-    ambient: Option<Res<AmbientHandle>>,
-    mut playing: ResMut<PlayingAmbient>,
+/// Starting a rodio sink during a heavy main-thread / CPU stall starves
+/// the audio callback at the very moment playback begins, which is heard
+/// as a choppy onset. Three triggers all collide playback-start with a
+/// stall: the first-render GPU pipeline specialization when the world
+/// first appears, the terrain + world recompile *plus* the fresh async
+/// bake on a re-roll, and general load spikes. Holding the (re)start
+/// until things have been quiet for this long pushes the sink's birth
+/// past those stalls. Long enough to clear a typical recompile, short
+/// enough not to read as a missing-audio bug.
+const AMBIENT_SETTLE_SECS: f32 = 0.4;
+
+/// Countdown gating the ambient (re)start. Armed to [`AMBIENT_SETTLE_SECS`]
+/// on `InGame` entry and re-armed on every `LiveRoomRecord` change (a
+/// recompile/bake burst); [`swap_ambient_player_to_handle`] only acts once
+/// it drains to zero. See [`AMBIENT_SETTLE_SECS`] for the why.
+#[derive(Resource)]
+pub(crate) struct AmbientSettle {
+    remaining: f32,
+}
+
+impl Default for AmbientSettle {
+    fn default() -> Self {
+        Self {
+            remaining: AMBIENT_SETTLE_SECS,
+        }
+    }
+}
+
+/// Arm the settle countdown on `InGame` entry so the first ambient start
+/// waits out the first-render pipeline stall instead of choking on it.
+pub(crate) fn arm_ambient_settle(mut settle: ResMut<AmbientSettle>) {
+    settle.remaining = AMBIENT_SETTLE_SECS;
+}
+
+/// Drain the settle countdown each frame, re-arming it whenever
+/// `LiveRoomRecord` changes — every record edit kicks off a recompile
+/// (and possibly an ambient re-bake), so the timer only reaches zero once
+/// the owner has paused and the heavy work has drained.
+pub(crate) fn tick_ambient_settle(
+    time: Res<Time>,
+    room_record: Option<Res<LiveRoomRecord>>,
+    mut settle: ResMut<AmbientSettle>,
 ) {
-    let Some(ambient) = ambient else {
-        // Loading gate would have inserted AmbientHandle before
-        // transitioning; only reachable if someone forces the state
-        // out of band. Stay silent rather than panicking.
-        return;
-    };
-    let Some(handle) = ambient.0.clone() else {
-        // Explicit "no ambient" — nothing to spawn. Record the silence so
-        // the in-game swap doesn't mistake it for "needs a player".
-        playing.0 = None;
-        return;
-    };
-    commands.spawn((
-        bevy::audio::AudioPlayer::new(handle.clone()),
-        bevy::audio::PlaybackSettings::LOOP,
-        AmbientPlayer,
-    ));
-    playing.0 = Some(handle);
-    info!("Ambient track playing on loop");
+    if room_record.is_some_and(|r| r.is_changed()) {
+        settle.remaining = AMBIENT_SETTLE_SECS;
+    } else {
+        settle.remaining = (settle.remaining - time.delta_secs()).max(0.0);
+    }
 }
 
 /// Re-bake the ambient bed when the live room record's `ambient_audio`
@@ -304,24 +345,39 @@ pub(crate) fn rebake_ambient_on_record_change(
     }
 }
 
-/// Swap the looping [`AmbientPlayer`] whenever [`AmbientHandle`] changes.
+/// Bring the looping [`AmbientPlayer`] into agreement with
+/// [`AmbientHandle`] — the single in-game authority over the player
+/// entity, covering **both** the first spawn on `InGame` entry and every
+/// later swap (re-roll, Reset, room edit, resolver fetch).
 ///
-/// The single in-game authority over the player entity: it despawns the
-/// old loop and spawns the new one (or none, for silence) only when the
-/// desired handle differs from [`PlayingAmbient`]. Both the resolver
-/// (Referenced) and the baked-task poll feed `AmbientHandle`, so this
-/// covers every variant uniformly. Holding the old loop until the new
+/// It despawns the old loop and spawns the new one (or none, for silence)
+/// only when the desired handle differs from [`PlayingAmbient`]. Both the
+/// resolver (Referenced) and the baked-task poll feed `AmbientHandle`, so
+/// this covers every variant uniformly. Holding the old loop until the new
 /// handle lands means a procedural re-bake doesn't leave an audible gap.
+///
+/// **Settle gate.** The (re)start is deferred until [`AmbientSettle`] has
+/// drained, so the sink is never born in the middle of a first-render
+/// pipeline stall or a recompile/bake burst (see [`AMBIENT_SETTLE_SECS`]).
+/// The old loop keeps playing in the meantime, so a re-roll is heard as
+/// "old bed continues, then clean swap" rather than a choppy onset.
 pub(crate) fn swap_ambient_player_to_handle(
     mut commands: Commands,
     ambient: Option<Res<AmbientHandle>>,
     mut playing: ResMut<PlayingAmbient>,
     players: Query<Entity, With<AmbientPlayer>>,
+    audio_muted: Res<crate::audio_mute::AudioMuted>,
+    settle: Res<AmbientSettle>,
 ) {
     let Some(ambient) = ambient else {
         return;
     };
     if ambient.0 == playing.0 {
+        return;
+    }
+    // Wait out the post-change / post-entry quiet window so the sink isn't
+    // born during a stall. The old loop (if any) keeps playing until then.
+    if settle.remaining > 0.0 {
         return;
     }
     // Desired ambient differs from what's looping — swap atomically.
@@ -332,7 +388,7 @@ pub(crate) fn swap_ambient_player_to_handle(
         Some(handle) => {
             commands.spawn((
                 bevy::audio::AudioPlayer::new(handle.clone()),
-                bevy::audio::PlaybackSettings::LOOP,
+                ambient_playback_settings(audio_muted.0),
                 AmbientPlayer,
             ));
             playing.0 = Some(handle);

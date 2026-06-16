@@ -62,8 +62,8 @@ mod sync;
 
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
-use bevy_egui::egui;
-use transform_gizmo_bevy::GizmoOrientation;
+use bevy_egui::{EguiContexts, egui};
+use transform_gizmo_bevy::{GizmoOrientation, GizmoTarget};
 
 use crate::state::AppState;
 use crate::ui::avatar::AvatarEditorState;
@@ -173,7 +173,67 @@ impl Plugin for EditorGizmoPlugin {
             )
                 .chain()
                 .run_if(in_state(AppState::InGame)),
+        )
+        // A left-click into the open 3D scene clears whichever editor row is
+        // selected, which lets the next `sync` pass detach the gizmo. Runs
+        // in `Update` (the egui-pointer guard reads the same frame's context,
+        // exactly as `ui::inventory::drop` does) and is gated so a click that
+        // lands on a gizmo handle never deselects mid-drag.
+        .add_systems(
+            Update,
+            deselect_on_scene_click.run_if(in_state(AppState::InGame)),
         );
+    }
+}
+
+/// Clear the active editor selection when the owner left-clicks into the
+/// open 3D viewport (not over egui, not on the gizmo).
+///
+/// The gizmo is purely derived from selection state by [`sync`], so
+/// dropping the selection is all it takes to make the gizmo vanish and
+/// the detached prim reparent on the next `PostUpdate` pass.
+///
+/// **Drag safety.** The deselect is suppressed whenever any
+/// [`GizmoTarget`] reports `is_focused()` (pointer hovering a handle) or
+/// `is_active()` (a drag in progress). `transform-gizmo-bevy` writes both
+/// flags in its `Last`-schedule update, so on the mouse-down frame they
+/// already reflect the prior frame's hover — and the owner always hovers
+/// a handle before pressing — so a click that *starts* a drag is caught
+/// here and leaves the selection (and the drag) untouched.
+fn deselect_on_scene_click(
+    mut contexts: EguiContexts,
+    mouse: Res<ButtonInput<MouseButton>>,
+    gizmo_targets: Query<&GizmoTarget>,
+    mut room_state: ResMut<RoomEditorState>,
+    mut avatar_state: ResMut<AvatarEditorState>,
+) {
+    // Left button only — the orbit/pan camera owns Right/Middle, so this
+    // can never fight a camera gesture.
+    if !mouse.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
+    // Clicks on the toolbar or any editor window are UI interactions, not
+    // a "click into the world" — leave the selection alone.
+    if ctx.is_pointer_over_area() {
+        return;
+    }
+    // The click is starting (or continuing) a gizmo interaction — keep the
+    // selection so the drag can run.
+    if gizmo_targets
+        .iter()
+        .any(|t| t.is_focused() || t.is_active())
+    {
+        return;
+    }
+
+    if room_state.has_selection() {
+        room_state.clear_selection();
+    }
+    if avatar_state.has_visuals_selection() {
+        avatar_state.clear_visuals_selection();
     }
 }
 

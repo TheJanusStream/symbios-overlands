@@ -58,7 +58,7 @@ pub fn save_load_reset_row(
 ) -> RecordAction {
     let mut action = RecordAction::None;
     ui.horizontal(|ui| {
-        let publish = egui::Button::new(egui::RichText::new("Publish to PDS").color(if dirty {
+        let publish = egui::Button::new(egui::RichText::new("Save to PDS").color(if dirty {
             egui::Color32::LIGHT_GREEN
         } else {
             egui::Color32::GRAY

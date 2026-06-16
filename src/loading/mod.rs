@@ -15,8 +15,9 @@
 //! `environment.ambient_audio` recipe to WAV off the main thread (or
 //! handing a `Referenced` source to
 //! [`crate::world_builder::audio_resolver`]) and publishing the result
-//! as [`AmbientHandle`]; [`spawn_ambient_player`] turns that handle
-//! into the looping ambient player on `InGame` entry.
+//! as [`AmbientHandle`]; [`ambient::swap_ambient_player_to_handle`] turns
+//! that handle into the looping ambient player in-game, after a short
+//! settle window so the sink isn't born during a stall.
 //!
 //! [`check_loading_complete`] only transitions to `InGame` once every
 //! resource the first `InGame` frame depends on is present, so a slow
@@ -33,7 +34,8 @@
 //!   recovery banner, avatar retries quietly, inventory is best-effort)
 //!   and the `OnEnter(Loading)` start systems.
 //! * [`ambient`] — the ambient-audio bake task, [`AmbientHandle`],
-//!   and the `InGame` ambient-player spawner.
+//!   the settle-gated in-game ambient-player spawn/swap, and the
+//!   [`AmbientSettle`] de-chop window.
 
 pub mod fetch;
 mod records;
@@ -42,9 +44,9 @@ mod ambient;
 
 pub use ambient::{AmbientHandle, AmbientPlayer};
 pub(crate) use ambient::{
-    LiveAmbientConfig, PlayingAmbient, poll_ambient_bake_task, poll_ambient_rebake_task,
-    rebake_ambient_on_record_change, reset_ambient_bake_state, spawn_ambient_player,
-    start_ambient_bake, swap_ambient_player_to_handle,
+    AmbientSettle, LiveAmbientConfig, PlayingAmbient, arm_ambient_settle, poll_ambient_bake_task,
+    poll_ambient_rebake_task, rebake_ambient_on_record_change, reset_ambient_bake_state,
+    start_ambient_bake, swap_ambient_player_to_handle, tick_ambient_settle,
 };
 pub(crate) use fetch::{fire_pending_record_retries, poll_record_task};
 pub(crate) use records::{

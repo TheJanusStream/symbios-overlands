@@ -32,6 +32,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 
 pub mod audio_materials;
+pub mod audio_mute;
 pub mod avatar;
 pub mod boot_params;
 pub mod camera;
@@ -168,6 +169,7 @@ pub fn run() {
         .add_plugins(logout::LogoutPlugin)
         .add_plugins(editor_gizmo::EditorGizmoPlugin)
         .add_plugins(interaction::InteractionPlugin)
+        .add_plugins(audio_mute::AudioMutePlugin)
         .init_state::<AppState>()
         .init_resource::<ChatHistory>()
         .init_resource::<DiagnosticsLog>()
@@ -195,6 +197,7 @@ pub fn run() {
         .init_resource::<ui::avatar::AvatarEditorState>()
         .init_resource::<loading::LiveAmbientConfig>()
         .init_resource::<loading::PlayingAmbient>()
+        .init_resource::<loading::AmbientSettle>()
         .init_resource::<editor_gizmo::GizmoFramePref>()
         .init_resource::<oauth::OauthClientRes>()
         .insert_resource(boot)
@@ -228,7 +231,7 @@ pub fn run() {
                 loading::start_inventory_record_fetch,
             ),
         )
-        .add_systems(OnEnter(AppState::InGame), loading::spawn_ambient_player)
+        .add_systems(OnEnter(AppState::InGame), loading::arm_ambient_settle)
         .add_systems(
             Update,
             (
@@ -260,6 +263,7 @@ pub fn run() {
         .add_systems(
             Update,
             (
+                loading::tick_ambient_settle,
                 loading::rebake_ambient_on_record_change,
                 loading::poll_ambient_rebake_task,
                 loading::swap_ambient_player_to_handle,

@@ -49,6 +49,8 @@ fn cleanup_on_logout(
     mut blob_image_cache: ResMut<BlobImageCache>,
     mut pending_offers: ResMut<PendingOutgoingOffers>,
     mut baked_audio_cache: ResMut<crate::world_builder::spatial_audio::BakedAudioCache>,
+    ambient_players: Query<Entity, With<crate::loading::AmbientPlayer>>,
+    mut playing_ambient: ResMut<crate::loading::PlayingAmbient>,
 ) {
     // Best-effort: revoke the OAuth tokens at the user's PDS (RFC 7009)
     // before we drop the session. Fire-and-forget on IoTaskPool because
@@ -109,6 +111,15 @@ fn cleanup_on_logout(
     for e in &room_entities {
         commands.entity(e).try_despawn();
     }
+    // The ambient bed plays on its own `AmbientPlayer` entity, which is not
+    // a `RoomEntity` / player / peer, so nothing above reaches it. Without
+    // this it would keep looping after logout and — because the next
+    // login's `spawn` path can't see a survivor it didn't track — leave two
+    // overlapping loops playing. Despawn it and forget the handle.
+    for e in &ambient_players {
+        commands.entity(e).try_despawn();
+    }
+    playing_ambient.clear();
 
     // Drop the active recipe so a later login does not compile the old
     // room's contents into the new session's scene graph.

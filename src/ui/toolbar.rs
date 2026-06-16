@@ -59,6 +59,7 @@ impl Default for UiPanels {
 pub fn toolbar_ui(
     mut contexts: EguiContexts,
     mut panels: ResMut<UiPanels>,
+    mut audio_muted: ResMut<crate::audio_mute::AudioMuted>,
     session: Option<Res<AtprotoSession>>,
     current_room: Option<Res<CurrentRoomDid>>,
 ) {
@@ -81,6 +82,17 @@ pub fn toolbar_ui(
                 ui.toggle_value(&mut panels.world_editor, "World Editor");
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // Master mute. First in the right-to-left layout, so it
+                // sits in the far-right corner. The icon shows the current
+                // state; the hover text names the action a click performs.
+                let (icon, action) = if audio_muted.0 {
+                    ("🔇", "Unmute all audio")
+                } else {
+                    ("🔊", "Mute all audio")
+                };
+                if ui.button(icon).on_hover_text(action).clicked() {
+                    audio_muted.0 = !audio_muted.0;
+                }
                 ui.toggle_value(&mut panels.diagnostics, "Diagnostics");
                 ui.toggle_value(&mut panels.controls, "Controls");
             });
