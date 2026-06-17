@@ -26,6 +26,7 @@
 mod bed;
 mod punctuation;
 mod scales;
+mod tension;
 mod theme_music;
 
 use bevy_symbios_audio::{Event, PitchMode, SequenceRecipe};
@@ -70,6 +71,15 @@ impl AmbientRecipe {
             theme_music::build(scene, &params, &mut rng, room_seed);
         instruments.push(theme_instrument);
         tracks.push(theme_track);
+        // Conflict-only tension siren (gated): a fifth layer appears only
+        // when escalation reaches Conflict, so calm/tense rooms keep the
+        // four-layer recipe. Pushed last so the theme melody stays index 3.
+        if let Some((tension_instrument, tension_track)) =
+            tension::build(scene, &params, &mut rng, room_seed)
+        {
+            instruments.push(tension_instrument);
+            tracks.push(tension_track);
+        }
 
         let recipe = SequenceRecipe {
             bpm: 60.0,
@@ -109,8 +119,10 @@ mod tests {
     #[test]
     fn recipe_layers_biome_texture_and_theme_music() {
         // The framework contract: every recipe carries the biome layer
-        // (bed + gust + punctuation) AND a theme music melody voice.
-        let scene = SceneCharacter::for_seed(3);
+        // (bed + gust + punctuation) AND a theme music melody voice. Pin a
+        // peaceful room so the conflict tension layer doesn't add a fifth.
+        let mut scene = SceneCharacter::for_seed(3);
+        scene.escalation = 0.0;
         let recipe = AmbientRecipe::from_scene(&scene, 3).recipe;
         assert_eq!(recipe.instruments.len(), 4);
         let ids: Vec<&str> = recipe.instruments.iter().map(|i| i.id.as_str()).collect();
@@ -130,7 +142,8 @@ mod tests {
 
     #[test]
     fn deterministic_four_layer_recipe() {
-        let scene = SceneCharacter::for_seed(9);
+        let mut scene = SceneCharacter::for_seed(9);
+        scene.escalation = 0.0; // peaceful: exactly the four base layers
         let a = AmbientRecipe::from_scene(&scene, 9);
         let b = AmbientRecipe::from_scene(&scene, 9);
         assert_eq!(
@@ -147,6 +160,29 @@ mod tests {
             assert_eq!(x.pitch_multiplier, y.pitch_multiplier);
             assert_eq!(x.volume, y.volume);
         }
+    }
+
+    #[test]
+    fn conflict_room_adds_a_fifth_tension_layer() {
+        use super::tension::TENSION_INSTRUMENT_ID;
+        // A conflict room grows a fifth siren layer; a calm room of the same
+        // seed keeps the four base layers.
+        let mut war = SceneCharacter::for_seed(2);
+        war.escalation = 0.95;
+        let war_recipe = AmbientRecipe::from_scene(&war, 2).recipe;
+        assert_eq!(war_recipe.instruments.len(), 5, "conflict adds the siren");
+        assert_eq!(war_recipe.instruments[4].id, TENSION_INSTRUMENT_ID);
+        assert_eq!(war_recipe.tracks.len(), 5);
+        // The theme melody is still index 3 — the siren appends after it.
+        assert!(war_recipe.instruments[3].id.starts_with("theme_"));
+
+        let mut calm = SceneCharacter::for_seed(2);
+        calm.escalation = 0.0;
+        assert_eq!(
+            AmbientRecipe::from_scene(&calm, 2).recipe.instruments.len(),
+            4,
+            "calm room keeps the four base layers"
+        );
     }
 
     #[test]

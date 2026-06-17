@@ -13,7 +13,7 @@ use crate::pds::{
     Fp, Fp3, Fp64, Generator, GeneratorKind, SovereignGroundConfig, SovereignMaterialSettings,
     SovereignRockConfig, SovereignStuccoConfig, SovereignTextureConfig,
 };
-use crate::seeded_defaults::ThemeArchetype;
+use crate::seeded_defaults::{ProsperityBand, ProsperityTier, ThemeArchetype};
 
 pub struct RuinedTemple;
 
@@ -29,6 +29,11 @@ impl CatalogueEntry for RuinedTemple {
     }
     fn role(&self) -> StructureRole {
         StructureRole::Landmark
+    }
+    /// Already decayed — fits the poorer end of the kit, never an affluent
+    /// settlement's centrepiece.
+    fn prosperity_band(&self) -> ProsperityBand {
+        ProsperityBand::range(ProsperityTier::Poor, ProsperityTier::Modest)
     }
 
     fn themes(&self) -> &'static [ThemeArchetype] {

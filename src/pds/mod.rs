@@ -86,6 +86,7 @@ pub mod inventory;
 pub mod material_finish;
 pub mod prim;
 pub mod room;
+pub mod ruin;
 pub mod sanitize;
 pub mod terrain;
 pub mod texture;

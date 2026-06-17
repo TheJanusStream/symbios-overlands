@@ -15,8 +15,26 @@ pub mod holo_billboard;
 pub mod neon_kiosk;
 pub mod neon_megatower;
 pub mod parking_stack;
+// Poor (undercity) variants — the prosperity-Poor end of the theme.
+pub mod busted_terminal;
+pub mod container_stack;
+pub mod ewaste_pile;
+pub mod scrap_shanty;
+pub mod tarp_shelter;
 
 use crate::pds::{Fp, Fp3, SovereignMaterialSettings, SovereignTextureConfig};
+use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
+
+/// Shared prosperity band for the established neon kit — these glossy
+/// megastructures read as a Modest-to-Rich settlement. The poor end of the
+/// theme is the separate scrap-shanty kit ([`scrap_shanty`], …), tagged
+/// `Poor`, so a destitute cyberpunk room grows the undercity instead.
+pub(super) const CYBER_BAND: ProsperityBand =
+    ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
+
+/// Prosperity band for the scrap-shanty undercity kit — the destitute end
+/// of the theme, never picked for a modest or affluent cyberpunk room.
+pub(super) const CYBER_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
 /// Dark, glossy structural metal — the body shared by every cyberpunk
 /// build. Low roughness + high metallic so neon trim reflects off it.
@@ -31,11 +49,40 @@ pub(super) fn metal(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
+/// Corroded, dull metal — the scrap-shanty undercity body, the poor
+/// counterpoint to the glossy [`metal`] of the established neon kit.
+pub(super) fn rust(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.9),
+        metallic: Fp(0.4),
+        uv_scale: Fp(1.5),
+        texture: SovereignTextureConfig::None,
+        ..Default::default()
+    }
+}
+
+/// Sagging tarp / plastic sheeting over a makeshift shelter.
+pub(super) fn tarp(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.85),
+        metallic: Fp(0.0),
+        ..Default::default()
+    }
+}
+
 /// Near-black panelled body colour.
 pub(super) const DARK_METAL: [f32; 3] = [0.06, 0.07, 0.10];
 pub(super) const NEON_CYAN: [f32; 3] = [0.10, 0.95, 1.00];
 pub(super) const NEON_MAGENTA: [f32; 3] = [1.00, 0.12, 0.78];
 pub(super) const NEON_LIME: [f32; 3] = [0.55, 1.00, 0.20];
+
+// Scrap-shanty palette — weathered container steel, rust, faded tarp.
+pub(super) const CONTAINER_BLUE: [f32; 3] = [0.18, 0.30, 0.38];
+pub(super) const CONTAINER_RUST: [f32; 3] = [0.45, 0.28, 0.18];
+pub(super) const RUST_BROWN: [f32; 3] = [0.34, 0.22, 0.14];
+pub(super) const TARP_BLUE: [f32; 3] = [0.18, 0.26, 0.42];
 
 /// Walk a built tree and report whether any primitive is strongly
 /// emissive — the shared "did the neon survive?" check for the kit's
@@ -53,4 +100,29 @@ pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
         _ => false,
     };
     own || g.children.iter().any(has_emissive)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::catalogue::CatalogueEntry;
+    use crate::catalogue::items::util::assert_sanitize_stable;
+
+    /// The five poor (undercity) variants must build clean trees the
+    /// sanitiser leaves untouched, and each must still carry its dim neon.
+    #[test]
+    fn poor_variants_round_trip_and_keep_their_glow() {
+        let entries: [&dyn CatalogueEntry; 5] = [
+            &scrap_shanty::ScrapShanty,
+            &container_stack::ContainerStack,
+            &tarp_shelter::TarpShelter,
+            &ewaste_pile::EwastePile,
+            &busted_terminal::BustedTerminal,
+        ];
+        for e in entries {
+            let built = e.build("");
+            assert_sanitize_stable(&built, e.slug());
+            assert!(has_emissive(&built), "{} lost its neon", e.slug());
+        }
+    }
 }

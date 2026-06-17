@@ -19,7 +19,7 @@ use crate::pds::{
     Fp3, Fp64, SovereignPuffConfig, SovereignSnowflakeConfig, SovereignSoftDiscConfig,
     SovereignSparkConfig, SovereignTextureConfig,
 };
-use crate::seeded_defaults::scene::{BiomeArchetype, SceneCharacter, range_f32};
+use crate::seeded_defaults::scene::{BiomeArchetype, EscalationTier, SceneCharacter, range_f32};
 
 /// Sub-stream salt distinct from every sibling room deriver.
 const PARTICLE_STREAM_SALT: u64 = 0xFA17_1C1E_5EED_0001;
@@ -33,6 +33,10 @@ pub enum ParticleMood {
     Embers,
     DustMotes,
     MistMotes,
+    /// Drifting dark smoke / ash — the conflict signature, selected when a
+    /// room's escalation reaches [`EscalationTier::Conflict`] regardless of
+    /// biome or theme.
+    Smoke,
 }
 
 /// Fully-derived ambient emitter parameters. Field names mirror their
@@ -127,18 +131,34 @@ impl AmbientParticles {
                 contrast: Fp64(1.1),
                 ..Default::default()
             }),
+            ParticleMood::Smoke => SovereignTextureConfig::Puff(SovereignPuffConfig {
+                seed,
+                variant_rows: 3,
+                variant_cols: 3,
+                color_base: Fp3([0.22, 0.21, 0.20]),
+                color_shadow: Fp3([0.09, 0.09, 0.09]),
+                density: Fp64(0.72),
+                edge_falloff: Fp64(1.8),
+                contrast: Fp64(1.0),
+                ..Default::default()
+            }),
         }
     }
 }
 
 fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng, room_seed: u64) -> AmbientParticles {
     let seed = room_seed ^ 0x00AB_1E47;
-    // The biome sets the default mood; a theme accent may override it
-    // (e.g. alien themes swap in eerie biolume / mist motes regardless of
-    // biome). The per-mood spec then drives the full emitter.
-    let mood = ThemeAccent::for_theme(scene.theme)
-        .particle_mood
-        .unwrap_or_else(|| biome_mood(scene.biome));
+    // Conflict overrides everything — a fought-over settlement smokes
+    // regardless of biome or theme. Otherwise the biome sets the default
+    // mood, which a theme accent may override (e.g. alien themes swap in
+    // eerie biolume / mist motes). The per-mood spec drives the emitter.
+    let mood = if scene.escalation_tier() == EscalationTier::Conflict {
+        ParticleMood::Smoke
+    } else {
+        ThemeAccent::for_theme(scene.theme)
+            .particle_mood
+            .unwrap_or_else(|| biome_mood(scene.biome))
+    };
     spec_for_mood(mood, rng, seed)
 }
 
@@ -253,6 +273,32 @@ fn spec_for_mood(mood: ParticleMood, rng: &mut ChaCha8Rng, seed: u64) -> Ambient
             additive: false,
             seed,
         },
+        ParticleMood::Smoke => AmbientParticles {
+            mood: ParticleMood::Smoke,
+            // A handful of low chimneys / pyres drifting smoke up over the
+            // settlement: a tight ground band, slow rise, growing + fading
+            // dark puffs.
+            emitter_half_extents: [55.0, 3.0, 55.0],
+            emitter_y: 1.5,
+            rate_per_second: range_f32(rng, 16.0, 28.0),
+            max_particles: 300,
+            lifetime: (6.0, 12.0),
+            speed: (0.2, 0.6),
+            // Rises slowly on its own heat, drifting with a light wind.
+            gravity_multiplier: -0.03,
+            acceleration: [
+                range_f32(rng, -0.25, 0.25),
+                0.12,
+                range_f32(rng, -0.25, 0.25),
+            ],
+            linear_drag: 0.5,
+            start_size: 0.45,
+            end_size: 1.3,
+            start_color: [0.16, 0.15, 0.14, 0.5],
+            end_color: [0.32, 0.31, 0.30, 0.0],
+            additive: false,
+            seed,
+        },
     }
 }
 
@@ -268,9 +314,34 @@ mod tests {
         let mut scene = SceneCharacter::for_seed(5);
         scene.biome = BiomeArchetype::Tundra;
         scene.theme = ThemeArchetype::AlienOrganic;
+        // Pin a peaceful room so the conflict-smoke override doesn't fire.
+        scene.escalation = 0.0;
         assert_eq!(
             AmbientParticles::from_scene(&scene, 5).mood,
             ParticleMood::Fireflies
+        );
+    }
+
+    #[test]
+    fn conflict_room_emits_smoke_regardless_of_biome_or_theme() {
+        for biome in BiomeArchetype::ALL {
+            let mut scene = SceneCharacter::for_seed(5);
+            scene.biome = biome;
+            scene.theme = ThemeArchetype::AlienOrganic; // would force Fireflies
+            scene.escalation = 0.95; // Conflict
+            let p = AmbientParticles::from_scene(&scene, 5);
+            assert_eq!(p.mood, ParticleMood::Smoke, "{biome:?} conflict room");
+            assert_eq!(p.sprite_texture().label(), "Puff");
+            // Still inside the sanitiser budget.
+            assert!(p.max_particles <= 512 && p.rate_per_second <= 256.0);
+        }
+        // A calm room of the same theme keeps its theme/biome mood.
+        let mut calm = SceneCharacter::for_seed(5);
+        calm.theme = ThemeArchetype::AlienOrganic;
+        calm.escalation = 0.0;
+        assert_ne!(
+            AmbientParticles::from_scene(&calm, 5).mood,
+            ParticleMood::Smoke
         );
     }
 
@@ -291,9 +362,11 @@ mod tests {
             for s in 0u64..8 {
                 let mut scene = SceneCharacter::for_seed(s);
                 scene.biome = biome;
-                // Pin a neutral theme so the biome->mood mapping is tested
-                // without a particle-mood accent overriding it.
+                // Pin a neutral theme + peaceful room so the biome->mood
+                // mapping is tested without a particle-mood accent or the
+                // conflict-smoke override stepping on it.
                 scene.theme = ThemeArchetype::AncientClassical;
+                scene.escalation = 0.0;
                 let p = AmbientParticles::from_scene(&scene, s);
                 let expected = match biome {
                     BiomeArchetype::Lush => ParticleMood::Fireflies,
@@ -320,6 +393,7 @@ mod tests {
         for biome in BiomeArchetype::ALL {
             let mut scene = SceneCharacter::for_seed(7);
             scene.biome = biome;
+            scene.escalation = 0.0; // test the biome sprites, not conflict smoke
             let p = AmbientParticles::from_scene(&scene, 7);
 
             let a = p.sprite_texture();
@@ -330,7 +404,7 @@ mod tests {
                 ParticleMood::Fireflies => "Soft Disc",
                 ParticleMood::Snowfall => "Snowflake",
                 ParticleMood::Embers => "Spark",
-                ParticleMood::DustMotes | ParticleMood::MistMotes => "Puff",
+                ParticleMood::DustMotes | ParticleMood::MistMotes | ParticleMood::Smoke => "Puff",
             };
             assert_eq!(a.label(), expected, "mood {:?} sprite", p.mood);
 

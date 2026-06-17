@@ -45,31 +45,13 @@ pub mod garden_bed;
 pub mod lantern;
 pub mod market_stall;
 
-use crate::pds::{Fp, Fp3, Generator, SovereignMaterialSettings, SovereignTextureConfig};
+use crate::pds::{Fp, Fp3, SovereignMaterialSettings, SovereignTextureConfig};
 use crate::seeded_defaults::ThemeArchetype;
 
-/// Assemble a flat list of prims, each positioned in the prop's plain
-/// ground-relative world frame, into one generator. The first prim becomes
-/// the root (keeping its transform); every other prim is reparented under
-/// it with its translation rebased into the root's local frame.
-///
-/// Spawned generator children inherit the root's transform (Bevy
-/// `add_child`), so without this rebase a child authored at world `y = 2`
-/// under a root sitting at `y = 0.5` would render at `y = 2.5`. Authoring
-/// against this helper lets each prop's geometry read in one consistent
-/// world frame instead of threading a per-file offset through every piece.
-pub(super) fn assemble(mut prims: Vec<Generator>) -> Generator {
-    let mut root = prims.remove(0);
-    let [rx, ry, rz] = root.transform.translation.0;
-    for mut p in prims {
-        let t = &mut p.transform.translation.0;
-        t[0] -= rx;
-        t[1] -= ry;
-        t[2] -= rz;
-        root.children.push(p);
-    }
-    root
-}
+/// Rebase-and-parent helper shared with the other primitive-built kits —
+/// see [`super::util::assemble`]. Re-exported so this module's props keep
+/// calling `super::assemble`.
+pub(super) use super::util::assemble;
 
 /// Every theme — the cross-theme props belong to a tier, not a theme, so
 /// they advertise membership in all of them. Returned as the shared
@@ -193,17 +175,15 @@ mod tests {
         EscalationBand, EscalationTier, ProsperityBand, ProsperityTier, ThemeArchetype,
     };
 
-    /// The civic props are exactly the catalogue entries that opt out of an
-    /// `ANY` socio band. Collected from [`ENTRIES`] so this stays in sync
-    /// without a hand-maintained list.
+    /// The civic props are the cross-theme entries — the only ones tagged
+    /// with *every* theme (the per-theme kits list one to a few). Collected
+    /// from [`ENTRIES`] so this stays in sync without a hand-maintained
+    /// list, and without catching theme kits that also tag a socio band.
     fn civic_entries() -> Vec<&'static dyn CatalogueEntry> {
         ENTRIES
             .iter()
             .copied()
-            .filter(|e| {
-                e.prosperity_band() != ProsperityBand::ANY
-                    || e.escalation_band() != EscalationBand::ANY
-            })
+            .filter(|e| e.themes().len() == ThemeArchetype::ALL.len())
             .collect()
     }
 

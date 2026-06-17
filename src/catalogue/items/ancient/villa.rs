@@ -18,7 +18,7 @@ use crate::pds::{
     SovereignPlankConfig, SovereignShingleConfig, SovereignStuccoConfig, SovereignTextureConfig,
     SovereignWindowConfig,
 };
-use crate::seeded_defaults::ThemeArchetype;
+use crate::seeded_defaults::{ProsperityBand, ProsperityTier, ThemeArchetype};
 
 pub struct Villa;
 
@@ -34,6 +34,10 @@ impl CatalogueEntry for Villa {
     }
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
+    }
+    /// An affluent residence — the prosperous end of the kit.
+    fn prosperity_band(&self) -> ProsperityBand {
+        ProsperityBand::only(ProsperityTier::Rich)
     }
 
     fn themes(&self) -> &'static [ThemeArchetype] {

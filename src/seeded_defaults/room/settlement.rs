@@ -86,8 +86,8 @@ impl Settlement {
         let prosperity = scene.prosperity_tier();
         let escalation = scene.escalation_tier();
 
-        let landmark = place_landmark(theme, prosperity, &mut rng);
-        let secondaries = place_secondaries(theme, prosperity, &landmark, &mut rng);
+        let landmark = place_landmark(theme, prosperity, escalation, &mut rng);
+        let secondaries = place_secondaries(theme, prosperity, escalation, &landmark, &mut rng);
         let props = place_props(theme, prosperity, escalation, &landmark, &mut rng);
 
         Self {
@@ -108,12 +108,24 @@ fn effective_theme(theme: ThemeArchetype) -> ThemeArchetype {
     }
 }
 
-/// Pool of catalogue entries for `theme`/`role`, in registry order.
-fn pool(
+/// Theme+role entries narrowed to the room's socio tiers when any match,
+/// else the full theme pool. So a theme that authored a tier-specific
+/// variant (e.g. Cyberpunk's poor scrap shanty) uses it in matching rooms,
+/// while a theme without one still yields a coherent member rather than an
+/// empty pool. Props don't use this — their cross-theme tier props ride the
+/// always-present civic kit, so [`entries_for_room`] suffices there.
+fn tiered_pool(
     theme: ThemeArchetype,
     role: StructureRole,
+    prosperity: ProsperityTier,
+    escalation: EscalationTier,
 ) -> Vec<&'static dyn crate::catalogue::CatalogueEntry> {
-    entries_for(theme, role).collect()
+    let tiered: Vec<_> = entries_for_room(theme, role, prosperity, escalation).collect();
+    if tiered.is_empty() {
+        entries_for(theme, role).collect()
+    } else {
+        tiered
+    }
 }
 
 /// Inclusive `(min, max)` secondary-building count by prosperity: richer
@@ -158,10 +170,12 @@ fn sample_count(rng: &mut ChaCha8Rng, lo: usize, hi: usize) -> usize {
 fn place_landmark(
     theme: ThemeArchetype,
     prosperity: ProsperityTier,
+    escalation: EscalationTier,
     rng: &mut ChaCha8Rng,
 ) -> SettlementMember {
-    // `effective_theme` guarantees this pool is non-empty.
-    let pool = pool(theme, StructureRole::Landmark);
+    // `effective_theme` guarantees the theme has a landmark, and
+    // `tiered_pool` falls back to it, so this pool is non-empty.
+    let pool = tiered_pool(theme, StructureRole::Landmark, prosperity, escalation);
     let entry = pick(&pool, rng);
     let fp = entry.footprint();
 
@@ -185,10 +199,11 @@ fn place_landmark(
 fn place_secondaries(
     theme: ThemeArchetype,
     prosperity: ProsperityTier,
+    escalation: EscalationTier,
     landmark: &SettlementMember,
     rng: &mut ChaCha8Rng,
 ) -> Vec<SettlementMember> {
-    let mut remaining = pool(theme, StructureRole::Secondary);
+    let mut remaining = tiered_pool(theme, StructureRole::Secondary, prosperity, escalation);
     if remaining.is_empty() {
         return Vec::new();
     }
@@ -367,45 +382,67 @@ mod tests {
     }
 
     #[test]
-    fn cyberpunk_settlement_uses_its_own_kit() {
-        // Cyberpunk now has catalogue content, so its rooms use the neon
-        // megatower landmark rather than the AncientClassical fallback,
-        // and any secondaries/props come from the cyberpunk pool.
-        let mut placed_secondary = false;
+    fn cyberpunk_settlement_uses_its_own_kit_by_prosperity() {
+        // The per-theme poor/rich pattern (#433): a rich cyberpunk room
+        // grows the glossy neon kit, a poor one grows the scrap-shanty
+        // undercity — never the other theme's buildings nor the fallback.
+        const RICH_SECONDARIES: [&str; 4] = [
+            "data_spire",
+            "arcade_block",
+            "holo_billboard",
+            "parking_stack",
+        ];
+        const POOR_SECONDARIES: [&str; 2] = ["container_stack", "tarp_shelter"];
+
+        let cyber_prop = |slug: &str| {
+            // Cyberpunk-tagged or an all-theme civic prop — either is a
+            // legitimate member of a cyberpunk room's pool.
+            by_slug(slug)
+                .expect("prop resolves")
+                .themes()
+                .contains(&ThemeArchetype::Cyberpunk)
+        };
+
+        let mut rich_placed_secondary = false;
+        let mut poor_placed_secondary = false;
         for s in 0u64..32 {
-            let mut scene = SceneCharacter::for_seed(s);
-            scene.theme = ThemeArchetype::Cyberpunk;
-            let st = Settlement::from_scene(&scene, s);
-            assert_eq!(
-                st.landmark.slug, "neon_megatower",
-                "Cyberpunk landmark should be the neon megatower"
-            );
-            for sec in &st.secondaries {
+            let mut rich = SceneCharacter::for_seed(s);
+            rich.theme = ThemeArchetype::Cyberpunk;
+            rich.prosperity = 0.95;
+            let r = Settlement::from_scene(&rich, s);
+            assert_eq!(r.landmark.slug, "neon_megatower", "rich cyberpunk landmark");
+            for sec in &r.secondaries {
                 assert!(
-                    matches!(
-                        sec.slug,
-                        "data_spire" | "arcade_block" | "holo_billboard" | "parking_stack"
-                    ),
-                    "unexpected cyberpunk secondary {}",
+                    RICH_SECONDARIES.contains(&sec.slug),
+                    "rich cyber secondary {}",
                     sec.slug
                 );
             }
-            for prop in &st.props {
-                // Props are now the cyberpunk kit plus any cross-theme civic
-                // props whose tier band matches; both must be eligible for a
-                // cyberpunk room (cyberpunk-tagged or all-theme civic).
-                let e = by_slug(prop.slug).expect("prop slug resolves");
+            assert!(r.props.iter().all(|p| cyber_prop(p.slug)));
+            rich_placed_secondary |= !r.secondaries.is_empty();
+
+            let mut poor = SceneCharacter::for_seed(s);
+            poor.theme = ThemeArchetype::Cyberpunk;
+            poor.prosperity = 0.05;
+            let p = Settlement::from_scene(&poor, s);
+            assert_eq!(p.landmark.slug, "scrap_shanty", "poor cyberpunk landmark");
+            for sec in &p.secondaries {
                 assert!(
-                    e.themes().contains(&ThemeArchetype::Cyberpunk),
-                    "prop {} not eligible for a cyberpunk room",
-                    prop.slug
+                    POOR_SECONDARIES.contains(&sec.slug),
+                    "poor cyber secondary {}",
+                    sec.slug
                 );
             }
-            placed_secondary |= !st.secondaries.is_empty();
+            assert!(p.props.iter().all(|p| cyber_prop(p.slug)));
+            poor_placed_secondary |= !p.secondaries.is_empty();
         }
         assert!(
-            placed_secondary,
-            "some Cyberpunk room should place a secondary"
+            rich_placed_secondary,
+            "some rich cyberpunk room places a secondary"
+        );
+        assert!(
+            poor_placed_secondary,
+            "some poor cyberpunk room places a secondary"
         );
     }
 

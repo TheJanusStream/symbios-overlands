@@ -584,17 +584,20 @@ impl RoomRecord {
         let mut environment = environment_from_palette(&palette);
         apply_atmosphere_to_environment(&atmosphere, &mut environment);
 
-        // Theme accent: a light, additive nudge so the room's surroundings
-        // echo its artificial theme (e.g. cyberpunk magenta haze). The
-        // biome palette stays the primary driver; neutral themes are a
-        // no-op. Particle-mood accents are applied inside the particles
-        // deriver; this handles fog / sky tint and cloud haze.
-        let accent = crate::seeded_defaults::ThemeAccent::for_theme(scene.theme);
+        // Scene accent: a light, additive nudge so the room's surroundings
+        // echo its artificial theme (e.g. cyberpunk magenta haze) and its
+        // socio-political axes (escalation smokes the air red + hazy;
+        // prosperity brightens / dims). The biome palette stays the primary
+        // driver; a neutral, calm, mid-prosperity room is a no-op.
+        // Particle-mood accents are applied inside the particles deriver;
+        // this handles fog / sky / cloud tint, brightness and cloud haze.
+        let accent = crate::seeded_defaults::ThemeAccent::for_scene(&scene);
         if !accent.is_noop() {
             let fog = environment.fog_color.0;
-            let fog_tint = accent.tint_rgb([fog[0], fog[1], fog[2]]);
-            environment.fog_color = Fp4([fog_tint[0], fog_tint[1], fog_tint[2], fog[3]]);
-            environment.sky_color = Fp3(accent.tint_rgb(environment.sky_color.0));
+            let fog_adj = accent.adjust_rgb([fog[0], fog[1], fog[2]]);
+            environment.fog_color = Fp4([fog_adj[0], fog_adj[1], fog_adj[2], fog[3]]);
+            environment.sky_color = Fp3(accent.adjust_rgb(environment.sky_color.0));
+            environment.cloud_color = Fp3(accent.adjust_rgb(environment.cloud_color.0));
             environment.cloud_cover = Fp((environment.cloud_cover.0 + accent.haze).clamp(0.0, 1.0));
         }
 
@@ -747,6 +750,10 @@ fn wire_settlement_member(
     // tree toward the room's prosperity (grime ↔ polish) and escalation
     // (peace ↔ scorch). Deterministic; a neutral room is left untouched.
     crate::pds::material_finish::apply_socio_finish(&mut member_gen, prosperity, escalation);
+    // Escalation-driven geometric damage: lean / settle / collapse the
+    // structure by the room's conflict tier (the Ruins modifier).
+    // Deterministic in the member's grammar seed; calm rooms are untouched.
+    crate::pds::ruin::apply_ruin(&mut member_gen, escalation, member.grammar_seed);
     generators.insert(name.to_string(), member_gen);
     let half_yaw = member.yaw_rad * 0.5;
     placements.push(Placement::Absolute {

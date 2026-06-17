@@ -14,7 +14,7 @@
 
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp, Fp3, Generator, SovereignMaterialSettings, SovereignTextureConfig};
-use crate::seeded_defaults::ThemeArchetype;
+use crate::seeded_defaults::{ProsperityBand, ProsperityTier, ThemeArchetype};
 
 use crate::catalogue::items::util::{
     cone, cuboid_tapered, cylinder_tapered, foundation_block, foundation_disc, glow, id_quat, prim,
@@ -35,6 +35,9 @@ impl CatalogueEntry for Lighthouse {
     }
     fn role(&self) -> StructureRole {
         StructureRole::Landmark
+    }
+    fn prosperity_band(&self) -> ProsperityBand {
+        ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich)
     }
 
     fn themes(&self) -> &'static [ThemeArchetype] {

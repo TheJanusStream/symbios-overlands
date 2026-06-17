@@ -128,6 +128,42 @@ fn voice_for(scene: &SceneCharacter) -> ThemeVoice {
     }
 }
 
+/// Layer the socio-political axes onto the chosen voice. Escalation makes
+/// the music busier (more notes), more clipped (shorter gates) and more
+/// dissonant (added detune beating); prosperity nudges brightness — richer
+/// rooms ring more present and reverberant, poorer ones duller and quieter.
+///
+/// Both are gated and bounded: a mid-prosperity, peaceful room is left at
+/// the voice's authored values, and the post-adjust keeps note counts and
+/// volumes inside the orchestrator's loop / mixdown limits (≤20 notes,
+/// per-note volume ≤0.3).
+fn apply_socio(voice: &mut ThemeVoice, scene: &SceneCharacter) {
+    // Escalation ramps in above ~0.45 — calm/tense rooms keep the authored
+    // pattern; only real conflict agitates it.
+    let conflict = ((scene.escalation - 0.45) / 0.55).clamp(0.0, 1.0);
+    if conflict > 0.0 {
+        let (lo, hi) = voice.note_count;
+        voice.note_count = (
+            lo + (conflict * 4.0) as u32,
+            (hi + (conflict * 6.0) as u32).min(20),
+        );
+        let tighten = 1.0 - 0.3 * conflict;
+        voice.gate = (voice.gate.0 * tighten, voice.gate.1 * tighten);
+        // Detuned beating reads as unease; stacks a second oscillator on
+        // voices that were a single oscillator.
+        voice.detune_cents += 18.0 * conflict;
+    }
+
+    // Prosperity brightness: centred at 0.5 (no change), ±1 at the extremes.
+    let wealth = (scene.prosperity.clamp(0.0, 1.0) - 0.5) * 2.0;
+    voice.reverb_mix = (voice.reverb_mix + 0.12 * wealth).clamp(0.1, 0.6);
+    let vol_scale = 1.0 + 0.18 * wealth;
+    voice.volume = (
+        (voice.volume.0 * vol_scale).max(0.02),
+        (voice.volume.1 * vol_scale).min(0.3),
+    );
+}
+
 /// Biome-anchored default — sine bells, mode from temperature, density
 /// from biome. The sound un-authored themes carry until they get a kit.
 fn neutral_voice(scene: &SceneCharacter) -> ThemeVoice {
@@ -302,7 +338,8 @@ pub(super) fn build(
     rng: &mut ChaCha8Rng,
     seed: u64,
 ) -> (Instrument, Track) {
-    let voice = voice_for(scene);
+    let mut voice = voice_for(scene);
+    apply_socio(&mut voice, scene);
     let root_hz = 220.0
         * 2.0_f32.powf(scene.base_hue_deg / 360.0)
         * voice.octave
@@ -348,5 +385,42 @@ mod tests {
         assert_eq!(warm.scale, PENTATONIC_MAJOR);
         let cool = voice_for(&scene_with(ThemeArchetype::Suburban, -0.8));
         assert_eq!(cool.scale, PENTATONIC_MINOR);
+    }
+
+    #[test]
+    fn conflict_makes_the_voice_busier_and_more_dissonant() {
+        let mut scene = scene_with(ThemeArchetype::Medieval, 0.0);
+        scene.prosperity = 0.5;
+        scene.escalation = 0.0;
+        let mut calm = voice_for(&scene);
+        apply_socio(&mut calm, &scene);
+
+        scene.escalation = 1.0;
+        let mut war = voice_for(&scene);
+        apply_socio(&mut war, &scene);
+
+        assert!(war.note_count.1 > calm.note_count.1, "conflict adds notes");
+        assert!(
+            war.detune_cents > calm.detune_cents,
+            "conflict adds dissonance"
+        );
+        assert!(war.gate.1 < calm.gate.1, "conflict clips note lengths");
+        // Bounds the orchestrator relies on hold.
+        assert!(war.note_count.1 <= 20 && war.volume.1 <= 0.3);
+    }
+
+    #[test]
+    fn prosperity_brightens_or_dulls_presence() {
+        let mut scene = scene_with(ThemeArchetype::AncientClassical, 0.0);
+        scene.escalation = 0.0;
+        scene.prosperity = 0.95;
+        let mut rich = voice_for(&scene);
+        apply_socio(&mut rich, &scene);
+        scene.prosperity = 0.05;
+        let mut poor = voice_for(&scene);
+        apply_socio(&mut poor, &scene);
+        assert!(rich.reverb_mix > poor.reverb_mix, "rich rings more present");
+        assert!(rich.volume.1 > poor.volume.1, "rich is louder");
+        assert!(rich.volume.1 <= 0.3, "still under the bed");
     }
 }

@@ -182,6 +182,15 @@ pub enum ProsperityTier {
 
 impl ProsperityTier {
     pub const ALL: [Self; 3] = [Self::Poor, Self::Modest, Self::Rich];
+
+    /// Threshold a `[0, 1]` prosperity value into equal thirds.
+    pub fn from_unit(prosperity: f32) -> Self {
+        match prosperity {
+            p if p < 1.0 / 3.0 => Self::Poor,
+            p if p < 2.0 / 3.0 => Self::Modest,
+            _ => Self::Rich,
+        }
+    }
 }
 
 /// Conflict tier — the discrete reading of the continuous
@@ -203,6 +212,15 @@ pub enum EscalationTier {
 
 impl EscalationTier {
     pub const ALL: [Self; 3] = [Self::Calm, Self::Tense, Self::Conflict];
+
+    /// Threshold a `[0, 1]` escalation value into equal thirds.
+    pub fn from_unit(escalation: f32) -> Self {
+        match escalation {
+            e if e < 1.0 / 3.0 => Self::Calm,
+            e if e < 2.0 / 3.0 => Self::Tense,
+            _ => Self::Conflict,
+        }
+    }
 }
 
 /// Inclusive prosperity-tier affinity band a catalogue entry advertises:
@@ -341,21 +359,13 @@ impl SceneCharacter {
     /// Discrete socio-economic reading of [`Self::prosperity`], thresholded
     /// into equal thirds of `[0, 1]`.
     pub fn prosperity_tier(&self) -> ProsperityTier {
-        match self.prosperity {
-            p if p < 1.0 / 3.0 => ProsperityTier::Poor,
-            p if p < 2.0 / 3.0 => ProsperityTier::Modest,
-            _ => ProsperityTier::Rich,
-        }
+        ProsperityTier::from_unit(self.prosperity)
     }
 
     /// Discrete conflict reading of [`Self::escalation`], thresholded into
     /// equal thirds of `[0, 1]`.
     pub fn escalation_tier(&self) -> EscalationTier {
-        match self.escalation {
-            e if e < 1.0 / 3.0 => EscalationTier::Calm,
-            e if e < 2.0 / 3.0 => EscalationTier::Tense,
-            _ => EscalationTier::Conflict,
-        }
+        EscalationTier::from_unit(self.escalation)
     }
 }
 

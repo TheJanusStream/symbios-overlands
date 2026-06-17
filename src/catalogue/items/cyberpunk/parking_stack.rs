@@ -27,6 +27,9 @@ impl CatalogueEntry for ParkingStack {
     fn themes(&self) -> &'static [ThemeArchetype] {
         &[ThemeArchetype::Cyberpunk]
     }
+    fn prosperity_band(&self) -> crate::seeded_defaults::ProsperityBand {
+        super::CYBER_BAND
+    }
     fn footprint(&self) -> Footprint {
         Footprint {
             clearance: 8.0,

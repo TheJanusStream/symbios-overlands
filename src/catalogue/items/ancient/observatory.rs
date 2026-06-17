@@ -12,7 +12,7 @@ use crate::pds::{
     Fp, Fp3, Fp64, Generator, SovereignConcreteConfig, SovereignMaterialSettings,
     SovereignMetalConfig, SovereignTextureConfig,
 };
-use crate::seeded_defaults::ThemeArchetype;
+use crate::seeded_defaults::{ProsperityBand, ProsperityTier, ThemeArchetype};
 
 use crate::catalogue::items::util::{
     cuboid_tapered, cylinder_tapered, foundation_disc, glow, id_quat, prim, quat_x, solid, sphere,
@@ -33,6 +33,9 @@ impl CatalogueEntry for Observatory {
     }
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
+    }
+    fn prosperity_band(&self) -> ProsperityBand {
+        ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich)
     }
 
     fn themes(&self) -> &'static [ThemeArchetype] {

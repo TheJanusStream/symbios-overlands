@@ -19,7 +19,7 @@ use crate::pds::{
     SovereignPlankConfig, SovereignRockConfig, SovereignShingleConfig, SovereignTextureConfig,
     SovereignWindowConfig,
 };
-use crate::seeded_defaults::ThemeArchetype;
+use crate::seeded_defaults::{ProsperityBand, ProsperityTier, ThemeArchetype};
 
 pub struct MedievalCastle;
 
@@ -35,6 +35,10 @@ impl CatalogueEntry for MedievalCastle {
     }
     fn role(&self) -> StructureRole {
         StructureRole::Landmark
+    }
+    /// A seat of power — the affluent end of the kit.
+    fn prosperity_band(&self) -> ProsperityBand {
+        ProsperityBand::only(ProsperityTier::Rich)
     }
 
     fn themes(&self) -> &'static [ThemeArchetype] {

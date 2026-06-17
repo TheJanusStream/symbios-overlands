@@ -29,6 +29,29 @@ pub(super) fn id_quat() -> Fp4 {
     Fp4([0.0, 0.0, 0.0, 1.0])
 }
 
+/// Assemble a flat list of prims, each positioned in the prop's plain
+/// ground-relative world frame, into one generator: the first prim becomes
+/// the root (keeping its transform), and every other prim is reparented
+/// under it with its translation rebased into the root's local frame.
+///
+/// Spawned generator children inherit the root's transform (Bevy
+/// `add_child`), so without this rebase a child authored at world `y = 2`
+/// under a root sitting at `y = 0.5` would render at `y = 2.5`. Authoring
+/// against this helper lets each prop's geometry read in one consistent
+/// world frame instead of threading a per-file offset through every piece.
+pub(super) fn assemble(mut prims: Vec<Generator>) -> Generator {
+    let mut root = prims.remove(0);
+    let [rx, ry, rz] = root.transform.translation.0;
+    for mut p in prims {
+        let t = &mut p.transform.translation.0;
+        t[0] -= rx;
+        t[1] -= ry;
+        t[2] -= rz;
+        root.children.push(p);
+    }
+    root
+}
+
 /// Rotation around X — tilts ramps and dome slits.
 pub(super) fn quat_x(angle_rad: f32) -> Fp4 {
     let half = angle_rad * 0.5;

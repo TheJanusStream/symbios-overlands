@@ -48,6 +48,12 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &cyberpunk::neon_kiosk::NeonKiosk,
     &cyberpunk::drone_perch::DronePerch,
     &cyberpunk::cable_arch::CableArch,
+    // Buildings — Cyberpunk poor (undercity) variants, prosperity Poor.
+    &cyberpunk::scrap_shanty::ScrapShanty,
+    &cyberpunk::container_stack::ContainerStack,
+    &cyberpunk::tarp_shelter::TarpShelter,
+    &cyberpunk::ewaste_pile::EwastePile,
+    &cyberpunk::busted_terminal::BustedTerminal,
     // Buildings — cross-theme socio-political props (Prop role, tagged
     // with every theme but gated to a prosperity / escalation tier band;
     // see crate::catalogue::items::civic).
@@ -134,9 +140,9 @@ mod tests {
         use crate::catalogue::CatalogueCategory::*;
         let count = |c| ENTRIES.iter().filter(|e| e.category() == c).count();
         // Deriving category() from role() must keep every entry in its
-        // expected section. 8 ancient/medieval + 8 cyberpunk + 16 civic
-        // cross-theme props = 32 buildings.
-        assert_eq!(count(Buildings), 32);
+        // expected section. 8 ancient/medieval + 8 cyberpunk + 5 cyberpunk
+        // poor variants + 16 civic cross-theme props = 37 buildings.
+        assert_eq!(count(Buildings), 37);
         assert_eq!(count(Plants), 4);
         assert_eq!(count(Patterns), 3);
         assert_eq!(count(Tools), 1);

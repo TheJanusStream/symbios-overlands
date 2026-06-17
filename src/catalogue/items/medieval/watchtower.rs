@@ -13,7 +13,7 @@ use crate::pds::{
     Fp, Fp3, Fp64, Generator, GeneratorKind, SovereignGroundConfig, SovereignMaterialSettings,
     SovereignPlankConfig, SovereignRockConfig, SovereignShingleConfig, SovereignTextureConfig,
 };
-use crate::seeded_defaults::ThemeArchetype;
+use crate::seeded_defaults::{ProsperityBand, ProsperityTier, ThemeArchetype};
 
 pub struct Watchtower;
 
@@ -29,6 +29,9 @@ impl CatalogueEntry for Watchtower {
     }
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
+    }
+    fn prosperity_band(&self) -> ProsperityBand {
+        ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich)
     }
 
     fn themes(&self) -> &'static [ThemeArchetype] {
