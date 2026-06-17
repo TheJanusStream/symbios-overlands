@@ -96,6 +96,19 @@ fn build_tree() -> Generator {
                 id_quat(),
             ));
         }
+        // Lit window-grid bands climbing the front + back faces — dim so
+        // they read as rows of windows rather than floodlights.
+        let rows = 3;
+        for r in 0..rows {
+            let wy = y + h * (0.25 + 0.5 * r as f32 / (rows - 1) as f32);
+            for sz in [-1.0_f32, 1.0] {
+                root.children.push(prim(
+                    cuboid_tapered([w * 0.78, 0.45, 0.15], 0.0, glow(neon[i], 3.5)),
+                    [0.0, rel(wy), sz * w * 0.5],
+                    id_quat(),
+                ));
+            }
+        }
         y += h;
     }
     let top = y;

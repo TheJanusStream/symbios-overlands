@@ -8,9 +8,13 @@
 //! magenta fog accent ([`crate::seeded_defaults::room::accent`]).
 
 pub mod arcade_block;
+pub mod cable_arch;
 pub mod data_spire;
+pub mod drone_perch;
+pub mod holo_billboard;
 pub mod neon_kiosk;
 pub mod neon_megatower;
+pub mod parking_stack;
 
 use crate::pds::{Fp, Fp3, SovereignMaterialSettings, SovereignTextureConfig};
 

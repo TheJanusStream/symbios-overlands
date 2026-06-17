@@ -316,13 +316,20 @@ mod tests {
             );
             for sec in &st.secondaries {
                 assert!(
-                    matches!(sec.slug, "data_spire" | "arcade_block"),
+                    matches!(
+                        sec.slug,
+                        "data_spire" | "arcade_block" | "holo_billboard" | "parking_stack"
+                    ),
                     "unexpected cyberpunk secondary {}",
                     sec.slug
                 );
             }
             for prop in &st.props {
-                assert_eq!(prop.slug, "neon_kiosk");
+                assert!(
+                    matches!(prop.slug, "neon_kiosk" | "drone_perch" | "cable_arch"),
+                    "unexpected cyberpunk prop {}",
+                    prop.slug
+                );
             }
             placed_secondary |= !st.secondaries.is_empty();
         }

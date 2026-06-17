@@ -38,11 +38,15 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &ancient::stone_circle::StoneCircle,
     &ancient::ziggurat::Ziggurat,
     &ancient::observatory::Observatory,
-    // Buildings — Cyberpunk theme (landmark + secondaries + prop).
+    // Buildings — Cyberpunk theme (landmark + secondaries + props).
     &cyberpunk::neon_megatower::NeonMegatower,
     &cyberpunk::data_spire::DataSpire,
     &cyberpunk::arcade_block::ArcadeBlock,
+    &cyberpunk::holo_billboard::HoloBillboard,
+    &cyberpunk::parking_stack::ParkingStack,
     &cyberpunk::neon_kiosk::NeonKiosk,
+    &cyberpunk::drone_perch::DronePerch,
+    &cyberpunk::cable_arch::CableArch,
     // Plants — L-system tree entries.
     &plants::lsys_monopodial_tree::MonopodialTree,
     &plants::lsys_sympodial_tree::SympodialTree,
@@ -110,8 +114,8 @@ mod tests {
         use crate::catalogue::CatalogueCategory::*;
         let count = |c| ENTRIES.iter().filter(|e| e.category() == c).count();
         // Deriving category() from role() must keep every entry in its
-        // expected section. 8 ancient/medieval + 4 cyberpunk = 12 buildings.
-        assert_eq!(count(Buildings), 12);
+        // expected section. 8 ancient/medieval + 8 cyberpunk = 16 buildings.
+        assert_eq!(count(Buildings), 16);
         assert_eq!(count(Plants), 4);
         assert_eq!(count(Patterns), 3);
         assert_eq!(count(Tools), 1);
