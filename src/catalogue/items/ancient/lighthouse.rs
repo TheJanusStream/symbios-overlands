@@ -12,10 +12,11 @@
 //! placement puts the slab base at ground level; every child is
 //! positioned relative to the slab centre.
 
-use crate::catalogue::{CatalogueCategory, CatalogueEntry};
+use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp, Fp3, Generator, SovereignMaterialSettings, SovereignTextureConfig};
+use crate::seeded_defaults::ThemeArchetype;
 
-use super::util::{
+use crate::catalogue::items::util::{
     cone, cuboid_tapered, cylinder_tapered, foundation_block, foundation_disc, glow, id_quat, prim,
     solid, sphere, torus,
 };
@@ -32,9 +33,23 @@ impl CatalogueEntry for Lighthouse {
     fn description(&self) -> &'static str {
         "Tapered banded beacon tower with a glowing lamp room and keeper's hut."
     }
-    fn category(&self) -> CatalogueCategory {
-        CatalogueCategory::Buildings
+    fn role(&self) -> StructureRole {
+        StructureRole::Landmark
     }
+
+    fn themes(&self) -> &'static [ThemeArchetype] {
+        &[
+            ThemeArchetype::AncientClassical,
+            ThemeArchetype::CoastalResort,
+        ]
+    }
+    fn footprint(&self) -> Footprint {
+        Footprint {
+            clearance: 7.5,
+            min_spawn_dist: 45.0,
+        }
+    }
+
     fn build(&self, _local_did: &str) -> Generator {
         build_tree()
     }

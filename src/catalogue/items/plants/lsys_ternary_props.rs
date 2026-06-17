@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 
-use crate::catalogue::{CatalogueCategory, CatalogueEntry};
+use crate::catalogue::{CatalogueEntry, StructureRole};
 use crate::pds::{
     Fp, Fp3, Generator, GeneratorKind, PropMeshType, SovereignBarkConfig, SovereignLeafConfig,
     SovereignMaterialSettings, SovereignTextureConfig, SovereignTwigConfig,
@@ -27,8 +27,8 @@ impl CatalogueEntry for TernaryPropsTree {
     fn description(&self) -> &'static str {
         "Stochastic three-way branching tree with bark + twig + leaf material stack."
     }
-    fn category(&self) -> CatalogueCategory {
-        CatalogueCategory::Plants
+    fn role(&self) -> StructureRole {
+        StructureRole::Plant
     }
     fn build(&self, _local_did: &str) -> Generator {
         Generator::from_kind(build_kind())

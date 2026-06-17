@@ -314,8 +314,8 @@ impl RoomRecord {
         };
         use crate::pds::types::{BiomeFilter, ScatterBounds, WaterRelation};
         use crate::seeded_defaults::{
-            AmbientParticles, Atmosphere, BiomeTextures, Landmark, RockScatters, RoomPalette,
-            SceneCharacter, TerrainShape, TreeScatters, WaterDynamics,
+            AmbientParticles, Atmosphere, BiomeTextures, RockScatters, RoomPalette, SceneCharacter,
+            Settlement, TerrainShape, TreeScatters, WaterDynamics,
         };
 
         let did_seed = seed;
@@ -533,34 +533,39 @@ impl RoomRecord {
             avoid_water_clearance: Fp(0.0),
         });
 
-        // Seeded landmark: every home region gets exactly one
-        // biome-appropriate structure near spawn (the region's
-        // "heart"). Shape-grammar entries get their stochastic seed
-        // restamped per DID so two users sharing a structure type
-        // still see different derivations; the placement faces the
-        // structure toward the spawn origin and snaps it to terrain.
-        let landmark = Landmark::from_scene(&scene, did_seed);
-        if let Some(entry) = crate::catalogue::by_slug(landmark.slug) {
-            let mut landmark_gen = entry.build(did);
-            if let GeneratorKind::Shape { seed, .. } = &mut landmark_gen.kind {
-                *seed = landmark.grammar_seed;
-            }
-            generators.insert("landmark".to_string(), landmark_gen);
-            let half_yaw = landmark.yaw_rad * 0.5;
-            placements.push(Placement::Absolute {
-                generator_ref: "landmark".to_string(),
-                transform: TransformData {
-                    // Sunk 0.35 m below the terrain snap so foundations
-                    // bite into slopes instead of leaving daylight gaps
-                    // under the downhill edge.
-                    translation: Fp3([landmark.offset[0], -0.35, landmark.offset[1]]),
-                    rotation: Fp4([0.0, half_yaw.sin(), 0.0, half_yaw.cos()]),
-                    scale: Fp3([landmark.scale, landmark.scale, landmark.scale]),
-                },
-                snap_to_terrain: true,
-                avoid_water: true,
-                avoid_water_clearance: Fp(landmark.clearance),
-            });
+        // Seeded mini-settlement: every home region grows a themed
+        // cluster near spawn — one landmark plus any secondaries and
+        // props available for the room's theme (see
+        // crate::seeded_defaults::room::settlement). Shape-grammar entries
+        // get their stochastic seed restamped per DID so two users sharing
+        // a structure type still see different derivations; the landmark
+        // faces the spawn origin, secondaries face the landmark, and every
+        // member snaps to terrain with its own water clearance.
+        let settlement = Settlement::from_scene(&scene, did_seed);
+        wire_settlement_member(
+            &settlement.landmark,
+            "landmark",
+            did,
+            &mut generators,
+            &mut placements,
+        );
+        for (i, member) in settlement.secondaries.iter().enumerate() {
+            wire_settlement_member(
+                member,
+                &format!("settlement_secondary_{i}"),
+                did,
+                &mut generators,
+                &mut placements,
+            );
+        }
+        for (i, member) in settlement.props.iter().enumerate() {
+            wire_settlement_member(
+                member,
+                &format!("settlement_prop_{i}"),
+                did,
+                &mut generators,
+                &mut placements,
+            );
         }
 
         let mut traits = HashMap::new();
@@ -571,6 +576,20 @@ impl RoomRecord {
 
         let mut environment = environment_from_palette(&palette);
         apply_atmosphere_to_environment(&atmosphere, &mut environment);
+
+        // Theme accent: a light, additive nudge so the room's surroundings
+        // echo its artificial theme (e.g. cyberpunk magenta haze). The
+        // biome palette stays the primary driver; neutral themes are a
+        // no-op. Particle-mood accents are applied inside the particles
+        // deriver; this handles fog / sky tint and cloud haze.
+        let accent = crate::seeded_defaults::ThemeAccent::for_theme(scene.theme);
+        if !accent.is_noop() {
+            let fog = environment.fog_color.0;
+            let fog_tint = accent.tint_rgb([fog[0], fog[1], fog[2]]);
+            environment.fog_color = Fp4([fog_tint[0], fog_tint[1], fog_tint[2], fog[3]]);
+            environment.sky_color = Fp3(accent.tint_rgb(environment.sky_color.0));
+            environment.cloud_cover = Fp((environment.cloud_cover.0 + accent.haze).clamp(0.0, 1.0));
+        }
 
         // Seed the room's ambient track from the same scene anchor that
         // drives palette / terrain / atmosphere. The deriver returns a
@@ -693,6 +712,44 @@ impl Default for RoomRecord {
     fn default() -> Self {
         Self::default_for_did("")
     }
+}
+
+/// Wire one seeded [`crate::seeded_defaults::SettlementMember`] into the
+/// room record: resolve its catalogue entry, restamp the Shape-grammar
+/// seed, register the generator under `name`, and emit a terrain-snapped,
+/// water-avoiding `Placement::Absolute`. A slug that no longer resolves
+/// is silently skipped — a removed catalogue entry must not strand the
+/// whole room on the recovery banner.
+fn wire_settlement_member(
+    member: &crate::seeded_defaults::SettlementMember,
+    name: &str,
+    did: &str,
+    generators: &mut HashMap<String, Generator>,
+    placements: &mut Vec<Placement>,
+) {
+    let Some(entry) = crate::catalogue::by_slug(member.slug) else {
+        return;
+    };
+    let mut member_gen = entry.build(did);
+    if let GeneratorKind::Shape { seed, .. } = &mut member_gen.kind {
+        *seed = member.grammar_seed;
+    }
+    generators.insert(name.to_string(), member_gen);
+    let half_yaw = member.yaw_rad * 0.5;
+    placements.push(Placement::Absolute {
+        generator_ref: name.to_string(),
+        transform: TransformData {
+            // Sunk 0.35 m below the terrain snap so foundations bite into
+            // slopes instead of leaving daylight gaps under the downhill
+            // edge.
+            translation: Fp3([member.offset[0], -0.35, member.offset[1]]),
+            rotation: Fp4([0.0, half_yaw.sin(), 0.0, half_yaw.cos()]),
+            scale: Fp3([member.scale, member.scale, member.scale]),
+        },
+        snap_to_terrain: true,
+        avoid_water: true,
+        avoid_water_clearance: Fp(member.clearance),
+    });
 }
 
 /// Build an [`Environment`] whose colour fields are taken from a
@@ -1222,40 +1279,73 @@ mod tests {
     }
 
     #[test]
-    fn default_room_carries_one_landmark() {
-        for s in 0u64..8 {
+    fn default_room_carries_a_themed_settlement() {
+        use crate::seeded_defaults::room::settlement::{MAX_PROPS, MAX_SECONDARIES};
+        for s in 0u64..16 {
             let record = RoomRecord::default_for_did(&format!("did:test:{s}"));
+
+            // Every room carries exactly one landmark, and it's a
+            // building — never Terrain/Water (those are positionally
+            // invalid outside the base_terrain tree).
             let landmark = record
                 .generators
                 .get("landmark")
                 .expect("every seeded room must carry a landmark generator");
-            // Landmarks are buildings — never Terrain/Water (those are
-            // positionally invalid outside the base_terrain tree).
             assert!(!matches!(
                 landmark.kind,
                 GeneratorKind::Terrain(_) | GeneratorKind::Water { .. }
             ));
-            let placement = record
-                .placements
-                .iter()
-                .find_map(|p| match p {
-                    Placement::Absolute {
-                        generator_ref,
-                        transform,
-                        snap_to_terrain,
-                        ..
-                    } if generator_ref == "landmark" => Some((transform, snap_to_terrain)),
-                    _ => None,
-                })
-                .expect("landmark generator must have an Absolute placement");
-            let (transform, snap) = placement;
-            assert!(*snap, "landmark must snap to terrain");
-            let [x, _, z] = transform.translation.0;
-            let dist = (x * x + z * z).sqrt();
+
+            // Each settlement member (landmark + bounded secondaries +
+            // props) is a building with a terrain-snapped Absolute
+            // placement that clears the spawn square.
+            let mut secondaries = 0usize;
+            let mut props = 0usize;
+            for (name, generator) in &record.generators {
+                let is_member = name == "landmark"
+                    || name.starts_with("settlement_secondary_")
+                    || name.starts_with("settlement_prop_");
+                if !is_member {
+                    continue;
+                }
+                secondaries += name.starts_with("settlement_secondary_") as usize;
+                props += name.starts_with("settlement_prop_") as usize;
+
+                assert!(
+                    !matches!(
+                        generator.kind,
+                        GeneratorKind::Terrain(_) | GeneratorKind::Water { .. }
+                    ),
+                    "settlement member {name} must be a building"
+                );
+
+                let (transform, snap) = record
+                    .placements
+                    .iter()
+                    .find_map(|p| match p {
+                        Placement::Absolute {
+                            generator_ref,
+                            transform,
+                            snap_to_terrain,
+                            ..
+                        } if generator_ref == name => Some((transform, snap_to_terrain)),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| panic!("{name} must have an Absolute placement"));
+                assert!(*snap, "{name} must snap to terrain");
+                let [x, _, z] = transform.translation.0;
+                let dist = (x * x + z * z).sqrt();
+                assert!(
+                    dist >= 20.0,
+                    "settlement member {name} too close to spawn: {dist} m"
+                );
+            }
+
             assert!(
-                (20.0..=160.0).contains(&dist),
-                "landmark should sit near (but not on) spawn; got {dist} m"
+                secondaries <= MAX_SECONDARIES,
+                "too many secondaries: {secondaries}"
             );
+            assert!(props <= MAX_PROPS, "too many props: {props}");
         }
     }
 

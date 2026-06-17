@@ -8,11 +8,12 @@
 
 use std::collections::HashMap;
 
-use crate::catalogue::{CatalogueCategory, CatalogueEntry};
+use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, GeneratorKind, SovereignGroundConfig, SovereignMaterialSettings,
     SovereignRockConfig, SovereignStuccoConfig, SovereignTextureConfig,
 };
+use crate::seeded_defaults::ThemeArchetype;
 
 pub struct RuinedTemple;
 
@@ -26,13 +27,24 @@ impl CatalogueEntry for RuinedTemple {
     fn description(&self) -> &'static str {
         "Weathered colonnade and half-collapsed cella with stochastic broken columns and breaches."
     }
-    fn category(&self) -> CatalogueCategory {
-        CatalogueCategory::Buildings
+    fn role(&self) -> StructureRole {
+        StructureRole::Landmark
     }
+
+    fn themes(&self) -> &'static [ThemeArchetype] {
+        &[ThemeArchetype::AncientClassical]
+    }
+    fn footprint(&self) -> Footprint {
+        Footprint {
+            clearance: 14.5,
+            min_spawn_dist: 45.0,
+        }
+    }
+
     fn build(&self, _local_did: &str) -> Generator {
         // Centred foundation root + corner-origin 24×14 grammar child
         // offset by -footprint/2 (see the villa for the rationale).
-        let mut root = super::util::foundation_block(25.0, 15.0, [0.0, 0.0], 2.5);
+        let mut root = crate::catalogue::items::util::foundation_block(25.0, 15.0, [0.0, 0.0], 2.5);
         let mut temple = Generator::from_kind(build_kind());
         temple.transform.translation = crate::pds::Fp3([-12.0, 0.0, -7.0]);
         root.children.push(temple);

@@ -51,9 +51,10 @@ pub use avatar::{
 pub use hash::fnv1a_64;
 pub use room::{
     AmbientParticles, AmbientRecipe, Atmosphere, BiomeTextures, GeneratorKind, GroundTextureParams,
-    Landmark, ParticleMood, RockScatters, RockTextureParams, RoomPalette, SplatRule, TerrainShape,
-    TreeScatter, TreeScatters, TreeSpecies, WaterDynamics,
+    ParticleMood, RockScatters, RockTextureParams, RoomPalette, Settlement, SettlementMember,
+    SplatRule, TerrainShape, ThemeAccent, TreeScatter, TreeScatters, TreeSpecies, WaterDynamics,
 };
 pub use scene::{
-    BiomeArchetype, LandformArchetype, SceneCharacter, pick, range_f32, signed_unit_f32, unit_f32,
+    BiomeArchetype, LandformArchetype, SceneCharacter, ThemeArchetype, pick, range_f32,
+    signed_unit_f32, unit_f32,
 };

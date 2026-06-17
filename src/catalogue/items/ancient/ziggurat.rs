@@ -8,13 +8,16 @@
 //! with its base at the generator origin; upper tiers, ramp, and
 //! shrine are children positioned relative to the base-tier centre.
 
-use crate::catalogue::{CatalogueCategory, CatalogueEntry};
+use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, SovereignBrickConfig, SovereignMaterialSettings,
     SovereignTextureConfig,
 };
+use crate::seeded_defaults::ThemeArchetype;
 
-use super::util::{cuboid_tapered, foundation_block, glow, id_quat, prim, quat_x, solid};
+use crate::catalogue::items::util::{
+    cuboid_tapered, foundation_block, glow, id_quat, prim, quat_x, solid,
+};
 
 pub struct Ziggurat;
 
@@ -28,9 +31,23 @@ impl CatalogueEntry for Ziggurat {
     fn description(&self) -> &'static str {
         "Four stepped sandstone tiers with a stair ramp and a glowing summit shrine."
     }
-    fn category(&self) -> CatalogueCategory {
-        CatalogueCategory::Buildings
+    fn role(&self) -> StructureRole {
+        StructureRole::Landmark
     }
+
+    fn themes(&self) -> &'static [ThemeArchetype] {
+        &[
+            ThemeArchetype::AncientClassical,
+            ThemeArchetype::Mesoamerican,
+        ]
+    }
+    fn footprint(&self) -> Footprint {
+        Footprint {
+            clearance: 18.0,
+            min_spawn_dist: 60.0,
+        }
+    }
+
     fn build(&self, _local_did: &str) -> Generator {
         build_tree()
     }

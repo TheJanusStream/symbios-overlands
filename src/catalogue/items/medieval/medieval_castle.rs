@@ -13,12 +13,13 @@
 
 use std::collections::HashMap;
 
-use crate::catalogue::{CatalogueCategory, CatalogueEntry};
+use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, GeneratorKind, SovereignGroundConfig, SovereignMaterialSettings,
     SovereignPlankConfig, SovereignRockConfig, SovereignShingleConfig, SovereignTextureConfig,
     SovereignWindowConfig,
 };
+use crate::seeded_defaults::ThemeArchetype;
 
 pub struct MedievalCastle;
 
@@ -32,15 +33,26 @@ impl CatalogueEntry for MedievalCastle {
     fn description(&self) -> &'static str {
         "Courtyard castle with corner towers, gatehouse, cloistered wings, and a great keep."
     }
-    fn category(&self) -> CatalogueCategory {
-        CatalogueCategory::Buildings
+    fn role(&self) -> StructureRole {
+        StructureRole::Landmark
     }
+
+    fn themes(&self) -> &'static [ThemeArchetype] {
+        &[ThemeArchetype::Medieval]
+    }
+    fn footprint(&self) -> Footprint {
+        Footprint {
+            clearance: 54.0,
+            min_spawn_dist: 110.0,
+        }
+    }
+
     fn build(&self, _local_did: &str) -> Generator {
         // Centred foundation root + corner-origin 75×75 grammar child
         // offset by -footprint/2 (see the villa for the rationale). The
         // castle lands on craggy alpine slopes, so it gets the deepest
         // foundation in the pool.
-        let mut root = super::util::foundation_block(77.0, 77.0, [0.0, 0.0], 5.0);
+        let mut root = crate::catalogue::items::util::foundation_block(77.0, 77.0, [0.0, 0.0], 5.0);
         let mut castle = Generator::from_kind(build_kind());
         castle.transform.translation = crate::pds::Fp3([-37.5, 0.0, -37.5]);
         root.children.push(castle);

@@ -8,11 +8,12 @@
 
 use std::collections::HashMap;
 
-use crate::catalogue::{CatalogueCategory, CatalogueEntry};
+use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, GeneratorKind, SovereignGroundConfig, SovereignMaterialSettings,
     SovereignPlankConfig, SovereignRockConfig, SovereignShingleConfig, SovereignTextureConfig,
 };
+use crate::seeded_defaults::ThemeArchetype;
 
 pub struct Watchtower;
 
@@ -26,13 +27,24 @@ impl CatalogueEntry for Watchtower {
     fn description(&self) -> &'static str {
         "Slender stone garrison tower with battlements or a spire, ember lamps, and an annex hut."
     }
-    fn category(&self) -> CatalogueCategory {
-        CatalogueCategory::Buildings
+    fn role(&self) -> StructureRole {
+        StructureRole::Secondary
     }
+
+    fn themes(&self) -> &'static [ThemeArchetype] {
+        &[ThemeArchetype::Medieval, ThemeArchetype::AncientClassical]
+    }
+    fn footprint(&self) -> Footprint {
+        Footprint {
+            clearance: 9.5,
+            min_spawn_dist: 35.0,
+        }
+    }
+
     fn build(&self, _local_did: &str) -> Generator {
         // Centred foundation root + corner-origin 12×12 grammar child
         // offset by -footprint/2 (see the villa for the rationale).
-        let mut root = super::util::foundation_block(13.0, 13.0, [0.0, 0.0], 3.0);
+        let mut root = crate::catalogue::items::util::foundation_block(13.0, 13.0, [0.0, 0.0], 3.0);
         let mut tower = Generator::from_kind(build_kind());
         tower.transform.translation = crate::pds::Fp3([-6.0, 0.0, -6.0]);
         root.children.push(tower);

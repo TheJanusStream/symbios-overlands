@@ -7,13 +7,14 @@
 //! its base at the generator origin; dome, slit, railing, and door are
 //! children positioned relative to the drum centre.
 
-use crate::catalogue::{CatalogueCategory, CatalogueEntry};
+use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, SovereignConcreteConfig, SovereignMaterialSettings,
     SovereignMetalConfig, SovereignTextureConfig,
 };
+use crate::seeded_defaults::ThemeArchetype;
 
-use super::util::{
+use crate::catalogue::items::util::{
     cuboid_tapered, cylinder_tapered, foundation_disc, glow, id_quat, prim, quat_x, solid, sphere,
     torus,
 };
@@ -30,9 +31,20 @@ impl CatalogueEntry for Observatory {
     fn description(&self) -> &'static str {
         "Concrete drum crowned by a slitted metal dome, gallery railing, and doorway."
     }
-    fn category(&self) -> CatalogueCategory {
-        CatalogueCategory::Buildings
+    fn role(&self) -> StructureRole {
+        StructureRole::Secondary
     }
+
+    fn themes(&self) -> &'static [ThemeArchetype] {
+        &[ThemeArchetype::AncientClassical]
+    }
+    fn footprint(&self) -> Footprint {
+        Footprint {
+            clearance: 4.5,
+            min_spawn_dist: 40.0,
+        }
+    }
+
     fn build(&self, _local_did: &str) -> Generator {
         build_tree()
     }

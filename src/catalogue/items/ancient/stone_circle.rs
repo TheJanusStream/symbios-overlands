@@ -9,13 +9,16 @@
 //! altar on the ground — on slopes the outer stones float or sink a
 //! little, which suits a ruin.
 
-use crate::catalogue::{CatalogueCategory, CatalogueEntry};
+use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, SovereignMaterialSettings, SovereignRockConfig,
     SovereignTextureConfig,
 };
+use crate::seeded_defaults::ThemeArchetype;
 
-use super::util::{cuboid_tapered, glow, id_quat, prim, quat_x, quat_y, solid, sphere};
+use crate::catalogue::items::util::{
+    cuboid_tapered, glow, id_quat, prim, quat_x, quat_y, solid, sphere,
+};
 
 pub struct StoneCircle;
 
@@ -29,9 +32,20 @@ impl CatalogueEntry for StoneCircle {
     fn description(&self) -> &'static str {
         "Ring of eight tapered monoliths with lintel capstones and a glowing altar orb."
     }
-    fn category(&self) -> CatalogueCategory {
-        CatalogueCategory::Buildings
+    fn role(&self) -> StructureRole {
+        StructureRole::Landmark
     }
+
+    fn themes(&self) -> &'static [ThemeArchetype] {
+        &[ThemeArchetype::AncientClassical, ThemeArchetype::Nordic]
+    }
+    fn footprint(&self) -> Footprint {
+        Footprint {
+            clearance: 10.0,
+            min_spawn_dist: 40.0,
+        }
+    }
+
     fn build(&self, _local_did: &str) -> Generator {
         build_tree()
     }

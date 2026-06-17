@@ -70,6 +70,98 @@ impl BiomeArchetype {
     ];
 }
 
+/// Discrete theme family — the *artificial* axis, parallel and fully
+/// orthogonal to [`BiomeArchetype`] (the natural axis). Drives which
+/// themed mini-settlement of catalogue structures a room grows (a
+/// landmark plus secondary buildings and scatter props) and, optionally,
+/// a light accent the theme nudges back onto the natural derivers (fog
+/// tint, ambient audio, particle mood).
+///
+/// Picked uniformly per room and independently of biome, so surreal
+/// collisions — a cyberpunk volcano, a medieval glacier — are intentional.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThemeArchetype {
+    // --- Historical ---
+    /// Greco-Roman / bronze-age: temples, villas, observatories.
+    AncientClassical,
+    /// Castles, keeps, chapels, market stalls.
+    Medieval,
+    /// Norse: mead halls, rune stones, longships.
+    Nordic,
+    /// Pagodas, torii gates, tea houses, stone lanterns.
+    FeudalJapan,
+    /// Step pyramids, ball courts, stelae.
+    Mesoamerican,
+    // --- Contemporary / realistic ---
+    /// Glass skyscrapers, transit stops, street furniture.
+    ModernCity,
+    /// Houses, garages, corner stores, fences.
+    Suburban,
+    /// Barns, silos, greenhouses, windmills.
+    RuralFarmland,
+    /// Warehouses, cooling towers, tank farms.
+    IndustrialPark,
+    /// Hotels, piers, boardwalk shops, lifeguard towers.
+    CoastalResort,
+    /// Gas stations, diners, motels, billboards.
+    Roadside,
+    /// Town halls, libraries, lecture halls, clock towers.
+    CivicCampus,
+    /// Stadiums, gyms, bleachers, scoreboards.
+    SportsRec,
+    // --- Speculative / future ---
+    /// Neon megatowers, holo-signage, data spires.
+    Cyberpunk,
+    /// Cog towers, airship docks, foundries, pipework.
+    Steampunk,
+    /// Biodomes, wind turbines, vertical farms.
+    Solarpunk,
+    /// Habitat domes, comms dishes, landing pads.
+    SpaceOutpost,
+    // --- Fantastical ---
+    /// Wizard towers, fae rings, crystal shrines.
+    Fantasy,
+    /// Cathedrals, mausoleums, cemeteries, bell towers.
+    GothicHorror,
+    /// Chitinous hives, pods, fleshy spires.
+    AlienOrganic,
+    /// Black monoliths, levitating platforms, glyph arches.
+    AlienMonolithic,
+    // --- Frontier / collapse ---
+    /// Fortified ruins, scrap shanties, radio masts.
+    PostApoc,
+    /// Saloons, water towers, general stores.
+    WildWest,
+}
+
+impl ThemeArchetype {
+    pub const ALL: [Self; 23] = [
+        Self::AncientClassical,
+        Self::Medieval,
+        Self::Nordic,
+        Self::FeudalJapan,
+        Self::Mesoamerican,
+        Self::ModernCity,
+        Self::Suburban,
+        Self::RuralFarmland,
+        Self::IndustrialPark,
+        Self::CoastalResort,
+        Self::Roadside,
+        Self::CivicCampus,
+        Self::SportsRec,
+        Self::Cyberpunk,
+        Self::Steampunk,
+        Self::Solarpunk,
+        Self::SpaceOutpost,
+        Self::Fantasy,
+        Self::GothicHorror,
+        Self::AlienOrganic,
+        Self::AlienMonolithic,
+        Self::PostApoc,
+        Self::WildWest,
+    ];
+}
+
 /// Per-room anchor read by every downstream deriver (palette, terrain,
 /// water, sky). Cheap to recompute from the DID; typically derived once
 /// when the room loads and threaded through the deriver call graph.
@@ -86,6 +178,10 @@ pub struct SceneCharacter {
     pub time_of_day_bias: f32,
     pub landform: LandformArchetype,
     pub biome: BiomeArchetype,
+    /// Artificial-structure theme, picked independently of [`Self::biome`].
+    /// Drives the seeded mini-settlement (which catalogue structures grow
+    /// near spawn) and an optional light accent on the natural derivers.
+    pub theme: ThemeArchetype,
 }
 
 impl SceneCharacter {
@@ -106,12 +202,16 @@ impl SceneCharacter {
         let time_of_day_bias = signed_unit_f32(&mut rng);
         let landform = pick(&LandformArchetype::ALL, &mut rng);
         let biome = pick(&BiomeArchetype::ALL, &mut rng);
+        // Theme is the last draw, orthogonal to biome: appending it here
+        // leaves every prior archetype/knob bit-identical to before.
+        let theme = pick(&ThemeArchetype::ALL, &mut rng);
         Self {
             base_hue_deg,
             temperature,
             time_of_day_bias,
             landform,
             biome,
+            theme,
         }
     }
 }
@@ -151,6 +251,21 @@ mod tests {
         assert_eq!(a.time_of_day_bias, b.time_of_day_bias);
         assert_eq!(a.landform, b.landform);
         assert_eq!(a.biome, b.biome);
+        assert_eq!(a.theme, b.theme);
+    }
+
+    #[test]
+    fn theme_varies_across_seeds() {
+        // Sanity that the theme draw is wired and not stuck on one
+        // variant — at least a handful of distinct themes over 64 seeds.
+        let mut seen: Vec<ThemeArchetype> = Vec::new();
+        for s in 0u64..64 {
+            let t = SceneCharacter::for_seed(s).theme;
+            if !seen.contains(&t) {
+                seen.push(t);
+            }
+        }
+        assert!(seen.len() >= 5, "theme pick looks degenerate: {seen:?}");
     }
 
     #[test]
@@ -177,6 +292,16 @@ mod tests {
         for _ in 0..32 {
             let x = range_f32(&mut rng, -5.0, 5.0);
             assert!((-5.0..5.0).contains(&x));
+        }
+    }
+
+    #[test]
+    fn theme_all_has_no_duplicates() {
+        // A duplicated variant in ALL would silently skew the uniform
+        // theme pick toward it; catch the most likely list-editing slip.
+        for (i, a) in ThemeArchetype::ALL.iter().enumerate() {
+            let count = ThemeArchetype::ALL.iter().filter(|b| *b == a).count();
+            assert_eq!(count, 1, "ThemeArchetype::ALL repeats {a:?} (index {i})");
         }
     }
 }

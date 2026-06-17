@@ -400,7 +400,7 @@ fn bake_construct_wav_bytes(audio: &SovereignAudioConfig) -> Option<(Vec<u8>, u3
 
 /// Build a gentle teleporter hum — a quiet sine drone around 110 Hz
 /// (low A) with a slow LFO modulating amplitude via a filter sweep.
-/// Used by the [`crate::catalogue::items::my_teleporter`] entry as the
+/// Used by the [`crate::catalogue::items::tools::my_teleporter`] entry as the
 /// concrete proof-of-concept for #301's per-construct audio pipeline.
 ///
 /// Reuses the impact patch's filter-as-amplitude-shaper trick (see

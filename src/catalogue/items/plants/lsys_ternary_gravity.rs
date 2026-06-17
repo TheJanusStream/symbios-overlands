@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use crate::catalogue::{CatalogueCategory, CatalogueEntry};
+use crate::catalogue::{CatalogueEntry, StructureRole};
 use crate::pds::{
     Fp, Fp3, Generator, GeneratorKind, SovereignBarkConfig, SovereignMaterialSettings,
     SovereignTextureConfig,
@@ -23,8 +23,8 @@ impl CatalogueEntry for TernaryGravityTree {
     fn description(&self) -> &'static str {
         "Three-way branching tree with downward tropism — ABOP Fig 2.8."
     }
-    fn category(&self) -> CatalogueCategory {
-        CatalogueCategory::Plants
+    fn role(&self) -> StructureRole {
+        StructureRole::Plant
     }
     fn build(&self, _local_did: &str) -> Generator {
         Generator::from_kind(build_kind())

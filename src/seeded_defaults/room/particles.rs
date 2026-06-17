@@ -14,6 +14,7 @@
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
+use super::accent::ThemeAccent;
 use crate::pds::{
     Fp3, Fp64, SovereignPuffConfig, SovereignSnowflakeConfig, SovereignSoftDiscConfig,
     SovereignSparkConfig, SovereignTextureConfig,
@@ -132,8 +133,31 @@ impl AmbientParticles {
 
 fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng, room_seed: u64) -> AmbientParticles {
     let seed = room_seed ^ 0x00AB_1E47;
-    match scene.biome {
-        BiomeArchetype::Lush => AmbientParticles {
+    // The biome sets the default mood; a theme accent may override it
+    // (e.g. alien themes swap in eerie biolume / mist motes regardless of
+    // biome). The per-mood spec then drives the full emitter.
+    let mood = ThemeAccent::for_theme(scene.theme)
+        .particle_mood
+        .unwrap_or_else(|| biome_mood(scene.biome));
+    spec_for_mood(mood, rng, seed)
+}
+
+/// The biome's default ambient particle mood.
+fn biome_mood(biome: BiomeArchetype) -> ParticleMood {
+    match biome {
+        BiomeArchetype::Lush => ParticleMood::Fireflies,
+        BiomeArchetype::Tundra | BiomeArchetype::Alpine => ParticleMood::Snowfall,
+        BiomeArchetype::Volcanic => ParticleMood::Embers,
+        BiomeArchetype::Arid => ParticleMood::DustMotes,
+        BiomeArchetype::Coastal => ParticleMood::MistMotes,
+    }
+}
+
+/// Full emitter spec for a mood. `rng` supplies the small per-room jitter
+/// (rate, prevailing wind); `seed` decorrelates the baked sprite atlas.
+fn spec_for_mood(mood: ParticleMood, rng: &mut ChaCha8Rng, seed: u64) -> AmbientParticles {
+    match mood {
+        ParticleMood::Fireflies => AmbientParticles {
             mood: ParticleMood::Fireflies,
             emitter_half_extents: [70.0, 5.0, 70.0],
             emitter_y: 3.0,
@@ -151,7 +175,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng, room_seed: u64) -> Ambie
             additive: true,
             seed,
         },
-        BiomeArchetype::Tundra | BiomeArchetype::Alpine => AmbientParticles {
+        ParticleMood::Snowfall => AmbientParticles {
             mood: ParticleMood::Snowfall,
             emitter_half_extents: [90.0, 3.0, 90.0],
             emitter_y: 30.0,
@@ -169,7 +193,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng, room_seed: u64) -> Ambie
             additive: false,
             seed,
         },
-        BiomeArchetype::Volcanic => AmbientParticles {
+        ParticleMood::Embers => AmbientParticles {
             mood: ParticleMood::Embers,
             emitter_half_extents: [60.0, 4.0, 60.0],
             emitter_y: 1.0,
@@ -188,7 +212,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng, room_seed: u64) -> Ambie
             additive: true,
             seed,
         },
-        BiomeArchetype::Arid => AmbientParticles {
+        ParticleMood::DustMotes => AmbientParticles {
             mood: ParticleMood::DustMotes,
             // Hug the ground: a tall emitter band put motes against
             // the open sky where they read as glitter specks instead
@@ -211,7 +235,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng, room_seed: u64) -> Ambie
             additive: false,
             seed,
         },
-        BiomeArchetype::Coastal => AmbientParticles {
+        ParticleMood::MistMotes => AmbientParticles {
             mood: ParticleMood::MistMotes,
             emitter_half_extents: [80.0, 4.0, 80.0],
             emitter_y: 2.0,
@@ -235,6 +259,20 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng, room_seed: u64) -> Ambie
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::seeded_defaults::scene::ThemeArchetype;
+
+    #[test]
+    fn theme_accent_overrides_biome_mood() {
+        // AlienOrganic's accent forces Fireflies regardless of the biome
+        // that would otherwise drive the mood (Tundra -> Snowfall).
+        let mut scene = SceneCharacter::for_seed(5);
+        scene.biome = BiomeArchetype::Tundra;
+        scene.theme = ThemeArchetype::AlienOrganic;
+        assert_eq!(
+            AmbientParticles::from_scene(&scene, 5).mood,
+            ParticleMood::Fireflies
+        );
+    }
 
     #[test]
     fn deterministic() {
@@ -253,6 +291,9 @@ mod tests {
             for s in 0u64..8 {
                 let mut scene = SceneCharacter::for_seed(s);
                 scene.biome = biome;
+                // Pin a neutral theme so the biome->mood mapping is tested
+                // without a particle-mood accent overriding it.
+                scene.theme = ThemeArchetype::AncientClassical;
                 let p = AmbientParticles::from_scene(&scene, s);
                 let expected = match biome {
                     BiomeArchetype::Lush => ParticleMood::Fireflies,

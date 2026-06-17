@@ -7,17 +7,18 @@
 //! `crate::ui::room::widgets` before the catalogue existed; relocated
 //! here so all multi-material "complete building" entries live in one
 //! place. The widgets' `default_shape_kind` now delegates to this
-//! entry via [`super::super::by_slug`].
+//! entry via [`crate::catalogue::by_slug`].
 
 use std::collections::HashMap;
 
-use crate::catalogue::{CatalogueCategory, CatalogueEntry};
+use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, GeneratorKind, SovereignBrickConfig, SovereignConcreteConfig,
     SovereignGroundConfig, SovereignMaterialSettings, SovereignMetalConfig, SovereignPaversConfig,
     SovereignPlankConfig, SovereignShingleConfig, SovereignStuccoConfig, SovereignTextureConfig,
     SovereignWindowConfig,
 };
+use crate::seeded_defaults::ThemeArchetype;
 
 pub struct Villa;
 
@@ -31,16 +32,27 @@ impl CatalogueEntry for Villa {
     fn description(&self) -> &'static str {
         "Two-storey brick / stucco house with a gable shingle roof, attached garage, and deck."
     }
-    fn category(&self) -> CatalogueCategory {
-        CatalogueCategory::Buildings
+    fn role(&self) -> StructureRole {
+        StructureRole::Secondary
     }
+
+    fn themes(&self) -> &'static [ThemeArchetype] {
+        &[ThemeArchetype::AncientClassical]
+    }
+    fn footprint(&self) -> Footprint {
+        Footprint {
+            clearance: 13.5,
+            min_spawn_dist: 45.0,
+        }
+    }
+
     fn build(&self, _local_did: &str) -> Generator {
         // The centred foundation plinth is the root; the corner-origin
         // 20×16 grammar hangs beneath it offset by -footprint/2, so the
         // whole entry is centred on its anchor (placement yaw turns the
         // building around its middle, and the dry-land clearance ring
         // measures from the true centre).
-        let mut root = super::util::foundation_block(21.0, 17.0, [0.0, 0.0], 3.0);
+        let mut root = crate::catalogue::items::util::foundation_block(21.0, 17.0, [0.0, 0.0], 3.0);
         let mut house = Generator::from_kind(build_kind());
         house.transform.translation = crate::pds::Fp3([-10.0, 0.0, -8.0]);
         root.children.push(house);

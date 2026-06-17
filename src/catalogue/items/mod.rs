@@ -1,28 +1,22 @@
-//! Catalogue item registry. Adding a new entry is two lines:
-//! declare the submodule and append `&item::Type` to [`ENTRIES`].
+//! Catalogue item registry. Entries live in per-theme subfolders
+//! (`ancient`, `medieval`, …) for structures and per-role subfolders
+//! (`plants`, `patterns`, `tools`) for everything else. Adding a new
+//! entry is three steps: drop the file in the right subfolder, declare
+//! it in that subfolder's `mod.rs`, and append `&path::Type` to
+//! [`ENTRIES`].
 //!
-//! The flat list with categorisation via [`super::CatalogueCategory`]
-//! lets us re-bucket entries without moving files — see the parent
-//! module's docstring for the rationale.
+//! The flat [`ENTRIES`] list with categorisation via
+//! [`super::CatalogueCategory`] (itself derived from
+//! [`super::StructureRole`]) lets us re-bucket entries in the UI without
+//! moving files — see the parent module's docstring for the rationale.
 
 use super::CatalogueEntry;
 
-pub mod lighthouse;
-pub mod lsys_branching;
-pub mod lsys_koch_island;
-pub mod lsys_monopodial_tree;
-pub mod lsys_sierpinski;
-pub mod lsys_sympodial_tree;
-pub mod lsys_ternary_gravity;
-pub mod lsys_ternary_props;
-pub mod medieval_castle;
-pub mod my_teleporter;
-pub mod observatory;
-pub mod ruined_temple;
-pub mod stone_circle;
-pub mod villa;
-pub mod watchtower;
-pub mod ziggurat;
+pub mod ancient;
+pub mod medieval;
+pub mod patterns;
+pub mod plants;
+pub mod tools;
 
 mod util;
 
@@ -31,29 +25,29 @@ mod shape_grammar_test;
 
 /// The full set of catalogue entries the client ships with. Order is
 /// preserved by the UI for display, so think of this as the
-/// alphabetic-within-category presentation order.
+/// presentation order within each section.
 pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     // Buildings — architectural entries (shape-grammar and
-    // primitive-built).
-    &villa::Villa,
-    &medieval_castle::MedievalCastle,
-    &watchtower::Watchtower,
-    &ruined_temple::RuinedTemple,
-    &lighthouse::Lighthouse,
-    &stone_circle::StoneCircle,
-    &ziggurat::Ziggurat,
-    &observatory::Observatory,
+    // primitive-built), grouped into per-theme subfolders.
+    &ancient::villa::Villa,
+    &medieval::medieval_castle::MedievalCastle,
+    &medieval::watchtower::Watchtower,
+    &ancient::ruined_temple::RuinedTemple,
+    &ancient::lighthouse::Lighthouse,
+    &ancient::stone_circle::StoneCircle,
+    &ancient::ziggurat::Ziggurat,
+    &ancient::observatory::Observatory,
     // Plants — L-system tree entries.
-    &lsys_monopodial_tree::MonopodialTree,
-    &lsys_sympodial_tree::SympodialTree,
-    &lsys_ternary_gravity::TernaryGravityTree,
-    &lsys_ternary_props::TernaryPropsTree,
+    &plants::lsys_monopodial_tree::MonopodialTree,
+    &plants::lsys_sympodial_tree::SympodialTree,
+    &plants::lsys_ternary_gravity::TernaryGravityTree,
+    &plants::lsys_ternary_props::TernaryPropsTree,
     // Patterns — abstract L-system / ABOP demos.
-    &lsys_branching::BranchingPattern,
-    &lsys_koch_island::QuadraticKochIsland,
-    &lsys_sierpinski::SierpinskiGasket,
+    &patterns::lsys_branching::BranchingPattern,
+    &patterns::lsys_koch_island::QuadraticKochIsland,
+    &patterns::lsys_sierpinski::SierpinskiGasket,
     // Tools — utility items personalised at build time.
-    &my_teleporter::MyTeleporter,
+    &tools::my_teleporter::MyTeleporter,
 ];
 
 /// Resolve a slug to its entry. Returns `None` if the slug doesn't
@@ -88,5 +82,32 @@ mod tests {
             assert!(resolved.is_some(), "by_slug failed for {}", entry.slug());
         }
         assert!(by_slug("not-a-real-entry").is_none());
+    }
+
+    #[test]
+    fn settlement_structures_are_themed() {
+        use crate::catalogue::StructureRole::{Landmark, Prop, Secondary};
+        for e in ENTRIES {
+            if matches!(e.role(), Landmark | Secondary | Prop) {
+                assert!(
+                    !e.themes().is_empty(),
+                    "entry {} has a settlement role but no themes() — the deriver \
+                     would never place it",
+                    e.slug()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn categories_unchanged_after_role_migration() {
+        use crate::catalogue::CatalogueCategory::*;
+        let count = |c| ENTRIES.iter().filter(|e| e.category() == c).count();
+        // Locks the pre-migration distribution: deriving category() from
+        // role() must not move any existing entry to a different section.
+        assert_eq!(count(Buildings), 8);
+        assert_eq!(count(Plants), 4);
+        assert_eq!(count(Patterns), 3);
+        assert_eq!(count(Tools), 1);
     }
 }

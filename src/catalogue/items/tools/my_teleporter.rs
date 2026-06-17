@@ -14,7 +14,7 @@
 //!
 //! [`ItemOffer`]: crate::protocol::OverlandsMessage::ItemOffer
 
-use crate::catalogue::{CatalogueCategory, CatalogueEntry};
+use crate::catalogue::{CatalogueEntry, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind, SovereignAudioConfig};
 use crate::world_builder::spatial_audio::teleporter_hum_patch;
 
@@ -30,8 +30,8 @@ impl CatalogueEntry for MyTeleporter {
     fn description(&self) -> &'static str {
         "Portal that returns to your own room — gift it so friends can drop by."
     }
-    fn category(&self) -> CatalogueCategory {
-        CatalogueCategory::Tools
+    fn role(&self) -> StructureRole {
+        StructureRole::Tool
     }
     fn build(&self, local_did: &str) -> Generator {
         let mut g = Generator::from_kind(GeneratorKind::Portal {

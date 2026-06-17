@@ -343,7 +343,7 @@ pub(super) fn default_lsystem_kind() -> GeneratorKind {
     use crate::catalogue::CatalogueEntry;
     // Only the kind discriminant is consumed here; the local-DID
     // parameter is irrelevant for TernaryPropsTree (no DID slot).
-    crate::catalogue::items::lsys_ternary_props::TernaryPropsTree
+    crate::catalogue::items::plants::lsys_ternary_props::TernaryPropsTree
         .build("")
         .kind
 }
@@ -361,5 +361,7 @@ pub(super) fn default_shape_kind() -> GeneratorKind {
     use crate::catalogue::CatalogueEntry;
     // Only the kind discriminant is consumed here; Villa has no DID
     // slot, so the local-DID parameter is irrelevant.
-    crate::catalogue::items::villa::Villa.build("").kind
+    crate::catalogue::items::ancient::villa::Villa
+        .build("")
+        .kind
 }

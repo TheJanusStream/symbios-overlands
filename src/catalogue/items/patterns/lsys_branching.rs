@@ -1,30 +1,29 @@
-//! Quadratic Koch Island — closed-curve recursive fractal (ABOP Fig 1.6).
-//! Each iteration replaces every line segment with a bumpy variant,
-//! producing a coastline-like silhouette. Initial F arguments rescaled
-//! 100× downward from the lsystem-explorer preset so the result sits
-//! at room scale instead of debug-camera scale.
+//! Branching pattern — ABOP Fig 1.39. Bracketed L-system that
+//! recursively binary-splits at every step, producing a flat
+//! 2D branching diagram. Initial A argument rescaled 100× downward
+//! from the lsystem-explorer preset for room-scale rendering.
 
 use std::collections::HashMap;
 
-use crate::catalogue::{CatalogueCategory, CatalogueEntry};
+use crate::catalogue::{CatalogueEntry, StructureRole};
 use crate::pds::{
     Fp, Fp3, Generator, GeneratorKind, SovereignMaterialSettings, SovereignTextureConfig,
 };
 
-pub struct QuadraticKochIsland;
+pub struct BranchingPattern;
 
-impl CatalogueEntry for QuadraticKochIsland {
+impl CatalogueEntry for BranchingPattern {
     fn slug(&self) -> &'static str {
-        "lsys_koch_island"
+        "lsys_branching"
     }
     fn name(&self) -> &'static str {
-        "Quadratic Koch Island"
+        "Branching Pattern"
     }
     fn description(&self) -> &'static str {
-        "Closed coastline-like fractal curve — ABOP Fig 1.6."
+        "Flat bracketed binary-branch diagram — ABOP Fig 1.39."
     }
-    fn category(&self) -> CatalogueCategory {
-        CatalogueCategory::Patterns
+    fn role(&self) -> StructureRole {
+        StructureRole::Pattern
     }
     fn build(&self, _local_did: &str) -> Generator {
         Generator::from_kind(build_kind())
@@ -36,20 +35,21 @@ fn build_kind() -> GeneratorKind {
     materials.insert(
         0,
         SovereignMaterialSettings {
-            base_color: Fp3([0.3, 0.6, 0.9]),
+            base_color: Fp3([0.9, 0.6, 0.3]),
             roughness: Fp(1.0),
             texture: SovereignTextureConfig::None,
             ..Default::default()
         },
     );
     GeneratorKind::LSystem {
-        source_code: "omega: F(1)-F(1)-F(1)-F(1)\n\
-                      F(s) -> F(s/3)+F(s/3)-F(s/3)-F(s/3)F(s/3)+F(s/3)+F(s/3)-F(s/3)"
+        source_code: "#define R 1.456\n\
+                      omega: A(1.5)\n\
+                      A(s) -> F(s)[+A(s/R)][-A(s/R)]"
             .to_string(),
         finalization_code: String::new(),
-        iterations: 3,
+        iterations: 12,
         seed: 1,
-        angle: Fp(90.0),
+        angle: Fp(85.0),
         step: Fp(1.0),
         width: Fp(0.1),
         elasticity: Fp(0.0),
@@ -68,7 +68,7 @@ mod tests {
 
     #[test]
     fn build_round_trips_through_sanitize() {
-        let mut g = QuadraticKochIsland.build("");
+        let mut g = BranchingPattern.build("");
         sanitize_generator(&mut g);
         assert!(matches!(g.kind, GeneratorKind::LSystem { .. }));
     }

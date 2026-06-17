@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use crate::catalogue::{CatalogueCategory, CatalogueEntry};
+use crate::catalogue::{CatalogueEntry, StructureRole};
 use crate::pds::{
     Fp, Fp3, Generator, GeneratorKind, SovereignMaterialSettings, SovereignTextureConfig,
 };
@@ -23,8 +23,8 @@ impl CatalogueEntry for SierpinskiGasket {
     fn description(&self) -> &'static str {
         "Recursive triangle fractal — ABOP Fig 1.10(b)."
     }
-    fn category(&self) -> CatalogueCategory {
-        CatalogueCategory::Patterns
+    fn role(&self) -> StructureRole {
+        StructureRole::Pattern
     }
     fn build(&self, _local_did: &str) -> Generator {
         Generator::from_kind(build_kind())
