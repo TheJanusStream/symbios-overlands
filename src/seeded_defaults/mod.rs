@@ -55,6 +55,6 @@ pub use room::{
     SplatRule, TerrainShape, ThemeAccent, TreeScatter, TreeScatters, TreeSpecies, WaterDynamics,
 };
 pub use scene::{
-    BiomeArchetype, LandformArchetype, SceneCharacter, ThemeArchetype, pick, range_f32,
-    signed_unit_f32, unit_f32,
+    BiomeArchetype, EscalationBand, EscalationTier, LandformArchetype, ProsperityBand,
+    ProsperityTier, SceneCharacter, ThemeArchetype, pick, range_f32, signed_unit_f32, unit_f32,
 };

@@ -13,6 +13,7 @@
 use super::CatalogueEntry;
 
 pub mod ancient;
+pub mod civic;
 pub mod cyberpunk;
 pub mod medieval;
 pub mod patterns;
@@ -47,6 +48,25 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &cyberpunk::neon_kiosk::NeonKiosk,
     &cyberpunk::drone_perch::DronePerch,
     &cyberpunk::cable_arch::CableArch,
+    // Buildings — cross-theme socio-political props (Prop role, tagged
+    // with every theme but gated to a prosperity / escalation tier band;
+    // see crate::catalogue::items::civic).
+    &civic::shanty::Shanty,
+    &civic::scrap_pile::ScrapPile,
+    &civic::laundry_line::LaundryLine,
+    &civic::barrel_fire::BarrelFire,
+    &civic::fountain::Fountain,
+    &civic::statue::Statue,
+    &civic::banner::Banner,
+    &civic::planter::Planter,
+    &civic::barricade::Barricade,
+    &civic::sandbag_wall::SandbagWall,
+    &civic::watch_post::WatchPost,
+    &civic::wreckage::Wreckage,
+    &civic::bench::Bench,
+    &civic::garden_bed::GardenBed,
+    &civic::lantern::Lantern,
+    &civic::market_stall::MarketStall,
     // Plants — L-system tree entries.
     &plants::lsys_monopodial_tree::MonopodialTree,
     &plants::lsys_sympodial_tree::SympodialTree,
@@ -114,8 +134,9 @@ mod tests {
         use crate::catalogue::CatalogueCategory::*;
         let count = |c| ENTRIES.iter().filter(|e| e.category() == c).count();
         // Deriving category() from role() must keep every entry in its
-        // expected section. 8 ancient/medieval + 8 cyberpunk = 16 buildings.
-        assert_eq!(count(Buildings), 16);
+        // expected section. 8 ancient/medieval + 8 cyberpunk + 16 civic
+        // cross-theme props = 32 buildings.
+        assert_eq!(count(Buildings), 32);
         assert_eq!(count(Plants), 4);
         assert_eq!(count(Patterns), 3);
         assert_eq!(count(Tools), 1);

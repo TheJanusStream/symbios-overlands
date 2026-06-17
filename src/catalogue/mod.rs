@@ -25,7 +25,9 @@ pub mod items;
 pub use items::{ENTRIES, by_slug};
 
 use crate::pds::Generator;
-use crate::seeded_defaults::ThemeArchetype;
+use crate::seeded_defaults::{
+    EscalationBand, EscalationTier, ProsperityBand, ProsperityTier, ThemeArchetype,
+};
 
 /// Top-level grouping for catalogue items. Used by the catalogue
 /// window to section the list — `Buildings` shows the architectural
@@ -120,6 +122,24 @@ pub fn entries_for(
         .filter(move |e| e.role() == role && e.themes().contains(&theme))
 }
 
+/// [`entries_for`] further gated by the room's socio-political tiers: an
+/// entry is kept only if its [`CatalogueEntry::prosperity_band`] and
+/// [`CatalogueEntry::escalation_band`] both accept the room's tiers. Since
+/// both bands default to `ANY`, this returns exactly the same set as
+/// [`entries_for`] until entries opt into a band — letting the settlement
+/// deriver thread the room's prosperity/escalation through without any
+/// selection change for untagged content.
+pub fn entries_for_room(
+    theme: ThemeArchetype,
+    role: StructureRole,
+    prosperity: ProsperityTier,
+    escalation: EscalationTier,
+) -> impl Iterator<Item = &'static dyn CatalogueEntry> {
+    entries_for(theme, role).filter(move |e| {
+        e.prosperity_band().accepts(prosperity) && e.escalation_band().accepts(escalation)
+    })
+}
+
 /// One catalogue entry. Every implementor lives in its own file under
 /// [`items`]; the registry in [`items::ENTRIES`] is the source of
 /// truth for what ships in the build.
@@ -152,6 +172,22 @@ pub trait CatalogueEntry: Sync {
     /// out of tagging is never mistaken for placeable settlement content.
     fn role(&self) -> StructureRole {
         StructureRole::Tool
+    }
+
+    /// Prosperity-tier span this entry suits (e.g. a scrap shanty is
+    /// `Poor`, a marble fountain is `Rich`). Defaults to
+    /// [`ProsperityBand::ANY`] so an untagged entry is eligible in rooms of
+    /// any prosperity. Consulted by [`entries_for_room`].
+    fn prosperity_band(&self) -> ProsperityBand {
+        ProsperityBand::ANY
+    }
+
+    /// Escalation-tier span this entry suits (e.g. a barricade is
+    /// `Conflict`, a market stall is `Calm`). Defaults to
+    /// [`EscalationBand::ANY`] so an untagged entry is eligible in rooms of
+    /// any escalation. Consulted by [`entries_for_room`].
+    fn escalation_band(&self) -> EscalationBand {
+        EscalationBand::ANY
     }
 
     /// Placement footprint — clearance radius + spawn standoff. Defaults
@@ -196,5 +232,65 @@ mod tests {
         assert_eq!(Plant.category(), Plants);
         assert_eq!(Pattern.category(), Patterns);
         assert_eq!(Tool.category(), Tools);
+    }
+
+    #[test]
+    fn socio_bands_default_to_any() {
+        // An entry that doesn't override the band methods must accept every
+        // tier — this is what keeps theme structures (which never tag a
+        // band) eligible regardless of a room's prosperity / escalation.
+        struct Bare;
+        impl CatalogueEntry for Bare {
+            fn slug(&self) -> &'static str {
+                "bare"
+            }
+            fn name(&self) -> &'static str {
+                "Bare"
+            }
+            fn description(&self) -> &'static str {
+                ""
+            }
+            fn build(&self, _local_did: &str) -> Generator {
+                Generator::default_cuboid()
+            }
+        }
+        assert_eq!(Bare.prosperity_band(), ProsperityBand::ANY);
+        assert_eq!(Bare.escalation_band(), EscalationBand::ANY);
+    }
+
+    #[test]
+    fn room_query_is_the_band_filtered_theme_query() {
+        // entries_for_room is exactly entries_for with the band predicate:
+        // an entry survives iff both its bands accept the room's tiers, and
+        // it never introduces an entry outside the theme query.
+        for theme in ThemeArchetype::ALL {
+            for role in [
+                StructureRole::Landmark,
+                StructureRole::Secondary,
+                StructureRole::Prop,
+            ] {
+                let base: Vec<&str> = entries_for(theme, role).map(|e| e.slug()).collect();
+                for p in ProsperityTier::ALL {
+                    for x in EscalationTier::ALL {
+                        let gated: Vec<&str> = entries_for_room(theme, role, p, x)
+                            .map(|e| e.slug())
+                            .collect();
+                        for s in &gated {
+                            assert!(base.contains(s), "room query introduced {s}");
+                        }
+                        for e in entries_for(theme, role) {
+                            let accepted =
+                                e.prosperity_band().accepts(p) && e.escalation_band().accepts(x);
+                            assert_eq!(
+                                accepted,
+                                gated.contains(&e.slug()),
+                                "{} band/membership mismatch at {p:?}/{x:?}",
+                                e.slug()
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 }

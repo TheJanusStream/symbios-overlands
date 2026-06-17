@@ -24,8 +24,10 @@ use std::f32::consts::TAU;
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
 
-use crate::catalogue::{StructureRole, entries_for};
-use crate::seeded_defaults::scene::{SceneCharacter, ThemeArchetype, pick, range_f32, unit_f32};
+use crate::catalogue::{StructureRole, entries_for, entries_for_room};
+use crate::seeded_defaults::scene::{
+    EscalationTier, ProsperityTier, SceneCharacter, ThemeArchetype, pick, range_f32, unit_f32,
+};
 
 /// Sub-stream salt distinct from every sibling room deriver.
 const SETTLEMENT_STREAM_SALT: u64 = 0x1A4D_3A2C_1A4D_3A2C;
@@ -78,9 +80,15 @@ impl Settlement {
         // (no AncientClassical landmark ringed by another theme's props).
         let theme = effective_theme(scene.theme);
 
-        let landmark = place_landmark(theme, &mut rng);
-        let secondaries = place_secondaries(theme, &landmark, &mut rng);
-        let props = place_props(theme, &landmark, &mut rng);
+        // Socio-political tiers drive how dense / large the settlement is
+        // (prosperity) and which cross-theme tier props join the pool
+        // (prosperity + escalation).
+        let prosperity = scene.prosperity_tier();
+        let escalation = scene.escalation_tier();
+
+        let landmark = place_landmark(theme, prosperity, &mut rng);
+        let secondaries = place_secondaries(theme, prosperity, &landmark, &mut rng);
+        let props = place_props(theme, prosperity, escalation, &landmark, &mut rng);
 
         Self {
             landmark,
@@ -108,7 +116,50 @@ fn pool(
     entries_for(theme, role).collect()
 }
 
-fn place_landmark(theme: ThemeArchetype, rng: &mut ChaCha8Rng) -> SettlementMember {
+/// Inclusive `(min, max)` secondary-building count by prosperity: richer
+/// settlements are denser. Clamped to the pool size and [`MAX_SECONDARIES`].
+fn secondary_count_band(tier: ProsperityTier) -> (usize, usize) {
+    match tier {
+        ProsperityTier::Poor => (0, 1),
+        ProsperityTier::Modest => (1, 2),
+        ProsperityTier::Rich => (2, 3),
+    }
+}
+
+/// Inclusive `(min, max)` scatter-prop count by prosperity. Clamped to
+/// [`MAX_PROPS`].
+fn prop_count_band(tier: ProsperityTier) -> (usize, usize) {
+    match tier {
+        ProsperityTier::Poor => (1, 3),
+        ProsperityTier::Modest => (2, 5),
+        ProsperityTier::Rich => (4, 6),
+    }
+}
+
+/// Uniform-scale band for the landmark by prosperity: poorer settlements'
+/// hero structure is smaller, richer ones grander.
+fn landmark_scale_band(tier: ProsperityTier) -> (f32, f32) {
+    match tier {
+        ProsperityTier::Poor => (0.75, 1.05),
+        ProsperityTier::Modest => (0.85, 1.20),
+        ProsperityTier::Rich => (1.05, 1.45),
+    }
+}
+
+/// One uniform integer draw in the inclusive range `[lo, hi]` (one
+/// `unit_f32` from `rng`). `hi <= lo` yields `lo`.
+fn sample_count(rng: &mut ChaCha8Rng, lo: usize, hi: usize) -> usize {
+    if hi <= lo {
+        return lo;
+    }
+    (lo + (unit_f32(rng) * (hi - lo + 1) as f32) as usize).min(hi)
+}
+
+fn place_landmark(
+    theme: ThemeArchetype,
+    prosperity: ProsperityTier,
+    rng: &mut ChaCha8Rng,
+) -> SettlementMember {
     // `effective_theme` guarantees this pool is non-empty.
     let pool = pool(theme, StructureRole::Landmark);
     let entry = pick(&pool, rng);
@@ -120,11 +171,12 @@ fn place_landmark(theme: ThemeArchetype, rng: &mut ChaCha8Rng) -> SettlementMemb
     // Face the spawn origin (±0.35 rad jitter).
     let yaw_rad = offset[0].atan2(offset[1]) + range_f32(rng, -0.35, 0.35);
 
+    let (scale_lo, scale_hi) = landmark_scale_band(prosperity);
     SettlementMember {
         slug: entry.slug(),
         offset,
         yaw_rad,
-        scale: range_f32(rng, 0.85, 1.20),
+        scale: range_f32(rng, scale_lo, scale_hi),
         grammar_seed: rng.next_u64(),
         clearance: fp.clearance,
     }
@@ -132,6 +184,7 @@ fn place_landmark(theme: ThemeArchetype, rng: &mut ChaCha8Rng) -> SettlementMemb
 
 fn place_secondaries(
     theme: ThemeArchetype,
+    prosperity: ProsperityTier,
     landmark: &SettlementMember,
     rng: &mut ChaCha8Rng,
 ) -> Vec<SettlementMember> {
@@ -140,8 +193,12 @@ fn place_secondaries(
         return Vec::new();
     }
 
-    let max = MAX_SECONDARIES.min(remaining.len());
-    let count = (1 + (unit_f32(rng) * max as f32) as usize).min(max);
+    let (lo, hi) = secondary_count_band(prosperity);
+    let hi = hi.min(remaining.len()).min(MAX_SECONDARIES);
+    let count = sample_count(rng, lo.min(hi), hi);
+    if count == 0 {
+        return Vec::new();
+    }
 
     // Bearing from the spawn origin out to the landmark; secondaries fan
     // out around it so they always sit *beyond* the landmark.
@@ -183,15 +240,22 @@ fn place_secondaries(
 
 fn place_props(
     theme: ThemeArchetype,
+    prosperity: ProsperityTier,
+    escalation: EscalationTier,
     landmark: &SettlementMember,
     rng: &mut ChaCha8Rng,
 ) -> Vec<SettlementMember> {
-    let pool = pool(theme, StructureRole::Prop);
+    // The room-aware query folds in the cross-theme tier props (civic kit)
+    // whose prosperity / escalation band matches this room, on top of the
+    // theme's own props.
+    let pool: Vec<&'static dyn crate::catalogue::CatalogueEntry> =
+        entries_for_room(theme, StructureRole::Prop, prosperity, escalation).collect();
     if pool.is_empty() {
         return Vec::new();
     }
 
-    let count = (2 + (unit_f32(rng) * (MAX_PROPS as f32 - 1.0)) as usize).min(MAX_PROPS);
+    let (lo, hi) = prop_count_band(prosperity);
+    let count = sample_count(rng, lo, hi.min(MAX_PROPS));
     let base = landmark.offset[0].atan2(landmark.offset[1]);
     let radius = landmark.clearance + 25.0;
 
@@ -274,7 +338,9 @@ mod tests {
                     d >= 30.0,
                     "landmark too close to spawn: {d} m (theme {theme:?})"
                 );
-                assert!((0.85..=1.20).contains(&st.landmark.scale));
+                // Scale now varies by prosperity tier; the union of all tier
+                // bands is [0.75, 1.45].
+                assert!((0.75..=1.45).contains(&st.landmark.scale));
             }
         }
     }
@@ -325,9 +391,13 @@ mod tests {
                 );
             }
             for prop in &st.props {
+                // Props are now the cyberpunk kit plus any cross-theme civic
+                // props whose tier band matches; both must be eligible for a
+                // cyberpunk room (cyberpunk-tagged or all-theme civic).
+                let e = by_slug(prop.slug).expect("prop slug resolves");
                 assert!(
-                    matches!(prop.slug, "neon_kiosk" | "drone_perch" | "cable_arch"),
-                    "unexpected cyberpunk prop {}",
+                    e.themes().contains(&ThemeArchetype::Cyberpunk),
+                    "prop {} not eligible for a cyberpunk room",
                     prop.slug
                 );
             }
@@ -350,5 +420,51 @@ mod tests {
             any,
             "AncientClassical has secondary entries; some room should place them"
         );
+    }
+
+    #[test]
+    fn richer_settlements_are_denser() {
+        // Same room seed and theme, only prosperity differs: the prop count
+        // bands don't overlap (poor 1–3, rich 4–6), so a rich room always
+        // out-densities its poor twin, and never has fewer secondaries.
+        for s in 0u64..24 {
+            let mut poor = SceneCharacter::for_seed(s);
+            poor.theme = ThemeArchetype::AncientClassical;
+            poor.prosperity = 0.05;
+            poor.escalation = 0.5;
+            let mut rich = poor;
+            rich.prosperity = 0.95;
+
+            let p = Settlement::from_scene(&poor, s);
+            let r = Settlement::from_scene(&rich, s);
+            assert!(
+                r.props.len() > p.props.len(),
+                "rich should have more props (seed {s}): {} vs {}",
+                r.props.len(),
+                p.props.len()
+            );
+            assert!(
+                r.secondaries.len() >= p.secondaries.len(),
+                "rich should not have fewer secondaries (seed {s})"
+            );
+        }
+    }
+
+    #[test]
+    fn conflict_rooms_place_conflict_props() {
+        // A conflict room draws from the escalation-Conflict civic pool, so
+        // across seeds at least one places a barricade / sandbag / etc.
+        let conflict = ["barricade", "sandbag_wall", "watch_post", "wreckage"];
+        let any = (0u64..40).any(|s| {
+            let mut scene = SceneCharacter::for_seed(s);
+            scene.theme = ThemeArchetype::Medieval;
+            scene.prosperity = 0.5;
+            scene.escalation = 0.95;
+            Settlement::from_scene(&scene, s)
+                .props
+                .iter()
+                .any(|m| conflict.contains(&m.slug))
+        });
+        assert!(any, "some conflict room should place a conflict prop");
     }
 }

@@ -542,10 +542,13 @@ impl RoomRecord {
         // faces the spawn origin, secondaries face the landmark, and every
         // member snaps to terrain with its own water clearance.
         let settlement = Settlement::from_scene(&scene, did_seed);
+        let (prosperity, escalation) = (scene.prosperity, scene.escalation);
         wire_settlement_member(
             &settlement.landmark,
             "landmark",
             did,
+            prosperity,
+            escalation,
             &mut generators,
             &mut placements,
         );
@@ -554,6 +557,8 @@ impl RoomRecord {
                 member,
                 &format!("settlement_secondary_{i}"),
                 did,
+                prosperity,
+                escalation,
                 &mut generators,
                 &mut placements,
             );
@@ -563,6 +568,8 @@ impl RoomRecord {
                 member,
                 &format!("settlement_prop_{i}"),
                 did,
+                prosperity,
+                escalation,
                 &mut generators,
                 &mut placements,
             );
@@ -724,6 +731,8 @@ fn wire_settlement_member(
     member: &crate::seeded_defaults::SettlementMember,
     name: &str,
     did: &str,
+    prosperity: f32,
+    escalation: f32,
     generators: &mut HashMap<String, Generator>,
     placements: &mut Vec<Placement>,
 ) {
@@ -734,6 +743,10 @@ fn wire_settlement_member(
     if let GeneratorKind::Shape { seed, .. } = &mut member_gen.kind {
         *seed = member.grammar_seed;
     }
+    // Socio-political material finish: nudge every material in the built
+    // tree toward the room's prosperity (grime ↔ polish) and escalation
+    // (peace ↔ scorch). Deterministic; a neutral room is left untouched.
+    crate::pds::material_finish::apply_socio_finish(&mut member_gen, prosperity, escalation);
     generators.insert(name.to_string(), member_gen);
     let half_yaw = member.yaw_rad * 0.5;
     placements.push(Placement::Absolute {

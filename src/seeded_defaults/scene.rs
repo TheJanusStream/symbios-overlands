@@ -162,6 +162,116 @@ impl ThemeArchetype {
     ];
 }
 
+/// Socio-economic tier — the discrete reading of the continuous
+/// [`SceneCharacter::prosperity`] axis (poor → rich). Thresholded into
+/// thirds. Drives material finish (grime ↔ polish), settlement density,
+/// and which cross-theme prop pool a room draws from (shanties/scrap at
+/// [`Self::Poor`], fountains/statuary at [`Self::Rich`]).
+///
+/// Variants are declared poorest-first so the derived [`Ord`] matches the
+/// axis direction — [`ProsperityBand`] relies on that ordering.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ProsperityTier {
+    /// Bottom third — bare, makeshift, weathered.
+    Poor,
+    /// Middle third — ordinary, unremarkable upkeep.
+    Modest,
+    /// Top third — polished, ornamented, prosperous.
+    Rich,
+}
+
+impl ProsperityTier {
+    pub const ALL: [Self; 3] = [Self::Poor, Self::Modest, Self::Rich];
+}
+
+/// Conflict tier — the discrete reading of the continuous
+/// [`SceneCharacter::escalation`] axis (peaceful → conflict). Thresholded
+/// into thirds. Drives mood (smoke/tension audio), defensive props
+/// (barricades, wreckage), and escalation-driven geometric damage.
+///
+/// Variants are declared calmest-first so the derived [`Ord`] matches the
+/// axis direction — [`EscalationBand`] relies on that ordering.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum EscalationTier {
+    /// Bottom third — peaceful: open stalls, benches, no defenses.
+    Calm,
+    /// Middle third — uneasy: shuttered, lightly fortified.
+    Tense,
+    /// Top third — open conflict: barricades, wreckage, scorch.
+    Conflict,
+}
+
+impl EscalationTier {
+    pub const ALL: [Self; 3] = [Self::Calm, Self::Tense, Self::Conflict];
+}
+
+/// Inclusive prosperity-tier affinity band a catalogue entry advertises:
+/// the contiguous span of [`ProsperityTier`]s a room may have for the
+/// entry to be eligible. [`Self::ANY`] (the default) spans every tier, so
+/// untagged entries are always eligible. Relies on [`ProsperityTier`]'s
+/// poorest-first [`Ord`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProsperityBand {
+    lo: ProsperityTier,
+    hi: ProsperityTier,
+}
+
+impl ProsperityBand {
+    /// Every tier — an untagged, always-eligible entry.
+    pub const ANY: Self = Self {
+        lo: ProsperityTier::Poor,
+        hi: ProsperityTier::Rich,
+    };
+
+    /// Eligible only at exactly `tier`.
+    pub const fn only(tier: ProsperityTier) -> Self {
+        Self { lo: tier, hi: tier }
+    }
+
+    /// Eligible across the inclusive `lo..=hi` span (caller passes them in
+    /// ascending order).
+    pub const fn range(lo: ProsperityTier, hi: ProsperityTier) -> Self {
+        Self { lo, hi }
+    }
+
+    /// Whether a room at `tier` may place an entry advertising this band.
+    pub fn accepts(self, tier: ProsperityTier) -> bool {
+        self.lo <= tier && tier <= self.hi
+    }
+}
+
+/// Inclusive escalation-tier affinity band — the [`EscalationTier`]
+/// analogue of [`ProsperityBand`]. [`Self::ANY`] is the default.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EscalationBand {
+    lo: EscalationTier,
+    hi: EscalationTier,
+}
+
+impl EscalationBand {
+    /// Every tier — an untagged, always-eligible entry.
+    pub const ANY: Self = Self {
+        lo: EscalationTier::Calm,
+        hi: EscalationTier::Conflict,
+    };
+
+    /// Eligible only at exactly `tier`.
+    pub const fn only(tier: EscalationTier) -> Self {
+        Self { lo: tier, hi: tier }
+    }
+
+    /// Eligible across the inclusive `lo..=hi` span (caller passes them in
+    /// ascending order).
+    pub const fn range(lo: EscalationTier, hi: EscalationTier) -> Self {
+        Self { lo, hi }
+    }
+
+    /// Whether a room at `tier` may place an entry advertising this band.
+    pub fn accepts(self, tier: EscalationTier) -> bool {
+        self.lo <= tier && tier <= self.hi
+    }
+}
+
 /// Per-room anchor read by every downstream deriver (palette, terrain,
 /// water, sky). Cheap to recompute from the DID; typically derived once
 /// when the room loads and threaded through the deriver call graph.
@@ -182,6 +292,14 @@ pub struct SceneCharacter {
     /// Drives the seeded mini-settlement (which catalogue structures grow
     /// near spawn) and an optional light accent on the natural derivers.
     pub theme: ThemeArchetype,
+    /// `[0, 1]` socio-economic axis: `0` is destitute, `1` is affluent.
+    /// Orthogonal to every other field. Read via [`Self::prosperity_tier`];
+    /// drives material finish, settlement density, and prop pools.
+    pub prosperity: f32,
+    /// `[0, 1]` conflict axis: `0` is peaceful, `1` is open conflict.
+    /// Orthogonal to every other field. Read via [`Self::escalation_tier`];
+    /// drives mood, defensive props, and geometric damage.
+    pub escalation: f32,
 }
 
 impl SceneCharacter {
@@ -202,9 +320,12 @@ impl SceneCharacter {
         let time_of_day_bias = signed_unit_f32(&mut rng);
         let landform = pick(&LandformArchetype::ALL, &mut rng);
         let biome = pick(&BiomeArchetype::ALL, &mut rng);
-        // Theme is the last draw, orthogonal to biome: appending it here
-        // leaves every prior archetype/knob bit-identical to before.
         let theme = pick(&ThemeArchetype::ALL, &mut rng);
+        // The socio-political axes are the last two draws, orthogonal to
+        // everything above: appending them leaves every prior archetype /
+        // knob (theme included) bit-identical to before they existed.
+        let prosperity = unit_f32(&mut rng);
+        let escalation = unit_f32(&mut rng);
         Self {
             base_hue_deg,
             temperature,
@@ -212,6 +333,28 @@ impl SceneCharacter {
             landform,
             biome,
             theme,
+            prosperity,
+            escalation,
+        }
+    }
+
+    /// Discrete socio-economic reading of [`Self::prosperity`], thresholded
+    /// into equal thirds of `[0, 1]`.
+    pub fn prosperity_tier(&self) -> ProsperityTier {
+        match self.prosperity {
+            p if p < 1.0 / 3.0 => ProsperityTier::Poor,
+            p if p < 2.0 / 3.0 => ProsperityTier::Modest,
+            _ => ProsperityTier::Rich,
+        }
+    }
+
+    /// Discrete conflict reading of [`Self::escalation`], thresholded into
+    /// equal thirds of `[0, 1]`.
+    pub fn escalation_tier(&self) -> EscalationTier {
+        match self.escalation {
+            e if e < 1.0 / 3.0 => EscalationTier::Calm,
+            e if e < 2.0 / 3.0 => EscalationTier::Tense,
+            _ => EscalationTier::Conflict,
         }
     }
 }
@@ -252,6 +395,93 @@ mod tests {
         assert_eq!(a.landform, b.landform);
         assert_eq!(a.biome, b.biome);
         assert_eq!(a.theme, b.theme);
+        assert_eq!(a.prosperity, b.prosperity);
+        assert_eq!(a.escalation, b.escalation);
+    }
+
+    #[test]
+    fn socio_axes_in_range_and_orthogonal() {
+        // Both axes stay in [0, 1] and neither is stuck on one tier across
+        // seeds (a degenerate draw would collapse to a single tier).
+        let mut prosperity_tiers: Vec<ProsperityTier> = Vec::new();
+        let mut escalation_tiers: Vec<EscalationTier> = Vec::new();
+        for s in 0u64..96 {
+            let c = SceneCharacter::for_seed(s);
+            assert!(
+                (0.0..=1.0).contains(&c.prosperity),
+                "prosperity OOB: {}",
+                c.prosperity
+            );
+            assert!(
+                (0.0..=1.0).contains(&c.escalation),
+                "escalation OOB: {}",
+                c.escalation
+            );
+            if !prosperity_tiers.contains(&c.prosperity_tier()) {
+                prosperity_tiers.push(c.prosperity_tier());
+            }
+            if !escalation_tiers.contains(&c.escalation_tier()) {
+                escalation_tiers.push(c.escalation_tier());
+            }
+        }
+        assert_eq!(prosperity_tiers.len(), 3, "prosperity tiers degenerate");
+        assert_eq!(escalation_tiers.len(), 3, "escalation tiers degenerate");
+    }
+
+    #[test]
+    fn tier_thresholds_split_into_thirds() {
+        let tier_at = |p: f32| {
+            let mut c = SceneCharacter::for_seed(0);
+            c.prosperity = p;
+            c.escalation = p;
+            (c.prosperity_tier(), c.escalation_tier())
+        };
+        assert_eq!(tier_at(0.0), (ProsperityTier::Poor, EscalationTier::Calm));
+        assert_eq!(tier_at(0.33), (ProsperityTier::Poor, EscalationTier::Calm));
+        assert_eq!(
+            tier_at(0.34),
+            (ProsperityTier::Modest, EscalationTier::Tense)
+        );
+        assert_eq!(
+            tier_at(0.66),
+            (ProsperityTier::Modest, EscalationTier::Tense)
+        );
+        assert_eq!(
+            tier_at(0.67),
+            (ProsperityTier::Rich, EscalationTier::Conflict)
+        );
+        assert_eq!(
+            tier_at(1.0),
+            (ProsperityTier::Rich, EscalationTier::Conflict)
+        );
+    }
+
+    #[test]
+    fn band_any_accepts_every_tier() {
+        for t in ProsperityTier::ALL {
+            assert!(ProsperityBand::ANY.accepts(t));
+        }
+        for t in EscalationTier::ALL {
+            assert!(EscalationBand::ANY.accepts(t));
+        }
+    }
+
+    #[test]
+    fn band_only_and_range_gate_correctly() {
+        let rich = ProsperityBand::only(ProsperityTier::Rich);
+        assert!(rich.accepts(ProsperityTier::Rich));
+        assert!(!rich.accepts(ProsperityTier::Poor));
+        assert!(!rich.accepts(ProsperityTier::Modest));
+
+        // Poor..=Modest excludes only the top tier.
+        let low = ProsperityBand::range(ProsperityTier::Poor, ProsperityTier::Modest);
+        assert!(low.accepts(ProsperityTier::Poor));
+        assert!(low.accepts(ProsperityTier::Modest));
+        assert!(!low.accepts(ProsperityTier::Rich));
+
+        let conflict = EscalationBand::only(EscalationTier::Conflict);
+        assert!(conflict.accepts(EscalationTier::Conflict));
+        assert!(!conflict.accepts(EscalationTier::Calm));
     }
 
     #[test]

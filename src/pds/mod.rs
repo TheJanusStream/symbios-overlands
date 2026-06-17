@@ -83,6 +83,7 @@ pub mod avatar;
 pub mod contact_effects;
 pub mod generator;
 pub mod inventory;
+pub mod material_finish;
 pub mod prim;
 pub mod room;
 pub mod sanitize;
