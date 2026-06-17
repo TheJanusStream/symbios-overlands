@@ -74,6 +74,22 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: None,
             },
+            // Soft blossom air — a warm rose haze with cherry petals drifting.
+            FeudalJapan => Self {
+                tint: [0.92, 0.74, 0.76],
+                tint_strength: 0.12,
+                haze: 0.05,
+                brightness: 1.0,
+                particle_mood: Some(ParticleMood::Petals),
+            },
+            // Humid jungle-gold air — warm amber haze over the temple city.
+            Mesoamerican => Self {
+                tint: [0.80, 0.66, 0.36],
+                tint_strength: 0.14,
+                haze: 0.12,
+                brightness: 1.0,
+                particle_mood: None,
+            },
             AlienOrganic => Self {
                 tint: [0.25, 0.85, 0.40],
                 tint_strength: 0.20,
@@ -230,6 +246,10 @@ mod tests {
         assert_eq!(
             ThemeAccent::for_theme(ThemeArchetype::AlienMonolithic).particle_mood,
             Some(ParticleMood::MistMotes)
+        );
+        assert_eq!(
+            ThemeAccent::for_theme(ThemeArchetype::FeudalJapan).particle_mood,
+            Some(ParticleMood::Petals)
         );
     }
 

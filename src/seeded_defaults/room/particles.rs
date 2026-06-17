@@ -16,8 +16,8 @@ use rand_chacha::rand_core::SeedableRng;
 
 use super::accent::ThemeAccent;
 use crate::pds::{
-    Fp3, Fp64, SovereignPuffConfig, SovereignSnowflakeConfig, SovereignSoftDiscConfig,
-    SovereignSparkConfig, SovereignTextureConfig,
+    Fp3, Fp64, SovereignPetalConfig, SovereignPuffConfig, SovereignSnowflakeConfig,
+    SovereignSoftDiscConfig, SovereignSparkConfig, SovereignTextureConfig,
 };
 use crate::seeded_defaults::scene::{BiomeArchetype, EscalationTier, SceneCharacter, range_f32};
 
@@ -33,6 +33,9 @@ pub enum ParticleMood {
     Embers,
     DustMotes,
     MistMotes,
+    /// Drifting flower petals — the Feudal-Japan accent: blossom carried on
+    /// the wind over the settlement.
+    Petals,
     /// Drifting dark smoke / ash — the conflict signature, selected when a
     /// room's escalation reaches [`EscalationTier::Conflict`] regardless of
     /// biome or theme.
@@ -129,6 +132,15 @@ impl AmbientParticles {
                 density: Fp64(0.7),
                 edge_falloff: Fp64(1.6),
                 contrast: Fp64(1.1),
+                ..Default::default()
+            }),
+            ParticleMood::Petals => SovereignTextureConfig::Petal(SovereignPetalConfig {
+                seed,
+                variant_rows: 2,
+                variant_cols: 2,
+                color_base: Fp3([0.99, 0.78, 0.86]),
+                color_edge: Fp3([0.95, 0.58, 0.72]),
+                color_throat: Fp3([1.0, 0.90, 0.70]),
                 ..Default::default()
             }),
             ParticleMood::Smoke => SovereignTextureConfig::Puff(SovereignPuffConfig {
@@ -273,6 +285,27 @@ fn spec_for_mood(mood: ParticleMood, rng: &mut ChaCha8Rng, seed: u64) -> Ambient
             additive: false,
             seed,
         },
+        ParticleMood::Petals => AmbientParticles {
+            mood: ParticleMood::Petals,
+            // Blossom shed from above, fluttering down across the settlement
+            // on a light prevailing wind. Petals keep their size as they
+            // fall and settle slowly (low positive gravity, high drag).
+            emitter_half_extents: [80.0, 4.0, 80.0],
+            emitter_y: 22.0,
+            rate_per_second: range_f32(rng, 12.0, 22.0),
+            max_particles: 320,
+            lifetime: (9.0, 16.0),
+            speed: (0.2, 0.5),
+            gravity_multiplier: 0.015,
+            acceleration: [range_f32(rng, -0.5, 0.5), 0.0, range_f32(rng, -0.5, 0.5)],
+            linear_drag: 0.7,
+            start_size: 0.14,
+            end_size: 0.14,
+            start_color: [1.0, 0.80, 0.86, 0.95],
+            end_color: [1.0, 0.72, 0.80, 0.0],
+            additive: false,
+            seed,
+        },
         ParticleMood::Smoke => AmbientParticles {
             mood: ParticleMood::Smoke,
             // A handful of low chimneys / pyres drifting smoke up over the
@@ -405,6 +438,7 @@ mod tests {
                 ParticleMood::Snowfall => "Snowflake",
                 ParticleMood::Embers => "Spark",
                 ParticleMood::DustMotes | ParticleMood::MistMotes | ParticleMood::Smoke => "Puff",
+                ParticleMood::Petals => "Petal",
             };
             assert_eq!(a.label(), expected, "mood {:?} sprite", p.mood);
 

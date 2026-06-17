@@ -15,7 +15,9 @@ use super::CatalogueEntry;
 pub mod ancient;
 pub mod civic;
 pub mod cyberpunk;
+pub mod feudal_japan;
 pub mod medieval;
+pub mod mesoamerican;
 pub mod nordic;
 pub mod patterns;
 pub mod plants;
@@ -68,6 +70,32 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &nordic::turf_house::TurfHouse,
     &nordic::sod_shelter::SodShelter,
     &nordic::wood_pile::WoodPile,
+    // Buildings — Feudal Japan theme (landmark + secondaries + props).
+    &feudal_japan::pagoda::Pagoda,
+    &feudal_japan::torii_gate::ToriiGate,
+    &feudal_japan::tea_house::TeaHouse,
+    &feudal_japan::dojo::Dojo,
+    &feudal_japan::stone_lantern::StoneLantern,
+    &feudal_japan::koi_pond::KoiPond,
+    &feudal_japan::bamboo_fence::BambooFence,
+    &feudal_japan::bonsai::Bonsai,
+    // Buildings — Feudal Japan poor (farmstead) variants, prosperity Poor.
+    &feudal_japan::minka::Minka,
+    &feudal_japan::rice_shed::RiceShed,
+    &feudal_japan::straw_bales::StrawBales,
+    // Buildings — Mesoamerican theme (landmark + secondaries + props).
+    &mesoamerican::step_pyramid::StepPyramid,
+    &mesoamerican::ball_court::BallCourt,
+    &mesoamerican::shrine::Shrine,
+    &mesoamerican::stela::Stela,
+    &mesoamerican::skull_rack::SkullRack,
+    &mesoamerican::idol::Idol,
+    &mesoamerican::fire_bowl::FireBowl,
+    &mesoamerican::calendar_stone::CalendarStone,
+    // Buildings — Mesoamerican poor (commoner) variants, prosperity Poor.
+    &mesoamerican::adobe_hut::AdobeHut,
+    &mesoamerican::maize_granary::MaizeGranary,
+    &mesoamerican::clay_pots::ClayPots,
     // Buildings — cross-theme socio-political props (Prop role, tagged
     // with every theme but gated to a prosperity / escalation tier band;
     // see crate::catalogue::items::civic).
@@ -155,9 +183,10 @@ mod tests {
         let count = |c| ENTRIES.iter().filter(|e| e.category() == c).count();
         // Deriving category() from role() must keep every entry in its
         // expected section. 8 ancient/medieval + 8 cyberpunk + 5 cyberpunk
-        // poor + 8 nordic + 3 nordic poor + 16 civic cross-theme props = 48
-        // buildings.
-        assert_eq!(count(Buildings), 48);
+        // poor + 8 nordic + 3 nordic poor + 8 feudal japan + 3 feudal japan
+        // poor + 8 mesoamerican + 3 mesoamerican poor + 16 civic cross-theme
+        // props = 70 buildings.
+        assert_eq!(count(Buildings), 70);
         assert_eq!(count(Plants), 4);
         assert_eq!(count(Patterns), 3);
         assert_eq!(count(Tools), 1);

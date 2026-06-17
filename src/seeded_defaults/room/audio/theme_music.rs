@@ -16,7 +16,7 @@ use rand_chacha::ChaCha8Rng;
 
 use super::WARMUP_BEATS;
 use super::bed::AmbientParams;
-use super::scales::{DORIAN, PENTATONIC_MAJOR, PENTATONIC_MINOR, PHRYGIAN};
+use super::scales::{DORIAN, HIRAJOSHI, PENTATONIC_MAJOR, PENTATONIC_MINOR, PHRYGIAN};
 use crate::seeded_defaults::scene::{
     BiomeArchetype, SceneCharacter, ThemeArchetype, range_f32, unit_f32,
 };
@@ -89,6 +89,42 @@ fn voice_for(scene: &SceneCharacter) -> ThemeVoice {
             volume: (0.06, 0.11),
             arp: true,
             reverb_mix: 0.28,
+        },
+        // Plucked koto — bright quick attack, long ring, the half-step
+        // Japanese pentatonic. Sparse and contemplative.
+        ThemeArchetype::FeudalJapan => ThemeVoice {
+            id: "theme_koto",
+            wave: Wave::Triangle,
+            detune_cents: 0.0,
+            scale: HIRAJOSHI,
+            octave: 1.0,
+            attack_s: 0.004,
+            decay_s: 0.35,
+            sustain_level: 0.0,
+            release_s: 1.3,
+            note_count: (4, 7),
+            gate: (0.2, 0.5),
+            volume: (0.09, 0.16),
+            arp: false,
+            reverb_mix: 0.46,
+        },
+        // Breathy clay ocarina — sparse, plaintive minor over the implied
+        // ritual drums (the drum itself rides the step pyramid's spatial fx).
+        ThemeArchetype::Mesoamerican => ThemeVoice {
+            id: "theme_ocarina",
+            wave: Wave::Sine,
+            detune_cents: 0.0,
+            scale: PENTATONIC_MINOR,
+            octave: 1.0,
+            attack_s: 0.05,
+            decay_s: 0.45,
+            sustain_level: 0.2,
+            release_s: 1.4,
+            note_count: (3, 6),
+            gate: (0.4, 0.9),
+            volume: (0.09, 0.16),
+            arp: false,
+            reverb_mix: 0.4,
         },
         // Low droning lur / horn — slow, sparse, heroic minor, an octave
         // down so it tolls over the steading.
@@ -394,6 +430,11 @@ mod tests {
         let nor = voice_for(&scene_with(ThemeArchetype::Nordic, 0.0));
         assert!(matches!(nor.wave, Wave::Triangle) && !nor.arp && nor.octave < 1.0);
         assert_eq!(nor.scale, PENTATONIC_MINOR);
+        let jp = voice_for(&scene_with(ThemeArchetype::FeudalJapan, 0.0));
+        assert_eq!(jp.scale, HIRAJOSHI);
+        let meso = voice_for(&scene_with(ThemeArchetype::Mesoamerican, 0.0));
+        assert!(matches!(meso.wave, Wave::Sine) && !meso.arp);
+        assert_eq!(meso.scale, PENTATONIC_MINOR);
         let anc = voice_for(&scene_with(ThemeArchetype::AncientClassical, 0.0));
         assert_eq!(anc.scale, PENTATONIC_MAJOR);
     }

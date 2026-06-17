@@ -520,6 +520,152 @@ mod tests {
     }
 
     #[test]
+    fn feudal_japan_settlement_uses_its_own_kit_by_prosperity() {
+        // The per-theme poor/rich pattern (#433/#395): an affluent room grows
+        // the lacquered temple kit, a destitute one the farmstead — the two
+        // registers never cross.
+        const POOR_KIT: [&str; 3] = ["minka", "rice_shed", "straw_bales"];
+        const RICH_KIT: [&str; 8] = [
+            "pagoda",
+            "torii_gate",
+            "tea_house",
+            "dojo",
+            "stone_lantern",
+            "koi_pond",
+            "bamboo_fence",
+            "bonsai",
+        ];
+
+        let jp_member = |slug: &str| {
+            by_slug(slug)
+                .expect("member resolves")
+                .themes()
+                .contains(&ThemeArchetype::FeudalJapan)
+        };
+
+        let mut rich_placed_secondary = false;
+        let mut poor_placed_rice_shed = false;
+        for s in 0u64..32 {
+            let mut rich = SceneCharacter::for_seed(s);
+            rich.theme = ThemeArchetype::FeudalJapan;
+            rich.prosperity = 0.95;
+            let r = Settlement::from_scene(&rich, s);
+            assert_eq!(r.landmark.slug, "pagoda", "rich feudal-japan landmark");
+            for m in std::iter::once(&r.landmark)
+                .chain(&r.secondaries)
+                .chain(&r.props)
+            {
+                assert!(jp_member(m.slug), "rich feudal-japan member {}", m.slug);
+                assert!(
+                    !POOR_KIT.contains(&m.slug),
+                    "rich room grew the poor kit: {}",
+                    m.slug
+                );
+            }
+            rich_placed_secondary |= r.secondaries.iter().any(|sec| RICH_KIT.contains(&sec.slug));
+
+            let mut poor = SceneCharacter::for_seed(s);
+            poor.theme = ThemeArchetype::FeudalJapan;
+            poor.prosperity = 0.05;
+            let p = Settlement::from_scene(&poor, s);
+            assert_eq!(p.landmark.slug, "minka", "poor feudal-japan landmark");
+            for m in std::iter::once(&p.landmark)
+                .chain(&p.secondaries)
+                .chain(&p.props)
+            {
+                assert!(jp_member(m.slug), "poor feudal-japan member {}", m.slug);
+                assert!(
+                    !RICH_KIT.contains(&m.slug),
+                    "poor room grew the established kit: {}",
+                    m.slug
+                );
+            }
+            poor_placed_rice_shed |= p.secondaries.iter().any(|sec| sec.slug == "rice_shed");
+        }
+        assert!(
+            rich_placed_secondary,
+            "some rich feudal-japan room places an established secondary"
+        );
+        assert!(
+            poor_placed_rice_shed,
+            "some poor feudal-japan room places the rice shed"
+        );
+    }
+
+    #[test]
+    fn mesoamerican_settlement_uses_its_own_kit_by_prosperity() {
+        // The per-theme poor/rich pattern (#433/#396): an affluent room grows
+        // the monumental temple kit, a destitute one the commoner kit — the
+        // two registers never cross. (The shared, band-agnostic `ziggurat` is
+        // a legitimate Mesoamerican landmark in either, so assert by register
+        // exclusion rather than an exact slug.)
+        const POOR_KIT: [&str; 3] = ["adobe_hut", "maize_granary", "clay_pots"];
+        const RICH_KIT: [&str; 8] = [
+            "step_pyramid",
+            "ball_court",
+            "shrine",
+            "stela",
+            "skull_rack",
+            "idol",
+            "fire_bowl",
+            "calendar_stone",
+        ];
+
+        let meso_member = |slug: &str| {
+            by_slug(slug)
+                .expect("member resolves")
+                .themes()
+                .contains(&ThemeArchetype::Mesoamerican)
+        };
+
+        let mut rich_placed_secondary = false;
+        let mut poor_placed_granary = false;
+        for s in 0u64..32 {
+            let mut rich = SceneCharacter::for_seed(s);
+            rich.theme = ThemeArchetype::Mesoamerican;
+            rich.prosperity = 0.95;
+            let r = Settlement::from_scene(&rich, s);
+            for m in std::iter::once(&r.landmark)
+                .chain(&r.secondaries)
+                .chain(&r.props)
+            {
+                assert!(meso_member(m.slug), "rich mesoamerican member {}", m.slug);
+                assert!(
+                    !POOR_KIT.contains(&m.slug),
+                    "rich room grew the poor kit: {}",
+                    m.slug
+                );
+            }
+            rich_placed_secondary |= r.secondaries.iter().any(|sec| RICH_KIT.contains(&sec.slug));
+
+            let mut poor = SceneCharacter::for_seed(s);
+            poor.theme = ThemeArchetype::Mesoamerican;
+            poor.prosperity = 0.05;
+            let p = Settlement::from_scene(&poor, s);
+            for m in std::iter::once(&p.landmark)
+                .chain(&p.secondaries)
+                .chain(&p.props)
+            {
+                assert!(meso_member(m.slug), "poor mesoamerican member {}", m.slug);
+                assert!(
+                    !RICH_KIT.contains(&m.slug),
+                    "poor room grew the established kit: {}",
+                    m.slug
+                );
+            }
+            poor_placed_granary |= p.secondaries.iter().any(|sec| sec.slug == "maize_granary");
+        }
+        assert!(
+            rich_placed_secondary,
+            "some rich mesoamerican room places an established secondary"
+        );
+        assert!(
+            poor_placed_granary,
+            "some poor mesoamerican room places the maize granary"
+        );
+    }
+
+    #[test]
     fn ancient_theme_sometimes_places_secondaries() {
         let any = (0u64..64).any(|s| {
             let mut scene = SceneCharacter::for_seed(s);
