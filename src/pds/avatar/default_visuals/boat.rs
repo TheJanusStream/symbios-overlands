@@ -25,7 +25,7 @@ use crate::seeded_defaults::{AvatarBody, AvatarPalette, BowStyle, HullForm, Vess
 
 use super::common::{
     brass_mat, capsule, cone, cuboid, cylinder, funnel_mat, glow_mat, id_quat, metal_mat, pastel,
-    pfp_banner, plank_mat, prim, quat_x, quat_xyzw, quat_z, sphere, with_torture,
+    pfp_banner, plank_mat, prim, quat_x, quat_xyzw, sphere, with_torture,
 };
 
 /// `seed` drives the derived look (re-roll re-seeds this); `did` is kept
@@ -141,16 +141,13 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
             id_quat(),
         ));
     }
-    // Pfp banner standing in YZ (normal ±X) — readable from both
-    // sides like a heraldic banner.
-    let flag_height = 0.55;
-    let flag_width = 0.40;
+    // Square pfp banner standing in YZ (normal ±X) — a heraldic side
+    // banner readable from both faces, hung clear of the mast in +Z.
+    let flag_size = 0.55;
     mast_children.push(pfp_banner(
         did,
-        flag_height,
-        flag_width,
-        [0.0, mast_h * 0.2, flag_width * 0.5 + 0.05],
-        quat_xyzw(quat_z(FRAC_PI_2)),
+        flag_size,
+        [0.0, mast_h * 0.2, flag_size * 0.5 + 0.05],
         pastel(deck_color),
     ));
 

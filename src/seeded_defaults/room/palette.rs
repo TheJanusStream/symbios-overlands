@@ -127,9 +127,13 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     let chroma_floor = 0.06 + temp.max(0.0) * 0.04;
 
     // ---------------- SUN ----------------
-    // Sun colour drifts from amber-warm at horizon to cool/cyan when
-    // high — and in fantasy mode "cool sun" can mean any hue at all.
-    let sun_color = col(
+    // The directional sun colour is tied to the fog's sun-glow tint
+    // (`fog_sun_rgb`, derived in the FOG block below) so a seeded room's
+    // key light and its atmospheric glow read as the same source. We
+    // still burn the historical sun-drift draws here so this retargeting
+    // doesn't ripple through the rest of the palette — sky, fog, water
+    // and terrain stay byte-identical for a given seed.
+    let _sun_drift = col(
         lerp(0.95, 0.86, tod) + jitter(rng, 0.04),
         chroma_floor + range_f32(rng, 0.02, 0.14),
         base_hue + 30.0 + jitter(rng, 220.0),
@@ -176,6 +180,10 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
         base_hue + jitter(rng, 180.0),
     );
     let fog_sun_color = col4(fog_sun_rgb, 0.5);
+
+    // Lighting & Sky "Sun colour" follows the Distance Fog "Sun glow"
+    // tint (see the SUN note above): the same RGB, at full opacity.
+    let sun_color = fog_sun_rgb;
 
     // ---------------- CLOUDS ----------------
     // Sunlit top is bright; shadowed underside is mid. Hue is loose —
@@ -355,6 +363,23 @@ mod tests {
                 assert!(finite_rgb(p.snow_dry));
                 assert!(finite_rgb(p.snow_moist));
             }
+        }
+    }
+
+    #[test]
+    fn sun_color_follows_fog_sun_glow() {
+        // Seeded rooms key the directional sun colour off the fog
+        // sun-glow tint, so the two share RGB (the glow carries a 0.5
+        // alpha the opaque sun drops). Sweep seeds to be sure it isn't a
+        // lucky single-seed collision.
+        for s in 0u64..32 {
+            let scene = SceneCharacter::for_seed(s);
+            let p = RoomPalette::from_scene(&scene, s);
+            assert_eq!(
+                p.sun_color,
+                [p.fog_sun_color[0], p.fog_sun_color[1], p.fog_sun_color[2]],
+                "sun colour diverged from fog sun-glow at seed {s}"
+            );
         }
     }
 

@@ -8,6 +8,8 @@
 //! them keeps each family file focused on *layout* — where the pieces
 //! go — rather than on `Generator` struct plumbing.
 
+use std::f32::consts::FRAC_PI_2;
+
 use crate::pds::generator::{AlphaModeKind, Generator, GeneratorKind, SignSource};
 use crate::pds::texture::{
     SovereignMaterialSettings, SovereignPlankConfig, SovereignTextureConfig,
@@ -145,11 +147,32 @@ pub(super) fn quat_x(angle_rad: f32) -> [f32; 4] {
     [half.sin(), 0.0, 0.0, half.cos()]
 }
 
+/// Sister of [`quat_x`] around Y — rolls a Sign panel about its own
+/// normal so its textured image sits upright after the panel is stood up.
+pub(super) fn quat_y(angle_rad: f32) -> [f32; 4] {
+    let half = angle_rad * 0.5;
+    [0.0, half.sin(), 0.0, half.cos()]
+}
+
 /// Sister of [`quat_x`] around Z — stands the pfp Sign plane up in YZ
 /// and rolls wheel cylinders onto their rims.
 pub(super) fn quat_z(angle_rad: f32) -> [f32; 4] {
     let half = angle_rad * 0.5;
     [0.0, 0.0, half.sin(), half.cos()]
+}
+
+/// Hamilton product of two `[x, y, z, w]` quaternions: the rotation that
+/// applies `b` first and then `a`. Used to compose the pfp banner's
+/// stand-up and image-upright rolls into one transform.
+pub(super) fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    let [ax, ay, az, aw] = a;
+    let [bx, by, bz, bw] = b;
+    [
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+        aw * bw - ax * bx - ay * by - az * bz,
+    ]
 }
 
 pub(super) fn quat_xyzw(q: [f32; 4]) -> Fp4 {
@@ -342,19 +365,23 @@ pub(super) fn pastel(color: [f32; 3]) -> [f32; 3] {
     ]
 }
 
-/// Sign panel showing the owner's bsky profile picture. The Sign mesh
-/// is a plane in local XZ (normal +Y); the caller's `rotation` stands
-/// it up however the family needs (boats fly it as a heraldic side
-/// banner, humanoids as a backpack pennant). `double_sided` renders
-/// both faces and `unlit` keeps the pfp legible regardless of sun
-/// angle. `tint` is the fallback colour — pass [`pastel`] of an accent
-/// so an unloaded banner still belongs to the avatar's palette.
+/// Square Sign panel showing the owner's bsky profile picture, flown as
+/// a heraldic side banner (face normal ±X) at `translation`. `size` is
+/// the side length: the panel is kept **square** so the profile picture
+/// is never stretched. `double_sided` renders both faces and `unlit`
+/// keeps the pfp legible regardless of sun angle. `tint` is the fallback
+/// colour — pass [`pastel`] of an accent so an unloaded banner still
+/// belongs to the avatar's palette.
+///
+/// The Sign mesh is a plane in local XZ (normal +Y) with the image's
+/// right→local +X and down→local +Z. Two rolls are baked in:
+/// `quat_y(-FRAC_PI_2)` turns the image upright within the panel, and
+/// `quat_z(FRAC_PI_2)` (applied last) stands the panel vertical with its
+/// normal on ±X. Without the Y roll the picture rides 90° on its side.
 pub(super) fn pfp_banner(
     did: &str,
-    height: f32,
-    width: f32,
+    size: f32,
     translation: [f32; 3],
-    rotation: Fp4,
     tint: [f32; 3],
 ) -> Generator {
     prim(
@@ -362,7 +389,7 @@ pub(super) fn pfp_banner(
             source: SignSource::DidPfp {
                 did: did.to_owned(),
             },
-            size: Fp2([height, width]),
+            size: Fp2([size, size]),
             uv_repeat: Fp2([1.0, 1.0]),
             uv_offset: Fp2([0.0, 0.0]),
             material: SovereignMaterialSettings {
@@ -376,6 +403,6 @@ pub(super) fn pfp_banner(
             unlit: true,
         },
         translation,
-        rotation,
+        quat_xyzw(quat_mul(quat_z(FRAC_PI_2), quat_y(-FRAC_PI_2))),
     )
 }

@@ -216,12 +216,11 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
         [0.0, gondola_y * 0.5 + staff_h * 0.5, -gondola_z * 0.42],
         id_quat(),
     );
+    let banner_size = 0.40;
     jackstaff.children.push(pfp_banner(
         did,
-        0.40,
-        0.30,
-        [0.0, staff_h * 0.18, 0.30 * 0.5 + 0.04],
-        quat_xyzw(quat_z(FRAC_PI_2)),
+        banner_size,
+        [0.0, staff_h * 0.18, banner_size * 0.5 + 0.04],
         pastel(envelope_color),
     ));
 

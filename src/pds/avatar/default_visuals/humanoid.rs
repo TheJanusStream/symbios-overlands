@@ -19,8 +19,6 @@
 //!   legs (trousers) = secondary_accent
 //!   pelvis / boots / belt / pauldrons = tertiary_accent
 
-use std::f32::consts::FRAC_PI_2;
-
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
 use crate::seeded_defaults::{AvatarBody, AvatarPalette, HatStyle, HumanoidStyle};
@@ -205,8 +203,7 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
     // ---- Backpack + pfp pennant -----------------------------------------------
     // The pole rises from the backpack (or straight from the belt
     // line when the figure rolled no pack).
-    let banner_h = 0.30;
-    let banner_w = 0.22;
+    let banner_size = 0.30;
     let pole_h = 0.55;
     let pole_base_y = if style.backpack {
         0.12
@@ -221,10 +218,8 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
     );
     pole.children.push(pfp_banner(
         did,
-        banner_h,
-        banner_w,
-        [0.0, pole_h * 0.30, banner_w * 0.5 + 0.03],
-        quat_xyzw(quat_z(FRAC_PI_2)),
+        banner_size,
+        [0.0, pole_h * 0.30, banner_size * 0.5 + 0.03],
         pastel(shirt),
     ));
     if style.backpack {

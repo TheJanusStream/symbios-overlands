@@ -253,12 +253,11 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
         ],
         quat_xyzw(quat_x(skiff.antenna_rake_rad)),
     );
+    let banner_size = 0.32;
     whip.children.push(pfp_banner(
         did,
-        0.32,
-        0.24,
-        [0.0, whip_h * 0.32, 0.24 * 0.5 + 0.03],
-        quat_xyzw(quat_z(FRAC_PI_2)),
+        banner_size,
+        [0.0, whip_h * 0.32, banner_size * 0.5 + 0.03],
         pastel(chassis_color),
     ));
 
