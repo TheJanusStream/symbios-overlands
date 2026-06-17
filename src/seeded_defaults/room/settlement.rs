@@ -301,6 +301,38 @@ mod tests {
     }
 
     #[test]
+    fn cyberpunk_settlement_uses_its_own_kit() {
+        // Cyberpunk now has catalogue content, so its rooms use the neon
+        // megatower landmark rather than the AncientClassical fallback,
+        // and any secondaries/props come from the cyberpunk pool.
+        let mut placed_secondary = false;
+        for s in 0u64..32 {
+            let mut scene = SceneCharacter::for_seed(s);
+            scene.theme = ThemeArchetype::Cyberpunk;
+            let st = Settlement::from_scene(&scene, s);
+            assert_eq!(
+                st.landmark.slug, "neon_megatower",
+                "Cyberpunk landmark should be the neon megatower"
+            );
+            for sec in &st.secondaries {
+                assert!(
+                    matches!(sec.slug, "data_spire" | "arcade_block"),
+                    "unexpected cyberpunk secondary {}",
+                    sec.slug
+                );
+            }
+            for prop in &st.props {
+                assert_eq!(prop.slug, "neon_kiosk");
+            }
+            placed_secondary |= !st.secondaries.is_empty();
+        }
+        assert!(
+            placed_secondary,
+            "some Cyberpunk room should place a secondary"
+        );
+    }
+
+    #[test]
     fn ancient_theme_sometimes_places_secondaries() {
         let any = (0u64..64).any(|s| {
             let mut scene = SceneCharacter::for_seed(s);

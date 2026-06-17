@@ -13,6 +13,7 @@
 use super::CatalogueEntry;
 
 pub mod ancient;
+pub mod cyberpunk;
 pub mod medieval;
 pub mod patterns;
 pub mod plants;
@@ -37,6 +38,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &ancient::stone_circle::StoneCircle,
     &ancient::ziggurat::Ziggurat,
     &ancient::observatory::Observatory,
+    // Buildings — Cyberpunk theme (landmark + secondaries + prop).
+    &cyberpunk::neon_megatower::NeonMegatower,
+    &cyberpunk::data_spire::DataSpire,
+    &cyberpunk::arcade_block::ArcadeBlock,
+    &cyberpunk::neon_kiosk::NeonKiosk,
     // Plants — L-system tree entries.
     &plants::lsys_monopodial_tree::MonopodialTree,
     &plants::lsys_sympodial_tree::SympodialTree,
@@ -103,9 +109,9 @@ mod tests {
     fn categories_unchanged_after_role_migration() {
         use crate::catalogue::CatalogueCategory::*;
         let count = |c| ENTRIES.iter().filter(|e| e.category() == c).count();
-        // Locks the pre-migration distribution: deriving category() from
-        // role() must not move any existing entry to a different section.
-        assert_eq!(count(Buildings), 8);
+        // Deriving category() from role() must keep every entry in its
+        // expected section. 8 ancient/medieval + 4 cyberpunk = 12 buildings.
+        assert_eq!(count(Buildings), 12);
         assert_eq!(count(Plants), 4);
         assert_eq!(count(Patterns), 3);
         assert_eq!(count(Tools), 1);
