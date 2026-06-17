@@ -378,12 +378,7 @@ pub(super) fn pastel(color: [f32; 3]) -> [f32; 3] {
 /// `quat_y(-FRAC_PI_2)` turns the image upright within the panel, and
 /// `quat_z(FRAC_PI_2)` (applied last) stands the panel vertical with its
 /// normal on ±X. Without the Y roll the picture rides 90° on its side.
-pub(super) fn pfp_banner(
-    did: &str,
-    size: f32,
-    translation: [f32; 3],
-    tint: [f32; 3],
-) -> Generator {
+pub(super) fn pfp_banner(did: &str, size: f32, translation: [f32; 3], tint: [f32; 3]) -> Generator {
     prim(
         GeneratorKind::Sign {
             source: SignSource::DidPfp {
