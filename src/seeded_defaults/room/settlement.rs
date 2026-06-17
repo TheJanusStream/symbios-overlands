@@ -447,6 +447,79 @@ mod tests {
     }
 
     #[test]
+    fn nordic_settlement_uses_its_own_kit_by_prosperity() {
+        // The per-theme poor/rich pattern (#433/#394): an affluent Nordic
+        // room grows the carved-timber steading, a destitute one grows the
+        // turf croft — the two registers never cross. (The shared, band-
+        // agnostic `stone_circle` is a legitimate Nordic landmark in either,
+        // so we assert by register exclusion rather than an exact slug.)
+        const POOR_KIT: [&str; 3] = ["turf_house", "sod_shelter", "wood_pile"];
+        const RICH_KIT: [&str; 8] = [
+            "mead_hall",
+            "boathouse",
+            "signal_beacon",
+            "rune_stones",
+            "longship",
+            "shield_rack",
+            "drying_rack",
+            "totem_pole",
+        ];
+
+        let nordic_member = |slug: &str| {
+            by_slug(slug)
+                .expect("member resolves")
+                .themes()
+                .contains(&ThemeArchetype::Nordic)
+        };
+
+        let mut rich_placed_secondary = false;
+        let mut poor_placed_sod_shelter = false;
+        for s in 0u64..32 {
+            let mut rich = SceneCharacter::for_seed(s);
+            rich.theme = ThemeArchetype::Nordic;
+            rich.prosperity = 0.95;
+            let r = Settlement::from_scene(&rich, s);
+            for m in std::iter::once(&r.landmark)
+                .chain(&r.secondaries)
+                .chain(&r.props)
+            {
+                assert!(nordic_member(m.slug), "rich nordic member {}", m.slug);
+                assert!(
+                    !POOR_KIT.contains(&m.slug),
+                    "rich nordic room grew the poor kit: {}",
+                    m.slug
+                );
+            }
+            rich_placed_secondary |= r.secondaries.iter().any(|sec| RICH_KIT.contains(&sec.slug));
+
+            let mut poor = SceneCharacter::for_seed(s);
+            poor.theme = ThemeArchetype::Nordic;
+            poor.prosperity = 0.05;
+            let p = Settlement::from_scene(&poor, s);
+            for m in std::iter::once(&p.landmark)
+                .chain(&p.secondaries)
+                .chain(&p.props)
+            {
+                assert!(nordic_member(m.slug), "poor nordic member {}", m.slug);
+                assert!(
+                    !RICH_KIT.contains(&m.slug),
+                    "poor nordic room grew the established kit: {}",
+                    m.slug
+                );
+            }
+            poor_placed_sod_shelter |= p.secondaries.iter().any(|sec| sec.slug == "sod_shelter");
+        }
+        assert!(
+            rich_placed_secondary,
+            "some rich nordic room places an established secondary"
+        );
+        assert!(
+            poor_placed_sod_shelter,
+            "some poor nordic room places the sod shelter"
+        );
+    }
+
+    #[test]
     fn ancient_theme_sometimes_places_secondaries() {
         let any = (0u64..64).any(|s| {
             let mut scene = SceneCharacter::for_seed(s);

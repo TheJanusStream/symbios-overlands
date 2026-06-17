@@ -90,6 +90,24 @@ fn voice_for(scene: &SceneCharacter) -> ThemeVoice {
             arp: true,
             reverb_mix: 0.28,
         },
+        // Low droning lur / horn — slow, sparse, heroic minor, an octave
+        // down so it tolls over the steading.
+        ThemeArchetype::Nordic => ThemeVoice {
+            id: "theme_lur",
+            wave: Wave::Triangle,
+            detune_cents: 7.0,
+            scale: PENTATONIC_MINOR,
+            octave: 0.5,
+            attack_s: 0.05,
+            decay_s: 0.4,
+            sustain_level: 0.3,
+            release_s: 1.6,
+            note_count: (3, 6),
+            gate: (0.5, 1.1),
+            volume: (0.10, 0.17),
+            arp: false,
+            reverb_mix: 0.5,
+        },
         // Plucked dorian lute — modest, sparse.
         ThemeArchetype::Medieval => ThemeVoice {
             id: "theme_lute",
@@ -373,6 +391,9 @@ mod tests {
         assert_eq!(cy.scale, PHRYGIAN);
         let med = voice_for(&scene_with(ThemeArchetype::Medieval, 0.0));
         assert_eq!(med.scale, DORIAN);
+        let nor = voice_for(&scene_with(ThemeArchetype::Nordic, 0.0));
+        assert!(matches!(nor.wave, Wave::Triangle) && !nor.arp && nor.octave < 1.0);
+        assert_eq!(nor.scale, PENTATONIC_MINOR);
         let anc = voice_for(&scene_with(ThemeArchetype::AncientClassical, 0.0));
         assert_eq!(anc.scale, PENTATONIC_MAJOR);
     }

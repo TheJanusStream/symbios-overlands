@@ -16,6 +16,7 @@ pub mod ancient;
 pub mod civic;
 pub mod cyberpunk;
 pub mod medieval;
+pub mod nordic;
 pub mod patterns;
 pub mod plants;
 pub mod tools;
@@ -54,6 +55,19 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &cyberpunk::tarp_shelter::TarpShelter,
     &cyberpunk::ewaste_pile::EwastePile,
     &cyberpunk::busted_terminal::BustedTerminal,
+    // Buildings — Nordic theme (landmark + secondaries + props).
+    &nordic::mead_hall::MeadHall,
+    &nordic::boathouse::Boathouse,
+    &nordic::signal_beacon::SignalBeacon,
+    &nordic::rune_stones::RuneStones,
+    &nordic::longship::Longship,
+    &nordic::shield_rack::ShieldRack,
+    &nordic::drying_rack::DryingRack,
+    &nordic::totem_pole::TotemPole,
+    // Buildings — Nordic poor (croft) variants, prosperity Poor.
+    &nordic::turf_house::TurfHouse,
+    &nordic::sod_shelter::SodShelter,
+    &nordic::wood_pile::WoodPile,
     // Buildings — cross-theme socio-political props (Prop role, tagged
     // with every theme but gated to a prosperity / escalation tier band;
     // see crate::catalogue::items::civic).
@@ -141,8 +155,9 @@ mod tests {
         let count = |c| ENTRIES.iter().filter(|e| e.category() == c).count();
         // Deriving category() from role() must keep every entry in its
         // expected section. 8 ancient/medieval + 8 cyberpunk + 5 cyberpunk
-        // poor variants + 16 civic cross-theme props = 37 buildings.
-        assert_eq!(count(Buildings), 37);
+        // poor + 8 nordic + 3 nordic poor + 16 civic cross-theme props = 48
+        // buildings.
+        assert_eq!(count(Buildings), 48);
         assert_eq!(count(Plants), 4);
         assert_eq!(count(Patterns), 3);
         assert_eq!(count(Tools), 1);

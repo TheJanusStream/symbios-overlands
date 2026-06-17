@@ -66,6 +66,14 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: None,
             },
+            // Cold northern light — steel-blue fjord air over the steading.
+            Nordic => Self {
+                tint: [0.55, 0.66, 0.85],
+                tint_strength: 0.16,
+                haze: 0.06,
+                brightness: 1.0,
+                particle_mood: None,
+            },
             AlienOrganic => Self {
                 tint: [0.25, 0.85, 0.40],
                 tint_strength: 0.20,
@@ -198,6 +206,19 @@ mod tests {
         assert!(ThemeAccent::for_theme(ThemeArchetype::AncientClassical).is_noop());
         assert!(!ThemeAccent::for_theme(ThemeArchetype::Cyberpunk).is_noop());
         assert!(!ThemeAccent::for_theme(ThemeArchetype::Medieval).is_noop());
+    }
+
+    #[test]
+    fn nordic_accent_leans_cold_blue() {
+        let a = ThemeAccent::for_theme(ThemeArchetype::Nordic);
+        assert!(!a.is_noop());
+        // Steel-blue: the blue channel dominates the red.
+        assert!(a.tint[2] > a.tint[0], "nordic accent should lean blue");
+        let out = a.tint_rgb([0.4, 0.4, 0.4]);
+        assert!(out[2] > out[0]);
+        for ch in out {
+            assert!((0.0..=1.0).contains(&ch));
+        }
     }
 
     #[test]
