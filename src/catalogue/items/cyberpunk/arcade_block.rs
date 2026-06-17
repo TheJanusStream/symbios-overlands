@@ -8,7 +8,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{DARK_METAL, NEON_CYAN, NEON_MAGENTA, metal};
+use super::{DARK_METAL, NEON_CYAN, NEON_MAGENTA, fx, metal, window_wall};
 
 pub struct ArcadeBlock;
 
@@ -58,10 +58,15 @@ fn build_tree() -> Generator {
     base.transform.translation.0[1] -= slab_h * 0.5;
     root.children.push(base);
 
-    // Main block.
+    // Main block — a lit window-grid facade (a glowing arcade interior),
+    // not a flat metal box.
     let block_h = 5.0;
     root.children.push(prim(
-        solid(cuboid_tapered([9.0, block_h, 6.0], 0.0, metal(body))),
+        solid(cuboid_tapered(
+            [9.0, block_h, 6.0],
+            0.0,
+            window_wall([0.10, 0.42, 0.52], 0.5),
+        )),
         [0.0, rel(slab_h + block_h * 0.5), 0.0],
         id_quat(),
     ));
@@ -74,12 +79,15 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Standing rooftop sign board, set toward the front edge.
-    root.children.push(prim(
+    // Standing rooftop sign board, set toward the front edge — its tubes
+    // buzz with a signature electrical hum.
+    let mut sign = prim(
         cuboid_tapered([0.3, 4.0, 5.0], 0.0, glow(NEON_CYAN, 7.0)),
         [3.6, rel(roof_y + 2.0), 0.0],
         id_quat(),
-    ));
+    );
+    sign.audio = fx::neon_buzz();
+    root.children.push(sign);
 
     // Glowing doorway band at street level on the front face.
     root.children.push(prim(

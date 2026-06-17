@@ -9,7 +9,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{DARK_METAL, NEON_CYAN, RUST_BROWN, metal, rust};
+use super::{DARK_METAL, NEON_CYAN, RUST_BROWN, fx, metal, rust};
 
 pub struct EwastePile;
 
@@ -63,11 +63,16 @@ fn build_tree() -> Generator {
             [-0.2, 0.5, 0.15],
             quat_y(0.6),
         ),
-        // A cracked panel still faintly lit.
-        prim(
-            cuboid_tapered([0.5, 0.04, 0.34], 0.0, glow(NEON_CYAN, 2.5)),
-            [0.18, 0.66, 0.2],
-            quat_x(-0.35),
-        ),
+        // A cracked panel still faintly lit — it fizzes and throws sparks.
+        {
+            let mut panel = prim(
+                cuboid_tapered([0.5, 0.04, 0.34], 0.0, glow(NEON_CYAN, 2.5)),
+                [0.18, 0.66, 0.2],
+                quat_x(-0.35),
+            );
+            panel.audio = fx::electric_crackle();
+            panel
+        },
+        fx::spark_burst([0.18, 0.7, 0.2], 0xEA57_E000),
     ])
 }

@@ -16,7 +16,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{DARK_METAL, NEON_CYAN, NEON_LIME, NEON_MAGENTA, metal};
+use super::{DARK_METAL, NEON_CYAN, NEON_LIME, NEON_MAGENTA, fx, metal};
 
 pub struct NeonMegatower;
 
@@ -135,6 +135,12 @@ fn build_tree() -> Generator {
         [0.0, rel(top + mast_h + 0.4), 0.0],
         id_quat(),
     ));
+
+    // Signature life: a coolant vent breathing steam at the podium edge and
+    // a deep transformer hum at the tower base.
+    root.children
+        .push(fx::steam_vent([5.5, rel(slab_h + 0.4), 4.0], 0x6E60_57A1));
+    root.audio = fx::transformer_hum();
 
     root
 }

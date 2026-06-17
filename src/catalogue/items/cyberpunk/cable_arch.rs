@@ -7,7 +7,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{DARK_METAL, NEON_CYAN, NEON_LIME, metal};
+use super::{DARK_METAL, NEON_CYAN, NEON_LIME, fx, metal};
 
 pub struct CableArch;
 
@@ -67,11 +67,14 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    root.children.push(prim(
+    // Top beam — the live conduit; it crackles with a signature arc hum.
+    let mut beam = prim(
         solid(cuboid_tapered([span + 0.5, 0.4, 0.4], 0.0, metal(body))),
         [0.0, rel(slab_h + post_h), 0.0],
         id_quat(),
-    ));
+    );
+    beam.audio = fx::electric_crackle();
+    root.children.push(beam);
 
     // Glowing cables hanging from the beam at a few points.
     let colors = [NEON_CYAN, NEON_LIME, NEON_CYAN];
@@ -84,6 +87,12 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
+
+    // A frayed cable end spitting the occasional spark.
+    root.children.push(fx::spark_burst(
+        [-span * 0.32, rel(slab_h + post_h - 1.0), 0.0],
+        0xCAB1_5A1A,
+    ));
 
     root
 }

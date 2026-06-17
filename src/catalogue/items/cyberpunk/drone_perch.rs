@@ -9,7 +9,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{DARK_METAL, NEON_MAGENTA, metal};
+use super::{DARK_METAL, NEON_MAGENTA, fx, metal};
 
 pub struct DronePerch;
 
@@ -72,12 +72,14 @@ fn build_tree() -> Generator {
         [0.0, rel(slab_h + pole_h), 0.0],
         id_quat(),
     ));
-    // Hovering glowing drone.
-    root.children.push(prim(
+    // Hovering glowing drone — whirring rotors are its signature sound.
+    let mut drone = prim(
         sphere(0.35, 3, glow(NEON_MAGENTA, 8.0)),
         [0.0, rel(slab_h + pole_h + 0.7), 0.0],
         id_quat(),
-    ));
+    );
+    drone.audio = fx::drone_whir();
+    root.children.push(drone);
 
     root
 }

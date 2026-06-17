@@ -80,8 +80,9 @@ fn finish_tree(node: &mut Generator, wealth: f32, scorch: f32) {
 
 /// Mutable borrows of every [`SovereignMaterialSettings`] carried directly
 /// by one node (not its children). Material-free variants yield an empty
-/// vec.
-fn node_materials_mut(kind: &mut GeneratorKind) -> Vec<&mut SovereignMaterialSettings> {
+/// vec. Shared with [`crate::pds::ruin`] so the damage pass walks the same
+/// material set.
+pub(crate) fn node_materials_mut(kind: &mut GeneratorKind) -> Vec<&mut SovereignMaterialSettings> {
     match kind {
         GeneratorKind::Cuboid { material, .. }
         | GeneratorKind::Sphere { material, .. }

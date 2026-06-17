@@ -7,7 +7,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{CONTAINER_BLUE, CONTAINER_RUST, NEON_LIME, rust};
+use super::{CONTAINER_BLUE, CONTAINER_RUST, NEON_LIME, corrugated};
 
 pub struct ContainerStack;
 
@@ -47,13 +47,21 @@ fn build_tree() -> Generator {
     assemble(vec![
         // Lower container (root).
         prim(
-            solid(cuboid_tapered([3.6, ch, 2.3], 0.0, rust(CONTAINER_BLUE))),
+            solid(cuboid_tapered(
+                [3.6, ch, 2.3],
+                0.0,
+                corrugated(CONTAINER_BLUE),
+            )),
             [0.0, ch * 0.5, 0.0],
             id_quat(),
         ),
         // Upper container, shifted and tilted.
         prim(
-            solid(cuboid_tapered([3.3, ch, 2.2], 0.0, rust(CONTAINER_RUST))),
+            solid(cuboid_tapered(
+                [3.3, ch, 2.2],
+                0.0,
+                corrugated(CONTAINER_RUST),
+            )),
             [0.35, ch * 1.5, 0.15],
             quat_x(0.05),
         ),

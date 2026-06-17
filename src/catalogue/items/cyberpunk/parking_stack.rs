@@ -7,7 +7,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{DARK_METAL, NEON_CYAN, metal};
+use super::{NEON_CYAN, concrete};
 
 pub struct ParkingStack;
 
@@ -43,12 +43,13 @@ impl CatalogueEntry for ParkingStack {
 }
 
 fn build_tree() -> Generator {
-    let body = DARK_METAL;
+    // A parking structure is board-formed concrete, not glossy metal.
+    let conc = [0.30_f32, 0.31, 0.34];
     let slab_h = 0.4;
     let (w, depth) = (11.0_f32, 8.0_f32);
 
     let mut root = prim(
-        solid(cuboid_tapered([w, slab_h, depth], 0.0, metal(body))),
+        solid(cuboid_tapered([w, slab_h, depth], 0.0, concrete(conc))),
         [0.0, slab_h * 0.5, 0.0],
         id_quat(),
     );
@@ -63,7 +64,7 @@ fn build_tree() -> Generator {
     for sx in [-1.0_f32, 1.0] {
         for sz in [-1.0_f32, 1.0] {
             root.children.push(prim(
-                solid(cuboid_tapered([0.6, total_h, 0.6], 0.0, metal(body))),
+                solid(cuboid_tapered([0.6, total_h, 0.6], 0.0, concrete(conc))),
                 [
                     sx * (w * 0.5 - 0.6),
                     rel(slab_h + total_h * 0.5),
@@ -82,7 +83,7 @@ fn build_tree() -> Generator {
             solid(cuboid_tapered(
                 [w - 1.0, 0.3, depth - 1.0],
                 0.0,
-                metal(body),
+                concrete(conc),
             )),
             [0.0, rel(dy), 0.0],
             id_quat(),

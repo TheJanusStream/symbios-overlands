@@ -9,7 +9,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{DARK_METAL, NEON_CYAN, RUST_BROWN, TARP_BLUE, metal, rust, tarp};
+use super::{DARK_METAL, NEON_CYAN, RUST_BROWN, TARP_BLUE, fx, metal, rust, tarp};
 
 pub struct TarpShelter;
 
@@ -78,6 +78,8 @@ fn build_tree() -> Generator {
         [0.0, pole_h - 0.3, 0.0],
         id_quat(),
     ));
+    // A burn-barrel brazier in the corner keeping the shelter warm.
+    prims.push(fx::brazier_flame([-0.7, 0.4, -0.5], 0xB7A2_F1A3));
 
     assemble(prims)
 }

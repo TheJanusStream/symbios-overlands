@@ -7,7 +7,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{DARK_METAL, NEON_LIME, RUST_BROWN, metal, rust};
+use super::{DARK_METAL, NEON_LIME, RUST_BROWN, fx, metal, rust};
 
 pub struct BustedTerminal;
 
@@ -57,11 +57,17 @@ fn build_tree() -> Generator {
             [0.0, 0.15, 0.0],
             id_quat(),
         ),
-        // Cracked screen, faintly lit, on the front face.
-        prim(
-            cuboid_tapered([0.08, 0.9, 0.45], 0.0, glow(NEON_LIME, 2.5)),
-            [0.45, body_h * 0.62, 0.0],
-            quat_x(0.1),
-        ),
+        // Cracked screen, faintly lit, on the front face — fizzing and
+        // spitting sparks from the shorted panel.
+        {
+            let mut screen = prim(
+                cuboid_tapered([0.08, 0.9, 0.45], 0.0, glow(NEON_LIME, 2.5)),
+                [0.45, body_h * 0.62, 0.0],
+                quat_x(0.1),
+            );
+            screen.audio = fx::electric_crackle();
+            screen
+        },
+        fx::spark_burst([0.5, body_h * 0.5, 0.0], 0xB057_ED00),
     ])
 }

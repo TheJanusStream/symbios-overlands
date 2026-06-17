@@ -12,7 +12,10 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{CONTAINER_BLUE, CONTAINER_RUST, DARK_METAL, NEON_MAGENTA, RUST_BROWN, metal, rust};
+use super::{
+    CONTAINER_BLUE, CONTAINER_RUST, DARK_METAL, NEON_MAGENTA, RUST_BROWN, chain_link, corrugated,
+    fx, grille, metal,
+};
 
 pub struct ScrapShanty;
 
@@ -48,9 +51,10 @@ impl CatalogueEntry for ScrapShanty {
 }
 
 fn build_tree() -> Generator {
-    // A leaning stack of containers, each offset and tilted off the last.
+    // A leaning stack of corrugated shipping containers, each offset and
+    // tilted off the last.
     let container = |w: f32, h: f32, d: f32, color: [f32; 3]| {
-        solid(cuboid_tapered([w, h, d], 0.0, rust(color)))
+        solid(cuboid_tapered([w, h, d], 0.0, corrugated(color)))
     };
     let ch = 2.5; // container height
 
@@ -79,18 +83,40 @@ fn build_tree() -> Generator {
             [0.2, ch * 3.0 + 1.0, 0.1],
             quat_x(0.05),
         ),
-        // Slanted tin lean-to off the second tier.
+        // Slanted corrugated-tin lean-to off the second tier.
         prim(
-            solid(cuboid_tapered([4.6, 0.1, 3.2], 0.0, rust([0.5, 0.5, 0.52]))),
+            solid(cuboid_tapered(
+                [4.6, 0.1, 3.2],
+                0.0,
+                corrugated([0.55, 0.56, 0.58]),
+            )),
             [0.4, ch * 2.0 + 0.1, 1.4],
             quat_x(0.4),
         ),
-        // Failing vertical neon sign down the front (dim, flickery feel).
+        // A leaning chain-link fence segment staking out the ground.
         prim(
-            cuboid_tapered([0.18, ch * 2.2, 0.18], 0.0, glow(NEON_MAGENTA, 3.0)),
-            [2.2, ch * 1.6, 0.0],
+            cuboid_tapered([3.4, 1.8, 0.05], 0.0, chain_link()),
+            [-1.6, 0.9, 2.7],
+            quat_x(0.06),
+        ),
+        // A rusted exhaust grille bolted to the lower container.
+        prim(
+            cuboid_tapered([0.06, 1.1, 1.3], 0.0, grille()),
+            [2.15, 1.2, 0.4],
             id_quat(),
         ),
+        // Failing vertical neon sign down the front — dim, buzzing, throwing
+        // the occasional spark.
+        {
+            let mut sign = prim(
+                cuboid_tapered([0.18, ch * 2.2, 0.18], 0.0, glow(NEON_MAGENTA, 3.0)),
+                [2.2, ch * 1.6, 0.0],
+                id_quat(),
+            );
+            sign.audio = fx::neon_buzz();
+            sign
+        },
+        fx::spark_burst([2.2, ch * 1.6 - 1.0, 0.0], 0x5A17_5A17),
         // Antenna mast + dim beacon.
         prim(
             solid(cylinder_tapered(0.06, 2.4, 6, 0.0, metal(DARK_METAL))),

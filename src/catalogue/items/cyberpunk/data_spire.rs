@@ -10,7 +10,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{DARK_METAL, NEON_CYAN, metal};
+use super::{DARK_METAL, NEON_CYAN, fx, metal};
 
 pub struct DataSpire;
 
@@ -91,6 +91,13 @@ fn build_tree() -> Generator {
         sphere(0.55, 3, glow(NEON_CYAN, 9.0)),
         [0.0, rel(slab_h + spire_h + 0.3), 0.0],
         id_quat(),
+    ));
+
+    // Signature life: faint data static drifting up the upper spire.
+    root.children.push(fx::rising_motes(
+        [0.0, rel(slab_h + spire_h * 0.62), 0.0],
+        NEON_CYAN,
+        0xDA7A_5217,
     ));
 
     root

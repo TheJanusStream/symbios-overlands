@@ -7,7 +7,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{DARK_METAL, NEON_CYAN, NEON_MAGENTA, metal};
+use super::{DARK_METAL, NEON_CYAN, NEON_MAGENTA, fx, metal};
 
 pub struct HoloBillboard;
 
@@ -79,6 +79,13 @@ fn build_tree() -> Generator {
         cuboid_tapered([5.8, 0.3, 0.4], 0.0, glow(NEON_MAGENTA, 6.0)),
         [0.0, rel(panel_y + 3.5), 0.0],
         id_quat(),
+    ));
+
+    // Signature life: holographic shimmer drifting off the panel face.
+    root.children.push(fx::rising_motes(
+        [0.0, rel(panel_y + 1.6), 0.7],
+        NEON_MAGENTA,
+        0x4010_B0FE,
     ));
 
     root

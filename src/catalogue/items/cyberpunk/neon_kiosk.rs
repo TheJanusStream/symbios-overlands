@@ -7,7 +7,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{DARK_METAL, NEON_LIME, NEON_MAGENTA, metal};
+use super::{DARK_METAL, NEON_LIME, NEON_MAGENTA, fx, metal};
 
 pub struct NeonKiosk;
 
@@ -57,13 +57,15 @@ fn build_tree() -> Generator {
     base.transform.translation.0[1] -= slab_h * 0.5;
     root.children.push(base);
 
-    // Vending body.
+    // Vending body — hums with the signature low buzz of a live machine.
     let box_h = 2.2;
-    root.children.push(prim(
+    let mut vending = prim(
         solid(cuboid_tapered([1.4, box_h, 1.0], 0.0, metal(body))),
         [0.0, rel(slab_h + box_h * 0.5), 0.0],
         id_quat(),
-    ));
+    );
+    vending.audio = fx::neon_buzz();
+    root.children.push(vending);
 
     // Glowing screen on the front face.
     root.children.push(prim(
