@@ -5,7 +5,7 @@
 
 use super::COLLECTION;
 use super::contact_effects::ContactEffects;
-use super::generator::{Generator, GeneratorKind, Placement, WaterSurface};
+use super::generator::{Generator, GeneratorKind, Placement, RoadConfig, WaterSurface};
 use super::sanitize::{Sanitize, limits, sanitize_generator};
 use super::terrain::SovereignTerrainConfig;
 use super::types::{Fp, Fp2, Fp3, Fp4, Fp64, TransformData};
@@ -372,6 +372,22 @@ impl RoomRecord {
             children: Vec::new(),
             audio: crate::pds::SovereignAudioConfig::None,
         });
+
+        // Urban / built-up themes grow a tensor road network as a RoadNetwork
+        // child of the terrain. The generator is theme-agnostic — this is only
+        // the default-on policy; any room can add or remove roads in the editor.
+        // The layout gets its own seed (derived from the room seed) so it's
+        // independently re-rollable in the GUI.
+        if theme_grows_roads(scene.theme) {
+            base_region
+                .children
+                .push(Generator::from_kind(GeneratorKind::RoadNetwork(
+                    RoadConfig {
+                        seed: did_seed ^ ROAD_SEED_SALT,
+                        ..RoadConfig::default()
+                    },
+                )));
+        }
 
         let mut generators = HashMap::new();
         generators.insert("base_terrain".to_string(), base_region);
@@ -1112,6 +1128,42 @@ pub fn find_terrain_config(record: &RoomRecord) -> Option<&SovereignTerrainConfi
     None
 }
 
+/// Sub-stream salt so a room's road layout seed differs from its terrain seed
+/// while staying deterministic in the DID.
+const ROAD_SEED_SALT: u64 = 0xA0D5_EED5_A170_0001;
+
+/// Themes whose default seeded room grows a road network. The `RoadNetwork`
+/// generator itself is theme-agnostic; this is just the default-on policy —
+/// any room can add or remove roads in the editor.
+fn theme_grows_roads(theme: crate::seeded_defaults::ThemeArchetype) -> bool {
+    use crate::seeded_defaults::ThemeArchetype::*;
+    matches!(
+        theme,
+        Cyberpunk | ModernCity | IndustrialPark | Roadside | CivicCampus | Suburban | SportsRec
+    )
+}
+
+/// Return the road-network config attached to the deterministically-chosen
+/// terrain generator (its `RoadNetwork` child), if any. Mirrors
+/// [`find_terrain_config`]'s sorted-key determinism so every peer reads the
+/// same config; the terrain plugin builds the road mesh from this plus the
+/// finished heightmap (see [`crate::urban`]).
+pub fn find_road_config(record: &RoomRecord) -> Option<&RoadConfig> {
+    let mut keys: Vec<&String> = record.generators.keys().collect();
+    keys.sort();
+    for k in keys {
+        if let Some(generator) = record.generators.get(k)
+            && let GeneratorKind::Terrain(_) = &generator.kind
+        {
+            return generator.children.iter().find_map(|c| match &c.kind {
+                GeneratorKind::RoadNetwork(cfg) => Some(cfg),
+                _ => None,
+            });
+        }
+    }
+    None
+}
+
 // ---------------------------------------------------------------------------
 // Read: fetch room record from the room owner's PDS
 // ---------------------------------------------------------------------------
@@ -1521,6 +1573,42 @@ mod tests {
                 "expected 1–2 boulder scatters, got {rock_scatters}"
             );
         }
+    }
+
+    #[test]
+    fn urban_rooms_grow_a_road_network_others_stay_bare() {
+        use crate::seeded_defaults::{SceneCharacter, fnv1a_64};
+        let (mut saw_urban, mut saw_bare) = (false, false);
+        for s in 0u64..300 {
+            let did = format!("did:test:{s}");
+            let theme = SceneCharacter::for_seed(fnv1a_64(&did)).theme;
+            let record = RoomRecord::default_for_did(&did);
+            let road = find_road_config(&record);
+            assert_eq!(
+                road.is_some(),
+                theme_grows_roads(theme),
+                "road presence must match the default-on policy for {theme:?}"
+            );
+            if let Some(cfg) = road {
+                assert!(cfg.enabled, "seeded road network is enabled");
+                let terr = find_terrain_config(&record).expect("urban room has terrain");
+                assert_ne!(
+                    cfg.seed, terr.seed,
+                    "road layout carries its own seed, distinct from terrain"
+                );
+                saw_urban = true;
+            } else {
+                saw_bare = true;
+            }
+        }
+        assert!(
+            saw_urban,
+            "some seeded room should be an urban (roaded) theme"
+        );
+        assert!(
+            saw_bare,
+            "some seeded room should be a bare (road-free) theme"
+        );
     }
 
     #[test]

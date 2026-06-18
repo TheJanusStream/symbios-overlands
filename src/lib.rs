@@ -54,6 +54,7 @@ pub mod splat;
 pub mod state;
 pub mod terrain;
 pub mod ui;
+pub mod urban;
 pub mod water;
 pub mod world_builder;
 

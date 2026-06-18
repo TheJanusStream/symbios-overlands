@@ -28,6 +28,9 @@ pub(super) fn start_terrain_generation(mut commands: Commands, record: Res<LiveR
         .unwrap_or_default();
 
     let pool = AsyncComputeTaskPool::get();
+    // The heightmap is the only product of this task. Roads are re-meshed
+    // separately by `roads::maybe_rebuild_roads`, which drapes over the
+    // finished heightmap and reacts to road-config edits without a regen.
     let task = pool.spawn(async move { generate_terrain(&cfg) });
     commands.insert_resource(TerrainTask(task));
 }
@@ -139,8 +142,9 @@ pub(super) fn spawn_terrain_mesh(
             ));
         });
 
-    // Water is spawned separately by the `world_builder` module from
-    // whichever `Water` generator the active `RoomRecord` declares.
+    // Roads are spawned separately by `roads::maybe_rebuild_roads` (it drapes
+    // over this finished heightmap and reacts to road-config edits). Water is
+    // spawned by the `world_builder` module from the active record's `Water`.
 }
 
 /// Generate the heightmap for `cfg` — runs on the async compute pool.

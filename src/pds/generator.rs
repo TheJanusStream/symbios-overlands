@@ -121,6 +121,54 @@ impl Default for WaterSurface {
     }
 }
 
+/// Authored parameters for a [`GeneratorKind::RoadNetwork`] — a tensor-field
+/// street grid that drapes over the parent terrain (see [`crate::urban`]). The
+/// *config* is serialized / editable / seeded; the road *geometry* is recomputed
+/// at load from this plus the heightmap, never stored. Like Water, a road
+/// network is only valid as a child of a Terrain generator.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct RoadConfig {
+    /// Master toggle — a disabled network grows no roads (the editor "off").
+    pub enabled: bool,
+    /// Seed for the road layout *alone*, so an author can re-roll the streets
+    /// without disturbing terrain or settlement. Seeded derivers default it
+    /// from the room seed.
+    #[serde(with = "u64_as_string")]
+    pub seed: u64,
+    /// Half-extent (m from spawn) of the district the network fills.
+    pub district_half_extent: Fp,
+    /// Spacing (m) between parallel major / minor roads.
+    pub major_spacing: Fp,
+    pub minor_spacing: Fp,
+    /// Drivable-deck half-widths (m) by road class.
+    pub major_half_width: Fp,
+    pub minor_half_width: Fp,
+    /// Curb lip height (m), curb-top flat width (m), and outward chamfer run (m).
+    pub curb_height: Fp,
+    pub curb_top_width: Fp,
+    pub chamfer_width: Fp,
+    /// Depth (m) the foundation skirt drops below the deck.
+    pub skirt_depth: Fp,
+}
+
+impl Default for RoadConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            seed: 0,
+            district_half_extent: Fp(170.0),
+            major_spacing: Fp(95.0),
+            minor_spacing: Fp(55.0),
+            major_half_width: Fp(3.5),
+            minor_half_width: Fp(2.0),
+            curb_height: Fp(0.18),
+            curb_top_width: Fp(0.22),
+            chamfer_width: Fp(0.4),
+            skirt_depth: Fp(5.0),
+        }
+    }
+}
+
 /// Variant-specific payload for a [`Generator`]. Open union: unrecognised
 /// `$type` tags deserialise to `Unknown` instead of failing the whole record.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -144,6 +192,14 @@ pub enum GeneratorKind {
         #[serde(default)]
         surface: WaterSurface,
     },
+
+    /// Tensor-field road network draped over the parent terrain. Child-only
+    /// (like Water); the sanitiser drops it at root. Its mesh is built by the
+    /// terrain plugin from [`RoadConfig`] + the finished heightmap, so the
+    /// compile dispatch treats it as inert (no entity), exactly as it does the
+    /// Terrain root's own mesh.
+    #[serde(rename = "network.symbios.gen.road_network")]
+    RoadNetwork(RoadConfig),
 
     #[serde(rename = "network.symbios.gen.portal")]
     Portal { target_did: String, target_pos: Fp3 },
@@ -689,6 +745,7 @@ impl GeneratorKind {
         match self {
             GeneratorKind::Terrain(_) => "Terrain",
             GeneratorKind::Water { .. } => "Water",
+            GeneratorKind::RoadNetwork(_) => "RoadNetwork",
             GeneratorKind::Portal { .. } => "Portal",
             GeneratorKind::LSystem { .. } => "LSystem",
             GeneratorKind::Shape { .. } => "Shape",

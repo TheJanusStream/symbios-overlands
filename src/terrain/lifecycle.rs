@@ -8,6 +8,7 @@ use crate::interaction::TerrainSurfaceQuery;
 use crate::state::LiveRoomRecord;
 
 use super::referenced::PendingSplatLayerFetch;
+use super::roads::{RoadFingerprint, RoadMeshEntity};
 use super::{
     FinishedHeightMap, LastTerrainConfigJson, OutgoingTerrain, PendingTerrainConfigJson,
     SplatMaterialHandle, TerrainMesh, TerrainSplatState, TerrainTask, TextureLayerIndex,
@@ -23,10 +24,12 @@ pub(super) fn cleanup_terrain(
     terrain: Query<Entity, With<TerrainMesh>>,
     outgoing: Query<Entity, With<OutgoingTerrain>>,
     water: Query<Entity, With<WaterVolume>>,
+    roads: Query<Entity, With<RoadMeshEntity>>,
     pending_textures: Query<Entity, With<TextureLayerIndex>>,
     pending_raw: Query<Entity, With<PendingTexture>>,
     pending_splat_refs: Query<Entity, With<PendingSplatLayerFetch>>,
     mut splat_state: ResMut<TerrainSplatState>,
+    mut road_fp: ResMut<RoadFingerprint>,
     mut last_cfg: ResMut<LastTerrainConfigJson>,
     mut pending_cfg: ResMut<PendingTerrainConfigJson>,
 ) {
@@ -37,6 +40,9 @@ pub(super) fn cleanup_terrain(
         commands.entity(e).try_despawn();
     }
     for e in &water {
+        commands.entity(e).despawn();
+    }
+    for e in &roads {
         commands.entity(e).despawn();
     }
     // In-flight splat texture tasks would otherwise survive into the next
@@ -56,6 +62,7 @@ pub(super) fn cleanup_terrain(
         commands.entity(e).despawn();
     }
     *splat_state = TerrainSplatState::default();
+    road_fp.0 = None;
     last_cfg.0 = None;
     pending_cfg.0 = None;
     commands.remove_resource::<FinishedHeightMap>();
@@ -103,6 +110,9 @@ pub(super) fn maybe_regenerate_terrain(
     // serialisation failure, which preserves the old "leave it alone"
     // behaviour for that (vanishingly rare) case.
     if record.is_changed() {
+        // Only the terrain config gates a heightmap regen. A road-config edit
+        // does *not* regenerate terrain — `roads::maybe_rebuild_roads` re-meshes
+        // the road from the existing heightmap instead.
         match crate::pds::find_terrain_config(&record.0) {
             Some(cfg) => {
                 if let Ok(fp) = serde_json::to_string(cfg) {

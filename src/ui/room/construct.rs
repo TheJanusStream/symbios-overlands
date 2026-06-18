@@ -72,8 +72,10 @@ pub(super) const ROOM_ROOT_KINDS: &[&str] = &[
 ];
 
 /// Kind tags eligible as a **child** anywhere in a room generator tree:
-/// every primitive plus LSystem / Shape / Portal / Water. Terrain is
-/// excluded (root-only).
+/// every primitive plus LSystem / Shape / Portal / Water / RoadNetwork.
+/// Terrain is excluded (root-only). RoadNetwork is only *meaningful* as a
+/// Terrain child (the terrain plugin reads it there) but, like Water, is
+/// offered as a generic child — misplacement simply grows no roads.
 pub(super) const ROOM_CHILD_KINDS: &[&str] = &[
     "Cuboid",
     "Sphere",
@@ -89,6 +91,7 @@ pub(super) const ROOM_CHILD_KINDS: &[&str] = &[
     "Shape",
     "Portal",
     "Water",
+    "RoadNetwork",
 ];
 
 /// Kind tags eligible at every position inside an avatar visuals tree:
@@ -126,6 +129,7 @@ pub(super) fn make_default_for_kind(kind: &str) -> GeneratorKind {
         "Water" => GeneratorKind::Water {
             surface: WaterSurface::default(),
         },
+        "RoadNetwork" => GeneratorKind::RoadNetwork(crate::pds::generator::RoadConfig::default()),
         "Sign" => GeneratorKind::default_sign(),
         "ParticleSystem" => GeneratorKind::default_particles(),
         _ => GeneratorKind::default_cuboid(),

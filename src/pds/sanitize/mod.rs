@@ -199,6 +199,7 @@ pub fn sanitize_kind(kind: &mut GeneratorKind) {
         | GeneratorKind::Plane { .. }
         | GeneratorKind::Tetrahedron { .. } => sanitize_primitive(kind),
         GeneratorKind::Water { surface } => sanitize_water(surface),
+        GeneratorKind::RoadNetwork(config) => sanitize_road(config),
         GeneratorKind::Sign {
             source,
             size,
@@ -260,6 +261,23 @@ pub fn sanitize_kind(kind: &mut GeneratorKind) {
         ),
         GeneratorKind::Unknown => {}
     }
+}
+
+/// Clamp a [`crate::pds::generator::RoadConfig`] to finite, sane ranges so a hostile or malformed
+/// record can't feed the road builder a NaN extent or a million-metre skirt.
+/// The child-of-Terrain placement constraint is enforced structurally — only a
+/// Terrain child's road config is ever read (see [`crate::terrain`]).
+fn sanitize_road(c: &mut crate::pds::generator::RoadConfig) {
+    use common::clamp_finite;
+    c.district_half_extent.0 = clamp_finite(c.district_half_extent.0, 10.0, 500.0, 170.0);
+    c.major_spacing.0 = clamp_finite(c.major_spacing.0, 10.0, 500.0, 95.0);
+    c.minor_spacing.0 = clamp_finite(c.minor_spacing.0, 8.0, 400.0, 55.0);
+    c.major_half_width.0 = clamp_finite(c.major_half_width.0, 0.5, 20.0, 3.5);
+    c.minor_half_width.0 = clamp_finite(c.minor_half_width.0, 0.5, 20.0, 2.0);
+    c.curb_height.0 = clamp_finite(c.curb_height.0, 0.0, 2.0, 0.18);
+    c.curb_top_width.0 = clamp_finite(c.curb_top_width.0, 0.0, 5.0, 0.22);
+    c.chamfer_width.0 = clamp_finite(c.chamfer_width.0, 0.0, 5.0, 0.4);
+    c.skirt_depth.0 = clamp_finite(c.skirt_depth.0, 0.5, 50.0, 5.0);
 }
 
 /// Clamp a whole [`Generator`] tree (root + descendants) in place. Shared
