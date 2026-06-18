@@ -304,6 +304,95 @@ fn biome_splat_profile(b: BiomeArchetype) -> BiomeSplatProfile {
             snow_height_min: 0.40,
             blend_sharpness: 0.35,
         },
+        Jungle => BiomeSplatProfile {
+            // Tropical-dense: grass climbs high up the slopes, dirt
+            // shows through the canopy floor, snow only on the rare peak.
+            grass_height_max: 0.55,
+            grass_slope_max: 0.40,
+            dirt_height_min: 0.30,
+            dirt_height_max: 0.75,
+            rock_slope_min: 0.30,
+            snow_height_min: 0.95,
+            blend_sharpness: 0.45,
+        },
+        TemperateForest => BiomeSplatProfile {
+            // Mixed broadleaf: a wide grass/leaf-litter floor, dirt over
+            // the mid slopes, snow capping the highest ground.
+            grass_height_max: 0.48,
+            grass_slope_max: 0.34,
+            dirt_height_min: 0.28,
+            dirt_height_max: 0.72,
+            rock_slope_min: 0.28,
+            snow_height_min: 0.88,
+            blend_sharpness: 0.5,
+        },
+        Boreal => BiomeSplatProfile {
+            // Cold conifer below the tree line: green floor, dirt mid,
+            // snow line lower than the broadleaf forests but well above
+            // the bare-tundra line.
+            grass_height_max: 0.40,
+            grass_slope_max: 0.30,
+            dirt_height_min: 0.22,
+            dirt_height_max: 0.62,
+            rock_slope_min: 0.25,
+            snow_height_min: 0.72,
+            blend_sharpness: 0.45,
+        },
+        Wetland => BiomeSplatProfile {
+            // Low, waterlogged ground: grass/reed mat hugs the flats,
+            // dirt (peat mud) dominates the gentle rises, snow absent.
+            grass_height_max: 0.40,
+            grass_slope_max: 0.22,
+            dirt_height_min: 0.18,
+            dirt_height_max: 0.65,
+            rock_slope_min: 0.35,
+            snow_height_min: 0.96,
+            blend_sharpness: 0.4,
+        },
+        Meadow => BiomeSplatProfile {
+            // Rolling grassland: grass blankets nearly everything, dirt
+            // and rock only where the ground breaks; effectively no snow.
+            grass_height_max: 0.60,
+            grass_slope_max: 0.38,
+            dirt_height_min: 0.35,
+            dirt_height_max: 0.78,
+            rock_slope_min: 0.35,
+            snow_height_min: 0.94,
+            blend_sharpness: 0.5,
+        },
+        Savanna => BiomeSplatProfile {
+            // Dry golden grass with bare patches: a broad but thinner
+            // grass band over plenty of exposed dirt; no snow.
+            grass_height_max: 0.42,
+            grass_slope_max: 0.26,
+            dirt_height_min: 0.18,
+            dirt_height_max: 0.78,
+            rock_slope_min: 0.24,
+            snow_height_min: 0.97,
+            blend_sharpness: 0.55,
+        },
+        Badlands => BiomeSplatProfile {
+            // Eroded rock: almost no grass, dirt over the lower terraces,
+            // rock takes over the steep faces; no snow.
+            grass_height_max: 0.12,
+            grass_slope_max: 0.14,
+            dirt_height_min: 0.08,
+            dirt_height_max: 0.55,
+            rock_slope_min: 0.16,
+            snow_height_min: 0.98,
+            blend_sharpness: 0.65,
+        },
+        Glacial => BiomeSplatProfile {
+            // Ice-dominant: no vegetation worth speaking of, dirt only on
+            // the rare moraine, snow/ice line dropped to the valley floor.
+            grass_height_max: 0.08,
+            grass_slope_max: 0.12,
+            dirt_height_min: 0.06,
+            dirt_height_max: 0.28,
+            rock_slope_min: 0.28,
+            snow_height_min: 0.30,
+            blend_sharpness: 0.35,
+        },
     }
 }
 
@@ -392,10 +481,14 @@ fn derive_water_level_fraction(
 ) -> f32 {
     let base = sample_f32(rng, lp.water_level_fraction);
     let biome_mul = match scene.biome {
-        BiomeArchetype::Arid | BiomeArchetype::Volcanic => 0.70,
-        BiomeArchetype::Tundra | BiomeArchetype::Alpine => 0.85,
-        BiomeArchetype::Lush => 1.05,
-        BiomeArchetype::Coastal => 1.15,
+        BiomeArchetype::Arid | BiomeArchetype::Volcanic | BiomeArchetype::Badlands => 0.70,
+        BiomeArchetype::Tundra | BiomeArchetype::Alpine | BiomeArchetype::Glacial => 0.85,
+        BiomeArchetype::Savanna => 0.80,
+        BiomeArchetype::Lush
+        | BiomeArchetype::TemperateForest
+        | BiomeArchetype::Boreal
+        | BiomeArchetype::Meadow => 1.05,
+        BiomeArchetype::Coastal | BiomeArchetype::Jungle | BiomeArchetype::Wetland => 1.15,
     };
     (base * biome_mul).clamp(0.02, 0.55)
 }

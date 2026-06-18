@@ -66,6 +66,23 @@ fn species_pool(biome: BiomeArchetype) -> &'static [TreeSpecies] {
         BiomeArchetype::Tundra => &[Monopodial],
         BiomeArchetype::Arid => &[TernaryGravity, TernaryGravity, Sympodial],
         BiomeArchetype::Volcanic => &[TernaryGravity, Monopodial],
+        // Tropical broadleaf wall — no conifer at all.
+        BiomeArchetype::Jungle => &[TernaryProps, TernaryProps, Sympodial, Sympodial],
+        // Mixed broadleaf woodland, same blend as temperate Lush.
+        BiomeArchetype::TemperateForest => &[TernaryProps, TernaryProps, Sympodial, Monopodial],
+        // Conifer-dominant taiga.
+        BiomeArchetype::Boreal => &[Monopodial, Monopodial, TernaryProps],
+        // Gnarled mangroves over a broadleaf understory.
+        BiomeArchetype::Wetland => &[TernaryGravity, Sympodial, TernaryProps],
+        // Few trees over the grass — broad crowns where they stand.
+        BiomeArchetype::Meadow => &[Sympodial, TernaryProps],
+        // Scattered flat-crowned acacia + the odd gnarled survivor.
+        BiomeArchetype::Savanna => &[Sympodial, Sympodial, TernaryGravity],
+        // Only the most stubborn gnarled scrub clings to the rock.
+        BiomeArchetype::Badlands => &[TernaryGravity],
+        // No vegetation; `count_range` keeps the count at zero so this
+        // pool is never indexed.
+        BiomeArchetype::Glacial => &[Monopodial],
     }
 }
 
@@ -115,9 +132,21 @@ impl TreeScatters {
 /// end, broader at the verdant end. Both bounds are inclusive.
 fn count_range(biome: BiomeArchetype) -> (u32, u32) {
     match biome {
-        BiomeArchetype::Lush | BiomeArchetype::Coastal => (3, 4),
+        // Densest canopies on the planet.
+        BiomeArchetype::Jungle => (4, 4),
+        BiomeArchetype::Lush
+        | BiomeArchetype::Coastal
+        | BiomeArchetype::TemperateForest
+        | BiomeArchetype::Boreal => (3, 4),
+        // Mangroves cluster but never fully forest the open water.
+        BiomeArchetype::Wetland => (2, 4),
         BiomeArchetype::Alpine | BiomeArchetype::Tundra => (0, 2),
-        BiomeArchetype::Arid | BiomeArchetype::Volcanic => (0, 1),
+        // Open grassland with the odd stand of trees.
+        BiomeArchetype::Savanna => (1, 3),
+        BiomeArchetype::Meadow => (1, 2),
+        BiomeArchetype::Arid | BiomeArchetype::Volcanic | BiomeArchetype::Badlands => (0, 1),
+        // No trees on the ice.
+        BiomeArchetype::Glacial => (0, 0),
     }
 }
 

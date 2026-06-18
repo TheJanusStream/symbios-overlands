@@ -57,16 +57,49 @@ pub enum BiomeArchetype {
     Coastal,
     /// Pale blues and whites, low chroma everywhere.
     Tundra,
+    /// Saturated layered greens, humid haze; very high tropical
+    /// vegetation. Denser and wetter than [`Self::Lush`] (which now
+    /// reads temperate).
+    Jungle,
+    /// Mixed broadleaf woodland: dappled light, leaf litter, high
+    /// vegetation over a woodland floor.
+    TemperateForest,
+    /// Dark conifer taiga: cold-green, high coniferous vegetation —
+    /// green-but-cold, below the tree line ([`Self::Tundra`]/
+    /// [`Self::Alpine`] sit above it).
+    Boreal,
+    /// Dark still water, fog and peat; reeds, mangroves, lily pads —
+    /// high water-bound vegetation.
+    Wetland,
+    /// Rolling grass with wildflowers; medium flowering vegetation.
+    Meadow,
+    /// Golden dry grass under a big sky, scattered acacia; low-to-medium
+    /// vegetation.
+    Savanna,
+    /// Stratified reds and heavy erosion; very low vegetation. Pairs
+    /// naturally with the Mesa landform.
+    Badlands,
+    /// Blue ice and crevasses; no vegetation. Distinct from
+    /// [`Self::Tundra`], which keeps low scrub.
+    Glacial,
 }
 
 impl BiomeArchetype {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 14] = [
         Self::Lush,
         Self::Arid,
         Self::Alpine,
         Self::Volcanic,
         Self::Coastal,
         Self::Tundra,
+        Self::Jungle,
+        Self::TemperateForest,
+        Self::Boreal,
+        Self::Wetland,
+        Self::Meadow,
+        Self::Savanna,
+        Self::Badlands,
+        Self::Glacial,
     ];
 }
 

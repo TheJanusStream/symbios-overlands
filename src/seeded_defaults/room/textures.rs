@@ -126,17 +126,20 @@ impl GroundLayerKind for GrassLayer {
         (3.5, 5.5)
     }
     fn biome_bias(&self, biome: BiomeArchetype, p: &mut GroundTextureParams) {
-        // Lush rooms get denser, finer grass weave; arid runs sparser.
+        // Verdant rooms get denser, finer grass weave; dry runs sparser.
         match biome {
-            BiomeArchetype::Lush => {
+            BiomeArchetype::Lush
+            | BiomeArchetype::Jungle
+            | BiomeArchetype::TemperateForest
+            | BiomeArchetype::Meadow => {
                 p.micro_weight = (p.micro_weight + 0.05).min(0.50);
                 p.normal_strength = (p.normal_strength + 0.5).min(6.0);
             }
-            BiomeArchetype::Arid => {
+            BiomeArchetype::Arid | BiomeArchetype::Savanna | BiomeArchetype::Badlands => {
                 p.micro_weight = (p.micro_weight - 0.05).max(0.10);
                 p.normal_strength = (p.normal_strength - 0.5).max(2.0);
             }
-            BiomeArchetype::Tundra => {
+            BiomeArchetype::Tundra | BiomeArchetype::Glacial => {
                 // Faint, frost-suppressed grass: mute normal contribution.
                 p.normal_strength = (p.normal_strength * 0.5).max(1.0);
             }
@@ -167,13 +170,13 @@ impl GroundLayerKind for DirtLayer {
     }
     fn biome_bias(&self, biome: BiomeArchetype, p: &mut GroundTextureParams) {
         match biome {
-            BiomeArchetype::Arid => {
+            BiomeArchetype::Arid | BiomeArchetype::Savanna | BiomeArchetype::Badlands => {
                 // Cracked, sun-baked dirt: pump up micro-detail + normals.
                 p.micro_weight = (p.micro_weight + 0.05).min(0.50);
                 p.normal_strength = (p.normal_strength + 0.5).min(3.5);
             }
-            BiomeArchetype::Coastal => {
-                // Sandy / smooth: damp the micro weight.
+            BiomeArchetype::Coastal | BiomeArchetype::Wetland => {
+                // Sandy beach / wet peat mud — smooth: damp the micro weight.
                 p.micro_weight = (p.micro_weight - 0.10).max(0.15);
                 p.micro_octaves = p.micro_octaves.saturating_sub(1).max(2);
             }
@@ -204,7 +207,10 @@ impl GroundLayerKind for SnowLayer {
     }
     fn biome_bias(&self, biome: BiomeArchetype, p: &mut GroundTextureParams) {
         match biome {
-            BiomeArchetype::Alpine | BiomeArchetype::Tundra => {
+            BiomeArchetype::Alpine
+            | BiomeArchetype::Tundra
+            | BiomeArchetype::Glacial
+            | BiomeArchetype::Boreal => {
                 // Crustier, more present snow: extra micro detail.
                 p.micro_weight = (p.micro_weight + 0.05).min(0.55);
                 p.normal_strength = (p.normal_strength + 0.3).min(2.0);
@@ -257,15 +263,16 @@ fn derive_rock(scene: &SceneCharacter, seed: u64) -> RockTextureParams {
     // Volcanic & alpine rocks read more aggressive — bump attenuation
     // (more crack contrast) and octaves (sharper fracture pattern).
     match scene.biome {
-        BiomeArchetype::Volcanic => {
+        BiomeArchetype::Volcanic | BiomeArchetype::Badlands => {
+            // Sharp, high-contrast fracture — fresh basalt / eroded strata.
             p.attenuation = (p.attenuation + 0.4).min(3.2);
             p.normal_strength = (p.normal_strength + 0.5).min(5.5);
         }
         BiomeArchetype::Alpine => {
             p.octaves = (p.octaves + 1).min(11);
         }
-        BiomeArchetype::Coastal => {
-            // Wave-smoothed rocks: damp the attenuation.
+        BiomeArchetype::Coastal | BiomeArchetype::Glacial => {
+            // Wave-smoothed / ice-polished rocks: damp the attenuation.
             p.attenuation = (p.attenuation - 0.3).max(1.2);
         }
         _ => {}

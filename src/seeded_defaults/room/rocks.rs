@@ -65,8 +65,15 @@ fn count_range(scene: &SceneCharacter) -> (u32, u32) {
         LandformArchetype::Rolling => (5, 14),
     };
     match scene.biome {
-        BiomeArchetype::Volcanic | BiomeArchetype::Arid => (lo + 4, hi + 8),
-        BiomeArchetype::Lush => (lo.saturating_sub(2), hi.saturating_sub(4).max(lo)),
+        // Bare, stony, erosion-strewn ground piles up exposed rock.
+        BiomeArchetype::Volcanic | BiomeArchetype::Arid | BiomeArchetype::Badlands => {
+            (lo + 4, hi + 8)
+        }
+        // Dense turf / canopy / standing water hides the boulders.
+        BiomeArchetype::Lush
+        | BiomeArchetype::Jungle
+        | BiomeArchetype::Wetland
+        | BiomeArchetype::Meadow => (lo.saturating_sub(2), hi.saturating_sub(4).max(lo)),
         _ => (lo, hi),
     }
 }

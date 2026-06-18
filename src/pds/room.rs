@@ -926,13 +926,16 @@ fn apply_textures_to_material(
 /// Swap one terrain splat layer for a biome-signature surface generator,
 /// using the tileable surfaces added in `bevy_symbios_texture` 0.6:
 ///
-/// * **Arid / Coastal** — sand on the low/flat Grass layer (desert floor,
-///   beach).
+/// * **Arid / Coastal / Savanna / Badlands** — sand on the low/flat Grass
+///   layer (desert floor, beach, dry golden grassland, eroded terraces).
 /// * **Volcanic** — molten lava crust on the low/flat layer; its emissive
 ///   glow map is auto-wired by the upstream patch system.
-/// * **Tundra / Alpine** — real crystalline snow on the high-altitude Snow
-///   layer (layer 3), replacing the plain white Ground.
-/// * **Lush** — unchanged; keeps the grassy Ground stack.
+/// * **Tundra / Alpine / Boreal** — real crystalline snow on the
+///   high-altitude Snow layer (layer 3), replacing the plain white Ground.
+/// * **Glacial** — blue cracked ice on the low/flat layer (the crevassed
+///   valley floor) *and* crystalline snow on the high layer.
+/// * **Lush / Jungle / Temperate Forest / Wetland / Meadow** — unchanged;
+///   they keep the grassy Ground stack.
 ///
 /// Runs after [`apply_textures_to_material`] so the swapped layer carries
 /// the new generator's own appearance rather than a seeded Ground config.
@@ -944,13 +947,17 @@ fn apply_biome_signature_surface(
     material: &mut crate::pds::terrain::SovereignMaterialConfig,
 ) {
     use crate::pds::texture::{
-        SovereignLavaConfig, SovereignSandConfig, SovereignSnowConfig, SovereignTextureConfig as T,
+        SovereignIceConfig, SovereignLavaConfig, SovereignSandConfig, SovereignSnowConfig,
+        SovereignTextureConfig as T,
     };
     use crate::seeded_defaults::BiomeArchetype;
 
     let sig = (seed ^ 0x5163_0001) as u32;
     match biome {
-        BiomeArchetype::Arid | BiomeArchetype::Coastal => {
+        BiomeArchetype::Arid
+        | BiomeArchetype::Coastal
+        | BiomeArchetype::Savanna
+        | BiomeArchetype::Badlands => {
             material.layers[0] = T::Sand(SovereignSandConfig {
                 seed: sig,
                 ..Default::default()
@@ -962,13 +969,28 @@ fn apply_biome_signature_surface(
                 ..Default::default()
             });
         }
-        BiomeArchetype::Tundra | BiomeArchetype::Alpine => {
+        BiomeArchetype::Tundra | BiomeArchetype::Alpine | BiomeArchetype::Boreal => {
             material.layers[3] = T::Snow(SovereignSnowConfig {
                 seed: sig,
                 ..Default::default()
             });
         }
-        BiomeArchetype::Lush => {}
+        BiomeArchetype::Glacial => {
+            // Crevassed blue ice on the valley floor, snowfields on top.
+            material.layers[0] = T::Ice(SovereignIceConfig {
+                seed: sig,
+                ..Default::default()
+            });
+            material.layers[3] = T::Snow(SovereignSnowConfig {
+                seed: sig,
+                ..Default::default()
+            });
+        }
+        BiomeArchetype::Lush
+        | BiomeArchetype::Jungle
+        | BiomeArchetype::TemperateForest
+        | BiomeArchetype::Wetland
+        | BiomeArchetype::Meadow => {}
     }
 }
 
@@ -1270,8 +1292,14 @@ mod tests {
 
         let fresh = crate::pds::terrain::SovereignMaterialConfig::default;
 
-        // Arid / Coastal → sand on the low/flat Grass layer (0).
-        for biome in [BiomeArchetype::Arid, BiomeArchetype::Coastal] {
+        // Arid / Coastal / Savanna / Badlands → sand on the low/flat Grass
+        // layer (0).
+        for biome in [
+            BiomeArchetype::Arid,
+            BiomeArchetype::Coastal,
+            BiomeArchetype::Savanna,
+            BiomeArchetype::Badlands,
+        ] {
             let mut m = fresh();
             apply_biome_signature_surface(biome, 9, &mut m);
             assert!(matches!(m.layers[0], T::Sand(_)), "{biome:?} → layer0 sand");
@@ -1282,20 +1310,44 @@ mod tests {
         apply_biome_signature_surface(BiomeArchetype::Volcanic, 9, &mut m);
         assert!(matches!(m.layers[0], T::Lava(_)));
 
-        // Tundra / Alpine → real snow on the high-altitude Snow layer (3),
-        // leaving the low/flat layer as its Ground default.
-        for biome in [BiomeArchetype::Tundra, BiomeArchetype::Alpine] {
+        // Tundra / Alpine / Boreal → real snow on the high-altitude Snow
+        // layer (3), leaving the low/flat layer as its Ground default.
+        for biome in [
+            BiomeArchetype::Tundra,
+            BiomeArchetype::Alpine,
+            BiomeArchetype::Boreal,
+        ] {
             let mut m = fresh();
             apply_biome_signature_surface(biome, 9, &mut m);
             assert!(matches!(m.layers[3], T::Snow(_)), "{biome:?} → layer3 snow");
             assert!(matches!(m.layers[0], T::Ground(_)));
         }
 
-        // Lush keeps the entire grassy Ground stack.
+        // Glacial → blue cracked ice on the valley floor + snow on top.
         let mut m = fresh();
-        apply_biome_signature_surface(BiomeArchetype::Lush, 9, &mut m);
-        assert!(matches!(m.layers[0], T::Ground(_)));
-        assert!(matches!(m.layers[3], T::Ground(_)));
+        apply_biome_signature_surface(BiomeArchetype::Glacial, 9, &mut m);
+        assert!(matches!(m.layers[0], T::Ice(_)), "glacial → layer0 ice");
+        assert!(matches!(m.layers[3], T::Snow(_)), "glacial → layer3 snow");
+
+        // Verdant biomes keep the entire grassy Ground stack.
+        for biome in [
+            BiomeArchetype::Lush,
+            BiomeArchetype::Jungle,
+            BiomeArchetype::TemperateForest,
+            BiomeArchetype::Wetland,
+            BiomeArchetype::Meadow,
+        ] {
+            let mut m = fresh();
+            apply_biome_signature_surface(biome, 9, &mut m);
+            assert!(
+                matches!(m.layers[0], T::Ground(_)),
+                "{biome:?} → layer0 ground"
+            );
+            assert!(
+                matches!(m.layers[3], T::Ground(_)),
+                "{biome:?} → layer3 ground"
+            );
+        }
     }
 
     #[test]

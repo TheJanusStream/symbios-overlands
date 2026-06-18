@@ -85,15 +85,29 @@ fn derive_params(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> AmbientParams 
     // sparse, tightly band-passed punctuation accent.) Arid/Tundra still
     // separate from the lush rumble through their high-pass bed filter.
     let noise_kind = match scene.biome {
-        BiomeArchetype::Lush => NoiseKind::Pink,
-        BiomeArchetype::Volcanic => NoiseKind::Brown,
-        BiomeArchetype::Alpine => NoiseKind::Brown,
-        BiomeArchetype::Arid => NoiseKind::Pink,
-        BiomeArchetype::Coastal => NoiseKind::Pink,
-        BiomeArchetype::Tundra => NoiseKind::Pink,
+        // Dense-mass / low-and-dark biomes rumble on brown noise.
+        BiomeArchetype::Volcanic
+        | BiomeArchetype::Alpine
+        | BiomeArchetype::Jungle
+        | BiomeArchetype::Boreal
+        | BiomeArchetype::Wetland
+        | BiomeArchetype::Badlands
+        | BiomeArchetype::Glacial => NoiseKind::Brown,
+        // Breezier, more open biomes breathe on pink noise.
+        BiomeArchetype::Lush
+        | BiomeArchetype::Arid
+        | BiomeArchetype::Coastal
+        | BiomeArchetype::Tundra
+        | BiomeArchetype::TemperateForest
+        | BiomeArchetype::Meadow
+        | BiomeArchetype::Savanna => NoiseKind::Pink,
     };
     let filter_kind = match scene.biome {
-        BiomeArchetype::Arid | BiomeArchetype::Tundra => BedFilter::Highpass,
+        // Thin, airy beds for the dry and the bare-cold-wind biomes.
+        BiomeArchetype::Arid
+        | BiomeArchetype::Tundra
+        | BiomeArchetype::Savanna
+        | BiomeArchetype::Badlands => BedFilter::Highpass,
         _ => BedFilter::Lowpass,
     };
     // Landform sets the base cutoff envelope — open ranges for big
@@ -120,7 +134,10 @@ fn derive_params(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> AmbientParams 
     // resonant Q on the high-pass bed sings a harsh tone rather than
     // breathing as wind.
     let filter_q = match scene.biome {
-        BiomeArchetype::Tundra | BiomeArchetype::Volcanic => range_f32(rng, 0.8, 1.3),
+        BiomeArchetype::Tundra
+        | BiomeArchetype::Volcanic
+        | BiomeArchetype::Glacial
+        | BiomeArchetype::Badlands => range_f32(rng, 0.8, 1.3),
         _ => range_f32(rng, 0.5, 1.0),
     };
     // Noise amplitude kept low. The four layers sum and pass through the
@@ -141,8 +158,18 @@ fn derive_params(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> AmbientParams 
         LandformArchetype::Archipelago => range_f32(rng, 0.4, 0.6),
     };
     let reverb_damping = match scene.biome {
-        BiomeArchetype::Volcanic | BiomeArchetype::Lush => range_f32(rng, 0.6, 0.85),
-        BiomeArchetype::Arid | BiomeArchetype::Coastal => range_f32(rng, 0.2, 0.45),
+        // Dense canopy / standing water absorbs the highs fast.
+        BiomeArchetype::Volcanic
+        | BiomeArchetype::Lush
+        | BiomeArchetype::Jungle
+        | BiomeArchetype::Wetland
+        | BiomeArchetype::Boreal => range_f32(rng, 0.6, 0.85),
+        // Open, bright, hard-surfaced biomes keep the highs ringing.
+        BiomeArchetype::Arid
+        | BiomeArchetype::Coastal
+        | BiomeArchetype::Savanna
+        | BiomeArchetype::Badlands
+        | BiomeArchetype::Glacial => range_f32(rng, 0.2, 0.45),
         _ => range_f32(rng, 0.4, 0.6),
     };
     // Modest wet so the loop stays readable rather than washing out.

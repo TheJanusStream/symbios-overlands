@@ -63,7 +63,8 @@ struct ThemeVoice {
 fn biome_register(biome: BiomeArchetype) -> f32 {
     match biome {
         BiomeArchetype::Volcanic => 0.5,
-        BiomeArchetype::Tundra => 2.0,
+        // Glassy ice rings as high as the tundra frost.
+        BiomeArchetype::Tundra | BiomeArchetype::Glacial => 2.0,
         BiomeArchetype::Alpine => 1.5,
         _ => 1.0,
     }

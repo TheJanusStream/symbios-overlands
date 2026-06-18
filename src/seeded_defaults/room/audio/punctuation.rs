@@ -40,10 +40,14 @@ pub enum PunctuationMood {
     SubBoom,
     /// Arid: narrow high-Q whistle swells.
     WhistleGust,
-    /// Tundra: glassy high tings with a snap attack and long ring.
+    /// Tundra / Glacial: glassy high tings with a snap attack and long ring.
     IceTing,
-    /// Alpine: a quiet distant howl with slow vibrato.
+    /// Alpine / Boreal: a quiet distant howl with slow vibrato.
     DistantHowl,
+    /// Wetland: a low pulsed chorus of frog croaks.
+    FrogChorus,
+    /// Meadow: a sustained high band of cricket / cicada song.
+    InsectChorus,
 }
 
 /// Seeded punctuation parameters — see [`derive_punctuation`].
@@ -65,7 +69,9 @@ struct PunctuationParams {
 fn derive_punctuation(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> PunctuationParams {
     use BiomeArchetype::*;
     match scene.biome {
-        Lush => PunctuationParams {
+        // Songbirds in the verdant broadleaf biomes; the jungle's canopy
+        // chatters densest of all.
+        Lush | TemperateForest | Jungle => PunctuationParams {
             mood: PunctuationMood::BirdChirps,
             base_hz: range_f32(rng, 1_800.0, 2_600.0),
             event_count: 4 + (range_f32(rng, 0.0, 4.0) as u32),
@@ -89,7 +95,8 @@ fn derive_punctuation(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> Punctuati
             gate: (0.3, 0.5),
             release_beats: 2.0,
         },
-        Arid => PunctuationParams {
+        // Dry wind whistling over open ground / through canyons.
+        Arid | Savanna | Badlands => PunctuationParams {
             mood: PunctuationMood::WhistleGust,
             base_hz: range_f32(rng, 1_200.0, 2_200.0),
             event_count: 2 + (range_f32(rng, 0.0, 2.0) as u32),
@@ -97,7 +104,8 @@ fn derive_punctuation(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> Punctuati
             gate: (1.2, 2.0),
             release_beats: 1.5,
         },
-        Tundra => PunctuationParams {
+        // Glassy tings: frost on tundra, cracking ice on a glacier.
+        Tundra | Glacial => PunctuationParams {
             mood: PunctuationMood::IceTing,
             base_hz: range_f32(rng, 2_400.0, 3_800.0),
             event_count: 2 + (range_f32(rng, 0.0, 3.0) as u32),
@@ -105,13 +113,32 @@ fn derive_punctuation(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> Punctuati
             gate: (0.05, 0.12),
             release_beats: 1.2,
         },
-        Alpine => PunctuationParams {
+        // A lone distant howl carrying over the alps and the taiga.
+        Alpine | Boreal => PunctuationParams {
             mood: PunctuationMood::DistantHowl,
             base_hz: range_f32(rng, 280.0, 380.0),
             event_count: 1,
             volume: (0.12, 0.2),
             gate: (3.0, 4.0),
             release_beats: 2.0,
+        },
+        // Low pulsed frog croaks over the standing water.
+        Wetland => PunctuationParams {
+            mood: PunctuationMood::FrogChorus,
+            base_hz: range_f32(rng, 140.0, 260.0),
+            event_count: 5 + (range_f32(rng, 0.0, 4.0) as u32),
+            volume: (0.12, 0.20),
+            gate: (0.12, 0.30),
+            release_beats: 0.5,
+        },
+        // A sustained band of cricket / cicada song over the grass.
+        Meadow => PunctuationParams {
+            mood: PunctuationMood::InsectChorus,
+            base_hz: range_f32(rng, 3_500.0, 5_500.0),
+            event_count: 1 + (range_f32(rng, 0.0, 2.0) as u32),
+            volume: (0.08, 0.16),
+            gate: (3.0, 4.0),
+            release_beats: 1.5,
         },
     }
 }
@@ -151,6 +178,10 @@ fn build_punctuation_patch(
         WhistleGust => (0.8, 0.6, 0.3, 1.2, AdsrCurve::Linear),
         IceTing => (0.001, 0.08, 0.0, 1.0, AdsrCurve::Exponential),
         DistantHowl => (1.5, 0.5, 0.6, 1.9, AdsrCurve::Linear),
+        // Quick croak body with a brief sustain.
+        FrogChorus => (0.01, 0.12, 0.2, 0.25, AdsrCurve::Exponential),
+        // Slow swell into a sustained drone.
+        InsectChorus => (0.6, 0.4, 0.6, 1.0, AdsrCurve::Linear),
     };
     let mut amp_inputs = BTreeMap::new();
     amp_inputs.insert(
@@ -172,7 +203,10 @@ fn build_punctuation_patch(
     let mut nodes = vec![gate_node, amp_node];
 
     // Source + optional modulators.
-    let tonal = matches!(punct.mood, BirdChirps | SubBoom | IceTing | DistantHowl);
+    let tonal = matches!(
+        punct.mood,
+        BirdChirps | SubBoom | IceTing | DistantHowl | FrogChorus
+    );
     if tonal {
         let mut osc_inputs = BTreeMap::new();
         match punct.mood {
@@ -243,7 +277,8 @@ fn build_punctuation_patch(
         });
         let q = match punct.mood {
             WaveWash => 0.8,
-            _ => 5.0, // WhistleGust: narrow singing band.
+            InsectChorus => 8.0, // tight cicada whine
+            _ => 5.0,            // WhistleGust: narrow singing band.
         };
         let mut filter_inputs = BTreeMap::new();
         filter_inputs.insert(
@@ -316,6 +351,7 @@ fn punctuation_track_events(punct: &PunctuationParams, rng: &mut ChaCha8Rng) -> 
             PunctuationMood::BirdChirps => range_f32(rng, 0.85, 1.35),
             PunctuationMood::IceTing => range_f32(rng, 0.8, 1.6),
             PunctuationMood::SubBoom => range_f32(rng, 0.9, 1.1),
+            PunctuationMood::FrogChorus => range_f32(rng, 0.8, 1.2),
             _ => 1.0,
         };
         events.push(Event {
@@ -362,11 +398,19 @@ mod tests {
         use BiomeArchetype::*;
         let cases = [
             (Lush, PunctuationMood::BirdChirps),
+            (TemperateForest, PunctuationMood::BirdChirps),
+            (Jungle, PunctuationMood::BirdChirps),
             (Coastal, PunctuationMood::WaveWash),
             (Volcanic, PunctuationMood::SubBoom),
             (Arid, PunctuationMood::WhistleGust),
+            (Savanna, PunctuationMood::WhistleGust),
+            (Badlands, PunctuationMood::WhistleGust),
             (Tundra, PunctuationMood::IceTing),
+            (Glacial, PunctuationMood::IceTing),
             (Alpine, PunctuationMood::DistantHowl),
+            (Boreal, PunctuationMood::DistantHowl),
+            (Wetland, PunctuationMood::FrogChorus),
+            (Meadow, PunctuationMood::InsectChorus),
         ];
         for (biome, mood) in cases {
             let mut sc = SceneCharacter::for_seed(1);

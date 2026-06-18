@@ -106,9 +106,13 @@ fn derive_water(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> WaterDynamics {
         LandformArchetype::Craggy => (0.25, 0.50, 0.8, 1.4, 0.03, 0.08),
         LandformArchetype::Mesa => (0.15, 0.35, 0.7, 1.2, 0.01, 0.05),
     };
-    // Alpine and tundra biomes settle the water further.
+    // Cold and wetland biomes settle the water; coasts liven it.
     let (chop_lo, chop_hi, speed_lo, speed_hi) = match scene.biome {
-        BiomeArchetype::Alpine | BiomeArchetype::Tundra => {
+        BiomeArchetype::Alpine
+        | BiomeArchetype::Tundra
+        | BiomeArchetype::Glacial
+        | BiomeArchetype::Wetland => {
+            // Still ponds, glacial meltpools, peat bogs: barely a ripple.
             (chop_lo * 0.6, chop_hi * 0.7, speed_lo * 0.7, speed_hi * 0.8)
         }
         BiomeArchetype::Coastal => (
@@ -168,12 +172,18 @@ fn derive_atmosphere(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> Atmosphere
     // -- Fog ----------------------------------------------------------------
     // Alpine = far-seeing, volcanic = hazy, coastal = humid mid-distance.
     let (vis_lo, vis_hi) = match scene.biome {
-        BiomeArchetype::Alpine => (400.0, 600.0),
+        BiomeArchetype::Alpine | BiomeArchetype::Glacial => (400.0, 600.0),
         BiomeArchetype::Tundra => (350.0, 550.0),
-        BiomeArchetype::Lush => (300.0, 450.0),
+        BiomeArchetype::Lush | BiomeArchetype::TemperateForest | BiomeArchetype::Boreal => {
+            (300.0, 450.0)
+        }
         BiomeArchetype::Coastal => (250.0, 400.0),
-        BiomeArchetype::Arid => (300.0, 500.0),
+        BiomeArchetype::Arid | BiomeArchetype::Savanna | BiomeArchetype::Badlands => (300.0, 500.0),
+        // Humid haze (jungle) and standing-water fog (wetland) close in
+        // the view almost as hard as volcanic smoke.
+        BiomeArchetype::Jungle | BiomeArchetype::Wetland => (200.0, 360.0),
         BiomeArchetype::Volcanic => (180.0, 320.0),
+        BiomeArchetype::Meadow => (350.0, 520.0),
     };
     let fog_visibility = range_f32(rng, vis_lo, vis_hi);
     let fog_sun_exponent = range_f32(rng, 50.0, 150.0);
@@ -190,8 +200,12 @@ fn derive_atmosphere(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> Atmosphere
     // -- Clouds -------------------------------------------------------------
     // Biome biases cover; tundra/alpine overcast more, arid clearer.
     let (cover_lo, cover_hi) = match scene.biome {
-        BiomeArchetype::Tundra | BiomeArchetype::Alpine => (0.45, 0.75),
-        BiomeArchetype::Arid => (0.10, 0.35),
+        BiomeArchetype::Tundra | BiomeArchetype::Alpine | BiomeArchetype::Boreal => (0.45, 0.75),
+        // Low cloud / fog sits over standing-water wetlands.
+        BiomeArchetype::Glacial | BiomeArchetype::Wetland => (0.40, 0.70),
+        BiomeArchetype::Arid | BiomeArchetype::Badlands => (0.10, 0.35),
+        // Big dry sky with a few drifting clouds.
+        BiomeArchetype::Savanna => (0.15, 0.45),
         BiomeArchetype::Volcanic => (0.30, 0.60),
         _ => (0.25, 0.60),
     };

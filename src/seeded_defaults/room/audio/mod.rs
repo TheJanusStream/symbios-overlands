@@ -265,7 +265,22 @@ mod tests {
                 .iter()
                 .any(|n| matches!(n.kind, NodeKind::Sine(_)))
         };
-        let expects_sine = |b: BiomeArchetype| matches!(b, Lush | Volcanic | Tundra | Alpine);
+        // Tonal punctuation moods (BirdChirps / SubBoom / IceTing /
+        // DistantHowl / FrogChorus) carry a Sine; WaveWash / WhistleGust /
+        // InsectChorus are filtered-noise voices.
+        let expects_sine = |b: BiomeArchetype| {
+            matches!(
+                b,
+                Lush | TemperateForest
+                    | Jungle
+                    | Volcanic
+                    | Tundra
+                    | Glacial
+                    | Alpine
+                    | Boreal
+                    | Wetland
+            )
+        };
         for biome in BiomeArchetype::ALL {
             for s in 0u64..4 {
                 let mut scene = SceneCharacter::for_seed(s);

@@ -33,9 +33,13 @@ pub enum ParticleMood {
     Embers,
     DustMotes,
     MistMotes,
-    /// Drifting flower petals — the Feudal-Japan accent: blossom carried on
-    /// the wind over the settlement.
+    /// Drifting flower petals — the Feudal-Japan accent and the Meadow
+    /// biome: blossom carried on the wind over the settlement.
     Petals,
+    /// Drifting leaves — the woodland-floor signature of the forest
+    /// biomes: leaf litter shed from the canopy, fluttering down through
+    /// dappled light.
+    Leaves,
     /// Drifting dark smoke / ash — the conflict signature, selected when a
     /// room's escalation reaches [`EscalationTier::Conflict`] regardless of
     /// biome or theme.
@@ -143,6 +147,17 @@ impl AmbientParticles {
                 color_throat: Fp3([1.0, 0.90, 0.70]),
                 ..Default::default()
             }),
+            // Leaves reuse the petal card silhouette, recoloured to
+            // foliage: green blade, darker rim, amber midrib.
+            ParticleMood::Leaves => SovereignTextureConfig::Petal(SovereignPetalConfig {
+                seed,
+                variant_rows: 2,
+                variant_cols: 2,
+                color_base: Fp3([0.45, 0.62, 0.24]),
+                color_edge: Fp3([0.30, 0.45, 0.16]),
+                color_throat: Fp3([0.74, 0.66, 0.28]),
+                ..Default::default()
+            }),
             ParticleMood::Smoke => SovereignTextureConfig::Puff(SovereignPuffConfig {
                 seed,
                 variant_rows: 3,
@@ -178,10 +193,22 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng, room_seed: u64) -> Ambie
 fn biome_mood(biome: BiomeArchetype) -> ParticleMood {
     match biome {
         BiomeArchetype::Lush => ParticleMood::Fireflies,
-        BiomeArchetype::Tundra | BiomeArchetype::Alpine => ParticleMood::Snowfall,
+        BiomeArchetype::Tundra | BiomeArchetype::Alpine | BiomeArchetype::Glacial => {
+            ParticleMood::Snowfall
+        }
+        BiomeArchetype::Boreal => ParticleMood::Snowfall,
         BiomeArchetype::Volcanic => ParticleMood::Embers,
-        BiomeArchetype::Arid => ParticleMood::DustMotes,
-        BiomeArchetype::Coastal => ParticleMood::MistMotes,
+        BiomeArchetype::Arid | BiomeArchetype::Savanna | BiomeArchetype::Badlands => {
+            ParticleMood::DustMotes
+        }
+        BiomeArchetype::Coastal | BiomeArchetype::Jungle | BiomeArchetype::Wetland => {
+            // Humid haze (jungle) and standing-water fog (wetland) read as
+            // drifting mist motes, same as the sea coast.
+            ParticleMood::MistMotes
+        }
+        BiomeArchetype::TemperateForest => ParticleMood::Leaves,
+        // Wildflower meadow — drifting blossom petals.
+        BiomeArchetype::Meadow => ParticleMood::Petals,
     }
 }
 
@@ -306,6 +333,27 @@ fn spec_for_mood(mood: ParticleMood, rng: &mut ChaCha8Rng, seed: u64) -> Ambient
             additive: false,
             seed,
         },
+        ParticleMood::Leaves => AmbientParticles {
+            mood: ParticleMood::Leaves,
+            // Leaf litter shed from the canopy, fluttering down through the
+            // woodland on a light, swirling wind. Larger and slower than
+            // blossom petals; fades from green to amber as it settles.
+            emitter_half_extents: [85.0, 5.0, 85.0],
+            emitter_y: 24.0,
+            rate_per_second: range_f32(rng, 10.0, 18.0),
+            max_particles: 300,
+            lifetime: (10.0, 18.0),
+            speed: (0.2, 0.5),
+            gravity_multiplier: 0.02,
+            acceleration: [range_f32(rng, -0.6, 0.6), 0.0, range_f32(rng, -0.6, 0.6)],
+            linear_drag: 0.75,
+            start_size: 0.20,
+            end_size: 0.20,
+            start_color: [0.55, 0.66, 0.30, 0.95],
+            end_color: [0.62, 0.50, 0.20, 0.0],
+            additive: false,
+            seed,
+        },
         ParticleMood::Smoke => AmbientParticles {
             mood: ParticleMood::Smoke,
             // A handful of low chimneys / pyres drifting smoke up over the
@@ -401,14 +449,9 @@ mod tests {
                 scene.theme = ThemeArchetype::AncientClassical;
                 scene.escalation = 0.0;
                 let p = AmbientParticles::from_scene(&scene, s);
-                let expected = match biome {
-                    BiomeArchetype::Lush => ParticleMood::Fireflies,
-                    BiomeArchetype::Tundra | BiomeArchetype::Alpine => ParticleMood::Snowfall,
-                    BiomeArchetype::Volcanic => ParticleMood::Embers,
-                    BiomeArchetype::Arid => ParticleMood::DustMotes,
-                    BiomeArchetype::Coastal => ParticleMood::MistMotes,
-                };
-                assert_eq!(p.mood, expected);
+                // With no accent / conflict override in play, the room must
+                // emit exactly the biome's default mood.
+                assert_eq!(p.mood, biome_mood(biome));
                 // Stay inside the particle sanitiser budget so the
                 // record round-trips unchanged.
                 assert!(p.max_particles <= 512);
@@ -438,7 +481,7 @@ mod tests {
                 ParticleMood::Snowfall => "Snowflake",
                 ParticleMood::Embers => "Spark",
                 ParticleMood::DustMotes | ParticleMood::MistMotes | ParticleMood::Smoke => "Puff",
-                ParticleMood::Petals => "Petal",
+                ParticleMood::Petals | ParticleMood::Leaves => "Petal",
             };
             assert_eq!(a.label(), expected, "mood {:?} sprite", p.mood);
 
