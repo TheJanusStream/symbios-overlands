@@ -233,6 +233,96 @@ fn voice_for(scene: &SceneCharacter) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.4,
         },
+        // Clockwork music box — a bright triangle arpeggio ticking up a minor
+        // pentatonic, the mechanism of the cog tower.
+        ThemeArchetype::Steampunk => ThemeVoice {
+            id: "theme_musicbox",
+            wave: Wave::Triangle,
+            detune_cents: 0.0,
+            scale: PENTATONIC_MINOR,
+            octave: 1.0,
+            attack_s: 0.004,
+            decay_s: 0.25,
+            sustain_level: 0.0,
+            release_s: 0.5,
+            note_count: (10, 14),
+            gate: (0.18, 0.3),
+            volume: (0.06, 0.11),
+            arp: true,
+            reverb_mix: 0.35,
+        },
+        // Bright stadium fanfare — a punchy detuned-saw arpeggio in a major
+        // pentatonic, the organ-and-crowd energy of a full ground.
+        ThemeArchetype::SportsRec => ThemeVoice {
+            id: "theme_fanfare",
+            wave: Wave::Sawtooth,
+            detune_cents: 8.0,
+            scale: PENTATONIC_MAJOR,
+            octave: 1.0,
+            attack_s: 0.01,
+            decay_s: 0.18,
+            sustain_level: 0.3,
+            release_s: 0.4,
+            note_count: (8, 12),
+            gate: (0.18, 0.34),
+            volume: (0.06, 0.11),
+            arp: true,
+            reverb_mix: 0.3,
+        },
+        // Stately pipe-organ pad — a detuned saw swelling in a modal dorian,
+        // sparse and reverberant under the clock-tower resonance.
+        ThemeArchetype::CivicCampus => ThemeVoice {
+            id: "theme_organ",
+            wave: Wave::Sawtooth,
+            detune_cents: 6.0,
+            scale: DORIAN,
+            octave: 1.0,
+            attack_s: 0.25,
+            decay_s: 0.4,
+            sustain_level: 0.6,
+            release_s: 1.8,
+            note_count: (3, 5),
+            gate: (0.8, 1.6),
+            volume: (0.07, 0.13),
+            arp: false,
+            reverb_mix: 0.5,
+        },
+        // Lonesome slide guitar — a gently-detuned triangle keening in a
+        // bluesy minor, sparse and reverberant over the highway drone.
+        ThemeArchetype::Roadside => ThemeVoice {
+            id: "theme_slidegtr",
+            wave: Wave::Triangle,
+            detune_cents: 5.0,
+            scale: PENTATONIC_MINOR,
+            octave: 1.0,
+            attack_s: 0.04,
+            decay_s: 0.5,
+            sustain_level: 0.2,
+            release_s: 1.4,
+            note_count: (3, 6),
+            gate: (0.4, 0.9),
+            volume: (0.08, 0.15),
+            arp: false,
+            reverb_mix: 0.44,
+        },
+        // Bright shimmering steel pan — a detuned sine struck high in a
+        // sunny major, lilting and carefree over the surf.
+        ThemeArchetype::CoastalResort => ThemeVoice {
+            id: "theme_steelpan",
+            wave: Wave::Sine,
+            detune_cents: 8.0,
+            scale: PENTATONIC_MAJOR,
+            octave: 1.25,
+            attack_s: 0.005,
+            decay_s: 0.5,
+            sustain_level: 0.0,
+            release_s: 0.9,
+            note_count: (4, 7),
+            gate: (0.2, 0.5),
+            volume: (0.07, 0.13),
+            arp: false,
+            reverb_mix: 0.4,
+        },
         // Sparse modal lyre/bells, long ring.
         ThemeArchetype::AncientClassical => ThemeVoice {
             id: "theme_lyre",
@@ -523,15 +613,30 @@ mod tests {
         assert_eq!(ind.scale, PHRYGIAN);
         let anc = voice_for(&scene_with(ThemeArchetype::AncientClassical, 0.0));
         assert_eq!(anc.scale, PENTATONIC_MAJOR);
+        let coast = voice_for(&scene_with(ThemeArchetype::CoastalResort, 0.0));
+        assert!(matches!(coast.wave, Wave::Sine) && coast.detune_cents > 0.0 && coast.octave > 1.0);
+        assert_eq!(coast.scale, PENTATONIC_MAJOR);
+        let road = voice_for(&scene_with(ThemeArchetype::Roadside, 0.0));
+        assert!(matches!(road.wave, Wave::Triangle) && road.detune_cents > 0.0 && !road.arp);
+        assert_eq!(road.scale, PENTATONIC_MINOR);
+        let civ = voice_for(&scene_with(ThemeArchetype::CivicCampus, 0.0));
+        assert!(matches!(civ.wave, Wave::Sawtooth) && civ.detune_cents > 0.0 && civ.attack_s > 0.1);
+        assert_eq!(civ.scale, DORIAN);
+        let spr = voice_for(&scene_with(ThemeArchetype::SportsRec, 0.0));
+        assert!(matches!(spr.wave, Wave::Sawtooth) && spr.arp && spr.detune_cents > 0.0);
+        assert_eq!(spr.scale, PENTATONIC_MAJOR);
+        let stm = voice_for(&scene_with(ThemeArchetype::Steampunk, 0.0));
+        assert!(matches!(stm.wave, Wave::Triangle) && stm.arp);
+        assert_eq!(stm.scale, PENTATONIC_MINOR);
     }
 
     #[test]
     fn neutral_default_mode_follows_temperature() {
-        // An un-authored theme (e.g. SportsRec today) gets the neutral
+        // An un-authored theme (e.g. Solarpunk today) gets the neutral
         // voice; warm rooms major, cool rooms minor.
-        let warm = voice_for(&scene_with(ThemeArchetype::SportsRec, 0.8));
+        let warm = voice_for(&scene_with(ThemeArchetype::Solarpunk, 0.8));
         assert_eq!(warm.scale, PENTATONIC_MAJOR);
-        let cool = voice_for(&scene_with(ThemeArchetype::SportsRec, -0.8));
+        let cool = voice_for(&scene_with(ThemeArchetype::Solarpunk, -0.8));
         assert_eq!(cool.scale, PENTATONIC_MINOR);
     }
 

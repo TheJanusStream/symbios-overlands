@@ -1,0 +1,107 @@
+//! Boarded shack — a Roadside *poor* secondary. A shuttered clapboard
+//! roadside store, its door and window planked over, under a sagging rusted
+//! roof with a faded sign still nailed up. The failed business of the
+//! busted shoulder.
+
+use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, quat_x, solid};
+use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
+use crate::pds::Generator;
+use crate::seeded_defaults::ThemeArchetype;
+
+use super::{CONCRETE_GREY, DRIFT_GREY, PLANK_WOOD, RUST_BROWN, concrete, corrugated, plank};
+
+pub struct BoardedShack;
+
+impl CatalogueEntry for BoardedShack {
+    fn slug(&self) -> &'static str {
+        "boarded_shack"
+    }
+    fn name(&self) -> &'static str {
+        "Boarded Shack"
+    }
+    fn description(&self) -> &'static str {
+        "Shuttered clapboard store, door and window planked over under a rusted roof."
+    }
+    fn role(&self) -> StructureRole {
+        StructureRole::Secondary
+    }
+    fn themes(&self) -> &'static [ThemeArchetype] {
+        &[ThemeArchetype::Roadside]
+    }
+    fn prosperity_band(&self) -> crate::seeded_defaults::ProsperityBand {
+        super::ROADSIDE_POOR
+    }
+    fn footprint(&self) -> Footprint {
+        Footprint {
+            clearance: 4.0,
+            min_spawn_dist: 28.0,
+        }
+    }
+
+    fn build(&self, _local_did: &str) -> Generator {
+        build_tree()
+    }
+}
+
+fn build_tree() -> Generator {
+    let slab_h = 0.3_f32;
+    let wall_h = 2.6_f32;
+    let wall_y = slab_h + wall_h * 0.5;
+    let wall_top = slab_h + wall_h;
+
+    let mut prims = vec![
+        // Concrete slab — the root.
+        prim(
+            solid(cuboid_tapered(
+                [5.0, slab_h, 4.0],
+                0.0,
+                concrete(CONCRETE_GREY),
+            )),
+            [0.0, slab_h * 0.5, 0.0],
+            id_quat(),
+        ),
+    ];
+
+    // Weathered clapboard walls.
+    prims.push(prim(
+        solid(cuboid_tapered([4.5, wall_h, 3.5], 0.0, plank(DRIFT_GREY))),
+        [0.0, wall_y, 0.0],
+        id_quat(),
+    ));
+
+    // Door + window boarded over with horizontal plank slats on the +Z face.
+    for y in [slab_h + 0.7, slab_h + 1.3, slab_h + 1.9] {
+        prims.push(prim(
+            solid(cuboid_tapered([3.0, 0.25, 0.1], 0.0, plank(PLANK_WOOD))),
+            [0.0, y, 1.78],
+            id_quat(),
+        ));
+    }
+
+    // Faded sign nailed above the boards.
+    prims.push(prim(
+        solid(cuboid_tapered([2.4, 0.6, 0.1], 0.0, plank(PLANK_WOOD))),
+        [0.0, wall_top - 0.2, 1.78],
+        id_quat(),
+    ));
+
+    // Sagging rusted corrugated roof, slightly sloped.
+    prims.push(prim(
+        solid(cuboid_tapered([5.0, 0.3, 4.0], 0.1, corrugated(RUST_BROWN))),
+        [0.0, wall_top + 0.15, 0.0],
+        quat_x(0.06),
+    ));
+
+    assemble(prims)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::catalogue::items::util::assert_sanitize_stable;
+
+    #[test]
+    fn build_round_trips_through_sanitize() {
+        assert_sanitize_stable(&BoardedShack.build(""), "boarded_shack");
+    }
+}

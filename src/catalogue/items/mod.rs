@@ -14,6 +14,8 @@ use super::CatalogueEntry;
 
 pub mod ancient;
 pub mod civic;
+pub mod civic_campus;
+pub mod coastal_resort;
 pub mod cyberpunk;
 pub mod feudal_japan;
 pub mod industrial_park;
@@ -23,7 +25,10 @@ pub mod modern_city;
 pub mod nordic;
 pub mod patterns;
 pub mod plants;
+pub mod roadside;
 pub mod rural_farmland;
+pub mod sports_rec;
+pub mod steampunk;
 pub mod suburban;
 pub mod tools;
 
@@ -153,6 +158,76 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &industrial_park::derelict_shed::DerelictShed,
     &industrial_park::rusted_tank::RustedTank,
     &industrial_park::scrap_heap::ScrapHeap,
+    // Buildings — Coastal Resort theme (landmark + secondaries + props).
+    &coastal_resort::grand_hotel::GrandHotel,
+    &coastal_resort::resort_pier::ResortPier,
+    &coastal_resort::beach_house::BeachHouse,
+    &coastal_resort::boardwalk_shops::BoardwalkShops,
+    &coastal_resort::lifeguard_tower::LifeguardTower,
+    &coastal_resort::beach_umbrella::BeachUmbrella,
+    &coastal_resort::deck_chair::DeckChair,
+    &coastal_resort::dinghy::Dinghy,
+    &coastal_resort::buoy::Buoy,
+    // Buildings — Coastal Resort poor (fishing-hamlet) variants, prosperity Poor.
+    &coastal_resort::fishing_shack::FishingShack,
+    &coastal_resort::bait_stand::BaitStand,
+    &coastal_resort::crab_traps::CrabTraps,
+    // Buildings — Roadside / Highway theme (landmark + secondaries + props).
+    &roadside::gas_station::GasStation,
+    &roadside::roadside_diner::RoadsideDiner,
+    &roadside::motel::Motel,
+    &roadside::billboard::Billboard,
+    &roadside::fuel_pump::FuelPump,
+    &roadside::road_sign::RoadSign,
+    &roadside::traffic_cone::TrafficCone,
+    &roadside::vending_machine::VendingMachine,
+    &roadside::guardrail::Guardrail,
+    // Buildings — Roadside poor (busted-shoulder) variants, prosperity Poor.
+    &roadside::produce_stand::ProduceStand,
+    &roadside::boarded_shack::BoardedShack,
+    &roadside::oil_drums::OilDrums,
+    // Buildings — Civic / Campus theme (landmark + secondaries + props).
+    &civic_campus::town_hall::TownHall,
+    &civic_campus::library::Library,
+    &civic_campus::lecture_hall::LectureHall,
+    &civic_campus::dormitory::Dormitory,
+    &civic_campus::clock_tower::ClockTower,
+    &civic_campus::flagpole::Flagpole,
+    &civic_campus::bike_rack::BikeRack,
+    &civic_campus::notice_board::NoticeBoard,
+    &civic_campus::campus_lamp::CampusLamp,
+    // Buildings — Civic / Campus poor (underfunded) variants, prosperity Poor.
+    &civic_campus::portable_classroom::PortableClassroom,
+    &civic_campus::bus_shelter::BusShelter,
+    &civic_campus::recycling_bins::RecyclingBins,
+    // Buildings — Sports / Recreation theme (landmark + secondaries + props).
+    &sports_rec::stadium::Stadium,
+    &sports_rec::gym::Gym,
+    &sports_rec::bleachers::Bleachers,
+    &sports_rec::ticket_booth::TicketBooth,
+    &sports_rec::clubhouse::Clubhouse,
+    &sports_rec::goalpost::Goalpost,
+    &sports_rec::floodlight_mast::FloodlightMast,
+    &sports_rec::scoreboard::Scoreboard,
+    &sports_rec::players_bench::PlayersBench,
+    // Buildings — Sports / Recreation poor (rec-ground) variants, prosperity Poor.
+    &sports_rec::rec_court::RecCourt,
+    &sports_rec::backstop::Backstop,
+    &sports_rec::tire_stack::TireStack,
+    // Buildings — Steampunk theme (landmark + secondaries + props).
+    &steampunk::cog_tower::CogTower,
+    &steampunk::airship_dock::AirshipDock,
+    &steampunk::foundry::Foundry,
+    &steampunk::pump_house::PumpHouse,
+    &steampunk::pipework::Pipework,
+    &steampunk::pressure_tank::PressureTank,
+    &steampunk::gear_pile::GearPile,
+    &steampunk::gas_lamp::GasLamp,
+    &steampunk::coal_hopper::CoalHopper,
+    // Buildings — Steampunk poor (soot-yard) variants, prosperity Poor.
+    &steampunk::tinkerers_shack::TinkerersShack,
+    &steampunk::scrap_boiler::ScrapBoiler,
+    &steampunk::cog_scrap::CogScrap,
     // Buildings — cross-theme socio-political props (Prop role, tagged
     // with every theme but gated to a prosperity / escalation tier band;
     // see crate::catalogue::items::civic).
@@ -244,8 +319,11 @@ mod tests {
         // poor + 8 mesoamerican + 3 mesoamerican poor + 8 modern city + 3
         // modern city poor + 8 suburban + 3 suburban poor + 9 rural farmland
         // + 3 rural farmland poor + 8 industrial park + 3 industrial park poor
-        // + 16 civic cross-theme props = 115 buildings.
-        assert_eq!(count(Buildings), 115);
+        // + 9 coastal resort + 3 coastal resort poor + 9 roadside + 3 roadside
+        // poor + 9 civic campus + 3 civic campus poor + 9 sports rec + 3 sports
+        // rec poor + 9 steampunk + 3 steampunk poor + 16 civic cross-theme
+        // props = 175 buildings.
+        assert_eq!(count(Buildings), 175);
         assert_eq!(count(Plants), 4);
         assert_eq!(count(Patterns), 3);
         assert_eq!(count(Tools), 1);

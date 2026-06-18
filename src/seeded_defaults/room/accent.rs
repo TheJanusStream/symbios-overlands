@@ -156,6 +156,39 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: Some(ParticleMood::DustMotes),
             },
+            // Bright clear-sky seaside air — a light sky-blue wash, no haze.
+            CoastalResort => Self {
+                tint: [0.55, 0.74, 0.92],
+                tint_strength: 0.10,
+                haze: 0.0,
+                brightness: 1.0,
+                particle_mood: None,
+            },
+            // Dusty sodium-amber highway air — warm grit hangs over the strip.
+            Roadside => Self {
+                tint: [0.66, 0.56, 0.42],
+                tint_strength: 0.13,
+                haze: 0.10,
+                brightness: 1.0,
+                particle_mood: Some(ParticleMood::DustMotes),
+            },
+            // Dignified warm-sandstone air — a soft golden academic light.
+            CivicCampus => Self {
+                tint: [0.86, 0.80, 0.66],
+                tint_strength: 0.09,
+                haze: 0.0,
+                brightness: 1.0,
+                particle_mood: None,
+            },
+            // Bright field-day air — a clean, faintly green daylight over the
+            // turf, no haze.
+            SportsRec => Self {
+                tint: [0.78, 0.86, 0.74],
+                tint_strength: 0.08,
+                haze: 0.0,
+                brightness: 1.0,
+                particle_mood: None,
+            },
             _ => Self::NEUTRAL,
         }
     }
@@ -252,6 +285,57 @@ mod tests {
         for ch in out {
             assert!((0.0..=1.0).contains(&ch));
         }
+    }
+
+    #[test]
+    fn coastal_resort_accent_leans_sky_blue() {
+        let a = ThemeAccent::for_theme(ThemeArchetype::CoastalResort);
+        assert!(!a.is_noop());
+        // Clear sky: blue dominates, and the air stays haze-free.
+        assert!(a.tint[2] > a.tint[0], "coastal accent should lean sky-blue");
+        assert_eq!(a.haze, 0.0, "a clear-sky resort adds no haze");
+        let out = a.tint_rgb([0.4, 0.4, 0.4]);
+        assert!(out[2] > out[0]);
+        for ch in out {
+            assert!((0.0..=1.0).contains(&ch));
+        }
+    }
+
+    #[test]
+    fn roadside_accent_leans_dusty_amber() {
+        let a = ThemeAccent::for_theme(ThemeArchetype::Roadside);
+        assert!(!a.is_noop());
+        // Warm sodium dust: red dominates blue, and a little haze hangs.
+        assert!(a.tint[0] > a.tint[2], "roadside accent should lean amber");
+        assert!(a.haze > 0.0, "the dusty strip adds haze");
+        assert_eq!(a.particle_mood, Some(ParticleMood::DustMotes));
+    }
+
+    #[test]
+    fn civic_campus_accent_leans_warm_sandstone() {
+        let a = ThemeAccent::for_theme(ThemeArchetype::CivicCampus);
+        assert!(!a.is_noop());
+        // Warm stone: red dominates blue, no haze over the quad.
+        assert!(a.tint[0] > a.tint[2], "civic accent should lean warm");
+        assert_eq!(a.haze, 0.0, "the open quad adds no haze");
+    }
+
+    #[test]
+    fn sports_rec_accent_is_a_bright_clear_field() {
+        let a = ThemeAccent::for_theme(ThemeArchetype::SportsRec);
+        assert!(!a.is_noop());
+        // Clean field daylight: faintly green, no haze.
+        assert!(a.tint[1] > a.tint[0] && a.tint[1] > a.tint[2]);
+        assert_eq!(a.haze, 0.0, "the open field adds no haze");
+    }
+
+    #[test]
+    fn steampunk_accent_is_amber_smog() {
+        let a = ThemeAccent::for_theme(ThemeArchetype::Steampunk);
+        assert!(!a.is_noop());
+        // Amber smog: warm tint and a hanging haze.
+        assert!(a.tint[0] > a.tint[2], "steampunk accent should lean amber");
+        assert!(a.haze > 0.0, "the smoggy works adds haze");
     }
 
     #[test]
