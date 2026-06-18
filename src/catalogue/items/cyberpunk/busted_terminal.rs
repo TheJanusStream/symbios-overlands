@@ -57,17 +57,23 @@ fn build_tree() -> Generator {
             [0.0, 0.15, 0.0],
             id_quat(),
         ),
-        // Cracked screen, faintly lit, on the front face — fizzing and
-        // spitting sparks from the shorted panel.
+        // Cracked screen split into two misaligned lit fragments — the
+        // crack — the lower one guttering dimmer as the shorted panel dies.
+        // The upper fragment carries the electrical fizz.
         {
-            let mut screen = prim(
-                cuboid_tapered([0.08, 0.9, 0.45], 0.0, glow(NEON_LIME, 2.5)),
-                [0.45, body_h * 0.62, 0.0],
+            let mut top = prim(
+                cuboid_tapered([0.08, 0.42, 0.45], 0.0, glow(NEON_LIME, 2.5)),
+                [0.45, body_h * 0.74, 0.05],
                 quat_x(0.1),
             );
-            screen.audio = fx::electric_crackle();
-            screen
+            top.audio = fx::electric_crackle();
+            top
         },
+        prim(
+            cuboid_tapered([0.08, 0.36, 0.4], 0.0, glow(NEON_LIME, 1.2)),
+            [0.45, body_h * 0.46, -0.06],
+            quat_x(0.1),
+        ),
         fx::spark_burst([0.5, body_h * 0.5, 0.0], 0xB057_ED00),
     ])
 }

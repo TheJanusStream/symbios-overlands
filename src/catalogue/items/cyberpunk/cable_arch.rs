@@ -76,6 +76,18 @@ fn build_tree() -> Generator {
     beam.audio = fx::electric_crackle();
     root.children.push(beam);
 
+    // The live conduit run — glowing cables strung post-to-post just under
+    // the beam. The arch's whole point; without them it reads as a bare
+    // goalpost. Two strands at slightly different height/depth read as a
+    // bundle rather than one fat bar.
+    for (c, dz, dy) in [(NEON_CYAN, -0.12_f32, -0.32_f32), (NEON_LIME, 0.12, -0.42)] {
+        root.children.push(prim(
+            cuboid_tapered([span + 0.2, 0.09, 0.09], 0.0, glow(c, 5.0)),
+            [0.0, rel(slab_h + post_h + dy), dz],
+            id_quat(),
+        ));
+    }
+
     // Glowing cables hanging from the beam at a few points.
     let colors = [NEON_CYAN, NEON_LIME, NEON_CYAN];
     for (k, c) in colors.iter().enumerate() {
