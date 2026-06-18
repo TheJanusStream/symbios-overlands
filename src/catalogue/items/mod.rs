@@ -22,6 +22,7 @@ pub mod modern_city;
 pub mod nordic;
 pub mod patterns;
 pub mod plants;
+pub mod rural_farmland;
 pub mod suburban;
 pub mod tools;
 
@@ -124,6 +125,20 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &suburban::trailer_home::TrailerHome,
     &suburban::carport::Carport,
     &suburban::yard_junk::YardJunk,
+    // Buildings — Rural/Farmland theme (landmark + secondaries + props).
+    &rural_farmland::barn::Barn,
+    &rural_farmland::farmhouse::Farmhouse,
+    &rural_farmland::grain_silo::GrainSilo,
+    &rural_farmland::windmill::Windmill,
+    &rural_farmland::greenhouse::Greenhouse,
+    &rural_farmland::tractor::Tractor,
+    &rural_farmland::hay_bales::HayBales,
+    &rural_farmland::scarecrow::Scarecrow,
+    &rural_farmland::rail_fence::RailFence,
+    // Buildings — Rural/Farmland poor (hardscrabble) variants, prosperity Poor.
+    &rural_farmland::homestead_shack::HomesteadShack,
+    &rural_farmland::pole_barn::PoleBarn,
+    &rural_farmland::farm_junk::FarmJunk,
     // Buildings — cross-theme socio-political props (Prop role, tagged
     // with every theme but gated to a prosperity / escalation tier band;
     // see crate::catalogue::items::civic).
@@ -213,9 +228,10 @@ mod tests {
         // expected section. 8 ancient/medieval + 8 cyberpunk + 5 cyberpunk
         // poor + 8 nordic + 3 nordic poor + 8 feudal japan + 3 feudal japan
         // poor + 8 mesoamerican + 3 mesoamerican poor + 8 modern city + 3
-        // modern city poor + 8 suburban + 3 suburban poor + 16 civic
-        // cross-theme props = 92 buildings.
-        assert_eq!(count(Buildings), 92);
+        // modern city poor + 8 suburban + 3 suburban poor + 9 rural farmland
+        // + 3 rural farmland poor + 16 civic cross-theme props = 104
+        // buildings.
+        assert_eq!(count(Buildings), 104);
         assert_eq!(count(Plants), 4);
         assert_eq!(count(Patterns), 3);
         assert_eq!(count(Tools), 1);

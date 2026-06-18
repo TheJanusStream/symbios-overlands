@@ -818,6 +818,80 @@ mod tests {
     }
 
     #[test]
+    fn rural_farmland_settlement_uses_its_own_kit_by_prosperity() {
+        // The per-theme poor/rich pattern (#433/#399): an affluent room grows
+        // the painted farmstead, a destitute one the hardscrabble kit — the
+        // two registers never cross.
+        const POOR_KIT: [&str; 3] = ["homestead_shack", "pole_barn", "farm_junk"];
+        const RICH_KIT: [&str; 9] = [
+            "barn",
+            "farmhouse",
+            "grain_silo",
+            "windmill",
+            "greenhouse",
+            "tractor",
+            "hay_bales",
+            "scarecrow",
+            "rail_fence",
+        ];
+
+        let farm_member = |slug: &str| {
+            by_slug(slug)
+                .expect("member resolves")
+                .themes()
+                .contains(&ThemeArchetype::RuralFarmland)
+        };
+
+        let mut rich_placed_secondary = false;
+        let mut poor_placed_pole_barn = false;
+        for s in 0u64..32 {
+            let mut rich = SceneCharacter::for_seed(s);
+            rich.theme = ThemeArchetype::RuralFarmland;
+            rich.prosperity = 0.95;
+            let r = Settlement::from_scene(&rich, s);
+            assert_eq!(r.landmark.slug, "barn", "rich rural landmark");
+            for m in std::iter::once(&r.landmark)
+                .chain(&r.secondaries)
+                .chain(&r.props)
+            {
+                assert!(farm_member(m.slug), "rich rural member {}", m.slug);
+                assert!(
+                    !POOR_KIT.contains(&m.slug),
+                    "rich room grew the poor kit: {}",
+                    m.slug
+                );
+            }
+            rich_placed_secondary |= r.secondaries.iter().any(|sec| RICH_KIT.contains(&sec.slug));
+
+            let mut poor = SceneCharacter::for_seed(s);
+            poor.theme = ThemeArchetype::RuralFarmland;
+            poor.prosperity = 0.05;
+            let p = Settlement::from_scene(&poor, s);
+            assert_eq!(p.landmark.slug, "homestead_shack", "poor rural landmark");
+            for m in std::iter::once(&p.landmark)
+                .chain(&p.secondaries)
+                .chain(&p.props)
+            {
+                assert!(farm_member(m.slug), "poor rural member {}", m.slug);
+                assert!(
+                    !RICH_KIT.contains(&m.slug),
+                    "poor room grew the established kit: {}",
+                    m.slug
+                );
+            }
+            poor_placed_pole_barn |= p.secondaries.iter().any(|sec| sec.slug == "pole_barn");
+        }
+        assert!(
+            rich_placed_secondary,
+            "some rich rural room places an established secondary"
+        );
+        assert!(
+            poor_placed_pole_barn,
+            "some poor rural room places the pole barn"
+        );
+    }
+
+    #[test]
     fn ancient_theme_sometimes_places_secondaries() {
         let any = (0u64..64).any(|s| {
             let mut scene = SceneCharacter::for_seed(s);

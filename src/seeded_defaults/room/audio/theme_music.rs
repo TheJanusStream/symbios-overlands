@@ -108,6 +108,24 @@ fn voice_for(scene: &SceneCharacter) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.46,
         },
+        // Warm reedy fiddle/accordion — a folksy detuned major, mid-register
+        // and lilting over the crickets.
+        ThemeArchetype::RuralFarmland => ThemeVoice {
+            id: "theme_fiddle",
+            wave: Wave::Sawtooth,
+            detune_cents: 6.0,
+            scale: PENTATONIC_MAJOR,
+            octave: 1.0,
+            attack_s: 0.02,
+            decay_s: 0.3,
+            sustain_level: 0.4,
+            release_s: 0.8,
+            note_count: (4, 7),
+            gate: (0.3, 0.7),
+            volume: (0.08, 0.15),
+            arp: false,
+            reverb_mix: 0.38,
+        },
         // Bright twinkling chimes — a high, gentle major (an ice-cream-van
         // wholesomeness) over the birdsong.
         ThemeArchetype::Suburban => ThemeVoice {
@@ -477,6 +495,11 @@ mod tests {
         let sub = voice_for(&scene_with(ThemeArchetype::Suburban, 0.0));
         assert!(matches!(sub.wave, Wave::Triangle) && sub.octave > 1.0);
         assert_eq!(sub.scale, PENTATONIC_MAJOR);
+        let farm = voice_for(&scene_with(ThemeArchetype::RuralFarmland, 0.0));
+        assert!(
+            matches!(farm.wave, Wave::Sawtooth) && farm.detune_cents > 0.0 && farm.attack_s < 0.1
+        );
+        assert_eq!(farm.scale, PENTATONIC_MAJOR);
         let anc = voice_for(&scene_with(ThemeArchetype::AncientClassical, 0.0));
         assert_eq!(anc.scale, PENTATONIC_MAJOR);
     }
