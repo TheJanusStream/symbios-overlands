@@ -16,6 +16,16 @@
 //! spatial-audio patches from [`fx`] (steam vents, failing-neon sparks,
 //! transformer hum, drone whir, electrical crackle). The theme's magenta
 //! fog accent lives in [`crate::seeded_defaults::room::accent`].
+//!
+//! **Emissive-strength discipline.** With HDR + bloom, a [`super::util::glow`]
+//! surface clips to white once `colour × strength` pushes a channel past
+//! `1.0`, and a *broad face* (a billboard panel, a screen) reaches that
+//! point at a far lower strength than a *thin tube* (a band, an edge strip,
+//! a ring). So the two can't share a value: thin neon trim runs hot
+//! (`~5–9`) — the white-hot core plus a coloured bloom halo is exactly how
+//! a neon tube reads — while broad faces stay moderate (`~1.5–3.5`) so they
+//! read as lit *colour*, not a featureless white lightbox. A framed face
+//! (panel ringed by a hot tube border) gets the best of both.
 
 pub mod arcade_block;
 pub mod cable_arch;

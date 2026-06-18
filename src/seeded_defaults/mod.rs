@@ -53,6 +53,7 @@ pub use room::{
     AmbientParticles, AmbientRecipe, Atmosphere, BiomeTextures, GeneratorKind, GroundTextureParams,
     ParticleMood, RockScatters, RockTextureParams, RoomPalette, Settlement, SettlementMember,
     SplatRule, TerrainShape, ThemeAccent, TreeScatter, TreeScatters, TreeSpecies, WaterDynamics,
+    theme_luminosity,
 };
 pub use scene::{
     BiomeArchetype, EscalationBand, EscalationTier, LandformArchetype, ProsperityBand,

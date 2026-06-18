@@ -18,7 +18,7 @@ pub mod settlement;
 pub mod terrain;
 pub mod textures;
 
-pub use accent::ThemeAccent;
+pub use accent::{ThemeAccent, theme_luminosity};
 pub use atmosphere::{Atmosphere, WaterDynamics};
 pub use audio::AmbientRecipe;
 pub use palette::RoomPalette;

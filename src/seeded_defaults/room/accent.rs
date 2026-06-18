@@ -288,6 +288,30 @@ impl ThemeAccent {
     }
 }
 
+/// How much natural daylight a theme keeps, `0..=1`. `1.0` is the full
+/// biome-derived day/dusk and is the default for every theme; a value
+/// below `1.0` darkens the room toward night so a *self-lit* theme — neon
+/// signage, biolume — becomes the dominant light source instead of
+/// competing with a noon sun (whose floor sits at ~9 000 lux even at dusk).
+///
+/// Consumed by the wiring layer's nightfall pass (`apply_nightfall` in
+/// [`crate::pds::room`]), which scales the sun + ambient down and darkens
+/// the sky / fog / cloud colour together — dimming the sun alone would
+/// leave a bright daytime sky cuboid over a dark ground.
+///
+/// Kept a standalone per-variant function rather than a [`ThemeAccent`]
+/// field so the common `1.0` case carries no per-theme boilerplate and the
+/// daylight themes stay byte-for-byte unchanged.
+pub fn theme_luminosity(theme: ThemeArchetype) -> f32 {
+    use ThemeArchetype::*;
+    match theme {
+        // Neon-noir: drop the sun to a dim moonlight key so the kit's
+        // emissive trim carries the scene.
+        Cyberpunk => 0.12,
+        _ => 1.0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -504,5 +528,15 @@ mod tests {
             ThemeAccent::for_scene(&scene).brightness < 1.0,
             "poor dimmer"
         );
+    }
+
+    #[test]
+    fn cyberpunk_is_nocturnal_daylight_themes_are_full() {
+        // The neon theme keeps only a fraction of daylight; every other
+        // theme is full day (identity for the nightfall pass).
+        assert!(theme_luminosity(ThemeArchetype::Cyberpunk) < 1.0);
+        assert_eq!(theme_luminosity(ThemeArchetype::AncientClassical), 1.0);
+        assert_eq!(theme_luminosity(ThemeArchetype::Medieval), 1.0);
+        assert_eq!(theme_luminosity(ThemeArchetype::CoastalResort), 1.0);
     }
 }

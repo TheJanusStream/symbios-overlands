@@ -67,9 +67,10 @@ fn build_tree() -> Generator {
     vending.audio = fx::neon_buzz();
     root.children.push(vending);
 
-    // Glowing screen on the front face.
+    // Glowing screen on the front face. Moderated like the billboard panel
+    // (see `mod.rs`): a lit face, not a white blowout — its hue survives.
     root.children.push(prim(
-        cuboid_tapered([0.1, 1.2, 0.8], 0.0, glow(NEON_LIME, 6.0)),
+        cuboid_tapered([0.1, 1.2, 0.8], 0.0, glow(NEON_LIME, 3.5)),
         [0.72, rel(slab_h + 1.3), 0.0],
         id_quat(),
     ));

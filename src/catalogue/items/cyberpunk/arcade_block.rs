@@ -80,18 +80,21 @@ fn build_tree() -> Generator {
     ));
 
     // Standing rooftop sign board, set toward the front edge — its tubes
-    // buzz with a signature electrical hum.
+    // buzz with a signature electrical hum. A broad 4×5 m face, so it runs
+    // at the moderated face strength (see `mod.rs`): at the tube strength it
+    // would clip to a white slab instead of reading as a lit cyan sign.
     let mut sign = prim(
-        cuboid_tapered([0.3, 4.0, 5.0], 0.0, glow(NEON_CYAN, 7.0)),
+        cuboid_tapered([0.3, 4.0, 5.0], 0.0, glow(NEON_CYAN, 2.5)),
         [3.6, rel(roof_y + 2.0), 0.0],
         id_quat(),
     );
     sign.audio = fx::neon_buzz();
     root.children.push(sign);
 
-    // Glowing doorway band at street level on the front face.
+    // Glowing doorway band at street level on the front face — a smaller
+    // lit face, held just below the blow-out point.
     root.children.push(prim(
-        cuboid_tapered([0.2, 2.4, 3.0], 0.0, glow(NEON_CYAN, 5.0)),
+        cuboid_tapered([0.2, 2.4, 3.0], 0.0, glow(NEON_CYAN, 3.0)),
         [4.5, rel(slab_h + 1.2), 0.0],
         id_quat(),
     ));

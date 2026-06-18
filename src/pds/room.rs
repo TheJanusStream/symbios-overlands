@@ -601,6 +601,16 @@ impl RoomRecord {
             environment.cloud_cover = Fp((environment.cloud_cover.0 + accent.haze).clamp(0.0, 1.0));
         }
 
+        // Theme nightfall: a nocturnal theme (cyberpunk neon) drops the sun
+        // to a dim moonlight key and darkens the sky / fog / cloud so its
+        // self-lit kit dominates. Runs *after* the accent so the result is a
+        // dark magenta-blue night rather than dark-neutral. A daylight theme
+        // has luminosity 1.0 and this is a no-op.
+        apply_nightfall(
+            crate::seeded_defaults::theme_luminosity(scene.theme),
+            &mut environment,
+        );
+
         // Seed the room's ambient track from the same scene anchor that
         // drives palette / terrain / atmosphere. The deriver returns a
         // native `bevy_symbios_audio::SequenceRecipe`; we mirror it
@@ -1051,6 +1061,36 @@ fn apply_atmosphere_to_environment(
     env.cloud_wind_dir = Fp2(src.cloud_wind_dir);
 }
 
+/// Darken an [`Environment`] toward night by a theme's `luminosity`
+/// (see [`crate::seeded_defaults::theme_luminosity`]). `1.0` is a perfect
+/// no-op — full daylight, every non-nocturnal theme; below `1.0` it scales
+/// the directional sun down hard and the ambient + sky / fog / cloud colour
+/// down more gently so a self-lit theme (neon) reads as the dominant light
+/// after dusk.
+///
+/// The directional key takes the raw multiply (a dim moonlight sun), while
+/// ambient and the colour channels keep a generous floor — the look we
+/// want is a deep magenta-blue night the player can still navigate, not a
+/// power cut that collapses distant terrain into a black void.
+fn apply_nightfall(luminosity: f32, env: &mut Environment) {
+    let l = luminosity.clamp(0.0, 1.0);
+    if (l - 1.0).abs() < f32::EPSILON {
+        return; // full daylight — identity for every daylight theme
+    }
+    // Directional sun: scaled straight down to a moonlight key.
+    env.sun_illuminance = Fp(env.sun_illuminance.0 * l);
+    // Ambient + colour: floored well above the raw multiply so shape and
+    // distance stay readable under the dim sun (l=0.12 → ~0.38 here).
+    let floor = 0.3 + 0.7 * l;
+    let darken3 = |c: Fp3| Fp3([c.0[0] * floor, c.0[1] * floor, c.0[2] * floor]);
+    env.ambient_brightness = Fp(env.ambient_brightness.0 * floor);
+    env.sky_color = darken3(env.sky_color);
+    env.cloud_color = darken3(env.cloud_color);
+    env.cloud_shadow_color = darken3(env.cloud_shadow_color);
+    let fog = env.fog_color.0;
+    env.fog_color = Fp4([fog[0] * floor, fog[1] * floor, fog[2] * floor, fog[3]]);
+}
+
 /// Return the terrain generator with the lexicographically smallest key.
 ///
 /// `HashMap::values()` iteration order is randomised per execution (SipHash),
@@ -1481,6 +1521,37 @@ mod tests {
                 "expected 1–2 boulder scatters, got {rock_scatters}"
             );
         }
+    }
+
+    #[test]
+    fn nightfall_dims_nocturnal_themes_and_is_identity_at_full_day() {
+        let day = Environment::default();
+
+        // A nocturnal luminosity dims the sun + ambient and darkens the sky.
+        let mut night = Environment::default();
+        apply_nightfall(0.12, &mut night);
+        assert!(
+            night.sun_illuminance.0 < day.sun_illuminance.0,
+            "nightfall must dim the sun"
+        );
+        assert!(
+            night.ambient_brightness.0 < day.ambient_brightness.0,
+            "nightfall must dim ambient"
+        );
+        assert!(
+            night.sky_color.0.iter().sum::<f32>() < day.sky_color.0.iter().sum::<f32>(),
+            "nightfall must darken the sky"
+        );
+        // Survives the record sanitiser (no NaN / out-of-range fields).
+        night.sanitize();
+        assert!(night.sun_illuminance.0 > 0.0 && night.sun_illuminance.0.is_finite());
+
+        // Full daylight is a perfect no-op — daylight themes are untouched.
+        let mut unchanged = Environment::default();
+        apply_nightfall(1.0, &mut unchanged);
+        assert_eq!(unchanged.sun_illuminance.0, day.sun_illuminance.0);
+        assert_eq!(unchanged.ambient_brightness.0, day.ambient_brightness.0);
+        assert_eq!(unchanged.sky_color.0, day.sky_color.0);
     }
 
     #[test]

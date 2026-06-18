@@ -88,9 +88,13 @@ fn build_tree() -> Generator {
             [0.0, rel(dy), 0.0],
             id_quat(),
         ));
-        // Neon edge band (slightly wider, emissive) under the deck lip.
+        // Neon edge band under the deck lip, as a glowing cornice proud of
+        // the deck. Sized to clear the corner pillars: at `w - 0.6` its side
+        // faces landed at ±5.2 — exactly the pillars' outer faces (±(w/2 -
+        // 0.6) ± 0.3) — so the coplanar faces z-fought. `w - 0.3` pushes the
+        // band 0.15 m proud of the pillars, breaking the coplanarity.
         root.children.push(prim(
-            cuboid_tapered([w - 0.6, 0.18, depth - 0.6], 0.0, glow(NEON_CYAN, 5.0)),
+            cuboid_tapered([w - 0.3, 0.18, depth - 0.3], 0.0, glow(NEON_CYAN, 5.0)),
             [0.0, rel(dy - 0.25), 0.0],
             id_quat(),
         ));
