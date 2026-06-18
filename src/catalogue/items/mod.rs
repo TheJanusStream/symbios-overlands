@@ -16,6 +16,7 @@ pub mod ancient;
 pub mod civic;
 pub mod cyberpunk;
 pub mod feudal_japan;
+pub mod industrial_park;
 pub mod medieval;
 pub mod mesoamerican;
 pub mod modern_city;
@@ -139,6 +140,19 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &rural_farmland::homestead_shack::HomesteadShack,
     &rural_farmland::pole_barn::PoleBarn,
     &rural_farmland::farm_junk::FarmJunk,
+    // Buildings — Industrial Park theme (landmark + secondaries + props).
+    &industrial_park::factory::Factory,
+    &industrial_park::cooling_tower::CoolingTower,
+    &industrial_park::loading_dock::LoadingDock,
+    &industrial_park::tank_farm::TankFarm,
+    &industrial_park::shipping_containers::ShippingContainers,
+    &industrial_park::pipe_run::PipeRun,
+    &industrial_park::pallet_stack::PalletStack,
+    &industrial_park::floodlight::Floodlight,
+    // Buildings — Industrial Park poor (derelict) variants, prosperity Poor.
+    &industrial_park::derelict_shed::DerelictShed,
+    &industrial_park::rusted_tank::RustedTank,
+    &industrial_park::scrap_heap::ScrapHeap,
     // Buildings — cross-theme socio-political props (Prop role, tagged
     // with every theme but gated to a prosperity / escalation tier band;
     // see crate::catalogue::items::civic).
@@ -229,9 +243,9 @@ mod tests {
         // poor + 8 nordic + 3 nordic poor + 8 feudal japan + 3 feudal japan
         // poor + 8 mesoamerican + 3 mesoamerican poor + 8 modern city + 3
         // modern city poor + 8 suburban + 3 suburban poor + 9 rural farmland
-        // + 3 rural farmland poor + 16 civic cross-theme props = 104
-        // buildings.
-        assert_eq!(count(Buildings), 104);
+        // + 3 rural farmland poor + 8 industrial park + 3 industrial park poor
+        // + 16 civic cross-theme props = 115 buildings.
+        assert_eq!(count(Buildings), 115);
         assert_eq!(count(Plants), 4);
         assert_eq!(count(Patterns), 3);
         assert_eq!(count(Tools), 1);

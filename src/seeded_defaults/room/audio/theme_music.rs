@@ -108,6 +108,24 @@ fn voice_for(scene: &SceneCharacter) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.46,
         },
+        // Grinding low drone — a heavily-detuned saw in phrygian an octave
+        // down, sparse and sustained, under the machine hum.
+        ThemeArchetype::IndustrialPark => ThemeVoice {
+            id: "theme_drone",
+            wave: Wave::Sawtooth,
+            detune_cents: 14.0,
+            scale: PHRYGIAN,
+            octave: 0.5,
+            attack_s: 0.4,
+            decay_s: 0.6,
+            sustain_level: 0.7,
+            release_s: 2.0,
+            note_count: (2, 4),
+            gate: (1.0, 2.0),
+            volume: (0.06, 0.11),
+            arp: false,
+            reverb_mix: 0.45,
+        },
         // Warm reedy fiddle/accordion — a folksy detuned major, mid-register
         // and lilting over the crickets.
         ThemeArchetype::RuralFarmland => ThemeVoice {
@@ -500,6 +518,9 @@ mod tests {
             matches!(farm.wave, Wave::Sawtooth) && farm.detune_cents > 0.0 && farm.attack_s < 0.1
         );
         assert_eq!(farm.scale, PENTATONIC_MAJOR);
+        let ind = voice_for(&scene_with(ThemeArchetype::IndustrialPark, 0.0));
+        assert!(matches!(ind.wave, Wave::Sawtooth) && !ind.arp && ind.octave < 1.0);
+        assert_eq!(ind.scale, PHRYGIAN);
         let anc = voice_for(&scene_with(ThemeArchetype::AncientClassical, 0.0));
         assert_eq!(anc.scale, PENTATONIC_MAJOR);
     }

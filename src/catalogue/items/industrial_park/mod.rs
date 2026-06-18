@@ -1,0 +1,250 @@
+//! Industrial-Park-theme catalogue structures — a steel-and-concrete works
+//! under a grey haze.
+//!
+//! Two prosperity registers share one identity: the established
+//! ([`INDUSTRIAL_BAND`]) working kit (factory, cooling tower, loading dock,
+//! tank farm, shipping containers, pipe run, pallet stack, floodlight) and
+//! the destitute ([`INDUSTRIAL_POOR`]) derelict kit (derelict shed, rusted
+//! tank, scrap heap).
+//!
+//! Surfaces use the real procedural generators rather than flat colour:
+//! ribbed [`cladding`] and [`tank_steel`] metal, board-formed [`concrete`],
+//! red [`brick`], [`glass`] windows, and heavily corroded [`rust`]. The
+//! smokestack smokes, the cooling tower billows steam, floodlights glare,
+//! and machinery hums under a steam hiss — all from [`fx`]. The theme's grey
+//! haze accent lives in [`crate::seeded_defaults::room::accent`].
+
+pub mod cooling_tower;
+pub mod factory;
+pub mod floodlight;
+pub mod loading_dock;
+pub mod pallet_stack;
+pub mod pipe_run;
+pub mod shipping_containers;
+pub mod tank_farm;
+// Poor (derelict) variants — the prosperity-Poor end of the theme.
+pub mod derelict_shed;
+pub mod rusted_tank;
+pub mod scrap_heap;
+
+pub mod fx;
+
+use bevy_symbios_texture::metal::MetalStyle;
+
+use crate::pds::{
+    Fp, Fp3, Fp64, SovereignBrickConfig, SovereignConcreteConfig, SovereignCorrugatedConfig,
+    SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignTextureConfig,
+    SovereignWindowConfig,
+};
+use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
+
+/// Shared prosperity band for the established works kit — clad sheds and
+/// painted tanks read as a Modest-to-Rich industrial estate. The poor end is
+/// the separate derelict kit ([`derelict_shed`], …), tagged `Poor`.
+pub(super) const INDUSTRIAL_BAND: ProsperityBand =
+    ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
+
+/// Prosperity band for the derelict kit — the destitute end of the theme,
+/// never picked for a modest or affluent room.
+pub(super) const INDUSTRIAL_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
+
+/// Ribbed corrugated cladding — the skin of factory sheds, dock walls, and
+/// shipping containers.
+pub(super) fn cladding(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.6),
+        metallic: Fp(0.7),
+        uv_scale: Fp(1.5),
+        texture: SovereignTextureConfig::Corrugated(SovereignCorrugatedConfig {
+            color_metal: Fp3(color),
+            color_rust: Fp3([0.42, 0.24, 0.12]),
+            ridges: Fp64(16.0),
+            ridge_depth: Fp64(0.9),
+            roughness: Fp64(0.55),
+            metallic: Fp(0.7),
+            rust_level: Fp64(0.12),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Board-formed concrete — cooling towers, dock aprons, plinths, footings.
+pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.9),
+        uv_scale: Fp(1.5),
+        texture: SovereignTextureConfig::Concrete(SovereignConcreteConfig {
+            color_base: Fp3(color),
+            formwork_lines: Fp64(5.0),
+            formwork_depth: Fp64(0.12),
+            pit_density: Fp64(0.12),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Smooth painted steel — storage tanks, pipes, gantries, the smokestack.
+pub(super) fn tank_steel(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.4),
+        metallic: Fp(0.85),
+        uv_scale: Fp(2.0),
+        texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
+            style: MetalStyle::Brushed,
+            color_metal: Fp3(color),
+            color_rust: Fp3([0.4, 0.26, 0.14]),
+            roughness: Fp64(0.4),
+            metallic: Fp(0.85),
+            rust_level: Fp64(0.1),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Sooty red brick — the older factory block and chimney.
+pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.9),
+        uv_scale: Fp(1.5),
+        texture: SovereignTextureConfig::Brick(SovereignBrickConfig {
+            color_brick: Fp3(color),
+            color_mortar: Fp3([0.45, 0.43, 0.40]),
+            scale: Fp64(5.0),
+            cell_variance: Fp64(0.2),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Grimy industrial glazing (`glow` lights it from within).
+pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(tint),
+        emission_color: Fp3(tint),
+        emission_strength: Fp(glow),
+        roughness: Fp(0.3),
+        metallic: Fp(0.3),
+        uv_scale: Fp(2.0),
+        texture: SovereignTextureConfig::Window(SovereignWindowConfig {
+            panes_x: 4,
+            panes_y: 3,
+            glass_opacity: Fp64(0.5),
+            grime_level: Fp64(0.35),
+            color_frame: Fp3([0.3, 0.31, 0.32]),
+            ..Default::default()
+        }),
+    }
+}
+
+/// Rough timber — wooden pallets and crates in the yard.
+pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.9),
+        metallic: Fp(0.0),
+        uv_scale: Fp(1.5),
+        texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
+            color_wood_light: Fp3([color[0] * 1.2, color[1] * 1.2, color[2] * 1.15]),
+            color_wood_dark: Fp3([color[0] * 0.65, color[1] * 0.65, color[2] * 0.6]),
+            plank_count: Fp64(4.0),
+            knot_density: Fp64(0.3),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Heavily corroded steel — the derelict kit and rusted fittings.
+pub(super) fn rust(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.95),
+        metallic: Fp(0.4),
+        uv_scale: Fp(1.5),
+        texture: SovereignTextureConfig::Corrugated(SovereignCorrugatedConfig {
+            color_metal: Fp3(color),
+            color_rust: Fp3([0.46, 0.26, 0.12]),
+            ridges: Fp64(14.0),
+            ridge_depth: Fp64(1.0),
+            roughness: Fp64(0.9),
+            metallic: Fp(0.4),
+            rust_level: Fp64(0.6),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+// Steel + concrete palette.
+pub(super) const STEEL_BLUE: [f32; 3] = [0.42, 0.46, 0.50];
+pub(super) const CONCRETE_GREY: [f32; 3] = [0.55, 0.55, 0.56];
+pub(super) const TANK_WHITE: [f32; 3] = [0.76, 0.76, 0.74];
+pub(super) const PIPE_GREY: [f32; 3] = [0.50, 0.52, 0.54];
+pub(super) const BRICK_DARK: [f32; 3] = [0.40, 0.25, 0.21];
+pub(super) const RUST_BROWN: [f32; 3] = [0.44, 0.28, 0.16];
+
+// Shipping-container colours.
+pub(super) const CONTAINER_RED: [f32; 3] = [0.52, 0.20, 0.16];
+pub(super) const CONTAINER_BLUE: [f32; 3] = [0.18, 0.32, 0.46];
+pub(super) const CONTAINER_GREEN: [f32; 3] = [0.20, 0.36, 0.24];
+pub(super) const CONTAINER_RUST: [f32; 3] = [0.50, 0.34, 0.20];
+
+// Emissive trim.
+pub(super) const FLOOD_WHITE: [f32; 3] = [1.0, 0.96, 0.85];
+pub(super) const WINDOW_LIT: [f32; 3] = [0.85, 0.86, 0.70];
+
+/// Walk a built tree and report whether any primitive is strongly emissive
+/// — the shared "are the floodlights on?" check for the kit's tests.
+#[cfg(test)]
+pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
+    use crate::pds::GeneratorKind::*;
+    let own = match &g.kind {
+        Cuboid { material, .. }
+        | Cylinder { material, .. }
+        | Sphere { material, .. }
+        | Cone { material, .. }
+        | Torus { material, .. }
+        | Capsule { material, .. } => material.emission_strength.0 > 1.0,
+        _ => false,
+    };
+    own || g.children.iter().any(has_emissive)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::catalogue::CatalogueEntry;
+    use crate::catalogue::items::util::assert_sanitize_stable;
+
+    /// The three poor (derelict) variants must build clean trees the
+    /// sanitiser leaves untouched.
+    #[test]
+    fn poor_variants_round_trip() {
+        let entries: [&dyn CatalogueEntry; 3] = [
+            &derelict_shed::DerelictShed,
+            &rusted_tank::RustedTank,
+            &scrap_heap::ScrapHeap,
+        ];
+        for e in entries {
+            assert_sanitize_stable(&e.build(""), e.slug());
+        }
+    }
+
+    /// The floodlight is the kit's lit hero — it must keep its emissive lamps
+    /// so escalation's broken-emissive ruin pass has something to kill.
+    #[test]
+    fn floodlight_keeps_its_lamps() {
+        assert!(
+            has_emissive(&floodlight::Floodlight.build("")),
+            "floodlight lost its emissive lamps"
+        );
+    }
+}

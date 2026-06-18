@@ -892,6 +892,79 @@ mod tests {
     }
 
     #[test]
+    fn industrial_park_settlement_uses_its_own_kit_by_prosperity() {
+        // The per-theme poor/rich pattern (#433/#400): an affluent room grows
+        // the working plant, a destitute one the derelict kit — the two
+        // registers never cross.
+        const POOR_KIT: [&str; 3] = ["derelict_shed", "rusted_tank", "scrap_heap"];
+        const RICH_KIT: [&str; 8] = [
+            "factory",
+            "cooling_tower",
+            "loading_dock",
+            "tank_farm",
+            "shipping_containers",
+            "pipe_run",
+            "pallet_stack",
+            "floodlight",
+        ];
+
+        let ind_member = |slug: &str| {
+            by_slug(slug)
+                .expect("member resolves")
+                .themes()
+                .contains(&ThemeArchetype::IndustrialPark)
+        };
+
+        let mut rich_placed_secondary = false;
+        let mut poor_placed_tank = false;
+        for s in 0u64..32 {
+            let mut rich = SceneCharacter::for_seed(s);
+            rich.theme = ThemeArchetype::IndustrialPark;
+            rich.prosperity = 0.95;
+            let r = Settlement::from_scene(&rich, s);
+            assert_eq!(r.landmark.slug, "factory", "rich industrial landmark");
+            for m in std::iter::once(&r.landmark)
+                .chain(&r.secondaries)
+                .chain(&r.props)
+            {
+                assert!(ind_member(m.slug), "rich industrial member {}", m.slug);
+                assert!(
+                    !POOR_KIT.contains(&m.slug),
+                    "rich room grew the poor kit: {}",
+                    m.slug
+                );
+            }
+            rich_placed_secondary |= r.secondaries.iter().any(|sec| RICH_KIT.contains(&sec.slug));
+
+            let mut poor = SceneCharacter::for_seed(s);
+            poor.theme = ThemeArchetype::IndustrialPark;
+            poor.prosperity = 0.05;
+            let p = Settlement::from_scene(&poor, s);
+            assert_eq!(p.landmark.slug, "derelict_shed", "poor industrial landmark");
+            for m in std::iter::once(&p.landmark)
+                .chain(&p.secondaries)
+                .chain(&p.props)
+            {
+                assert!(ind_member(m.slug), "poor industrial member {}", m.slug);
+                assert!(
+                    !RICH_KIT.contains(&m.slug),
+                    "poor room grew the established kit: {}",
+                    m.slug
+                );
+            }
+            poor_placed_tank |= p.secondaries.iter().any(|sec| sec.slug == "rusted_tank");
+        }
+        assert!(
+            rich_placed_secondary,
+            "some rich industrial room places an established secondary"
+        );
+        assert!(
+            poor_placed_tank,
+            "some poor industrial room places the rusted tank"
+        );
+    }
+
+    #[test]
     fn ancient_theme_sometimes_places_secondaries() {
         let any = (0u64..64).any(|s| {
             let mut scene = SceneCharacter::for_seed(s);
