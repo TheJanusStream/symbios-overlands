@@ -666,6 +666,158 @@ mod tests {
     }
 
     #[test]
+    fn modern_city_settlement_uses_its_own_kit_by_prosperity() {
+        // The per-theme poor/rich pattern (#433/#397): an affluent room grows
+        // the glass-and-concrete downtown, a destitute one the inner-city kit
+        // — the two registers never cross.
+        const POOR_KIT: [&str; 3] = ["tenement", "corner_store", "trash_bags"];
+        const RICH_KIT: [&str; 8] = [
+            "glass_skyscraper",
+            "office_block",
+            "parking_garage",
+            "transit_stop",
+            "street_lamp",
+            "traffic_light",
+            "parked_car",
+            "dumpster",
+        ];
+
+        let city_member = |slug: &str| {
+            by_slug(slug)
+                .expect("member resolves")
+                .themes()
+                .contains(&ThemeArchetype::ModernCity)
+        };
+
+        let mut rich_placed_secondary = false;
+        let mut poor_placed_store = false;
+        for s in 0u64..32 {
+            let mut rich = SceneCharacter::for_seed(s);
+            rich.theme = ThemeArchetype::ModernCity;
+            rich.prosperity = 0.95;
+            let r = Settlement::from_scene(&rich, s);
+            assert_eq!(
+                r.landmark.slug, "glass_skyscraper",
+                "rich modern-city landmark"
+            );
+            for m in std::iter::once(&r.landmark)
+                .chain(&r.secondaries)
+                .chain(&r.props)
+            {
+                assert!(city_member(m.slug), "rich modern-city member {}", m.slug);
+                assert!(
+                    !POOR_KIT.contains(&m.slug),
+                    "rich room grew the poor kit: {}",
+                    m.slug
+                );
+            }
+            rich_placed_secondary |= r.secondaries.iter().any(|sec| RICH_KIT.contains(&sec.slug));
+
+            let mut poor = SceneCharacter::for_seed(s);
+            poor.theme = ThemeArchetype::ModernCity;
+            poor.prosperity = 0.05;
+            let p = Settlement::from_scene(&poor, s);
+            assert_eq!(p.landmark.slug, "tenement", "poor modern-city landmark");
+            for m in std::iter::once(&p.landmark)
+                .chain(&p.secondaries)
+                .chain(&p.props)
+            {
+                assert!(city_member(m.slug), "poor modern-city member {}", m.slug);
+                assert!(
+                    !RICH_KIT.contains(&m.slug),
+                    "poor room grew the established kit: {}",
+                    m.slug
+                );
+            }
+            poor_placed_store |= p.secondaries.iter().any(|sec| sec.slug == "corner_store");
+        }
+        assert!(
+            rich_placed_secondary,
+            "some rich modern-city room places an established secondary"
+        );
+        assert!(
+            poor_placed_store,
+            "some poor modern-city room places the corner store"
+        );
+    }
+
+    #[test]
+    fn suburban_settlement_uses_its_own_kit_by_prosperity() {
+        // The per-theme poor/rich pattern (#433/#398): an affluent room grows
+        // the tidy neighbourhood, a destitute one the trailer lot — the two
+        // registers never cross.
+        const POOR_KIT: [&str; 3] = ["trailer_home", "carport", "yard_junk"];
+        const RICH_KIT: [&str; 8] = [
+            "community_center",
+            "suburban_house",
+            "detached_garage",
+            "mini_mart",
+            "picket_fence",
+            "mailbox",
+            "minivan",
+            "swing_set",
+        ];
+
+        let sub_member = |slug: &str| {
+            by_slug(slug)
+                .expect("member resolves")
+                .themes()
+                .contains(&ThemeArchetype::Suburban)
+        };
+
+        let mut rich_placed_secondary = false;
+        let mut poor_placed_carport = false;
+        for s in 0u64..32 {
+            let mut rich = SceneCharacter::for_seed(s);
+            rich.theme = ThemeArchetype::Suburban;
+            rich.prosperity = 0.95;
+            let r = Settlement::from_scene(&rich, s);
+            assert_eq!(
+                r.landmark.slug, "community_center",
+                "rich suburban landmark"
+            );
+            for m in std::iter::once(&r.landmark)
+                .chain(&r.secondaries)
+                .chain(&r.props)
+            {
+                assert!(sub_member(m.slug), "rich suburban member {}", m.slug);
+                assert!(
+                    !POOR_KIT.contains(&m.slug),
+                    "rich room grew the poor kit: {}",
+                    m.slug
+                );
+            }
+            rich_placed_secondary |= r.secondaries.iter().any(|sec| RICH_KIT.contains(&sec.slug));
+
+            let mut poor = SceneCharacter::for_seed(s);
+            poor.theme = ThemeArchetype::Suburban;
+            poor.prosperity = 0.05;
+            let p = Settlement::from_scene(&poor, s);
+            assert_eq!(p.landmark.slug, "trailer_home", "poor suburban landmark");
+            for m in std::iter::once(&p.landmark)
+                .chain(&p.secondaries)
+                .chain(&p.props)
+            {
+                assert!(sub_member(m.slug), "poor suburban member {}", m.slug);
+                assert!(
+                    !RICH_KIT.contains(&m.slug),
+                    "poor room grew the established kit: {}",
+                    m.slug
+                );
+            }
+            poor_placed_carport |= p.secondaries.iter().any(|sec| sec.slug == "carport");
+        }
+        assert!(
+            rich_placed_secondary,
+            "some rich suburban room places an established secondary"
+        );
+        assert!(
+            poor_placed_carport,
+            "some poor suburban room places the carport"
+        );
+    }
+
+    #[test]
     fn ancient_theme_sometimes_places_secondaries() {
         let any = (0u64..64).any(|s| {
             let mut scene = SceneCharacter::for_seed(s);

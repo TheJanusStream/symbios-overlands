@@ -108,6 +108,42 @@ fn voice_for(scene: &SceneCharacter) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.46,
         },
+        // Bright twinkling chimes — a high, gentle major (an ice-cream-van
+        // wholesomeness) over the birdsong.
+        ThemeArchetype::Suburban => ThemeVoice {
+            id: "theme_chimes",
+            wave: Wave::Triangle,
+            detune_cents: 0.0,
+            scale: PENTATONIC_MAJOR,
+            octave: 1.5,
+            attack_s: 0.005,
+            decay_s: 0.4,
+            sustain_level: 0.0,
+            release_s: 1.0,
+            note_count: (4, 7),
+            gate: (0.2, 0.5),
+            volume: (0.07, 0.13),
+            arp: false,
+            reverb_mix: 0.35,
+        },
+        // Slow detuned-saw synth pad — a calm urban drone under the traffic
+        // hum (which rides the traffic light's spatial fx).
+        ThemeArchetype::ModernCity => ThemeVoice {
+            id: "theme_citypad",
+            wave: Wave::Sawtooth,
+            detune_cents: 9.0,
+            scale: PENTATONIC_MAJOR,
+            octave: 1.0,
+            attack_s: 0.3,
+            decay_s: 0.5,
+            sustain_level: 0.6,
+            release_s: 1.6,
+            note_count: (3, 5),
+            gate: (0.8, 1.6),
+            volume: (0.06, 0.12),
+            arp: false,
+            reverb_mix: 0.4,
+        },
         // Breathy clay ocarina — sparse, plaintive minor over the implied
         // ritual drums (the drum itself rides the step pyramid's spatial fx).
         ThemeArchetype::Mesoamerican => ThemeVoice {
@@ -435,17 +471,23 @@ mod tests {
         let meso = voice_for(&scene_with(ThemeArchetype::Mesoamerican, 0.0));
         assert!(matches!(meso.wave, Wave::Sine) && !meso.arp);
         assert_eq!(meso.scale, PENTATONIC_MINOR);
+        let city = voice_for(&scene_with(ThemeArchetype::ModernCity, 0.0));
+        assert!(matches!(city.wave, Wave::Sawtooth) && !city.arp && city.detune_cents > 0.0);
+        assert_eq!(city.scale, PENTATONIC_MAJOR);
+        let sub = voice_for(&scene_with(ThemeArchetype::Suburban, 0.0));
+        assert!(matches!(sub.wave, Wave::Triangle) && sub.octave > 1.0);
+        assert_eq!(sub.scale, PENTATONIC_MAJOR);
         let anc = voice_for(&scene_with(ThemeArchetype::AncientClassical, 0.0));
         assert_eq!(anc.scale, PENTATONIC_MAJOR);
     }
 
     #[test]
     fn neutral_default_mode_follows_temperature() {
-        // An un-authored theme (e.g. Suburban today) gets the neutral
+        // An un-authored theme (e.g. SportsRec today) gets the neutral
         // voice; warm rooms major, cool rooms minor.
-        let warm = voice_for(&scene_with(ThemeArchetype::Suburban, 0.8));
+        let warm = voice_for(&scene_with(ThemeArchetype::SportsRec, 0.8));
         assert_eq!(warm.scale, PENTATONIC_MAJOR);
-        let cool = voice_for(&scene_with(ThemeArchetype::Suburban, -0.8));
+        let cool = voice_for(&scene_with(ThemeArchetype::SportsRec, -0.8));
         assert_eq!(cool.scale, PENTATONIC_MINOR);
     }
 

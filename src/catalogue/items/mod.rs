@@ -18,9 +18,11 @@ pub mod cyberpunk;
 pub mod feudal_japan;
 pub mod medieval;
 pub mod mesoamerican;
+pub mod modern_city;
 pub mod nordic;
 pub mod patterns;
 pub mod plants;
+pub mod suburban;
 pub mod tools;
 
 mod util;
@@ -96,6 +98,32 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &mesoamerican::adobe_hut::AdobeHut,
     &mesoamerican::maize_granary::MaizeGranary,
     &mesoamerican::clay_pots::ClayPots,
+    // Buildings — Modern City theme (landmark + secondaries + props).
+    &modern_city::glass_skyscraper::GlassSkyscraper,
+    &modern_city::office_block::OfficeBlock,
+    &modern_city::parking_garage::ParkingGarage,
+    &modern_city::transit_stop::TransitStop,
+    &modern_city::street_lamp::StreetLamp,
+    &modern_city::traffic_light::TrafficLight,
+    &modern_city::parked_car::ParkedCar,
+    &modern_city::dumpster::Dumpster,
+    // Buildings — Modern City poor (inner-city) variants, prosperity Poor.
+    &modern_city::tenement::Tenement,
+    &modern_city::corner_store::CornerStore,
+    &modern_city::trash_bags::TrashBags,
+    // Buildings — Suburban theme (landmark + secondaries + props).
+    &suburban::community_center::CommunityCenter,
+    &suburban::suburban_house::SuburbanHouse,
+    &suburban::detached_garage::DetachedGarage,
+    &suburban::mini_mart::MiniMart,
+    &suburban::picket_fence::PicketFence,
+    &suburban::mailbox::Mailbox,
+    &suburban::minivan::Minivan,
+    &suburban::swing_set::SwingSet,
+    // Buildings — Suburban poor (trailer-lot) variants, prosperity Poor.
+    &suburban::trailer_home::TrailerHome,
+    &suburban::carport::Carport,
+    &suburban::yard_junk::YardJunk,
     // Buildings — cross-theme socio-political props (Prop role, tagged
     // with every theme but gated to a prosperity / escalation tier band;
     // see crate::catalogue::items::civic).
@@ -184,9 +212,10 @@ mod tests {
         // Deriving category() from role() must keep every entry in its
         // expected section. 8 ancient/medieval + 8 cyberpunk + 5 cyberpunk
         // poor + 8 nordic + 3 nordic poor + 8 feudal japan + 3 feudal japan
-        // poor + 8 mesoamerican + 3 mesoamerican poor + 16 civic cross-theme
-        // props = 70 buildings.
-        assert_eq!(count(Buildings), 70);
+        // poor + 8 mesoamerican + 3 mesoamerican poor + 8 modern city + 3
+        // modern city poor + 8 suburban + 3 suburban poor + 16 civic
+        // cross-theme props = 92 buildings.
+        assert_eq!(count(Buildings), 92);
         assert_eq!(count(Plants), 4);
         assert_eq!(count(Patterns), 3);
         assert_eq!(count(Tools), 1);

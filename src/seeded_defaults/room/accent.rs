@@ -90,6 +90,23 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: None,
             },
+            // City smog — a cool grey haze hanging over the downtown.
+            ModernCity => Self {
+                tint: [0.60, 0.62, 0.66],
+                tint_strength: 0.12,
+                haze: 0.13,
+                brightness: 1.0,
+                particle_mood: None,
+            },
+            // A soft sunny haze over green lawns (birdsong rides the
+            // community center's spatial fx).
+            Suburban => Self {
+                tint: [0.84, 0.86, 0.68],
+                tint_strength: 0.08,
+                haze: 0.0,
+                brightness: 1.0,
+                particle_mood: None,
+            },
             AlienOrganic => Self {
                 tint: [0.25, 0.85, 0.40],
                 tint_strength: 0.20,
