@@ -1,10 +1,10 @@
 //! Theme ambient *music* — the tonal melodic voice that gives a
 //! settlement its character. Each [`ThemeArchetype`] maps to a
-//! [`ThemeVoice`] descriptor (instrument timbre + scale + note pattern);
-//! un-authored themes fall back to a biome-anchored neutral default
-//! (mode from temperature, density from biome). The biome still nudges
-//! the register and the voice shares the bed's reverb space — so some of
-//! the music is "based on biome" while its identity comes from the theme.
+//! [`ThemeVoice`] descriptor (instrument timbre + scale + note pattern); the
+//! match is exhaustive, so every theme has an authored voice and a new
+//! archetype must add one. The biome still nudges the register and the voice
+//! shares the bed's reverb space — so some of the music is "based on biome"
+//! while its identity comes from the theme.
 
 use std::collections::BTreeMap;
 
@@ -233,6 +233,150 @@ fn voice_for(scene: &SceneCharacter) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.4,
         },
+        // Plucky banjo roll — a bright triangle arpeggio rolling up a sunny
+        // major, the dance-hall lilt of the saloon.
+        ThemeArchetype::WildWest => ThemeVoice {
+            id: "theme_banjo",
+            wave: Wave::Triangle,
+            detune_cents: 0.0,
+            scale: PENTATONIC_MAJOR,
+            octave: 1.0,
+            attack_s: 0.004,
+            decay_s: 0.2,
+            sustain_level: 0.0,
+            release_s: 0.4,
+            note_count: (6, 10),
+            gate: (0.18, 0.3),
+            volume: (0.06, 0.12),
+            arp: true,
+            reverb_mix: 0.3,
+        },
+        // Bleak wasteland drone — a heavily-detuned saw groaning low in a
+        // minor pentatonic, sparse and forlorn over the desolate wind.
+        ThemeArchetype::PostApoc => ThemeVoice {
+            id: "theme_wasteland",
+            wave: Wave::Sawtooth,
+            detune_cents: 14.0,
+            scale: PENTATONIC_MINOR,
+            octave: 0.5,
+            attack_s: 0.3,
+            decay_s: 0.6,
+            sustain_level: 0.5,
+            release_s: 2.2,
+            note_count: (2, 4),
+            gate: (1.0, 2.0),
+            volume: (0.07, 0.13),
+            arp: false,
+            reverb_mix: 0.5,
+        },
+        // Deep monolith tone — a pure sine tolling far below in a dark
+        // phrygian, sparse and vast under the array's hum.
+        ThemeArchetype::AlienMonolithic => ThemeVoice {
+            id: "theme_monolith",
+            wave: Wave::Sine,
+            detune_cents: 0.0,
+            scale: PHRYGIAN,
+            octave: 0.5,
+            attack_s: 0.2,
+            decay_s: 0.6,
+            sustain_level: 0.6,
+            release_s: 2.5,
+            note_count: (2, 3),
+            gate: (1.5, 2.5),
+            volume: (0.08, 0.14),
+            arp: false,
+            reverb_mix: 0.6,
+        },
+        // Eerie biolume theremin — a heavily-detuned sine wavering in a dark
+        // phrygian, alien and unsettling over the hive's pulse.
+        ThemeArchetype::AlienOrganic => ThemeVoice {
+            id: "theme_biolume",
+            wave: Wave::Sine,
+            detune_cents: 16.0,
+            scale: PHRYGIAN,
+            octave: 1.0,
+            attack_s: 0.1,
+            decay_s: 0.5,
+            sustain_level: 0.4,
+            release_s: 1.8,
+            note_count: (3, 5),
+            gate: (0.5, 1.1),
+            volume: (0.07, 0.13),
+            arp: false,
+            reverb_mix: 0.55,
+        },
+        // Funereal pipe organ — a heavily-detuned saw swelling in a dark
+        // phrygian, slow and dread-laden through the nave.
+        ThemeArchetype::GothicHorror => ThemeVoice {
+            id: "theme_organ_dirge",
+            wave: Wave::Sawtooth,
+            detune_cents: 12.0,
+            scale: PHRYGIAN,
+            octave: 1.0,
+            attack_s: 0.3,
+            decay_s: 0.5,
+            sustain_level: 0.7,
+            release_s: 2.0,
+            note_count: (2, 4),
+            gate: (1.0, 2.0),
+            volume: (0.07, 0.13),
+            arp: false,
+            reverb_mix: 0.6,
+        },
+        // Twinkling celesta — a high triangle arpeggio sparkling up a sunny
+        // major, the shimmer of bound magic.
+        ThemeArchetype::Fantasy => ThemeVoice {
+            id: "theme_celesta",
+            wave: Wave::Triangle,
+            detune_cents: 0.0,
+            scale: PENTATONIC_MAJOR,
+            octave: 1.5,
+            attack_s: 0.005,
+            decay_s: 0.4,
+            sustain_level: 0.0,
+            release_s: 1.4,
+            note_count: (8, 12),
+            gate: (0.18, 0.3),
+            volume: (0.06, 0.11),
+            arp: true,
+            reverb_mix: 0.5,
+        },
+        // Cold distant beacon — a high pure sine pinging a sparse minor, the
+        // lonely signal of the outpost.
+        ThemeArchetype::SpaceOutpost => ThemeVoice {
+            id: "theme_beacon",
+            wave: Wave::Sine,
+            detune_cents: 0.0,
+            scale: PENTATONIC_MINOR,
+            octave: 1.5,
+            attack_s: 0.02,
+            decay_s: 0.5,
+            sustain_level: 0.0,
+            release_s: 2.0,
+            note_count: (2, 4),
+            gate: (0.4, 0.9),
+            volume: (0.08, 0.14),
+            arp: false,
+            reverb_mix: 0.55,
+        },
+        // Warm wooden marimba — a soft detune-free sine in a sunny major,
+        // gentle and hopeful over the birdsong.
+        ThemeArchetype::Solarpunk => ThemeVoice {
+            id: "theme_marimba",
+            wave: Wave::Sine,
+            detune_cents: 0.0,
+            scale: PENTATONIC_MAJOR,
+            octave: 1.0,
+            attack_s: 0.01,
+            decay_s: 0.4,
+            sustain_level: 0.0,
+            release_s: 1.0,
+            note_count: (4, 7),
+            gate: (0.2, 0.5),
+            volume: (0.08, 0.14),
+            arp: false,
+            reverb_mix: 0.46,
+        },
         // Clockwork music box — a bright triangle arpeggio ticking up a minor
         // pentatonic, the mechanism of the cog tower.
         ThemeArchetype::Steampunk => ThemeVoice {
@@ -340,7 +484,6 @@ fn voice_for(scene: &SceneCharacter) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.45,
         },
-        _ => neutral_voice(scene),
     }
 }
 
@@ -378,37 +521,6 @@ fn apply_socio(voice: &mut ThemeVoice, scene: &SceneCharacter) {
         (voice.volume.0 * vol_scale).max(0.02),
         (voice.volume.1 * vol_scale).min(0.3),
     );
-}
-
-/// Biome-anchored default — sine bells, mode from temperature, density
-/// from biome. The sound un-authored themes carry until they get a kit.
-fn neutral_voice(scene: &SceneCharacter) -> ThemeVoice {
-    let scale = if scene.temperature >= 0.0 {
-        PENTATONIC_MAJOR
-    } else {
-        PENTATONIC_MINOR
-    };
-    let note_count = match scene.biome {
-        BiomeArchetype::Lush | BiomeArchetype::Coastal => (4, 7),
-        BiomeArchetype::Arid | BiomeArchetype::Volcanic => (2, 4),
-        _ => (3, 5),
-    };
-    ThemeVoice {
-        id: "theme_melody",
-        wave: Wave::Sine,
-        detune_cents: 0.0,
-        scale,
-        octave: 1.0,
-        attack_s: 0.06,
-        decay_s: 0.6,
-        sustain_level: 0.0,
-        release_s: 2.0,
-        note_count,
-        gate: (0.4, 1.0),
-        volume: (0.10, 0.20),
-        arp: false,
-        reverb_mix: 0.42,
-    }
 }
 
 const GATE_ID: NodeId = NodeId(0);
@@ -628,16 +740,30 @@ mod tests {
         let stm = voice_for(&scene_with(ThemeArchetype::Steampunk, 0.0));
         assert!(matches!(stm.wave, Wave::Triangle) && stm.arp);
         assert_eq!(stm.scale, PENTATONIC_MINOR);
-    }
-
-    #[test]
-    fn neutral_default_mode_follows_temperature() {
-        // An un-authored theme (e.g. Solarpunk today) gets the neutral
-        // voice; warm rooms major, cool rooms minor.
-        let warm = voice_for(&scene_with(ThemeArchetype::Solarpunk, 0.8));
-        assert_eq!(warm.scale, PENTATONIC_MAJOR);
-        let cool = voice_for(&scene_with(ThemeArchetype::Solarpunk, -0.8));
-        assert_eq!(cool.scale, PENTATONIC_MINOR);
+        let sol = voice_for(&scene_with(ThemeArchetype::Solarpunk, 0.0));
+        assert!(matches!(sol.wave, Wave::Sine) && !sol.arp && sol.detune_cents == 0.0);
+        assert_eq!(sol.scale, PENTATONIC_MAJOR);
+        let spo = voice_for(&scene_with(ThemeArchetype::SpaceOutpost, 0.0));
+        assert!(matches!(spo.wave, Wave::Sine) && spo.octave > 1.0);
+        assert_eq!(spo.scale, PENTATONIC_MINOR);
+        let fan = voice_for(&scene_with(ThemeArchetype::Fantasy, 0.0));
+        assert!(matches!(fan.wave, Wave::Triangle) && fan.arp && fan.octave > 1.0);
+        assert_eq!(fan.scale, PENTATONIC_MAJOR);
+        let got = voice_for(&scene_with(ThemeArchetype::GothicHorror, 0.0));
+        assert!(matches!(got.wave, Wave::Sawtooth) && !got.arp && got.attack_s > 0.1);
+        assert_eq!(got.scale, PHRYGIAN);
+        let alo = voice_for(&scene_with(ThemeArchetype::AlienOrganic, 0.0));
+        assert!(matches!(alo.wave, Wave::Sine) && alo.detune_cents > 0.0);
+        assert_eq!(alo.scale, PHRYGIAN);
+        let alm = voice_for(&scene_with(ThemeArchetype::AlienMonolithic, 0.0));
+        assert!(matches!(alm.wave, Wave::Sine) && alm.octave < 1.0 && alm.detune_cents == 0.0);
+        assert_eq!(alm.scale, PHRYGIAN);
+        let pa = voice_for(&scene_with(ThemeArchetype::PostApoc, 0.0));
+        assert!(matches!(pa.wave, Wave::Sawtooth) && pa.octave < 1.0 && !pa.arp);
+        assert_eq!(pa.scale, PENTATONIC_MINOR);
+        let ww = voice_for(&scene_with(ThemeArchetype::WildWest, 0.0));
+        assert!(matches!(ww.wave, Wave::Triangle) && ww.arp && (ww.octave - 1.0).abs() < 1e-6);
+        assert_eq!(ww.scale, PENTATONIC_MAJOR);
     }
 
     #[test]

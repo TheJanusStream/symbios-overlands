@@ -12,12 +12,16 @@
 
 use super::CatalogueEntry;
 
+pub mod alien_monolithic;
+pub mod alien_organic;
 pub mod ancient;
 pub mod civic;
 pub mod civic_campus;
 pub mod coastal_resort;
 pub mod cyberpunk;
+pub mod fantasy;
 pub mod feudal_japan;
+pub mod gothic_horror;
 pub mod industrial_park;
 pub mod medieval;
 pub mod mesoamerican;
@@ -25,12 +29,16 @@ pub mod modern_city;
 pub mod nordic;
 pub mod patterns;
 pub mod plants;
+pub mod post_apoc;
 pub mod roadside;
 pub mod rural_farmland;
+pub mod solarpunk;
+pub mod space_outpost;
 pub mod sports_rec;
 pub mod steampunk;
 pub mod suburban;
 pub mod tools;
+pub mod wild_west;
 
 mod util;
 
@@ -228,6 +236,118 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &steampunk::tinkerers_shack::TinkerersShack,
     &steampunk::scrap_boiler::ScrapBoiler,
     &steampunk::cog_scrap::CogScrap,
+    // Buildings — Solarpunk theme (landmark + secondaries + props).
+    &solarpunk::biodome::Biodome,
+    &solarpunk::green_pavilion::GreenPavilion,
+    &solarpunk::wind_turbine::WindTurbine,
+    &solarpunk::vertical_farm::VerticalFarm,
+    &solarpunk::solar_panel::SolarPanel,
+    &solarpunk::veggie_planter::VeggiePlanter,
+    &solarpunk::water_channel::WaterChannel,
+    &solarpunk::solar_lamp::SolarLamp,
+    &solarpunk::beehive::Beehive,
+    // Buildings — Solarpunk poor (grassroots) variants, prosperity Poor.
+    &solarpunk::cob_roundhouse::CobRoundhouse,
+    &solarpunk::poly_tunnel::PolyTunnel,
+    &solarpunk::compost_heap::CompostHeap,
+    // Buildings — Space Outpost theme (landmark + secondaries + props).
+    &space_outpost::habitat_dome::HabitatDome,
+    &space_outpost::solar_array::SolarArray,
+    &space_outpost::comms_dish::CommsDish,
+    &space_outpost::landing_pad::LandingPad,
+    &space_outpost::hydroponics::Hydroponics,
+    &space_outpost::rover::Rover,
+    &space_outpost::cargo_crate::CargoCrate,
+    &space_outpost::beacon::Beacon,
+    &space_outpost::airlock::Airlock,
+    // Buildings — Space Outpost poor (wreck) variants, prosperity Poor.
+    &space_outpost::crash_shelter::CrashShelter,
+    &space_outpost::solar_wreck::SolarWreck,
+    &space_outpost::scrap_canister::ScrapCanister,
+    // Buildings — High Fantasy theme (landmark + secondaries + props).
+    &fantasy::wizard_tower::WizardTower,
+    &fantasy::enchanted_library::EnchantedLibrary,
+    &fantasy::fae_ring::FaeRing,
+    &fantasy::crystal_shrine::CrystalShrine,
+    &fantasy::runestone::Runestone,
+    &fantasy::glow_mushroom::GlowMushroom,
+    &fantasy::spell_circle::SpellCircle,
+    &fantasy::mana_font::ManaFont,
+    &fantasy::crystal_cluster::CrystalCluster,
+    // Buildings — High Fantasy poor (hedge-magic) variants, prosperity Poor.
+    &fantasy::hedge_hut::HedgeHut,
+    &fantasy::standing_stone::StandingStone,
+    &fantasy::toadstool_ring::ToadstoolRing,
+    // Buildings — Gothic Horror theme (landmark + secondaries + props).
+    &gothic_horror::cathedral::Cathedral,
+    &gothic_horror::mausoleum::Mausoleum,
+    &gothic_horror::cemetery::Cemetery,
+    &gothic_horror::bell_tower::BellTower,
+    &gothic_horror::gravestone::Gravestone,
+    &gothic_horror::gargoyle::Gargoyle,
+    &gothic_horror::dead_tree::DeadTree,
+    &gothic_horror::iron_fence::IronFence,
+    &gothic_horror::stone_cross::StoneCross,
+    // Buildings — Gothic Horror poor (forsaken) variants, prosperity Poor.
+    &gothic_horror::ruined_chapel::RuinedChapel,
+    &gothic_horror::pauper_graves::PauperGraves,
+    &gothic_horror::bone_pile::BonePile,
+    // Buildings — Alien Organic theme (landmark + secondaries + props).
+    &alien_organic::chitinous_hive::ChitinousHive,
+    &alien_organic::pod_cluster::PodCluster,
+    &alien_organic::fleshy_spire::FleshySpire,
+    &alien_organic::membrane_wall::MembraneWall,
+    &alien_organic::egg_sac::EggSac,
+    &alien_organic::biolume_stalk::BiolumeStalk,
+    &alien_organic::tendril::Tendril,
+    &alien_organic::spore_vent::SporeVent,
+    &alien_organic::creep_patch::CreepPatch,
+    // Buildings — Alien Organic poor (necrotic) variants, prosperity Poor.
+    &alien_organic::withered_hive::WitheredHive,
+    &alien_organic::husk_pods::HuskPods,
+    &alien_organic::rot_patch::RotPatch,
+    // Buildings — Alien Monolithic theme (landmark + secondaries + props).
+    &alien_monolithic::black_monolith::BlackMonolith,
+    &alien_monolithic::levitating_platform::LevitatingPlatform,
+    &alien_monolithic::light_pylon::LightPylon,
+    &alien_monolithic::glyph_arch::GlyphArch,
+    &alien_monolithic::floating_cube::FloatingCube,
+    &alien_monolithic::glyph_stone::GlyphStone,
+    &alien_monolithic::energy_node::EnergyNode,
+    &alien_monolithic::monolith_shard::MonolithShard,
+    &alien_monolithic::light_disc::LightDisc,
+    // Buildings — Alien Monolithic poor (dormant) variants, prosperity Poor.
+    &alien_monolithic::broken_monolith::BrokenMonolith,
+    &alien_monolithic::dead_pylon::DeadPylon,
+    &alien_monolithic::glyph_rubble::GlyphRubble,
+    // Buildings — Post-apocalyptic theme (landmark + secondaries + props).
+    &post_apoc::fortified_ruin::FortifiedRuin,
+    &post_apoc::salvage_shack::SalvageShack,
+    &post_apoc::radio_mast::RadioMast,
+    &post_apoc::fuel_depot::FuelDepot,
+    &post_apoc::wrecked_car::WreckedCar,
+    &post_apoc::scrap_wall::ScrapWall,
+    &post_apoc::fuel_barrels::FuelBarrels,
+    &post_apoc::tire_wall::TireWall,
+    &post_apoc::signal_fire::SignalFire,
+    // Buildings — Post-apocalyptic poor (drifter) variants, prosperity Poor.
+    &post_apoc::survivor_lean_to::SurvivorLeanTo,
+    &post_apoc::rubble_barricade::RubbleBarricade,
+    &post_apoc::ash_pit::AshPit,
+    // Buildings — Wild West theme (landmark + secondaries + props).
+    &wild_west::saloon::Saloon,
+    &wild_west::water_tower::WaterTower,
+    &wild_west::church::Church,
+    &wild_west::jail::Jail,
+    &wild_west::general_store::GeneralStore,
+    &wild_west::hitching_post::HitchingPost,
+    &wild_west::wagon::Wagon,
+    &wild_west::frontier_fence::FrontierFence,
+    &wild_west::wind_pump::WindPump,
+    // Buildings — Wild West poor (bust) variants, prosperity Poor.
+    &wild_west::prospector_shack::ProspectorShack,
+    &wild_west::boot_hill::BootHill,
+    &wild_west::tumbleweed::Tumbleweed,
     // Buildings — cross-theme socio-political props (Prop role, tagged
     // with every theme but gated to a prosperity / escalation tier band;
     // see crate::catalogue::items::civic).
@@ -321,9 +441,13 @@ mod tests {
         // + 3 rural farmland poor + 8 industrial park + 3 industrial park poor
         // + 9 coastal resort + 3 coastal resort poor + 9 roadside + 3 roadside
         // poor + 9 civic campus + 3 civic campus poor + 9 sports rec + 3 sports
-        // rec poor + 9 steampunk + 3 steampunk poor + 16 civic cross-theme
-        // props = 175 buildings.
-        assert_eq!(count(Buildings), 175);
+        // rec poor + 9 steampunk + 3 steampunk poor + 9 solarpunk + 3 solarpunk
+        // poor + 9 space outpost + 3 space outpost poor + 9 fantasy + 3 fantasy
+        // poor + 9 gothic horror + 3 gothic horror poor + 9 alien organic + 3
+        // alien organic poor + 9 alien monolithic + 3 alien monolithic poor + 9
+        // post-apoc + 3 post-apoc poor + 9 wild west + 3 wild west poor + 16
+        // civic cross-theme props = 271 buildings.
+        assert_eq!(count(Buildings), 271);
         assert_eq!(count(Plants), 4);
         assert_eq!(count(Patterns), 3);
         assert_eq!(count(Tools), 1);

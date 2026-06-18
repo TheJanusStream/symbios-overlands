@@ -189,6 +189,38 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: None,
             },
+            // Fresh clean green air — a bright, haze-free verdant wash.
+            Solarpunk => Self {
+                tint: [0.62, 0.82, 0.66],
+                tint_strength: 0.10,
+                haze: 0.0,
+                brightness: 1.0,
+                particle_mood: None,
+            },
+            // Thin rust-grey atmosphere — a pale dusty sky with regolith motes.
+            SpaceOutpost => Self {
+                tint: [0.64, 0.58, 0.54],
+                tint_strength: 0.10,
+                haze: 0.04,
+                brightness: 1.0,
+                particle_mood: Some(ParticleMood::DustMotes),
+            },
+            // Arcane air — a soft violet wash thick with drifting magic motes.
+            Fantasy => Self {
+                tint: [0.60, 0.48, 0.82],
+                tint_strength: 0.14,
+                haze: 0.06,
+                brightness: 1.0,
+                particle_mood: Some(ParticleMood::Fireflies),
+            },
+            // Sun-bleached frontier dust — a warm tan haze with drifting motes.
+            WildWest => Self {
+                tint: [0.80, 0.68, 0.46],
+                tint_strength: 0.12,
+                haze: 0.08,
+                brightness: 1.0,
+                particle_mood: Some(ParticleMood::DustMotes),
+            },
             _ => Self::NEUTRAL,
         }
     }
@@ -336,6 +368,63 @@ mod tests {
         // Amber smog: warm tint and a hanging haze.
         assert!(a.tint[0] > a.tint[2], "steampunk accent should lean amber");
         assert!(a.haze > 0.0, "the smoggy works adds haze");
+    }
+
+    #[test]
+    fn solarpunk_accent_is_fresh_green() {
+        let a = ThemeAccent::for_theme(ThemeArchetype::Solarpunk);
+        assert!(!a.is_noop());
+        // Verdant clean air: green dominates, no haze.
+        assert!(a.tint[1] > a.tint[0] && a.tint[1] > a.tint[2]);
+        assert_eq!(a.haze, 0.0, "clean solar air adds no haze");
+    }
+
+    #[test]
+    fn space_outpost_accent_is_thin_dusty_air() {
+        let a = ThemeAccent::for_theme(ThemeArchetype::SpaceOutpost);
+        assert!(!a.is_noop());
+        // Thin rust atmosphere with drifting regolith motes.
+        assert!(a.tint[0] > a.tint[2], "space accent should lean rust");
+        assert_eq!(a.particle_mood, Some(ParticleMood::DustMotes));
+    }
+
+    #[test]
+    fn fantasy_accent_is_arcane_motes() {
+        let a = ThemeAccent::for_theme(ThemeArchetype::Fantasy);
+        assert!(!a.is_noop());
+        // Violet arcane air carrying magic motes.
+        assert!(a.tint[2] > a.tint[1], "fantasy accent should lean violet");
+        assert_eq!(a.particle_mood, Some(ParticleMood::Fireflies));
+    }
+
+    #[test]
+    fn gothic_horror_accent_is_gloom_and_fog() {
+        let a = ThemeAccent::for_theme(ThemeArchetype::GothicHorror);
+        assert!(!a.is_noop());
+        // Dark desaturating gloom with a hanging fog.
+        assert!(
+            a.tint[0] < 0.3 && a.tint[1] < 0.3,
+            "gothic accent should be dark"
+        );
+        assert!(a.haze > 0.1, "gothic fog hangs heavy");
+    }
+
+    #[test]
+    fn post_apoc_accent_is_dust_haze() {
+        let a = ThemeAccent::for_theme(ThemeArchetype::PostApoc);
+        assert!(!a.is_noop());
+        // Warm grit hangs in the air with drifting dust motes.
+        assert!(a.haze > 0.1, "the wasteland air hangs with dust");
+        assert_eq!(a.particle_mood, Some(ParticleMood::DustMotes));
+    }
+
+    #[test]
+    fn wild_west_accent_is_sun_bleached_dust() {
+        let a = ThemeAccent::for_theme(ThemeArchetype::WildWest);
+        assert!(!a.is_noop());
+        // Warm frontier dust hangs in the air with drifting motes.
+        assert!(a.tint[0] > a.tint[2], "wild west accent should lean warm");
+        assert_eq!(a.particle_mood, Some(ParticleMood::DustMotes));
     }
 
     #[test]

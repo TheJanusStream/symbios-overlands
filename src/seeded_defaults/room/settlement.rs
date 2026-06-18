@@ -1340,6 +1340,615 @@ mod tests {
     }
 
     #[test]
+    fn solarpunk_settlement_uses_its_own_kit_by_prosperity() {
+        // The per-theme poor/rich pattern (#433/#406): an affluent room grows
+        // the glass-dome eco-quarter, a destitute one the grassroots commune —
+        // the two registers never cross.
+        const POOR_KIT: [&str; 3] = ["cob_roundhouse", "poly_tunnel", "compost_heap"];
+        const RICH_KIT: [&str; 9] = [
+            "biodome",
+            "green_pavilion",
+            "wind_turbine",
+            "vertical_farm",
+            "solar_panel",
+            "veggie_planter",
+            "water_channel",
+            "solar_lamp",
+            "beehive",
+        ];
+
+        let solar_member = |slug: &str| {
+            by_slug(slug)
+                .expect("member resolves")
+                .themes()
+                .contains(&ThemeArchetype::Solarpunk)
+        };
+
+        let mut rich_placed_secondary = false;
+        let mut poor_placed_poly_tunnel = false;
+        for s in 0u64..32 {
+            let mut rich = SceneCharacter::for_seed(s);
+            rich.theme = ThemeArchetype::Solarpunk;
+            rich.prosperity = 0.95;
+            let r = Settlement::from_scene(&rich, s);
+            assert_eq!(r.landmark.slug, "biodome", "rich solarpunk landmark");
+            for m in std::iter::once(&r.landmark)
+                .chain(&r.secondaries)
+                .chain(&r.props)
+            {
+                assert!(solar_member(m.slug), "rich solarpunk member {}", m.slug);
+                assert!(
+                    !POOR_KIT.contains(&m.slug),
+                    "rich room grew the poor kit: {}",
+                    m.slug
+                );
+            }
+            rich_placed_secondary |= r.secondaries.iter().any(|sec| RICH_KIT.contains(&sec.slug));
+
+            let mut poor = SceneCharacter::for_seed(s);
+            poor.theme = ThemeArchetype::Solarpunk;
+            poor.prosperity = 0.05;
+            let p = Settlement::from_scene(&poor, s);
+            assert_eq!(p.landmark.slug, "cob_roundhouse", "poor solarpunk landmark");
+            for m in std::iter::once(&p.landmark)
+                .chain(&p.secondaries)
+                .chain(&p.props)
+            {
+                assert!(solar_member(m.slug), "poor solarpunk member {}", m.slug);
+                assert!(
+                    !RICH_KIT.contains(&m.slug),
+                    "poor room grew the established kit: {}",
+                    m.slug
+                );
+            }
+            poor_placed_poly_tunnel |= p.secondaries.iter().any(|sec| sec.slug == "poly_tunnel");
+        }
+        assert!(
+            rich_placed_secondary,
+            "some rich solarpunk room places an established secondary"
+        );
+        assert!(
+            poor_placed_poly_tunnel,
+            "some poor solarpunk room places the poly-tunnel"
+        );
+    }
+
+    #[test]
+    fn space_outpost_settlement_uses_its_own_kit_by_prosperity() {
+        // The per-theme poor/rich pattern (#433/#407): an affluent room grows
+        // the crewed base, a destitute one the derelict wreck site — the two
+        // registers never cross.
+        const POOR_KIT: [&str; 3] = ["crash_shelter", "solar_wreck", "scrap_canister"];
+        const RICH_KIT: [&str; 9] = [
+            "habitat_dome",
+            "solar_array",
+            "comms_dish",
+            "landing_pad",
+            "hydroponics",
+            "rover",
+            "cargo_crate",
+            "beacon",
+            "airlock",
+        ];
+
+        let outpost_member = |slug: &str| {
+            by_slug(slug)
+                .expect("member resolves")
+                .themes()
+                .contains(&ThemeArchetype::SpaceOutpost)
+        };
+
+        let mut rich_placed_secondary = false;
+        let mut poor_placed_solar_wreck = false;
+        for s in 0u64..32 {
+            let mut rich = SceneCharacter::for_seed(s);
+            rich.theme = ThemeArchetype::SpaceOutpost;
+            rich.prosperity = 0.95;
+            let r = Settlement::from_scene(&rich, s);
+            assert_eq!(r.landmark.slug, "habitat_dome", "rich space landmark");
+            for m in std::iter::once(&r.landmark)
+                .chain(&r.secondaries)
+                .chain(&r.props)
+            {
+                assert!(outpost_member(m.slug), "rich space member {}", m.slug);
+                assert!(
+                    !POOR_KIT.contains(&m.slug),
+                    "rich room grew the poor kit: {}",
+                    m.slug
+                );
+            }
+            rich_placed_secondary |= r.secondaries.iter().any(|sec| RICH_KIT.contains(&sec.slug));
+
+            let mut poor = SceneCharacter::for_seed(s);
+            poor.theme = ThemeArchetype::SpaceOutpost;
+            poor.prosperity = 0.05;
+            let p = Settlement::from_scene(&poor, s);
+            assert_eq!(p.landmark.slug, "crash_shelter", "poor space landmark");
+            for m in std::iter::once(&p.landmark)
+                .chain(&p.secondaries)
+                .chain(&p.props)
+            {
+                assert!(outpost_member(m.slug), "poor space member {}", m.slug);
+                assert!(
+                    !RICH_KIT.contains(&m.slug),
+                    "poor room grew the established kit: {}",
+                    m.slug
+                );
+            }
+            poor_placed_solar_wreck |= p.secondaries.iter().any(|sec| sec.slug == "solar_wreck");
+        }
+        assert!(
+            rich_placed_secondary,
+            "some rich space room places an established secondary"
+        );
+        assert!(
+            poor_placed_solar_wreck,
+            "some poor space room places the solar wreck"
+        );
+    }
+
+    #[test]
+    fn fantasy_settlement_uses_its_own_kit_by_prosperity() {
+        // The per-theme poor/rich pattern (#433/#408): an affluent room grows
+        // the high-magic arcane quarter, a destitute one the hedge-magic
+        // holding — the two registers never cross.
+        const POOR_KIT: [&str; 3] = ["hedge_hut", "standing_stone", "toadstool_ring"];
+        const RICH_KIT: [&str; 9] = [
+            "wizard_tower",
+            "enchanted_library",
+            "fae_ring",
+            "crystal_shrine",
+            "runestone",
+            "glow_mushroom",
+            "spell_circle",
+            "mana_font",
+            "crystal_cluster",
+        ];
+
+        let fantasy_member = |slug: &str| {
+            by_slug(slug)
+                .expect("member resolves")
+                .themes()
+                .contains(&ThemeArchetype::Fantasy)
+        };
+
+        let mut rich_placed_secondary = false;
+        let mut poor_placed_standing_stone = false;
+        for s in 0u64..32 {
+            let mut rich = SceneCharacter::for_seed(s);
+            rich.theme = ThemeArchetype::Fantasy;
+            rich.prosperity = 0.95;
+            let r = Settlement::from_scene(&rich, s);
+            assert_eq!(r.landmark.slug, "wizard_tower", "rich fantasy landmark");
+            for m in std::iter::once(&r.landmark)
+                .chain(&r.secondaries)
+                .chain(&r.props)
+            {
+                assert!(fantasy_member(m.slug), "rich fantasy member {}", m.slug);
+                assert!(
+                    !POOR_KIT.contains(&m.slug),
+                    "rich room grew the poor kit: {}",
+                    m.slug
+                );
+            }
+            rich_placed_secondary |= r.secondaries.iter().any(|sec| RICH_KIT.contains(&sec.slug));
+
+            let mut poor = SceneCharacter::for_seed(s);
+            poor.theme = ThemeArchetype::Fantasy;
+            poor.prosperity = 0.05;
+            let p = Settlement::from_scene(&poor, s);
+            assert_eq!(p.landmark.slug, "hedge_hut", "poor fantasy landmark");
+            for m in std::iter::once(&p.landmark)
+                .chain(&p.secondaries)
+                .chain(&p.props)
+            {
+                assert!(fantasy_member(m.slug), "poor fantasy member {}", m.slug);
+                assert!(
+                    !RICH_KIT.contains(&m.slug),
+                    "poor room grew the established kit: {}",
+                    m.slug
+                );
+            }
+            poor_placed_standing_stone |=
+                p.secondaries.iter().any(|sec| sec.slug == "standing_stone");
+        }
+        assert!(
+            rich_placed_secondary,
+            "some rich fantasy room places an established secondary"
+        );
+        assert!(
+            poor_placed_standing_stone,
+            "some poor fantasy room places the standing stone"
+        );
+    }
+
+    #[test]
+    fn gothic_horror_settlement_uses_its_own_kit_by_prosperity() {
+        // The per-theme poor/rich pattern (#433/#409): an affluent room grows
+        // the consecrated cathedral necropolis, a destitute one the forsaken
+        // ruin — the two registers never cross.
+        const POOR_KIT: [&str; 3] = ["ruined_chapel", "pauper_graves", "bone_pile"];
+        const RICH_KIT: [&str; 9] = [
+            "cathedral",
+            "mausoleum",
+            "cemetery",
+            "bell_tower",
+            "gravestone",
+            "gargoyle",
+            "dead_tree",
+            "iron_fence",
+            "stone_cross",
+        ];
+
+        let gothic_member = |slug: &str| {
+            by_slug(slug)
+                .expect("member resolves")
+                .themes()
+                .contains(&ThemeArchetype::GothicHorror)
+        };
+
+        let mut rich_placed_secondary = false;
+        let mut poor_placed_pauper_graves = false;
+        for s in 0u64..32 {
+            let mut rich = SceneCharacter::for_seed(s);
+            rich.theme = ThemeArchetype::GothicHorror;
+            rich.prosperity = 0.95;
+            let r = Settlement::from_scene(&rich, s);
+            assert_eq!(r.landmark.slug, "cathedral", "rich gothic landmark");
+            for m in std::iter::once(&r.landmark)
+                .chain(&r.secondaries)
+                .chain(&r.props)
+            {
+                assert!(gothic_member(m.slug), "rich gothic member {}", m.slug);
+                assert!(
+                    !POOR_KIT.contains(&m.slug),
+                    "rich room grew the poor kit: {}",
+                    m.slug
+                );
+            }
+            rich_placed_secondary |= r.secondaries.iter().any(|sec| RICH_KIT.contains(&sec.slug));
+
+            let mut poor = SceneCharacter::for_seed(s);
+            poor.theme = ThemeArchetype::GothicHorror;
+            poor.prosperity = 0.05;
+            let p = Settlement::from_scene(&poor, s);
+            assert_eq!(p.landmark.slug, "ruined_chapel", "poor gothic landmark");
+            for m in std::iter::once(&p.landmark)
+                .chain(&p.secondaries)
+                .chain(&p.props)
+            {
+                assert!(gothic_member(m.slug), "poor gothic member {}", m.slug);
+                assert!(
+                    !RICH_KIT.contains(&m.slug),
+                    "poor room grew the established kit: {}",
+                    m.slug
+                );
+            }
+            poor_placed_pauper_graves |=
+                p.secondaries.iter().any(|sec| sec.slug == "pauper_graves");
+        }
+        assert!(
+            rich_placed_secondary,
+            "some rich gothic room places an established secondary"
+        );
+        assert!(
+            poor_placed_pauper_graves,
+            "some poor gothic room places the pauper's graves"
+        );
+    }
+
+    #[test]
+    fn alien_organic_settlement_uses_its_own_kit_by_prosperity() {
+        // The per-theme poor/rich pattern (#433/#410): an affluent room grows
+        // the thriving hive colony, a destitute one the necrotic dying kit —
+        // the two registers never cross.
+        const POOR_KIT: [&str; 3] = ["withered_hive", "husk_pods", "rot_patch"];
+        const RICH_KIT: [&str; 9] = [
+            "chitinous_hive",
+            "pod_cluster",
+            "fleshy_spire",
+            "membrane_wall",
+            "egg_sac",
+            "biolume_stalk",
+            "tendril",
+            "spore_vent",
+            "creep_patch",
+        ];
+
+        let organic_member = |slug: &str| {
+            by_slug(slug)
+                .expect("member resolves")
+                .themes()
+                .contains(&ThemeArchetype::AlienOrganic)
+        };
+
+        let mut rich_placed_secondary = false;
+        let mut poor_placed_husk_pods = false;
+        for s in 0u64..32 {
+            let mut rich = SceneCharacter::for_seed(s);
+            rich.theme = ThemeArchetype::AlienOrganic;
+            rich.prosperity = 0.95;
+            let r = Settlement::from_scene(&rich, s);
+            assert_eq!(r.landmark.slug, "chitinous_hive", "rich alien landmark");
+            for m in std::iter::once(&r.landmark)
+                .chain(&r.secondaries)
+                .chain(&r.props)
+            {
+                assert!(organic_member(m.slug), "rich alien member {}", m.slug);
+                assert!(
+                    !POOR_KIT.contains(&m.slug),
+                    "rich room grew the poor kit: {}",
+                    m.slug
+                );
+            }
+            rich_placed_secondary |= r.secondaries.iter().any(|sec| RICH_KIT.contains(&sec.slug));
+
+            let mut poor = SceneCharacter::for_seed(s);
+            poor.theme = ThemeArchetype::AlienOrganic;
+            poor.prosperity = 0.05;
+            let p = Settlement::from_scene(&poor, s);
+            assert_eq!(p.landmark.slug, "withered_hive", "poor alien landmark");
+            for m in std::iter::once(&p.landmark)
+                .chain(&p.secondaries)
+                .chain(&p.props)
+            {
+                assert!(organic_member(m.slug), "poor alien member {}", m.slug);
+                assert!(
+                    !RICH_KIT.contains(&m.slug),
+                    "poor room grew the established kit: {}",
+                    m.slug
+                );
+            }
+            poor_placed_husk_pods |= p.secondaries.iter().any(|sec| sec.slug == "husk_pods");
+        }
+        assert!(
+            rich_placed_secondary,
+            "some rich alien room places an established secondary"
+        );
+        assert!(
+            poor_placed_husk_pods,
+            "some poor alien room places the husk pods"
+        );
+    }
+
+    #[test]
+    fn alien_monolithic_settlement_uses_its_own_kit_by_prosperity() {
+        // The per-theme poor/rich pattern (#433/#411): an affluent room grows
+        // the active glyph-lit array, a destitute one the dead dormant site —
+        // the two registers never cross.
+        const POOR_KIT: [&str; 3] = ["broken_monolith", "dead_pylon", "glyph_rubble"];
+        const RICH_KIT: [&str; 9] = [
+            "black_monolith",
+            "levitating_platform",
+            "light_pylon",
+            "glyph_arch",
+            "floating_cube",
+            "glyph_stone",
+            "energy_node",
+            "monolith_shard",
+            "light_disc",
+        ];
+
+        let mono_member = |slug: &str| {
+            by_slug(slug)
+                .expect("member resolves")
+                .themes()
+                .contains(&ThemeArchetype::AlienMonolithic)
+        };
+
+        let mut rich_placed_secondary = false;
+        let mut poor_placed_dead_pylon = false;
+        for s in 0u64..32 {
+            let mut rich = SceneCharacter::for_seed(s);
+            rich.theme = ThemeArchetype::AlienMonolithic;
+            rich.prosperity = 0.95;
+            let r = Settlement::from_scene(&rich, s);
+            assert_eq!(
+                r.landmark.slug, "black_monolith",
+                "rich monolithic landmark"
+            );
+            for m in std::iter::once(&r.landmark)
+                .chain(&r.secondaries)
+                .chain(&r.props)
+            {
+                assert!(mono_member(m.slug), "rich monolithic member {}", m.slug);
+                assert!(
+                    !POOR_KIT.contains(&m.slug),
+                    "rich room grew the poor kit: {}",
+                    m.slug
+                );
+            }
+            rich_placed_secondary |= r.secondaries.iter().any(|sec| RICH_KIT.contains(&sec.slug));
+
+            let mut poor = SceneCharacter::for_seed(s);
+            poor.theme = ThemeArchetype::AlienMonolithic;
+            poor.prosperity = 0.05;
+            let p = Settlement::from_scene(&poor, s);
+            assert_eq!(
+                p.landmark.slug, "broken_monolith",
+                "poor monolithic landmark"
+            );
+            for m in std::iter::once(&p.landmark)
+                .chain(&p.secondaries)
+                .chain(&p.props)
+            {
+                assert!(mono_member(m.slug), "poor monolithic member {}", m.slug);
+                assert!(
+                    !RICH_KIT.contains(&m.slug),
+                    "poor room grew the established kit: {}",
+                    m.slug
+                );
+            }
+            poor_placed_dead_pylon |= p.secondaries.iter().any(|sec| sec.slug == "dead_pylon");
+        }
+        assert!(
+            rich_placed_secondary,
+            "some rich monolithic room places an established secondary"
+        );
+        assert!(
+            poor_placed_dead_pylon,
+            "some poor monolithic room places the dead pylon"
+        );
+    }
+
+    #[test]
+    fn post_apoc_settlement_uses_its_own_kit_by_prosperity() {
+        // The per-theme poor/rich pattern (#433/#412): an affluent room grows
+        // the fortified holdout, a destitute one the lone drifter camp — the
+        // two registers never cross.
+        const POOR_KIT: [&str; 3] = ["survivor_lean_to", "rubble_barricade", "ash_pit"];
+        const RICH_KIT: [&str; 9] = [
+            "fortified_ruin",
+            "salvage_shack",
+            "radio_mast",
+            "fuel_depot",
+            "wrecked_car",
+            "scrap_wall",
+            "fuel_barrels",
+            "tire_wall",
+            "signal_fire",
+        ];
+
+        let pa_member = |slug: &str| {
+            by_slug(slug)
+                .expect("member resolves")
+                .themes()
+                .contains(&ThemeArchetype::PostApoc)
+        };
+
+        let mut rich_placed_secondary = false;
+        let mut poor_placed_rubble = false;
+        for s in 0u64..32 {
+            let mut rich = SceneCharacter::for_seed(s);
+            rich.theme = ThemeArchetype::PostApoc;
+            rich.prosperity = 0.95;
+            let r = Settlement::from_scene(&rich, s);
+            assert_eq!(r.landmark.slug, "fortified_ruin", "rich post-apoc landmark");
+            for m in std::iter::once(&r.landmark)
+                .chain(&r.secondaries)
+                .chain(&r.props)
+            {
+                assert!(pa_member(m.slug), "rich post-apoc member {}", m.slug);
+                assert!(
+                    !POOR_KIT.contains(&m.slug),
+                    "rich room grew the poor kit: {}",
+                    m.slug
+                );
+            }
+            rich_placed_secondary |= r.secondaries.iter().any(|sec| RICH_KIT.contains(&sec.slug));
+
+            let mut poor = SceneCharacter::for_seed(s);
+            poor.theme = ThemeArchetype::PostApoc;
+            poor.prosperity = 0.05;
+            let p = Settlement::from_scene(&poor, s);
+            assert_eq!(
+                p.landmark.slug, "survivor_lean_to",
+                "poor post-apoc landmark"
+            );
+            for m in std::iter::once(&p.landmark)
+                .chain(&p.secondaries)
+                .chain(&p.props)
+            {
+                assert!(pa_member(m.slug), "poor post-apoc member {}", m.slug);
+                assert!(
+                    !RICH_KIT.contains(&m.slug),
+                    "poor room grew the established kit: {}",
+                    m.slug
+                );
+            }
+            poor_placed_rubble |= p
+                .secondaries
+                .iter()
+                .any(|sec| sec.slug == "rubble_barricade");
+        }
+        assert!(
+            rich_placed_secondary,
+            "some rich post-apoc room places an established secondary"
+        );
+        assert!(
+            poor_placed_rubble,
+            "some poor post-apoc room places the rubble barricade"
+        );
+    }
+
+    #[test]
+    fn wild_west_settlement_uses_its_own_kit_by_prosperity() {
+        // The per-theme poor/rich pattern (#433/#413): an affluent room grows
+        // the clapboard boomtown, a destitute one the dried-up claim — the two
+        // registers never cross.
+        const POOR_KIT: [&str; 3] = ["prospector_shack", "boot_hill", "tumbleweed"];
+        const RICH_KIT: [&str; 9] = [
+            "saloon",
+            "water_tower",
+            "church",
+            "jail",
+            "general_store",
+            "hitching_post",
+            "wagon",
+            "frontier_fence",
+            "wind_pump",
+        ];
+
+        let ww_member = |slug: &str| {
+            by_slug(slug)
+                .expect("member resolves")
+                .themes()
+                .contains(&ThemeArchetype::WildWest)
+        };
+
+        let mut rich_placed_secondary = false;
+        let mut poor_placed_boot_hill = false;
+        for s in 0u64..32 {
+            let mut rich = SceneCharacter::for_seed(s);
+            rich.theme = ThemeArchetype::WildWest;
+            rich.prosperity = 0.95;
+            let r = Settlement::from_scene(&rich, s);
+            assert_eq!(r.landmark.slug, "saloon", "rich wild-west landmark");
+            for m in std::iter::once(&r.landmark)
+                .chain(&r.secondaries)
+                .chain(&r.props)
+            {
+                assert!(ww_member(m.slug), "rich wild-west member {}", m.slug);
+                assert!(
+                    !POOR_KIT.contains(&m.slug),
+                    "rich room grew the poor kit: {}",
+                    m.slug
+                );
+            }
+            rich_placed_secondary |= r.secondaries.iter().any(|sec| RICH_KIT.contains(&sec.slug));
+
+            let mut poor = SceneCharacter::for_seed(s);
+            poor.theme = ThemeArchetype::WildWest;
+            poor.prosperity = 0.05;
+            let p = Settlement::from_scene(&poor, s);
+            assert_eq!(
+                p.landmark.slug, "prospector_shack",
+                "poor wild-west landmark"
+            );
+            for m in std::iter::once(&p.landmark)
+                .chain(&p.secondaries)
+                .chain(&p.props)
+            {
+                assert!(ww_member(m.slug), "poor wild-west member {}", m.slug);
+                assert!(
+                    !RICH_KIT.contains(&m.slug),
+                    "poor room grew the established kit: {}",
+                    m.slug
+                );
+            }
+            poor_placed_boot_hill |= p.secondaries.iter().any(|sec| sec.slug == "boot_hill");
+        }
+        assert!(
+            rich_placed_secondary,
+            "some rich wild-west room places an established secondary"
+        );
+        assert!(
+            poor_placed_boot_hill,
+            "some poor wild-west room places boot hill"
+        );
+    }
+
+    #[test]
     fn ancient_theme_sometimes_places_secondaries() {
         let any = (0u64..64).any(|s| {
             let mut scene = SceneCharacter::for_seed(s);
