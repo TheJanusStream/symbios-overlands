@@ -149,6 +149,19 @@ pub struct RoadConfig {
     pub chamfer_width: Fp,
     /// Depth (m) the foundation skirt drops below the deck.
     pub skirt_depth: Fp,
+    /// Whether the room grows buildings on the network's enclosed lots. When
+    /// set, the terrain plugin's load-time populate-lots system derives
+    /// footprints from this network and injects themed catalogue buildings onto
+    /// them (see [`crate::terrain`] / [`crate::urban::extract_building_lots`]).
+    /// Defaults on; older records without the field deserialise to `true`.
+    #[serde(default = "default_populate_lots")]
+    pub populate_lots: bool,
+}
+
+/// Serde default for [`RoadConfig::populate_lots`] — a road network in a record
+/// predating the field still grows lot buildings.
+fn default_populate_lots() -> bool {
+    true
 }
 
 impl Default for RoadConfig {
@@ -165,6 +178,7 @@ impl Default for RoadConfig {
             curb_top_width: Fp(0.22),
             chamfer_width: Fp(0.4),
             skirt_depth: Fp(5.0),
+            populate_lots: true,
         }
     }
 }

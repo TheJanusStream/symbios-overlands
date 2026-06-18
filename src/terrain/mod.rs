@@ -36,6 +36,7 @@
 
 mod heightmap;
 mod lifecycle;
+mod lots;
 mod referenced;
 mod roads;
 mod splat;
@@ -167,6 +168,13 @@ impl Plugin for TerrainPlugin {
                     // Runs after the terrain task so a fresh heightmap is
                     // visible the same frame it lands.
                     roads::maybe_rebuild_roads
+                        .run_if(resource_exists::<LiveRoomRecord>)
+                        .after(heightmap::poll_terrain_task)
+                        .after(heightmap::spawn_terrain_mesh),
+                    // Once the heightmap exists, fill a road-growing room's
+                    // lots with buildings (injected into the live record). Runs
+                    // after the terrain task so it sees the finished surface.
+                    lots::maybe_populate_lots
                         .run_if(resource_exists::<LiveRoomRecord>)
                         .after(heightmap::poll_terrain_task)
                         .after(heightmap::spawn_terrain_mesh),

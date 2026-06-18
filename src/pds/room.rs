@@ -549,46 +549,53 @@ impl RoomRecord {
             avoid_water_clearance: Fp(0.0),
         });
 
-        // Seeded mini-settlement: every home region grows a themed
-        // cluster near spawn — one landmark plus any secondaries and
-        // props available for the room's theme (see
-        // crate::seeded_defaults::room::settlement). Shape-grammar entries
-        // get their stochastic seed restamped per DID so two users sharing
-        // a structure type still see different derivations; the landmark
-        // faces the spawn origin, secondaries face the landmark, and every
-        // member snaps to terrain with its own water clearance.
-        let settlement = Settlement::from_scene(&scene, did_seed);
-        let (prosperity, escalation) = (scene.prosperity, scene.escalation);
-        wire_settlement_member(
-            &settlement.landmark,
-            "landmark",
-            did,
-            prosperity,
-            escalation,
-            &mut generators,
-            &mut placements,
-        );
-        for (i, member) in settlement.secondaries.iter().enumerate() {
+        // Seeded mini-settlement: most home regions grow a themed cluster near
+        // spawn — one landmark plus any secondaries and props available for the
+        // room's theme (see crate::seeded_defaults::room::settlement).
+        // Shape-grammar entries get their stochastic seed restamped per DID so
+        // two users sharing a structure type still see different derivations;
+        // the landmark faces the spawn origin, secondaries face the landmark,
+        // and every member snaps to terrain with its own water clearance.
+        //
+        // Road-growing themes are the exception: their buildings are placed on
+        // the road network's enclosed lots instead, derived at load by the
+        // terrain plugin's populate-lots system (see [`crate::terrain`]). Baking
+        // a concentric cluster here would double up with — and ignore — those
+        // streets, so we skip it and let the lot layer own urban buildings.
+        if !theme_grows_roads(scene.theme) {
+            let settlement = Settlement::from_scene(&scene, did_seed);
+            let (prosperity, escalation) = (scene.prosperity, scene.escalation);
             wire_settlement_member(
-                member,
-                &format!("settlement_secondary_{i}"),
+                &settlement.landmark,
+                "landmark",
                 did,
                 prosperity,
                 escalation,
                 &mut generators,
                 &mut placements,
             );
-        }
-        for (i, member) in settlement.props.iter().enumerate() {
-            wire_settlement_member(
-                member,
-                &format!("settlement_prop_{i}"),
-                did,
-                prosperity,
-                escalation,
-                &mut generators,
-                &mut placements,
-            );
+            for (i, member) in settlement.secondaries.iter().enumerate() {
+                wire_settlement_member(
+                    member,
+                    &format!("settlement_secondary_{i}"),
+                    did,
+                    prosperity,
+                    escalation,
+                    &mut generators,
+                    &mut placements,
+                );
+            }
+            for (i, member) in settlement.props.iter().enumerate() {
+                wire_settlement_member(
+                    member,
+                    &format!("settlement_prop_{i}"),
+                    did,
+                    prosperity,
+                    escalation,
+                    &mut generators,
+                    &mut placements,
+                );
+            }
         }
 
         let mut traits = HashMap::new();
@@ -1135,7 +1142,7 @@ const ROAD_SEED_SALT: u64 = 0xA0D5_EED5_A170_0001;
 /// Themes whose default seeded room grows a road network. The `RoadNetwork`
 /// generator itself is theme-agnostic; this is just the default-on policy —
 /// any room can add or remove roads in the editor.
-fn theme_grows_roads(theme: crate::seeded_defaults::ThemeArchetype) -> bool {
+pub(crate) fn theme_grows_roads(theme: crate::seeded_defaults::ThemeArchetype) -> bool {
     use crate::seeded_defaults::ThemeArchetype::*;
     matches!(
         theme,
@@ -1445,16 +1452,40 @@ mod tests {
     #[test]
     fn default_room_carries_a_themed_settlement() {
         use crate::seeded_defaults::room::settlement::{MAX_PROPS, MAX_SECONDARIES};
+        use crate::seeded_defaults::{SceneCharacter, fnv1a_64};
         for s in 0u64..16 {
-            let record = RoomRecord::default_for_did(&format!("did:test:{s}"));
+            let did = format!("did:test:{s}");
 
-            // Every room carries exactly one landmark, and it's a
+            // Road-growing themes intentionally bake no concentric settlement —
+            // their buildings come from the road network's lots at load (see
+            // populate-lots). Such a room must instead carry a road network and
+            // none of the settlement generators.
+            if theme_grows_roads(SceneCharacter::for_seed(fnv1a_64(&did)).theme) {
+                let record = RoomRecord::default_for_did(&did);
+                assert!(
+                    find_road_config(&record).is_some(),
+                    "road-growing room {did} must carry a road network"
+                );
+                assert!(
+                    !record.generators.contains_key("landmark")
+                        && !record
+                            .generators
+                            .keys()
+                            .any(|k| k.starts_with("settlement_")),
+                    "road-growing room {did} must not bake a concentric settlement"
+                );
+                continue;
+            }
+
+            let record = RoomRecord::default_for_did(&did);
+
+            // Every non-urban room carries exactly one landmark, and it's a
             // building — never Terrain/Water (those are positionally
             // invalid outside the base_terrain tree).
             let landmark = record
                 .generators
                 .get("landmark")
-                .expect("every seeded room must carry a landmark generator");
+                .expect("every seeded non-urban room must carry a landmark generator");
             assert!(!matches!(
                 landmark.kind,
                 GeneratorKind::Terrain(_) | GeneratorKind::Water { .. }

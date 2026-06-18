@@ -73,28 +73,66 @@ pub(super) fn maybe_rebuild_roads(
         commands.entity(e).try_despawn();
     }
     if let Some(config) = &config
-        && let Some(geo) = crate::urban::build_road_geometry(&heightmap.0, config)
+        && let Some(parts) = crate::urban::build_road_geometry(&heightmap.0, config)
     {
         // The ribbon lives in the full heightmap frame; the terrain mesh child
         // is offset by -half, so the road shares that offset.
         let world_extent = (heightmap.0.width() - 1) as f32 * heightmap.0.scale();
         let half = world_extent * 0.5;
-        let mesh = meshes.add(crate::urban::to_bevy_mesh(&geo));
-        let material = materials.add(StandardMaterial {
-            base_color: Color::srgb(0.04, 0.04, 0.05),
-            perceptual_roughness: 0.45,
-            metallic: 0.2,
+        let offset = Transform::from_xyz(-half, 0.0, -half);
+
+        // Dark wet-asphalt drivable deck — low roughness + reflectance gives the
+        // sheen that catches the neon-noir city light.
+        let deck = materials.add(StandardMaterial {
+            base_color: Color::srgb(0.015, 0.015, 0.02),
+            perceptual_roughness: 0.22,
+            metallic: 0.0,
+            reflectance: 0.6,
             double_sided: true,
             cull_mode: None,
             ..default()
         });
-        commands.spawn((
-            Mesh3d(mesh),
-            MeshMaterial3d(material),
-            Transform::from_xyz(-half, 0.0, -half),
-            Visibility::default(),
-            RoadMeshEntity,
-        ));
+        // Concrete/metal foundation (curb + skirt + bottom) — matte and lighter
+        // so the deck reads as a distinct surface sitting on top of it.
+        let structure = materials.add(StandardMaterial {
+            base_color: Color::srgb(0.05, 0.05, 0.06),
+            perceptual_roughness: 0.8,
+            metallic: 0.25,
+            double_sided: true,
+            cull_mode: None,
+            ..default()
+        });
+        // Emissive neon curb edge-line. A thin tube runs hot: the white-hot core
+        // (channels clip past 1.0) plus a cyan bloom halo is how neon reads.
+        // Unlit so apply_nightfall can't dim it. No texture → splat-safe.
+        let neon = materials.add(StandardMaterial {
+            base_color: Color::BLACK,
+            emissive: LinearRgba::rgb(0.10 * 6.0, 0.95 * 6.0, 1.00 * 6.0),
+            unlit: true,
+            double_sided: true,
+            cull_mode: None,
+            ..default()
+        });
+
+        // One mesh + material per non-empty surface; the despawn marker on each
+        // sweeps them all on the next rebuild.
+        for (geo, material) in [
+            (&parts.deck, deck),
+            (&parts.structure, structure),
+            (&parts.neon, neon),
+        ] {
+            if geo.is_empty() {
+                continue;
+            }
+            let mesh = meshes.add(crate::urban::to_bevy_mesh(geo));
+            commands.spawn((
+                Mesh3d(mesh),
+                MeshMaterial3d(material),
+                offset,
+                Visibility::default(),
+                RoadMeshEntity,
+            ));
+        }
     }
     fingerprint.0 = want;
 }

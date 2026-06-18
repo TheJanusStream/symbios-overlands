@@ -34,7 +34,8 @@ use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use bevy_symbios_ground::HeightMap;
 use symbios_tensor::{
-    RationalizeConfig, RoadGraph, RoadType, TensorConfig, generate_roads, rationalize_graph,
+    LotConfig, RationalizeConfig, RoadGraph, RoadType, TensorConfig, extract_blocks, extract_lots,
+    generate_roads, rationalize_graph,
 };
 
 use crate::pds::generator::RoadConfig;
@@ -57,6 +58,11 @@ const RIBBON_STEP_M: f32 = 3.0;
 const ROAD_INTERIOR_FRACTION: f32 = 0.88;
 /// World metres per UV tile, both along the road and around the cross-section.
 const UV_TILE_M: f32 = 6.0;
+/// Width (m) of the emissive neon edge-line strip riding the inner curb top.
+const NEON_LINE_WIDTH_M: f32 = 0.07;
+/// Lift (m) of that strip above the curb top so it sits proud and never
+/// z-fights the curb face it rides (see the coplanar-z-fight rule).
+const NEON_LINE_LIFT_M: f32 = 0.04;
 
 /// Resolved per-room road dimensions, pulled out of [`RoadConfig`]'s fixed-point
 /// fields once so the geometry builders take plain `f32`s.
@@ -83,14 +89,58 @@ impl Dims {
     }
 }
 
-/// Engine-agnostic road geometry (Y-up), built CPU-side in the terrain task and
-/// uploaded by the caller. Per-face flat normals (matches the low-poly look).
+/// Engine-agnostic vertex buffers for one road *surface* (Y-up), built CPU-side
+/// in the terrain task and uploaded by the caller. Per-face flat normals (matches
+/// the low-poly look).
 #[derive(Default)]
 pub struct RoadGeometry {
     vertices: Vec<[f32; 3]>,
     normals: Vec<[f32; 3]>,
     uvs: Vec<[f32; 2]>,
     indices: Vec<u32>,
+}
+
+impl RoadGeometry {
+    /// True when no faces were emitted — the caller skips spawning a mesh.
+    pub fn is_empty(&self) -> bool {
+        self.vertices.is_empty()
+    }
+
+    /// Append one quad (corners `a,b,c,d`, wound `a→b→d→c`) with a shared flat
+    /// `nrm` and the four corner UVs.
+    fn push_quad(
+        &mut self,
+        a: [f32; 3],
+        b: [f32; 3],
+        c: [f32; 3],
+        d: [f32; 3],
+        uvs: [[f32; 2]; 4],
+        nrm: [f32; 3],
+    ) {
+        let base = self.vertices.len() as u32;
+        self.vertices.extend_from_slice(&[a, b, c, d]);
+        self.uvs.extend_from_slice(&uvs);
+        for _ in 0..4 {
+            self.normals.push(nrm);
+        }
+        self.indices
+            .extend_from_slice(&[base, base + 1, base + 3, base, base + 3, base + 2]);
+    }
+}
+
+/// The road split into its material surfaces, so the caller can give each the
+/// look it needs — a dark wet-asphalt **deck**, a concrete/metal **structure**
+/// (curb + skirt + bottom cap) and emissive neon **edge-lines** — without
+/// stacking textures on the splat material (WebGL2's 16-sampler ceiling). Each
+/// non-empty part is uploaded as its own mesh + material.
+#[derive(Default)]
+pub struct RoadParts {
+    /// Flat drivable top surface plus the intersection fans.
+    pub deck: RoadGeometry,
+    /// Curb walls, chamfers, the deep skirt and its bottom cap.
+    pub structure: RoadGeometry,
+    /// Thin strips riding proud of each curb's inner top crease.
+    pub neon: RoadGeometry,
 }
 
 /// One continuous road run (between intersections / endpoints), as an ordered
@@ -100,16 +150,20 @@ struct Chain {
     half_w: f32,
 }
 
-/// Build terrain-conforming road geometry from a [`RoadConfig`], or `None` if
-/// the config is disabled or the tracer can't produce a network. Deterministic
-/// in `config.seed`. Does **not** modify `hm` — the road drapes over the
-/// natural terrain. Which rooms *get* a road config is the seeding layer's
-/// policy ([`crate::pds::room`]); this just renders whatever it's handed.
-pub fn build_road_geometry(hm: &HeightMap, config: &RoadConfig) -> Option<RoadGeometry> {
+/// The road network's rationalized planar graph for `config`, plus the district
+/// sub-heightmap it was traced on and that window's lower cell index `lo`.
+/// `None` when the network is disabled, the window is too small, or the tracer
+/// can't produce a network. Deterministic in `config.seed`. Never writes back
+/// to `hm` (the `sub` copy is the only mutable surface, and nothing carves it).
+///
+/// Shared by [`build_road_geometry`] (the draped mesh) and
+/// [`extract_building_lots`] (footprints) so both read the *same* graph — a
+/// building can only sit on a street if it was placed from the geometry the
+/// player actually sees.
+fn build_road_graph(hm: &HeightMap, config: &RoadConfig) -> Option<(RoadGraph, HeightMap, usize)> {
     if !config.enabled {
         return None;
     }
-    let dims = Dims::from_config(config);
     let scale = hm.scale();
     let full_w = hm.width();
     let half_cells = ((config.district_half_extent.0 / scale).round() as usize).min(full_w / 2);
@@ -138,16 +192,77 @@ pub fn build_road_geometry(hm: &HeightMap, config: &RoadConfig) -> Option<RoadGe
     // Rationalize for clean XZ geometry (RDP straighten + Bézier fillets). We
     // ignore its smoothed elevations and sample the real terrain when draping.
     rationalize_graph(&mut graph, &sub, &RationalizeConfig::default());
+    Some((graph, sub, lo))
+}
 
+/// Build terrain-conforming road geometry from a [`RoadConfig`], or `None` if
+/// the config is disabled or the tracer can't produce a network. Deterministic
+/// in `config.seed`. Does **not** modify `hm` — the road drapes over the
+/// natural terrain. Which rooms *get* a road config is the seeding layer's
+/// policy ([`crate::pds::room`]); this just renders whatever it's handed.
+pub fn build_road_geometry(hm: &HeightMap, config: &RoadConfig) -> Option<RoadParts> {
+    let (graph, sub, lo) = build_road_graph(hm, config)?;
+    let dims = Dims::from_config(config);
     let chains = extract_chains(&graph, &sub, &dims);
-    let mut geo = RoadGeometry::default();
-    let world_offset = lo as f32 * scale;
+    let mut parts = RoadParts::default();
+    let world_offset = lo as f32 * sub.scale();
     for chain in &chains {
-        extrude_chain(chain, &sub, world_offset, &dims, &mut geo);
+        extrude_chain(chain, &sub, world_offset, &dims, &mut parts);
     }
-    // Fill the intersections the chains leave open.
-    extrude_junctions(&graph, &sub, world_offset, &dims, &mut geo);
-    (!geo.vertices.is_empty()).then_some(geo)
+    // Fill the intersections the chains leave open — flat fans at deck level.
+    extrude_junctions(&graph, &sub, world_offset, &dims, &mut parts.deck);
+    (!parts.deck.is_empty() || !parts.structure.is_empty()).then_some(parts)
+}
+
+/// A building footprint extracted from the road network's enclosed city blocks,
+/// in the **room placement frame** — XZ centred on spawn, matching the road
+/// mesh's `-half` spawn offset — so each maps straight onto a
+/// [`Placement::Absolute`](crate::pds::generator::Placement) translation.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BuildingLot {
+    /// Footprint centre, room-centred XZ.
+    pub position: [f32; 2],
+    /// Yaw (radians, around +Y) aligning the footprint to its street frontage.
+    pub yaw: f32,
+    /// Frontage extent (m) along the street.
+    pub width: f32,
+    /// Depth (m) perpendicular to the street.
+    pub depth: f32,
+}
+
+/// Extract building footprints from the road network's enclosed city blocks,
+/// deterministic in `config.seed`. Footprints are returned in the room
+/// placement frame and never carve `hm` (extraction uses
+/// [`symbios_tensor::WaterPolicy::Skip`], which leaves the heightmap untouched).
+/// Empty when the network is disabled, fails to trace, or encloses no blocks.
+///
+/// This is the seed for the lot-based building layer ([`crate::terrain`]'s
+/// load-time populate-lots system): it shares [`build_road_graph`] with the
+/// road mesh, so every footprint sits on a street the player can see.
+pub fn extract_building_lots(hm: &HeightMap, config: &RoadConfig) -> Vec<BuildingLot> {
+    let Some((mut graph, mut sub, lo)) = build_road_graph(hm, config) else {
+        return Vec::new();
+    };
+    // Enclosed faces → blocks → recursively subdivided, street-aligned lots.
+    extract_blocks(&mut graph);
+    let lots = extract_lots(&graph, &mut sub, &LotConfig::default());
+
+    // Sub-window XZ (origin at the window's lower corner) → room-centred frame:
+    // the road mesh draws window coord `p` at world `p + lo*scale - half`, so a
+    // footprint placed there lands exactly on its street.
+    let scale = sub.scale();
+    let half = hm.width().saturating_sub(1) as f32 * scale * 0.5;
+    let shift = lo as f32 * scale - half;
+    lots.into_iter()
+        .map(|l| BuildingLot {
+            position: [l.position.x + shift, l.position.y + shift],
+            // tensor measures the lot's rotation in the XZ (top-down) plane;
+            // placement yaw is around +Y, the opposite winding sense.
+            yaw: -l.rotation,
+            width: l.width,
+            depth: l.depth,
+        })
+        .collect()
 }
 
 // --- Chain extraction -------------------------------------------------------
@@ -342,15 +457,60 @@ fn densify(pts: &[(f32, f32)], step: f32) -> Vec<(f32, f32)> {
     out
 }
 
-/// Extrude the curb/skirt profile along one chain into `geo`, draping the deck
+/// Per-vertex extrusion frame. The deck *banks* with the terrain cross-slope:
+/// we sample both deck edges and store a base height + lateral slope, so the
+/// cross-section tilts to hug the ground (a flat-across deck floats its uphill
+/// edge into the hillside). `base_y` is the height at the centreline, `slope_u`
+/// the rise per unit lateral offset, `arc` the running arc length (for V UVs).
+struct Frame {
+    cx: f32,
+    cz: f32,
+    rx: f32,
+    rz: f32,
+    scale: f32,
+    base_y: f32,
+    slope_u: f32,
+    arc: f32,
+}
+
+/// Interior reference point of a chain segment (the deck centreline dropped
+/// halfway down the skirt), used to orient each face's flat normal outward.
+fn beam_axis(f0: &Frame, f1: &Frame, skirt_depth: f32, world_offset: f32) -> [f32; 3] {
+    [
+        (f0.cx + f1.cx) * 0.5 + world_offset,
+        (f0.base_y + f1.base_y) * 0.5 - skirt_depth * 0.5,
+        (f0.cz + f1.cz) * 0.5 + world_offset,
+    ]
+}
+
+/// Flat per-face normal for a road quad, flipped to point away from the segment's
+/// interior `axis` so every surface faces outward (deck up, skirt out, etc.).
+fn quad_normal(a: [f32; 3], b: [f32; 3], c: [f32; 3], d: [f32; 3], axis: [f32; 3]) -> [f32; 3] {
+    let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    let mut nrm = cross(e1, e2);
+    let fc = [
+        (a[0] + b[0] + c[0] + d[0]) * 0.25,
+        (a[1] + b[1] + c[1] + d[1]) * 0.25,
+        (a[2] + b[2] + c[2] + d[2]) * 0.25,
+    ];
+    let outward = [fc[0] - axis[0], fc[1] - axis[1], fc[2] - axis[2]];
+    if dot(nrm, outward) < 0.0 {
+        nrm = [-nrm[0], -nrm[1], -nrm[2]];
+    }
+    normalize(nrm)
+}
+
+/// Extrude the curb/skirt profile along one chain into `parts`, draping the deck
 /// over the terrain (`hm`) and shifting into the full-terrain frame by
-/// `world_offset`.
+/// `world_offset`. The drivable deck top, the structural curb/skirt and the
+/// emissive neon edge-lines are routed to their respective [`RoadParts`] buffers.
 fn extrude_chain(
     chain: &Chain,
     hm: &HeightMap,
     world_offset: f32,
     dims: &Dims,
-    geo: &mut RoadGeometry,
+    parts: &mut RoadParts,
 ) {
     let pts = densify(&chain.pts, RIBBON_STEP_M);
     if pts.len() < 2 {
@@ -358,21 +518,6 @@ fn extrude_chain(
     }
     let prof = profile(chain.half_w, dims);
 
-    // Per-vertex frame. The deck *banks* with the terrain cross-slope: we
-    // sample both deck edges and store a base height + lateral slope, so the
-    // cross-section tilts to hug the ground (a flat-across deck floats its
-    // uphill edge into the hillside). `base_y` is the height at the centreline,
-    // `slope_u` the rise per unit lateral offset.
-    struct Frame {
-        cx: f32,
-        cz: f32,
-        rx: f32,
-        rz: f32,
-        scale: f32,
-        base_y: f32,
-        slope_u: f32,
-        arc: f32,
-    }
     let mut frames = Vec::with_capacity(pts.len());
     let mut arc = 0.0;
     for i in 0..pts.len() {
@@ -415,44 +560,54 @@ fn extrude_chain(
     for j in 0..10 {
         let k = (j + 1) % 10;
         let (uj, uk) = (u[j] / UV_TILE_M, u[k] / UV_TILE_M);
+        // Profile face 0→1 is the flat drivable deck top; every other face is
+        // structural (curb walls, chamfers, the deep skirt and its bottom cap).
+        let target = if j == 0 {
+            &mut parts.deck
+        } else {
+            &mut parts.structure
+        };
         for i in 0..frames.len() - 1 {
             let (f0, f1) = (&frames[i], &frames[i + 1]);
             let a = world(f0, prof[j]);
             let b = world(f0, prof[k]);
             let c = world(f1, prof[j]);
             let d = world(f1, prof[k]);
-
-            // Flat per-face normal, flipped to point away from the beam axis.
-            let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-            let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-            let mut nrm = cross(e1, e2);
-            let axis = [
-                (f0.cx + f1.cx) * 0.5 + world_offset,
-                (f0.base_y + f1.base_y) * 0.5 - dims.skirt_depth * 0.5,
-                (f0.cz + f1.cz) * 0.5 + world_offset,
-            ];
-            let fc = [
-                (a[0] + b[0] + c[0] + d[0]) * 0.25,
-                (a[1] + b[1] + c[1] + d[1]) * 0.25,
-                (a[2] + b[2] + c[2] + d[2]) * 0.25,
-            ];
-            let outward = [fc[0] - axis[0], fc[1] - axis[1], fc[2] - axis[2]];
-            if dot(nrm, outward) < 0.0 {
-                nrm = [-nrm[0], -nrm[1], -nrm[2]];
-            }
-            let nrm = normalize(nrm);
-
+            let axis = beam_axis(f0, f1, dims.skirt_depth, world_offset);
+            let nrm = quad_normal(a, b, c, d, axis);
             let (vi, vi1) = (f0.arc / UV_TILE_M, f1.arc / UV_TILE_M);
-            let base = geo.vertices.len() as u32;
-            geo.vertices.extend_from_slice(&[a, b, c, d]);
-            geo.uvs
-                .extend_from_slice(&[[uj, vi], [uk, vi], [uj, vi1], [uk, vi1]]);
-            for _ in 0..4 {
-                geo.normals.push(nrm);
-            }
-            // a=base, b=base+1, c=base+2, d=base+3 → quad (a,b,d,c).
-            geo.indices
-                .extend_from_slice(&[base, base + 1, base + 3, base, base + 3, base + 2]);
+            target.push_quad(a, b, c, d, [[uj, vi], [uk, vi], [uj, vi1], [uk, vi1]], nrm);
+        }
+    }
+
+    // Emissive neon edge-line: a thin strip riding proud of each curb's inner
+    // top crease (lateral ±half_w, just above the curb top). Kept on its own
+    // surface so it gets the hot emissive material, and lifted clear of the
+    // curb top so it never z-fights the face it rides.
+    let lift = dims.curb_height + NEON_LINE_LIFT_M;
+    let w = chain.half_w;
+    let strips = [
+        [(w, lift), (w + NEON_LINE_WIDTH_M, lift)],
+        [(-w, lift), (-w - NEON_LINE_WIDTH_M, lift)],
+    ];
+    for strip in strips {
+        for i in 0..frames.len() - 1 {
+            let (f0, f1) = (&frames[i], &frames[i + 1]);
+            let a = world(f0, strip[0]);
+            let b = world(f0, strip[1]);
+            let c = world(f1, strip[0]);
+            let d = world(f1, strip[1]);
+            let axis = beam_axis(f0, f1, dims.skirt_depth, world_offset);
+            let nrm = quad_normal(a, b, c, d, axis);
+            let (vi, vi1) = (f0.arc / UV_TILE_M, f1.arc / UV_TILE_M);
+            parts.neon.push_quad(
+                a,
+                b,
+                c,
+                d,
+                [[0.0, vi], [1.0, vi], [0.0, vi1], [1.0, vi1]],
+                nrm,
+            );
         }
     }
 }
@@ -594,22 +749,27 @@ mod tests {
         }
     }
 
+    /// The three surface buffers, for tests that sweep every emitted vertex.
+    fn surfaces(p: &RoadParts) -> [&RoadGeometry; 3] {
+        [&p.deck, &p.structure, &p.neon]
+    }
+
     #[test]
     fn default_config_actually_produces_a_network() {
         // Regression guard: the other tests tolerate `None`; this asserts the
         // shipped default config genuinely yields road geometry on sloped
         // terrain, so a config/clip change can't silently render nothing.
-        let geo = build_road_geometry(&sloped_heightmap(), &cfg(7))
+        let parts = build_road_geometry(&sloped_heightmap(), &cfg(7))
             .expect("default road config must produce a network on sloped terrain");
-        assert!(!geo.vertices.is_empty());
-        assert!(!geo.indices.is_empty());
+        assert!(!parts.deck.is_empty(), "no drivable deck");
+        assert!(!parts.structure.is_empty(), "no curb/skirt structure");
+        // The default curb has height, so the neon edge-line must be emitted.
+        assert!(!parts.neon.is_empty(), "no neon curb edge-lining");
     }
 
-    #[test]
-    fn produces_a_network_at_room_scale_for_the_pilot_seed() {
-        // The pilot room (terrain seed 4167901772298833237, cyberpunk) at the
-        // real ~1 km scale + its derived road seed (room ^ ROAD_SEED_SALT).
-        // Guards against the windowed path yielding an empty network there.
+    /// The pilot room's heightmap at real ~1 km scale (256², cyberpunk terrain
+    /// seed) — big enough that the road network encloses real city blocks.
+    fn pilot_heightmap() -> HeightMap {
         let mut hm = HeightMap::new(256, 256, 2.0);
         FbmNoise {
             seed: 4167901772298833237,
@@ -623,10 +783,64 @@ mod tests {
         for v in hm.data_mut() {
             *v *= 60.0;
         }
-        let road_seed = 4167901772298833237_u64 ^ 0xA0D5_EED5_A170_0001;
-        let geo = build_road_geometry(&hm, &cfg(road_seed))
+        hm
+    }
+
+    /// The pilot room's derived road seed (terrain seed ^ ROAD_SEED_SALT).
+    const PILOT_ROAD_SEED: u64 = 4167901772298833237_u64 ^ 0xA0D5_EED5_A170_0001;
+
+    #[test]
+    fn produces_a_network_at_room_scale_for_the_pilot_seed() {
+        // The pilot room at real scale + its derived road seed. Guards against
+        // the windowed path yielding an empty network there.
+        let parts = build_road_geometry(&pilot_heightmap(), &cfg(PILOT_ROAD_SEED))
             .expect("room-scale build for the pilot seed must produce roads");
-        assert!(!geo.vertices.is_empty());
+        assert!(!parts.deck.is_empty());
+    }
+
+    #[test]
+    fn extracts_building_lots_at_room_scale() {
+        // The lot layer's load-bearing guard: the pilot network must enclose
+        // blocks that subdivide into real footprints, all inside the district
+        // window (room-centred) with positive, finite extents.
+        let hm = pilot_heightmap();
+        let lots = extract_building_lots(&hm, &cfg(PILOT_ROAD_SEED));
+        assert!(!lots.is_empty(), "pilot network enclosed no building lots");
+
+        let district = cfg(PILOT_ROAD_SEED).district_half_extent.0;
+        for lot in &lots {
+            assert!(
+                lot.position.iter().all(|c| c.is_finite()),
+                "non-finite lot position {:?}",
+                lot.position
+            );
+            assert!(lot.yaw.is_finite() && lot.width > 0.0 && lot.depth > 0.0);
+            // Footprints live inside the district window, centred on spawn.
+            assert!(
+                lot.position[0].abs() <= district + 1.0 && lot.position[1].abs() <= district + 1.0,
+                "lot {:?} escaped the ±{district} m district window",
+                lot.position
+            );
+        }
+    }
+
+    #[test]
+    fn building_lots_are_deterministic() {
+        // The bake-into-record contract needs lots reproducible from the seed,
+        // so every peer deriving the same record lands identical footprints.
+        let hm = pilot_heightmap();
+        let a = extract_building_lots(&hm, &cfg(PILOT_ROAD_SEED));
+        let b = extract_building_lots(&hm, &cfg(PILOT_ROAD_SEED));
+        assert_eq!(a, b, "building lots non-deterministic for identical input");
+    }
+
+    #[test]
+    fn disabled_network_extracts_no_lots() {
+        let c = RoadConfig {
+            enabled: false,
+            ..cfg(PILOT_ROAD_SEED)
+        };
+        assert!(extract_building_lots(&pilot_heightmap(), &c).is_empty());
     }
 
     #[test]
@@ -650,8 +864,10 @@ mod tests {
             build_road_geometry(&b, &cfg(7)),
         ) {
             (Some(x), Some(y)) => {
-                assert_eq!(x.vertices, y.vertices, "road geometry non-deterministic");
-                assert_eq!(x.indices, y.indices, "road topology non-deterministic");
+                for (gx, gy) in surfaces(&x).into_iter().zip(surfaces(&y)) {
+                    assert_eq!(gx.vertices, gy.vertices, "road geometry non-deterministic");
+                    assert_eq!(gx.indices, gy.indices, "road topology non-deterministic");
+                }
             }
             (None, None) => {}
             _ => panic!("road generation succeeded inconsistently for identical input"),
@@ -675,13 +891,15 @@ mod tests {
     /// normalize would poison the mesh.
     #[test]
     fn geometry_is_finite() {
-        if let Some(geo) = build_road_geometry(&sloped_heightmap(), &cfg(7)) {
-            assert!(!geo.vertices.is_empty());
-            for v in &geo.vertices {
-                assert!(v.iter().all(|c| c.is_finite()), "non-finite vertex {v:?}");
-            }
-            for nrm in &geo.normals {
-                assert!(nrm.iter().all(|c| c.is_finite()), "non-finite normal");
+        if let Some(parts) = build_road_geometry(&sloped_heightmap(), &cfg(7)) {
+            assert!(!parts.deck.is_empty());
+            for geo in surfaces(&parts) {
+                for v in &geo.vertices {
+                    assert!(v.iter().all(|c| c.is_finite()), "non-finite vertex {v:?}");
+                }
+                for nrm in &geo.normals {
+                    assert!(nrm.iter().all(|c| c.is_finite()), "non-finite normal");
+                }
             }
         }
     }

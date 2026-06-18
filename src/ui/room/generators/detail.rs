@@ -145,6 +145,16 @@ fn draw_road_editor(
     if ui.checkbox(&mut config.enabled, "Roads enabled").changed() {
         *dirty = true;
     }
+    if ui
+        .checkbox(&mut config.populate_lots, "Grow buildings on lots")
+        .on_hover_text(
+            "Fill the network's enclosed blocks with themed buildings at load. \
+             Re-roll the layout to re-seed them.",
+        )
+        .changed()
+    {
+        *dirty = true;
+    }
     ui.add_space(4.0);
     ui.horizontal(|ui| {
         ui.label(format!("Layout seed: {}", config.seed));
