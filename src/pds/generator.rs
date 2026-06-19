@@ -1048,6 +1048,15 @@ pub enum Placement {
         /// with records written before this field existed.
         #[serde(default = "default_true")]
         random_yaw: bool,
+        /// Reject scatter points that fall inside the room's road-network
+        /// district — a circle of radius `RoadConfig::district_half_extent`
+        /// around spawn. Keeps the seeded natural scatters (trees, boulders)
+        /// clear of the built-up urban area (roads *and* lot buildings)
+        /// without needing an annulus bounds shape. Resolved at compile
+        /// against [`crate::pds::room::find_road_config`]; a no-op in a room
+        /// with no enabled road network. Defaults `false`.
+        #[serde(default)]
+        avoid_urban: bool,
     },
 
     #[serde(rename = "network.symbios.place.grid")]

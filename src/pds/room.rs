@@ -438,6 +438,8 @@ impl RoomRecord {
                 },
                 snap_to_terrain: true,
                 random_yaw: true,
+                // Keep wild trees out of the built-up urban district.
+                avoid_urban: true,
             });
         }
 
@@ -484,6 +486,8 @@ impl RoomRecord {
                 },
                 snap_to_terrain: true,
                 random_yaw: true,
+                // Keep boulders out of the built-up urban district.
+                avoid_urban: true,
             });
         }
 
@@ -1659,6 +1663,49 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn seeded_natural_scatters_opt_into_urban_avoidance() {
+        // Pick a seed that actually grows tree/boulder scatters, then assert
+        // every natural scatter opts into avoid_urban so wild scatter stays out
+        // of the built-up road district (a no-op in rooms without roads).
+        let record = (0u64..64)
+            .map(|s| RoomRecord::default_for_did(&format!("did:test:{s}")))
+            .find(|r| {
+                r.placements.iter().any(|p| {
+                    matches!(p, Placement::Scatter { generator_ref, .. }
+                        if generator_ref.starts_with("tree_scatter_") || generator_ref == "boulder")
+                })
+            })
+            .expect("a seed with natural scatters");
+
+        let mut natural = 0;
+        for p in &record.placements {
+            if let Placement::Scatter {
+                generator_ref,
+                avoid_urban,
+                ..
+            } = p
+                && (generator_ref.starts_with("tree_scatter_") || generator_ref == "boulder")
+            {
+                natural += 1;
+                assert!(
+                    *avoid_urban,
+                    "natural scatter {generator_ref} must avoid_urban"
+                );
+            }
+        }
+        assert!(natural > 0);
+
+        // The new field survives a serde round-trip (serde default keeps older
+        // records valid; a true value must persist).
+        let json = serde_json::to_string(&record).expect("serialize");
+        let back: RoomRecord = serde_json::from_str(&json).expect("deserialize");
+        assert!(
+            !crate::state::records_differ(&record, &back),
+            "avoid_urban must round-trip"
+        );
     }
 
     #[test]

@@ -133,6 +133,7 @@ pub(super) fn draw_placements_tab(
                 biome_filter: BiomeFilter::default(),
                 snap_to_terrain: true,
                 random_yaw: true,
+                avoid_urban: false,
             });
             *selected = Some(record.placements.len() - 1);
             *dirty = true;
@@ -209,12 +210,23 @@ fn draw_placement_detail(
             biome_filter,
             snap_to_terrain,
             random_yaw,
+            avoid_urban,
         } => {
             generator_combo(ui, "Generator", generator_ref, eligible_names, dirty);
             if ui.checkbox(snap_to_terrain, "Snap to Terrain").changed() {
                 *dirty = true;
             }
             if ui.checkbox(random_yaw, "Random Yaw").changed() {
+                *dirty = true;
+            }
+            if ui
+                .checkbox(avoid_urban, "Avoid urban district")
+                .on_hover_text(
+                    "Skip scatter points inside the road network's district \
+                     (keeps wild scatter out of the built-up area).",
+                )
+                .changed()
+            {
                 *dirty = true;
             }
             drag_u32(ui, "Count", count, 0, 100_000, dirty);
