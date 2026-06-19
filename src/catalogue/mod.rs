@@ -81,6 +81,18 @@ pub enum StructureRole {
 }
 
 impl StructureRole {
+    /// Human-readable display name — used by the catalogue browser.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Landmark => "Landmark",
+            Self::Secondary => "Secondary",
+            Self::Prop => "Prop",
+            Self::Plant => "Plant",
+            Self::Pattern => "Pattern",
+            Self::Tool => "Tool",
+        }
+    }
+
     /// UI section this role displays under. Keeps [`CatalogueCategory`]
     /// a derived view of [`StructureRole`] so there's one taxonomy.
     pub fn category(self) -> CatalogueCategory {

@@ -182,6 +182,7 @@ pub fn run() {
         .init_resource::<PublishFeedback<AvatarRecord>>()
         .init_resource::<PublishFeedback<InventoryRecord>>()
         .init_resource::<ui::toolbar::UiPanels>()
+        .init_resource::<ui::catalogue::CatalogueBrowser>()
         .init_resource::<ui::inventory::PendingGeneratorDrop>()
         .init_resource::<state::PendingOutgoingOffers>()
         .init_resource::<ui::login::LoginError>()

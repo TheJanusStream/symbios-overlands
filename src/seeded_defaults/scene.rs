@@ -193,6 +193,36 @@ impl ThemeArchetype {
         Self::PostApoc,
         Self::WildWest,
     ];
+
+    /// Human-readable display name — used by the catalogue browser and any
+    /// UI that lists themes.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::AncientClassical => "Ancient Classical",
+            Self::Medieval => "Medieval",
+            Self::Nordic => "Nordic",
+            Self::FeudalJapan => "Feudal Japan",
+            Self::Mesoamerican => "Mesoamerican",
+            Self::ModernCity => "Modern City",
+            Self::Suburban => "Suburban",
+            Self::RuralFarmland => "Rural Farmland",
+            Self::IndustrialPark => "Industrial Park",
+            Self::CoastalResort => "Coastal Resort",
+            Self::Roadside => "Roadside",
+            Self::CivicCampus => "Civic Campus",
+            Self::SportsRec => "Sports & Rec",
+            Self::Cyberpunk => "Cyberpunk",
+            Self::Steampunk => "Steampunk",
+            Self::Solarpunk => "Solarpunk",
+            Self::SpaceOutpost => "Space Outpost",
+            Self::Fantasy => "Fantasy",
+            Self::GothicHorror => "Gothic Horror",
+            Self::AlienOrganic => "Alien Organic",
+            Self::AlienMonolithic => "Alien Monolithic",
+            Self::PostApoc => "Post-Apocalyptic",
+            Self::WildWest => "Wild West",
+        }
+    }
 }
 
 /// Socio-economic tier — the discrete reading of the continuous
@@ -224,6 +254,15 @@ impl ProsperityTier {
             _ => Self::Rich,
         }
     }
+
+    /// Human-readable display name.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Poor => "Poor",
+            Self::Modest => "Modest",
+            Self::Rich => "Rich",
+        }
+    }
 }
 
 /// Conflict tier — the discrete reading of the continuous
@@ -252,6 +291,15 @@ impl EscalationTier {
             e if e < 1.0 / 3.0 => Self::Calm,
             e if e < 2.0 / 3.0 => Self::Tense,
             _ => Self::Conflict,
+        }
+    }
+
+    /// Human-readable display name.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Calm => "Calm",
+            Self::Tense => "Tense",
+            Self::Conflict => "Conflict",
         }
     }
 }
@@ -289,6 +337,17 @@ impl ProsperityBand {
     pub fn accepts(self, tier: ProsperityTier) -> bool {
         self.lo <= tier && tier <= self.hi
     }
+
+    /// Human-readable span — `"Any"`, a single tier, or `"lo–hi"`.
+    pub fn label(self) -> String {
+        if self == Self::ANY {
+            "Any".to_string()
+        } else if self.lo == self.hi {
+            self.lo.label().to_string()
+        } else {
+            format!("{}–{}", self.lo.label(), self.hi.label())
+        }
+    }
 }
 
 /// Inclusive escalation-tier affinity band — the [`EscalationTier`]
@@ -320,6 +379,17 @@ impl EscalationBand {
     /// Whether a room at `tier` may place an entry advertising this band.
     pub fn accepts(self, tier: EscalationTier) -> bool {
         self.lo <= tier && tier <= self.hi
+    }
+
+    /// Human-readable span — `"Any"`, a single tier, or `"lo–hi"`.
+    pub fn label(self) -> String {
+        if self == Self::ANY {
+            "Any".to_string()
+        } else if self.lo == self.hi {
+            self.lo.label().to_string()
+        } else {
+            format!("{}–{}", self.lo.label(), self.hi.label())
+        }
     }
 }
 
