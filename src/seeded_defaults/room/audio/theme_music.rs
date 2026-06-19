@@ -14,9 +14,9 @@ use bevy_symbios_audio::{
 };
 use rand_chacha::ChaCha8Rng;
 
-use super::WARMUP_BEATS;
 use super::bed::AmbientParams;
 use super::scales::{DORIAN, HIRAJOSHI, PENTATONIC_MAJOR, PENTATONIC_MINOR, PHRYGIAN};
+use super::{LOOP_BEATS, WARMUP_BEATS};
 use crate::seeded_defaults::scene::{
     BiomeArchetype, SceneCharacter, ThemeArchetype, range_f32, unit_f32,
 };
@@ -625,37 +625,161 @@ fn build_patch(voice: &ThemeVoice, root_hz: f32, params: &AmbientParams, seed: u
 /// sparse voices scatter half-beat-quantised onsets with an occasional
 /// octave lift. Both keep tails inside the loop-plus-crossfade overhang
 /// and sort deterministically so peers serialise identical recipes.
+/// Onset-free tail at the end of the loop region, so the last phrase's
+/// gate + release lands inside the crossfade overhang instead of being
+/// clipped at the seam.
+const ONSET_TAIL_BEATS: f32 = 2.5;
+/// Hard ceiling on note events per voice — keeps bake time + the mixdown
+/// bounded however the phrase/scatter maths lands on a long loop.
+const MAX_NOTES: usize = 40;
+
+/// One melodic event at `t` on scale `deg`/`octave`, with the voice's
+/// per-note volume / gate / release sampled from its bands.
+fn note(voice: &ThemeVoice, rng: &mut ChaCha8Rng, t: f32, deg: usize, octave: f32) -> Event {
+    Event {
+        time_beats: t,
+        instrument_id: voice.id.to_string(),
+        pitch_multiplier: voice.scale[deg] * octave,
+        volume: range_f32(rng, voice.volume.0, voice.volume.1),
+        gate_beats: range_f32(rng, voice.gate.0, voice.gate.1),
+        release_beats: voice.release_s,
+        pitch_mode: PitchMode::Varispeed,
+    }
+}
+
 fn build_events(voice: &ThemeVoice, rng: &mut ChaCha8Rng) -> Vec<Event> {
-    let span = (voice.note_count.1 - voice.note_count.0 + 1) as f32;
-    let count = (voice.note_count.0 + (range_f32(rng, 0.0, span) as u32)).min(voice.note_count.1);
-    let id = voice.id.to_string();
     let n = voice.scale.len();
-    let mut events = Vec::with_capacity(count as usize);
-    for i in 0..count {
-        let i = i as usize;
-        let (time_beats, deg, octave) = if voice.arp {
-            (
-                WARMUP_BEATS + i as f32 * 0.5,
-                i % n,
-                1.0 + ((i / n) % 2) as f32,
-            )
-        } else {
-            let t = WARMUP_BEATS + (range_f32(rng, 0.0, 13.5) * 2.0).floor() * 0.5;
-            let deg = (range_f32(rng, 0.0, n as f32) as usize).min(n - 1);
-            let octave = if unit_f32(rng) < 0.2 { 2.0 } else { 1.0 };
-            (t, deg, octave)
-        };
+    // Beats available for onsets after the warm-up run-up.
+    let span = (LOOP_BEATS - ONSET_TAIL_BEATS).max(4.0);
+    let mut events = if voice.arp {
+        arp_phrases(voice, rng, span, n)
+    } else {
+        sparse_scatter(voice, rng, span, n)
+    };
+    events.sort_by(|a, b| a.time_beats.total_cmp(&b.time_beats));
+    events
+}
+
+/// Arpeggio voices fill the loop with repeated eighth-note scale runs, but
+/// each phrase varies (octave jump, descending vs ascending) and rests
+/// punctuate them, so a long loop reads as A/B phrases rather than one
+/// tiled arpeggio.
+fn arp_phrases(voice: &ThemeVoice, rng: &mut ChaCha8Rng, span: f32, n: usize) -> Vec<Event> {
+    const STEP: f32 = 0.5; // eighth notes at 60 BPM
+    let phrase_beats = n as f32 * STEP;
+    let mut events = Vec::new();
+    let mut t = WARMUP_BEATS;
+    let mut phrase = 0u32;
+    while t + phrase_beats <= WARMUP_BEATS + span && events.len() + n <= MAX_NOTES {
+        // An occasional whole-phrase rest (never the first) breaks the tile.
+        let rest_phrase = phrase > 0 && unit_f32(rng) < 0.18;
+        if !rest_phrase {
+            // Phrase variation: every third phrase jumps an octave; odd
+            // phrases run back down the scale.
+            let octave = if phrase % 3 == 1 { 2.0 } else { 1.0 };
+            let descend = phrase % 2 == 1;
+            for k in 0..n {
+                let deg = if descend { n - 1 - k } else { k };
+                events.push(note(voice, rng, t + k as f32 * STEP, deg, octave));
+            }
+        }
+        // A short rest between phrases keeps them from running solid.
+        t += phrase_beats + range_f32(rng, 0.5, 1.5);
+        phrase += 1;
+    }
+    events
+}
+
+/// Sparse voices scatter onsets on the eighth-note grid across the whole
+/// loop. The base note count scales with the loop length so a longer loop
+/// keeps a musical density rather than thinning out.
+fn sparse_scatter(voice: &ThemeVoice, rng: &mut ChaCha8Rng, span: f32, n: usize) -> Vec<Event> {
+    let band = (voice.note_count.1 - voice.note_count.0 + 1) as f32;
+    let base = voice.note_count.0 + (range_f32(rng, 0.0, band) as u32);
+    let count = ((base as f32 * (LOOP_BEATS / 16.0)).round() as usize).min(MAX_NOTES);
+    let slots = (span / 0.5).floor().max(1.0) as u32;
+    let mut events = Vec::with_capacity(count);
+    for _ in 0..count {
+        let slot = (range_f32(rng, 0.0, slots as f32) as u32).min(slots - 1);
+        let t = WARMUP_BEATS + slot as f32 * 0.5;
+        let deg = (range_f32(rng, 0.0, n as f32) as usize).min(n - 1);
+        let octave = if unit_f32(rng) < 0.2 { 2.0 } else { 1.0 };
+        events.push(note(voice, rng, t, deg, octave));
+    }
+    events
+}
+
+/// Low drone / pad second voice — a sustained sine an octave below the
+/// melody root that fills the long loop's bottom end and shares the bed's
+/// reverb. Its voicing varies by seed (a static held drone, or a slow walk
+/// across 2–3 scale degrees), but it is always present so every room reads
+/// layered. Returns the instrument + its track.
+pub(super) fn build_bass(
+    scene: &SceneCharacter,
+    params: &AmbientParams,
+    rng: &mut ChaCha8Rng,
+    seed: u64,
+) -> (Instrument, Track) {
+    let melody = voice_for(scene);
+    // Prosperity lifts the pad volume a touch, mirroring the melody.
+    let wealth = (scene.prosperity.clamp(0.0, 1.0) - 0.5) * 2.0;
+    let vol = (0.07 + 0.02 * wealth).clamp(0.04, 0.11);
+    let bass = ThemeVoice {
+        id: "theme_bass",
+        wave: Wave::Sine,
+        detune_cents: 0.0,
+        scale: melody.scale,
+        octave: 0.5,
+        attack_s: 0.8,
+        decay_s: 0.6,
+        sustain_level: 0.8,
+        release_s: 1.5,
+        note_count: (1, 3),
+        gate: (0.0, 0.0),
+        volume: (vol, vol),
+        arp: false,
+        reverb_mix: (melody.reverb_mix + 0.1).min(0.6),
+    };
+    // One octave below the melody root (which already carries the biome
+    // register + theme octave).
+    let root_hz = 220.0
+        * 2.0_f32.powf(scene.base_hue_deg / 360.0)
+        * biome_register(scene.biome)
+        * bass.octave;
+    let patch = build_patch(&bass, root_hz, params, seed ^ 0x0BA5_50DD);
+    let events = build_bass_events(&bass, rng);
+    (
+        Instrument {
+            id: bass.id.to_string(),
+            patch,
+        },
+        Track { events },
+    )
+}
+
+/// 1–3 long held notes spanning the loop. One note is a static drone; two
+/// or three step slowly across low scale degrees (a I–V–I style root walk),
+/// each held for its share of the loop with a release tail into the seam.
+fn build_bass_events(bass: &ThemeVoice, rng: &mut ChaCha8Rng) -> Vec<Event> {
+    let n = bass.scale.len();
+    let notes = (1 + (unit_f32(rng) * 3.0) as u32).clamp(1, 3); // 1..=3
+    // Low scale degrees for a slow root movement; clamped to the scale.
+    let walk = [0usize, (n / 2).min(n - 1), 0];
+    let seg = LOOP_BEATS / notes as f32;
+    let mut events = Vec::with_capacity(notes as usize);
+    for k in 0..notes {
+        let deg = walk[(k as usize) % walk.len()].min(n - 1);
         events.push(Event {
-            time_beats,
-            instrument_id: id.clone(),
-            pitch_multiplier: voice.scale[deg] * octave,
-            volume: range_f32(rng, voice.volume.0, voice.volume.1),
-            gate_beats: range_f32(rng, voice.gate.0, voice.gate.1),
-            release_beats: voice.release_s,
+            time_beats: WARMUP_BEATS + k as f32 * seg,
+            instrument_id: bass.id.to_string(),
+            pitch_multiplier: bass.scale[deg],
+            volume: bass.volume.0,
+            // Hold each segment; the final note's release tails into the seam.
+            gate_beats: seg,
+            release_beats: bass.release_s,
             pitch_mode: PitchMode::Varispeed,
         });
     }
-    events.sort_by(|a, b| a.time_beats.total_cmp(&b.time_beats));
     events
 }
 
