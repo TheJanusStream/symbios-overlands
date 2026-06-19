@@ -145,23 +145,24 @@ fn voice_for(scene: &SceneCharacter) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.38,
         },
-        // Bright twinkling chimes — a high, gentle major (an ice-cream-van
-        // wholesomeness) over the birdsong.
+        // Gentle warm chimes — a softly-ringing major a touch above the
+        // melody register, a little sustain and a long tail so it reads as a
+        // calm domestic pad rather than a bright ice-cream-van jingle.
         ThemeArchetype::Suburban => ThemeVoice {
             id: "theme_chimes",
             wave: Wave::Triangle,
             detune_cents: 0.0,
             scale: PENTATONIC_MAJOR,
-            octave: 1.5,
-            attack_s: 0.005,
-            decay_s: 0.4,
-            sustain_level: 0.0,
-            release_s: 1.0,
+            octave: 1.25,
+            attack_s: 0.01,
+            decay_s: 0.5,
+            sustain_level: 0.12,
+            release_s: 1.4,
             note_count: (4, 7),
             gate: (0.2, 0.5),
             volume: (0.07, 0.13),
             arp: false,
-            reverb_mix: 0.35,
+            reverb_mix: 0.42,
         },
         // Slow detuned-saw synth pad — a calm urban drone under the traffic
         // hum (which rides the traffic light's spatial fx).
@@ -234,23 +235,24 @@ fn voice_for(scene: &SceneCharacter) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.4,
         },
-        // Plucky banjo roll — a bright triangle arpeggio rolling up a sunny
-        // major, the dance-hall lilt of the saloon.
+        // Lonesome harmonica — a reedy, slightly-detuned triangle keening
+        // sparse and plaintive up a wide major, a long ring trailing off
+        // into the dry wind.
         ThemeArchetype::WildWest => ThemeVoice {
-            id: "theme_banjo",
+            id: "theme_harmonica",
             wave: Wave::Triangle,
-            detune_cents: 0.0,
+            detune_cents: 5.0,
             scale: PENTATONIC_MAJOR,
             octave: 1.0,
-            attack_s: 0.004,
-            decay_s: 0.2,
-            sustain_level: 0.0,
-            release_s: 0.4,
-            note_count: (6, 10),
-            gate: (0.18, 0.3),
-            volume: (0.06, 0.12),
-            arp: true,
-            reverb_mix: 0.3,
+            attack_s: 0.03,
+            decay_s: 0.35,
+            sustain_level: 0.25,
+            release_s: 1.2,
+            note_count: (3, 6),
+            gate: (0.4, 0.9),
+            volume: (0.07, 0.13),
+            arp: false,
+            reverb_mix: 0.4,
         },
         // Bleak wasteland drone — a heavily-detuned saw groaning low in a
         // minor pentatonic, sparse and forlorn over the desolate wind.
@@ -306,14 +308,15 @@ fn voice_for(scene: &SceneCharacter) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.55,
         },
-        // Funereal pipe organ — a heavily-detuned saw swelling in a dark
-        // phrygian, slow and dread-laden through the nave.
+        // Funereal pipe organ — a heavily-detuned saw swelling low in a dark
+        // phrygian, slow and dread-laden through the nave (a tolling pad over
+        // the bass-pad floor).
         ThemeArchetype::GothicHorror => ThemeVoice {
             id: "theme_organ_dirge",
             wave: Wave::Sawtooth,
             detune_cents: 12.0,
             scale: PHRYGIAN,
-            octave: 1.0,
+            octave: 0.75,
             attack_s: 0.3,
             decay_s: 0.5,
             sustain_level: 0.7,
@@ -360,23 +363,23 @@ fn voice_for(scene: &SceneCharacter) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.55,
         },
-        // Warm wooden marimba — a soft detune-free sine in a sunny major,
-        // gentle and hopeful over the birdsong.
+        // Bright airy bells — a clean detune-free sine struck high in a sunny
+        // major, a long lush ring over the birdsong: hopeful and luminous.
         ThemeArchetype::Solarpunk => ThemeVoice {
             id: "theme_marimba",
             wave: Wave::Sine,
             detune_cents: 0.0,
             scale: PENTATONIC_MAJOR,
-            octave: 1.0,
+            octave: 1.25,
             attack_s: 0.01,
             decay_s: 0.4,
             sustain_level: 0.0,
-            release_s: 1.0,
+            release_s: 1.5,
             note_count: (4, 7),
             gate: (0.2, 0.5),
             volume: (0.08, 0.14),
             arp: false,
-            reverb_mix: 0.46,
+            reverb_mix: 0.52,
         },
         // Clockwork music box — a bright triangle arpeggio ticking up a minor
         // pentatonic, the mechanism of the cog tower.
@@ -468,12 +471,14 @@ fn voice_for(scene: &SceneCharacter) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.4,
         },
-        // Sparse modal lyre/bells, long ring.
+        // Stately modal lyre/bells — a sparse Dorian struck with a long
+        // ceremonial ring; the dignified voice that also backstops every
+        // un-built theme as the settlement fallback (#461).
         ThemeArchetype::AncientClassical => ThemeVoice {
             id: "theme_lyre",
             wave: Wave::Triangle,
             detune_cents: 0.0,
-            scale: PENTATONIC_MAJOR,
+            scale: DORIAN,
             octave: 1.0,
             attack_s: 0.02,
             decay_s: 0.5,
@@ -849,7 +854,7 @@ mod tests {
         assert!(matches!(ind.wave, Wave::Sawtooth) && !ind.arp && ind.octave < 1.0);
         assert_eq!(ind.scale, PHRYGIAN);
         let anc = voice_for(&scene_with(ThemeArchetype::AncientClassical, 0.0));
-        assert_eq!(anc.scale, PENTATONIC_MAJOR);
+        assert_eq!(anc.scale, DORIAN);
         let coast = voice_for(&scene_with(ThemeArchetype::CoastalResort, 0.0));
         assert!(matches!(coast.wave, Wave::Sine) && coast.detune_cents > 0.0 && coast.octave > 1.0);
         assert_eq!(coast.scale, PENTATONIC_MAJOR);
@@ -887,7 +892,12 @@ mod tests {
         assert!(matches!(pa.wave, Wave::Sawtooth) && pa.octave < 1.0 && !pa.arp);
         assert_eq!(pa.scale, PENTATONIC_MINOR);
         let ww = voice_for(&scene_with(ThemeArchetype::WildWest, 0.0));
-        assert!(matches!(ww.wave, Wave::Triangle) && ww.arp && (ww.octave - 1.0).abs() < 1e-6);
+        assert!(
+            matches!(ww.wave, Wave::Triangle)
+                && !ww.arp
+                && ww.detune_cents > 0.0
+                && (ww.octave - 1.0).abs() < 1e-6
+        );
         assert_eq!(ww.scale, PENTATONIC_MAJOR);
     }
 
