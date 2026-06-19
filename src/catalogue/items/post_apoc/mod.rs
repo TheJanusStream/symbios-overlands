@@ -149,23 +149,6 @@ pub(super) const FIRE_ORANGE: [f32; 3] = [1.0, 0.50, 0.16];
 pub(super) const WORKLIGHT: [f32; 3] = [1.0, 0.95, 0.82];
 pub(super) const SIGNAL_RED: [f32; 3] = [1.0, 0.22, 0.20];
 
-/// Walk a built tree and report whether any primitive is strongly emissive
-/// — the shared "are the fires still burning?" check for the kit's tests.
-#[cfg(test)]
-pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
-    use crate::pds::GeneratorKind::*;
-    let own = match &g.kind {
-        Cuboid { material, .. }
-        | Cylinder { material, .. }
-        | Sphere { material, .. }
-        | Cone { material, .. }
-        | Torus { material, .. }
-        | Capsule { material, .. } => material.emission_strength.0 > 1.0,
-        _ => false,
-    };
-    own || g.children.iter().any(has_emissive)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -192,7 +175,7 @@ mod tests {
     #[test]
     fn ruin_keeps_its_fire() {
         assert!(
-            has_emissive(&fortified_ruin::FortifiedRuin.build("")),
+            crate::catalogue::items::util::has_emissive(&fortified_ruin::FortifiedRuin.build("")),
             "fortified ruin lost its emissive fire / worklight"
         );
     }

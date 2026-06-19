@@ -89,23 +89,6 @@ pub(super) const GLYPH_CYAN: [f32; 3] = [0.40, 0.90, 1.0];
 pub(super) const ENERGY_BLUE: [f32; 3] = [0.45, 0.55, 1.0];
 pub(super) const GLYPH_VIOLET: [f32; 3] = [0.62, 0.42, 1.0];
 
-/// Walk a built tree and report whether any primitive is strongly emissive
-/// — the shared "is the array still powered?" check for the kit's tests.
-#[cfg(test)]
-pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
-    use crate::pds::GeneratorKind::*;
-    let own = match &g.kind {
-        Cuboid { material, .. }
-        | Cylinder { material, .. }
-        | Sphere { material, .. }
-        | Cone { material, .. }
-        | Torus { material, .. }
-        | Capsule { material, .. } => material.emission_strength.0 > 1.0,
-        _ => false,
-    };
-    own || g.children.iter().any(has_emissive)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,7 +114,7 @@ mod tests {
     #[test]
     fn monolith_keeps_its_glyphs() {
         assert!(
-            has_emissive(&black_monolith::BlackMonolith.build("")),
+            crate::catalogue::items::util::has_emissive(&black_monolith::BlackMonolith.build("")),
             "black monolith lost its emissive glyphs"
         );
     }

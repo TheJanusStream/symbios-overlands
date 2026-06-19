@@ -217,23 +217,6 @@ pub(super) const GLASS_TINT: [f32; 3] = [0.40, 0.50, 0.52];
 pub(super) const PORCH_WARM: [f32; 3] = [1.0, 0.84, 0.54];
 pub(super) const SIGN_GLOW: [f32; 3] = [1.0, 0.74, 0.40];
 
-/// Walk a built tree and report whether any primitive is strongly emissive
-/// — the shared "are the lights on?" check for the kit's tests.
-#[cfg(test)]
-pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
-    use crate::pds::GeneratorKind::*;
-    let own = match &g.kind {
-        Cuboid { material, .. }
-        | Cylinder { material, .. }
-        | Sphere { material, .. }
-        | Cone { material, .. }
-        | Torus { material, .. }
-        | Capsule { material, .. } => material.emission_strength.0 > 1.0,
-        _ => false,
-    };
-    own || g.children.iter().any(has_emissive)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,7 +242,9 @@ mod tests {
     #[test]
     fn community_center_keeps_its_sign() {
         assert!(
-            has_emissive(&community_center::CommunityCenter.build("")),
+            crate::catalogue::items::util::has_emissive(
+                &community_center::CommunityCenter.build("")
+            ),
             "community center lost its emissive sign"
         );
     }

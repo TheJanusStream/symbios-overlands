@@ -109,6 +109,8 @@ mod tests {
 
     #[test]
     fn has_light() {
-        assert!(super::super::has_emissive(&StoneLantern.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &StoneLantern.build("")
+        ));
     }
 }

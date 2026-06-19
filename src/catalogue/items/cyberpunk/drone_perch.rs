@@ -96,6 +96,8 @@ mod tests {
 
     #[test]
     fn has_neon() {
-        assert!(super::super::has_emissive(&DronePerch.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &DronePerch.build("")
+        ));
     }
 }

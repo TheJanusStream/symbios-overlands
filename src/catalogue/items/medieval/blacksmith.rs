@@ -201,6 +201,8 @@ mod tests {
 
     #[test]
     fn keeps_forge_fire() {
-        assert!(super::super::has_emissive(&Blacksmith.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &Blacksmith.build("")
+        ));
     }
 }

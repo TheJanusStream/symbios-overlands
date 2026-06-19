@@ -158,7 +158,7 @@ mod tests {
     #[test]
     fn has_neon() {
         assert!(
-            super::super::has_emissive(&NeonMegatower.build("")),
+            crate::catalogue::items::util::has_emissive(&NeonMegatower.build("")),
             "neon megatower lost its emissive trim"
         );
     }

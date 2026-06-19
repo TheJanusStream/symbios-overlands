@@ -235,23 +235,6 @@ pub(super) const WINDOW_WARM: [f32; 3] = [1.0, 0.92, 0.74];
 pub(super) const LAMP_WARM: [f32; 3] = [1.0, 0.88, 0.6];
 pub(super) const CLOCK_LIT: [f32; 3] = [1.0, 0.97, 0.86];
 
-/// Walk a built tree and report whether any primitive is strongly emissive
-/// — the shared "are the lights still on?" check for the kit's tests.
-#[cfg(test)]
-pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
-    use crate::pds::GeneratorKind::*;
-    let own = match &g.kind {
-        Cuboid { material, .. }
-        | Cylinder { material, .. }
-        | Sphere { material, .. }
-        | Cone { material, .. }
-        | Torus { material, .. }
-        | Capsule { material, .. } => material.emission_strength.0 > 1.0,
-        _ => false,
-    };
-    own || g.children.iter().any(has_emissive)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -278,7 +261,7 @@ mod tests {
     #[test]
     fn town_hall_keeps_its_lights() {
         assert!(
-            has_emissive(&town_hall::TownHall.build("")),
+            crate::catalogue::items::util::has_emissive(&town_hall::TownHall.build("")),
             "town hall lost its emissive windows / lamps"
         );
     }

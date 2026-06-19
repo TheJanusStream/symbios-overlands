@@ -165,23 +165,6 @@ pub(super) const STAINED_TINT: [f32; 3] = [0.58, 0.40, 0.52];
 // Emissive trim colours.
 pub(super) const STAINED_GLOW: [f32; 3] = [0.85, 0.48, 0.66];
 
-/// Walk a built tree and report whether any primitive is strongly emissive
-/// — the shared "do the windows still glow?" check for the kit's tests.
-#[cfg(test)]
-pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
-    use crate::pds::GeneratorKind::*;
-    let own = match &g.kind {
-        Cuboid { material, .. }
-        | Cylinder { material, .. }
-        | Sphere { material, .. }
-        | Cone { material, .. }
-        | Torus { material, .. }
-        | Capsule { material, .. } => material.emission_strength.0 > 1.0,
-        _ => false,
-    };
-    own || g.children.iter().any(has_emissive)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,7 +190,7 @@ mod tests {
     #[test]
     fn cathedral_keeps_its_glow() {
         assert!(
-            has_emissive(&cathedral::Cathedral.build("")),
+            crate::catalogue::items::util::has_emissive(&cathedral::Cathedral.build("")),
             "cathedral lost its emissive stained glass"
         );
     }

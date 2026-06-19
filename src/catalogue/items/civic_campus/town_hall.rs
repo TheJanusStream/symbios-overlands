@@ -212,6 +212,8 @@ mod tests {
 
     #[test]
     fn has_lit_windows_and_lamps() {
-        assert!(super::super::has_emissive(&TownHall.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &TownHall.build("")
+        ));
     }
 }

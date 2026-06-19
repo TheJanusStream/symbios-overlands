@@ -193,23 +193,6 @@ pub(super) const DOME_GLOW: [f32; 3] = [0.72, 1.0, 0.74];
 pub(super) const GROW_PINK: [f32; 3] = [1.0, 0.42, 0.82];
 pub(super) const LAMP_WARM: [f32; 3] = [1.0, 0.90, 0.66];
 
-/// Walk a built tree and report whether any primitive is strongly emissive
-/// — the shared "is the dome still glowing?" check for the kit's tests.
-#[cfg(test)]
-pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
-    use crate::pds::GeneratorKind::*;
-    let own = match &g.kind {
-        Cuboid { material, .. }
-        | Cylinder { material, .. }
-        | Sphere { material, .. }
-        | Cone { material, .. }
-        | Torus { material, .. }
-        | Capsule { material, .. } => material.emission_strength.0 > 1.0,
-        _ => false,
-    };
-    own || g.children.iter().any(has_emissive)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,7 +219,7 @@ mod tests {
     #[test]
     fn biodome_keeps_its_glow() {
         assert!(
-            has_emissive(&biodome::Biodome.build("")),
+            crate::catalogue::items::util::has_emissive(&biodome::Biodome.build("")),
             "biodome lost its emissive dome / interior glow"
         );
     }

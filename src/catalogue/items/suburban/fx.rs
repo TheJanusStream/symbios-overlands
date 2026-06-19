@@ -10,6 +10,7 @@ use bevy_symbios_audio::{
     AudioPatch, Connection, Gain, GraphNode, Lfo, LfoShape, NodeGraph, NodeId, NodeKind, SineOsc,
 };
 
+use crate::catalogue::items::fx::node;
 use crate::pds::{
     AnimationFrameMode, EmitterShape, Fp, Fp3, Fp4, Generator, GeneratorKind, ParticleBlendMode,
     SimulationSpace, SovereignAudioConfig, SovereignSoftDiscConfig, SovereignTextureConfig,
@@ -78,14 +79,6 @@ pub(super) fn sprinkler_mist(pos: [f32; 3], seed: u64) -> Generator {
 // ---------------------------------------------------------------------------
 // Spatial audio patches
 // ---------------------------------------------------------------------------
-
-fn node(id: u32, kind: NodeKind) -> GraphNode {
-    GraphNode {
-        id: NodeId(id),
-        kind,
-        inputs: std::collections::BTreeMap::new(),
-    }
-}
 
 /// One chirp voice: a high sine pulsed on and off by an LFO, so it sounds as
 /// intermittent calls rather than a steady tone. `base` is the first node id;

@@ -178,6 +178,8 @@ mod tests {
 
     #[test]
     fn has_sacred_fire() {
-        assert!(super::super::has_emissive(&StepPyramid.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &StepPyramid.build("")
+        ));
     }
 }

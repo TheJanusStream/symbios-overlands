@@ -273,7 +273,7 @@ mod tests {
     fn longer_loop_is_filled_with_phrases_and_a_bass_pad() {
         // #459: the loop is lengthened, and the melody phrases + a low bass
         // pad fill it rather than tiling the first 16 s.
-        assert!(LOOP_BEATS >= 32.0, "loop region lengthened");
+        const { assert!(LOOP_BEATS >= 32.0, "loop region lengthened") };
         let mut melody_reaches_second_half = false;
         for s in 0u64..24 {
             let mut scene = SceneCharacter::for_seed(s);

@@ -232,23 +232,6 @@ pub(super) const SIGN_GOLD: [f32; 3] = [1.0, 0.84, 0.46];
 /// Warm lamp for the lifeguard tower's eave light.
 pub(super) const LAMP_WARM: [f32; 3] = [1.0, 0.88, 0.6];
 
-/// Walk a built tree and report whether any primitive is strongly emissive
-/// — the shared "are the resort lights still on?" check for the kit's tests.
-#[cfg(test)]
-pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
-    use crate::pds::GeneratorKind::*;
-    let own = match &g.kind {
-        Cuboid { material, .. }
-        | Cylinder { material, .. }
-        | Sphere { material, .. }
-        | Cone { material, .. }
-        | Torus { material, .. }
-        | Capsule { material, .. } => material.emission_strength.0 > 1.0,
-        _ => false,
-    };
-    own || g.children.iter().any(has_emissive)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -275,7 +258,7 @@ mod tests {
     #[test]
     fn hotel_keeps_its_lights() {
         assert!(
-            has_emissive(&grand_hotel::GrandHotel.build("")),
+            crate::catalogue::items::util::has_emissive(&grand_hotel::GrandHotel.build("")),
             "grand hotel lost its emissive sign / lobby glow"
         );
     }

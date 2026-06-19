@@ -1623,7 +1623,7 @@ mod tests {
             let settlement = Settlement::from_scene(&scene, seed);
             let total = settlement.props.len();
             let distinct: HashSet<_> = settlement.props.iter().map(|m| m.slug).collect();
-            (total > distinct.len()).then(|| (did, total, distinct.len()))
+            (total > distinct.len()).then_some((did, total, distinct.len()))
         });
         let (did, total_props, distinct_props) =
             found.expect("no non-urban seed in 0..256 repeated a settlement prop");

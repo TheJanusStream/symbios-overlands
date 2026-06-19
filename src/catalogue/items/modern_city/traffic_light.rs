@@ -123,6 +123,8 @@ mod tests {
 
     #[test]
     fn has_signal() {
-        assert!(super::super::has_emissive(&TrafficLight.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &TrafficLight.build("")
+        ));
     }
 }

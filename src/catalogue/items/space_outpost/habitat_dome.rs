@@ -139,6 +139,8 @@ mod tests {
 
     #[test]
     fn has_lit_viewports() {
-        assert!(super::super::has_emissive(&HabitatDome.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &HabitatDome.build("")
+        ));
     }
 }

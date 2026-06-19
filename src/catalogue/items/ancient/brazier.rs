@@ -112,6 +112,8 @@ mod tests {
 
     #[test]
     fn keeps_embers() {
-        assert!(super::super::has_emissive(&Brazier.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &Brazier.build("")
+        ));
     }
 }

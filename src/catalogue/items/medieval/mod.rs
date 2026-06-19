@@ -227,24 +227,6 @@ pub(super) const CLOTH_CREAM: [f32; 3] = [0.80, 0.74, 0.60];
 /// Warm forge-fire light for the blacksmith's hearth glow.
 pub(super) const FORGE_ORANGE: [f32; 3] = [1.0, 0.52, 0.16];
 
-/// Walk a built tree and report whether any primitive is strongly
-/// emissive — the shared "did the forge-light survive?" check for the
-/// kit's tests.
-#[cfg(test)]
-pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
-    use crate::pds::GeneratorKind::*;
-    let own = match &g.kind {
-        Cuboid { material, .. }
-        | Cylinder { material, .. }
-        | Sphere { material, .. }
-        | Cone { material, .. }
-        | Torus { material, .. }
-        | Capsule { material, .. } => material.emission_strength.0 > 1.0,
-        _ => false,
-    };
-    own || g.children.iter().any(has_emissive)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,7 +253,7 @@ mod tests {
     #[test]
     fn blacksmith_keeps_its_forge_fire() {
         assert!(
-            has_emissive(&blacksmith::Blacksmith.build("")),
+            crate::catalogue::items::util::has_emissive(&blacksmith::Blacksmith.build("")),
             "blacksmith lost its emissive forge fire"
         );
     }

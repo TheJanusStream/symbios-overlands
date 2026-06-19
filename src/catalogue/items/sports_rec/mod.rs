@@ -225,23 +225,6 @@ pub(super) const HOOP_ORANGE: [f32; 3] = [0.92, 0.42, 0.10];
 pub(super) const FLOOD_LIT: [f32; 3] = [1.0, 0.97, 0.90];
 pub(super) const SCORE_AMBER: [f32; 3] = [1.0, 0.78, 0.32];
 
-/// Walk a built tree and report whether any primitive is strongly emissive
-/// — the shared "are the lights on?" check for the kit's tests.
-#[cfg(test)]
-pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
-    use crate::pds::GeneratorKind::*;
-    let own = match &g.kind {
-        Cuboid { material, .. }
-        | Cylinder { material, .. }
-        | Sphere { material, .. }
-        | Cone { material, .. }
-        | Torus { material, .. }
-        | Capsule { material, .. } => material.emission_strength.0 > 1.0,
-        _ => false,
-    };
-    own || g.children.iter().any(has_emissive)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -268,7 +251,7 @@ mod tests {
     #[test]
     fn stadium_keeps_its_lights() {
         assert!(
-            has_emissive(&stadium::Stadium.build("")),
+            crate::catalogue::items::util::has_emissive(&stadium::Stadium.build("")),
             "stadium lost its emissive floodlights / scoreboard"
         );
     }

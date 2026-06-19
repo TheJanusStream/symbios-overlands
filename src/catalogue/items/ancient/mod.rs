@@ -156,23 +156,6 @@ pub(super) const STONE_VOID: [f32; 3] = [0.05, 0.05, 0.06];
 /// Warm ember light for the brazier coals.
 pub(super) const EMBER_ORANGE: [f32; 3] = [1.0, 0.5, 0.16];
 
-/// Walk a built tree and report whether any primitive is strongly
-/// emissive — the shared "did the brazier embers survive?" check.
-#[cfg(test)]
-pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
-    use crate::pds::GeneratorKind::*;
-    let own = match &g.kind {
-        Cuboid { material, .. }
-        | Cylinder { material, .. }
-        | Sphere { material, .. }
-        | Cone { material, .. }
-        | Torus { material, .. }
-        | Capsule { material, .. } => material.emission_strength.0 > 1.0,
-        _ => false,
-    };
-    own || g.children.iter().any(has_emissive)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,7 +178,7 @@ mod tests {
     #[test]
     fn brazier_keeps_its_embers() {
         assert!(
-            has_emissive(&brazier::Brazier.build("")),
+            crate::catalogue::items::util::has_emissive(&brazier::Brazier.build("")),
             "brazier lost its emissive embers"
         );
     }

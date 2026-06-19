@@ -283,3 +283,23 @@ pub(super) fn assert_sanitize_stable(built: &Generator, name: &str) {
     crate::pds::sanitize_generator(&mut sanitized);
     tree_eq(built, &sanitized, name);
 }
+
+/// Walk a built tree and report whether any primitive is strongly emissive
+/// (emission strength > 1.0) — the shared "did the kit's firelit hero keep
+/// its glow?" check the per-theme kits assert on (forge fire, saloon lamps,
+/// brazier coals, …), so escalation's broken-emissive ruin pass has something
+/// to snuff.
+#[cfg(test)]
+pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
+    use crate::pds::GeneratorKind::*;
+    let own = match &g.kind {
+        Cuboid { material, .. }
+        | Cylinder { material, .. }
+        | Sphere { material, .. }
+        | Cone { material, .. }
+        | Torus { material, .. }
+        | Capsule { material, .. } => material.emission_strength.0 > 1.0,
+        _ => false,
+    };
+    own || g.children.iter().any(has_emissive)
+}

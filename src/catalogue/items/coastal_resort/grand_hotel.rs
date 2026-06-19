@@ -197,6 +197,8 @@ mod tests {
 
     #[test]
     fn has_lit_sign() {
-        assert!(super::super::has_emissive(&GrandHotel.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &GrandHotel.build("")
+        ));
     }
 }

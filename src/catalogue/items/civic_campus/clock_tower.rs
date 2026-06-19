@@ -130,6 +130,8 @@ mod tests {
 
     #[test]
     fn has_lit_clock() {
-        assert!(super::super::has_emissive(&ClockTower.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &ClockTower.build("")
+        ));
     }
 }

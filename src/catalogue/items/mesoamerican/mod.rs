@@ -217,23 +217,6 @@ pub(super) const CLAY_TERRACOTTA: [f32; 3] = [0.62, 0.34, 0.20];
 /// Warm sacrificial firelight — the temple fire and the fire bowls.
 pub(super) const FIRE_ORANGE: [f32; 3] = [1.0, 0.55, 0.16];
 
-/// Walk a built tree and report whether any primitive is strongly emissive
-/// — the shared "did the sacred fire survive?" check for the kit's tests.
-#[cfg(test)]
-pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
-    use crate::pds::GeneratorKind::*;
-    let own = match &g.kind {
-        Cuboid { material, .. }
-        | Cylinder { material, .. }
-        | Sphere { material, .. }
-        | Cone { material, .. }
-        | Torus { material, .. }
-        | Capsule { material, .. } => material.emission_strength.0 > 1.0,
-        _ => false,
-    };
-    own || g.children.iter().any(has_emissive)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,7 +242,7 @@ mod tests {
     #[test]
     fn fire_bowl_keeps_its_flame() {
         assert!(
-            has_emissive(&fire_bowl::FireBowl.build("")),
+            crate::catalogue::items::util::has_emissive(&fire_bowl::FireBowl.build("")),
             "fire bowl lost its emissive fire"
         );
     }

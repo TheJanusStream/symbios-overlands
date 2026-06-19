@@ -161,6 +161,8 @@ mod tests {
 
     #[test]
     fn has_arcane_glow() {
-        assert!(super::super::has_emissive(&WizardTower.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &WizardTower.build("")
+        ));
     }
 }
