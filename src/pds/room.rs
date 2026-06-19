@@ -382,10 +382,7 @@ impl RoomRecord {
             base_region
                 .children
                 .push(Generator::from_kind(GeneratorKind::RoadNetwork(
-                    RoadConfig {
-                        seed: did_seed ^ ROAD_SEED_SALT,
-                        ..RoadConfig::default()
-                    },
+                    road_config_from_scene(&scene, did_seed ^ ROAD_SEED_SALT),
                 )));
         }
 
@@ -585,16 +582,22 @@ impl RoomRecord {
                     &mut placements,
                 );
             }
-            for (i, member) in settlement.props.iter().enumerate() {
-                wire_settlement_member(
-                    member,
-                    &format!("settlement_prop_{i}"),
-                    did,
-                    prosperity,
-                    escalation,
-                    &mut generators,
-                    &mut placements,
-                );
+            // Props are sampled with replacement, so the same prop can recur.
+            // Share one generator per distinct prop slug (named by slug) and
+            // reference it from each copy's placement — the compiler bakes that
+            // mesh once and instances it, instead of carrying a near-duplicate
+            // Region Asset per copy (mirrors the lot-building layer).
+            for member in &settlement.props {
+                let name = format!("settlement_prop_{}", member.slug);
+                if !generators.contains_key(&name) {
+                    let Some(prop_gen) =
+                        build_member_generator(member, did, prosperity, escalation)
+                    else {
+                        continue;
+                    };
+                    generators.insert(name.clone(), prop_gen);
+                }
+                placements.push(member_placement(name, member));
             }
         }
 
@@ -772,9 +775,26 @@ fn wire_settlement_member(
     generators: &mut HashMap<String, Generator>,
     placements: &mut Vec<Placement>,
 ) {
-    let Some(entry) = crate::catalogue::by_slug(member.slug) else {
+    let Some(member_gen) = build_member_generator(member, did, prosperity, escalation) else {
         return;
     };
+    generators.insert(name.to_string(), member_gen);
+    placements.push(member_placement(name.to_string(), member));
+}
+
+/// Build a settlement member's generator tree: the catalogue entry, its
+/// stochastic grammar seed restamped from the member, and the socio-political
+/// finish + escalation damage applied. `None` if the slug no longer resolves
+/// (a catalogue rename); the caller then skips both the generator and its
+/// placement. Shared by the unique members (landmark / secondaries) and the
+/// slug-deduped props, so they build identically.
+fn build_member_generator(
+    member: &crate::seeded_defaults::SettlementMember,
+    did: &str,
+    prosperity: f32,
+    escalation: f32,
+) -> Option<Generator> {
+    let entry = crate::catalogue::by_slug(member.slug)?;
     let mut member_gen = entry.build(did);
     if let GeneratorKind::Shape { seed, .. } = &mut member_gen.kind {
         *seed = member.grammar_seed;
@@ -787,14 +807,21 @@ fn wire_settlement_member(
     // structure by the room's conflict tier (the Ruins modifier).
     // Deterministic in the member's grammar seed; calm rooms are untouched.
     crate::pds::ruin::apply_ruin(&mut member_gen, escalation, member.grammar_seed);
-    generators.insert(name.to_string(), member_gen);
+    Some(member_gen)
+}
+
+/// A terrain-snapped, water-avoiding [`Placement::Absolute`] for a settlement
+/// member at its derived offset / yaw / scale, referencing `generator_ref`.
+/// Sunk 0.35 m below the snap so foundations bite into slopes instead of
+/// leaving daylight gaps under the downhill edge.
+fn member_placement(
+    generator_ref: String,
+    member: &crate::seeded_defaults::SettlementMember,
+) -> Placement {
     let half_yaw = member.yaw_rad * 0.5;
-    placements.push(Placement::Absolute {
-        generator_ref: name.to_string(),
+    Placement::Absolute {
+        generator_ref,
         transform: TransformData {
-            // Sunk 0.35 m below the terrain snap so foundations bite into
-            // slopes instead of leaving daylight gaps under the downhill
-            // edge.
             translation: Fp3([member.offset[0], -0.35, member.offset[1]]),
             rotation: Fp4([0.0, half_yaw.sin(), 0.0, half_yaw.cos()]),
             scale: Fp3([member.scale, member.scale, member.scale]),
@@ -802,7 +829,7 @@ fn wire_settlement_member(
         snap_to_terrain: true,
         avoid_water: true,
         avoid_water_clearance: Fp(member.clearance),
-    });
+    }
 }
 
 /// Build an [`Environment`] whose colour fields are taken from a
@@ -1148,6 +1175,38 @@ pub(crate) fn theme_grows_roads(theme: crate::seeded_defaults::ThemeArchetype) -
         theme,
         Cyberpunk | ModernCity | IndustrialPark | Roadside | CivicCampus | Suburban | SportsRec
     )
+}
+
+/// Derive a seeded urban [`RoadConfig`] from the room's scene. Built-up themes
+/// fill a larger district with tighter streets; sparse residential ones sprawl
+/// wider. Prosperity then grows the district (a richer region reaches further)
+/// and tightens the grid (denser blocks), so a poor outskirt and a rich
+/// downtown of the same theme read differently. The derived extents stay inside
+/// the road sanitiser's clamps (see `sanitize_road`) so a seeded value is never
+/// re-snapped. `seed` is the layout's own re-rollable seed.
+fn road_config_from_scene(scene: &crate::seeded_defaults::SceneCharacter, seed: u64) -> RoadConfig {
+    use crate::seeded_defaults::ThemeArchetype::*;
+    // Base (district ½-extent, major spacing, minor spacing) by how built-up
+    // the theme is. Cyberpunk / ModernCity fill the whole ~1 km map.
+    let (base_extent, major, minor) = match scene.theme {
+        Cyberpunk | ModernCity => (512.0, 190.0, 110.0),
+        IndustrialPark | Roadside => (460.0, 215.0, 135.0),
+        CivicCampus => (400.0, 205.0, 125.0),
+        Suburban | SportsRec => (340.0, 235.0, 150.0),
+        // A non-listed theme can still opt into roads via the editor.
+        _ => (300.0, 190.0, 110.0),
+    };
+    let prosperity = scene.prosperity.clamp(0.0, 1.0);
+    let extent = (base_extent * (0.8 + 0.4 * prosperity)).clamp(120.0, 512.0);
+    // Richer → denser (×0.85), poorer → sparser (×1.15).
+    let spacing = 1.15 - 0.3 * prosperity;
+    RoadConfig {
+        seed,
+        district_half_extent: Fp(extent),
+        major_spacing: Fp(major * spacing),
+        minor_spacing: Fp(minor * spacing),
+        ..RoadConfig::default()
+    }
 }
 
 /// Return the road-network config attached to the deterministically-chosen
@@ -1541,6 +1600,94 @@ mod tests {
                 "too many secondaries: {secondaries}"
             );
             assert!(props <= MAX_PROPS, "too many props: {props}");
+        }
+    }
+
+    #[test]
+    fn settlement_props_dedupe_to_one_generator_per_slug() {
+        use crate::seeded_defaults::{SceneCharacter, Settlement, fnv1a_64};
+        use std::collections::HashSet;
+        // Find a non-urban room whose settlement repeats a prop slug — props are
+        // sampled with replacement, so dedup must actually collapse something.
+        let found = (0u64..256).find_map(|s| {
+            let did = format!("did:test:{s}");
+            let seed = fnv1a_64(&did);
+            let scene = SceneCharacter::for_seed(seed);
+            if theme_grows_roads(scene.theme) {
+                return None;
+            }
+            let settlement = Settlement::from_scene(&scene, seed);
+            let total = settlement.props.len();
+            let distinct: HashSet<_> = settlement.props.iter().map(|m| m.slug).collect();
+            (total > distinct.len()).then(|| (did, total, distinct.len()))
+        });
+        let (did, total_props, distinct_props) =
+            found.expect("no non-urban seed in 0..256 repeated a settlement prop");
+
+        let record = RoomRecord::default_for_did(&did);
+        let prop_placements = record
+            .placements
+            .iter()
+            .filter(|p| {
+                matches!(p, Placement::Absolute { generator_ref, .. }
+                    if generator_ref.starts_with("settlement_prop_"))
+            })
+            .count();
+        let prop_gens = record
+            .generators
+            .keys()
+            .filter(|k| k.starts_with("settlement_prop_"))
+            .count();
+        // One placement per prop copy, but one generator per distinct slug.
+        assert_eq!(prop_placements, total_props, "one placement per prop copy");
+        assert_eq!(
+            prop_gens, distinct_props,
+            "one generator per distinct prop slug"
+        );
+        assert!(
+            prop_gens < prop_placements,
+            "dedup must collapse repeated props ({prop_gens} gens for {prop_placements} placements)"
+        );
+        // Every prop placement resolves to its shared generator.
+        for p in &record.placements {
+            if let Placement::Absolute { generator_ref, .. } = p
+                && generator_ref.starts_with("settlement_prop_")
+            {
+                assert!(
+                    record.generators.contains_key(generator_ref),
+                    "prop placement references missing generator {generator_ref}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn road_config_from_scene_stays_in_editable_range() {
+        use crate::seeded_defaults::{SceneCharacter, ThemeArchetype};
+        // Derived extents must land inside the GUI slider ranges (so a seeded
+        // value is never pinned) — which are themselves inside the road
+        // sanitiser's clamps, so sanitize never re-snaps a seeded network.
+        for theme in ThemeArchetype::ALL {
+            for prosperity in [0.0_f32, 0.5, 1.0] {
+                let mut scene = SceneCharacter::for_seed(0);
+                scene.theme = theme;
+                scene.prosperity = prosperity;
+                let c = road_config_from_scene(&scene, 1);
+                let d = c.district_half_extent.0;
+                let (maj, min) = (c.major_spacing.0, c.minor_spacing.0);
+                assert!(
+                    (50.0..=512.0).contains(&d),
+                    "{theme:?}@{prosperity}: district {d} outside slider 50..=512"
+                );
+                assert!(
+                    (30.0..=300.0).contains(&maj),
+                    "{theme:?}@{prosperity}: major {maj} outside slider 30..=300"
+                );
+                assert!(
+                    (20.0..=200.0).contains(&min),
+                    "{theme:?}@{prosperity}: minor {min} outside slider 20..=200"
+                );
+            }
         }
     }
 

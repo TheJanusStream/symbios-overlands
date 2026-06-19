@@ -15,13 +15,93 @@
 
 use bevy::prelude::*;
 
-use crate::state::LiveRoomRecord;
+use crate::seeded_defaults::{SceneCharacter, ThemeArchetype};
+use crate::state::{CurrentRoomDid, LiveRoomRecord};
 
 use super::FinishedHeightMap;
 
 /// Marker for the spawned road mesh entity, so a rebuild can replace it.
 #[derive(Component)]
 pub(super) struct RoadMeshEntity;
+
+/// Per-theme look for the three road surfaces. The road is a client-derived
+/// visual layer (not stored), so its palette is keyed off the room's theme here
+/// rather than serialized — cyberpunk gets hot neon, a modern city warm
+/// streetlight LEDs, an industrial park hazard amber, residential streets a
+/// faint painted curb line.
+struct RoadPalette {
+    /// Drivable deck base colour (wet-asphalt material).
+    deck: Color,
+    /// Curb + skirt + bottom base colour (concrete/metal material).
+    structure: Color,
+    /// Curb edge-line emissive, colour already scaled by strength.
+    edge: LinearRgba,
+    /// Whether the edge-line is unlit (a true neon tube) vs a lit painted line.
+    edge_unlit: bool,
+}
+
+/// Emissive colour `rgb` scaled by `strength` — a thin tube runs hot (~6: a
+/// white-hot core plus a coloured bloom halo), a painted line stays low (~1).
+fn glow(rgb: [f32; 3], strength: f32) -> LinearRgba {
+    LinearRgba::rgb(rgb[0] * strength, rgb[1] * strength, rgb[2] * strength)
+}
+
+/// The road look for `theme`. Road-growing themes each get a distinct identity;
+/// any other theme that opts into roads via the editor falls back to a neutral
+/// cool trim.
+fn road_palette(theme: ThemeArchetype) -> RoadPalette {
+    use ThemeArchetype::*;
+    match theme {
+        Cyberpunk => RoadPalette {
+            deck: Color::srgb(0.015, 0.015, 0.02),
+            structure: Color::srgb(0.05, 0.05, 0.06),
+            edge: glow([0.10, 0.95, 1.00], 6.0), // hot cyan neon
+            edge_unlit: true,
+        },
+        ModernCity => RoadPalette {
+            deck: Color::srgb(0.02, 0.02, 0.024),
+            structure: Color::srgb(0.10, 0.10, 0.11),
+            edge: glow([1.00, 0.92, 0.70], 2.2), // warm LED streetlight
+            edge_unlit: true,
+        },
+        IndustrialPark => RoadPalette {
+            deck: Color::srgb(0.025, 0.024, 0.022),
+            structure: Color::srgb(0.08, 0.075, 0.07),
+            edge: glow([1.00, 0.62, 0.18], 3.2), // hazard amber
+            edge_unlit: true,
+        },
+        Roadside => RoadPalette {
+            deck: Color::srgb(0.03, 0.03, 0.032),
+            structure: Color::srgb(0.09, 0.09, 0.09),
+            edge: glow([1.00, 0.85, 0.25], 1.4), // painted lane yellow
+            edge_unlit: false,
+        },
+        CivicCampus => RoadPalette {
+            deck: Color::srgb(0.10, 0.10, 0.105), // pale plaza paving
+            structure: Color::srgb(0.16, 0.16, 0.17),
+            edge: glow([0.90, 0.92, 1.00], 1.2), // cool soft trim
+            edge_unlit: false,
+        },
+        Suburban => RoadPalette {
+            deck: Color::srgb(0.03, 0.03, 0.033),
+            structure: Color::srgb(0.13, 0.13, 0.13),
+            edge: glow([0.85, 0.85, 0.82], 0.8), // faint painted curb line
+            edge_unlit: false,
+        },
+        SportsRec => RoadPalette {
+            deck: Color::srgb(0.05, 0.04, 0.04),
+            structure: Color::srgb(0.12, 0.12, 0.12),
+            edge: glow([1.00, 0.95, 0.90], 1.0), // court / track line
+            edge_unlit: false,
+        },
+        _ => RoadPalette {
+            deck: Color::srgb(0.03, 0.03, 0.035),
+            structure: Color::srgb(0.09, 0.09, 0.10),
+            edge: glow([0.60, 0.80, 1.00], 2.5),
+            edge_unlit: true,
+        },
+    }
+}
 
 /// Fingerprint of the road config last meshed — `None` when no road mesh is
 /// live (no config, disabled, or no terrain). Lets the rebuild skip work when
@@ -31,9 +111,11 @@ pub(super) struct RoadFingerprint(pub(super) Option<String>);
 
 /// Re-mesh the road network when the heightmap or the road config changes,
 /// reusing the existing heightmap (no terrain regeneration).
+#[allow(clippy::too_many_arguments)] // Bevy system: each arg is a distinct resource/query.
 pub(super) fn maybe_rebuild_roads(
     mut commands: Commands,
     record: Res<LiveRoomRecord>,
+    did: Option<Res<CurrentRoomDid>>,
     heightmap: Option<Res<FinishedHeightMap>>,
     mut fingerprint: ResMut<RoadFingerprint>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -81,10 +163,16 @@ pub(super) fn maybe_rebuild_roads(
         let half = world_extent * 0.5;
         let offset = Transform::from_xyz(-half, 0.0, -half);
 
+        // The road look follows the room's theme (client-side; not stored).
+        let theme = did.as_ref().map_or(ThemeArchetype::Cyberpunk, |d| {
+            SceneCharacter::for_did(&d.0).theme
+        });
+        let palette = road_palette(theme);
+
         // Dark wet-asphalt drivable deck — low roughness + reflectance gives the
-        // sheen that catches the neon-noir city light.
+        // sheen that catches the city light.
         let deck = materials.add(StandardMaterial {
-            base_color: Color::srgb(0.015, 0.015, 0.02),
+            base_color: palette.deck,
             perceptual_roughness: 0.22,
             metallic: 0.0,
             reflectance: 0.6,
@@ -95,20 +183,20 @@ pub(super) fn maybe_rebuild_roads(
         // Concrete/metal foundation (curb + skirt + bottom) — matte and lighter
         // so the deck reads as a distinct surface sitting on top of it.
         let structure = materials.add(StandardMaterial {
-            base_color: Color::srgb(0.05, 0.05, 0.06),
+            base_color: palette.structure,
             perceptual_roughness: 0.8,
             metallic: 0.25,
             double_sided: true,
             cull_mode: None,
             ..default()
         });
-        // Emissive neon curb edge-line. A thin tube runs hot: the white-hot core
-        // (channels clip past 1.0) plus a cyan bloom halo is how neon reads.
-        // Unlit so apply_nightfall can't dim it. No texture → splat-safe.
+        // Curb edge-line. A neon tube runs hot (white-hot core + bloom halo)
+        // and unlit so apply_nightfall can't dim it; a painted line stays low
+        // and lit. Either way it's textureless → splat-safe.
         let neon = materials.add(StandardMaterial {
             base_color: Color::BLACK,
-            emissive: LinearRgba::rgb(0.10 * 6.0, 0.95 * 6.0, 1.00 * 6.0),
-            unlit: true,
+            emissive: palette.edge,
+            unlit: palette.edge_unlit,
             double_sided: true,
             cull_mode: None,
             ..default()

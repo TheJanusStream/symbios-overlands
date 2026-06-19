@@ -15,6 +15,8 @@
 //! a re-roll (new seed) strips the stale set and repopulates, an unchanged
 //! layout is left alone, and turning the layer off sweeps them.
 
+use std::collections::HashMap;
+
 use bevy::prelude::*;
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
@@ -22,6 +24,7 @@ use rand_chacha::rand_core::{RngCore, SeedableRng};
 use crate::catalogue::{CatalogueEntry, StructureRole, entries_for, entries_for_room};
 use crate::pds::generator::{GeneratorKind, Placement, RoadConfig};
 use crate::pds::room::find_road_config;
+use crate::pds::sanitize::limits;
 use crate::pds::types::{Fp, Fp3, Fp4, TransformData};
 use crate::pds::{RoomRecord, material_finish, ruin};
 use crate::seeded_defaults::{SceneCharacter, ThemeArchetype, fnv1a_64};
@@ -35,10 +38,13 @@ const LOT_PREFIX: &str = "lot_building_";
 /// yet — mirrors the settlement deriver's fallback so a road-growing room of a
 /// still-sparse theme is never left empty.
 const FALLBACK_THEME: ThemeArchetype = ThemeArchetype::AncientClassical;
-/// Upper bound on injected buildings. Bounded well under `MAX_GENERATORS`
-/// (256) so the base generators always fit; the enclosed-lot count is usually
-/// the real limiter. Tune down if spawn cost bites on wasm.
-const MAX_LOT_BUILDINGS: usize = 128;
+/// Upper bound on injected building *placements*. Buildings share one generator
+/// per distinct catalogue entry (so generators stay few — a placement per lot,
+/// not an asset per lot); the injection clamps this to the record's free
+/// placement budget (`MAX_PLACEMENTS` − existing) so a packed map can't trip
+/// sanitiser truncation. The enclosed-lot count is usually the real limiter;
+/// tune down if spawn cost bites on wasm.
+const MAX_LOT_BUILDINGS: usize = 256;
 /// Distinct sub-stream salt for the building-pick RNG.
 const LOT_STREAM_SALT: u64 = 0x10C5_B011_D196_5EED;
 /// Sink (m) below the terrain snap so foundations bite into slopes rather than
@@ -115,10 +121,20 @@ fn inject_lot_buildings(
     // band fills with secondary buildings, the long tail with props.
     let mut ranked: Vec<&crate::urban::BuildingLot> = lots.iter().collect();
     ranked.sort_by(|a, b| (b.width * b.depth).total_cmp(&(a.width * a.depth)));
-    ranked.truncate(MAX_LOT_BUILDINGS);
+    // One placement per lot, capped to the free placement budget so a packed
+    // map can't trip sanitiser truncation. Generators are shared by entry, so
+    // the placement budget — not the generator budget — is the binding limit.
+    let cap = MAX_LOT_BUILDINGS.min(limits::MAX_PLACEMENTS.saturating_sub(record.placements.len()));
+    ranked.truncate(cap);
 
     let mut rng = ChaCha8Rng::seed_from_u64(seed ^ LOT_STREAM_SALT);
     let prefix = seed_prefix(seed);
+    // One shared generator per distinct catalogue entry: every lot that picks
+    // the same building references it, so the compiler bakes that mesh once and
+    // instances it across the placements (the record stays compact instead of
+    // carrying a near-duplicate asset per lot). Per-lot variety comes from the
+    // placement transform — street-facing yaw + lot-fit scale.
+    let mut by_slug: HashMap<&'static str, String> = HashMap::new();
     let mut placed = 0usize;
     for (i, lot) in ranked.iter().enumerate() {
         // Role by rank: lot 0 = landmark; next ~20% = secondary; rest = props.
@@ -135,25 +151,36 @@ fn inject_lot_buildings(
             continue;
         };
         let entry = chosen[(rng.next_u32() as usize) % chosen.len()];
+        let slug = entry.slug();
 
-        let mut tree = entry.build(did);
-        // Restamp stochastic grammar seeds so identical entries on different
-        // lots derive differently, deterministically.
-        let member_seed = seed ^ (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
-        if let GeneratorKind::Shape { seed: s, .. } = &mut tree.kind {
-            *s = member_seed;
-        }
-        // Socio-political finish + escalation damage, exactly like a settlement
-        // member, so urban buildings weather with the room's tiers.
-        material_finish::apply_socio_finish(&mut tree, scene.prosperity, scene.escalation);
-        ruin::apply_ruin(&mut tree, scene.escalation, member_seed);
+        // Get-or-build the one shared generator for this entry.
+        let name = if let Some(existing) = by_slug.get(slug) {
+            existing.clone()
+        } else if record.generators.len() >= limits::MAX_GENERATORS {
+            // No budget for a new distinct asset — never hit in practice (the
+            // catalogue pool is tens of entries). Skip rather than mis-scale a
+            // reuse onto a lot meant for a different building.
+            continue;
+        } else {
+            let mut tree = entry.build(did);
+            // One deterministic derivation per entry, shared by all its
+            // instances (grammar draw + socio finish + escalation damage).
+            let entry_seed = seed ^ fnv1a_64(slug);
+            if let GeneratorKind::Shape { seed: s, .. } = &mut tree.kind {
+                *s = entry_seed;
+            }
+            material_finish::apply_socio_finish(&mut tree, scene.prosperity, scene.escalation);
+            ruin::apply_ruin(&mut tree, scene.escalation, entry_seed);
+            let name = format!("{prefix}{slug}");
+            record.generators.insert(name.clone(), tree);
+            by_slug.insert(slug, name.clone());
+            name
+        };
 
-        // Scale the entry to roughly fit its lot's shorter span.
+        // Per-lot placement of the shared building: lot-fit scale, street-facing.
         let fp = entry.footprint();
         let fit = (lot.width.min(lot.depth) / (2.0 * fp.clearance.max(0.5))).clamp(0.5, 2.0);
         let half_yaw = lot.yaw * 0.5;
-        let name = format!("{prefix}{i}");
-        record.generators.insert(name.clone(), tree);
         record.placements.push(Placement::Absolute {
             generator_ref: name,
             transform: TransformData {
@@ -264,19 +291,30 @@ mod tests {
             n > 0,
             "expected buildings injected for a road-growing theme"
         );
-        assert_eq!(
-            record.generators.len(),
-            before_gens + n,
-            "one generator per injected building"
-        );
-        // Generator count and placement count for the lot layer must match.
+        // One placement per lot...
         let placements = record
             .placements
             .iter()
             .filter(|p| refs_lot_building(p))
             .count();
         assert_eq!(placements, n);
-        // All carry the seed-tagged prefix.
+        // ...but generators are SHARED by entry, so there are at most as many
+        // generators as placements (fewer when lots repeat a building).
+        let gens_added = record.generators.len() - before_gens;
+        assert!(
+            (1..=n).contains(&gens_added),
+            "lot generators ({gens_added}) must be ≥1 and ≤ placements ({n})"
+        );
+        // Every lot placement resolves to an existing shared generator...
+        for p in record.placements.iter().filter(|p| refs_lot_building(p)) {
+            if let Placement::Absolute { generator_ref, .. } = p {
+                assert!(
+                    record.generators.contains_key(generator_ref),
+                    "placement references missing generator {generator_ref}"
+                );
+            }
+        }
+        // ...and every lot generator carries the seed-tagged prefix.
         assert!(
             record
                 .generators
@@ -293,16 +331,24 @@ mod tests {
     }
 
     #[test]
-    fn injection_is_bounded_and_deterministic() {
+    fn injection_is_bounded_deduped_and_deterministic() {
         let did = urban_did();
         let lots: Vec<BuildingLot> = (0..400).map(|i| lot(i as f32, 0.0, 10.0, 10.0)).collect();
 
         let mut a = RoomRecord::default_for_did(&did);
         let mut b = RoomRecord::default_for_did(&did);
+        let before = a.generators.len();
         let na = inject_lot_buildings(&mut a, &lots, &did, 7);
         let nb = inject_lot_buildings(&mut b, &lots, &did, 7);
         assert_eq!(na, nb);
-        assert!(na <= MAX_LOT_BUILDINGS, "exceeded the building cap");
+        assert!(na <= MAX_LOT_BUILDINGS, "exceeded the placement cap");
+        // Dedup: 400 lots collapse onto a handful of shared generators (one per
+        // distinct catalogue entry), far fewer than the placement count.
+        let gens_added = a.generators.len() - before;
+        assert!(
+            gens_added >= 1 && gens_added < na,
+            "buildings must share generators by entry ({gens_added} generators for {na} placements)"
+        );
         // Same DID + seed + lots ⇒ identical injected generators & placements.
         assert!(
             !crate::state::records_differ(&a, &b),

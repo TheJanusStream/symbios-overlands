@@ -176,19 +176,19 @@ fn draw_road_editor(
     row(
         &mut config.district_half_extent.0,
         50.0,
-        300.0,
+        512.0,
         "District ½-extent (m)",
     );
     row(
         &mut config.major_spacing.0,
         30.0,
-        200.0,
+        300.0,
         "Major spacing (m)",
     );
     row(
         &mut config.minor_spacing.0,
         20.0,
-        150.0,
+        200.0,
         "Minor spacing (m)",
     );
     row(
