@@ -1,17 +1,16 @@
 //! Top-level chassis-family pick for the default avatar.
 //!
-//! Sampled before any per-family deriver so the rest of the avatar
-//! pipeline can branch: a DID resolves to exactly one visual family
-//! (hover-boat, airship, humanoid, land-skiff), and only that family's
-//! design deriver contributes nodes to the visuals tree. Locomotion
-//! follows the family (boat → HoverBoat, airship → Helicopter,
-//! humanoid → Humanoid, skiff → Car) so the default chassis *feels*
-//! like what it looks like.
+//! Sampled into the [`AvatarCharacter`](super::AvatarCharacter) anchor so the
+//! rest of the avatar pipeline can branch: a DID resolves to exactly one
+//! visual family (hover-boat, airship, humanoid, land-skiff), and only that
+//! family's slots are filled and assembled. Locomotion follows the family
+//! (boat → HoverBoat, airship → Helicopter, humanoid → Humanoid, skiff →
+//! Car) so the default chassis *feels* like what it looks like.
 //!
-//! The pick is uniform — every family is equally likely on a fresh
-//! DID. Diversity inside each family comes from the per-family design
-//! derivers ([`super::vessel`], [`super::airship`], [`super::skiff`],
-//! [`super::humanoid_style`]).
+//! The pick is uniform — every family is equally likely on a fresh DID.
+//! Diversity inside each family comes from the seeded
+//! [`AvatarOutfit`](super::AvatarOutfit) composing the tagged part catalogue
+//! ([`crate::pds::avatar::parts`]).
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;

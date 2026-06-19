@@ -26,27 +26,30 @@ use crate::pds::{
 
 /// The varying parameters of a small ambient emitter; the rest are filled
 /// with shared defaults by [`Emitter::at`].
-pub(super) struct Emitter {
-    pub(super) shape: EmitterShape,
-    pub(super) rate: f32,
-    pub(super) burst: u32,
-    pub(super) max: u32,
-    pub(super) life: (f32, f32),
-    pub(super) speed: (f32, f32),
-    pub(super) gravity: f32,
-    pub(super) accel: [f32; 3],
-    pub(super) drag: f32,
-    pub(super) size: (f32, f32),
-    pub(super) start_color: [f32; 4],
-    pub(super) end_color: [f32; 4],
-    pub(super) blend: ParticleBlendMode,
-    pub(super) sprite: SovereignTextureConfig,
+///
+/// Used by the per-theme catalogue `fx.rs` kits and by the avatar FX
+/// builder ([`crate::pds::avatar::default_visuals`]), hence `pub(crate)`.
+pub(crate) struct Emitter {
+    pub(crate) shape: EmitterShape,
+    pub(crate) rate: f32,
+    pub(crate) burst: u32,
+    pub(crate) max: u32,
+    pub(crate) life: (f32, f32),
+    pub(crate) speed: (f32, f32),
+    pub(crate) gravity: f32,
+    pub(crate) accel: [f32; 3],
+    pub(crate) drag: f32,
+    pub(crate) size: (f32, f32),
+    pub(crate) start_color: [f32; 4],
+    pub(crate) end_color: [f32; 4],
+    pub(crate) blend: ParticleBlendMode,
+    pub(crate) sprite: SovereignTextureConfig,
 }
 
 impl Emitter {
     /// Finish the emitter into a positioned [`Generator`] node, seeded for
     /// determinism.
-    pub(super) fn at(self, pos: [f32; 3], seed: u64) -> Generator {
+    pub(crate) fn at(self, pos: [f32; 3], seed: u64) -> Generator {
         Generator {
             kind: GeneratorKind::ParticleSystem {
                 emitter_shape: self.shape,
@@ -94,7 +97,7 @@ impl Emitter {
 }
 
 /// A graph node with the given id and kind and no inputs wired yet.
-pub(super) fn node(id: u32, kind: NodeKind) -> GraphNode {
+pub(crate) fn node(id: u32, kind: NodeKind) -> GraphNode {
     GraphNode {
         id: NodeId(id),
         kind,
@@ -103,7 +106,7 @@ pub(super) fn node(id: u32, kind: NodeKind) -> GraphNode {
 }
 
 /// Wrap a node list + output into a mute-defaulted spatial audio config.
-pub(super) fn patch(nodes: Vec<GraphNode>, output: NodeId) -> SovereignAudioConfig {
+pub(crate) fn patch(nodes: Vec<GraphNode>, output: NodeId) -> SovereignAudioConfig {
     SovereignAudioConfig::from_patch(&AudioPatch {
         seed: 0,
         graph: NodeGraph { nodes, output },

@@ -40,7 +40,7 @@ pub mod suburban;
 pub mod tools;
 pub mod wild_west;
 
-mod fx;
+pub(crate) mod fx;
 mod util;
 
 #[cfg(test)]

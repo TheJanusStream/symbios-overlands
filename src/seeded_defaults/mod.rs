@@ -22,15 +22,17 @@
 //!         · room::particles  (biome-mood ambient emitter)
 //!         · room::landmark   (biome-matched structure near spawn)
 //!         · room::audio      (biome-matched ambient bed)
-//!         · avatar::chassis  (visual family: boat/airship/humanoid/skiff)
+//!         · avatar::character (anchor: chassis + style + ornateness/wear)
+//!         · avatar::palette  (skin/hair + style/temperature/wear accents)
+//!         · avatar::materials (MaterialKit: per-surface style/wear finish)
+//!         · avatar::fx       (style-gated particle aura + audio voice)
+//!         · avatar::outfit   (slot → part choice from the part catalogue)
 //!         · avatar::body     (proportions)
-//!         · avatar::vessel   (boat hull-form/mast/stack design)
-//!         · avatar::airship  (envelope/gondola/fin design)
-//!         · avatar::skiff    (running gear/canopy design)
-//!         · avatar::humanoid_style (hat/backpack/eye-glow costume)
-//!         · avatar::palette  (skin/hair/accent)
 //!         · avatar::gait     (cadence/bounce/sway)
 //! ```
+//!
+//! Avatar silhouettes are composed from the tagged part catalogue
+//! ([`crate::pds::avatar::parts`]) rather than per-family design derivers.
 //!
 //! Resolution rule: record-authored values always win. The derivers fill
 //! in fields that aren't explicitly set on the PDS record, so a brand-new
@@ -44,9 +46,9 @@ pub mod room;
 pub mod scene;
 
 pub use avatar::{
-    AirshipDesign, AvatarBody, AvatarGait, AvatarPalette, BodyArchetype, BowStyle, CanopyStyle,
-    ChassisFamily, EnvelopeForm, HatStyle, HullForm, HumanoidStyle, SkiffDesign, SkiffForm,
-    VesselArchetype, VesselDesign,
+    AvatarBody, AvatarCharacter, AvatarFx, AvatarGait, AvatarOutfit, AvatarPalette, AvatarVoice,
+    BodyArchetype, ChassisFamily, MaterialKit, OrnatenessBand, OrnatenessTier, OutfitPart,
+    ParticleAura, WearBand, WearTier,
 };
 pub use hash::fnv1a_64;
 pub use room::{

@@ -12,14 +12,18 @@
 //! primitive/material/banner vocabulary lives in [`common`].
 
 mod airship;
+mod assemble;
 mod boat;
-mod common;
+pub(crate) mod common;
+mod fx;
 mod humanoid;
 mod skiff;
 
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp;
-use crate::seeded_defaults::{AvatarBody, AvatarGait, ChassisFamily, fnv1a_64};
+use crate::seeded_defaults::{
+    AvatarBody, AvatarFx, AvatarGait, AvatarPalette, ChassisFamily, fnv1a_64,
+};
 
 use super::locomotion::{
     CarParams, HelicopterParams, HoverBoatParams, HumanoidParams, LocomotionConfig,
@@ -38,7 +42,8 @@ pub fn build_for_did(did: &str) -> (Generator, LocomotionConfig) {
 /// must survive a re-roll. `build_for_did(did)` is exactly
 /// `build_for_seed(fnv1a_64(did), did)`.
 pub fn build_for_seed(seed: u64, did: &str) -> (Generator, LocomotionConfig) {
-    match ChassisFamily::for_seed(seed) {
+    let family = ChassisFamily::for_seed(seed);
+    let (mut visuals, loco) = match family {
         ChassisFamily::Boat => (boat::build(seed, did), HoverBoatParams::default_config()),
         ChassisFamily::Airship => (
             airship::build(seed, did),
@@ -46,6 +51,24 @@ pub fn build_for_seed(seed: u64, did: &str) -> (Generator, LocomotionConfig) {
         ),
         ChassisFamily::Humanoid => (humanoid::build(seed, did), humanoid_locomotion(seed)),
         ChassisFamily::Skiff => (skiff::build(seed, did), CarParams::default_config()),
+    };
+    // Seeded FX: hang the style's signature particle aura + body voice on the
+    // built root. The mount is a coarse per-family body centre; once the part
+    // catalogue lands each part can mount its own FX precisely.
+    let fx = AvatarFx::for_seed(seed);
+    let accent = AvatarPalette::for_seed(seed).primary_accent;
+    fx::attach(&mut visuals, &fx, fx_mount(family), accent, seed);
+    (visuals, loco)
+}
+
+/// Coarse per-family mount point (local frame) for the seeded FX aura — the
+/// rough body centre each family reads from.
+fn fx_mount(family: ChassisFamily) -> [f32; 3] {
+    match family {
+        ChassisFamily::Humanoid => [0.0, 1.0, 0.0],
+        ChassisFamily::Boat => [0.0, 0.6, 0.0],
+        ChassisFamily::Airship => [0.0, 0.4, 0.0],
+        ChassisFamily::Skiff => [0.0, 0.4, 0.0],
     }
 }
 
@@ -189,6 +212,50 @@ mod tests {
         let (b, lb) = build_for_seed(0xC0FF_EE12_3456_789A, "did:plc:reroll");
         assert_eq!(a, b);
         assert_eq!(la, lb);
+    }
+
+    /// Seeded FX must actually land on the tree: a seed whose anchor rolls a
+    /// signature aura grows a `ParticleSystem` node, and a seed with a voice
+    /// sets the root audio. Proves the [`fx::attach`] wiring, not just the
+    /// spec deriver.
+    #[test]
+    fn seeded_fx_attaches_emitter_and_voice() {
+        use crate::pds::generator::GeneratorKind;
+        use crate::seeded_defaults::{AvatarFx, AvatarVoice, ParticleAura};
+        fn has_particles(g: &Generator) -> bool {
+            matches!(g.kind, GeneratorKind::ParticleSystem { .. })
+                || g.children.iter().any(has_particles)
+        }
+
+        // Hunt a seed with a non-None aura and one with a non-None voice.
+        let mut aura_seed = None;
+        let mut voice_seed = None;
+        for s in 0u64..400 {
+            let fx = AvatarFx::for_seed(s);
+            if aura_seed.is_none() && fx.aura != ParticleAura::None {
+                aura_seed = Some(s);
+            }
+            if voice_seed.is_none() && fx.voice != AvatarVoice::None {
+                voice_seed = Some(s);
+            }
+            if aura_seed.is_some() && voice_seed.is_some() {
+                break;
+            }
+        }
+        let aura_seed = aura_seed.expect("no seed rolled a particle aura");
+        let voice_seed = voice_seed.expect("no seed rolled a voice");
+
+        let (built, _) = build_for_seed(aura_seed, "did:plc:fx");
+        assert!(
+            has_particles(&built),
+            "aura seed {aura_seed} grew no ParticleSystem"
+        );
+
+        let (built, _) = build_for_seed(voice_seed, "did:plc:fx");
+        assert!(
+            !matches!(built.audio, crate::pds::SovereignAudioConfig::None),
+            "voice seed {voice_seed} set no body audio"
+        );
     }
 
     #[test]
