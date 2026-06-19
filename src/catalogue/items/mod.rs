@@ -49,16 +49,28 @@ mod shape_grammar_test;
 /// preserved by the UI for display, so think of this as the
 /// presentation order within each section.
 pub const ENTRIES: &[&dyn CatalogueEntry] = &[
-    // Buildings — architectural entries (shape-grammar and
-    // primitive-built), grouped into per-theme subfolders.
+    // Buildings — Ancient/Classical theme (shape-grammar + primitive).
     &ancient::villa::Villa,
-    &medieval::medieval_castle::MedievalCastle,
-    &medieval::watchtower::Watchtower,
     &ancient::ruined_temple::RuinedTemple,
     &ancient::lighthouse::Lighthouse,
     &ancient::stone_circle::StoneCircle,
     &ancient::ziggurat::Ziggurat,
     &ancient::observatory::Observatory,
+    // Buildings — Medieval theme (landmark + secondaries + props).
+    &medieval::medieval_castle::MedievalCastle,
+    &medieval::watchtower::Watchtower,
+    &medieval::chapel::Chapel,
+    &medieval::blacksmith::Blacksmith,
+    &medieval::market_hall::MarketHall,
+    &medieval::well_house::WellHouse,
+    &medieval::handcart::Handcart,
+    &medieval::barrel_stack::BarrelStack,
+    &medieval::trade_stall::TradeStall,
+    &medieval::banner_pole::BannerPole,
+    // Buildings — Medieval poor (cottar) variants, prosperity Poor.
+    &medieval::wattle_hovel::WattleHovel,
+    &medieval::lean_to::LeanTo,
+    &medieval::kindling_pile::KindlingPile,
     // Buildings — Cyberpunk theme (landmark + secondaries + props).
     &cyberpunk::neon_megatower::NeonMegatower,
     &cyberpunk::data_spire::DataSpire,
@@ -434,7 +446,8 @@ mod tests {
         use crate::catalogue::CatalogueCategory::*;
         let count = |c| ENTRIES.iter().filter(|e| e.category() == c).count();
         // Deriving category() from role() must keep every entry in its
-        // expected section. 8 ancient/medieval + 8 cyberpunk + 5 cyberpunk
+        // expected section. 6 ancient + 10 medieval + 3 medieval poor + 8
+        // cyberpunk + 5 cyberpunk
         // poor + 8 nordic + 3 nordic poor + 8 feudal japan + 3 feudal japan
         // poor + 8 mesoamerican + 3 mesoamerican poor + 8 modern city + 3
         // modern city poor + 8 suburban + 3 suburban poor + 9 rural farmland
@@ -446,8 +459,8 @@ mod tests {
         // poor + 9 gothic horror + 3 gothic horror poor + 9 alien organic + 3
         // alien organic poor + 9 alien monolithic + 3 alien monolithic poor + 9
         // post-apoc + 3 post-apoc poor + 9 wild west + 3 wild west poor + 16
-        // civic cross-theme props = 271 buildings.
-        assert_eq!(count(Buildings), 271);
+        // civic cross-theme props = 282 buildings.
+        assert_eq!(count(Buildings), 282);
         assert_eq!(count(Plants), 4);
         assert_eq!(count(Patterns), 3);
         assert_eq!(count(Tools), 1);

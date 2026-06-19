@@ -52,10 +52,13 @@ impl ThemeAccent {
     pub fn for_theme(theme: ThemeArchetype) -> Self {
         use ThemeArchetype::*;
         match theme {
+            // Cool but clear: a pale steel-blue air over the burgh. Kept
+            // light with little haze so the sun-lit theme (luminosity 1.0)
+            // reads its stone and timber rather than greying out.
             Medieval => Self {
-                tint: [0.46, 0.50, 0.60],
-                tint_strength: 0.12,
-                haze: 0.10,
+                tint: [0.54, 0.58, 0.65],
+                tint_strength: 0.10,
+                haze: 0.05,
                 brightness: 1.0,
                 particle_mood: None,
             },

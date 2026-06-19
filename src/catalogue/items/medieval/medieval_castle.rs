@@ -19,7 +19,7 @@ use crate::pds::{
     SovereignPlankConfig, SovereignRockConfig, SovereignShingleConfig, SovereignTextureConfig,
     SovereignWindowConfig,
 };
-use crate::seeded_defaults::{ProsperityBand, ProsperityTier, ThemeArchetype};
+use crate::seeded_defaults::ThemeArchetype;
 
 pub struct MedievalCastle;
 
@@ -36,9 +36,12 @@ impl CatalogueEntry for MedievalCastle {
     fn role(&self) -> StructureRole {
         StructureRole::Landmark
     }
-    /// A seat of power — the affluent end of the kit.
-    fn prosperity_band(&self) -> ProsperityBand {
-        ProsperityBand::only(ProsperityTier::Rich)
+    /// The burgh's seat of power — the established town landmark, shared
+    /// across the Modest-to-Rich band (the landmark scale shrinks the keep
+    /// for a modest town). The destitute end grows the [`super::wattle_hovel`]
+    /// instead.
+    fn prosperity_band(&self) -> crate::seeded_defaults::ProsperityBand {
+        super::MEDIEVAL_BAND
     }
 
     fn themes(&self) -> &'static [ThemeArchetype] {

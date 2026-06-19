@@ -520,6 +520,88 @@ mod tests {
     }
 
     #[test]
+    fn medieval_settlement_uses_its_own_kit_by_prosperity() {
+        // The per-theme poor/rich pattern (#460): an affluent Medieval room
+        // grows the dressed-stone burgh (keep, chapel, smith, market), a
+        // destitute one grows the wattle-and-daub cottar kit — the two
+        // registers never cross.
+        const POOR_KIT: [&str; 3] = ["wattle_hovel", "lean_to", "kindling_pile"];
+        const RICH_KIT: [&str; 10] = [
+            "medieval_castle",
+            "watchtower",
+            "chapel",
+            "blacksmith",
+            "market_hall",
+            "well_house",
+            "handcart",
+            "barrel_stack",
+            "trade_stall",
+            "banner_pole",
+        ];
+
+        let medieval_member = |slug: &str| {
+            by_slug(slug)
+                .expect("member resolves")
+                .themes()
+                .contains(&ThemeArchetype::Medieval)
+        };
+
+        let mut rich_placed_secondary = false;
+        let mut poor_placed_lean_to = false;
+        for s in 0u64..32 {
+            let mut rich = SceneCharacter::for_seed(s);
+            rich.theme = ThemeArchetype::Medieval;
+            rich.prosperity = 0.95;
+            let r = Settlement::from_scene(&rich, s);
+            for m in std::iter::once(&r.landmark)
+                .chain(&r.secondaries)
+                .chain(&r.props)
+            {
+                assert!(medieval_member(m.slug), "rich medieval member {}", m.slug);
+                assert!(
+                    !POOR_KIT.contains(&m.slug),
+                    "rich medieval room grew the poor kit: {}",
+                    m.slug
+                );
+            }
+            assert_eq!(
+                r.landmark.slug, "medieval_castle",
+                "rich medieval landmark is the keep"
+            );
+            rich_placed_secondary |= r.secondaries.iter().any(|sec| RICH_KIT.contains(&sec.slug));
+
+            let mut poor = SceneCharacter::for_seed(s);
+            poor.theme = ThemeArchetype::Medieval;
+            poor.prosperity = 0.05;
+            let p = Settlement::from_scene(&poor, s);
+            for m in std::iter::once(&p.landmark)
+                .chain(&p.secondaries)
+                .chain(&p.props)
+            {
+                assert!(medieval_member(m.slug), "poor medieval member {}", m.slug);
+                assert!(
+                    !RICH_KIT.contains(&m.slug),
+                    "poor medieval room grew the established kit: {}",
+                    m.slug
+                );
+            }
+            assert_eq!(
+                p.landmark.slug, "wattle_hovel",
+                "poor medieval landmark is the hovel"
+            );
+            poor_placed_lean_to |= p.secondaries.iter().any(|sec| sec.slug == "lean_to");
+        }
+        assert!(
+            rich_placed_secondary,
+            "some rich medieval room places an established secondary"
+        );
+        assert!(
+            poor_placed_lean_to,
+            "some poor medieval room places the lean-to"
+        );
+    }
+
+    #[test]
     fn feudal_japan_settlement_uses_its_own_kit_by_prosperity() {
         // The per-theme poor/rich pattern (#433/#395): an affluent room grows
         // the lacquered temple kit, a destitute one the farmstead — the two
