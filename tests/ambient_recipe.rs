@@ -62,15 +62,18 @@ fn ambient_recipe_uses_a_loopable_window() {
 }
 
 #[test]
-fn ambient_recipe_carries_four_layers_with_bed_filter_chain() {
+fn ambient_recipe_carries_five_layers_with_bed_filter_chain() {
     let scene = SceneCharacter::for_did(TEST_DID);
     let recipe = AmbientRecipe::from_scene(&scene, 1).recipe;
-    // Bed + gusts + chimes + punctuation — see the "Sound design"
-    // docstring on `seeded_defaults::room::audio`.
+    // Bed + gust + punctuation + theme melody + theme bass pad — the
+    // peaceful-room base layer set (the conflict tension siren only
+    // appears as a sixth layer for Conflict rooms). See the layer-index
+    // comment in `seeded_defaults::room::audio::AmbientRecipe::from_scene`;
+    // the bass pad was added in #459.
     assert_eq!(
         recipe.instruments.len(),
-        4,
-        "ambient recipe carries the four-layer soundscape"
+        5,
+        "ambient recipe carries the five-layer soundscape"
     );
     // Layer 1 (the bed, instrument 0) is the sustained voice wired
     // noise → biquad filter (LFO driving cutoff) → reverb, with the
