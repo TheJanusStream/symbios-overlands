@@ -459,27 +459,30 @@ mod tests {
     }
 
     #[test]
-    fn categories_unchanged_after_role_migration() {
-        use crate::catalogue::CatalogueCategory::*;
-        let count = |c| ENTRIES.iter().filter(|e| e.category() == c).count();
-        // Deriving category() from role() must keep every entry in its
-        // expected section. 13 ancient + 2 ancient poor + 10 medieval + 3
-        // medieval poor + 8 cyberpunk + 5 cyberpunk
-        // poor + 8 nordic + 3 nordic poor + 8 feudal japan + 3 feudal japan
-        // poor + 8 mesoamerican + 3 mesoamerican poor + 8 modern city + 3
-        // modern city poor + 8 suburban + 3 suburban poor + 9 rural farmland
-        // + 3 rural farmland poor + 8 industrial park + 3 industrial park poor
-        // + 9 coastal resort + 3 coastal resort poor + 9 roadside + 3 roadside
-        // poor + 9 civic campus + 3 civic campus poor + 9 sports rec + 3 sports
-        // rec poor + 9 steampunk + 3 steampunk poor + 9 solarpunk + 3 solarpunk
-        // poor + 9 space outpost + 3 space outpost poor + 9 fantasy + 3 fantasy
-        // poor + 9 gothic horror + 3 gothic horror poor + 9 alien organic + 3
-        // alien organic poor + 9 alien monolithic + 3 alien monolithic poor + 9
-        // post-apoc + 3 post-apoc poor + 9 wild west + 3 wild west poor + 16
-        // civic cross-theme props = 291 buildings.
-        assert_eq!(count(Buildings), 291);
-        assert_eq!(count(Plants), 9);
-        assert_eq!(count(Patterns), 3);
-        assert_eq!(count(Tools), 1);
+    fn category_is_the_role_derived_section_for_every_entry() {
+        use crate::catalogue::CatalogueCategory;
+        // category() must stay a pure view of role(): every shipped entry sits
+        // in the section its role maps to, so the catalogue UI grouping and the
+        // settlement taxonomy can't drift. Checked against the registry itself
+        // rather than a hand-summed per-theme building total that every
+        // catalogue addition had to re-tally.
+        for e in ENTRIES {
+            assert_eq!(
+                e.category(),
+                e.role().category(),
+                "entry {} reports a section that isn't its role's — category() \
+                 has drifted from role()",
+                e.slug()
+            );
+        }
+        // The four sections partition the registry with no empties: a section
+        // that lost all its content would be a silent regression a per-entry
+        // check alone can't catch.
+        for section in CatalogueCategory::ALL {
+            assert!(
+                ENTRIES.iter().any(|e| e.category() == section),
+                "section {section:?} is empty"
+            );
+        }
     }
 }

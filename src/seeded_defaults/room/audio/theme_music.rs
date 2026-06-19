@@ -76,39 +76,40 @@ fn biome_register(biome: BiomeArchetype) -> f32 {
 /// the note-placement rng (which would re-roll every pattern).
 const VOICE_VARIETY_SALT: u64 = 0x5EED_1CE5_C0DE_0001;
 
-/// The curated, in-character scale set for a theme. The voice picks one by
-/// seed so two settlements of the same theme can sit in different modes
-/// while staying inside the theme's harmonic family. Element `[0]` is the
-/// signature mode (the one named in the per-theme literal below); themes
-/// whose mode *is* their identity (Feudal-Japan's Hirajōshi) or whose
-/// brightness only one scale carries (the sunny-major themes) keep a
-/// single-element set and get their variety from key / register / voicing
+/// The in-character *alternate* modes a theme may drift into, beyond its
+/// signature scale (which lives on the voice literal in [`base_voice`] — the
+/// single source of truth for the signature). [`apply_voice_variety`] picks
+/// across the signature plus these by seed, so two settlements of the same
+/// theme can sit in different modes while staying inside the theme's harmonic
+/// family. Empty for a single-mode theme — one whose mode *is* its identity
+/// (Feudal-Japan's Hirajōshi) or whose brightness only one scale carries (the
+/// sunny-major themes); those draw their variety from key / register / voicing
 /// / pattern instead.
-fn theme_scales(theme: ThemeArchetype) -> &'static [&'static [f32]] {
+fn theme_alt_scales(theme: ThemeArchetype) -> &'static [&'static [f32]] {
     match theme {
-        ThemeArchetype::Cyberpunk => &[PHRYGIAN, PENTATONIC_MINOR],
-        ThemeArchetype::FeudalJapan => &[HIRAJOSHI],
-        ThemeArchetype::IndustrialPark => &[PHRYGIAN, PENTATONIC_MINOR],
-        ThemeArchetype::RuralFarmland => &[PENTATONIC_MAJOR, DORIAN],
-        ThemeArchetype::Suburban => &[PENTATONIC_MAJOR],
-        ThemeArchetype::ModernCity => &[PENTATONIC_MAJOR, DORIAN],
-        ThemeArchetype::Mesoamerican => &[PENTATONIC_MINOR, PHRYGIAN],
-        ThemeArchetype::Nordic => &[PENTATONIC_MINOR, DORIAN],
-        ThemeArchetype::Medieval => &[DORIAN, PHRYGIAN],
-        ThemeArchetype::WildWest => &[PENTATONIC_MAJOR, PENTATONIC_MINOR],
-        ThemeArchetype::PostApoc => &[PENTATONIC_MINOR, PHRYGIAN],
-        ThemeArchetype::AlienMonolithic => &[PHRYGIAN, PENTATONIC_MINOR],
-        ThemeArchetype::AlienOrganic => &[PHRYGIAN, DORIAN],
-        ThemeArchetype::GothicHorror => &[PHRYGIAN, PENTATONIC_MINOR],
-        ThemeArchetype::Fantasy => &[PENTATONIC_MAJOR, DORIAN],
-        ThemeArchetype::SpaceOutpost => &[PENTATONIC_MINOR, PHRYGIAN],
-        ThemeArchetype::Solarpunk => &[PENTATONIC_MAJOR],
-        ThemeArchetype::Steampunk => &[PENTATONIC_MINOR, DORIAN],
-        ThemeArchetype::SportsRec => &[PENTATONIC_MAJOR],
-        ThemeArchetype::CivicCampus => &[DORIAN, PENTATONIC_MAJOR],
-        ThemeArchetype::Roadside => &[PENTATONIC_MINOR, PENTATONIC_MAJOR],
-        ThemeArchetype::CoastalResort => &[PENTATONIC_MAJOR],
-        ThemeArchetype::AncientClassical => &[DORIAN, PHRYGIAN],
+        ThemeArchetype::Cyberpunk => &[PENTATONIC_MINOR],
+        ThemeArchetype::FeudalJapan => &[],
+        ThemeArchetype::IndustrialPark => &[PENTATONIC_MINOR],
+        ThemeArchetype::RuralFarmland => &[DORIAN],
+        ThemeArchetype::Suburban => &[],
+        ThemeArchetype::ModernCity => &[DORIAN],
+        ThemeArchetype::Mesoamerican => &[PHRYGIAN],
+        ThemeArchetype::Nordic => &[DORIAN],
+        ThemeArchetype::Medieval => &[PHRYGIAN],
+        ThemeArchetype::WildWest => &[PENTATONIC_MINOR],
+        ThemeArchetype::PostApoc => &[PHRYGIAN],
+        ThemeArchetype::AlienMonolithic => &[PENTATONIC_MINOR],
+        ThemeArchetype::AlienOrganic => &[DORIAN],
+        ThemeArchetype::GothicHorror => &[PENTATONIC_MINOR],
+        ThemeArchetype::Fantasy => &[DORIAN],
+        ThemeArchetype::SpaceOutpost => &[PHRYGIAN],
+        ThemeArchetype::Solarpunk => &[],
+        ThemeArchetype::Steampunk => &[DORIAN],
+        ThemeArchetype::SportsRec => &[],
+        ThemeArchetype::CivicCampus => &[PENTATONIC_MAJOR],
+        ThemeArchetype::Roadside => &[PENTATONIC_MAJOR],
+        ThemeArchetype::CoastalResort => &[],
+        ThemeArchetype::AncientClassical => &[PHRYGIAN],
     }
 }
 
@@ -120,13 +121,16 @@ fn theme_scales(theme: ThemeArchetype) -> &'static [&'static [f32]] {
 /// left untouched — those carry the recognisable signature.
 fn apply_voice_variety(voice: &mut ThemeVoice, theme: ThemeArchetype, seed: u64) {
     let mut rng = ChaCha8Rng::seed_from_u64(seed ^ VOICE_VARIETY_SALT);
-    let scales = theme_scales(theme);
-    debug_assert!(
-        scales[0] == voice.scale,
-        "theme_scales[0] must equal the signature scale in the voice literal"
-    );
-    let idx = ((unit_f32(&mut rng) * scales.len() as f32) as usize).min(scales.len() - 1);
-    voice.scale = scales[idx];
+    // The harmonic family is the signature scale (already on the voice — the
+    // single source) plus the theme's alternates. Index 0 keeps the signature,
+    // so the draw maps exactly as it did when the signature headed a combined
+    // list; only a higher index swaps in an alternate.
+    let alts = theme_alt_scales(theme);
+    let family_len = 1 + alts.len();
+    let idx = ((unit_f32(&mut rng) * family_len as f32) as usize).min(family_len - 1);
+    if idx > 0 {
+        voice.scale = alts[idx - 1];
+    }
 
     // Symmetric ±`frac` multiplier around 1.0.
     let jitter = |rng: &mut ChaCha8Rng, frac: f32| 1.0 + (unit_f32(rng) * 2.0 - 1.0) * frac;
@@ -142,11 +146,13 @@ fn apply_voice_variety(voice: &mut ThemeVoice, theme: ThemeArchetype, seed: u64)
     }
 }
 
-/// The voice for a room. Authored themes return their signature voice
-/// (with seeded per-room variety on top); every other theme gets the
-/// biome-anchored neutral default.
-fn voice_for(scene: &SceneCharacter, seed: u64) -> ThemeVoice {
-    let mut voice = match scene.theme {
+/// The theme's signature voice — its authored timbre + signature scale, before
+/// any per-room variety. Exhaustive over [`ThemeArchetype`], so a new theme
+/// must add a voice here. The `scale` field is the single source of truth for
+/// the theme's signature mode; [`theme_alt_scales`] lists only the *other*
+/// modes the family allows.
+fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
+    match theme {
         // Driving detuned-saw synth arpeggio in phrygian — the template.
         ThemeArchetype::Cyberpunk => ThemeVoice {
             id: "theme_synth",
@@ -563,7 +569,13 @@ fn voice_for(scene: &SceneCharacter, seed: u64) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.45,
         },
-    };
+    }
+}
+
+/// The voice for a room: the theme's [`base_voice`] with seeded per-room
+/// variety layered on top (mode pick + timbre jitter).
+fn voice_for(scene: &SceneCharacter, seed: u64) -> ThemeVoice {
+    let mut voice = base_voice(scene.theme);
     apply_voice_variety(&mut voice, scene.theme, seed);
     voice
 }
@@ -989,8 +1001,8 @@ mod tests {
     /// A fixed seed for the identity checks. Wave / arp / octave / attack /
     /// detune-sign are seed-stable (variety only picks the mode + jitters the
     /// ring/colour), so any seed exercises the signature; the *signature
-    /// scale* is asserted via `theme_scales(..)[0]` since the active mode is
-    /// now seed-picked from the family.
+    /// scale* is asserted via `base_voice(..).scale` (the unvaried voice) since
+    /// the active mode is now seed-picked from the family.
     const ID_SEED: u64 = 0xA5A5;
 
     #[test]
@@ -998,66 +1010,66 @@ mod tests {
         use ThemeArchetype as T;
         let cy = voice_for(&scene_with(T::Cyberpunk, 0.0), ID_SEED);
         assert!(matches!(cy.wave, Wave::Sawtooth) && cy.arp && cy.detune_cents > 0.0);
-        assert_eq!(theme_scales(T::Cyberpunk)[0], PHRYGIAN);
-        assert_eq!(theme_scales(T::Medieval)[0], DORIAN);
+        assert_eq!(base_voice(T::Cyberpunk).scale, PHRYGIAN);
+        assert_eq!(base_voice(T::Medieval).scale, DORIAN);
         let nor = voice_for(&scene_with(T::Nordic, 0.0), ID_SEED);
         assert!(matches!(nor.wave, Wave::Triangle) && !nor.arp && nor.octave < 1.0);
-        assert_eq!(theme_scales(T::Nordic)[0], PENTATONIC_MINOR);
-        assert_eq!(theme_scales(T::FeudalJapan)[0], HIRAJOSHI);
+        assert_eq!(base_voice(T::Nordic).scale, PENTATONIC_MINOR);
+        assert_eq!(base_voice(T::FeudalJapan).scale, HIRAJOSHI);
         let meso = voice_for(&scene_with(T::Mesoamerican, 0.0), ID_SEED);
         assert!(matches!(meso.wave, Wave::Sine) && !meso.arp);
-        assert_eq!(theme_scales(T::Mesoamerican)[0], PENTATONIC_MINOR);
+        assert_eq!(base_voice(T::Mesoamerican).scale, PENTATONIC_MINOR);
         let city = voice_for(&scene_with(T::ModernCity, 0.0), ID_SEED);
         assert!(matches!(city.wave, Wave::Sawtooth) && !city.arp && city.detune_cents > 0.0);
-        assert_eq!(theme_scales(T::ModernCity)[0], PENTATONIC_MAJOR);
+        assert_eq!(base_voice(T::ModernCity).scale, PENTATONIC_MAJOR);
         let sub = voice_for(&scene_with(T::Suburban, 0.0), ID_SEED);
         assert!(matches!(sub.wave, Wave::Triangle) && sub.octave > 1.0);
-        assert_eq!(theme_scales(T::Suburban)[0], PENTATONIC_MAJOR);
+        assert_eq!(base_voice(T::Suburban).scale, PENTATONIC_MAJOR);
         let farm = voice_for(&scene_with(T::RuralFarmland, 0.0), ID_SEED);
         assert!(
             matches!(farm.wave, Wave::Sawtooth) && farm.detune_cents > 0.0 && farm.attack_s < 0.1
         );
-        assert_eq!(theme_scales(T::RuralFarmland)[0], PENTATONIC_MAJOR);
+        assert_eq!(base_voice(T::RuralFarmland).scale, PENTATONIC_MAJOR);
         let ind = voice_for(&scene_with(T::IndustrialPark, 0.0), ID_SEED);
         assert!(matches!(ind.wave, Wave::Sawtooth) && !ind.arp && ind.octave < 1.0);
-        assert_eq!(theme_scales(T::IndustrialPark)[0], PHRYGIAN);
-        assert_eq!(theme_scales(T::AncientClassical)[0], DORIAN);
+        assert_eq!(base_voice(T::IndustrialPark).scale, PHRYGIAN);
+        assert_eq!(base_voice(T::AncientClassical).scale, DORIAN);
         let coast = voice_for(&scene_with(T::CoastalResort, 0.0), ID_SEED);
         assert!(matches!(coast.wave, Wave::Sine) && coast.detune_cents > 0.0 && coast.octave > 1.0);
-        assert_eq!(theme_scales(T::CoastalResort)[0], PENTATONIC_MAJOR);
+        assert_eq!(base_voice(T::CoastalResort).scale, PENTATONIC_MAJOR);
         let road = voice_for(&scene_with(T::Roadside, 0.0), ID_SEED);
         assert!(matches!(road.wave, Wave::Triangle) && road.detune_cents > 0.0 && !road.arp);
-        assert_eq!(theme_scales(T::Roadside)[0], PENTATONIC_MINOR);
+        assert_eq!(base_voice(T::Roadside).scale, PENTATONIC_MINOR);
         let civ = voice_for(&scene_with(T::CivicCampus, 0.0), ID_SEED);
         assert!(matches!(civ.wave, Wave::Sawtooth) && civ.detune_cents > 0.0 && civ.attack_s > 0.1);
-        assert_eq!(theme_scales(T::CivicCampus)[0], DORIAN);
+        assert_eq!(base_voice(T::CivicCampus).scale, DORIAN);
         let spr = voice_for(&scene_with(T::SportsRec, 0.0), ID_SEED);
         assert!(matches!(spr.wave, Wave::Sawtooth) && spr.arp && spr.detune_cents > 0.0);
-        assert_eq!(theme_scales(T::SportsRec)[0], PENTATONIC_MAJOR);
+        assert_eq!(base_voice(T::SportsRec).scale, PENTATONIC_MAJOR);
         let stm = voice_for(&scene_with(T::Steampunk, 0.0), ID_SEED);
         assert!(matches!(stm.wave, Wave::Triangle) && stm.arp);
-        assert_eq!(theme_scales(T::Steampunk)[0], PENTATONIC_MINOR);
+        assert_eq!(base_voice(T::Steampunk).scale, PENTATONIC_MINOR);
         let sol = voice_for(&scene_with(T::Solarpunk, 0.0), ID_SEED);
         assert!(matches!(sol.wave, Wave::Sine) && !sol.arp && sol.detune_cents == 0.0);
-        assert_eq!(theme_scales(T::Solarpunk)[0], PENTATONIC_MAJOR);
+        assert_eq!(base_voice(T::Solarpunk).scale, PENTATONIC_MAJOR);
         let spo = voice_for(&scene_with(T::SpaceOutpost, 0.0), ID_SEED);
         assert!(matches!(spo.wave, Wave::Sine) && spo.octave > 1.0);
-        assert_eq!(theme_scales(T::SpaceOutpost)[0], PENTATONIC_MINOR);
+        assert_eq!(base_voice(T::SpaceOutpost).scale, PENTATONIC_MINOR);
         let fan = voice_for(&scene_with(T::Fantasy, 0.0), ID_SEED);
         assert!(matches!(fan.wave, Wave::Triangle) && fan.arp && fan.octave > 1.0);
-        assert_eq!(theme_scales(T::Fantasy)[0], PENTATONIC_MAJOR);
+        assert_eq!(base_voice(T::Fantasy).scale, PENTATONIC_MAJOR);
         let got = voice_for(&scene_with(T::GothicHorror, 0.0), ID_SEED);
         assert!(matches!(got.wave, Wave::Sawtooth) && !got.arp && got.attack_s > 0.1);
-        assert_eq!(theme_scales(T::GothicHorror)[0], PHRYGIAN);
+        assert_eq!(base_voice(T::GothicHorror).scale, PHRYGIAN);
         let alo = voice_for(&scene_with(T::AlienOrganic, 0.0), ID_SEED);
         assert!(matches!(alo.wave, Wave::Sine) && alo.detune_cents > 0.0);
-        assert_eq!(theme_scales(T::AlienOrganic)[0], PHRYGIAN);
+        assert_eq!(base_voice(T::AlienOrganic).scale, PHRYGIAN);
         let alm = voice_for(&scene_with(T::AlienMonolithic, 0.0), ID_SEED);
         assert!(matches!(alm.wave, Wave::Sine) && alm.octave < 1.0 && alm.detune_cents == 0.0);
-        assert_eq!(theme_scales(T::AlienMonolithic)[0], PHRYGIAN);
+        assert_eq!(base_voice(T::AlienMonolithic).scale, PHRYGIAN);
         let pa = voice_for(&scene_with(T::PostApoc, 0.0), ID_SEED);
         assert!(matches!(pa.wave, Wave::Sawtooth) && pa.octave < 1.0 && !pa.arp);
-        assert_eq!(theme_scales(T::PostApoc)[0], PENTATONIC_MINOR);
+        assert_eq!(base_voice(T::PostApoc).scale, PENTATONIC_MINOR);
         let ww = voice_for(&scene_with(T::WildWest, 0.0), ID_SEED);
         assert!(
             matches!(ww.wave, Wave::Triangle)
@@ -1065,12 +1077,13 @@ mod tests {
                 && ww.detune_cents > 0.0
                 && (ww.octave - 1.0).abs() < 1e-6
         );
-        assert_eq!(theme_scales(T::WildWest)[0], PENTATONIC_MAJOR);
+        assert_eq!(base_voice(T::WildWest).scale, PENTATONIC_MAJOR);
     }
 
-    /// Every mode a theme can emit stays inside its curated family, and the
-    /// multi-mode themes actually exercise more than one mode across seeds
-    /// (the across-room harmonic variety #500 calls for).
+    /// Every mode a theme can emit stays inside its curated family (the
+    /// signature scale plus its alternates), and the multi-mode themes actually
+    /// exercise more than one mode across seeds (the across-room harmonic
+    /// variety #500 calls for).
     #[test]
     fn voice_mode_stays_in_family_and_multi_mode_themes_vary() {
         use ThemeArchetype as T;
@@ -1084,19 +1097,21 @@ mod tests {
             T::FeudalJapan,
             T::Suburban,
         ] {
+            let signature = base_voice(theme).scale;
+            let alts = theme_alt_scales(theme);
+            let family_len = 1 + alts.len();
             let mut seen = std::collections::BTreeSet::new();
             for s in 0..128u64 {
                 let v = voice_for(&scene_with(theme, 0.0), s);
                 assert!(
-                    theme_scales(theme).iter().any(|sc| *sc == v.scale),
+                    v.scale == signature || alts.contains(&v.scale),
                     "{theme:?} emitted an out-of-family scale"
                 );
                 seen.insert(v.scale.as_ptr() as usize);
             }
-            let expected = theme_scales(theme).len().min(2).max(1);
-            if theme_scales(theme).len() > 1 {
+            if family_len > 1 {
                 assert!(
-                    seen.len() >= expected,
+                    seen.len() >= family_len.min(2),
                     "{theme:?} never varied its mode across seeds"
                 );
             } else {
