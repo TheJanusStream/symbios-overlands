@@ -41,6 +41,16 @@ pub enum TreeSpecies {
     Sympodial,
     /// Gnarled, gravity-bent silhouette (`lsys_ternary_gravity`).
     TernaryGravity,
+    /// Columnar saguaro cactus (`lsys_cactus`) — desert succulent.
+    Cactus,
+    /// Leafless gnarled deadwood (`lsys_dead_shrub`) — dry / scorched scrub.
+    DeadShrub,
+    /// Tall bare trunk + frond crown (`lsys_palm`) — coastal / tropical.
+    Palm,
+    /// Stilt-rooted wetland tree (`lsys_mangrove`).
+    Mangrove,
+    /// Flat-crowned umbrella tree (`lsys_acacia`) — savanna.
+    Acacia,
 }
 
 impl TreeSpecies {
@@ -51,6 +61,11 @@ impl TreeSpecies {
             Self::Monopodial => "lsys_monopodial_tree",
             Self::Sympodial => "lsys_sympodial_tree",
             Self::TernaryGravity => "lsys_ternary_gravity",
+            Self::Cactus => "lsys_cactus",
+            Self::DeadShrub => "lsys_dead_shrub",
+            Self::Palm => "lsys_palm",
+            Self::Mangrove => "lsys_mangrove",
+            Self::Acacia => "lsys_acacia",
         }
     }
 }
@@ -61,25 +76,28 @@ fn species_pool(biome: BiomeArchetype) -> &'static [TreeSpecies] {
     use TreeSpecies::*;
     match biome {
         BiomeArchetype::Lush => &[TernaryProps, TernaryProps, Sympodial, Monopodial],
-        BiomeArchetype::Coastal => &[TernaryProps, Sympodial, Sympodial],
+        // Palms over the broadleaf shore (#491).
+        BiomeArchetype::Coastal => &[Palm, Palm, Sympodial, TernaryProps],
         BiomeArchetype::Alpine => &[Monopodial, Monopodial, TernaryProps],
         BiomeArchetype::Tundra => &[Monopodial],
-        BiomeArchetype::Arid => &[TernaryGravity, TernaryGravity, Sympodial],
-        BiomeArchetype::Volcanic => &[TernaryGravity, Monopodial],
-        // Tropical broadleaf wall — no conifer at all.
-        BiomeArchetype::Jungle => &[TernaryProps, TernaryProps, Sympodial, Sympodial],
+        // Saguaro + dead scrub over the odd gnarled survivor (#487).
+        BiomeArchetype::Arid => &[Cactus, DeadShrub, TernaryGravity],
+        // Scorched near-bare: deadwood + gnarled survivor (#490).
+        BiomeArchetype::Volcanic => &[DeadShrub, TernaryGravity],
+        // Tropical wall — palms over broadleaf, no conifer (#485).
+        BiomeArchetype::Jungle => &[Palm, TernaryProps, TernaryProps, Sympodial],
         // Mixed broadleaf woodland, same blend as temperate Lush.
         BiomeArchetype::TemperateForest => &[TernaryProps, TernaryProps, Sympodial, Monopodial],
         // Conifer-dominant taiga.
         BiomeArchetype::Boreal => &[Monopodial, Monopodial, TernaryProps],
-        // Gnarled mangroves over a broadleaf understory.
-        BiomeArchetype::Wetland => &[TernaryGravity, Sympodial, TernaryProps],
+        // Stilt-rooted mangroves over a gnarled understory (#492).
+        BiomeArchetype::Wetland => &[Mangrove, Mangrove, TernaryGravity, Sympodial],
         // Few trees over the grass — broad crowns where they stand.
         BiomeArchetype::Meadow => &[Sympodial, TernaryProps],
-        // Scattered flat-crowned acacia + the odd gnarled survivor.
-        BiomeArchetype::Savanna => &[Sympodial, Sympodial, TernaryGravity],
-        // Only the most stubborn gnarled scrub clings to the rock.
-        BiomeArchetype::Badlands => &[TernaryGravity],
+        // Scattered flat-crowned acacia + the odd gnarled survivor (#488).
+        BiomeArchetype::Savanna => &[Acacia, Acacia, TernaryGravity],
+        // Only the most stubborn dead scrub clings to the rock (#489).
+        BiomeArchetype::Badlands => &[DeadShrub, TernaryGravity],
         // No vegetation; `count_range` keeps the count at zero so this
         // pool is never indexed.
         BiomeArchetype::Glacial => &[Monopodial],
@@ -247,6 +265,22 @@ mod tests {
                     assert!(sc.radius >= 250.0 && sc.radius <= 400.0);
                     assert!(sc.center[0].abs() <= 200.0 && sc.center[1].abs() <= 200.0);
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn every_pool_species_resolves_in_the_catalogue() {
+        // A scatter references its species by slug; if a pool names a species
+        // whose catalogue plant isn't registered, the wiring layer would
+        // build nothing. Guard every species used by every biome's pool.
+        for biome in BiomeArchetype::ALL {
+            for sp in species_pool(biome) {
+                assert!(
+                    crate::catalogue::by_slug(sp.slug()).is_some(),
+                    "{biome:?} pool species {sp:?} (slug {}) has no catalogue entry",
+                    sp.slug()
+                );
             }
         }
     }

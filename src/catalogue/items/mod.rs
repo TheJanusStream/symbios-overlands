@@ -395,6 +395,12 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &plants::lsys_sympodial_tree::SympodialTree,
     &plants::lsys_ternary_gravity::TernaryGravityTree,
     &plants::lsys_ternary_props::TernaryPropsTree,
+    // Plants — biome-specific species (epic #458 biome overhaul).
+    &plants::lsys_cactus::Cactus,
+    &plants::lsys_dead_shrub::DeadShrub,
+    &plants::lsys_palm::Palm,
+    &plants::lsys_mangrove::Mangrove,
+    &plants::lsys_acacia::Acacia,
     // Patterns — abstract L-system / ABOP demos.
     &patterns::lsys_branching::BranchingPattern,
     &patterns::lsys_koch_island::QuadraticKochIsland,
@@ -472,7 +478,7 @@ mod tests {
         // post-apoc + 3 post-apoc poor + 9 wild west + 3 wild west poor + 16
         // civic cross-theme props = 291 buildings.
         assert_eq!(count(Buildings), 291);
-        assert_eq!(count(Plants), 4);
+        assert_eq!(count(Plants), 9);
         assert_eq!(count(Patterns), 3);
         assert_eq!(count(Tools), 1);
     }

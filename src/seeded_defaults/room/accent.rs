@@ -336,6 +336,14 @@ pub fn theme_luminosity(theme: ThemeArchetype) -> f32 {
         AlienMonolithic => 0.50,
         // sooty dusk so furnace mouths and gaslight glow.
         Steampunk => 0.80,
+        // evening city so LED streetlights + lit windows read,
+        ModernCity => 0.55,
+        // sodium-lit dusk yard so floodlights + hazard amber read.
+        IndustrialPark => 0.70,
+        // void/night so module windows + status panels feature.
+        SpaceOutpost => 0.35,
+        // ashen overcast — a mild dim, the mood carried mostly by accent haze.
+        PostApoc => 0.75,
         _ => 1.0,
     }
 }
@@ -584,8 +592,15 @@ mod tests {
         assert!(theme_luminosity(ThemeArchetype::AlienOrganic) < 1.0);
         assert!(theme_luminosity(ThemeArchetype::AlienMonolithic) < 1.0);
         assert!(theme_luminosity(ThemeArchetype::Steampunk) < 1.0);
+        assert!(theme_luminosity(ThemeArchetype::ModernCity) < 1.0);
+        assert!(theme_luminosity(ThemeArchetype::IndustrialPark) < 1.0);
+        assert!(theme_luminosity(ThemeArchetype::SpaceOutpost) < 1.0);
+        assert!(theme_luminosity(ThemeArchetype::PostApoc) < 1.0);
         assert_eq!(theme_luminosity(ThemeArchetype::AncientClassical), 1.0);
         assert_eq!(theme_luminosity(ThemeArchetype::Medieval), 1.0);
         assert_eq!(theme_luminosity(ThemeArchetype::CoastalResort), 1.0);
+        assert_eq!(theme_luminosity(ThemeArchetype::Nordic), 1.0);
+        // Roadside stays full daytime highway.
+        assert_eq!(theme_luminosity(ThemeArchetype::Roadside), 1.0);
     }
 }
