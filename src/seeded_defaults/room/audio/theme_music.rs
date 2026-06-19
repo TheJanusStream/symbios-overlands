@@ -855,11 +855,25 @@ fn sparse_scatter(voice: &ThemeVoice, rng: &mut ChaCha8Rng, span: f32, n: usize)
     events
 }
 
-/// Low drone / pad second voice — a sustained sine an octave below the
-/// melody root that fills the long loop's bottom end and shares the bed's
-/// reverb. Its voicing varies by seed (a static held drone, or a slow walk
-/// across 2–3 scale degrees), but it is always present so every room reads
-/// layered. Returns the instrument + its track.
+/// Hz floor for the bass fundamental so the octave-below-the-melody drop
+/// never pushes a low-drone theme in a register-lowering biome (Volcanic)
+/// into sub-sonic rumble.
+const BASS_FLOOR_HZ: f32 = 40.0;
+
+/// The bass octave multiplier: one octave below the melody, but never
+/// shallower than the deep `0.5` register the mid/high voices already sit
+/// at. Low-drone themes (melody octave < 1.0) therefore drop to a real
+/// octave below their drone instead of doubling it at unison; mid/high
+/// themes keep the existing deep pad.
+fn bass_octave_for(melody_octave: f32) -> f32 {
+    (melody_octave * 0.5).min(0.5)
+}
+
+/// Low drone / pad second voice — a sustained sine one octave below the
+/// melody (see [`bass_octave_for`]) that fills the long loop's bottom end
+/// and shares the bed's reverb. Its voicing varies by seed (a static held
+/// drone, or a slow walk across 2–3 scale degrees), but it is always present
+/// so every room reads layered. Returns the instrument + its track.
 pub(super) fn build_bass(
     scene: &SceneCharacter,
     params: &AmbientParams,
@@ -875,7 +889,7 @@ pub(super) fn build_bass(
         wave: Wave::Sine,
         detune_cents: 0.0,
         scale: melody.scale,
-        octave: 0.5,
+        octave: bass_octave_for(melody.octave),
         attack_s: 0.8,
         decay_s: 0.6,
         sustain_level: 0.8,
@@ -886,12 +900,13 @@ pub(super) fn build_bass(
         arp: false,
         reverb_mix: (melody.reverb_mix + 0.1).min(0.6),
     };
-    // One octave below the melody root (which already carries the biome
-    // register + theme octave).
-    let root_hz = 220.0
+    // One octave below the melody for clean separation; the Hz floor keeps a
+    // register-lowering biome from pushing the drop sub-sonic.
+    let root_hz = (220.0
         * 2.0_f32.powf(scene.base_hue_deg / 360.0)
         * biome_register(scene.biome)
-        * bass.octave;
+        * bass.octave)
+        .max(BASS_FLOOR_HZ);
     let patch = build_patch(&bass, root_hz, params, seed ^ 0x0BA5_50DD);
     let events = build_bass_events(&bass, rng);
     (
@@ -1113,6 +1128,24 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The bass pad sits an octave below the melody for low-drone themes
+    /// (was unison, doubling the drone) while mid/high themes keep the deep
+    /// fixed pad.
+    #[test]
+    fn bass_separates_from_low_drones() {
+        // Mid/high themes keep the deep fixed bass register.
+        assert_eq!(bass_octave_for(1.5), 0.5);
+        assert_eq!(bass_octave_for(1.25), 0.5);
+        assert_eq!(bass_octave_for(1.0), 0.5);
+        // Low-drone themes drop to a real octave below their melody.
+        assert_eq!(bass_octave_for(0.75), 0.375);
+        assert_eq!(bass_octave_for(0.5), 0.25);
+        assert!(
+            bass_octave_for(0.5) < 0.5,
+            "low drones must separate from the pad, not double it at unison"
+        );
     }
 
     /// Voice variety is a pure function of the seed — same seed, same voice.
