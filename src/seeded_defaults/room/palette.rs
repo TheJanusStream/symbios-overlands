@@ -1,25 +1,24 @@
-//! Full-fantasy palette derivation for a DID-seeded room.
+//! DID-seeded room palette derivation.
 //!
 //! Produces every colour the room consumes (terrain biomes, water, sky,
-//! fog, sun, clouds) by sampling freely across the OkLCH gamut.
-//! Biome identity no longer pins channels to "earthly" hues — a tundra
-//! room can read as cyan glass, a lush room as magenta meadows — so
-//! every fresh DID feels like its own planet rather than a variation
-//! on the same Earth.
+//! fog, sun, clouds) by sampling the OkLCH gamut, coherently anchored to the
+//! [`SceneCharacter`]: every channel's hue is sampled relative to
+//! `base_hue_deg`, with chroma biased by `temperature`.
 //!
-//! Coherence is provided by the [`SceneCharacter`] anchor: every
-//! channel's hue is sampled relative to `base_hue_deg`, with chroma
-//! biased by `temperature` (warm bias floors saturation up, cool bias
-//! lets cooler tints stay muted). The role of each channel —
-//! "vegetation", "water", "snow", "rock" — still constrains *lightness*
-//! so the splat layers read in the expected order (snow brighter than
-//! rock, moist grass darker than dry, etc.), but hue and chroma roam.
+//! **The distribution favours realism.** Chroma offsets are low-biased and
+//! hue jitter is centre-biased (see [`chroma_span`] / [`jitter`]), so the
+//! *typical* room reads naturalistic — muted, with each channel near its
+//! anchor — while vivid, wildly-divergent "own planet" palettes (cyan tundra,
+//! magenta meadows) still occur, just as the rare tail rather than the
+//! average. Role still constrains *lightness* so the splat layers read in the
+//! expected order (snow brighter than rock, moist grass darker than dry, etc.);
+//! hue and chroma roam, but gently by default.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
 use crate::seeded_defaults::oklch::{oklch_to_srgb, wrap_hue_deg};
-use crate::seeded_defaults::scene::{SceneCharacter, range_f32};
+use crate::seeded_defaults::scene::{SceneCharacter, range_f32, unit_f32};
 
 /// Sub-stream salt for the palette RNG, distinct from other derivers
 /// so each (terrain shape, atmosphere, textures) advances its own RNG
@@ -94,10 +93,22 @@ fn col4(rgb: [f32; 3], a: f32) -> [f32; 4] {
     [rgb[0], rgb[1], rgb[2], a]
 }
 
-/// Symmetric jitter helper: `±span` around the centre with a
-/// `range_f32` draw. Keeps deriver code visually compact.
+/// Centre-biased symmetric jitter: `±span`, but the magnitude is squared so
+/// most draws pull toward `0` — a channel usually stays near its anchor
+/// (coherent, naturalistic) and only the rare tail diverges the full `span`.
+/// Consumes one draw, like a plain uniform jitter, so the palette stays
+/// deterministic and the RNG stream is byte-identical in length.
 fn jitter(rng: &mut ChaCha8Rng, span: f32) -> f32 {
-    range_f32(rng, -span, span)
+    let u = range_f32(rng, -1.0, 1.0);
+    u * u.abs() * span
+}
+
+/// Low-biased `[lo, hi)` chroma offset: squares a uniform draw so most rooms
+/// land near `lo` (muted, naturalistic) and only the rare tail reaches `hi`
+/// (vivid). One draw, like [`range_f32`] — deterministic and stream-stable.
+fn chroma_span(rng: &mut ChaCha8Rng, lo: f32, hi: f32) -> f32 {
+    let u = unit_f32(rng);
+    lo + u * u * (hi - lo)
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +117,13 @@ fn jitter(rng: &mut ChaCha8Rng, span: f32) -> f32 {
 
 fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     let base_hue = scene.base_hue_deg;
-    let temp = scene.temperature; // -1 cool ↔ +1 warm
+    // Centre-bias the warm/cool cast toward neutral so a strong colour cast is
+    // the rare tail, not the average room. Local to colour — the scene axis
+    // itself (read by audio, etc.) is unchanged.
+    let temp = {
+        let t = scene.temperature; // -1 cool ↔ +1 warm
+        t * t.abs()
+    };
     let tod = scene.time_of_day_bias.abs(); // proximity to horizon, 0..1
 
     // Hue "axes" rooted at base_hue: each role samples its own absolute
@@ -122,8 +139,9 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     let dirt_hue = vegetation_hue + jitter(rng, 90.0);
 
     // Warm temperatures lift saturation across every channel; cool
-    // temperatures let it drop low. Centre stays high (this is fantasy
-    // mode — most rooms read saturated).
+    // temperatures let it drop low. With the centre-biased `temp` above, the
+    // floor sits low for most rooms — the naturalistic default — and only a
+    // strongly-warm room lifts it.
     let chroma_floor = 0.06 + temp.max(0.0) * 0.04;
 
     // ---------------- SUN ----------------
@@ -135,7 +153,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     // and terrain stay byte-identical for a given seed.
     let _sun_drift = col(
         lerp(0.95, 0.86, tod) + jitter(rng, 0.04),
-        chroma_floor + range_f32(rng, 0.02, 0.14),
+        chroma_floor + chroma_span(rng, 0.02, 0.14),
         base_hue + 30.0 + jitter(rng, 220.0),
     );
 
@@ -145,7 +163,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     // dimmer than noon.
     let sky_color = col(
         lerp(0.78, 0.55, tod) + jitter(rng, 0.06),
-        chroma_floor + range_f32(rng, 0.04, 0.18),
+        chroma_floor + chroma_span(rng, 0.04, 0.18),
         sky_hue,
     );
 
@@ -153,7 +171,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     // Fog is the most visible atmosphere channel; lean its hue toward
     // the sky (rooms read coherently) but allow a healthy wander.
     let fog_hue = sky_hue + jitter(rng, 60.0);
-    let fog_chroma = chroma_floor + range_f32(rng, 0.04, 0.18);
+    let fog_chroma = chroma_floor + chroma_span(rng, 0.04, 0.18);
     let fog_l = lerp(0.62, 0.50, tod);
     let fog_rgb = col(fog_l + jitter(rng, 0.06), fog_chroma, fog_hue);
     let fog_color = col4(fog_rgb, 1.0);
@@ -176,7 +194,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     // fantasy mode this can be any colour the deriver lands on.
     let fog_sun_rgb = col(
         0.88 + jitter(rng, 0.06),
-        chroma_floor + range_f32(rng, 0.04, 0.20),
+        chroma_floor + chroma_span(rng, 0.04, 0.20),
         base_hue + jitter(rng, 180.0),
     );
     let fog_sun_color = col4(fog_sun_rgb, 0.5);
@@ -190,19 +208,19 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     // a magenta cloud against a green sky is fair game.
     let cloud_sunlit = col(
         0.93 + jitter(rng, 0.04),
-        chroma_floor + range_f32(rng, 0.02, 0.12),
+        chroma_floor + chroma_span(rng, 0.02, 0.12),
         base_hue + jitter(rng, 180.0),
     );
     let cloud_shadow = col(
         0.55 + jitter(rng, 0.06),
-        chroma_floor + range_f32(rng, 0.02, 0.14),
+        chroma_floor + chroma_span(rng, 0.02, 0.14),
         sky_hue + jitter(rng, 90.0),
     );
 
     // ---------------- WATER ----------------
     // Per-volume colours: shallow (head-on) low-alpha, deep (grazing)
     // high-alpha. Both at the water hue, perturbed independently.
-    let water_chroma = chroma_floor + range_f32(rng, 0.06, 0.22);
+    let water_chroma = chroma_floor + chroma_span(rng, 0.06, 0.22);
     let water_shallow_rgb = col(
         range_f32(rng, 0.48, 0.65),
         water_chroma + jitter(rng, 0.03),
@@ -229,7 +247,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     // Vegetation: any-hue grass with high chroma. Moist is darker than
     // dry so the splat blend still reads the right way; hue stays
     // anchored to `vegetation_hue` (the deriver picked one above).
-    let grass_chroma = chroma_floor + range_f32(rng, 0.06, 0.22);
+    let grass_chroma = chroma_floor + chroma_span(rng, 0.06, 0.22);
     let grass_dry = col(
         range_f32(rng, 0.18, 0.32),
         grass_chroma,
@@ -241,7 +259,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
         vegetation_hue + jitter(rng, 20.0),
     );
 
-    let dirt_chroma = chroma_floor + range_f32(rng, 0.06, 0.20);
+    let dirt_chroma = chroma_floor + chroma_span(rng, 0.06, 0.20);
     let dirt_dry = col(
         range_f32(rng, 0.40, 0.55),
         dirt_chroma,
@@ -258,7 +276,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     // the deriver picked for `rock_hue`. `rock_gap` lifts the chroma
     // (the crack often reads more colourful than the face) and drops
     // lightness so the ridged-multifractal seam still looks like shadow.
-    let rock_chroma = chroma_floor + range_f32(rng, 0.02, 0.14);
+    let rock_chroma = chroma_floor + chroma_span(rng, 0.02, 0.14);
     let rock_stone = col(
         range_f32(rng, 0.40, 0.58),
         rock_chroma,
@@ -266,14 +284,14 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     );
     let rock_gap = col(
         range_f32(rng, 0.06, 0.20),
-        rock_chroma + range_f32(rng, 0.02, 0.10),
+        rock_chroma + chroma_span(rng, 0.02, 0.10),
         rock_hue + jitter(rng, 40.0),
     );
 
     // Snow: bright and pale on average, but in fantasy mode it can be
     // a bold tint (pink ice, cyan frost). Stays the brightest layer so
     // the snow line still reads as snow against the rock face.
-    let snow_chroma = chroma_floor + range_f32(rng, 0.01, 0.16);
+    let snow_chroma = chroma_floor + chroma_span(rng, 0.01, 0.16);
     let snow_dry = col(
         range_f32(rng, 0.88, 0.97),
         snow_chroma * 0.5,
