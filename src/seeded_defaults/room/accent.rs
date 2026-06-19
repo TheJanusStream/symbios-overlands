@@ -47,8 +47,10 @@ impl ThemeAccent {
         particle_mood: None,
     };
 
-    /// The accent for `theme`. Most themes are [`Self::NEUTRAL`]; the
-    /// distinctive ones nudge fog / sky / particles toward their identity.
+    /// The accent for `theme`. Every theme now carries an identity accent
+    /// (the post-cyberpunk overhaul, epic #458); the match is exhaustive so a
+    /// new [`ThemeArchetype`] won't compile without one. [`Self::NEUTRAL`]
+    /// remains the do-nothing accent used by callers and tests.
     pub fn for_theme(theme: ThemeArchetype) -> Self {
         use ThemeArchetype::*;
         match theme {
@@ -124,10 +126,13 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: Some(ParticleMood::MistMotes),
             },
+            // Moonlit churchyard gloom: a cold, desaturated blue-grey haze
+            // (the warm-candle side of the split comes from the kit's warm
+            // stained-glass emissives reading against this cold air, #462).
             GothicHorror => Self {
-                tint: [0.18, 0.18, 0.24],
-                tint_strength: 0.24,
-                haze: 0.18,
+                tint: [0.17, 0.18, 0.25],
+                tint_strength: 0.26,
+                haze: 0.24,
                 brightness: 1.0,
                 particle_mood: None,
             },
@@ -224,7 +229,16 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: Some(ParticleMood::DustMotes),
             },
-            _ => Self::NEUTRAL,
+            // Sun-baked sandstone-gold air over the marble and ruins. Kept a
+            // tint only (no particle mood) so it stays a quiet daylight key —
+            // it is also the settlement fallback theme (see #461).
+            AncientClassical => Self {
+                tint: [0.82, 0.70, 0.46],
+                tint_strength: 0.11,
+                haze: 0.05,
+                brightness: 1.0,
+                particle_mood: None,
+            },
         }
     }
 
@@ -311,6 +325,17 @@ pub fn theme_luminosity(theme: ThemeArchetype) -> f32 {
         // Neon-noir: drop the sun to a dim moonlight key so the kit's
         // emissive trim carries the scene.
         Cyberpunk => 0.12,
+        // Moonlit gloom: dim the day so the cathedral's stained glass and
+        // lantern glow carry the scene (the big lever for the mood, #462).
+        GothicHorror => 0.25,
+        // Self-lit / dim themes — drop the sun so the kit's emissive trim
+        // carries (epic #458 staging table):
+        // biolume motes only read against darkness,
+        AlienOrganic => 0.30,
+        // eerie dusk so glyph seams register,
+        AlienMonolithic => 0.50,
+        // sooty dusk so furnace mouths and gaslight glow.
+        Steampunk => 0.80,
         _ => 1.0,
     }
 }
@@ -327,8 +352,15 @@ mod tests {
     }
 
     #[test]
-    fn ancient_is_neutral_distinctive_themes_are_not() {
-        assert!(ThemeAccent::for_theme(ThemeArchetype::AncientClassical).is_noop());
+    fn distinctive_themes_have_accents() {
+        // AncientClassical now carries a warm sandstone-gold identity (#461)
+        // rather than the old neutral arm.
+        let ancient = ThemeAccent::for_theme(ThemeArchetype::AncientClassical);
+        assert!(!ancient.is_noop());
+        assert!(
+            ancient.tint[0] > ancient.tint[2],
+            "ancient accent leans warm"
+        );
         assert!(!ThemeAccent::for_theme(ThemeArchetype::Cyberpunk).is_noop());
         assert!(!ThemeAccent::for_theme(ThemeArchetype::Medieval).is_noop());
     }
@@ -482,14 +514,23 @@ mod tests {
     }
 
     #[test]
-    fn calm_neutral_room_is_a_noop() {
-        // A neutral theme at mid prosperity and peace must leave everything
-        // untouched, so the common path still skips the blend.
-        let mut scene = SceneCharacter::for_seed(4);
-        scene.theme = ThemeArchetype::AncientClassical;
-        scene.prosperity = 0.5;
-        scene.escalation = 0.0;
-        assert!(ThemeAccent::for_scene(&scene).is_noop());
+    fn calm_mid_room_adds_nothing_to_the_theme_accent() {
+        // Mid prosperity + peace must leave the plain theme accent untouched
+        // — the socio layer only kicks in for wealth/conflict extremes. (Every
+        // theme now carries an identity accent, so there is no fully-neutral
+        // theme to assert is_noop against; NEUTRAL itself is covered above.)
+        for theme in ThemeArchetype::ALL {
+            let mut scene = SceneCharacter::for_seed(4);
+            scene.theme = theme;
+            scene.prosperity = 0.5;
+            scene.escalation = 0.0;
+            let base = ThemeAccent::for_theme(theme);
+            let scened = ThemeAccent::for_scene(&scene);
+            assert_eq!(scened.tint, base.tint, "{theme:?}");
+            assert_eq!(scened.tint_strength, base.tint_strength, "{theme:?}");
+            assert_eq!(scened.haze, base.haze, "{theme:?}");
+            assert!((scened.brightness - 1.0).abs() < 1e-6, "{theme:?}");
+        }
     }
 
     #[test]
@@ -534,10 +575,15 @@ mod tests {
     }
 
     #[test]
-    fn cyberpunk_is_nocturnal_daylight_themes_are_full() {
-        // The neon theme keeps only a fraction of daylight; every other
-        // theme is full day (identity for the nightfall pass).
+    fn mood_themes_are_nocturnal_daylight_themes_are_full() {
+        // The nocturnal mood themes keep only a fraction of daylight so their
+        // emissive kits carry; daylight themes stay full (identity for the
+        // nightfall pass).
         assert!(theme_luminosity(ThemeArchetype::Cyberpunk) < 1.0);
+        assert!(theme_luminosity(ThemeArchetype::GothicHorror) < 1.0);
+        assert!(theme_luminosity(ThemeArchetype::AlienOrganic) < 1.0);
+        assert!(theme_luminosity(ThemeArchetype::AlienMonolithic) < 1.0);
+        assert!(theme_luminosity(ThemeArchetype::Steampunk) < 1.0);
         assert_eq!(theme_luminosity(ThemeArchetype::AncientClassical), 1.0);
         assert_eq!(theme_luminosity(ThemeArchetype::Medieval), 1.0);
         assert_eq!(theme_luminosity(ThemeArchetype::CoastalResort), 1.0);

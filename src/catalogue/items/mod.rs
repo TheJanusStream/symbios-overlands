@@ -49,13 +49,24 @@ mod shape_grammar_test;
 /// preserved by the UI for display, so think of this as the
 /// presentation order within each section.
 pub const ENTRIES: &[&dyn CatalogueEntry] = &[
-    // Buildings — Ancient/Classical theme (shape-grammar + primitive).
+    // Buildings — Ancient/Classical theme (shape-grammar + primitive). Also
+    // the settlement fallback theme, so it carries the deepest roster.
     &ancient::villa::Villa,
     &ancient::ruined_temple::RuinedTemple,
     &ancient::lighthouse::Lighthouse,
     &ancient::stone_circle::StoneCircle,
     &ancient::ziggurat::Ziggurat,
     &ancient::observatory::Observatory,
+    &ancient::colonnade::Colonnade,
+    &ancient::amphitheatre::Amphitheatre,
+    &ancient::bathhouse::Bathhouse,
+    &ancient::column_drum::ColumnDrum,
+    &ancient::urn::Urn,
+    &ancient::statue_plinth::StatuePlinth,
+    &ancient::brazier::Brazier,
+    // Buildings — Ancient/Classical poor (mudbrick) variants, prosperity Poor.
+    &ancient::mudbrick_hut::MudbrickHut,
+    &ancient::ruined_wall::RuinedWall,
     // Buildings — Medieval theme (landmark + secondaries + props).
     &medieval::medieval_castle::MedievalCastle,
     &medieval::watchtower::Watchtower,
@@ -446,8 +457,8 @@ mod tests {
         use crate::catalogue::CatalogueCategory::*;
         let count = |c| ENTRIES.iter().filter(|e| e.category() == c).count();
         // Deriving category() from role() must keep every entry in its
-        // expected section. 6 ancient + 10 medieval + 3 medieval poor + 8
-        // cyberpunk + 5 cyberpunk
+        // expected section. 13 ancient + 2 ancient poor + 10 medieval + 3
+        // medieval poor + 8 cyberpunk + 5 cyberpunk
         // poor + 8 nordic + 3 nordic poor + 8 feudal japan + 3 feudal japan
         // poor + 8 mesoamerican + 3 mesoamerican poor + 8 modern city + 3
         // modern city poor + 8 suburban + 3 suburban poor + 9 rural farmland
@@ -459,8 +470,8 @@ mod tests {
         // poor + 9 gothic horror + 3 gothic horror poor + 9 alien organic + 3
         // alien organic poor + 9 alien monolithic + 3 alien monolithic poor + 9
         // post-apoc + 3 post-apoc poor + 9 wild west + 3 wild west poor + 16
-        // civic cross-theme props = 282 buildings.
-        assert_eq!(count(Buildings), 282);
+        // civic cross-theme props = 291 buildings.
+        assert_eq!(count(Buildings), 291);
         assert_eq!(count(Plants), 4);
         assert_eq!(count(Patterns), 3);
         assert_eq!(count(Tools), 1);

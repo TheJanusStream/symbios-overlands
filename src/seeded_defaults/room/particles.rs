@@ -443,9 +443,10 @@ mod tests {
             for s in 0u64..8 {
                 let mut scene = SceneCharacter::for_seed(s);
                 scene.biome = biome;
-                // Pin a neutral theme + peaceful room so the biome->mood
-                // mapping is tested without a particle-mood accent or the
-                // conflict-smoke override stepping on it.
+                // Pin a theme with no particle-mood accent + a peaceful room
+                // so the biome->mood mapping is tested without a particle-mood
+                // accent or the conflict-smoke override stepping on it.
+                // (AncientClassical's accent is tint-only — no mood override.)
                 scene.theme = ThemeArchetype::AncientClassical;
                 scene.escalation = 0.0;
                 let p = AmbientParticles::from_scene(&scene, s);
