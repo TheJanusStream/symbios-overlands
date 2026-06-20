@@ -49,9 +49,10 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
     let shoulder_y = 0.55;
     let shoulder_x = torso_r + arm_r + 0.02;
     let hip_x = torso_r * 0.55;
-    // Slight outward (Z-roll) + forward (X-tilt) arm splay.
+    // Slight outward (Z-roll) + forward (X-tilt) arm splay. The forward tilt
+    // is gentle now that the arm part bends at the elbow on its own.
     let arm_splay = 0.14;
-    let arm_forward = 0.10;
+    let arm_forward = 0.05;
 
     // ---- Pelvis (root) -----------------------------------------------------
     let mut root = prim(

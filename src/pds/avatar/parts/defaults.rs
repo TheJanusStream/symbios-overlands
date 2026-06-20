@@ -198,57 +198,105 @@ fn torso(ctx: &PartCtx) -> Generator {
         [0.0, 0.27, 0.0],
         id_quat(),
     ));
+    // Belt at the waist — gives the trunk a waistline instead of a smooth tube.
+    torso.children.push(prim(
+        torus(
+            0.02,
+            r * 0.95,
+            ctx.materials.trim(ctx.palette.tertiary_accent),
+        ),
+        [0.0, -0.16, 0.0],
+        id_quat(),
+    ));
     torso
 }
 
 fn arm(ctx: &PartCtx) -> Generator {
-    let r = 0.055 * ctx.body.limb_thickness_scale;
-    let len = 0.46;
+    let r = 0.05 * ctx.body.limb_thickness_scale;
+    let (l1, l2) = (0.24, 0.24); // upper arm, forearm
+    let theta = 0.35_f32; // elbow bend forward (the face / front is -Z)
     let skin = ctx.materials.skin(ctx.palette.skin_tone);
-    // Shoulder pivot at the origin; the arm hangs down -Y.
+
+    // Root = a short-sleeve shoulder cap at the origin. It's the pivot the
+    // assembler rotates the whole arm about, so the splay swings from the
+    // shoulder rather than the mid-arm, and it adds deltoid mass.
     let mut arm = prim(
-        capsule(r, len, skin.clone()),
-        [0.0, -len * 0.5, 0.0],
+        sphere(r * 1.6, 3, ctx.materials.body(ctx.palette.primary_accent)),
+        [0.0, 0.0, 0.0],
         id_quat(),
     );
-    // Short sleeve cap at the shoulder, tying the bare arm to the shirt.
+    // Upper arm (shoulder → elbow).
     arm.children.push(prim(
-        cylinder(
-            r * 1.5,
-            0.12,
-            12,
-            ctx.materials.body(ctx.palette.primary_accent),
-        ),
-        [0.0, len * 0.5 - 0.05, 0.0],
+        capsule(r, l1, skin.clone()),
+        [0.0, -l1 * 0.5, 0.0],
         id_quat(),
     ));
-    // Hand mitt at the wrist (slightly elongated sphere).
-    let mut hand = prim(
-        sphere(r * 1.5, 3, skin),
-        [0.0, -len * 0.5 - 0.02, 0.0],
+    // Elbow joint sphere — covers the seam where the forearm bends away.
+    arm.children.push(prim(
+        sphere(r * 1.05, 2, skin.clone()),
+        [0.0, -l1, 0.0],
         id_quat(),
+    ));
+    // Forearm (elbow → wrist), bent forward about the elbow. Its top end is
+    // pinned to the elbow: rotating a capsule about its own centre would gap
+    // the joint, so the centre is placed so the rotated top lands at -l1.
+    let (s, c) = theta.sin_cos();
+    arm.children.push(prim(
+        capsule(r * 0.9, l2, skin.clone()),
+        [0.0, -l1 - 0.5 * l2 * c, -0.5 * l2 * s],
+        quat_xyzw(quat_x(theta)),
+    ));
+    // Hand at the wrist — a flattened palm aligned with the forearm.
+    let mut hand = prim(
+        sphere(r * 1.7, 2, skin),
+        [0.0, -l1 - l2 * c, -l2 * s],
+        quat_xyzw(quat_x(theta)),
     );
-    hand.transform.scale = Fp3([1.0, 1.2, 1.1]);
+    hand.transform.scale = Fp3([1.25, 0.6, 1.5]);
     arm.children.push(hand);
     arm
 }
 
 fn leg(ctx: &PartCtx) -> Generator {
-    let r = 0.07 * ctx.body.limb_thickness_scale;
-    let len = 0.6;
-    // Trousers: a darker shade of the primary so legs read as one outfit
-    // with the shirt rather than a clashing accent.
+    let r = 0.062 * ctx.body.limb_thickness_scale;
+    let (l1, l2) = (0.32, 0.30); // thigh, shin
+    let theta = 0.08_f32; // slight knee bend forward — reads alive, not a crouch
+    // Trousers: a darker shade of the primary so legs read as one outfit with
+    // the shirt rather than a clashing accent.
     let trousers = ctx.materials.body(shade(ctx.palette.primary_accent, 0.6));
     let shoe = ctx.materials.body(ctx.palette.secondary_accent);
-    // Hip pivot at the origin; the leg hangs down -Y.
-    let mut leg = prim(capsule(r, len, trousers), [0.0, -len * 0.5, 0.0], id_quat());
-    // Foot — a forward-pointing shoe (-Z is the front).
-    let foot = prim(
-        cuboid([r * 1.7, 0.06, 0.2], shoe),
-        [0.0, -len * 0.5 - 0.02, -0.06],
+
+    // Root = hip joint at the origin (the assembler's hip pivot).
+    let mut leg = prim(
+        sphere(r * 1.15, 2, trousers.clone()),
+        [0.0, 0.0, 0.0],
         id_quat(),
     );
-    leg.children.push(foot);
+    // Thigh (hip → knee).
+    leg.children.push(prim(
+        capsule(r, l1, trousers.clone()),
+        [0.0, -l1 * 0.5, 0.0],
+        id_quat(),
+    ));
+    // Knee joint sphere.
+    leg.children.push(prim(
+        sphere(r * 1.02, 2, trousers.clone()),
+        [0.0, -l1, 0.0],
+        id_quat(),
+    ));
+    // Shin (knee → ankle), pinned to the knee (same trick as the forearm).
+    let (s, c) = theta.sin_cos();
+    leg.children.push(prim(
+        capsule(r * 0.9, l2, trousers),
+        [0.0, -l1 - 0.5 * l2 * c, -0.5 * l2 * s],
+        quat_xyzw(quat_x(theta)),
+    ));
+    // Foot — a forward-pointing shoe at the ankle (-Z is the front).
+    leg.children.push(prim(
+        cuboid([r * 1.8, 0.05, 0.22], shoe),
+        [0.0, -l1 - l2 * c - 0.02, -l2 * s - 0.08],
+        id_quat(),
+    ));
     leg
 }
 
