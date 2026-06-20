@@ -3,7 +3,9 @@
 //! DID document URL builder.
 
 use symbios_overlands::format_elapsed_ts;
-use symbios_overlands::pds::{Fp, Fp2, Fp3, Generator, GeneratorKind, sanitize_generator};
+use symbios_overlands::pds::{
+    Fp, Fp2, Fp3, Generator, GeneratorKind, TortureParams, sanitize_generator,
+};
 
 // ---------------------------------------------------------------------------
 // format_elapsed_ts — used to label chat messages and the diagnostics log.
@@ -82,18 +84,19 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             size: Fp3([f32::NAN, -1.0, f32::INFINITY]),
             solid: true,
             material: Default::default(),
-            twist: Fp(f32::NAN),
-            taper: Fp(f32::INFINITY),
-            bend: Fp3([f32::NAN, f32::NEG_INFINITY, 10_000.0]),
+            torture: TortureParams {
+                twist: Fp(f32::NAN),
+                taper: Fp2([f32::INFINITY, f32::NAN]),
+                bend: Fp3([f32::NAN, f32::NEG_INFINITY, 10_000.0]),
+                s_bend: Fp2([f32::NAN, f32::INFINITY]),
+            },
         }),
         Generator::from_kind(GeneratorKind::Sphere {
             radius: Fp(f32::NAN),
             resolution: u32::MAX,
             solid: true,
             material: Default::default(),
-            twist: Fp(0.0),
-            taper: Fp(0.0),
-            bend: Fp3([0.0, 0.0, 0.0]),
+            torture: TortureParams::default(),
         }),
         Generator::from_kind(GeneratorKind::Cylinder {
             radius: Fp(-10.0),
@@ -101,9 +104,7 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             resolution: 10_000,
             solid: true,
             material: Default::default(),
-            twist: Fp(0.0),
-            taper: Fp(0.0),
-            bend: Fp3([0.0, 0.0, 0.0]),
+            torture: TortureParams::default(),
         }),
         Generator::from_kind(GeneratorKind::Capsule {
             radius: Fp(-1.0),
@@ -112,9 +113,7 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             longitudes: 10_000,
             solid: true,
             material: Default::default(),
-            twist: Fp(0.0),
-            taper: Fp(0.0),
-            bend: Fp3([0.0, 0.0, 0.0]),
+            torture: TortureParams::default(),
         }),
         Generator::from_kind(GeneratorKind::Cone {
             radius: Fp(f32::NEG_INFINITY),
@@ -122,9 +121,7 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             resolution: 10_000,
             solid: true,
             material: Default::default(),
-            twist: Fp(0.0),
-            taper: Fp(0.0),
-            bend: Fp3([0.0, 0.0, 0.0]),
+            torture: TortureParams::default(),
         }),
         Generator::from_kind(GeneratorKind::Torus {
             minor_radius: Fp(f32::NAN),
@@ -133,26 +130,20 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             major_resolution: 10_000,
             solid: true,
             material: Default::default(),
-            twist: Fp(0.0),
-            taper: Fp(0.0),
-            bend: Fp3([0.0, 0.0, 0.0]),
+            torture: TortureParams::default(),
         }),
         Generator::from_kind(GeneratorKind::Plane {
             size: Fp2([f32::INFINITY, -1.0]),
             subdivisions: 10_000,
             solid: true,
             material: Default::default(),
-            twist: Fp(0.0),
-            taper: Fp(0.0),
-            bend: Fp3([0.0, 0.0, 0.0]),
+            torture: TortureParams::default(),
         }),
         Generator::from_kind(GeneratorKind::Tetrahedron {
             size: Fp(f32::NAN),
             solid: true,
             material: Default::default(),
-            twist: Fp(0.0),
-            taper: Fp(0.0),
-            bend: Fp3([0.0, 0.0, 0.0]),
+            torture: TortureParams::default(),
         }),
     ];
 

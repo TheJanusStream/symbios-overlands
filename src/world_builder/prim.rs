@@ -397,6 +397,126 @@ fn analytical_collider(kind: &GeneratorKind) -> Option<Collider> {
     })
 }
 
+fn convex_hull_from_mesh(mesh: &Mesh) -> Option<Collider> {
+    let positions = mesh.attribute(Mesh::ATTRIBUTE_POSITION)?;
+    let VertexAttributeValues::Float32x3(verts) = positions else {
+        return None;
+    };
+    if verts.len() < 4 {
+        return None;
+    }
+    let points: Vec<Vec3> = verts.iter().map(|p| Vec3::from_array(*p)).collect();
+    Collider::convex_hull(points)
+}
+
+/// The pure torture deformation `D(p)`: twist + taper + bend applied to a
+/// vertex, parametrised by the vertex's normalised Y height `t = (y - y_min) /
+/// y_range`. Factored out of [`apply_vertex_torture`] so the same map drives
+/// both the position warp and the normal transform (via its Jacobian), and so
+/// future multi-axis torture only has to extend one function.
+///
+/// `t` is clamped to `[0, 1]`, pinning `t = 0` at the lowest vertex and
+/// `t = 1` at the highest — well-defined for any primitive whether its origin
+/// sits at the base or the centre.
+fn deform_vertex(p: Vec3, y_min: f32, y_range: f32, torture: Torture) -> Vec3 {
+    let t = ((p.y - y_min) / y_range).clamp(0.0, 1.0);
+
+    // Per-axis taper: scale X/Z independently around the central axis.
+    // Bounded away from zero by the sanitizer (|taper| ≤ 0.99) so a face never
+    // collapses to a point. Equal components = uniform taper (cone/frustum);
+    // unequal = wedge / fin.
+    let mut x = p.x * (1.0 - torture.taper.x * t);
+    let mut z = p.z * (1.0 - torture.taper.y * t);
+
+    // Twist: rotate around Y by an angle linear in normalised height.
+    if torture.twist.abs() > 1e-6 {
+        let (s, c) = (torture.twist * t).sin_cos();
+        let (ox, oz) = (x, z);
+        x = c * ox - s * oz;
+        z = s * ox + c * oz;
+    }
+
+    // Bend: quadratic displacement, tangent to vertical at the base and
+    // peaking at the top — now on all three axes (`.y` lengthens the top).
+    // S-bend: a sin(2π t) lateral wave layered on top for a serpentine column.
+    let t2 = t * t;
+    let wave = (std::f32::consts::TAU * t).sin();
+    Vec3::new(
+        x + torture.bend.x * t2 + torture.s_bend.x * wave,
+        p.y + torture.bend.y * t2,
+        z + torture.bend.z * t2 + torture.s_bend.y * wave,
+    )
+}
+
+/// Mutate `mesh`'s vertex positions in-place through [`deform_vertex`], then
+/// transform each vertex normal by the **inverse-transpose Jacobian** of that
+/// deformation so the original shading character survives the warp.
+///
+/// This replaces the old flat-normal recompute, which faceted every tortured
+/// shape (a twisted sphere went low-poly) — and a naive smooth recompute would
+/// instead round a cuboid's hard edges. Transforming the *existing* per-vertex
+/// normals by the local Jacobian preserves both: a cuboid's per-face normals
+/// stay per-face (sharp), a sphere's stay smooth, and both tilt correctly with
+/// the taper/twist/bend. The Jacobian is taken numerically (the map is smooth
+/// and cheap to sample), with a fallback to the untransformed normal where the
+/// local Jacobian is near-singular. Tangents are regenerated afterwards.
+fn apply_vertex_torture(mesh: &mut Mesh, torture: Torture) {
+    let Some(VertexAttributeValues::Float32x3(positions)) =
+        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+    else {
+        return;
+    };
+    if positions.is_empty() {
+        return;
+    }
+    let orig: Vec<Vec3> = positions.iter().map(|p| Vec3::from_array(*p)).collect();
+
+    let (mut y_min, mut y_max) = (f32::INFINITY, f32::NEG_INFINITY);
+    for p in &orig {
+        y_min = y_min.min(p.y);
+        y_max = y_max.max(p.y);
+    }
+    let y_range = (y_max - y_min).max(1e-6);
+    let deform = |p: Vec3| deform_vertex(p, y_min, y_range, torture);
+
+    let new_pos: Vec<[f32; 3]> = orig.iter().map(|p| deform(*p).to_array()).collect();
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, new_pos);
+
+    // Normals follow the deformation's inverse-transpose Jacobian, sampled
+    // numerically per vertex. `eps` is small relative to any primitive extent
+    // (sanitiser floors dimensions at 0.01), so the central map stays linear
+    // across the stencil.
+    if let Some(VertexAttributeValues::Float32x3(normals)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
+    {
+        const EPS: f32 = 1e-3;
+        let new_norms: Vec<[f32; 3]> = orig
+            .iter()
+            .zip(normals.iter())
+            .map(|(p, n)| {
+                let n0 = Vec3::from_array(*n);
+                let d = deform(*p);
+                let jacobian = Mat3::from_cols(
+                    (deform(*p + Vec3::X * EPS) - d) / EPS,
+                    (deform(*p + Vec3::Y * EPS) - d) / EPS,
+                    (deform(*p + Vec3::Z * EPS) - d) / EPS,
+                );
+                if jacobian.determinant().abs() < 1e-9 {
+                    return n0.normalize_or_zero().to_array();
+                }
+                jacobian
+                    .inverse()
+                    .transpose()
+                    .mul_vec3(n0)
+                    .normalize_or_zero()
+                    .to_array()
+            })
+            .collect();
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, new_norms);
+    }
+
+    let _ = mesh.generate_tangents();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -574,124 +694,4 @@ mod tests {
         // A square corner sits at √(0.5²+0.5²) ≈ 0.707; the bevel pulls it in.
         assert!(max_corner < 0.707, "corner not chamfered: {max_corner}");
     }
-}
-
-fn convex_hull_from_mesh(mesh: &Mesh) -> Option<Collider> {
-    let positions = mesh.attribute(Mesh::ATTRIBUTE_POSITION)?;
-    let VertexAttributeValues::Float32x3(verts) = positions else {
-        return None;
-    };
-    if verts.len() < 4 {
-        return None;
-    }
-    let points: Vec<Vec3> = verts.iter().map(|p| Vec3::from_array(*p)).collect();
-    Collider::convex_hull(points)
-}
-
-/// The pure torture deformation `D(p)`: twist + taper + bend applied to a
-/// vertex, parametrised by the vertex's normalised Y height `t = (y - y_min) /
-/// y_range`. Factored out of [`apply_vertex_torture`] so the same map drives
-/// both the position warp and the normal transform (via its Jacobian), and so
-/// future multi-axis torture only has to extend one function.
-///
-/// `t` is clamped to `[0, 1]`, pinning `t = 0` at the lowest vertex and
-/// `t = 1` at the highest — well-defined for any primitive whether its origin
-/// sits at the base or the centre.
-fn deform_vertex(p: Vec3, y_min: f32, y_range: f32, torture: Torture) -> Vec3 {
-    let t = ((p.y - y_min) / y_range).clamp(0.0, 1.0);
-
-    // Per-axis taper: scale X/Z independently around the central axis.
-    // Bounded away from zero by the sanitizer (|taper| ≤ 0.99) so a face never
-    // collapses to a point. Equal components = uniform taper (cone/frustum);
-    // unequal = wedge / fin.
-    let mut x = p.x * (1.0 - torture.taper.x * t);
-    let mut z = p.z * (1.0 - torture.taper.y * t);
-
-    // Twist: rotate around Y by an angle linear in normalised height.
-    if torture.twist.abs() > 1e-6 {
-        let (s, c) = (torture.twist * t).sin_cos();
-        let (ox, oz) = (x, z);
-        x = c * ox - s * oz;
-        z = s * ox + c * oz;
-    }
-
-    // Bend: quadratic displacement, tangent to vertical at the base and
-    // peaking at the top — now on all three axes (`.y` lengthens the top).
-    // S-bend: a sin(2π t) lateral wave layered on top for a serpentine column.
-    let t2 = t * t;
-    let wave = (std::f32::consts::TAU * t).sin();
-    Vec3::new(
-        x + torture.bend.x * t2 + torture.s_bend.x * wave,
-        p.y + torture.bend.y * t2,
-        z + torture.bend.z * t2 + torture.s_bend.y * wave,
-    )
-}
-
-/// Mutate `mesh`'s vertex positions in-place through [`deform_vertex`], then
-/// transform each vertex normal by the **inverse-transpose Jacobian** of that
-/// deformation so the original shading character survives the warp.
-///
-/// This replaces the old flat-normal recompute, which faceted every tortured
-/// shape (a twisted sphere went low-poly) — and a naive smooth recompute would
-/// instead round a cuboid's hard edges. Transforming the *existing* per-vertex
-/// normals by the local Jacobian preserves both: a cuboid's per-face normals
-/// stay per-face (sharp), a sphere's stay smooth, and both tilt correctly with
-/// the taper/twist/bend. The Jacobian is taken numerically (the map is smooth
-/// and cheap to sample), with a fallback to the untransformed normal where the
-/// local Jacobian is near-singular. Tangents are regenerated afterwards.
-fn apply_vertex_torture(mesh: &mut Mesh, torture: Torture) {
-    let Some(VertexAttributeValues::Float32x3(positions)) =
-        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
-    else {
-        return;
-    };
-    if positions.is_empty() {
-        return;
-    }
-    let orig: Vec<Vec3> = positions.iter().map(|p| Vec3::from_array(*p)).collect();
-
-    let (mut y_min, mut y_max) = (f32::INFINITY, f32::NEG_INFINITY);
-    for p in &orig {
-        y_min = y_min.min(p.y);
-        y_max = y_max.max(p.y);
-    }
-    let y_range = (y_max - y_min).max(1e-6);
-    let deform = |p: Vec3| deform_vertex(p, y_min, y_range, torture);
-
-    let new_pos: Vec<[f32; 3]> = orig.iter().map(|p| deform(*p).to_array()).collect();
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, new_pos);
-
-    // Normals follow the deformation's inverse-transpose Jacobian, sampled
-    // numerically per vertex. `eps` is small relative to any primitive extent
-    // (sanitiser floors dimensions at 0.01), so the central map stays linear
-    // across the stencil.
-    if let Some(VertexAttributeValues::Float32x3(normals)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
-    {
-        const EPS: f32 = 1e-3;
-        let new_norms: Vec<[f32; 3]> = orig
-            .iter()
-            .zip(normals.iter())
-            .map(|(p, n)| {
-                let n0 = Vec3::from_array(*n);
-                let d = deform(*p);
-                let jacobian = Mat3::from_cols(
-                    (deform(*p + Vec3::X * EPS) - d) / EPS,
-                    (deform(*p + Vec3::Y * EPS) - d) / EPS,
-                    (deform(*p + Vec3::Z * EPS) - d) / EPS,
-                );
-                if jacobian.determinant().abs() < 1e-9 {
-                    return n0.normalize_or_zero().to_array();
-                }
-                jacobian
-                    .inverse()
-                    .transpose()
-                    .mul_vec3(n0)
-                    .normalize_or_zero()
-                    .to_array()
-            })
-            .collect();
-        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, new_norms);
-    }
-
-    let _ = mesh.generate_tangents();
 }

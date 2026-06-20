@@ -7,7 +7,8 @@
 //! `pds::limits` envelope afterwards.
 
 use symbios_overlands::pds::{
-    Fp, Fp3, Generator, GeneratorKind, InventoryRecord, RoomRecord, limits, sanitize_generator,
+    Fp, Fp2, Fp3, Generator, GeneratorKind, InventoryRecord, RoomRecord, TortureParams, limits,
+    sanitize_generator,
 };
 
 const TEST_DID: &str = "did:plc:sanitise";
@@ -523,9 +524,7 @@ fn generator_node_transform_rejects_non_finite_fields() {
             size: Fp3([1.0, 1.0, 1.0]),
             solid: true,
             material: Default::default(),
-            twist: Fp(0.0),
-            taper: Fp(0.0),
-            bend: Fp3([0.0, 0.0, 0.0]),
+            torture: TortureParams::default(),
         },
         transform: TransformData {
             translation: Fp3([f32::NAN, f32::INFINITY, 0.0]),
@@ -564,20 +563,26 @@ fn primitive_torture_clamped() {
         size: Fp3([1.0, 1.0, 1.0]),
         solid: true,
         material: Default::default(),
-        twist: Fp(f32::INFINITY),
-        taper: Fp(f32::NAN),
-        bend: Fp3([f32::INFINITY, f32::NAN, 1_000.0]),
+        torture: TortureParams {
+            twist: Fp(f32::INFINITY),
+            taper: Fp2([f32::NAN, 1_000.0]),
+            bend: Fp3([f32::INFINITY, f32::NAN, 1_000.0]),
+            s_bend: Fp2([f32::NAN, f32::INFINITY]),
+        },
     });
     sanitize_generator(&mut prim);
-    if let GeneratorKind::Cuboid {
-        twist, taper, bend, ..
-    } = &prim.kind
-    {
-        assert!(twist.0.is_finite());
-        assert!(taper.0.is_finite());
-        assert!(twist.0.abs() <= limits::MAX_TORTURE_TWIST + 1e-3);
-        assert!(taper.0.abs() <= limits::MAX_TORTURE_TAPER + 1e-3);
-        for &v in bend.0.iter() {
+    if let GeneratorKind::Cuboid { torture, .. } = &prim.kind {
+        assert!(torture.twist.0.is_finite());
+        assert!(torture.twist.0.abs() <= limits::MAX_TORTURE_TWIST + 1e-3);
+        for &v in torture.taper.0.iter() {
+            assert!(v.is_finite());
+            assert!(v.abs() <= limits::MAX_TORTURE_TAPER + 1e-3);
+        }
+        for &v in torture.bend.0.iter() {
+            assert!(v.is_finite());
+            assert!(v.abs() <= limits::MAX_TORTURE_BEND + 1e-3);
+        }
+        for &v in torture.s_bend.0.iter() {
             assert!(v.is_finite());
             assert!(v.abs() <= limits::MAX_TORTURE_BEND + 1e-3);
         }
