@@ -58,6 +58,12 @@ pub mod urban;
 pub mod water;
 pub mod world_builder;
 
+/// Headless render tool — drives the real spawn path to produce contact-sheet
+/// PNGs for self-validating geometry/materials. Native-only (the harness pulls
+/// the headless render stack); the web deploy never builds it.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod render_tool;
+
 /// Marker for the unlit sky cuboid spawned in `setup_lighting`. The world
 /// compiler uses this to retint the sky material when a room record's
 /// `environment.sky_color` changes.

@@ -90,6 +90,33 @@ pub use material::build_procedural_material;
 pub use prim::build_primitive_mesh;
 pub use shape::{ShapeMaterialCache, ShapeMeshCache};
 
+/// Register the resources + plugins the generator spawn path
+/// (`avatar_spawn::spawn_avatar_visuals_subtree` / `compile::spawn_generator`)
+/// reads, *minus* the room-compile systems and `AppState` gating that
+/// [`WorldBuilderPlugin`] adds. The headless render tool
+/// ([`crate::render_tool`]) calls this to drive the real spawn path outside
+/// the full game app, so its renders match what the game produces. Mirrors
+/// the resource set in [`WorldBuilderPlugin::build`]; keep the two in sync.
+pub fn register_headless_spawn(app: &mut App) {
+    app.add_plugins(MaterialPlugin::<WaterMaterial>::default())
+        .add_plugins(bevy_symbios_texture::SymbiosTexturePlugin::default())
+        .insert_resource(bevy_symbios_texture::TextureCache::memory(64))
+        .init_resource::<LSystemMaterialCache>()
+        .init_resource::<LSystemMeshCache>()
+        .init_resource::<ShapeMaterialCache>()
+        .init_resource::<ShapeMeshCache>()
+        .init_resource::<bevy_symbios_shape::cache::ShapeMeshCache>()
+        .init_resource::<compile::CompiledWorld>()
+        .init_resource::<compile::CompileJob>()
+        .init_resource::<WaterSurfaces>()
+        .init_resource::<image_cache::BlobImageCache>()
+        .init_resource::<audio_resolver::BlobAudioCache>()
+        .init_resource::<spatial_audio::BakedAudioCache>()
+        .init_resource::<particles::ParticleQuadMesh>()
+        .init_resource::<particles::ParticleAtlasMeshes>()
+        .init_resource::<crate::state::DiagnosticsLog>();
+}
+
 /// Marks an in-scene portal cube and carries the destination coordinates the
 /// interaction system reads when the local player's sensor-collision set
 /// touches it.
