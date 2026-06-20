@@ -40,7 +40,9 @@ pub mod outfit;
 pub mod palette;
 
 pub use body::{AvatarBody, BodyArchetype};
-pub use character::{AvatarCharacter, OrnatenessBand, OrnatenessTier, WearBand, WearTier};
+pub use character::{
+    AvatarCharacter, FinishRegister, OrnatenessBand, OrnatenessTier, WearBand, WearTier,
+};
 pub use chassis::ChassisFamily;
 pub use fx::{AvatarFx, AvatarVoice, ParticleAura};
 pub use gait::AvatarGait;

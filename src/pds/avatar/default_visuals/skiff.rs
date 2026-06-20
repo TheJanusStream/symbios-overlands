@@ -9,14 +9,15 @@
 //! ([`crate::pds::avatar::parts`]); seeded FX are attached centrally by
 //! [`super::build_for_seed`].
 
-use std::f32::consts::FRAC_PI_2;
+use std::f32::consts::{FRAC_PI_2, PI};
 
 use crate::pds::avatar::parts::{PartCtx, PartSlot, by_slug};
 use crate::pds::generator::Generator;
+use crate::pds::types::Fp3;
 use crate::seeded_defaults::AvatarOutfit;
 
 use super::assemble::base_root;
-use super::common::{PfpFacing, offset, offset_rot, pastel, pfp_panel, quat_xyzw, quat_z};
+use super::common::{PfpFacing, offset, offset_rot, pastel, pfp_panel, quat_xyzw, quat_y, quat_z};
 
 pub(super) fn build(seed: u64, did: &str) -> Generator {
     let ctx = PartCtx::for_seed(seed, did);
@@ -70,6 +71,14 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
         pastel(ctx.palette.primary_accent),
         PfpFacing::Side,
     ));
+
+    // Vehicles travel toward local -Z (`Transform::forward`), but the parts
+    // are authored front-+Z, so yaw the whole visual 180°. Drop it so the
+    // wheels rest at the car's suspension ground line — the chassis origin
+    // floats ≈0.87 m (half-extent 0.4 + rest 0.6 − static compression ≈0.13)
+    // and the wheel bottoms sit ≈0.32 below the visual origin.
+    root.transform.rotation = quat_xyzw(quat_y(PI));
+    root.transform.translation = Fp3([0.0, -0.55, 0.0]);
 
     root
 }

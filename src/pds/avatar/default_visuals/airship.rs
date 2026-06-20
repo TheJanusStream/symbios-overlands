@@ -19,7 +19,7 @@ use crate::seeded_defaults::AvatarOutfit;
 use super::assemble::base_root;
 use super::common::{
     PfpFacing, cylinder, id_quat, offset, offset_rot, pastel, pfp_panel, prim, quat_x, quat_xyzw,
-    quat_z,
+    quat_y, quat_z,
 };
 
 pub(super) fn build(seed: u64, did: &str) -> Generator {
@@ -86,6 +86,10 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
         pastel(ctx.palette.primary_accent),
         PfpFacing::Side,
     ));
+
+    // Travel is toward local -Z; the envelope nose is authored at +Z, so yaw
+    // the craft 180° to fly nose-first. No vertical drop — a helicopter hovers.
+    root.transform.rotation = quat_xyzw(quat_y(PI));
 
     root
 }

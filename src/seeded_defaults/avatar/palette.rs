@@ -19,7 +19,7 @@
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
-use super::character::AvatarCharacter;
+use super::character::{AvatarCharacter, FinishRegister};
 use crate::seeded_defaults::oklch::{oklch_to_srgb, wrap_hue_deg};
 use crate::seeded_defaults::scene::{ThemeArchetype, pick, range_f32};
 
@@ -169,17 +169,28 @@ impl AvatarPalette {
 
         let mood = StyleMood::for_style(c.style);
         let base_hue_deg = c.base_hue_deg;
+        // The finish register layers on top of the style mood: Bold pushes
+        // accents vivid + a touch brighter; Naturalistic keeps them deeper and
+        // a little desaturated, so the population splits punchy vs grounded.
+        let (finish_chroma, finish_light) = match c.finish {
+            FinishRegister::Bold => (1.45, 0.04),
+            FinishRegister::Naturalistic => (0.95, -0.03),
+        };
 
         // Accent builder: sample L/C around the per-accent band, apply the
-        // style mood (chroma scale + lightness bias) and the wear dulling
-        // (battered paint is greyer + darker), convert to sRGB, then mix a
-        // small warm/cool temperature tint. Takes `rng` as a parameter
-        // (rather than capturing it) so the per-call hue jitter can be drawn
-        // from the same stream without a double-borrow.
+        // style mood (chroma scale + lightness bias) and finish register, the
+        // wear dulling (battered paint is greyer + darker), convert to sRGB,
+        // then mix a small warm/cool temperature tint. Takes `rng` as a
+        // parameter (rather than capturing it) so the per-call hue jitter can
+        // be drawn from the same stream without a double-borrow.
         let accent =
             |rng: &mut ChaCha8Rng, l_lo: f32, l_hi: f32, c_lo: f32, c_hi: f32, hue: f32| {
-                let l = (range_f32(rng, l_lo, l_hi) + mood.light_bias) * (1.0 - 0.25 * c.wear);
-                let chroma = range_f32(rng, c_lo, c_hi) * mood.chroma_mul * (1.0 - 0.40 * c.wear);
+                let l = (range_f32(rng, l_lo, l_hi) + mood.light_bias + finish_light)
+                    * (1.0 - 0.25 * c.wear);
+                let chroma = range_f32(rng, c_lo, c_hi)
+                    * mood.chroma_mul
+                    * finish_chroma
+                    * (1.0 - 0.40 * c.wear);
                 let srgb = oklch_to_srgb([l.clamp(0.0, 1.0), chroma.max(0.0), wrap_hue_deg(hue)]);
                 temperature_tint(srgb, c.temperature)
             };
@@ -343,6 +354,26 @@ mod tests {
         assert!(
             chroma(n) > chroma(c),
             "neon should out-saturate cold: {n:?} vs {c:?}"
+        );
+    }
+
+    #[test]
+    fn bold_finish_out_saturates_naturalistic() {
+        // Same anchor, swap only the finish register: Bold yields a
+        // higher-chroma primary accent than Naturalistic.
+        let chroma = |c: [f32; 3]| c[0].max(c[1]).max(c[2]) - c[0].min(c[1]).min(c[2]);
+        let mut bold = AvatarCharacter::for_seed(8);
+        bold.style = ThemeArchetype::Medieval;
+        bold.temperature = 0.0;
+        bold.wear = 0.0;
+        bold.finish = crate::seeded_defaults::FinishRegister::Bold;
+        let mut nat = bold;
+        nat.finish = crate::seeded_defaults::FinishRegister::Naturalistic;
+        let b = AvatarPalette::for_character(&bold).primary_accent;
+        let n = AvatarPalette::for_character(&nat).primary_accent;
+        assert!(
+            chroma(b) > chroma(n),
+            "bold should out-saturate: {b:?} vs {n:?}"
         );
     }
 

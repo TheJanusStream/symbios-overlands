@@ -10,12 +10,15 @@
 //! identity crest. Seeded FX are attached centrally by
 //! [`super::build_for_seed`].
 
+use std::f32::consts::PI;
+
 use crate::pds::avatar::parts::{PartCtx, PartSlot, by_slug};
 use crate::pds::generator::Generator;
+use crate::pds::types::Fp3;
 use crate::seeded_defaults::AvatarOutfit;
 
 use super::assemble::base_root;
-use super::common::{PfpFacing, offset, pastel, pfp_panel};
+use super::common::{PfpFacing, offset, pastel, pfp_panel, quat_xyzw, quat_y};
 
 pub(super) fn build(seed: u64, did: &str) -> Generator {
     let ctx = PartCtx::for_seed(seed, did);
@@ -60,6 +63,12 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
         pastel(ctx.palette.primary_accent),
         PfpFacing::Side,
     ));
+
+    // Travel is toward local -Z; parts are authored front-+Z, so yaw 180°.
+    // Drop to a low hover above the hover-boat's suspension ground line (the
+    // chassis floats ≈0.97 m; a small gap keeps it reading as a hover-craft).
+    root.transform.rotation = quat_xyzw(quat_y(PI));
+    root.transform.translation = Fp3([0.0, -0.6, 0.0]);
 
     root
 }

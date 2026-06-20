@@ -109,6 +109,21 @@ impl WearTier {
     }
 }
 
+/// Surface-finish register — a per-avatar coin-flip between a saturated,
+/// glossy, glow-forward look and a deeper, restrained naturalistic one. Read
+/// by [`super::palette`] (accent chroma / lightness) and [`super::materials`]
+/// (gloss + emissive strength) so the population splits between punchy
+/// stylised avatars and grounded realistic ones rather than all reading the
+/// same. Orthogonal to `style`: a medieval avatar can be Bold (heraldic,
+/// vivid) or Naturalistic (muddy, worn), and likewise for every style.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FinishRegister {
+    /// Saturated accents, glossier surfaces, stronger glow on luminous styles.
+    Bold,
+    /// Deeper, more naturalistic hues with restrained gloss and glow.
+    Naturalistic,
+}
+
 /// Inclusive ornateness-tier affinity band a body part advertises: the
 /// contiguous span of [`OrnatenessTier`]s an avatar may have for the part
 /// to be eligible. [`Self::ANY`] (the default) spans every tier, so
@@ -234,6 +249,9 @@ pub struct AvatarCharacter {
     /// [`Self::wear_tier`]; drives material finish, surface darkening, and
     /// damage / patina part variants.
     pub wear: f32,
+    /// Surface-finish register (bold/stylised vs naturalistic) — a coin-flip
+    /// that splits the population between vivid and grounded looks.
+    pub finish: FinishRegister,
 }
 
 impl AvatarCharacter {
@@ -262,6 +280,13 @@ impl AvatarCharacter {
         // `SceneCharacter` uses for its prosperity / escalation axes).
         let ornateness = unit_f32(&mut rng);
         let wear = unit_f32(&mut rng);
+        // Appended last (orthogonal draw) so every prior field stays
+        // bit-identical to before the register existed.
+        let finish = if unit_f32(&mut rng) < 0.5 {
+            FinishRegister::Bold
+        } else {
+            FinishRegister::Naturalistic
+        };
 
         Self {
             seed,
@@ -271,6 +296,7 @@ impl AvatarCharacter {
             style,
             ornateness,
             wear,
+            finish,
         }
     }
 
@@ -354,6 +380,22 @@ mod tests {
         }
         assert_eq!(ornateness_tiers.len(), 3, "ornateness tiers degenerate");
         assert_eq!(wear_tiers.len(), 3, "wear tiers degenerate");
+    }
+
+    #[test]
+    fn finish_register_varies_and_is_deterministic() {
+        assert_eq!(
+            AvatarCharacter::for_seed(7).finish,
+            AvatarCharacter::for_seed(7).finish
+        );
+        let (mut bold, mut nat) = (false, false);
+        for s in 0u64..64 {
+            match AvatarCharacter::for_seed(s).finish {
+                FinishRegister::Bold => bold = true,
+                FinishRegister::Naturalistic => nat = true,
+            }
+        }
+        assert!(bold && nat, "finish register collapsed to one variant");
     }
 
     #[test]

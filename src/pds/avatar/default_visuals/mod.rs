@@ -61,14 +61,19 @@ pub fn build_for_seed(seed: u64, did: &str) -> (Generator, LocomotionConfig) {
     (visuals, loco)
 }
 
-/// Coarse per-family mount point (local frame) for the seeded FX aura — the
-/// rough body centre each family reads from.
+/// Diegetic per-family FX mount (root-local frame, *before* the assembler's
+/// yaw/drop). Vehicles author their stern at local -Z, so a rear mount rides
+/// behind the craft once the 180° travel-facing yaw is applied.
 fn fx_mount(family: ChassisFamily) -> [f32; 3] {
     match family {
-        ChassisFamily::Humanoid => [0.0, 1.0, 0.0],
-        ChassisFamily::Boat => [0.0, 0.6, 0.0],
-        ChassisFamily::Airship => [0.0, 0.4, 0.0],
-        ChassisFamily::Skiff => [0.0, 0.4, 0.0],
+        // A tight aura around the torso (chest height), not floating overhead.
+        ChassisFamily::Humanoid => [0.0, 0.45, 0.0],
+        // Stern wake, low and aft.
+        ChassisFamily::Boat => [0.0, 0.1, -0.8],
+        // Vents beneath the slung gondola.
+        ChassisFamily::Airship => [0.0, -1.25, 0.0],
+        // Exhaust at the rear, low to the ground.
+        ChassisFamily::Skiff => [0.0, 0.1, -0.85],
     }
 }
 

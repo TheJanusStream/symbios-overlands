@@ -14,11 +14,15 @@
 //! back a fully-finished material, so the style/wear logic lives in exactly
 //! one place instead of being re-derived per builder.
 
-use crate::pds::texture::SovereignMaterialSettings;
-use crate::pds::types::{Fp, Fp3};
+use bevy_symbios_texture::metal::MetalStyle;
+
+use crate::pds::texture::{
+    SovereignFabricConfig, SovereignMaterialSettings, SovereignMetalConfig, SovereignTextureConfig,
+};
+use crate::pds::types::{Fp, Fp3, Fp64};
 use crate::seeded_defaults::scene::ThemeArchetype;
 
-use super::character::AvatarCharacter;
+use super::character::{AvatarCharacter, FinishRegister};
 
 /// Per-style finish family — the PBR character a style gives its hard
 /// surfaces, plus whether its accents are self-lit. The 23 themes group
@@ -79,6 +83,9 @@ pub struct MaterialKit {
     luminous: bool,
     /// `[0, 1]` continuous wear from the anchor — drives grime + roughness.
     wear: f32,
+    /// Bold finish register — glossier surfaces + stronger glow than the
+    /// naturalistic register (see [`FinishRegister`]).
+    bold: bool,
 }
 
 impl MaterialKit {
@@ -96,6 +103,7 @@ impl MaterialKit {
             family: FinishFamily::for_style(c.style),
             luminous: style_is_luminous(c.style),
             wear: c.wear.clamp(0.0, 1.0),
+            bold: matches!(c.finish, FinishRegister::Bold),
         }
     }
 
@@ -106,10 +114,26 @@ impl MaterialKit {
         self.luminous
     }
 
-    /// Main painted body panel — hull / chassis / envelope / shirt.
+    /// Main painted body panel — hull / chassis / envelope / shirt. Carries a
+    /// generated surface texture so large panels read as brushed metal or
+    /// woven fabric rather than flat paint.
     pub fn body(&self, color: [f32; 3]) -> SovereignMaterialSettings {
         let (metallic, roughness) = self.family.body_pbr();
-        self.finish(color, metallic, roughness)
+        let mut m = self.finish(color, metallic, roughness);
+        let base = m.base_color.0;
+        m.uv_scale = Fp(1.5);
+        m.texture = self.body_texture(base);
+        m
+    }
+
+    /// Generated surface texture for [`Self::body`], chosen by finish family:
+    /// techy / enamel families get a brushed-metal panel, matte / organic
+    /// ones a woven fabric. Toned to the (already grimed) base colour.
+    fn body_texture(&self, base: [f32; 3]) -> SovereignTextureConfig {
+        match self.family {
+            FinishFamily::Metal | FinishFamily::Clean => metal_panel_tex(base, self.wear),
+            FinishFamily::Matte | FinishFamily::Organic => fabric_tex(base, self.wear),
+        }
     }
 
     /// Matte fabric / canvas — clothing, envelope canvas, awnings.
@@ -117,9 +141,13 @@ impl MaterialKit {
         self.finish(color, 0.0, 0.85)
     }
 
-    /// Structural metal — frames, struts, masts.
+    /// Structural metal — frames, struts, masts. Brushed-panel texture.
     pub fn metal(&self, color: [f32; 3]) -> SovereignMaterialSettings {
-        self.finish(color, 0.6, 0.4)
+        let mut m = self.finish(color, 0.6, 0.4);
+        let base = m.base_color.0;
+        m.uv_scale = Fp(1.0);
+        m.texture = metal_panel_tex(base, self.wear);
+        m
     }
 
     /// Polished ornament metal — brass fittings, finials, buckles. Stays
@@ -137,13 +165,14 @@ impl MaterialKit {
     /// still reads as the highlight.
     pub fn accent(&self, color: [f32; 3]) -> SovereignMaterialSettings {
         if self.luminous {
-            // Emissive doesn't grime — a glowing element stays bright.
+            // Emissive doesn't grime — a glowing element stays bright. Bold
+            // pushes the glow harder than the naturalistic register.
             SovereignMaterialSettings {
                 base_color: Fp3(color),
                 metallic: Fp(0.3),
                 roughness: Fp(0.4),
                 emission_color: Fp3(color),
-                emission_strength: Fp(5.0),
+                emission_strength: Fp(if self.bold { 8.0 } else { 4.5 }),
                 ..Default::default()
             }
         } else {
@@ -190,13 +219,57 @@ impl MaterialKit {
     /// surface darkens, desaturates toward its own luma, and roughens.
     fn finish(&self, color: [f32; 3], metallic: f32, roughness: f32) -> SovereignMaterialSettings {
         let grimed = grime(color, self.wear);
+        // Bold reads glossier (more metallic, smoother); Naturalistic softer
+        // and more matte — applied before the wear roughening.
+        let (metal_mul, rough_add) = if self.bold {
+            (1.25, -0.08)
+        } else {
+            (0.85, 0.05)
+        };
         SovereignMaterialSettings {
             base_color: Fp3(grimed),
-            metallic: Fp((metallic * (1.0 - 0.3 * self.wear)).clamp(0.0, 1.0)),
-            roughness: Fp((roughness + 0.15 * self.wear).clamp(0.0, 1.0)),
+            metallic: Fp((metallic * metal_mul * (1.0 - 0.3 * self.wear)).clamp(0.0, 1.0)),
+            roughness: Fp((roughness + rough_add + 0.15 * self.wear).clamp(0.0, 1.0)),
             ..Default::default()
         }
     }
+}
+
+/// Brushed-metal panel texture toned to `base` (already grimed), rustier with
+/// `wear`. Values mirror the catalogue's metal kit so they round-trip the
+/// sanitiser unchanged.
+fn metal_panel_tex(base: [f32; 3], wear: f32) -> SovereignTextureConfig {
+    SovereignTextureConfig::Metal(SovereignMetalConfig {
+        style: MetalStyle::Brushed,
+        color_metal: Fp3(base),
+        color_rust: Fp3([0.30, 0.18, 0.10]),
+        roughness: Fp64(0.45),
+        metallic: Fp(0.7),
+        rust_level: Fp64((0.1 + 0.45 * wear as f64).min(0.9)),
+        ..Default::default()
+    })
+}
+
+/// Woven-fabric surface toned to `base` (warp) with a darker weft, fuzzier
+/// with `wear`.
+fn fabric_tex(base: [f32; 3], wear: f32) -> SovereignTextureConfig {
+    SovereignTextureConfig::Fabric(SovereignFabricConfig {
+        color_warp: Fp3(base),
+        color_weft: Fp3(shade01(base, 0.76)),
+        thread_count: Fp64(22.0),
+        fuzz: Fp64((0.4 + 0.3 * wear as f64).min(1.0)),
+        ..Default::default()
+    })
+}
+
+/// Multiply a colour toward black, clamped to gamut so the result is
+/// sanitiser-stable.
+fn shade01(c: [f32; 3], f: f32) -> [f32; 3] {
+    [
+        (c[0] * f).clamp(0.0, 1.0),
+        (c[1] * f).clamp(0.0, 1.0),
+        (c[2] * f).clamp(0.0, 1.0),
+    ]
 }
 
 /// Darken + desaturate a colour toward grime by `wear` (`0` = untouched).
@@ -283,6 +356,22 @@ mod tests {
         let t = MaterialKit::for_character(&matte).body([0.5, 0.5, 0.5]);
         assert!(m.metallic.0 > t.metallic.0, "metal more metallic");
         assert!(m.roughness.0 < t.roughness.0, "metal smoother");
+    }
+
+    #[test]
+    fn bold_finish_is_glossier_than_naturalistic() {
+        // Same anchor, swap only the finish register: Bold reads more metallic
+        // and smoother than Naturalistic on the same body surface.
+        let mut bold = AvatarCharacter::for_seed(10);
+        bold.style = ThemeArchetype::Medieval;
+        bold.wear = 0.0;
+        bold.finish = FinishRegister::Bold;
+        let mut nat = bold;
+        nat.finish = FinishRegister::Naturalistic;
+        let b = MaterialKit::for_character(&bold).body([0.5, 0.4, 0.3]);
+        let n = MaterialKit::for_character(&nat).body([0.5, 0.4, 0.3]);
+        assert!(b.metallic.0 > n.metallic.0, "bold should be more metallic");
+        assert!(b.roughness.0 < n.roughness.0, "bold should be smoother");
     }
 
     #[test]
