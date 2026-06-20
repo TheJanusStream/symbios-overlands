@@ -97,6 +97,7 @@ pub(crate) fn node_materials_mut(kind: &mut GeneratorKind) -> Vec<&mut Sovereign
         GeneratorKind::LSystem { materials, .. } => materials.values_mut().collect(),
         GeneratorKind::Terrain(_)
         | GeneratorKind::Water { .. }
+        | GeneratorKind::RoadNetwork(_)
         | GeneratorKind::Portal { .. }
         | GeneratorKind::ParticleSystem { .. }
         | GeneratorKind::Unknown => Vec::new(),

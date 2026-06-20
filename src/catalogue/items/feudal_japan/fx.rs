@@ -11,88 +11,19 @@
 //! [`SovereignAudioConfig`] to assign to a node's `audio` field.
 
 use bevy_symbios_audio::{
-    AudioPatch, BiquadBandpass, BiquadLowpass, Connection, Gain, GraphNode, Lfo, LfoShape,
-    NodeGraph, NodeId, NodeKind, SineOsc, WhiteNoise,
+    BiquadBandpass, BiquadLowpass, Connection, Gain, GraphNode, Lfo, LfoShape, NodeId, NodeKind,
+    SineOsc, WhiteNoise,
 };
 
+use crate::catalogue::items::fx::{Emitter, node, patch};
 use crate::pds::{
-    AnimationFrameMode, EmitterShape, Fp, Fp3, Fp4, Generator, GeneratorKind, ParticleBlendMode,
-    SimulationSpace, SovereignAudioConfig, SovereignPetalConfig, SovereignPuffConfig,
-    SovereignTextureConfig, TextureFilter, TransformData,
+    EmitterShape, Fp, Fp3, Generator, ParticleBlendMode, SovereignAudioConfig,
+    SovereignPetalConfig, SovereignPuffConfig, SovereignTextureConfig,
 };
 
 // ---------------------------------------------------------------------------
 // Particle emitters
 // ---------------------------------------------------------------------------
-
-/// The varying parameters of a small ambient emitter; the rest are filled
-/// with shared defaults by [`Emitter::at`].
-struct Emitter {
-    shape: EmitterShape,
-    rate: f32,
-    burst: u32,
-    max: u32,
-    life: (f32, f32),
-    speed: (f32, f32),
-    gravity: f32,
-    accel: [f32; 3],
-    drag: f32,
-    size: (f32, f32),
-    start_color: [f32; 4],
-    end_color: [f32; 4],
-    blend: ParticleBlendMode,
-    sprite: SovereignTextureConfig,
-}
-
-impl Emitter {
-    /// Finish the emitter into a positioned [`Generator`] node, seeded for
-    /// determinism.
-    fn at(self, pos: [f32; 3], seed: u64) -> Generator {
-        Generator {
-            kind: GeneratorKind::ParticleSystem {
-                emitter_shape: self.shape,
-                rate_per_second: Fp(self.rate),
-                burst_count: self.burst,
-                max_particles: self.max,
-                looping: true,
-                duration: Fp(2.0),
-                lifetime_min: Fp(self.life.0),
-                lifetime_max: Fp(self.life.1),
-                speed_min: Fp(self.speed.0),
-                speed_max: Fp(self.speed.1),
-                gravity_multiplier: Fp(self.gravity),
-                acceleration: Fp3(self.accel),
-                linear_drag: Fp(self.drag),
-                start_size: Fp(self.size.0),
-                end_size: Fp(self.size.1),
-                start_color: Fp4(self.start_color),
-                end_color: Fp4(self.end_color),
-                blend_mode: self.blend,
-                billboard: true,
-                simulation_space: SimulationSpace::World,
-                inherit_velocity: Fp(0.0),
-                collide_terrain: false,
-                collide_water: false,
-                collide_colliders: false,
-                bounce: Fp(0.3),
-                friction: Fp(0.5),
-                seed,
-                texture: None,
-                texture_atlas: None,
-                frame_mode: AnimationFrameMode::RandomFrame,
-                texture_filter: TextureFilter::Linear,
-                procedural_texture: self.sprite,
-            },
-            transform: TransformData {
-                translation: Fp3(pos),
-                rotation: Fp4([0.0, 0.0, 0.0, 1.0]),
-                scale: Fp3([1.0, 1.0, 1.0]),
-            },
-            children: Vec::new(),
-            audio: SovereignAudioConfig::None,
-        }
-    }
-}
 
 /// A gentle local fall of cherry petals shed from a structure's eaves —
 /// signature blossom, tighter and closer than the room-wide accent.
@@ -184,14 +115,6 @@ pub(super) fn hearth_smoke(pos: [f32; 3], seed: u64) -> Generator {
 // ---------------------------------------------------------------------------
 // Spatial audio patches
 // ---------------------------------------------------------------------------
-
-fn node(id: u32, kind: NodeKind) -> GraphNode {
-    GraphNode {
-        id: NodeId(id),
-        kind,
-        inputs: std::collections::BTreeMap::new(),
-    }
-}
 
 /// A deep bronze temple-bell ring — a low fundamental and its octave under
 /// a slow tremolo, darkened by a lowpass: the sustained hum of a struck
@@ -302,12 +225,4 @@ pub(super) fn water_basin() -> SovereignAudioConfig {
         inputs: lp_in,
     };
     patch(vec![noise, bp, lfo, vca, lp], NodeId(4))
-}
-
-/// Wrap a node list + output into a mute-defaulted spatial audio config.
-fn patch(nodes: Vec<GraphNode>, output: NodeId) -> SovereignAudioConfig {
-    SovereignAudioConfig::from_patch(&AudioPatch {
-        seed: 0,
-        graph: NodeGraph { nodes, output },
-    })
 }

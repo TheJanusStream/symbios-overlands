@@ -16,6 +16,16 @@
 //! spatial-audio patches from [`fx`] (steam vents, failing-neon sparks,
 //! transformer hum, drone whir, electrical crackle). The theme's magenta
 //! fog accent lives in [`crate::seeded_defaults::room::accent`].
+//!
+//! **Emissive-strength discipline.** With HDR + bloom, a [`super::util::glow`]
+//! surface clips to white once `colour × strength` pushes a channel past
+//! `1.0`, and a *broad face* (a billboard panel, a screen) reaches that
+//! point at a far lower strength than a *thin tube* (a band, an edge strip,
+//! a ring). So the two can't share a value: thin neon trim runs hot
+//! (`~5–9`) — the white-hot core plus a coloured bloom halo is exactly how
+//! a neon tube reads — while broad faces stay moderate (`~1.5–3.5`) so they
+//! read as lit *colour*, not a featureless white lightbox. A framed face
+//! (panel ringed by a hot tube border) gets the best of both.
 
 pub mod arcade_block;
 pub mod cable_arch;
@@ -212,24 +222,6 @@ pub(super) const CONTAINER_RUST: [f32; 3] = [0.45, 0.28, 0.18];
 pub(super) const RUST_BROWN: [f32; 3] = [0.34, 0.22, 0.14];
 pub(super) const TARP_BLUE: [f32; 3] = [0.18, 0.26, 0.42];
 
-/// Walk a built tree and report whether any primitive is strongly
-/// emissive — the shared "did the neon survive?" check for the kit's
-/// tests.
-#[cfg(test)]
-pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
-    use crate::pds::GeneratorKind::*;
-    let own = match &g.kind {
-        Cuboid { material, .. }
-        | Cylinder { material, .. }
-        | Sphere { material, .. }
-        | Cone { material, .. }
-        | Torus { material, .. }
-        | Capsule { material, .. } => material.emission_strength.0 > 1.0,
-        _ => false,
-    };
-    own || g.children.iter().any(has_emissive)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,7 +242,11 @@ mod tests {
         for e in entries {
             let built = e.build("");
             assert_sanitize_stable(&built, e.slug());
-            assert!(has_emissive(&built), "{} lost its neon", e.slug());
+            assert!(
+                crate::catalogue::items::util::has_emissive(&built),
+                "{} lost its neon",
+                e.slug()
+            );
         }
     }
 }

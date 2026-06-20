@@ -7,7 +7,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{CONTAINER_BLUE, CONTAINER_RUST, NEON_LIME, corrugated};
+use super::{CONTAINER_BLUE, CONTAINER_RUST, NEON_CYAN, NEON_LIME, corrugated};
 
 pub struct ContainerStack;
 
@@ -69,6 +69,14 @@ fn build_tree() -> Generator {
         prim(
             cuboid_tapered([0.15, ch * 1.6, 0.15], 0.0, glow(NEON_LIME, 3.0)),
             [1.9, ch * 0.9, 0.0],
+            id_quat(),
+        ),
+        // A small lit porthole on the lower container — a sign the undercity
+        // housing is occupied. Proud of the face so it can't z-fight the
+        // body plane.
+        prim(
+            cuboid_tapered([0.5, 0.5, 0.06], 0.0, glow(NEON_CYAN, 2.0)),
+            [-0.6, ch * 0.55, 1.2],
             id_quat(),
         ),
     ])

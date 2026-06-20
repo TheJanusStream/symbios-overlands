@@ -60,12 +60,18 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    // Sagging tarp roof (gently sloped).
-    prims.push(prim(
-        cuboid_tapered([3.2, 0.06, 3.0], 0.0, tarp(TARP_BLUE)),
-        [0.0, pole_h + 0.05, 0.0],
-        quat_x(0.12),
-    ));
+    // Sagging tarp tented over a centre ridge — two drooping panels meeting
+    // at the top instead of one flat slab, so it reads as draped cloth. The
+    // +Z panel peaks toward the ridge with a positive X-tilt; the -Z panel
+    // mirrors it, the pair overlapping slightly at the crest.
+    let panel_cy = pole_h + 0.15;
+    for sz in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            cuboid_tapered([3.2, 0.05, 1.7], 0.0, tarp(TARP_BLUE)),
+            [0.0, panel_cy, sz * 0.78],
+            quat_x(sz * 0.18),
+        ));
+    }
     // Salvage crate underneath.
     prims.push(prim(
         solid(cuboid_tapered([1.0, 0.9, 0.9], 0.0, rust(RUST_BROWN))),

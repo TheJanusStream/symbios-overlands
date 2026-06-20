@@ -314,6 +314,7 @@ mod tests {
             biome_filter: Default::default(),
             snap_to_terrain: true,
             random_yaw: true,
+            avoid_urban: false,
         }
     }
 

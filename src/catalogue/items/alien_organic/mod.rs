@@ -105,23 +105,6 @@ pub(super) const BIOLUME_CYAN: [f32; 3] = [0.40, 1.0, 0.86];
 pub(super) const BIOLUME_GREEN: [f32; 3] = [0.55, 1.0, 0.45];
 pub(super) const SAC_GLOW: [f32; 3] = [1.0, 0.55, 0.72];
 
-/// Walk a built tree and report whether any primitive is strongly emissive
-/// — the shared "is the biolume still alight?" check for the kit's tests.
-#[cfg(test)]
-pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
-    use crate::pds::GeneratorKind::*;
-    let own = match &g.kind {
-        Cuboid { material, .. }
-        | Cylinder { material, .. }
-        | Sphere { material, .. }
-        | Cone { material, .. }
-        | Torus { material, .. }
-        | Capsule { material, .. } => material.emission_strength.0 > 1.0,
-        _ => false,
-    };
-    own || g.children.iter().any(has_emissive)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,7 +130,7 @@ mod tests {
     #[test]
     fn hive_keeps_its_biolume() {
         assert!(
-            has_emissive(&chitinous_hive::ChitinousHive.build("")),
+            crate::catalogue::items::util::has_emissive(&chitinous_hive::ChitinousHive.build("")),
             "chitinous hive lost its emissive biolume"
         );
     }

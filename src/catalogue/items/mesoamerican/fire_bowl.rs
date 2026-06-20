@@ -110,6 +110,8 @@ mod tests {
 
     #[test]
     fn has_fire() {
-        assert!(super::super::has_emissive(&FireBowl.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &FireBowl.build("")
+        ));
     }
 }

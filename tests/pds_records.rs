@@ -74,6 +74,7 @@ fn default_record_serialises_without_floats() {
         },
         snap_to_terrain: true,
         random_yaw: true,
+        avoid_urban: false,
     });
 
     assert_no_floats(&record);
@@ -159,6 +160,7 @@ fn every_placement_variant_round_trips() {
         },
         snap_to_terrain: true,
         random_yaw: false,
+        avoid_urban: false,
     });
     record.placements.push(Placement::Grid {
         generator_ref: "base_terrain".into(),

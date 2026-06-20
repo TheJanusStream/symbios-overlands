@@ -201,23 +201,6 @@ pub(super) const CONTAINER_RUST: [f32; 3] = [0.50, 0.34, 0.20];
 pub(super) const FLOOD_WHITE: [f32; 3] = [1.0, 0.96, 0.85];
 pub(super) const WINDOW_LIT: [f32; 3] = [0.85, 0.86, 0.70];
 
-/// Walk a built tree and report whether any primitive is strongly emissive
-/// — the shared "are the floodlights on?" check for the kit's tests.
-#[cfg(test)]
-pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
-    use crate::pds::GeneratorKind::*;
-    let own = match &g.kind {
-        Cuboid { material, .. }
-        | Cylinder { material, .. }
-        | Sphere { material, .. }
-        | Cone { material, .. }
-        | Torus { material, .. }
-        | Capsule { material, .. } => material.emission_strength.0 > 1.0,
-        _ => false,
-    };
-    own || g.children.iter().any(has_emissive)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -243,7 +226,7 @@ mod tests {
     #[test]
     fn floodlight_keeps_its_lamps() {
         assert!(
-            has_emissive(&floodlight::Floodlight.build("")),
+            crate::catalogue::items::util::has_emissive(&floodlight::Floodlight.build("")),
             "floodlight lost its emissive lamps"
         );
     }

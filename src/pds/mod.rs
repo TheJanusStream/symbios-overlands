@@ -116,8 +116,8 @@ pub use generator::{
 pub use inventory::{InventoryRecord, fetch_inventory_record, publish_inventory_record};
 pub use prim::PropMeshType;
 pub use room::{
-    Environment, RoomRecord, delete_room_record, fetch_room_record, find_terrain_config,
-    publish_room_record, reset_room_record,
+    Environment, RoomRecord, delete_room_record, fetch_room_record, find_road_config,
+    find_terrain_config, publish_room_record, reset_room_record,
 };
 pub use sanitize::{limits, sanitize_avatar_visuals, sanitize_generator};
 pub use terrain::{

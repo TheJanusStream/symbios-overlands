@@ -36,7 +36,9 @@
 
 mod heightmap;
 mod lifecycle;
+mod lots;
 mod referenced;
+mod roads;
 mod splat;
 
 use bevy::prelude::*;
@@ -137,6 +139,7 @@ impl Plugin for TerrainPlugin {
             .init_resource::<TerrainSplatState>()
             .init_resource::<LastTerrainConfigJson>()
             .init_resource::<PendingTerrainConfigJson>()
+            .init_resource::<roads::RoadFingerprint>()
             // Terrain + texture + mesh spawning runs as conditional Update
             // systems in both Loading and InGame so the same plumbing handles
             // the initial world build *and* in-place regeneration when the
@@ -160,6 +163,21 @@ impl Plugin for TerrainPlugin {
                         resource_exists::<FinishedHeightMap>
                             .and(not(resource_exists::<SplatMaterialHandle>)),
                     ),
+                    // Re-mesh roads from the existing heightmap whenever the
+                    // road config or the heightmap changes — no terrain regen.
+                    // Runs after the terrain task so a fresh heightmap is
+                    // visible the same frame it lands.
+                    roads::maybe_rebuild_roads
+                        .run_if(resource_exists::<LiveRoomRecord>)
+                        .after(heightmap::poll_terrain_task)
+                        .after(heightmap::spawn_terrain_mesh),
+                    // Once the heightmap exists, fill a road-growing room's
+                    // lots with buildings (injected into the live record). Runs
+                    // after the terrain task so it sees the finished surface.
+                    lots::maybe_populate_lots
+                        .run_if(resource_exists::<LiveRoomRecord>)
+                        .after(heightmap::poll_terrain_task)
+                        .after(heightmap::spawn_terrain_mesh),
                 )
                     .run_if(not(in_state(AppState::Login))),
             )

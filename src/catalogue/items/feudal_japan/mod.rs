@@ -256,23 +256,6 @@ pub(super) const THATCH_STRAW: [f32; 3] = [0.60, 0.50, 0.26];
 /// Warm paper-lantern light — the glow inside a stone lantern's light box.
 pub(super) const LANTERN_GLOW: [f32; 3] = [1.0, 0.82, 0.46];
 
-/// Walk a built tree and report whether any primitive is strongly emissive
-/// — the shared "did the lantern light survive?" check for the kit's tests.
-#[cfg(test)]
-pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
-    use crate::pds::GeneratorKind::*;
-    let own = match &g.kind {
-        Cuboid { material, .. }
-        | Cylinder { material, .. }
-        | Sphere { material, .. }
-        | Cone { material, .. }
-        | Torus { material, .. }
-        | Capsule { material, .. } => material.emission_strength.0 > 1.0,
-        _ => false,
-    };
-    own || g.children.iter().any(has_emissive)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,7 +282,7 @@ mod tests {
     #[test]
     fn lantern_keeps_its_light() {
         assert!(
-            has_emissive(&stone_lantern::StoneLantern.build("")),
+            crate::catalogue::items::util::has_emissive(&stone_lantern::StoneLantern.build("")),
             "stone lantern lost its emissive light box"
         );
     }

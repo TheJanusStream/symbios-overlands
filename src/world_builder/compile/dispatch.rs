@@ -167,6 +167,11 @@ pub fn spawn_generator(
                 ctx.placement_index,
             ))
         }
+        // The road network's mesh is built by the terrain plugin from its
+        // config + the finished heightmap (same reason Terrain's own mesh isn't
+        // spawned here — the heightmap is owned upstream). Inert in the compile
+        // dispatch; a misplaced root instance simply produces no roads.
+        GeneratorKind::RoadNetwork(_) => None,
         GeneratorKind::Shape { .. } => {
             // Synthetic cache key matches the L-system convention so a
             // Shape nested at `path=[2,0]` inside a Construct doesn't

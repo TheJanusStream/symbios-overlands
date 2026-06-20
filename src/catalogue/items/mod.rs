@@ -40,6 +40,7 @@ pub mod suburban;
 pub mod tools;
 pub mod wild_west;
 
+pub(crate) mod fx;
 mod util;
 
 #[cfg(test)]
@@ -49,16 +50,39 @@ mod shape_grammar_test;
 /// preserved by the UI for display, so think of this as the
 /// presentation order within each section.
 pub const ENTRIES: &[&dyn CatalogueEntry] = &[
-    // Buildings — architectural entries (shape-grammar and
-    // primitive-built), grouped into per-theme subfolders.
+    // Buildings — Ancient/Classical theme (shape-grammar + primitive). Also
+    // the settlement fallback theme, so it carries the deepest roster.
     &ancient::villa::Villa,
-    &medieval::medieval_castle::MedievalCastle,
-    &medieval::watchtower::Watchtower,
     &ancient::ruined_temple::RuinedTemple,
     &ancient::lighthouse::Lighthouse,
     &ancient::stone_circle::StoneCircle,
     &ancient::ziggurat::Ziggurat,
     &ancient::observatory::Observatory,
+    &ancient::colonnade::Colonnade,
+    &ancient::amphitheatre::Amphitheatre,
+    &ancient::bathhouse::Bathhouse,
+    &ancient::column_drum::ColumnDrum,
+    &ancient::urn::Urn,
+    &ancient::statue_plinth::StatuePlinth,
+    &ancient::brazier::Brazier,
+    // Buildings — Ancient/Classical poor (mudbrick) variants, prosperity Poor.
+    &ancient::mudbrick_hut::MudbrickHut,
+    &ancient::ruined_wall::RuinedWall,
+    // Buildings — Medieval theme (landmark + secondaries + props).
+    &medieval::medieval_castle::MedievalCastle,
+    &medieval::watchtower::Watchtower,
+    &medieval::chapel::Chapel,
+    &medieval::blacksmith::Blacksmith,
+    &medieval::market_hall::MarketHall,
+    &medieval::well_house::WellHouse,
+    &medieval::handcart::Handcart,
+    &medieval::barrel_stack::BarrelStack,
+    &medieval::trade_stall::TradeStall,
+    &medieval::banner_pole::BannerPole,
+    // Buildings — Medieval poor (cottar) variants, prosperity Poor.
+    &medieval::wattle_hovel::WattleHovel,
+    &medieval::lean_to::LeanTo,
+    &medieval::kindling_pile::KindlingPile,
     // Buildings — Cyberpunk theme (landmark + secondaries + props).
     &cyberpunk::neon_megatower::NeonMegatower,
     &cyberpunk::data_spire::DataSpire,
@@ -372,6 +396,12 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &plants::lsys_sympodial_tree::SympodialTree,
     &plants::lsys_ternary_gravity::TernaryGravityTree,
     &plants::lsys_ternary_props::TernaryPropsTree,
+    // Plants — biome-specific species (epic #458 biome overhaul).
+    &plants::lsys_cactus::Cactus,
+    &plants::lsys_dead_shrub::DeadShrub,
+    &plants::lsys_palm::Palm,
+    &plants::lsys_mangrove::Mangrove,
+    &plants::lsys_acacia::Acacia,
     // Patterns — abstract L-system / ABOP demos.
     &patterns::lsys_branching::BranchingPattern,
     &patterns::lsys_koch_island::QuadraticKochIsland,
@@ -430,26 +460,30 @@ mod tests {
     }
 
     #[test]
-    fn categories_unchanged_after_role_migration() {
-        use crate::catalogue::CatalogueCategory::*;
-        let count = |c| ENTRIES.iter().filter(|e| e.category() == c).count();
-        // Deriving category() from role() must keep every entry in its
-        // expected section. 8 ancient/medieval + 8 cyberpunk + 5 cyberpunk
-        // poor + 8 nordic + 3 nordic poor + 8 feudal japan + 3 feudal japan
-        // poor + 8 mesoamerican + 3 mesoamerican poor + 8 modern city + 3
-        // modern city poor + 8 suburban + 3 suburban poor + 9 rural farmland
-        // + 3 rural farmland poor + 8 industrial park + 3 industrial park poor
-        // + 9 coastal resort + 3 coastal resort poor + 9 roadside + 3 roadside
-        // poor + 9 civic campus + 3 civic campus poor + 9 sports rec + 3 sports
-        // rec poor + 9 steampunk + 3 steampunk poor + 9 solarpunk + 3 solarpunk
-        // poor + 9 space outpost + 3 space outpost poor + 9 fantasy + 3 fantasy
-        // poor + 9 gothic horror + 3 gothic horror poor + 9 alien organic + 3
-        // alien organic poor + 9 alien monolithic + 3 alien monolithic poor + 9
-        // post-apoc + 3 post-apoc poor + 9 wild west + 3 wild west poor + 16
-        // civic cross-theme props = 271 buildings.
-        assert_eq!(count(Buildings), 271);
-        assert_eq!(count(Plants), 4);
-        assert_eq!(count(Patterns), 3);
-        assert_eq!(count(Tools), 1);
+    fn category_is_the_role_derived_section_for_every_entry() {
+        use crate::catalogue::CatalogueCategory;
+        // category() must stay a pure view of role(): every shipped entry sits
+        // in the section its role maps to, so the catalogue UI grouping and the
+        // settlement taxonomy can't drift. Checked against the registry itself
+        // rather than a hand-summed per-theme building total that every
+        // catalogue addition had to re-tally.
+        for e in ENTRIES {
+            assert_eq!(
+                e.category(),
+                e.role().category(),
+                "entry {} reports a section that isn't its role's — category() \
+                 has drifted from role()",
+                e.slug()
+            );
+        }
+        // The four sections partition the registry with no empties: a section
+        // that lost all its content would be a silent regression a per-entry
+        // check alone can't catch.
+        for section in CatalogueCategory::ALL {
+            assert!(
+                ENTRIES.iter().any(|e| e.category() == section),
+                "section {section:?} is empty"
+            );
+        }
     }
 }

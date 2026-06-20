@@ -677,6 +677,7 @@ fn step_unit(
                 count,
                 biome_filter,
                 random_yaw,
+                avoid_urban,
                 ..
             },
             CursorKind::Scatter {
@@ -689,6 +690,16 @@ fn step_unit(
             let terrain_cfg = crate::pds::find_terrain_config(ctx.record);
             let max_attempts = count.saturating_mul(10).max(*count);
 
+            // Squared radius of the road-network district to keep wild scatter
+            // out of (bounds are spawn-centred, so a point's distance from
+            // spawn is just its magnitude). `None` unless this scatter opts in
+            // and the room actually has an enabled road network.
+            let urban_exclusion_r2 = (*avoid_urban)
+                .then(|| crate::pds::find_road_config(ctx.record))
+                .flatten()
+                .filter(|c| c.enabled)
+                .map(|c| c.district_half_extent.0 * c.district_half_extent.0);
+
             while *spawned < *count && *attempts < max_attempts {
                 if budget_exceeded(*ctx.entities_spawned, ctx.budget_warned) {
                     return StepOutcome::Done;
@@ -698,6 +709,14 @@ fn step_unit(
                 }
                 *attempts += 1;
                 let (world_x, world_z) = sample_bounds(bounds, rng);
+
+                // Skip points inside the road-network district so wild scatter
+                // doesn't intersect the built-up urban area (roads + lots).
+                if let Some(r2) = urban_exclusion_r2
+                    && world_x * world_x + world_z * world_z < r2
+                {
+                    continue;
+                }
 
                 let (world_y, keep) = if let Some(hm_res) = ctx.heightmap {
                     let hm = &hm_res.0;

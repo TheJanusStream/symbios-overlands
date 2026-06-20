@@ -181,6 +181,8 @@ mod tests {
 
     #[test]
     fn has_stained_glow() {
-        assert!(super::super::has_emissive(&Cathedral.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &Cathedral.build("")
+        ));
     }
 }

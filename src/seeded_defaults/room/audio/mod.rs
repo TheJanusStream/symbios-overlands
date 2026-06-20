@@ -42,8 +42,11 @@ const AUDIO_STREAM_SALT: u64 = 0xAD17_BEEF_C0DE_AC1D;
 /// reverb states to reach steady level so the loop never replays the
 /// cold-start fade-in.
 pub(super) const WARMUP_BEATS: f32 = 2.0;
-/// Length of the looped region (= seconds at 60 BPM).
-pub(super) const LOOP_BEATS: f32 = 16.0;
+/// Length of the looped region (= seconds at 60 BPM). A longer loop
+/// (#459) so the ambient music doesn't read as a fast tile; the melody
+/// fills it with A/B phrase variation + rests and a low pad layer, and
+/// every LFO rate stays whole-cycles-per-loop by construction.
+pub(super) const LOOP_BEATS: f32 = 32.0;
 /// Tail-crossfade window blending the timeline end into the loop start.
 pub(super) const CROSSFADE_BEATS: f32 = 2.0;
 
@@ -61,8 +64,9 @@ impl AmbientRecipe {
         // Biome texture first — it derives the shared acoustic space.
         let (params, mut instruments, mut tracks) = bed::build_texture(scene, &mut rng, room_seed);
         // Biome punctuation (the natural signature voice) then theme music
-        // (the melody) — both reuse the bed's reverb space. Order fixes the
-        // layer indices at [bed, gust, punct, melody].
+        // (the melody) then the theme bass pad — all reuse the bed's reverb
+        // space. Order fixes the layer indices at
+        // [bed, gust, punct, melody, bass].
         let (punct_instrument, punct_track) =
             punctuation::build(scene, &params, &mut rng, room_seed);
         instruments.push(punct_instrument);
@@ -71,9 +75,16 @@ impl AmbientRecipe {
             theme_music::build(scene, &params, &mut rng, room_seed);
         instruments.push(theme_instrument);
         tracks.push(theme_track);
-        // Conflict-only tension siren (gated): a fifth layer appears only
+        // Low pad / drone second theme voice (#459) — always present so the
+        // longer loop reads layered, with seeded voicing. Index 4.
+        let (bass_instrument, bass_track) =
+            theme_music::build_bass(scene, &params, &mut rng, room_seed);
+        instruments.push(bass_instrument);
+        tracks.push(bass_track);
+        // Conflict-only tension siren (gated): an extra layer appears only
         // when escalation reaches Conflict, so calm/tense rooms keep the
-        // four-layer recipe. Pushed last so the theme melody stays index 3.
+        // five-layer recipe. Pushed last (index 5) so the theme voices keep
+        // indices 3 (melody) and 4 (bass).
         if let Some((tension_instrument, tension_track)) =
             tension::build(scene, &params, &mut rng, room_seed)
         {
@@ -124,7 +135,7 @@ mod tests {
         let mut scene = SceneCharacter::for_seed(3);
         scene.escalation = 0.0;
         let recipe = AmbientRecipe::from_scene(&scene, 3).recipe;
-        assert_eq!(recipe.instruments.len(), 4);
+        assert_eq!(recipe.instruments.len(), 5);
         let ids: Vec<&str> = recipe.instruments.iter().map(|i| i.id.as_str()).collect();
         assert!(ids.contains(&"ambient_bed"), "missing biome texture bed");
         assert!(ids.contains(&"gust_swell"), "missing biome texture gust");
@@ -138,20 +149,25 @@ mod tests {
             recipe.instruments[3].id.starts_with("theme_"),
             "missing theme music voice"
         );
+        // Theme bass pad is index 4 (#459).
+        assert_eq!(
+            recipe.instruments[4].id, "theme_bass",
+            "missing theme bass pad"
+        );
     }
 
     #[test]
-    fn deterministic_four_layer_recipe() {
+    fn deterministic_five_layer_recipe() {
         let mut scene = SceneCharacter::for_seed(9);
-        scene.escalation = 0.0; // peaceful: exactly the four base layers
+        scene.escalation = 0.0; // peaceful: exactly the five base layers
         let a = AmbientRecipe::from_scene(&scene, 9);
         let b = AmbientRecipe::from_scene(&scene, 9);
         assert_eq!(
             a.recipe.instruments.len(),
-            4,
-            "bed + gust + punctuation + theme melody"
+            5,
+            "bed + gust + punctuation + theme melody + theme bass"
         );
-        assert_eq!(a.recipe.tracks.len(), 4);
+        assert_eq!(a.recipe.tracks.len(), 5);
         let ev_a = &a.recipe.tracks[3].events;
         let ev_b = &b.recipe.tracks[3].events;
         assert_eq!(ev_a.len(), ev_b.len());
@@ -163,25 +179,27 @@ mod tests {
     }
 
     #[test]
-    fn conflict_room_adds_a_fifth_tension_layer() {
+    fn conflict_room_adds_a_sixth_tension_layer() {
         use super::tension::TENSION_INSTRUMENT_ID;
-        // A conflict room grows a fifth siren layer; a calm room of the same
-        // seed keeps the four base layers.
+        // A conflict room grows a siren layer on top of the five base layers;
+        // a calm room of the same seed keeps the five base layers.
         let mut war = SceneCharacter::for_seed(2);
         war.escalation = 0.95;
         let war_recipe = AmbientRecipe::from_scene(&war, 2).recipe;
-        assert_eq!(war_recipe.instruments.len(), 5, "conflict adds the siren");
-        assert_eq!(war_recipe.instruments[4].id, TENSION_INSTRUMENT_ID);
-        assert_eq!(war_recipe.tracks.len(), 5);
-        // The theme melody is still index 3 — the siren appends after it.
+        assert_eq!(war_recipe.instruments.len(), 6, "conflict adds the siren");
+        assert_eq!(war_recipe.instruments[5].id, TENSION_INSTRUMENT_ID);
+        assert_eq!(war_recipe.tracks.len(), 6);
+        // The theme melody is still index 3 and the bass index 4 — the siren
+        // appends after them.
         assert!(war_recipe.instruments[3].id.starts_with("theme_"));
+        assert_eq!(war_recipe.instruments[4].id, "theme_bass");
 
         let mut calm = SceneCharacter::for_seed(2);
         calm.escalation = 0.0;
         assert_eq!(
             AmbientRecipe::from_scene(&calm, 2).recipe.instruments.len(),
-            4,
-            "calm room keeps the four base layers"
+            5,
+            "calm room keeps the five base layers"
         );
     }
 
@@ -227,8 +245,8 @@ mod tests {
             let melody = &recipe.tracks[3].events;
             assert!(!melody.is_empty(), "every room gets a melodic voice");
             // Sparse voices are a few notes; arpeggios are denser but
-            // still bounded.
-            assert!(melody.len() <= 20);
+            // still bounded by MAX_NOTES even on the long loop.
+            assert!(melody.len() <= 40, "melody {} over MAX_NOTES", melody.len());
             for e in melody {
                 // Never in the play-once warm-up run-up.
                 assert!(e.time_beats >= WARMUP_BEATS);
@@ -249,6 +267,42 @@ mod tests {
                 assert!(pair[0].time_beats <= pair[1].time_beats);
             }
         }
+    }
+
+    #[test]
+    fn longer_loop_is_filled_with_phrases_and_a_bass_pad() {
+        // #459: the loop is lengthened, and the melody phrases + a low bass
+        // pad fill it rather than tiling the first 16 s.
+        const { assert!(LOOP_BEATS >= 32.0, "loop region lengthened") };
+        let mut melody_reaches_second_half = false;
+        for s in 0u64..24 {
+            let mut scene = SceneCharacter::for_seed(s);
+            scene.escalation = 0.0;
+            let recipe = AmbientRecipe::from_scene(&scene, s).recipe;
+            // Bass pad is index 4: present, under the bed, inside the loop.
+            let bass = &recipe.tracks[4].events;
+            assert!(!bass.is_empty(), "seed {s}: bass pad present");
+            for e in bass {
+                assert!(e.volume <= 0.12, "bass stays under the bed");
+                assert!(e.time_beats >= WARMUP_BEATS);
+                assert!(
+                    e.time_beats + e.gate_beats + e.release_beats
+                        <= recipe.duration_beats + recipe.loop_crossfade_beats + 1e-3,
+                    "bass tail exceeds the crossfade overhang"
+                );
+            }
+            if recipe.tracks[3]
+                .events
+                .iter()
+                .any(|e| e.time_beats > WARMUP_BEATS + LOOP_BEATS * 0.5)
+            {
+                melody_reaches_second_half = true;
+            }
+        }
+        assert!(
+            melody_reaches_second_half,
+            "some room's melody should reach the loop's second half"
+        );
     }
 
     #[test]

@@ -163,6 +163,8 @@ mod tests {
 
     #[test]
     fn has_firelight() {
-        assert!(super::super::has_emissive(&SignalBeacon.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &SignalBeacon.build("")
+        ));
     }
 }

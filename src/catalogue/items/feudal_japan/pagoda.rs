@@ -162,6 +162,8 @@ mod tests {
 
     #[test]
     fn has_gold_finial() {
-        assert!(super::super::has_emissive(&Pagoda.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &Pagoda.build("")
+        ));
     }
 }

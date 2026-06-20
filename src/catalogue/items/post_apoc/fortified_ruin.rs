@@ -180,6 +180,8 @@ mod tests {
 
     #[test]
     fn has_fire_and_worklight() {
-        assert!(super::super::has_emissive(&FortifiedRuin.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &FortifiedRuin.build("")
+        ));
     }
 }

@@ -1,25 +1,32 @@
-//! Full-fantasy palette derivation for a DID-seeded room.
+//! DID-seeded room palette derivation.
 //!
 //! Produces every colour the room consumes (terrain biomes, water, sky,
-//! fog, sun, clouds) by sampling freely across the OkLCH gamut.
-//! Biome identity no longer pins channels to "earthly" hues — a tundra
-//! room can read as cyan glass, a lush room as magenta meadows — so
-//! every fresh DID feels like its own planet rather than a variation
-//! on the same Earth.
+//! fog, sun, clouds) by sampling the OkLCH gamut, coherently anchored to the
+//! [`SceneCharacter`]: every channel's hue is sampled relative to
+//! `base_hue_deg`, with chroma biased by `temperature`.
 //!
-//! Coherence is provided by the [`SceneCharacter`] anchor: every
-//! channel's hue is sampled relative to `base_hue_deg`, with chroma
-//! biased by `temperature` (warm bias floors saturation up, cool bias
-//! lets cooler tints stay muted). The role of each channel —
-//! "vegetation", "water", "snow", "rock" — still constrains *lightness*
-//! so the splat layers read in the expected order (snow brighter than
-//! rock, moist grass darker than dry, etc.), but hue and chroma roam.
+//! **The distribution favours realism.** Chroma offsets are low-biased and
+//! hue jitter is centre-biased (see [`chroma_span`] / [`jitter`]), so the
+//! *typical* room reads naturalistic — muted, with each channel near its
+//! anchor — while vivid, wildly-divergent "own planet" palettes (cyan tundra,
+//! magenta meadows) still occur, just as the rare tail rather than the
+//! average. Role still constrains *lightness* so the splat layers read in the
+//! expected order (snow brighter than rock, moist grass darker than dry, etc.);
+//! hue and chroma roam, but gently by default.
+//!
+//! **Signature-biome coupling.** Three biomes whose colour *is* their
+//! identity — Volcanic (lava red), Jungle (vivid green), Glacial (ice blue) —
+//! get a small, bounded nudge toward that signature *after* the roam (see
+//! [`biome_palette_bias`] / [`SIGNATURE_COUPLING`]). It leans hue + lifts
+//! chroma on the relevant channels only, never lightness, so it reads as a
+//! lean rather than a lock — the roamed palette still shows through, and every
+//! other biome stays pure roam.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
-use crate::seeded_defaults::oklch::{oklch_to_srgb, wrap_hue_deg};
-use crate::seeded_defaults::scene::{SceneCharacter, range_f32};
+use crate::seeded_defaults::oklch::{oklch_to_srgb, srgb_to_oklch, wrap_hue_deg};
+use crate::seeded_defaults::scene::{BiomeArchetype, SceneCharacter, range_f32, unit_f32};
 
 /// Sub-stream salt for the palette RNG, distinct from other derivers
 /// so each (terrain shape, atmosphere, textures) advances its own RNG
@@ -30,7 +37,7 @@ const PALETTE_STREAM_SALT: u64 = 0xC010_C010_C010_C010;
 /// Fully-derived room palette. Every field is sRGB in `[0, 1]`, ready
 /// to drop into a `Color::srgb*` constructor or an `Fp3`/`Fp4` PDS
 /// record field.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RoomPalette {
     // -- Lighting / sky / fog --
     pub sun_color: [f32; 3],
@@ -78,7 +85,12 @@ impl RoomPalette {
     /// state with the palette.
     pub fn from_scene(scene: &SceneCharacter, room_seed: u64) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(room_seed ^ PALETTE_STREAM_SALT);
-        derive(scene, &mut rng)
+        let palette = derive(scene, &mut rng);
+        // Gentle, bounded coupling toward a signature-biome chroma (#499) —
+        // layered *after* the hue-roam so Volcanic/Jungle/Glacial read on-
+        // signature without losing their "own planet" individuality; a no-op
+        // for every other biome.
+        biome_palette_bias(palette, scene.biome)
     }
 }
 
@@ -94,10 +106,22 @@ fn col4(rgb: [f32; 3], a: f32) -> [f32; 4] {
     [rgb[0], rgb[1], rgb[2], a]
 }
 
-/// Symmetric jitter helper: `±span` around the centre with a
-/// `range_f32` draw. Keeps deriver code visually compact.
+/// Centre-biased symmetric jitter: `±span`, but the magnitude is squared so
+/// most draws pull toward `0` — a channel usually stays near its anchor
+/// (coherent, naturalistic) and only the rare tail diverges the full `span`.
+/// Consumes one draw, like a plain uniform jitter, so the palette stays
+/// deterministic and the RNG stream is byte-identical in length.
 fn jitter(rng: &mut ChaCha8Rng, span: f32) -> f32 {
-    range_f32(rng, -span, span)
+    let u = range_f32(rng, -1.0, 1.0);
+    u * u.abs() * span
+}
+
+/// Low-biased `[lo, hi)` chroma offset: squares a uniform draw so most rooms
+/// land near `lo` (muted, naturalistic) and only the rare tail reaches `hi`
+/// (vivid). One draw, like [`range_f32`] — deterministic and stream-stable.
+fn chroma_span(rng: &mut ChaCha8Rng, lo: f32, hi: f32) -> f32 {
+    let u = unit_f32(rng);
+    lo + u * u * (hi - lo)
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +130,13 @@ fn jitter(rng: &mut ChaCha8Rng, span: f32) -> f32 {
 
 fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     let base_hue = scene.base_hue_deg;
-    let temp = scene.temperature; // -1 cool ↔ +1 warm
+    // Centre-bias the warm/cool cast toward neutral so a strong colour cast is
+    // the rare tail, not the average room. Local to colour — the scene axis
+    // itself (read by audio, etc.) is unchanged.
+    let temp = {
+        let t = scene.temperature; // -1 cool ↔ +1 warm
+        t * t.abs()
+    };
     let tod = scene.time_of_day_bias.abs(); // proximity to horizon, 0..1
 
     // Hue "axes" rooted at base_hue: each role samples its own absolute
@@ -122,8 +152,9 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     let dirt_hue = vegetation_hue + jitter(rng, 90.0);
 
     // Warm temperatures lift saturation across every channel; cool
-    // temperatures let it drop low. Centre stays high (this is fantasy
-    // mode — most rooms read saturated).
+    // temperatures let it drop low. With the centre-biased `temp` above, the
+    // floor sits low for most rooms — the naturalistic default — and only a
+    // strongly-warm room lifts it.
     let chroma_floor = 0.06 + temp.max(0.0) * 0.04;
 
     // ---------------- SUN ----------------
@@ -135,7 +166,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     // and terrain stay byte-identical for a given seed.
     let _sun_drift = col(
         lerp(0.95, 0.86, tod) + jitter(rng, 0.04),
-        chroma_floor + range_f32(rng, 0.02, 0.14),
+        chroma_floor + chroma_span(rng, 0.02, 0.14),
         base_hue + 30.0 + jitter(rng, 220.0),
     );
 
@@ -145,7 +176,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     // dimmer than noon.
     let sky_color = col(
         lerp(0.78, 0.55, tod) + jitter(rng, 0.06),
-        chroma_floor + range_f32(rng, 0.04, 0.18),
+        chroma_floor + chroma_span(rng, 0.04, 0.18),
         sky_hue,
     );
 
@@ -153,7 +184,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     // Fog is the most visible atmosphere channel; lean its hue toward
     // the sky (rooms read coherently) but allow a healthy wander.
     let fog_hue = sky_hue + jitter(rng, 60.0);
-    let fog_chroma = chroma_floor + range_f32(rng, 0.04, 0.18);
+    let fog_chroma = chroma_floor + chroma_span(rng, 0.04, 0.18);
     let fog_l = lerp(0.62, 0.50, tod);
     let fog_rgb = col(fog_l + jitter(rng, 0.06), fog_chroma, fog_hue);
     let fog_color = col4(fog_rgb, 1.0);
@@ -176,7 +207,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     // fantasy mode this can be any colour the deriver lands on.
     let fog_sun_rgb = col(
         0.88 + jitter(rng, 0.06),
-        chroma_floor + range_f32(rng, 0.04, 0.20),
+        chroma_floor + chroma_span(rng, 0.04, 0.20),
         base_hue + jitter(rng, 180.0),
     );
     let fog_sun_color = col4(fog_sun_rgb, 0.5);
@@ -190,19 +221,19 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     // a magenta cloud against a green sky is fair game.
     let cloud_sunlit = col(
         0.93 + jitter(rng, 0.04),
-        chroma_floor + range_f32(rng, 0.02, 0.12),
+        chroma_floor + chroma_span(rng, 0.02, 0.12),
         base_hue + jitter(rng, 180.0),
     );
     let cloud_shadow = col(
         0.55 + jitter(rng, 0.06),
-        chroma_floor + range_f32(rng, 0.02, 0.14),
+        chroma_floor + chroma_span(rng, 0.02, 0.14),
         sky_hue + jitter(rng, 90.0),
     );
 
     // ---------------- WATER ----------------
     // Per-volume colours: shallow (head-on) low-alpha, deep (grazing)
     // high-alpha. Both at the water hue, perturbed independently.
-    let water_chroma = chroma_floor + range_f32(rng, 0.06, 0.22);
+    let water_chroma = chroma_floor + chroma_span(rng, 0.06, 0.22);
     let water_shallow_rgb = col(
         range_f32(rng, 0.48, 0.65),
         water_chroma + jitter(rng, 0.03),
@@ -229,7 +260,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     // Vegetation: any-hue grass with high chroma. Moist is darker than
     // dry so the splat blend still reads the right way; hue stays
     // anchored to `vegetation_hue` (the deriver picked one above).
-    let grass_chroma = chroma_floor + range_f32(rng, 0.06, 0.22);
+    let grass_chroma = chroma_floor + chroma_span(rng, 0.06, 0.22);
     let grass_dry = col(
         range_f32(rng, 0.18, 0.32),
         grass_chroma,
@@ -241,7 +272,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
         vegetation_hue + jitter(rng, 20.0),
     );
 
-    let dirt_chroma = chroma_floor + range_f32(rng, 0.06, 0.20);
+    let dirt_chroma = chroma_floor + chroma_span(rng, 0.06, 0.20);
     let dirt_dry = col(
         range_f32(rng, 0.40, 0.55),
         dirt_chroma,
@@ -258,7 +289,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     // the deriver picked for `rock_hue`. `rock_gap` lifts the chroma
     // (the crack often reads more colourful than the face) and drops
     // lightness so the ridged-multifractal seam still looks like shadow.
-    let rock_chroma = chroma_floor + range_f32(rng, 0.02, 0.14);
+    let rock_chroma = chroma_floor + chroma_span(rng, 0.02, 0.14);
     let rock_stone = col(
         range_f32(rng, 0.40, 0.58),
         rock_chroma,
@@ -266,14 +297,14 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     );
     let rock_gap = col(
         range_f32(rng, 0.06, 0.20),
-        rock_chroma + range_f32(rng, 0.02, 0.10),
+        rock_chroma + chroma_span(rng, 0.02, 0.10),
         rock_hue + jitter(rng, 40.0),
     );
 
     // Snow: bright and pale on average, but in fantasy mode it can be
     // a bold tint (pink ice, cyan frost). Stays the brightest layer so
     // the snow line still reads as snow against the rock face.
-    let snow_chroma = chroma_floor + range_f32(rng, 0.01, 0.16);
+    let snow_chroma = chroma_floor + chroma_span(rng, 0.01, 0.16);
     let snow_dry = col(
         range_f32(rng, 0.88, 0.97),
         snow_chroma * 0.5,
@@ -313,6 +344,105 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
 /// upstream callers.
 fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t.clamp(0.0, 1.0)
+}
+
+// ---------------------------------------------------------------------------
+// Signature-biome chroma coupling (#499)
+// ---------------------------------------------------------------------------
+
+/// Master dial for the signature-biome coupling, `0.0..=1.0`. `0.0` restores
+/// the pure hue-roam (no coupling at all); `1.0` applies the per-channel
+/// nudges below at full strength. Scales every hue lean + chroma lift, so this
+/// is the one knob to turn if the coupling reads too strong / too weak in-app.
+const SIGNATURE_COUPLING: f32 = 1.0;
+
+// Signature target hues, in OkLCH degrees (red ≈ 30, orange ≈ 55, green ≈ 145,
+// ice-blue ≈ 235).
+const HUE_LAVA: f32 = 38.0;
+const HUE_EMBER: f32 = 30.0;
+const HUE_SCORCH: f32 = 58.0;
+const HUE_FOLIAGE: f32 = 145.0;
+const HUE_ICE: f32 = 235.0;
+
+/// Move `from` toward `to` along the shortest arc of the hue circle by
+/// fraction `t` (`0` = unchanged, `1` = exactly `to`); result wrapped to
+/// `[0, 360)`.
+fn nudge_hue(from: f32, to: f32, t: f32) -> f32 {
+    let from = wrap_hue_deg(from);
+    let mut delta = wrap_hue_deg(to) - from;
+    if delta > 180.0 {
+        delta -= 360.0;
+    } else if delta < -180.0 {
+        delta += 360.0;
+    }
+    wrap_hue_deg(from + delta * t.clamp(0.0, 1.0))
+}
+
+/// Lean an sRGB colour a bounded fraction `hue_t` toward `target_hue` (OkLCH,
+/// shortest arc) and add `chroma_boost`, leaving **lightness untouched** so
+/// the splat lightness ordering (and the snow/rock read) survives. Both the
+/// lean and the boost are scaled by [`SIGNATURE_COUPLING`]; the OkLCH→sRGB
+/// conversion clamps back into gamut.
+fn lean(rgb: [f32; 3], target_hue: f32, hue_t: f32, chroma_boost: f32) -> [f32; 3] {
+    let [l, c, h] = srgb_to_oklch(rgb);
+    let h2 = nudge_hue(h, target_hue, hue_t * SIGNATURE_COUPLING);
+    let c2 = (c + chroma_boost * SIGNATURE_COUPLING).max(0.0);
+    oklch_to_srgb([l, c2, h2])
+}
+
+/// [`lean`] for an RGBA channel — biases the colour, preserves the alpha.
+fn lean4(rgba: [f32; 4], target_hue: f32, hue_t: f32, chroma_boost: f32) -> [f32; 4] {
+    let [r, g, b] = lean([rgba[0], rgba[1], rgba[2]], target_hue, hue_t, chroma_boost);
+    [r, g, b, rgba[3]]
+}
+
+/// Bounded post-roam nudge toward a biome's signature colour, for the three
+/// biomes whose identity *is* their colour. Leans the relevant channels' hue
+/// toward the signature and lifts their chroma; lightness is never touched, so
+/// it is a lean, not a lock. Every other biome is returned unchanged — the
+/// pure "own planet" roam. Deterministic (no RNG).
+fn biome_palette_bias(mut p: RoomPalette, biome: BiomeArchetype) -> RoomPalette {
+    match biome {
+        // Lava red: the rock face + crack glow toward ember, the ground runs
+        // warm-scorched, and the haze picks up a faint warm cast.
+        BiomeArchetype::Volcanic => {
+            p.rock_stone = lean(p.rock_stone, HUE_LAVA, 0.45, 0.04);
+            p.rock_gap = lean(p.rock_gap, HUE_EMBER, 0.55, 0.05);
+            p.dirt_dry = lean(p.dirt_dry, HUE_LAVA, 0.40, 0.03);
+            p.dirt_moist = lean(p.dirt_moist, HUE_LAVA, 0.40, 0.03);
+            p.grass_dry = lean(p.grass_dry, HUE_SCORCH, 0.30, 0.0);
+            p.grass_moist = lean(p.grass_moist, HUE_SCORCH, 0.30, 0.0);
+            p.fog_color = lean4(p.fog_color, HUE_LAVA, 0.22, 0.02);
+        }
+        // Vivid green: the vegetation leans hard to foliage with lifted
+        // chroma (gentler on the dark moist layer, whose gamut is tighter);
+        // soil leans a touch loamy-green and the haze reads humid.
+        BiomeArchetype::Jungle => {
+            p.grass_dry = lean(p.grass_dry, HUE_FOLIAGE, 0.50, 0.06);
+            p.grass_moist = lean(p.grass_moist, HUE_FOLIAGE, 0.50, 0.04);
+            p.dirt_dry = lean(p.dirt_dry, HUE_FOLIAGE, 0.22, 0.0);
+            p.dirt_moist = lean(p.dirt_moist, HUE_FOLIAGE, 0.22, 0.0);
+            p.fog_color = lean4(p.fog_color, HUE_FOLIAGE, 0.20, 0.02);
+        }
+        // Ice blue: snow, water and rock cool toward ice; sky + haze chill to
+        // match. Hue lean carries the signature — chroma is *not* boosted on
+        // the blue channels (their gamut is tight, so a lift only clamps and
+        // skews the hue), bar a faint tint on the near-white snow.
+        BiomeArchetype::Glacial => {
+            p.snow_dry = lean(p.snow_dry, HUE_ICE, 0.40, 0.02);
+            p.snow_moist = lean(p.snow_moist, HUE_ICE, 0.40, 0.03);
+            p.water_shallow = lean4(p.water_shallow, HUE_ICE, 0.45, 0.0);
+            p.water_deep = lean4(p.water_deep, HUE_ICE, 0.45, 0.0);
+            p.water_scatter = lean(p.water_scatter, HUE_ICE, 0.45, 0.0);
+            p.rock_stone = lean(p.rock_stone, HUE_ICE, 0.30, 0.0);
+            p.rock_gap = lean(p.rock_gap, HUE_ICE, 0.30, 0.0);
+            p.sky_color = lean(p.sky_color, HUE_ICE, 0.30, 0.0);
+            p.fog_color = lean4(p.fog_color, HUE_ICE, 0.30, 0.01);
+        }
+        // Every other biome keeps the pure hue-roam.
+        _ => {}
+    }
+    p
 }
 
 #[cfg(test)]
@@ -425,5 +555,91 @@ mod tests {
             moist_lum < dry_lum,
             "moist grass should average darker than dry (moist={moist_lum} dry={dry_lum})"
         );
+    }
+
+    fn hue_dist(a: f32, b: f32) -> f32 {
+        let d = (wrap_hue_deg(a) - wrap_hue_deg(b)).abs();
+        d.min(360.0 - d)
+    }
+
+    /// The signature coupling is a no-op for every non-signature biome — those
+    /// keep the pure hue-roam, byte-identical to the unbiased derive.
+    #[test]
+    fn bias_is_identity_for_non_signature_biomes() {
+        for biome in BiomeArchetype::ALL {
+            if matches!(
+                biome,
+                BiomeArchetype::Volcanic | BiomeArchetype::Jungle | BiomeArchetype::Glacial
+            ) {
+                continue;
+            }
+            for s in 0u64..6 {
+                let mut scene = SceneCharacter::for_seed(s);
+                scene.biome = biome;
+                let mut rng = ChaCha8Rng::seed_from_u64(s ^ PALETTE_STREAM_SALT);
+                let base = derive(&scene, &mut rng);
+                assert_eq!(
+                    base.clone(),
+                    biome_palette_bias(base, biome),
+                    "{biome:?} must stay pure roam"
+                );
+            }
+        }
+    }
+
+    /// The `lean` primitive moves hue toward the target along the shortest arc
+    /// and leaves lightness untouched (so the splat ordering survives). Tested
+    /// on a low-chroma in-gamut sample so no clamp distorts the round trip.
+    #[test]
+    fn lean_moves_hue_toward_target_and_preserves_lightness() {
+        let base = col(0.5, 0.05, 200.0); // teal-ish, comfortably in gamut
+        let [bl, _, bh] = srgb_to_oklch(base);
+        for target in [HUE_LAVA, HUE_FOLIAGE, HUE_ICE] {
+            let leaned = lean(base, target, 0.5, 0.0);
+            let [ll, _, lh] = srgb_to_oklch(leaned);
+            assert!(
+                hue_dist(lh, target) < hue_dist(bh, target),
+                "hue should lean toward {target} ({bh} -> {lh})"
+            );
+            assert!(
+                (ll - bl).abs() < 0.01,
+                "lightness must be preserved ({bl} -> {ll})"
+            );
+        }
+    }
+
+    /// For the three signature biomes the bias actually changes the palette
+    /// and every channel stays finite + in gamut.
+    #[test]
+    fn signature_bias_changes_palette_and_stays_in_gamut() {
+        for biome in [
+            BiomeArchetype::Volcanic,
+            BiomeArchetype::Jungle,
+            BiomeArchetype::Glacial,
+        ] {
+            for s in 0u64..24 {
+                let mut scene = SceneCharacter::for_seed(s);
+                scene.biome = biome;
+                let mut rng = ChaCha8Rng::seed_from_u64(s ^ PALETTE_STREAM_SALT);
+                let base = derive(&scene, &mut rng);
+                let p = biome_palette_bias(base.clone(), biome);
+                assert_ne!(base, p, "{biome:?} bias must change the palette");
+                assert!(
+                    finite_rgb(p.grass_dry)
+                        && finite_rgb(p.grass_moist)
+                        && finite_rgb(p.dirt_dry)
+                        && finite_rgb(p.rock_stone)
+                        && finite_rgb(p.rock_gap)
+                        && finite_rgb(p.snow_dry)
+                        && finite_rgb(p.snow_moist)
+                        && finite_rgb(p.water_scatter)
+                        && finite_rgb(p.sky_color)
+                        && finite_rgba(p.water_shallow)
+                        && finite_rgba(p.water_deep)
+                        && finite_rgba(p.fog_color),
+                    "{biome:?} seed {s} produced an out-of-gamut channel"
+                );
+            }
+        }
     }
 }

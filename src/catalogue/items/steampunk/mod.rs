@@ -198,23 +198,6 @@ pub(super) const FURNACE_ORANGE: [f32; 3] = [1.0, 0.50, 0.16];
 pub(super) const GAUGE_AMBER: [f32; 3] = [1.0, 0.80, 0.42];
 pub(super) const LAMP_GAS: [f32; 3] = [1.0, 0.86, 0.55];
 
-/// Walk a built tree and report whether any primitive is strongly emissive
-/// — the shared "is the furnace still lit?" check for the kit's tests.
-#[cfg(test)]
-pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
-    use crate::pds::GeneratorKind::*;
-    let own = match &g.kind {
-        Cuboid { material, .. }
-        | Cylinder { material, .. }
-        | Sphere { material, .. }
-        | Cone { material, .. }
-        | Torus { material, .. }
-        | Capsule { material, .. } => material.emission_strength.0 > 1.0,
-        _ => false,
-    };
-    own || g.children.iter().any(has_emissive)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,7 +224,7 @@ mod tests {
     #[test]
     fn cog_tower_keeps_its_glow() {
         assert!(
-            has_emissive(&cog_tower::CogTower.build("")),
+            crate::catalogue::items::util::has_emissive(&cog_tower::CogTower.build("")),
             "cog tower lost its emissive clock / furnace glow"
         );
     }

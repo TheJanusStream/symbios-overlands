@@ -197,6 +197,8 @@ mod tests {
 
     #[test]
     fn has_lit_canopy_and_sign() {
-        assert!(super::super::has_emissive(&GasStation.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &GasStation.build("")
+        ));
     }
 }

@@ -133,10 +133,85 @@ pub(super) fn draw_detail_panel(
     }
 }
 
+/// Inline editor for a [`crate::pds::generator::RoadConfig`] (the RoadNetwork
+/// generator). Exposes the authorable street knobs; the terrain plugin
+/// recomputes the road mesh from the heightmap on any change. Geometry-only
+/// rendering constants (UV tile, ribbon step) stay in code.
+fn draw_road_editor(
+    ui: &mut egui::Ui,
+    config: &mut crate::pds::generator::RoadConfig,
+    dirty: &mut bool,
+) {
+    if ui.checkbox(&mut config.enabled, "Roads enabled").changed() {
+        *dirty = true;
+    }
+    if ui
+        .checkbox(&mut config.populate_lots, "Grow buildings on lots")
+        .on_hover_text(
+            "Fill the network's enclosed blocks with themed buildings at load. \
+             Re-roll the layout to re-seed them.",
+        )
+        .changed()
+    {
+        *dirty = true;
+    }
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.label(format!("Layout seed: {}", config.seed));
+        if ui.button("Re-roll").clicked() {
+            // Deterministic LCG step → a fresh street layout, terrain untouched.
+            config.seed = config
+                .seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            *dirty = true;
+        }
+    });
+    ui.add_space(4.0);
+    let mut row = |v: &mut f32, lo: f32, hi: f32, label: &str| {
+        if ui.add(egui::Slider::new(v, lo..=hi).text(label)).changed() {
+            *dirty = true;
+        }
+    };
+    row(
+        &mut config.district_half_extent.0,
+        50.0,
+        512.0,
+        "District ½-extent (m)",
+    );
+    row(
+        &mut config.major_spacing.0,
+        30.0,
+        300.0,
+        "Major spacing (m)",
+    );
+    row(
+        &mut config.minor_spacing.0,
+        20.0,
+        200.0,
+        "Minor spacing (m)",
+    );
+    row(
+        &mut config.major_half_width.0,
+        1.0,
+        8.0,
+        "Major ½-width (m)",
+    );
+    row(
+        &mut config.minor_half_width.0,
+        0.5,
+        6.0,
+        "Minor ½-width (m)",
+    );
+    row(&mut config.curb_height.0, 0.0, 0.5, "Curb height (m)");
+    row(&mut config.chamfer_width.0, 0.0, 1.0, "Curb chamfer (m)");
+    row(&mut config.skirt_depth.0, 1.0, 15.0, "Skirt depth (m)");
+}
+
 /// Per-kind variant detail editor. Dispatches into the per-variant forges
-/// for Terrain / LSystem / Shape, owns the inline Water / Portal widgets,
-/// and uses a shared primitive editor for every parametric shape. Does NOT
-/// render the local transform — that's drawn separately in the detail
+/// for Terrain / LSystem / Shape, owns the inline Water / Portal / RoadNetwork
+/// widgets, and uses a shared primitive editor for every parametric shape.
+/// Does NOT render the local transform — that's drawn separately in the detail
 /// panel header.
 ///
 /// `salt` uniquely identifies this node in egui's ID stack — it's passed
@@ -153,6 +228,7 @@ fn draw_generator_detail(
         GeneratorKind::Water { surface } => {
             draw_water_editor(ui, surface, dirty);
         }
+        GeneratorKind::RoadNetwork(config) => draw_road_editor(ui, config, dirty),
         GeneratorKind::LSystem {
             source_code,
             finalization_code,

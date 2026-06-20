@@ -181,9 +181,19 @@ pub(super) fn foundation_mat() -> SovereignMaterialSettings {
     }
 }
 
-/// Reveal height of a foundation above the entry's ground plane — a
-/// visible plinth course rather than a flush slab.
+/// Reveal height of a foundation above the entry's ground plane, so a
+/// terrain-snapped structure on a slope shows plinth instead of daylight
+/// under its downhill edge.
 const FOUNDATION_REVEAL: f32 = 0.15;
+
+/// Total footprint shrink applied to a foundation versus the base slab it
+/// sits under (callers author both at the same footprint). The slab's
+/// reveal band overlaps the plinth's, so equal footprints leave their
+/// vertical side faces coplanar all around the perimeter — which z-fights
+/// on flat ground. Holding the plinth this much smaller makes the slab
+/// oversail it (≈half this per side), breaking the shared plane and tucking
+/// the plinth out of sight on flat ground while it still fills slope gaps.
+const FOUNDATION_INSET: f32 = 0.12;
 
 /// Rectangular buried foundation: a solid stone block whose top sits
 /// [`FOUNDATION_REVEAL`] above the entry's y=0 ground plane and which
@@ -201,7 +211,7 @@ pub(super) fn foundation_block(
     let height = depth + FOUNDATION_REVEAL;
     prim(
         solid(cuboid_tapered(
-            [size_x, height, size_z],
+            [size_x - FOUNDATION_INSET, height, size_z - FOUNDATION_INSET],
             0.0,
             foundation_mat(),
         )),
@@ -215,7 +225,13 @@ pub(super) fn foundation_block(
 pub(super) fn foundation_disc(radius: f32, depth: f32) -> Generator {
     let height = depth + FOUNDATION_REVEAL;
     prim(
-        solid(cylinder_tapered(radius, height, 24, 0.0, foundation_mat())),
+        solid(cylinder_tapered(
+            radius - FOUNDATION_INSET * 0.5,
+            height,
+            24,
+            0.0,
+            foundation_mat(),
+        )),
         [0.0, FOUNDATION_REVEAL - height * 0.5, 0.0],
         id_quat(),
     )
@@ -266,4 +282,24 @@ pub(super) fn assert_sanitize_stable(built: &Generator, name: &str) {
     let mut sanitized = built.clone();
     crate::pds::sanitize_generator(&mut sanitized);
     tree_eq(built, &sanitized, name);
+}
+
+/// Walk a built tree and report whether any primitive is strongly emissive
+/// (emission strength > 1.0) — the shared "did the kit's firelit hero keep
+/// its glow?" check the per-theme kits assert on (forge fire, saloon lamps,
+/// brazier coals, …), so escalation's broken-emissive ruin pass has something
+/// to snuff.
+#[cfg(test)]
+pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
+    use crate::pds::GeneratorKind::*;
+    let own = match &g.kind {
+        Cuboid { material, .. }
+        | Cylinder { material, .. }
+        | Sphere { material, .. }
+        | Cone { material, .. }
+        | Torus { material, .. }
+        | Capsule { material, .. } => material.emission_strength.0 > 1.0,
+        _ => false,
+    };
+    own || g.children.iter().any(has_emissive)
 }

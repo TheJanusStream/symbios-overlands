@@ -13,10 +13,11 @@ use bevy_symbios_audio::{
     NodeGraph, NodeId, NodeKind, PitchMode, Reverb, SawtoothOsc, SineOsc, Track, TriangleOsc,
 };
 use rand_chacha::ChaCha8Rng;
+use rand_chacha::rand_core::SeedableRng;
 
-use super::WARMUP_BEATS;
 use super::bed::AmbientParams;
 use super::scales::{DORIAN, HIRAJOSHI, PENTATONIC_MAJOR, PENTATONIC_MINOR, PHRYGIAN};
+use super::{LOOP_BEATS, WARMUP_BEATS};
 use crate::seeded_defaults::scene::{
     BiomeArchetype, SceneCharacter, ThemeArchetype, range_f32, unit_f32,
 };
@@ -70,10 +71,88 @@ fn biome_register(biome: BiomeArchetype) -> f32 {
     }
 }
 
-/// The voice for a room. Authored themes return their signature voice;
-/// every other theme gets the biome-anchored neutral default.
-fn voice_for(scene: &SceneCharacter) -> ThemeVoice {
-    match scene.theme {
+/// Sub-stream salt for the per-room voice variety, distinct from the
+/// pattern stream so picking a mode / jittering the timbre never shifts
+/// the note-placement rng (which would re-roll every pattern).
+const VOICE_VARIETY_SALT: u64 = 0x5EED_1CE5_C0DE_0001;
+
+/// The in-character *alternate* modes a theme may drift into, beyond its
+/// signature scale (which lives on the voice literal in [`base_voice`] — the
+/// single source of truth for the signature). [`apply_voice_variety`] picks
+/// across the signature plus these by seed, so two settlements of the same
+/// theme can sit in different modes while staying inside the theme's harmonic
+/// family. Empty for a single-mode theme — one whose mode *is* its identity
+/// (Feudal-Japan's Hirajōshi) or whose brightness only one scale carries (the
+/// sunny-major themes); those draw their variety from key / register / voicing
+/// / pattern instead.
+fn theme_alt_scales(theme: ThemeArchetype) -> &'static [&'static [f32]] {
+    match theme {
+        ThemeArchetype::Cyberpunk => &[PENTATONIC_MINOR],
+        ThemeArchetype::FeudalJapan => &[],
+        ThemeArchetype::IndustrialPark => &[PENTATONIC_MINOR],
+        ThemeArchetype::RuralFarmland => &[DORIAN],
+        ThemeArchetype::Suburban => &[],
+        ThemeArchetype::ModernCity => &[DORIAN],
+        ThemeArchetype::Mesoamerican => &[PHRYGIAN],
+        ThemeArchetype::Nordic => &[DORIAN],
+        ThemeArchetype::Medieval => &[PHRYGIAN],
+        ThemeArchetype::WildWest => &[PENTATONIC_MINOR],
+        ThemeArchetype::PostApoc => &[PHRYGIAN],
+        ThemeArchetype::AlienMonolithic => &[PENTATONIC_MINOR],
+        ThemeArchetype::AlienOrganic => &[DORIAN],
+        ThemeArchetype::GothicHorror => &[PENTATONIC_MINOR],
+        ThemeArchetype::Fantasy => &[DORIAN],
+        ThemeArchetype::SpaceOutpost => &[PHRYGIAN],
+        ThemeArchetype::Solarpunk => &[],
+        ThemeArchetype::Steampunk => &[DORIAN],
+        ThemeArchetype::SportsRec => &[],
+        ThemeArchetype::CivicCampus => &[PENTATONIC_MAJOR],
+        ThemeArchetype::Roadside => &[PENTATONIC_MAJOR],
+        ThemeArchetype::CoastalResort => &[],
+        ThemeArchetype::AncientClassical => &[PHRYGIAN],
+    }
+}
+
+/// Seeded per-room variety layered on top of the signature voice: choose a
+/// mode from the theme's curated family and nudge the timbre (ring, colour,
+/// articulation) a little, so the same theme reads fresh across rooms
+/// without losing its identity. Deterministic in `seed`; its own rng stream
+/// keeps it independent of the pattern generator. Octave / wave / attack are
+/// left untouched — those carry the recognisable signature.
+fn apply_voice_variety(voice: &mut ThemeVoice, theme: ThemeArchetype, seed: u64) {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed ^ VOICE_VARIETY_SALT);
+    // The harmonic family is the signature scale (already on the voice — the
+    // single source) plus the theme's alternates. Index 0 keeps the signature,
+    // so the draw maps exactly as it did when the signature headed a combined
+    // list; only a higher index swaps in an alternate.
+    let alts = theme_alt_scales(theme);
+    let family_len = 1 + alts.len();
+    let idx = ((unit_f32(&mut rng) * family_len as f32) as usize).min(family_len - 1);
+    if idx > 0 {
+        voice.scale = alts[idx - 1];
+    }
+
+    // Symmetric ±`frac` multiplier around 1.0.
+    let jitter = |rng: &mut ChaCha8Rng, frac: f32| 1.0 + (unit_f32(rng) * 2.0 - 1.0) * frac;
+    voice.release_s *= jitter(&mut rng, 0.15);
+    voice.decay_s *= jitter(&mut rng, 0.12);
+    voice.reverb_mix = (voice.reverb_mix + (unit_f32(&mut rng) * 2.0 - 1.0) * 0.05).clamp(0.1, 0.6);
+    let g = jitter(&mut rng, 0.12);
+    voice.gate = (voice.gate.0 * g, voice.gate.1 * g);
+    // Only widen voices that are already stacked — keep the pure-sine themes
+    // (their detune is 0 by identity) pure.
+    if voice.detune_cents > 0.0 {
+        voice.detune_cents = (voice.detune_cents * jitter(&mut rng, 0.25)).max(2.0);
+    }
+}
+
+/// The theme's signature voice — its authored timbre + signature scale, before
+/// any per-room variety. Exhaustive over [`ThemeArchetype`], so a new theme
+/// must add a voice here. The `scale` field is the single source of truth for
+/// the theme's signature mode; [`theme_alt_scales`] lists only the *other*
+/// modes the family allows.
+fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
+    match theme {
         // Driving detuned-saw synth arpeggio in phrygian — the template.
         ThemeArchetype::Cyberpunk => ThemeVoice {
             id: "theme_synth",
@@ -145,23 +224,24 @@ fn voice_for(scene: &SceneCharacter) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.38,
         },
-        // Bright twinkling chimes — a high, gentle major (an ice-cream-van
-        // wholesomeness) over the birdsong.
+        // Gentle warm chimes — a softly-ringing major a touch above the
+        // melody register, a little sustain and a long tail so it reads as a
+        // calm domestic pad rather than a bright ice-cream-van jingle.
         ThemeArchetype::Suburban => ThemeVoice {
             id: "theme_chimes",
             wave: Wave::Triangle,
             detune_cents: 0.0,
             scale: PENTATONIC_MAJOR,
-            octave: 1.5,
-            attack_s: 0.005,
-            decay_s: 0.4,
-            sustain_level: 0.0,
-            release_s: 1.0,
+            octave: 1.25,
+            attack_s: 0.01,
+            decay_s: 0.5,
+            sustain_level: 0.12,
+            release_s: 1.4,
             note_count: (4, 7),
             gate: (0.2, 0.5),
             volume: (0.07, 0.13),
             arp: false,
-            reverb_mix: 0.35,
+            reverb_mix: 0.42,
         },
         // Slow detuned-saw synth pad — a calm urban drone under the traffic
         // hum (which rides the traffic light's spatial fx).
@@ -234,23 +314,24 @@ fn voice_for(scene: &SceneCharacter) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.4,
         },
-        // Plucky banjo roll — a bright triangle arpeggio rolling up a sunny
-        // major, the dance-hall lilt of the saloon.
+        // Lonesome harmonica — a reedy, slightly-detuned triangle keening
+        // sparse and plaintive up a wide major, a long ring trailing off
+        // into the dry wind.
         ThemeArchetype::WildWest => ThemeVoice {
-            id: "theme_banjo",
+            id: "theme_harmonica",
             wave: Wave::Triangle,
-            detune_cents: 0.0,
+            detune_cents: 5.0,
             scale: PENTATONIC_MAJOR,
             octave: 1.0,
-            attack_s: 0.004,
-            decay_s: 0.2,
-            sustain_level: 0.0,
-            release_s: 0.4,
-            note_count: (6, 10),
-            gate: (0.18, 0.3),
-            volume: (0.06, 0.12),
-            arp: true,
-            reverb_mix: 0.3,
+            attack_s: 0.03,
+            decay_s: 0.35,
+            sustain_level: 0.25,
+            release_s: 1.2,
+            note_count: (3, 6),
+            gate: (0.4, 0.9),
+            volume: (0.07, 0.13),
+            arp: false,
+            reverb_mix: 0.4,
         },
         // Bleak wasteland drone — a heavily-detuned saw groaning low in a
         // minor pentatonic, sparse and forlorn over the desolate wind.
@@ -306,14 +387,15 @@ fn voice_for(scene: &SceneCharacter) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.55,
         },
-        // Funereal pipe organ — a heavily-detuned saw swelling in a dark
-        // phrygian, slow and dread-laden through the nave.
+        // Funereal pipe organ — a heavily-detuned saw swelling low in a dark
+        // phrygian, slow and dread-laden through the nave (a tolling pad over
+        // the bass-pad floor).
         ThemeArchetype::GothicHorror => ThemeVoice {
             id: "theme_organ_dirge",
             wave: Wave::Sawtooth,
             detune_cents: 12.0,
             scale: PHRYGIAN,
-            octave: 1.0,
+            octave: 0.75,
             attack_s: 0.3,
             decay_s: 0.5,
             sustain_level: 0.7,
@@ -360,23 +442,23 @@ fn voice_for(scene: &SceneCharacter) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.55,
         },
-        // Warm wooden marimba — a soft detune-free sine in a sunny major,
-        // gentle and hopeful over the birdsong.
+        // Bright airy bells — a clean detune-free sine struck high in a sunny
+        // major, a long lush ring over the birdsong: hopeful and luminous.
         ThemeArchetype::Solarpunk => ThemeVoice {
             id: "theme_marimba",
             wave: Wave::Sine,
             detune_cents: 0.0,
             scale: PENTATONIC_MAJOR,
-            octave: 1.0,
+            octave: 1.25,
             attack_s: 0.01,
             decay_s: 0.4,
             sustain_level: 0.0,
-            release_s: 1.0,
+            release_s: 1.5,
             note_count: (4, 7),
             gate: (0.2, 0.5),
             volume: (0.08, 0.14),
             arp: false,
-            reverb_mix: 0.46,
+            reverb_mix: 0.52,
         },
         // Clockwork music box — a bright triangle arpeggio ticking up a minor
         // pentatonic, the mechanism of the cog tower.
@@ -468,12 +550,14 @@ fn voice_for(scene: &SceneCharacter) -> ThemeVoice {
             arp: false,
             reverb_mix: 0.4,
         },
-        // Sparse modal lyre/bells, long ring.
+        // Stately modal lyre/bells — a sparse Dorian struck with a long
+        // ceremonial ring; the dignified voice that also backstops every
+        // un-built theme as the settlement fallback (#461).
         ThemeArchetype::AncientClassical => ThemeVoice {
             id: "theme_lyre",
             wave: Wave::Triangle,
             detune_cents: 0.0,
-            scale: PENTATONIC_MAJOR,
+            scale: DORIAN,
             octave: 1.0,
             attack_s: 0.02,
             decay_s: 0.5,
@@ -486,6 +570,14 @@ fn voice_for(scene: &SceneCharacter) -> ThemeVoice {
             reverb_mix: 0.45,
         },
     }
+}
+
+/// The voice for a room: the theme's [`base_voice`] with seeded per-room
+/// variety layered on top (mode pick + timbre jitter).
+fn voice_for(scene: &SceneCharacter, seed: u64) -> ThemeVoice {
+    let mut voice = base_voice(scene.theme);
+    apply_voice_variety(&mut voice, scene.theme, seed);
+    voice
 }
 
 /// Layer the socio-political axes onto the chosen voice. Escalation makes
@@ -625,37 +717,248 @@ fn build_patch(voice: &ThemeVoice, root_hz: f32, params: &AmbientParams, seed: u
 /// sparse voices scatter half-beat-quantised onsets with an occasional
 /// octave lift. Both keep tails inside the loop-plus-crossfade overhang
 /// and sort deterministically so peers serialise identical recipes.
+/// Onset-free tail at the end of the loop region, so the last phrase's
+/// gate + release lands inside the crossfade overhang instead of being
+/// clipped at the seam. Sized for the worst case: the longest-tailed voice
+/// (the monolith drone, gate ≤ 2.5 + release 2.5) plus the variety jitter
+/// (+12% gate, +15% release) ≈ 5.7 beats, which must fit the overhang
+/// (`LOOP_BEATS` end → `duration + crossfade`). 4.0 keeps a late onset's
+/// tail inside that window for every seed, not just the tested ones.
+const ONSET_TAIL_BEATS: f32 = 4.0;
+/// Hard ceiling on note events per voice — keeps bake time + the mixdown
+/// bounded however the phrase/scatter maths lands on a long loop.
+const MAX_NOTES: usize = 40;
+
+/// One melodic event at `t` on scale `deg`/`octave`, with the voice's
+/// per-note volume / gate / release sampled from its bands.
+fn note(voice: &ThemeVoice, rng: &mut ChaCha8Rng, t: f32, deg: usize, octave: f32) -> Event {
+    Event {
+        time_beats: t,
+        instrument_id: voice.id.to_string(),
+        pitch_multiplier: voice.scale[deg] * octave,
+        volume: range_f32(rng, voice.volume.0, voice.volume.1),
+        gate_beats: range_f32(rng, voice.gate.0, voice.gate.1),
+        release_beats: voice.release_s,
+        pitch_mode: PitchMode::Varispeed,
+    }
+}
+
 fn build_events(voice: &ThemeVoice, rng: &mut ChaCha8Rng) -> Vec<Event> {
-    let span = (voice.note_count.1 - voice.note_count.0 + 1) as f32;
-    let count = (voice.note_count.0 + (range_f32(rng, 0.0, span) as u32)).min(voice.note_count.1);
-    let id = voice.id.to_string();
     let n = voice.scale.len();
-    let mut events = Vec::with_capacity(count as usize);
-    for i in 0..count {
-        let i = i as usize;
-        let (time_beats, deg, octave) = if voice.arp {
-            (
-                WARMUP_BEATS + i as f32 * 0.5,
-                i % n,
-                1.0 + ((i / n) % 2) as f32,
-            )
+    // Beats available for onsets after the warm-up run-up.
+    let span = (LOOP_BEATS - ONSET_TAIL_BEATS).max(4.0);
+    let mut events = if voice.arp {
+        arp_phrases(voice, rng, span, n)
+    } else {
+        sparse_scatter(voice, rng, span, n)
+    };
+    events.sort_by(|a, b| a.time_beats.total_cmp(&b.time_beats));
+    events
+}
+
+/// Arpeggio voices fill the loop with eighth-note scale runs, but every
+/// phrase is transformed so a long loop reads as developing A/B/C phrases
+/// rather than one tiled arpeggio: the melodic contour (ascending,
+/// descending, arch, pendulum) is re-rolled per phrase, an occasional phrase
+/// plays a shorter motif fragment, every third phrase jumps an octave, and
+/// whole-phrase rests punctuate. All seeded, so two rooms of the same theme
+/// also lay their phrases out differently.
+fn arp_phrases(voice: &ThemeVoice, rng: &mut ChaCha8Rng, span: f32, n: usize) -> Vec<Event> {
+    const STEP: f32 = 0.5; // eighth notes at 60 BPM
+    let end = WARMUP_BEATS + span;
+    let mut events = Vec::new();
+    let mut t = WARMUP_BEATS;
+    let mut phrase = 0u32;
+    loop {
+        // Most phrases run the full scale; some play a shorter motif so the
+        // rhythm isn't a metronomic n-note tile.
+        let len = if phrase > 0 && unit_f32(rng) < 0.3 {
+            (n / 2 + 1).clamp(3.min(n), n)
         } else {
-            let t = WARMUP_BEATS + (range_f32(rng, 0.0, 13.5) * 2.0).floor() * 0.5;
-            let deg = (range_f32(rng, 0.0, n as f32) as usize).min(n - 1);
-            let octave = if unit_f32(rng) < 0.2 { 2.0 } else { 1.0 };
-            (t, deg, octave)
+            n
         };
+        let phrase_beats = len as f32 * STEP;
+        if t + phrase_beats > end || events.len() + len > MAX_NOTES {
+            break;
+        }
+        // An occasional whole-phrase rest (never the first) breaks the tile.
+        let rest_phrase = phrase > 0 && unit_f32(rng) < 0.18;
+        if !rest_phrase {
+            let octave = if phrase % 3 == 1 { 2.0 } else { 1.0 };
+            let contour = (unit_f32(rng) * 4.0) as u32;
+            for k in 0..len {
+                let deg = contour_deg(contour, k, len, n);
+                events.push(note(voice, rng, t + k as f32 * STEP, deg, octave));
+            }
+        }
+        // A short rest between phrases keeps them from running solid.
+        t += phrase_beats + range_f32(rng, 0.5, 1.5);
+        phrase += 1;
+    }
+    events
+}
+
+/// Map note index `k` (`0..len`) to a scale degree (`0..n`) following one of
+/// four melodic contours, so successive phrases trace different shapes.
+fn contour_deg(contour: u32, k: usize, len: usize, n: usize) -> usize {
+    match contour % 4 {
+        // Ascending run up the scale.
+        0 => k % n,
+        // Descending run back down.
+        1 => (n - 1).saturating_sub(k % n),
+        // Arch: climb to the phrase midpoint, then fall back toward the root.
+        2 => {
+            let mid = len / 2;
+            let pos = if k <= mid { k } else { len.saturating_sub(k) };
+            pos.min(n - 1)
+        }
+        // Pendulum: alternate low and high degrees.
+        _ => {
+            let h = (k / 2) % n;
+            if k.is_multiple_of(2) {
+                h
+            } else {
+                (n - 1).saturating_sub(h)
+            }
+        }
+    }
+}
+
+/// Sparse voices place their onsets as a handful of *gestures* — short runs
+/// of close notes tracing a small up/down contour from a seeded root degree,
+/// separated by rests and spread across the loop. This reads as a breathing,
+/// developing phrase (and lays out differently per seed) rather than a
+/// uniform random sprinkle. The note budget still scales with loop length.
+fn sparse_scatter(voice: &ThemeVoice, rng: &mut ChaCha8Rng, span: f32, n: usize) -> Vec<Event> {
+    let band = (voice.note_count.1 - voice.note_count.0 + 1) as f32;
+    let base = voice.note_count.0 + (range_f32(rng, 0.0, band) as u32);
+    let count = ((base as f32 * (LOOP_BEATS / 16.0)).round() as usize).min(MAX_NOTES);
+    if count == 0 {
+        return Vec::new();
+    }
+    // A few gestures, each owning a slice of the span. The final gesture mops
+    // up whatever notes remain so the total stays exactly `count`.
+    let gestures = (count / 2).clamp(2, 5);
+    let slice = span / gestures as f32;
+    let mut events = Vec::with_capacity(count);
+    let mut remaining = count;
+    for g in 0..gestures {
+        let here = if g == gestures - 1 {
+            remaining
+        } else {
+            (remaining / (gestures - g)).max(1)
+        };
+        // Gesture onset near the front of its slice; notes then step on a
+        // quarter-ish grid, clamped inside the onset window.
+        let start = WARMUP_BEATS + g as f32 * slice + range_f32(rng, 0.0, slice * 0.4);
+        let dir: i32 = if unit_f32(rng) < 0.5 { 1 } else { -1 };
+        let root = (range_f32(rng, 0.0, n as f32) as usize).min(n - 1);
+        for j in 0..here {
+            let t = (start + j as f32 * range_f32(rng, 0.5, 1.0)).min(WARMUP_BEATS + span);
+            let deg = (root as i32 + dir * j as i32).rem_euclid(n as i32) as usize;
+            let octave = if unit_f32(rng) < 0.2 { 2.0 } else { 1.0 };
+            events.push(note(voice, rng, t, deg, octave));
+        }
+        remaining = remaining.saturating_sub(here);
+        if remaining == 0 {
+            break;
+        }
+    }
+    events
+}
+
+/// Hz floor for the bass fundamental so the octave-below-the-melody drop
+/// never pushes a low-drone theme in a register-lowering biome (Volcanic)
+/// into sub-sonic rumble.
+const BASS_FLOOR_HZ: f32 = 40.0;
+
+/// The bass octave multiplier: one octave below the melody, but never
+/// shallower than the deep `0.5` register the mid/high voices already sit
+/// at. Low-drone themes (melody octave < 1.0) therefore drop to a real
+/// octave below their drone instead of doubling it at unison; mid/high
+/// themes keep the existing deep pad.
+fn bass_octave_for(melody_octave: f32) -> f32 {
+    (melody_octave * 0.5).min(0.5)
+}
+
+/// Low drone / pad second voice — a sustained sine one octave below the
+/// melody (see [`bass_octave_for`]) that fills the long loop's bottom end
+/// and shares the bed's reverb. Its voicing varies by seed (a static held
+/// drone, or a slow walk across 2–3 scale degrees), but it is always present
+/// so every room reads layered. Returns the instrument + its track.
+pub(super) fn build_bass(
+    scene: &SceneCharacter,
+    params: &AmbientParams,
+    rng: &mut ChaCha8Rng,
+    seed: u64,
+) -> (Instrument, Track) {
+    let melody = voice_for(scene, seed);
+    // Prosperity lifts the pad volume a touch, mirroring the melody.
+    let wealth = (scene.prosperity.clamp(0.0, 1.0) - 0.5) * 2.0;
+    let vol = (0.07 + 0.02 * wealth).clamp(0.04, 0.11);
+    let bass = ThemeVoice {
+        id: "theme_bass",
+        wave: Wave::Sine,
+        detune_cents: 0.0,
+        scale: melody.scale,
+        octave: bass_octave_for(melody.octave),
+        attack_s: 0.8,
+        decay_s: 0.6,
+        sustain_level: 0.8,
+        release_s: 1.5,
+        note_count: (1, 3),
+        gate: (0.0, 0.0),
+        volume: (vol, vol),
+        arp: false,
+        reverb_mix: (melody.reverb_mix + 0.1).min(0.6),
+    };
+    // One octave below the melody for clean separation; the Hz floor keeps a
+    // register-lowering biome from pushing the drop sub-sonic.
+    let root_hz = (220.0
+        * 2.0_f32.powf(scene.base_hue_deg / 360.0)
+        * biome_register(scene.biome)
+        * bass.octave)
+        .max(BASS_FLOOR_HZ);
+    let patch = build_patch(&bass, root_hz, params, seed ^ 0x0BA5_50DD);
+    let events = build_bass_events(&bass, rng);
+    (
+        Instrument {
+            id: bass.id.to_string(),
+            patch,
+        },
+        Track { events },
+    )
+}
+
+/// 1–3 long held notes spanning the loop. One note is a static drone; two
+/// or three step slowly across low scale degrees, each held for its share of
+/// the loop with a release tail into the seam. The walk *shape* is seeded
+/// (I–V–I, I–♭VII–V, or I–III–VI-ish) so the bottom end isn't a fixed
+/// figure across every room of a theme.
+fn build_bass_events(bass: &ThemeVoice, rng: &mut ChaCha8Rng) -> Vec<Event> {
+    let n = bass.scale.len();
+    let notes = (1 + (unit_f32(rng) * 3.0) as u32).clamp(1, 3); // 1..=3
+    // Low scale degrees for a slow root movement; clamped to the scale.
+    let walk: [usize; 3] = match (unit_f32(rng) * 3.0) as usize % 3 {
+        0 => [0, (n / 2).min(n - 1), 0],
+        1 => [0, n - 1, (n / 2).min(n - 1)],
+        _ => [0, (n / 3).min(n - 1), (2 * n / 3).min(n - 1)],
+    };
+    let seg = LOOP_BEATS / notes as f32;
+    let mut events = Vec::with_capacity(notes as usize);
+    for k in 0..notes {
+        let deg = walk[(k as usize) % walk.len()].min(n - 1);
         events.push(Event {
-            time_beats,
-            instrument_id: id.clone(),
-            pitch_multiplier: voice.scale[deg] * octave,
-            volume: range_f32(rng, voice.volume.0, voice.volume.1),
-            gate_beats: range_f32(rng, voice.gate.0, voice.gate.1),
-            release_beats: voice.release_s,
+            time_beats: WARMUP_BEATS + k as f32 * seg,
+            instrument_id: bass.id.to_string(),
+            pitch_multiplier: bass.scale[deg],
+            volume: bass.volume.0,
+            // Hold each segment; the final note's release tails into the seam.
+            gate_beats: seg,
+            release_beats: bass.release_s,
             pitch_mode: PitchMode::Varispeed,
         });
     }
-    events.sort_by(|a, b| a.time_beats.total_cmp(&b.time_beats));
     events
 }
 
@@ -667,7 +970,7 @@ pub(super) fn build(
     rng: &mut ChaCha8Rng,
     seed: u64,
 ) -> (Instrument, Track) {
-    let mut voice = voice_for(scene);
+    let mut voice = voice_for(scene, seed);
     apply_socio(&mut voice, scene);
     let root_hz = 220.0
         * 2.0_f32.powf(scene.base_hue_deg / 360.0)
@@ -695,76 +998,181 @@ mod tests {
         s
     }
 
+    /// A fixed seed for the identity checks. Wave / arp / octave / attack /
+    /// detune-sign are seed-stable (variety only picks the mode + jitters the
+    /// ring/colour), so any seed exercises the signature; the *signature
+    /// scale* is asserted via `base_voice(..).scale` (the unvaried voice) since
+    /// the active mode is now seed-picked from the family.
+    const ID_SEED: u64 = 0xA5A5;
+
     #[test]
     fn authored_themes_use_their_signature_wave_and_scale() {
-        let cy = voice_for(&scene_with(ThemeArchetype::Cyberpunk, 0.0));
+        use ThemeArchetype as T;
+        let cy = voice_for(&scene_with(T::Cyberpunk, 0.0), ID_SEED);
         assert!(matches!(cy.wave, Wave::Sawtooth) && cy.arp && cy.detune_cents > 0.0);
-        assert_eq!(cy.scale, PHRYGIAN);
-        let med = voice_for(&scene_with(ThemeArchetype::Medieval, 0.0));
-        assert_eq!(med.scale, DORIAN);
-        let nor = voice_for(&scene_with(ThemeArchetype::Nordic, 0.0));
+        assert_eq!(base_voice(T::Cyberpunk).scale, PHRYGIAN);
+        assert_eq!(base_voice(T::Medieval).scale, DORIAN);
+        let nor = voice_for(&scene_with(T::Nordic, 0.0), ID_SEED);
         assert!(matches!(nor.wave, Wave::Triangle) && !nor.arp && nor.octave < 1.0);
-        assert_eq!(nor.scale, PENTATONIC_MINOR);
-        let jp = voice_for(&scene_with(ThemeArchetype::FeudalJapan, 0.0));
-        assert_eq!(jp.scale, HIRAJOSHI);
-        let meso = voice_for(&scene_with(ThemeArchetype::Mesoamerican, 0.0));
+        assert_eq!(base_voice(T::Nordic).scale, PENTATONIC_MINOR);
+        assert_eq!(base_voice(T::FeudalJapan).scale, HIRAJOSHI);
+        let meso = voice_for(&scene_with(T::Mesoamerican, 0.0), ID_SEED);
         assert!(matches!(meso.wave, Wave::Sine) && !meso.arp);
-        assert_eq!(meso.scale, PENTATONIC_MINOR);
-        let city = voice_for(&scene_with(ThemeArchetype::ModernCity, 0.0));
+        assert_eq!(base_voice(T::Mesoamerican).scale, PENTATONIC_MINOR);
+        let city = voice_for(&scene_with(T::ModernCity, 0.0), ID_SEED);
         assert!(matches!(city.wave, Wave::Sawtooth) && !city.arp && city.detune_cents > 0.0);
-        assert_eq!(city.scale, PENTATONIC_MAJOR);
-        let sub = voice_for(&scene_with(ThemeArchetype::Suburban, 0.0));
+        assert_eq!(base_voice(T::ModernCity).scale, PENTATONIC_MAJOR);
+        let sub = voice_for(&scene_with(T::Suburban, 0.0), ID_SEED);
         assert!(matches!(sub.wave, Wave::Triangle) && sub.octave > 1.0);
-        assert_eq!(sub.scale, PENTATONIC_MAJOR);
-        let farm = voice_for(&scene_with(ThemeArchetype::RuralFarmland, 0.0));
+        assert_eq!(base_voice(T::Suburban).scale, PENTATONIC_MAJOR);
+        let farm = voice_for(&scene_with(T::RuralFarmland, 0.0), ID_SEED);
         assert!(
             matches!(farm.wave, Wave::Sawtooth) && farm.detune_cents > 0.0 && farm.attack_s < 0.1
         );
-        assert_eq!(farm.scale, PENTATONIC_MAJOR);
-        let ind = voice_for(&scene_with(ThemeArchetype::IndustrialPark, 0.0));
+        assert_eq!(base_voice(T::RuralFarmland).scale, PENTATONIC_MAJOR);
+        let ind = voice_for(&scene_with(T::IndustrialPark, 0.0), ID_SEED);
         assert!(matches!(ind.wave, Wave::Sawtooth) && !ind.arp && ind.octave < 1.0);
-        assert_eq!(ind.scale, PHRYGIAN);
-        let anc = voice_for(&scene_with(ThemeArchetype::AncientClassical, 0.0));
-        assert_eq!(anc.scale, PENTATONIC_MAJOR);
-        let coast = voice_for(&scene_with(ThemeArchetype::CoastalResort, 0.0));
+        assert_eq!(base_voice(T::IndustrialPark).scale, PHRYGIAN);
+        assert_eq!(base_voice(T::AncientClassical).scale, DORIAN);
+        let coast = voice_for(&scene_with(T::CoastalResort, 0.0), ID_SEED);
         assert!(matches!(coast.wave, Wave::Sine) && coast.detune_cents > 0.0 && coast.octave > 1.0);
-        assert_eq!(coast.scale, PENTATONIC_MAJOR);
-        let road = voice_for(&scene_with(ThemeArchetype::Roadside, 0.0));
+        assert_eq!(base_voice(T::CoastalResort).scale, PENTATONIC_MAJOR);
+        let road = voice_for(&scene_with(T::Roadside, 0.0), ID_SEED);
         assert!(matches!(road.wave, Wave::Triangle) && road.detune_cents > 0.0 && !road.arp);
-        assert_eq!(road.scale, PENTATONIC_MINOR);
-        let civ = voice_for(&scene_with(ThemeArchetype::CivicCampus, 0.0));
+        assert_eq!(base_voice(T::Roadside).scale, PENTATONIC_MINOR);
+        let civ = voice_for(&scene_with(T::CivicCampus, 0.0), ID_SEED);
         assert!(matches!(civ.wave, Wave::Sawtooth) && civ.detune_cents > 0.0 && civ.attack_s > 0.1);
-        assert_eq!(civ.scale, DORIAN);
-        let spr = voice_for(&scene_with(ThemeArchetype::SportsRec, 0.0));
+        assert_eq!(base_voice(T::CivicCampus).scale, DORIAN);
+        let spr = voice_for(&scene_with(T::SportsRec, 0.0), ID_SEED);
         assert!(matches!(spr.wave, Wave::Sawtooth) && spr.arp && spr.detune_cents > 0.0);
-        assert_eq!(spr.scale, PENTATONIC_MAJOR);
-        let stm = voice_for(&scene_with(ThemeArchetype::Steampunk, 0.0));
+        assert_eq!(base_voice(T::SportsRec).scale, PENTATONIC_MAJOR);
+        let stm = voice_for(&scene_with(T::Steampunk, 0.0), ID_SEED);
         assert!(matches!(stm.wave, Wave::Triangle) && stm.arp);
-        assert_eq!(stm.scale, PENTATONIC_MINOR);
-        let sol = voice_for(&scene_with(ThemeArchetype::Solarpunk, 0.0));
+        assert_eq!(base_voice(T::Steampunk).scale, PENTATONIC_MINOR);
+        let sol = voice_for(&scene_with(T::Solarpunk, 0.0), ID_SEED);
         assert!(matches!(sol.wave, Wave::Sine) && !sol.arp && sol.detune_cents == 0.0);
-        assert_eq!(sol.scale, PENTATONIC_MAJOR);
-        let spo = voice_for(&scene_with(ThemeArchetype::SpaceOutpost, 0.0));
+        assert_eq!(base_voice(T::Solarpunk).scale, PENTATONIC_MAJOR);
+        let spo = voice_for(&scene_with(T::SpaceOutpost, 0.0), ID_SEED);
         assert!(matches!(spo.wave, Wave::Sine) && spo.octave > 1.0);
-        assert_eq!(spo.scale, PENTATONIC_MINOR);
-        let fan = voice_for(&scene_with(ThemeArchetype::Fantasy, 0.0));
+        assert_eq!(base_voice(T::SpaceOutpost).scale, PENTATONIC_MINOR);
+        let fan = voice_for(&scene_with(T::Fantasy, 0.0), ID_SEED);
         assert!(matches!(fan.wave, Wave::Triangle) && fan.arp && fan.octave > 1.0);
-        assert_eq!(fan.scale, PENTATONIC_MAJOR);
-        let got = voice_for(&scene_with(ThemeArchetype::GothicHorror, 0.0));
+        assert_eq!(base_voice(T::Fantasy).scale, PENTATONIC_MAJOR);
+        let got = voice_for(&scene_with(T::GothicHorror, 0.0), ID_SEED);
         assert!(matches!(got.wave, Wave::Sawtooth) && !got.arp && got.attack_s > 0.1);
-        assert_eq!(got.scale, PHRYGIAN);
-        let alo = voice_for(&scene_with(ThemeArchetype::AlienOrganic, 0.0));
+        assert_eq!(base_voice(T::GothicHorror).scale, PHRYGIAN);
+        let alo = voice_for(&scene_with(T::AlienOrganic, 0.0), ID_SEED);
         assert!(matches!(alo.wave, Wave::Sine) && alo.detune_cents > 0.0);
-        assert_eq!(alo.scale, PHRYGIAN);
-        let alm = voice_for(&scene_with(ThemeArchetype::AlienMonolithic, 0.0));
+        assert_eq!(base_voice(T::AlienOrganic).scale, PHRYGIAN);
+        let alm = voice_for(&scene_with(T::AlienMonolithic, 0.0), ID_SEED);
         assert!(matches!(alm.wave, Wave::Sine) && alm.octave < 1.0 && alm.detune_cents == 0.0);
-        assert_eq!(alm.scale, PHRYGIAN);
-        let pa = voice_for(&scene_with(ThemeArchetype::PostApoc, 0.0));
+        assert_eq!(base_voice(T::AlienMonolithic).scale, PHRYGIAN);
+        let pa = voice_for(&scene_with(T::PostApoc, 0.0), ID_SEED);
         assert!(matches!(pa.wave, Wave::Sawtooth) && pa.octave < 1.0 && !pa.arp);
-        assert_eq!(pa.scale, PENTATONIC_MINOR);
-        let ww = voice_for(&scene_with(ThemeArchetype::WildWest, 0.0));
-        assert!(matches!(ww.wave, Wave::Triangle) && ww.arp && (ww.octave - 1.0).abs() < 1e-6);
-        assert_eq!(ww.scale, PENTATONIC_MAJOR);
+        assert_eq!(base_voice(T::PostApoc).scale, PENTATONIC_MINOR);
+        let ww = voice_for(&scene_with(T::WildWest, 0.0), ID_SEED);
+        assert!(
+            matches!(ww.wave, Wave::Triangle)
+                && !ww.arp
+                && ww.detune_cents > 0.0
+                && (ww.octave - 1.0).abs() < 1e-6
+        );
+        assert_eq!(base_voice(T::WildWest).scale, PENTATONIC_MAJOR);
+    }
+
+    /// Every mode a theme can emit stays inside its curated family (the
+    /// signature scale plus its alternates), and the multi-mode themes actually
+    /// exercise more than one mode across seeds (the across-room harmonic
+    /// variety #500 calls for).
+    #[test]
+    fn voice_mode_stays_in_family_and_multi_mode_themes_vary() {
+        use ThemeArchetype as T;
+        for theme in [
+            T::Cyberpunk,
+            T::Medieval,
+            T::GothicHorror,
+            T::WildWest,
+            T::Nordic,
+            T::AncientClassical,
+            T::FeudalJapan,
+            T::Suburban,
+        ] {
+            let signature = base_voice(theme).scale;
+            let alts = theme_alt_scales(theme);
+            let family_len = 1 + alts.len();
+            let mut seen = std::collections::BTreeSet::new();
+            for s in 0..128u64 {
+                let v = voice_for(&scene_with(theme, 0.0), s);
+                assert!(
+                    v.scale == signature || alts.contains(&v.scale),
+                    "{theme:?} emitted an out-of-family scale"
+                );
+                seen.insert(v.scale.as_ptr() as usize);
+            }
+            if family_len > 1 {
+                assert!(
+                    seen.len() >= family_len.min(2),
+                    "{theme:?} never varied its mode across seeds"
+                );
+            } else {
+                assert_eq!(seen.len(), 1, "{theme:?} is single-mode by design");
+            }
+        }
+    }
+
+    /// The longest-tailed voice (AlienMonolithic: gate ≤ 2.5 + release 2.5,
+    /// widened by the variety jitter) is the binding case for
+    /// `ONSET_TAIL_BEATS`. Every onset's gate + release must land inside the
+    /// loop + crossfade overhang — for *every* seed, at the escalation that
+    /// keeps gates longest (calm; conflict tightens them).
+    #[test]
+    fn longest_tailed_voice_stays_inside_the_overhang() {
+        let overhang = WARMUP_BEATS + LOOP_BEATS + super::super::CROSSFADE_BEATS;
+        for s in 0..256u64 {
+            let mut scene = scene_with(ThemeArchetype::AlienMonolithic, 0.0);
+            scene.escalation = 0.0;
+            scene.prosperity = 1.0;
+            let mut voice = voice_for(&scene, s);
+            apply_socio(&mut voice, &scene);
+            let mut rng = ChaCha8Rng::seed_from_u64(s);
+            for e in build_events(&voice, &mut rng) {
+                assert!(
+                    e.time_beats + e.gate_beats + e.release_beats <= overhang + 1e-3,
+                    "seed {s}: tail {} exceeds overhang {overhang}",
+                    e.time_beats + e.gate_beats + e.release_beats
+                );
+            }
+        }
+    }
+
+    /// The bass pad sits an octave below the melody for low-drone themes
+    /// (was unison, doubling the drone) while mid/high themes keep the deep
+    /// fixed pad.
+    #[test]
+    fn bass_separates_from_low_drones() {
+        // Mid/high themes keep the deep fixed bass register.
+        assert_eq!(bass_octave_for(1.5), 0.5);
+        assert_eq!(bass_octave_for(1.25), 0.5);
+        assert_eq!(bass_octave_for(1.0), 0.5);
+        // Low-drone themes drop to a real octave below their melody.
+        assert_eq!(bass_octave_for(0.75), 0.375);
+        assert_eq!(bass_octave_for(0.5), 0.25);
+        assert!(
+            bass_octave_for(0.5) < 0.5,
+            "low drones must separate from the pad, not double it at unison"
+        );
+    }
+
+    /// Voice variety is a pure function of the seed — same seed, same voice.
+    #[test]
+    fn voice_variety_is_deterministic_in_seed() {
+        let a = voice_for(&scene_with(ThemeArchetype::Medieval, 0.0), 42);
+        let b = voice_for(&scene_with(ThemeArchetype::Medieval, 0.0), 42);
+        assert_eq!(a.scale.as_ptr(), b.scale.as_ptr());
+        assert_eq!(a.release_s, b.release_s);
+        assert_eq!(a.decay_s, b.decay_s);
+        assert_eq!(a.detune_cents, b.detune_cents);
+        assert_eq!(a.reverb_mix, b.reverb_mix);
     }
 
     #[test]
@@ -772,11 +1180,11 @@ mod tests {
         let mut scene = scene_with(ThemeArchetype::Medieval, 0.0);
         scene.prosperity = 0.5;
         scene.escalation = 0.0;
-        let mut calm = voice_for(&scene);
+        let mut calm = voice_for(&scene, ID_SEED);
         apply_socio(&mut calm, &scene);
 
         scene.escalation = 1.0;
-        let mut war = voice_for(&scene);
+        let mut war = voice_for(&scene, ID_SEED);
         apply_socio(&mut war, &scene);
 
         assert!(war.note_count.1 > calm.note_count.1, "conflict adds notes");
@@ -794,10 +1202,10 @@ mod tests {
         let mut scene = scene_with(ThemeArchetype::AncientClassical, 0.0);
         scene.escalation = 0.0;
         scene.prosperity = 0.95;
-        let mut rich = voice_for(&scene);
+        let mut rich = voice_for(&scene, ID_SEED);
         apply_socio(&mut rich, &scene);
         scene.prosperity = 0.05;
-        let mut poor = voice_for(&scene);
+        let mut poor = voice_for(&scene, ID_SEED);
         apply_socio(&mut poor, &scene);
         assert!(rich.reverb_mix > poor.reverb_mix, "rich rings more present");
         assert!(rich.volume.1 > poor.volume.1, "rich is louder");

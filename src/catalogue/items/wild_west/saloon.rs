@@ -166,6 +166,8 @@ mod tests {
 
     #[test]
     fn has_lit_windows() {
-        assert!(super::super::has_emissive(&Saloon.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &Saloon.build("")
+        ));
     }
 }

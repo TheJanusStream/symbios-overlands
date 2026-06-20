@@ -157,6 +157,8 @@ mod tests {
 
     #[test]
     fn has_lit_floods_and_scoreboard() {
-        assert!(super::super::has_emissive(&Stadium.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &Stadium.build("")
+        ));
     }
 }

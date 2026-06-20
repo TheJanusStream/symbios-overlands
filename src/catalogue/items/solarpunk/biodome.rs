@@ -139,6 +139,8 @@ mod tests {
 
     #[test]
     fn has_glowing_dome() {
-        assert!(super::super::has_emissive(&Biodome.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &Biodome.build("")
+        ));
     }
 }

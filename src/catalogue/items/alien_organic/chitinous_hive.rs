@@ -133,6 +133,8 @@ mod tests {
 
     #[test]
     fn has_biolume() {
-        assert!(super::super::has_emissive(&ChitinousHive.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &ChitinousHive.build("")
+        ));
     }
 }

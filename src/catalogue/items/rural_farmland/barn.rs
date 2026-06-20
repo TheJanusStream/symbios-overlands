@@ -200,6 +200,6 @@ mod tests {
 
     #[test]
     fn has_lamp() {
-        assert!(super::super::has_emissive(&Barn.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(&Barn.build("")));
     }
 }

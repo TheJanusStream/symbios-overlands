@@ -30,6 +30,7 @@
 
 pub mod default_visuals;
 pub mod locomotion;
+pub mod parts;
 
 pub use locomotion::{
     AirplaneParams, CarParams, HelicopterParams, HoverBoatParams, HumanoidParams, LocomotionConfig,
@@ -68,15 +69,17 @@ impl AvatarRecord {
     /// DID — every fresh player gets a unique chassis without ever
     /// touching the editor.
     ///
-    /// The DID first resolves to one of four visual families
-    /// ([`crate::seeded_defaults::ChassisFamily`]: hover-boat,
-    /// airship, humanoid figure, land-skiff); the matching builder in
-    /// [`default_visuals`] then shapes the silhouette from that
-    /// family's design deriver, colours it from
-    /// [`crate::seeded_defaults::AvatarPalette`], and scales it from
-    /// [`crate::seeded_defaults::AvatarBody`]. Locomotion follows the
-    /// family (boat → HoverBoat, airship → Helicopter, humanoid →
-    /// Humanoid, skiff → Car) so the chassis drives like it looks.
+    /// The DID first resolves to the [`crate::seeded_defaults::AvatarCharacter`]
+    /// anchor — one of four visual families
+    /// ([`crate::seeded_defaults::ChassisFamily`]: hover-boat, airship,
+    /// humanoid figure, land-skiff) plus a style + ornateness / wear. The
+    /// assembler in [`default_visuals`] composes the silhouette from the
+    /// tagged part catalogue ([`parts`]) via the seeded
+    /// [`crate::seeded_defaults::AvatarOutfit`], colouring each part from
+    /// [`crate::seeded_defaults::AvatarPalette`] and finishing it with
+    /// [`crate::seeded_defaults::MaterialKit`]. Locomotion follows the family
+    /// (boat → HoverBoat, airship → Helicopter, humanoid → Humanoid, skiff →
+    /// Car) so the chassis drives like it looks.
     pub fn default_for_did(did: &str) -> Self {
         Self::default_for_seed(crate::seeded_defaults::fnv1a_64(did), did)
     }

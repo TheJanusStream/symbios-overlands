@@ -67,19 +67,42 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // The panel — big emissive face, raised above the posts' midpoint.
+    // The panel — a large emissive face, kept at a *moderate* glow. A broad
+    // face pushes every colour channel past 1.0 long before a thin neon
+    // tube does, so at the tube's strength this slab would clip to a
+    // featureless white lightbox; held low it reads as a lit cyan screen
+    // that keeps its hue (see the emissive-strength note in `mod.rs`).
     let panel_y = slab_h + post_h * 0.7;
+    let cy = rel(panel_y + 1.6);
+    // Mount the panel + frame on the *front* of the posts rather than
+    // skewered through them: the posts' front face sits at z = +0.2, so a
+    // 0.45 m offset clears the deepest frame bar (back face at 0.25) past
+    // it. This both removes the posts bleeding through the screen and keeps
+    // the magenta frame from sharing a face plane with a post (z-fighting).
+    let z_front = 0.45_f32;
     root.children.push(prim(
-        cuboid_tapered([5.4, 3.6, 0.25], 0.0, glow(NEON_CYAN, 6.0)),
-        [0.0, rel(panel_y + 1.6), 0.0],
+        cuboid_tapered([5.4, 3.6, 0.25], 0.0, glow(NEON_CYAN, 1.6)),
+        [0.0, cy, z_front],
         id_quat(),
     ));
-    // Thin neon frame trim around the panel top.
-    root.children.push(prim(
-        cuboid_tapered([5.8, 0.3, 0.4], 0.0, glow(NEON_MAGENTA, 6.0)),
-        [0.0, rel(panel_y + 3.5), 0.0],
-        id_quat(),
-    ));
+    // Hot magenta neon frame around the panel edge. The thin tube *can*
+    // run hot, and a crisp lit border reads the broad face as a framed sign
+    // rather than a floating slab.
+    let (half_w, half_h, bar) = (2.85_f32, 1.95_f32, 0.22_f32);
+    for sy in [-1.0_f32, 1.0] {
+        root.children.push(prim(
+            cuboid_tapered([5.7, bar, 0.4], 0.0, glow(NEON_MAGENTA, 5.0)),
+            [0.0, cy + sy * half_h, z_front],
+            id_quat(),
+        ));
+    }
+    for sx in [-1.0_f32, 1.0] {
+        root.children.push(prim(
+            cuboid_tapered([bar, 3.9, 0.4], 0.0, glow(NEON_MAGENTA, 5.0)),
+            [sx * half_w, cy, z_front],
+            id_quat(),
+        ));
+    }
 
     // Signature life: holographic shimmer drifting off the panel face.
     root.children.push(fx::rising_motes(
@@ -103,6 +126,8 @@ mod tests {
 
     #[test]
     fn has_neon() {
-        assert!(super::super::has_emissive(&HoloBillboard.build("")));
+        assert!(crate::catalogue::items::util::has_emissive(
+            &HoloBillboard.build("")
+        ));
     }
 }

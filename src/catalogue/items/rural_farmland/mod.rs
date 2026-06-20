@@ -240,23 +240,6 @@ pub(super) const GLASS_TINT: [f32; 3] = [0.55, 0.66, 0.60];
 /// Warm lamplight in the barn window.
 pub(super) const LAMP_WARM: [f32; 3] = [1.0, 0.82, 0.48];
 
-/// Walk a built tree and report whether any primitive is strongly emissive
-/// — the shared "is the lamp lit?" check for the kit's tests.
-#[cfg(test)]
-pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
-    use crate::pds::GeneratorKind::*;
-    let own = match &g.kind {
-        Cuboid { material, .. }
-        | Cylinder { material, .. }
-        | Sphere { material, .. }
-        | Cone { material, .. }
-        | Torus { material, .. }
-        | Capsule { material, .. } => material.emission_strength.0 > 1.0,
-        _ => false,
-    };
-    own || g.children.iter().any(has_emissive)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,7 +265,7 @@ mod tests {
     #[test]
     fn barn_keeps_its_lamp() {
         assert!(
-            has_emissive(&barn::Barn.build("")),
+            crate::catalogue::items::util::has_emissive(&barn::Barn.build("")),
             "barn lost its emissive window"
         );
     }

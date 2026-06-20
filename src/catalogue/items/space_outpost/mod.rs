@@ -178,23 +178,6 @@ pub(super) const INTERIOR_WARM: [f32; 3] = [1.0, 0.92, 0.78];
 pub(super) const BEACON_RED: [f32; 3] = [1.0, 0.22, 0.22];
 pub(super) const GROW_PINK: [f32; 3] = [1.0, 0.42, 0.82];
 
-/// Walk a built tree and report whether any primitive is strongly emissive
-/// — the shared "is the outpost still powered?" check for the kit's tests.
-#[cfg(test)]
-pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
-    use crate::pds::GeneratorKind::*;
-    let own = match &g.kind {
-        Cuboid { material, .. }
-        | Cylinder { material, .. }
-        | Sphere { material, .. }
-        | Cone { material, .. }
-        | Torus { material, .. }
-        | Capsule { material, .. } => material.emission_strength.0 > 1.0,
-        _ => false,
-    };
-    own || g.children.iter().any(has_emissive)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,7 +204,7 @@ mod tests {
     #[test]
     fn habitat_dome_keeps_its_glow() {
         assert!(
-            has_emissive(&habitat_dome::HabitatDome.build("")),
+            crate::catalogue::items::util::has_emissive(&habitat_dome::HabitatDome.build("")),
             "habitat dome lost its emissive viewports / interior glow"
         );
     }

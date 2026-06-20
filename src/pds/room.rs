@@ -5,7 +5,7 @@
 
 use super::COLLECTION;
 use super::contact_effects::ContactEffects;
-use super::generator::{Generator, GeneratorKind, Placement, WaterSurface};
+use super::generator::{Generator, GeneratorKind, Placement, RoadConfig, WaterSurface};
 use super::sanitize::{Sanitize, limits, sanitize_generator};
 use super::terrain::SovereignTerrainConfig;
 use super::types::{Fp, Fp2, Fp3, Fp4, Fp64, TransformData};
@@ -373,6 +373,19 @@ impl RoomRecord {
             audio: crate::pds::SovereignAudioConfig::None,
         });
 
+        // Urban / built-up themes grow a tensor road network as a RoadNetwork
+        // child of the terrain. The generator is theme-agnostic — this is only
+        // the default-on policy; any room can add or remove roads in the editor.
+        // The layout gets its own seed (derived from the room seed) so it's
+        // independently re-rollable in the GUI.
+        if theme_grows_roads(scene.theme) {
+            base_region
+                .children
+                .push(Generator::from_kind(GeneratorKind::RoadNetwork(
+                    road_config_from_scene(&scene, did_seed ^ ROAD_SEED_SALT),
+                )));
+        }
+
         let mut generators = HashMap::new();
         generators.insert("base_terrain".to_string(), base_region);
 
@@ -425,6 +438,8 @@ impl RoomRecord {
                 },
                 snap_to_terrain: true,
                 random_yaw: true,
+                // Keep wild trees out of the built-up urban district.
+                avoid_urban: true,
             });
         }
 
@@ -471,6 +486,8 @@ impl RoomRecord {
                 },
                 snap_to_terrain: true,
                 random_yaw: true,
+                // Keep boulders out of the built-up urban district.
+                avoid_urban: true,
             });
         }
 
@@ -533,46 +550,59 @@ impl RoomRecord {
             avoid_water_clearance: Fp(0.0),
         });
 
-        // Seeded mini-settlement: every home region grows a themed
-        // cluster near spawn — one landmark plus any secondaries and
-        // props available for the room's theme (see
-        // crate::seeded_defaults::room::settlement). Shape-grammar entries
-        // get their stochastic seed restamped per DID so two users sharing
-        // a structure type still see different derivations; the landmark
-        // faces the spawn origin, secondaries face the landmark, and every
-        // member snaps to terrain with its own water clearance.
-        let settlement = Settlement::from_scene(&scene, did_seed);
-        let (prosperity, escalation) = (scene.prosperity, scene.escalation);
-        wire_settlement_member(
-            &settlement.landmark,
-            "landmark",
-            did,
-            prosperity,
-            escalation,
-            &mut generators,
-            &mut placements,
-        );
-        for (i, member) in settlement.secondaries.iter().enumerate() {
+        // Seeded mini-settlement: most home regions grow a themed cluster near
+        // spawn — one landmark plus any secondaries and props available for the
+        // room's theme (see crate::seeded_defaults::room::settlement).
+        // Shape-grammar entries get their stochastic seed restamped per DID so
+        // two users sharing a structure type still see different derivations;
+        // the landmark faces the spawn origin, secondaries face the landmark,
+        // and every member snaps to terrain with its own water clearance.
+        //
+        // Road-growing themes are the exception: their buildings are placed on
+        // the road network's enclosed lots instead, derived at load by the
+        // terrain plugin's populate-lots system (see [`crate::terrain`]). Baking
+        // a concentric cluster here would double up with — and ignore — those
+        // streets, so we skip it and let the lot layer own urban buildings.
+        if !theme_grows_roads(scene.theme) {
+            let settlement = Settlement::from_scene(&scene, did_seed);
+            let (prosperity, escalation) = (scene.prosperity, scene.escalation);
             wire_settlement_member(
-                member,
-                &format!("settlement_secondary_{i}"),
+                &settlement.landmark,
+                "landmark",
                 did,
                 prosperity,
                 escalation,
                 &mut generators,
                 &mut placements,
             );
-        }
-        for (i, member) in settlement.props.iter().enumerate() {
-            wire_settlement_member(
-                member,
-                &format!("settlement_prop_{i}"),
-                did,
-                prosperity,
-                escalation,
-                &mut generators,
-                &mut placements,
-            );
+            for (i, member) in settlement.secondaries.iter().enumerate() {
+                wire_settlement_member(
+                    member,
+                    &format!("settlement_secondary_{i}"),
+                    did,
+                    prosperity,
+                    escalation,
+                    &mut generators,
+                    &mut placements,
+                );
+            }
+            // Props are sampled with replacement, so the same prop can recur.
+            // Share one generator per distinct prop slug (named by slug) and
+            // reference it from each copy's placement — the compiler bakes that
+            // mesh once and instances it, instead of carrying a near-duplicate
+            // Region Asset per copy (mirrors the lot-building layer).
+            for member in &settlement.props {
+                let name = format!("settlement_prop_{}", member.slug);
+                if !generators.contains_key(&name) {
+                    let Some(prop_gen) =
+                        build_member_generator(member, did, prosperity, escalation)
+                    else {
+                        continue;
+                    };
+                    generators.insert(name.clone(), prop_gen);
+                }
+                placements.push(member_placement(name, member));
+            }
         }
 
         let mut traits = HashMap::new();
@@ -600,6 +630,16 @@ impl RoomRecord {
             environment.cloud_color = Fp3(accent.adjust_rgb(environment.cloud_color.0));
             environment.cloud_cover = Fp((environment.cloud_cover.0 + accent.haze).clamp(0.0, 1.0));
         }
+
+        // Theme nightfall: a nocturnal theme (cyberpunk neon) drops the sun
+        // to a dim moonlight key and darkens the sky / fog / cloud so its
+        // self-lit kit dominates. Runs *after* the accent so the result is a
+        // dark magenta-blue night rather than dark-neutral. A daylight theme
+        // has luminosity 1.0 and this is a no-op.
+        apply_nightfall(
+            crate::seeded_defaults::theme_luminosity(scene.theme),
+            &mut environment,
+        );
 
         // Seed the room's ambient track from the same scene anchor that
         // drives palette / terrain / atmosphere. The deriver returns a
@@ -739,9 +779,26 @@ fn wire_settlement_member(
     generators: &mut HashMap<String, Generator>,
     placements: &mut Vec<Placement>,
 ) {
-    let Some(entry) = crate::catalogue::by_slug(member.slug) else {
+    let Some(member_gen) = build_member_generator(member, did, prosperity, escalation) else {
         return;
     };
+    generators.insert(name.to_string(), member_gen);
+    placements.push(member_placement(name.to_string(), member));
+}
+
+/// Build a settlement member's generator tree: the catalogue entry, its
+/// stochastic grammar seed restamped from the member, and the socio-political
+/// finish + escalation damage applied. `None` if the slug no longer resolves
+/// (a catalogue rename); the caller then skips both the generator and its
+/// placement. Shared by the unique members (landmark / secondaries) and the
+/// slug-deduped props, so they build identically.
+fn build_member_generator(
+    member: &crate::seeded_defaults::SettlementMember,
+    did: &str,
+    prosperity: f32,
+    escalation: f32,
+) -> Option<Generator> {
+    let entry = crate::catalogue::by_slug(member.slug)?;
     let mut member_gen = entry.build(did);
     if let GeneratorKind::Shape { seed, .. } = &mut member_gen.kind {
         *seed = member.grammar_seed;
@@ -754,14 +811,21 @@ fn wire_settlement_member(
     // structure by the room's conflict tier (the Ruins modifier).
     // Deterministic in the member's grammar seed; calm rooms are untouched.
     crate::pds::ruin::apply_ruin(&mut member_gen, escalation, member.grammar_seed);
-    generators.insert(name.to_string(), member_gen);
+    Some(member_gen)
+}
+
+/// A terrain-snapped, water-avoiding [`Placement::Absolute`] for a settlement
+/// member at its derived offset / yaw / scale, referencing `generator_ref`.
+/// Sunk 0.35 m below the snap so foundations bite into slopes instead of
+/// leaving daylight gaps under the downhill edge.
+fn member_placement(
+    generator_ref: String,
+    member: &crate::seeded_defaults::SettlementMember,
+) -> Placement {
     let half_yaw = member.yaw_rad * 0.5;
-    placements.push(Placement::Absolute {
-        generator_ref: name.to_string(),
+    Placement::Absolute {
+        generator_ref,
         transform: TransformData {
-            // Sunk 0.35 m below the terrain snap so foundations bite into
-            // slopes instead of leaving daylight gaps under the downhill
-            // edge.
             translation: Fp3([member.offset[0], -0.35, member.offset[1]]),
             rotation: Fp4([0.0, half_yaw.sin(), 0.0, half_yaw.cos()]),
             scale: Fp3([member.scale, member.scale, member.scale]),
@@ -769,7 +833,7 @@ fn wire_settlement_member(
         snap_to_terrain: true,
         avoid_water: true,
         avoid_water_clearance: Fp(member.clearance),
-    });
+    }
 }
 
 /// Build an [`Environment`] whose colour fields are taken from a
@@ -1051,6 +1115,36 @@ fn apply_atmosphere_to_environment(
     env.cloud_wind_dir = Fp2(src.cloud_wind_dir);
 }
 
+/// Darken an [`Environment`] toward night by a theme's `luminosity`
+/// (see [`crate::seeded_defaults::theme_luminosity`]). `1.0` is a perfect
+/// no-op — full daylight, every non-nocturnal theme; below `1.0` it scales
+/// the directional sun down hard and the ambient + sky / fog / cloud colour
+/// down more gently so a self-lit theme (neon) reads as the dominant light
+/// after dusk.
+///
+/// The directional key takes the raw multiply (a dim moonlight sun), while
+/// ambient and the colour channels keep a generous floor — the look we
+/// want is a deep magenta-blue night the player can still navigate, not a
+/// power cut that collapses distant terrain into a black void.
+fn apply_nightfall(luminosity: f32, env: &mut Environment) {
+    let l = luminosity.clamp(0.0, 1.0);
+    if (l - 1.0).abs() < f32::EPSILON {
+        return; // full daylight — identity for every daylight theme
+    }
+    // Directional sun: scaled straight down to a moonlight key.
+    env.sun_illuminance = Fp(env.sun_illuminance.0 * l);
+    // Ambient + colour: floored well above the raw multiply so shape and
+    // distance stay readable under the dim sun (l=0.12 → ~0.38 here).
+    let floor = 0.3 + 0.7 * l;
+    let darken3 = |c: Fp3| Fp3([c.0[0] * floor, c.0[1] * floor, c.0[2] * floor]);
+    env.ambient_brightness = Fp(env.ambient_brightness.0 * floor);
+    env.sky_color = darken3(env.sky_color);
+    env.cloud_color = darken3(env.cloud_color);
+    env.cloud_shadow_color = darken3(env.cloud_shadow_color);
+    let fog = env.fog_color.0;
+    env.fog_color = Fp4([fog[0] * floor, fog[1] * floor, fog[2] * floor, fog[3]]);
+}
+
 /// Return the terrain generator with the lexicographically smallest key.
 ///
 /// `HashMap::values()` iteration order is randomised per execution (SipHash),
@@ -1067,6 +1161,74 @@ pub fn find_terrain_config(record: &RoomRecord) -> Option<&SovereignTerrainConfi
             && let GeneratorKind::Terrain(cfg) = &generator.kind
         {
             return Some(cfg);
+        }
+    }
+    None
+}
+
+/// Sub-stream salt so a room's road layout seed differs from its terrain seed
+/// while staying deterministic in the DID.
+const ROAD_SEED_SALT: u64 = 0xA0D5_EED5_A170_0001;
+
+/// Themes whose default seeded room grows a road network. The `RoadNetwork`
+/// generator itself is theme-agnostic; this is just the default-on policy —
+/// any room can add or remove roads in the editor.
+pub(crate) fn theme_grows_roads(theme: crate::seeded_defaults::ThemeArchetype) -> bool {
+    use crate::seeded_defaults::ThemeArchetype::*;
+    matches!(
+        theme,
+        Cyberpunk | ModernCity | IndustrialPark | Roadside | CivicCampus | Suburban | SportsRec
+    )
+}
+
+/// Derive a seeded urban [`RoadConfig`] from the room's scene. Built-up themes
+/// fill a larger district with tighter streets; sparse residential ones sprawl
+/// wider. Prosperity then grows the district (a richer region reaches further)
+/// and tightens the grid (denser blocks), so a poor outskirt and a rich
+/// downtown of the same theme read differently. The derived extents stay inside
+/// the road sanitiser's clamps (see `sanitize_road`) so a seeded value is never
+/// re-snapped. `seed` is the layout's own re-rollable seed.
+fn road_config_from_scene(scene: &crate::seeded_defaults::SceneCharacter, seed: u64) -> RoadConfig {
+    use crate::seeded_defaults::ThemeArchetype::*;
+    // Base (district ½-extent, major spacing, minor spacing) by how built-up
+    // the theme is. Cyberpunk / ModernCity fill the whole ~1 km map.
+    let (base_extent, major, minor) = match scene.theme {
+        Cyberpunk | ModernCity => (512.0, 190.0, 110.0),
+        IndustrialPark | Roadside => (460.0, 215.0, 135.0),
+        CivicCampus => (400.0, 205.0, 125.0),
+        Suburban | SportsRec => (340.0, 235.0, 150.0),
+        // A non-listed theme can still opt into roads via the editor.
+        _ => (300.0, 190.0, 110.0),
+    };
+    let prosperity = scene.prosperity.clamp(0.0, 1.0);
+    let extent = (base_extent * (0.8 + 0.4 * prosperity)).clamp(120.0, 512.0);
+    // Richer → denser (×0.85), poorer → sparser (×1.15).
+    let spacing = 1.15 - 0.3 * prosperity;
+    RoadConfig {
+        seed,
+        district_half_extent: Fp(extent),
+        major_spacing: Fp(major * spacing),
+        minor_spacing: Fp(minor * spacing),
+        ..RoadConfig::default()
+    }
+}
+
+/// Return the road-network config attached to the deterministically-chosen
+/// terrain generator (its `RoadNetwork` child), if any. Mirrors
+/// [`find_terrain_config`]'s sorted-key determinism so every peer reads the
+/// same config; the terrain plugin builds the road mesh from this plus the
+/// finished heightmap (see [`crate::urban`]).
+pub fn find_road_config(record: &RoomRecord) -> Option<&RoadConfig> {
+    let mut keys: Vec<&String> = record.generators.keys().collect();
+    keys.sort();
+    for k in keys {
+        if let Some(generator) = record.generators.get(k)
+            && let GeneratorKind::Terrain(_) = &generator.kind
+        {
+            return generator.children.iter().find_map(|c| match &c.kind {
+                GeneratorKind::RoadNetwork(cfg) => Some(cfg),
+                _ => None,
+            });
         }
     }
     None
@@ -1353,16 +1515,40 @@ mod tests {
     #[test]
     fn default_room_carries_a_themed_settlement() {
         use crate::seeded_defaults::room::settlement::{MAX_PROPS, MAX_SECONDARIES};
+        use crate::seeded_defaults::{SceneCharacter, fnv1a_64};
         for s in 0u64..16 {
-            let record = RoomRecord::default_for_did(&format!("did:test:{s}"));
+            let did = format!("did:test:{s}");
 
-            // Every room carries exactly one landmark, and it's a
+            // Road-growing themes intentionally bake no concentric settlement —
+            // their buildings come from the road network's lots at load (see
+            // populate-lots). Such a room must instead carry a road network and
+            // none of the settlement generators.
+            if theme_grows_roads(SceneCharacter::for_seed(fnv1a_64(&did)).theme) {
+                let record = RoomRecord::default_for_did(&did);
+                assert!(
+                    find_road_config(&record).is_some(),
+                    "road-growing room {did} must carry a road network"
+                );
+                assert!(
+                    !record.generators.contains_key("landmark")
+                        && !record
+                            .generators
+                            .keys()
+                            .any(|k| k.starts_with("settlement_")),
+                    "road-growing room {did} must not bake a concentric settlement"
+                );
+                continue;
+            }
+
+            let record = RoomRecord::default_for_did(&did);
+
+            // Every non-urban room carries exactly one landmark, and it's a
             // building — never Terrain/Water (those are positionally
             // invalid outside the base_terrain tree).
             let landmark = record
                 .generators
                 .get("landmark")
-                .expect("every seeded room must carry a landmark generator");
+                .expect("every seeded non-urban room must carry a landmark generator");
             assert!(!matches!(
                 landmark.kind,
                 GeneratorKind::Terrain(_) | GeneratorKind::Water { .. }
@@ -1418,6 +1604,137 @@ mod tests {
                 "too many secondaries: {secondaries}"
             );
             assert!(props <= MAX_PROPS, "too many props: {props}");
+        }
+    }
+
+    #[test]
+    fn settlement_props_dedupe_to_one_generator_per_slug() {
+        use crate::seeded_defaults::{SceneCharacter, Settlement, fnv1a_64};
+        use std::collections::HashSet;
+        // Find a non-urban room whose settlement repeats a prop slug — props are
+        // sampled with replacement, so dedup must actually collapse something.
+        let found = (0u64..256).find_map(|s| {
+            let did = format!("did:test:{s}");
+            let seed = fnv1a_64(&did);
+            let scene = SceneCharacter::for_seed(seed);
+            if theme_grows_roads(scene.theme) {
+                return None;
+            }
+            let settlement = Settlement::from_scene(&scene, seed);
+            let total = settlement.props.len();
+            let distinct: HashSet<_> = settlement.props.iter().map(|m| m.slug).collect();
+            (total > distinct.len()).then_some((did, total, distinct.len()))
+        });
+        let (did, total_props, distinct_props) =
+            found.expect("no non-urban seed in 0..256 repeated a settlement prop");
+
+        let record = RoomRecord::default_for_did(&did);
+        let prop_placements = record
+            .placements
+            .iter()
+            .filter(|p| {
+                matches!(p, Placement::Absolute { generator_ref, .. }
+                    if generator_ref.starts_with("settlement_prop_"))
+            })
+            .count();
+        let prop_gens = record
+            .generators
+            .keys()
+            .filter(|k| k.starts_with("settlement_prop_"))
+            .count();
+        // One placement per prop copy, but one generator per distinct slug.
+        assert_eq!(prop_placements, total_props, "one placement per prop copy");
+        assert_eq!(
+            prop_gens, distinct_props,
+            "one generator per distinct prop slug"
+        );
+        assert!(
+            prop_gens < prop_placements,
+            "dedup must collapse repeated props ({prop_gens} gens for {prop_placements} placements)"
+        );
+        // Every prop placement resolves to its shared generator.
+        for p in &record.placements {
+            if let Placement::Absolute { generator_ref, .. } = p
+                && generator_ref.starts_with("settlement_prop_")
+            {
+                assert!(
+                    record.generators.contains_key(generator_ref),
+                    "prop placement references missing generator {generator_ref}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn seeded_natural_scatters_opt_into_urban_avoidance() {
+        // Pick a seed that actually grows tree/boulder scatters, then assert
+        // every natural scatter opts into avoid_urban so wild scatter stays out
+        // of the built-up road district (a no-op in rooms without roads).
+        let record = (0u64..64)
+            .map(|s| RoomRecord::default_for_did(&format!("did:test:{s}")))
+            .find(|r| {
+                r.placements.iter().any(|p| {
+                    matches!(p, Placement::Scatter { generator_ref, .. }
+                        if generator_ref.starts_with("tree_scatter_") || generator_ref == "boulder")
+                })
+            })
+            .expect("a seed with natural scatters");
+
+        let mut natural = 0;
+        for p in &record.placements {
+            if let Placement::Scatter {
+                generator_ref,
+                avoid_urban,
+                ..
+            } = p
+                && (generator_ref.starts_with("tree_scatter_") || generator_ref == "boulder")
+            {
+                natural += 1;
+                assert!(
+                    *avoid_urban,
+                    "natural scatter {generator_ref} must avoid_urban"
+                );
+            }
+        }
+        assert!(natural > 0);
+
+        // The new field survives a serde round-trip (serde default keeps older
+        // records valid; a true value must persist).
+        let json = serde_json::to_string(&record).expect("serialize");
+        let back: RoomRecord = serde_json::from_str(&json).expect("deserialize");
+        assert!(
+            !crate::state::records_differ(&record, &back),
+            "avoid_urban must round-trip"
+        );
+    }
+
+    #[test]
+    fn road_config_from_scene_stays_in_editable_range() {
+        use crate::seeded_defaults::{SceneCharacter, ThemeArchetype};
+        // Derived extents must land inside the GUI slider ranges (so a seeded
+        // value is never pinned) — which are themselves inside the road
+        // sanitiser's clamps, so sanitize never re-snaps a seeded network.
+        for theme in ThemeArchetype::ALL {
+            for prosperity in [0.0_f32, 0.5, 1.0] {
+                let mut scene = SceneCharacter::for_seed(0);
+                scene.theme = theme;
+                scene.prosperity = prosperity;
+                let c = road_config_from_scene(&scene, 1);
+                let d = c.district_half_extent.0;
+                let (maj, min) = (c.major_spacing.0, c.minor_spacing.0);
+                assert!(
+                    (50.0..=512.0).contains(&d),
+                    "{theme:?}@{prosperity}: district {d} outside slider 50..=512"
+                );
+                assert!(
+                    (30.0..=300.0).contains(&maj),
+                    "{theme:?}@{prosperity}: major {maj} outside slider 30..=300"
+                );
+                assert!(
+                    (20.0..=200.0).contains(&min),
+                    "{theme:?}@{prosperity}: minor {min} outside slider 20..=200"
+                );
+            }
         }
     }
 
@@ -1481,6 +1798,73 @@ mod tests {
                 "expected 1–2 boulder scatters, got {rock_scatters}"
             );
         }
+    }
+
+    #[test]
+    fn urban_rooms_grow_a_road_network_others_stay_bare() {
+        use crate::seeded_defaults::{SceneCharacter, fnv1a_64};
+        let (mut saw_urban, mut saw_bare) = (false, false);
+        for s in 0u64..300 {
+            let did = format!("did:test:{s}");
+            let theme = SceneCharacter::for_seed(fnv1a_64(&did)).theme;
+            let record = RoomRecord::default_for_did(&did);
+            let road = find_road_config(&record);
+            assert_eq!(
+                road.is_some(),
+                theme_grows_roads(theme),
+                "road presence must match the default-on policy for {theme:?}"
+            );
+            if let Some(cfg) = road {
+                assert!(cfg.enabled, "seeded road network is enabled");
+                let terr = find_terrain_config(&record).expect("urban room has terrain");
+                assert_ne!(
+                    cfg.seed, terr.seed,
+                    "road layout carries its own seed, distinct from terrain"
+                );
+                saw_urban = true;
+            } else {
+                saw_bare = true;
+            }
+        }
+        assert!(
+            saw_urban,
+            "some seeded room should be an urban (roaded) theme"
+        );
+        assert!(
+            saw_bare,
+            "some seeded room should be a bare (road-free) theme"
+        );
+    }
+
+    #[test]
+    fn nightfall_dims_nocturnal_themes_and_is_identity_at_full_day() {
+        let day = Environment::default();
+
+        // A nocturnal luminosity dims the sun + ambient and darkens the sky.
+        let mut night = Environment::default();
+        apply_nightfall(0.12, &mut night);
+        assert!(
+            night.sun_illuminance.0 < day.sun_illuminance.0,
+            "nightfall must dim the sun"
+        );
+        assert!(
+            night.ambient_brightness.0 < day.ambient_brightness.0,
+            "nightfall must dim ambient"
+        );
+        assert!(
+            night.sky_color.0.iter().sum::<f32>() < day.sky_color.0.iter().sum::<f32>(),
+            "nightfall must darken the sky"
+        );
+        // Survives the record sanitiser (no NaN / out-of-range fields).
+        night.sanitize();
+        assert!(night.sun_illuminance.0 > 0.0 && night.sun_illuminance.0.is_finite());
+
+        // Full daylight is a perfect no-op — daylight themes are untouched.
+        let mut unchanged = Environment::default();
+        apply_nightfall(1.0, &mut unchanged);
+        assert_eq!(unchanged.sun_illuminance.0, day.sun_illuminance.0);
+        assert_eq!(unchanged.ambient_brightness.0, day.ambient_brightness.0);
+        assert_eq!(unchanged.sky_color.0, day.sky_color.0);
     }
 
     #[test]
