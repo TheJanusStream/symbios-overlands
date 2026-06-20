@@ -125,10 +125,11 @@ impl BakedAudioCache {
 }
 
 /// Attach the baked buffer to `target` with the playback shape `mode`
-/// asks for. Insert on a despawned target is a no-op (Bevy queues and
-/// drops) — the orphan case (room rebuild between dispatch and bake
-/// completion) is common enough during editing that warn-logs would
-/// drown the channel.
+/// asks for. Uses `try_insert` so an insert on a despawned target is a
+/// silent no-op — the orphan case (room rebuild between dispatch and bake
+/// completion) is common enough during editing that warn-logs would drown
+/// the channel, and in Bevy 0.18 a plain `insert` on a missing entity
+/// panics through the command error handler instead of dropping quietly.
 fn attach_baked_audio(
     commands: &mut Commands,
     target: Entity,
@@ -149,7 +150,7 @@ fn attach_baked_audio(
     };
     commands
         .entity(target)
-        .insert((AudioPlayer::new(handle), settings));
+        .try_insert((AudioPlayer::new(handle), settings));
 }
 
 /// Resolve `audio` through the bake cache: attach immediately on a

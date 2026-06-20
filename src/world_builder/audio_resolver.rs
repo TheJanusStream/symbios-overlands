@@ -260,9 +260,12 @@ fn apply_target(
 ) {
     match target {
         AudioReferenceTarget::AttachToEntity { entity, settings } => {
+            // `try_insert`: the entity may have despawned between bake dispatch
+            // and completion (room rebuild). In Bevy 0.18 a plain `insert` on a
+            // missing entity panics through the command error handler.
             commands
                 .entity(*entity)
-                .insert((AudioPlayer::new(handle), *settings));
+                .try_insert((AudioPlayer::new(handle), *settings));
         }
         AudioReferenceTarget::AmbientHandle => {
             commands.insert_resource(crate::loading::AmbientHandle(Some(handle)));
