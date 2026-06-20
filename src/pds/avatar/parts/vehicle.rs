@@ -113,17 +113,31 @@ fn funnel(ctx: &PartCtx) -> Generator {
 // ---------------------------------------------------------------------------
 
 fn teardrop_envelope(ctx: &PartCtx) -> Generator {
-    let mut env = prim(
-        with_torture(
-            sphere(0.8, 3, ctx.materials.body(ctx.palette.primary_accent)),
-            0.0,
-            0.3,
-            [0.0, 0.0, 0.0],
-        ),
-        [0.0, 0.0, 0.0],
+    // A pointed cigar built from composed lobes — like the default envelope
+    // but tapering to a sharper bow. Crucially it sets **no** root scale: it
+    // is a structural root, and the assembler mounts the gondola / fins as
+    // children, which a root scale would stretch and fling (see
+    // `super::defaults::envelope`).
+    let body = ctx.materials.body(ctx.palette.primary_accent);
+    let mut env = prim(sphere(0.82, 4, body.clone()), [0.0, 0.0, 0.0], id_quat());
+    env.children.push(prim(
+        sphere(0.5, 4, body.clone()),
+        [0.0, 0.0, 0.9],
         id_quat(),
-    );
-    env.transform.scale = Fp3([1.0, 1.0, 1.9]);
+    ));
+    env.children
+        .push(prim(sphere(0.66, 4, body), [0.0, 0.0, -0.6], id_quat()));
+    // A pointed bow finial (+Z).
+    env.children.push(prim(
+        cone(
+            0.16,
+            0.5,
+            10,
+            ctx.materials.trim(ctx.palette.tertiary_accent),
+        ),
+        [0.0, 0.0, 1.3],
+        quat_xyzw(quat_x(-FRAC_PI_2)),
+    ));
     env
 }
 
@@ -132,15 +146,18 @@ fn teardrop_envelope(ctx: &PartCtx) -> Generator {
 // ---------------------------------------------------------------------------
 
 fn bubble_canopy(ctx: &PartCtx) -> Generator {
+    // A flattened windshield bubble (matches the default canopy's footprint
+    // on the cabin) rather than a full gumball sphere.
     let mut c = prim(
-        sphere(0.34, 3, ctx.materials.glass(ctx.palette.secondary_accent)),
+        sphere(0.3, 3, ctx.materials.glass(ctx.palette.secondary_accent)),
         [0.0, 0.0, 0.0],
         id_quat(),
     );
+    c.transform.scale = Fp3([1.0, 0.62, 1.15]);
     // Glowing rim around the base.
     c.children.push(prim(
-        torus(0.02, 0.34, ctx.materials.glow(ctx.palette.primary_accent)),
-        [0.0, -0.06, 0.0],
+        torus(0.02, 0.3, ctx.materials.glow(ctx.palette.primary_accent)),
+        [0.0, -0.1, 0.0],
         id_quat(),
     ));
     c

@@ -251,7 +251,39 @@ pub(crate) fn pastel(color: [f32; 3]) -> [f32; 3] {
 /// `quat_y(-FRAC_PI_2)` turns the image upright within the panel, and
 /// `quat_z(FRAC_PI_2)` (applied last) stands the panel vertical with its
 /// normal on ±X. Without the Y roll the picture rides 90° on its side.
-pub(crate) fn pfp_banner(did: &str, size: f32, translation: [f32; 3], tint: [f32; 3]) -> Generator {
+/// Which way an integrated pfp panel faces. [`PfpFacing::Side`] keeps the
+/// heraldic ±X normal (a hull / envelope / sail decal seen from the flank);
+/// [`PfpFacing::Front`] yaws it 90° so its normal lies on ±Z (a chest badge or
+/// prow crest read head-on). Both are double-sided, so the sign of the axis
+/// doesn't matter — only the plane.
+#[derive(Clone, Copy)]
+pub(crate) enum PfpFacing {
+    Side,
+    Front,
+}
+
+/// Square Sign panel showing the owner's pfp, integrated flush as a worn
+/// detail (chest badge / hull decal / sail crest) rather than flown on a pole.
+///
+/// The Sign mesh is a plane in local XZ (normal +Y). The base rolls
+/// `quat_z(FRAC_PI_2) ∘ quat_y(-FRAC_PI_2)` stand it vertical with the image
+/// upright and its normal on ±X ([`PfpFacing::Side`]); [`PfpFacing::Front`]
+/// adds a 90° yaw so the normal lands on ±Z. The image stays upright either
+/// way (a yaw about the vertical never tilts it).
+pub(crate) fn pfp_panel(
+    did: &str,
+    size: f32,
+    translation: [f32; 3],
+    tint: [f32; 3],
+    facing: PfpFacing,
+) -> Generator {
+    // The proven upright side-banner orientation (normal ±X).
+    let side = quat_mul(quat_z(FRAC_PI_2), quat_y(-FRAC_PI_2));
+    let rotation = match facing {
+        PfpFacing::Side => side,
+        // Yaw the upright panel 90° about world Y → normal lands on ±Z.
+        PfpFacing::Front => quat_mul(quat_y(FRAC_PI_2), side),
+    };
     prim(
         GeneratorKind::Sign {
             source: SignSource::DidPfp {
@@ -271,7 +303,7 @@ pub(crate) fn pfp_banner(did: &str, size: f32, translation: [f32; 3], tint: [f32
             unlit: true,
         },
         translation,
-        quat_xyzw(quat_mul(quat_z(FRAC_PI_2), quat_y(-FRAC_PI_2))),
+        quat_xyzw(rotation),
     )
 }
 

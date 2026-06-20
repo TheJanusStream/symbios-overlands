@@ -1,10 +1,11 @@
 //! Land-skiff family assembler — composes the ground vehicle from the
 //! seeded [`AvatarOutfit`] parts.
 //!
-//! The chassis slab is the structural root (centred at the origin); the
-//! canopy sits atop it, one wheel part is repeated to the four corners
-//! (laid on its axle by the assembler), and the optional exhaust mounts at
-//! the stern. All geometry, colour, and finish come from the part catalogue
+//! The chassis (a shaped body with a lower skirt, rear cabin, and front
+//! hood) is the structural root (centred at the origin); the canopy seats on
+//! the cabin, one wheel part is repeated to the four corners (laid on its
+//! axle by the assembler), and the optional exhaust mounts at the stern. All
+//! geometry, colour, and finish come from the part catalogue
 //! ([`crate::pds::avatar::parts`]); seeded FX are attached centrally by
 //! [`super::build_for_seed`].
 
@@ -15,9 +16,7 @@ use crate::pds::generator::Generator;
 use crate::seeded_defaults::AvatarOutfit;
 
 use super::assemble::base_root;
-use super::common::{
-    cylinder, id_quat, offset, offset_rot, pastel, pfp_banner, prim, quat_xyzw, quat_z,
-};
+use super::common::{PfpFacing, offset, offset_rot, pastel, pfp_panel, quat_xyzw, quat_z};
 
 pub(super) fn build(seed: u64, did: &str) -> Generator {
     let ctx = PartCtx::for_seed(seed, did);
@@ -37,9 +36,10 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
             continue;
         };
         match choice.slot {
+            // Seat the canopy on the rear cabin.
             PartSlot::Canopy => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.25, 0.15])),
+                .push(offset(part.build(&ctx), [0.0, 0.42, -0.12])),
             PartSlot::Wheel => {
                 // One wheel part repeated to the four corners.
                 for anchor in [
@@ -54,33 +54,22 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
             }
             PartSlot::Exhaust => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.15, -0.85])),
+                .push(offset(part.build(&ctx), [0.0, 0.05, -0.85])),
             PartSlot::Ornament => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.30, 0.0])),
+                .push(offset(part.build(&ctx), [0.0, 0.35, 0.0])),
             _ => {}
         }
     }
 
-    // pfp banner on a short pole off the stern deck.
-    let pole_h = 0.45;
-    let mut pole = prim(
-        cylinder(
-            0.012,
-            pole_h,
-            8,
-            ctx.materials.metal(ctx.palette.tertiary_accent),
-        ),
-        [0.0, 0.15 + pole_h * 0.5, -0.4],
-        id_quat(),
-    );
-    pole.children.push(pfp_banner(
+    // pfp identity worn as a door decal flush on the chassis flank (±X).
+    root.children.push(pfp_panel(
         did,
-        0.28,
-        [0.0, pole_h * 0.25, 0.16],
+        0.22,
+        [0.41, 0.05, 0.1],
         pastel(ctx.palette.primary_accent),
+        PfpFacing::Side,
     ));
-    root.children.push(pole);
 
     root
 }
