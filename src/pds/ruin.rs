@@ -23,10 +23,10 @@
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
-use super::generator::{Generator, GeneratorKind};
+use super::generator::{Generator, GeneratorKind, TortureParams};
 use super::material_finish::node_materials_mut;
 use super::texture::{SovereignConcreteConfig, SovereignMaterialSettings, SovereignTextureConfig};
-use super::types::{Fp, Fp3, Fp4, Fp64, TransformData};
+use super::types::{Fp, Fp2, Fp3, Fp4, Fp64, TransformData};
 use crate::seeded_defaults::{EscalationTier, range_f32, signed_unit_f32, unit_f32};
 
 /// Sub-stream salt so the ruin RNG is decorrelated from the member's
@@ -166,14 +166,16 @@ fn scatter_rubble(node: &mut Generator, rng: &mut ChaCha8Rng) {
         let tilt_a = signed_unit_f32(rng) * 0.5;
         let tilt_b = signed_unit_f32(rng) * 0.5;
         let rotation = tumble(yaw, tilt_a, tilt_b);
+        let taper = range_f32(rng, 0.0, 0.3);
         node.children.push(Generator {
             kind: GeneratorKind::Cuboid {
                 size: Fp3([sx, sy, sz]),
                 solid: true,
                 material: rubble_material(grey),
-                twist: Fp(0.0),
-                taper: Fp(range_f32(rng, 0.0, 0.3)),
-                bend: Fp3([0.0, 0.0, 0.0]),
+                torture: TortureParams {
+                    taper: Fp2([taper, taper]),
+                    ..Default::default()
+                },
             },
             transform: TransformData {
                 translation: Fp3([angle.sin() * dist, sy * 0.5, angle.cos() * dist]),
@@ -224,9 +226,7 @@ mod tests {
                 size: Fp3([1.0, 1.0, 1.0]),
                 solid: true,
                 material: SovereignMaterialSettings::default(),
-                twist: Fp(0.0),
-                taper: Fp(0.0),
-                bend: Fp3([0.0, 0.0, 0.0]),
+                torture: TortureParams::default(),
             },
             transform: TransformData {
                 translation: Fp3([0.0, y, 0.0]),
@@ -318,9 +318,7 @@ mod tests {
                         emission_strength: Fp(8.0),
                         ..SovereignMaterialSettings::default()
                     },
-                    twist: Fp(0.0),
-                    taper: Fp(0.0),
-                    bend: Fp3([0.0, 0.0, 0.0]),
+                    torture: TortureParams::default(),
                 },
                 transform: TransformData {
                     translation: Fp3([0.0, y, 0.0]),

@@ -7,7 +7,7 @@
 
 use bevy_egui::egui;
 
-use crate::pds::{Fp, Fp3, GeneratorKind, SovereignMaterialSettings, WaterSurface};
+use crate::pds::{Fp2, Fp3, GeneratorKind, SovereignMaterialSettings, TortureParams, WaterSurface};
 
 use super::material::draw_texture_bridge;
 use super::widgets::{color_picker, fp_slider};
@@ -63,6 +63,8 @@ pub(super) const ROOM_ROOT_KINDS: &[&str] = &[
     "Torus",
     "Plane",
     "Tetrahedron",
+    "Tube",
+    "Bevel",
     "Sign",
     "ParticleSystem",
     "LSystem",
@@ -85,6 +87,8 @@ pub(super) const ROOM_CHILD_KINDS: &[&str] = &[
     "Torus",
     "Plane",
     "Tetrahedron",
+    "Tube",
+    "Bevel",
     "Sign",
     "ParticleSystem",
     "LSystem",
@@ -108,6 +112,8 @@ pub(crate) const AVATAR_KINDS: &[&str] = &[
     "Torus",
     "Plane",
     "Tetrahedron",
+    "Tube",
+    "Bevel",
     "Sign",
     "ParticleSystem",
     "LSystem",
@@ -162,28 +168,37 @@ pub(crate) fn draw_universal_material(
     draw_texture_bridge(ui, &mut m.texture, salt, dirty);
 }
 
-/// Vertex-torture editor for the three fields every primitive carries.
+/// Vertex-torture editor for the [`TortureParams`] every primitive carries:
+/// twist, per-axis taper (X/Z), a three-axis bend, and the S-bend wave.
 /// Ranges mirror `pds::limits::MAX_TORTURE_*`.
-pub(super) fn draw_torture(
-    ui: &mut egui::Ui,
-    twist: &mut Fp,
-    taper: &mut Fp,
-    bend: &mut Fp3,
-    dirty: &mut bool,
-) {
+pub(super) fn draw_torture(ui: &mut egui::Ui, torture: &mut TortureParams, dirty: &mut bool) {
     ui.label("Vertex torture");
     fp_slider(
         ui,
         "Twist (rad)",
-        twist,
+        &mut torture.twist,
         -4.0 * std::f32::consts::PI,
         4.0 * std::f32::consts::PI,
         dirty,
     );
-    fp_slider(ui, "Taper", taper, -0.99, 0.99, dirty);
-    ui.label("Bend (X/Y/Z)");
-    let mut b = bend.0;
+    // Per-axis taper (X / Z): equal = cone/frustum, unequal = wedge/fin.
+    let mut tp = torture.taper.0;
     ui.horizontal(|ui| {
+        ui.label("Taper (X/Z)");
+        for v in tp.iter_mut() {
+            if ui
+                .add(egui::DragValue::new(v).speed(0.02).range(-0.99..=0.99))
+                .changed()
+            {
+                *dirty = true;
+            }
+        }
+    });
+    torture.taper = Fp2(tp);
+    // Three-axis bend (the Y component lengthens / shortens the top).
+    let mut b = torture.bend.0;
+    ui.horizontal(|ui| {
+        ui.label("Bend (X/Y/Z)");
         for v in b.iter_mut() {
             if ui
                 .add(egui::DragValue::new(v).speed(0.05).range(-10.0..=10.0))
@@ -193,5 +208,19 @@ pub(super) fn draw_torture(
             }
         }
     });
-    *bend = Fp3(b);
+    torture.bend = Fp3(b);
+    // S-bend amplitude (X / Z): a sin(2π·height) serpentine wave.
+    let mut s = torture.s_bend.0;
+    ui.horizontal(|ui| {
+        ui.label("S-bend (X/Z)");
+        for v in s.iter_mut() {
+            if ui
+                .add(egui::DragValue::new(v).speed(0.05).range(-10.0..=10.0))
+                .changed()
+            {
+                *dirty = true;
+            }
+        }
+    });
+    torture.s_bend = Fp2(s);
 }

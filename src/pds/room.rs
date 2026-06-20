@@ -313,6 +313,7 @@ impl RoomRecord {
             SovereignMaterialSettings, SovereignRockConfig, SovereignTextureConfig,
         };
         use crate::pds::types::{BiomeFilter, ScatterBounds, WaterRelation};
+        use crate::pds::{Fp2, TortureParams};
         use crate::seeded_defaults::{
             AmbientParticles, Atmosphere, BiomeTextures, RockScatters, RoomPalette, SceneCharacter,
             Settlement, TerrainShape, TreeScatters, WaterDynamics,
@@ -465,9 +466,11 @@ impl RoomRecord {
                 }),
                 ..Default::default()
             },
-            twist: Fp(rock_scatters.boulder_twist),
-            taper: Fp(rock_scatters.boulder_taper),
-            bend: Fp3([0.0, 0.0, 0.0]),
+            torture: TortureParams {
+                twist: Fp(rock_scatters.boulder_twist),
+                taper: Fp2([rock_scatters.boulder_taper, rock_scatters.boulder_taper]),
+                ..Default::default()
+            },
         });
         generators.insert("boulder".to_string(), boulder);
         for rock in rock_scatters.scatters.iter() {

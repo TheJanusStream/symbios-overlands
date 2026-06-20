@@ -185,6 +185,28 @@ impl Default for RoadConfig {
 
 /// Variant-specific payload for a [`Generator`]. Open union: unrecognised
 /// `$type` tags deserialise to `Unknown` instead of failing the whole record.
+/// Vertex-torture parameters shared by every parametric primitive. Bundled
+/// into one struct (rather than three flat fields on all eight variants) so a
+/// new torture knob is a single field add — `#[serde(default)]` fills it on
+/// records that predate it — instead of an edit to every variant and every
+/// construction site. Applied CPU-side in `world_builder::prim`.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct TortureParams {
+    /// Radians of rotation around Y, linear in normalised height.
+    pub twist: Fp,
+    /// Per-axis taper: X and Z each scale by `1 - taper[axis] * t` toward the
+    /// top. Equal components give a uniform taper (a cone / frustum); unequal
+    /// ones give a wedge / fin.
+    pub taper: Fp2,
+    /// Quadratic top displacement `(x, y, z) * t²` — a single arc that pins
+    /// the base and swings the top.
+    pub bend: Fp3,
+    /// Serpentine S-curve: a `sin(2π t)` lateral wave of amplitude `(x, z)`
+    /// layered on top of `bend`, so a column can snake rather than only arc.
+    pub s_bend: Fp2,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "$type")]
 // The Terrain variant carries a full `SovereignTerrainConfig` (~400 bytes);
@@ -271,9 +293,8 @@ pub enum GeneratorKind {
         size: Fp3,
         solid: bool,
         material: SovereignMaterialSettings,
-        twist: Fp,
-        taper: Fp,
-        bend: Fp3,
+        #[serde(default)]
+        torture: TortureParams,
     },
 
     #[serde(rename = "network.symbios.gen.sphere")]
@@ -282,9 +303,8 @@ pub enum GeneratorKind {
         resolution: u32,
         solid: bool,
         material: SovereignMaterialSettings,
-        twist: Fp,
-        taper: Fp,
-        bend: Fp3,
+        #[serde(default)]
+        torture: TortureParams,
     },
 
     #[serde(rename = "network.symbios.gen.cylinder")]
@@ -294,9 +314,8 @@ pub enum GeneratorKind {
         resolution: u32,
         solid: bool,
         material: SovereignMaterialSettings,
-        twist: Fp,
-        taper: Fp,
-        bend: Fp3,
+        #[serde(default)]
+        torture: TortureParams,
     },
 
     #[serde(rename = "network.symbios.gen.capsule")]
@@ -307,9 +326,8 @@ pub enum GeneratorKind {
         longitudes: u32,
         solid: bool,
         material: SovereignMaterialSettings,
-        twist: Fp,
-        taper: Fp,
-        bend: Fp3,
+        #[serde(default)]
+        torture: TortureParams,
     },
 
     #[serde(rename = "network.symbios.gen.cone")]
@@ -319,9 +337,8 @@ pub enum GeneratorKind {
         resolution: u32,
         solid: bool,
         material: SovereignMaterialSettings,
-        twist: Fp,
-        taper: Fp,
-        bend: Fp3,
+        #[serde(default)]
+        torture: TortureParams,
     },
 
     #[serde(rename = "network.symbios.gen.torus")]
@@ -332,9 +349,8 @@ pub enum GeneratorKind {
         major_resolution: u32,
         solid: bool,
         material: SovereignMaterialSettings,
-        twist: Fp,
-        taper: Fp,
-        bend: Fp3,
+        #[serde(default)]
+        torture: TortureParams,
     },
 
     #[serde(rename = "network.symbios.gen.plane")]
@@ -343,9 +359,8 @@ pub enum GeneratorKind {
         subdivisions: u32,
         solid: bool,
         material: SovereignMaterialSettings,
-        twist: Fp,
-        taper: Fp,
-        bend: Fp3,
+        #[serde(default)]
+        torture: TortureParams,
     },
 
     #[serde(rename = "network.symbios.gen.tetrahedron")]
@@ -353,9 +368,39 @@ pub enum GeneratorKind {
         size: Fp,
         solid: bool,
         material: SovereignMaterialSettings,
-        twist: Fp,
-        taper: Fp,
-        bend: Fp3,
+        #[serde(default)]
+        torture: TortureParams,
+    },
+
+    /// Hollow cylinder (pipe / ring / well-curb). `radius` is the outer wall,
+    /// `inner_radius` the bore (`< radius`); annular caps close the ends. The
+    /// collider is a solid outer cylinder — the bore is not a walk-through
+    /// volume.
+    #[serde(rename = "network.symbios.gen.tube")]
+    Tube {
+        radius: Fp,
+        inner_radius: Fp,
+        height: Fp,
+        resolution: u32,
+        solid: bool,
+        material: SovereignMaterialSettings,
+        #[serde(default)]
+        torture: TortureParams,
+    },
+
+    /// Box with chamfered / rounded **vertical** edges — an extruded
+    /// rounded-rectangle prism (columns, furniture, rounded buildings).
+    /// `bevel` is the corner cut/radius; `bevel_segments` is `1` for a flat
+    /// chamfer (octagonal prism) or higher for a rounded corner.
+    #[serde(rename = "network.symbios.gen.bevel")]
+    Bevel {
+        size: Fp3,
+        bevel: Fp,
+        bevel_segments: u32,
+        solid: bool,
+        material: SovereignMaterialSettings,
+        #[serde(default)]
+        torture: TortureParams,
     },
 
     /// Hand-rolled CPU + ECS particle emitter. Spawns billboarded /
@@ -729,9 +774,45 @@ impl GeneratorKind {
             size: Fp3([1.0, 1.0, 1.0]),
             solid: true,
             material: SovereignMaterialSettings::default(),
-            twist: Fp(0.0),
-            taper: Fp(0.0),
-            bend: Fp3([0.0, 0.0, 0.0]),
+            torture: TortureParams::default(),
+        }
+    }
+
+    /// Shared read access to the vertex-torture parameters of any parametric
+    /// primitive; `None` for non-primitive variants. Centralises the
+    /// eight-arm match so the mesher, sanitiser, and editor don't each repeat
+    /// it.
+    pub fn torture(&self) -> Option<&TortureParams> {
+        match self {
+            GeneratorKind::Cuboid { torture, .. }
+            | GeneratorKind::Sphere { torture, .. }
+            | GeneratorKind::Cylinder { torture, .. }
+            | GeneratorKind::Capsule { torture, .. }
+            | GeneratorKind::Cone { torture, .. }
+            | GeneratorKind::Torus { torture, .. }
+            | GeneratorKind::Plane { torture, .. }
+            | GeneratorKind::Tetrahedron { torture, .. }
+            | GeneratorKind::Tube { torture, .. }
+            | GeneratorKind::Bevel { torture, .. } => Some(torture),
+            _ => None,
+        }
+    }
+
+    /// Shared mutable access to a primitive's vertex-torture parameters; `None`
+    /// for non-primitive variants.
+    pub fn torture_mut(&mut self) -> Option<&mut TortureParams> {
+        match self {
+            GeneratorKind::Cuboid { torture, .. }
+            | GeneratorKind::Sphere { torture, .. }
+            | GeneratorKind::Cylinder { torture, .. }
+            | GeneratorKind::Capsule { torture, .. }
+            | GeneratorKind::Cone { torture, .. }
+            | GeneratorKind::Torus { torture, .. }
+            | GeneratorKind::Plane { torture, .. }
+            | GeneratorKind::Tetrahedron { torture, .. }
+            | GeneratorKind::Tube { torture, .. }
+            | GeneratorKind::Bevel { torture, .. } => Some(torture),
+            _ => None,
         }
     }
 
@@ -749,6 +830,8 @@ impl GeneratorKind {
                 | GeneratorKind::Torus { .. }
                 | GeneratorKind::Plane { .. }
                 | GeneratorKind::Tetrahedron { .. }
+                | GeneratorKind::Tube { .. }
+                | GeneratorKind::Bevel { .. }
         )
     }
 
@@ -771,6 +854,8 @@ impl GeneratorKind {
             GeneratorKind::Torus { .. } => "Torus",
             GeneratorKind::Plane { .. } => "Plane",
             GeneratorKind::Tetrahedron { .. } => "Tetrahedron",
+            GeneratorKind::Tube { .. } => "Tube",
+            GeneratorKind::Bevel { .. } => "Bevel",
             GeneratorKind::Sign { .. } => "Sign",
             GeneratorKind::ParticleSystem { .. } => "ParticleSystem",
             GeneratorKind::Unknown => "Unknown",
@@ -783,25 +868,19 @@ impl GeneratorKind {
     /// sensible defaults capture.
     pub fn default_primitive_for_tag(tag: &str) -> Option<Self> {
         let mat = SovereignMaterialSettings::default();
-        let zero = Fp(0.0);
-        let zero3 = Fp3([0.0, 0.0, 0.0]);
         Some(match tag {
             "Cuboid" => GeneratorKind::Cuboid {
                 size: Fp3([1.0, 1.0, 1.0]),
                 solid: true,
                 material: mat,
-                twist: zero,
-                taper: zero,
-                bend: zero3,
+                torture: TortureParams::default(),
             },
             "Sphere" => GeneratorKind::Sphere {
                 radius: Fp(0.5),
                 resolution: 3,
                 solid: true,
                 material: mat,
-                twist: zero,
-                taper: zero,
-                bend: zero3,
+                torture: TortureParams::default(),
             },
             "Cylinder" => GeneratorKind::Cylinder {
                 radius: Fp(0.5),
@@ -809,9 +888,7 @@ impl GeneratorKind {
                 resolution: 16,
                 solid: true,
                 material: mat,
-                twist: zero,
-                taper: zero,
-                bend: zero3,
+                torture: TortureParams::default(),
             },
             "Capsule" => GeneratorKind::Capsule {
                 radius: Fp(0.5),
@@ -820,9 +897,7 @@ impl GeneratorKind {
                 longitudes: 16,
                 solid: true,
                 material: mat,
-                twist: zero,
-                taper: zero,
-                bend: zero3,
+                torture: TortureParams::default(),
             },
             "Cone" => GeneratorKind::Cone {
                 radius: Fp(0.5),
@@ -830,9 +905,7 @@ impl GeneratorKind {
                 resolution: 16,
                 solid: true,
                 material: mat,
-                twist: zero,
-                taper: zero,
-                bend: zero3,
+                torture: TortureParams::default(),
             },
             "Torus" => GeneratorKind::Torus {
                 minor_radius: Fp(0.1),
@@ -841,26 +914,37 @@ impl GeneratorKind {
                 major_resolution: 24,
                 solid: true,
                 material: mat,
-                twist: zero,
-                taper: zero,
-                bend: zero3,
+                torture: TortureParams::default(),
             },
             "Plane" => GeneratorKind::Plane {
                 size: Fp2([1.0, 1.0]),
                 subdivisions: 0,
                 solid: true,
                 material: mat,
-                twist: zero,
-                taper: zero,
-                bend: zero3,
+                torture: TortureParams::default(),
             },
             "Tetrahedron" => GeneratorKind::Tetrahedron {
                 size: Fp(1.0),
                 solid: true,
                 material: mat,
-                twist: zero,
-                taper: zero,
-                bend: zero3,
+                torture: TortureParams::default(),
+            },
+            "Tube" => GeneratorKind::Tube {
+                radius: Fp(0.5),
+                inner_radius: Fp(0.3),
+                height: Fp(1.0),
+                resolution: 24,
+                solid: true,
+                material: mat,
+                torture: TortureParams::default(),
+            },
+            "Bevel" => GeneratorKind::Bevel {
+                size: Fp3([1.0, 1.0, 1.0]),
+                bevel: Fp(0.15),
+                bevel_segments: 3,
+                solid: true,
+                material: mat,
+                torture: TortureParams::default(),
             },
             _ => return None,
         })

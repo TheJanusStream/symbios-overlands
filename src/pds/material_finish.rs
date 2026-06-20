@@ -92,6 +92,8 @@ pub(crate) fn node_materials_mut(kind: &mut GeneratorKind) -> Vec<&mut Sovereign
         | GeneratorKind::Torus { material, .. }
         | GeneratorKind::Plane { material, .. }
         | GeneratorKind::Tetrahedron { material, .. }
+        | GeneratorKind::Tube { material, .. }
+        | GeneratorKind::Bevel { material, .. }
         | GeneratorKind::Sign { material, .. } => vec![material],
         GeneratorKind::Shape { materials, .. } => materials.values_mut().collect(),
         GeneratorKind::LSystem { materials, .. } => materials.values_mut().collect(),
@@ -177,9 +179,7 @@ mod tests {
                 metallic: Fp(metallic),
                 ..SovereignMaterialSettings::default()
             },
-            twist: Fp(0.0),
-            taper: Fp(0.0),
-            bend: Fp3([0.0, 0.0, 0.0]),
+            torture: crate::pds::TortureParams::default(),
         })
     }
 

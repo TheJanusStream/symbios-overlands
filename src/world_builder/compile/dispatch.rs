@@ -198,7 +198,9 @@ pub fn spawn_generator(
         | GeneratorKind::Cone { .. }
         | GeneratorKind::Torus { .. }
         | GeneratorKind::Plane { .. }
-        | GeneratorKind::Tetrahedron { .. } => {
+        | GeneratorKind::Tetrahedron { .. }
+        | GeneratorKind::Tube { .. }
+        | GeneratorKind::Bevel { .. } => {
             Some(spawn_primitive_entity(ctx, &generator.kind, transform))
         }
         GeneratorKind::Sign {
@@ -423,6 +425,12 @@ fn spawn_primitive_entity(
             solid, material, ..
         }
         | GeneratorKind::Tetrahedron {
+            solid, material, ..
+        }
+        | GeneratorKind::Tube {
+            solid, material, ..
+        }
+        | GeneratorKind::Bevel {
             solid, material, ..
         } => (*solid, material.clone()),
         _ => unreachable!("spawn_primitive_entity called on non-primitive kind"),

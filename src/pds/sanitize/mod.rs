@@ -197,7 +197,9 @@ pub fn sanitize_kind(kind: &mut GeneratorKind) {
         | GeneratorKind::Cone { .. }
         | GeneratorKind::Torus { .. }
         | GeneratorKind::Plane { .. }
-        | GeneratorKind::Tetrahedron { .. } => sanitize_primitive(kind),
+        | GeneratorKind::Tetrahedron { .. }
+        | GeneratorKind::Tube { .. }
+        | GeneratorKind::Bevel { .. } => sanitize_primitive(kind),
         GeneratorKind::Water { surface } => sanitize_water(surface),
         GeneratorKind::RoadNetwork(config) => sanitize_road(config),
         GeneratorKind::Sign {

@@ -4,7 +4,7 @@
 
 use bevy_egui::egui;
 
-use crate::pds::{Fp, Fp2, Fp3, SovereignMaterialSettings};
+use crate::pds::{Fp, Fp2, Fp3, SovereignMaterialSettings, TortureParams};
 
 use super::super::construct::{draw_torture, draw_universal_material};
 use super::super::widgets::{drag_u32, fp_slider};
@@ -15,9 +15,7 @@ pub(super) fn draw_primitive_cuboid(
     size: &mut Fp3,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
-    twist: &mut Fp,
-    taper: &mut Fp,
-    bend: &mut Fp3,
+    torture: &mut TortureParams,
     salt: &str,
     dirty: &mut bool,
 ) {
@@ -35,7 +33,7 @@ pub(super) fn draw_primitive_cuboid(
             *dirty = true;
         }
     });
-    draw_common_primitive(ui, solid, material, twist, taper, bend, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -45,17 +43,15 @@ pub(super) fn draw_primitive_sphere(
     resolution: &mut u32,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
-    twist: &mut Fp,
-    taper: &mut Fp,
-    bend: &mut Fp3,
+    torture: &mut TortureParams,
     salt: &str,
     dirty: &mut bool,
 ) {
     ui.horizontal(|ui| {
         fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
-        drag_u32(ui, "Ico Res", resolution, 0, 10, dirty);
+        drag_u32(ui, "Ico Res", resolution, 0, 6, dirty);
     });
-    draw_common_primitive(ui, solid, material, twist, taper, bend, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -66,9 +62,7 @@ pub(super) fn draw_primitive_cylinder(
     resolution: &mut u32,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
-    twist: &mut Fp,
-    taper: &mut Fp,
-    bend: &mut Fp3,
+    torture: &mut TortureParams,
     salt: &str,
     dirty: &mut bool,
 ) {
@@ -77,7 +71,7 @@ pub(super) fn draw_primitive_cylinder(
         fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
         drag_u32(ui, "Res", resolution, 3, 128, dirty);
     });
-    draw_common_primitive(ui, solid, material, twist, taper, bend, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -89,9 +83,7 @@ pub(super) fn draw_primitive_capsule(
     longitudes: &mut u32,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
-    twist: &mut Fp,
-    taper: &mut Fp,
-    bend: &mut Fp3,
+    torture: &mut TortureParams,
     salt: &str,
     dirty: &mut bool,
 ) {
@@ -103,7 +95,7 @@ pub(super) fn draw_primitive_capsule(
         drag_u32(ui, "Lats", latitudes, 2, 64, dirty);
         drag_u32(ui, "Lons", longitudes, 4, 128, dirty);
     });
-    draw_common_primitive(ui, solid, material, twist, taper, bend, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -114,9 +106,7 @@ pub(super) fn draw_primitive_cone(
     resolution: &mut u32,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
-    twist: &mut Fp,
-    taper: &mut Fp,
-    bend: &mut Fp3,
+    torture: &mut TortureParams,
     salt: &str,
     dirty: &mut bool,
 ) {
@@ -125,7 +115,7 @@ pub(super) fn draw_primitive_cone(
         fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
         drag_u32(ui, "Res", resolution, 3, 128, dirty);
     });
-    draw_common_primitive(ui, solid, material, twist, taper, bend, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -137,9 +127,7 @@ pub(super) fn draw_primitive_torus(
     major_resolution: &mut u32,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
-    twist: &mut Fp,
-    taper: &mut Fp,
-    bend: &mut Fp3,
+    torture: &mut TortureParams,
     salt: &str,
     dirty: &mut bool,
 ) {
@@ -151,7 +139,7 @@ pub(super) fn draw_primitive_torus(
         drag_u32(ui, "Minor Res", minor_resolution, 3, 64, dirty);
         drag_u32(ui, "Major Res", major_resolution, 3, 128, dirty);
     });
-    draw_common_primitive(ui, solid, material, twist, taper, bend, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -161,9 +149,7 @@ pub(super) fn draw_primitive_plane(
     subdivisions: &mut u32,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
-    twist: &mut Fp,
-    taper: &mut Fp,
-    bend: &mut Fp3,
+    torture: &mut TortureParams,
     salt: &str,
     dirty: &mut bool,
 ) {
@@ -182,7 +168,7 @@ pub(super) fn draw_primitive_plane(
         }
         drag_u32(ui, "Subdivs", subdivisions, 0, 32, dirty);
     });
-    draw_common_primitive(ui, solid, material, twist, taper, bend, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -191,14 +177,69 @@ pub(super) fn draw_primitive_tetrahedron(
     size: &mut Fp,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
-    twist: &mut Fp,
-    taper: &mut Fp,
-    bend: &mut Fp3,
+    torture: &mut TortureParams,
     salt: &str,
     dirty: &mut bool,
 ) {
     fp_slider(ui, "Size", size, 0.01, 100.0, dirty);
-    draw_common_primitive(ui, solid, material, twist, taper, bend, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, dirty);
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn draw_primitive_tube(
+    ui: &mut egui::Ui,
+    radius: &mut Fp,
+    inner_radius: &mut Fp,
+    height: &mut Fp,
+    resolution: &mut u32,
+    solid: &mut bool,
+    material: &mut SovereignMaterialSettings,
+    torture: &mut TortureParams,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    ui.horizontal(|ui| {
+        fp_slider(ui, "Outer R", radius, 0.01, 100.0, dirty);
+        fp_slider(ui, "Inner R", inner_radius, 0.0, 100.0, dirty);
+    });
+    ui.horizontal(|ui| {
+        fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
+        drag_u32(ui, "Res", resolution, 3, 128, dirty);
+    });
+    draw_common_primitive(ui, solid, material, torture, salt, dirty);
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn draw_primitive_bevel(
+    ui: &mut egui::Ui,
+    size: &mut Fp3,
+    bevel: &mut Fp,
+    bevel_segments: &mut u32,
+    solid: &mut bool,
+    material: &mut SovereignMaterialSettings,
+    torture: &mut TortureParams,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    ui.horizontal(|ui| {
+        ui.label("Size X/Y/Z:");
+        let mut v = size.0;
+        let mut changed = false;
+        for axis in v.iter_mut() {
+            changed |= ui
+                .add(egui::DragValue::new(axis).speed(0.1).range(0.01..=100.0))
+                .changed();
+        }
+        if changed {
+            *size = Fp3(v);
+            *dirty = true;
+        }
+    });
+    ui.horizontal(|ui| {
+        fp_slider(ui, "Bevel", bevel, 0.0, 50.0, dirty);
+        drag_u32(ui, "Segments", bevel_segments, 1, 16, dirty);
+    });
+    draw_common_primitive(ui, solid, material, torture, salt, dirty);
 }
 
 /// Shared tail for every primitive editor: solid checkbox, torture triple,
@@ -209,9 +250,7 @@ fn draw_common_primitive(
     ui: &mut egui::Ui,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
-    twist: &mut Fp,
-    taper: &mut Fp,
-    bend: &mut Fp3,
+    torture: &mut TortureParams,
     salt: &str,
     dirty: &mut bool,
 ) {
@@ -219,7 +258,7 @@ fn draw_common_primitive(
         *dirty = true;
     }
     ui.add_space(2.0);
-    draw_torture(ui, twist, taper, bend, dirty);
+    draw_torture(ui, torture, dirty);
     ui.add_space(2.0);
     egui::CollapsingHeader::new("Material")
         .id_salt(format!("{}_mat", salt))

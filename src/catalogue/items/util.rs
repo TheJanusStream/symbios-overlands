@@ -8,7 +8,8 @@
 //! cylinder here" altitude instead of struct-literal plumbing.
 
 use crate::pds::{
-    Fp, Fp3, Fp4, Generator, GeneratorKind, SovereignMaterialSettings, TransformData,
+    Fp, Fp2, Fp3, Fp4, Generator, GeneratorKind, SovereignMaterialSettings, TortureParams,
+    TransformData,
 };
 
 /// Wrap a kind into a childless node at `translation` / `rotation`.
@@ -74,9 +75,10 @@ pub(super) fn cuboid_tapered(
         size: Fp3(size),
         solid: false,
         material,
-        twist: Fp(0.0),
-        taper: Fp(taper),
-        bend: Fp3([0.0, 0.0, 0.0]),
+        torture: TortureParams {
+            taper: Fp2([taper, taper]),
+            ..Default::default()
+        },
     }
 }
 
@@ -93,9 +95,10 @@ pub(super) fn cylinder_tapered(
         resolution,
         solid: false,
         material,
-        twist: Fp(0.0),
-        taper: Fp(taper),
-        bend: Fp3([0.0, 0.0, 0.0]),
+        torture: TortureParams {
+            taper: Fp2([taper, taper]),
+            ..Default::default()
+        },
     }
 }
 
@@ -109,9 +112,7 @@ pub(super) fn sphere(
         resolution,
         solid: false,
         material,
-        twist: Fp(0.0),
-        taper: Fp(0.0),
-        bend: Fp3([0.0, 0.0, 0.0]),
+        torture: TortureParams::default(),
     }
 }
 
@@ -127,9 +128,7 @@ pub(super) fn cone(
         resolution,
         solid: false,
         material,
-        twist: Fp(0.0),
-        taper: Fp(0.0),
-        bend: Fp3([0.0, 0.0, 0.0]),
+        torture: TortureParams::default(),
     }
 }
 
@@ -145,9 +144,7 @@ pub(super) fn torus(
         major_resolution: 28,
         solid: false,
         material,
-        twist: Fp(0.0),
-        taper: Fp(0.0),
-        bend: Fp3([0.0, 0.0, 0.0]),
+        torture: TortureParams::default(),
     }
 }
 

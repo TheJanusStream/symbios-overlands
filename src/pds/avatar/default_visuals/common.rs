@@ -10,7 +10,7 @@
 
 use std::f32::consts::FRAC_PI_2;
 
-use crate::pds::generator::{AlphaModeKind, Generator, GeneratorKind, SignSource};
+use crate::pds::generator::{AlphaModeKind, Generator, GeneratorKind, SignSource, TortureParams};
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::types::{Fp, Fp2, Fp3, Fp4, TransformData};
 
@@ -91,9 +91,7 @@ pub(crate) fn cuboid(size: [f32; 3], material: SovereignMaterialSettings) -> Gen
         size: Fp3(size),
         solid: false,
         material,
-        twist: Fp(0.0),
-        taper: Fp(0.0),
-        bend: Fp3([0.0, 0.0, 0.0]),
+        torture: TortureParams::default(),
     }
 }
 
@@ -107,9 +105,7 @@ pub(crate) fn sphere(
         resolution,
         solid: false,
         material,
-        twist: Fp(0.0),
-        taper: Fp(0.0),
-        bend: Fp3([0.0, 0.0, 0.0]),
+        torture: TortureParams::default(),
     }
 }
 
@@ -125,9 +121,7 @@ pub(crate) fn cylinder(
         resolution,
         solid: false,
         material,
-        twist: Fp(0.0),
-        taper: Fp(0.0),
-        bend: Fp3([0.0, 0.0, 0.0]),
+        torture: TortureParams::default(),
     }
 }
 
@@ -143,9 +137,7 @@ pub(crate) fn capsule(
         longitudes: 16,
         solid: false,
         material,
-        twist: Fp(0.0),
-        taper: Fp(0.0),
-        bend: Fp3([0.0, 0.0, 0.0]),
+        torture: TortureParams::default(),
     }
 }
 
@@ -161,9 +153,7 @@ pub(crate) fn cone(
         resolution,
         solid: false,
         material,
-        twist: Fp(0.0),
-        taper: Fp(0.0),
-        bend: Fp3([0.0, 0.0, 0.0]),
+        torture: TortureParams::default(),
     }
 }
 
@@ -179,9 +169,7 @@ pub(crate) fn torus(
         major_resolution: 24,
         solid: false,
         material,
-        twist: Fp(0.0),
-        taper: Fp(0.0),
-        bend: Fp3([0.0, 0.0, 0.0]),
+        torture: TortureParams::default(),
     }
 }
 
@@ -189,37 +177,19 @@ pub(crate) fn torus(
 /// shaping. Semantics live in `crate::world_builder::prim`: `twist` is
 /// radians of Y-rotation across the height, `taper` scales X/Z toward the
 /// top (`0.5` → half-width crown, negative flares outward), `bend` displaces
-/// the top quadratically on world X/Z. Non-primitive kinds pass through.
+/// the top quadratically on world X/Z. The scalar `new_taper` sets a uniform
+/// (X == Z) taper; author per-axis taper or an S-bend by building
+/// [`TortureParams`] directly. Non-primitive kinds pass through.
 pub(crate) fn with_torture(
     mut kind: GeneratorKind,
     new_twist: f32,
     new_taper: f32,
     new_bend: [f32; 3],
 ) -> GeneratorKind {
-    match &mut kind {
-        GeneratorKind::Cuboid {
-            twist, taper, bend, ..
-        }
-        | GeneratorKind::Sphere {
-            twist, taper, bend, ..
-        }
-        | GeneratorKind::Cylinder {
-            twist, taper, bend, ..
-        }
-        | GeneratorKind::Capsule {
-            twist, taper, bend, ..
-        }
-        | GeneratorKind::Cone {
-            twist, taper, bend, ..
-        }
-        | GeneratorKind::Torus {
-            twist, taper, bend, ..
-        } => {
-            *twist = Fp(new_twist);
-            *taper = Fp(new_taper);
-            *bend = Fp3(new_bend);
-        }
-        _ => {}
+    if let Some(t) = kind.torture_mut() {
+        t.twist = Fp(new_twist);
+        t.taper = Fp2([new_taper, new_taper]);
+        t.bend = Fp3(new_bend);
     }
     kind
 }
