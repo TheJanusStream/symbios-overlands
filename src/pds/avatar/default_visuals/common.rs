@@ -194,6 +194,25 @@ pub(crate) fn with_torture(
     kind
 }
 
+/// Stamp the SL-style topology cuts onto a swept primitive (Sphere / Cylinder /
+/// Cone / Torus / Tube): `path_cut` (`[begin, end]` kept angular fraction),
+/// `profile_cut` (`[begin, end]` kept latitude band — domes / bowls), and
+/// `hollow` (bore fraction). Non-swept kinds pass through unchanged. Honoured
+/// by the unified sweep mesher in `crate::world_builder::prim`.
+pub(crate) fn with_cut(
+    mut kind: GeneratorKind,
+    path_cut: [f32; 2],
+    profile_cut: [f32; 2],
+    hollow: f32,
+) -> GeneratorKind {
+    if let Some(t) = kind.torture_mut() {
+        t.path_cut = Fp2(path_cut);
+        t.profile_cut = Fp2(profile_cut);
+        t.hollow = Fp(hollow);
+    }
+    kind
+}
+
 // ---------------------------------------------------------------------------
 // Pfp banner
 // ---------------------------------------------------------------------------

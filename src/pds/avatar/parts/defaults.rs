@@ -31,7 +31,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::pds::avatar::default_visuals::common::{
-    capsule, cuboid, cylinder, id_quat, prim, quat_x, quat_xyzw, sphere, torus, with_torture,
+    capsule, cuboid, cylinder, id_quat, prim, quat_x, quat_xyzw, quat_z, sphere, torus, with_cut,
+    with_torture,
 };
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
@@ -174,6 +175,16 @@ fn head(ctx: &PartCtx) -> Generator {
     // crown stays fully covered (no bare skull-cap shows); a back/nape mass and
     // temples frame the face. Reads as a haircut, not a swim cap. A per-seed
     // flourish adds variety on top.
+    // A single profile-cut dome: the cut-latitude rim *is* the hairline, so a
+    // backward tilt sweeps it up at the brow and down at the nape — one clean
+    // prim replacing the old cap + back-mass + temples stack. The kept band
+    // reaches a little below the equator so it wraps the sides / back of the
+    // head; the dome sits a touch larger than the skull to read as hair.
+    // Crown cap (a flattened sphere seated high and tilted back so the front rim
+    // lifts to the forehead). NB: a single profile-cut dome was trialled here and
+    // rejected — its one flat rim can't both expose the forehead and cover the
+    // nape, and it leaves a seam against the back mass; the multi-mass below
+    // reads as hair far better. The cut prims earn their keep in the catalogue.
     let mut cap = prim(
         sphere(r, 4, hair.clone()),
         [0.0, r * 0.68, r * 0.06],
@@ -181,7 +192,7 @@ fn head(ctx: &PartCtx) -> Generator {
     );
     cap.transform.scale = Fp3([1.08, 0.66, 1.18]);
     head.children.push(cap);
-    // Back/nape mass bridging the cap down to the neck so no skin shows behind.
+    // Back/nape mass bridging the dome down to the neck so no skin shows behind.
     let mut back = prim(
         sphere(r * 0.85, 3, hair.clone()),
         [0.0, r * 0.05, r * 0.42],
@@ -193,7 +204,7 @@ fn head(ctx: &PartCtx) -> Generator {
     for s in [-1.0f32, 1.0] {
         head.children.push(prim(
             sphere(r * 0.32, 2, hair.clone()),
-            [s * r * 0.84, r * 0.10, r * 0.12],
+            [s * r * 0.84, r * 0.1, r * 0.12],
             id_quat(),
         ));
     }
@@ -616,13 +627,21 @@ fn chassis(ctx: &PartCtx) -> Generator {
         [0.0, 0.15, -0.18],
         id_quat(),
     ));
-    // Flared wheel arch over each wheel corner.
+    // Rounded fender arching over each wheel — a path-cut half-cylinder (open
+    // underneath) laid on the axle (X), so the mudguard follows the tyre's
+    // curve instead of a square box.
     for sx in [-1.0f32, 1.0] {
         for sz in [-1.0f32, 1.0] {
+            let fender = with_cut(
+                cylinder(0.27, 0.16, 16, lower.clone()),
+                [0.0, 0.5],
+                [0.0, 1.0],
+                0.0,
+            );
             c.children.push(prim(
-                cuboid([0.14, 0.18, 0.42], lower.clone()),
-                [sx * 0.4, -0.04, sz * 0.55],
-                id_quat(),
+                fender,
+                [sx * 0.42, -0.04, sz * 0.55],
+                quat_xyzw(quat_z(FRAC_PI_2)),
             ));
         }
     }
@@ -686,33 +705,35 @@ fn wheel(ctx: &PartCtx) -> Generator {
     let tyre = ctx.materials.metal([0.07, 0.07, 0.08]);
     let rim = ctx.materials.metal(ctx.palette.secondary_accent);
     let hub = ctx.materials.trim(ctx.palette.tertiary_accent);
-    let mut w = prim(cylinder(0.2, 0.15, 16, tyre), [0.0, 0.0, 0.0], id_quat());
-    // The assembler lays the wheel on its axle, so detail both faces.
+    // Tyre: a torus gives a rounded tread cross-section — a real tyre, not a
+    // flat-sided disc (outer radius ≈ major + minor).
+    let mut w = prim(torus(0.06, 0.15, tyre), [0.0, 0.0, 0.0], id_quat());
+    // Rim plate filling the hub (shares the torus axis; the assembler lays the
+    // whole wheel onto its axle).
+    let mut rim_disc = prim(
+        cylinder(0.11, 0.12, 16, rim.clone()),
+        [0.0, 0.0, 0.0],
+        id_quat(),
+    );
     for s in [-1.0f32, 1.0] {
-        // Rim plate recessed inside the tyre.
-        w.children.push(prim(
-            cylinder(0.14, 0.03, 16, rim.clone()),
+        // Cross spokes + hub cap on each rim face.
+        rim_disc.children.push(prim(
+            cuboid([0.2, 0.02, 0.04], rim.clone()),
+            [0.0, s * 0.06, 0.0],
+            id_quat(),
+        ));
+        rim_disc.children.push(prim(
+            cuboid([0.04, 0.02, 0.2], rim.clone()),
+            [0.0, s * 0.06, 0.0],
+            id_quat(),
+        ));
+        rim_disc.children.push(prim(
+            cylinder(0.045, 0.04, 8, hub.clone()),
             [0.0, s * 0.07, 0.0],
             id_quat(),
         ));
-        // Cross spokes across the rim face.
-        w.children.push(prim(
-            cuboid([0.26, 0.02, 0.04], rim.clone()),
-            [0.0, s * 0.08, 0.0],
-            id_quat(),
-        ));
-        w.children.push(prim(
-            cuboid([0.04, 0.02, 0.26], rim.clone()),
-            [0.0, s * 0.08, 0.0],
-            id_quat(),
-        ));
-        // Hub cap centre.
-        w.children.push(prim(
-            cylinder(0.05, 0.05, 8, hub.clone()),
-            [0.0, s * 0.09, 0.0],
-            id_quat(),
-        ));
     }
+    w.children.push(rim_disc);
     w
 }
 
