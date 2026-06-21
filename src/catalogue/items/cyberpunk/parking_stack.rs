@@ -1,13 +1,16 @@
-//! Parking stack — a Cyberpunk secondary. An open multi-deck slab tower
-//! on corner pillars, each deck edged with a neon band. The low, wide
+//! Parking stack — a Cyberpunk secondary. An open multi-deck concrete slab
+//! tower on corner pillars, each deck neon-edged, served by a spiral ramp
+//! around a stair/lift core and dotted with parked cars. The low, wide
 //! counterpoint to the megatower's height.
 
-use crate::catalogue::items::util::{cuboid_tapered, foundation_block, glow, id_quat, prim, solid};
+use crate::catalogue::items::util::{
+    cuboid_tapered, foundation_block, glow, helix, id_quat, prim, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{NEON_CYAN, concrete};
+use super::{DARK_METAL, NEON_CYAN, NEON_MAGENTA, concrete, metal};
 
 pub struct ParkingStack;
 
@@ -19,7 +22,7 @@ impl CatalogueEntry for ParkingStack {
         "Parking Stack"
     }
     fn description(&self) -> &'static str {
-        "Open multi-deck parking structure with neon-edged floors."
+        "Open multi-deck parking structure with a spiral ramp and parked cars."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
@@ -42,6 +45,29 @@ impl CatalogueEntry for ParkingStack {
     }
 }
 
+/// A small parked-car silhouette — a low two-box body with red taillights,
+/// added to a deck for scale and read.
+fn parked_car(root: &mut Generator, x: f32, y: f32, z: f32, sx: f32) {
+    let paint = [0.10_f32, 0.11, 0.14];
+    root.children.push(prim(
+        solid(cuboid_tapered([1.9, 0.55, 0.9], 0.0, metal(paint))),
+        [x, y + 0.28, z],
+        id_quat(),
+    ));
+    root.children.push(prim(
+        cuboid_tapered([1.0, 0.4, 0.82], 0.15, metal(paint)),
+        [x - sx * 0.1, y + 0.7, z],
+        id_quat(),
+    ));
+    for dz in [-0.3_f32, 0.3] {
+        root.children.push(prim(
+            cuboid_tapered([0.08, 0.1, 0.12], 0.0, glow([0.9, 0.1, 0.08], 5.0)),
+            [x + sx * 0.95, y + 0.35, z + dz],
+            id_quat(),
+        ));
+    }
+}
+
 fn build_tree() -> Generator {
     // A parking structure is board-formed concrete, not glossy metal.
     let conc = [0.30_f32, 0.31, 0.34];
@@ -60,7 +86,7 @@ fn build_tree() -> Generator {
     root.children.push(base);
 
     // Corner pillars.
-    let total_h = 9.0;
+    let total_h = 9.0_f32;
     for sx in [-1.0_f32, 1.0] {
         for sz in [-1.0_f32, 1.0] {
             root.children.push(prim(
@@ -75,7 +101,39 @@ fn build_tree() -> Generator {
         }
     }
 
-    // Three decks, each with a neon edge band just beneath it.
+    // Stair/lift core at one end, with a lit doorway slot.
+    let core_x = -w * 0.5 + 1.7;
+    root.children.push(prim(
+        solid(cuboid_tapered(
+            [2.4, total_h, 2.4],
+            0.0,
+            concrete([0.26, 0.27, 0.30]),
+        )),
+        [core_x, rel(slab_h + total_h * 0.5), 0.0],
+        id_quat(),
+    ));
+    root.children.push(prim(
+        cuboid_tapered([0.1, 1.8, 0.9], 0.0, glow(NEON_CYAN, 3.0)),
+        [core_x + 1.25, rel(slab_h + 1.0), 0.0],
+        id_quat(),
+    ));
+
+    // Spiral ramp climbing the core — a glowing helical guide reading as the
+    // structure's signature car ramp.
+    let ramp_turns = 3.0_f32;
+    let ramp_pitch = (total_h - 1.0) / ramp_turns;
+    root.children.push(prim(
+        helix(1.9, 0.16, ramp_pitch, ramp_turns, 24, glow(NEON_CYAN, 5.0)),
+        [
+            core_x,
+            rel(slab_h + 0.6 + ramp_turns * ramp_pitch * 0.5),
+            0.0,
+        ],
+        id_quat(),
+    ));
+
+    // Decks, each with a neon edge band just beneath it and a couple of parked
+    // cars on the open bay (the side away from the core).
     let decks = 3;
     for d in 0..decks {
         let dy = slab_h + total_h * (d as f32 + 1.0) / (decks as f32 + 0.5);
@@ -88,17 +146,31 @@ fn build_tree() -> Generator {
             [0.0, rel(dy), 0.0],
             id_quat(),
         ));
-        // Neon edge band under the deck lip, as a glowing cornice proud of
-        // the deck. Sized to clear the corner pillars: at `w - 0.6` its side
-        // faces landed at ±5.2 — exactly the pillars' outer faces (±(w/2 -
-        // 0.6) ± 0.3) — so the coplanar faces z-fought. `w - 0.3` pushes the
-        // band 0.15 m proud of the pillars, breaking the coplanarity.
+        // Neon edge band, proud of the pillars to avoid coplanar z-fight.
         root.children.push(prim(
             cuboid_tapered([w - 0.3, 0.18, depth - 0.3], 0.0, glow(NEON_CYAN, 5.0)),
             [0.0, rel(dy - 0.25), 0.0],
             id_quat(),
         ));
+        // Parked cars sitting on this deck (skip the top deck — open roof).
+        if d < decks - 1 {
+            for (cx, cz, sgn) in [(2.4_f32, -1.6_f32, 1.0_f32), (3.4, 1.6, -1.0)] {
+                parked_car(&mut root, cx, rel(dy + 0.15), cz, sgn);
+            }
+        }
     }
+
+    // Lit "P" entry sign on a post at the front corner.
+    root.children.push(prim(
+        solid(cuboid_tapered([0.2, 2.6, 0.2], 0.0, metal(DARK_METAL))),
+        [w * 0.5 - 0.4, rel(slab_h + 1.3), depth * 0.5 + 0.3],
+        id_quat(),
+    ));
+    root.children.push(prim(
+        cuboid_tapered([0.9, 1.0, 0.12], 0.0, glow(NEON_MAGENTA, 4.0)),
+        [w * 0.5 - 0.4, rel(slab_h + 3.0), depth * 0.5 + 0.36],
+        id_quat(),
+    ));
 
     root
 }

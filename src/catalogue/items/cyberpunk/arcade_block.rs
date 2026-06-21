@@ -1,14 +1,18 @@
-//! Arcade block — a wide, low Cyberpunk secondary. A dark-metal box
-//! with neon trim along its roofline and a big standing neon sign
-//! board on top; the street-level entertainment counterpoint to the
-//! megatower's height.
+//! Arcade block — a wide, low Cyberpunk secondary. A dark-metal entertainment
+//! box with lit window bands, a neon-framed entrance under a wedge marquee,
+//! and a big content-tile sign board on the roof; the street-level
+//! counterpoint to the megatower's height.
 
-use crate::catalogue::items::util::{cuboid_tapered, foundation_block, glow, id_quat, prim, solid};
+use std::f32::consts::PI;
+
+use crate::catalogue::items::util::{
+    cuboid_tapered, foundation_block, glow, id_quat, prim, quat_y, solid, wedge,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{DARK_METAL, NEON_CYAN, NEON_MAGENTA, fx, metal, window_wall};
+use super::{DARK_METAL, NEON_CYAN, NEON_LIME, NEON_MAGENTA, fx, metal, window_wall};
 
 pub struct ArcadeBlock;
 
@@ -20,7 +24,7 @@ impl CatalogueEntry for ArcadeBlock {
         "Arcade Block"
     }
     fn description(&self) -> &'static str {
-        "Low neon-trimmed entertainment block with a rooftop sign board."
+        "Low neon entertainment block with a marquee entrance and roof sign."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
@@ -43,6 +47,10 @@ impl CatalogueEntry for ArcadeBlock {
     }
 }
 
+fn shade(c: [f32; 3]) -> [f32; 3] {
+    [c[0] * 0.6, c[1] * 0.6, c[2] * 0.6]
+}
+
 fn build_tree() -> Generator {
     let body = DARK_METAL;
     let slab_h = 0.4;
@@ -58,30 +66,31 @@ fn build_tree() -> Generator {
     base.transform.translation.0[1] -= slab_h * 0.5;
     root.children.push(base);
 
-    // Main block — a dark glossy body, like the rest of the neon kit. (The
-    // old full-height `window_wall` facade read as a *pale* mass that broke
-    // the kit's dark-metal-plus-neon cohesion — and contradicted this
-    // entry's own "dark-metal box" billing.)
-    let block_h = 5.0;
+    // Main dark glossy block. Front face is -Z (z = -3.0).
+    let block_h = 5.0_f32;
+    let zf = -3.0_f32;
     root.children.push(prim(
         solid(cuboid_tapered([9.0, block_h, 6.0], 0.0, metal(body))),
         [0.0, rel(slab_h + block_h * 0.5), 0.0],
         id_quat(),
     ));
 
-    // Two rows of lit window-grid bands up the long (±Z) faces, so the dark
-    // block still reads as a glowing arcade interior rather than a black
-    // slab — dim, like rows of windows, not a floodlight. Set slightly proud
-    // of the face so the band can't z-fight the body plane.
+    // Lit window-grid bands on the back (+Z) and end (±X) faces — the dark
+    // block reads as a glowing arcade interior, not a black slab.
     for r in 0..2 {
-        let wy = slab_h + block_h * (0.33 + 0.34 * r as f32);
-        for sz in [-1.0_f32, 1.0] {
-            root.children.push(prim(
-                cuboid_tapered([7.2, 0.7, 0.12], 0.0, window_wall([0.12, 0.52, 0.62], 2.0)),
-                [0.0, rel(wy), sz * 3.05],
-                id_quat(),
-            ));
-        }
+        let wy = slab_h + block_h * (0.35 + 0.36 * r as f32);
+        root.children.push(prim(
+            cuboid_tapered([7.2, 0.7, 0.12], 0.0, window_wall([0.12, 0.52, 0.62], 2.0)),
+            [0.0, rel(wy), 3.05],
+            id_quat(),
+        ));
+    }
+    for sx in [-1.0_f32, 1.0] {
+        root.children.push(prim(
+            cuboid_tapered([0.12, 0.7, 4.4], 0.0, window_wall([0.12, 0.52, 0.62], 2.0)),
+            [sx * 4.55, rel(slab_h + block_h * 0.55), 0.0],
+            id_quat(),
+        ));
     }
 
     // Neon roofline trim (a thin emissive collar around the block top).
@@ -92,25 +101,103 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Standing rooftop sign board, set toward the front edge — its tubes
-    // buzz with a signature electrical hum. A broad 4×5 m face, so it runs
-    // at the moderated face strength (see `mod.rs`): at the tube strength it
-    // would clip to a white slab instead of reading as a lit cyan sign.
-    let mut sign = prim(
-        cuboid_tapered([0.3, 4.0, 5.0], 0.0, glow(NEON_CYAN, 2.5)),
-        [3.6, rel(roof_y + 2.0), 0.0],
-        id_quat(),
-    );
-    sign.audio = fx::neon_buzz();
-    root.children.push(sign);
+    // Vertical neon accent strips down the four corners.
+    for sx in [-1.0_f32, 1.0] {
+        for sz in [-1.0_f32, 1.0] {
+            root.children.push(prim(
+                cuboid_tapered([0.12, block_h * 0.92, 0.12], 0.0, glow(NEON_CYAN, 4.5)),
+                [sx * 4.5, rel(slab_h + block_h * 0.5), sz * 3.0],
+                id_quat(),
+            ));
+        }
+    }
 
-    // Glowing doorway band at street level on the front face — a smaller
-    // lit face, held just below the blow-out point.
+    // ---- Entrance on the front (-Z) face ---------------------------------
+    let door_y = slab_h + 1.5;
+    // Recessed interior with a warm inner glow.
     root.children.push(prim(
-        cuboid_tapered([0.2, 2.4, 3.0], 0.0, glow(NEON_CYAN, 3.0)),
-        [4.5, rel(slab_h + 1.2), 0.0],
+        cuboid_tapered([3.8, 2.8, 0.4], 0.0, metal(shade(body))),
+        [0.0, rel(door_y), zf + 0.15],
         id_quat(),
     ));
+    root.children.push(prim(
+        cuboid_tapered([3.4, 2.4, 0.1], 0.0, glow([1.0, 0.72, 0.32], 1.3)),
+        [0.0, rel(door_y), zf + 0.05],
+        id_quat(),
+    ));
+    // Hot magenta neon door frame.
+    for sy in [-1.0_f32, 1.0] {
+        root.children.push(prim(
+            cuboid_tapered([4.4, 0.22, 0.45], 0.0, glow(NEON_MAGENTA, 5.0)),
+            [0.0, rel(door_y + sy * 1.5), zf - 0.05],
+            id_quat(),
+        ));
+    }
+    for sx in [-1.0_f32, 1.0] {
+        root.children.push(prim(
+            cuboid_tapered([0.22, 3.2, 0.45], 0.0, glow(NEON_MAGENTA, 5.0)),
+            [sx * 2.1, rel(door_y), zf - 0.05],
+            id_quat(),
+        ));
+    }
+    // Wedge marquee canopy projecting out over the door (quat_y(PI) puts the
+    // thick edge against the building, sloping down to a thin front lip) with
+    // a hot neon lip strip.
+    root.children.push(prim(
+        wedge([5.2, 0.5, 1.3], metal(body)),
+        [0.0, rel(slab_h + 3.2), zf - 0.65],
+        quat_y(PI),
+    ));
+    root.children.push(prim(
+        cuboid_tapered([5.2, 0.09, 0.1], 0.0, glow(NEON_CYAN, 5.0)),
+        [0.0, rel(slab_h + 2.97), zf - 1.28],
+        id_quat(),
+    ));
+
+    // ---- Rooftop sign board (content tiles + hot frame) ------------------
+    let sign_y = roof_y + 2.4;
+    let sign_z = -1.2_f32;
+    // Two support legs.
+    for sx in [-1.0_f32, 1.0] {
+        root.children.push(prim(
+            solid(cuboid_tapered([0.25, 1.4, 0.25], 0.0, metal(body))),
+            [sx * 2.4, rel(roof_y + 0.7), sign_z],
+            id_quat(),
+        ));
+    }
+    // Dark backing.
+    let mut backing = prim(
+        cuboid_tapered([6.4, 2.8, 0.25], 0.0, metal(shade(body))),
+        [0.0, rel(sign_y), sign_z],
+        id_quat(),
+    );
+    backing.audio = fx::neon_buzz();
+    root.children.push(backing);
+    // Lit content tiles across the face (front = -Z).
+    let tiles = [NEON_CYAN, NEON_MAGENTA, NEON_LIME, NEON_CYAN];
+    for (i, c) in tiles.into_iter().enumerate() {
+        let x = -2.25 + 1.5 * i as f32;
+        root.children.push(prim(
+            cuboid_tapered([1.3, 2.0, 0.06], 0.0, glow(c, 2.0 + 0.1 * i as f32)),
+            [x, rel(sign_y), sign_z - 0.13],
+            id_quat(),
+        ));
+    }
+    // Hot magenta frame around the sign.
+    for sy in [-1.0_f32, 1.0] {
+        root.children.push(prim(
+            cuboid_tapered([6.7, 0.2, 0.4], 0.0, glow(NEON_MAGENTA, 5.0)),
+            [0.0, rel(sign_y + sy * 1.5), sign_z - 0.05],
+            id_quat(),
+        ));
+    }
+    for sx in [-1.0_f32, 1.0] {
+        root.children.push(prim(
+            cuboid_tapered([0.2, 3.2, 0.4], 0.0, glow(NEON_MAGENTA, 5.0)),
+            [sx * 3.35, rel(sign_y), sign_z - 0.05],
+            id_quat(),
+        ));
+    }
 
     root
 }
