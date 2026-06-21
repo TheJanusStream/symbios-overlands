@@ -2,7 +2,11 @@
 //! foot beside a smaller one, handled and bellied: the storage vessels of a
 //! classical household set out by a wall.
 
-use crate::catalogue::items::util::{assemble, cylinder_tapered, id_quat, prim, solid, torus};
+use std::f32::consts::FRAC_PI_2;
+
+use crate::catalogue::items::util::{
+    assemble, cylinder_tapered, id_quat, prim, quat_x, solid, sphere, torus,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -42,51 +46,55 @@ impl CatalogueEntry for Urn {
     }
 }
 
-/// A bellied amphora of total height `h` at `center`: a marble foot, a
-/// tapered terracotta body, a neck, and two handle hoops.
+/// A bellied amphora of total height `h` at `center`: a marble foot, a round
+/// terracotta belly (sphere), a tapered neck, a flared rim, and two vertical
+/// handle loops at the shoulder — the characteristic ovoid amphora silhouette
+/// instead of a stack of tapered cylinders.
 fn amphora(center: [f32; 3], h: f32) -> Generator {
-    let r = h * 0.28;
+    let r = h * 0.3; // belly radius
     let mut a = prim(
         solid(cylinder_tapered(
-            r * 0.4,
+            r * 0.45,
             h * 0.12,
             10,
-            0.0,
+            0.1,
             marble(MARBLE_WHITE),
         )),
         center,
         id_quat(),
     );
-    // Bellied body (children rebased into the foot's local frame: y up).
+    // Bellied body — a terracotta sphere (children rebased into the foot's
+    // local frame: y up), seated just above the foot.
     a.children.push(prim(
-        solid(cylinder_tapered(
-            r,
-            h * 0.6,
-            14,
-            0.35,
-            terracotta(TERRACOTTA),
-        )),
+        solid(sphere(r, 5, terracotta(TERRACOTTA))),
         [0.0, h * 0.42, 0.0],
         id_quat(),
     ));
-    // Neck.
+    // Tapered neck rising out of the shoulder, narrowing upward.
     a.children.push(prim(
         solid(cylinder_tapered(
-            r * 0.45,
-            h * 0.3,
+            r * 0.5,
+            h * 0.34,
             12,
-            -0.2,
+            0.25,
             terracotta(TERRACOTTA),
         )),
-        [0.0, h * 0.85, 0.0],
+        [0.0, h * 0.8, 0.0],
         id_quat(),
     ));
-    // Two handle hoops at the shoulder.
+    // Flared rim lip at the mouth.
+    a.children.push(prim(
+        torus(0.04, r * 0.42, terracotta(TERRACOTTA)),
+        [0.0, h * 0.95, 0.0],
+        id_quat(),
+    ));
+    // Two vertical handle loops bridging shoulder to neck (`quat_x` stands the
+    // hoops up in the X–Y plane so they read as handles from the front).
     for sx in [-1.0_f32, 1.0] {
         a.children.push(prim(
-            torus(0.04, r * 0.5, terracotta(TERRACOTTA)),
-            [sx * r * 0.7, h * 0.7, 0.0],
-            id_quat(),
+            torus(0.035, r * 0.32, terracotta(TERRACOTTA)),
+            [sx * r * 0.78, h * 0.7, 0.0],
+            quat_x(FRAC_PI_2),
         ));
     }
     a

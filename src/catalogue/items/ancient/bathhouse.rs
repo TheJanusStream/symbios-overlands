@@ -5,7 +5,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, torus, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp, Fp3, Generator, SovereignMaterialSettings};
@@ -85,39 +85,63 @@ fn build_tree() -> Generator {
             [0.0, foot_h + wall_h * 0.5, 0.0],
             id_quat(),
         ),
-        // Barrel-vaulted lead roof: a half-cylinder along X.
+        // Barrel-vaulted marble roof: a path-cut half-cylinder springing
+        // from the wall tops (curved side up), its axis running front-to-back
+        // so the entrance reads under a vaulted gable. `path_cut [0.5,1.0]`
+        // keeps the local −Z semicircle, which the +90° X-rotation swings to
+        // point up; the cut's fan caps give it solid semicircular gable ends.
+        // Sunk a touch so the springing line buries into the wall instead of
+        // leaving the vault's flat soffit coplanar with the wall top.
         prim(
-            solid(cylinder_tapered(
-                w * 0.55,
-                l + 0.4,
-                16,
+            solid(with_cut(
+                cylinder_tapered(w * 0.55, l + 0.4, 28, 0.0, marble(MARBLE_WHITE)),
+                [0.5, 1.0],
+                [0.0, 1.0],
                 0.0,
-                marble(MARBLE_WHITE),
             )),
-            [0.0, wall_top, 0.0],
+            [0.0, wall_top - 0.25, 0.0],
             quat_x(FRAC_PI_2),
         ),
     ];
 
-    // Arched marble entrance recess on the front, flanked by two columns.
+    // Arched marble entrance: a dark recessed doorway under a path-cut torus
+    // arch that springs from two flanking columns, crowned by a keystone.
+    let col_h = 2.8_f32;
+    let col_top = foot_h + col_h;
+    let arch_major = 1.25_f32;
+    // Dark doorway recess.
     prims.push(prim(
-        cuboid_tapered([2.0, 2.6, 0.3], 0.0, marble(STONE_VOID)),
-        [0.0, foot_h + 1.3, front + 0.02],
+        cuboid_tapered([2.2, col_h, 0.4], 0.0, marble(STONE_VOID)),
+        [0.0, foot_h + col_h * 0.5, front - 0.1],
         id_quat(),
     ));
+    // Marble arch over the doorway — the top half of a torus standing in the
+    // XY plane (`quat_x(-FRAC_PI_2)` lays the local +Z meridian up, `path_cut
+    // [0,0.5]` keeps the upper semicircle).
+    prims.push(prim(
+        with_cut(
+            torus(0.24, arch_major, marble(MARBLE_WHITE)),
+            [0.0, 0.5],
+            [0.0, 1.0],
+            0.0,
+        ),
+        [0.0, col_top, front + 0.05],
+        quat_x(-FRAC_PI_2),
+    ));
+    // Keystone at the arch crown.
+    prims.push(prim(
+        solid(cuboid_tapered([0.3, 0.5, 0.5], 0.0, marble(MARBLE_WHITE))),
+        [0.0, col_top + arch_major, front + 0.05],
+        id_quat(),
+    ));
+    // Two flanking columns the arch springs from.
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
-            solid(cylinder_tapered(0.3, 3.0, 16, 0.1, marble(MARBLE_WHITE))),
-            [sx * 1.5, foot_h + 1.5, front + 0.2],
+            solid(cylinder_tapered(0.28, col_h, 16, 0.1, marble(MARBLE_WHITE))),
+            [sx * arch_major, foot_h + col_h * 0.5, front + 0.15],
             id_quat(),
         ));
     }
-    // Lintel over the entrance columns.
-    prims.push(prim(
-        solid(cuboid_tapered([3.6, 0.4, 0.7], 0.0, marble(MARBLE_WHITE))),
-        [0.0, foot_h + 3.1, front + 0.2],
-        id_quat(),
-    ));
 
     // Open-air plunge pool in front: a sunken marble kerb around dark water.
     let pool_z = front + 2.4;

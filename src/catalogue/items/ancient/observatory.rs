@@ -16,7 +16,7 @@ use crate::seeded_defaults::{ProsperityBand, ProsperityTier, ThemeArchetype};
 
 use crate::catalogue::items::util::{
     cuboid_tapered, cylinder_tapered, foundation_disc, glow, id_quat, prim, quat_x, solid, sphere,
-    torus,
+    torus, with_cut,
 };
 
 pub struct Observatory;
@@ -100,14 +100,21 @@ fn build_tree() -> Generator {
     base.transform.translation.0[1] -= drum_h * 0.5;
     root.children.push(base);
 
-    // Dome: a metal sphere wider than the drum crown, centred a touch
-    // below the crown so its equator belt overhangs cleanly. (Sizing
-    // it ~equal to the tapered crown radius made the two surfaces
-    // coplanar at the seam — a z-fighting jagged ring.)
+    // Dome: a metal top-hemisphere (profile-cut sphere, latitude band
+    // [0.5,1.0]) wider than the drum crown, centred a touch below the crown
+    // so its equator belt overhangs cleanly. (Sizing it ~equal to the tapered
+    // crown radius made the two surfaces coplanar at the seam — a z-fighting
+    // jagged ring.) The cut drops the hidden lower half and lands the brushed
+    // metal's UV rings along the dome's latitudes.
     let dome_cy = drum_h - 0.3;
     let dome_r = drum_r * 1.04;
     root.children.push(prim(
-        solid(sphere(dome_r, 3, dome_mat())),
+        solid(with_cut(
+            sphere(dome_r, 3, dome_mat()),
+            [0.0, 1.0],
+            [0.5, 1.0],
+            0.0,
+        )),
         [0.0, rel(dome_cy), 0.0],
         id_quat(),
     ));

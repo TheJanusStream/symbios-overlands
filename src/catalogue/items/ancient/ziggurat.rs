@@ -125,19 +125,36 @@ fn build_tree() -> Generator {
     ));
     root.children.push(shrine);
 
-    // Front stair ramp: a long slab leaning against the south face,
-    // running from the ground line to the summit edge.
-    let ramp_len = 13.0;
-    let ramp_angle = (summit / ramp_len).asin();
+    // Monumental front staircase climbing the −Z face from the base-front
+    // ground line to the summit edge, flanked by two balustrades (alfardas)
+    // in the Mesoamerican manner. The slab is laid flush against the stepped
+    // face — its run is the horizontal setback between the base and summit
+    // fronts, so it projects just ahead of each receding tier instead of
+    // floating out in front of the whole pyramid.
+    let top_front = tiers[3].0 * 0.5; // summit-tier half-footprint
+    let run = tiers[0].0 * 0.5 - top_front; // base front → summit front setback
+    let ramp_len = (run * run + summit * summit).sqrt();
+    let ramp_angle = summit.atan2(run);
+    let center_z = -(tiers[0].0 * 0.5 + top_front) * 0.5;
+    let stair_w = 3.6_f32;
+    // Stair core.
     root.children.push(prim(
-        solid(cuboid_tapered([2.6, 0.6, ramp_len], 0.0, sandstone_mat())),
-        [
+        solid(cuboid_tapered(
+            [stair_w, 0.7, ramp_len],
             0.0,
-            rel(summit * 0.5),
-            -(tiers[0].0 * 0.5 + (ramp_len * ramp_angle.cos()) * 0.5 - 2.4),
-        ],
+            sandstone_mat(),
+        )),
+        [0.0, rel(summit * 0.5), center_z],
         quat_x(-ramp_angle),
     ));
+    // Two flanking balustrades, taller so they project above the stair tread.
+    for sx in [-1.0_f32, 1.0] {
+        root.children.push(prim(
+            solid(cuboid_tapered([0.7, 1.4, ramp_len], 0.0, sandstone_mat())),
+            [sx * (stair_w * 0.5 + 0.35), rel(summit * 0.5), center_z],
+            quat_x(-ramp_angle),
+        ));
+    }
 
     root
 }

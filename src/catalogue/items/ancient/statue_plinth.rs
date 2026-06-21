@@ -68,21 +68,32 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Draped figure: legs, robed torso (tapered), and a shoulder stub where
-    // the head has broken away.
+    // Draped figure: a pooled drapery hem, a robed body block (broader than
+    // it is deep, so the rectangular cross-section reads as a torso with
+    // shoulders rather than the vase a round stack would make), a short neck,
+    // and a weathered head.
     prims.push(prim(
-        solid(cylinder_tapered(0.28, 1.0, 12, 0.15, marble(MARBLE_WHITE))),
-        [0.0, 2.2, 0.0],
+        solid(cuboid_tapered([0.74, 0.32, 0.5], 0.0, marble(MARBLE_WHITE))),
+        [0.0, 1.86, 0.0],
         id_quat(),
     ));
     prims.push(prim(
-        solid(cylinder_tapered(0.34, 0.9, 12, 0.25, marble(MARBLE_WHITE))),
-        [0.0, 3.0, 0.0],
+        solid(cuboid_tapered(
+            [0.62, 1.45, 0.42],
+            0.10,
+            marble(MARBLE_WHITE),
+        )),
+        [0.0, 2.72, 0.0],
         id_quat(),
     ));
     prims.push(prim(
-        solid(sphere(0.18, 2, marble(MARBLE_WHITE))),
-        [0.0, 3.5, 0.0],
+        solid(cylinder_tapered(0.095, 0.16, 8, 0.0, marble(MARBLE_WHITE))),
+        [0.0, 3.52, 0.0],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(sphere(0.21, 3, marble(MARBLE_WHITE))),
+        [0.0, 3.74, 0.0],
         id_quat(),
     ));
 

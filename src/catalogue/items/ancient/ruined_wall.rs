@@ -3,8 +3,11 @@
 //! couple of tumbled blocks at its foot: the remains a poor settlement
 //! shelters against.
 
+use std::f32::consts::FRAC_PI_2;
+
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_y, solid,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_y, solid, torus,
+    with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -49,7 +52,7 @@ fn build_tree() -> Generator {
     // Footing course — the root.
     let mut prims = vec![prim(
         solid(cuboid_tapered(
-            [4.4, 0.3, 0.9],
+            [4.8, 0.3, 1.0],
             0.0,
             sandstone(SANDSTONE_WEATHERED),
         )),
@@ -57,46 +60,74 @@ fn build_tree() -> Generator {
         id_quat(),
     )];
 
-    // A broken wall whose top steps down across its length.
-    let segs = [(-1.6_f32, 2.4_f32), (-0.5, 1.7), (0.4, 2.0), (1.5, 1.0)];
-    for (x, h) in segs {
-        prims.push(prim(
-            solid(cuboid_tapered(
-                [0.95, h, 0.7],
-                0.03,
-                sandstone(SANDSTONE_WEATHERED),
-            )),
-            [x, 0.3 + h * 0.5, 0.0],
-            id_quat(),
-        ));
-    }
+    // Two piers flanking an arched opening: a fairly intact tall pier on the
+    // left carrying the springer, and a lower broken pier on the right.
+    let left_h = 2.9_f32;
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [1.2, left_h, 0.85],
+            0.03,
+            sandstone(SANDSTONE_WEATHERED),
+        )),
+        [-1.6, 0.3 + left_h * 0.5, 0.0],
+        id_quat(),
+    ));
+    let right_h = 1.9_f32;
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [1.1, right_h, 0.85],
+            0.03,
+            sandstone(SANDSTONE_WEATHERED),
+        )),
+        [1.6, 0.3 + right_h * 0.5, 0.0],
+        id_quat(),
+    ));
+    // A crumbled block tumbled on the broken right pier's jagged top.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [0.7, 0.5, 0.6],
+            0.0,
+            sandstone(SANDSTONE_WEATHERED),
+        )),
+        [1.75, 0.3 + right_h + 0.2, -0.1],
+        quat_y(0.4),
+    ));
 
-    // A leaning stub column at one end.
+    // Broken arch springing from the left pier's impost over the opening and
+    // snapping off before it reaches the right pier — `path_cut [0.15,0.5]`
+    // keeps the left springer and crown and drops the collapsed right half.
+    let spring_y = 0.3 + 1.9;
+    prims.push(prim(
+        with_cut(
+            torus(0.22, 1.1, sandstone(SANDSTONE_WEATHERED)),
+            [0.15, 0.5],
+            [0.0, 1.0],
+            0.0,
+        ),
+        [0.0, spring_y, 0.0],
+        quat_x(-FRAC_PI_2),
+    ));
+
+    // A leaning marble stub column at the left end — relic of a grander past.
     prims.push(prim(
         solid(cylinder_tapered(0.32, 1.6, 14, 0.06, marble(MARBLE_WHITE))),
-        [-2.2, 1.1, 0.3],
-        crate::catalogue::items::util::quat_x(0.12),
+        [-2.7, 1.1, 0.4],
+        quat_x(0.12),
     ));
 
-    // A couple of tumbled blocks at the foot, askew.
-    prims.push(prim(
-        solid(cuboid_tapered(
-            [0.8, 0.5, 0.7],
-            0.0,
-            sandstone(SANDSTONE_WEATHERED),
-        )),
-        [2.3, 0.25, 0.6],
-        quat_y(0.5),
-    ));
-    prims.push(prim(
-        solid(cuboid_tapered(
-            [0.6, 0.5, 0.6],
-            0.0,
-            sandstone(SANDSTONE_WEATHERED),
-        )),
-        [1.9, 0.25, -0.7],
-        quat_y(-0.3),
-    ));
+    // Tumbled blocks + rubble at the foot, askew.
+    let rubble = [
+        ([0.8_f32, 0.5, 0.7], [2.6_f32, 0.25, 0.6], 0.5_f32),
+        ([0.6, 0.5, 0.6], [2.2, 0.25, -0.7], -0.3),
+        ([0.5, 0.35, 0.55], [-2.5, 0.18, -0.5], 0.9),
+    ];
+    for (size, pos, yaw) in rubble {
+        prims.push(prim(
+            solid(cuboid_tapered(size, 0.0, sandstone(SANDSTONE_WEATHERED))),
+            pos,
+            quat_y(yaw),
+        ));
+    }
 
     assemble(prims)
 }
