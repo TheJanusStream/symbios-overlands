@@ -123,18 +123,21 @@ fn war_helm(ctx: &PartCtx) -> Generator {
 }
 
 fn circlet(ctx: &PartCtx) -> Generator {
+    // A circlet rings the head at the brow rather than topping it, so it hangs
+    // well below the shared Hat mount (which suits crown-toppers) to sit around
+    // the hair like a headband. Ring slightly wider than the head+hair.
     let mut c = prim(
         torus(
-            0.012,
-            0.135,
+            0.014,
+            0.15,
             ctx.materials.trim(ctx.palette.secondary_accent),
         ),
-        [0.0, 0.02, 0.0],
+        [0.0, -0.10, 0.0],
         id_quat(),
     );
     c.children.push(prim(
-        sphere(0.026, 2, ctx.materials.accent(ctx.palette.primary_accent)),
-        [0.0, 0.05, -0.135],
+        sphere(0.028, 2, ctx.materials.accent(ctx.palette.primary_accent)),
+        [0.0, -0.07, -0.15],
         id_quat(),
     ));
     c
@@ -142,9 +145,11 @@ fn circlet(ctx: &PartCtx) -> Generator {
 
 fn visor(ctx: &PartCtx) -> Generator {
     let frame = ctx.materials.metal(ctx.palette.tertiary_accent);
+    // Like the circlet, the visor wraps the face at brow level, so it hangs
+    // below the crown-topper Hat mount.
     let mut v = prim(
         cuboid([0.30, 0.07, 0.04], frame),
-        [0.0, 0.0, -0.09],
+        [0.0, -0.11, -0.1],
         id_quat(),
     );
     // Glowing lens band across the front.

@@ -40,7 +40,7 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
             // Seat the canopy on the rear cabin.
             PartSlot::Canopy => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.42, -0.12])),
+                .push(offset(part.build(&ctx), [0.0, 0.33, -0.12])),
             PartSlot::Wheel => {
                 // One wheel part repeated to the four corners.
                 for anchor in [

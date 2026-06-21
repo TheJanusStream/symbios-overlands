@@ -12,7 +12,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::pds::avatar::default_visuals::common::{
-    cone, cuboid, cylinder, id_quat, prim, quat_x, quat_xyzw, sphere, torus, with_torture,
+    cone, cuboid, cylinder, id_quat, prim, quat_x, quat_xyzw, sphere, torus,
 };
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
@@ -49,20 +49,51 @@ fn darken(c: [f32; 3]) -> [f32; 3] {
 // ---------------------------------------------------------------------------
 
 fn sleek_hull(ctx: &PartCtx) -> Generator {
-    // A tapered, prow-swept hull — narrower at the top and bent forward.
-    prim(
-        with_torture(
-            cuboid(
-                [0.6, 0.28, 2.4],
-                ctx.materials.body(ctx.palette.secondary_accent),
-            ),
-            0.0,
-            0.3,
-            [0.0, 0.0, 0.4],
-        ),
+    // The sporty hover-skiff hull: a low, long ellipsoid pod with a pointed
+    // nose fairing and a glowing hover skirt — the styled sibling of the default
+    // pod, in the secondary accent. Root core is hidden; the boat assembler
+    // overwrites the root transform and mounts the cockpit / fin to it, so the
+    // shaped pod is built from scaled children.
+    let dk = |c: [f32; 3], f: f32| [c[0] * f, c[1] * f, c[2] * f];
+    let body = ctx.materials.body(ctx.palette.secondary_accent);
+    let underside = ctx.materials.metal(dk(ctx.palette.secondary_accent, 0.4));
+    let trim = ctx.materials.metal(ctx.palette.tertiary_accent);
+    let underglow = ctx.materials.glow(ctx.palette.tertiary_accent);
+
+    let mut hull = prim(
+        cuboid([0.28, 0.16, 1.1], body.clone()),
         [0.0, 0.0, 0.0],
         id_quat(),
-    )
+    );
+    // Low, long pod shell.
+    let mut shell = prim(sphere(0.5, 4, body.clone()), [0.0, 0.0, 0.0], id_quat());
+    shell.transform.scale = Fp3([0.52, 0.4, 1.42]);
+    hull.children.push(shell);
+    // Pointed nose fairing at the bow (+Z).
+    hull.children.push(prim(
+        cone(0.22, 0.55, 10, body.clone()),
+        [0.0, -0.02, 0.6],
+        quat_xyzw(quat_x(-FRAC_PI_2)),
+    ));
+    // Dark underbody belly.
+    let mut under = prim(sphere(0.5, 3, underside), [0.0, -0.1, 0.0], id_quat());
+    under.transform.scale = Fp3([0.46, 0.34, 1.3]);
+    hull.children.push(under);
+    // Glowing hover skirt.
+    hull.children.push(prim(
+        cuboid([0.42, 0.04, 1.05], underglow),
+        [0.0, -0.24, 0.0],
+        id_quat(),
+    ));
+    // Flank strakes.
+    for s in [-1.0f32, 1.0] {
+        hull.children.push(prim(
+            cuboid([0.02, 0.03, 1.0], trim.clone()),
+            [s * 0.27, 0.02, 0.0],
+            id_quat(),
+        ));
+    }
+    hull
 }
 
 fn bow_ram(ctx: &PartCtx) -> Generator {
@@ -99,13 +130,30 @@ fn bow_figurehead(ctx: &PartCtx) -> Generator {
 }
 
 fn funnel(ctx: &PartCtx) -> Generator {
-    // A flared (negative-taper) sooty funnel.
-    let soot = ctx.materials.metal(darken(ctx.palette.tertiary_accent));
-    prim(
-        with_torture(cylinder(0.1, 0.5, 12, soot), 0.0, -0.25, [0.0, 0.0, 0.0]),
-        [0.0, 0.25, 0.0],
+    // Twin hover-thruster pods at the stern (reinterpreted from a smokestack for
+    // the hover-skiff): a housing with two aft-facing glowing exhaust bells.
+    let housing = ctx.materials.metal(darken(ctx.palette.tertiary_accent));
+    let glow = ctx.materials.glow(ctx.palette.tertiary_accent);
+    let mut root = prim(
+        cuboid([0.32, 0.16, 0.2], housing.clone()),
+        [0.0, 0.0, 0.0],
         id_quat(),
-    )
+    );
+    for s in [-1.0f32, 1.0] {
+        // Nozzle barrel poking aft (-Z).
+        root.children.push(prim(
+            cylinder(0.07, 0.14, 12, housing.clone()),
+            [s * 0.09, 0.0, -0.13],
+            quat_xyzw(quat_x(FRAC_PI_2)),
+        ));
+        // Glowing exhaust core at the bell mouth.
+        root.children.push(prim(
+            cylinder(0.05, 0.04, 12, glow.clone()),
+            [s * 0.09, 0.0, -0.19],
+            quat_xyzw(quat_x(FRAC_PI_2)),
+        ));
+    }
+    root
 }
 
 // ---------------------------------------------------------------------------
@@ -113,31 +161,38 @@ fn funnel(ctx: &PartCtx) -> Generator {
 // ---------------------------------------------------------------------------
 
 fn teardrop_envelope(ctx: &PartCtx) -> Generator {
-    // A pointed cigar built from composed lobes — like the default envelope
-    // but tapering to a sharper bow. Crucially it sets **no** root scale: it
-    // is a structural root, and the assembler mounts the gondola / fins as
-    // children, which a root scale would stretch and fling (see
-    // `super::defaults::envelope`).
+    // A *smooth* teardrop gas-bag: a single scaled-ellipsoid child of a hidden
+    // core (the root carries **no** scale — the assembler mounts the gondola /
+    // fins to it, which a root scale would stretch and fling), with a long
+    // pointed nose cone making the teardrop. Replaces the old lumpy lobes.
     let body = ctx.materials.body(ctx.palette.primary_accent);
-    let mut env = prim(sphere(0.82, 4, body.clone()), [0.0, 0.0, 0.0], id_quat());
-    env.children.push(prim(
-        sphere(0.5, 4, body.clone()),
-        [0.0, 0.0, 0.9],
+    let nose = ctx.materials.trim(ctx.palette.tertiary_accent);
+    let ring = ctx.materials.metal(ctx.palette.secondary_accent);
+    let mut env = prim(
+        cuboid([0.3, 0.3, 1.5], body.clone()),
+        [0.0, 0.0, 0.0],
         id_quat(),
+    );
+    let mut bag = prim(sphere(0.8, 4, body.clone()), [0.0, 0.0, -0.15], id_quat());
+    bag.transform.scale = Fp3([0.92, 0.92, 1.5]);
+    env.children.push(bag);
+    // Long pointed teardrop nose at the bow (+Z), apex forward, blending out of
+    // the bag.
+    env.children.push(prim(
+        cone(0.55, 0.95, 12, body.clone()),
+        [0.0, 0.0, 0.7],
+        quat_xyzw(quat_x(FRAC_PI_2)),
     ));
     env.children
-        .push(prim(sphere(0.66, 4, body), [0.0, 0.0, -0.6], id_quat()));
-    // A pointed bow finial (+Z).
-    env.children.push(prim(
-        cone(
-            0.16,
-            0.5,
-            10,
-            ctx.materials.trim(ctx.palette.tertiary_accent),
-        ),
-        [0.0, 0.0, 1.3],
-        quat_xyzw(quat_x(-FRAC_PI_2)),
-    ));
+        .push(prim(sphere(0.1, 3, nose), [0.0, 0.0, 1.18], id_quat()));
+    // Frame rings encircling the bag.
+    for z in [-0.5f32, 0.05] {
+        env.children.push(prim(
+            torus(0.018, 0.76, ring.clone()),
+            [0.0, 0.0, z],
+            quat_xyzw(quat_x(FRAC_PI_2)),
+        ));
+    }
     env
 }
 
@@ -146,18 +201,18 @@ fn teardrop_envelope(ctx: &PartCtx) -> Generator {
 // ---------------------------------------------------------------------------
 
 fn bubble_canopy(ctx: &PartCtx) -> Generator {
-    // A flattened windshield bubble (matches the default canopy's footprint
-    // on the cabin) rather than a full gumball sphere.
+    // A sleek, elongated teardrop cockpit bubble — the sporty alternative to the
+    // default boxy cabin greenhouse.
     let mut c = prim(
-        sphere(0.3, 3, ctx.materials.glass(ctx.palette.secondary_accent)),
+        sphere(0.3, 4, ctx.materials.glass(ctx.palette.secondary_accent)),
         [0.0, 0.0, 0.0],
         id_quat(),
     );
-    c.transform.scale = Fp3([1.0, 0.62, 1.15]);
+    c.transform.scale = Fp3([0.82, 0.6, 1.08]);
     // Glowing rim around the base.
     c.children.push(prim(
         torus(0.02, 0.3, ctx.materials.glow(ctx.palette.primary_accent)),
-        [0.0, -0.1, 0.0],
+        [0.0, -0.2, 0.0],
         id_quat(),
     ));
     c

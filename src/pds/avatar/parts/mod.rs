@@ -36,8 +36,8 @@ pub(crate) mod vehicle;
 
 use crate::pds::generator::Generator;
 use crate::seeded_defaults::{
-    AvatarBody, AvatarCharacter, AvatarPalette, ChassisFamily, MaterialKit, OrnatenessBand,
-    OrnatenessTier, ThemeArchetype, WearBand, WearTier,
+    AvatarBody, AvatarCharacter, AvatarOutfit, AvatarPalette, ChassisFamily, MaterialKit,
+    OrnatenessBand, OrnatenessTier, ThemeArchetype, WearBand, WearTier,
 };
 
 /// One composable slot of an avatar. Flat across every chassis (a part
@@ -126,6 +126,10 @@ pub struct PartCtx<'a> {
     /// The avatar seed — parts open their own sub-stream for stochastic
     /// detail without re-deriving the anchor.
     pub seed: u64,
+    /// Whether this avatar's outfit fills the [`PartSlot::Hat`] slot. Parts
+    /// that would clip headwear (the hair flourish) suppress themselves when a
+    /// hat is worn.
+    pub has_hat: bool,
 }
 
 impl<'a> PartCtx<'a> {
@@ -138,6 +142,10 @@ impl<'a> PartCtx<'a> {
             body: AvatarBody::for_seed(seed),
             did,
             seed,
+            has_hat: AvatarOutfit::for_seed(seed)
+                .parts
+                .iter()
+                .any(|p| p.slot == PartSlot::Hat),
         }
     }
 }

@@ -43,23 +43,23 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
                 .push(offset(part.build(&ctx), [0.0, 0.27, 0.0])),
             PartSlot::Bow => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.30, 1.0])),
+                .push(offset(part.build(&ctx), [0.0, 0.04, 0.52])),
             PartSlot::Stack => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.35, -0.7])),
+                .push(offset(part.build(&ctx), [0.0, 0.04, -0.5])),
             PartSlot::Ornament => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.30, 0.4])),
+                .push(offset(part.build(&ctx), [0.0, 0.2, 0.15])),
             _ => {}
         }
     }
 
-    // pfp identity worn as a crest on the sail (the sail's normal is ±X, so a
-    // side-facing panel laid just off its face reads as a heraldic crest).
+    // pfp identity worn as a livery decal on the hull flank (normal ±X), since
+    // the hover-skiff carries no sail to fly a crest from.
     root.children.push(pfp_panel(
         did,
-        0.25,
-        [0.02, 1.0, -0.1],
+        0.22,
+        [0.32, 0.05, 0.05],
         pastel(ctx.palette.primary_accent),
         PfpFacing::Side,
     ));
