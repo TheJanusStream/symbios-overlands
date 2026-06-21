@@ -1,9 +1,11 @@
 //! Tarp shelter — a Cyberpunk *poor* secondary. Four lashed poles under a
-//! sagging plastic tarp, a crate of salvage, and a single dim hanging lamp;
-//! a makeshift undercity stall.
+//! sagging plastic tarp with drooping side flaps, a crate and barrel of
+//! salvage, and a dim hanging lamp warmed by a burn-barrel; a makeshift
+//! undercity stall.
 
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, solid, sphere,
+    with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -21,7 +23,7 @@ impl CatalogueEntry for TarpShelter {
         "Tarp Shelter"
     }
     fn description(&self) -> &'static str {
-        "Lashed poles under a sagging tarp with a salvage crate and a dim lamp."
+        "Lashed poles under a sagging tarp with salvage crates and a dim lamp."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
@@ -45,14 +47,11 @@ impl CatalogueEntry for TarpShelter {
 }
 
 fn build_tree() -> Generator {
-    let pole_h = 2.4;
-    let half = 1.4;
+    let pole_h = 2.4_f32;
+    let half = 1.4_f32;
     let pole = || solid(cylinder_tapered(0.08, pole_h, 6, 0.0, metal(DARK_METAL)));
 
-    let mut prims = vec![
-        // Four corner poles (first is the root).
-        prim(pole(), [-half, pole_h * 0.5, -half], id_quat()),
-    ];
+    let mut prims = vec![prim(pole(), [-half, pole_h * 0.5, -half], id_quat())];
     for (sx, sz) in [(1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
         prims.push(prim(
             pole(),
@@ -60,32 +59,78 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    // Sagging tarp tented over a centre ridge — two drooping panels meeting
-    // at the top instead of one flat slab, so it reads as draped cloth. The
-    // +Z panel peaks toward the ridge with a positive X-tilt; the -Z panel
-    // mirrors it, the pair overlapping slightly at the crest.
-    let panel_cy = pole_h + 0.15;
-    for sz in [-1.0_f32, 1.0] {
-        prims.push(prim(
-            cuboid_tapered([3.2, 0.05, 1.7], 0.0, tarp(TARP_BLUE)),
-            [0.0, panel_cy, sz * 0.78],
-            quat_x(sz * 0.18),
-        ));
-    }
-    // Salvage crate underneath.
+
+    // Sagging tarp — the shallow bottom cap of a big sphere, so the membrane
+    // dips lowest in the middle and lifts to the pole tops, reading as draped
+    // cloth instead of a flat slab. (`profile_cut` keeps a thin latitude band
+    // off the south pole; the big radius makes that cap wide and shallow.)
     prims.push(prim(
-        solid(cuboid_tapered([1.0, 0.9, 0.9], 0.0, rust(RUST_BROWN))),
-        [0.5, 0.45, 0.3],
+        with_cut(
+            sphere(6.8, 6, tarp(TARP_BLUE)),
+            [0.0, 1.0],
+            [0.0, 0.095],
+            0.0,
+        ),
+        [0.0, 8.9, 0.0],
         id_quat(),
     ));
-    // Dim lamp hanging from the ridge.
+
+    // Drooping side flaps hanging off two edges.
+    prims.push(prim(
+        cuboid_tapered([2.9, 0.05, 1.2], 0.0, tarp(TARP_BLUE)),
+        [0.0, 1.7, half + 0.15],
+        quat_x(1.25),
+    ));
+    prims.push(prim(
+        cuboid_tapered([1.0, 0.05, 1.8], 0.0, tarp([0.30, 0.26, 0.20])),
+        [-half - 0.1, 1.85, 0.2],
+        quat_x(0.2),
+    ));
+
+    // Salvage crate + a rusted barrel underneath.
+    prims.push(prim(
+        solid(cuboid_tapered([1.0, 0.9, 0.9], 0.0, rust(RUST_BROWN))),
+        [0.55, 0.45, 0.3],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(cylinder_tapered(
+            0.4,
+            1.0,
+            12,
+            0.0,
+            rust([0.34, 0.30, 0.22]),
+        )),
+        [-0.5, 0.5, 0.6],
+        id_quat(),
+    ));
+
+    // Dim lamp hanging under the tarp.
     prims.push(prim(
         sphere(0.16, 3, glow(NEON_CYAN, 3.0)),
-        [0.0, pole_h - 0.3, 0.0],
+        [0.2, pole_h - 0.45, 0.0],
         id_quat(),
     ));
     // A burn-barrel brazier in the corner keeping the shelter warm.
     prims.push(fx::brazier_flame([-0.7, 0.4, -0.5], 0xB7A2_F1A3));
 
     assemble(prims)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::catalogue::items::util::assert_sanitize_stable;
+
+    #[test]
+    fn build_round_trips_through_sanitize() {
+        assert_sanitize_stable(&TarpShelter.build(""), "tarp_shelter");
+    }
+
+    #[test]
+    fn has_neon() {
+        assert!(crate::catalogue::items::util::has_emissive(
+            &TarpShelter.build("")
+        ));
+    }
 }

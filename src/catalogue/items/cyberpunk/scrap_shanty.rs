@@ -6,7 +6,8 @@
 //! this instead of the megastructure.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, solid, sphere,
+    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_mul, quat_x, quat_y,
+    solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -128,5 +129,80 @@ fn build_tree() -> Generator {
             [0.2, ch * 3.0 + 4.4, 0.1],
             id_quat(),
         ),
+        // Salvage cohesion — the lived-in junk that makes it a settlement, not
+        // a stack of boxes:
+        // A rusted water tank lashed to the second tier.
+        prim(
+            solid(cylinder_tapered(
+                0.6,
+                1.3,
+                12,
+                0.0,
+                corrugated([0.5, 0.42, 0.32]),
+            )),
+            [-1.5, ch * 2.0 + 0.65, -0.7],
+            id_quat(),
+        ),
+        // A salvaged AC unit bolted to the third tier.
+        prim(
+            solid(cuboid_tapered(
+                [0.9, 0.7, 0.7],
+                0.0,
+                metal([0.55, 0.56, 0.58]),
+            )),
+            [-1.7, ch * 2.5 + 0.4, 0.5],
+            id_quat(),
+        ),
+        // A pair of conduit pipes running up the front.
+        prim(
+            solid(cylinder_tapered(
+                0.1,
+                ch * 2.4,
+                6,
+                0.0,
+                metal([0.4, 0.4, 0.42]),
+            )),
+            [1.7, ch * 1.2, 1.1],
+            id_quat(),
+        ),
+        prim(
+            solid(cylinder_tapered(
+                0.08,
+                ch * 2.0,
+                6,
+                0.0,
+                metal([0.45, 0.4, 0.36]),
+            )),
+            [1.9, ch * 1.0, 1.0],
+            id_quat(),
+        ),
+        // A jury-rigged satellite dish angled off the cap.
+        {
+            let mut dish = prim(
+                solid(cylinder_tapered(
+                    0.55,
+                    0.1,
+                    14,
+                    0.0,
+                    metal([0.62, 0.62, 0.64]),
+                )),
+                [-0.9, ch * 3.0 + 0.9, -0.9],
+                quat_mul(quat_y(0.5), quat_x(-1.0)),
+            );
+            // Feed arm + tip along the dish normal (local +Y).
+            dish.children.push(prim(
+                solid(cylinder_tapered(0.03, 0.5, 5, 0.0, metal(DARK_METAL))),
+                [0.0, 0.3, 0.0],
+                id_quat(),
+            ));
+            dish.children.push(prim(
+                sphere(0.07, 2, metal(DARK_METAL)),
+                [0.0, 0.55, 0.0],
+                id_quat(),
+            ));
+            dish
+        },
+        // A coolant/cooking vent breathing steam at the base.
+        fx::steam_vent([1.6, 0.4, 1.4], 0x5CA0_57A1),
     ])
 }

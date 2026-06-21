@@ -72,6 +72,20 @@ pub(super) fn quat_z(angle_rad: f32) -> Fp4 {
     Fp4([0.0, 0.0, half.sin(), half.cos()])
 }
 
+/// Hamilton product of two `[x, y, z, w]` rotations — the combined rotation
+/// that applies `b` first, then `a`. Composing two unit quaternions stays
+/// unit, so the result needs no renormalisation.
+pub(super) fn quat_mul(a: Fp4, b: Fp4) -> Fp4 {
+    let [ax, ay, az, aw] = a.0;
+    let [bx, by, bz, bw] = b.0;
+    Fp4([
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+        aw * bw - ax * bx - ay * by - az * bz,
+    ])
+}
+
 /// Cuboid with an optional taper (`0.0` = straight, `1.0` = pyramid).
 pub(super) fn cuboid_tapered(
     size: [f32; 3],
