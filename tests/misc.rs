@@ -89,6 +89,10 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
                 taper: Fp2([f32::INFINITY, f32::NAN]),
                 bend: Fp3([f32::NAN, f32::NEG_INFINITY, 10_000.0]),
                 s_bend: Fp2([f32::NAN, f32::INFINITY]),
+                shear: Fp2([f32::INFINITY, 10_000.0]),
+                path_cut: Fp2([-1.0, 5.0]),
+                profile_cut: Fp2([f32::NAN, 2.0]),
+                hollow: Fp(10.0),
             },
         }),
         Generator::from_kind(GeneratorKind::Sphere {

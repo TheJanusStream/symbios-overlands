@@ -242,6 +242,32 @@ pub(super) fn draw_primitive_bevel(
     draw_common_primitive(ui, solid, material, torture, salt, dirty);
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(super) fn draw_primitive_helix(
+    ui: &mut egui::Ui,
+    radius: &mut Fp,
+    tube_radius: &mut Fp,
+    pitch: &mut Fp,
+    turns: &mut Fp,
+    resolution: &mut u32,
+    solid: &mut bool,
+    material: &mut SovereignMaterialSettings,
+    torture: &mut TortureParams,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    ui.horizontal(|ui| {
+        fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
+        fp_slider(ui, "Tube", tube_radius, 0.01, 50.0, dirty);
+    });
+    ui.horizontal(|ui| {
+        fp_slider(ui, "Pitch", pitch, 0.0, 100.0, dirty);
+        fp_slider(ui, "Turns", turns, 0.05, 16.0, dirty);
+        drag_u32(ui, "Res/turn", resolution, 3, 128, dirty);
+    });
+    draw_common_primitive(ui, solid, material, torture, salt, dirty);
+}
+
 /// Shared tail for every primitive editor: solid checkbox, torture triple,
 /// collapsible material panel. Factored out so each per-primitive editor
 /// only owns its shape-specific parameter widgets.

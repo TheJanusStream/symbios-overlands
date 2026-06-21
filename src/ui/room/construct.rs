@@ -65,6 +65,8 @@ pub(super) const ROOM_ROOT_KINDS: &[&str] = &[
     "Tetrahedron",
     "Tube",
     "Bevel",
+    "Wedge",
+    "Helix",
     "Sign",
     "ParticleSystem",
     "LSystem",
@@ -89,6 +91,8 @@ pub(super) const ROOM_CHILD_KINDS: &[&str] = &[
     "Tetrahedron",
     "Tube",
     "Bevel",
+    "Wedge",
+    "Helix",
     "Sign",
     "ParticleSystem",
     "LSystem",
@@ -114,6 +118,8 @@ pub(crate) const AVATAR_KINDS: &[&str] = &[
     "Tetrahedron",
     "Tube",
     "Bevel",
+    "Wedge",
+    "Helix",
     "Sign",
     "ParticleSystem",
     "LSystem",
@@ -169,8 +175,9 @@ pub(crate) fn draw_universal_material(
 }
 
 /// Vertex-torture editor for the [`TortureParams`] every primitive carries:
-/// twist, per-axis taper (X/Z), a three-axis bend, and the S-bend wave.
-/// Ranges mirror `pds::limits::MAX_TORTURE_*`.
+/// twist, per-axis taper (X/Z), a three-axis bend, the S-bend wave, and
+/// top-shear; plus the SL-style topology cuts (path-cut / profile-cut / hollow)
+/// honoured by the swept prims. Ranges mirror `pds::sanitize::limits::*`.
 pub(super) fn draw_torture(ui: &mut egui::Ui, torture: &mut TortureParams, dirty: &mut bool) {
     ui.label("Vertex torture");
     fp_slider(
@@ -223,4 +230,51 @@ pub(super) fn draw_torture(ui: &mut egui::Ui, torture: &mut TortureParams, dirty
         }
     });
     torture.s_bend = Fp2(s);
+    // Top-shear (X / Z): a linear lateral lean of the top vs the base.
+    let mut sh = torture.shear.0;
+    ui.horizontal(|ui| {
+        ui.label("Shear (X/Z)");
+        for v in sh.iter_mut() {
+            if ui
+                .add(egui::DragValue::new(v).speed(0.05).range(-10.0..=10.0))
+                .changed()
+            {
+                *dirty = true;
+            }
+        }
+    });
+    torture.shear = Fp2(sh);
+
+    // --- Topology cuts (swept prims: Sphere / Cylinder / Cone / Torus / Tube) ---
+    ui.label("Cuts (swept prims)");
+    // Path-cut (begin/end, kept angular fraction of the sweep).
+    let mut pc = torture.path_cut.0;
+    ui.horizontal(|ui| {
+        ui.label("Path-cut (begin/end)");
+        for v in pc.iter_mut() {
+            if ui
+                .add(egui::DragValue::new(v).speed(0.01).range(0.0..=1.0))
+                .changed()
+            {
+                *dirty = true;
+            }
+        }
+    });
+    torture.path_cut = Fp2(pc);
+    // Profile-cut / dimple (begin/end, kept latitude band on a revolved profile).
+    let mut prc = torture.profile_cut.0;
+    ui.horizontal(|ui| {
+        ui.label("Profile-cut (begin/end)");
+        for v in prc.iter_mut() {
+            if ui
+                .add(egui::DragValue::new(v).speed(0.01).range(0.0..=1.0))
+                .changed()
+            {
+                *dirty = true;
+            }
+        }
+    });
+    torture.profile_cut = Fp2(prc);
+    // Hollow (bore as a fraction of the outer radius).
+    fp_slider(ui, "Hollow", &mut torture.hollow, 0.0, 0.95, dirty);
 }

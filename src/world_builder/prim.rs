@@ -44,6 +44,7 @@ pub(super) struct Torture {
     pub taper: Vec2,
     pub bend: Vec3,
     pub s_bend: Vec2,
+    pub shear: Vec2,
 }
 
 impl Torture {
@@ -52,6 +53,7 @@ impl Torture {
             && self.taper.length_squared() < 1e-12
             && self.bend.length_squared() < 1e-12
             && self.s_bend.length_squared() < 1e-12
+            && self.shear.length_squared() < 1e-12
     }
 }
 
@@ -79,7 +81,16 @@ pub fn build_primitive_mesh(kind: &GeneratorKind) -> Mesh {
 /// with no meaningful solid collider.
 pub(super) fn collider_for_primitive(kind: &GeneratorKind, mesh: &Mesh) -> Option<Collider> {
     let torture = torture_of(kind);
-    if torture.is_identity() {
+    // A topology cut (path-cut / profile-cut / hollow) makes the analytical hull
+    // diverge from the visible geometry just like a vertex deformation does, so
+    // both route to a convex hull of the actual mesh. (A convex hull still fills
+    // a hollow bore or an arch's opening — consistent with the Tube's "bore is
+    // not a walk-through" standoff; true walk-throughs would want a trimesh.)
+    let cuts_active = kind
+        .torture()
+        .map(|t| !t.cuts_are_identity())
+        .unwrap_or(false);
+    if torture.is_identity() && !cuts_active {
         analytical_collider(kind)
     } else {
         convex_hull_from_mesh(mesh).or_else(|| analytical_collider(kind))
@@ -93,12 +104,14 @@ fn torture_of(kind: &GeneratorKind) -> Torture {
             taper: Vec2::from_array(t.taper.0),
             bend: Vec3::from_array(t.bend.0),
             s_bend: Vec2::from_array(t.s_bend.0),
+            shear: Vec2::from_array(t.shear.0),
         },
         None => Torture {
             twist: 0.0,
             taper: Vec2::ZERO,
             bend: Vec3::ZERO,
             s_bend: Vec2::ZERO,
+            shear: Vec2::ZERO,
         },
     }
 }
@@ -109,20 +122,46 @@ fn base_primitive_mesh(kind: &GeneratorKind) -> Mesh {
             Cuboid::new(size.0[0], size.0[1], size.0[2]).mesh().build()
         }
         GeneratorKind::Sphere {
-            radius, resolution, ..
-        } => Sphere::new(radius.0)
-            .mesh()
-            .ico(*resolution)
-            .unwrap_or_else(|_| Sphere::new(radius.0).mesh().build()),
+            radius,
+            resolution,
+            torture,
+            ..
+        } => {
+            if torture.cuts_are_identity() {
+                Sphere::new(radius.0)
+                    .mesh()
+                    .ico(*resolution)
+                    .unwrap_or_else(|_| Sphere::new(radius.0).mesh().build())
+            } else {
+                let (lon0, lon1) = path_cut_angles(torture);
+                build_uv_sphere(
+                    radius.0,
+                    *resolution,
+                    lon0,
+                    lon1,
+                    torture.profile_cut.0[0],
+                    torture.profile_cut.0[1],
+                    torture.hollow.0,
+                )
+            }
+        }
         GeneratorKind::Cylinder {
             radius,
             height,
             resolution,
+            torture,
             ..
-        } => Cylinder::new(radius.0, height.0)
-            .mesh()
-            .resolution(*resolution)
-            .build(),
+        } => {
+            if torture.cuts_are_identity() {
+                Cylinder::new(radius.0, height.0)
+                    .mesh()
+                    .resolution(*resolution)
+                    .build()
+            } else {
+                let (a0, a1) = path_cut_angles(torture);
+                build_swept_cylinder(radius.0, height.0, *resolution, torture.hollow.0, a0, a1)
+            }
+        }
         GeneratorKind::Capsule {
             radius,
             length,
@@ -148,15 +187,38 @@ fn base_primitive_mesh(kind: &GeneratorKind) -> Mesh {
             major_radius,
             minor_resolution,
             major_resolution,
+            torture,
             ..
-        } => Torus {
-            minor_radius: minor_radius.0,
-            major_radius: major_radius.0,
+        } => {
+            if torture.cuts_are_identity() {
+                Torus {
+                    minor_radius: minor_radius.0,
+                    major_radius: major_radius.0,
+                }
+                .mesh()
+                .minor_resolution(*minor_resolution as usize)
+                .major_resolution(*major_resolution as usize)
+                .build()
+            } else {
+                use std::f32::consts::TAU;
+                let (maj0, maj1) = path_cut_angles(torture);
+                let (min0, min1) = (
+                    torture.profile_cut.0[0] * TAU,
+                    torture.profile_cut.0[1] * TAU,
+                );
+                build_torus(
+                    major_radius.0,
+                    minor_radius.0,
+                    *major_resolution,
+                    *minor_resolution,
+                    maj0,
+                    maj1,
+                    min0,
+                    min1,
+                    torture.hollow.0,
+                )
+            }
         }
-        .mesh()
-        .minor_resolution(*minor_resolution as usize)
-        .major_resolution(*major_resolution as usize)
-        .build(),
         GeneratorKind::Plane {
             size, subdivisions, ..
         } => Plane3d::new(Vec3::Y, Vec2::new(size.0[0] / 2.0, size.0[1] / 2.0))
@@ -176,14 +238,32 @@ fn base_primitive_mesh(kind: &GeneratorKind) -> Mesh {
             inner_radius,
             height,
             resolution,
+            torture,
             ..
-        } => build_tube_mesh(radius.0, inner_radius.0, height.0, *resolution),
+        } => {
+            if torture.cuts_are_identity() {
+                build_tube_mesh(radius.0, inner_radius.0, height.0, *resolution)
+            } else {
+                let (a0, a1) = path_cut_angles(torture);
+                let inner_frac = (inner_radius.0 / radius.0.max(1e-4)).clamp(0.0, 0.999);
+                build_swept_cylinder(radius.0, height.0, *resolution, inner_frac, a0, a1)
+            }
+        }
         GeneratorKind::Bevel {
             size,
             bevel,
             bevel_segments,
             ..
         } => build_bevel_mesh(size.0, bevel.0, *bevel_segments),
+        GeneratorKind::Wedge { size, .. } => build_wedge_mesh(size.0),
+        GeneratorKind::Helix {
+            radius,
+            tube_radius,
+            pitch,
+            turns,
+            resolution,
+            ..
+        } => build_helix_mesh(radius.0, tube_radius.0, pitch.0, turns.0, *resolution),
         _ => Cuboid::new(1.0, 1.0, 1.0).mesh().build(),
     }
 }
@@ -290,6 +370,593 @@ fn build_tube_mesh(outer: f32, inner: f32, height: f32, resolution: u32) -> Mesh
 /// `segments` is `1` for a flat chamfer (octagonal prism), higher for a
 /// rounded corner. Side normals follow the profile (smooth on arcs, flat on
 /// the straight runs); caps are flat fans.
+/// Convert a `[begin, end]` path-cut (turns) to a `(start, end)` angle pair.
+fn path_cut_angles(t: &crate::pds::TortureParams) -> (f32, f32) {
+    use std::f32::consts::TAU;
+    (t.path_cut.0[0] * TAU, t.path_cut.0[1] * TAU)
+}
+
+/// Unified swept-ring mesher — a straight cylinder that may be **hollow**
+/// (`inner_frac > 0` → pipe / tube) and/or **angularly path-cut** (`a0..a1` <
+/// full turn → trough / half-pipe / pie wedge, closed by two radial cut faces).
+/// One generator backs `Cylinder` + `Tube` and all their SL-style cuts; taper /
+/// twist / bend / shear ride on top via the vertex-torture post-pass. Winding is
+/// reconciled to the supplied normals by [`mesh_from_parts`].
+fn build_swept_cylinder(
+    r: f32,
+    height: f32,
+    resolution: u32,
+    inner_frac: f32,
+    a0: f32,
+    a1: f32,
+) -> Mesh {
+    use std::f32::consts::TAU;
+    let segs = resolution.max(3);
+    let full = (a1 - a0).abs() >= TAU - 1e-3;
+    let ri = (r * inner_frac).clamp(0.0, r * 0.999);
+    let hollow = ri > 1e-4;
+    let (yb, yt) = (-0.5 * height, 0.5 * height);
+    let n = segs + 1;
+    let ang = |i: u32| a0 + (a1 - a0) * (i as f32 / segs as f32);
+
+    let mut pos: Vec<[f32; 3]> = Vec::new();
+    let mut nor: Vec<[f32; 3]> = Vec::new();
+    let mut uv: Vec<[f32; 2]> = Vec::new();
+    let mut idx: Vec<u32> = Vec::new();
+
+    // Outer wall, plus an inner wall when hollow (inward-facing normals).
+    let mut walls = vec![(r, false)];
+    if hollow {
+        walls.push((ri, true));
+    }
+    for (radius, inward) in walls {
+        let base = pos.len() as u32;
+        let sgn = if inward { -1.0 } else { 1.0 };
+        for i in 0..n {
+            let a = ang(i);
+            let (s, c) = a.sin_cos();
+            let nrm = [sgn * c, 0.0, sgn * s];
+            let u = i as f32 / segs as f32;
+            pos.push([radius * c, yb, radius * s]);
+            nor.push(nrm);
+            uv.push([u, 1.0]);
+            pos.push([radius * c, yt, radius * s]);
+            nor.push(nrm);
+            uv.push([u, 0.0]);
+        }
+        for i in 0..segs {
+            let b = base + i * 2;
+            idx.extend_from_slice(&[b, b + 2, b + 3, b, b + 3, b + 1]);
+        }
+    }
+
+    // Top + bottom caps: annular when hollow, a triangle fan to the centre when
+    // solid.
+    for (y, ny) in [(yt, 1.0f32), (yb, -1.0f32)] {
+        let nrm = [0.0, ny, 0.0];
+        if hollow {
+            let base = pos.len() as u32;
+            let k = ri / r;
+            for i in 0..n {
+                let a = ang(i);
+                let (s, c) = a.sin_cos();
+                pos.push([r * c, y, r * s]);
+                nor.push(nrm);
+                uv.push([0.5 + 0.5 * c, 0.5 + 0.5 * s]);
+                pos.push([ri * c, y, ri * s]);
+                nor.push(nrm);
+                uv.push([0.5 + 0.5 * k * c, 0.5 + 0.5 * k * s]);
+            }
+            for i in 0..segs {
+                let b = base + i * 2;
+                idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
+            }
+        } else {
+            let base = pos.len() as u32;
+            pos.push([0.0, y, 0.0]);
+            nor.push(nrm);
+            uv.push([0.5, 0.5]);
+            for i in 0..n {
+                let a = ang(i);
+                let (s, c) = a.sin_cos();
+                pos.push([r * c, y, r * s]);
+                nor.push(nrm);
+                uv.push([0.5 + 0.5 * c, 0.5 + 0.5 * s]);
+            }
+            for i in 0..segs {
+                idx.extend_from_slice(&[base, base + 1 + i, base + 2 + i]);
+            }
+        }
+    }
+
+    // Radial cut faces close the wedge opening (only when path-cut).
+    if !full {
+        for (i, sgn) in [(0u32, -1.0f32), (segs, 1.0f32)] {
+            let a = ang(i);
+            let (s, c) = a.sin_cos();
+            let nrm = [-sgn * s, 0.0, sgn * c];
+            let rin = if hollow { ri } else { 0.0 };
+            let base = pos.len() as u32;
+            pos.push([rin * c, yb, rin * s]);
+            pos.push([r * c, yb, r * s]);
+            pos.push([r * c, yt, r * s]);
+            pos.push([rin * c, yt, rin * s]);
+            for _ in 0..4 {
+                nor.push(nrm);
+            }
+            uv.extend_from_slice(&[[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]]);
+            idx.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        }
+    }
+
+    mesh_from_parts(pos, nor, uv, idx)
+}
+
+/// Unified revolved-sphere mesher — a UV sphere swept over a **latitude band**
+/// (`lat_t0..lat_t1` in 0..1 → domes, bowls, dishes via profile-cut) and a
+/// **longitude band** (`lon0..lon1` → orange slices / half-domes via path-cut),
+/// optionally **hollow** (`inner_frac > 0` → a shell). Open latitude edges are
+/// closed by horizontal disc / annulus caps; an open longitude wedge by two
+/// meridional cut faces. Used for the cut Sphere; the plain icosphere stays on
+/// Bevy. Winding is reconciled by [`mesh_from_parts`].
+#[allow(clippy::too_many_arguments)]
+fn build_uv_sphere(
+    radius: f32,
+    resolution: u32,
+    lon0: f32,
+    lon1: f32,
+    lat_t0: f32,
+    lat_t1: f32,
+    inner_frac: f32,
+) -> Mesh {
+    use std::f32::consts::{FRAC_PI_2, PI, TAU};
+    let nlon = (resolution.max(2) * 6).max(8);
+    let nlat = (resolution.max(2) * 4).max(6);
+    let lon_full = (lon1 - lon0).abs() >= TAU - 1e-3;
+    let ri_frac = inner_frac.clamp(0.0, 0.99);
+    let hollow = ri_frac > 1e-4;
+    let phi = |t: f32| -FRAC_PI_2 + t * PI;
+    let latt = |j: u32| lat_t0 + (lat_t1 - lat_t0) * (j as f32 / nlat as f32);
+    let lonf = |i: u32| lon0 + (lon1 - lon0) * (i as f32 / nlon as f32);
+    let bottom_pole = lat_t0 <= 1e-4;
+    let top_pole = lat_t1 >= 1.0 - 1e-4;
+
+    let mut pos: Vec<[f32; 3]> = Vec::new();
+    let mut nor: Vec<[f32; 3]> = Vec::new();
+    let mut uv: Vec<[f32; 2]> = Vec::new();
+    let mut idx: Vec<u32> = Vec::new();
+
+    // Outer (+ inner, when hollow) revolved surface grid.
+    let mut shells = vec![(radius, false)];
+    if hollow {
+        shells.push((radius * ri_frac, true));
+    }
+    for (rad, inward) in shells {
+        let base = pos.len() as u32;
+        let sgn = if inward { -1.0 } else { 1.0 };
+        for j in 0..=nlat {
+            let p = phi(latt(j));
+            let (sp, cp) = p.sin_cos();
+            for i in 0..=nlon {
+                let l = lonf(i);
+                let (sl, cl) = l.sin_cos();
+                let d = [cp * cl, sp, cp * sl];
+                pos.push([rad * d[0], rad * d[1], rad * d[2]]);
+                nor.push([sgn * d[0], sgn * d[1], sgn * d[2]]);
+                uv.push([i as f32 / nlon as f32, 1.0 - j as f32 / nlat as f32]);
+            }
+        }
+        let row = nlon + 1;
+        for j in 0..nlat {
+            for i in 0..nlon {
+                let a = base + j * row + i;
+                idx.extend_from_slice(&[a, a + row, a + row + 1, a, a + row + 1, a + 1]);
+            }
+        }
+    }
+
+    // Latitude caps (horizontal disc / annulus) at any open, non-pole edge.
+    for (t, ny, pole) in [(lat_t0, -1.0f32, bottom_pole), (lat_t1, 1.0f32, top_pole)] {
+        if pole {
+            continue;
+        }
+        let p = phi(t);
+        let (sp, cp) = p.sin_cos();
+        let (y, rc) = (radius * sp, radius * cp);
+        let nrm = [0.0, ny, 0.0];
+        if hollow {
+            // The rim joins the outer-shell edge to the *inner-shell* edge — both
+            // at this latitude, so the inner edge sits at `radius * ri_frac * dir`
+            // (its own Y), not at the outer Y. A flat annulus would leave the
+            // inner edge floating; this conical band closes it. Normal is the
+            // meridional tangent, facing out of the kept band.
+            let base = pos.len() as u32;
+            for i in 0..=nlon {
+                let l = lonf(i);
+                let (sl, cl) = l.sin_cos();
+                let tang = [ny * -sp * cl, ny * cp, ny * -sp * sl];
+                pos.push([radius * cp * cl, y, radius * cp * sl]);
+                nor.push(tang);
+                uv.push([0.5 + 0.5 * cl, 0.5 + 0.5 * sl]);
+                pos.push([
+                    radius * ri_frac * cp * cl,
+                    radius * ri_frac * sp,
+                    radius * ri_frac * cp * sl,
+                ]);
+                nor.push(tang);
+                uv.push([0.5 + 0.5 * ri_frac * cl, 0.5 + 0.5 * ri_frac * sl]);
+            }
+            for i in 0..nlon {
+                let b = base + i * 2;
+                idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
+            }
+        } else {
+            let base = pos.len() as u32;
+            pos.push([0.0, y, 0.0]);
+            nor.push(nrm);
+            uv.push([0.5, 0.5]);
+            for i in 0..=nlon {
+                let l = lonf(i);
+                let (sl, cl) = l.sin_cos();
+                pos.push([rc * cl, y, rc * sl]);
+                nor.push(nrm);
+                uv.push([0.5 + 0.5 * cl, 0.5 + 0.5 * sl]);
+            }
+            for i in 0..nlon {
+                idx.extend_from_slice(&[base, base + 1 + i, base + 2 + i]);
+            }
+        }
+    }
+
+    // Meridional cut faces when the longitude sweep is open (path-cut).
+    if !lon_full {
+        for (i_edge, sgn) in [(0u32, -1.0f32), (nlon, 1.0f32)] {
+            let l = lonf(i_edge);
+            let (sl, cl) = l.sin_cos();
+            let nrm = [sgn * -sl, 0.0, sgn * cl];
+            let base = pos.len() as u32;
+            for j in 0..=nlat {
+                let p = phi(latt(j));
+                let (sp, cp) = p.sin_cos();
+                let d = [cp * cl, sp, cp * sl];
+                pos.push([radius * d[0], radius * d[1], radius * d[2]]);
+                nor.push(nrm);
+                uv.push([0.0, j as f32 / nlat as f32]);
+                if hollow {
+                    pos.push([
+                        radius * ri_frac * d[0],
+                        radius * ri_frac * d[1],
+                        radius * ri_frac * d[2],
+                    ]);
+                } else {
+                    pos.push([0.0, radius * sp, 0.0]);
+                }
+                nor.push(nrm);
+                uv.push([1.0, j as f32 / nlat as f32]);
+            }
+            for j in 0..nlat {
+                let b = base + j * 2;
+                idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
+            }
+        }
+    }
+
+    mesh_from_parts(pos, nor, uv, idx)
+}
+
+/// Unified swept-torus mesher — a circular profile revolved along a major
+/// circle, over a **major arc** (`maj0..maj1`, path-cut → arch / horseshoe /
+/// open ring), a **minor arc** (`min0..min1`, profile-cut → C-channel / gutter),
+/// optionally **hollow** (`inner_frac > 0` → a tubular shell). Open major ends
+/// get cross-section caps (disc / annulus / fan); open minor edges get bands
+/// running along the sweep. Used for the cut Torus; the plain torus stays on
+/// Bevy. Winding is reconciled by [`mesh_from_parts`].
+#[allow(clippy::too_many_arguments)]
+fn build_torus(
+    major_r: f32,
+    minor_r: f32,
+    major_res: u32,
+    minor_res: u32,
+    maj0: f32,
+    maj1: f32,
+    min0: f32,
+    min1: f32,
+    inner_frac: f32,
+) -> Mesh {
+    use std::f32::consts::TAU;
+    let nmaj = major_res.max(3);
+    let nmin = minor_res.max(3);
+    let maj_full = (maj1 - maj0).abs() >= TAU - 1e-3;
+    let min_full = (min1 - min0).abs() >= TAU - 1e-3;
+    let ri_frac = inner_frac.clamp(0.0, 0.99);
+    let hollow = ri_frac > 1e-4;
+    let majf = |i: u32| maj0 + (maj1 - maj0) * (i as f32 / nmaj as f32);
+    let minf = |j: u32| min0 + (min1 - min0) * (j as f32 / nmin as f32);
+    // Tube-surface point + outward normal for a given (major θ, minor radius, minor φ).
+    let point = |th: f32, rad: f32, ph: f32| -> ([f32; 3], [f32; 3]) {
+        let (st, ct) = th.sin_cos();
+        let (sp, cp) = ph.sin_cos();
+        let rr = major_r + rad * cp;
+        ([rr * ct, rad * sp, rr * st], [cp * ct, sp, cp * st])
+    };
+
+    let mut pos: Vec<[f32; 3]> = Vec::new();
+    let mut nor: Vec<[f32; 3]> = Vec::new();
+    let mut uv: Vec<[f32; 2]> = Vec::new();
+    let mut idx: Vec<u32> = Vec::new();
+
+    // Outer (+ inner, when hollow) tube surface.
+    let mut shells = vec![(minor_r, false)];
+    if hollow {
+        shells.push((minor_r * ri_frac, true));
+    }
+    for (rad, inward) in shells {
+        let base = pos.len() as u32;
+        let sgn = if inward { -1.0 } else { 1.0 };
+        for i in 0..=nmaj {
+            let th = majf(i);
+            for j in 0..=nmin {
+                let (p, no) = point(th, rad, minf(j));
+                pos.push(p);
+                nor.push([sgn * no[0], sgn * no[1], sgn * no[2]]);
+                uv.push([i as f32 / nmaj as f32, j as f32 / nmin as f32]);
+            }
+        }
+        let row = nmin + 1;
+        for i in 0..nmaj {
+            for j in 0..nmin {
+                let a = base + i * row + j;
+                idx.extend_from_slice(&[a, a + row, a + row + 1, a, a + row + 1, a + 1]);
+            }
+        }
+    }
+
+    // Major-arc end caps (the tube cross-section) when path-cut.
+    if !maj_full {
+        for (i_edge, sgn) in [(0u32, -1.0f32), (nmaj, 1.0f32)] {
+            let th = majf(i_edge);
+            let (st, ct) = th.sin_cos();
+            let nrm = [sgn * -st, 0.0, sgn * ct];
+            if hollow {
+                let base = pos.len() as u32;
+                for j in 0..=nmin {
+                    let ph = minf(j);
+                    pos.push(point(th, minor_r, ph).0);
+                    nor.push(nrm);
+                    uv.push([0.0, j as f32 / nmin as f32]);
+                    pos.push(point(th, minor_r * ri_frac, ph).0);
+                    nor.push(nrm);
+                    uv.push([1.0, j as f32 / nmin as f32]);
+                }
+                for j in 0..nmin {
+                    let b = base + j * 2;
+                    idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
+                }
+            } else {
+                let base = pos.len() as u32;
+                pos.push([major_r * ct, 0.0, major_r * st]);
+                nor.push(nrm);
+                uv.push([0.5, 0.5]);
+                for j in 0..=nmin {
+                    pos.push(point(th, minor_r, minf(j)).0);
+                    nor.push(nrm);
+                    uv.push([0.5, j as f32 / nmin as f32]);
+                }
+                for j in 0..nmin {
+                    idx.extend_from_slice(&[base, base + 1 + j, base + 2 + j]);
+                }
+            }
+        }
+    }
+
+    // Minor-arc edge bands (the open lips of a C-channel) when profile-cut.
+    if !min_full {
+        for (j_edge, sgn) in [(0u32, -1.0f32), (nmin, 1.0f32)] {
+            let ph = minf(j_edge);
+            let (sp, cp) = ph.sin_cos();
+            let base = pos.len() as u32;
+            for i in 0..=nmaj {
+                let th = majf(i);
+                let (st, ct) = th.sin_cos();
+                let nrm = [sgn * -sp * ct, sgn * cp, sgn * -sp * st];
+                pos.push(point(th, minor_r, ph).0);
+                nor.push(nrm);
+                uv.push([i as f32 / nmaj as f32, 0.0]);
+                if hollow {
+                    pos.push(point(th, minor_r * ri_frac, ph).0);
+                } else {
+                    pos.push([major_r * ct, 0.0, major_r * st]);
+                }
+                nor.push(nrm);
+                uv.push([i as f32 / nmaj as f32, 1.0]);
+            }
+            for i in 0..nmaj {
+                let b = base + i * 2;
+                idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
+            }
+        }
+    }
+
+    mesh_from_parts(pos, nor, uv, idx)
+}
+
+/// Push one flat-shaded quad (4 corners, one normal); winding is reconciled by
+/// [`mesh_from_parts`].
+fn push_quad(
+    pos: &mut Vec<[f32; 3]>,
+    nor: &mut Vec<[f32; 3]>,
+    uv: &mut Vec<[f32; 2]>,
+    idx: &mut Vec<u32>,
+    v: [[f32; 3]; 4],
+    n: [f32; 3],
+) {
+    let base = pos.len() as u32;
+    let uvs = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+    for k in 0..4 {
+        pos.push(v[k]);
+        nor.push(n);
+        uv.push(uvs[k]);
+    }
+    idx.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+}
+
+/// Push one flat-shaded triangle (3 corners, one normal).
+fn push_tri(
+    pos: &mut Vec<[f32; 3]>,
+    nor: &mut Vec<[f32; 3]>,
+    uv: &mut Vec<[f32; 2]>,
+    idx: &mut Vec<u32>,
+    v: [[f32; 3]; 3],
+    n: [f32; 3],
+) {
+    let base = pos.len() as u32;
+    let uvs = [[0.0, 0.0], [1.0, 0.0], [0.5, 1.0]];
+    for k in 0..3 {
+        pos.push(v[k]);
+        nor.push(n);
+        uv.push(uvs[k]);
+    }
+    idx.extend_from_slice(&[base, base + 1, base + 2]);
+}
+
+/// Right-triangular prism (ramp / roof pitch / buttress): a `size` bounding box
+/// whose slope rises from the front-bottom (`+Z`, `-Y`) to the back-top (`-Z`,
+/// `+Y`) across the full width (X). Five flat faces.
+fn build_wedge_mesh(size: [f32; 3]) -> Mesh {
+    let (w, h, d) = (size[0] * 0.5, size[1] * 0.5, size[2] * 0.5);
+    let bbl = [-w, -h, -d];
+    let bfl = [-w, -h, d];
+    let tbl = [-w, h, -d];
+    let bbr = [w, -h, -d];
+    let bfr = [w, -h, d];
+    let tbr = [w, h, -d];
+    let mut pos = Vec::new();
+    let mut nor = Vec::new();
+    let mut uv = Vec::new();
+    let mut idx = Vec::new();
+    push_quad(
+        &mut pos,
+        &mut nor,
+        &mut uv,
+        &mut idx,
+        [bbl, bbr, bfr, bfl],
+        [0.0, -1.0, 0.0],
+    ); // bottom
+    push_quad(
+        &mut pos,
+        &mut nor,
+        &mut uv,
+        &mut idx,
+        [bbl, tbl, tbr, bbr],
+        [0.0, 0.0, -1.0],
+    ); // back
+    let sl = (d * d + h * h).sqrt().max(1e-6);
+    push_quad(
+        &mut pos,
+        &mut nor,
+        &mut uv,
+        &mut idx,
+        [bfl, bfr, tbr, tbl],
+        [0.0, d / sl, h / sl],
+    ); // slope
+    push_tri(
+        &mut pos,
+        &mut nor,
+        &mut uv,
+        &mut idx,
+        [bbl, bfl, tbl],
+        [-1.0, 0.0, 0.0],
+    ); // left
+    push_tri(
+        &mut pos,
+        &mut nor,
+        &mut uv,
+        &mut idx,
+        [bbr, tbr, bfr],
+        [1.0, 0.0, 0.0],
+    ); // right
+    mesh_from_parts(pos, nor, uv, idx)
+}
+
+/// Helical tube (spring / screw / spiral rail): a circular cross-section swept
+/// along a helix. `pitch` is the rise per turn, `turns` the revolution count,
+/// `resolution` the path segments per turn. End caps close the tube.
+fn build_helix_mesh(
+    radius: f32,
+    tube_radius: f32,
+    pitch: f32,
+    turns: f32,
+    resolution: u32,
+) -> Mesh {
+    use std::f32::consts::TAU;
+    let res = resolution.max(3);
+    let turns = turns.abs().max(0.05);
+    let path_segs = ((turns * res as f32).ceil() as u32).max(2);
+    let tube_segs = 10u32;
+    let total_h = turns * pitch;
+    let path = |i: u32| -> (Vec3, Vec3) {
+        let th = turns * TAU * (i as f32 / path_segs as f32);
+        let (st, ct) = th.sin_cos();
+        let c = Vec3::new(radius * ct, (th / TAU) * pitch - total_h * 0.5, radius * st);
+        let mut t = Vec3::new(-radius * st, pitch / TAU, radius * ct).normalize_or_zero();
+        if t == Vec3::ZERO {
+            t = Vec3::Y;
+        }
+        (c, t)
+    };
+    let frame = |t: Vec3| -> (Vec3, Vec3) {
+        let refv = if t.y.abs() > 0.9 { Vec3::X } else { Vec3::Y };
+        let n = refv.cross(t).normalize_or_zero();
+        (n, t.cross(n))
+    };
+
+    let mut pos = Vec::new();
+    let mut nor = Vec::new();
+    let mut uv = Vec::new();
+    let mut idx: Vec<u32> = Vec::new();
+    for i in 0..=path_segs {
+        let (c, t) = path(i);
+        let (n, b) = frame(t);
+        for j in 0..=tube_segs {
+            let phi = TAU * (j as f32 / tube_segs as f32);
+            let (sp, cp) = phi.sin_cos();
+            let dir = n * cp + b * sp;
+            pos.push((c + dir * tube_radius).to_array());
+            nor.push(dir.to_array());
+            uv.push([i as f32 / path_segs as f32, j as f32 / tube_segs as f32]);
+        }
+    }
+    let row = tube_segs + 1;
+    for i in 0..path_segs {
+        for j in 0..tube_segs {
+            let a = i * row + j;
+            idx.extend_from_slice(&[a, a + row, a + row + 1, a, a + row + 1, a + 1]);
+        }
+    }
+    // End caps (a disc at each helix end).
+    for (i_edge, sgn) in [(0u32, -1.0f32), (path_segs, 1.0f32)] {
+        let (c, t) = path(i_edge);
+        let (n, b) = frame(t);
+        let ncap = (t * sgn).to_array();
+        let basec = pos.len() as u32;
+        pos.push(c.to_array());
+        nor.push(ncap);
+        uv.push([0.5, 0.5]);
+        for j in 0..=tube_segs {
+            let phi = TAU * (j as f32 / tube_segs as f32);
+            let (sp, cp) = phi.sin_cos();
+            let dir = n * cp + b * sp;
+            pos.push((c + dir * tube_radius).to_array());
+            nor.push(ncap);
+            uv.push([0.5 + 0.5 * cp, 0.5 + 0.5 * sp]);
+        }
+        for j in 0..tube_segs {
+            idx.extend_from_slice(&[basec, basec + 1 + j, basec + 2 + j]);
+        }
+    }
+    mesh_from_parts(pos, nor, uv, idx)
+}
+
 fn build_bevel_mesh(size: [f32; 3], bevel: f32, segments: u32) -> Mesh {
     use std::f32::consts::{FRAC_PI_2, PI};
     let [sx, sy, sz] = size;
@@ -393,6 +1060,30 @@ fn analytical_collider(kind: &GeneratorKind) -> Option<Collider> {
         // The bevel's footprint is within its size box; the box is a tight
         // enough standoff (the chamfer only shaves the corners).
         GeneratorKind::Bevel { size, .. } => Collider::cuboid(size.0[0], size.0[1], size.0[2]),
+        GeneratorKind::Wedge { size, .. } => {
+            let (w, h, d) = (size.0[0] * 0.5, size.0[1] * 0.5, size.0[2] * 0.5);
+            let corners = vec![
+                Vec3::new(-w, -h, -d),
+                Vec3::new(-w, -h, d),
+                Vec3::new(-w, h, -d),
+                Vec3::new(w, -h, -d),
+                Vec3::new(w, -h, d),
+                Vec3::new(w, h, -d),
+            ];
+            Collider::convex_hull(corners)
+                .unwrap_or_else(|| Collider::cuboid(size.0[0], size.0[1], size.0[2]))
+        }
+        // Decorative; a bounding cylinder is a cheap standoff for a spring/rail.
+        GeneratorKind::Helix {
+            radius,
+            tube_radius,
+            pitch,
+            turns,
+            ..
+        } => Collider::cylinder(
+            radius.0 + tube_radius.0,
+            (turns.0.abs() * pitch.0).max(tube_radius.0 * 2.0),
+        ),
         _ => return None,
     })
 }
@@ -439,12 +1130,14 @@ fn deform_vertex(p: Vec3, y_min: f32, y_range: f32, torture: Torture) -> Vec3 {
     // Bend: quadratic displacement, tangent to vertical at the base and
     // peaking at the top — now on all three axes (`.y` lengthens the top).
     // S-bend: a sin(2π t) lateral wave layered on top for a serpentine column.
+    // Shear: a linear lateral slide of the top relative to the base, so edges
+    // stay straight but lean (a parallelepiped) rather than curving like bend.
     let t2 = t * t;
     let wave = (std::f32::consts::TAU * t).sin();
     Vec3::new(
-        x + torture.bend.x * t2 + torture.s_bend.x * wave,
+        x + torture.bend.x * t2 + torture.s_bend.x * wave + torture.shear.x * t,
         p.y + torture.bend.y * t2,
-        z + torture.bend.z * t2 + torture.s_bend.y * wave,
+        z + torture.bend.z * t2 + torture.s_bend.y * wave + torture.shear.y * t,
     )
 }
 
@@ -693,5 +1386,56 @@ mod tests {
         }
         // A square corner sits at √(0.5²+0.5²) ≈ 0.707; the bevel pulls it in.
         assert!(max_corner < 0.707, "corner not chamfered: {max_corner}");
+    }
+
+    #[test]
+    fn new_prims_and_cuts_build_valid_meshes() {
+        let with_cut = |tag: &str, pc: [f32; 2], prc: [f32; 2], hollow: f32| {
+            let mut k = GeneratorKind::default_primitive_for_tag(tag).unwrap();
+            if let Some(t) = k.torture_mut() {
+                t.path_cut = Fp2(pc);
+                t.profile_cut = Fp2(prc);
+                t.hollow = Fp(hollow);
+            }
+            k
+        };
+        let kinds = [
+            GeneratorKind::default_primitive_for_tag("Wedge").unwrap(),
+            GeneratorKind::default_primitive_for_tag("Helix").unwrap(),
+            with_cut("Cylinder", [0.0, 0.5], [0.0, 1.0], 0.0), // half-cylinder
+            with_cut("Cylinder", [0.0, 1.0], [0.0, 1.0], 0.5), // pipe
+            with_cut("Cylinder", [0.0, 0.5], [0.0, 1.0], 0.6), // gutter
+            with_cut("Sphere", [0.0, 1.0], [0.5, 1.0], 0.0),   // dome
+            with_cut("Sphere", [0.0, 1.0], [0.0, 0.55], 0.7),  // bowl
+            with_cut("Sphere", [0.0, 0.5], [0.0, 1.0], 0.0),   // half-sphere
+            with_cut("Torus", [0.0, 0.5], [0.0, 1.0], 0.0),    // arch
+            with_cut("Torus", [0.0, 1.0], [0.0, 0.5], 0.0),    // C-channel
+        ];
+        for k in &kinds {
+            let tag = k.kind_tag();
+            let mesh = build_primitive_mesh(k);
+            let Some(VertexAttributeValues::Float32x3(pos)) =
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("no positions for {tag}");
+            };
+            assert!(pos.len() >= 3, "too few verts for {tag}");
+            for p in pos {
+                assert!(
+                    p[0].is_finite() && p[1].is_finite() && p[2].is_finite(),
+                    "non-finite vertex in {tag}: {p:?}"
+                );
+            }
+            assert!(
+                mesh.indices().map(|i| i.len() >= 3).unwrap_or(false),
+                "no indices for {tag}"
+            );
+            for n in normals(&mesh) {
+                assert!(
+                    (len(n) - 1.0).abs() < 1e-2,
+                    "non-unit normal {n:?} in {tag}"
+                );
+            }
+        }
     }
 }

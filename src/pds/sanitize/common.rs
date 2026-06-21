@@ -34,4 +34,28 @@ pub(super) fn sanitize_torture(t: &mut TortureParams) {
     for v in t.s_bend.0.iter_mut() {
         *v = clamp_finite(*v, -b, b, 0.0);
     }
+    let sh = limits::MAX_TORTURE_SHEAR;
+    for v in t.shear.0.iter_mut() {
+        *v = clamp_finite(*v, -sh, sh, 0.0);
+    }
+
+    // Topology cuts. path_cut / profile_cut are kept ranges in [0, 1] with
+    // begin ≤ end (a default-identity [0, 1] when degenerate); hollow is a bore
+    // fraction in [0, 0.95] (floored below 1 so a wall always remains).
+    sanitize_cut_range(&mut t.path_cut.0);
+    sanitize_cut_range(&mut t.profile_cut.0);
+    t.hollow.0 = clamp_finite(t.hollow.0, 0.0, limits::MAX_HOLLOW, 0.0);
+}
+
+/// Clamp a `[begin, end]` cut range into `[0, 1]` with `begin ≤ end`; collapse a
+/// degenerate or inverted range back to the full `[0, 1]` identity so a hostile
+/// record can't produce a zero-width (vertex-less) sweep.
+fn sanitize_cut_range(r: &mut [f32; 2]) {
+    let begin = clamp_finite(r[0], 0.0, 1.0, 0.0);
+    let end = clamp_finite(r[1], 0.0, 1.0, 1.0);
+    if end - begin < 1e-3 {
+        *r = [0.0, 1.0];
+    } else {
+        *r = [begin, end];
+    }
 }

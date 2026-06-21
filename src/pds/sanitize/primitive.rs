@@ -158,6 +158,36 @@ pub(super) fn sanitize_primitive(kind: &mut GeneratorKind) {
             material.sanitize();
             sanitize_torture(torture);
         }
+        GeneratorKind::Wedge {
+            size,
+            material,
+            torture,
+            ..
+        } => {
+            size.0 = [c_dim(size.0[0]), c_dim(size.0[1]), c_dim(size.0[2])];
+            material.sanitize();
+            sanitize_torture(torture);
+        }
+        GeneratorKind::Helix {
+            radius,
+            tube_radius,
+            pitch,
+            turns,
+            resolution,
+            material,
+            torture,
+            ..
+        } => {
+            *radius = Fp(c_dim(radius.0));
+            // Wire stays thinner than the helix radius so the tube can't self-
+            // intersect through the axis.
+            *tube_radius = Fp(clamp_finite(tube_radius.0, 0.01, radius.0 * 0.95, 0.1));
+            *pitch = Fp(clamp_finite(pitch.0, 0.0, 100.0, 0.4));
+            *turns = Fp(clamp_finite(turns.0, 0.05, 16.0, 3.0));
+            *resolution = (*resolution).clamp(3, 128);
+            material.sanitize();
+            sanitize_torture(torture);
+        }
         _ => {}
     }
 }

@@ -18,7 +18,7 @@ use super::GeneratorTreeSource;
 use super::particles::draw_generator_particles;
 use super::primitive::{
     draw_primitive_bevel, draw_primitive_capsule, draw_primitive_cone, draw_primitive_cuboid,
-    draw_primitive_cylinder, draw_primitive_plane, draw_primitive_sphere,
+    draw_primitive_cylinder, draw_primitive_helix, draw_primitive_plane, draw_primitive_sphere,
     draw_primitive_tetrahedron, draw_primitive_torus, draw_primitive_tube,
 };
 use super::sign::draw_generator_sign;
@@ -434,6 +434,36 @@ fn draw_generator_detail(
             size,
             bevel,
             bevel_segments,
+            solid,
+            material,
+            torture,
+            salt,
+            dirty,
+        ),
+        // A wedge carries the same fields as a cuboid (a bounding box); reuse
+        // the cuboid editor.
+        GeneratorKind::Wedge {
+            size,
+            solid,
+            material,
+            torture,
+        } => draw_primitive_cuboid(ui, size, solid, material, torture, salt, dirty),
+        GeneratorKind::Helix {
+            radius,
+            tube_radius,
+            pitch,
+            turns,
+            resolution,
+            solid,
+            material,
+            torture,
+        } => draw_primitive_helix(
+            ui,
+            radius,
+            tube_radius,
+            pitch,
+            turns,
+            resolution,
             solid,
             material,
             torture,

@@ -31,6 +31,7 @@ use bevy::window::ExitCondition;
 use clap::Parser;
 
 use crate::pds::avatar::default_visuals::{build_for_did, build_for_seed};
+use crate::pds::types::{Fp, Fp2};
 use crate::pds::{Environment, Generator, GeneratorKind, Placement, RoomRecord, TransformData};
 use crate::player::visuals::{AvatarSpawnDeps, spawn_avatar_visuals};
 
@@ -60,6 +61,21 @@ struct Args {
     /// Room subject: a u64 seed or DID — renders the seeded settlement cluster.
     #[arg(long)]
     room: Option<String>,
+    /// Torture/cut overrides for a `--prim` subject (for testing the prim
+    /// system). `--shear x,z` · `--twist rad` · `--taper x,z` · `--pathcut a,b`
+    /// · `--profilecut a,b` · `--hollow h`.
+    #[arg(long)]
+    shear: Option<String>,
+    #[arg(long)]
+    twist: Option<f32>,
+    #[arg(long)]
+    taper: Option<String>,
+    #[arg(long)]
+    pathcut: Option<String>,
+    #[arg(long)]
+    profilecut: Option<String>,
+    #[arg(long)]
+    hollow: Option<f32>,
     /// Per-tile pixel side. Forced to a multiple of 64 (no GPU row padding).
     #[arg(long, default_value_t = 512)]
     size: u32,
@@ -142,8 +158,9 @@ fn resolve_subject(args: &Args) -> (Subject, String) {
         return (Subject::Room(Box::new(record)), label);
     }
     if let Some(tag) = &args.prim {
-        let kind =
+        let mut kind =
             primitive_for_tag(tag).unwrap_or_else(|| panic!("unknown primitive tag {tag:?}"));
+        apply_prim_overrides(&mut kind, args);
         return (
             Subject::Single(Box::new(Generator::from_kind(kind))),
             format!("prim-{}", tag.to_lowercase()),
@@ -170,6 +187,37 @@ fn resolve_subject(args: &Args) -> (Subject, String) {
 
 /// Resolve a primitive tag (case-insensitive) to a default kind. Wraps
 /// [`GeneratorKind::default_primitive_for_tag`], which is title-cased.
+/// Parse a `"a,b"` pair into `[f32; 2]` (missing components default to 0).
+fn parse2(s: &str) -> [f32; 2] {
+    let mut it = s.split(',').map(|x| x.trim().parse::<f32>().unwrap_or(0.0));
+    [it.next().unwrap_or(0.0), it.next().unwrap_or(0.0)]
+}
+
+/// Apply the CLI torture/cut overrides to a `--prim` subject for testing.
+fn apply_prim_overrides(kind: &mut GeneratorKind, args: &Args) {
+    let Some(t) = kind.torture_mut() else {
+        return;
+    };
+    if let Some(s) = &args.shear {
+        t.shear = Fp2(parse2(s));
+    }
+    if let Some(v) = args.twist {
+        t.twist = Fp(v);
+    }
+    if let Some(s) = &args.taper {
+        t.taper = Fp2(parse2(s));
+    }
+    if let Some(s) = &args.pathcut {
+        t.path_cut = Fp2(parse2(s));
+    }
+    if let Some(s) = &args.profilecut {
+        t.profile_cut = Fp2(parse2(s));
+    }
+    if let Some(h) = args.hollow {
+        t.hollow = Fp(h);
+    }
+}
+
 fn primitive_for_tag(tag: &str) -> Option<GeneratorKind> {
     let mut chars = tag.chars();
     let titled: String = match chars.next() {

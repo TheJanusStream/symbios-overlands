@@ -568,6 +568,10 @@ fn primitive_torture_clamped() {
             taper: Fp2([f32::NAN, 1_000.0]),
             bend: Fp3([f32::INFINITY, f32::NAN, 1_000.0]),
             s_bend: Fp2([f32::NAN, f32::INFINITY]),
+            shear: Fp2([f32::NAN, 1_000.0]),
+            path_cut: Fp2([0.8, 0.2]),
+            profile_cut: Fp2([f32::NAN, f32::INFINITY]),
+            hollow: Fp(2.0),
         },
     });
     sanitize_generator(&mut prim);
@@ -586,6 +590,16 @@ fn primitive_torture_clamped() {
             assert!(v.is_finite());
             assert!(v.abs() <= limits::MAX_TORTURE_BEND + 1e-3);
         }
+        for &v in torture.shear.0.iter() {
+            assert!(v.is_finite());
+            assert!(v.abs() <= limits::MAX_TORTURE_SHEAR + 1e-3);
+        }
+        for cut in [torture.path_cut.0, torture.profile_cut.0] {
+            assert!(cut[0].is_finite() && cut[1].is_finite());
+            assert!(cut[0] >= 0.0 && cut[1] <= 1.0 && cut[0] <= cut[1]);
+        }
+        assert!(torture.hollow.0.is_finite());
+        assert!(torture.hollow.0 >= 0.0 && torture.hollow.0 <= limits::MAX_HOLLOW + 1e-3);
     } else {
         panic!("sanitize mutated Cuboid into another variant");
     }

@@ -190,7 +190,7 @@ impl Default for RoadConfig {
 /// new torture knob is a single field add — `#[serde(default)]` fills it on
 /// records that predate it — instead of an edit to every variant and every
 /// construction site. Applied CPU-side in `world_builder::prim`.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(default)]
 pub struct TortureParams {
     /// Radians of rotation around Y, linear in normalised height.
@@ -205,6 +205,56 @@ pub struct TortureParams {
     /// Serpentine S-curve: a `sin(2π t)` lateral wave of amplitude `(x, z)`
     /// layered on top of `bend`, so a column can snake rather than only arc.
     pub s_bend: Fp2,
+    /// Top-shear: a *linear* lateral displacement `(x, z) * t` that slides the
+    /// top sideways relative to the pinned base (a parallelepiped / leaning
+    /// tower / slanted roof). Unlike `bend` (quadratic, tangent at the base)
+    /// the offset grows uniformly, so vertical edges stay straight but tilted.
+    pub shear: Fp2,
+    // --- Topology cuts (SL-style; honoured during mesh *generation* by the
+    // unified sweep mesher, not the vertex post-pass; effective only on the
+    // swept prims Sphere / Cylinder / Cone / Torus / Tube). Default = identity
+    // (full sweep, full profile, solid). ---
+    /// Kept angular fraction of the main sweep, `[begin, end]` in turns (0..1).
+    /// `[0, 1]` = full revolution (no cut); `[0, 0.5]` keeps a half (half-
+    /// cylinder trough, half-dome, half-torus archway). The opening gains two
+    /// radial cap faces.
+    pub path_cut: Fp2,
+    /// Kept fraction of the cross-section / latitude, `[begin, end]` in 0..1.
+    /// On a revolved profile (Sphere) this is the latitude band: `[0, 1]` full,
+    /// `[0.5, 1]` a top dome, `[0, 0.5]` a bowl. On a Torus it opens the tube
+    /// into a C-channel. Adds cap faces at the cut.
+    pub profile_cut: Fp2,
+    /// Bore as a fraction of the outer radius, `0..0.95`. `0` = solid; `> 0`
+    /// hollows the prim (pipe / funnel / ring / shell) with an inner wall and
+    /// annular rim caps — the general form of [`GeneratorKind::Tube`].
+    pub hollow: Fp,
+}
+
+impl Default for TortureParams {
+    fn default() -> Self {
+        Self {
+            twist: Fp(0.0),
+            taper: Fp2([0.0, 0.0]),
+            bend: Fp3([0.0, 0.0, 0.0]),
+            s_bend: Fp2([0.0, 0.0]),
+            shear: Fp2([0.0, 0.0]),
+            path_cut: Fp2([0.0, 1.0]),
+            profile_cut: Fp2([0.0, 1.0]),
+            hollow: Fp(0.0),
+        }
+    }
+}
+
+impl TortureParams {
+    /// `true` when no topology cut is active (full sweep, full profile, solid),
+    /// so the mesher can take the cheap closed-surface path.
+    pub fn cuts_are_identity(&self) -> bool {
+        self.path_cut.0[0] <= 1e-4
+            && self.path_cut.0[1] >= 1.0 - 1e-4
+            && self.profile_cut.0[0] <= 1e-4
+            && self.profile_cut.0[1] >= 1.0 - 1e-4
+            && self.hollow.0 <= 1e-4
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -397,6 +447,35 @@ pub enum GeneratorKind {
         size: Fp3,
         bevel: Fp,
         bevel_segments: u32,
+        solid: bool,
+        material: SovereignMaterialSettings,
+        #[serde(default)]
+        torture: TortureParams,
+    },
+
+    /// Right-triangular prism — a ramp / roof pitch / buttress / eave. `size` is
+    /// the bounding box; the slope rises from the front-bottom (`+Z`, `-Y`) to
+    /// the back-top (`-Z`, `+Y`) across the full width (X).
+    #[serde(rename = "network.symbios.gen.wedge")]
+    Wedge {
+        size: Fp3,
+        solid: bool,
+        material: SovereignMaterialSettings,
+        #[serde(default)]
+        torture: TortureParams,
+    },
+
+    /// Helical tube — a spring / screw / spiral-stair rail / horn / vine.
+    /// `radius` is the helix radius, `tube_radius` the wire thickness, `pitch`
+    /// the vertical rise per full turn, `turns` the revolution count, and
+    /// `resolution` the segments per turn.
+    #[serde(rename = "network.symbios.gen.helix")]
+    Helix {
+        radius: Fp,
+        tube_radius: Fp,
+        pitch: Fp,
+        turns: Fp,
+        resolution: u32,
         solid: bool,
         material: SovereignMaterialSettings,
         #[serde(default)]
@@ -793,7 +872,9 @@ impl GeneratorKind {
             | GeneratorKind::Plane { torture, .. }
             | GeneratorKind::Tetrahedron { torture, .. }
             | GeneratorKind::Tube { torture, .. }
-            | GeneratorKind::Bevel { torture, .. } => Some(torture),
+            | GeneratorKind::Bevel { torture, .. }
+            | GeneratorKind::Wedge { torture, .. }
+            | GeneratorKind::Helix { torture, .. } => Some(torture),
             _ => None,
         }
     }
@@ -811,7 +892,9 @@ impl GeneratorKind {
             | GeneratorKind::Plane { torture, .. }
             | GeneratorKind::Tetrahedron { torture, .. }
             | GeneratorKind::Tube { torture, .. }
-            | GeneratorKind::Bevel { torture, .. } => Some(torture),
+            | GeneratorKind::Bevel { torture, .. }
+            | GeneratorKind::Wedge { torture, .. }
+            | GeneratorKind::Helix { torture, .. } => Some(torture),
             _ => None,
         }
     }
@@ -832,6 +915,8 @@ impl GeneratorKind {
                 | GeneratorKind::Tetrahedron { .. }
                 | GeneratorKind::Tube { .. }
                 | GeneratorKind::Bevel { .. }
+                | GeneratorKind::Wedge { .. }
+                | GeneratorKind::Helix { .. }
         )
     }
 
@@ -856,6 +941,8 @@ impl GeneratorKind {
             GeneratorKind::Tetrahedron { .. } => "Tetrahedron",
             GeneratorKind::Tube { .. } => "Tube",
             GeneratorKind::Bevel { .. } => "Bevel",
+            GeneratorKind::Wedge { .. } => "Wedge",
+            GeneratorKind::Helix { .. } => "Helix",
             GeneratorKind::Sign { .. } => "Sign",
             GeneratorKind::ParticleSystem { .. } => "ParticleSystem",
             GeneratorKind::Unknown => "Unknown",
@@ -942,6 +1029,22 @@ impl GeneratorKind {
                 size: Fp3([1.0, 1.0, 1.0]),
                 bevel: Fp(0.15),
                 bevel_segments: 3,
+                solid: true,
+                material: mat,
+                torture: TortureParams::default(),
+            },
+            "Wedge" => GeneratorKind::Wedge {
+                size: Fp3([1.0, 1.0, 1.0]),
+                solid: true,
+                material: mat,
+                torture: TortureParams::default(),
+            },
+            "Helix" => GeneratorKind::Helix {
+                radius: Fp(0.5),
+                tube_radius: Fp(0.1),
+                pitch: Fp(0.4),
+                turns: Fp(3.0),
+                resolution: 24,
                 solid: true,
                 material: mat,
                 torture: TortureParams::default(),

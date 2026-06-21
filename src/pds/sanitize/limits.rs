@@ -123,6 +123,14 @@ pub const MAX_TORTURE_TAPER: f32 = 0.99;
 /// dramatic curl on a 1 m primitive; beyond that the vertex torture pass
 /// produces visually degenerate meshes the collider can't hug.
 pub const MAX_TORTURE_BEND: f32 = 10.0;
+/// Maximum magnitude of any `shear` component (world-units of linear top
+/// displacement). Shares the bend bound — both are top-displacement offsets,
+/// and 10 m is already a dramatic lean on a 1 m primitive.
+pub const MAX_TORTURE_SHEAR: f32 = 10.0;
+/// Maximum `hollow` bore fraction. Floored below 1.0 so a hollowed primitive
+/// always keeps a wall of finite thickness (a 1.0 bore would erase the solid
+/// and leave the collider builder a zero-volume shell).
+pub const MAX_HOLLOW: f32 = 0.95;
 /// Maximum Gerstner amplitude / time multiplier on a Water surface.
 /// Both feed shader uniforms and a runaway value produces NaN normals.
 pub const MAX_WAVE_SCALE: f32 = 100.0;
