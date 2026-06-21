@@ -69,34 +69,84 @@ fn build_tree() -> Generator {
         ),
     ];
 
+    // Short front stair up the platform (front = −Z), two receding treads.
+    for (i, z) in [-3.1_f32, -2.6].into_iter().enumerate() {
+        prims.push(prim(
+            solid(cuboid_tapered(
+                [2.4, 0.35, 0.6],
+                0.0,
+                limestone(STUCCO_CREAM),
+            )),
+            [0.0, 0.2 + i as f32 * 0.35, z],
+            id_quat(),
+        ));
+    }
+
     let base = 1.2_f32;
-    // Red-stucco cella.
-    prims.push(prim(
-        solid(cuboid_tapered([3.5, 2.6, 3.0], 0.0, painted(STUCCO_RED))),
-        [0.0, base + 1.3, 0.0],
-        id_quat(),
-    ));
-    // Dark doorway at the front.
+    // Battered talud base course under the cella.
     prims.push(prim(
         solid(cuboid_tapered(
-            [1.2, 1.8, 0.4],
-            0.0,
-            painted([0.1, 0.06, 0.05]),
+            [3.9, 0.5, 3.4],
+            0.12,
+            limestone(STUCCO_CREAM),
         )),
-        [0.0, base + 0.9, 1.4],
+        [0.0, base + 0.25, 0.0],
         id_quat(),
     ));
-    // Palm-thatch hip roof.
+    // Red-stucco cella wall.
     prims.push(prim(
-        solid(cuboid_tapered([4.4, 1.5, 3.8], 0.45, thatch(THATCH_STRAW))),
-        [0.0, base + 2.6 + 0.55, 0.0],
+        solid(cuboid_tapered([3.5, 2.4, 3.0], 0.0, painted(STUCCO_RED))),
+        [0.0, base + 0.5 + 1.2, 0.0],
+        id_quat(),
+    ));
+    // Projecting tablero cornice band at the wall head.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [3.9, 0.45, 3.4],
+            0.0,
+            limestone(STUCCO_CREAM),
+        )),
+        [0.0, base + 0.5 + 2.4 + 0.22, 0.0],
+        id_quat(),
+    ));
+    // Corbel-arch doorway — a tapered dark recess narrowing to the Maya
+    // stepped-vault profile, on the front (−Z) face.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [1.3, 1.9, 0.55],
+            0.5,
+            painted([0.08, 0.05, 0.04]),
+        )),
+        [0.0, base + 0.5 + 0.95, -1.5],
+        id_quat(),
+    ));
+    // Steep palm-thatch hip roof rising to a thatch ridge cap.
+    let roof_base = base + 0.5 + 2.4 + 0.45;
+    prims.push(prim(
+        solid(cuboid_tapered([4.7, 1.9, 4.1], 0.55, thatch(THATCH_STRAW))),
+        [0.0, roof_base + 0.95, 0.0],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(cuboid_tapered([2.4, 0.45, 0.7], 0.2, thatch(THATCH_STRAW))),
+        [0.0, roof_base + 1.95, 0.0],
+        id_quat(),
+    ));
+    // Low offering altar before the doorway, where the copal smokes.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [1.2, 0.5, 0.9],
+            0.1,
+            limestone(LIMESTONE_PALE),
+        )),
+        [0.0, base + 0.25, -2.1],
         id_quat(),
     ));
 
     let mut root = assemble(prims);
-    // Signature life: copal incense rising from the doorway.
+    // Signature life: copal incense rising from the offering altar.
     root.children
-        .push(fx::copal_smoke([0.0, base + 0.4, 1.7], 0xC0A1_5E11));
+        .push(fx::copal_smoke([0.0, base + 0.6, -2.1], 0xC0A1_5E11));
     root
 }
 

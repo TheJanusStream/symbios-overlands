@@ -5,7 +5,9 @@
 //! tall, so it anchors the city and reads as a temple-mountain across the
 //! home region.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, glow, id_quat, prim, solid, sphere};
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, glow, id_quat, prim, quat_x, solid, sphere,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -77,42 +79,60 @@ fn build_tree() -> Generator {
         ));
         y += h;
     }
-    let summit = y;
+    let summit = y; // ≈ 12 m
 
-    // Central staircase up the front (+Z) face, receding as it climbs.
-    let steps = 18;
-    let z_bottom = tiers[0].0 + 0.2;
-    let z_top = tiers[tiers.len() - 1].0 + 0.2;
+    // Monumental projecting staircase climbing the front (−Z, the hero) face.
+    // A single battered cream ramp core stands proud of the receding terraces,
+    // with Maya stepped treads laid up its face and two steep red balustrades
+    // (alfardas) flanking it — the signature stairway of a temple-mountain.
+    let z_bot = tiers[0].0 + 0.6; // base front, projecting ahead of the terrace
+    let z_top = tiers[tiers.len() - 1].0 + 0.6; // summit front
+    let run = z_bot - z_top;
+    let ramp_len = (run * run + summit * summit).sqrt();
+    let ramp_angle = summit.atan2(run);
+    let center_z = -(z_bot + z_top) * 0.5;
+    let stair_w = 4.2_f32;
+    // Ramp core.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [stair_w, 0.9, ramp_len],
+            0.0,
+            limestone(STUCCO_CREAM),
+        )),
+        [0.0, summit * 0.5, center_z],
+        quat_x(-ramp_angle),
+    ));
+    // Stepped treads, each a proud lip jutting from the ramp face.
+    let steps = 13;
     for i in 0..steps {
         let t = i as f32 / (steps - 1) as f32;
         let sy = t * summit;
-        let sz = z_bottom + (z_top - z_bottom) * t;
+        let sz = z_bot + (z_top - z_bot) * t;
         prims.push(prim(
             solid(cuboid_tapered(
-                [5.0, summit / steps as f32 + 0.2, 0.8],
+                [stair_w - 0.3, summit / steps as f32 * 0.55, 0.6],
                 0.0,
                 limestone(STUCCO_CREAM),
             )),
-            [0.0, sy + 0.1, sz],
+            [0.0, sy + 0.15, -(sz + 0.4)],
             id_quat(),
         ));
     }
-    // Flanking stair balustrades (low stepped curbs).
-    for i in (0..steps).step_by(2) {
-        let t = i as f32 / (steps - 1) as f32;
-        let sy = t * summit;
-        let sz = z_bottom + (z_top - z_bottom) * t;
-        for sx in [-1.0_f32, 1.0] {
-            prims.push(prim(
-                solid(cuboid_tapered([0.5, 0.8, 0.9], 0.0, painted(STUCCO_RED))),
-                [sx * 3.0, sy + 0.3, sz],
-                id_quat(),
-            ));
-        }
+    // Two steep red balustrades (alfardas) along the stair edges.
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered(
+                [0.8, 1.4, ramp_len],
+                0.0,
+                painted(STUCCO_RED),
+            )),
+            [sx * (stair_w * 0.5 + 0.4), summit * 0.5, center_z],
+            quat_x(-ramp_angle),
+        ));
     }
 
-    // Temple cella on the summit: red stucco walls, a dark doorway, and a
-    // tall roof comb.
+    // Temple cella on the summit: red stucco walls and a corbel-arch doorway
+    // (a tapered dark recess narrowing to the Maya stepped-vault profile).
     prims.push(prim(
         solid(cuboid_tapered([6.0, 3.2, 5.0], 0.0, painted(STUCCO_RED))),
         [0.0, summit + 1.6, 0.0],
@@ -120,27 +140,50 @@ fn build_tree() -> Generator {
     ));
     prims.push(prim(
         solid(cuboid_tapered(
-            [1.6, 2.2, 0.6],
-            0.0,
-            painted([0.1, 0.06, 0.05]),
+            [1.8, 2.5, 0.9],
+            0.55,
+            painted([0.08, 0.05, 0.04]),
         )),
-        [0.0, summit + 1.1, 2.4],
-        id_quat(),
-    ));
-    // Roof comb (crestería) with a gold sun disc.
-    prims.push(prim(
-        solid(cuboid_tapered([5.0, 2.6, 0.5], 0.25, painted(STUCCO_RED))),
-        [0.0, summit + 4.5, -1.0],
-        id_quat(),
-    ));
-    prims.push(prim(
-        solid(cuboid_tapered([1.2, 1.2, 0.2], 0.0, gold(GOLD_WARM))),
-        [0.0, summit + 4.6, -0.7],
+        [0.0, summit + 1.25, -2.3],
         id_quat(),
     ));
 
-    // Sacred fire on a low altar before the temple doorway.
-    let fire_z = 1.9;
+    // Roof comb (crestería): a tall perforated openwork crest above the
+    // cella — two battered piers braced by stepped rungs around an open
+    // window, capped by a cream crown and bearing a beaten-gold sun disc.
+    let comb_base = summit + 3.2; // cella roofline
+    let comb_z = -0.6;
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered([0.9, 4.4, 0.6], 0.15, painted(STUCCO_RED))),
+            [sx * 1.7, comb_base + 2.2, comb_z],
+            id_quat(),
+        ));
+    }
+    for (cy, cw) in [(0.5_f32, 3.8_f32), (2.3, 3.2), (3.9, 2.6)] {
+        prims.push(prim(
+            solid(cuboid_tapered([cw, 0.7, 0.6], 0.0, painted(STUCCO_RED))),
+            [0.0, comb_base + cy, comb_z],
+            id_quat(),
+        ));
+    }
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [2.2, 0.9, 0.6],
+            0.3,
+            limestone(STUCCO_CREAM),
+        )),
+        [0.0, comb_base + 4.9, comb_z],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(cuboid_tapered([1.5, 1.5, 0.25], 0.0, gold(GOLD_WARM))),
+        [0.0, comb_base + 1.4, comb_z - 0.5],
+        id_quat(),
+    ));
+
+    // Sacred fire on a low altar before the temple doorway (front, −Z).
+    let fire_z = -1.9;
     prims.push(prim(
         solid(cuboid_tapered(
             [1.4, 0.7, 1.4],

@@ -2,8 +2,10 @@
 //! ollas — a big water jar and a few smaller pots — with a spill of dried
 //! maize cobs. The everyday clutter of a commoner's yard.
 
+use std::f32::consts::FRAC_PI_2;
+
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, solid,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_y, solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -48,36 +50,80 @@ impl CatalogueEntry for ClayPots {
 }
 
 fn build_tree() -> Generator {
-    let olla = |r: f32, h: f32| solid(cylinder_tapered(r, h, 12, 0.25, painted(CLAY_TERRACOTTA)));
-
-    let mut prims = vec![
-        // Big water jar — the root.
-        prim(olla(0.5, 1.1), [0.0, 0.55, 0.0], id_quat()),
-    ];
-    // Neck collar of the big jar.
+    // Big round-bellied water olla — the root: a fat terracotta belly (the
+    // amphora-belly sphere) with a narrow neck and a flared rim.
+    let mut prims = vec![prim(
+        solid(sphere(0.52, 6, painted(CLAY_TERRACOTTA))),
+        [0.0, 0.55, 0.0],
+        id_quat(),
+    )];
     prims.push(prim(
         solid(cylinder_tapered(
-            0.28,
-            0.25,
-            10,
-            0.0,
+            0.2,
+            0.32,
+            12,
+            0.1,
             painted(CLAY_TERRACOTTA),
         )),
-        [0.0, 1.2, 0.0],
+        [0.0, 0.98, 0.0],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(torus(0.05, 0.22, painted(CLAY_TERRACOTTA))),
+        [0.0, 1.14, 0.0],
         id_quat(),
     ));
 
-    // Smaller pots around it.
-    prims.push(prim(olla(0.32, 0.6), [0.75, 0.3, 0.2], id_quat()));
-    prims.push(prim(olla(0.26, 0.5), [-0.6, 0.25, 0.45], id_quat()));
-    prims.push(prim(olla(0.3, 0.55), [0.1, 0.28, -0.75], id_quat()));
-
-    // A spill of dried maize cobs.
-    for (x, z) in [(-0.3_f32, -0.4_f32), (-0.15, -0.55)] {
+    // A few smaller round ollas standing around it, each a belly + neck.
+    for (cx, cz, br) in [(0.82_f32, 0.18_f32, 0.34_f32), (-0.66, 0.42, 0.3)] {
         prims.push(prim(
-            cuboid_tapered([0.28, 0.1, 0.1], 0.2, painted(MAIZE_GOLD)),
-            [x, 0.06, z],
+            solid(sphere(br, 6, painted(CLAY_TERRACOTTA))),
+            [cx, br * 0.95, cz],
             id_quat(),
+        ));
+        prims.push(prim(
+            solid(cylinder_tapered(
+                br * 0.42,
+                br * 0.6,
+                10,
+                0.1,
+                painted(CLAY_TERRACOTTA),
+            )),
+            [cx, br * 1.7, cz],
+            id_quat(),
+        ));
+    }
+
+    // A small olla tipped on its side, spilling a heap of dried maize cobs.
+    let tip = [0.25_f32, 0.3_f32, -0.8_f32];
+    prims.push(prim(
+        solid(sphere(0.32, 6, painted(CLAY_TERRACOTTA))),
+        tip,
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(cylinder_tapered(
+            0.15,
+            0.3,
+            10,
+            0.1,
+            painted(CLAY_TERRACOTTA),
+        )),
+        [tip[0], tip[1], tip[2] - 0.4],
+        quat_x(FRAC_PI_2),
+    ));
+    // The maize spill tumbling from the mouth.
+    for (x, z, r) in [
+        (0.1_f32, -1.15_f32, 0.0_f32),
+        (0.35, -1.25, 0.5),
+        (0.0, -1.35, -0.4),
+        (0.28, -1.45, 0.3),
+        (0.12, -1.55, 0.1),
+    ] {
+        prims.push(prim(
+            cuboid_tapered([0.26, 0.1, 0.1], 0.25, painted(MAIZE_GOLD)),
+            [x, 0.07, z],
+            quat_y(r),
         ));
     }
 
