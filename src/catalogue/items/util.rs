@@ -65,6 +65,13 @@ pub(super) fn quat_y(angle_rad: f32) -> Fp4 {
     Fp4([0.0, half.sin(), 0.0, half.cos()])
 }
 
+/// Rotation around Z — lays a Y-axis cylinder onto the horizontal X axis
+/// (`FRAC_PI_2`), e.g. a conduit / pipe run spanning left-to-right.
+pub(super) fn quat_z(angle_rad: f32) -> Fp4 {
+    let half = angle_rad * 0.5;
+    Fp4([0.0, 0.0, half.sin(), half.cos()])
+}
+
 /// Cuboid with an optional taper (`0.0` = straight, `1.0` = pyramid).
 pub(super) fn cuboid_tapered(
     size: [f32; 3],
@@ -146,6 +153,71 @@ pub(super) fn torus(
         material,
         torture: TortureParams::default(),
     }
+}
+
+/// Hollow cylinder — a pipe / ring / conduit / halo. `inner_radius` is the
+/// bore (`< radius`); annular caps close the ends. Axis along Y like
+/// [`cylinder_tapered`].
+pub(super) fn tube(
+    radius: f32,
+    inner_radius: f32,
+    height: f32,
+    resolution: u32,
+    material: SovereignMaterialSettings,
+) -> GeneratorKind {
+    GeneratorKind::Tube {
+        radius: Fp(radius),
+        inner_radius: Fp(inner_radius),
+        height: Fp(height),
+        resolution,
+        solid: false,
+        material,
+        torture: TortureParams::default(),
+    }
+}
+
+/// Helical tube — a spring / data-stream coil / spiral rail. `radius` is the
+/// coil radius, `tube_radius` the wire thickness, `pitch` the vertical rise
+/// per full turn, `turns` the revolution count. The coil climbs the Y axis,
+/// centred on the origin (total height `turns * pitch`).
+pub(super) fn helix(
+    radius: f32,
+    tube_radius: f32,
+    pitch: f32,
+    turns: f32,
+    resolution: u32,
+    material: SovereignMaterialSettings,
+) -> GeneratorKind {
+    GeneratorKind::Helix {
+        radius: Fp(radius),
+        tube_radius: Fp(tube_radius),
+        pitch: Fp(pitch),
+        turns: Fp(turns),
+        resolution,
+        solid: false,
+        material,
+        torture: TortureParams::default(),
+    }
+}
+
+/// Stamp the SL-style topology cuts onto a swept primitive (Sphere / Cylinder
+/// / Cone / Torus / Tube): `path_cut` (`[begin, end]` kept angular fraction —
+/// a half-torus arch, an orange-slice wedge), `profile_cut` (`[begin, end]`
+/// kept latitude band — domes / bowls), and `hollow` (bore fraction).
+/// Non-swept kinds pass through unchanged. Honoured by the unified sweep
+/// mesher in `crate::world_builder::prim`.
+pub(super) fn with_cut(
+    mut kind: GeneratorKind,
+    path_cut: [f32; 2],
+    profile_cut: [f32; 2],
+    hollow: f32,
+) -> GeneratorKind {
+    if let Some(t) = kind.torture_mut() {
+        t.path_cut = Fp2(path_cut);
+        t.profile_cut = Fp2(profile_cut);
+        t.hollow = Fp(hollow);
+    }
+    kind
 }
 
 /// Mark a primitive kind solid so the spawner attaches its matching

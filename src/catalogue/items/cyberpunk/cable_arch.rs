@@ -1,25 +1,34 @@
-//! Cable arch — a small Cyberpunk prop. Two posts and a top beam strung
-//! with glowing power/data cables; a street-spanning piece of clutter
-//! that frames walkways between the bigger structures.
+//! Cable gantry — a Cyberpunk street prop. Two heavy utility pylons carrying
+//! an overhead cable tray of bundled power conduits across a walkway, hung
+//! with junction boxes, a caged worklight, and routed cable drops. Grimy
+//! functional infrastructure rather than decorative trim; frames the gaps
+//! between the bigger structures.
 
-use crate::catalogue::items::util::{cuboid_tapered, foundation_block, glow, id_quat, prim, solid};
+use std::f32::consts::FRAC_PI_2;
+
+use crate::catalogue::items::util::{
+    cuboid_tapered, cylinder_tapered, foundation_block, glow, id_quat, prim, quat_z, solid, sphere,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{DARK_METAL, NEON_CYAN, NEON_LIME, fx, metal};
+use super::{DARK_METAL, NEON_CYAN, NEON_LIME, NEON_MAGENTA, fx, metal};
 
 pub struct CableArch;
+
+/// Warning-amber for hazard banding — the one warm note in the cold neon kit.
+const HAZARD: [f32; 3] = [1.0, 0.62, 0.08];
 
 impl CatalogueEntry for CableArch {
     fn slug(&self) -> &'static str {
         "cable_arch"
     }
     fn name(&self) -> &'static str {
-        "Cable Arch"
+        "Cable Gantry"
     }
     fn description(&self) -> &'static str {
-        "Twin-post arch strung with glowing power cables."
+        "Twin utility pylons carrying an overhead bundle of power conduits."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Prop
@@ -42,71 +51,169 @@ impl CatalogueEntry for CableArch {
     }
 }
 
+/// A horizontal pipe running left-to-right along X (a Y-axis cylinder laid on
+/// its side), length `len`.
+fn conduit(radius: f32, len: f32, mat: crate::pds::SovereignMaterialSettings) -> Generator {
+    prim(
+        cylinder_tapered(radius, len, 10, 0.0, mat),
+        [0.0, 0.0, 0.0],
+        quat_z(FRAC_PI_2),
+    )
+}
+
 fn build_tree() -> Generator {
     let body = DARK_METAL;
     let slab_h = 0.2;
-    let span = 4.0_f32;
+    let foot = 5.2_f32;
+    let depth = 1.6_f32;
+    let px = 2.2_f32; // pylon x
+    let pyl_h = 4.0_f32;
+    let pw = 0.55_f32; // pylon width (X)
+    let pd = 0.7_f32; // pylon depth (Z)
+    let top = slab_h + pyl_h; // gantry springing height
 
+    // Podium slab — the root; its base sits at the generator origin.
     let mut root = prim(
-        solid(cuboid_tapered([span + 0.6, slab_h, 1.0], 0.0, metal(body))),
+        solid(cuboid_tapered([foot, slab_h, depth], 0.0, metal(body))),
         [0.0, slab_h * 0.5, 0.0],
         id_quat(),
     );
     let rel = |ground_y: f32| ground_y - slab_h * 0.5;
 
-    let mut base = foundation_block(span + 0.6, 1.0, [0.0, 0.0], 1.5);
+    let mut base = foundation_block(foot, depth, [0.0, 0.0], 1.5);
     base.transform.translation.0[1] -= slab_h * 0.5;
     root.children.push(base);
 
-    // Two posts + a top beam.
-    let post_h = 3.6;
-    for sx in [-1.0_f32, 1.0] {
+    // ---- Pylons -----------------------------------------------------------
+    for (side, sx) in [(0usize, -1.0_f32), (1, 1.0)] {
+        // Splayed base plate.
         root.children.push(prim(
-            solid(cuboid_tapered([0.35, post_h, 0.35], 0.0, metal(body))),
-            [sx * span * 0.5, rel(slab_h + post_h * 0.5), 0.0],
+            solid(cuboid_tapered([pw + 0.5, 0.34, pd + 0.4], 0.0, metal(body))),
+            [sx * px, rel(slab_h + 0.17), 0.0],
             id_quat(),
         ));
+        // Column.
+        root.children.push(prim(
+            solid(cuboid_tapered([pw, pyl_h, pd], 0.0, metal(body))),
+            [sx * px, rel(slab_h + pyl_h * 0.5), 0.0],
+            id_quat(),
+        ));
+        // Hazard band near the base.
+        root.children.push(prim(
+            cuboid_tapered([pw + 0.07, 0.3, pd + 0.07], 0.0, glow(HAZARD, 2.5)),
+            [sx * px, rel(slab_h + 0.95), 0.0],
+            id_quat(),
+        ));
+
+        // Junction box bolted to the outer face, with a column of status LEDs.
+        // One box carries the transformer hum.
+        let box_x = sx * (px + pw * 0.5 + 0.17);
+        let mut jbox = prim(
+            solid(cuboid_tapered([0.34, 0.85, 0.5], 0.0, metal(body))),
+            [box_x, rel(slab_h + pyl_h * 0.52), 0.0],
+            id_quat(),
+        );
+        if side == 0 {
+            jbox.audio = fx::transformer_hum();
+        }
+        root.children.push(jbox);
+        let led_x = sx * (px + pw * 0.5 + 0.35);
+        for (j, c) in [NEON_CYAN, NEON_LIME, NEON_MAGENTA].into_iter().enumerate() {
+            let dy = 0.25 - 0.25 * j as f32;
+            root.children.push(prim(
+                sphere(0.055, 2, glow(c, 6.0)),
+                [led_x, rel(slab_h + pyl_h * 0.52 + dy), 0.0],
+                id_quat(),
+            ));
+        }
+
+        // Two cable drops routing down the outer face from the gantry to the
+        // junction box; the rear one is frayed and spits the occasional spark.
+        for (d, (dz, c, lit)) in [(-0.2_f32, NEON_CYAN, false), (0.2, NEON_CYAN, true)]
+            .into_iter()
+            .enumerate()
+        {
+            let drop_top = top;
+            let drop_bot = slab_h + pyl_h * 0.52 + 0.4;
+            let drop_h = drop_top - drop_bot;
+            let drop_x = sx * (px + pw * 0.5 + 0.09);
+            let mat = if lit {
+                glow(c, 3.5)
+            } else {
+                metal(shade_body(body))
+            };
+            root.children.push(prim(
+                cylinder_tapered(0.06, drop_h, 8, 0.0, mat),
+                [drop_x, rel((drop_top + drop_bot) * 0.5), dz],
+                id_quat(),
+            ));
+            if side == 0 && d == 0 {
+                root.children
+                    .push(fx::spark_burst([drop_x, rel(drop_bot), dz], 0xCAB1_5A1A));
+            }
+        }
     }
-    // Top beam — the live conduit; it crackles with a signature arc hum.
-    let mut beam = prim(
-        solid(cuboid_tapered([span + 0.5, 0.4, 0.4], 0.0, metal(body))),
-        [0.0, rel(slab_h + post_h), 0.0],
+
+    // ---- Overhead gantry + cable tray ------------------------------------
+    // Cross girder spanning pylon-top to pylon-top.
+    root.children.push(prim(
+        solid(cuboid_tapered([foot + 0.2, 0.42, 0.62], 0.0, metal(body))),
+        [0.0, rel(top + 0.21), 0.0],
         id_quat(),
-    );
-    beam.audio = fx::electric_crackle();
-    root.children.push(beam);
-
-    // The live conduit run — glowing cables strung post-to-post just under
-    // the beam. The arch's whole point; without them it reads as a bare
-    // goalpost. Two strands at slightly different height/depth read as a
-    // bundle rather than one fat bar.
-    for (c, dz, dy) in [(NEON_CYAN, -0.12_f32, -0.32_f32), (NEON_LIME, 0.12, -0.42)] {
+    ));
+    // Cable-tray floor + side rails riding on the girder.
+    root.children.push(prim(
+        solid(cuboid_tapered([foot, 0.1, 0.74], 0.0, metal(body))),
+        [0.0, rel(top + 0.47), 0.0],
+        id_quat(),
+    ));
+    for sz in [-1.0_f32, 1.0] {
         root.children.push(prim(
-            cuboid_tapered([span + 0.2, 0.09, 0.09], 0.0, glow(c, 5.0)),
-            [0.0, rel(slab_h + post_h + dy), dz],
+            cuboid_tapered([foot, 0.16, 0.06], 0.0, metal(body)),
+            [0.0, rel(top + 0.55), sz * 0.36],
             id_quat(),
         ));
     }
 
-    // Glowing cables hanging from the beam at a few points.
-    let colors = [NEON_CYAN, NEON_LIME, NEON_CYAN];
-    for (k, c) in colors.iter().enumerate() {
-        let x = -span * 0.32 + span * 0.32 * k as f32;
-        let drop = 1.0 + 0.4 * (k as f32 % 2.0);
-        root.children.push(prim(
-            cuboid_tapered([0.08, drop, 0.08], 0.0, glow(*c, 5.0)),
-            [x, rel(slab_h + post_h - drop * 0.5), 0.0],
-            id_quat(),
-        ));
-    }
+    // Bundled power conduits running the length of the tray — dark pipes, two
+    // of them carrying a thin glowing data line.
+    let lo = body;
+    let mut push_conduit = |y: f32, z: f32, r: f32, m| {
+        let mut c = conduit(r, foot - 0.1, m);
+        c.transform.translation = crate::pds::Fp3([0.0, rel(y), z]);
+        root.children.push(c);
+    };
+    push_conduit(top + 0.6, -0.22, 0.12, metal(lo));
+    push_conduit(top + 0.62, 0.04, 0.13, metal(lo));
+    push_conduit(top + 0.6, 0.27, 0.11, metal(lo));
+    push_conduit(top + 0.84, 0.0, 0.08, metal(lo));
+    // Glowing data lines hugging the front of two conduits.
+    push_conduit(top + 0.62, 0.18, 0.045, glow(NEON_CYAN, 6.0));
+    push_conduit(top + 0.92, 0.0, 0.035, glow(NEON_MAGENTA, 6.0));
 
-    // A frayed cable end spitting the occasional spark.
-    root.children.push(fx::spark_burst(
-        [-span * 0.32, rel(slab_h + post_h - 1.0), 0.0],
-        0xCAB1_5A1A,
+    // ---- Caged worklight hung under the girder ---------------------------
+    root.children.push(prim(
+        solid(cylinder_tapered(0.04, 0.45, 6, 0.0, metal(body))),
+        [0.0, rel(top - 0.22), 0.0],
+        id_quat(),
+    ));
+    root.children.push(prim(
+        cylinder_tapered(0.26, 0.1, 12, 0.0, metal(body)),
+        [0.0, rel(top - 0.48), 0.0],
+        id_quat(),
+    ));
+    root.children.push(prim(
+        sphere(0.17, 3, glow([1.0, 0.95, 0.8], 7.0)),
+        [0.0, rel(top - 0.64), 0.0],
+        id_quat(),
     ));
 
     root
+}
+
+/// A darker shade of the body colour for unlit cable runs.
+fn shade_body(c: [f32; 3]) -> [f32; 3] {
+    [c[0] * 0.7, c[1] * 0.7, c[2] * 0.7]
 }
 
 #[cfg(test)]
