@@ -30,6 +30,26 @@ pub(super) fn id_quat() -> Fp4 {
     Fp4([0.0, 0.0, 0.0, 1.0])
 }
 
+/// Like [`prim`] but with a non-identity scale — e.g. a flattened sphere for a
+/// cloud-pruned foliage pad or a smooth ellipsoid pod.
+pub(super) fn prim_scaled(
+    kind: GeneratorKind,
+    translation: [f32; 3],
+    rotation: Fp4,
+    scale: [f32; 3],
+) -> Generator {
+    Generator {
+        kind,
+        transform: TransformData {
+            translation: Fp3(translation),
+            rotation,
+            scale: Fp3(scale),
+        },
+        children: Vec::new(),
+        audio: crate::pds::SovereignAudioConfig::None,
+    }
+}
+
 /// Assemble a flat list of prims, each positioned in the prop's plain
 /// ground-relative world frame, into one generator: the first prim becomes
 /// the root (keeping its transform), and every other prim is reparented
@@ -98,6 +118,27 @@ pub(super) fn cuboid_tapered(
         material,
         torture: TortureParams {
             taper: Fp2([taper, taper]),
+            ..Default::default()
+        },
+    }
+}
+
+/// Cuboid with independent X/Z taper — a ridged roof or asymmetric frustum.
+/// Each component pinches the top on that axis (`0.0` keeps the full width,
+/// `1.0` pinches it to a line), so `[0.1, 0.9]` yields a long ridge along X
+/// with steep slopes on the Z sides; the uniform [`cuboid_tapered`] can only
+/// make a square-topped frustum or a point.
+pub(super) fn cuboid_tapered_xz(
+    size: [f32; 3],
+    taper_xz: [f32; 2],
+    material: SovereignMaterialSettings,
+) -> GeneratorKind {
+    GeneratorKind::Cuboid {
+        size: Fp3(size),
+        solid: false,
+        material,
+        torture: TortureParams {
+            taper: Fp2(taper_xz),
             ..Default::default()
         },
     }

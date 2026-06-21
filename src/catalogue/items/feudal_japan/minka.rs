@@ -4,13 +4,16 @@
 //! [`pagoda`](super::pagoda): same theme, opposite end of the prosperity
 //! axis (`Poor`), so a destitute room grows this instead of the temple.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, solid};
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, cuboid_tapered_xz, id_quat, prim, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
 use super::{
-    PLASTER_WHITE, STONE_GREY, THATCH_STRAW, TIMBER_DARK, fx, plaster, stone, thatch, timber,
+    PAPER_CREAM, PLASTER_WHITE, STONE_GREY, THATCH_STRAW, TIMBER_BROWN, TIMBER_DARK, fx, paper,
+    plaster, stone, thatch, timber,
 };
 
 pub struct Minka;
@@ -107,24 +110,63 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Timber door in the near gable.
+    // Timber door framed on the −Z front (hero face), with a small shoji
+    // window alongside it.
+    let front_z = -(w * 0.5 - 0.15);
     prims.push(prim(
-        solid(cuboid_tapered([0.45, 1.9, 1.5], 0.0, timber(TIMBER_DARK))),
-        [l * 0.5 - 0.1, foot_h + 0.95, 0.0],
+        solid(cuboid_tapered([1.5, 2.0, 0.2], 0.0, timber(TIMBER_BROWN))),
+        [-l * 0.22, foot_h + 1.0, front_z - 0.08],
+        id_quat(),
+    ));
+    // Door jambs.
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered([0.12, 2.1, 0.24], 0.0, timber(TIMBER_DARK))),
+            [-l * 0.22 + sx * 0.8, foot_h + 1.05, front_z - 0.08],
+            id_quat(),
+        ));
+    }
+    // Small shoji window beside the door: a dark timber surround framing the
+    // cream paper pane crossed by kumiko muntins, all proud of the wall so the
+    // opening reads against the pale plaster.
+    let win_x = l * 0.2;
+    let win_cy = foot_h + 1.5;
+    let wall_front = front_z - 0.15;
+    prims.push(prim(
+        solid(cuboid_tapered([1.5, 1.15, 0.12], 0.0, timber(TIMBER_DARK))),
+        [win_x, win_cy, wall_front - 0.06],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(cuboid_tapered([1.2, 0.85, 0.1], 0.0, paper(PAPER_CREAM))),
+        [win_x, win_cy, wall_front - 0.14],
+        id_quat(),
+    ));
+    for sx in [-1.0_f32, 0.0, 1.0] {
+        prims.push(prim(
+            cuboid_tapered([0.07, 0.85, 0.05], 0.0, timber(TIMBER_DARK)),
+            [win_x + sx * 0.38, win_cy, wall_front - 0.2],
+            id_quat(),
+        ));
+    }
+    prims.push(prim(
+        cuboid_tapered([1.2, 0.07, 0.05], 0.0, timber(TIMBER_DARK)),
+        [win_x, win_cy, wall_front - 0.2],
         id_quat(),
     ));
 
-    // Great steep thatched hip roof.
+    // Great steep thatched roof, pinched to a long ridge along X (the minka
+    // yosemune silhouette) rather than a square-topped frustum.
     prims.push(prim(
-        solid(cuboid_tapered(
+        solid(cuboid_tapered_xz(
             [l + 1.6, roof_h, w + 1.8],
-            0.5,
+            [0.12, 0.88],
             thatch(THATCH_STRAW),
         )),
         [0.0, wall_top + roof_h * 0.5, 0.0],
         id_quat(),
     ));
-    // Ridge cap.
+    // Ridge cap (munagi) bound along the crown.
     let ridge_x = 2.5;
     prims.push(prim(
         solid(cuboid_tapered(

@@ -48,42 +48,49 @@ impl CatalogueEntry for StrawBales {
 
 fn build_tree() -> Generator {
     let straw = || thatch(THATCH_STRAW);
+    let cord = || thatch([0.40, 0.30, 0.16]);
 
-    // Bottom-row bale — the root.
-    let mut prims = vec![prim(
-        solid(cuboid_tapered([0.9, 0.5, 0.6], 0.05, straw())),
-        [-0.5, 0.25, 0.0],
-        id_quat(),
-    )];
-    // Rest of the bottom row.
-    prims.push(prim(
-        solid(cuboid_tapered([0.9, 0.5, 0.6], 0.05, straw())),
+    // Stacked bound bales — three on the bottom, one set back on top.
+    let bales = [
+        [-0.5_f32, 0.25, 0.0],
         [0.5, 0.25, 0.05],
-        id_quat(),
-    ));
-    prims.push(prim(
-        solid(cuboid_tapered([0.9, 0.5, 0.6], 0.05, straw())),
         [0.0, 0.25, 0.7],
-        id_quat(),
-    ));
-    // Top bale, set back.
-    prims.push(prim(
-        solid(cuboid_tapered([0.9, 0.5, 0.6], 0.05, straw())),
         [0.0, 0.75, 0.2],
-        id_quat(),
-    ));
+    ];
+    let mut prims = Vec::new();
+    for [bx, by, bz] in bales {
+        prims.push(prim(
+            solid(cuboid_tapered([0.9, 0.5, 0.6], 0.05, straw())),
+            [bx, by, bz],
+            id_quat(),
+        ));
+        // Two rope binding bands around the girth.
+        for sx in [-1.0_f32, 1.0] {
+            prims.push(prim(
+                cuboid_tapered([0.04, 0.54, 0.64], 0.0, cord()),
+                [bx + sx * 0.24, by, bz],
+                id_quat(),
+            ));
+        }
+    }
 
-    // A couple of cylindrical rolls tipped on their sides nearby.
-    prims.push(prim(
-        solid(cylinder_tapered(0.3, 0.9, 10, 0.0, straw())),
-        [1.2, 0.3, -0.7],
-        quat_x(FRAC_PI_2),
-    ));
-    prims.push(prim(
-        solid(cylinder_tapered(0.28, 0.85, 10, 0.0, straw())),
-        [-1.3, 0.28, 0.6],
-        quat_x(FRAC_PI_2),
-    ));
+    // A couple of cylindrical rolls tipped on their sides nearby, each bound
+    // with a rope band around the middle.
+    for ([rx, ry, rz], rr, rl) in [
+        ([1.2_f32, 0.3, -0.7], 0.3_f32, 0.9_f32),
+        ([-1.3, 0.28, 0.6], 0.28, 0.85),
+    ] {
+        prims.push(prim(
+            solid(cylinder_tapered(rr, rl, 10, 0.0, straw())),
+            [rx, ry, rz],
+            quat_x(FRAC_PI_2),
+        ));
+        prims.push(prim(
+            cylinder_tapered(rr + 0.02, 0.05, 10, 0.0, cord()),
+            [rx, ry, rz],
+            quat_x(FRAC_PI_2),
+        ));
+    }
 
     assemble(prims)
 }

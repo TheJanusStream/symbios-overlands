@@ -70,6 +70,14 @@ fn build_tree() -> Generator {
             [x, cane_h * 0.5, 0.0],
             id_quat(),
         ));
+        // Segment node rings — the bamboo signature.
+        for ny in [0.35_f32, 0.8, 1.25] {
+            prims.push(prim(
+                cylinder_tapered(0.085, 0.04, 8, 0.0, timber([0.48, 0.48, 0.26])),
+                [x, ny, 0.0],
+                id_quat(),
+            ));
+        }
         // Cord lashings at the two rails.
         for ry in [0.5, cane_h - 0.2] {
             prims.push(prim(

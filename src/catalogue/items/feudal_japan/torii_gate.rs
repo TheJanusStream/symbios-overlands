@@ -4,7 +4,7 @@
 //! central plaque. Marks the threshold of the sacred ground.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, solid,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -94,8 +94,17 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Shimaki beam, then the broad kasagi crown overhanging it.
+    // Shimaki beam, then the broad kasagi crown — its ends swept up in the
+    // Myōjin curve.
     let top = 0.4 + pillar_h;
+    let kasagi_mat = || {
+        lacquer([
+            LACQUER_RED[0] * 0.85,
+            LACQUER_RED[1] * 0.85,
+            LACQUER_RED[2] * 0.85,
+        ])
+    };
+    // Shimaki (lower crown beam) hugging the pillar tops.
     prims.push(prim(
         solid(cuboid_tapered(
             [2.0 * span + 1.2, 0.5, 0.7],
@@ -105,28 +114,41 @@ fn build_tree() -> Generator {
         [0.0, top + 0.25, 0.0],
         id_quat(),
     ));
+    // Central kasagi beam.
+    let kasagi_w = 2.0 * span + 0.6;
+    let kasagi_y = top + 0.78;
     prims.push(prim(
-        solid(cuboid_tapered(
-            [2.0 * span + 2.0, 0.55, 0.95],
-            0.08,
-            lacquer([
-                LACQUER_RED[0] * 0.85,
-                LACQUER_RED[1] * 0.85,
-                LACQUER_RED[2] * 0.85,
-            ]),
-        )),
-        [0.0, top + 0.75, 0.0],
+        solid(cuboid_tapered([kasagi_w, 0.55, 0.95], 0.0, kasagi_mat())),
+        [0.0, kasagi_y, 0.0],
         id_quat(),
     ));
+    // Two upswept tips angling out and up from the central beam's ends.
+    let tip_len = 1.6_f32;
+    let phi = 0.32_f32;
+    let dx = kasagi_w * 0.5 + tip_len * 0.5 * phi.cos();
+    let dy = tip_len * 0.5 * phi.sin();
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered([tip_len, 0.5, 0.9], 0.2, kasagi_mat())),
+            [sx * dx, kasagi_y + dy, 0.0],
+            quat_z(sx * phi),
+        ));
+    }
 
-    // Central plaque (gakuzuka) between the tie beam and the lintel.
+    // Central strut (gakuzuka) carrying the shrine plaque, on the hero face.
     prims.push(prim(
         solid(cuboid_tapered(
-            [0.6, top - nuki_y - 0.2, 0.2],
+            [0.45, top - nuki_y - 0.2, 0.25],
             0.0,
             timber(TIMBER_DARK),
         )),
-        [0.0, 0.4 + (nuki_y + pillar_h) * 0.5, 0.1],
+        [0.0, 0.4 + (nuki_y + pillar_h) * 0.5, 0.0],
+        id_quat(),
+    ));
+    // Shrine plaque (gaku) hung on the strut, facing the front (−Z).
+    prims.push(prim(
+        solid(cuboid_tapered([0.85, 0.7, 0.1], 0.0, lacquer(LACQUER_RED))),
+        [0.0, 0.4 + nuki_y + 0.7, -0.28],
         id_quat(),
     ));
 

@@ -4,7 +4,7 @@
 //! box is the trim escalation's ruin pass snuffs to cold dead stone.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid, sphere,
+    assemble, cone, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -46,51 +46,72 @@ impl CatalogueEntry for StoneLantern {
 }
 
 fn build_tree() -> Generator {
+    use std::f32::consts::TAU;
+    let s = || stone(STONE_GREY);
+
     let mut prims = vec![
-        // Footed base — the root.
+        // Hexagonal footed base (kiso) — the root.
         prim(
-            solid(cuboid_tapered([0.9, 0.4, 0.9], 0.15, stone(STONE_GREY))),
+            solid(cylinder_tapered(0.55, 0.4, 6, 0.25, s())),
             [0.0, 0.2, 0.0],
             id_quat(),
         ),
-        // Column.
+        // Round shaft (sao) — the round contrast to the hexagonal courses.
         prim(
-            solid(cylinder_tapered(0.18, 1.6, 8, 0.05, stone(STONE_GREY))),
+            solid(cylinder_tapered(0.17, 1.6, 10, 0.06, s())),
             [0.0, 1.2, 0.0],
             id_quat(),
         ),
-        // Platform under the light box.
+        // Hexagonal platform (chūdai) flaring out under the light box.
         prim(
-            solid(cuboid_tapered([0.85, 0.2, 0.85], 0.1, stone(STONE_GREY))),
-            [0.0, 2.1, 0.0],
+            solid(cylinder_tapered(0.5, 0.22, 6, 0.18, s())),
+            [0.0, 2.05, 0.0],
             id_quat(),
         ),
     ];
 
-    // Light box: a stone frame around a glowing core, with four corner posts.
-    let box_y = 2.65;
+    // Light box (hibukuro): a glowing hexagonal core framed by six stone
+    // mullions between top and bottom frame rings — the kit's emissive hero.
+    let box_y = 2.62;
+    let box_h = 0.6;
+    let box_r = 0.34;
     prims.push(prim(
-        cuboid_tapered([0.42, 0.5, 0.42], 0.0, glow(LANTERN_GLOW, 3.0)),
+        cylinder_tapered(box_r, box_h, 6, 0.0, glow(LANTERN_GLOW, 3.0)),
         [0.0, box_y, 0.0],
         id_quat(),
     ));
-    for (sx, sz) in [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+    for k in 0..6 {
+        let a = k as f32 / 6.0 * TAU;
         prims.push(prim(
-            solid(cuboid_tapered([0.1, 0.6, 0.1], 0.0, stone(STONE_GREY))),
-            [sx * 0.28, box_y, sz * 0.28],
+            solid(cuboid_tapered([0.08, box_h + 0.04, 0.08], 0.0, s())),
+            [a.cos() * (box_r + 0.01), box_y, a.sin() * (box_r + 0.01)],
+            id_quat(),
+        ));
+    }
+    for ry in [box_y - box_h * 0.5, box_y + box_h * 0.5] {
+        prims.push(prim(
+            solid(cylinder_tapered(box_r + 0.06, 0.08, 6, 0.0, s())),
+            [0.0, ry, 0.0],
             id_quat(),
         ));
     }
 
-    // Pyramidal cap (kasa) and onion finial (hōju).
+    // Hexagonal pyramidal cap (kasa) on a flared eave ring, crowned by the
+    // onion finial (hōju).
+    let cap_base = box_y + box_h * 0.5 + 0.04;
     prims.push(prim(
-        solid(cuboid_tapered([1.0, 0.45, 1.0], 0.7, stone(STONE_GREY))),
-        [0.0, box_y + 0.5, 0.0],
+        solid(cylinder_tapered(0.72, 0.1, 6, 0.0, s())),
+        [0.0, cap_base + 0.05, 0.0],
         id_quat(),
     ));
     prims.push(prim(
-        solid(sphere(0.16, 3, stone(STONE_GREY))),
-        [0.0, box_y + 0.85, 0.0],
+        solid(cone(0.7, 0.5, 6, s())),
+        [0.0, cap_base + 0.35, 0.0],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(sphere(0.16, 3, s())),
+        [0.0, cap_base + 0.72, 0.0],
         id_quat(),
     ));
 

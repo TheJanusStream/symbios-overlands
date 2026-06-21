@@ -96,18 +96,26 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Thatch roof.
+    // Small raised granary door on the −Z front (hero face), reached by the
+    // ladder.
     prims.push(prim(
-        solid(cuboid_tapered([3.8, 1.4, 3.2], 0.45, thatch(THATCH_STRAW))),
-        [0.0, box_y + 1.7, 0.0],
+        solid(cuboid_tapered([0.9, 1.0, 0.15], 0.0, timber(TIMBER_DARK))),
+        [0.0, box_y - 0.4, -1.28],
         id_quat(),
     ));
 
-    // Notched-log ladder leaning at the front.
+    // Steep pyramidal thatch roof.
     prims.push(prim(
-        solid(cylinder_tapered(0.1, 2.6, 6, 0.0, timber(TIMBER_BROWN))),
-        [0.3, box_y - 0.6, 1.6],
-        quat_x(0.4),
+        solid(cuboid_tapered([3.8, 1.9, 3.2], 0.7, thatch(THATCH_STRAW))),
+        [0.0, box_y + 1.95, 0.0],
+        id_quat(),
+    ));
+
+    // Notched-log ladder leaning against the front door.
+    prims.push(prim(
+        solid(cylinder_tapered(0.1, 2.8, 6, 0.0, timber(TIMBER_BROWN))),
+        [0.0, box_y - 0.7, -1.7],
+        quat_x(-0.4),
     ));
 
     assemble(prims)

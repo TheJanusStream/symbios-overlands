@@ -3,7 +3,8 @@
 //! pads. A small touch of cultivated nature on a veranda or garden wall.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_y, solid, sphere,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, prim_scaled, quat_x, quat_y, solid,
+    sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -13,8 +14,8 @@ use super::{TIMBER_BROWN, TIMBER_DARK, rough_stone, timber};
 
 /// Cloud-pruned foliage green.
 const FOLIAGE_GREEN: [f32; 3] = [0.20, 0.38, 0.18];
-/// Dark glazed-ceramic pot.
-const POT_GLAZE: [f32; 3] = [0.24, 0.20, 0.18];
+/// Warm glazed-ceramic pot — light enough to read apart from the dark soil.
+const POT_GLAZE: [f32; 3] = [0.34, 0.26, 0.22];
 
 pub struct Bonsai;
 
@@ -51,20 +52,30 @@ impl CatalogueEntry for Bonsai {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Shallow glazed pot — the root.
+        // Shallow glazed tray pot — the root.
         prim(
             solid(cuboid_tapered(
-                [0.8, 0.32, 0.5],
+                [0.9, 0.2, 0.58],
                 0.12,
                 rough_stone(POT_GLAZE),
             )),
-            [0.0, 0.16, 0.0],
+            [0.0, 0.1, 0.0],
             id_quat(),
         ),
-        // Soil.
+        // Flared rim lip of the tray.
         prim(
-            cuboid_tapered([0.7, 0.08, 0.42], 0.0, timber(TIMBER_DARK)),
-            [0.0, 0.34, 0.0],
+            solid(cuboid_tapered(
+                [0.96, 0.06, 0.64],
+                0.0,
+                rough_stone(POT_GLAZE),
+            )),
+            [0.0, 0.19, 0.0],
+            id_quat(),
+        ),
+        // Dark soil mounded just above the rim.
+        prim(
+            cuboid_tapered([0.78, 0.07, 0.46], 0.15, timber(TIMBER_DARK)),
+            [0.0, 0.24, 0.0],
             id_quat(),
         ),
     ];
@@ -87,16 +98,24 @@ fn build_tree() -> Generator {
         quat_y(1.2),
     ));
 
-    // Two cloud-pruned foliage pads.
-    prims.push(prim(
-        sphere(0.34, 3, timber(FOLIAGE_GREEN)),
-        [0.18, 1.25, 0.05],
+    // Cloud-pruned foliage pads — flattened ellipsoids, not round balls.
+    prims.push(prim_scaled(
+        sphere(0.36, 3, timber(FOLIAGE_GREEN)),
+        [0.2, 1.28, 0.05],
         id_quat(),
+        [1.3, 0.5, 1.3],
     ));
-    prims.push(prim(
-        sphere(0.26, 3, timber(FOLIAGE_GREEN)),
-        [-0.28, 1.0, 0.0],
+    prims.push(prim_scaled(
+        sphere(0.28, 3, timber(FOLIAGE_GREEN)),
+        [-0.28, 1.02, 0.0],
         id_quat(),
+        [1.35, 0.45, 1.35],
+    ));
+    prims.push(prim_scaled(
+        sphere(0.22, 3, timber(FOLIAGE_GREEN)),
+        [0.04, 1.52, 0.02],
+        id_quat(),
+        [1.3, 0.45, 1.3],
     ));
 
     assemble(prims)

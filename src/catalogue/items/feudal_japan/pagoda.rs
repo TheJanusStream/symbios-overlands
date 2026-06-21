@@ -6,15 +6,16 @@
 //! across the home region.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid, sphere, torus,
+    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_y, solid, sphere, torus,
+    wedge,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
 use super::{
-    GOLD, LACQUER_RED, PLASTER_WHITE, STONE_GREY, TILE_SLATE, bronze, fx, lacquer, plaster,
-    roof_tile, stone,
+    GOLD, LACQUER_RED, PLASTER_WHITE, STONE_GREY, TILE_SLATE, TIMBER_DARK, bronze, fx, lacquer,
+    plaster, roof_tile, stone, timber,
 };
 
 pub struct Pagoda;
@@ -62,15 +63,17 @@ fn build_tree() -> Generator {
         ),
     ];
 
+    let corners = [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)];
+
     // Stacked tiers: (body width, body height, roof flare beyond body).
     let tiers = [
-        (6.0_f32, 3.8_f32, 2.6_f32),
-        (4.8, 3.4, 2.2),
-        (3.6, 3.0, 1.9),
+        (6.0_f32, 3.6_f32, 2.8_f32),
+        (4.8, 3.2, 2.4),
+        (3.6, 2.8, 2.0),
     ];
-    let roof_h = 1.1;
     let mut y = plinth_h;
     for (w, h, flare) in tiers {
+        let body_top = y + h;
         // Plaster body.
         prims.push(prim(
             solid(cuboid_tapered([w, h, w], 0.0, plaster(PLASTER_WHITE))),
@@ -78,33 +81,62 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
         // Lacquered corner columns.
-        for (sx, sz) in [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+        for (sx, sz) in corners {
             prims.push(prim(
                 solid(cuboid_tapered([0.4, h, 0.4], 0.0, lacquer(LACQUER_RED))),
                 [sx * (w * 0.5 - 0.2), y + h * 0.5, sz * (w * 0.5 - 0.2)],
                 id_quat(),
             ));
         }
-        // Deep-eave shadow rim, then the flared tile roof above it.
+
+        // Timber bracket course (tokyō) stepping out under the eaves.
         prims.push(prim(
             solid(cuboid_tapered(
-                [w + flare + 0.5, 0.2, w + flare + 0.5],
+                [w + 0.9, 0.45, w + 0.9],
+                0.0,
+                timber(TIMBER_DARK),
+            )),
+            [0.0, body_top + 0.22, 0.0],
+            id_quat(),
+        ));
+        // Deep-eave shadow board — a thin slab at the full flare.
+        let eave_w = w + flare;
+        prims.push(prim(
+            solid(cuboid_tapered(
+                [eave_w + 0.4, 0.18, eave_w + 0.4],
                 0.0,
                 roof_tile(TILE_SLATE),
             )),
-            [0.0, y + h + 0.1, 0.0],
+            [0.0, body_top + 0.52, 0.0],
             id_quat(),
         ));
+        // Flared tile roof cap rising to the ridge.
+        let cap_h = 1.0;
         prims.push(prim(
             solid(cuboid_tapered(
-                [w + flare, roof_h, w + flare],
-                0.55,
+                [eave_w, cap_h, eave_w],
+                0.62,
                 roof_tile(TILE_SLATE),
             )),
-            [0.0, y + h + 0.2 + roof_h * 0.5, 0.0],
+            [0.0, body_top + 0.6 + cap_h * 0.5, 0.0],
             id_quat(),
         ));
-        y += h + roof_h + 0.2;
+        // Four upturned flying-eave corners — the swept-roof signature. Each
+        // wedge's high tip points out along its corner diagonal (quat_y).
+        let eave_half = (eave_w + 0.4) * 0.5;
+        for (sx, sz) in corners {
+            let theta = (-sx).atan2(-sz);
+            prims.push(prim(
+                wedge([flare * 0.85, 0.7, flare * 0.85], roof_tile(TILE_SLATE)),
+                [
+                    sx * (eave_half - flare * 0.25),
+                    body_top + 0.55,
+                    sz * (eave_half - flare * 0.25),
+                ],
+                quat_y(theta),
+            ));
+        }
+        y = body_top + 0.6 + cap_h;
     }
 
     // Golden sōrin finial: a tapered spire threaded through stacked rings,
