@@ -1,13 +1,14 @@
-//! Holo-billboard — a Cyberpunk secondary. Two dark-metal posts holding
-//! a large emissive "holographic" advertising panel above street level,
-//! with a thin neon frame. Reads as the settlement's advertising glow.
+//! Holo-billboard — a Cyberpunk secondary. Two dark-metal posts holding a
+//! large advertising screen above street level: a recessed housing filled
+//! with a mosaic of lit ad-tiles behind scanlines and a hot neon frame.
+//! Reads as the settlement's advertising glow.
 
 use crate::catalogue::items::util::{cuboid_tapered, foundation_block, glow, id_quat, prim, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{DARK_METAL, NEON_CYAN, NEON_MAGENTA, fx, metal};
+use super::{DARK_METAL, NEON_CYAN, NEON_LIME, NEON_MAGENTA, fx, metal};
 
 pub struct HoloBillboard;
 
@@ -19,7 +20,7 @@ impl CatalogueEntry for HoloBillboard {
         "Holo Billboard"
     }
     fn description(&self) -> &'static str {
-        "Raised holographic advertising panel on twin posts."
+        "Raised advertising screen of lit ad-tiles on twin posts."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
@@ -67,39 +68,71 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // The panel — a large emissive face, kept at a *moderate* glow. A broad
-    // face pushes every colour channel past 1.0 long before a thin neon
-    // tube does, so at the tube's strength this slab would clip to a
-    // featureless white lightbox; held low it reads as a lit cyan screen
-    // that keeps its hue (see the emissive-strength note in `mod.rs`).
+    // The screen is mounted on the *front* of the posts (front face at z=+0.2)
+    // so nothing skewers through it. Layered front-to-back: dark housing →
+    // lit ad-tile mosaic → scanlines → hot neon frame.
     let panel_y = slab_h + post_h * 0.7;
     let cy = rel(panel_y + 1.6);
-    // Mount the panel + frame on the *front* of the posts rather than
-    // skewered through them: the posts' front face sits at z = +0.2, so a
-    // 0.45 m offset clears the deepest frame bar (back face at 0.25) past
-    // it. This both removes the posts bleeding through the screen and keeps
-    // the magenta frame from sharing a face plane with a post (z-fighting).
-    let z_front = 0.45_f32;
+
+    // Recessed dark housing behind the tiles.
     root.children.push(prim(
-        cuboid_tapered([5.4, 3.6, 0.25], 0.0, glow(NEON_CYAN, 1.6)),
-        [0.0, cy, z_front],
+        cuboid_tapered([5.4, 3.6, 0.25], 0.0, metal(shade(body))),
+        [0.0, cy, 0.4],
         id_quat(),
     ));
-    // Hot magenta neon frame around the panel edge. The thin tube *can*
-    // run hot, and a crisp lit border reads the broad face as a framed sign
-    // rather than a floating slab.
+
+    // Ad-tile mosaic — a grid of lit panels in mixed neon hues at *moderate*
+    // glow (a broad face blows out to white well before a thin tube does, so
+    // these stay 1.5–2.3 and keep their hue), with the odd dark "off" pixel.
+    let (cols, rows) = (5usize, 3usize);
+    let (cell_w, cell_h) = (1.0_f32, 1.05_f32);
+    let palette = [NEON_CYAN, NEON_MAGENTA, NEON_LIME];
+    for r in 0..rows {
+        for c in 0..cols {
+            let idx = r * cols + c;
+            let x = (c as f32 - (cols as f32 - 1.0) * 0.5) * cell_w;
+            let y = cy + (r as f32 - (rows as f32 - 1.0) * 0.5) * cell_h;
+            let (col, strength) = if (idx * 7 + 3) % 5 == 0 {
+                ([0.03, 0.04, 0.06], 0.0)
+            } else {
+                (palette[(c + r) % 3], 1.5 + (idx % 6) as f32 * 0.14)
+            };
+            root.children.push(prim(
+                cuboid_tapered(
+                    [cell_w * 0.88, cell_h * 0.84, 0.06],
+                    0.0,
+                    glow(col, strength),
+                ),
+                [x, y, 0.58],
+                id_quat(),
+            ));
+        }
+    }
+
+    // Scanlines — thin dark strips across the screen face.
+    for k in 0..5 {
+        let y = cy + (k as f32 - 2.0) * 0.72;
+        root.children.push(prim(
+            cuboid_tapered([5.2, 0.05, 0.04], 0.0, metal(shade(body))),
+            [0.0, y, 0.63],
+            id_quat(),
+        ));
+    }
+
+    // Hot magenta neon frame — a crisp lit border reads the broad face as a
+    // framed sign rather than a floating slab.
     let (half_w, half_h, bar) = (2.85_f32, 1.95_f32, 0.22_f32);
     for sy in [-1.0_f32, 1.0] {
         root.children.push(prim(
-            cuboid_tapered([5.7, bar, 0.4], 0.0, glow(NEON_MAGENTA, 5.0)),
-            [0.0, cy + sy * half_h, z_front],
+            cuboid_tapered([5.7, bar, 0.5], 0.0, glow(NEON_MAGENTA, 5.0)),
+            [0.0, cy + sy * half_h, 0.45],
             id_quat(),
         ));
     }
     for sx in [-1.0_f32, 1.0] {
         root.children.push(prim(
-            cuboid_tapered([bar, 3.9, 0.4], 0.0, glow(NEON_MAGENTA, 5.0)),
-            [sx * half_w, cy, z_front],
+            cuboid_tapered([bar, 3.9, 0.5], 0.0, glow(NEON_MAGENTA, 5.0)),
+            [sx * half_w, cy, 0.45],
             id_quat(),
         ));
     }
@@ -112,6 +145,11 @@ fn build_tree() -> Generator {
     ));
 
     root
+}
+
+/// A darker shade of a body colour — for recessed housings and scanlines.
+fn shade(c: [f32; 3]) -> [f32; 3] {
+    [c[0] * 0.6, c[1] * 0.6, c[2] * 0.6]
 }
 
 #[cfg(test)]

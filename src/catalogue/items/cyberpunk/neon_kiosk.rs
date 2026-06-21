@@ -1,13 +1,16 @@
-//! Neon kiosk — a small Cyberpunk prop. A waist-to-head-height
-//! dark-metal vending box with a glowing screen panel and a thin neon
-//! canopy strip; scattered through the settlement as street clutter.
+//! Neon kiosk — a small Cyberpunk prop. A waist-to-head-height dark-metal
+//! vending terminal: a framed menu screen under a neon-lipped awning, a lit
+//! header sign, a dispense slot, and side accent strips. Scattered through
+//! the settlement as street clutter.
 
-use crate::catalogue::items::util::{cuboid_tapered, foundation_block, glow, id_quat, prim, solid};
+use crate::catalogue::items::util::{
+    cuboid_tapered, foundation_block, glow, id_quat, prim, solid, wedge,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{DARK_METAL, NEON_LIME, NEON_MAGENTA, fx, metal};
+use super::{DARK_METAL, NEON_CYAN, NEON_LIME, NEON_MAGENTA, fx, metal};
 
 pub struct NeonKiosk;
 
@@ -19,7 +22,7 @@ impl CatalogueEntry for NeonKiosk {
         "Neon Kiosk"
     }
     fn description(&self) -> &'static str {
-        "Small vending kiosk with a glowing screen and neon canopy."
+        "Small vending terminal with a framed menu screen and neon awning."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Prop
@@ -57,8 +60,9 @@ fn build_tree() -> Generator {
     base.transform.translation.0[1] -= slab_h * 0.5;
     root.children.push(base);
 
-    // Vending body — hums with the signature low buzz of a live machine.
-    let box_h = 2.2;
+    // Vending body — hums with the signature low buzz of a live machine. Its
+    // front face sits at z = +0.5; everything below mounts onto it.
+    let box_h = 2.0_f32;
     let mut vending = prim(
         solid(cuboid_tapered([1.4, box_h, 1.0], 0.0, metal(body))),
         [0.0, rel(slab_h + box_h * 0.5), 0.0],
@@ -67,22 +71,86 @@ fn build_tree() -> Generator {
     vending.audio = fx::neon_buzz();
     root.children.push(vending);
 
-    // Glowing screen on the front face. Moderated like the billboard panel
-    // (see `mod.rs`): a lit face, not a white blowout — its hue survives.
+    // Framed menu screen on the front face: dark housing → 2×2 lit menu tiles
+    // → hot magenta frame. A framed, *content*-filled face, not a flat slab.
+    let scr_y = rel(slab_h + 1.32);
     root.children.push(prim(
-        cuboid_tapered([0.1, 1.2, 0.8], 0.0, glow(NEON_LIME, 3.5)),
-        [0.72, rel(slab_h + 1.3), 0.0],
+        cuboid_tapered([0.94, 1.04, 0.05], 0.0, metal(shade(body))),
+        [0.0, scr_y, 0.5],
+        id_quat(),
+    ));
+    let tiles = [NEON_LIME, NEON_CYAN, NEON_CYAN, NEON_LIME];
+    for (i, c) in tiles.into_iter().enumerate() {
+        let tx = if i % 2 == 0 { -0.22 } else { 0.22 };
+        let ty = if i < 2 { 0.26 } else { -0.26 };
+        root.children.push(prim(
+            cuboid_tapered([0.38, 0.44, 0.05], 0.0, glow(c, 1.9 + 0.1 * i as f32)),
+            [tx, scr_y + ty, 0.55],
+            id_quat(),
+        ));
+    }
+    for sy in [-1.0_f32, 1.0] {
+        root.children.push(prim(
+            cuboid_tapered([1.06, 0.1, 0.16], 0.0, glow(NEON_MAGENTA, 5.0)),
+            [0.0, scr_y + sy * 0.56, 0.5],
+            id_quat(),
+        ));
+    }
+    for sx in [-1.0_f32, 1.0] {
+        root.children.push(prim(
+            cuboid_tapered([0.1, 1.18, 0.16], 0.0, glow(NEON_MAGENTA, 5.0)),
+            [sx * 0.52, scr_y, 0.5],
+            id_quat(),
+        ));
+    }
+
+    // Lit header nameplate above the screen.
+    root.children.push(prim(
+        cuboid_tapered([1.0, 0.26, 0.06], 0.0, glow(NEON_CYAN, 2.2)),
+        [0.0, rel(slab_h + 1.78), 0.52],
         id_quat(),
     ));
 
-    // Neon canopy strip across the top.
+    // Dispense slot + a lit tray line near the bottom.
     root.children.push(prim(
-        cuboid_tapered([1.7, 0.18, 1.2], 0.0, glow(NEON_MAGENTA, 5.0)),
-        [0.0, rel(slab_h + box_h + 0.1), 0.0],
+        cuboid_tapered([0.6, 0.28, 0.06], 0.0, metal(shade(body))),
+        [0.0, rel(slab_h + 0.48), 0.5],
+        id_quat(),
+    ));
+    root.children.push(prim(
+        cuboid_tapered([0.6, 0.04, 0.07], 0.0, glow(NEON_LIME, 3.0)),
+        [0.0, rel(slab_h + 0.32), 0.52],
+        id_quat(),
+    ));
+
+    // Side accent strips down the front corners.
+    for sx in [-1.0_f32, 1.0] {
+        root.children.push(prim(
+            cuboid_tapered([0.05, 1.5, 0.05], 0.0, glow(NEON_CYAN, 4.0)),
+            [sx * 0.68, rel(slab_h + box_h * 0.5), 0.5],
+            id_quat(),
+        ));
+    }
+
+    // A wedge awning projecting over the front, thick at the back (against the
+    // box) sloping to a thin front lip, with a hot neon lip strip.
+    root.children.push(prim(
+        wedge([1.5, 0.35, 0.55], metal(body)),
+        [0.0, rel(slab_h + box_h + 0.16), 0.55],
+        id_quat(),
+    ));
+    root.children.push(prim(
+        cuboid_tapered([1.5, 0.07, 0.08], 0.0, glow(NEON_MAGENTA, 5.0)),
+        [0.0, rel(slab_h + box_h + 0.02), 0.8],
         id_quat(),
     ));
 
     root
+}
+
+/// A darker shade of a body colour — recessed housings / dispense slots.
+fn shade(c: [f32; 3]) -> [f32; 3] {
+    [c[0] * 0.6, c[1] * 0.6, c[2] * 0.6]
 }
 
 #[cfg(test)]

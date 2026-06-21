@@ -200,6 +200,18 @@ pub(super) fn helix(
     }
 }
 
+/// Right-triangular prism — a ramp / awning / roof pitch / buttress. `size`
+/// is the bounding box; the slope rises from the front-bottom (`+Z`, `-Y`) to
+/// the back-top (`-Z`, `+Y`) across the full width (X).
+pub(super) fn wedge(size: [f32; 3], material: SovereignMaterialSettings) -> GeneratorKind {
+    GeneratorKind::Wedge {
+        size: Fp3(size),
+        solid: false,
+        material,
+        torture: TortureParams::default(),
+    }
+}
+
 /// Stamp the SL-style topology cuts onto a swept primitive (Sphere / Cylinder
 /// / Cone / Torus / Tube): `path_cut` (`[begin, end]` kept angular fraction —
 /// a half-torus arch, an orange-slice wedge), `profile_cut` (`[begin, end]`
