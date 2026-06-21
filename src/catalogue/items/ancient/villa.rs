@@ -1,24 +1,35 @@
-//! Detailed modern villa — a two-storey brick / stucco main house with
-//! a gable shingle roof, attached metal-roofed garage, paver driveway,
-//! and wood deck. Adapted from `bevy_symbios_shape`'s `detailed_villa`
-//! example.
+//! Roman peristyle villa — a pedimented temple-front porch carried on a
+//! marble colonnade, flanked by lower colonnaded wings under hipped
+//! terracotta roofs, with a rear peristyle garden ringed by a low
+//! portico. Dressed in veined marble, coursed sandstone ashlar and
+//! terracotta tile — the affluent residence of the AncientClassical kit.
 //!
 //! Was the hard-coded default Shape generator under
 //! `crate::ui::room::widgets` before the catalogue existed; relocated
 //! here so all multi-material "complete building" entries live in one
 //! place. The widgets' `default_shape_kind` now delegates to this
 //! entry via [`crate::catalogue::by_slug`].
+//!
+//! Shape-grammar massing only: the DSL extrudes boxes and parametric
+//! roofs, so the classical reading is built from entasis-tapered piers
+//! (`Extrude` + `Taper`), shadowed intercolumniations, a `Roof(Gable)`
+//! pediment (oriented front-facing by making the porch scope deeper than
+//! it is wide), and `Roof(Hip)` tile roofs — not round shafts, true
+//! arches or domes, which the grammar cannot express.
 
 use std::collections::HashMap;
 
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{
-    Fp, Fp3, Fp64, Generator, GeneratorKind, SovereignBrickConfig, SovereignConcreteConfig,
-    SovereignGroundConfig, SovereignMaterialSettings, SovereignMetalConfig, SovereignPaversConfig,
-    SovereignPlankConfig, SovereignShingleConfig, SovereignStuccoConfig, SovereignTextureConfig,
-    SovereignWindowConfig,
+    Fp, Fp3, Fp64, Generator, GeneratorKind, SovereignGroundConfig, SovereignMaterialSettings,
+    SovereignTextureConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier, ThemeArchetype};
+
+use super::{
+    MARBLE_WHITE, SANDSTONE_GOLD, SANDSTONE_WEATHERED, STONE_VOID, TERRACOTTA, marble, sandstone,
+    terracotta,
+};
 
 pub struct Villa;
 
@@ -27,10 +38,10 @@ impl CatalogueEntry for Villa {
         "villa"
     }
     fn name(&self) -> &'static str {
-        "Modern Villa"
+        "Roman Villa"
     }
     fn description(&self) -> &'static str {
-        "Two-storey brick / stucco house with a gable shingle roof, attached garage, and deck."
+        "Pedimented temple-front portico and colonnaded wings around a rear peristyle garden, in marble, ashlar and terracotta."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
@@ -67,134 +78,35 @@ impl CatalogueEntry for Villa {
 fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();
 
+    // Veined white marble — columns, entablature, pediment tympanum.
+    materials.insert("Marble".to_string(), marble(MARBLE_WHITE));
+    // Coursed sandstone ashlar — dressed stylobate / podium courses.
+    materials.insert("Sandstone".to_string(), sandstone(SANDSTONE_GOLD));
+    // Weathered sandstone — the lower garden walls and walks.
+    materials.insert("Travertine".to_string(), sandstone(SANDSTONE_WEATHERED));
+    // Fired terracotta — the tile roofs.
+    materials.insert("Tile".to_string(), terracotta(TERRACOTTA));
+
+    // Deep shadow filling the intercolumniations behind the colonnade.
     materials.insert(
-        "Brick".to_string(),
+        "Shade".to_string(),
         SovereignMaterialSettings {
-            base_color: Fp3([0.5, 0.25, 0.15]),
-            roughness: Fp(0.9),
-            uv_scale: Fp(2.0),
-            texture: SovereignTextureConfig::Brick(SovereignBrickConfig {
-                aspect_ratio: Fp64(3.0),
-                color_brick: Fp3([0.45, 0.22, 0.15]),
-                scale: Fp64(8.0),
-                ..Default::default()
-            }),
+            base_color: Fp3(STONE_VOID),
+            roughness: Fp(1.0),
             ..Default::default()
         },
     );
 
+    // Planted court inside the rear peristyle — a Roman hortus.
     materials.insert(
-        "Stucco".to_string(),
+        "Garden".to_string(),
         SovereignMaterialSettings {
-            base_color: Fp3([0.88, 0.84, 0.78]),
-            roughness: Fp(0.8),
-            uv_scale: Fp(1.5),
-            texture: SovereignTextureConfig::Stucco(SovereignStuccoConfig {
-                color_base: Fp3([0.87, 0.83, 0.77]),
-                roughness: Fp64(0.35),
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
-    );
-
-    materials.insert(
-        "Concrete".to_string(),
-        SovereignMaterialSettings {
-            base_color: Fp3([0.6, 0.6, 0.6]),
-            roughness: Fp(0.85),
-            uv_scale: Fp(1.0),
-            texture: SovereignTextureConfig::Concrete(SovereignConcreteConfig {
-                formwork_lines: Fp64(3.0),
-                formwork_depth: Fp64(0.1),
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
-    );
-
-    materials.insert(
-        "Shingle".to_string(),
-        SovereignMaterialSettings {
-            base_color: Fp3([0.2, 0.2, 0.25]),
-            roughness: Fp(0.8),
-            uv_scale: Fp(1.5),
-            texture: SovereignTextureConfig::Shingle(SovereignShingleConfig::default()),
-            ..Default::default()
-        },
-    );
-
-    materials.insert(
-        "Metal".to_string(),
-        SovereignMaterialSettings {
-            base_color: Fp3([0.18, 0.18, 0.2]),
-            roughness: Fp(0.3),
-            metallic: Fp(0.85),
-            uv_scale: Fp(1.0),
-            texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
-                style: bevy_symbios_texture::metal::MetalStyle::StandingSeam,
-                seam_count: Fp64(6.0),
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
-    );
-
-    materials.insert(
-        "Glass".to_string(),
-        SovereignMaterialSettings {
-            base_color: Fp3([0.1, 0.2, 0.3]),
-            roughness: Fp(0.05),
-            metallic: Fp(0.9),
-            uv_scale: Fp(1.0),
-            texture: SovereignTextureConfig::Window(SovereignWindowConfig {
-                panes_x: 2,
-                panes_y: 2,
-                frame_width: Fp64(0.1),
-                glass_opacity: Fp64(0.3),
-                mullion_thickness: Fp64(0.12),
-                corner_radius: Fp64(0.18),
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
-    );
-
-    materials.insert(
-        "Wood".to_string(),
-        SovereignMaterialSettings {
-            base_color: Fp3([0.38, 0.22, 0.12]),
-            roughness: Fp(0.6),
-            uv_scale: Fp(1.0),
-            texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
-                color_wood_light: Fp3([0.4, 0.24, 0.14]),
-                color_wood_dark: Fp3([0.22, 0.12, 0.06]),
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
-    );
-
-    materials.insert(
-        "Pavers".to_string(),
-        SovereignMaterialSettings {
-            base_color: Fp3([0.5, 0.48, 0.45]),
-            roughness: Fp(0.85),
-            uv_scale: Fp(1.0),
-            texture: SovereignTextureConfig::Pavers(SovereignPaversConfig::default()),
-            ..Default::default()
-        },
-    );
-
-    materials.insert(
-        "Grass".to_string(),
-        SovereignMaterialSettings {
-            base_color: Fp3([0.2, 0.35, 0.15]),
+            base_color: Fp3([0.22, 0.35, 0.16]),
             roughness: Fp(0.9),
             uv_scale: Fp(1.0),
             texture: SovereignTextureConfig::Ground(SovereignGroundConfig {
-                color_dry: Fp3([0.3, 0.4, 0.2]),
-                color_moist: Fp3([0.15, 0.25, 0.1]),
+                color_dry: Fp3([0.32, 0.40, 0.20]),
+                color_moist: Fp3([0.14, 0.26, 0.10]),
                 macro_scale: Fp64(4.0),
                 ..Default::default()
             }),
@@ -202,58 +114,41 @@ fn build_kind() -> GeneratorKind {
         },
     );
 
-    // Grammar adapted from `bevy_symbios_shape/examples/detailed_villa.rs`.
-    // Footprint is 20 × 16 (Lot splits 14:HouseMass | 6:GarageMass on X;
-    // each mass splits 3+13 / 4+12 on Z).
+    // A Roman domus rendered in pure box-and-roof grammar. Footprint is
+    // 20 (X) × 16 (Z); the front face is −Z. The pedimented porch is made
+    // deeper (Z) than wide (X) so its `Roof(Gable)` ridges along Z and the
+    // tympanum triangle faces the front (see interpreter `sx >= sz`).
     let grammar_source = [
-        // ── 1. Massing ──
-        "Lot --> Split(X) { 14: HouseMass | 6: GarageMass }",
-        "HouseMass --> Split(Z) { 3: DeckArea | 13: MainHouse }",
-        "GarageMass --> Split(Z) { 4: Driveway | 12: GarageStruct }",
-        // ── 2. Platforms & ground ──
-        "DeckArea --> Extrude(0.3) Mat(\"Wood\") I(\"Deck\")",
-        "Driveway --> Extrude(0.1) Mat(\"Pavers\") I(\"Drive\")",
-        // ── 3. Main house volume ──
-        "MainHouse --> Extrude(9.5) Split(Y) { 3.5: GroundFloor | 0.3: BeltCourse | 3.2: UpperFloor | 0.3: RoofFascia | 2.2: MainRoof }",
-        // ── 4. Garage volume ──
-        "GarageStruct --> Extrude(4.0) Split(Y) { 3.5: GarageBody | 0.5: GarageRoof }",
-        // ── 5. Roofs ──
-        "MainRoof --> Roof(Gable, 30) { Slope: ShingleSlope | GableEnd: GableWall }",
-        "ShingleSlope --> Mat(\"Shingle\") I(\"RoofTile\")",
-        "GableWall --> Mat(\"Stucco\") I(\"Wall\")",
-        "GarageRoof --> Comp(Faces) { Top: FlatRoof | Side: GarageFascia }",
-        "GarageFascia --> Extrude(0.1) Mat(\"Metal\") I(\"Fascia\")",
-        "FlatRoof --> Mat(\"Metal\") I(\"GarageRoofTile\")",
-        "BeltCourse --> Comp(Faces) { Side: BeltFace }",
-        "BeltFace --> Extrude(0.25) Mat(\"Concrete\") I(\"Trim\")",
-        "RoofFascia --> Comp(Faces) { Side: FasciaFace }",
-        "FasciaFace --> Extrude(0.05) Mat(\"Metal\") I(\"Fascia\")",
-        // ── 6. Facades ──
-        "GroundFloor --> Comp(Faces) { Front: FrontEntryFacade | Back: SideFacade | Left: SideFacade | Right: SideFacade }",
-        "FrontEntryFacade --> Split(X) { 1.5: BrickWall | 2.5: EntryDoor | 1.0: BrickWall | 4.0: PictureWindow | ~1: BrickWall }",
-        "SideFacade --> Repeat(X, 4.0) { SideBay }",
-        "SideBay --> Split(X) { ~1: BrickWall | 2.0: StandardWindowBrick | ~1: BrickWall }",
-        "UpperFloor --> Comp(Faces) { Side: UpperFacade }",
-        "UpperFacade --> Repeat(X, 3.5) { UpperBay }",
-        "UpperBay --> Split(X) { ~1: StuccoWall | 1.5: StandardWindowStucco | ~1: StuccoWall }",
-        "GarageBody --> Comp(Faces) { Front: GarageFront | Back: BrickWall | Left: BrickWall | Right: BrickWall }",
-        "GarageFront --> Split(X) { ~1: BrickWall | 5.0: GarageDoor | ~1: BrickWall }",
-        // ── 7. Windows & walls ──
-        "StandardWindowBrick --> Split(Y) { 0.9: BrickWall | 1.6: WinAssembly | ~1: BrickWall }",
-        "StandardWindowStucco --> Split(Y) { 0.9: StuccoWall | 1.6: WinAssembly | ~1: StuccoWall }",
-        "PictureWindow --> Split(Y) { 0.8: BrickWall | 2.2: WinAssembly | ~1: BrickWall }",
-        "WinAssembly --> Split(X) { 0.15: ConcreteFrame | ~1: WinCenter | 0.15: ConcreteFrame }",
-        "WinCenter --> Split(Y) { 0.15: ConcreteFrame | ~1: GlassPane | 0.15: ConcreteFrame }",
-        "ConcreteFrame --> Extrude(0.25) Mat(\"Concrete\") I(\"Frame\")",
-        "GlassPane --> Extrude(0.05) Mat(\"Glass\") I(\"Pane\")",
-        "EntryDoor --> Split(Y) { 2.4: DoorAssembly | ~1: BrickWall }",
-        "DoorAssembly --> Split(X) { 0.15: ConcreteFrame | ~1: DoorPanel | 0.15: ConcreteFrame }",
-        "DoorPanel --> Split(Y) { ~1: WoodPanel | 0.15: ConcreteFrame }",
-        "WoodPanel --> Extrude(0.1) Mat(\"Wood\") I(\"Door\")",
-        "GarageDoor --> Split(Y) { 2.5: GaragePanel | ~1: BrickWall }",
-        "GaragePanel --> Extrude(0.1) Mat(\"Metal\") I(\"GDoor\")",
-        "BrickWall --> Extrude(0.2) Mat(\"Brick\") I(\"Wall\")",
-        "StuccoWall --> Extrude(0.2) Mat(\"Stucco\") I(\"Wall\")",
+        // ── 1. Massing: temple-front + flanking wings, rear peristyle garden ──
+        "Lot --> Split(Z) { 9: HouseRange | 7: GardenRange }",
+        "HouseRange --> Split(X) { 7: HouseWing | 6: CentralBlock | 7: HouseWing }",
+        "CentralBlock --> Split(Z) { 7: FrontPorch | 2: HallLink }",
+        // ── 2. Flanking wings — colonnade walls under a hipped tile roof ──
+        "HouseWing --> Extrude(5.5) Split(Y) { 0.5: Stylobate | ~1: Colonnade | 0.6: Entablature | 1.6: HipRoof }",
+        "HallLink --> Extrude(5.0) Split(Y) { 0.5: Stylobate | ~1: Colonnade | 0.6: Entablature | 1.2: HipRoof }",
+        // ── 3. Temple front — a taller colonnade carrying a pediment ──
+        "FrontPorch --> Extrude(7.0) Split(Y) { 0.5: Stylobate | ~1: Colonnade | 0.6: Architrave | 1.7: Pediment }",
+        "Pediment --> Roof(Gable, 32, 0.4) { Slope: TileSlope | GableEnd: PedimentField }",
+        "PedimentField --> Mat(\"Marble\") I(\"Tympanum\")",
+        "Architrave --> Mat(\"Marble\") I(\"Architrave\")",
+        // ── 4. Shared colonnade facade — entasis piers, shadowed bays ──
+        "Colonnade --> Comp(Faces) { Side: ColonnadeFace }",
+        "ColonnadeFace --> Repeat(X, 1.6) { ColumnBay }",
+        "ColumnBay --> Split(X) { 0.5: Column | ~1: Intercolumniation }",
+        "Column --> Extrude(0.3) Taper(0.12) Mat(\"Marble\") I(\"Column\")",
+        "Intercolumniation --> Extrude(0.05) Mat(\"Shade\") I(\"Bay\")",
+        // ── 5. Bases, cornices, tile roofs ──
+        "Stylobate --> Mat(\"Sandstone\") I(\"Stylobate\")",
+        "Entablature --> Mat(\"Marble\") I(\"Entablature\")",
+        "HipRoof --> Roof(Hip, 22, 0.4) { Slope: TileSlope | All: TileSlope }",
+        "TileSlope --> Mat(\"Tile\") I(\"Tile\")",
+        // ── 6. Rear peristyle garden — low walks around a planted court ──
+        "GardenRange --> Split(Z) { ~1: CourtBody | 3: RearPortico }",
+        "CourtBody --> Split(X) { 3.5: GardenWalk | ~1: GardenCourt | 3.5: GardenWalk }",
+        "GardenWalk --> Extrude(3.2) Split(Y) { 0.4: GardenBase | ~1: Colonnade | 0.5: Entablature }",
+        "RearPortico --> Extrude(3.5) Split(Y) { 0.4: GardenBase | ~1: Colonnade | 0.6: Entablature }",
+        "GardenBase --> Mat(\"Travertine\") I(\"GardenBase\")",
+        "GardenCourt --> Extrude(0.3) Mat(\"Garden\") I(\"Garden\")",
     ]
     .join("\n");
 
@@ -292,8 +187,13 @@ mod tests {
             } => {
                 assert!(!grammar_source.is_empty());
                 assert_eq!(root_rule, "Lot");
-                assert!(materials.contains_key("Brick"));
-                assert!(materials.contains_key("Stucco"));
+                // Classical material bar: marble facing over sandstone ashlar.
+                assert!(materials.contains_key("Marble"));
+                assert!(materials.contains_key("Sandstone"));
+                assert!(materials.contains_key("Tile"));
+                // The suburban palette must be gone.
+                assert!(!materials.contains_key("Brick"));
+                assert!(!materials.contains_key("Shingle"));
             }
             other => panic!("villa root must remain Shape after sanitise; got {other:?}"),
         }
