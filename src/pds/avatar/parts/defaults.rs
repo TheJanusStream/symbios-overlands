@@ -31,8 +31,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::pds::avatar::default_visuals::common::{
-    capsule, cuboid, cylinder, id_quat, prim, quat_x, quat_xyzw, quat_z, sphere, torus, with_cut,
-    with_torture,
+    capsule, cuboid, cylinder, id_quat, prim, quat_mul, quat_x, quat_xyzw, quat_z, sphere, torus,
+    with_cut, with_torture,
 };
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
@@ -629,7 +629,10 @@ fn chassis(ctx: &PartCtx) -> Generator {
     ));
     // Rounded fender arching over each wheel — a path-cut half-cylinder (open
     // underneath) laid on the axle (X), so the mudguard follows the tyre's
-    // curve instead of a square box.
+    // curve instead of a square box. The half-tube's arch apex is the +Z
+    // semicircle, so after laying it on the axle (`quat_z`) we roll it
+    // `-FRAC_PI_2` about that axle to lift the apex up over the wheel (+Y) with
+    // the open side facing the ground, rather than arching sideways.
     for sx in [-1.0f32, 1.0] {
         for sz in [-1.0f32, 1.0] {
             let fender = with_cut(
@@ -641,7 +644,7 @@ fn chassis(ctx: &PartCtx) -> Generator {
             c.children.push(prim(
                 fender,
                 [sx * 0.42, -0.04, sz * 0.55],
-                quat_xyzw(quat_z(FRAC_PI_2)),
+                quat_xyzw(quat_mul(quat_x(-FRAC_PI_2), quat_z(FRAC_PI_2))),
             ));
         }
     }
