@@ -8,6 +8,7 @@
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], which reparents every piece under the daub wall.
 
+use crate::catalogue::items::nordic::gable_roof;
 use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, quat_x, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -19,6 +20,8 @@ use super::{
 
 /// Pale daub plaster of the hut walls.
 const DAUB: [f32; 3] = [0.74, 0.70, 0.58];
+/// Dried-herb bundle colour.
+const HERB: [f32; 3] = [0.42, 0.5, 0.3];
 
 pub struct HedgeHut;
 
@@ -77,38 +80,45 @@ fn build_tree() -> Generator {
         }
     }
 
-    // Shaggy thatch roof.
+    // Shaggy steep A-frame thatch roof (ridge ‖ X over the long walls).
+    let ridge_y = wall_top + 2.1;
+    prims.push(gable_roof(
+        [5.4, 2.1, 4.6],
+        [0.0, wall_top + 1.05, 0.0],
+        thatch(THATCH_STRAW),
+    ));
+    // Ridge beam seated proud above the apex (never grazing it).
     prims.push(prim(
-        solid(cuboid_tapered([5.4, 2.0, 4.6], 0.5, thatch(THATCH_STRAW))),
-        [0.0, wall_top + 1.0, 0.0],
+        solid(cuboid_tapered([5.5, 0.14, 0.14], 0.0, timber(TIMBER_DARK))),
+        [0.0, ridge_y + 0.06, 0.0],
         id_quat(),
     ));
 
-    // Timber door + a softly-glowing window on the +Z face.
+    // Timber door + a softly-glowing window on the −Z (front) face.
     prims.push(prim(
         solid(cuboid_tapered([0.9, 1.9, 0.2], 0.0, timber(TIMBER_DARK))),
-        [-1.0, 0.95, 1.95],
+        [-1.0, 0.95, -1.95],
         id_quat(),
     ));
     prims.push(prim(
-        cuboid_tapered([0.8, 0.8, 0.15], 0.0, glass(ARCANE_GLASS, 1.0)),
-        [1.2, 1.5, 1.95],
+        cuboid_tapered([0.8, 0.8, 0.15], 0.0, glass(ARCANE_GLASS, 1.2)),
+        [1.2, 1.5, -1.95],
         id_quat(),
     ));
 
-    // Crooked mossy-stone chimney.
+    // Crooked mossy-stone chimney poking up past the ridge at the gable end.
     prims.push(prim(
-        solid(cuboid_tapered([0.7, 2.6, 0.7], 0.1, mossy(STONE_MOSS))),
-        [1.8, wall_top + 0.6, -1.0],
+        solid(cuboid_tapered([0.68, 3.0, 0.68], 0.1, mossy(STONE_MOSS))),
+        [1.8, wall_top + 1.0, -0.9],
         quat_x(0.08),
     ));
 
-    // Charms hung beside the door.
-    for (cy, s) in [(1.6_f32, 0.18_f32), (1.3, 0.14), (1.0, 0.16)] {
+    // Dried-herb bundles hung beside the door, tapering to a tied tip.
+    for (cy, len) in [(1.7_f32, 0.5_f32), (1.4, 0.42), (1.15, 0.46)] {
         prims.push(prim(
-            solid(cuboid_tapered([s, s, s], 0.3, timber(TIMBER_DARK))),
-            [-1.7, cy, 1.9],
-            id_quat(),
+            solid(cuboid_tapered([0.14, len, 0.14], 0.7, matte(HERB))),
+            [-1.9, cy, -1.92],
+            quat_x(std::f32::consts::PI),
         ));
     }
 

@@ -11,7 +11,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{RUNE_GOLD, STONE_MOSS, mossy};
+use super::{RUNE_GOLD, STONE_MOSS, mossy, rune_marks};
 
 pub struct StandingStone;
 
@@ -56,18 +56,19 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Leaning menhir.
-    prims.push(prim(
-        solid(cuboid_tapered([0.9, 3.2, 0.6], 0.15, mossy(STONE_MOSS))),
+    // Leaning menhir, tapered to a weathered blunt crown.
+    let mut menhir = prim(
+        solid(cuboid_tapered([0.9, 3.2, 0.6], 0.22, mossy(STONE_MOSS))),
         [0.0, 1.7, 0.0],
         quat_x(0.16),
-    ));
-    // Faintly-glowing glyphs (sub-threshold, just a hint of old magic).
-    prims.push(prim(
-        cuboid_tapered([0.4, 1.2, 0.62], 0.0, glow(RUNE_GOLD, 0.6)),
-        [0.0, 1.8, 0.1],
-        quat_x(0.16),
-    ));
+    );
+    // Faintly-glowing rune strokes carved into the −Z face — children of the
+    // menhir so they lean with it (a hint of old magic, near the glow
+    // threshold). Local frame: origin at the menhir centre, front face −Z.
+    for stroke in rune_marks([0.0, 0.15, -0.32], 0.95, glow(RUNE_GOLD, 0.95)) {
+        menhir.children.push(stroke);
+    }
+    prims.push(menhir);
 
     assemble(prims)
 }

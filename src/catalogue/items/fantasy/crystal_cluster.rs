@@ -5,13 +5,13 @@
 //! The leaning shards are cones tilted with a [`quat_x`].
 
 use crate::catalogue::items::util::{
-    assemble, cone, cylinder_tapered, glow, id_quat, prim, quat_x, solid,
+    assemble, cylinder_tapered, glow, id_quat, prim, quat_x, quat_z, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{CRYSTAL_CYAN, STONE_GREY, stone};
+use super::{CRYSTAL_CYAN, STONE_GREY, crystal, stone};
 
 pub struct CrystalCluster;
 
@@ -48,30 +48,44 @@ impl CatalogueEntry for CrystalCluster {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Rocky base — the root.
+        // Rocky base — the root, a low dark mound.
         prim(
-            solid(cylinder_tapered(0.6, 0.4, 8, 0.2, stone(STONE_GREY))),
+            solid(cylinder_tapered(0.62, 0.4, 7, 0.25, stone(STONE_GREY))),
             [0.0, 0.2, 0.0],
             id_quat(),
         ),
     ];
-
-    // A tall central shard.
-    prims.push(prim(
-        cone(0.22, 1.6, 6, glow(CRYSTAL_CYAN, 3.0)),
-        [0.0, 1.0, 0.0],
-        id_quat(),
-    ));
-    // Leaning side shards tilted around X.
-    for (cx, cz, h, tilt) in [
-        (0.35_f32, 0.1_f32, 1.0_f32, 0.4_f32),
-        (-0.3, 0.2, 0.8, -0.4),
-        (0.05, -0.35, 0.9, 0.3),
-    ] {
+    // A couple of boulders breaking up the base silhouette.
+    for (bx, bz, br) in [(0.34_f32, -0.18_f32, 0.26_f32), (-0.32, 0.12, 0.22)] {
         prims.push(prim(
-            cone(0.16, h, 6, glow(CRYSTAL_CYAN, 2.6)),
-            [cx, 0.4 + h * 0.4, cz],
-            quat_x(tilt),
+            solid(sphere(br, 5, stone(STONE_GREY))),
+            [bx, 0.22, bz],
+            id_quat(),
+        ));
+    }
+
+    // A tall faceted central shard.
+    prims.push(crystal(
+        [0.0, 0.36, 0.0],
+        0.24,
+        1.9,
+        id_quat(),
+        glow(CRYSTAL_CYAN, 1.8),
+    ));
+    // Leaning faceted side shards splaying out at wild angles.
+    for (cx, cz, h, tilt, axis_z) in [
+        (0.36_f32, 0.1_f32, 1.15_f32, 0.42_f32, false),
+        (-0.32, 0.2, 0.92, -0.46, false),
+        (0.08, -0.36, 1.0, 0.34, true),
+        (0.28, 0.34, 0.7, -0.3, true),
+    ] {
+        let lean = if axis_z { quat_x(tilt) } else { quat_z(tilt) };
+        prims.push(crystal(
+            [cx, 0.36, cz],
+            0.15,
+            h,
+            lean,
+            glow(CRYSTAL_CYAN, 1.6),
         ));
     }
 

@@ -9,13 +9,13 @@
 use std::f32::consts::TAU;
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid,
+    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_z, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{ARCANE_PURPLE, MUSH_GLOW, STONE_MOSS, fx, mossy};
+use super::{ARCANE_PURPLE, MUSH_GLOW, RUNE_GOLD, STONE_MOSS, fx, mossy, toadstool};
 
 pub struct FaeRing;
 
@@ -51,7 +51,7 @@ impl CatalogueEntry for FaeRing {
 }
 
 fn build_tree() -> Generator {
-    let ring_r = 3.5_f32;
+    let ring_r = 3.4_f32;
 
     let mut prims = vec![
         // Mossy floor disc — the root.
@@ -62,34 +62,40 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Glowing spell mark at the centre — emissive.
-    prims.push(prim(
-        cylinder_tapered(1.4, 0.08, 20, 0.0, glow(ARCANE_PURPLE, 2.2)),
-        [0.0, 0.22, 0.0],
-        id_quat(),
-    ));
+    // Glowing sigil inscribed at the centre — twin rune rings (not a flat
+    // glowing puddle) with little glyph marks between them.
+    for major in [1.35_f32, 0.85] {
+        prims.push(prim(
+            torus(0.05, major, glow(ARCANE_PURPLE, 1.9)),
+            [0.0, 0.2, 0.0],
+            id_quat(),
+        ));
+    }
+    for i in 0..6 {
+        let a = i as f32 / 6.0 * TAU + 0.3;
+        prims.push(prim(
+            cuboid_tapered([0.14, 0.05, 0.14], 0.0, glow(RUNE_GOLD, 2.0)),
+            [a.cos() * 1.1, 0.21, a.sin() * 1.1],
+            id_quat(),
+        ));
+    }
 
-    // Ring of little standing stones with glowing mushrooms between them.
+    // Ring of little leaning menhirs with glowing toadstools between them.
     for i in 0..8 {
         let a = i as f32 / 8.0 * TAU;
+        let (x, z) = (a.cos() * ring_r, a.sin() * ring_r);
         if i % 2 == 0 {
+            // A weathered little standing stone, tapered to a blunt point and
+            // leaning a touch outward.
+            let lean = 0.12 * if i % 4 == 0 { 1.0 } else { -1.0 };
             prims.push(prim(
-                solid(cuboid_tapered([0.5, 1.2, 0.4], 0.1, mossy(STONE_MOSS))),
-                [a.cos() * ring_r, 0.7, a.sin() * ring_r],
-                id_quat(),
+                solid(cuboid_tapered([0.42, 1.5, 0.34], 0.3, mossy(STONE_MOSS))),
+                [x, 0.78, z],
+                quat_z(lean),
             ));
         } else {
-            // Glowing mushroom: a pale stem + a glowing cap.
-            prims.push(prim(
-                solid(cylinder_tapered(0.08, 0.5, 6, 0.0, mossy(STONE_MOSS))),
-                [a.cos() * ring_r, 0.25, a.sin() * ring_r],
-                id_quat(),
-            ));
-            prims.push(prim(
-                cone(0.3, 0.4, 8, glow(MUSH_GLOW, 2.0)),
-                [a.cos() * ring_r, 0.6, a.sin() * ring_r],
-                id_quat(),
-            ));
+            // Glowing domed toadstool.
+            prims.push(toadstool([x, 0.18, z], 0.85, glow(MUSH_GLOW, 1.5), false));
         }
     }
 

@@ -33,10 +33,14 @@ pub mod fx;
 
 use bevy_symbios_texture::metal::MetalStyle;
 
+use crate::catalogue::items::util::{
+    cone, cuboid_tapered, cylinder_tapered, id_quat, prim, prim_scaled, quat_z, solid, sphere,
+    with_cut,
+};
 use crate::pds::{
-    Fp, Fp3, Fp64, SovereignAshlarConfig, SovereignCobblestoneConfig, SovereignMaterialSettings,
-    SovereignMetalConfig, SovereignPlankConfig, SovereignTextureConfig, SovereignThatchConfig,
-    SovereignWindowConfig,
+    Fp, Fp3, Fp4, Fp64, Generator, SovereignAshlarConfig, SovereignCobblestoneConfig,
+    SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignTextureConfig,
+    SovereignThatchConfig, SovereignWindowConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -176,6 +180,133 @@ pub(super) fn matte(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Fantasy-signature geometry helpers
+// ---------------------------------------------------------------------------
+
+/// A faceted crystal shard — a hexagonal prism shaft terminated by a
+/// pyramidal point, the gem read a smooth cone never gives (a cone is an
+/// ice-cream scoop; six flat facets catch the light as a crystal). Returned
+/// as one positioned subtree (the shaft is its local root), so the whole
+/// shard leans on a single `tilt` quaternion as a *child* of the item — never
+/// the assemble root, so the rotation is safe. `foot` is the base-centre
+/// world position, `r` the shaft radius, `h` the total height (~⅗ shaft,
+/// ~⅖ point). Pass a [`glow`](crate::catalogue::items::util::glow) material
+/// for the luminous arcane crystals.
+pub(super) fn crystal(
+    foot: [f32; 3],
+    r: f32,
+    h: f32,
+    tilt: Fp4,
+    mat: SovereignMaterialSettings,
+) -> Generator {
+    let body_h = h * 0.6;
+    let tip_h = h * 0.4;
+    // Hexagonal prism shaft — the subtree root, carrying the lean.
+    let mut shaft = prim(
+        cylinder_tapered(r, body_h, 6, 0.14, mat.clone()),
+        [foot[0], foot[1] + body_h * 0.5, foot[2]],
+        tilt,
+    );
+    // Pyramidal terminated point, in the shaft's local frame.
+    shaft.children.push(prim(
+        cone(r * 0.9, tip_h, 6, mat),
+        [0.0, body_h * 0.5 + tip_h * 0.5, 0.0],
+        id_quat(),
+    ));
+    shaft
+}
+
+/// A toadstool — a pale stem under a domed parasol cap, the fantasy mushroom
+/// signature (a *dome* reads as a mushroom where a cone reads as a fir tree).
+/// Returned as one positioned subtree (the stem is its local root). `foot` is
+/// the stem-base world position, `scale` sizes the whole stool. `cap_mat`
+/// glows for the luminous variety; `spots` studs the cap with pale flecks for
+/// the storybook red toadstool. A darker gill ring tucks under the cap rim so
+/// the parasol reads round.
+pub(super) fn toadstool(
+    foot: [f32; 3],
+    scale: f32,
+    cap_mat: SovereignMaterialSettings,
+    spots: bool,
+) -> Generator {
+    let stem_h = 0.6 * scale;
+    let cap_r = 0.42 * scale;
+    // Stem — the subtree root; centred so its top sits at +stem_h/2.
+    let mut stem = prim(
+        solid(cylinder_tapered(
+            0.1 * scale,
+            stem_h,
+            8,
+            0.2,
+            matte([0.86, 0.85, 0.78]),
+        )),
+        [foot[0], foot[1] + stem_h * 0.5, foot[2]],
+        id_quat(),
+    );
+    let cap_y = stem_h * 0.5 - 0.03 * scale; // skirt overhangs the stem top
+    // Domed parasol cap — a flattened upper hemisphere.
+    stem.children.push(prim_scaled(
+        with_cut(sphere(cap_r, 6, cap_mat), [0.0, 1.0], [0.5, 1.0], 0.0),
+        [0.0, cap_y, 0.0],
+        id_quat(),
+        [1.0, 0.6, 1.0],
+    ));
+    // Dark gill ring tucked just under the cap edge.
+    stem.children.push(prim(
+        cone(cap_r * 0.85, 0.14 * scale, 8, matte([0.34, 0.3, 0.28])),
+        [0.0, cap_y - 0.04 * scale, 0.0],
+        quat_z(std::f32::consts::PI),
+    ));
+    if spots {
+        for i in 0..4 {
+            let a = i as f32 / 4.0 * std::f32::consts::TAU + 0.4;
+            stem.children.push(prim(
+                sphere(0.07 * scale, 4, matte([0.92, 0.9, 0.84])),
+                [
+                    a.cos() * cap_r * 0.5,
+                    cap_y + 0.16 * scale,
+                    a.sin() * cap_r * 0.5,
+                ],
+                id_quat(),
+            ));
+        }
+    }
+    stem
+}
+
+/// A cluster of glowing rune strokes standing proud of a stone face — a
+/// central stave crossed by a couple of angled branches, the Elder-Futhark
+/// look. Thin, saturated strokes on dark stone *read*, where a single flat
+/// glowing panel over-brightens and washes to a pale blank. `center` is the
+/// face-centre world position (its Z already nudged proud of the wall), `h`
+/// the rune height. Returns the strokes for an `assemble` list.
+pub(super) fn rune_marks(
+    center: [f32; 3],
+    h: f32,
+    mat: SovereignMaterialSettings,
+) -> Vec<Generator> {
+    let [cx, cy, cz] = center;
+    let t = h * 0.13; // stroke thickness
+    let mut v = vec![
+        // Central stave.
+        prim(
+            cuboid_tapered([t, h, t * 0.7], 0.0, mat.clone()),
+            [cx, cy, cz],
+            id_quat(),
+        ),
+    ];
+    // Two angled branches off the stave (the ᚠ / ᚱ look).
+    for (dy, s) in [(h * 0.26, 1.0_f32), (-h * 0.06, 1.0_f32)] {
+        v.push(prim(
+            cuboid_tapered([h * 0.42, t, t * 0.7], 0.0, mat.clone()),
+            [cx + h * 0.2 * s, cy + dy, cz],
+            quat_z(-0.55 * s),
+        ));
+    }
+    v
+}
+
 // Masonry + timber palette.
 pub(super) const STONE_GREY: [f32; 3] = [0.56, 0.55, 0.52];
 pub(super) const STONE_MOSS: [f32; 3] = [0.44, 0.48, 0.38];
@@ -184,12 +315,15 @@ pub(super) const THATCH_STRAW: [f32; 3] = [0.54, 0.45, 0.26];
 pub(super) const GOLD: [f32; 3] = [0.80, 0.66, 0.30];
 pub(super) const ARCANE_GLASS: [f32; 3] = [0.52, 0.42, 0.80];
 
-// Emissive magic colours.
+// Emissive magic colours. Deeply saturated on purpose: `glow` sets both
+// base_color and emission_color to these, and a too-pale colour over-brightens
+// and washes to a near-white blank under bloom (the steampunk over-bright-clips
+// lesson). Deep base hues hold their colour when driven emissive.
 pub(super) const ARCANE_PURPLE: [f32; 3] = [0.70, 0.42, 1.0];
-pub(super) const CRYSTAL_CYAN: [f32; 3] = [0.42, 0.90, 1.0];
+pub(super) const CRYSTAL_CYAN: [f32; 3] = [0.18, 0.80, 1.0];
 pub(super) const RUNE_GOLD: [f32; 3] = [1.0, 0.82, 0.42];
-pub(super) const MANA_TEAL: [f32; 3] = [0.32, 1.0, 0.82];
-pub(super) const MUSH_GLOW: [f32; 3] = [0.52, 0.95, 0.70];
+pub(super) const MANA_TEAL: [f32; 3] = [0.20, 0.95, 0.78];
+pub(super) const MUSH_GLOW: [f32; 3] = [0.28, 0.86, 0.50];
 
 #[cfg(test)]
 mod tests {

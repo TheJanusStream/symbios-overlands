@@ -2,9 +2,9 @@
 //! on the ground with floating glyph marks. Scatter clutter of the arcane
 //! quarter; it is emissive trim the ruin pass can darken.
 
-use std::f32::consts::TAU;
+use std::f32::consts::{PI, TAU};
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, glow, id_quat, prim, torus};
+use crate::catalogue::items::util::{assemble, cuboid_tapered, glow, id_quat, prim, quat_y, torus};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -48,25 +48,45 @@ fn build_tree() -> Generator {
     let mut prims = vec![
         // Outer glowing ring — the root.
         prim(
-            torus(0.05, 1.4, glow(ARCANE_PURPLE, 2.2)),
+            torus(0.06, 1.4, glow(ARCANE_PURPLE, 1.9)),
             [0.0, 0.05, 0.0],
             id_quat(),
         ),
     ];
     // Inner glowing ring.
     prims.push(prim(
-        torus(0.04, 0.9, glow(ARCANE_PURPLE, 2.2)),
+        torus(0.05, 0.82, glow(ARCANE_PURPLE, 1.9)),
         [0.0, 0.05, 0.0],
         id_quat(),
     ));
 
-    // Glyph marks floating just above the rings.
+    // Radial spokes bridging the two rings — the wheel of the circle.
     for i in 0..6 {
         let a = i as f32 / 6.0 * TAU;
         prims.push(prim(
-            cuboid_tapered([0.18, 0.05, 0.18], 0.0, glow(RUNE_GOLD, 2.5)),
-            [a.cos() * 1.15, 0.12, a.sin() * 1.15],
-            id_quat(),
+            cuboid_tapered([0.64, 0.05, 0.07], 0.0, glow(ARCANE_PURPLE, 1.7)),
+            [a.cos() * 1.11, 0.06, a.sin() * 1.11],
+            quat_y(-a),
+        ));
+    }
+
+    // Central rune-star sigil — three crossed gold bars (a six-ray asterisk).
+    for k in 0..3 {
+        let a = k as f32 * PI / 3.0;
+        prims.push(prim(
+            cuboid_tapered([0.9, 0.05, 0.08], 0.0, glow(RUNE_GOLD, 1.9)),
+            [0.0, 0.07, 0.0],
+            quat_y(-a),
+        ));
+    }
+
+    // Glyph marks set on the inner ring.
+    for i in 0..6 {
+        let a = i as f32 / 6.0 * TAU + 0.5;
+        prims.push(prim(
+            cuboid_tapered([0.1, 0.06, 0.16], 0.0, glow(RUNE_GOLD, 2.0)),
+            [a.cos() * 0.82, 0.08, a.sin() * 0.82],
+            quat_y(-a),
         ));
     }
 

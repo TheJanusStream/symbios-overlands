@@ -3,13 +3,16 @@
 //! quarter; its glow is emissive trim the ruin pass can darken.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid,
+    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{ARCANE_PURPLE, RUNE_GOLD, STONE_GREY, stone};
+use super::{ARCANE_PURPLE, RUNE_GOLD, STONE_MOSS, mossy, rune_marks, stone};
+
+/// Dark slate of the floating slab — a cold backing the gold glyphs read on.
+const SLATE: [f32; 3] = [0.33, 0.32, 0.37];
 
 pub struct Runestone;
 
@@ -46,26 +49,33 @@ impl CatalogueEntry for Runestone {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Glowing rune mark on the ground — the root.
+        // Mossy stone groundplate — the root.
         prim(
-            cylinder_tapered(0.8, 0.06, 16, 0.0, glow(ARCANE_PURPLE, 2.0)),
-            [0.0, 0.04, 0.0],
+            solid(cylinder_tapered(0.85, 0.1, 16, 0.15, mossy(STONE_MOSS))),
+            [0.0, 0.05, 0.0],
             id_quat(),
         ),
     ];
+    // Glowing sigil ring inscribed on the plate (a ring, not a flat puddle).
+    prims.push(prim(
+        torus(0.05, 0.62, glow(ARCANE_PURPLE, 1.8)),
+        [0.0, 0.12, 0.0],
+        id_quat(),
+    ));
+    prims.push(prim(
+        torus(0.04, 0.34, glow(ARCANE_PURPLE, 1.8)),
+        [0.0, 0.12, 0.0],
+        id_quat(),
+    ));
 
-    // Floating stone slab above the mark.
+    // Floating dark-slate slab above the mark, its top tapered to a crown.
     prims.push(prim(
-        solid(cuboid_tapered([0.9, 1.5, 0.3], 0.0, stone(STONE_GREY))),
-        [0.0, 1.5, 0.0],
+        solid(cuboid_tapered([1.0, 1.6, 0.26], 0.18, stone(SLATE))),
+        [0.0, 1.55, 0.0],
         id_quat(),
     ));
-    // Glowing glyphs carved into the face — emissive.
-    prims.push(prim(
-        cuboid_tapered([0.4, 0.9, 0.34], 0.0, glow(RUNE_GOLD, 3.0)),
-        [0.0, 1.5, 0.0],
-        id_quat(),
-    ));
+    // Glowing rune strokes carved proud of the slab's −Z (front) face.
+    prims.extend(rune_marks([0.0, 1.55, -0.16], 0.95, glow(RUNE_GOLD, 1.9)));
 
     assemble(prims)
 }

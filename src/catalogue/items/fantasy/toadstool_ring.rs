@@ -4,15 +4,14 @@
 
 use std::f32::consts::TAU;
 
-use crate::catalogue::items::util::{assemble, cone, cylinder_tapered, id_quat, prim, solid};
+use crate::catalogue::items::util::{assemble, cylinder_tapered, id_quat, prim, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{STONE_MOSS, matte, mossy};
+use super::{STONE_MOSS, matte, mossy, toadstool};
 
-/// Plain toadstool colours.
-const STEM: [f32; 3] = [0.84, 0.82, 0.74];
+/// Plain red toadstool cap colour.
 const CAP_RED: [f32; 3] = [0.62, 0.18, 0.16];
 
 pub struct ToadstoolRing;
@@ -49,7 +48,7 @@ impl CatalogueEntry for ToadstoolRing {
 }
 
 fn build_tree() -> Generator {
-    let ring_r = 0.8_f32;
+    let ring_r = 0.85_f32;
 
     let mut prims = vec![
         // Mossy floor patch — the root.
@@ -60,22 +59,15 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // A small ring of plain toadstools.
+    // A small ring of plain red-capped, white-spotted toadstools.
     for i in 0..6 {
         let a = i as f32 / 6.0 * TAU;
-        let scale = 0.7 + (i % 2) as f32 * 0.4;
-        let stem_h = 0.4 * scale;
-        let x = a.cos() * ring_r;
-        let z = a.sin() * ring_r;
-        prims.push(prim(
-            solid(cylinder_tapered(0.06 * scale, stem_h, 6, 0.0, matte(STEM))),
-            [x, stem_h * 0.5 + 0.08, z],
-            id_quat(),
-        ));
-        prims.push(prim(
-            solid(cone(0.22 * scale, 0.26 * scale, 8, matte(CAP_RED))),
-            [x, stem_h + 0.18 * scale, z],
-            id_quat(),
+        let scale = 0.75 + (i % 2) as f32 * 0.45;
+        prims.push(toadstool(
+            [a.cos() * ring_r, 0.07, a.sin() * ring_r],
+            scale,
+            matte(CAP_RED),
+            true,
         ));
     }
 
