@@ -16,7 +16,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{ENERGY_BLUE, GLYPH_CYAN, OBSIDIAN, fx, obsidian};
+use super::{ENERGY_BLUE, GLYPH_CYAN, OBSIDIAN, fx, glyph_column, obsidian};
 
 pub struct BlackMonolith;
 
@@ -84,20 +84,41 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Glowing glyph lines on the +Z face — emissive.
+    // A thin glowing seam splitting the −Z hero face top-to-bottom — the
+    // monolith's powered core showing through.
+    let zf = -(slab_d * 0.5 + 0.04);
     prims.push(prim(
-        cuboid_tapered([0.14, slab_h - 1.5, 0.86], 0.0, glow(GLYPH_CYAN, 2.8)),
-        [0.0, slab_cy, 0.0],
+        cuboid_tapered([0.1, slab_h - 1.0, 0.06], 0.0, glow(GLYPH_CYAN, 2.0)),
+        [0.0, slab_cy, zf],
         id_quat(),
     ));
-    for k in 0..4 {
-        let y = lift + 1.5 + k as f32 * 2.2;
-        prims.push(prim(
-            cuboid_tapered([1.4, 0.16, 0.86], 0.0, glow(GLYPH_CYAN, 2.6)),
-            [0.0, y, 0.0],
-            id_quat(),
-        ));
+    // Inscribed glyph column down the −Z hero face — asymmetric alien script,
+    // not the old uniform "+++ ladder" of light bars.
+    for g in glyph_column(
+        0.0,
+        lift + 1.6,
+        lift + slab_h - 1.4,
+        zf - 0.02,
+        &[1.4, 1.0, 1.5, 1.1, 0.9],
+        glow(GLYPH_CYAN, 1.9),
+    ) {
+        prims.push(g);
     }
+
+    // Hovering capstone — a beveled obsidian cap floating a hand above the
+    // slab crown, a glowing glyph plate on its underside casting down. The
+    // monolith-signature crown.
+    let cap_y = lift + slab_h + 0.85;
+    prims.push(prim(
+        solid(cuboid_tapered([2.7, 0.55, 1.1], 0.45, obsidian(OBSIDIAN))),
+        [0.0, cap_y, 0.0],
+        id_quat(),
+    ));
+    prims.push(prim(
+        cuboid_tapered([2.0, 0.1, 0.7], 0.0, glow(ENERGY_BLUE, 2.4)),
+        [0.0, cap_y - 0.32, 0.0],
+        id_quat(),
+    ));
 
     let mut root = assemble(prims);
     // Signature life: the monolith's hum, energy motes rising in the gap.

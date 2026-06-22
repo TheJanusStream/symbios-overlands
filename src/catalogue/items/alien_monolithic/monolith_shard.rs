@@ -3,9 +3,13 @@
 //! Scatter clutter of the site; the glyph is emissive trim the ruin pass can
 //! darken.
 //!
-//! The shard leans with a [`quat_x`].
+//! The leaning shard is a child of a flat ground chip (its [`quat_x`] lean
+//! must not sit on the `assemble` root, or it would scramble every sibling).
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, glow, prim, quat_x, solid};
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_mul, quat_x, quat_z,
+    solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -46,18 +50,33 @@ impl CatalogueEntry for MonolithShard {
 }
 
 fn build_tree() -> Generator {
+    let lean = quat_x(0.35);
+
     let prims = vec![
-        // Leaning obsidian shard — the root.
+        // Flat obsidian ground chip — the root (identity rotation, so the
+        // leaning shard's tilt stays on the shard alone).
+        prim(
+            solid(cylinder_tapered(0.6, 0.12, 12, 0.0, obsidian(OBSIDIAN))),
+            [0.0, 0.06, 0.0],
+            id_quat(),
+        ),
+        // Leaning obsidian shard — a child carrying the tilt.
         prim(
             solid(cuboid_tapered([0.6, 2.6, 0.5], 0.4, obsidian(OBSIDIAN))),
             [0.0, 1.2, 0.0],
-            quat_x(0.35),
+            lean,
         ),
-        // Glowing glyph along the shard's edge — emissive.
+        // Glowing glyph stave up the shard's −Z edge — emissive.
         prim(
-            cuboid_tapered([0.12, 1.8, 0.52], 0.3, glow(GLYPH_CYAN, 2.6)),
-            [0.0, 1.25, 0.1],
-            quat_x(0.35),
+            cuboid_tapered([0.1, 1.6, 0.06], 0.0, glow(GLYPH_CYAN, 2.5)),
+            [0.0, 1.25, -0.22],
+            lean,
+        ),
+        // Angled glyph branch off the stave.
+        prim(
+            cuboid_tapered([0.5, 0.1, 0.06], 0.0, glow(GLYPH_CYAN, 2.5)),
+            [0.16, 1.55, -0.27],
+            quat_mul(lean, quat_z(-0.5)),
         ),
     ];
 

@@ -8,7 +8,7 @@
 //! The toppled slab lies tipped with a [`quat_x`].
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -59,25 +59,39 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Standing stump (lower part of the slab, snapped off).
+    // Standing stump (lower part of the slab, snapped off short).
     prims.push(prim(
         solid(cuboid_tapered([2.2, 3.0, 0.8], 0.05, stone(DEAD_STONE))),
         [0.0, 1.6, 0.0],
         id_quat(),
     ));
-    // Dark glyph groove on the stump (no glow).
+    // Dark glyph groove down the stump's −Z face (no glow — light gone).
     prims.push(prim(
-        cuboid_tapered([0.16, 2.0, 0.82], 0.0, stone([0.12, 0.12, 0.14])),
-        [0.0, 1.6, 0.0],
+        cuboid_tapered([0.16, 2.0, 0.06], 0.0, stone([0.12, 0.12, 0.14])),
+        [0.0, 1.6, -0.42],
         id_quat(),
     ));
 
-    // Toppled upper slab on the ground.
+    // Toppled upper slab fallen sideways across the ground to +X, so the topple
+    // reads from the −Z hero front instead of hiding behind the stump.
     prims.push(prim(
         solid(cuboid_tapered([2.2, 5.5, 0.8], 0.05, stone(DEAD_STONE))),
-        [0.0, 0.7, 4.0],
-        quat_x(1.45),
+        [3.3, 0.55, 0.4],
+        quat_z(-1.46),
     ));
+
+    // Shattered rubble chips around the fractured base.
+    for (cx, cz, s, tilt) in [
+        (-1.6_f32, 0.9_f32, 0.6_f32, 0.3_f32),
+        (-1.0, -1.3, 0.5, 0.0),
+        (1.2, -1.1, 0.45, 0.5),
+    ] {
+        prims.push(prim(
+            solid(cuboid_tapered([s, s * 0.7, s], 0.3, stone(DEAD_STONE))),
+            [cx, s * 0.35, cz],
+            quat_x(tilt),
+        ));
+    }
 
     assemble(prims)
 }

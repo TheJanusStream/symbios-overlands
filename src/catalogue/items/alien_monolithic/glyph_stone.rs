@@ -7,7 +7,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{GLYPH_CYAN, OBSIDIAN, obsidian};
+use super::{GLYPH_CYAN, OBSIDIAN, glyph_column, obsidian};
 
 pub struct GlyphStone;
 
@@ -43,20 +43,20 @@ impl CatalogueEntry for GlyphStone {
 }
 
 fn build_tree() -> Generator {
-    let prims = vec![
-        // Obsidian standing stone — the root.
+    let mut prims = vec![
+        // Obsidian standing stone — the root, its top tapered to a leaning
+        // wedge so it reads as a hewn standing stone, not a plain plinth.
         prim(
-            solid(cuboid_tapered([0.9, 1.8, 0.4], 0.08, obsidian(OBSIDIAN))),
+            solid(cuboid_tapered([0.9, 1.8, 0.4], 0.14, obsidian(OBSIDIAN))),
             [0.0, 0.9, 0.0],
             id_quat(),
         ),
-        // Glowing glyph on the face — emissive.
-        prim(
-            cuboid_tapered([0.4, 1.0, 0.44], 0.0, glow(GLYPH_CYAN, 2.6)),
-            [0.0, 0.95, 0.0],
-            id_quat(),
-        ),
     ];
+    // Inscribed glyphs down the −Z hero face — asymmetric alien script
+    // standing proud of the dark stone, not the old blank light panel.
+    for g in glyph_column(0.0, 0.55, 1.35, -0.24, &[0.7, 0.55], glow(GLYPH_CYAN, 2.4)) {
+        prims.push(g);
+    }
 
     assemble(prims)
 }

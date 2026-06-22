@@ -2,9 +2,11 @@
 //! dead-stone fragments, their glyph-grooves dark and cold. The debris of the
 //! dormant site.
 //!
-//! A couple of fragments lie tipped with a [`quat_x`].
+//! The tipped fragments hang off a flat embedded base fragment — their
+//! [`quat_x`] tilts must not sit on the `assemble` root, or it would scramble
+//! every sibling into the root's frame.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, prim, quat_x, solid};
+use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, quat_x, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -46,25 +48,34 @@ impl CatalogueEntry for GlyphRubble {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Largest fragment — the root, half-buried and tipped.
+        // Flat half-buried base fragment — the root (identity rotation, so the
+        // tipped fragments' tilts stay on themselves alone).
         prim(
-            solid(cuboid_tapered([1.0, 1.4, 0.6], 0.2, stone(DEAD_STONE))),
-            [0.0, 0.5, 0.0],
-            quat_x(0.5),
+            solid(cuboid_tapered([1.3, 0.5, 1.0], 0.15, stone(DEAD_STONE))),
+            [0.0, 0.22, 0.0],
+            id_quat(),
         ),
     ];
-    // Dark glyph groove on the largest fragment (no glow).
+
+    // The largest broken shard, tipped and leaning on the base.
+    let lean = quat_x(0.55);
     prims.push(prim(
-        cuboid_tapered([0.14, 0.9, 0.62], 0.0, stone([0.12, 0.12, 0.14])),
-        [0.0, 0.55, 0.05],
-        quat_x(0.5),
+        solid(cuboid_tapered([0.9, 1.3, 0.55], 0.2, stone(DEAD_STONE))),
+        [0.15, 0.65, 0.1],
+        lean,
+    ));
+    // Dark glyph groove down the leaning shard's −Z face (no glow).
+    prims.push(prim(
+        cuboid_tapered([0.12, 0.85, 0.06], 0.0, stone([0.12, 0.12, 0.14])),
+        [0.15, 0.7, -0.18],
+        lean,
     ));
 
     // Smaller scattered fragments.
     for (fx, fz, s, tilt) in [
-        (0.9_f32, 0.3_f32, 0.5_f32, 0.0_f32),
-        (-0.7, 0.4, 0.45, 0.8),
-        (0.2, -0.8, 0.4, 0.0),
+        (0.95_f32, 0.35_f32, 0.5_f32, 0.0_f32),
+        (-0.8, 0.45, 0.45, 0.8),
+        (0.25, -0.85, 0.4, 0.3),
     ] {
         prims.push(prim(
             solid(cuboid_tapered([s, s * 0.7, s], 0.3, stone(DEAD_STONE))),

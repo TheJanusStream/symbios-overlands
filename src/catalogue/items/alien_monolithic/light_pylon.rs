@@ -7,13 +7,13 @@
 //! [`assemble`], which reparents every piece under the base.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid, sphere,
+    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{GLYPH_CYAN, OBSIDIAN, fx, obsidian};
+use super::{GLYPH_CYAN, OBSIDIAN, fx, glyph_column, obsidian};
 
 pub struct LightPylon;
 
@@ -68,23 +68,39 @@ fn build_tree() -> Generator {
         [0.0, base_h + pylon_h * 0.5, 0.0],
         id_quat(),
     ));
-    // Glowing glyph bands up the shaft — emissive.
-    for k in 0..3 {
-        let y = base_h + 2.0 + k as f32 * 3.0;
+    // Glowing energy collars ringing the shaft — emissive bands that read on
+    // the needle far better than the old tiny face-bars; majors shrink with
+    // the shaft's taper.
+    for (k, major) in [0.56_f32, 0.46, 0.37].into_iter().enumerate() {
+        let y = base_h + 2.5 + k as f32 * 3.0;
         prims.push(prim(
-            cuboid_tapered(
-                [0.7 - k as f32 * 0.12, 0.18, 0.7],
-                0.0,
-                glow(GLYPH_CYAN, 2.4),
-            ),
-            [0.0, y, 0.42 - k as f32 * 0.06],
+            torus(0.08, major, glow(GLYPH_CYAN, 2.4)),
+            [0.0, y, 0.0],
             id_quat(),
         ));
     }
+    // A short inscribed glyph column up the −Z front of the lower shaft.
+    for g in glyph_column(
+        0.0,
+        base_h + 1.4,
+        base_h + 4.4,
+        -0.52,
+        &[0.6, 0.7, 0.55],
+        glow(GLYPH_CYAN, 2.1),
+    ) {
+        prims.push(g);
+    }
 
-    // Glowing orb at the crown — emissive.
+    // Glowing orb at the crown — emissive, rounder (res 6) than the old blocky
+    // res-3 facet ball.
     prims.push(prim(
-        sphere(0.5, 3, glow(GLYPH_CYAN, 3.0)),
+        sphere(0.5, 6, glow(GLYPH_CYAN, 3.0)),
+        [0.0, pylon_top + 0.4, 0.0],
+        id_quat(),
+    ));
+    // Horizontal halo ring around the orb — emissive.
+    prims.push(prim(
+        torus(0.05, 0.78, glow(GLYPH_CYAN, 2.3)),
         [0.0, pylon_top + 0.4, 0.0],
         id_quat(),
     ));

@@ -4,7 +4,9 @@
 //!
 //! The fallen length lies tipped with a [`quat_x`].
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, quat_x, solid};
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, id_quat, prim, quat_x, quat_z, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -60,11 +62,18 @@ fn build_tree() -> Generator {
         [0.0, 1.4, 0.0],
         id_quat(),
     ));
-    // Broken upper length fallen across the ground.
+    // A loose chip tipped on the stub's broken crown — the snap.
+    prims.push(prim(
+        solid(cuboid_tapered([0.55, 0.4, 0.55], 0.3, stone(DEAD_STONE))),
+        [0.1, 2.7, -0.05],
+        quat_x(0.5),
+    ));
+    // Broken upper length fallen sideways across the ground to +X, so the
+    // collapse reads from the −Z hero front.
     prims.push(prim(
         solid(cuboid_tapered([0.7, 6.0, 0.7], 0.4, stone(DEAD_STONE))),
-        [0.0, 0.5, 3.6],
-        quat_x(1.5),
+        [3.1, 0.4, 0.3],
+        quat_z(-1.5),
     ));
 
     assemble(prims)

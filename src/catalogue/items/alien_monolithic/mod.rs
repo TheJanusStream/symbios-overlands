@@ -31,8 +31,10 @@ pub mod fx;
 
 use bevy_symbios_texture::metal::MetalStyle;
 
+use crate::catalogue::items::fantasy::rune_marks;
 use crate::pds::{
-    Fp, Fp3, Fp64, SovereignMaterialSettings, SovereignMetalConfig, SovereignTextureConfig,
+    Fp, Fp3, Fp64, Generator, SovereignMaterialSettings, SovereignMetalConfig,
+    SovereignTextureConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -84,10 +86,47 @@ pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
 pub(super) const OBSIDIAN: [f32; 3] = [0.06, 0.06, 0.10];
 pub(super) const DEAD_STONE: [f32; 3] = [0.24, 0.24, 0.28];
 
-// Emissive glyph / energy colours.
-pub(super) const GLYPH_CYAN: [f32; 3] = [0.40, 0.90, 1.0];
-pub(super) const ENERGY_BLUE: [f32; 3] = [0.45, 0.55, 1.0];
-pub(super) const GLYPH_VIOLET: [f32; 3] = [0.62, 0.42, 1.0];
+// Emissive glyph / energy colours. Deeply saturated on purpose: `glow` sets
+// both base_color and emission_color to these, and a too-pale colour
+// over-brightens and washes to a near-white blank under bloom (the fantasy /
+// steampunk over-bright-clips lesson — the original pale cyan/blue/violet all
+// washed). Deep base hues with one channel near zero hold their colour driven
+// emissive: cyan keeps red low, electric-blue keeps green low, violet keeps
+// green near zero.
+pub(super) const GLYPH_CYAN: [f32; 3] = [0.10, 0.82, 1.0];
+pub(super) const ENERGY_BLUE: [f32; 3] = [0.18, 0.32, 1.0];
+pub(super) const GLYPH_VIOLET: [f32; 3] = [0.46, 0.12, 1.0];
+
+/// A vertical inscription of alien glyphs climbing a flat face at `z = zf`.
+/// Reuses fantasy's [`rune_marks`] for the asymmetric stave-and-branch stroke
+/// (an inscribed glyph that reads as script, not the blank "+++ ladder" the
+/// old uniform light-bars gave), stacking one glyph per entry in `sizes`
+/// evenly between `base_y` and `top_y`. Varied stroke heights plus an
+/// alternating x-nudge keep the column from reading as one stamp repeated.
+/// Strokes stand proud of the face — pass `zf` just past a slab's −Z front so
+/// the inscription reads on the hero side.
+pub(super) fn glyph_column(
+    cx: f32,
+    base_y: f32,
+    top_y: f32,
+    zf: f32,
+    sizes: &[f32],
+    mat: SovereignMaterialSettings,
+) -> Vec<Generator> {
+    let n = sizes.len();
+    let mut v = Vec::new();
+    for (k, &gh) in sizes.iter().enumerate() {
+        let frac = if n <= 1 {
+            0.5
+        } else {
+            k as f32 / (n - 1) as f32
+        };
+        let y = base_y + frac * (top_y - base_y);
+        let nudge = if k % 2 == 0 { -0.14 } else { 0.10 };
+        v.extend(rune_marks([cx + nudge, y, zf], gh, mat.clone()));
+    }
+    v
+}
 
 #[cfg(test)]
 mod tests {

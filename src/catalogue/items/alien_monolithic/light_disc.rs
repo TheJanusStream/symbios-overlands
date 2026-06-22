@@ -3,7 +3,7 @@
 //! of the site; the disc is emissive trim the ruin pass can darken.
 
 use crate::catalogue::items::util::{
-    assemble, cylinder_tapered, glow, id_quat, prim, solid, torus,
+    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_y, solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -45,7 +45,7 @@ impl CatalogueEntry for LightDisc {
 }
 
 fn build_tree() -> Generator {
-    let prims = vec![
+    let mut prims = vec![
         // Obsidian rim disc — the root.
         prim(
             solid(cylinder_tapered(1.3, 0.18, 24, 0.0, obsidian(OBSIDIAN))),
@@ -58,13 +58,34 @@ fn build_tree() -> Generator {
             [0.0, 0.2, 0.0],
             id_quat(),
         ),
-        // Concentric glowing ring — emissive.
+        // Two concentric glowing rings — emissive, proud of the disc.
         prim(
-            torus(0.04, 0.6, glow(GLYPH_CYAN, 2.6)),
-            [0.0, 0.23, 0.0],
+            torus(0.045, 0.92, glow(GLYPH_CYAN, 2.6)),
+            [0.0, 0.24, 0.0],
+            id_quat(),
+        ),
+        prim(
+            torus(0.04, 0.5, glow(GLYPH_CYAN, 2.6)),
+            [0.0, 0.24, 0.0],
+            id_quat(),
+        ),
+        // Glowing centre node — the transit focus.
+        prim(
+            sphere(0.16, 6, glow(GLYPH_CYAN, 2.8)),
+            [0.0, 0.27, 0.0],
             id_quat(),
         ),
     ];
+    // Radial glyph ticks spoking out between the rings — a transit pad's
+    // bearing marks.
+    for k in 0..8 {
+        let a = k as f32 * std::f32::consts::FRAC_PI_4;
+        prims.push(prim(
+            cuboid_tapered([0.08, 0.05, 0.26], 0.0, glow(GLYPH_CYAN, 2.4)),
+            [a.cos() * 0.71, 0.24, a.sin() * 0.71],
+            quat_y(-a),
+        ));
+    }
 
     assemble(prims)
 }

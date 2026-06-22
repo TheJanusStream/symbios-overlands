@@ -6,6 +6,7 @@
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], which reparents every piece under the base.
 
+use crate::catalogue::items::fantasy::rune_marks;
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid, torus,
 };
@@ -72,18 +73,31 @@ fn build_tree() -> Generator {
         [0.0, plat_y, 0.0],
         id_quat(),
     ));
-    // Glowing underside — emissive.
+    // Glowing underside — the levitation field, emissive.
     prims.push(prim(
         cuboid_tapered([4.4, 0.12, 4.4], 0.0, glow(ENERGY_BLUE, 2.2)),
         [0.0, plat_y - 0.32, 0.0],
         id_quat(),
     ));
-    // Glowing rim glyphs along two edges — emissive.
+    // Glowing rim lines framing all four top edges — a fully powered dais.
     for sz in [-1.0_f32, 1.0] {
         prims.push(prim(
             cuboid_tapered([4.6, 0.16, 0.12], 0.0, glow(GLYPH_CYAN, 2.4)),
             [0.0, plat_y + 0.3, sz * 2.4],
             id_quat(),
+        ));
+        prims.push(prim(
+            cuboid_tapered([0.12, 0.16, 4.6], 0.0, glow(GLYPH_CYAN, 2.4)),
+            [sz * 2.4, plat_y + 0.3, 0.0],
+            id_quat(),
+        ));
+    }
+    // Inscribed glyphs across the −Z hero front edge — emissive.
+    for cx in [-1.6_f32, 0.0, 1.6] {
+        prims.extend(rune_marks(
+            [cx, plat_y - 0.12, -2.56],
+            0.5,
+            glow(GLYPH_CYAN, 2.2),
         ));
     }
 
