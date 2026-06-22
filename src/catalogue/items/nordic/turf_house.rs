@@ -1,16 +1,20 @@
 //! Turf house — the Nordic *poor* landmark. A low longhouse dug into the
 //! cold ground, its thick walls and roof built up from stacked sod over a
-//! fieldstone footing, with a single timber-framed door and a smoke hole
-//! breathing peat smoke. The croft counterpart to the carved
-//! [`mead_hall`](super::mead_hall): same theme, opposite end of the
+//! fieldstone footing, with a single timber-framed door on the shore-facing
+//! wall and a smoke hole breathing peat smoke. The croft counterpart to the
+//! carved [`mead_hall`](super::mead_hall): same theme, opposite end of the
 //! prosperity axis (`Poor`), so a destitute Nordic room grows this instead.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, solid};
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, cuboid_tapered_xz, glow, id_quat, prim, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{STONE_COLD, TURF_GREEN, WOOD_DARK, fx, rough_stone, timber, turf};
+use super::{
+    FIRE_ORANGE, STONE_COLD, TURF_GREEN, WOOD_DARK, fx, gable_roof, rough_stone, timber, turf,
+};
 
 pub struct TurfHouse;
 
@@ -51,7 +55,7 @@ fn build_tree() -> Generator {
     let foot_h = 0.4;
     let wall_h = 2.2;
     let wall_top = foot_h + wall_h;
-    let roof_h = 2.0;
+    let roof_h = 2.4; // low, but a real ridge
 
     let mut prims = vec![
         // Fieldstone footing — the root.
@@ -74,37 +78,56 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    // Sod gable ends.
+    // Sod gable ends, carried up into the roof triangle.
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
             solid(cuboid_tapered([1.1, wall_h, w], 0.1, turf(TURF_GREEN))),
             [sx * (l * 0.5 - 0.4), foot_h + wall_h * 0.5, 0.0],
             id_quat(),
         ));
+        prims.push(prim(
+            solid(cuboid_tapered_xz(
+                [1.1, roof_h, w],
+                [0.0, 0.94],
+                turf(TURF_GREEN),
+            )),
+            [sx * (l * 0.5 - 0.4), wall_top + roof_h * 0.5, 0.0],
+            id_quat(),
+        ));
     }
 
-    // Timber-framed door in the near gable.
+    // Timber-framed door on the shore-facing (-Z) long wall, with a dim peat
+    // ember glow within.
+    let zf = -(w * 0.5 - 0.05);
     prims.push(prim(
-        solid(cuboid_tapered([0.5, 1.8, 1.4], 0.0, timber(WOOD_DARK))),
-        [l * 0.5 - 0.1, foot_h + 0.9, 0.0],
+        solid(cuboid_tapered([1.6, 1.9, 0.3], 0.0, timber(WOOD_DARK))),
+        [0.0, foot_h + 0.95, zf - 0.05],
+        id_quat(),
+    ));
+    prims.push(prim(
+        cuboid_tapered([1.0, 1.3, 0.18], 0.0, glow(FIRE_ORANGE, 1.6)),
+        [0.0, foot_h + 0.8, zf - 0.18],
         id_quat(),
     ));
 
-    // Low turf hip roof.
-    prims.push(prim(
-        solid(cuboid_tapered(
-            [l + 1.4, roof_h, w + 1.4],
-            0.4,
-            turf(TURF_GREEN),
-        )),
+    // Low turf gable roof.
+    prims.push(gable_roof(
+        [l + 1.4, roof_h, w + 1.4],
         [0.0, wall_top + roof_h * 0.5, 0.0],
+        turf(TURF_GREEN),
+    ));
+    // Sod ridge cap.
+    prims.push(prim(
+        solid(cuboid_tapered([l + 1.0, 0.35, 0.7], 0.2, turf(TURF_GREEN))),
+        [0.0, wall_top + roof_h - 0.1, 0.0],
         id_quat(),
     ));
-    // Timber smoke-hole curb near the ridge.
-    let hole_x = 3.0;
+
+    // Timber smoke-hole curb near the ridge, off to one end.
+    let hole_x = 3.2;
     prims.push(prim(
         solid(cuboid_tapered([1.0, 0.5, 1.0], 0.2, timber(WOOD_DARK))),
-        [hole_x, wall_top + roof_h - 0.1, 0.0],
+        [hole_x, wall_top + roof_h - 0.2, 0.0],
         id_quat(),
     ));
 

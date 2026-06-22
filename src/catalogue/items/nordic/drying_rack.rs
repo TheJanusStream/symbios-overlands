@@ -1,9 +1,9 @@
-//! Drying rack — a Nordic prop. A timber frame of poles strung with split
-//! fish curing in the wind and a hung strip of homespun cloth: the everyday
-//! work of a coastal steading.
+//! Drying rack — a Nordic prop. A tall timber *hjell* strung with split fish
+//! curing in the wind over three rails and a hung strip of homespun cloth:
+//! the everyday work of a coastal steading.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -24,7 +24,7 @@ impl CatalogueEntry for DryingRack {
         "Drying Rack"
     }
     fn description(&self) -> &'static str {
-        "Timber pole frame strung with curing fish and hung cloth."
+        "Tall timber hjell strung with rows of curing fish and hung cloth."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Prop
@@ -48,55 +48,68 @@ impl CatalogueEntry for DryingRack {
 }
 
 fn build_tree() -> Generator {
-    let top_y = 2.4;
+    let top_y = 3.0;
 
     let mut prims = vec![
         // Ground sill — the root.
         prim(
-            solid(cuboid_tapered([4.2, 0.18, 0.3], 0.0, timber(WOOD_DARK))),
-            [0.0, 0.09, 0.0],
+            solid(cuboid_tapered([4.6, 0.2, 0.4], 0.0, timber(WOOD_DARK))),
+            [0.0, 0.1, 0.0],
             id_quat(),
         ),
     ];
-    // End posts, slightly splayed.
-    for (sx, lean) in [(-1.0_f32, -0.05_f32), (1.0, 0.05)] {
-        prims.push(prim(
-            solid(cylinder_tapered(0.1, top_y, 8, 0.05, timber(WOOD_WARM))),
-            [sx * 2.0, top_y * 0.5, 0.0],
-            quat_x(lean),
-        ));
+    // End posts, each pair splayed front-to-back for a stable hjell.
+    for sx in [-1.0_f32, 1.0] {
+        for (sz, lean) in [(-1.0_f32, -0.1_f32), (1.0, 0.1)] {
+            prims.push(prim(
+                solid(cylinder_tapered(0.1, top_y, 8, 0.06, timber(WOOD_WARM))),
+                [sx * 2.1, top_y * 0.5, sz * 0.35],
+                quat_x(lean),
+            ));
+        }
     }
-    // Two horizontal stringing rails.
-    for y in [top_y, top_y - 0.8] {
+    // Three stringing rails at descending heights.
+    for y in [top_y - 0.1, top_y - 0.85, top_y - 1.6] {
         prims.push(prim(
-            solid(cuboid_tapered([4.0, 0.09, 0.09], 0.0, timber(WOOD_DARK))),
+            solid(cuboid_tapered([4.3, 0.09, 0.09], 0.0, timber(WOOD_DARK))),
             [0.0, y, 0.0],
             id_quat(),
         ));
     }
+    // A pair of angle braces.
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered([2.0, 0.08, 0.08], 0.0, timber(WOOD_DARK))),
+            [sx * 1.0, top_y - 0.8, 0.35],
+            quat_z(sx * 0.6),
+        ));
+    }
 
-    // Split fish hung in a row off the top rail.
-    for i in 0..7 {
-        let x = -1.7 + i as f32 * 0.57;
-        prims.push(prim(
-            cuboid_tapered([0.14, 0.55, 0.05], 0.3, timber(FISH_GREY)),
-            [x, top_y - 0.35, 0.0],
-            id_quat(),
-        ));
+    // Split fish hung in rows off each rail — tapered to the tail, alternating
+    // offset so the rows read as a dense catch.
+    for (row, (ry, n, off)) in [
+        (top_y - 0.45, 8, 0.0_f32),
+        (top_y - 1.2, 7, 0.28),
+        (top_y - 1.95, 6, 0.0),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let z = if row % 2 == 0 { 0.06 } else { -0.06 };
+        for i in 0..n {
+            let x = -1.8 + i as f32 * (3.6 / (n as f32 - 1.0)) + off;
+            prims.push(prim(
+                cuboid_tapered([0.17, 0.6, 0.05], 0.55, timber(FISH_GREY)),
+                [x, ry - 0.3, z],
+                id_quat(),
+            ));
+        }
     }
-    // Fish off the lower rail, offset.
-    for i in 0..6 {
-        let x = -1.4 + i as f32 * 0.57;
-        prims.push(prim(
-            cuboid_tapered([0.13, 0.5, 0.05], 0.3, timber(FISH_GREY)),
-            [x, top_y - 1.1, 0.12],
-            id_quat(),
-        ));
-    }
+
     // A hung strip of homespun cloth at one end.
     prims.push(prim(
-        cuboid_tapered([0.6, 1.0, 0.05], 0.0, cloth(SHIELD_CREAM, WOOD_WARM)),
-        [1.5, top_y - 0.55, -0.1],
+        cuboid_tapered([0.7, 1.1, 0.05], 0.0, cloth(SHIELD_CREAM, WOOD_WARM)),
+        [1.9, top_y - 0.75, -0.12],
         id_quat(),
     ));
 

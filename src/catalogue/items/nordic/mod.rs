@@ -34,7 +34,10 @@ pub mod fx;
 
 use bevy_symbios_texture::metal::MetalStyle;
 
-use crate::catalogue::items::util::{cylinder_tapered, id_quat, prim, solid, torus};
+use crate::catalogue::items::util::{
+    cone, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, glow, id_quat, prim, quat_y, quat_z,
+    solid, sphere, torus,
+};
 use crate::pds::{
     Fp, Fp3, Fp4, Fp64, Generator, SovereignAshlarConfig, SovereignCobblestoneConfig,
     SovereignFabricConfig, SovereignLogEndConfig, SovereignMaterialSettings, SovereignMetalConfig,
@@ -221,6 +224,10 @@ pub(super) const SHIELD_CREAM: [f32; 3] = [0.78, 0.72, 0.58];
 /// Warm firelight for the beacon brazier and hall hearth glow.
 pub(super) const FIRE_ORANGE: [f32; 3] = [1.0, 0.55, 0.18];
 
+/// Cold rune-blue glint worked into carved dragon eyes (mead-hall finials,
+/// longship prow/stern).
+pub(super) const DRAGON_EYE: [f32; 3] = [0.5, 0.7, 0.95];
+
 /// A round Norse shield — a painted woven disc with a rim ring and a
 /// proud iron boss — placed at `center` with rotation `tilt` (a single
 /// [`quat_x`](crate::catalogue::items::util::quat_x) of ±π/2 stands it
@@ -253,6 +260,114 @@ pub(super) fn round_shield(
         id_quat(),
     ));
     disc
+}
+
+/// A steep pitched gable roof — a triangular-prism ridge running the
+/// building's length (X), the Z span pinched to a thin ridge cap. `size` is
+/// `[length, rise, span]` measured at the eaves; place `center` at
+/// `[0, wall_top + rise * 0.5, 0]`. The single tapered block the Nordic
+/// halls used before pinched all four sides equally and read as a
+/// flat-topped *mound*; pinching only Z gives a real A-frame the gable
+/// triangles face `±X` and the long thatch slopes face `±Z`. Drop the node
+/// into an [`assemble`](crate::catalogue::items::util::assemble) list; add a
+/// ridge beam, bargeboards, and finials separately.
+pub(super) fn gable_roof(
+    size: [f32; 3],
+    center: [f32; 3],
+    mat: SovereignMaterialSettings,
+) -> Generator {
+    prim(
+        solid(cuboid_tapered_xz(size, [0.0, 0.94], mat)),
+        center,
+        id_quat(),
+    )
+}
+
+/// A rearing carved dragon / serpent head — the Norse signature finial.
+/// Built facing `+X` (snout forward) on a neck rising from `foot`, returned
+/// as one positioned subtree (the neck is its local root) so the whole head
+/// rides a single [`quat_y`](crate::catalogue::items::util::quat_y)`(yaw)`:
+/// `yaw = 0` faces `+X`, `yaw = PI` faces `-X`. `s` scales the head. Open
+/// jaws, ridged crest, and glinting eyes carry the beast read a plain block
+/// never did. Used on the longship's prow and stern and on the mead hall's
+/// crossed gable bargeboards. It is always a *child* subtree of an item
+/// (never the assemble root), so its rotation is safe.
+pub(super) fn dragon_head(
+    foot: [f32; 3],
+    s: f32,
+    yaw: f32,
+    body: [f32; 3],
+    eye: [f32; 3],
+) -> Generator {
+    // Neck — the subtree root, upright, carrying the yaw so head/jaw/crest/
+    // eyes all turn with it. Its centre sits half its height above the foot.
+    let mut neck = prim(
+        solid(cuboid_tapered(
+            [0.34 * s, 1.3 * s, 0.34 * s],
+            0.25,
+            timber(body),
+        )),
+        [foot[0], foot[1] + 0.65 * s, foot[2]],
+        quat_y(yaw),
+    );
+    // Everything below is in the neck's local frame (origin at the neck
+    // centre; the neck rises ±0.65·s in Y).
+    // Skull block, set forward of the neck top.
+    neck.children.push(prim(
+        solid(cuboid_tapered(
+            [0.5 * s, 0.46 * s, 0.42 * s],
+            0.12,
+            timber(body),
+        )),
+        [0.2 * s, 0.7 * s, 0.0],
+        id_quat(),
+    ));
+    // Upper snout — a tapered muzzle jutting forward.
+    neck.children.push(prim(
+        solid(cuboid_tapered(
+            [0.52 * s, 0.26 * s, 0.3 * s],
+            0.5,
+            timber(body),
+        )),
+        [0.55 * s, 0.74 * s, 0.0],
+        id_quat(),
+    ));
+    // Lower jaw, dropped open for a gaping mouth.
+    neck.children.push(prim(
+        solid(cuboid_tapered(
+            [0.42 * s, 0.15 * s, 0.26 * s],
+            0.4,
+            timber(body),
+        )),
+        [0.5 * s, 0.52 * s, 0.0],
+        quat_z(0.24),
+    ));
+    // Glinting deep-set eyes, one to each side of the skull.
+    for sz in [-1.0_f32, 1.0] {
+        neck.children.push(prim(
+            sphere(0.075 * s, 6, glow(eye, 2.0)),
+            [0.22 * s, 0.84 * s, sz * 0.19 * s],
+            id_quat(),
+        ));
+    }
+    // Two horns swept up-and-forward off the brow.
+    for sz in [-1.0_f32, 1.0] {
+        neck.children.push(prim(
+            cone(0.07 * s, 0.34 * s, 6, timber(body)),
+            [0.16 * s, 0.96 * s, sz * 0.13 * s],
+            quat_z(-0.3),
+        ));
+    }
+    // Ridged crest / mane spikes leaning back down the neck.
+    for (k, &cy) in [0.1_f32, 0.45, 0.78].iter().enumerate() {
+        let _ = k;
+        neck.children.push(prim(
+            cone(0.085 * s, 0.32 * s, 6, timber(body)),
+            [-0.16 * s, cy * s, 0.0],
+            quat_z(0.55),
+        ));
+    }
+    neck
 }
 
 #[cfg(test)]

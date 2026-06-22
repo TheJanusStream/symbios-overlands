@@ -1,9 +1,13 @@
 //! Rune stones — a Nordic secondary. A small cluster of weathered standing
-//! stones, the tallest carved with glyphs that hold a faint cold-blue
-//! glimmer; a memorial raised beside the steading. Dressed ashlar, each
-//! stone leaning a little off true.
+//! stones, the tallest carved on its shore-facing front with a glowing runic
+//! serpent ring and glyph columns; a memorial raised beside the steading.
+//! Dressed ashlar, each satellite stone leaning a little off true.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, glow, id_quat, prim, quat_y, solid};
+use std::f32::consts::FRAC_PI_2;
+
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, glow, id_quat, prim, quat_x, quat_y, solid, torus,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -23,7 +27,7 @@ impl CatalogueEntry for RuneStones {
         "Rune Stones"
     }
     fn description(&self) -> &'static str {
-        "Cluster of standing stones carved with faintly glowing runes."
+        "Cluster of standing stones carved with a faintly glowing runic serpent."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
@@ -47,33 +51,52 @@ impl CatalogueEntry for RuneStones {
 }
 
 fn build_tree() -> Generator {
+    let depth = 0.55_f32;
+    let zf = -(depth * 0.5 + 0.02); // carved face is the -Z (shore) hero front
+
     // Central memorial stone (root), the tallest, carved with runes. Kept
     // upright so the satellite stones don't inherit a root lean.
     let mut prims = vec![prim(
-        solid(cuboid_tapered([1.3, 4.0, 0.5], 0.18, stone(STONE_COLD))),
-        [0.0, 2.0, 0.0],
+        solid(cuboid_tapered([1.4, 4.2, depth], 0.16, stone(STONE_COLD))),
+        [0.0, 2.1, 0.0],
         id_quat(),
     )];
-    // Three carved rune bands down its front face.
+
+    // Glowing runic serpent ring on the front face (the Jelling-stone loop).
+    prims.push(prim(
+        torus(0.055, 0.52, glow(RUNE_GLOW, 1.9)),
+        [0.0, 2.5, zf],
+        quat_x(FRAC_PI_2),
+    ));
+    // Glyph column running down inside the ring.
     for k in 0..3 {
         prims.push(prim(
-            cuboid_tapered([0.7, 0.16, 0.06], 0.0, glow(RUNE_GLOW, 1.8)),
-            [0.0, 1.4 + k as f32 * 0.7, 0.27],
+            cuboid_tapered([0.16, 0.5, 0.05], 0.0, glow(RUNE_GLOW, 1.7)),
+            [0.0, 1.85 + k as f32 * 0.62, zf],
+            id_quat(),
+        ));
+    }
+    // Short flanking rune bands below the ring.
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            cuboid_tapered([0.22, 0.14, 0.05], 0.0, glow(RUNE_GLOW, 1.6)),
+            [sx * 0.42, 1.05, zf],
             id_quat(),
         ));
     }
 
-    // Satellite stones, shorter, each yawed off-axis around the centre.
+    // Satellite stones, shorter and boulder-rough, each yawed off-axis and
+    // strongly tapered to a weathered crown.
     let ring: [(f32, f32, f32, f32); 4] = [
         // (x, z, height, yaw)
-        (-1.8, 0.6, 2.8, 0.5),
-        (1.9, 0.3, 3.1, -0.4),
-        (-1.1, -1.7, 2.4, 1.1),
-        (1.4, -1.9, 2.6, -0.9),
+        (-1.9, 0.7, 2.7, 0.5),
+        (2.0, 0.4, 3.0, -0.4),
+        (-1.2, -1.7, 2.3, 1.1),
+        (1.5, -1.9, 2.5, -0.9),
     ];
     for (x, z, h, yaw) in ring {
         prims.push(prim(
-            solid(cuboid_tapered([0.9, h, 0.4], 0.2, stone(STONE_GREY))),
+            solid(cuboid_tapered([0.95, h, 0.5], 0.38, stone(STONE_GREY))),
             [x, h * 0.5, z],
             quat_y(yaw),
         ));
