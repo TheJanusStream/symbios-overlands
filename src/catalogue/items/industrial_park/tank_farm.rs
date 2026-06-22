@@ -2,14 +2,24 @@
 //! storage tanks inside a low concrete containment bund, linked by pipework
 //! and a riser, one relief stack hissing steam.
 
+use std::f32::consts::FRAC_PI_2;
+
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, id_quat, prim, solid, torus,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, prim_scaled, quat_z, solid, sphere,
+    with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{CONCRETE_GREY, PIPE_GREY, TANK_WHITE, concrete, fx, tank_steel};
+use super::{
+    CONCRETE_GREY, LAMP_AMBER, PIPE_GREY, TANK_WHITE, concrete, fx, gauge_plate, tank_hoops,
+    tank_steel, valve_wheel,
+};
+
+/// A pale-blue and a cream tank break the monochrome white cluster.
+const TANK_CREAM: [f32; 3] = [0.78, 0.74, 0.62];
+const TANK_BLUE: [f32; 3] = [0.50, 0.58, 0.64];
 
 pub struct TankFarm;
 
@@ -84,57 +94,96 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Storage tanks: (x, z, radius, height).
+    // Storage tanks: (x, z, radius, height, livery).
+    let base = 0.4_f32;
     let tanks = [
-        (-3.0_f32, 1.5_f32, 2.2_f32, 6.0_f32),
-        (3.2, -1.0, 2.6, 7.0),
-        (0.5, -3.5, 1.6, 5.0),
+        (-3.0_f32, 1.5_f32, 2.2_f32, 6.0_f32, TANK_WHITE),
+        (3.2, -1.0, 2.6, 7.0, TANK_CREAM),
+        (0.5, -3.5, 1.6, 5.0, TANK_BLUE),
     ];
-    for (tx, tz, r, h) in tanks {
+    for (tx, tz, r, h, color) in tanks {
+        // Cylindrical shell.
         prims.push(prim(
-            solid(cylinder_tapered(r, h, 20, 0.0, tank_steel(TANK_WHITE))),
-            [tx, 0.4 + h * 0.5, tz],
+            solid(cylinder_tapered(r, h, 20, 0.0, tank_steel(color))),
+            [tx, base + h * 0.5, tz],
             id_quat(),
         ));
-        prims.push(prim(
-            solid(cone(r + 0.1, r * 0.5, 20, tank_steel([0.66, 0.66, 0.64]))),
-            [tx, 0.4 + h + r * 0.25, tz],
+        // Dished (domed) roof — a flattened upper hemisphere, not a sharp cone.
+        let cap = [color[0] * 0.9, color[1] * 0.9, color[2] * 0.9];
+        prims.push(prim_scaled(
+            with_cut(
+                sphere(r * 0.99, 6, tank_steel(cap)),
+                [0.0, 1.0],
+                [0.5, 1.0],
+                0.0,
+            ),
+            [tx, base + h, tz],
             id_quat(),
+            [1.0, 0.5, 1.0],
         ));
-        // Hoop bands.
-        for k in 1..3 {
-            prims.push(prim(
-                cuboid_tapered(
-                    [r * 2.0 + 0.06, 0.12, r * 2.0 + 0.06],
-                    0.0,
-                    tank_steel(PIPE_GREY),
-                ),
-                [tx, 0.4 + h * (k as f32 / 3.0), tz],
-                id_quat(),
-            ));
-        }
+        // Round hoop bands (no more square corners jutting past the wall).
+        prims.extend(tank_hoops(tx, tz, base, r, h, 2, tank_steel(PIPE_GREY)));
     }
 
-    // Pipework linking the tank bases, with a valve wheel.
+    // Access ladder up the -Z face of the big cream tank (centre x=3.2, the
+    // tank's -Z wall sits at z = -1.0 - 2.6 = -3.6).
+    let rail = tank_steel([0.3, 0.3, 0.32]);
+    let lh = 7.0_f32;
+    for sx in [-0.22_f32, 0.22] {
+        prims.push(prim(
+            solid(cylinder_tapered(0.04, lh, 6, 0.0, rail.clone())),
+            [3.2 + sx, base + lh * 0.5, -3.62],
+            id_quat(),
+        ));
+    }
+    for k in 0..8 {
+        prims.push(prim(
+            solid(cuboid_tapered([0.5, 0.05, 0.05], 0.0, rail.clone())),
+            [3.2, base + 0.6 + k as f32 * 0.8, -3.62],
+            id_quat(),
+        ));
+    }
+
+    // Pipe manifold linking the tank bases, with a spoked hand-wheel valve and
+    // an elbow riser stepping up off it.
     prims.push(prim(
-        solid(cuboid_tapered([6.4, 0.3, 0.3], 0.0, tank_steel(PIPE_GREY))),
-        [0.0, 0.9, 1.0],
+        solid(cylinder_tapered(0.18, 6.6, 12, 0.0, tank_steel(PIPE_GREY))),
+        [0.1, 0.95, 1.0],
+        quat_z(FRAC_PI_2),
+    ));
+    prims.push(valve_wheel(
+        [0.1, 1.55, 1.0],
+        id_quat(),
+        0.42,
+        tank_steel([0.66, 0.46, 0.2]),
+    ));
+    // Elbow: a short vertical leg up off the header into the cream tank.
+    prims.push(prim(
+        solid(cylinder_tapered(0.16, 1.2, 12, 0.0, tank_steel(PIPE_GREY))),
+        [2.0, 1.5, 1.0],
         id_quat(),
     ));
     prims.push(prim(
-        torus(0.06, 0.3, tank_steel([0.7, 0.5, 0.2])),
-        [0.0, 1.3, 1.0],
-        id_quat(),
+        solid(cylinder_tapered(0.16, 1.3, 12, 0.0, tank_steel(PIPE_GREY))),
+        [2.6, 2.0, 1.0],
+        quat_z(FRAC_PI_2),
+    ));
+
+    // Lit control gauge on the bund's -Z front face — flat, so it reads.
+    prims.extend(gauge_plate(
+        [0.0, 1.1, -(pad - 1.0) * 0.5 - 0.04],
+        0.5,
+        LAMP_AMBER,
     ));
 
     // Relief stack hissing steam.
     let relief = [4.4_f32, -3.5_f32];
     prims.push(prim(
         solid(cylinder_tapered(0.18, 3.0, 10, 0.0, tank_steel(PIPE_GREY))),
-        [relief[0], 0.4 + 1.5, relief[1]],
+        [relief[0], base + 1.5, relief[1]],
         id_quat(),
     ));
-    let mut hiss = fx::stack_vent([relief[0], 0.4 + 3.2, relief[1]], 0x57EA_DEE0);
+    let mut hiss = fx::stack_vent([relief[0], base + 3.2, relief[1]], 0x57EA_DEE0);
     hiss.audio = fx::steam_hiss();
     prims.push(hiss);
 

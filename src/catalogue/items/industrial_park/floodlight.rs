@@ -2,14 +2,15 @@
 //! carrying a bank of four glaring floodlight heads on a crossbar, lighting
 //! the yard. Its emissive lamps are the trim escalation's ruin pass kills.
 
-use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, solid,
-};
+use crate::catalogue::items::util::{assemble, cuboid_tapered, glow, id_quat, prim, quat_x, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{CONCRETE_GREY, FLOOD_WHITE, PIPE_GREY, concrete, tank_steel};
+use super::{
+    CONCRETE_GREY, FLOOD_WHITE, LAMP_AMBER, PIPE_GREY, concrete, gauge_plate, lattice_mast,
+    tank_steel,
+};
 
 pub struct Floodlight;
 
@@ -45,60 +46,76 @@ impl CatalogueEntry for Floodlight {
 }
 
 fn build_tree() -> Generator {
-    let mast_h = 6.5;
+    let base_y = 0.45;
+    let mast_h = 6.6;
+    let top = base_y + mast_h;
 
     let mut prims = vec![
-        // Concrete footing — the root.
+        // Cast concrete footing — the root (flat, id_quat).
         prim(
             solid(cuboid_tapered(
-                [0.8, 0.4, 0.8],
-                0.1,
+                [1.5, base_y, 1.5],
+                0.08,
                 concrete(CONCRETE_GREY),
             )),
-            [0.0, 0.2, 0.0],
-            id_quat(),
-        ),
-        // Steel mast.
-        prim(
-            solid(cylinder_tapered(
-                0.16,
-                mast_h,
-                8,
-                0.2,
-                tank_steel(PIPE_GREY),
-            )),
-            [0.0, mast_h * 0.5, 0.0],
-            id_quat(),
-        ),
-        // Crossbar.
-        prim(
-            solid(cuboid_tapered(
-                [2.8, 0.16, 0.16],
-                0.0,
-                tank_steel(PIPE_GREY),
-            )),
-            [0.0, mast_h, 0.0],
+            [0.0, base_y * 0.5, 0.0],
             id_quat(),
         ),
     ];
 
-    // Four floodlight heads, tilted down to light the yard.
-    for hx in [-1.05_f32, -0.35, 0.35, 1.05] {
-        prims.push(prim(
+    // Braced steel lattice mast — plant steelwork, not a lamppost.
+    prims.extend(lattice_mast(base_y, mast_h, 0.5, tank_steel(PIPE_GREY)));
+
+    // Crossbar carrying the lamp bank.
+    prims.push(prim(
+        solid(cuboid_tapered([3.0, 0.2, 0.32], 0.0, tank_steel(PIPE_GREY))),
+        [0.0, top + 0.12, 0.0],
+        id_quat(),
+    ));
+
+    // Four floodlight heads, aimed down at the -Z yard — glare on the hero
+    // front. Each is a rigid subtree (housing root + lens + hood children) so
+    // the down-tilt keeps the lens and visor aligned to the housing.
+    for hx in [-1.15_f32, -0.4, 0.4, 1.15] {
+        let mut head = prim(
             solid(cuboid_tapered(
-                [0.5, 0.4, 0.35],
+                [0.52, 0.42, 0.42],
                 0.0,
-                tank_steel([0.25, 0.25, 0.27]),
+                tank_steel([0.2, 0.2, 0.22]),
             )),
-            [hx, mast_h - 0.3, 0.0],
-            quat_x(0.4),
+            [hx, top + 0.22, -0.12],
+            quat_x(-0.42),
+        );
+        // Bright lit lens on the -Z (front) face.
+        head.children.push(prim(
+            cuboid_tapered([0.46, 0.34, 0.05], 0.0, glow(FLOOD_WHITE, 5.0)),
+            [0.0, 0.0, -0.23],
+            id_quat(),
         ));
-        prims.push(prim(
-            cuboid_tapered([0.42, 0.32, 0.08], 0.0, glow(FLOOD_WHITE, 5.0)),
-            [hx, mast_h - 0.35, 0.18],
-            quat_x(0.4),
+        // Reflector hood shading the lens from above.
+        head.children.push(prim(
+            solid(cuboid_tapered(
+                [0.58, 0.06, 0.26],
+                0.0,
+                tank_steel([0.15, 0.15, 0.17]),
+            )),
+            [0.0, 0.24, -0.16],
+            id_quat(),
         ));
+        prims.push(head);
     }
+
+    // Control / junction box on the mast foot with a lit indicator.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [0.6, 0.9, 0.4],
+            0.0,
+            tank_steel([0.28, 0.3, 0.32]),
+        )),
+        [0.55, base_y + 0.6, -0.5],
+        id_quat(),
+    ));
+    prims.extend(gauge_plate([0.55, base_y + 0.75, -0.72], 0.18, LAMP_AMBER));
 
     assemble(prims)
 }

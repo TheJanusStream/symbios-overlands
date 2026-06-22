@@ -4,17 +4,22 @@
 //! machine hum. It anchors the estate and reads as the plant across the home
 //! region.
 
+use std::f32::consts::FRAC_PI_2;
+
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, solid,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, tube,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
 use super::{
-    BRICK_DARK, CONCRETE_GREY, PIPE_GREY, STEEL_BLUE, WINDOW_LIT, brick, cladding, concrete, fx,
-    glass, tank_steel,
+    BRICK_DARK, CONCRETE_GREY, LAMP_AMBER, PIPE_GREY, STEEL_BLUE, WINDOW_LIT, brick, cladding,
+    concrete, fx, glass, tank_steel,
 };
+
+/// Ochre process pipework on the external gantry.
+const PIPE_OCHRE: [f32; 3] = [0.62, 0.5, 0.2];
 
 pub struct Factory;
 
@@ -56,7 +61,8 @@ fn build_tree() -> Generator {
     let brick_h = 1.5;
     let clad_h = 6.5;
     let wall_top = apron_h + brick_h + clad_h;
-    let front = w * 0.5;
+    // Hero face on -Z (the render front): loading bays, lit windows, sign.
+    let front = -w * 0.5;
 
     let mut prims = vec![
         // Concrete apron — the root.
@@ -101,18 +107,27 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Three loading bays on the front.
+    // Three roller loading bays on the -Z hero front (proud, toward camera).
     for bx in [-6.0_f32, 0.0, 6.0] {
         prims.push(prim(
-            cuboid_tapered([3.2, 4.0, 0.2], 0.0, cladding([0.5, 0.52, 0.54])),
-            [bx, apron_h + 2.0, front],
+            cuboid_tapered([3.2, 4.0, 0.2], 0.0, cladding([0.48, 0.5, 0.52])),
+            [bx, apron_h + 2.0, front - 0.1],
             id_quat(),
         ));
+        // Door track ribs so the bays read as roller shutters.
+        for r in 0..4 {
+            prims.push(prim(
+                cuboid_tapered([3.0, 0.06, 0.06], 0.0, tank_steel([0.3, 0.32, 0.34])),
+                [bx, apron_h + 0.8 + r as f32 * 0.9, front - 0.22],
+                id_quat(),
+            ));
+        }
     }
-    // Lit window band above the bays — the emissive trim.
+    // Warm lit window band above the bays — deep-amber so it reads as a plant
+    // lit at dusk, not a washed near-white panel.
     prims.push(prim(
-        cuboid_tapered([l - 2.0, 1.5, 0.2], 0.0, glass(WINDOW_LIT, 2.5)),
-        [0.0, apron_h + brick_h + 4.0, front],
+        cuboid_tapered([l - 2.0, 1.5, 0.25], 0.0, glass(LAMP_AMBER, 2.4)),
+        [0.0, apron_h + brick_h + 4.0, front - 0.14],
         id_quat(),
     ));
     // Sign band.
@@ -122,13 +137,52 @@ fn build_tree() -> Generator {
             0.0,
             tank_steel([0.7, 0.72, 0.74]),
         )),
-        [0.0, wall_top - 0.5, front + 0.1],
+        [0.0, wall_top - 0.5, front - 0.18],
         id_quat(),
     ));
 
+    // External pipe gantry climbing the +X gable end — process pipes feeding
+    // the plant, the unmistakable works detail.
+    let gx = l * 0.5 + 0.4;
+    for pz in [-3.6_f32, 0.0, 3.6] {
+        prims.push(prim(
+            solid(cylinder_tapered(0.16, 5.4, 8, 0.0, tank_steel(PIPE_GREY))),
+            [gx, apron_h + 2.7, pz],
+            id_quat(),
+        ));
+    }
+    for (py, color) in [(3.4_f32, PIPE_OCHRE), (4.2, PIPE_GREY)] {
+        prims.push(prim(
+            solid(cylinder_tapered(0.2, w - 0.5, 12, 0.0, tank_steel(color))),
+            [gx, py, 0.0],
+            quat_x(FRAC_PI_2),
+        ));
+    }
+    // Riser elbow turning up the wall onto the roof.
+    prims.push(prim(
+        solid(cylinder_tapered(
+            0.2,
+            wall_top - 3.0,
+            12,
+            0.0,
+            tank_steel(PIPE_OCHRE),
+        )),
+        [gx - 0.3, wall_top - 1.2, 3.6],
+        id_quat(),
+    ));
+
+    // Roof vents / extract ducting on the monitor.
+    for vx in [-4.5_f32, 4.5] {
+        prims.push(prim(
+            solid(tube(0.42, 0.3, 1.6, 14, tank_steel(PIPE_GREY))),
+            [vx, wall_top + 2.5 + 0.8, 1.0],
+            id_quat(),
+        ));
+    }
+
     // Tall brick smokestack at the back corner.
     let stack_x = -l * 0.5 + 2.0;
-    let stack_z = -w * 0.5 + 2.0;
+    let stack_z = w * 0.5 - 2.0;
     let stack_h = 17.0;
     prims.push(prim(
         solid(cylinder_tapered(1.3, stack_h, 16, 0.18, brick(BRICK_DARK))),

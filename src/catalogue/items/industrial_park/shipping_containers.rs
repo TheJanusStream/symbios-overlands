@@ -1,9 +1,14 @@
 //! Shipping containers — an Industrial-Park prop. A few corrugated steel
-//! intermodal containers stacked and offset, in mismatched faded liveries.
+//! intermodal containers stacked and offset, in mismatched faded liveries,
+//! with cast corner blocks and locking-rod door ends.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, solid};
+use std::f32::consts::FRAC_PI_2;
+
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_y, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
-use crate::pds::Generator;
+use crate::pds::{Fp4, Generator};
 use crate::seeded_defaults::ThemeArchetype;
 
 use super::{CONTAINER_BLUE, CONTAINER_GREEN, CONTAINER_RED, CONTAINER_RUST, cladding, tank_steel};
@@ -45,34 +50,85 @@ fn build_tree() -> Generator {
     let cw = 6.0_f32;
     let ch = 2.6_f32;
     let cd = 2.5_f32;
+    let cast = tank_steel([0.16, 0.16, 0.17]);
 
-    // One container = a corrugated box with a steel door end and corner
-    // castings.
-    let container = |pos: [f32; 3], color: [f32; 3]| -> Vec<Generator> {
-        let mut v = vec![prim(
+    // One container = a corrugated box with cast corner blocks, a locking-rod
+    // door end on +X, and roof ribs. Returned as a rigid subtree so a yawed
+    // copy keeps its detail aligned.
+    let container = move |pos: [f32; 3], rot: Fp4, color: [f32; 3]| -> Generator {
+        let mut c = prim(
             solid(cuboid_tapered([cw, ch, cd], 0.0, cladding(color))),
             pos,
-            id_quat(),
-        )];
-        // Door-end vertical bars.
-        for bx in [-0.4_f32, 0.4] {
-            v.push(prim(
-                cuboid_tapered([0.12, ch - 0.2, 0.1], 0.0, tank_steel([0.3, 0.3, 0.32])),
-                [pos[0] + cw * 0.5, pos[1], pos[2] + bx],
+            rot,
+        );
+        // Eight cast corner blocks (the ISO signature).
+        for sx in [-1.0_f32, 1.0] {
+            for sy in [-1.0_f32, 1.0] {
+                for sz in [-1.0_f32, 1.0] {
+                    c.children.push(prim(
+                        solid(cuboid_tapered([0.34, 0.34, 0.34], 0.0, cast.clone())),
+                        [
+                            sx * (cw * 0.5 - 0.15),
+                            sy * (ch * 0.5 - 0.15),
+                            sz * (cd * 0.5 - 0.15),
+                        ],
+                        id_quat(),
+                    ));
+                }
+            }
+        }
+        // Door end on +X: two recessed leaves, four vertical locking rods, and
+        // a pair of handles.
+        let xe = cw * 0.5 + 0.04;
+        let door = [color[0] * 0.85, color[1] * 0.85, color[2] * 0.85];
+        for dz in [-0.6_f32, 0.6] {
+            c.children.push(prim(
+                cuboid_tapered([0.05, ch - 0.4, cd * 0.44], 0.0, tank_steel(door)),
+                [xe, 0.0, dz],
                 id_quat(),
             ));
         }
-        v
+        for dz in [-0.92_f32, -0.32, 0.32, 0.92] {
+            c.children.push(prim(
+                solid(cylinder_tapered(
+                    0.05,
+                    ch - 0.5,
+                    6,
+                    0.0,
+                    tank_steel([0.32, 0.32, 0.34]),
+                )),
+                [xe + 0.06, 0.0, dz],
+                id_quat(),
+            ));
+        }
+        for dz in [-0.32_f32, 0.32] {
+            c.children.push(prim(
+                cuboid_tapered([0.1, 0.28, 0.06], 0.0, tank_steel([0.32, 0.32, 0.34])),
+                [xe + 0.12, 0.1, dz],
+                id_quat(),
+            ));
+        }
+        // Raised roof ribs.
+        for rx in [-1.7_f32, 0.0, 1.7] {
+            c.children.push(prim(
+                cuboid_tapered([0.12, 0.08, cd - 0.4], 0.0, cladding(door)),
+                [rx, ch * 0.5 + 0.02, 0.0],
+                id_quat(),
+            ));
+        }
+        c
     };
 
-    let mut prims = Vec::new();
-    // Bottom row: two containers side by side.
-    prims.extend(container([0.0, ch * 0.5, -1.35], CONTAINER_RED));
-    prims.extend(container([0.0, ch * 0.5, 1.35], CONTAINER_BLUE));
-    // Top: one offset container.
-    prims.extend(container([0.6, ch * 1.5, -0.6], CONTAINER_GREEN));
-    // A single end one set apart.
-    prims.extend(container([-0.5, ch * 0.5, 4.0], CONTAINER_RUST));
+    // Bottom row (the first container is the root) + an offset top one.
+    let mut prims = vec![container([0.0, ch * 0.5, -1.35], id_quat(), CONTAINER_RED)];
+    prims.push(container([0.0, ch * 0.5, 1.35], id_quat(), CONTAINER_BLUE));
+    prims.push(container([0.6, ch * 1.5, -0.6], id_quat(), CONTAINER_GREEN));
+    // A lone container set apart, yawed so its door end faces the -Z front.
+    prims.push(container(
+        [-3.6, ch * 0.5, 3.4],
+        quat_y(FRAC_PI_2),
+        CONTAINER_RUST,
+    ));
 
     assemble(prims)
 }

@@ -4,13 +4,13 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, torus,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_z, solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{PIPE_GREY, tank_steel};
+use super::{PIPE_GREY, tank_steel, valve_wheel};
 
 /// Painted pipe liveries.
 const PIPE_YELLOW: [f32; 3] = [0.72, 0.60, 0.18];
@@ -81,7 +81,7 @@ fn build_tree() -> Generator {
     let mut prims = trestle(-span * 0.4);
     prims.extend(trestle(span * 0.4));
 
-    // Three pipes running along Z on the trestles.
+    // Three pipes running along Z on the trestles, with bolt flanges.
     let pipes = [
         (-0.5_f32, 1.6_f32, 0.22_f32, PIPE_YELLOW),
         (0.0, 2.1, 0.26, PIPE_GREY),
@@ -93,18 +93,37 @@ fn build_tree() -> Generator {
             [x, y, 0.0],
             quat_x(FRAC_PI_2),
         ));
+        for fz in [-span * 0.3, span * 0.3] {
+            prims.push(prim(
+                torus(0.05, r + 0.05, tank_steel([0.36, 0.37, 0.39])),
+                [x, y, fz],
+                quat_x(FRAC_PI_2),
+            ));
+        }
     }
 
-    // Riser elbow off the middle pipe with a hand-wheel valve.
+    // Riser teeing off the middle pipe: a vertical leg, a 90° elbow bend, a
+    // short horizontal run, and a spoked hand-wheel valve facing the front.
     prims.push(prim(
-        solid(cylinder_tapered(0.24, 1.4, 12, 0.0, tank_steel(PIPE_GREY))),
-        [0.0, 2.8, 1.5],
+        solid(cylinder_tapered(0.22, 1.6, 12, 0.0, tank_steel(PIPE_GREY))),
+        [0.0, 2.9, 1.4],
         id_quat(),
     ));
     prims.push(prim(
-        torus(0.06, 0.32, tank_steel([0.7, 0.2, 0.16])),
-        [0.0, 3.5, 1.5],
+        solid(sphere(0.26, 6, tank_steel(PIPE_GREY))),
+        [0.0, 3.65, 1.4],
         id_quat(),
+    ));
+    prims.push(prim(
+        solid(cylinder_tapered(0.22, 1.5, 12, 0.0, tank_steel(PIPE_GREY))),
+        [0.75, 3.65, 1.4],
+        quat_z(FRAC_PI_2),
+    ));
+    prims.push(valve_wheel(
+        [1.5, 3.65, 1.4],
+        quat_x(FRAC_PI_2),
+        0.38,
+        tank_steel([0.66, 0.2, 0.16]),
     ));
 
     assemble(prims)

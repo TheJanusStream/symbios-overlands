@@ -29,12 +29,17 @@ pub mod scrap_heap;
 
 pub mod fx;
 
+use std::f32::consts::PI;
+
 use bevy_symbios_texture::metal::MetalStyle;
 
+use crate::catalogue::items::util::{
+    cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_mul, quat_x, quat_z, solid, torus,
+};
 use crate::pds::{
-    Fp, Fp3, Fp64, SovereignBrickConfig, SovereignConcreteConfig, SovereignCorrugatedConfig,
-    SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignTextureConfig,
-    SovereignWindowConfig,
+    Fp, Fp3, Fp4, Fp64, Generator, SovereignBrickConfig, SovereignConcreteConfig,
+    SovereignCorrugatedConfig, SovereignMaterialSettings, SovereignMetalConfig,
+    SovereignPlankConfig, SovereignTextureConfig, SovereignWindowConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -183,6 +188,172 @@ pub(super) fn rust(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Shared industrial construction helpers
+// ---------------------------------------------------------------------------
+
+/// Round hoop bands wrapping a cylindrical tank. The kit used square cuboid
+/// rings whose corners jut ≈40 % past the tank wall (a box of half-extent `r`
+/// reaches `r·√2` at the corner); a `torus` rides the shaft cleanly. `n`
+/// bands sit evenly up `h`, each a hair proud of `r` so it never z-fights the
+/// wall.
+pub(super) fn tank_hoops(
+    cx: f32,
+    cz: f32,
+    base_y: f32,
+    r: f32,
+    h: f32,
+    n: u32,
+    mat: SovereignMaterialSettings,
+) -> Vec<Generator> {
+    (1..=n)
+        .map(|k| {
+            let f = k as f32 / (n as f32 + 1.0);
+            prim(
+                torus(0.07, r + 0.05, mat.clone()),
+                [cx, base_y + h * f, cz],
+                id_quat(),
+            )
+        })
+        .collect()
+}
+
+/// A spoked hand-wheel valve — an outer rim `torus`, a stubby hub axle, and
+/// three diameter spoke bars crossing it. Authored flat in its local XZ plane
+/// (axle along Y); `rot` stands it up (`quat_x(FRAC_PI_2)` faces it ±Z on a
+/// riser). One positioned subtree → drop into an [`assemble`] list (the spokes
+/// ride its rotation, so the rotated-root rule never applies). A bare `torus`
+/// reads as a washer; the spokes make it a wheel.
+pub(super) fn valve_wheel(
+    center: [f32; 3],
+    rot: Fp4,
+    radius: f32,
+    mat: SovereignMaterialSettings,
+) -> Generator {
+    use crate::catalogue::items::util::quat_y;
+    let mut wheel = prim(torus(radius * 0.13, radius, mat.clone()), center, rot);
+    // Stubby hub axle along the wheel axis.
+    wheel.children.push(prim(
+        solid(cylinder_tapered(
+            radius * 0.24,
+            radius * 0.5,
+            12,
+            0.0,
+            mat.clone(),
+        )),
+        [0.0, 0.0, 0.0],
+        id_quat(),
+    ));
+    // Three diameter spokes in the wheel plane.
+    for i in 0..3 {
+        let a = i as f32 / 3.0 * PI;
+        wheel.children.push(prim(
+            cuboid_tapered(
+                [radius * 1.94, radius * 0.09, radius * 0.09],
+                0.0,
+                mat.clone(),
+            ),
+            [0.0, 0.0, 0.0],
+            quat_y(a),
+        ));
+    }
+    wheel
+}
+
+/// A braced steel lattice mast — four corner legs leaning slightly inward as
+/// they rise, ringed by horizontal bands and crossed by zig-zag diagonals on
+/// every face. Returns the pieces for an [`assemble`] list; none is the root,
+/// so the lean is safe. `base_y` is the foot, `h` the height, `half` the
+/// half-width at the foot. A plain pole reads as a lamppost; the lattice reads
+/// as plant steelwork.
+pub(super) fn lattice_mast(
+    base_y: f32,
+    h: f32,
+    half: f32,
+    mat: SovereignMaterialSettings,
+) -> Vec<Generator> {
+    let lean = 0.05;
+    let mut v = Vec::new();
+    // Four corner legs, leaning inward.
+    for (sx, sz) in [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+        v.push(prim(
+            solid(cylinder_tapered(0.1, h, 8, 0.16, mat.clone())),
+            [sx * half, base_y + h * 0.5, sz * half],
+            quat_mul(quat_z(-sx * lean), quat_x(sz * lean)),
+        ));
+    }
+    // Legs taper inward, so width shrinks with height.
+    let width_at = |f: f32| half * (1.0 - 0.16 * f);
+    let ring = |yy: f32, ww: f32, mat: &SovereignMaterialSettings| -> Vec<Generator> {
+        [
+            (0.0, -ww, 2.0 * ww, 0.07_f32),
+            (0.0, ww, 2.0 * ww, 0.07),
+            (-ww, 0.0, 0.07, 2.0 * ww),
+            (ww, 0.0, 0.07, 2.0 * ww),
+        ]
+        .into_iter()
+        .map(|(ax, az, lx, lz)| {
+            prim(
+                cuboid_tapered([lx, 0.07, lz], 0.0, mat.clone()),
+                [ax, yy, az],
+                id_quat(),
+            )
+        })
+        .collect()
+    };
+    let segs = 3;
+    for s in 0..segs {
+        let f0 = s as f32 / segs as f32;
+        let f1 = (s + 1) as f32 / segs as f32;
+        let (y0, y1) = (base_y + h * f0, base_y + h * f1);
+        let ym = (y0 + y1) * 0.5;
+        let wm = width_at((f0 + f1) * 0.5);
+        if s == 0 {
+            v.extend(ring(y0, width_at(f0), &mat));
+        }
+        v.extend(ring(y1, width_at(f1), &mat));
+        // One diagonal per face, alternating direction per segment (zig-zag).
+        let dir = if s % 2 == 0 { 1.0 } else { -1.0 };
+        let diag_len = (4.0 * wm * wm + (y1 - y0) * (y1 - y0)).sqrt();
+        let ang = (2.0 * wm).atan2(y1 - y0);
+        for sgn in [-1.0_f32, 1.0] {
+            // Front/back faces (Z-normal): lean in the XY plane.
+            v.push(prim(
+                cuboid_tapered([0.06, diag_len, 0.06], 0.0, mat.clone()),
+                [0.0, ym, sgn * wm],
+                quat_z(dir * ang),
+            ));
+            // Left/right faces (X-normal): lean in the YZ plane.
+            v.push(prim(
+                cuboid_tapered([0.06, diag_len, 0.06], 0.0, mat.clone()),
+                [sgn * wm, ym, 0.0],
+                quat_x(dir * ang),
+            ));
+        }
+    }
+    v
+}
+
+/// A flat lit dial/gauge on a dark backing plate. Emissive reads on a flat
+/// face and goes dark on a curved one (a disc flush on a domed tank head
+/// z-fights the curve), so mount gauges as this proud plate. Authored facing
+/// `-Z` (the render hero front): the lit face stands proud toward the camera.
+pub(super) fn gauge_plate(center: [f32; 3], size: f32, lit: [f32; 3]) -> Vec<Generator> {
+    let [x, y, z] = center;
+    vec![
+        prim(
+            cuboid_tapered([size, size, 0.06], 0.0, tank_steel([0.14, 0.14, 0.16])),
+            [x, y, z],
+            id_quat(),
+        ),
+        prim(
+            cuboid_tapered([size * 0.66, size * 0.66, 0.04], 0.0, glow(lit, 2.6)),
+            [x, y, z - 0.05],
+            id_quat(),
+        ),
+    ]
+}
+
 // Steel + concrete palette.
 pub(super) const STEEL_BLUE: [f32; 3] = [0.42, 0.46, 0.50];
 pub(super) const CONCRETE_GREY: [f32; 3] = [0.55, 0.55, 0.56];
@@ -200,6 +371,10 @@ pub(super) const CONTAINER_RUST: [f32; 3] = [0.50, 0.34, 0.20];
 // Emissive trim.
 pub(super) const FLOOD_WHITE: [f32; 3] = [1.0, 0.96, 0.85];
 pub(super) const WINDOW_LIT: [f32; 3] = [0.85, 0.86, 0.70];
+/// Warm sodium-vapour glow — lit factory windows at dusk, dock lamps, the
+/// control gauge. Deep-saturated amber so a broad lit pane reads incandescent
+/// rather than blooming to a washed near-white.
+pub(super) const LAMP_AMBER: [f32; 3] = [1.0, 0.66, 0.26];
 
 #[cfg(test)]
 mod tests {

@@ -2,9 +2,9 @@
 //! hyperboloid shell billowing a fat white steam plume, hissing softly at the
 //! rim. The unmistakable silhouette of a power or process plant.
 
-use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, solid,
-};
+use std::f32::consts::TAU;
+
+use crate::catalogue::items::util::{assemble, cylinder_tapered, id_quat, prim, solid, torus};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -45,47 +45,67 @@ impl CatalogueEntry for CoolingTower {
 }
 
 fn build_tree() -> Generator {
-    let base_h = 0.6;
+    let conc = || concrete(CONCRETE_GREY);
+    let base_h = 0.5;
+    let inlet_h = 1.9;
 
     let mut prims = vec![
-        // Concrete base ring — the root.
+        // Ground ring — the flat root.
         prim(
-            solid(cylinder_tapered(
-                4.6,
-                base_h,
-                24,
-                0.0,
-                concrete(CONCRETE_GREY),
-            )),
+            solid(cylinder_tapered(4.6, base_h, 28, 0.0, conc())),
             [0.0, base_h * 0.5, 0.0],
             id_quat(),
         ),
     ];
 
-    // Hyperboloid shell approximated by stacked straight rings whose radii
-    // pinch to a waist then flare to the rim.
-    let radii = [4.2_f32, 3.5, 3.05, 2.9, 3.0, 3.4, 3.9];
-    let seg_h = 2.4_f32;
-    let mut y = base_h;
-    for r in radii {
+    // Inlet colonnade: the cooling tower's signature open ring of columns,
+    // lifting the shell off the apron so air can draw up through it.
+    let col_r = 3.95;
+    let ncol = 22;
+    for i in 0..ncol {
+        let a = i as f32 / ncol as f32 * TAU;
         prims.push(prim(
-            solid(cylinder_tapered(
-                r,
-                seg_h + 0.1,
-                24,
-                0.0,
-                concrete(CONCRETE_GREY),
-            )),
-            [0.0, y + seg_h * 0.5, 0.0],
+            solid(cylinder_tapered(0.17, inlet_h, 6, 0.0, conc())),
+            [a.cos() * col_r, base_h + inlet_h * 0.5, a.sin() * col_r],
             id_quat(),
         ));
-        y += seg_h;
     }
-    let rim = y;
-    // Thin rim lip.
+    // Ring beam capping the colonnade.
+    let y0 = base_h + inlet_h;
     prims.push(prim(
-        cuboid_tapered([8.0, 0.3, 8.0], 0.0, concrete([0.5, 0.5, 0.51])),
+        solid(torus(0.24, col_r, conc())),
+        [0.0, y0, 0.0],
+        id_quat(),
+    ));
+
+    // Hyperboloid shell — many thin rings on a smooth waisted profile (the
+    // old build used seven fat steps that read as a stack of cans).
+    let rings = 15;
+    let shell_h = 15.5_f32;
+    let seg = shell_h / rings as f32;
+    let waist = 2.8_f32;
+    let mut rim_r = 0.0;
+    for i in 0..rings {
+        let t = i as f32 / (rings - 1) as f32;
+        let d = (t - 0.5) / 0.52;
+        let r = waist * (1.0 + d * d).sqrt() * (1.0 + 0.1 * (1.0 - t));
+        rim_r = r;
+        prims.push(prim(
+            solid(cylinder_tapered(r, seg + 0.06, 28, 0.0, conc())),
+            [0.0, y0 + seg * (i as f32 + 0.5), 0.0],
+            id_quat(),
+        ));
+    }
+    let rim = y0 + shell_h;
+    // Rim cornice, and the dark throat seen down the open top.
+    prims.push(prim(
+        solid(torus(0.3, rim_r, concrete([0.5, 0.5, 0.51]))),
         [0.0, rim, 0.0],
+        id_quat(),
+    ));
+    prims.push(prim(
+        cylinder_tapered(rim_r - 0.35, 0.3, 28, 0.0, concrete([0.09, 0.09, 0.10])),
+        [0.0, rim - 0.25, 0.0],
         id_quat(),
     ));
 
