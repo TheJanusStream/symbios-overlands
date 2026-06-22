@@ -1,16 +1,17 @@
-//! Gear pile — a Steampunk prop. A heap of brass and iron cogs, some stacked
-//! flat, one leaning on its edge. Scatter clutter of the works' yard.
+//! Gear pile — a Steampunk prop. A heap of brass and iron toothed cogs, some
+//! stacked flat, one leaning on its edge. Scatter clutter of the works' yard.
 //!
-//! The leaning cog is a disc stood on its edge with a [`quat_x`] of π/2.
+//! Each cog is built by the shared [`cog`] helper; the leaning one is stood on
+//! its edge with a [`quat_x`] of π/2.
 
 use std::f32::consts::FRAC_PI_2;
 
-use crate::catalogue::items::util::{assemble, cylinder_tapered, id_quat, prim, quat_x, solid};
+use crate::catalogue::items::util::{assemble, id_quat, quat_x};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{BRASS, IRON_DARK, brass, iron};
+use super::{BRASS, IRON_DARK, brass, cog, iron};
 
 pub struct GearPile;
 
@@ -47,36 +48,56 @@ impl CatalogueEntry for GearPile {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Largest cog lying flat — the root.
-        prim(
-            solid(cylinder_tapered(0.7, 0.18, 16, 0.0, iron(IRON_DARK))),
-            [0.0, 0.09, 0.0],
+        // Largest toothed cog lying flat — the root.
+        cog(
+            [0.0, 0.1, 0.0],
             id_quat(),
+            0.72,
+            0.18,
+            16,
+            iron(IRON_DARK),
+            brass(BRASS),
         ),
     ];
 
-    // A few more cogs stacked and offset.
-    prims.push(prim(
-        solid(cylinder_tapered(0.5, 0.16, 14, 0.0, brass(BRASS))),
-        [0.25, 0.27, 0.1],
+    // A few more toothed cogs stacked and offset.
+    prims.push(cog(
+        [0.34, 0.32, 0.12],
         id_quat(),
+        0.5,
+        0.16,
+        13,
+        brass(BRASS),
+        iron(IRON_DARK),
     ));
-    prims.push(prim(
-        solid(cylinder_tapered(0.4, 0.14, 12, 0.0, iron(IRON_DARK))),
-        [-0.4, 0.16, 0.3],
+    prims.push(cog(
+        [-0.44, 0.16, 0.34],
         id_quat(),
+        0.4,
+        0.14,
+        11,
+        iron(IRON_DARK),
+        brass(BRASS),
     ));
-    prims.push(prim(
-        solid(cylinder_tapered(0.32, 0.12, 12, 0.0, brass(BRASS))),
-        [0.15, 0.42, 0.15],
+    prims.push(cog(
+        [0.18, 0.5, 0.16],
         id_quat(),
+        0.32,
+        0.12,
+        9,
+        brass(BRASS),
+        iron(IRON_DARK),
     ));
 
     // One cog leaning on its edge.
-    prims.push(prim(
-        solid(cylinder_tapered(0.55, 0.16, 14, 0.0, brass(BRASS))),
-        [0.7, 0.5, -0.4],
+    prims.push(cog(
+        [0.78, 0.52, -0.42],
         quat_x(FRAC_PI_2),
+        0.56,
+        0.16,
+        13,
+        brass(BRASS),
+        iron(IRON_DARK),
     ));
 
     assemble(prims)

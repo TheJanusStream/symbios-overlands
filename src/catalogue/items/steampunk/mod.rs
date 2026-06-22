@@ -31,11 +31,17 @@ pub mod tinkerers_shack;
 
 pub mod fx;
 
+use std::f32::consts::TAU;
+
 use bevy_symbios_texture::metal::MetalStyle;
 
+use crate::catalogue::items::util::{
+    cuboid_tapered, cylinder_tapered, id_quat, prim, quat_y, solid,
+};
 use crate::pds::{
-    Fp, Fp3, Fp64, SovereignBrickConfig, SovereignCorrugatedConfig, SovereignMaterialSettings,
-    SovereignMetalConfig, SovereignPlankConfig, SovereignTextureConfig, SovereignWindowConfig,
+    Fp, Fp3, Fp4, Fp64, Generator, SovereignBrickConfig, SovereignCorrugatedConfig,
+    SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignTextureConfig,
+    SovereignWindowConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -182,6 +188,75 @@ pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
         }),
         ..Default::default()
     }
+}
+
+/// Build a toothed cog — the kit's signature silhouette. A cylindrical gear
+/// blank with `teeth` radial trapezoidal teeth around the rim, a raised hub
+/// and four cut-out lightening holes, lying flat in its local XZ plane (axis
+/// along local Y). Returned as one positioned subtree: `center`/`rot` orient
+/// the whole gear (`quat_x(±FRAC_PI_2)` stands it on edge or mounts it on a
+/// wall, facing ±Z). Drop it straight into an [`assemble`](super::util::assemble)
+/// list — the rebase keeps the gear's translation in the prop's world frame
+/// and the teeth/hub ride its rotation. A smooth disc reads as a poker chip;
+/// the teeth are what make it a cog.
+pub(super) fn cog(
+    center: [f32; 3],
+    rot: Fp4,
+    radius: f32,
+    thickness: f32,
+    teeth: u32,
+    body: SovereignMaterialSettings,
+    hub_mat: SovereignMaterialSettings,
+) -> Generator {
+    // Gear blank lying flat (cylinder axis = Y); the subtree root.
+    let mut gear = prim(
+        solid(cylinder_tapered(radius, thickness, 20, 0.0, body.clone())),
+        center,
+        rot,
+    );
+    // Radial teeth around the rim — each box juts outward, trapezoidal tip.
+    let tooth_len = radius * 0.42;
+    let tooth_w = (TAU * radius / teeth as f32) * 0.55;
+    for i in 0..teeth {
+        let a = i as f32 / teeth as f32 * TAU;
+        gear.children.push(prim(
+            solid(cuboid_tapered(
+                [tooth_w, thickness, tooth_len],
+                0.18,
+                body.clone(),
+            )),
+            [a.cos() * radius, 0.0, a.sin() * radius],
+            quat_y(std::f32::consts::FRAC_PI_2 - a),
+        ));
+    }
+    // Four lightening holes give the blank a wrought, spoked read.
+    let dark = iron(IRON_DARK);
+    for i in 0..4 {
+        let a = i as f32 / 4.0 * TAU + std::f32::consts::FRAC_PI_4;
+        gear.children.push(prim(
+            cylinder_tapered(radius * 0.2, thickness * 1.3, 10, 0.0, dark.clone()),
+            [a.cos() * radius * 0.52, 0.0, a.sin() * radius * 0.52],
+            id_quat(),
+        ));
+    }
+    // Raised hub with a dark bore.
+    gear.children.push(prim(
+        solid(cylinder_tapered(
+            radius * 0.3,
+            thickness * 1.7,
+            14,
+            0.0,
+            hub_mat,
+        )),
+        [0.0, 0.0, 0.0],
+        id_quat(),
+    ));
+    gear.children.push(prim(
+        cylinder_tapered(radius * 0.12, thickness * 2.0, 10, 0.0, dark),
+        [0.0, 0.0, 0.0],
+        id_quat(),
+    ));
+    gear
 }
 
 // Metal + masonry palette.

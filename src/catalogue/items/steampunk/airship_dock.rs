@@ -1,10 +1,11 @@
-//! Airship dock — a Steampunk secondary. A tapering iron mooring mast with a
-//! brass docking ring and a plank gangway, a small dirigible moored alongside
-//! — a tapered copper envelope over an iron gondola. The aerial harbour of
-//! the works.
+//! Airship dock — a Steampunk secondary. An iron lattice mooring mast (four
+//! inward-leaning corner legs cinched by brass band frames and crossed
+//! diagonal braces) with a brass docking ring and a plank gangway, a small
+//! dirigible moored alongside — a smooth copper gas-bag over an iron gondola.
+//! The aerial harbour of the works.
 //!
-//! The envelope is a tapered cylinder tipped on its side (a single
-//! [`quat_x`] of π/2 lays the Y axis along Z), narrowing to a nose.
+//! The envelope is a [`prim_scaled`] sphere stretched along Z into a smooth
+//! ellipsoid, framed with iron rings and capped by a pointed brass nose.
 //!
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], which reparents every piece under the mast base.
@@ -12,7 +13,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, torus,
+    assemble, cone, cuboid_tapered, glow, id_quat, prim, prim_scaled, quat_mul, quat_x, quat_z,
+    solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -57,68 +59,142 @@ fn build_tree() -> Generator {
     let base_h = 0.6_f32;
     let mast_h = 10.0_f32;
     let mast_top = base_h + mast_h;
+    let tilt = 0.05_f32;
+    // Inward-leaning leg offset at height fraction f (legs pivot about centre).
+    let half = |f: f32| 1.0 + (0.5 - f) * mast_h * tilt;
 
     let mut prims = vec![
         // Iron base — the root.
         prim(
-            solid(cuboid_tapered([4.0, base_h, 4.0], 0.0, iron(IRON_DARK))),
+            solid(cuboid_tapered([3.2, base_h, 3.2], 0.0, iron(IRON_DARK))),
             [0.0, base_h * 0.5, 0.0],
             id_quat(),
         ),
     ];
 
-    // Tapering lattice mast.
-    prims.push(prim(
-        solid(cuboid_tapered([2.0, mast_h, 2.0], 0.45, iron(IRON_DARK))),
-        [0.0, base_h + mast_h * 0.5, 0.0],
-        id_quat(),
-    ));
+    // Lattice mast: four inward-leaning corner legs.
+    for sx in [-1.0_f32, 1.0] {
+        for sz in [-1.0_f32, 1.0] {
+            prims.push(prim(
+                solid(cuboid_tapered([0.18, mast_h, 0.18], 0.0, iron(IRON_DARK))),
+                [sx * 1.0, base_h + mast_h * 0.5, sz * 1.0],
+                quat_mul(quat_z(sx * tilt), quat_x(-sz * tilt)),
+            ));
+        }
+    }
+    // Brass band frames cinching the lattice at three levels.
+    for f in [0.18_f32, 0.55, 0.92] {
+        let y = base_h + mast_h * f;
+        let h = half(f);
+        for sz in [-1.0_f32, 1.0] {
+            prims.push(prim(
+                solid(cuboid_tapered(
+                    [h * 2.0 + 0.18, 0.12, 0.14],
+                    0.0,
+                    brass(BRASS),
+                )),
+                [0.0, y, sz * h],
+                id_quat(),
+            ));
+        }
+        for sx in [-1.0_f32, 1.0] {
+            prims.push(prim(
+                solid(cuboid_tapered(
+                    [0.14, 0.12, h * 2.0 + 0.18],
+                    0.0,
+                    brass(BRASS),
+                )),
+                [sx * h, y, 0.0],
+                id_quat(),
+            ));
+        }
+    }
+    // Crossed iron diagonal braces on the front (−Z) and back faces.
+    for sz in [-1.0_f32, 1.0] {
+        for s in [-1.0_f32, 1.0] {
+            let h = half(0.55);
+            let span = 2.0 * h;
+            let rise = mast_h * 0.74;
+            let len = (span * span + rise * rise).sqrt();
+            prims.push(prim(
+                solid(cuboid_tapered([0.09, len, 0.09], 0.0, iron(IRON_DARK))),
+                [0.0, base_h + mast_h * 0.55, sz * h],
+                quat_z(s * span.atan2(rise)),
+            ));
+        }
+    }
     // Brass docking ring at the top.
     prims.push(prim(
-        solid(torus(0.14, 0.9, brass(BRASS))),
+        solid(torus(0.14, 0.78, brass(BRASS))),
         [0.0, mast_top + 0.2, 0.0],
         id_quat(),
     ));
-    // Plank gangway reaching out to the gondola.
+    // Plank gangway reaching out toward the gondola.
     prims.push(prim(
         solid(cuboid_tapered([3.0, 0.2, 1.0], 0.0, plank(WOOD_BROWN))),
-        [2.0, mast_top - 2.5, 3.0],
+        [2.0, mast_top - 2.5, 3.2],
         id_quat(),
     ));
 
-    // Moored dirigible: tapered copper envelope laid along Z.
-    let ship_z = 5.2_f32;
-    let ship_y = 9.2_f32;
-    prims.push(prim(
-        solid(cylinder_tapered(1.8, 9.0, 14, 0.45, copper(COPPER_ORANGE))),
+    // Moored dirigible: a smooth copper gas-bag (scaled-sphere ellipsoid laid
+    // along Z), framed with iron rings and tapering to a nose.
+    let ship_z = 5.6_f32;
+    let ship_y = 9.0_f32;
+    prims.push(prim_scaled(
+        solid(sphere(1.4, 6, copper(COPPER_ORANGE))),
         [0.0, ship_y, ship_z],
-        quat_x(FRAC_PI_2),
+        id_quat(),
+        [1.0, 1.0, 2.6],
     ));
-    // Brass nose cap.
+    // Frame rings around the bag.
+    for dz in [-1.4_f32, 0.0, 1.4] {
+        let r = 1.4 * (1.0 - (dz / 3.64).powi(2)).max(0.05).sqrt() + 0.04;
+        prims.push(prim(
+            solid(torus(0.06, r, iron(IRON_DARK))),
+            [0.0, ship_y, ship_z + dz],
+            quat_x(FRAC_PI_2),
+        ));
+    }
+    // Pointed brass nose at the −Z front end.
     prims.push(prim(
-        solid(torus(0.2, 0.6, brass(BRASS))),
-        [0.0, ship_y, ship_z - 4.3],
-        quat_x(FRAC_PI_2),
+        solid(cone(0.5, 1.0, 8, brass(BRASS))),
+        [0.0, ship_y, ship_z - 4.1],
+        quat_x(-FRAC_PI_2),
     ));
-    // Iron gondola slung beneath.
+    // Tail fins in a cross near the +Z tip, where the tapering bag is narrow
+    // enough that the blades clearly protrude as a cruciform tail.
+    let fin_z = ship_z + 3.5;
     prims.push(prim(
-        solid(cuboid_tapered([2.6, 0.9, 1.4], 0.1, iron(IRON_DARK))),
-        [0.0, ship_y - 1.8, ship_z],
+        solid(cuboid_tapered(
+            [1.9, 0.14, 1.4],
+            0.55,
+            copper(COPPER_ORANGE),
+        )),
+        [0.0, ship_y, fin_z],
         id_quat(),
     ));
-    // Tail fins.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [0.14, 1.9, 1.4],
+            0.55,
+            copper(COPPER_ORANGE),
+        )),
+        [0.0, ship_y, fin_z],
+        id_quat(),
+    ));
+    // Iron gondola slung beneath, with a lit window band.
+    prims.push(prim(
+        solid(cuboid_tapered([1.1, 0.55, 2.6], 0.12, iron(IRON_DARK))),
+        [0.0, ship_y - 1.7, ship_z],
+        id_quat(),
+    ));
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
-            solid(cuboid_tapered([0.1, 1.4, 1.4], 0.4, copper(COPPER_ORANGE))),
-            [sx * 0.4, ship_y, ship_z + 4.0],
+            cuboid_tapered([0.08, 0.32, 2.0], 0.0, glow([1.0, 0.5, 0.14], 2.3)),
+            [sx * 0.56, ship_y - 1.65, ship_z],
             id_quat(),
         ));
     }
-    prims.push(prim(
-        solid(cuboid_tapered([1.4, 0.1, 1.4], 0.4, copper(COPPER_ORANGE))),
-        [0.0, ship_y + 0.4, ship_z + 4.0],
-        id_quat(),
-    ));
 
     let mut root = assemble(prims);
     // Signature life: steam venting from the mast head.
