@@ -4,12 +4,14 @@
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], which reparents every piece under the base frame.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, quat_x, solid};
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, glow, id_quat, prim, quat_x, solid, sphere,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
-use crate::pds::Generator;
+use crate::pds::{Fp3, Generator};
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{PV_BLUE, STEEL_DARK, pv, steel};
+use super::{HULL_PANEL, PV_BLUE, STATUS_GREEN, STEEL_DARK, hull, pv, pv_panel, steel};
 
 pub struct SolarArray;
 
@@ -68,14 +70,25 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Three large tilted PV panels along the tube.
+    // Three large framed PV panels, cell grids facing the camera (−Z).
     for x in [-2.8_f32, 0.0, 2.8] {
-        prims.push(prim(
-            solid(cuboid_tapered([2.6, 0.1, 3.0], 0.0, pv(PV_BLUE))),
-            [x, 1.5, 0.0],
-            quat_x(0.5),
-        ));
+        let mut panel = pv_panel(2.6, 3.0, pv(PV_BLUE), steel(STEEL_DARK));
+        panel.transform.translation = Fp3([x, 1.55, 0.0]);
+        panel.transform.rotation = quat_x(-0.5);
+        prims.push(panel);
     }
+
+    // Combiner box at the array foot with a green status LED — emissive.
+    prims.push(prim(
+        solid(cuboid_tapered([0.7, 0.8, 0.45], 0.0, hull(HULL_PANEL))),
+        [4.0, 0.4, 1.3],
+        id_quat(),
+    ));
+    prims.push(prim(
+        sphere(0.08, 4, glow(STATUS_GREEN, 2.0)),
+        [4.0, 0.6, 1.55],
+        id_quat(),
+    ));
 
     assemble(prims)
 }

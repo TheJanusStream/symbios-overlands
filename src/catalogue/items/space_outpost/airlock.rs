@@ -2,13 +2,16 @@
 //! lit hatch port and hazard banding. Scatter clutter linking the modules.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid,
+    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid, tube,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{HAZARD_YELLOW, HULL_WHITE, VIEWPORT_LIT, hull, painted};
+use super::{
+    HAZARD_YELLOW, HULL_PANEL, HULL_WHITE, STEEL_DARK, VIEWPORT_LIT, hull, painted, pressure_hatch,
+    steel,
+};
 
 pub struct Airlock;
 
@@ -44,31 +47,61 @@ impl CatalogueEntry for Airlock {
 }
 
 fn build_tree() -> Generator {
+    let chamber_r = 1.2_f32;
     let mut prims = vec![
         // Hull chamber — the root.
         prim(
-            solid(cylinder_tapered(1.2, 2.2, 16, 0.0, hull(HULL_WHITE))),
+            solid(cylinder_tapered(chamber_r, 2.2, 16, 0.0, hull(HULL_WHITE))),
             [0.0, 1.1, 0.0],
             id_quat(),
         ),
     ];
 
-    // Hazard band around the chamber.
+    // Hazard band around the chamber (proud of the hull).
     prims.push(prim(
-        solid(cylinder_tapered(1.24, 0.3, 16, 0.0, painted(HAZARD_YELLOW))),
-        [0.0, 1.8, 0.0],
+        solid(cylinder_tapered(
+            chamber_r + 0.05,
+            0.3,
+            16,
+            0.0,
+            painted(HAZARD_YELLOW),
+        )),
+        [0.0, 1.85, 0.0],
+        id_quat(),
+    ));
+    // Domed roof cap + a pressure-relief vent stack.
+    prims.push(prim(
+        solid(cylinder_tapered(chamber_r, 0.3, 16, 0.5, hull(HULL_PANEL))),
+        [0.0, 2.3, 0.0],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(tube(0.18, 0.1, 0.6, 10, steel(STEEL_DARK))),
+        [0.55, 2.6, 0.0],
         id_quat(),
     ));
 
-    // Hatch frame + lit port on the +Z face.
+    // Round pressure hatch on the −Z hero face.
+    for piece in pressure_hatch(
+        [0.0, 1.0, -chamber_r],
+        0.78,
+        -1.0,
+        hull(HULL_PANEL),
+        steel(STEEL_DARK),
+        glow(VIEWPORT_LIT, 2.0),
+    ) {
+        prims.push(piece);
+    }
+
+    // Threshold step + side conduit running to the next module.
     prims.push(prim(
-        solid(cuboid_tapered([1.0, 1.6, 0.2], 0.0, hull(HULL_WHITE))),
-        [0.0, 0.9, 1.15],
+        solid(cuboid_tapered([1.4, 0.18, 0.5], 0.0, hull(HULL_PANEL))),
+        [0.0, 0.09, -1.45],
         id_quat(),
     ));
     prims.push(prim(
-        cuboid_tapered([0.5, 0.5, 0.15], 0.0, glow(VIEWPORT_LIT, 1.8)),
-        [0.0, 1.2, 1.28],
+        solid(tube(0.12, 0.07, 1.6, 10, steel(STEEL_DARK))),
+        [1.15, 0.4, 0.0],
         id_quat(),
     ));
 

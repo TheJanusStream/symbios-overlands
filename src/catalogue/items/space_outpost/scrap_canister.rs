@@ -7,13 +7,13 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cylinder_tapered, id_quat, prim, quat_x, solid, torus,
+    assemble, cylinder_tapered, id_quat, prim, quat_x, solid, sphere, torus, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{HULL_PANEL, SCORCH, STEEL_DARK, hull, steel};
+use super::{HAZARD_YELLOW, HULL_PANEL, SCORCH, STEEL_DARK, hull, painted, steel};
 
 pub struct ScrapCanister;
 
@@ -48,7 +48,8 @@ impl CatalogueEntry for ScrapCanister {
     }
 }
 
-/// One upright canister (body + two rib rings) returned for the assemble list.
+/// One upright fuel canister — body, two rib rings, a hazard band, a domed
+/// cap and a valve with a handwheel — returned for the assemble list.
 fn canister(pos: [f32; 3], color: [f32; 3]) -> Generator {
     let mut body = prim(
         solid(cylinder_tapered(0.35, 1.1, 12, 0.0, hull(color))),
@@ -62,6 +63,40 @@ fn canister(pos: [f32; 3], color: [f32; 3]) -> Generator {
             id_quat(),
         ));
     }
+    // Hazard stencil band around the waist.
+    body.children.push(prim(
+        solid(cylinder_tapered(
+            0.36,
+            0.16,
+            12,
+            0.0,
+            painted(HAZARD_YELLOW),
+        )),
+        [0.0, 0.0, 0.0],
+        id_quat(),
+    ));
+    // Domed cap.
+    body.children.push(prim(
+        solid(with_cut(
+            sphere(0.34, 5, steel(STEEL_DARK)),
+            [0.0, 1.0],
+            [0.5, 1.0],
+            0.0,
+        )),
+        [0.0, 0.55, 0.0],
+        id_quat(),
+    ));
+    // Valve stub + handwheel.
+    body.children.push(prim(
+        solid(cylinder_tapered(0.07, 0.2, 6, 0.0, steel(STEEL_DARK))),
+        [0.0, 0.75, 0.0],
+        id_quat(),
+    ));
+    body.children.push(prim(
+        torus(0.03, 0.1, steel(STEEL_DARK)),
+        [0.0, 0.87, 0.0],
+        id_quat(),
+    ));
     body
 }
 

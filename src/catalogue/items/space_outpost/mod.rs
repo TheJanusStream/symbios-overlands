@@ -31,11 +31,17 @@ pub mod solar_wreck;
 
 pub mod fx;
 
+use std::f32::consts::{FRAC_PI_2, PI, TAU};
+
 use bevy_symbios_texture::metal::MetalStyle;
 
+use crate::catalogue::items::util::{
+    cuboid_tapered, cylinder_tapered, id_quat, prim, quat_mul, quat_x, quat_y, solid, torus,
+    with_cut,
+};
 use crate::pds::{
-    Fp, Fp3, Fp64, SovereignConcreteConfig, SovereignMaterialSettings, SovereignMetalConfig,
-    SovereignTextureConfig, SovereignWindowConfig,
+    Fp, Fp3, Fp64, Generator, SovereignConcreteConfig, SovereignMaterialSettings,
+    SovereignMetalConfig, SovereignTextureConfig, SovereignWindowConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -175,8 +181,166 @@ pub(super) const SCORCH: [f32; 3] = [0.32, 0.28, 0.26];
 pub(super) const GLASS_CYAN: [f32; 3] = [0.42, 0.66, 0.74];
 pub(super) const VIEWPORT_LIT: [f32; 3] = [0.6, 0.95, 1.0];
 pub(super) const INTERIOR_WARM: [f32; 3] = [1.0, 0.92, 0.78];
-pub(super) const BEACON_RED: [f32; 3] = [1.0, 0.22, 0.22];
-pub(super) const GROW_PINK: [f32; 3] = [1.0, 0.42, 0.82];
+// Deep-saturated so the off-channels stay low and bloom can't lift the glow
+// to a coral/pink wash — it holds a true red (the fantasy deep-saturate rule).
+pub(super) const BEACON_RED: [f32; 3] = [1.0, 0.09, 0.07];
+pub(super) const GROW_PINK: [f32; 3] = [1.0, 0.30, 0.74];
+/// Deep-saturated status-LED green — combiner boxes, instrument panels.
+pub(super) const STATUS_GREEN: [f32; 3] = [0.22, 1.0, 0.42];
+
+// ---------------------------------------------------------------------------
+// Theme-signature construction helpers (`pub(super)`, theme-local like
+// steampunk's `cog()` / nordic's `gable_roof`). Built and validated on a hero
+// before rollout, then reused across the kit.
+// ---------------------------------------------------------------------------
+
+/// Geodesic rib cage for a pressure dome — `meridians` upright semicircular
+/// arcs fanned around the polar axis plus two latitude hoops, all sitting on a
+/// hemisphere of `radius` centred at `center`. Author the glass shell a touch
+/// smaller (≈ `radius - 0.08`) so the ribs stand proud. Turns a smooth glass
+/// snowglobe into a paneled habitat dome — the Space-Outpost silhouette
+/// signature.
+pub(super) fn dome_ribs(
+    center: [f32; 3],
+    radius: f32,
+    meridians: u32,
+    mat: SovereignMaterialSettings,
+) -> Vec<Generator> {
+    let minor = 0.06_f32;
+    let mut out = Vec::new();
+    // Meridian arcs: upright semicircles fanned over [0, PI) — each arc runs
+    // base-to-base over the apex, so n arcs read as 2n ribs.
+    for k in 0..meridians {
+        let theta = k as f32 / meridians as f32 * PI;
+        out.push(prim(
+            with_cut(
+                torus(minor, radius, mat.clone()),
+                [0.0, 0.5],
+                [0.0, 1.0],
+                0.0,
+            ),
+            center,
+            quat_mul(quat_y(theta), quat_x(-FRAC_PI_2)),
+        ));
+    }
+    // Latitude hoops part-way up the dome.
+    for frac in [0.4_f32, 0.72] {
+        let y = center[1] + radius * frac;
+        let hoop_r = (radius * radius - (radius * frac).powi(2)).sqrt();
+        out.push(prim(
+            torus(minor, hoop_r, mat.clone()),
+            [center[0], y, center[2]],
+            id_quat(),
+        ));
+    }
+    out
+}
+
+/// A framed photovoltaic panel — a dark PV cell field in a steel perimeter
+/// frame with cross ribs dividing it into cells, so it reads as a real solar
+/// panel rather than a flat slab. Lies in its local XZ plane (thin in Y, broad
+/// faces ±Y, the lit cell face up); the caller tilts/positions it. Returned as
+/// one subtree (the cell field is the local root, `id_quat`) so dropping it in
+/// tilted as a child is rotation-safe.
+pub(super) fn pv_panel(
+    width: f32,
+    length: f32,
+    cell: SovereignMaterialSettings,
+    frame: SovereignMaterialSettings,
+) -> Generator {
+    let t = 0.06_f32; // panel thickness
+    let fr = 0.07_f32; // frame bar cross-section
+    let yf = t * 0.5 + fr * 0.4; // proud of the +Y cell face
+    let mut panel = prim(
+        solid(cuboid_tapered([width, t, length], 0.0, cell)),
+        [0.0, 0.0, 0.0],
+        id_quat(),
+    );
+    // Perimeter frame (edges oversail the cell field).
+    for sz in [-1.0_f32, 1.0] {
+        panel.children.push(prim(
+            cuboid_tapered([width + fr, fr, fr], 0.0, frame.clone()),
+            [0.0, yf, sz * length * 0.5],
+            id_quat(),
+        ));
+    }
+    for sx in [-1.0_f32, 1.0] {
+        panel.children.push(prim(
+            cuboid_tapered([fr, fr, length + fr], 0.0, frame.clone()),
+            [sx * width * 0.5, yf, 0.0],
+            id_quat(),
+        ));
+    }
+    // Cell-division ribs across the face — two along X (three columns), one
+    // along Z (two rows).
+    for fx in [-1.0_f32 / 3.0, 1.0 / 3.0] {
+        panel.children.push(prim(
+            cuboid_tapered([0.04, fr * 0.7, length], 0.0, frame.clone()),
+            [fx * width, yf - 0.01, 0.0],
+            id_quat(),
+        ));
+    }
+    panel.children.push(prim(
+        cuboid_tapered([width, fr * 0.7, 0.04], 0.0, frame),
+        [0.0, yf - 0.01, 0.0],
+        id_quat(),
+    ));
+    panel
+}
+
+/// A round pressure hatch on a wall facing ±Z (`zsign`, −1.0 = the −Z hero
+/// front): a recessed door plate in a bolted rim ring with locking lugs, a
+/// central lit port and a grab handle. Returns a Vec to splice into an
+/// assemble list — every piece is a non-root prim, so the `quat_x` facing
+/// rotation is safe. `port` should be a `glow` material so the window reads as
+/// lit on the flat door face.
+pub(super) fn pressure_hatch(
+    center: [f32; 3],
+    radius: f32,
+    zsign: f32,
+    door: SovereignMaterialSettings,
+    rim: SovereignMaterialSettings,
+    port: SovereignMaterialSettings,
+) -> Vec<Generator> {
+    let [cx, cy, cz] = center;
+    let face = quat_x(FRAC_PI_2); // cylinder/disc axis Y -> Z
+    let mut out = vec![
+        // Bolted rim ring standing in the wall plane.
+        prim(torus(0.09, radius, rim.clone()), [cx, cy, cz], face),
+        // Recessed door plate.
+        prim(
+            solid(cylinder_tapered(radius - 0.06, 0.16, 18, 0.0, door)),
+            [cx, cy, cz - zsign * 0.04],
+            face,
+        ),
+    ];
+    // Locking lugs around the rim.
+    for i in 0..6 {
+        let a = i as f32 / 6.0 * TAU;
+        out.push(prim(
+            cuboid_tapered([0.13, 0.13, 0.1], 0.0, rim.clone()),
+            [
+                cx + a.cos() * radius,
+                cy + a.sin() * radius,
+                cz + zsign * 0.05,
+            ],
+            id_quat(),
+        ));
+    }
+    // Central lit port, proud of the door.
+    out.push(prim(
+        cylinder_tapered(radius * 0.34, 0.06, 14, 0.0, port),
+        [cx, cy, cz + zsign * 0.13],
+        face,
+    ));
+    // Grab handle across the port.
+    out.push(prim(
+        solid(cuboid_tapered([radius * 0.72, 0.08, 0.08], 0.0, rim)),
+        [cx, cy, cz + zsign * 0.17],
+        id_quat(),
+    ));
+    out
+}
 
 #[cfg(test)]
 mod tests {

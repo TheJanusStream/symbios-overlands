@@ -5,19 +5,22 @@
 //! prosperity axis (`Poor`), so a destitute space room grows the wreck site
 //! instead of the colony.
 //!
-//! The capsule is a tapered cylinder tipped on its side with a [`quat_x`] of
-//! π/2.
+//! Rooted on a flat scorched berm (`id_quat`) so the capsule — a tapered
+//! cylinder laid along X with a [`quat_z`] of π/2 — and all its trim are
+//! children of an upright root (a rotated assemble root would spin every
+//! child into its frame).
 
-use std::f32::consts::FRAC_PI_2;
+use std::f32::consts::{FRAC_PI_2, PI};
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, solid,
+    assemble, cone, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_mul, quat_x,
+    quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{HULL_PANEL, SCORCH, STEEL_DARK, VIEWPORT_LIT, hull, steel};
+use super::{HULL_PANEL, INTERIOR_WARM, SCORCH, STEEL_DARK, hull, painted, steel};
 
 pub struct CrashShelter;
 
@@ -53,39 +56,67 @@ impl CatalogueEntry for CrashShelter {
 }
 
 fn build_tree() -> Generator {
+    let cap_y = 1.5_f32;
     let mut prims = vec![
-        // Scorched capsule on its side — the root, laid along Z.
+        // Flat scorched berm where it ploughed in — the upright root.
         prim(
-            solid(cylinder_tapered(1.8, 4.5, 16, 0.3, hull(HULL_PANEL))),
-            [0.0, 1.6, 0.0],
-            quat_x(FRAC_PI_2),
+            solid(cuboid_tapered([4.8, 0.4, 3.0], 0.0, painted(SCORCH))),
+            [0.0, 0.2, 0.0],
+            id_quat(),
         ),
     ];
 
-    // Scorch band where it dragged in.
+    // Scorched lander capsule laid along X (a child → rotation-safe).
     prims.push(prim(
-        solid(cylinder_tapered(1.82, 1.2, 16, 0.3, hull(SCORCH))),
-        [0.0, 1.6, 1.4],
-        quat_x(FRAC_PI_2),
+        solid(cylinder_tapered(1.5, 4.0, 16, 0.3, hull(HULL_PANEL))),
+        [0.0, cap_y, 0.0],
+        quat_z(FRAC_PI_2),
+    ));
+    // Charred heat-shield nose cone on the +X end.
+    prims.push(prim(
+        solid(cone(1.45, 1.2, 14, hull(SCORCH))),
+        [2.4, cap_y, 0.0],
+        quat_z(-FRAC_PI_2),
+    ));
+    // Scorch drag-band wrapping the hull.
+    prims.push(prim(
+        solid(cylinder_tapered(1.53, 1.0, 16, 0.3, painted(SCORCH))),
+        [-1.0, cap_y, 0.0],
+        quat_z(FRAC_PI_2),
     ));
 
-    // Patched hatch + a small lit port on the +X side.
+    // Patched hatch (mismatched plates) + a small dim warm port on the −Z
+    // hero face.
     prims.push(prim(
-        solid(cuboid_tapered([0.2, 1.6, 1.2], 0.0, hull(HULL_PANEL))),
-        [1.7, 1.4, -0.4],
+        solid(cuboid_tapered([1.5, 1.4, 0.22], 0.0, hull(HULL_PANEL))),
+        [-0.2, cap_y, -1.45],
         id_quat(),
     ));
     prims.push(prim(
-        cuboid_tapered([0.15, 0.5, 0.5], 0.0, glow(VIEWPORT_LIT, 0.8)),
-        [1.82, 1.6, -0.4],
+        solid(cuboid_tapered([0.7, 0.9, 0.18], 0.0, hull(SCORCH))),
+        [0.55, cap_y - 0.1, -1.5],
+        id_quat(),
+    ));
+    prims.push(prim(
+        cuboid_tapered([0.45, 0.45, 0.12], 0.0, glow(INTERIOR_WARM, 1.4)),
+        [-0.4, cap_y + 0.1, -1.58],
         id_quat(),
     ));
 
-    // Bent antenna sticking out of the wreck.
+    // Two buckled landing legs jutting from under the hull.
+    for (sx, lean) in [(-1.0_f32, 0.5_f32), (1.0, -0.4)] {
+        prims.push(prim(
+            solid(cylinder_tapered(0.1, 1.6, 5, 0.1, steel(STEEL_DARK))),
+            [sx * 1.5, 0.7, 1.0],
+            quat_mul(quat_z(lean), quat_x(0.55)),
+        ));
+    }
+
+    // Bent salvaged antenna sticking out of the wreck.
     prims.push(prim(
         solid(cylinder_tapered(0.06, 2.2, 4, 0.0, steel(STEEL_DARK))),
-        [-0.6, 2.6, -1.6],
-        quat_x(0.5),
+        [-1.4, 2.4, 0.8],
+        quat_mul(quat_z(0.4), quat_x(PI * 0.12)),
     ));
 
     assemble(prims)
