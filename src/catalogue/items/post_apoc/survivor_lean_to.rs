@@ -8,13 +8,16 @@
 //! The tarp and props lean with a [`quat_x`].
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_y, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{ASH_GREY, CONCRETE_GREY, PLANK_GREY, TARP_FADED, concrete, plank, rusted, tarp};
+use super::{
+    ASH_GREY, CONCRETE_GREY, CORRUGATED_RUST, PLANK_GREY, RUST_BROWN, STEEL_GREY, TARP_FADED,
+    concrete, plank, rubble_chunks, rusted, sheet, tarp,
+};
 
 pub struct SurvivorLeanTo;
 
@@ -62,7 +65,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
-    // A couple of broken concrete chunks.
+    // A couple of broken concrete chunks + crumbled debris around the heap.
     for (cx, cz, s) in [(-2.4_f32, 1.0_f32, 0.8_f32), (-0.8, -1.0, 0.7)] {
         prims.push(prim(
             solid(cuboid_tapered(
@@ -74,6 +77,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
+    prims.extend(rubble_chunks([-2.2, 0.0, -0.6], 1.1, 0.5, 4));
 
     // Two lean poles.
     for sz in [-1.0_f32, 1.0] {
@@ -89,6 +93,17 @@ fn build_tree() -> Generator {
         [-0.2, 1.5, 0.0],
         quat_x(0.5),
     ));
+    // A salvaged corrugated-sheet panel patched over one end of the tarp,
+    // lashed at a slightly steeper pitch — the desperate make-do roof.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [1.1, 0.06, 2.0],
+            0.0,
+            sheet(CORRUGATED_RUST),
+        )),
+        [-1.1, 1.78, 1.0],
+        quat_x(0.62),
+    ));
 
     // Bedroll under the shelter.
     prims.push(prim(
@@ -98,6 +113,23 @@ fn build_tree() -> Generator {
             tarp([0.34, 0.30, 0.26]),
         )),
         [-0.2, 0.15, 0.0],
+        id_quat(),
+    ));
+    // A scavenged jerry can and a battered crate of belongings beside it.
+    prims.push(prim(
+        solid(cuboid_tapered([0.34, 0.5, 0.22], 0.0, rusted(RUST_BROWN))),
+        [0.55, 0.25, -0.8],
+        quat_y(0.3),
+    ));
+    prims.push(prim(
+        solid(cuboid_tapered([0.5, 0.4, 0.5], 0.05, plank(PLANK_GREY))),
+        [0.5, 0.2, 0.9],
+        quat_y(-0.2),
+    ));
+    // A billy-can propped on a stone at the fire ring.
+    prims.push(prim(
+        solid(cylinder_tapered(0.12, 0.18, 8, 0.0, rusted(STEEL_GREY))),
+        [1.05, 0.21, 0.35],
         id_quat(),
     ));
     // Cold fire ring of stones + ash.

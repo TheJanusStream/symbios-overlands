@@ -6,14 +6,17 @@
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], which reparents every piece under the base.
 
+use std::f32::consts::FRAC_PI_2;
+
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid, sphere,
+    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, quat_z, solid, sphere,
+    with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{CONCRETE_GREY, RUST_BROWN, SIGNAL_RED, STEEL_GREY, concrete, fx, rusted};
+use super::{CONCRETE_GREY, RUST_BROWN, SIGNAL_RED, STEEL_GREY, concrete, fx, rusted, sheet};
 
 pub struct RadioMast;
 
@@ -75,8 +78,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    // Cross-braces at three heights.
-    for h in [base_h + 3.0, base_h + 7.0, base_h + 10.5] {
+    // Horizontal cross-braces ringing the lattice at four heights.
+    let levels = [base_h, base_h + 3.0, base_h + 7.0, base_h + 10.5];
+    for &h in &levels[1..] {
         for sx in [-1.0_f32, 1.0] {
             prims.push(prim(
                 solid(cuboid_tapered(
@@ -100,6 +104,52 @@ fn build_tree() -> Generator {
             ));
         }
     }
+    // Zig-zag diagonal braces filling each bay — the scrap-lattice density a
+    // bare four-post frame lacks. Direction alternates per bay for the truss.
+    let span = 2.0 * spread;
+    for (b, w) in levels.windows(2).enumerate() {
+        let (y0, y1) = (w[0], w[1]);
+        let dy = y1 - y0;
+        let len = (span * span + dy * dy).sqrt();
+        let ang = dy.atan2(span) * if b % 2 == 0 { 1.0 } else { -1.0 };
+        let ymid = (y0 + y1) * 0.5;
+        // Front + back faces (bar along X, tilted about Z).
+        for sz in [-1.0_f32, 1.0] {
+            prims.push(prim(
+                solid(cuboid_tapered([len, 0.05, 0.05], 0.0, rusted(STEEL_GREY))),
+                [0.0, ymid, sz * spread],
+                quat_z(ang),
+            ));
+        }
+        // Left + right faces (bar along Z, tilted about X).
+        for sx in [-1.0_f32, 1.0] {
+            prims.push(prim(
+                solid(cuboid_tapered([0.05, 0.05, len], 0.0, rusted(STEEL_GREY))),
+                [sx * spread, ymid, 0.0],
+                quat_x(-ang),
+            ));
+        }
+    }
+
+    // Salvaged dish bolted to the lattice. with_cut([0.5,1.0]) keeps the upper
+    // hemisphere (convex up / concave DOWN), so quat_x(+FRAC_PI_2 + 0.5) turns
+    // its concave aperture up-and-toward the −Z camera — a dish, not a ball.
+    prims.push(prim(
+        solid(with_cut(
+            sphere(0.9, 6, sheet(STEEL_GREY)),
+            [0.0, 1.0],
+            [0.5, 1.0],
+            0.0,
+        )),
+        [0.0, base_h + 8.6, -1.1],
+        quat_x(FRAC_PI_2 + 0.5),
+    ));
+    // Feed horn on a stalk standing at the dish focus, in front of the aperture.
+    prims.push(prim(
+        solid(cylinder_tapered(0.04, 0.6, 5, 0.0, rusted(RUST_BROWN))),
+        [0.0, base_h + 9.0, -1.7],
+        quat_x(FRAC_PI_2),
+    ));
 
     // Antenna whip + cross-element at the top.
     prims.push(prim(

@@ -9,7 +9,9 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{CONCRETE_GREY, STEEL_GREY, TIRE_BLACK, concrete, rusted, tarp};
+use super::{
+    CONCRETE_GREY, STEEL_GREY, TIRE_BLACK, concrete, rebar_stubs, rubble_chunks, rusted, tarp,
+};
 
 pub struct RubbleBarricade;
 
@@ -82,6 +84,10 @@ fn build_tree() -> Generator {
         [1.6, 1.5, 0.2],
         quat_x(1.4),
     ));
+    // Snapped rebar jutting from the broken concrete and loose debris spilled
+    // along the foot facing the camera (−Z).
+    prims.extend(rebar_stubs([0.3, 1.7, 0.0], 0.9, 4));
+    prims.extend(rubble_chunks([-0.4, 0.0, -0.7], 1.6, 0.6, 5));
 
     assemble(prims)
 }

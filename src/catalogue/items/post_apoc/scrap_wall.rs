@@ -2,12 +2,16 @@
 //! and plate metal welded to leaning posts. Scatter clutter fencing the
 //! holdout.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, solid};
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_y, quat_z, solid, torus,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{CORRUGATED_RUST, RUST_BROWN, STEEL_GREY, rusted, sheet};
+use super::{
+    CORRUGATED_RUST, PLANK_GREY, RUST_BROWN, STEEL_GREY, TIRE_BLACK, plank, rusted, sheet, tarp,
+};
 
 pub struct ScrapWall;
 
@@ -55,26 +59,62 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
-    // Mismatched panels of varying height welded alongside.
+    // Mismatched panels of varying height welded alongside, each leaning its
+    // own way — the lurching, never-plumb line of a scavenged barrier.
     prims.push(prim(
         solid(cuboid_tapered([1.4, 2.0, 0.14], 0.0, rusted(STEEL_GREY))),
         [0.2, 1.0, 0.05],
-        id_quat(),
+        quat_z(0.07),
     ));
     prims.push(prim(
         solid(cuboid_tapered([1.2, 1.6, 0.12], 0.0, sheet(RUST_BROWN))),
         [1.4, 0.8, -0.04],
-        id_quat(),
+        quat_z(-0.05),
+    ));
+    // A low salvaged plank patch filling a gap at the base.
+    prims.push(prim(
+        solid(cuboid_tapered([0.9, 1.0, 0.1], 0.0, plank(PLANK_GREY))),
+        [-0.55, 0.5, 0.08],
+        quat_z(0.04),
     ));
 
-    // Leaning support posts.
-    for x in [-1.8_f32, 0.0, 1.9] {
+    // Leaning support posts, actually canted now.
+    for (i, x) in [-1.8_f32, 0.0, 1.9].into_iter().enumerate() {
+        let lean = if i % 2 == 0 { 0.09 } else { -0.07 };
         prims.push(prim(
-            solid(cuboid_tapered([0.12, 2.2, 0.12], 0.0, rusted(STEEL_GREY))),
-            [x, 1.1, -0.12],
-            id_quat(),
+            solid(cuboid_tapered([0.12, 2.3, 0.12], 0.0, rusted(STEEL_GREY))),
+            [x, 1.15, -0.12],
+            quat_z(lean),
         ));
     }
+    // A taut top wire strung between the posts, suggesting barbed defence.
+    prims.push(prim(
+        solid(cylinder_tapered(0.025, 3.9, 4, 0.0, rusted(STEEL_GREY))),
+        [0.05, 2.35, -0.12],
+        quat_z(std::f32::consts::FRAC_PI_2),
+    ));
+    // A hubcap wired to the steel panel, its face turned to the camera (−Z).
+    prims.push(prim(
+        solid(torus(0.05, 0.26, rusted(STEEL_GREY))),
+        [0.2, 1.4, -0.2],
+        quat_x(std::f32::consts::FRAC_PI_2),
+    ));
+    // A faded warning board nailed up at an angle.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [0.5, 0.5, 0.04],
+            0.0,
+            tarp([0.55, 0.42, 0.12]),
+        )),
+        [1.4, 1.5, -0.12],
+        quat_y(0.2),
+    ));
+    // A bald tyre slumped against the foot of the wall.
+    prims.push(prim(
+        solid(torus(0.16, 0.4, tarp(TIRE_BLACK))),
+        [-1.9, 0.42, 0.45],
+        quat_z(0.25),
+    ));
 
     assemble(prims)
 }

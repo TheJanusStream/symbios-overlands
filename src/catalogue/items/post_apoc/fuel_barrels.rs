@@ -7,13 +7,16 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cylinder_tapered, id_quat, prim, quat_x, solid, torus,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_y, quat_z, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{RUST_BROWN, STEEL_GREY, rusted};
+use super::{RUST_BROWN, STEEL_GREY, rusted, tarp};
+
+/// Dark spilled-fuel stain colour pooled on the ground.
+const SPILL: [f32; 3] = [0.08, 0.07, 0.06];
 
 pub struct FuelBarrels;
 
@@ -48,12 +51,13 @@ impl CatalogueEntry for FuelBarrels {
     }
 }
 
-/// A standing rusted drum with two ribbing rings.
-fn drum(pos: [f32; 3], color: [f32; 3]) -> Generator {
+/// A rusted drum with two ribbing rings about its `axis` quaternion. The rings
+/// are children so they roll with the body when it is toppled.
+fn drum(pos: [f32; 3], color: [f32; 3], axis: crate::pds::Fp4) -> Generator {
     let mut body = prim(
         solid(cylinder_tapered(0.34, 0.95, 12, 0.0, rusted(color))),
         pos,
-        id_quat(),
+        axis,
     );
     for ring_y in [-0.24_f32, 0.24] {
         body.children.push(prim(
@@ -67,15 +71,33 @@ fn drum(pos: [f32; 3], color: [f32; 3]) -> Generator {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        drum([0.0, 0.475, 0.0], RUST_BROWN),
-        drum([0.7, 0.475, 0.2], STEEL_GREY),
+        drum([0.0, 0.475, 0.0], RUST_BROWN, id_quat()),
+        drum([0.7, 0.475, 0.2], STEEL_GREY, id_quat()),
     ];
 
-    // One drum toppled on its side.
+    // One drum toppled on its side, laid along X so the camera (−Z) sees it
+    // rolled over in profile rather than end-on, leaking a dark fuel stain.
+    prims.push(drum([-0.6, 0.34, -0.5], RUST_BROWN, quat_z(FRAC_PI_2)));
     prims.push(prim(
-        solid(cylinder_tapered(0.34, 0.95, 12, 0.0, rusted(RUST_BROWN))),
-        [-0.5, 0.34, -0.4],
-        quat_x(FRAC_PI_2),
+        solid(cylinder_tapered(0.55, 0.02, 16, 0.0, tarp(SPILL))),
+        [-0.95, 0.012, -0.5],
+        id_quat(),
+    ));
+
+    // A dented jerry can stood beside the cluster.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [0.32, 0.46, 0.2],
+            0.0,
+            rusted([0.30, 0.36, 0.30]),
+        )),
+        [0.5, 0.23, -0.55],
+        quat_y(0.4),
+    ));
+    prims.push(prim(
+        solid(cylinder_tapered(0.05, 0.1, 6, 0.0, rusted(STEEL_GREY))),
+        [0.5, 0.5, -0.62],
+        id_quat(),
     ));
 
     assemble(prims)

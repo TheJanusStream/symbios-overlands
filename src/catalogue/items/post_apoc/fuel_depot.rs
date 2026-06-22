@@ -8,7 +8,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, solid,
+    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, quat_z, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -17,6 +17,33 @@ use crate::seeded_defaults::ThemeArchetype;
 use super::{
     CONCRETE_GREY, CORRUGATED_RUST, RUST_BROWN, STEEL_GREY, WORKLIGHT, concrete, fx, rusted, sheet,
 };
+
+/// A spoked valve hand-wheel facing `−Z`, mounted at `pos` — rim torus, hub
+/// and three radial spokes. The signature control of a salvaged pump.
+fn valve_wheel(pos: [f32; 3]) -> Vec<Generator> {
+    use std::f32::consts::FRAC_PI_2;
+    let mut out = vec![
+        prim(
+            solid(torus(0.04, 0.2, rusted(STEEL_GREY))),
+            pos,
+            quat_x(FRAC_PI_2),
+        ),
+        prim(
+            solid(cylinder_tapered(0.06, 0.12, 8, 0.0, rusted(RUST_BROWN))),
+            pos,
+            quat_x(FRAC_PI_2),
+        ),
+    ];
+    for k in 0..3 {
+        let a = k as f32 / 3.0 * std::f32::consts::TAU;
+        out.push(prim(
+            solid(cuboid_tapered([0.4, 0.03, 0.03], 0.0, rusted(STEEL_GREY))),
+            pos,
+            quat_z(a),
+        ));
+    }
+    out
+}
 
 pub struct FuelDepot;
 
@@ -65,12 +92,27 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Two fuel tanks on saddles, laid along Z.
+    // Two fuel tanks on saddles, laid along Z, ringed with reinforcing hoops
+    // and topped with a filler cap.
     for tx in [-1.6_f32, 1.6] {
         prims.push(prim(
             solid(cylinder_tapered(0.9, 3.4, 14, 0.0, rusted(RUST_BROWN))),
             [tx, 1.3, -0.4],
             quat_x(FRAC_PI_2),
+        ));
+        // Round reinforcing bands (torus rings ⟂ the tank's Z axis).
+        for bz in [-1.5_f32, 0.7] {
+            prims.push(prim(
+                solid(torus(0.06, 0.92, rusted(STEEL_GREY))),
+                [tx, 1.3, -0.4 + bz],
+                quat_x(FRAC_PI_2),
+            ));
+        }
+        // Filler cap / breather on the crown.
+        prims.push(prim(
+            solid(cylinder_tapered(0.14, 0.22, 8, 0.0, rusted(STEEL_GREY))),
+            [tx, 2.16, -0.9],
+            id_quat(),
         ));
         for tz in [-1.2_f32, 1.0] {
             prims.push(prim(
@@ -81,7 +123,7 @@ fn build_tree() -> Generator {
         }
     }
 
-    // Scrap fence along the front.
+    // Scrap fence along the back of the lot.
     prims.push(prim(
         solid(cuboid_tapered(
             [7.0, 1.8, 0.15],
@@ -90,6 +132,32 @@ fn build_tree() -> Generator {
         )),
         [0.0, 1.05, 2.4],
         id_quat(),
+    ));
+
+    // Hand pump on the front (−Z): a stout post, a spoked valve wheel facing
+    // the camera, a spout, and a hose draped to the nearer tank.
+    prims.push(prim(
+        solid(cuboid_tapered([0.28, 1.5, 0.28], 0.0, rusted(STEEL_GREY))),
+        [0.0, 0.75, -2.0],
+        id_quat(),
+    ));
+    prims.extend(valve_wheel([0.0, 1.45, -2.18]));
+    prims.push(prim(
+        solid(cylinder_tapered(0.06, 0.6, 6, 0.0, rusted(RUST_BROWN))),
+        [0.0, 1.1, -2.3],
+        quat_x(1.2),
+    ));
+    // Limp fuel hose looping from the pump toward the left tank.
+    prims.push(prim(
+        solid(cylinder_tapered(
+            0.05,
+            1.4,
+            6,
+            0.0,
+            rusted([0.16, 0.15, 0.15]),
+        )),
+        [-0.8, 0.4, -1.9],
+        quat_z(1.1),
     ));
 
     // Worklight on a pole — emissive.
@@ -101,7 +169,7 @@ fn build_tree() -> Generator {
     prims.push(prim(
         cuboid_tapered([0.5, 0.3, 0.4], 0.0, glow(WORKLIGHT, 3.0)),
         [3.2, 3.3, -1.3],
-        quat_x(0.4),
+        quat_x(-0.4),
     ));
 
     let mut root = assemble(prims);

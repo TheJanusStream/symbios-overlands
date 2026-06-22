@@ -2,8 +2,10 @@
 //! burning as a beacon. Scatter clutter marking the holdout; its fire is
 //! emissive trim the ruin pass can darken.
 
+use std::f32::consts::TAU;
+
 use crate::catalogue::items::util::{
-    assemble, cylinder_tapered, glow, id_quat, prim, solid, torus,
+    assemble, cylinder_tapered, glow, id_quat, prim, quat_mul, quat_x, quat_y, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -56,6 +58,17 @@ fn build_tree() -> Generator {
         ),
     ];
 
+    // Three splayed scrap legs bracing the pole — so the beacon reads as a
+    // planted tripod, not a stick balanced on the ground.
+    for k in 0..3 {
+        let a = k as f32 / 3.0 * TAU + 0.4;
+        prims.push(prim(
+            solid(cylinder_tapered(0.06, 1.5, 5, 0.0, rusted(STEEL_GREY))),
+            [a.cos() * 0.45, 0.6, a.sin() * 0.45],
+            quat_mul(quat_y(a), quat_x(0.45)),
+        ));
+    }
+
     // Brazier basket atop the pole.
     prims.push(prim(
         solid(cylinder_tapered(0.45, 0.5, 10, 0.3, rusted(RUST_BROWN))),
@@ -67,10 +80,20 @@ fn build_tree() -> Generator {
         [0.0, pole_h + 0.45, 0.0],
         id_quat(),
     ));
-    // Glowing fire core — emissive.
+    // Vertical cage bars around the basket so the flames lick through scrap.
+    for k in 0..6 {
+        let a = k as f32 / 6.0 * TAU;
+        prims.push(prim(
+            solid(cylinder_tapered(0.03, 0.6, 4, 0.0, rusted(STEEL_GREY))),
+            [a.cos() * 0.42, pole_h + 0.5, a.sin() * 0.42],
+            id_quat(),
+        ));
+    }
+    // Glowing fire core — emissive, leaping proud of the cage rim. Held at a
+    // moderate strength so bloom keeps it incandescent orange, not white-hot.
     let mut fire = prim(
-        solid(cylinder_tapered(0.36, 0.4, 8, 0.0, glow(FIRE_ORANGE, 4.0))),
-        [0.0, pole_h + 0.55, 0.0],
+        solid(cylinder_tapered(0.38, 0.62, 8, 0.0, glow(FIRE_ORANGE, 4.0))),
+        [0.0, pole_h + 0.62, 0.0],
         id_quat(),
     );
     fire.audio = fx::fire_crackle();
