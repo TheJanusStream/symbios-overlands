@@ -11,7 +11,10 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{CONCRETE_PALE, CROP_GREEN, GLASS_CLEAN, GROW_PINK, concrete, foliage, glass};
+use super::{
+    CONCRETE_PALE, CROP_GREEN, GLASS_CLEAN, GROW_PINK, LEAF_GREEN, concrete, crop_tufts, foliage,
+    glass,
+};
 
 pub struct VerticalFarm;
 
@@ -74,7 +77,7 @@ fn build_tree() -> Generator {
         [0.0, base_h + core_h * 0.5, 0.0],
         id_quat(),
     ));
-    // Roof cap.
+    // Roof cap + a green roof-garden crown.
     prims.push(prim(
         solid(cuboid_tapered(
             [3.0, 0.4, 3.0],
@@ -84,8 +87,39 @@ fn build_tree() -> Generator {
         [0.0, core_top + 0.2, 0.0],
         id_quat(),
     ));
+    prims.extend(crop_tufts(
+        [0.0, core_top + 0.4, 0.0],
+        [2.4, 2.4],
+        4,
+        4,
+        0.55,
+        foliage(CROP_GREEN),
+    ));
 
-    // Stacked planted terraces on the +Z front, each with a grow-light.
+    // Climbing-green facade up the ±X side faces — living curtain of vines.
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered(
+                [0.18, core_h * 0.92, 1.9],
+                0.0,
+                foliage(LEAF_GREEN),
+            )),
+            [sx * 1.34, base_h + core_h * 0.46, 0.0],
+            id_quat(),
+        ));
+        // Trailing leaf clumps so the curtain reads planted, not a flat slab.
+        prims.extend(crop_tufts(
+            [sx * 1.4, base_h + core_h * 0.46, 0.0],
+            [0.0, 1.6],
+            1,
+            6,
+            0.5,
+            foliage(LEAF_GREEN),
+        ));
+    }
+
+    // Stacked planted terraces on the −Z hero front, each lit by a grow-light.
+    let zf = -1.6_f32;
     for k in 0..4 {
         let y = base_h + 1.4 + k as f32 * 1.9;
         // Terrace shelf.
@@ -95,25 +129,28 @@ fn build_tree() -> Generator {
                 0.0,
                 concrete(CONCRETE_PALE),
             )),
-            [0.0, y, 1.6],
+            [0.0, y, zf],
             id_quat(),
         ));
-        // Crops on the shelf.
-        prims.push(prim(
-            solid(cuboid_tapered([4.2, 0.5, 1.0], 0.0, foliage(CROP_GREEN))),
-            [0.0, y + 0.35, 1.6],
-            id_quat(),
+        // Rows of leafy crops on the shelf.
+        prims.extend(crop_tufts(
+            [0.0, y + 0.15, zf],
+            [4.0, 0.9],
+            7,
+            2,
+            0.55,
+            foliage(CROP_GREEN),
         ));
-        // Glass front over the terrace.
+        // Glass front over the terrace (proud of the −Z shelf edge).
         prims.push(prim(
             cuboid_tapered([4.4, 1.4, 0.12], 0.0, glass(GLASS_CLEAN, 1.0)),
-            [0.0, y + 0.9, 2.2],
+            [0.0, y + 0.9, zf - 0.62],
             id_quat(),
         ));
         // Grow-light strip under the shelf above — emissive.
         prims.push(prim(
-            cuboid_tapered([4.2, 0.12, 0.9], 0.0, glow(GROW_PINK, 2.5)),
-            [0.0, y + 1.4, 1.7],
+            cuboid_tapered([4.2, 0.12, 0.9], 0.0, glow(GROW_PINK, 2.2)),
+            [0.0, y + 1.4, zf - 0.1],
             id_quat(),
         ));
     }

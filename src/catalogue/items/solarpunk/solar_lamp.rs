@@ -2,14 +2,17 @@
 //! warm glowing light. Scatter clutter lighting the garden paths; its lamp is
 //! emissive trim the ruin pass can darken.
 
+use std::f32::consts::TAU;
+
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, solid,
+    assemble, cone, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, solid, sphere,
+    torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{LAMP_WARM, PV_BLUE, STEEL_GREY, pv, steel};
+use super::{LAMP_WARM, PV_BLUE, STEEL_GREY, STEEL_WHITE, pv, steel};
 
 pub struct SolarLamp;
 
@@ -45,26 +48,51 @@ impl CatalogueEntry for SolarLamp {
 }
 
 fn build_tree() -> Generator {
-    let prims = vec![
+    let head_y = 1.6_f32;
+    let mut prims = vec![
         // Steel bollard post — the root.
         prim(
             solid(cylinder_tapered(0.1, 1.6, 8, 0.05, steel(STEEL_GREY))),
             [0.0, 0.8, 0.0],
             id_quat(),
         ),
-        // Warm glowing light just under the cap — emissive trim.
-        prim(
-            cuboid_tapered([0.3, 0.3, 0.3], 0.0, glow(LAMP_WARM, 2.5)),
-            [0.0, 1.7, 0.0],
-            id_quat(),
-        ),
-        // Small tilted PV cap on top.
-        prim(
-            solid(cuboid_tapered([0.5, 0.06, 0.5], 0.0, pv(PV_BLUE))),
-            [0.0, 1.95, 0.0],
-            quat_x(0.25),
-        ),
     ];
+
+    // Lantern head: a glowing lens enclosed in a little steel cage under a
+    // hood — a fixture, not a bare glow cube.
+    // Collar ring where the head meets the post.
+    prims.push(prim(
+        solid(torus(0.035, 0.2, steel(STEEL_WHITE))),
+        [0.0, head_y - 0.02, 0.0],
+        id_quat(),
+    ));
+    // Warm glowing lens — emissive trim the ruin pass can darken.
+    prims.push(prim(
+        sphere(0.15, 5, glow(LAMP_WARM, 2.2)),
+        [0.0, head_y + 0.12, 0.0],
+        id_quat(),
+    ));
+    // Cage bars round the lens.
+    for i in 0..4 {
+        let a = i as f32 / 4.0 * TAU;
+        prims.push(prim(
+            solid(cylinder_tapered(0.014, 0.32, 6, 0.0, steel(STEEL_WHITE))),
+            [a.cos() * 0.16, head_y + 0.12, a.sin() * 0.16],
+            id_quat(),
+        ));
+    }
+    // Conical hood capping the lantern.
+    prims.push(prim(
+        solid(cone(0.24, 0.16, 10, steel(STEEL_WHITE))),
+        [0.0, head_y + 0.36, 0.0],
+        id_quat(),
+    ));
+    // Small tilted PV cap on top, soaking the sun.
+    prims.push(prim(
+        solid(cuboid_tapered([0.46, 0.05, 0.46], 0.0, pv(PV_BLUE))),
+        [0.0, head_y + 0.5, 0.0],
+        quat_x(0.25),
+    ));
 
     assemble(prims)
 }

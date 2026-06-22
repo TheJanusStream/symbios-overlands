@@ -8,13 +8,16 @@
 //! [`assemble`], which reparents every piece under the cob wall.
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, id_quat, prim, solid,
+    assemble, cone, cuboid_tapered, cylinder_tapered, id_quat, prim, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{COB_EARTH, GLASS_CLEAN, MOSS_GREEN, TIMBER_WARM, foliage, glass, timber};
+use super::{
+    COB_EARTH, CONCRETE_PALE, GLASS_CLEAN, MOSS_GREEN, TIMBER_WARM, concrete, foliage, glass,
+    timber,
+};
 
 pub struct CobRoundhouse;
 
@@ -61,23 +64,53 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Conical living roof.
+    // Low stone footing ring the cob is raised on (keeps the earth wall off
+    // the wet ground).
     prims.push(prim(
-        solid(cone(3.2, 2.2, 16, foliage(MOSS_GREEN))),
+        solid(cylinder_tapered(
+            2.74,
+            0.4,
+            16,
+            0.0,
+            concrete(CONCRETE_PALE),
+        )),
+        [0.0, 0.2, 0.0],
+        id_quat(),
+    ));
+    // Eave ring beam where the overhanging roof springs from the wall top.
+    prims.push(prim(
+        solid(torus(0.12, 2.95, timber(TIMBER_WARM))),
+        [0.0, wall_h + 0.04, 0.0],
+        id_quat(),
+    ));
+    // Conical living-turf roof, oversailing the wall as a sheltering eave.
+    prims.push(prim(
+        solid(cone(3.3, 2.2, 16, foliage(MOSS_GREEN))),
         [0.0, wall_h + 1.1, 0.0],
         id_quat(),
     ));
-
-    // Timber door on the +Z face.
+    // Smoke vent / finial at the apex — a little timber stack and cap.
     prims.push(prim(
-        solid(cuboid_tapered([0.9, 1.8, 0.2], 0.0, timber(TIMBER_WARM))),
-        [0.0, 0.9, 2.45],
+        solid(cylinder_tapered(0.18, 0.55, 8, 0.0, timber(TIMBER_WARM))),
+        [0.0, wall_h + 2.35, 0.0],
         id_quat(),
     ));
-    // A little window.
+    prims.push(prim(
+        solid(cone(0.3, 0.26, 8, foliage(MOSS_GREEN))),
+        [0.0, wall_h + 2.75, 0.0],
+        id_quat(),
+    ));
+
+    // Timber door on the −Z hero front, framed.
+    prims.push(prim(
+        solid(cuboid_tapered([0.92, 1.8, 0.22], 0.0, timber(TIMBER_WARM))),
+        [0.0, 0.9, -2.45],
+        id_quat(),
+    ));
+    // A little glazed window beside the door.
     prims.push(prim(
         cuboid_tapered([0.6, 0.6, 0.15], 0.0, glass(GLASS_CLEAN, 0.6)),
-        [1.3, 1.7, 2.1],
+        [1.15, 1.6, -2.18],
         id_quat(),
     ));
 

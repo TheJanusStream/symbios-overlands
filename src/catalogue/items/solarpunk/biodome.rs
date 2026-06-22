@@ -9,17 +9,18 @@
 //! flat ground-relative frame via [`assemble`], which reparents every piece
 //! under the concrete ring.
 
+use crate::catalogue::items::space_outpost::dome_ribs;
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, foundation_disc, glow, id_quat, prim, solid,
-    sphere, torus,
+    sphere, torus, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
 use super::{
-    CONCRETE_PALE, DOME_GLOW, GLASS_CLEAN, LEAF_GREEN, STEEL_WHITE, concrete, foliage, fx, glass,
-    steel,
+    CONCRETE_PALE, CROP_GREEN, DOME_GLOW, GLASS_CLEAN, LEAF_GREEN, STEEL_WHITE, concrete,
+    crop_tufts, foliage, fx, glass, steel,
 };
 
 pub struct Biodome;
@@ -58,13 +59,18 @@ impl CatalogueEntry for Biodome {
 fn build_tree() -> Generator {
     let ring_h = 1.0_f32;
     let ring_top = ring_h;
-    let radius = 5.5_f32; // dome sphere radius, centred on the ring top
+    let drum_r = 6.2_f32; // round concrete planter drum
+    let dome_r = 5.8_f32; // geodesic rib-cage radius
+    let glass_r = 5.7_f32; // glass shell just inside the ribs so they stand proud
 
     let mut prims = vec![
-        // Concrete planter ring — the root.
+        // Round concrete planter drum — the root (a real ring base, not a flat
+        // square slab).
         prim(
-            solid(cuboid_tapered(
-                [13.0, ring_h, 13.0],
+            solid(cylinder_tapered(
+                drum_r,
+                ring_h,
+                28,
                 0.0,
                 concrete(CONCRETE_PALE),
             )),
@@ -72,52 +78,83 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
-    prims.push(foundation_disc(6.8, 1.2));
+    prims.push(foundation_disc(drum_r - 0.4, 1.2));
 
-    // Planted soil inside the ring.
+    // Planted soil inside the drum + a leafy interior garden seen through the
+    // glass.
     prims.push(prim(
-        solid(cylinder_tapered(6.0, 0.4, 24, 0.0, foliage(LEAF_GREEN))),
-        [0.0, ring_top + 0.1, 0.0],
+        solid(cylinder_tapered(
+            dome_r - 0.5,
+            0.4,
+            28,
+            0.0,
+            foliage(LEAF_GREEN),
+        )),
+        [0.0, ring_top + 0.15, 0.0],
         id_quat(),
     ));
+    prims.extend(crop_tufts(
+        [0.0, ring_top + 0.35, 0.0],
+        [8.0, 8.0],
+        5,
+        5,
+        1.0,
+        foliage(CROP_GREEN),
+    ));
 
-    // Faceted glass dome (low-poly sphere reads as geodesic).
+    // Faceted glass dome — an upper hemisphere seated on the drum (not a
+    // half-buried sphere), low-poly so it reads geodesic.
     prims.push(prim(
-        solid(sphere(radius, 3, glass(GLASS_CLEAN, 1.2))),
+        solid(with_cut(
+            sphere(glass_r, 6, glass(GLASS_CLEAN, 1.1)),
+            [0.0, 1.0],
+            [0.5, 1.0],
+            0.0,
+        )),
         [0.0, ring_top, 0.0],
         id_quat(),
     ));
-    // Soft green interior glow — emissive.
+    // Soft green interior glow — emissive (the lit hero's glow the ruin pass
+    // snuffs).
     prims.push(prim(
-        sphere(4.2, 3, glow(DOME_GLOW, 1.6)),
+        sphere(3.8, 5, glow(DOME_GLOW, 1.7)),
         [0.0, ring_top + 1.6, 0.0],
         id_quat(),
     ));
-
-    // White steel latitude frame rings up the dome.
-    for h in [2.5_f32, 4.0, 5.3] {
-        let dy = h - ring_top;
-        let r = (radius * radius - dy * dy).max(0.0).sqrt();
-        prims.push(prim(
-            solid(torus(0.1, r, steel(STEEL_WHITE))),
-            [0.0, h, 0.0],
-            id_quat(),
-        ));
-    }
-
-    // Glass entrance on the +Z face with a steel frame.
+    // Steel base ring where the dome springs from the drum.
     prims.push(prim(
-        cuboid_tapered([2.0, 2.2, 0.2], 0.0, glass(GLASS_CLEAN, 1.2)),
-        [0.0, ring_top + 1.1, 6.3],
+        solid(torus(0.12, dome_r, steel(STEEL_WHITE))),
+        [0.0, ring_top, 0.0],
+        id_quat(),
+    ));
+    // Geodesic steel rib cage standing proud of the glass — the paneled
+    // habitat-dome read (reused from the space-outpost habitat dome).
+    prims.extend(dome_ribs(
+        [0.0, ring_top, 0.0],
+        dome_r,
+        8,
+        steel(STEEL_WHITE),
+    ));
+
+    // Glazed entrance on the -Z hero front, steel-framed.
+    let zf = -(drum_r + 0.02);
+    prims.push(prim(
+        cuboid_tapered([2.0, 2.2, 0.18], 0.0, glass(GLASS_CLEAN, 1.3)),
+        [0.0, ring_top + 0.1, zf + 0.12],
         id_quat(),
     ));
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
-            solid(cuboid_tapered([0.15, 2.4, 0.25], 0.0, steel(STEEL_WHITE))),
-            [sx * 1.1, ring_top + 1.2, 6.3],
+            solid(cuboid_tapered([0.2, 2.5, 0.32], 0.0, steel(STEEL_WHITE))),
+            [sx * 1.1, ring_top + 0.15, zf],
             id_quat(),
         ));
     }
+    prims.push(prim(
+        solid(cuboid_tapered([2.5, 0.24, 0.32], 0.0, steel(STEEL_WHITE))),
+        [0.0, ring_top + 1.4, zf],
+        id_quat(),
+    ));
 
     let mut root = assemble(prims);
     // Signature life: clean-air breeze and drifting pollen.

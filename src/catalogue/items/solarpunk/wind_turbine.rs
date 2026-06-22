@@ -5,16 +5,16 @@
 //! blades radiate from the hub at 120° via [`quat_x`] alone — no Z-axis
 //! rotation needed.
 
-use std::f32::consts::TAU;
+use std::f32::consts::{FRAC_PI_2, TAU};
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, sphere,
+    assemble, cone, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_z, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{CONCRETE_PALE, STEEL_GREY, STEEL_WHITE, concrete, steel};
+use super::{CONCRETE_PALE, GLASS_CLEAN, STEEL_GREY, STEEL_WHITE, concrete, glass, steel};
 
 pub struct WindTurbine;
 
@@ -73,6 +73,12 @@ fn build_tree() -> Generator {
         [0.0, base_h + tower_h * 0.5, 0.0],
         id_quat(),
     ));
+    // Access door at the tower foot, on the −Z front (for scale).
+    prims.push(prim(
+        cuboid_tapered([0.5, 1.0, 0.1], 0.0, glass(GLASS_CLEAN, 0.5)),
+        [0.0, base_h + 0.55, -0.58],
+        id_quat(),
+    ));
     // Nacelle, axis along X.
     prims.push(prim(
         solid(cuboid_tapered([1.8, 0.9, 0.9], 0.1, steel(STEEL_WHITE))),
@@ -82,20 +88,28 @@ fn build_tree() -> Generator {
     // Hub at the front of the nacelle.
     let hub = [1.0_f32, hub_y, 0.0];
     prims.push(prim(
-        solid(sphere(0.35, 3, steel(STEEL_GREY))),
+        solid(sphere(0.4, 4, steel(STEEL_GREY))),
         hub,
         id_quat(),
     ));
+    // Spinner nose-cone pointing forward into the wind (+X).
+    prims.push(prim(
+        solid(cone(0.4, 0.7, 10, steel(STEEL_WHITE))),
+        [hub[0] + 0.4, hub[1], hub[2]],
+        quat_z(-FRAC_PI_2),
+    ));
 
-    // Three blades radiating from the hub at 120° around the X axis.
-    let blade_len = 5.5_f32;
+    // Three aerofoil blades radiating from the hub at 120° around the X axis —
+    // a wide root chord tapering to a slim tip so they catch the light edge-on
+    // instead of vanishing to a hairline.
+    let blade_len = 5.8_f32;
     for i in 0..3 {
         let a = i as f32 / 3.0 * TAU;
-        let c = blade_len * 0.5 + 0.4;
+        let c = blade_len * 0.5 + 0.45;
         prims.push(prim(
             solid(cuboid_tapered(
-                [0.18, blade_len, 0.5],
-                0.6,
+                [0.16, blade_len, 0.72],
+                0.7,
                 steel(STEEL_WHITE),
             )),
             [hub[0], hub[1] + a.cos() * c, hub[2] + a.sin() * c],

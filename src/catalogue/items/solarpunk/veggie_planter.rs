@@ -6,7 +6,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{CROP_GREEN, LEAF_GREEN, TIMBER_WARM, foliage, timber};
+use super::{CROP_GREEN, LEAF_GREEN, SOIL_DARK, TIMBER_WARM, crop_tufts, foliage, timber};
 
 pub struct VeggiePlanter;
 
@@ -51,14 +51,22 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Soil + crops mounded in the bed.
+    // Soil cap + rows of leafy crops mounded in the bed.
     prims.push(prim(
-        solid(cuboid_tapered([1.6, 0.5, 0.7], 0.0, foliage(CROP_GREEN))),
-        [0.0, 0.6, 0.0],
+        solid(cuboid_tapered([1.66, 0.16, 0.76], 0.0, foliage(SOIL_DARK))),
+        [0.0, 0.55, 0.0],
         id_quat(),
     ));
+    prims.extend(crop_tufts(
+        [0.0, 0.62, 0.0],
+        [1.5, 0.6],
+        5,
+        2,
+        0.5,
+        foliage(CROP_GREEN),
+    ));
 
-    // Trellis frame at the back.
+    // Lattice trellis at the back: two posts, a top rail and cross slats.
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
             solid(cuboid_tapered([0.06, 1.4, 0.06], 0.0, timber(TIMBER_WARM))),
@@ -68,14 +76,24 @@ fn build_tree() -> Generator {
     }
     prims.push(prim(
         solid(cuboid_tapered([1.7, 0.06, 0.06], 0.0, timber(TIMBER_WARM))),
-        [0.0, 1.6, -0.35],
+        [0.0, 1.62, -0.35],
         id_quat(),
     ));
-    // Climbing vine on the trellis.
-    prims.push(prim(
-        solid(cuboid_tapered([1.5, 0.9, 0.12], 0.0, foliage(LEAF_GREEN))),
-        [0.0, 1.2, -0.32],
-        id_quat(),
+    for y in [1.05_f32, 1.32] {
+        prims.push(prim(
+            solid(cuboid_tapered([1.6, 0.04, 0.04], 0.0, timber(TIMBER_WARM))),
+            [0.0, y, -0.35],
+            id_quat(),
+        ));
+    }
+    // Climbing-bean foliage growing up the trellis.
+    prims.extend(crop_tufts(
+        [0.0, 1.35, -0.34],
+        [1.5, 0.0],
+        6,
+        1,
+        0.42,
+        foliage(LEAF_GREEN),
     ));
 
     assemble(prims)

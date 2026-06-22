@@ -33,9 +33,10 @@ pub mod fx;
 
 use bevy_symbios_texture::metal::MetalStyle;
 
+use crate::catalogue::items::util::{id_quat, prim_scaled, sphere};
 use crate::pds::{
-    Fp, Fp3, Fp64, SovereignConcreteConfig, SovereignMaterialSettings, SovereignMetalConfig,
-    SovereignPlankConfig, SovereignTextureConfig, SovereignWindowConfig,
+    Fp, Fp3, Fp64, Generator, SovereignConcreteConfig, SovereignMaterialSettings,
+    SovereignMetalConfig, SovereignPlankConfig, SovereignTextureConfig, SovereignWindowConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -139,6 +140,54 @@ pub(super) fn foliage(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
+/// A planted bed of leafy crop tufts — rounded foliage clumps in a grid, the
+/// green that turns a flat painted slab into rows of growing greens. Each
+/// clump is a flattened low-poly dome; sizes and offsets vary by index for an
+/// organic, hand-planted look (a deterministic jitter, no RNG — so the
+/// sanitiser round-trip stays stable). `center` is the soil-top centre,
+/// `span` the bed `[x, z]` extent the clumps fill, `h` the nominal clump
+/// height. Returns the clumps for an [`assemble`](super::super::util::assemble)
+/// list — the solarpunk green signature, reused on every planter and terrace.
+pub(super) fn crop_tufts(
+    center: [f32; 3],
+    span: [f32; 2],
+    cols: u32,
+    rows: u32,
+    h: f32,
+    mat: SovereignMaterialSettings,
+) -> Vec<Generator> {
+    let mut v = Vec::new();
+    for r in 0..rows {
+        for c in 0..cols {
+            let fc = if cols > 1 {
+                c as f32 / (cols - 1) as f32 - 0.5
+            } else {
+                0.0
+            };
+            let fr = if rows > 1 {
+                r as f32 / (rows - 1) as f32 - 0.5
+            } else {
+                0.0
+            };
+            // Deterministic per-clump jitter from the cell index.
+            let k = (r * 7 + c * 13) % 5;
+            let j = (r * 5 + c * 11) % 7;
+            let s = 0.74 + k as f32 * 0.08; // size factor 0.74..1.06
+            let clump_r = h * 0.55 * s;
+            let wob = (j as f32 / 7.0 - 0.5) * h * 0.35; // small XZ wobble
+            let x = center[0] + fc * span[0] + wob;
+            let z = center[2] + fr * span[1] - wob;
+            v.push(prim_scaled(
+                sphere(clump_r, 5, mat.clone()),
+                [x, center[1] + clump_r * 0.5, z],
+                id_quat(),
+                [1.0, 0.82, 1.0],
+            ));
+        }
+    }
+    v
+}
+
 /// Glossy dark photovoltaic panel — solar arrays and panel roofs.
 pub(super) fn pv(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -187,11 +236,17 @@ pub(super) const CROP_GREEN: [f32; 3] = [0.40, 0.56, 0.24];
 pub(super) const PV_BLUE: [f32; 3] = [0.10, 0.14, 0.30];
 pub(super) const WATER_BLUE: [f32; 3] = [0.32, 0.56, 0.62];
 pub(super) const COB_EARTH: [f32; 3] = [0.66, 0.52, 0.36];
+/// Dark turned-earth of planting beds and tunnel floors.
+pub(super) const SOIL_DARK: [f32; 3] = [0.34, 0.26, 0.18];
 
-// Emissive trim colours.
-pub(super) const DOME_GLOW: [f32; 3] = [0.72, 1.0, 0.74];
-pub(super) const GROW_PINK: [f32; 3] = [1.0, 0.42, 0.82];
-pub(super) const LAMP_WARM: [f32; 3] = [1.0, 0.90, 0.66];
+// Emissive trim colours — deep-saturated so the brightest facets hold their
+// hue under bloom instead of washing to a pale near-white blank. A pale colour
+// driven bright clips toward white; a saturated base keeps its off-channels
+// low so it stays green / magenta / amber when lit (see the fantasy +
+// space-outpost overhaul lesson).
+pub(super) const DOME_GLOW: [f32; 3] = [0.34, 0.92, 0.40];
+pub(super) const GROW_PINK: [f32; 3] = [1.0, 0.30, 0.74];
+pub(super) const LAMP_WARM: [f32; 3] = [1.0, 0.80, 0.45];
 
 #[cfg(test)]
 mod tests {
