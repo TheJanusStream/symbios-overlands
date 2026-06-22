@@ -1,12 +1,21 @@
-//! Hitching post — a Wild-West prop. A timber hitching rail beside a water
-//! trough. Scatter clutter along the boardwalk.
+//! Hitching post — a Wild-West prop. A round-log hitching rail with iron
+//! tie-rings beside a hewn-log water trough. Scatter clutter along the
+//! boardwalk.
+//!
+//! The rail is a [`quat_z`]-rotated log, so it is demoted to a child of an
+//! upright post root: [`assemble`] rebases only child *translation*, so a
+//! rotated *root* would spin every sibling into its frame.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, solid};
+use std::f32::consts::FRAC_PI_2;
+
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_z, solid, torus,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{WOOD_RAW, clapboard};
+use super::{IRON_DARK, WOOD_RAW, canvas, clapboard, iron};
 
 pub struct HitchingPost;
 
@@ -18,7 +27,7 @@ impl CatalogueEntry for HitchingPost {
         "Hitching Post"
     }
     fn description(&self) -> &'static str {
-        "Timber hitching rail beside a water trough."
+        "Round-log hitching rail with iron tie-rings beside a hewn-log water trough."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Prop
@@ -42,26 +51,65 @@ impl CatalogueEntry for HitchingPost {
 }
 
 fn build_tree() -> Generator {
+    let rail_y = 1.1_f32;
+    let post_h = rail_y + 0.1;
+
     let mut prims = vec![
-        // Top rail — the root.
+        // Left post — the root. Must be identity-rotation: the rotated rail
+        // can only be a child, never the assemble root.
         prim(
-            solid(cuboid_tapered([2.6, 0.14, 0.14], 0.0, clapboard(WOOD_RAW))),
-            [0.0, 1.0, 0.0],
+            solid(cylinder_tapered(0.1, post_h, 8, 0.0, clapboard(WOOD_RAW))),
+            [-1.1, post_h * 0.5, 0.0],
             id_quat(),
         ),
     ];
-    // Two posts.
+    // Right post.
+    prims.push(prim(
+        solid(cylinder_tapered(0.1, post_h, 8, 0.0, clapboard(WOOD_RAW))),
+        [1.1, post_h * 0.5, 0.0],
+        id_quat(),
+    ));
+    // Round top rail (a log) running along X — a child, not the root.
+    prims.push(prim(
+        solid(cylinder_tapered(0.08, 2.6, 8, 0.0, clapboard(WOOD_RAW))),
+        [0.0, rail_y, 0.0],
+        quat_z(FRAC_PI_2),
+    ));
+    // Iron tie-rings hanging from the rail (vertical hoops).
+    for x in [-0.5_f32, 0.5] {
+        prims.push(prim(
+            solid(torus(0.03, 0.11, iron(IRON_DARK))),
+            [x, rail_y - 0.13, 0.0],
+            quat_x(FRAC_PI_2),
+        ));
+    }
+
+    // A hewn-log water trough alongside, with a still water surface.
+    prims.push(prim(
+        solid(cuboid_tapered([2.2, 0.5, 0.7], 0.0, clapboard(WOOD_RAW))),
+        [0.0, 0.25, 0.95],
+        id_quat(),
+    ));
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
-            solid(cuboid_tapered([0.16, 1.2, 0.16], 0.0, clapboard(WOOD_RAW))),
-            [sx * 1.1, 0.6, 0.0],
+            solid(cuboid_tapered([0.12, 0.62, 0.7], 0.0, clapboard(WOOD_RAW))),
+            [sx * 1.04, 0.31, 0.95],
             id_quat(),
         ));
     }
-    // A plank water trough alongside.
     prims.push(prim(
-        solid(cuboid_tapered([2.2, 0.5, 0.7], 0.0, clapboard(WOOD_RAW))),
-        [0.0, 0.25, 0.9],
+        solid(cuboid_tapered(
+            [2.0, 0.06, 0.55],
+            0.0,
+            canvas([0.3, 0.4, 0.46]),
+        )),
+        [0.0, 0.46, 0.95],
+        id_quat(),
+    ));
+    // A tin pail set by the trough.
+    prims.push(prim(
+        solid(cylinder_tapered(0.16, 0.34, 10, 0.08, iron(IRON_DARK))),
+        [1.45, 0.17, 0.95],
         id_quat(),
     ));
 

@@ -5,8 +5,11 @@
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], which reparents every piece under the first leg.
 
+use std::f32::consts::FRAC_PI_2;
+
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, id_quat, prim, solid, torus,
+    assemble, cone, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_z, solid, sphere,
+    torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -66,58 +69,119 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    // Cross-braces at two heights.
-    for h in [leg_h * 0.35, leg_h * 0.75] {
-        for sz in [-1.0_f32, 1.0] {
+    // Diagonal X cross-braces on all four faces — the braced-tower signature.
+    let span_h = leg_h - 0.6;
+    let theta = span_h.atan2(2.0 * r);
+    let brace_len = (span_h * span_h + 4.0 * r * r).sqrt();
+    for sz in [-1.0_f32, 1.0] {
+        for s in [-1.0_f32, 1.0] {
             prims.push(prim(
                 solid(cuboid_tapered(
-                    [2.0 * r, 0.12, 0.12],
+                    [brace_len, 0.14, 0.14],
                     0.0,
                     clapboard(WOOD_RAW),
                 )),
-                [0.0, h, sz * r],
-                id_quat(),
+                [0.0, leg_h * 0.5, sz * r],
+                quat_z(s * theta),
             ));
         }
-        for sx in [-1.0_f32, 1.0] {
+    }
+    for sx in [-1.0_f32, 1.0] {
+        for s in [-1.0_f32, 1.0] {
             prims.push(prim(
                 solid(cuboid_tapered(
-                    [0.12, 0.12, 2.0 * r],
+                    [0.14, 0.14, brace_len],
                     0.0,
                     clapboard(WOOD_RAW),
                 )),
-                [sx * r, h, 0.0],
-                id_quat(),
+                [sx * r, leg_h * 0.5, 0.0],
+                quat_x(s * theta),
             ));
         }
+    }
+    // Top tie-frame the tank sits on.
+    for sz in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered(
+                [2.0 * r + 0.3, 0.14, 0.14],
+                0.0,
+                clapboard(WOOD_RAW),
+            )),
+            [0.0, leg_h - 0.1, sz * r],
+            id_quat(),
+        ));
+    }
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered(
+                [0.14, 0.14, 2.0 * r + 0.3],
+                0.0,
+                clapboard(WOOD_RAW),
+            )),
+            [sx * r, leg_h - 0.1, 0.0],
+            id_quat(),
+        ));
     }
 
     // Timber tank.
     prims.push(prim(
-        solid(cylinder_tapered(2.4, 3.0, 16, 0.05, clapboard(CLAP_TAN))),
+        solid(cylinder_tapered(2.4, 3.0, 16, 0.04, clapboard(CLAP_TAN))),
         [0.0, leg_h + 1.5, 0.0],
         id_quat(),
     ));
-    // Tin hoop bands.
-    for y in [leg_h + 0.6, leg_h + 2.4] {
+    // Riveted tin hoop bands up the staves.
+    for y in [leg_h + 0.4, leg_h + 1.2, leg_h + 2.0, leg_h + 2.7] {
         prims.push(prim(
-            solid(torus(0.1, 2.3, tin(TIN_GREY))),
+            solid(torus(0.09, 2.42, tin(TIN_GREY))),
             [0.0, y, 0.0],
             id_quat(),
         ));
     }
-    // Conical tin roof.
+    // Conical tin roof + iron finial.
     prims.push(prim(
-        solid(cone(2.6, 1.6, 16, tin(TIN_GREY))),
-        [0.0, leg_h + 3.8, 0.0],
+        solid(cone(2.7, 1.7, 16, tin(TIN_GREY))),
+        [0.0, leg_h + 3.85, 0.0],
         id_quat(),
     ));
-    // Iron spout hanging from the tank.
     prims.push(prim(
-        solid(cylinder_tapered(0.12, 1.2, 8, 0.0, iron(IRON_DARK))),
-        [0.0, leg_h - 0.6, 2.3],
+        solid(sphere(0.22, 3, iron(IRON_DARK))),
+        [0.0, leg_h + 4.8, 0.0],
         id_quat(),
     ));
+    // Iron downspout + handwheel valve on the −Z (front) face.
+    prims.push(prim(
+        solid(cylinder_tapered(0.12, 1.6, 8, 0.0, iron(IRON_DARK))),
+        [0.0, leg_h - 0.4, -2.5],
+        quat_x(-0.35),
+    ));
+    prims.push(prim(
+        solid(torus(0.05, 0.22, iron(IRON_DARK))),
+        [0.0, leg_h + 0.3, -2.45],
+        quat_x(FRAC_PI_2),
+    ));
+    // Access ladder up the front-left leg.
+    let lx = -r;
+    let lz = -r - 0.18;
+    for sx in [-0.18_f32, 0.18] {
+        prims.push(prim(
+            solid(cuboid_tapered(
+                [0.06, leg_h - 0.4, 0.06],
+                0.0,
+                iron(IRON_DARK),
+            )),
+            [lx + sx, (leg_h - 0.4) * 0.5 + 0.2, lz],
+            id_quat(),
+        ));
+    }
+    let rungs = 9;
+    for i in 0..rungs {
+        let y = 0.5 + i as f32 / (rungs - 1) as f32 * (leg_h - 1.2);
+        prims.push(prim(
+            solid(cuboid_tapered([0.42, 0.05, 0.05], 0.0, iron(IRON_DARK))),
+            [lx, y, lz],
+            id_quat(),
+        ));
+    }
 
     let mut root = assemble(prims);
     // Signature life: the old frame creaking on the wind.

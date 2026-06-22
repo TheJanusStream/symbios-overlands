@@ -1,10 +1,12 @@
 //! Tumbleweed — a Wild-West *poor* prop. A dried tangle of brush bowling
 //! across the empty street. The lonesome clutter of the bust town.
 //!
-//! A few twigs jut at angles via [`quat_x`].
+//! A small core knot with many thin twigs radiating at scattered angles
+//! ([`quat_mul`] of a [`quat_y`] azimuth and a [`quat_x`] tilt) — a spiky,
+//! see-through tangle rather than a smooth ball.
 
 use crate::catalogue::items::util::{
-    assemble, cylinder_tapered, id_quat, prim, quat_x, solid, sphere,
+    assemble, cylinder_tapered, id_quat, prim, quat_mul, quat_x, quat_y, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -49,27 +51,22 @@ impl CatalogueEntry for Tumbleweed {
 }
 
 fn build_tree() -> Generator {
+    let center = [0.0_f32, 0.6, 0.0];
+
     let mut prims = vec![
-        // Brush tangle ball — the root.
-        prim(
-            solid(sphere(0.6, 2, canvas(BRUSH))),
-            [0.0, 0.6, 0.0],
-            id_quat(),
-        ),
+        // Small core knot of brush — the root.
+        prim(solid(sphere(0.18, 3, canvas(BRUSH))), center, id_quat()),
     ];
-    // A second, smaller clump fused on.
-    prims.push(prim(
-        solid(sphere(0.4, 2, canvas(BRUSH))),
-        [0.4, 0.7, 0.2],
-        id_quat(),
-    ));
-    // Stray twigs jutting at angles.
-    for (i, tilt) in [0.7_f32, -0.7, 1.3, -1.3].into_iter().enumerate() {
-        let z = if i % 2 == 0 { 0.5 } else { -0.5 };
+    // Many thin twigs radiating in scattered directions — a diameter twig
+    // through the core sticks out both ways, building a spiky tangle.
+    for i in 0..14 {
+        let az = i as f32 * 1.7;
+        let tilt = -1.2 + (i % 6) as f32 * 0.45;
+        let len = 0.74 + (i % 4) as f32 * 0.13;
         prims.push(prim(
-            solid(cylinder_tapered(0.03, 0.8, 4, 0.0, canvas(BRUSH))),
-            [0.0, 0.6, z],
-            quat_x(tilt),
+            solid(cylinder_tapered(0.024, len, 4, 0.0, canvas(BRUSH))),
+            center,
+            quat_mul(quat_y(az), quat_x(tilt)),
         ));
     }
 
