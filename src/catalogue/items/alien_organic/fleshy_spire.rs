@@ -1,17 +1,25 @@
-//! Fleshy spire — an Alien-Organic secondary. A tall twisting tower of stacked
-//! flesh segments tipped with a glowing biolume bulb, keening eerily. Its tip
-//! is emissive trim the ruin pass can darken.
+//! Fleshy spire — an Alien-Organic secondary. A writhing organic tower: a
+//! lumpy S-curving trunk of fused flesh bulbs studded with biolume pods,
+//! membrane frills fanning from its flanks and a glowing biolume crown at the
+//! tip, keening eerily. Its lights are emissive trim the ruin pass can darken.
 //!
-//! Each segment leans slightly with a [`quat_x`] to give the spire its writhe.
+//! The trunk is a stack of overlapping flesh spheres leaning alternately left
+//! and right — the interpenetrating blobs fuse into one writhing mass (they
+//! are round, so the overlap reads as flesh, not z-fight) and break the
+//! smooth-column silhouette into something living.
+
+use std::f32::consts::TAU;
 
 use crate::catalogue::items::util::{
-    assemble, cone, cylinder_tapered, glow, id_quat, prim, quat_x, solid, sphere,
+    assemble, cuboid_tapered, glow, id_quat, prim, quat_y, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{BIOLUME_CYAN, FLESH_PINK, FLESH_RED, flesh, fx};
+use super::{
+    BIOLUME_CYAN, BIOLUME_GREEN, FLESH_PINK, FLESH_RED, MEMBRANE_TEAL, flesh, fx, membrane,
+};
 
 pub struct FleshySpire;
 
@@ -47,39 +55,69 @@ impl CatalogueEntry for FleshySpire {
 }
 
 fn build_tree() -> Generator {
-    let mut prims = vec![
-        // Flesh base bulb — the root.
-        prim(
-            solid(sphere(1.4, 3, flesh(FLESH_RED))),
-            [0.0, 1.0, 0.0],
-            id_quat(),
-        ),
+    // Lumpy S-curving trunk: overlapping flesh bulbs, alternating lean.
+    // (cx, y, cz, r) — centres close enough that adjacent radii overlap.
+    let trunk = [
+        (0.0_f32, 1.0_f32, 0.0_f32, 1.3_f32),
+        (0.18, 2.0, 0.15, 1.12),
+        (-0.28, 2.9, -0.1, 0.95),
+        (0.3, 3.7, 0.18, 0.78),
+        (-0.12, 4.5, 0.02, 0.6),
+        (0.08, 5.15, 0.05, 0.46),
     ];
-
-    // Stacked tapering segments, each leaning to give a writhe.
-    let mut y = 1.8_f32;
-    for (k, tilt) in [0.12_f32, -0.12, 0.1, -0.08].into_iter().enumerate() {
-        let r = 0.9 - k as f32 * 0.15;
-        let h = 1.8;
-        prims.push(prim(
-            solid(cylinder_tapered(r, h, 8, 0.25, flesh(FLESH_PINK))),
-            [0.0, y + h * 0.5, 0.0],
-            quat_x(tilt),
-        ));
-        y += h;
+    let mut prims = vec![prim(
+        solid(sphere(trunk[0].3, 5, flesh(FLESH_RED))),
+        [trunk[0].0, trunk[0].1, trunk[0].2],
+        id_quat(),
+    )];
+    for &(cx, y, cz, r) in &trunk[1..] {
+        let mat = if y > 3.0 {
+            flesh(FLESH_PINK)
+        } else {
+            flesh(FLESH_RED)
+        };
+        prims.push(prim(solid(sphere(r, 5, mat)), [cx, y, cz], id_quat()));
     }
-    // Tapered crown.
+
+    // Glowing biolume crown bulb at the tip — emissive.
     prims.push(prim(
-        solid(cone(0.5, 1.2, 8, flesh(FLESH_PINK))),
-        [0.0, y + 0.4, 0.0],
+        sphere(0.5, 5, glow(BIOLUME_CYAN, 2.0)),
+        [0.1, 5.7, 0.05],
         id_quat(),
     ));
-    // Glowing biolume bulb at the tip — emissive.
-    prims.push(prim(
-        sphere(0.5, 3, glow(BIOLUME_CYAN, 2.8)),
-        [0.0, y + 1.4, 0.0],
-        id_quat(),
-    ));
+
+    // Biolume pods studding the trunk — deep cyan, proud on the flesh.
+    for (y, ang, gr) in [
+        (2.3_f32, 0.6_f32, 0.26_f32),
+        (3.4, 3.4, 0.22),
+        (4.3, 1.8, 0.18),
+    ] {
+        let r = 0.95 - (y - 2.0) * 0.12;
+        prims.push(prim(
+            sphere(gr, 4, glow(BIOLUME_CYAN, 2.0)),
+            [ang.cos() * r, y, ang.sin() * r],
+            id_quat(),
+        ));
+    }
+
+    // Membrane frills fanning from the flanks: thin translucent sails, broad
+    // face turned radially outward, with a glowing green rib up the outer edge
+    // (emissive reads on the flat face — the steampunk lesson).
+    for i in 0..3 {
+        let a = i as f32 / 3.0 * TAU + 0.4;
+        let y = 2.4 + i as f32 * 0.7;
+        let reach = 0.85;
+        prims.push(prim(
+            cuboid_tapered([1.3, 1.5, 0.06], 0.55, membrane(MEMBRANE_TEAL)),
+            [a.cos() * reach, y, a.sin() * reach],
+            quat_y(-a),
+        ));
+        prims.push(prim(
+            cuboid_tapered([0.09, 1.4, 0.1], 0.4, glow(BIOLUME_GREEN, 1.8)),
+            [a.cos() * (reach + 0.5), y, a.sin() * (reach + 0.5)],
+            quat_y(-a),
+        ));
+    }
 
     let mut root = assemble(prims);
     // Signature life: the spire's eerie whine.

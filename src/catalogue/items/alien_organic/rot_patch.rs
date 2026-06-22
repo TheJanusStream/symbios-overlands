@@ -1,15 +1,20 @@
 //! Rot patch — an Alien-Organic *poor* prop. A dark slick of necrotic sludge
-//! pocked with sagging blisters. The decay clutter of the dying colony.
+//! swelling in lobes and pocked with sagging blisters, a couple of them wet
+//! and bulging. The decay clutter of the dying colony.
 
-use crate::catalogue::items::util::{assemble, cylinder_tapered, id_quat, prim, solid, sphere};
+use crate::catalogue::items::util::{
+    assemble, cylinder_tapered, id_quat, prim, prim_scaled, solid, sphere,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::flesh;
+use super::{flesh, membrane};
 
 /// Dark necrotic sludge colour.
 const SLUDGE: [f32; 3] = [0.22, 0.20, 0.16];
+/// Sickly wet-blister sheen.
+const BILE: [f32; 3] = [0.34, 0.34, 0.22];
 
 pub struct RotPatch;
 
@@ -45,28 +50,45 @@ impl CatalogueEntry for RotPatch {
 }
 
 fn build_tree() -> Generator {
-    let mut prims = vec![
-        // Sludge slick — the root.
-        prim(
-            solid(cylinder_tapered(1.3, 0.12, 16, 0.0, flesh(SLUDGE))),
-            [0.0, 0.06, 0.0],
+    // Sludge slick — the root, a thin flat cylinder mat. CRITICAL: the root
+    // must carry an IDENTITY scale — assemble() reparents the blisters under
+    // it and Bevy propagates the root's scale to all children, so a flattened
+    // (non-uniform-scale) sphere root would squash every blister flat into the
+    // slick (the root-SCALE sibling of the rotated-root gotcha). The flattening
+    // scale lives only on the non-root sludge lobes/blisters.
+    let mut prims = vec![prim(
+        solid(cylinder_tapered(1.05, 0.14, 16, 0.0, flesh(SLUDGE))),
+        [0.0, 0.07, 0.0],
+        id_quat(),
+    )];
+    // Overlapping sludge lobes.
+    for (cx, cz, r) in [(0.6_f32, 0.25_f32, 0.55_f32), (-0.55, 0.4, 0.5)] {
+        prims.push(prim_scaled(
+            solid(sphere(r, 5, flesh(SLUDGE))),
+            [cx, 0.08, cz],
             id_quat(),
-        ),
-    ];
-    // Overlapping lobes.
-    for (cx, cz, r) in [(0.8_f32, 0.3_f32, 0.7_f32), (-0.7, 0.5, 0.6)] {
-        prims.push(prim(
-            solid(cylinder_tapered(r, 0.1, 14, 0.0, flesh(SLUDGE))),
-            [cx, 0.05, cz],
-            id_quat(),
+            [1.0, 0.22, 1.0],
         ));
     }
-    // Sagging blisters bulging from the rot.
-    for (cx, cz) in [(0.2_f32, 0.1_f32), (-0.4, -0.3), (0.6, -0.4)] {
-        prims.push(prim(
-            solid(sphere(0.22, 3, flesh([0.30, 0.26, 0.20]))),
-            [cx, 0.12, cz],
+    // Sagging blisters bulging from the rot — matte and wet, varied heights,
+    // standing clearly proud of the slick (now un-squashed: the root is
+    // identity-scale).
+    for (cx, cz, r, wet) in [
+        (0.25_f32, 0.1_f32, 0.36_f32, true),
+        (-0.4, -0.25, 0.3, false),
+        (0.55, -0.4, 0.26, true),
+        (-0.15, 0.5, 0.22, false),
+    ] {
+        let mat = if wet {
+            membrane(BILE)
+        } else {
+            flesh([0.30, 0.26, 0.20])
+        };
+        prims.push(prim_scaled(
+            solid(sphere(r, 5, mat)),
+            [cx, 0.12 + r * 0.5, cz],
             id_quat(),
+            [1.0, 0.9, 1.0],
         ));
     }
 
