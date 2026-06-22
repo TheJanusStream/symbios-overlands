@@ -1,7 +1,11 @@
 //! Stone cross — a Gothic-Horror prop. A weathered ringed cross on a stepped
 //! base, lichened with age. Scatter clutter marking the graves.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, solid, torus};
+use std::f32::consts::FRAC_PI_2;
+
+use crate::catalogue::items::util::{
+    assemble, cone, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, sphere, torus,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -42,37 +46,68 @@ impl CatalogueEntry for StoneCross {
 }
 
 fn build_tree() -> Generator {
+    let ms = || mossy(STONE_MOSS);
     let mut prims = vec![
-        // Lower step — the root.
+        // Lowest Calvary step — the root.
         prim(
-            solid(cuboid_tapered([1.4, 0.3, 1.4], 0.0, mossy(STONE_MOSS))),
-            [0.0, 0.15, 0.0],
+            solid(cuboid_tapered([1.5, 0.32, 1.5], 0.05, ms())),
+            [0.0, 0.16, 0.0],
             id_quat(),
         ),
     ];
-    // Upper step.
+    // Middle + upper steps.
     prims.push(prim(
-        solid(cuboid_tapered([1.0, 0.3, 1.0], 0.0, mossy(STONE_MOSS))),
-        [0.0, 0.45, 0.0],
+        solid(cuboid_tapered([1.15, 0.3, 1.15], 0.05, ms())),
+        [0.0, 0.47, 0.0],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(cuboid_tapered([0.85, 0.3, 0.85], 0.05, ms())),
+        [0.0, 0.77, 0.0],
+        id_quat(),
+    ));
+    // Socket stone.
+    prims.push(prim(
+        solid(cuboid_tapered([0.52, 0.42, 0.52], 0.1, ms())),
+        [0.0, 1.1, 0.0],
         id_quat(),
     ));
 
-    // Shaft.
+    // Tapered shaft.
     prims.push(prim(
-        solid(cuboid_tapered([0.3, 2.6, 0.3], 0.05, mossy(STONE_MOSS))),
-        [0.0, 1.9, 0.0],
+        solid(cylinder_tapered(0.19, 2.3, 8, 0.2, ms())),
+        [0.0, 2.45, 0.0],
         id_quat(),
     ));
-    // Cross arm.
+
+    // Cross head: upright + transom arms.
+    let head_y = 3.55_f32;
     prims.push(prim(
-        solid(cuboid_tapered([1.3, 0.3, 0.28], 0.0, mossy(STONE_MOSS))),
-        [0.0, 2.7, 0.0],
+        solid(cuboid_tapered([0.28, 0.9, 0.26], 0.0, ms())),
+        [0.0, head_y + 0.05, 0.0],
         id_quat(),
     ));
-    // Celtic ring at the crossing.
     prims.push(prim(
-        solid(torus(0.1, 0.45, mossy(STONE_MOSS))),
-        [0.0, 2.7, 0.0],
+        solid(cuboid_tapered([1.3, 0.3, 0.26], 0.0, ms())),
+        [0.0, head_y, 0.0],
+        id_quat(),
+    ));
+    // Celtic ring, standing in the cross plane.
+    prims.push(prim(
+        solid(torus(0.11, 0.46, ms())),
+        [0.0, head_y, 0.0],
+        quat_x(FRAC_PI_2),
+    ));
+    // Carved central boss at the crossing.
+    prims.push(prim(
+        solid(sphere(0.13, 6, ms())),
+        [0.0, head_y, -0.16],
+        id_quat(),
+    ));
+    // Small gabled finial crowning the head.
+    prims.push(prim(
+        solid(cone(0.17, 0.36, 4, ms())),
+        [0.0, head_y + 0.62, 0.0],
         id_quat(),
     ));
 

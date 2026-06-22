@@ -4,12 +4,14 @@
 //!
 //! Markers lean with a [`quat_x`].
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, quat_x, solid};
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, sphere,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{DEADWOOD, matte, wood};
+use super::{BONE, DEADWOOD, matte, wood};
 
 /// Bare turned-earth brown of the grave mounds.
 const DIRT: [f32; 3] = [0.32, 0.26, 0.20];
@@ -48,48 +50,97 @@ impl CatalogueEntry for PauperGraves {
 }
 
 fn build_tree() -> Generator {
+    let dirt = || matte(DIRT);
+    let dw = || wood(DEADWOOD);
     let mut prims = vec![
-        // A dirt mound — the root.
+        // A rounded dirt mound — the root.
         prim(
-            solid(cuboid_tapered([1.4, 0.3, 0.8], 0.3, matte(DIRT))),
-            [0.0, 0.15, 0.0],
+            solid(cuboid_tapered([1.4, 0.34, 0.85], 0.5, dirt())),
+            [0.0, 0.16, 0.0],
             id_quat(),
         ),
     ];
 
-    // More dirt mounds in a loose row.
-    for (mx, mz) in [(1.8_f32, 0.3_f32), (-1.7, -0.2), (0.4, 1.8)] {
+    // More rounded mounds in a loose, uneven row.
+    for (mx, mz, w, l) in [
+        (1.85_f32, 0.3_f32, 1.3_f32, 0.8_f32),
+        (-1.7, -0.2, 1.35, 0.78),
+        (0.5, 1.9, 1.25, 0.82),
+    ] {
         prims.push(prim(
-            solid(cuboid_tapered([1.3, 0.28, 0.75], 0.3, matte(DIRT))),
-            [mx, 0.14, mz],
+            solid(cuboid_tapered([w, 0.3, l], 0.5, dirt())),
+            [mx, 0.15, mz],
             id_quat(),
         ));
     }
 
-    // Crude leaning plank markers at the head of each mound.
-    for (i, (gx, gz)) in [(0.0_f32, -0.5_f32), (1.8, -0.2), (-1.7, -0.7), (0.4, 1.3)]
-        .into_iter()
-        .enumerate()
+    // Crude leaning markers at the -Z head of each mound; some are crosses,
+    // some are splintered broken stubs.
+    for (i, (gx, gz, h, cross)) in [
+        (0.0_f32, -0.55_f32, 0.95_f32, true),
+        (1.85, -0.25, 0.6, false),
+        (-1.7, -0.75, 0.85, true),
+        (0.5, 1.35, 0.5, false),
+    ]
+    .into_iter()
+    .enumerate()
     {
         let tilt = ((i % 3) as f32 - 1.0) * 0.18;
         prims.push(prim(
-            solid(cuboid_tapered([0.4, 0.9, 0.1], 0.0, wood(DEADWOOD))),
-            [gx, 0.5, gz],
+            solid(cuboid_tapered([0.4, h, 0.1], 0.05, dw())),
+            [gx, 0.2 + h * 0.5, gz],
             quat_x(tilt),
         ));
+        if cross {
+            prims.push(prim(
+                solid(cuboid_tapered([0.5, 0.12, 0.1], 0.0, dw())),
+                [gx, 0.2 + h * 0.78, gz],
+                quat_x(tilt),
+            ));
+        }
     }
 
     // A rough wooden cross at the head of the plot.
     prims.push(prim(
-        solid(cuboid_tapered([0.14, 1.4, 0.14], 0.0, wood(DEADWOOD))),
-        [-2.4, 0.7, -0.4],
-        quat_x(0.15),
+        solid(cuboid_tapered([0.14, 1.4, 0.14], 0.0, dw())),
+        [-2.4, 0.9, -0.5],
+        quat_x(0.16),
     ));
     prims.push(prim(
-        solid(cuboid_tapered([0.6, 0.14, 0.14], 0.0, wood(DEADWOOD))),
-        [-2.4, 1.1, -0.35],
-        quat_x(0.15),
+        solid(cuboid_tapered([0.6, 0.14, 0.14], 0.0, dw())),
+        [-2.4, 1.3, -0.4],
+        quat_x(0.16),
     ));
+
+    // A gravedigger's spade left stuck in a fresh mound.
+    prims.push(prim(
+        solid(cylinder_tapered(0.04, 1.1, 6, 0.0, dw())),
+        [1.75, 0.75, 0.55],
+        quat_x(0.28),
+    ));
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [0.22, 0.32, 0.04],
+            0.12,
+            matte([0.32, 0.32, 0.34]),
+        )),
+        [1.75, 0.26, 0.42],
+        quat_x(0.28),
+    ));
+
+    // A skull half-sunk in the bare earth.
+    prims.push(prim(
+        solid(sphere(0.14, 6, matte(BONE))),
+        [-0.85, 0.2, 0.7],
+        id_quat(),
+    ));
+    for s in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(sphere(0.04, 6, matte([0.1, 0.09, 0.08]))),
+            [-0.85 + s * 0.06, 0.21, 0.58],
+            id_quat(),
+        ));
+    }
 
     assemble(prims)
 }

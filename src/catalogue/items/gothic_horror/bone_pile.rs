@@ -3,14 +3,53 @@
 //!
 //! Scattered long-bones lie tipped with a [`quat_x`].
 
+use std::f32::consts::FRAC_PI_2;
+
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, sphere,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_z, solid, sphere,
+    torus, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
 use super::{BONE, matte};
+
+/// A grim little skull facing the -Z front: a bone cranium, a muzzle, a brow
+/// ridge and dark eye sockets / nasal cavity set into the face. `tip` leans it.
+fn skull(c: [f32; 3], tip: f32) -> Vec<Generator> {
+    let [x, y, z] = c;
+    let b = || matte(BONE);
+    let dark = || matte([0.1, 0.09, 0.08]);
+    vec![
+        prim(solid(sphere(0.15, 6, b())), [x, y, z], quat_x(tip)),
+        prim(
+            solid(cuboid_tapered([0.17, 0.1, 0.16], 0.2, b())),
+            [x, y - 0.13, z - 0.06],
+            quat_x(tip),
+        ),
+        prim(
+            solid(cuboid_tapered([0.21, 0.04, 0.05], 0.0, b())),
+            [x, y + 0.05, z - 0.12],
+            quat_x(tip),
+        ),
+        prim(
+            solid(sphere(0.05, 6, dark())),
+            [x - 0.07, y, z - 0.12],
+            id_quat(),
+        ),
+        prim(
+            solid(sphere(0.05, 6, dark())),
+            [x + 0.07, y, z - 0.12],
+            id_quat(),
+        ),
+        prim(
+            solid(sphere(0.035, 6, dark())),
+            [x, y - 0.06, z - 0.14],
+            id_quat(),
+        ),
+    ]
+}
 
 pub struct BonePile;
 
@@ -46,44 +85,79 @@ impl CatalogueEntry for BonePile {
 }
 
 fn build_tree() -> Generator {
+    let b = || matte(BONE);
     let mut prims = vec![
         // Earthen heap base — the root.
         prim(
             solid(cuboid_tapered(
-                [1.2, 0.4, 1.0],
+                [1.3, 0.42, 1.1],
                 0.5,
                 matte([0.30, 0.26, 0.22]),
             )),
-            [0.0, 0.2, 0.0],
+            [0.0, 0.21, 0.0],
             id_quat(),
         ),
     ];
 
-    // Skulls piled on the heap.
-    for (sx, sy, sz) in [
-        (0.0_f32, 0.5_f32, 0.0_f32),
-        (0.3, 0.35, 0.25),
-        (-0.3, 0.32, -0.2),
-    ] {
+    // Skulls heaped on top, glaring out front.
+    prims.extend(skull([0.0, 0.55, -0.05], 0.1));
+    prims.extend(skull([0.34, 0.42, 0.22], -0.3));
+
+    // A half-buried ribcage arcing out of the heap.
+    let rz0 = -0.12_f32;
+    for i in 0..4 {
         prims.push(prim(
-            solid(sphere(0.16, 3, matte(BONE))),
-            [sx, sy, sz],
+            solid(with_cut(
+                torus(0.02, 0.16, b()),
+                [0.0, 0.5],
+                [0.0, 1.0],
+                0.0,
+            )),
+            [-0.4, 0.36, rz0 + i as f32 * 0.13],
+            quat_x(-FRAC_PI_2),
+        ));
+    }
+    // Spine ridging the ribs.
+    prims.push(prim(
+        solid(cylinder_tapered(0.03, 0.55, 6, 0.0, b())),
+        [-0.4, 0.5, rz0 + 0.2],
+        quat_x(FRAC_PI_2),
+    ));
+
+    // Knobby long-bones (femurs) scattered across the heap.
+    // One laid along X.
+    prims.push(prim(
+        solid(cylinder_tapered(0.045, 0.6, 6, 0.0, b())),
+        [0.15, 0.34, 0.35],
+        quat_z(FRAC_PI_2),
+    ));
+    for s in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(sphere(0.06, 6, b())),
+            [0.15 + s * 0.3, 0.34, 0.35],
+            id_quat(),
+        ));
+    }
+    // One laid along Z.
+    prims.push(prim(
+        solid(cylinder_tapered(0.04, 0.5, 6, 0.0, b())),
+        [0.45, 0.3, -0.25],
+        quat_x(FRAC_PI_2),
+    ));
+    for s in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(sphere(0.055, 6, b())),
+            [0.45, 0.3, -0.25 + s * 0.25],
             id_quat(),
         ));
     }
 
-    // Scattered long-bones lying across the heap.
-    for (bx, bz, tilt) in [
-        (0.4_f32, -0.3_f32, 1.4_f32),
-        (-0.4, 0.3, 1.2),
-        (0.1, 0.4, 1.5),
-    ] {
-        prims.push(prim(
-            solid(cylinder_tapered(0.05, 0.7, 6, 0.0, matte(BONE))),
-            [bx, 0.32, bz],
-            quat_x(tilt),
-        ));
-    }
+    // A pelvis bone half-sunk at the foot of the heap.
+    prims.push(prim(
+        solid(torus(0.05, 0.16, b())),
+        [-0.1, 0.16, 0.42],
+        quat_x(1.2),
+    ));
 
     assemble(prims)
 }

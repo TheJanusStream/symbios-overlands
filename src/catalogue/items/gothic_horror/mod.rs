@@ -165,6 +165,172 @@ pub(super) const STAINED_TINT: [f32; 3] = [0.58, 0.40, 0.52];
 // Emissive trim colours.
 pub(super) const STAINED_GLOW: [f32; 3] = [0.85, 0.48, 0.66];
 
+// ---------------------------------------------------------------------------
+// Gothic geometry vocabulary — the pointed-arch language shared across the kit.
+//
+// The defining Gothic move is the two-centred *pointed* arch; the round
+// (Romanesque) half-torus reads as the wrong era. These helpers build the
+// genuine two-centred construction from the cut toolkit so cathedral, tower,
+// crypt and ruin all speak the same silhouette.
+// ---------------------------------------------------------------------------
+
+use std::f32::consts::FRAC_PI_2;
+
+use crate::catalogue::items::util::{
+    cone, cuboid_tapered, id_quat, prim, quat_x, quat_z, solid, torus, with_cut,
+};
+use crate::pds::Generator;
+
+/// The two stone arcs of a Gothic equilateral pointed arch, standing in the wall
+/// (XY) plane and meeting at an apex `half_span * √3` above the springline.
+///
+/// Built by the real two-centred construction: each side is an arc of a circle
+/// of radius `2 * half_span` centred on the *opposite* springer, cut from a
+/// torus with `path_cut` and stood upright with `quat_x(-FRAC_PI_2)` (the
+/// semicircle recipe, but only the 60° apex-ward sixth of each ring). Returns
+/// the two arcs ready to drop into an [`assemble`](crate::catalogue::items::util::assemble)
+/// list — never as the root, since they carry a rotation. `spring` is the
+/// springline-midpoint world position (its Z the wall face), `thick` the rib's
+/// round cross-section.
+pub(super) fn pointed_arch(
+    spring: [f32; 3],
+    half_span: f32,
+    thick: f32,
+    mat: SovereignMaterialSettings,
+) -> [Generator; 2] {
+    let [cx, cy, zf] = spring;
+    let r = 2.0 * half_span;
+    let right = prim(
+        with_cut(
+            torus(thick, r, mat.clone()),
+            [0.0, 1.0 / 6.0],
+            [0.0, 1.0],
+            0.0,
+        ),
+        [cx - half_span, cy, zf],
+        quat_x(-FRAC_PI_2),
+    );
+    let left = prim(
+        with_cut(torus(thick, r, mat), [1.0 / 3.0, 0.5], [0.0, 1.0], 0.0),
+        [cx + half_span, cy, zf],
+        quat_x(-FRAC_PI_2),
+    );
+    [right, left]
+}
+
+/// A lit Gothic lancet window: a glowing leaded light framed by two jamb ribs
+/// and a central mullion, capped by a [`pointed_arch`], on a small sill ledge.
+/// `cx`/`sill`/`zf` place the sill-centre on the wall face (`zf` sign picks the
+/// proud/recess direction, so it works on either the −Z or +Z wall); `half_w`
+/// the half opening width, `body_h` the straight light height below the
+/// springline. The glass is emissive (`glow_str`) so the ruin pass has light to
+/// snuff. Returns every piece for an `assemble` list.
+pub(super) fn lancet(
+    cx: f32,
+    sill: f32,
+    zf: f32,
+    half_w: f32,
+    body_h: f32,
+    glow_str: f32,
+) -> Vec<Generator> {
+    let n = if zf < 0.0 { -1.0_f32 } else { 1.0 }; // outward normal sign
+    let spring_y = sill + body_h;
+    let rib_z = zf + 0.04 * n; // frame stands proud of the wall face
+    let glass_z = zf - 0.04 * n; // glass set back into the opening
+    let glass_h = body_h + half_w * 0.55;
+    let mut v = vec![
+        // Glowing leaded light, set into the opening.
+        prim(
+            cuboid_tapered(
+                [half_w * 1.7, glass_h, 0.1],
+                0.0,
+                stained(STAINED_TINT, glow_str),
+            ),
+            [cx, sill + glass_h * 0.5, glass_z],
+            id_quat(),
+        ),
+        // Sill ledge.
+        prim(
+            solid(cuboid_tapered(
+                [half_w * 2.0 + 0.24, 0.14, 0.3],
+                0.0,
+                stone(STONE_DARK),
+            )),
+            [cx, sill - 0.02, rib_z],
+            id_quat(),
+        ),
+        // Central mullion dividing the light into two.
+        prim(
+            cuboid_tapered([0.09, body_h + half_w * 0.9, 0.2], 0.0, stone(STONE_DARK)),
+            [cx, sill + (body_h + half_w * 0.9) * 0.5, rib_z],
+            id_quat(),
+        ),
+    ];
+    // Two jamb ribs.
+    for s in [-1.0_f32, 1.0] {
+        v.push(prim(
+            cuboid_tapered([0.11, body_h, 0.22], 0.0, stone(STONE_DARK)),
+            [cx + s * half_w, sill + body_h * 0.5, rib_z],
+            id_quat(),
+        ));
+    }
+    // Pointed-arch head.
+    v.extend(pointed_arch(
+        [cx, spring_y, rib_z],
+        half_w,
+        0.1,
+        stone(STONE_DARK),
+    ));
+    v
+}
+
+/// A Gothic broach spire: an octagonal stone needle with a flared base band, two
+/// climbing ranks of corner crockets and an apex finial — the bristly soaring
+/// silhouette a plain cone never gives. `base` is the spire foot (it rises +Y);
+/// `r` the foot radius, `h` the height. Returns every piece.
+pub(super) fn spire(
+    base: [f32; 3],
+    r: f32,
+    h: f32,
+    mat: SovereignMaterialSettings,
+) -> Vec<Generator> {
+    let [bx, by, bz] = base;
+    let mut v = vec![
+        // Octagonal needle.
+        prim(
+            solid(cone(r, h, 8, mat.clone())),
+            [bx, by + h * 0.5, bz],
+            id_quat(),
+        ),
+        // Flared base band masking the tower-to-spire join.
+        prim(
+            solid(torus(r * 0.16, r * 0.95, mat.clone())),
+            [bx, by + 0.06, bz],
+            quat_x(FRAC_PI_2),
+        ),
+        // Apex finial.
+        prim(
+            solid(cone(r * 0.24, h * 0.3, 6, mat.clone())),
+            [bx, by + h + h * 0.1, bz],
+            id_quat(),
+        ),
+    ];
+    // Crockets climbing two opposite edges.
+    for k in 0..3 {
+        let t = 0.22 + k as f32 * 0.24;
+        let cy = by + h * t;
+        let cr = r * (1.0 - t) * 0.92;
+        for s in [-1.0_f32, 1.0] {
+            v.push(prim(
+                solid(cone(r * 0.13, r * 0.34, 5, mat.clone())),
+                [bx + s * cr, cy, bz],
+                quat_z(-s * 1.15),
+            ));
+        }
+    }
+    v
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

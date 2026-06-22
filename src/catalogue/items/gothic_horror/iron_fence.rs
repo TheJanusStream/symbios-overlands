@@ -2,14 +2,16 @@
 //! with spear-tip finials between two posts. Scatter clutter bounding the
 //! necropolis.
 
+use std::f32::consts::FRAC_PI_2;
+
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, id_quat, prim, solid,
+    assemble, cone, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{IRON_BLACK, iron};
+use super::{IRON_BLACK, iron, pointed_arch};
 
 pub struct IronFence;
 
@@ -45,26 +47,52 @@ impl CatalogueEntry for IronFence {
 }
 
 fn build_tree() -> Generator {
+    let ir = || iron(IRON_BLACK);
     let mut prims = vec![
         // Top rail — the root.
         prim(
-            solid(cuboid_tapered([3.6, 0.08, 0.08], 0.0, iron(IRON_BLACK))),
-            [0.0, 1.0, 0.0],
+            solid(cuboid_tapered([3.6, 0.08, 0.08], 0.0, ir())),
+            [0.0, 1.25, 0.0],
             id_quat(),
         ),
     ];
-    // Bottom rail.
+    // Mid + bottom rails.
     prims.push(prim(
-        solid(cuboid_tapered([3.6, 0.08, 0.08], 0.0, iron(IRON_BLACK))),
+        solid(cuboid_tapered([3.6, 0.07, 0.07], 0.0, ir())),
+        [0.0, 0.78, 0.0],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(cuboid_tapered([3.6, 0.08, 0.08], 0.0, ir())),
         [0.0, 0.3, 0.0],
         id_quat(),
     ));
 
-    // Two stouter end posts.
-    for sx in [-1.0_f32, 1.0] {
+    // Ornate end posts: stepped base, shaft, cap, urn-and-spear finial.
+    for s in [-1.0_f32, 1.0] {
         prims.push(prim(
-            solid(cuboid_tapered([0.14, 1.5, 0.14], 0.0, iron(IRON_BLACK))),
-            [sx * 1.8, 0.75, 0.0],
+            solid(cuboid_tapered([0.24, 0.2, 0.24], 0.0, ir())),
+            [s * 1.8, 0.1, 0.0],
+            id_quat(),
+        ));
+        prims.push(prim(
+            solid(cuboid_tapered([0.16, 1.6, 0.16], 0.0, ir())),
+            [s * 1.8, 0.9, 0.0],
+            id_quat(),
+        ));
+        prims.push(prim(
+            solid(cuboid_tapered([0.22, 0.14, 0.22], 0.0, ir())),
+            [s * 1.8, 1.74, 0.0],
+            id_quat(),
+        ));
+        prims.push(prim(
+            solid(sphere(0.1, 6, ir())),
+            [s * 1.8, 1.88, 0.0],
+            id_quat(),
+        ));
+        prims.push(prim(
+            solid(cone(0.08, 0.34, 6, ir())),
+            [s * 1.8, 2.1, 0.0],
             id_quat(),
         ));
     }
@@ -73,14 +101,29 @@ fn build_tree() -> Generator {
     for i in 0..7 {
         let x = -1.5 + i as f32 * 0.5;
         prims.push(prim(
-            solid(cylinder_tapered(0.04, 1.2, 6, 0.0, iron(IRON_BLACK))),
+            solid(cylinder_tapered(0.035, 1.5, 6, 0.0, ir())),
             [x, 0.6, 0.0],
             id_quat(),
         ));
         prims.push(prim(
-            solid(cone(0.07, 0.25, 6, iron(IRON_BLACK))),
-            [x, 1.3, 0.0],
+            solid(cone(0.06, 0.24, 6, ir())),
+            [x, 1.46, 0.0],
             id_quat(),
+        ));
+    }
+
+    // Gothic tracery: small pointed arches across the upper panel.
+    for i in 0..3 {
+        let cx = -1.0 + i as f32 * 1.0;
+        prims.extend(pointed_arch([cx, 0.85, 0.0], 0.25, 0.028, ir()));
+    }
+    // Wrought scroll rings on the lower panel.
+    for i in 0..3 {
+        let cx = -1.0 + i as f32 * 1.0;
+        prims.push(prim(
+            solid(torus(0.03, 0.14, ir())),
+            [cx, 0.54, 0.0],
+            quat_x(FRAC_PI_2),
         ));
     }
 

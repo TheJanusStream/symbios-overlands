@@ -3,8 +3,10 @@
 //!
 //! The stone leans with a single [`quat_x`].
 
+use std::f32::consts::FRAC_PI_2;
+
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -46,20 +48,51 @@ impl CatalogueEntry for Gravestone {
 }
 
 fn build_tree() -> Generator {
-    let prims = vec![
-        // Low grave mound — the root.
+    let ms = || mossy(STONE_MOSS);
+    let lean = 0.13_f32;
+    let mut prims = vec![
+        // Heaped grave mound — the root (rounded low hump).
         prim(
-            solid(cylinder_tapered(0.8, 0.25, 12, 0.3, mossy(STONE_MOSS))),
-            [0.0, 0.12, 0.4],
+            solid(cylinder_tapered(0.82, 0.34, 16, 0.6, ms())),
+            [0.0, 0.14, 0.35],
             id_quat(),
         ),
-        // Leaning headstone.
-        prim(
-            solid(cuboid_tapered([0.7, 1.0, 0.16], 0.1, mossy(STONE_MOSS))),
-            [0.0, 0.6, -0.4],
-            quat_x(0.14),
-        ),
     ];
+
+    // Low kerb stones bordering the grave.
+    for s in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered([0.12, 0.16, 1.7], 0.0, ms())),
+            [s * 0.7, 0.1, 0.35],
+            id_quat(),
+        ));
+    }
+
+    // Leaning round-topped headstone.
+    let depth = 0.17_f32;
+    let h = 1.1_f32;
+    prims.push(prim(
+        solid(cuboid_tapered([0.72, h, depth], 0.05, ms())),
+        [0.0, 0.2 + h * 0.5, -0.5],
+        quat_x(lean),
+    ));
+    prims.push(prim(
+        solid(with_cut(
+            cylinder_tapered(0.36, depth, 14, 0.0, ms()),
+            [0.5, 1.0],
+            [0.0, 1.0],
+            0.0,
+        )),
+        [0.0, 0.2 + h, -0.5],
+        quat_x(lean + FRAC_PI_2),
+    ));
+
+    // A small leaning footstone at the foot of the grave.
+    prims.push(prim(
+        solid(cuboid_tapered([0.46, 0.36, 0.13], 0.08, ms())),
+        [0.0, 0.32, 1.25],
+        quat_x(-0.12),
+    ));
 
     assemble(prims)
 }
