@@ -1,7 +1,10 @@
-//! Lean-to — a Medieval *poor* secondary. A crude open shelter: a low
-//! daub back wall on a fieldstone footing and a sloping thatch roof propped
-//! on two bowed poles, open to the weather. The kind of windbreak a cottar
-//! throws up beside the [`wattle_hovel`](super::wattle_hovel).
+//! Lean-to — a Medieval *poor* secondary. A crude open shelter: a low daub
+//! back wall on a fieldstone footing, a thatch roof on bowed poles and
+//! exposed rafters sloping down to the open −Z front, and a little store of
+//! firewood, a pail and a rough bench tucked under it. The kind of windbreak
+//! a cottar throws up beside the [`wattle_hovel`](super::wattle_hovel).
+
+use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid,
@@ -10,7 +13,9 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{DAUB_CREAM, STONE_GREY, THATCH_STRAW, WOOD_DARK, daub, rough_stone, thatch, timber};
+use super::{
+    DAUB_CREAM, STONE_GREY, THATCH_STRAW, WOOD_DARK, WOOD_OAK, daub, rough_stone, thatch, timber,
+};
 
 pub struct LeanTo;
 
@@ -47,8 +52,7 @@ impl CatalogueEntry for LeanTo {
 
 fn build_tree() -> Generator {
     let foot_h = 0.3;
-    let back_top = foot_h + 1.9;
-    let front_top = foot_h + 1.1;
+    let back_z = 1.1; // back wall at +Z; shelter opens toward −Z (camera)
 
     let mut prims = vec![
         // Fieldstone footing — the root.
@@ -64,27 +68,62 @@ fn build_tree() -> Generator {
         // Low daub back wall.
         prim(
             solid(cuboid_tapered([4.0, 1.9, 0.6], 0.06, daub(DAUB_CREAM))),
-            [0.0, foot_h + 0.95, -1.1],
+            [0.0, foot_h + 0.95, back_z],
             id_quat(),
         ),
     ];
 
-    // Two bowed front poles.
+    // Two bowed front poles (short, at the open −Z eave) + back uprights.
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
-            solid(cylinder_tapered(0.1, 1.1, 7, 0.0, timber(WOOD_DARK))),
-            [sx * 1.7, foot_h + 0.55, 1.2],
-            quat_x(0.12),
+            solid(cylinder_tapered(0.1, 1.2, 7, 0.0, timber(WOOD_DARK))),
+            [sx * 1.7, foot_h + 0.6, -1.2],
+            quat_x(-0.12),
         ));
     }
 
-    // Sloping thatch roof from the back wall down to the front poles.
-    let mid_y = (back_top + front_top) * 0.5;
+    // Sloping thatch roof: high at the back (+Z), low at the open front (−Z).
     prims.push(prim(
-        solid(cuboid_tapered([4.4, 0.4, 3.4], 0.05, thatch(THATCH_STRAW))),
-        [0.0, mid_y + 0.2, 0.0],
-        quat_x(0.3),
+        solid(cuboid_tapered([4.4, 0.5, 3.5], 0.05, thatch(THATCH_STRAW))),
+        [0.0, foot_h + 1.7, 0.0],
+        quat_x(-0.34),
     ));
+    // Exposed rafters under the thatch, following the slope.
+    for sx in [-1.4_f32, 0.0, 1.4] {
+        prims.push(prim(
+            solid(cuboid_tapered([0.09, 0.09, 3.3], 0.0, timber(WOOD_DARK))),
+            [sx, foot_h + 1.5, 0.0],
+            quat_x(-0.34),
+        ));
+    }
+
+    // Store of firewood: a few split logs lying along X, end-grain out.
+    for (dy, dz) in [(0.16_f32, 0.55_f32), (0.16, 0.85), (0.42, 0.7)] {
+        prims.push(prim(
+            solid(cylinder_tapered(0.12, 1.6, 7, 0.0, timber(WOOD_OAK))),
+            [0.9, foot_h + dy, dz],
+            crate::catalogue::items::util::quat_z(FRAC_PI_2),
+        ));
+    }
+    // A pail.
+    prims.push(prim(
+        solid(cylinder_tapered(0.18, 0.34, 10, 0.1, timber(WOOD_OAK))),
+        [-1.3, foot_h + 0.17, -0.2],
+        id_quat(),
+    ));
+    // A rough plank bench against the back wall.
+    prims.push(prim(
+        solid(cuboid_tapered([1.6, 0.1, 0.4], 0.0, timber(WOOD_DARK))),
+        [-0.6, foot_h + 0.5, 0.6],
+        id_quat(),
+    ));
+    for sx in [-1.2_f32, 0.0] {
+        prims.push(prim(
+            solid(cuboid_tapered([0.1, 0.5, 0.3], 0.0, timber(WOOD_DARK))),
+            [-0.6 + sx, foot_h + 0.25, 0.6],
+            id_quat(),
+        ));
+    }
 
     assemble(prims)
 }

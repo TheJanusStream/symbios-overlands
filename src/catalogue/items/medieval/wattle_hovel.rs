@@ -1,12 +1,16 @@
 //! Wattle hovel — the Medieval *poor* landmark. A small crooked cottage of
 //! lime-washed wattle-and-daub over a low fieldstone footing, a crude
-//! timber frame, a plank door, and a heavy thatched roof with a smoke hole
-//! breathing hearth smoke. The cottar counterpart to the
+//! timber-framed gable with an exposed cruck brace, a plank door and a
+//! shuttered window in the long wall, and a heavy steep thatch with a smoke
+//! hole breathing hearth smoke. The cottar counterpart to the
 //! [`medieval_castle`](super::medieval_castle): same theme, opposite end of
 //! the prosperity axis (`Poor`), so a destitute Medieval room grows this
 //! instead of the keep.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, solid};
+use crate::catalogue::items::nordic::gable_roof;
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, cuboid_tapered_xz, id_quat, prim, quat_z, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -25,7 +29,7 @@ impl CatalogueEntry for WattleHovel {
         "Wattle Hovel"
     }
     fn description(&self) -> &'static str {
-        "Crooked wattle-and-daub cottage under a heavy thatch, hearth smoke seeping out."
+        "Crooked wattle-and-daub cottage under a steep heavy thatch, hearth smoke seeping out."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Landmark
@@ -49,12 +53,13 @@ impl CatalogueEntry for WattleHovel {
 }
 
 fn build_tree() -> Generator {
-    let l = 6.0_f32; // along X, door faces +X
+    let l = 6.0_f32; // along X; long walls face ±Z (camera = −Z)
     let w = 4.0_f32; // along Z
     let foot_h = 0.35;
     let wall_h = 2.2;
     let wall_top = foot_h + wall_h;
-    let roof_h = 2.0;
+    let roof_rise = 2.2;
+    let ridge_y = wall_top + roof_rise;
 
     let mut prims = vec![
         // Low fieldstone footing — the root.
@@ -75,6 +80,38 @@ fn build_tree() -> Generator {
         ),
     ];
 
+    // Steep heavy thatch (ridge ‖ X, A-frame slopes face ±Z) with a wide
+    // overhang — replaces the old flat-topped frustum mound.
+    prims.push(gable_roof(
+        [l + 1.0, roof_rise, w + 1.3],
+        [0.0, wall_top + roof_rise * 0.5, 0.0],
+        thatch(THATCH_STRAW),
+    ));
+    // Triangular daub gable-end infill on the ±X ends (no daylight under the
+    // thatch).
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered_xz(
+                [0.3, roof_rise, w],
+                [0.0, 0.94],
+                daub(DAUB_CREAM),
+            )),
+            [sx * (l * 0.5 - 0.02), wall_top + roof_rise * 0.5, 0.0],
+            id_quat(),
+        ));
+    }
+    // Ridge pole capping the thatch peak — sits proud above the apex so its
+    // faces never graze the converging slopes (no coplanar z-fight).
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [l + 0.6, 0.16, 0.18],
+            0.0,
+            timber(WOOD_DARK),
+        )),
+        [0.0, ridge_y + 0.11, 0.0],
+        id_quat(),
+    ));
+
     // Crude exposed timber frame: corner posts and a sagging mid-rail.
     for (sx, sz) in [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
         prims.push(prim(
@@ -89,41 +126,45 @@ fn build_tree() -> Generator {
     }
     for sz in [-1.0_f32, 1.0] {
         prims.push(prim(
-            cuboid_tapered([l, 0.18, 0.1], 0.0, timber(WOOD_DARK)),
+            cuboid_tapered([l, 0.16, 0.09], 0.0, timber(WOOD_DARK)),
             [0.0, foot_h + wall_h * 0.55, sz * (w * 0.5 + 0.02)],
             id_quat(),
         ));
     }
+    // Exposed cruck cross-braces on the −Z (camera) wall, a leaning timber X.
+    for s in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            cuboid_tapered([1.7, 0.12, 0.08], 0.0, timber(WOOD_DARK)),
+            [s * 1.4, foot_h + wall_h * 0.5, -(w * 0.5 + 0.03)],
+            quat_z(s * 0.62),
+        ));
+    }
 
-    // Plank door in the near gable.
+    // Plank door in the −Z long wall (camera face).
     prims.push(prim(
-        solid(cuboid_tapered([0.15, 1.7, 1.0], 0.0, timber(WOOD_DARK))),
-        [l * 0.5 + 0.05, foot_h + 0.85, 0.0],
+        solid(cuboid_tapered([1.0, 1.7, 0.15], 0.0, timber(WOOD_DARK))),
+        [-1.4, foot_h + 0.85, -(w * 0.5 + 0.05)],
+        id_quat(),
+    ));
+    // A small shuttered window beside the door.
+    prims.push(prim(
+        solid(cuboid_tapered([0.7, 0.6, 0.12], 0.0, timber(WOOD_DARK))),
+        [1.5, foot_h + 1.3, -(w * 0.5 + 0.04)],
         id_quat(),
     ));
 
-    // Heavy thatched hip roof with a wide overhang.
-    prims.push(prim(
-        solid(cuboid_tapered(
-            [l + 1.4, roof_h, w + 1.4],
-            0.4,
-            thatch(THATCH_STRAW),
-        )),
-        [0.0, wall_top + roof_h * 0.5, 0.0],
-        id_quat(),
-    ));
-    // Timber smoke-hole curb near the ridge.
+    // Timber smoke-hole curb on the rear (+Z) thatch slope near the ridge.
     let hole_x = 1.6;
     prims.push(prim(
-        solid(cuboid_tapered([0.9, 0.45, 0.9], 0.2, timber(WOOD_DARK))),
-        [hole_x, wall_top + roof_h - 0.1, 0.0],
+        solid(cuboid_tapered([0.8, 0.4, 0.8], 0.2, timber(WOOD_DARK))),
+        [hole_x, wall_top + roof_rise - 0.5, 0.8],
         id_quat(),
     ));
 
     let mut root = assemble(prims);
     // Signature life: hearth smoke seeping from the roof hole.
     root.children.push(fx::hearth_smoke(
-        [hole_x, wall_top + roof_h + 0.3, 0.0],
+        [hole_x, wall_top + roof_rise - 0.1, 0.8],
         0x70F0_DA11,
     ));
     root

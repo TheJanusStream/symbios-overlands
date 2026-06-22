@@ -1,11 +1,12 @@
-//! Handcart — a Medieval prop. A two-wheel oak cart parked with its shafts
-//! propped level on a stick, a couple of grain sacks in the bed: the
-//! workaday transport of a market town.
+//! Handcart — a Medieval prop. A two-wheel oak cart with iron-shod spoked
+//! wheels, parked with its shafts propped level on a stick, loaded with grain
+//! sacks, a small ale cask and a wicker basket: the workaday transport of a
+//! market town.
 
-use std::f32::consts::FRAC_PI_2;
+use std::f32::consts::{FRAC_PI_2, FRAC_PI_3};
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, torus,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_y, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -23,7 +24,7 @@ impl CatalogueEntry for Handcart {
         "Handcart"
     }
     fn description(&self) -> &'static str {
-        "Two-wheeled oak handcart with iron-shod wheels and a couple of grain sacks."
+        "Two-wheeled oak handcart with iron-shod spoked wheels, grain sacks and an ale cask."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Prop
@@ -46,26 +47,34 @@ impl CatalogueEntry for Handcart {
     }
 }
 
-/// An iron-shod spoked wheel at `center`, axle lying along Z. The iron
-/// tyre is a child in the wheel's local frame so it follows the tilt.
+/// An iron-shod spoked wheel at `center`, axle lying along Z. The hub is the
+/// subtree root (rotated so its axis runs along Z); the wooden rim, iron
+/// tyre and six spokes are children in the wheel's local frame.
 fn wheel(center: [f32; 3]) -> Generator {
     let mut w = prim(
-        solid(cylinder_tapered(0.5, 0.14, 12, 0.0, timber(WOOD_DARK))),
+        solid(cylinder_tapered(0.13, 0.2, 8, 0.0, iron(IRON_DARK))),
         center,
         quat_x(FRAC_PI_2),
     );
-    // Iron tyre around the rim (rings the wheel's local Y = its axle).
+    // Wooden rim + proud iron tyre (both ring the wheel's local Y = its axle).
     w.children.push(prim(
-        torus(0.05, 0.5, iron(IRON_DARK)),
+        torus(0.07, 0.48, timber(WOOD_DARK)),
         [0.0, 0.0, 0.0],
         id_quat(),
     ));
-    // Iron hub.
     w.children.push(prim(
-        solid(cylinder_tapered(0.12, 0.18, 8, 0.0, iron(IRON_DARK))),
+        torus(0.04, 0.52, iron(IRON_DARK)),
         [0.0, 0.0, 0.0],
         id_quat(),
     ));
+    // Six spokes = three diameter bars in the wheel plane (local XZ).
+    for k in 0..3 {
+        w.children.push(prim(
+            solid(cuboid_tapered([0.92, 0.06, 0.06], 0.0, timber(WOOD_OAK))),
+            [0.0, 0.0, 0.0],
+            quat_y(k as f32 * FRAC_PI_3),
+        ));
+    }
     w
 }
 
@@ -97,7 +106,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Axle and two wheels.
+    // Axle and two spoked wheels.
     prims.push(prim(
         solid(cylinder_tapered(0.06, 1.3, 8, 0.0, timber(WOOD_DARK))),
         [0.0, 0.5, 0.0],
@@ -120,14 +129,34 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // A couple of grain sacks in the bed.
-    for (sx, sz) in [(-0.5_f32, 0.2_f32), (0.4, -0.2)] {
+    // A load: two grain sacks, a small ale cask and a wicker basket.
+    for (sx, sz) in [(-0.55_f32, 0.22_f32), (0.45, -0.18)] {
         prims.push(prim(
             cuboid_tapered([0.55, 0.55, 0.5], 0.35, cloth(CLOTH_CREAM, WOOD_OAK)),
             [sx, bed_y + 0.35, sz],
             id_quat(),
         ));
     }
+    // Ale cask lying on its side across the bed (axis along Z).
+    let mut cask = prim(
+        solid(cylinder_tapered(0.3, 0.7, 12, -0.12, timber(WOOD_DARK))),
+        [-0.1, bed_y + 0.4, 0.28],
+        quat_x(FRAC_PI_2),
+    );
+    for dy in [0.2_f32, -0.2] {
+        cask.children.push(prim(
+            torus(0.03, 0.31, iron(IRON_DARK)),
+            [0.0, dy, 0.0],
+            id_quat(),
+        ));
+    }
+    prims.push(cask);
+    // Wicker basket.
+    prims.push(prim(
+        solid(cylinder_tapered(0.22, 0.34, 10, -0.08, timber(WOOD_OAK))),
+        [0.55, bed_y + 0.37, 0.3],
+        id_quat(),
+    ));
 
     assemble(prims)
 }

@@ -1,10 +1,12 @@
 //! Well house — a Medieval secondary. The village draw-well: a round
-//! fieldstone kerb over dark water, four oak posts carrying a little
-//! thatched canopy, and a windlass roller with an iron crank winding a
-//! rope down to a hanging bucket. The gathering point of the square.
+//! fieldstone kerb over dark water, four oak posts under a steep thatched
+//! gable canopy, a windlass roller with an iron crank winding a rope down to
+//! a hanging bucket, and a second pail resting on the coping. The gathering
+//! point of the square.
 
+use crate::catalogue::items::nordic::gable_roof;
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid,
+    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, id_quat, prim, quat_x, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp, Fp3, Generator, SovereignMaterialSettings};
@@ -25,7 +27,7 @@ impl CatalogueEntry for WellHouse {
         "Well House"
     }
     fn description(&self) -> &'static str {
-        "Round fieldstone draw-well under a thatched canopy, with a windlass and bucket."
+        "Round fieldstone draw-well under a steep thatched gable canopy, with a windlass and bucket."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
@@ -38,7 +40,7 @@ impl CatalogueEntry for WellHouse {
     }
     fn footprint(&self) -> Footprint {
         Footprint {
-            clearance: 2.6,
+            clearance: 3.0,
             min_spawn_dist: 24.0,
         }
     }
@@ -58,10 +60,28 @@ fn water() -> SovereignMaterialSettings {
     }
 }
 
+/// An iron-hooped oak pail at `center`: a small bellied drum with a hoop and
+/// a bail handle, returned as one [`Generator`] for the assemble list.
+fn pail(center: [f32; 3]) -> Generator {
+    let mut b = prim(
+        solid(cylinder_tapered(0.18, 0.3, 10, 0.1, timber(WOOD_OAK))),
+        center,
+        id_quat(),
+    );
+    b.children.push(prim(
+        crate::catalogue::items::util::torus(0.025, 0.18, iron(IRON_DARK)),
+        [0.0, 0.1, 0.0],
+        id_quat(),
+    ));
+    b
+}
+
 fn build_tree() -> Generator {
     let kerb_h = 0.9;
     let post_h = 2.6;
-    let roof_y = kerb_h + post_h;
+    let post_top = kerb_h + post_h;
+    let phw = 0.95; // post half-spacing X
+    let phz = 0.85; // post half-spacing Z
 
     let mut prims = vec![
         // Fieldstone kerb ring — the root (solid drum).
@@ -90,58 +110,83 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Two oak posts carrying the canopy and the windlass.
-    for sx in [-1.0_f32, 1.0] {
+    // Four oak corner posts carrying the canopy.
+    for (sx, sz) in [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
         prims.push(prim(
-            solid(cylinder_tapered(0.13, post_h, 8, 0.06, timber(WOOD_OAK))),
-            [sx * 0.9, kerb_h + post_h * 0.5, 0.0],
+            solid(cylinder_tapered(0.11, post_h, 8, 0.06, timber(WOOD_OAK))),
+            [sx * phw, kerb_h + post_h * 0.5, sz * phz],
+            id_quat(),
+        ));
+    }
+    // Tie-beams along the ridge axis (X) linking the post tops.
+    for sz in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered(
+                [phw * 2.0 + 0.2, 0.12, 0.1],
+                0.0,
+                timber(WOOD_DARK),
+            )),
+            [0.0, post_top - 0.1, sz * phz],
             id_quat(),
         ));
     }
 
-    // Windlass roller across the posts, with an iron crank handle.
-    let roller_y = kerb_h + 1.3;
+    // Steep thatched gable canopy (ridge ‖ X) + gable-end infill panels.
+    let roof_rise = 1.3;
+    prims.push(gable_roof(
+        [phw * 2.0 + 1.0, roof_rise, phz * 2.0 + 1.0],
+        [0.0, post_top + roof_rise * 0.5, 0.0],
+        thatch(THATCH_STRAW),
+    ));
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered_xz(
+                [0.18, roof_rise, phz * 2.0 + 1.0],
+                [0.0, 0.94],
+                thatch(THATCH_STRAW),
+            )),
+            [sx * (phw + 0.5), post_top + roof_rise * 0.5, 0.0],
+            id_quat(),
+        ));
+    }
+
+    // Windlass roller across the posts (axis along Z), with an iron crank.
+    let roller_y = kerb_h + 1.4;
     prims.push(prim(
-        solid(cylinder_tapered(0.12, 1.7, 10, 0.0, timber(WOOD_DARK))),
+        solid(cylinder_tapered(
+            0.13,
+            phz * 2.0 + 0.3,
+            10,
+            0.0,
+            timber(WOOD_DARK),
+        )),
         [0.0, roller_y, 0.0],
         quat_x(std::f32::consts::FRAC_PI_2),
     ));
+    // Crank: a stub off the +Z end and a perpendicular handle.
+    prims.push(prim(
+        solid(cuboid_tapered([0.05, 0.05, 0.4], 0.0, iron(IRON_DARK))),
+        [0.0, roller_y, phz + 0.35],
+        id_quat(),
+    ));
     prims.push(prim(
         solid(cuboid_tapered([0.05, 0.4, 0.05], 0.0, iron(IRON_DARK))),
-        [0.95, roller_y - 0.2, 0.0],
+        [0.18, roller_y - 0.2, phz + 0.5],
         id_quat(),
     ));
-    prims.push(prim(
-        solid(cuboid_tapered([0.3, 0.05, 0.05], 0.0, iron(IRON_DARK))),
-        [1.1, roller_y - 0.4, 0.0],
-        id_quat(),
-    ));
+
     // Rope down to a hanging bucket over the water.
     prims.push(prim(
         cylinder_tapered(0.02, roller_y - kerb_h - 0.1, 6, 0.0, timber(WOOD_DARK)),
-        [0.25, kerb_h + (roller_y - kerb_h) * 0.5, 0.0],
+        [0.0, kerb_h + (roller_y - kerb_h) * 0.5, 0.0],
         id_quat(),
     ));
-    prims.push(prim(
-        solid(cylinder_tapered(0.18, 0.3, 10, 0.1, timber(WOOD_OAK))),
-        [0.25, kerb_h + 0.2, 0.0],
-        id_quat(),
-    ));
-    prims.push(prim(iron_band(), [0.25, kerb_h + 0.32, 0.0], id_quat()));
+    prims.push(pail([0.0, kerb_h + 0.15, 0.0]));
 
-    // Little thatched canopy on the posts.
-    prims.push(prim(
-        solid(cuboid_tapered([2.6, 1.2, 2.0], 0.5, thatch(THATCH_STRAW))),
-        [0.0, roof_y + 0.5, 0.0],
-        id_quat(),
-    ));
+    // A second pail resting on the coping.
+    prims.push(pail([0.7, kerb_h + 0.12, 0.55]));
 
     assemble(prims)
-}
-
-/// A thin iron hoop around the bucket rim.
-fn iron_band() -> crate::pds::GeneratorKind {
-    crate::catalogue::items::util::torus(0.03, 0.18, iron(IRON_DARK))
 }
 
 #[cfg(test)]

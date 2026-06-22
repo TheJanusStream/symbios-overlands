@@ -15,9 +15,9 @@ use std::collections::HashMap;
 
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{
-    Fp, Fp3, Fp64, Generator, GeneratorKind, SovereignGroundConfig, SovereignMaterialSettings,
-    SovereignPlankConfig, SovereignRockConfig, SovereignShingleConfig, SovereignTextureConfig,
-    SovereignWindowConfig,
+    Fp, Fp3, Fp64, Generator, GeneratorKind, SovereignAshlarConfig, SovereignGroundConfig,
+    SovereignMaterialSettings, SovereignPlankConfig, SovereignShingleConfig,
+    SovereignTextureConfig, SovereignWindowConfig,
 };
 use crate::seeded_defaults::ThemeArchetype;
 
@@ -70,13 +70,22 @@ impl CatalogueEntry for MedievalCastle {
 fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();
 
+    // Dressed ashlar — a brighter coursed-block masonry with a pale mortar
+    // line, so the keep reads as cut stone instead of a dark muddy mass.
     materials.insert(
         "Stone".to_string(),
         SovereignMaterialSettings {
-            base_color: Fp3([0.55, 0.52, 0.48]),
+            base_color: Fp3([0.60, 0.57, 0.52]),
             roughness: Fp(0.9),
             uv_scale: Fp(2.0),
-            texture: SovereignTextureConfig::Rock(SovereignRockConfig::default()),
+            texture: SovereignTextureConfig::Ashlar(SovereignAshlarConfig {
+                color_stone: Fp3([0.60, 0.57, 0.52]),
+                color_mortar: Fp3([0.74, 0.71, 0.66]),
+                rows: 5,
+                cols: 4,
+                chisel_depth: Fp64(0.4),
+                ..Default::default()
+            }),
             ..Default::default()
         },
     );
@@ -84,7 +93,7 @@ fn build_kind() -> GeneratorKind {
     materials.insert(
         "Shingle".to_string(),
         SovereignMaterialSettings {
-            base_color: Fp3([0.28, 0.25, 0.22]),
+            base_color: Fp3([0.34, 0.31, 0.30]),
             roughness: Fp(0.8),
             uv_scale: Fp(1.5),
             texture: SovereignTextureConfig::Shingle(SovereignShingleConfig::default()),
@@ -107,12 +116,15 @@ fn build_kind() -> GeneratorKind {
         },
     );
 
+    // Warm candle-lit keep windows — the castle reads inhabited, a little
+    // hearth-light behind the leaded panes against the cold grey stone.
     materials.insert(
         "Glass".to_string(),
         SovereignMaterialSettings {
-            base_color: Fp3([0.12, 0.18, 0.28]),
-            roughness: Fp(0.05),
-            metallic: Fp(0.9),
+            base_color: Fp3([1.0, 0.72, 0.36]),
+            emission_color: Fp3([1.0, 0.6, 0.26]),
+            emission_strength: Fp(2.2),
+            roughness: Fp(0.3),
             uv_scale: Fp(1.0),
             texture: SovereignTextureConfig::Window(SovereignWindowConfig {
                 panes_x: 2,

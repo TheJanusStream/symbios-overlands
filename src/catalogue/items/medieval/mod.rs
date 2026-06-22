@@ -39,10 +39,11 @@ pub mod fx;
 
 use bevy_symbios_texture::metal::MetalStyle;
 
+use crate::catalogue::items::util::{cuboid_tapered, id_quat, prim, solid};
 use crate::pds::{
-    Fp, Fp3, Fp64, SovereignAshlarConfig, SovereignCobblestoneConfig, SovereignFabricConfig,
-    SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignShingleConfig,
-    SovereignStuccoConfig, SovereignTextureConfig, SovereignThatchConfig,
+    Fp, Fp3, Fp64, Generator, SovereignAshlarConfig, SovereignCobblestoneConfig,
+    SovereignFabricConfig, SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig,
+    SovereignShingleConfig, SovereignStuccoConfig, SovereignTextureConfig, SovereignThatchConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -226,6 +227,55 @@ pub(super) const CLOTH_CREAM: [f32; 3] = [0.80, 0.74, 0.60];
 
 /// Warm forge-fire light for the blacksmith's hearth glow.
 pub(super) const FORGE_ORANGE: [f32; 3] = [1.0, 0.52, 0.16];
+
+/// A ring of merlons (the solid teeth) around a square parapet rim, with
+/// equal-width crenel gaps between them — the defining medieval battlement
+/// silhouette. `top` is the rim-top centre (merlons rise from it); `hw`/`hz`
+/// the half-extents of the wall top in X/Z; `mh` the merlon height; `mw` the
+/// merlon width; `t` its radial thickness. The merlons sit *on* the rim, so
+/// they share no vertical plane with the wall below (no coplanar z-fight),
+/// and straddle the wall face so they read proud from outside. Corners are
+/// placed once (on the ±Z runs) and skipped on the ±X runs. Returns every
+/// merlon for an [`assemble`](crate::catalogue::items::util::assemble) list —
+/// never the root (drop them in after a base piece).
+pub(super) fn crenellations(
+    top: [f32; 3],
+    hw: f32,
+    hz: f32,
+    mh: f32,
+    mw: f32,
+    t: f32,
+    mat: SovereignMaterialSettings,
+) -> Vec<Generator> {
+    let [cx, cy, cz] = top;
+    let merlon_y = cy + mh * 0.5;
+    let mut v = Vec::new();
+    // ±Z runs (merlons march along X), corners included.
+    let nx = ((2.0 * hw) / (2.0 * mw)).round().max(1.0) as i32;
+    for sz in [-1.0_f32, 1.0] {
+        for i in 0..=nx {
+            let x = -hw + 2.0 * hw * (i as f32 / nx as f32);
+            v.push(prim(
+                solid(cuboid_tapered([mw, mh, t], 0.0, mat.clone())),
+                [cx + x, merlon_y, cz + sz * hz],
+                id_quat(),
+            ));
+        }
+    }
+    // ±X runs (merlons march along Z), corners skipped (already placed above).
+    let nz = ((2.0 * hz) / (2.0 * mw)).round().max(1.0) as i32;
+    for sx in [-1.0_f32, 1.0] {
+        for i in 1..nz {
+            let z = -hz + 2.0 * hz * (i as f32 / nz as f32);
+            v.push(prim(
+                solid(cuboid_tapered([t, mh, mw], 0.0, mat.clone())),
+                [cx + sx * hw, merlon_y, cz + z],
+                id_quat(),
+            ));
+        }
+    }
+    v
+}
 
 #[cfg(test)]
 mod tests {
