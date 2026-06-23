@@ -44,13 +44,48 @@ impl CatalogueEntry for Dumpster {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Body — the root.
+        // Body — the root, slightly battered with a sloped (tapered) profile.
         prim(
-            solid(cuboid_tapered([2.4, 1.4, 1.5], 0.0, enamel(DUMPSTER_GREEN))),
+            solid(cuboid_tapered(
+                [2.4, 1.4, 1.5],
+                0.06,
+                enamel(DUMPSTER_GREEN),
+            )),
             [0.0, 0.85, 0.0],
             id_quat(),
         ),
     ];
+
+    // Ribbed steel front (−Z) with two forklift pockets.
+    let front_z = -0.75_f32;
+    for x in [-0.9_f32, -0.3, 0.3, 0.9] {
+        prims.push(prim(
+            cuboid_tapered([0.1, 1.2, 0.1], 0.0, enamel([0.13, 0.26, 0.18])),
+            [x, 0.85, front_z - 0.04],
+            id_quat(),
+        ));
+    }
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered(
+                [0.6, 0.26, 0.18],
+                0.0,
+                enamel([0.07, 0.1, 0.08]),
+            )),
+            [sx * 0.6, 0.45, front_z - 0.02],
+            id_quat(),
+        ));
+    }
+    // Lift bar across the top front for the truck to grab.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [2.5, 0.12, 0.12],
+            0.0,
+            enamel([0.2, 0.2, 0.21]),
+        )),
+        [0.0, 1.5, front_z - 0.08],
+        id_quat(),
+    ));
 
     // Two slanted lids meeting at the centre.
     for sz in [-1.0_f32, 1.0] {

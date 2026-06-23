@@ -31,9 +31,10 @@ pub mod fx;
 
 use bevy_symbios_texture::metal::MetalStyle;
 
+use crate::catalogue::items::util::{cuboid_tapered, id_quat, prim};
 use crate::pds::{
-    Fp, Fp3, Fp64, SovereignBrickConfig, SovereignConcreteConfig, SovereignMaterialSettings,
-    SovereignMetalConfig, SovereignTextureConfig, SovereignWindowConfig,
+    Fp, Fp3, Fp64, Generator, SovereignBrickConfig, SovereignConcreteConfig,
+    SovereignMaterialSettings, SovereignMetalConfig, SovereignTextureConfig, SovereignWindowConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -142,6 +143,62 @@ pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
         }),
         ..Default::default()
     }
+}
+
+/// A glazed curtain-wall façade — the crisp downtown glazing signature. A lit
+/// glass panel gridded by proud steel mullions (verticals) and spandrel
+/// transoms (horizontals) so the face reads as a true window grid rather than
+/// a flat lit slab. The glass sits in an XY plane centred on `center`; the grid
+/// stands `proud` beyond it along Z, the sign choosing the face (negative =
+/// toward the −Z render front, so nothing is left coplanar). Returns the panel
+/// plus its grid as a flat list to splice into an [`assemble`] vec.
+///
+/// `bays` is `(cols, rows)` of glazing; the grid draws `cols + 1` verticals and
+/// `rows + 1` transoms. Reusable across the kit's glazed buildings (tower,
+/// office, storefront).
+///
+/// [`assemble`]: super::util::assemble
+pub(super) fn curtain_wall(
+    center: [f32; 3],
+    size: [f32; 2],
+    bays: (u32, u32),
+    proud: f32,
+    glass_mat: SovereignMaterialSettings,
+    mullion_mat: SovereignMaterialSettings,
+) -> Vec<Generator> {
+    let [cx, cy, cz] = center;
+    let [w, h] = size;
+    let (cols, rows) = bays;
+    let bar = 0.16_f32; // mullion / transom face width
+    let depth = proud.abs().max(0.18); // how far the fins stand off the glass
+    let grid_z = cz + proud;
+    let mut out = vec![
+        // Lit glass infill panel.
+        prim(
+            cuboid_tapered([w, h, 0.3], 0.0, glass_mat),
+            [cx, cy, cz],
+            id_quat(),
+        ),
+    ];
+    // Vertical mullions dividing the bays.
+    for i in 0..=cols {
+        let x = cx - w * 0.5 + w * (i as f32 / cols as f32);
+        out.push(prim(
+            cuboid_tapered([bar, h + bar, depth], 0.0, mullion_mat.clone()),
+            [x, cy, grid_z],
+            id_quat(),
+        ));
+    }
+    // Horizontal spandrel transoms.
+    for j in 0..=rows {
+        let y = cy - h * 0.5 + h * (j as f32 / rows as f32);
+        out.push(prim(
+            cuboid_tapered([w + bar, bar, depth], 0.0, mullion_mat.clone()),
+            [cx, y, grid_z],
+            id_quat(),
+        ));
+    }
+    out
 }
 
 // Glass + concrete palette.

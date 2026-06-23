@@ -1,7 +1,11 @@
 //! Parked car — a Modern-City prop. A generic sedan: a glossy enamel body
 //! with a glazed cabin and dark wheels, left at the kerb.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, solid};
+use std::f32::consts::FRAC_PI_2;
+
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -63,14 +67,56 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Four wheels (dark blocks, read as tyres from the side).
+    // Four round wheels, axles laid across the car.
     for (sx, sz) in [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
         prims.push(prim(
-            solid(cuboid_tapered([0.35, 0.7, 0.7], 0.0, enamel(TIRE_BLACK))),
-            [sx * 1.4, 0.35, sz * 0.95],
+            solid(cylinder_tapered(0.4, 0.3, 12, 0.0, enamel(TIRE_BLACK))),
+            [sx * 1.4, 0.4, sz * 0.98],
+            quat_x(FRAC_PI_2),
+        ));
+        // Pale hub cap.
+        prims.push(prim(
+            cylinder_tapered(0.16, 0.32, 10, 0.0, enamel([0.7, 0.71, 0.73])),
+            [sx * 1.4, 0.4, sz * 0.99],
+            quat_x(FRAC_PI_2),
+        ));
+    }
+
+    // Front grille and warm headlights.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [0.08, 0.3, 1.0],
+            0.0,
+            enamel([0.12, 0.12, 0.13]),
+        )),
+        [2.12, 0.5, 0.0],
+        id_quat(),
+    ));
+    for sz in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            cuboid_tapered([0.1, 0.2, 0.28], 0.0, glow([1.0, 0.92, 0.7], 1.6)),
+            [2.13, 0.62, sz * 0.62],
+            id_quat(),
+        ));
+        // Red tail lights.
+        prims.push(prim(
+            cuboid_tapered([0.09, 0.18, 0.3], 0.0, glow([1.0, 0.12, 0.08], 1.4)),
+            [-2.13, 0.66, sz * 0.66],
+            id_quat(),
+        ));
+        // Wing mirrors at the A-pillar.
+        prims.push(prim(
+            solid(cuboid_tapered([0.18, 0.12, 0.1], 0.0, enamel(CAR_BODY))),
+            [0.95, 1.12, sz * 1.02],
             id_quat(),
         ));
     }
+    // Number plate at the rear.
+    prims.push(prim(
+        cuboid_tapered([0.05, 0.18, 0.5], 0.0, enamel([0.85, 0.85, 0.8])),
+        [-2.14, 0.4, 0.0],
+        id_quat(),
+    ));
 
     assemble(prims)
 }

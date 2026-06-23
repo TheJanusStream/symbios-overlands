@@ -3,12 +3,14 @@
 //! a parapet roof with a humming rooftop unit. The everyday downtown
 //! building that rings the landmark tower.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, solid};
+use crate::catalogue::items::util::{assemble, cuboid_tapered, glow, id_quat, prim, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{CONCRETE_GREY, GLASS_TEAL, STEEL_GREY, concrete, fx, glass, steel};
+use super::{
+    CONCRETE_GREY, GLASS_TEAL, LAMP_WARM, STEEL_GREY, concrete, curtain_wall, fx, glass, steel,
+};
 
 pub struct OfficeBlock;
 
@@ -49,6 +51,9 @@ fn build_tree() -> Generator {
     let base_h = 0.5;
     let body_h = 16.0;
 
+    let body_cy = base_h + body_h * 0.5;
+    let front_z = -d * 0.5; // the −Z render front is the glazed street face
+
     let mut prims = vec![
         // Concrete base — the root.
         prim(
@@ -60,58 +65,89 @@ fn build_tree() -> Generator {
             [0.0, base_h * 0.5, 0.0],
             id_quat(),
         ),
-        // Concrete core box.
+        // Concrete core box — the flanks and back stay solid masonry.
         prim(
             solid(cuboid_tapered([w, body_h, d], 0.0, concrete(CONCRETE_GREY))),
-            [0.0, base_h + body_h * 0.5, 0.0],
+            [0.0, body_cy, 0.0],
             id_quat(),
         ),
     ];
 
-    // Lit glass curtain wall across the street face (+Z), with spandrels.
+    // Lit glass curtain wall gridded by steel mullions across the street face.
+    prims.extend(curtain_wall(
+        [0.0, body_cy + 0.6, front_z],
+        [w - 1.0, body_h - 2.4],
+        (4, 5),
+        -0.34,
+        glass(GLASS_TEAL, 2.0),
+        steel(STEEL_GREY),
+    ));
+
+    // Glazed ground-floor lobby + revolving-door portal under a canopy.
     prims.push(prim(
-        cuboid_tapered([w - 1.0, body_h - 1.0, 0.4], 0.0, glass(GLASS_TEAL, 2.2)),
-        [0.0, base_h + body_h * 0.5, d * 0.5],
+        cuboid_tapered([w - 1.0, 2.4, 0.5], 0.0, glass(GLASS_TEAL, 1.6)),
+        [0.0, base_h + 1.3, front_z - 0.18],
         id_quat(),
     ));
-    let floors = 5;
-    for k in 1..floors {
-        let y = base_h + body_h * (k as f32 / floors as f32);
-        prims.push(prim(
-            cuboid_tapered([w - 0.8, 0.3, 0.5], 0.0, steel(STEEL_GREY)),
-            [0.0, y, d * 0.5],
-            id_quat(),
-        ));
-    }
-
-    // Parapet roof.
+    // Dark entrance portal recess + glass doors.
     prims.push(prim(
         solid(cuboid_tapered(
-            [w + 0.4, 0.7, d + 0.4],
+            [3.0, 2.5, 0.4],
             0.0,
-            concrete(CONCRETE_GREY),
+            steel([0.16, 0.17, 0.2]),
+        )),
+        [0.0, base_h + 1.25, front_z - 0.36],
+        id_quat(),
+    ));
+    prims.push(prim(
+        cuboid_tapered([2.4, 2.1, 0.2], 0.0, glass([0.14, 0.18, 0.2], 1.2)),
+        [0.0, base_h + 1.05, front_z - 0.5],
+        id_quat(),
+    ));
+    // Steel entrance canopy cantilevered over the doors.
+    prims.push(prim(
+        solid(cuboid_tapered([5.4, 0.3, 2.2], 0.0, steel(STEEL_GREY))),
+        [0.0, base_h + 3.0, front_z - 1.0],
+        id_quat(),
+    ));
+    // Warm lit address band above the canopy.
+    prims.push(prim(
+        cuboid_tapered([4.2, 0.55, 0.18], 0.0, glow(LAMP_WARM, 1.8)),
+        [0.0, base_h + 3.7, front_z - 0.3],
+        id_quat(),
+    ));
+
+    // Parapet coping ringing the roof, held proud of the body.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [w + 0.5, 0.7, d + 0.5],
+            0.0,
+            concrete([0.6, 0.6, 0.61]),
         )),
         [0.0, base_h + body_h + 0.35, 0.0],
         id_quat(),
     ));
-    // Rooftop unit.
+    // Rooftop air-handling unit, set toward the back.
     prims.push(prim(
         solid(cuboid_tapered([2.4, 1.2, 2.0], 0.0, steel(STEEL_GREY))),
-        [-2.5, base_h + body_h + 0.6 + 0.6, 1.0],
+        [-2.5, base_h + body_h + 1.2, 1.6],
         id_quat(),
     ));
-
-    // Entrance canopy over the ground-floor door.
+    // A vent stack beside it.
     prims.push(prim(
-        solid(cuboid_tapered([5.0, 0.3, 2.2], 0.0, steel(STEEL_GREY))),
-        [0.0, 3.2, d * 0.5 + 1.0],
+        solid(cuboid_tapered(
+            [0.5, 1.6, 0.5],
+            0.0,
+            steel([0.45, 0.46, 0.48]),
+        )),
+        [1.8, base_h + body_h + 1.4, 1.6],
         id_quat(),
     ));
 
     let mut root = assemble(prims);
     // Signature life: the rooftop unit steaming with a steady hum.
     root.children.push(fx::vent_steam(
-        [-2.5, base_h + body_h + 1.8, 1.0],
+        [-2.5, base_h + body_h + 2.4, 1.6],
         0x0FF1_CE10,
     ));
     root.audio = fx::ac_hum();

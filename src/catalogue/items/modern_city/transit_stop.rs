@@ -2,12 +2,16 @@
 //! a steel-and-glass canopy, with benches and a lit sign pylon: the light-
 //! rail / bus interchange that anchors the street grid.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, glow, id_quat, prim, solid};
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{CONCRETE_GREY, GLASS_TEAL, SIGNAL_GREEN, STEEL_GREY, concrete, glass, steel};
+use super::{
+    CONCRETE_GREY, GLASS_TEAL, LAMP_WARM, SIGNAL_GREEN, STEEL_GREY, concrete, glass, steel,
+};
 
 pub struct TransitStop;
 
@@ -70,7 +74,7 @@ fn build_tree() -> Generator {
             ));
         }
     }
-    // Glass-and-steel canopy roof.
+    // Glass-and-steel canopy roof with a front fascia beam.
     prims.push(prim(
         solid(cuboid_tapered([8.4, 0.2, 3.4], 0.0, steel(STEEL_GREY))),
         [0.0, canopy_y + 0.1, 0.0],
@@ -81,8 +85,36 @@ fn build_tree() -> Generator {
         [0.0, canopy_y + 0.02, 0.0],
         id_quat(),
     ));
+    // Front fascia beam on the −Z render front, carrying the route sign.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [8.4, 0.5, 0.2],
+            0.0,
+            steel([0.4, 0.42, 0.45]),
+        )),
+        [0.0, canopy_y - 0.1, -1.7],
+        id_quat(),
+    ));
+    prims.push(prim(
+        cuboid_tapered([3.2, 0.42, 0.1], 0.0, glow(LAMP_WARM, 1.6)),
+        [0.0, canopy_y - 0.1, -1.82],
+        id_quat(),
+    ));
 
-    // Two benches.
+    // Glass rear windscreen (+Z) and a side screen, so the shelter is enclosed
+    // behind but open to the camera/road on −Z.
+    prims.push(prim(
+        cuboid_tapered([7.6, post_h - 0.4, 0.1], 0.0, glass(GLASS_TEAL, 0.0)),
+        [0.0, plat_h + post_h * 0.5, 1.5],
+        id_quat(),
+    ));
+    prims.push(prim(
+        cuboid_tapered([0.1, post_h - 0.4, 2.4], 0.0, glass(GLASS_TEAL, 0.0)),
+        [-3.7, plat_h + post_h * 0.5, 0.0],
+        id_quat(),
+    ));
+
+    // Two benches against the rear screen, seats facing the open −Z front.
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
             solid(cuboid_tapered(
@@ -90,7 +122,7 @@ fn build_tree() -> Generator {
                 0.0,
                 steel([0.4, 0.42, 0.45]),
             )),
-            [sx * 2.0, plat_h + 0.5, 0.0],
+            [sx * 1.8, plat_h + 0.5, 0.7],
             id_quat(),
         ));
         prims.push(prim(
@@ -99,20 +131,33 @@ fn build_tree() -> Generator {
                 0.0,
                 steel([0.4, 0.42, 0.45]),
             )),
-            [sx * 2.0, plat_h + 0.75, -0.3],
+            [sx * 1.8, plat_h + 0.75, 1.05],
             id_quat(),
         ));
     }
 
-    // Lit sign pylon at one end.
+    // A waste bin at the open end.
+    prims.push(prim(
+        solid(cylinder_tapered(
+            0.32,
+            1.0,
+            12,
+            0.05,
+            steel([0.35, 0.37, 0.4]),
+        )),
+        [-3.4, plat_h + 0.5, -0.6],
+        id_quat(),
+    ));
+
+    // Lit sign pylon at the road end.
     prims.push(prim(
         solid(cuboid_tapered([0.3, 4.2, 0.3], 0.0, steel(STEEL_GREY))),
-        [4.3, plat_h + 2.1, 1.2],
+        [4.3, plat_h + 2.1, -1.2],
         id_quat(),
     ));
     prims.push(prim(
-        cuboid_tapered([1.4, 0.9, 0.12], 0.0, glow(SIGNAL_GREEN, 2.5)),
-        [4.3, plat_h + 3.6, 1.2],
+        cuboid_tapered([1.4, 0.9, 0.12], 0.0, glow(SIGNAL_GREEN, 2.2)),
+        [4.3, plat_h + 3.6, -1.2],
         id_quat(),
     ));
 

@@ -6,13 +6,13 @@
 //! the corporate tower.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, solid,
+    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_z, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{BRICK_RED, CAR_GLASS, brick, concrete, glass, steel};
+use super::{BRICK_RED, CAR_GLASS, LAMP_WARM, brick, concrete, glass, steel};
 
 pub struct Tenement;
 
@@ -73,46 +73,109 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Grid of grimy windows on the street face (+Z).
+    // The −Z render front is the street face — windows, fire escape, stoop.
+    let front_z = -d * 0.5;
+    let fe_mat = || steel([0.32, 0.28, 0.26]);
+
+    // Grid of grimy windows with brick sills; a few warm-lit at dusk.
     let cols = 4;
     for f in 0..floors {
         let y = base_h + 1.8 + f as f32 * (body_h - 2.5) / floors as f32;
         for c in 0..cols {
             let x = -w * 0.5 + 1.8 + c as f32 * (w - 3.6) / (cols - 1) as f32;
+            // A handful of lit windows for inhabited life; the rest dark glass.
+            let lit = (f + c) % 5 == 1;
+            let pane = if lit {
+                glow([1.0, 0.78, 0.45], 1.3)
+            } else {
+                glass(CAR_GLASS, 0.0)
+            };
             prims.push(prim(
-                cuboid_tapered([1.1, 1.4, 0.2], 0.0, glass(CAR_GLASS, 0.0)),
-                [x, y, d * 0.5],
+                cuboid_tapered([1.1, 1.4, 0.2], 0.0, pane),
+                [x, y, front_z - 0.05],
+                id_quat(),
+            ));
+            // Proud brick sill under each window.
+            prims.push(prim(
+                cuboid_tapered([1.3, 0.18, 0.3], 0.0, brick([0.4, 0.22, 0.17])),
+                [x, y - 0.8, front_z - 0.12],
                 id_quat(),
             ));
         }
     }
 
-    // Steel fire escape: a stack of landings and rails on the front.
+    // Steel fire escape on the left bays: landings, railings, side rails,
+    // zig-zag stairs between floors, and a drop ladder at the bottom.
+    let fe_x = -2.4_f32;
+    let fe_w = 5.0_f32;
+    let land_z = front_z - 0.75;
+    let rail_z = front_z - 1.32;
+    let floor_y = |f: i32| base_h + 1.1 + f as f32 * (body_h - 2.5) / floors as f32;
     for f in 1..floors {
-        let y = base_h + 1.1 + f as f32 * (body_h - 2.5) / floors as f32;
+        let y = floor_y(f);
+        // Grated landing platform.
         prims.push(prim(
-            solid(cuboid_tapered(
-                [5.0, 0.12, 1.4],
-                0.0,
-                steel([0.34, 0.30, 0.28]),
-            )),
-            [-1.0, y, d * 0.5 + 0.8],
+            solid(cuboid_tapered([fe_w, 0.12, 1.3], 0.0, fe_mat())),
+            [fe_x, y, land_z],
             id_quat(),
         ));
+        // Outer railing.
         prims.push(prim(
-            cuboid_tapered([5.0, 0.9, 0.08], 0.0, steel([0.34, 0.30, 0.28])),
-            [-1.0, y + 0.5, d * 0.5 + 1.45],
+            cuboid_tapered([fe_w, 0.8, 0.08], 0.0, fe_mat()),
+            [fe_x, y + 0.45, rail_z],
+            id_quat(),
+        ));
+        // Diagonal stair stringer down to the floor below, alternating side.
+        let dir = if f % 2 == 0 { 1.0 } else { -1.0 };
+        let y_lo = floor_y(f - 1);
+        let run = fe_w * 0.7;
+        let rise = y - y_lo;
+        let stair_len = (run * run + rise * rise).sqrt();
+        let angle = rise.atan2(run); // tilt of the stringer
+        prims.push(prim(
+            cuboid_tapered([stair_len, 0.1, 0.55], 0.0, fe_mat()),
+            [fe_x + dir * run * 0.1, (y + y_lo) * 0.5, land_z],
+            quat_z(dir * angle),
+        ));
+    }
+    // Two vertical side rails carrying the whole assembly.
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered([0.12, body_h - 2.0, 0.12], 0.0, fe_mat())),
+            [fe_x + sx * fe_w * 0.5, base_h + body_h * 0.5, rail_z],
             id_quat(),
         ));
     }
-    // Vertical fire-escape ladders linking the landings.
+    // Drop ladder hanging below the bottom landing.
+    prims.push(prim(
+        solid(cuboid_tapered([0.7, 2.6, 0.1], 0.0, fe_mat())),
+        [fe_x + fe_w * 0.3, floor_y(1) - 1.5, land_z],
+        id_quat(),
+    ));
+
+    // Stoop entrance at the centre of the ground floor.
     prims.push(prim(
         solid(cuboid_tapered(
-            [0.12, body_h - 2.0, 0.12],
+            [2.6, 1.0, 1.4],
             0.0,
-            steel([0.34, 0.30, 0.28]),
+            concrete([0.5, 0.5, 0.5]),
         )),
-        [-3.2, base_h + body_h * 0.5, d * 0.5 + 1.45],
+        [2.6, base_h + 0.5, front_z - 0.7],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [1.5, 2.4, 0.4],
+            0.0,
+            steel([0.2, 0.16, 0.14]),
+        )),
+        [2.6, base_h + 1.7, front_z + 0.05],
+        id_quat(),
+    ));
+    // Tired warm stoop light over the door.
+    prims.push(prim(
+        sphere(0.18, 3, glow(LAMP_WARM, 1.6)),
+        [2.6, base_h + 3.0, front_z - 0.2],
         id_quat(),
     ));
 

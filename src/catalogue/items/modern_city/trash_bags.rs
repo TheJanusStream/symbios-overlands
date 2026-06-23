@@ -56,26 +56,70 @@ fn build_tree() -> Generator {
 
     // Big bag — the root.
     let mut prims = vec![prim(bag(0.5), [0.0, 0.45, 0.0], id_quat())];
-    // More bags heaped around it.
-    prims.push(prim(bag(0.42), [0.7, 0.38, 0.2], id_quat()));
-    prims.push(prim(bag(0.4), [-0.55, 0.36, 0.3], id_quat()));
-    prims.push(prim(bag(0.38), [0.2, 0.8, 0.1], id_quat()));
+    // More bags heaped around it, each cinched with a pinched tie knot on top.
+    for (r, x, y, z) in [
+        (0.5_f32, 0.0_f32, 0.45_f32, 0.0_f32),
+        (0.42, 0.7, 0.38, 0.2),
+        (0.4, -0.55, 0.36, 0.3),
+        (0.38, 0.2, 0.8, 0.1),
+    ] {
+        if r != 0.5 {
+            prims.push(prim(bag(r), [x, y, z], id_quat()));
+        }
+        // Gathered-neck tie knot.
+        prims.push(prim(
+            solid(sphere(r * 0.34, 3, enamel([0.05, 0.05, 0.06]))),
+            [x, y + r * 0.95, z],
+            id_quat(),
+        ));
+    }
 
-    // Tipped steel can on its side.
+    // Tipped steel can on its side, lid spilled beside it.
     prims.push(prim(
         solid(cylinder_tapered(0.4, 1.0, 12, 0.0, steel(STEEL_GREY))),
         [-1.3, 0.4, -0.3],
         quat_x(FRAC_PI_2),
     ));
+    prims.push(prim(
+        solid(cylinder_tapered(
+            0.42,
+            0.08,
+            12,
+            0.0,
+            steel([0.45, 0.47, 0.5]),
+        )),
+        [-1.95, 0.08, 0.1],
+        id_quat(),
+    ));
 
-    // A spill of pale litter.
-    for (x, z) in [(-1.9_f32, -0.2_f32), (-1.7, 0.3), (0.9, -0.5)] {
+    // A spill of assorted litter — paper, a flattened pizza box, a bottle.
+    for (x, z) in [(-1.9_f32, -0.3_f32), (-1.6, 0.4), (1.0, -0.5)] {
         prims.push(prim(
             cuboid_tapered([0.22, 0.04, 0.18], 0.0, enamel(LITTER_PALE)),
             [x, 0.04, z],
             id_quat(),
         ));
     }
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [0.5, 0.08, 0.5],
+            0.0,
+            enamel([0.78, 0.62, 0.4]),
+        )),
+        [1.35, 0.05, -0.55],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(cylinder_tapered(
+            0.07,
+            0.4,
+            10,
+            0.0,
+            enamel([0.2, 0.42, 0.26]),
+        )),
+        [0.55, 0.07, -0.75],
+        quat_x(FRAC_PI_2),
+    ));
 
     assemble(prims)
 }

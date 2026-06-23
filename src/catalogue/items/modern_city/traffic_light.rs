@@ -4,13 +4,16 @@
 //! lens is the trim escalation's ruin pass darkens to a dead signal.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid, sphere,
+    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
 use super::{CONCRETE_GREY, SIGNAL_GREEN, STEEL_GREY, concrete, enamel, fx, steel};
+
+/// Walk-signal amber.
+const PED_AMBER: [f32; 3] = [1.0, 0.5, 0.12];
 
 pub struct TrafficLight;
 
@@ -78,33 +81,75 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Signal head: a dark enamel box hung under the arm with three lenses.
+    // Signal head hung under the arm. The lenses face the −Z render front; a
+    // high-vis yellow backboard rings them and a hood visors each lens.
     let head_y = pole_h - 0.9;
+    let lens_z = -0.26;
+    // High-vis yellow backboard plate.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [0.72, 1.7, 0.06],
+            0.0,
+            enamel([0.85, 0.78, 0.1]),
+        )),
+        [head_x, head_y, -0.12],
+        id_quat(),
+    ));
     let mut head = prim(
         solid(cuboid_tapered(
-            [0.5, 1.4, 0.45],
+            [0.5, 1.5, 0.45],
             0.0,
             enamel([0.1, 0.11, 0.12]),
         )),
-        [head_x, head_y, 0.0],
+        [head_x, head_y, 0.05],
         id_quat(),
     );
     head.audio = fx::traffic_hum();
     prims.push(head);
-    // Red and amber lenses (dark), green lit.
+    // Three lenses: red and amber dark, green lit — each under a hood visor.
+    for (yoff, lens) in [
+        (0.48, enamel([0.4, 0.05, 0.04])),
+        (0.0, enamel([0.45, 0.32, 0.05])),
+        (-0.48, glow(SIGNAL_GREEN, 3.5)),
+    ] {
+        let y = head_y + yoff;
+        prims.push(prim(sphere(0.13, 3, lens), [head_x, y, lens_z], id_quat()));
+        // Hood visor jutting over the lens.
+        prims.push(prim(
+            solid(cuboid_tapered(
+                [0.36, 0.08, 0.26],
+                0.0,
+                enamel([0.08, 0.09, 0.1]),
+            )),
+            [head_x, y + 0.18, lens_z - 0.08],
+            quat_x(0.5),
+        ));
+    }
+
+    // Pedestrian signal box on the pole, facing the −Z front.
     prims.push(prim(
-        sphere(0.13, 3, enamel([0.35, 0.06, 0.05])),
-        [head_x, head_y + 0.45, 0.24],
+        solid(cuboid_tapered(
+            [0.5, 0.6, 0.3],
+            0.0,
+            enamel([0.1, 0.11, 0.12]),
+        )),
+        [0.0, 2.6, -0.32],
         id_quat(),
     ));
     prims.push(prim(
-        sphere(0.13, 3, enamel([0.4, 0.3, 0.05])),
-        [head_x, head_y, 0.24],
+        cuboid_tapered([0.32, 0.42, 0.08], 0.0, glow(PED_AMBER, 2.4)),
+        [0.0, 2.6, -0.48],
         id_quat(),
     ));
+
+    // Street-name sign mounted above the mast arm, facing −Z.
     prims.push(prim(
-        sphere(0.14, 3, glow(SIGNAL_GREEN, 4.0)),
-        [head_x, head_y - 0.45, 0.24],
+        solid(cuboid_tapered(
+            [2.0, 0.45, 0.06],
+            0.0,
+            enamel([0.1, 0.32, 0.55]),
+        )),
+        [head_x * 0.6, pole_h + 0.2, -0.12],
         id_quat(),
     ));
 

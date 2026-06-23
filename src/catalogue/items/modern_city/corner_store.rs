@@ -2,15 +2,19 @@
 //! with a half-dropped roll shutter, a steel awning, and a tired lit sign
 //! over the door. The bodega beside the [`tenement`](super::tenement).
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, glow, id_quat, prim, solid};
+use crate::catalogue::items::util::{assemble, cuboid_tapered, glow, id_quat, prim, quat_x, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{BRICK_RED, CAR_GLASS, STEEL_GREY, brick, concrete, glass, steel};
+use super::{BRICK_RED, CAR_GLASS, brick, concrete, enamel, glass, steel};
 
-/// Tired warm sign light.
-const SIGN_GLOW: [f32; 3] = [1.0, 0.62, 0.30];
+/// Tired warm sign light — deep-saturated amber so the broad lit band reads as
+/// a colour under bloom rather than washing to a near-white blank.
+const SIGN_GLOW: [f32; 3] = [1.0, 0.46, 0.13];
+/// Awning stripe colours.
+const AWNING_RED: [f32; 3] = [0.52, 0.13, 0.12];
+const AWNING_CREAM: [f32; 3] = [0.82, 0.78, 0.68];
 
 pub struct CornerStore;
 
@@ -80,32 +84,85 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Storefront glazing and a half-dropped steel roll shutter over it.
+    // The −Z render front is the shopfront.
+    let front_z = -d * 0.5;
+
+    // Storefront: a low brick bulkhead, a big mullioned display window, and an
+    // off-centre glazed door.
     prims.push(prim(
-        cuboid_tapered([5.5, 2.2, 0.15], 0.0, glass(CAR_GLASS, 0.6)),
-        [0.0, base_h + 1.2, d * 0.5],
+        solid(cuboid_tapered(
+            [6.0, 0.7, 0.3],
+            0.0,
+            brick([0.4, 0.22, 0.17]),
+        )),
+        [0.0, base_h + 0.35, front_z - 0.1],
         id_quat(),
     ));
     prims.push(prim(
+        cuboid_tapered([5.6, 1.9, 0.15], 0.0, glass(CAR_GLASS, 0.7)),
+        [0.0, base_h + 1.65, front_z],
+        id_quat(),
+    ));
+    // Display-window mullions + transom.
+    for x in [-2.6_f32, -1.0, 1.4, 2.6] {
+        prims.push(prim(
+            cuboid_tapered([0.14, 1.9, 0.28], 0.0, steel([0.45, 0.45, 0.47])),
+            [x, base_h + 1.65, front_z - 0.1],
+            id_quat(),
+        ));
+    }
+    prims.push(prim(
+        cuboid_tapered([5.7, 0.16, 0.28], 0.0, steel([0.45, 0.45, 0.47])),
+        [0.0, base_h + 2.55, front_z - 0.1],
+        id_quat(),
+    ));
+    // Glazed entrance door on the right.
+    prims.push(prim(
         solid(cuboid_tapered(
-            [5.6, 1.1, 0.18],
+            [1.1, 2.3, 0.12],
             0.0,
-            steel([0.5, 0.5, 0.52]),
+            steel([0.2, 0.2, 0.22]),
         )),
-        [0.0, base_h + 1.75, d * 0.5 + 0.05],
+        [2.0, base_h + 1.15, front_z - 0.12],
+        id_quat(),
+    ));
+    prims.push(prim(
+        cuboid_tapered([0.8, 1.9, 0.1], 0.0, glass([0.16, 0.2, 0.22], 0.8)),
+        [2.0, base_h + 1.2, front_z - 0.2],
         id_quat(),
     ));
 
-    // Steel awning over the front.
+    // A half-dropped roll shutter and its housing above the storefront.
     prims.push(prim(
-        solid(cuboid_tapered([6.4, 0.18, 1.6], 0.0, steel(STEEL_GREY))),
-        [0.0, base_h + 2.7, d * 0.5 + 0.8],
+        solid(cuboid_tapered(
+            [5.9, 0.4, 0.4],
+            0.0,
+            steel([0.42, 0.42, 0.44]),
+        )),
+        [0.0, base_h + 2.75, front_z - 0.18],
         id_quat(),
     ));
-    // Tired lit sign band above the awning.
+
+    // Striped sloped fabric awning projecting over the front.
+    for (i, x) in [-2.4_f32, -1.2, 0.0, 1.2, 2.4].iter().enumerate() {
+        let col = if i % 2 == 0 { AWNING_RED } else { AWNING_CREAM };
+        prims.push(prim(
+            solid(cuboid_tapered([1.2, 0.12, 1.7], 0.0, enamel(col))),
+            [*x, base_h + 3.05, front_z - 0.85],
+            quat_x(-0.22),
+        ));
+    }
+    // Awning valance lip.
     prims.push(prim(
-        cuboid_tapered([4.5, 0.7, 0.15], 0.0, glow(SIGN_GLOW, 2.0)),
-        [0.0, base_h + 3.4, d * 0.5 + 0.1],
+        solid(cuboid_tapered([6.0, 0.3, 0.1], 0.0, enamel(AWNING_RED))),
+        [0.0, base_h + 2.85, front_z - 1.6],
+        id_quat(),
+    ));
+
+    // Tired lit sign band above the awning, on the parapet.
+    prims.push(prim(
+        cuboid_tapered([4.6, 0.7, 0.16], 0.0, glow(SIGN_GLOW, 1.5)),
+        [0.0, base_h + body_h + 0.1, front_z - 0.18],
         id_quat(),
     ));
 

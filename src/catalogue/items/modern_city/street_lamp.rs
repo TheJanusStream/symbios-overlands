@@ -2,7 +2,7 @@
 //! arm and a warm glowing luminaire leaning over the roadway.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, solid,
+    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -57,24 +57,47 @@ fn build_tree() -> Generator {
             [0.0, 0.15, 0.0],
             id_quat(),
         ),
+        // Cast base collar.
+        prim(
+            solid(cylinder_tapered(
+                0.26,
+                0.6,
+                12,
+                0.3,
+                steel([0.32, 0.33, 0.35]),
+            )),
+            [0.0, 0.45, 0.0],
+            id_quat(),
+        ),
         // Steel pole.
         prim(
             solid(cylinder_tapered(0.13, pole_h, 8, 0.25, steel(STEEL_GREY))),
-            [0.0, pole_h * 0.5, 0.0],
+            [0.0, pole_h * 0.5 + 0.3, 0.0],
             id_quat(),
         ),
     ];
 
-    // Curved mast arm reaching out over the road.
+    // Mast arm reaching out over the road toward +X.
+    let arm_base = pole_h + 0.1;
     prims.push(prim(
-        solid(cylinder_tapered(0.08, 2.2, 6, 0.0, steel(STEEL_GREY))),
-        [0.7, pole_h - 0.1, 0.0],
-        quat_x(1.3),
+        solid(cylinder_tapered(0.09, 2.6, 6, 0.2, steel(STEEL_GREY))),
+        [1.28, arm_base + 0.22, 0.0],
+        quat_z(-1.4),
     ));
-    // Warm glowing luminaire at the arm end.
+    // Cobra-head luminaire housing at the arm end, tapering to the tip.
     prims.push(prim(
-        cuboid_tapered([0.7, 0.25, 0.4], 0.2, glow(LAMP_WARM, 4.0)),
-        [1.5, pole_h - 0.3, 0.0],
+        solid(cuboid_tapered(
+            [1.0, 0.32, 0.46],
+            0.4,
+            steel([0.3, 0.31, 0.33]),
+        )),
+        [2.3, arm_base + 0.28, 0.0],
+        id_quat(),
+    ));
+    // Warm glowing lens on the underside of the head.
+    prims.push(prim(
+        cuboid_tapered([0.62, 0.12, 0.36], 0.1, glow(LAMP_WARM, 3.5)),
+        [2.3, arm_base + 0.08, 0.0],
         id_quat(),
     ));
 
