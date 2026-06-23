@@ -47,21 +47,35 @@ fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
+    // 1 — twig cluster, tinted a saturated healthy green (the default texture
+    // skews olive-gold and bleaches pale on lit sides).
     materials.insert(
         1,
         SovereignMaterialSettings {
-            base_color: Fp3([1.0, 1.0, 1.0]),
+            base_color: Fp3([0.32, 0.46, 0.22]),
             roughness: Fp(1.0),
-            texture: SovereignTextureConfig::Twig(SovereignTwigConfig::default()),
+            texture: SovereignTextureConfig::Twig(SovereignTwigConfig {
+                leaf: SovereignLeafConfig {
+                    color_base: Fp3([0.18, 0.36, 0.13]),
+                    color_edge: Fp3([0.30, 0.46, 0.18]),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
             ..Default::default()
         },
     );
+    // 2 — leaf, deep summer green.
     materials.insert(
         2,
         SovereignMaterialSettings {
-            base_color: Fp3([1.0, 1.0, 1.0]),
+            base_color: Fp3([0.30, 0.46, 0.20]),
             roughness: Fp(0.6),
-            texture: SovereignTextureConfig::Leaf(SovereignLeafConfig::default()),
+            texture: SovereignTextureConfig::Leaf(SovereignLeafConfig {
+                color_base: Fp3([0.18, 0.36, 0.13]),
+                color_edge: Fp3([0.30, 0.48, 0.18]),
+                ..Default::default()
+            }),
             ..Default::default()
         },
     );

@@ -55,6 +55,16 @@ struct Args {
     /// Catalogue subject: an entry slug (e.g. `villa`, `bench`, `wizard_tower`).
     #[arg(long)]
     catalogue: Option<String>,
+    /// Render a [`Generator`] deserialized from a JSON file. Lets the agent
+    /// iterate on an L-system grammar (or any generator) without recompiling
+    /// the crate: `--dump` a catalogue entry to seed the JSON, edit the
+    /// grammar / scalars, re-render. Highest precedence.
+    #[arg(long)]
+    generator: Option<String>,
+    /// With `--catalogue <slug>`: print that entry's built [`Generator`] as
+    /// pretty JSON to stdout and exit (a valid seed file for `--generator`).
+    #[arg(long, default_value_t = false)]
+    dump: bool,
     /// Primitive subject: a kind tag (`cuboid`, `sphere`, `tube`, `bevel`, …).
     #[arg(long)]
     prim: Option<String>,
@@ -117,6 +127,24 @@ struct Capture {
 /// CLI entry point (called by the `render` bin).
 pub fn run() {
     let args = Args::parse();
+
+    // `--dump`: serialize a catalogue entry's generator to stdout (a valid
+    // `--generator` seed) and exit before standing up the render app.
+    if args.dump {
+        let slug = args
+            .catalogue
+            .as_deref()
+            .expect("--dump requires --catalogue <slug>");
+        let entry = crate::catalogue::by_slug(slug)
+            .unwrap_or_else(|| panic!("unknown catalogue slug {slug:?}"));
+        let g = entry.build("did:render:tool");
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&g).expect("generator serialize")
+        );
+        return;
+    }
+
     let (subject, label) = resolve_subject(&args);
     let out = args
         .out
@@ -147,8 +175,20 @@ pub fn run() {
 }
 
 /// Build the subject + a filename label from the CLI args.
-/// Precedence: `--room` → `--prim` → `--catalogue` → `--avatar` → seed 7.
+/// Precedence: `--generator` → `--room` → `--prim` → `--catalogue` → `--avatar` → seed 7.
 fn resolve_subject(args: &Args) -> (Subject, String) {
+    if let Some(path) = &args.generator {
+        let json = std::fs::read_to_string(path)
+            .unwrap_or_else(|e| panic!("read generator {path:?}: {e}"));
+        let generator: Generator =
+            serde_json::from_str(&json).unwrap_or_else(|e| panic!("parse generator {path:?}: {e}"));
+        let label = std::path::Path::new(path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("generator")
+            .to_string();
+        return (Subject::Single(Box::new(generator)), format!("gen-{label}"));
+    }
     if let Some(room) = &args.room {
         let record = match room.parse::<u64>() {
             Ok(seed) => RoomRecord::default_for_seed(seed, &format!("did:render:{seed}")),

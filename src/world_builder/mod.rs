@@ -115,6 +115,18 @@ pub fn register_headless_spawn(app: &mut App) {
         .init_resource::<particles::ParticleQuadMesh>()
         .init_resource::<particles::ParticleAtlasMeshes>()
         .init_resource::<crate::state::DiagnosticsLog>();
+
+    // Insert the shared L-system prop meshes imperatively (not via the
+    // `setup_prop_assets` Startup system) so the resource is present before
+    // the render tool's own Startup spawn system reads `AvatarSpawnDeps`.
+    // Without this the headless path leaves `ctx.prop_assets` = None and
+    // silently drops every L-system foliage card (`~`), so plant renders
+    // showed only the bare woody skeleton.
+    let prop_assets = {
+        let mut meshes = app.world_mut().resource_mut::<Assets<Mesh>>();
+        build_prop_mesh_assets(&mut meshes)
+    };
+    app.insert_resource(prop_assets);
 }
 
 /// Marks an in-scene portal cube and carries the destination coordinates the
@@ -306,9 +318,10 @@ fn create_foliage_card(width: f32, height: f32) -> Mesh {
     mesh
 }
 
-/// Startup system that populates [`PropMeshAssets`] with the shared prop
-/// meshes (one handle per `PropMeshType`).
-fn setup_prop_assets(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
+/// Build the shared prop-mesh set (one handle per `PropMeshType`). Shared by
+/// the [`setup_prop_assets`] startup system and the headless render tool's
+/// [`register_headless_spawn`] so both produce identical L-system foliage.
+pub(crate) fn build_prop_mesh_assets(meshes: &mut Assets<Mesh>) -> PropMeshAssets {
     let mut prop_meshes = HashMap::new();
     prop_meshes.insert(
         PropMeshType::Leaf,
@@ -332,9 +345,16 @@ fn setup_prop_assets(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
     );
     prop_meshes.insert(PropMeshType::Cube, meshes.add(Cuboid::new(0.3, 0.3, 0.3)));
 
-    commands.insert_resource(PropMeshAssets {
+    PropMeshAssets {
         meshes: prop_meshes,
-    });
+    }
+}
+
+/// Startup system that populates [`PropMeshAssets`] with the shared prop
+/// meshes (one handle per `PropMeshType`).
+fn setup_prop_assets(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
+    let assets = build_prop_mesh_assets(&mut meshes);
+    commands.insert_resource(assets);
 }
 
 /// Walks the active `RoomRecord` and produces ECS entities for every

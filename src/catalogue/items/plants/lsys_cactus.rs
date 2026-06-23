@@ -34,32 +34,44 @@ fn build_kind() -> GeneratorKind {
     materials.insert(
         0,
         SovereignMaterialSettings {
-            base_color: Fp3([0.22, 0.40, 0.18]),
+            // Desert sage / blue-green succulent — flat matte, no texture.
+            base_color: Fp3([0.24, 0.42, 0.30]),
             roughness: Fp(0.7),
             uv_scale: Fp(1.0),
             ..Default::default()
         },
     );
     GeneratorKind::LSystem {
-        // A heavy trunk that mostly extends; ~40% of segments sprout a
-        // pair of opposed arms that go out then turn up (saguaro).
-        source_code: "#define s 0.7\n\
-                      omega: !(0.6)F(s)F(s)A\n\
-                      p1: A : 0.4 -> F(s)[&(80)F(s*0.5)^(85)F(s)]/(180)[&(80)F(s*0.5)^(85)F(s)]F(s)A\n\
-                      p2: A : 0.6 -> F(s)A"
+        // A dominant THICK column (tw=2.6) that mostly rises; ~40% of steps
+        // sprout a distinctly THINNER arm (aw=1.25) that bends out and runs
+        // four segments to clear the trunk (a real elbow with daylight), turns
+        // back to vertical over a rounded two-step `^`, then rises parallel (U)
+        // — the saguaro candelabra. The golden-angle roll spirals successive
+        // arms around the column; upward tropism keeps everything vertical. The
+        // finalization tapers the trunk apex and arm tips into rounded domes.
+        source_code: "#define s 0.85\n\
+                      #define g 137\n\
+                      #define tw 2.6\n\
+                      #define aw 1.25\n\
+                      omega: !(tw)F(s)F(s)F(s)A\n\
+                      p1: A : 0.4 -> /(g)[!(aw)&(70)F(s)F(s)F(s)F(s)F(s)^(35)F(s)^(35)F(s)U]!(tw)F(s)A\n\
+                      p2: A : 0.6 -> /(g)!(tw)F(s)A\n\
+                      p3: U -> !(aw)F(s*1.25)U"
             .to_string(),
-        finalization_code: String::new(),
-        iterations: 5,
-        seed: 1,
+        finalization_code: "A -> !(tw)F(s)!(tw*0.7)F(s*0.55)!(tw*0.45)F(s*0.4)!(tw*0.22)F(s*0.25)\n\
+             U -> !(aw)F(s)!(aw*0.6)F(s*0.45)!(aw*0.28)F(s*0.25)"
+            .to_string(),
+        iterations: 7,
+        seed: 3,
         angle: Fp(80.0),
         step: Fp(1.0),
-        width: Fp(0.6),
-        elasticity: Fp(0.15),
+        width: Fp(1.6),
+        elasticity: Fp(0.12),
         tropism: Some(Fp3([0.0, 1.0, 0.0])),
         materials,
         prop_mappings: HashMap::new(),
         prop_scale: Fp(0.04),
-        mesh_resolution: 10,
+        mesh_resolution: 12,
     }
 }
 

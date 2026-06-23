@@ -1,14 +1,16 @@
-//! Ternary tree with gravity tropism — ABOP Fig 2.8. Three-way
-//! branching at each step, with a downward tropism vector that pulls
-//! the branches into a weeping silhouette. Suits willow / drooping
-//! canopy starter.
+//! Weeping willow — a trunk that rises and splits into arching limbs which
+//! send long thin whips cascading straight down in a leafy curtain. Built on a
+//! gravity tropism: the whips (E) extend one segment and drop a small leaf node
+//! (K) per iteration, and strong downward tropism bends them into the weeping
+//! drape. Keeps the historic `lsys_ternary_gravity` slug (seeded scatters key
+//! off it) though it is no longer the literal ABOP Fig 2.8 ternary.
 
 use std::collections::HashMap;
 
 use crate::catalogue::{CatalogueEntry, StructureRole};
 use crate::pds::{
-    Fp, Fp3, Generator, GeneratorKind, SovereignBarkConfig, SovereignMaterialSettings,
-    SovereignTextureConfig,
+    Fp, Fp3, Generator, GeneratorKind, PropMeshType, SovereignBarkConfig, SovereignLeafConfig,
+    SovereignMaterialSettings, SovereignTextureConfig,
 };
 
 pub struct TernaryGravityTree;
@@ -18,10 +20,10 @@ impl CatalogueEntry for TernaryGravityTree {
         "lsys_ternary_gravity"
     }
     fn name(&self) -> &'static str {
-        "Ternary Tree (Gravity)"
+        "Weeping Willow"
     }
     fn description(&self) -> &'static str {
-        "Three-way branching tree with downward tropism — ABOP Fig 2.8."
+        "Arching limbs cascading into a curtain of weeping leafy whips."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Plant
@@ -33,39 +35,64 @@ impl CatalogueEntry for TernaryGravityTree {
 
 fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();
+    // 0 — medium-brown willow bark.
     materials.insert(
         0,
         SovereignMaterialSettings {
-            base_color: Fp3([0.35, 0.2, 0.08]),
-            roughness: Fp(0.9),
+            base_color: Fp3([0.36, 0.24, 0.12]),
+            roughness: Fp(0.95),
             uv_scale: Fp(1.5),
-            texture: SovereignTextureConfig::Bark(SovereignBarkConfig::default()),
+            texture: SovereignTextureConfig::Bark(SovereignBarkConfig {
+                color_light: Fp3([0.42, 0.30, 0.16]),
+                color_dark: Fp3([0.18, 0.11, 0.05]),
+                ..Default::default()
+            }),
             ..Default::default()
         },
     );
+    // 2 — light yellow-green willow leaf (slot 2 matches the grammar's `,(2)`).
+    materials.insert(
+        2,
+        SovereignMaterialSettings {
+            base_color: Fp3([0.50, 0.64, 0.28]),
+            roughness: Fp(0.6),
+            texture: SovereignTextureConfig::Leaf(SovereignLeafConfig {
+                color_base: Fp3([0.42, 0.58, 0.22]),
+                color_edge: Fp3([0.60, 0.72, 0.34]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    );
+
+    let mut prop_mappings = HashMap::new();
+    prop_mappings.insert(1, PropMeshType::Leaf);
+
     GeneratorKind::LSystem {
-        source_code: "#define d1 180\n\
-                      #define d2 252\n\
-                      #define a 36\n\
-                      #define lr 1.07\n\
-                      #define vr 1.732\n\
-                      #define s 0.5\n\
-                      omega: !(1)F(4*s)/(45)A\n\
-                      p1: A : * -> !(vr)F(s)[&(a)F(s)A]/(d1)[&(a)F(s)A]/(d2)[&(a)F(s)A]\n\
-                      p2: F(l) : * -> F(l*lr)\n\
-                      p3: !(w) : * -> !(w*vr)"
+        // Trunk drawn in the axiom (never expanded), then A splits into five
+        // scaffold limbs that lift (^18) and arch out (&). Each B fans into
+        // four thin whips; each whip E self-extends one F(0.42) segment and
+        // drops a four-leaf node K per iteration. Strong downward tropism
+        // bends the long thin whips into a vertical cascade around an open
+        // centre, leaving the trunk clearly visible.
+        source_code: "#define s 0.7\n\
+                      omega: !(0.45)F(2.4)F(1.8)/(45)A\n\
+                      p1: A -> [^(18)&(35)B]/(72)[^(18)&(40)B]/(98)[^(18)&(35)B]/(85)[^(18)&(42)B]/(105)[^(18)&(38)B]\n\
+                      p2: B -> !(0.12)F(1.4)[&(18)E]/(95)[&(25)E]/(95)[&(20)E]/(95)[&(24)E]\n\
+                      p3: E -> F(0.42)K E\n\
+                      p4: K -> ,(2)[~(1,13)]\\(70)[~(1,13)]\\(70)[~(1,13)]\\(70)[~(1,13)]"
             .to_string(),
         finalization_code: String::new(),
-        iterations: 6,
+        iterations: 10,
         seed: 1,
-        angle: Fp(36.0),
+        angle: Fp(45.0),
         step: Fp(1.0),
-        width: Fp(0.1),
-        elasticity: Fp(0.40),
+        width: Fp(0.45),
+        elasticity: Fp(0.70),
         tropism: Some(Fp3([0.0, -1.0, 0.0])),
         materials,
-        prop_mappings: HashMap::new(),
-        prop_scale: Fp(0.04),
+        prop_mappings,
+        prop_scale: Fp(0.05),
         mesh_resolution: 8,
     }
 }
