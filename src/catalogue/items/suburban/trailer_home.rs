@@ -5,7 +5,11 @@
 //! the prosperity axis (`Poor`), so a destitute room grows this instead of
 //! the civic hall.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, solid};
+use std::f32::consts::FRAC_PI_2;
+
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -50,7 +54,8 @@ fn build_tree() -> Generator {
     let d = 4.0_f32;
     let floor_y = 0.7_f32;
     let body_h = 2.6_f32;
-    let front = d * 0.5;
+    // Hero face (windows, door, AC, awning) on the -Z front.
+    let front = -d * 0.5;
 
     let mut prims = vec![
         // Concrete pad — the root.
@@ -79,6 +84,19 @@ fn build_tree() -> Generator {
             ));
         }
     }
+    // Vinyl skirting hiding the under-trailer voids; the front run is a hair
+    // short (one panel sagging off) — weathered but intact.
+    for (sz, frac) in [(-1.0_f32, 0.96_f32), (1.0, 1.0)] {
+        prims.push(prim(
+            solid(cuboid_tapered(
+                [l * frac, floor_y - 0.32, 0.08],
+                0.0,
+                render([0.56, 0.55, 0.5]),
+            )),
+            [0.0, 0.3 + (floor_y - 0.32) * 0.5, sz * (d * 0.5 + 0.02)],
+            id_quat(),
+        ));
+    }
 
     // Body.
     prims.push(prim(
@@ -92,34 +110,40 @@ fn build_tree() -> Generator {
         [0.0, floor_y + body_h * 0.6, 0.0],
         id_quat(),
     ));
-    // Shallow metal roof.
+    // Shallow metal roof — dulled, weathered but intact.
     prims.push(prim(
         solid(cuboid_tapered(
             [l + 0.5, 0.4, d + 0.5],
             0.1,
-            enamel([0.72, 0.72, 0.70]),
+            enamel([0.64, 0.63, 0.59]),
         )),
         [0.0, floor_y + body_h + 0.2, 0.0],
         id_quat(),
     ));
 
-    // Sliding windows along the front.
+    // Sliding windows along the front (-Z); the middle one is lit warm.
     for c in 0..3 {
         let x = -l * 0.3 + c as f32 * (l * 0.3);
+        let pane = if c == 1 {
+            glass([1.0, 0.82, 0.55], 1.3)
+        } else {
+            glass(GLASS_TINT, 0.0)
+        };
         prims.push(prim(
-            cuboid_tapered([1.5, 0.9, 0.15], 0.0, glass(GLASS_TINT, 0.0)),
-            [x, floor_y + 1.5, front],
+            cuboid_tapered([1.5, 0.9, 0.15], 0.0, pane),
+            [x, floor_y + 1.5, front - 0.05],
             id_quat(),
         ));
     }
     // Door and step.
+    let door_x = l * 0.35;
     prims.push(prim(
         solid(cuboid_tapered(
             [0.85, 1.9, 0.15],
             0.0,
             enamel([0.7, 0.68, 0.62]),
         )),
-        [l * 0.35, floor_y + 0.95, front],
+        [door_x, floor_y + 0.95, front - 0.05],
         id_quat(),
     ));
     prims.push(prim(
@@ -128,9 +152,26 @@ fn build_tree() -> Generator {
             0.0,
             render([0.5, 0.5, 0.5]),
         )),
-        [l * 0.35, floor_y * 0.5, front + 0.5],
+        [door_x, floor_y * 0.5, front - 0.5],
         id_quat(),
     ));
+    // Small flat awning over the door on two diagonal brackets.
+    prims.push(prim(
+        solid(cuboid_tapered([1.5, 0.08, 0.9], 0.0, enamel(SIDING_BLUE))),
+        [door_x, floor_y + 2.05, front - 0.45],
+        id_quat(),
+    ));
+    for bx in [-0.6_f32, 0.6] {
+        prims.push(prim(
+            solid(cuboid_tapered(
+                [0.06, 0.06, 0.9],
+                0.0,
+                enamel([0.55, 0.55, 0.55]),
+            )),
+            [door_x + bx, floor_y + 1.9, front - 0.45],
+            quat_x(0.5),
+        ));
+    }
     // Window AC unit.
     prims.push(prim(
         solid(cuboid_tapered(
@@ -138,8 +179,30 @@ fn build_tree() -> Generator {
             0.0,
             enamel([0.78, 0.78, 0.78]),
         )),
-        [-l * 0.3, floor_y + 1.3, front + 0.3],
+        [-l * 0.3, floor_y + 1.3, front - 0.3],
         id_quat(),
+    ));
+
+    // Propane tank on a low stand at the end.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [0.5, 0.3, 0.6],
+            0.0,
+            render([0.5, 0.5, 0.5]),
+        )),
+        [l * 0.5 + 0.7, 0.45, 0.0],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(cylinder_tapered(
+            0.32,
+            1.1,
+            12,
+            0.0,
+            enamel([0.86, 0.86, 0.82]),
+        )),
+        [l * 0.5 + 0.7, 0.85, 0.0],
+        quat_x(FRAC_PI_2),
     ));
 
     assemble(prims)

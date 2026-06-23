@@ -95,6 +95,27 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
+    // Hinged mail door on the front (-Z) end.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [0.4, 0.42, 0.03],
+            0.0,
+            enamel([0.34, 0.34, 0.38]),
+        )),
+        [0.0, box_y + 0.02, -0.36],
+        id_quat(),
+    ));
+    // House-number plate on the post, facing the road.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [0.2, 0.12, 0.03],
+            0.0,
+            enamel([0.15, 0.15, 0.18]),
+        )),
+        [0.0, 0.78, -0.08],
+        id_quat(),
+    ));
+
     assemble(prims)
 }
 

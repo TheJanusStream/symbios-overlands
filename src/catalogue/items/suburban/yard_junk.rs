@@ -5,7 +5,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_y, solid,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_y, solid, tube,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -80,6 +80,42 @@ fn build_tree() -> Generator {
             quat_x(FRAC_PI_2 + yaw * 0.1),
         ));
     }
+
+    // A stray bald tire flung off the stack.
+    prims.push(prim(
+        solid(cylinder_tapered(0.4, 0.24, 12, 0.0, enamel(TIRE))),
+        [-1.0, 0.12, -0.85],
+        id_quat(),
+    ));
+    // A couple of crusty paint cans, one tipped on its side.
+    prims.push(prim(
+        solid(cylinder_tapered(
+            0.16,
+            0.32,
+            10,
+            0.0,
+            enamel([0.62, 0.58, 0.5]),
+        )),
+        [0.5, 0.16, -0.7],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(cylinder_tapered(
+            0.15,
+            0.3,
+            10,
+            0.0,
+            enamel([0.5, 0.52, 0.46]),
+        )),
+        [0.92, 0.15, -0.5],
+        quat_x(FRAC_PI_2),
+    ));
+    // A tipped-over bucket, open end showing.
+    prims.push(prim(
+        solid(tube(0.2, 0.16, 0.42, 12, enamel([0.32, 0.46, 0.55]))),
+        [-0.55, 0.2, 0.95],
+        quat_x(1.4),
+    ));
 
     assemble(prims)
 }

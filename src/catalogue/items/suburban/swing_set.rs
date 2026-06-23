@@ -1,7 +1,10 @@
 //! Swing set — a Suburban prop. A galvanised A-frame swing set with two
 //! chain-hung seats: the centrepiece of a back yard.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, quat_x, solid};
+use crate::catalogue::items::coastal_resort::{POOL_AQUA, water};
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, torus,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -10,8 +13,11 @@ use super::enamel;
 
 /// Galvanised steel frame.
 const FRAME: [f32; 3] = [0.60, 0.62, 0.64];
-/// Dark chain / seat.
+/// Dark chain.
 const SEAT: [f32; 3] = [0.14, 0.16, 0.18];
+/// Bright seat colours — a red bucket seat and a blue plank seat.
+const SEAT_RED: [f32; 3] = [0.75, 0.18, 0.16];
+const SEAT_BLUE: [f32; 3] = [0.18, 0.34, 0.62];
 
 pub struct SwingSet;
 
@@ -69,8 +75,8 @@ fn build_tree() -> Generator {
         }
     }
 
-    // Two chain-hung seats.
-    for sx in [-0.85_f32, 0.85] {
+    // Two chain-hung seats — one red, one blue.
+    for (i, sx) in [-0.85_f32, 0.85].into_iter().enumerate() {
         for cz in [-0.12_f32, 0.12] {
             prims.push(prim(
                 solid(cuboid_tapered([0.03, 1.45, 0.03], 0.0, enamel(SEAT))),
@@ -78,12 +84,26 @@ fn build_tree() -> Generator {
                 id_quat(),
             ));
         }
+        let seat_col = if i == 0 { SEAT_RED } else { SEAT_BLUE };
         prims.push(prim(
-            solid(cuboid_tapered([0.5, 0.08, 0.26], 0.0, enamel(SEAT))),
+            solid(cuboid_tapered([0.5, 0.08, 0.26], 0.0, enamel(seat_col))),
             [sx, bar_y - 1.5, 0.0],
             id_quat(),
         ));
     }
+
+    // A small kiddie pool beside the frame: an inflatable rim and aqua water.
+    let px = 2.9_f32;
+    prims.push(prim(
+        solid(torus(0.16, 0.85, enamel([0.92, 0.55, 0.2]))),
+        [px, 0.16, 0.0],
+        id_quat(),
+    ));
+    prims.push(prim(
+        cylinder_tapered(0.8, 0.1, 16, 0.0, water(POOL_AQUA)),
+        [px, 0.12, 0.0],
+        id_quat(),
+    ));
 
     assemble(prims)
 }

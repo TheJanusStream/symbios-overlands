@@ -3,13 +3,13 @@
 //! [`trailer_home`](super::trailer_home).
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, solid,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{GLASS_TINT, enamel, glass, render};
+use super::{enamel, parked_car, render};
 
 /// Faded car paint.
 const OLD_CAR: [f32; 3] = [0.42, 0.40, 0.34];
@@ -51,6 +51,7 @@ fn build_tree() -> Generator {
     let w = 6.0_f32;
     let d = 6.0_f32;
     let post_h = 2.8;
+    let pad_top = 0.3_f32;
 
     let mut prims = vec![
         // Concrete pad — the root.
@@ -65,7 +66,7 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Four posts.
+    // Four galvanised posts (dull, lightly weathered) with knee braces.
     for (sx, sz) in [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
         prims.push(prim(
             solid(cylinder_tapered(
@@ -73,39 +74,38 @@ fn build_tree() -> Generator {
                 post_h,
                 8,
                 0.0,
-                enamel([0.7, 0.7, 0.72]),
+                enamel([0.6, 0.6, 0.58]),
             )),
-            [sx * w * 0.45, 0.3 + post_h * 0.5, sz * d * 0.45],
+            [sx * w * 0.45, pad_top + post_h * 0.5, sz * d * 0.45],
             id_quat(),
         ));
+        prims.push(prim(
+            solid(cuboid_tapered(
+                [0.07, 0.7, 0.07],
+                0.0,
+                enamel([0.58, 0.58, 0.56]),
+            )),
+            [
+                sx * (w * 0.45 - 0.28),
+                pad_top + post_h - 0.4,
+                sz * (d * 0.45 - 0.28),
+            ],
+            quat_z(sx * 0.7),
+        ));
     }
-    // Shallow peaked metal roof.
+    // Shallow peaked metal roof — dull, weathered but intact.
     prims.push(prim(
         solid(cuboid_tapered(
             [w + 0.8, 0.7, d + 0.8],
             0.25,
-            enamel([0.74, 0.74, 0.72]),
+            enamel([0.64, 0.64, 0.6]),
         )),
-        [0.0, 0.3 + post_h + 0.35, 0.0],
+        [0.0, pad_top + post_h + 0.35, 0.0],
         id_quat(),
     ));
 
-    // A tired old car under it.
-    prims.push(prim(
-        solid(cuboid_tapered([1.9, 1.0, 4.2], 0.08, enamel(OLD_CAR))),
-        [0.0, 0.8, 0.0],
-        id_quat(),
-    ));
-    prims.push(prim(
-        solid(cuboid_tapered([1.7, 0.7, 2.4], 0.2, enamel(OLD_CAR))),
-        [-0.2, 1.5, 0.0],
-        id_quat(),
-    ));
-    prims.push(prim(
-        cuboid_tapered([1.6, 0.5, 2.42], 0.2, glass(GLASS_TINT, 0.0)),
-        [-0.2, 1.5, 0.0],
-        id_quat(),
-    ));
+    // A tired old car under it — round wheels, faded paint.
+    prims.extend(parked_car([0.0, pad_top, 0.0], OLD_CAR));
 
     assemble(prims)
 }

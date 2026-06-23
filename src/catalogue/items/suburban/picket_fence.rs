@@ -58,22 +58,37 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Pointed pickets.
+    // Sturdy end posts with pyramidal caps.
+    for sx in [-1.0_f32, 1.0] {
+        let x = sx * span * 0.5;
+        prims.push(prim(
+            solid(cuboid_tapered([0.16, 1.3, 0.16], 0.0, wood(WOOD_WHITE))),
+            [x, 0.65, 0.0],
+            id_quat(),
+        ));
+        prims.push(prim(
+            solid(cone(0.13, 0.16, 4, wood(WOOD_WHITE))),
+            [x, 1.38, 0.0],
+            id_quat(),
+        ));
+    }
+
+    // Pointed pickets, standing proud of the rails on the -Z front.
     let pickets = 11;
     for k in 0..pickets {
-        let x = -span * 0.5 + 0.2 + k as f32 * (span - 0.4) / (pickets - 1) as f32;
+        let x = -span * 0.5 + 0.34 + k as f32 * (span - 0.68) / (pickets - 1) as f32;
         prims.push(prim(
             solid(cuboid_tapered(
-                [0.12, picket_h, 0.06],
+                [0.12, picket_h, 0.05],
                 0.0,
                 wood(WOOD_WHITE),
             )),
-            [x, picket_h * 0.5 + 0.1, 0.0],
+            [x, picket_h * 0.5 + 0.1, -0.05],
             id_quat(),
         ));
         prims.push(prim(
             solid(cone(0.09, 0.18, 4, wood(WOOD_WHITE))),
-            [x, picket_h + 0.1, 0.0],
+            [x, picket_h + 0.1, -0.05],
             id_quat(),
         ));
     }

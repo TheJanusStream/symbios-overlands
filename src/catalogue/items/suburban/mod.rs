@@ -9,7 +9,7 @@
 //! Surfaces use the real procedural generators rather than flat colour:
 //! lap [`siding`] and [`wood`] plank, asphalt [`shingle`] roofs, [`brick`]
 //! and rendered [`render`] walls, [`glass`] windows, smooth painted
-//! [`enamel`], and clipped [`greenery`]. Porch lights and shop signs glow,
+//! [`enamel`], and clipped hedges and shrubs. Porch lights and shop signs glow,
 //! a backyard sprinkler mists the lawn, and birdsong drifts over the street
 //! from [`fx`]. The theme's soft sunny accent lives in
 //! [`crate::seeded_defaults::room::accent`].
@@ -29,12 +29,17 @@ pub mod yard_junk;
 
 pub mod fx;
 
+use std::f32::consts::FRAC_PI_2;
+
 use bevy_symbios_texture::metal::MetalStyle;
 
+use crate::catalogue::items::util::{
+    cuboid_tapered, cylinder_tapered, id_quat, prim, quat_z, solid,
+};
 use crate::pds::{
-    Fp, Fp3, Fp64, SovereignBrickConfig, SovereignMaterialSettings, SovereignMetalConfig,
-    SovereignPlankConfig, SovereignShingleConfig, SovereignStuccoConfig, SovereignTextureConfig,
-    SovereignWindowConfig,
+    Fp, Fp3, Fp64, Generator, SovereignBrickConfig, SovereignMaterialSettings,
+    SovereignMetalConfig, SovereignPlankConfig, SovereignShingleConfig, SovereignStuccoConfig,
+    SovereignTextureConfig, SovereignWindowConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -178,23 +183,48 @@ pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Clipped greenery — hedges, foundation shrubs, lawn. A matte leaf-green
-/// stucco mass that reads as foliage at prop scale.
-pub(super) fn greenery(color: [f32; 3]) -> SovereignMaterialSettings {
-    SovereignMaterialSettings {
-        base_color: Fp3(color),
-        roughness: Fp(0.95),
-        metallic: Fp(0.0),
-        uv_scale: Fp(3.0),
-        texture: SovereignTextureConfig::Stucco(SovereignStuccoConfig {
-            color_base: Fp3(color),
-            color_shadow: Fp3([color[0] * 0.6, color[1] * 0.7, color[2] * 0.6]),
-            scale: Fp64(12.0),
-            roughness: Fp64(0.6),
-            ..Default::default()
-        }),
-        ..Default::default()
+/// A little parked car: a chamfered body, a glazed cabin greenhouse, and four
+/// round tyres (axle along X, so they read round from the side). `center` is
+/// the ground point under the car; `body` is the paint colour. Shared by the
+/// driveway car, the kerbside car, and the carport's tired old wreck so none
+/// of them is the bare floating box it used to be.
+pub(super) fn parked_car(center: [f32; 3], body: [f32; 3]) -> Vec<Generator> {
+    let [cx, cy, cz] = center;
+    let mut out = vec![
+        // Lower body.
+        prim(
+            solid(cuboid_tapered([1.9, 0.7, 4.0], 0.08, enamel(body))),
+            [cx, cy + 0.7, cz],
+            id_quat(),
+        ),
+        // Cabin.
+        prim(
+            solid(cuboid_tapered([1.7, 0.62, 2.3], 0.18, enamel(body))),
+            [cx - 0.1, cy + 1.25, cz],
+            id_quat(),
+        ),
+        // Glazed greenhouse.
+        prim(
+            cuboid_tapered([1.62, 0.5, 2.32], 0.18, glass(GLASS_TINT, 0.0)),
+            [cx - 0.1, cy + 1.25, cz],
+            id_quat(),
+        ),
+    ];
+    // Four round tyres, axle along X.
+    for (sx, sz) in [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+        out.push(prim(
+            solid(cylinder_tapered(
+                0.38,
+                0.26,
+                12,
+                0.0,
+                enamel([0.07, 0.07, 0.08]),
+            )),
+            [cx + sx * 0.95, cy + 0.38, cz + sz * 1.3],
+            quat_z(FRAC_PI_2),
+        ));
     }
+    out
 }
 
 // Siding + roof palette.
