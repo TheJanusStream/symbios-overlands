@@ -10,15 +10,14 @@
 //! under the pitch.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid, torus,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
 use super::{
-    FLOOD_LIT, LINE_WHITE, PITCH_GREEN, SCORE_AMBER, SEAT_BLUE, SEAT_RED, STEEL_GREY, enamel, fx,
-    painted, steel, turf,
+    LINE_WHITE, PITCH_GREEN, SEAT_BLUE, SEAT_RED, STEEL_GREY, enamel, fx, painted, steel, turf,
 };
 
 pub struct Stadium;
@@ -74,6 +73,36 @@ fn build_tree() -> Generator {
         [0.0, 0.23, 0.0],
         id_quat(),
     ));
+    // Penalty boxes and white goal frames at each end (x = ±10).
+    for sx in [-1.0_f32, 1.0] {
+        // Box front line, parallel to the goal line.
+        prims.push(prim(
+            cuboid_tapered([0.25, 0.06, 7.0], 0.0, painted(LINE_WHITE)),
+            [sx * 6.5, 0.23, 0.0],
+            id_quat(),
+        ));
+        // Two box side lines running back to the goal line.
+        for sz in [-1.0_f32, 1.0] {
+            prims.push(prim(
+                cuboid_tapered([3.5, 0.06, 0.25], 0.0, painted(LINE_WHITE)),
+                [sx * 8.25, 0.23, sz * 3.5],
+                id_quat(),
+            ));
+        }
+        // Goal: two uprights and a crossbar on the goal line.
+        for sz in [-1.0_f32, 1.0] {
+            prims.push(prim(
+                solid(cuboid_tapered([0.12, 1.6, 0.12], 0.0, enamel(LINE_WHITE))),
+                [sx * 9.9, 0.9, sz * 1.6],
+                id_quat(),
+            ));
+        }
+        prims.push(prim(
+            solid(cuboid_tapered([0.12, 0.12, 3.3], 0.0, enamel(LINE_WHITE))),
+            [sx * 9.9, 1.7, 0.0],
+            id_quat(),
+        ));
+    }
 
     // North & South stands — three tiers stepping up and back along Z.
     for sz in [-1.0_f32, 1.0] {
@@ -98,25 +127,26 @@ fn build_tree() -> Generator {
         }
     }
 
-    // Four corner floodlight masts with lit heads — emissive.
+    // Four corner floodlight masts carrying gridded lamp banks aimed inward
+    // at the pitch — the lamp grid reads as an array and keeps each head from
+    // blooming into a flat white blob. Emissive.
     for (sx, sz) in [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
         prims.push(prim(
             solid(cylinder_tapered(0.4, 12.0, 8, 0.1, steel(STEEL_GREY))),
             [sx * 14.0, 6.0, sz * 10.0],
             id_quat(),
         ));
-        prims.push(prim(
-            cuboid_tapered([2.4, 0.8, 1.4], 0.0, glow(FLOOD_LIT, 4.0)),
-            [sx * 14.0, 12.3, sz * 10.0],
-            id_quat(),
-        ));
+        for g in super::lamp_bank([sx * 14.0, 12.3, sz * 9.5], 2.6, 1.2, 4, 2, -sz) {
+            prims.push(g);
+        }
     }
 
-    // Scoreboard on two posts beyond the north end — emissive screen.
+    // Scoreboard on two posts beyond the south end — flipped to the −Z render
+    // front so its lit face leads. Segmented display (see `score_display`).
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
             solid(cuboid_tapered([0.4, 7.0, 0.4], 0.0, steel(STEEL_GREY))),
-            [sx * 2.6, 3.5, 15.5],
+            [sx * 2.6, 3.5, -15.5],
             id_quat(),
         ));
     }
@@ -126,16 +156,12 @@ fn build_tree() -> Generator {
             0.0,
             enamel([0.12, 0.12, 0.14]),
         )),
-        [0.0, 7.2, 15.5],
+        [0.0, 7.2, -15.5],
         id_quat(),
     ));
-    let mut screen = prim(
-        cuboid_tapered([6.0, 2.8, 0.12], 0.0, glow(SCORE_AMBER, 4.0)),
-        [0.0, 7.2, 15.78],
-        id_quat(),
-    );
-    screen.audio = fx::tannoy_hum();
-    prims.push(screen);
+    let mut disp = super::score_display(0.0, 7.2, -15.78, 6.0, 2.8);
+    disp[0].audio = fx::tannoy_hum();
+    prims.extend(disp);
 
     let mut root = assemble(prims);
     // Signature life: the crowd murmur in the stands, dust over the pitch.

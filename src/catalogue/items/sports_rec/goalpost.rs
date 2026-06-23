@@ -1,7 +1,11 @@
 //! Goalpost — a Sports/Recreation prop. A white goal frame with a chain-link
 //! net slung behind it. Scatter clutter across the training pitches.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, quat_x, solid};
+use std::f32::consts::FRAC_PI_2;
+
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_z, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -46,38 +50,51 @@ fn build_tree() -> Generator {
     let half_w = 3.5_f32;
 
     let mut prims = vec![
-        // Crossbar — the root.
+        // Net floor — the flat root. (The round crossbar is a rotated child:
+        // a rotated piece must never be the assemble root, or its rotation
+        // spins the whole goal sideways.)
         prim(
-            solid(cuboid_tapered(
-                [half_w * 2.0 + 0.2, 0.12, 0.12],
-                0.0,
-                enamel(LINE_WHITE),
-            )),
-            [0.0, h, 0.0],
+            cuboid_tapered([half_w * 2.0, 0.05, 0.7], 0.0, chainlink(CHAIN_GREY)),
+            [0.0, 0.06, 0.4],
             id_quat(),
         ),
     ];
 
-    // Two uprights.
+    // Crossbar — a round white tube along X, above the mouth.
+    prims.push(prim(
+        solid(cylinder_tapered(
+            0.09,
+            half_w * 2.0 + 0.18,
+            8,
+            0.0,
+            enamel(LINE_WHITE),
+        )),
+        [0.0, h, 0.0],
+        quat_z(FRAC_PI_2),
+    ));
+
+    // Two round uprights on the goal line (the goal mouth opens to −Z).
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
-            solid(cuboid_tapered([0.12, h, 0.12], 0.0, enamel(LINE_WHITE))),
+            solid(cylinder_tapered(0.09, h, 8, 0.0, enamel(LINE_WHITE))),
             [sx * half_w, h * 0.5, 0.0],
             id_quat(),
         ));
+        // Round back stay sloping down to the ground behind each upright.
+        prims.push(prim(
+            solid(cylinder_tapered(0.06, 1.7, 8, 0.0, enamel(LINE_WHITE))),
+            [sx * half_w, h * 0.55, 0.55],
+            quat_x(0.62),
+        ));
     }
 
-    // Chain-link net sloping back from the crossbar.
+    // Chain-link net: a wide, near-vertical panel just behind the mouth that
+    // leans back at the top. Kept shallow so the whole wide goal shape reads
+    // (a deep net box foreshortens to a dark slab at the render's angles).
     prims.push(prim(
-        cuboid_tapered([half_w * 2.0, 2.4, 0.05], 0.0, chainlink(CHAIN_GREY)),
-        [0.0, h * 0.5 + 0.2, -0.9],
-        quat_x(0.4),
-    ));
-    // Net floor behind the goal line.
-    prims.push(prim(
-        cuboid_tapered([half_w * 2.0, 0.05, 1.4], 0.0, chainlink(CHAIN_GREY)),
-        [0.0, 0.1, -0.9],
-        id_quat(),
+        cuboid_tapered([half_w * 2.0, h - 0.1, 0.05], 0.0, chainlink(CHAIN_GREY)),
+        [0.0, (h - 0.1) * 0.5, 0.5],
+        quat_x(0.2),
     ));
 
     assemble(prims)

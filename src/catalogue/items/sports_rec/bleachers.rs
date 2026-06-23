@@ -61,21 +61,63 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Five seat rows stepping up and back.
+    // Five tiers stepping up and back, split into two seat banks by a central
+    // aisle. Each tier is a concrete riser (closing the step front so the
+    // stand reads solid, not as floating planks), a steel tread, and a raised
+    // blue seat plank behind it.
     for t in 0..5 {
         let tf = t as f32;
-        // Seat plank.
+        let y0 = pad_h + tf * 0.6;
+        let z0 = -1.3 + tf * 0.8;
+        // Riser: the vertical front face of the step.
         prims.push(prim(
-            solid(cuboid_tapered([9.6, 0.2, 0.5], 0.0, enamel(SEAT_BLUE))),
-            [0.0, pad_h + 0.5 + tf * 0.6, -1.6 + tf * 0.8],
+            solid(cuboid_tapered(
+                [9.6, 0.62, 0.12],
+                0.0,
+                concrete(CONCRETE_GREY),
+            )),
+            [0.0, y0 - 0.01, z0 - 0.44],
             id_quat(),
         ));
-        // Footboard below it.
+        // Two tread + seat banks flanking the central aisle.
+        for sx in [-1.0_f32, 1.0] {
+            prims.push(prim(
+                solid(cuboid_tapered([4.4, 0.15, 0.8], 0.0, steel(STEEL_GREY))),
+                [sx * 2.6, y0 + 0.2, z0],
+                id_quat(),
+            ));
+            prims.push(prim(
+                solid(cuboid_tapered([4.4, 0.22, 0.5], 0.0, enamel(SEAT_BLUE))),
+                [sx * 2.6, y0 + 0.5, z0 + 0.28],
+                id_quat(),
+            ));
+        }
+        // Central aisle step tread.
         prims.push(prim(
-            solid(cuboid_tapered([9.6, 0.15, 0.5], 0.0, steel(STEEL_GREY))),
-            [0.0, pad_h + 0.2 + tf * 0.6, -1.3 + tf * 0.8],
+            solid(cuboid_tapered(
+                [0.9, 0.16, 0.8],
+                0.0,
+                concrete(CONCRETE_GREY),
+            )),
+            [0.0, y0 + 0.21, z0],
             id_quat(),
         ));
+    }
+
+    // Side cheek end panels closing the raked sides (stepped down the slope).
+    for sx in [-1.0_f32, 1.0] {
+        for t in 0..5 {
+            let tf = t as f32;
+            prims.push(prim(
+                solid(cuboid_tapered(
+                    [0.12, 0.6 + tf * 0.6, 0.8],
+                    0.0,
+                    concrete(CONCRETE_GREY),
+                )),
+                [sx * 4.96, pad_h + (0.6 + tf * 0.6) * 0.5, -1.3 + tf * 0.8],
+                id_quat(),
+            ));
+        }
     }
 
     // Back rail behind the top row.

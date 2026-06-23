@@ -2,7 +2,9 @@
 //! tyres with one rolled off to the side. The improvised gear of the
 //! municipal rec ground.
 
-use crate::catalogue::items::util::{assemble, id_quat, prim, quat_x, solid, torus};
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, id_quat, prim, quat_x, solid, torus,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -11,6 +13,10 @@ use super::painted;
 
 /// Worn black rubber of the tyres.
 const RUBBER: [f32; 3] = [0.10, 0.10, 0.11];
+/// Sun-greyed tread band around each worn tyre.
+const TREAD: [f32; 3] = [0.27, 0.27, 0.28];
+/// Faded webbing of the binding straps.
+const STRAP: [f32; 3] = [0.20, 0.17, 0.13];
 
 pub struct TireStack;
 
@@ -54,21 +60,47 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Bottom tyre's worn tread band.
+    prims.push(prim(
+        torus(0.06, 0.45, painted(TREAD)),
+        [0.0, 0.18, 0.0],
+        id_quat(),
+    ));
 
-    // Three more tyres stacked with a slight lean.
+    // Three more tyres stacked with a slight lean, each with a tread band.
     for (k, off) in [(1usize, 0.05_f32), (2, 0.1), (3, 0.16)] {
+        let c = [off, 0.18 + k as f32 * 0.3, off * 0.5];
         prims.push(prim(
             solid(torus(0.18, 0.42, painted(RUBBER))),
-            [off, 0.18 + k as f32 * 0.3, off * 0.5],
+            c,
             id_quat(),
+        ));
+        prims.push(prim(torus(0.06, 0.45, painted(TREAD)), c, id_quat()));
+    }
+
+    // Two frayed straps cinching the stack, knotted over the top.
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered([0.06, 1.35, 0.1], 0.0, painted(STRAP))),
+            [sx * 0.13, 0.72, 0.0],
+            quat_x(sx * 0.12),
         ));
     }
 
     // One tyre rolled off to the side, stood on its edge.
+    let edge = [1.0_f32, 0.42, -0.4];
     prims.push(prim(
         solid(torus(0.18, 0.42, painted(RUBBER))),
-        [1.0, 0.42, -0.4],
+        edge,
         quat_x(1.5),
+    ));
+    prims.push(prim(torus(0.06, 0.45, painted(TREAD)), edge, quat_x(1.5)));
+
+    // A fifth tyre lying flat nearby.
+    prims.push(prim(
+        solid(torus(0.18, 0.42, painted(RUBBER))),
+        [-0.9, 0.18, 0.5],
+        id_quat(),
     ));
 
     assemble(prims)

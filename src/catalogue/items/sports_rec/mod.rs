@@ -34,10 +34,11 @@ pub mod fx;
 
 use bevy_symbios_texture::metal::MetalStyle;
 
+use crate::catalogue::items::util::{cuboid_tapered, glow, id_quat, prim, solid};
 use crate::pds::{
-    Fp, Fp3, Fp64, SovereignAsphaltConfig, SovereignChainLinkConfig, SovereignConcreteConfig,
-    SovereignCorrugatedConfig, SovereignMaterialSettings, SovereignMetalConfig,
-    SovereignTextureConfig, SovereignWindowConfig,
+    Fp, Fp3, Fp64, Generator, SovereignAsphaltConfig, SovereignChainLinkConfig,
+    SovereignConcreteConfig, SovereignCorrugatedConfig, SovereignMaterialSettings,
+    SovereignMetalConfig, SovereignTextureConfig, SovereignWindowConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -223,7 +224,94 @@ pub(super) const HOOP_ORANGE: [f32; 3] = [0.92, 0.42, 0.10];
 
 // Emissive trim colours.
 pub(super) const FLOOD_LIT: [f32; 3] = [1.0, 0.97, 0.90];
-pub(super) const SCORE_AMBER: [f32; 3] = [1.0, 0.78, 0.32];
+/// Deep-saturated amber for the segmented lit display cells — a single broad
+/// flat lit panel at a brighter amber blooms to a near-white slab, so the
+/// score/clock cells use this deeper amber at a lower strength and let the dark
+/// gaps between them carry the "segmented board" read.
+pub(super) const SCORE_LIT: [f32; 3] = [1.0, 0.48, 0.10];
+/// Saturated red for indicator lamps / period marks on a display.
+pub(super) const SCORE_RED: [f32; 3] = [1.0, 0.22, 0.12];
+
+/// A segmented, lit scoreboard display face built proud of a dark bezel: a
+/// narrow clock strip across the top, two deep-saturated amber score panels
+/// split by a dark central gap, and a row of small indicator lamps below. The
+/// dark gaps between the lit cells keep the board reading as a *segmented
+/// display* instead of the solid lit slab that blooms to a flat white
+/// rectangle. `cx,cy` centre the face; `face_z` is the world Z of the lit
+/// cells (the caller's dark housing sits just behind); `w,h` are the display
+/// extents.
+pub(super) fn score_display(cx: f32, cy: f32, face_z: f32, w: f32, h: f32) -> Vec<Generator> {
+    let mut out = vec![
+        // Clock / time strip across the top.
+        prim(
+            cuboid_tapered([w * 0.74, h * 0.18, 0.08], 0.0, glow(SCORE_LIT, 2.2)),
+            [cx, cy + h * 0.30, face_z],
+            id_quat(),
+        ),
+    ];
+    // Two big score panels split by a dark central gap.
+    for sx in [-1.0_f32, 1.0] {
+        out.push(prim(
+            cuboid_tapered([w * 0.40, h * 0.42, 0.08], 0.0, glow(SCORE_LIT, 2.2)),
+            [cx + sx * w * 0.22, cy - h * 0.06, face_z],
+            id_quat(),
+        ));
+    }
+    // Row of small indicator lamps along the bottom.
+    for i in 0..5 {
+        let fx = (i as f32 - 2.0) * 0.16;
+        let col = if i % 2 == 0 { SCORE_RED } else { SCORE_LIT };
+        out.push(prim(
+            cuboid_tapered([w * 0.07, h * 0.10, 0.08], 0.0, glow(col, 2.0)),
+            [cx + fx * w, cy - h * 0.38, face_z],
+            id_quat(),
+        ));
+    }
+    out
+}
+
+/// A floodlight lamp bank: a dark backing frame carrying a grid of small
+/// warm-white lit cells. The gridded cells (with dark gaps between them) read
+/// as an array of lamps and keep the bank from blooming into one flat white
+/// rectangle the way a single lit panel does. `center` is the lit-cell face;
+/// `w,h` the bank size; `cols,rows` the lamp grid; `face` is the look
+/// direction (`+1` = cells face `+Z`, backing toward `-Z`).
+pub(super) fn lamp_bank(
+    center: [f32; 3],
+    w: f32,
+    h: f32,
+    cols: u32,
+    rows: u32,
+    face: f32,
+) -> Vec<Generator> {
+    let [cx, cy, cz] = center;
+    let mut out = vec![
+        // Dark backing frame, set behind the lamps.
+        prim(
+            solid(cuboid_tapered(
+                [w, h, 0.16],
+                0.0,
+                enamel([0.10, 0.10, 0.12]),
+            )),
+            [cx, cy, cz - 0.14 * face],
+            id_quat(),
+        ),
+    ];
+    let cw = w / cols as f32 * 0.72;
+    let ch = h / rows as f32 * 0.72;
+    for r in 0..rows {
+        for c in 0..cols {
+            let fx = (c as f32 + 0.5) / cols as f32 - 0.5;
+            let fy = (r as f32 + 0.5) / rows as f32 - 0.5;
+            out.push(prim(
+                cuboid_tapered([cw, ch, 0.06], 0.0, glow(FLOOD_LIT, 3.0)),
+                [cx + fx * w, cy + fy * h, cz],
+                id_quat(),
+            ));
+        }
+    }
+    out
+}
 
 #[cfg(test)]
 mod tests {

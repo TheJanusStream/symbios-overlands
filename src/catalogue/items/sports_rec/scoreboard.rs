@@ -2,12 +2,12 @@
 //! steel posts. Scatter clutter at the pitch ends; its screen is emissive
 //! trim the ruin pass can darken.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, glow, id_quat, prim, solid};
+use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{SCORE_AMBER, STEEL_GREY, enamel, steel};
+use super::{STEEL_GREY, enamel, fx, steel};
 
 pub struct Scoreboard;
 
@@ -44,7 +44,7 @@ impl CatalogueEntry for Scoreboard {
 
 fn build_tree() -> Generator {
     let mut prims = vec![
-        // Housing — the root.
+        // Dark display housing — the root.
         prim(
             solid(cuboid_tapered(
                 [4.5, 2.4, 0.4],
@@ -56,7 +56,7 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Two steel posts.
+    // Two steel posts with a cross-brace.
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
             solid(cuboid_tapered([0.2, 4.0, 0.2], 0.0, steel(STEEL_GREY))),
@@ -64,13 +64,23 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-
-    // Lit screen face — emissive.
     prims.push(prim(
-        cuboid_tapered([4.0, 1.9, 0.12], 0.0, glow(SCORE_AMBER, 3.5)),
-        [0.0, 4.5, 0.26],
+        solid(cuboid_tapered([3.6, 0.16, 0.16], 0.0, steel(STEEL_GREY))),
+        [0.0, 2.4, 0.0],
         id_quat(),
     ));
+    // Steel cornice cap proud of the housing top (not flush — no z-fight).
+    prims.push(prim(
+        solid(cuboid_tapered([4.7, 0.2, 0.55], 0.0, steel(STEEL_GREY))),
+        [0.0, 5.85, 0.0],
+        id_quat(),
+    ));
+
+    // Segmented lit display facing the −Z render front — a low idle PA hum
+    // sits on the board. Emissive (the ruin pass can snuff it).
+    let mut disp = super::score_display(0.0, 4.5, -0.26, 4.0, 1.9);
+    disp[0].audio = fx::tannoy_hum();
+    prims.extend(disp);
 
     assemble(prims)
 }

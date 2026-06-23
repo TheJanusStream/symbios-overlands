@@ -5,13 +5,15 @@
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], which reparents every piece under the slab.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, solid};
+use crate::catalogue::items::modern_city::curtain_wall;
+use crate::catalogue::items::util::{assemble, cuboid_tapered, glow, id_quat, prim, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
 use super::{
-    CONCRETE_GREY, CORRUGATED_GREY, GLASS_TINT, SEAT_BLUE, concrete, corrugated, enamel, glass,
+    CONCRETE_GREY, CORRUGATED_GREY, GLASS_TINT, SCORE_LIT, SEAT_BLUE, STEEL_GREY, concrete,
+    corrugated, enamel, glass, steel,
 };
 
 pub struct Gym;
@@ -51,6 +53,7 @@ fn build_tree() -> Generator {
     let slab_h = 0.4_f32;
     let body_h = 6.0_f32;
     let body_top = slab_h + body_h;
+    let fz = -1.0_f32; // hero faces the −Z render front
 
     let mut prims = vec![
         // Concrete slab — the root.
@@ -75,34 +78,7 @@ fn build_tree() -> Generator {
         [0.0, slab_h + body_h * 0.5, 0.0],
         id_quat(),
     ));
-    // Clerestory glazing band near the top.
-    prims.push(prim(
-        cuboid_tapered([11.0, 1.0, 0.15], 0.0, glass(GLASS_TINT, 1.2)),
-        [0.0, slab_h + 5.0, 4.05],
-        id_quat(),
-    ));
-    // Lit glass entrance + concrete canopy.
-    prims.push(prim(
-        cuboid_tapered([3.4, 2.6, 0.2], 0.0, glass(GLASS_TINT, 1.3)),
-        [0.0, slab_h + 1.3, 4.05],
-        id_quat(),
-    ));
-    prims.push(prim(
-        solid(cuboid_tapered(
-            [4.4, 0.3, 1.6],
-            0.0,
-            concrete(CONCRETE_GREY),
-        )),
-        [0.0, slab_h + 2.8, 4.7],
-        id_quat(),
-    ));
-    // Colour sign band over the entrance.
-    prims.push(prim(
-        cuboid_tapered([6.0, 0.8, 0.1], 0.0, enamel(SEAT_BLUE)),
-        [0.0, slab_h + 3.6, 4.05],
-        id_quat(),
-    ));
-    // Roof cap.
+    // Roof cap and two rooftop plant boxes.
     prims.push(prim(
         solid(cuboid_tapered(
             [12.4, 0.4, 8.4],
@@ -110,6 +86,54 @@ fn build_tree() -> Generator {
             concrete(CONCRETE_GREY),
         )),
         [0.0, body_top + 0.2, 0.0],
+        id_quat(),
+    ));
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered([1.4, 0.7, 1.4], 0.0, steel(STEEL_GREY))),
+            [sx * 3.0, body_top + 0.75, 0.0],
+            id_quat(),
+        ));
+    }
+
+    // Gridded clerestory glazing band high on the front (curtain-wall strip).
+    prims.extend(curtain_wall(
+        [0.0, slab_h + 5.0, fz * 4.05],
+        [11.0, 1.0],
+        (8, 1),
+        fz * 0.18,
+        glass(GLASS_TINT, 1.2),
+        steel(STEEL_GREY),
+    ));
+    // Glazed entrance — a steel-mullioned curtain wall facing the front.
+    prims.extend(curtain_wall(
+        [0.0, slab_h + 1.5, fz * 4.05],
+        [3.6, 2.6],
+        (3, 2),
+        fz * 0.2,
+        glass(GLASS_TINT, 1.3),
+        steel(STEEL_GREY),
+    ));
+    // Concrete entrance canopy proud of the front.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [4.6, 0.3, 1.6],
+            0.0,
+            concrete(CONCRETE_GREY),
+        )),
+        [0.0, slab_h + 3.0, fz * 4.7],
+        id_quat(),
+    ));
+    // Club-colour fascia band with a lit, deep-saturated name plate so the
+    // sign reads lit without blooming to a flat white slab.
+    prims.push(prim(
+        solid(cuboid_tapered([7.0, 0.9, 0.12], 0.0, enamel(SEAT_BLUE))),
+        [0.0, slab_h + 3.7, fz * 4.05],
+        id_quat(),
+    ));
+    prims.push(prim(
+        cuboid_tapered([3.0, 0.55, 0.1], 0.0, glow(SCORE_LIT, 1.8)),
+        [0.0, slab_h + 3.7, fz * 4.13],
         id_quat(),
     ));
 

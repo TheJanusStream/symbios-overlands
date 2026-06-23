@@ -8,8 +8,10 @@
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], which reparents every piece under the court slab.
 
+use std::f32::consts::FRAC_PI_2;
+
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, torus,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_y, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -19,6 +21,9 @@ use super::{
     ASPHALT_DARK, CHAIN_GREY, COURT_BLUE, HOOP_ORANGE, LINE_WHITE, STEEL_GREY, asphalt, chainlink,
     enamel, painted, steel,
 };
+
+/// Near-black of the cracks veining the worn asphalt.
+const CRACK_DARK: [f32; 3] = [0.05, 0.05, 0.06];
 
 pub struct RecCourt;
 
@@ -68,7 +73,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
-    // Faded painted key + centre line.
+    // Faded painted key + centre line + free-throw circle.
     prims.push(prim(
         cuboid_tapered([4.0, 0.05, 3.0], 0.0, painted(COURT_BLUE)),
         [-4.5, pad_h + 0.03, 0.0],
@@ -79,22 +84,56 @@ fn build_tree() -> Generator {
         [0.0, pad_h + 0.04, 0.0],
         id_quat(),
     ));
+    prims.push(prim(
+        torus(0.04, 1.2, painted(LINE_WHITE)),
+        [-2.5, pad_h + 0.04, 0.0],
+        quat_x(FRAC_PI_2),
+    ));
+    // A few cracks veining the worn surface (Poor).
+    for (i, (x, z, yaw)) in [
+        (-3.0_f32, 2.6_f32, 0.4_f32),
+        (2.0, -2.2, -0.6),
+        (4.5, 1.5, 0.2),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let len = 2.4 + i as f32 * 0.4;
+        prims.push(prim(
+            cuboid_tapered([len, 0.05, 0.07], 0.0, painted(CRACK_DARK)),
+            [*x, pad_h + 0.045, *z],
+            quat_y(*yaw),
+        ));
+    }
 
-    // Basketball hoop on a leaning pole at one end.
+    // Basketball hoop on a leaning pole at the −X end, facing the −Z front so
+    // the board, target square, rim and net all read to the camera.
+    prims.push(prim(
+        solid(cylinder_tapered(0.12, 3.4, 8, 0.05, steel(STEEL_GREY))),
+        [-6.0, pad_h + 1.7, 0.45],
+        quat_x(0.08),
+    ));
     prims.push(prim(
         solid(cuboid_tapered([1.6, 1.0, 0.12], 0.0, painted(LINE_WHITE))),
         [-6.0, pad_h + 3.0, 0.0],
         id_quat(),
     ));
+    // Painted target square, proud of the board's −Z face.
+    prims.push(prim(
+        cuboid_tapered([0.7, 0.5, 0.04], 0.0, enamel(HOOP_ORANGE)),
+        [-6.0, pad_h + 2.95, -0.1],
+        id_quat(),
+    ));
+    // Rim sticking out toward the camera, with a sagging chain-link net.
     prims.push(prim(
         solid(torus(0.05, 0.35, enamel(HOOP_ORANGE))),
-        [-5.7, pad_h + 2.7, 0.0],
-        quat_x(1.4),
+        [-6.0, pad_h + 2.65, -0.38],
+        quat_x(FRAC_PI_2),
     ));
     prims.push(prim(
-        solid(cylinder_tapered(0.12, 3.4, 8, 0.05, steel(STEEL_GREY))),
-        [-6.4, pad_h + 1.7, 0.0],
-        quat_x(0.08),
+        cylinder_tapered(0.32, 0.45, 8, 0.55, chainlink(CHAIN_GREY)),
+        [-6.0, pad_h + 2.4, -0.38],
+        id_quat(),
     ));
 
     // Sagging chain-link fence along the two ends.

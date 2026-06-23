@@ -2,7 +2,9 @@
 //! baseball backstop on steel posts with a forward overhang. The rusting
 //! edge of the municipal rec ground.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, quat_x, solid};
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_y, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -44,12 +46,14 @@ impl CatalogueEntry for Backstop {
 
 fn build_tree() -> Generator {
     let pad_h = 0.15_f32;
+    let post_h = 3.8_f32;
+    let panel_y = pad_h + 1.85;
 
     let mut prims = vec![
         // Dirt-rimmed concrete pad — the root.
         prim(
             solid(cuboid_tapered(
-                [6.5, pad_h, 1.0],
+                [7.0, pad_h, 3.0],
                 0.0,
                 concrete(CONCRETE_GREY),
             )),
@@ -58,26 +62,51 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Three steel posts.
-    for x in [-3.0_f32, 0.0, 3.0] {
+    // Central chain-link panel.
+    prims.push(prim(
+        cuboid_tapered([4.0, 3.5, 0.05], 0.0, chainlink(CHAIN_GREY)),
+        [0.0, panel_y, 0.0],
+        id_quat(),
+    ));
+    // Two wing panels hinged at the centre and angled forward toward the −Z
+    // plate, giving the wrap-around baseball-backstop shape.
+    for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
-            solid(cuboid_tapered([0.15, 3.8, 0.15], 0.0, steel(STEEL_GREY))),
-            [x, pad_h + 1.9, 0.0],
+            cuboid_tapered([2.4, 3.5, 0.05], 0.0, chainlink(CHAIN_GREY)),
+            [sx * 2.91, panel_y, -0.77],
+            quat_y(sx * 0.7),
+        ));
+    }
+
+    // Round steel posts: centre, the two hinges and the two wing tips. Rusting.
+    let posts = [
+        [0.0_f32, 0.0_f32],
+        [-2.0, 0.0],
+        [2.0, 0.0],
+        [-3.82, -1.54],
+        [3.82, -1.54],
+    ];
+    for [x, z] in posts {
+        prims.push(prim(
+            solid(cylinder_tapered(0.1, post_h, 8, 0.0, steel(STEEL_GREY))),
+            [x, pad_h + post_h * 0.5, z],
+            id_quat(),
+        ));
+    }
+    // Top and bottom rails across the central panel.
+    for y in [pad_h + 0.3, pad_h + 3.4] {
+        prims.push(prim(
+            solid(cuboid_tapered([4.2, 0.1, 0.1], 0.0, steel(STEEL_GREY))),
+            [0.0, y, 0.0],
             id_quat(),
         ));
     }
 
-    // Main chain-link panel.
+    // Forward overhang tilted in over the plate (toward the −Z front).
     prims.push(prim(
-        cuboid_tapered([6.2, 3.5, 0.05], 0.0, chainlink(CHAIN_GREY)),
-        [0.0, pad_h + 1.85, 0.0],
-        id_quat(),
-    ));
-    // Forward overhang panel tilted in over the plate.
-    prims.push(prim(
-        cuboid_tapered([6.2, 0.05, 1.4], 0.0, chainlink(CHAIN_GREY)),
-        [0.0, pad_h + 3.4, 0.6],
-        quat_x(0.5),
+        cuboid_tapered([4.0, 0.05, 1.4], 0.0, chainlink(CHAIN_GREY)),
+        [0.0, pad_h + 3.4, -0.7],
+        quat_x(-0.5),
     ));
 
     assemble(prims)
