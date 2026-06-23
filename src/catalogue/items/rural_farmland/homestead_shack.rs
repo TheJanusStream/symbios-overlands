@@ -4,6 +4,7 @@
 //! [`barn`](super::barn): same theme, opposite end of the prosperity axis
 //! (`Poor`), so a destitute room grows this instead of the red barn.
 
+use crate::catalogue::items::nordic::gable_roof;
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, solid,
 };
@@ -11,7 +12,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{ROOF_GREY, STONE_GREY, WOOD_GREY, enamel, fx, metal_roof, stone, weathered};
+use super::{STONE_GREY, WOOD_GREY, enamel, fx, metal_roof, stone, weathered};
 
 pub struct HomesteadShack;
 
@@ -73,6 +74,9 @@ fn build_tree() -> Generator {
         ),
     ];
 
+    // Hero face toward the render front (−Z); boards stand proud toward −Z.
+    let f = -front;
+
     // Crooked door.
     prims.push(prim(
         solid(cuboid_tapered(
@@ -80,35 +84,33 @@ fn build_tree() -> Generator {
             0.0,
             weathered([0.4, 0.38, 0.34]),
         )),
-        [1.4, foot_h + 0.95, front],
+        [1.4, foot_h + 0.95, f],
         id_quat(),
     ));
     // Boarded-up window.
     prims.push(prim(
         cuboid_tapered([1.4, 1.0, 0.12], 0.0, weathered([0.34, 0.33, 0.3])),
-        [-1.6, foot_h + 1.8, front],
+        [-1.6, foot_h + 1.8, f],
         id_quat(),
     ));
     for ty in [-0.3_f32, 0.0, 0.3] {
         prims.push(prim(
             cuboid_tapered([1.5, 0.16, 0.06], 0.0, weathered(WOOD_GREY)),
-            [-1.6, foot_h + 1.8 + ty, front + 0.1],
+            [-1.6, foot_h + 1.8 + ty, f - 0.1],
             id_quat(),
         ));
     }
 
-    // Rusting metal roof.
-    prims.push(prim(
-        solid(cuboid_tapered(
-            [l + 1.0, 1.6, w + 1.0],
-            0.4,
-            metal_roof(ROOF_GREY),
-        )),
-        [0.0, wall_top + 0.8, 0.0],
-        id_quat(),
+    // Rusting corrugated gable roof (nordic A-frame helper) — sound but
+    // weathered, not collapsed.
+    let roof_h = 1.9_f32;
+    prims.push(gable_roof(
+        [l + 1.0, roof_h, w + 1.0],
+        [0.0, wall_top + roof_h * 0.5, 0.0],
+        metal_roof([0.45, 0.37, 0.32]),
     ));
 
-    // Stovepipe chimney.
+    // Stovepipe chimney with a rain cap.
     let pipe_x = -1.8;
     prims.push(prim(
         solid(cylinder_tapered(
@@ -119,6 +121,15 @@ fn build_tree() -> Generator {
             enamel([0.4, 0.26, 0.16]),
         )),
         [pipe_x, wall_top + 0.9, -1.0],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [0.32, 0.08, 0.32],
+            0.0,
+            enamel([0.35, 0.22, 0.14]),
+        )),
+        [pipe_x, wall_top + 1.72, -1.0],
         id_quat(),
     ));
 

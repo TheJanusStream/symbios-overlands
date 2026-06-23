@@ -3,10 +3,11 @@
 //! turns lazily, creaking and groaning in the breeze, to draw water for the
 //! stock.
 
-use std::f32::consts::FRAC_PI_2;
+use std::f32::consts::{FRAC_PI_2, TAU};
 
+use crate::catalogue::items::coastal_resort::{POOL_AQUA, water};
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_z, solid, torus, tube,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -98,50 +99,73 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Fan wheel at the top, facing +Z.
+    // Fan wheel at the top, facing the −Z front (the camera) so the multi-blade
+    // wheel reads head-on; the tail vane trails to the +Z back. A rotated
+    // cylinder/torus is fine here — these are non-first children, not the root.
     let hub_y = 0.3 + tower_h + 0.4;
-    let hub_z = half + 0.6;
+    let hub_z = -(half + 0.6);
+    let blade_z = hub_z - 0.08; // blades stand proud on the front face
+    // Wheel rim disc and hub.
     prims.push(prim(
         solid(cylinder_tapered(
             1.7,
             0.12,
             24,
             0.0,
-            enamel([0.7, 0.72, 0.74]),
+            enamel([0.66, 0.68, 0.70]),
         )),
         [0.0, hub_y, hub_z],
         quat_x(FRAC_PI_2),
     ));
     prims.push(prim(
-        solid(cylinder_tapered(0.3, 0.4, 12, 0.0, enamel(STEEL))),
+        solid(cylinder_tapered(0.34, 0.5, 12, 0.0, enamel(STEEL))),
         [0.0, hub_y, hub_z],
         quat_x(FRAC_PI_2),
     ));
-    // Blade-spoke cross on the wheel face.
+    // Radial sheet-steel blades around the wheel face.
+    let blades = 16;
+    for k in 0..blades {
+        let th = k as f32 / blades as f32 * TAU;
+        prims.push(prim(
+            cuboid_tapered([1.1, 0.26, 0.03], 0.0, enamel([0.8, 0.82, 0.84])),
+            [0.95 * th.cos(), hub_y + 0.95 * th.sin(), blade_z],
+            quat_z(th),
+        ));
+    }
+    // Outer band ring catching the blade tips.
     prims.push(prim(
-        cuboid_tapered([0.16, 3.2, 0.05], 0.0, enamel([0.8, 0.82, 0.84])),
-        [0.0, hub_y, hub_z + 0.1],
-        id_quat(),
-    ));
-    prims.push(prim(
-        cuboid_tapered([3.2, 0.16, 0.05], 0.0, enamel([0.8, 0.82, 0.84])),
-        [0.0, hub_y, hub_z + 0.1],
-        id_quat(),
+        torus(0.05, 1.55, enamel(STEEL)),
+        [0.0, hub_y, blade_z],
+        quat_x(FRAC_PI_2),
     ));
 
-    // Tail boom and vane behind the hub.
+    // Tail boom and vane trailing to the +Z back.
     prims.push(prim(
         solid(cuboid_tapered([0.1, 0.1, 2.2], 0.0, enamel(STEEL))),
-        [0.0, hub_y, hub_z - 1.6],
+        [0.0, hub_y, hub_z + 1.6],
         id_quat(),
     ));
     let mut vane = prim(
         solid(cuboid_tapered([0.06, 1.1, 1.5], 0.0, enamel(TRACTOR_GREEN))),
-        [0.0, hub_y, hub_z - 2.6],
+        [0.0, hub_y, hub_z + 2.6],
         id_quat(),
     );
     vane.audio = fx::windmill_creak();
     prims.push(vane);
+
+    // Galvanised stock tank the pump fills — an open-topped ring of water
+    // (a real open vessel, not a sealed solid).
+    let tank_x = 2.7_f32;
+    prims.push(prim(
+        solid(tube(0.95, 0.82, 0.7, 20, enamel(STEEL))),
+        [tank_x, 0.35, 0.0],
+        id_quat(),
+    ));
+    prims.push(prim(
+        cylinder_tapered(0.84, 0.05, 20, 0.0, water(POOL_AQUA)),
+        [tank_x, 0.6, 0.0],
+        id_quat(),
+    ));
 
     assemble(prims)
 }

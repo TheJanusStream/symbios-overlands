@@ -95,8 +95,39 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Sloped corrugated roof from the back down to the front.
+    // Header beams along the pole tops.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [w + 0.3, 0.18, 0.18],
+            0.0,
+            weathered(WOOD_GREY),
+        )),
+        [0.0, 0.3 + back_h - 0.15, -d * 0.5 + 0.3],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [w + 0.3, 0.18, 0.18],
+            0.0,
+            weathered(WOOD_GREY),
+        )),
+        [0.0, 0.3 + front_h - 0.15, d * 0.5 - 0.3],
+        id_quat(),
+    ));
+
+    // Sloped corrugated roof from the back down to the front, on purlins.
     let mid_y = 0.3 + (back_h + front_h) * 0.5;
+    for px in [-w * 0.42, 0.0, w * 0.42] {
+        prims.push(prim(
+            solid(cuboid_tapered(
+                [0.12, 0.12, d + 0.4],
+                0.0,
+                weathered(WOOD_GREY),
+            )),
+            [px, mid_y + 0.22, 0.0],
+            quat_x(0.16),
+        ));
+    }
     prims.push(prim(
         solid(cuboid_tapered(
             [w + 0.6, 0.25, d + 0.8],

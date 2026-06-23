@@ -5,7 +5,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_y, solid,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_y, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -60,12 +60,52 @@ fn build_tree() -> Generator {
         [0.0, 0.5, 0.0],
         id_quat(),
     )];
-    // A faded drum tipped on its side.
+    // Lid, bung caps and rolling-hoop ribs on the standing drum.
+    prims.push(prim(
+        solid(cylinder_tapered(
+            0.36,
+            0.06,
+            12,
+            0.0,
+            enamel([0.36, 0.22, 0.13]),
+        )),
+        [0.0, 1.02, 0.0],
+        id_quat(),
+    ));
+    for bx in [-0.14_f32, 0.14] {
+        prims.push(prim(
+            solid(cylinder_tapered(
+                0.06,
+                0.05,
+                8,
+                0.0,
+                enamel([0.3, 0.18, 0.1]),
+            )),
+            [bx, 1.06, 0.0],
+            id_quat(),
+        ));
+    }
+    for ry in [0.3_f32, 0.7] {
+        prims.push(prim(
+            torus(0.035, 0.36, enamel([0.36, 0.22, 0.13])),
+            [0.0, ry, 0.0],
+            id_quat(),
+        ));
+    }
+
+    // A faded drum tipped on its side, with rimmed ends.
     prims.push(prim(
         solid(cylinder_tapered(0.34, 1.0, 12, 0.0, enamel(DRUM_BLUE))),
         [0.9, 0.34, 0.3],
         quat_x(FRAC_PI_2),
     ));
+    for zc in [-0.18_f32, 0.78] {
+        prims.push(prim(
+            torus(0.035, 0.35, enamel([0.2, 0.26, 0.32])),
+            [0.9, 0.34, zc],
+            quat_x(FRAC_PI_2),
+        ));
+    }
 
     // Scrap sheet metal leaning in a heap.
     for (x, z, yaw) in [(-0.8_f32, 0.4_f32, 0.5_f32), (-0.6, -0.5, 1.1)] {
@@ -92,10 +132,10 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Old tyre flat on the ground.
+    // Old tyre flat on the ground — a real round tyre.
     prims.push(prim(
-        solid(cylinder_tapered(0.42, 0.22, 12, 0.0, enamel(TIRE))),
-        [-1.1, 0.11, -0.6],
+        solid(torus(0.12, 0.32, enamel(TIRE))),
+        [-1.1, 0.13, -0.6],
         id_quat(),
     ));
 

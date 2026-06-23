@@ -1,7 +1,7 @@
 //! Rail fence — a Rural/Farmland prop. A weathered post-and-rail fence: a few
 //! squared posts carrying two split rails, the boundary of a paddock.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, solid};
+use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, quat_z, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -43,7 +43,7 @@ impl CatalogueEntry for RailFence {
 
 fn build_tree() -> Generator {
     let span = 4.5_f32;
-    let post_h = 1.3;
+    let post_h = 1.4;
 
     // Lower rail — the root.
     let mut prims = vec![prim(
@@ -51,14 +51,16 @@ fn build_tree() -> Generator {
         [0.0, 0.5, 0.0],
         id_quat(),
     )];
-    // Upper rail.
-    prims.push(prim(
-        solid(cuboid_tapered([span, 0.14, 0.1], 0.0, weathered(WOOD_GREY))),
-        [0.0, 1.05, 0.0],
-        id_quat(),
-    ));
+    // Middle and top rails.
+    for ry in [0.92_f32, 1.28] {
+        prims.push(prim(
+            solid(cuboid_tapered([span, 0.14, 0.1], 0.0, weathered(WOOD_GREY))),
+            [0.0, ry, 0.0],
+            id_quat(),
+        ));
+    }
 
-    // Posts.
+    // Squared posts with bevelled caps.
     for x in [
         -span * 0.5 + 0.2,
         -span * 0.18,
@@ -74,7 +76,19 @@ fn build_tree() -> Generator {
             [x, post_h * 0.5, 0.0],
             id_quat(),
         ));
+        prims.push(prim(
+            solid(cuboid_tapered([0.2, 0.12, 0.2], 0.5, weathered(WOOD_GREY))),
+            [x, post_h + 0.04, 0.0],
+            id_quat(),
+        ));
     }
+
+    // Diagonal corner brace stiffening the end post (a safe child rotation).
+    prims.push(prim(
+        solid(cuboid_tapered([0.1, 1.6, 0.1], 0.0, weathered(WOOD_GREY))),
+        [-span * 0.5 + 0.62, 0.66, 0.0],
+        quat_z(0.72),
+    ));
 
     assemble(prims)
 }

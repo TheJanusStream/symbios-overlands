@@ -2,8 +2,10 @@
 //! a hood and exhaust stack, a seat and steering wheel, big rear wheels and
 //! small steers, parked in the yard.
 
+use std::f32::consts::FRAC_PI_2;
+
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, torus,
+    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, quat_z, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -63,25 +65,79 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Big rear wheels and small front wheels (blocks, read as tyres).
+    // Big rear drive wheels — round tyres with yellow hubs, cross-spokes, and
+    // fenders. A wheel is a cylinder whose axis lies along Z (`quat_x`) so its
+    // round face reads from the side.
     for sz in [-1.0_f32, 1.0] {
+        let zc = sz * 0.86;
         prims.push(prim(
-            solid(cuboid_tapered([0.42, 1.7, 1.7], 0.0, enamel(TIRE))),
-            [-0.9, 0.85, sz * 0.78],
-            id_quat(),
+            solid(cylinder_tapered(0.82, 0.42, 16, 0.0, enamel(TIRE))),
+            [-0.9, 0.85, zc],
+            quat_x(FRAC_PI_2),
         ));
         prims.push(prim(
-            solid(cuboid_tapered([0.3, 0.8, 0.8], 0.0, enamel(TIRE))),
-            [1.35, 0.4, sz * 0.5],
+            solid(cylinder_tapered(
+                0.34,
+                0.46,
+                12,
+                0.0,
+                enamel(TRACTOR_YELLOW),
+            )),
+            [-0.9, 0.85, zc + sz * 0.03],
+            quat_x(FRAC_PI_2),
+        ));
+        for ang in [0.0_f32, FRAC_PI_2] {
+            prims.push(prim(
+                cuboid_tapered([0.12, 1.3, 0.04], 0.0, enamel(TRACTOR_YELLOW)),
+                [-0.9, 0.85, zc + sz * 0.24],
+                quat_z(ang),
+            ));
+        }
+        // Rear fender hugging the tyre top.
+        prims.push(prim(
+            solid(cuboid_tapered([1.5, 0.22, 0.5], 0.0, enamel(TRACTOR_GREEN))),
+            [-0.9, 1.76, zc],
             id_quat(),
         ));
     }
-    // Yellow wheel hubs on the rear.
+    // Small front steer wheels.
+    for sz in [-1.0_f32, 1.0] {
+        let zc = sz * 0.55;
+        prims.push(prim(
+            solid(cylinder_tapered(0.4, 0.3, 14, 0.0, enamel(TIRE))),
+            [1.35, 0.4, zc],
+            quat_x(FRAC_PI_2),
+        ));
+        prims.push(prim(
+            solid(cylinder_tapered(
+                0.16,
+                0.34,
+                10,
+                0.0,
+                enamel([0.7, 0.7, 0.72]),
+            )),
+            [1.35, 0.4, zc + sz * 0.03],
+            quat_x(FRAC_PI_2),
+        ));
+    }
+
+    // Grille and round headlights at the hood front (+X).
+    prims.push(prim(
+        cuboid_tapered([0.12, 0.6, 0.8], 0.0, enamel([0.2, 0.2, 0.22])),
+        [1.62, 1.2, 0.0],
+        id_quat(),
+    ));
     for sz in [-1.0_f32, 1.0] {
         prims.push(prim(
-            cuboid_tapered([0.44, 0.5, 0.5], 0.0, enamel(TRACTOR_YELLOW)),
-            [-0.9, 0.85, sz * 0.78],
-            id_quat(),
+            solid(cylinder_tapered(
+                0.14,
+                0.12,
+                12,
+                0.0,
+                glow([1.0, 0.92, 0.6], 1.6),
+            )),
+            [1.66, 1.45, sz * 0.32],
+            quat_z(FRAC_PI_2),
         ));
     }
 

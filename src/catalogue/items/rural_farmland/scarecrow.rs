@@ -2,12 +2,18 @@
 //! frame, with a burlap head and a floppy hat, standing watch over the field
 //! as the crickets start up.
 
+use crate::catalogue::items::solarpunk::{CROP_GREEN, crop_tufts, foliage};
 use crate::catalogue::items::util::{assemble, cone, cuboid_tapered, id_quat, prim, solid, sphere};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
 use super::{HAY_GOLD, WOOD_GREY, fx, weathered};
+
+/// Faded denim trousers.
+const DENIM: [f32; 3] = [0.28, 0.30, 0.40];
+/// Crow black.
+const CROW: [f32; 3] = [0.08, 0.08, 0.09];
 
 /// Burlap / sackcloth tan.
 const BURLAP: [f32; 3] = [0.62, 0.50, 0.32];
@@ -102,6 +108,61 @@ fn build_tree() -> Generator {
         cuboid_tapered([0.5, 0.2, 0.4], 0.5, weathered(HAY_GOLD)),
         [0.0, 1.95, 0.0],
         id_quat(),
+    ));
+
+    // Stitched burlap face on the −Z front (the camera face).
+    for ex in [-0.1_f32, 0.1] {
+        prims.push(prim(
+            solid(sphere(0.045, 3, weathered(CROW))),
+            [ex, 2.2, -0.26],
+            id_quat(),
+        ));
+    }
+    prims.push(prim(
+        cuboid_tapered([0.18, 0.03, 0.04], 0.0, weathered(CROW)),
+        [0.0, 2.05, -0.27],
+        id_quat(),
+    ));
+
+    // Straw-stuffed denim legs hanging below the shirt, with straw cuffs.
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered([0.2, 0.85, 0.22], 0.0, weathered(DENIM))),
+            [sx * 0.2, 0.5, 0.0],
+            id_quat(),
+        ));
+        prims.push(prim(
+            cuboid_tapered([0.22, 0.16, 0.24], 0.3, weathered(HAY_GOLD)),
+            [sx * 0.2, 0.08, 0.0],
+            id_quat(),
+        ));
+    }
+
+    // A crow perched on the outstretched arm.
+    prims.push(prim(
+        solid(sphere(0.12, 4, weathered(CROW))),
+        [0.85, 1.85, 0.0],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(sphere(0.07, 3, weathered(CROW))),
+        [0.78, 1.96, 0.0],
+        id_quat(),
+    ));
+    prims.push(prim(
+        cuboid_tapered([0.22, 0.06, 0.08], 0.4, weathered(CROW)),
+        [0.98, 1.86, 0.0],
+        id_quat(),
+    ));
+
+    // The crop rows it stands watch over, out front.
+    prims.extend(crop_tufts(
+        [0.0, 0.0, -0.7],
+        [1.8, 0.7],
+        5,
+        2,
+        0.3,
+        foliage(CROP_GREEN),
     ));
 
     let mut root = assemble(prims);
