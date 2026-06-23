@@ -34,12 +34,68 @@ pub mod fx;
 
 use bevy_symbios_texture::metal::MetalStyle;
 
+use crate::catalogue::items::util::{
+    cuboid_tapered, cylinder_tapered, id_quat, prim, solid, torus,
+};
 use crate::pds::{
-    Fp, Fp3, Fp64, SovereignAshlarConfig, SovereignBrickConfig, SovereignConcreteConfig,
+    Fp, Fp3, Fp64, Generator, SovereignAshlarConfig, SovereignBrickConfig, SovereignConcreteConfig,
     SovereignMarbleConfig, SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig,
     SovereignTextureConfig, SovereignWindowConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
+
+/// A classical column standing at (`x`, `z`): a wider stepped plinth foot, a
+/// slightly entasis-tapered shaft, a torus necking ring and a square capital
+/// abacus that oversails the shaft. Returned for an [`assemble`] list — the
+/// shared portico vocabulary for the [`town_hall`] and [`library`] fronts.
+///
+/// [`assemble`]: crate::catalogue::items::util::assemble
+pub(super) fn column(
+    x: f32,
+    z: f32,
+    base_y: f32,
+    height: f32,
+    radius: f32,
+    mat: SovereignMaterialSettings,
+) -> Vec<Generator> {
+    let foot_h = radius * 0.5;
+    let cap_h = radius * 0.5;
+    let shaft_h = height - foot_h - cap_h;
+    vec![
+        // Stepped plinth foot, oversailing the shaft so its base is not flush.
+        prim(
+            solid(cuboid_tapered(
+                [radius * 2.8, foot_h, radius * 2.8],
+                0.0,
+                mat.clone(),
+            )),
+            [x, base_y + foot_h * 0.5, z],
+            id_quat(),
+        ),
+        // Entasis shaft.
+        prim(
+            solid(cylinder_tapered(radius, shaft_h, 14, 0.07, mat.clone())),
+            [x, base_y + foot_h + shaft_h * 0.5, z],
+            id_quat(),
+        ),
+        // Necking ring just under the capital.
+        prim(
+            solid(torus(radius * 0.18, radius * 0.92, mat.clone())),
+            [x, base_y + foot_h + shaft_h - radius * 0.1, z],
+            id_quat(),
+        ),
+        // Square capital abacus, proud of the shaft on every side.
+        prim(
+            solid(cuboid_tapered(
+                [radius * 2.6, cap_h, radius * 2.6],
+                0.0,
+                mat,
+            )),
+            [x, base_y + height - cap_h * 0.5, z],
+            id_quat(),
+        ),
+    ]
+}
 
 /// Shared prosperity band for the established campus — stone halls and a
 /// brick tower read as a Modest-to-Rich institution. The poor end of the

@@ -5,12 +5,13 @@
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], which reparents every piece under the slab.
 
+use crate::catalogue::items::modern_city::curtain_wall;
 use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{CONCRETE_GREY, GLASS_TINT, concrete, glass};
+use super::{CONCRETE_GREY, GLASS_TINT, STEEL_GREY, concrete, glass, steel};
 
 pub struct LectureHall;
 
@@ -49,6 +50,9 @@ fn build_tree() -> Generator {
     let slab_h = 0.4_f32;
     let body_h = 4.5_f32;
     let body_top = slab_h + body_h;
+    // The glazed front, canopy and entrance face the -Z render front; the
+    // plain concrete back falls away toward +Z.
+    let fz = -1.0_f32;
 
     let mut prims = vec![
         // Concrete slab — the root.
@@ -73,23 +77,38 @@ fn build_tree() -> Generator {
         [0.0, slab_h + body_h * 0.5, 0.0],
         id_quat(),
     ));
-    // Full-height glass curtain wall on the front.
+    // Full-height glass curtain wall on the front — a steel-mullioned glazed
+    // grid set into the -3.5 front wall, the modern teaching-block signature.
+    prims.extend(curtain_wall(
+        [0.0, slab_h + 2.0, fz * 3.55],
+        [9.0, 3.8],
+        (6, 4),
+        fz * 0.2,
+        glass(GLASS_TINT, 1.3),
+        steel(STEEL_GREY),
+    ));
+    // Recessed dark entrance doors behind the glazing.
     prims.push(prim(
-        cuboid_tapered([9.0, 3.6, 0.2], 0.0, glass(GLASS_TINT, 1.3)),
-        [0.0, slab_h + 2.0, 3.55],
+        cuboid_tapered([2.4, 2.2, 0.15], 0.0, glass([0.20, 0.24, 0.27], 0.4)),
+        [0.0, slab_h + 1.1, fz * 3.42],
         id_quat(),
     ));
-    // Cantilevered entrance canopy over the doors.
+    // Cantilevered entrance canopy over the doors, on a slim steel strut.
     prims.push(prim(
         solid(cuboid_tapered(
             [6.0, 0.3, 2.6],
             0.0,
             concrete(CONCRETE_GREY),
         )),
-        [0.0, slab_h + 3.2, 4.6],
+        [0.0, slab_h + 3.2, fz * 4.6],
         id_quat(),
     ));
-    // Roof cap + clerestory band of glazing.
+    prims.push(prim(
+        solid(cuboid_tapered([0.18, 3.2, 0.18], 0.0, steel(STEEL_GREY))),
+        [0.0, slab_h + 1.6, fz * 5.7],
+        id_quat(),
+    ));
+    // Roof cap + a gridded clerestory band of glazing above the curtain wall.
     prims.push(prim(
         solid(cuboid_tapered(
             [10.4, 0.4, 7.4],
@@ -99,10 +118,13 @@ fn build_tree() -> Generator {
         [0.0, body_top + 0.2, 0.0],
         id_quat(),
     ));
-    prims.push(prim(
-        cuboid_tapered([9.4, 0.7, 0.2], 0.0, glass(GLASS_TINT, 1.1)),
-        [0.0, body_top - 0.5, 3.5],
-        id_quat(),
+    prims.extend(curtain_wall(
+        [0.0, body_top - 0.45, fz * 3.5],
+        [9.4, 0.7],
+        (9, 1),
+        fz * 0.15,
+        glass(GLASS_TINT, 1.1),
+        steel(STEEL_GREY),
     ));
 
     assemble(prims)

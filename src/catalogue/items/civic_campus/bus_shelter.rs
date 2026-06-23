@@ -2,7 +2,9 @@
 //! and-glass transit shelter with a bench and a faded route panel. The edge
 //! of the underfunded quarter.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, solid};
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -72,10 +74,11 @@ fn build_tree() -> Generator {
         }
     }
 
-    // Grimy glass back and side panels.
+    // Grimy glass back (on the +Z back) and side panels — the shelter opens
+    // toward the -Z render front so the camera looks in at the bench.
     prims.push(prim(
         cuboid_tapered([3.4, 1.8, 0.1], 0.0, glass(GLASS_TINT, 0.0)),
-        [0.0, pad_h + 1.1, -0.7],
+        [0.0, pad_h + 1.1, 0.7],
         id_quat(),
     ));
     for sx in [-1.0_f32, 1.0] {
@@ -86,28 +89,72 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Flat steel roof.
+    // Flat steel roof with a faded fascia band along the open front.
     prims.push(prim(
         solid(cuboid_tapered([3.8, 0.2, 1.8], 0.0, steel(STEEL_GREY))),
         [0.0, pad_h + post_h, 0.0],
         id_quat(),
     ));
-
-    // Plank bench against the back.
     prims.push(prim(
-        solid(cuboid_tapered([3.0, 0.12, 0.4], 0.0, plank(PLANK_WOOD))),
-        [0.0, pad_h + 0.5, -0.5],
+        solid(cuboid_tapered(
+            [3.8, 0.34, 0.1],
+            0.0,
+            painted([0.32, 0.4, 0.5]),
+        )),
+        [0.0, pad_h + post_h - 0.18, -0.95],
         id_quat(),
     ));
 
-    // Faded route panel on one post.
+    // Bench against the back glass: a slatted seat on two end frames with a
+    // low back rail.
+    prims.push(prim(
+        solid(cuboid_tapered([3.0, 0.12, 0.42], 0.0, plank(PLANK_WOOD))),
+        [0.0, pad_h + 0.5, 0.42],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(cuboid_tapered([3.0, 0.3, 0.08], 0.0, plank(PLANK_WOOD))),
+        [0.0, pad_h + 0.78, 0.6],
+        id_quat(),
+    ));
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered([0.1, 0.5, 0.42], 0.0, steel(STEEL_GREY))),
+            [sx * 1.4, pad_h + 0.25, 0.42],
+            id_quat(),
+        ));
+    }
+
+    // Faded timetable panel mounted on the back glass, reading to the front.
     prims.push(prim(
         solid(cuboid_tapered(
-            [0.6, 0.8, 0.08],
+            [0.9, 1.0, 0.06],
             0.0,
-            painted([0.5, 0.55, 0.6]),
+            painted([0.6, 0.64, 0.68]),
         )),
-        [1.7, pad_h + 1.7, 0.7],
+        [1.0, pad_h + 1.3, 0.62],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [0.78, 0.22, 0.04],
+            0.0,
+            painted([0.30, 0.42, 0.52]),
+        )),
+        [1.0, pad_h + 1.66, 0.59],
+        id_quat(),
+    ));
+
+    // A dented litter bin in the front corner.
+    prims.push(prim(
+        solid(cylinder_tapered(
+            0.22,
+            0.7,
+            12,
+            0.08,
+            steel([0.4, 0.42, 0.44]),
+        )),
+        [-1.45, pad_h + 0.35, -0.45],
         id_quat(),
     ));
 

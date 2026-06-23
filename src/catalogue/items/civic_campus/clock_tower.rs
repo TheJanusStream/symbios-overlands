@@ -6,12 +6,18 @@
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], which reparents every piece under the base.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, glow, id_quat, prim, solid, sphere};
+use std::f32::consts::FRAC_PI_2;
+
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, glow, id_quat, prim, quat_x, quat_z, solid, sphere, torus,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
-use crate::pds::Generator;
+use crate::pds::{Fp4, Generator};
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{BRICK_RED, CLOCK_LIT, COPPER_VERDIGRIS, STONE_PALE, brick, copper, fx, stone};
+use super::{
+    BRICK_RED, CLOCK_LIT, COPPER_VERDIGRIS, STONE_PALE, brick, copper, fx, painted, stone,
+};
 
 pub struct ClockTower;
 
@@ -74,25 +80,37 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Lit clock faces on all four sides — emissive trim.
+    // Lit clock faces on all four sides — emissive plate + a dark dial rim and
+    // hands so each reads as a clock, not a blank lit panel.
     prims.push(prim(
-        cuboid_tapered([1.4, 1.4, 0.12], 0.0, glow(CLOCK_LIT, 3.0)),
+        cuboid_tapered([1.5, 1.5, 0.12], 0.0, glow(CLOCK_LIT, 2.8)),
         [0.0, clock_y, 1.45],
         id_quat(),
     ));
+    prims.extend(clock_dial([0.0, clock_y, 1.45], true, 1.0));
     prims.push(prim(
-        cuboid_tapered([1.4, 1.4, 0.12], 0.0, glow(CLOCK_LIT, 3.0)),
+        cuboid_tapered([1.5, 1.5, 0.12], 0.0, glow(CLOCK_LIT, 2.8)),
         [0.0, clock_y, -1.45],
         id_quat(),
     ));
+    prims.extend(clock_dial([0.0, clock_y, -1.45], true, -1.0));
     prims.push(prim(
-        cuboid_tapered([0.12, 1.4, 1.4], 0.0, glow(CLOCK_LIT, 3.0)),
+        cuboid_tapered([0.12, 1.5, 1.5], 0.0, glow(CLOCK_LIT, 2.8)),
         [1.45, clock_y, 0.0],
         id_quat(),
     ));
+    prims.extend(clock_dial([1.45, clock_y, 0.0], false, 1.0));
     prims.push(prim(
-        cuboid_tapered([0.12, 1.4, 1.4], 0.0, glow(CLOCK_LIT, 3.0)),
+        cuboid_tapered([0.12, 1.5, 1.5], 0.0, glow(CLOCK_LIT, 2.8)),
         [-1.45, clock_y, 0.0],
+        id_quat(),
+    ));
+    prims.extend(clock_dial([-1.45, clock_y, 0.0], false, -1.0));
+
+    // Corbel cornice band below the roof eave, proud of the belfry and roof.
+    prims.push(prim(
+        solid(cuboid_tapered([3.6, 0.3, 3.6], 0.0, stone(STONE_PALE))),
+        [0.0, shaft_top - 0.2, 0.0],
         id_quat(),
     ));
 
@@ -116,6 +134,56 @@ fn build_tree() -> Generator {
     // Signature life: the belfry's soft resonant hum.
     root.audio = fx::tower_resonance();
     root
+}
+
+/// A clock dial's dark furniture — a rim ring, a centre hub and crossed hour /
+/// minute hands — mounted proud of a lit clock plate at `center`. `z_face`
+/// selects the face plane (true = a ±Z face in XY, false = a ±X face in YZ);
+/// `out_sign` pushes the furniture out along that face's outward normal.
+fn clock_dial(center: [f32; 3], z_face: bool, out_sign: f32) -> Vec<Generator> {
+    let dark = || painted([0.12, 0.12, 0.15]);
+    let off = out_sign * 0.07;
+    let c = if z_face {
+        [center[0], center[1], center[2] + off]
+    } else {
+        [center[0] + off, center[1], center[2]]
+    };
+    let ring_rot: Fp4 = if z_face {
+        quat_x(FRAC_PI_2)
+    } else {
+        quat_z(FRAC_PI_2)
+    };
+    let mut v = vec![
+        // Dark rim ring around the dial.
+        prim(solid(torus(0.07, 0.64, dark())), c, ring_rot),
+        // Centre hub.
+        prim(solid(sphere(0.1, 3, dark())), c, id_quat()),
+    ];
+    // Crossed hands in the face plane.
+    if z_face {
+        v.push(prim(
+            solid(cuboid_tapered([0.07, 0.92, 0.05], 0.0, dark())),
+            c,
+            id_quat(),
+        ));
+        v.push(prim(
+            solid(cuboid_tapered([0.56, 0.07, 0.05], 0.0, dark())),
+            c,
+            id_quat(),
+        ));
+    } else {
+        v.push(prim(
+            solid(cuboid_tapered([0.05, 0.92, 0.07], 0.0, dark())),
+            c,
+            id_quat(),
+        ));
+        v.push(prim(
+            solid(cuboid_tapered([0.05, 0.07, 0.56], 0.0, dark())),
+            c,
+            id_quat(),
+        ));
+    }
+    v
 }
 
 #[cfg(test)]

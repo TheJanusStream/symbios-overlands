@@ -64,19 +64,55 @@ fn build_tree() -> Generator {
         [0.0, 1.4, 0.0],
         id_quat(),
     ));
-    // A few white notices pinned up.
-    for (px, py) in [(-0.5_f32, 1.6), (0.3, 1.5), (0.5, 1.2)] {
+    // Plank frame proud of the -Z front face, so it reads as a glazed case.
+    let fr = -0.07_f32;
+    for (sz, c) in [
+        ([2.0_f32, 0.14, 0.08], [0.0_f32, 2.02]),
+        ([2.0, 0.14, 0.08], [0.0, 0.78]),
+    ] {
         prims.push(prim(
-            cuboid_tapered([0.35, 0.45, 0.12], 0.0, painted([0.92, 0.92, 0.88])),
-            [px, py, 0.0],
+            solid(cuboid_tapered(sz, 0.0, plank(PLANK_WOOD))),
+            [c[0], c[1], fr],
+            id_quat(),
+        ));
+    }
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered([0.14, 1.4, 0.08], 0.0, plank(PLANK_WOOD))),
+            [sx * 0.95, 1.4, fr],
+            id_quat(),
+        ));
+    }
+    // Brass nameplate header band.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [1.6, 0.22, 0.05],
+            0.0,
+            painted([0.66, 0.54, 0.26]),
+        )),
+        [0.0, 1.86, fr - 0.02],
+        id_quat(),
+    ));
+    // Varied flyers pinned proud of the front, no two coplanar with the board.
+    let flyers = [
+        (-0.52_f32, 1.5, [0.93, 0.93, 0.89]),
+        (0.0, 1.58, [0.92, 0.86, 0.42]),
+        (0.52, 1.42, [0.88, 0.62, 0.66]),
+        (-0.3, 1.12, [0.9, 0.9, 0.86]),
+        (0.42, 1.08, [0.56, 0.72, 0.84]),
+    ];
+    for (px, py, color) in flyers {
+        prims.push(prim(
+            cuboid_tapered([0.34, 0.42, 0.03], 0.0, painted(color)),
+            [px, py, fr - 0.02],
             id_quat(),
         ));
     }
 
-    // Small gabled plank roof.
+    // Small gabled plank roof, proud of the case.
     prims.push(prim(
-        solid(cuboid_tapered([2.2, 0.3, 0.6], 0.6, plank(PLANK_WOOD))),
-        [0.0, 2.2, 0.0],
+        solid(cuboid_tapered([2.2, 0.3, 0.7], 0.6, plank(PLANK_WOOD))),
+        [0.0, 2.22, fr * 0.5],
         id_quat(),
     ));
 

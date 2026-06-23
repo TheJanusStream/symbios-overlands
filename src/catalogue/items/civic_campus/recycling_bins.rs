@@ -2,7 +2,11 @@
 //! wheelie bins, lids ajar, on small castors. The overflowing clutter of the
 //! underfunded quarter.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, quat_x, solid};
+use std::f32::consts::FRAC_PI_2;
+
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_z, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -47,23 +51,46 @@ impl CatalogueEntry for RecyclingBins {
     }
 }
 
-/// One wheelie bin (body + ajar lid) returned for the assemble list at `x`.
+/// One wheelie bin (body, ajar lid, pull handle, label and castors) returned
+/// for the assemble list at `x`. Children are authored in the body's local
+/// frame; the body is the [`prim`] root for the bin subtree.
 fn bin(x: f32, color: [f32; 3]) -> Generator {
+    let dark = || painted([0.1, 0.1, 0.1]);
     let mut body = prim(
-        solid(cuboid_tapered([0.6, 1.0, 0.6], 0.0, painted(color))),
+        solid(cuboid_tapered([0.6, 1.0, 0.58], 0.04, painted(color))),
         [x, 0.55, 0.0],
         id_quat(),
     );
-    // Lid tilted ajar at the back.
+    // Lid tilted ajar at the back, on a hinge lip.
+    body.children.push(prim(
+        solid(cuboid_tapered([0.62, 0.1, 0.6], 0.0, dark())),
+        [0.0, 0.52, -0.12],
+        quat_x(0.5),
+    ));
+    // Pull handle across the back top.
+    body.children.push(prim(
+        solid(cuboid_tapered([0.5, 0.06, 0.06], 0.0, dark())),
+        [0.0, 0.46, -0.3],
+        id_quat(),
+    ));
+    // Recycling label panel on the front face.
     body.children.push(prim(
         solid(cuboid_tapered(
-            [0.62, 0.1, 0.64],
+            [0.36, 0.36, 0.03],
             0.0,
-            painted([0.1, 0.1, 0.1]),
+            painted([0.86, 0.87, 0.83]),
         )),
-        [0.0, 0.55, -0.1],
-        quat_x(0.4),
+        [0.0, 0.12, 0.31],
+        id_quat(),
     ));
+    // Two castor wheels at the front foot.
+    for sx in [-1.0_f32, 1.0] {
+        body.children.push(prim(
+            solid(cylinder_tapered(0.09, 0.06, 8, 0.0, dark())),
+            [sx * 0.2, -0.5, 0.2],
+            quat_z(FRAC_PI_2),
+        ));
+    }
     body
 }
 
