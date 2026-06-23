@@ -47,20 +47,32 @@ fn build_tree() -> Generator {
     let prims = vec![
         // Square enamel base — the root.
         prim(
-            solid(cuboid_tapered([0.42, 0.08, 0.42], 0.0, enamel(CONE_ORANGE))),
-            [0.0, 0.04, 0.0],
+            solid(cuboid_tapered([0.44, 0.07, 0.44], 0.0, enamel(CONE_ORANGE))),
+            [0.0, 0.035, 0.0],
+            id_quat(),
+        ),
+        // Bevelled base skirt, slightly proud of the base on every side.
+        prim(
+            solid(cuboid_tapered([0.5, 0.05, 0.5], 0.1, enamel(CONE_ORANGE))),
+            [0.0, 0.085, 0.0],
             id_quat(),
         ),
         // Orange cone.
         prim(
-            solid(cone(0.18, 0.7, 12, enamel(CONE_ORANGE))),
-            [0.0, 0.45, 0.0],
+            solid(cone(0.18, 0.74, 12, enamel(CONE_ORANGE))),
+            [0.0, 0.46, 0.0],
             id_quat(),
         ),
-        // Reflective white band.
+        // Lower (wide) reflective white band.
         prim(
-            solid(cylinder_tapered(0.14, 0.12, 12, 0.2, enamel(SIGN_WHITE))),
-            [0.0, 0.42, 0.0],
+            solid(cylinder_tapered(0.15, 0.14, 12, 0.18, enamel(SIGN_WHITE))),
+            [0.0, 0.4, 0.0],
+            id_quat(),
+        ),
+        // Upper (narrow) reflective white band.
+        prim(
+            solid(cylinder_tapered(0.1, 0.09, 12, 0.18, enamel(SIGN_WHITE))),
+            [0.0, 0.64, 0.0],
             id_quat(),
         ),
     ];

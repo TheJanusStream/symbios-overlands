@@ -3,12 +3,18 @@
 //! roof with a faded sign still nailed up. The failed business of the
 //! busted shoulder.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, quat_x, solid};
+use crate::catalogue::items::nordic::gable_roof;
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_z, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{CONCRETE_GREY, DRIFT_GREY, PLANK_WOOD, RUST_BROWN, concrete, corrugated, plank};
+use super::{
+    CONCRETE_GREY, DRIFT_GREY, PLANK_WOOD, RUST_BROWN, STEEL_GREY, concrete, corrugated, plank,
+    steel,
+};
 
 pub struct BoardedShack;
 
@@ -48,6 +54,7 @@ fn build_tree() -> Generator {
     let wall_h = 2.6_f32;
     let wall_y = slab_h + wall_h * 0.5;
     let wall_top = slab_h + wall_h;
+    let front = -1.75_f32; // boarded −Z (camera) wall face
 
     let mut prims = vec![
         // Concrete slab — the root.
@@ -69,27 +76,66 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Door + window boarded over with horizontal plank slats on the +Z face.
-    for y in [slab_h + 0.7, slab_h + 1.3, slab_h + 1.9] {
+    // Boarded-over door (three slats) on the −Z front.
+    for y in [slab_h + 0.6, slab_h + 1.25, slab_h + 1.9] {
         prims.push(prim(
-            solid(cuboid_tapered([3.0, 0.25, 0.1], 0.0, plank(PLANK_WOOD))),
-            [0.0, y, 1.78],
+            solid(cuboid_tapered([1.4, 0.26, 0.1], 0.0, plank(PLANK_WOOD))),
+            [-1.1, y, front - 0.06],
+            id_quat(),
+        ));
+    }
+    // Boarded-over window beside it (two slats).
+    for y in [slab_h + 1.3, slab_h + 1.75] {
+        prims.push(prim(
+            solid(cuboid_tapered([1.3, 0.24, 0.1], 0.0, plank(PLANK_WOOD))),
+            [1.1, y, front - 0.06],
             id_quat(),
         ));
     }
 
-    // Faded sign nailed above the boards.
+    // Faded sign nailed above the boards, a painted patch peeling on it.
     prims.push(prim(
-        solid(cuboid_tapered([2.4, 0.6, 0.1], 0.0, plank(PLANK_WOOD))),
-        [0.0, wall_top - 0.2, 1.78],
+        solid(cuboid_tapered([2.6, 0.6, 0.1], 0.0, plank(PLANK_WOOD))),
+        [0.0, wall_top - 0.25, front - 0.06],
+        id_quat(),
+    ));
+    prims.push(prim(
+        cuboid_tapered([1.9, 0.34, 0.04], 0.0, plank([0.6, 0.55, 0.46])),
+        [-0.1, wall_top - 0.25, front - 0.12],
         id_quat(),
     ));
 
-    // Sagging rusted corrugated roof, slightly sloped.
+    // Sagging rusted corrugated gable roof.
+    prims.push(gable_roof(
+        [5.3, 1.3, 4.3],
+        [0.0, wall_top + 0.55, 0.0],
+        corrugated(RUST_BROWN),
+    ));
+
+    // Rusted stovepipe poking through the roof at the +X end, with a cap.
     prims.push(prim(
-        solid(cuboid_tapered([5.0, 0.3, 4.0], 0.1, corrugated(RUST_BROWN))),
-        [0.0, wall_top + 0.15, 0.0],
-        quat_x(0.06),
+        solid(cylinder_tapered(0.12, 1.1, 8, 0.0, corrugated(RUST_BROWN))),
+        [1.7, wall_top + 1.2, 0.4],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(cylinder_tapered(0.18, 0.12, 8, 0.0, corrugated(RUST_BROWN))),
+        [1.7, wall_top + 1.8, 0.4],
+        id_quat(),
+    ));
+
+    // A sagging broken gutter along the −Z eave (one end dropped).
+    prims.push(prim(
+        solid(cuboid_tapered([4.4, 0.1, 0.18], 0.0, steel(STEEL_GREY))),
+        [0.0, wall_top - 0.02, front - 0.18],
+        quat_z(0.06),
+    ));
+
+    // A leaning prop post shoring up the −Z front corner.
+    prims.push(prim(
+        solid(cuboid_tapered([0.14, 2.4, 0.14], 0.0, plank(PLANK_WOOD))),
+        [-2.0, 1.2, front - 0.5],
+        quat_z(0.16),
     ));
 
     assemble(prims)

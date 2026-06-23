@@ -11,8 +11,8 @@ use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
 use super::{
-    CONCRETE_GREY, ENAMEL_BLUE, ENAMEL_RED, PRICE_AMBER, SIGN_WHITE, STEEL_GREY, concrete, enamel,
-    steel,
+    CONCRETE_GREY, ENAMEL_BLUE, ENAMEL_RED, PRICE_AMBER, SIGN_AMBER, SIGN_WHITE, STEEL_GREY,
+    concrete, enamel, sign_board, steel,
 };
 
 pub struct Billboard;
@@ -67,7 +67,8 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Two vertical steel legs with back-leaning braces.
+    // Two vertical steel legs with back-leaning braces (the bracing rakes back
+    // toward +Z so the printed face is clear on the −Z front).
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
             solid(cuboid_tapered(
@@ -75,57 +76,83 @@ fn build_tree() -> Generator {
                 0.0,
                 steel(STEEL_GREY),
             )),
-            [sx * 2.5, (board_bottom + 1.2) * 0.5, 0.0],
+            [sx * 2.5, (board_bottom + 1.2) * 0.5, 0.1],
             id_quat(),
         ));
-        // Diagonal back-brace in the Y-Z plane.
+        // Diagonal back-brace raking up toward the board and down behind it.
         prims.push(prim(
-            solid(cuboid_tapered([0.2, 4.2, 0.2], 0.0, steel(STEEL_GREY))),
-            [sx * 2.5, 2.0, -1.0],
-            quat_x(0.5),
+            solid(cuboid_tapered([0.2, 4.4, 0.2], 0.0, steel(STEEL_GREY))),
+            [sx * 2.5, 2.0, 0.9],
+            quat_x(-0.42),
         ));
     }
     // Top cross-beam.
     prims.push(prim(
         solid(cuboid_tapered([5.6, 0.3, 0.3], 0.0, steel(STEEL_GREY))),
-        [0.0, board_bottom - 0.2, 0.0],
+        [0.0, board_bottom - 0.2, 0.05],
         id_quat(),
     ));
 
-    // Printed board face + two graphic blocks.
+    // Printed board face on the −Z front + bold graphic blocks, each proud and
+    // staggered in Z so no two panels sit flush (coplanar z-fight).
     prims.push(prim(
         solid(cuboid_tapered(
             [7.2, board_h, 0.25],
             0.0,
             enamel(SIGN_WHITE),
         )),
-        [0.0, board_y, 0.15],
+        [0.0, board_y, -0.15],
         id_quat(),
     ));
+    // Red headline band across the top.
     prims.push(prim(
-        cuboid_tapered([3.0, 1.6, 0.1], 0.0, enamel(ENAMEL_RED)),
-        [-1.6, board_y + 0.5, 0.3],
+        cuboid_tapered([6.6, 0.9, 0.1], 0.0, enamel(ENAMEL_RED)),
+        [0.0, board_y + 1.1, -0.32],
         id_quat(),
     ));
+    // Blue image block.
     prims.push(prim(
-        cuboid_tapered([2.6, 1.0, 0.1], 0.0, enamel(ENAMEL_BLUE)),
-        [1.8, board_y - 0.6, 0.3],
+        cuboid_tapered([3.2, 1.6, 0.1], 0.0, enamel(ENAMEL_BLUE)),
+        [-1.7, board_y - 0.3, -0.3],
         id_quat(),
     ));
+    // Cream copy block.
+    prims.push(prim(
+        cuboid_tapered([2.6, 1.4, 0.1], 0.0, enamel([0.86, 0.84, 0.78])),
+        [1.8, board_y - 0.4, -0.3],
+        id_quat(),
+    ));
+    // A small backlit corner logo for night life.
+    for g in sign_board(
+        [2.4, board_y + 1.1, -0.42],
+        [1.4, 0.7],
+        (2, 1),
+        SIGN_AMBER,
+        2.0,
+        -1.0,
+    ) {
+        prims.push(g);
+    }
 
-    // Catwalk along the foot of the board.
+    // Catwalk along the foot of the board on the −Z side.
     prims.push(prim(
         solid(cuboid_tapered([7.4, 0.12, 0.6], 0.0, steel(STEEL_GREY))),
-        [0.0, board_bottom - 0.1, 0.5],
+        [0.0, board_bottom - 0.1, -0.5],
+        id_quat(),
+    ));
+    // Catwalk handrail.
+    prims.push(prim(
+        solid(cuboid_tapered([7.4, 0.06, 0.06], 0.0, steel(STEEL_GREY))),
+        [0.0, board_bottom + 0.5, -0.78],
         id_quat(),
     ));
 
-    // Floodlights washing the face — the billboard's emissive trim.
+    // Floodlights on the catwalk, raked up to wash the −Z face.
     for x in [-2.2_f32, 0.0, 2.2] {
         prims.push(prim(
-            cuboid_tapered([0.3, 0.2, 0.3], 0.0, glow(PRICE_AMBER, 3.0)),
-            [x, board_bottom + 0.1, 0.85],
-            quat_x(-0.4),
+            cuboid_tapered([0.34, 0.18, 0.3], 0.0, glow(PRICE_AMBER, 2.6)),
+            [x, board_bottom + 0.15, -0.7],
+            quat_x(0.4),
         ));
     }
 

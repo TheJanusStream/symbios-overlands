@@ -5,14 +5,15 @@
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], which reparents every piece under the slab.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, glow, id_quat, prim, quat_x, solid};
+use crate::catalogue::items::modern_city::curtain_wall;
+use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, quat_x, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
 use super::{
     BRICK_TAN, CHROME_BRIGHT, CONCRETE_GREY, ENAMEL_RED, GLASS_TINT, NEON_CYAN, NEON_RED,
-    STEEL_GREY, brick, chrome, concrete, enamel, fx, glass, steel,
+    STEEL_GREY, brick, chrome, concrete, enamel, fx, glass, sign_board, steel,
 };
 
 pub struct RoadsideDiner;
@@ -73,67 +74,91 @@ fn build_tree() -> Generator {
         [0.0, body_y, 0.0],
         id_quat(),
     ));
-    // Chrome wainscot band at the base.
+    // Chrome wainscot band at the base, proud of the brick.
     prims.push(prim(
-        solid(cuboid_tapered([10.3, 0.8, 5.3], 0.0, chrome(CHROME_BRIGHT))),
+        solid(cuboid_tapered([10.4, 0.8, 5.4], 0.0, chrome(CHROME_BRIGHT))),
         [0.0, slab_h + 0.4, 0.0],
         id_quat(),
     ));
-    // Chrome roof cap with a red eave stripe.
+    // Chrome streamline eave band + roof cap, proud and staggered so the trim
+    // never sits flush with the brick (coplanar z-fight).
     prims.push(prim(
-        solid(cuboid_tapered([10.5, 0.4, 5.5], 0.0, chrome(CHROME_BRIGHT))),
+        solid(cuboid_tapered([10.6, 0.5, 5.6], 0.0, chrome(CHROME_BRIGHT))),
+        [0.0, slab_h + body_h - 0.25, 0.0],
+        id_quat(),
+    ));
+    prims.push(prim(
+        cuboid_tapered([10.7, 0.22, 5.7], 0.0, enamel(ENAMEL_RED)),
+        [0.0, slab_h + body_h - 0.55, 0.0],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(cuboid_tapered([10.2, 0.4, 5.2], 0.0, chrome(CHROME_BRIGHT))),
         [0.0, roof_y, 0.0],
         id_quat(),
     ));
-    prims.push(prim(
-        cuboid_tapered([10.6, 0.18, 5.6], 0.0, enamel(ENAMEL_RED)),
-        [0.0, roof_y - 0.25, 0.0],
-        id_quat(),
-    ));
 
-    // Long run of lit windows on the +Z front.
+    // Long run of mullioned lit windows on the −Z (camera) front.
+    let front = -2.5_f32;
+    for g in curtain_wall(
+        [0.0, slab_h + 1.7, front - 0.2],
+        [8.4, 1.7],
+        (6, 1),
+        -0.22,
+        glass(GLASS_TINT, 1.6),
+        chrome(CHROME_BRIGHT),
+    ) {
+        prims.push(g);
+    }
+    // Glazed door + chrome entrance canopy at one end, projecting toward −Z.
     prims.push(prim(
-        cuboid_tapered([9.0, 1.6, 0.15], 0.0, glass(GLASS_TINT, 1.5)),
-        [0.0, slab_h + 1.6, 2.55],
+        cuboid_tapered([1.0, 2.0, 0.12], 0.0, glass(GLASS_TINT, 1.7)),
+        [3.6, slab_h + 1.0, front - 0.32],
         id_quat(),
     ));
-    // Door + chrome entrance canopy at one end.
     prims.push(prim(
-        solid(cuboid_tapered([1.0, 2.1, 0.2], 0.0, chrome(CHROME_BRIGHT))),
-        [3.6, slab_h + 1.05, 2.5],
-        id_quat(),
-    ));
-    prims.push(prim(
-        solid(cuboid_tapered([1.6, 0.15, 1.0], 0.0, chrome(CHROME_BRIGHT))),
-        [3.6, slab_h + 2.2, 3.1],
-        quat_x(0.2),
+        solid(cuboid_tapered([1.8, 0.15, 1.0], 0.0, chrome(CHROME_BRIGHT))),
+        [3.6, slab_h + 2.3, front - 0.7],
+        quat_x(-0.2),
     ));
 
     // Vertical neon sign on the roof: a steel mast, an enamel board and a
-    // glowing neon face with a cyan accent bar.
-    let sx = -3.8_f32;
+    // segmented glowing neon strip (stacked letters) facing −Z, with a cyan
+    // accent bar — segmented so the lit face reads as a sign, not a blown slab.
+    let sx = -3.6_f32;
     prims.push(prim(
-        solid(cuboid_tapered([0.2, 1.2, 0.2], 0.0, steel(STEEL_GREY))),
-        [sx, roof_y + 0.7, 0.0],
+        solid(cuboid_tapered([0.25, 1.0, 0.25], 0.0, steel(STEEL_GREY))),
+        [sx, roof_y + 0.6, 0.0],
         id_quat(),
     ));
+    // Enamel blade board, broad face toward the −Z road.
     prims.push(prim(
-        solid(cuboid_tapered([0.5, 2.6, 1.7], 0.0, enamel(ENAMEL_RED))),
+        solid(cuboid_tapered([1.7, 3.0, 0.3], 0.0, enamel(ENAMEL_RED))),
         [sx, roof_y + 2.4, 0.0],
         id_quat(),
     ));
-    let mut neon = prim(
-        cuboid_tapered([0.55, 2.3, 1.4], 0.0, glow(NEON_RED, 4.0)),
-        [sx, roof_y + 2.4, 0.0],
-        id_quat(),
+    // Stacked-letter neon strip, proud of the blade front, facing −Z.
+    let mut neon = sign_board(
+        [sx, roof_y + 2.6, -0.35],
+        [1.3, 2.2],
+        (1, 4),
+        NEON_RED,
+        2.4,
+        -1.0,
     );
-    neon.audio = fx::neon_buzz();
-    prims.push(neon);
-    prims.push(prim(
-        cuboid_tapered([0.6, 0.3, 1.5], 0.0, glow(NEON_CYAN, 3.5)),
-        [sx, roof_y + 1.3, 0.0],
-        id_quat(),
-    ));
+    neon[1].audio = fx::neon_buzz();
+    prims.extend(neon);
+    // Cyan accent bar at the foot of the blade.
+    for g in sign_board(
+        [sx, roof_y + 1.2, -0.35],
+        [1.4, 0.4],
+        (2, 1),
+        NEON_CYAN,
+        2.2,
+        -1.0,
+    ) {
+        prims.push(g);
+    }
 
     assemble(prims)
 }

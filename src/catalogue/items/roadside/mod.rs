@@ -34,10 +34,11 @@ pub mod fx;
 
 use bevy_symbios_texture::metal::MetalStyle;
 
+use crate::catalogue::items::util::{cuboid_tapered, glow, id_quat, prim, solid};
 use crate::pds::{
-    Fp, Fp3, Fp64, SovereignAsphaltConfig, SovereignBrickConfig, SovereignConcreteConfig,
-    SovereignCorrugatedConfig, SovereignMaterialSettings, SovereignMetalConfig,
-    SovereignPlankConfig, SovereignTextureConfig, SovereignWindowConfig,
+    Fp, Fp3, Fp64, Generator, SovereignAsphaltConfig, SovereignBrickConfig,
+    SovereignConcreteConfig, SovereignCorrugatedConfig, SovereignMaterialSettings,
+    SovereignMetalConfig, SovereignPlankConfig, SovereignTextureConfig, SovereignWindowConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -224,6 +225,54 @@ pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
+/// A segmented lit sign panel — a dark enamel frame carrying a GRID of small
+/// emissive cells split by dark gaps. The anti-wash idiom: a broad flat lit
+/// board blooms to a near-white slab at the strengths roadside signage wants,
+/// but the dark gaps between the cells keep it reading as a *lit sign*. A
+/// roadside generalisation of `sports_rec::lamp_bank` to any colour/strength
+/// (a pylon price board, a neon name strip, a vending selector). `face` (±1)
+/// is the look direction — the cells stand proud of the backing toward it, so
+/// for a sign facing the −Z camera front pass `face = -1.0`. Returned in the
+/// prop's flat world frame, ready to drop into an [`assemble`] list.
+pub(super) fn sign_board(
+    center: [f32; 3],
+    size: [f32; 2],
+    bays: (u32, u32),
+    color: [f32; 3],
+    strength: f32,
+    face: f32,
+) -> Vec<Generator> {
+    let [cx, cy, cz] = center;
+    let [w, h] = size;
+    let (cols, rows) = bays;
+    let mut out = vec![
+        // Dark backing frame, set behind the lit cells.
+        prim(
+            solid(cuboid_tapered(
+                [w, h, 0.16],
+                0.0,
+                enamel([0.08, 0.08, 0.10]),
+            )),
+            [cx, cy, cz - 0.14 * face],
+            id_quat(),
+        ),
+    ];
+    let cw = w / cols as f32 * 0.78;
+    let ch = h / rows as f32 * 0.78;
+    for r in 0..rows {
+        for c in 0..cols {
+            let fx = (c as f32 + 0.5) / cols as f32 - 0.5;
+            let fy = (r as f32 + 0.5) / rows as f32 - 0.5;
+            out.push(prim(
+                cuboid_tapered([cw, ch, 0.06], 0.0, glow(color, strength)),
+                [cx + fx * w, cy + fy * h, cz],
+                id_quat(),
+            ));
+        }
+    }
+    out
+}
+
 // Enamel + structure palette.
 pub(super) const ENAMEL_RED: [f32; 3] = [0.74, 0.16, 0.14];
 pub(super) const ENAMEL_BLUE: [f32; 3] = [0.16, 0.30, 0.55];
@@ -245,9 +294,13 @@ pub(super) const SIGN_WHITE: [f32; 3] = [0.92, 0.92, 0.88];
 pub(super) const ROAD_GREEN: [f32; 3] = [0.12, 0.42, 0.24];
 pub(super) const CONE_ORANGE: [f32; 3] = [0.95, 0.40, 0.08];
 
-// Emissive trim colours.
-pub(super) const NEON_RED: [f32; 3] = [1.0, 0.22, 0.26];
-pub(super) const NEON_CYAN: [f32; 3] = [0.36, 0.95, 1.0];
+// Emissive trim colours. Sign faces are deep-saturated and driven through
+// [`sign_board`] at modest strength: a broad flat lit board washes to a pale
+// near-white slab, so the saturated colours + the helper's dark cell gaps are
+// what keep the signage reading as lit signage rather than blown-out white.
+pub(super) const NEON_RED: [f32; 3] = [1.0, 0.16, 0.20];
+pub(super) const NEON_CYAN: [f32; 3] = [0.10, 0.74, 1.0];
+pub(super) const SIGN_AMBER: [f32; 3] = [1.0, 0.52, 0.12];
 pub(super) const PRICE_AMBER: [f32; 3] = [1.0, 0.80, 0.34];
 pub(super) const CANOPY_LIT: [f32; 3] = [1.0, 0.96, 0.86];
 
