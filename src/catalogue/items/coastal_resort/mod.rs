@@ -207,6 +207,22 @@ pub(super) fn sand(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
+/// Wet pool water — a glassy turquoise surface with a faint inner glow so the
+/// blue reads under the bright sky rather than going matte grey. The civic
+/// fountain idiom (low roughness + emission ~0.5); used for the grand hotel's
+/// resort pool.
+pub(super) fn water(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        emission_color: Fp3(color),
+        emission_strength: Fp(0.5),
+        roughness: Fp(0.1),
+        metallic: Fp(0.0),
+        uv_scale: Fp(2.0),
+        texture: SovereignTextureConfig::None,
+    }
+}
+
 // Stucco + decking palette.
 pub(super) const STUCCO_WHITE: [f32; 3] = [0.93, 0.91, 0.86];
 pub(super) const STUCCO_SAND: [f32; 3] = [0.90, 0.82, 0.66];
@@ -227,8 +243,15 @@ pub(super) const AWNING_TEAL: [f32; 3] = [0.16, 0.52, 0.54];
 pub(super) const BUOY_RED: [f32; 3] = [0.80, 0.16, 0.13];
 pub(super) const HULL_BLUE: [f32; 3] = [0.20, 0.34, 0.52];
 
-/// Warm self-lit gold for the hotel's rooftop sign and lobby glow.
+/// Bright turquoise of the resort pool — a holiday-postcard aqua.
+pub(super) const POOL_AQUA: [f32; 3] = [0.18, 0.58, 0.68];
+
+/// Warm self-lit gold for the hotel's lobby glow and the boardwalk lamps.
 pub(super) const SIGN_GOLD: [f32; 3] = [1.0, 0.84, 0.46];
+/// Deep-saturated amber for the broad rooftop sign band — a pale gold at high
+/// strength blooms to a near-white blank, so the big lit bars hold this richer
+/// hue instead. [`SIGN_GOLD`] stays for the small lobby/lamp glows behind glass.
+pub(super) const SIGN_AMBER: [f32; 3] = [1.0, 0.58, 0.16];
 /// Warm lamp for the lifeguard tower's eave light.
 pub(super) const LAMP_WARM: [f32; 3] = [1.0, 0.88, 0.6];
 

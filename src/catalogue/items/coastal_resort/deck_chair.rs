@@ -7,7 +7,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{AWNING_TEAL, AWNING_WHITE, DECK_WOOD, canvas, plank};
+use super::{AWNING_RED, AWNING_TEAL, AWNING_WHITE, DECK_WOOD, canvas, plank};
 
 pub struct DeckChair;
 
@@ -58,6 +58,18 @@ fn build_tree() -> Generator {
         [0.0, 0.78, -0.62],
         quat_x(0.7),
     ));
+    // Headrest cushion at the top of the reclined back.
+    prims.push(prim(
+        cuboid_tapered([0.5, 0.14, 0.24], 0.2, canvas(AWNING_WHITE, AWNING_TEAL)),
+        [0.0, 1.04, -0.86],
+        quat_x(0.7),
+    ));
+    // Diagonal strut bracing the back.
+    prims.push(prim(
+        solid(cuboid_tapered([0.06, 0.06, 0.55], 0.0, plank(DECK_WOOD))),
+        [0.0, 0.62, -0.42],
+        quat_x(-0.6),
+    ));
 
     // Timber armrest rails down both sides.
     for sx in [-1.0_f32, 1.0] {
@@ -68,7 +80,7 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Four short legs.
+    // Four short legs, tied front and back by stretcher rails.
     for sx in [-1.0_f32, 1.0] {
         for sz in [-1.0_f32, 1.0] {
             prims.push(prim(
@@ -78,6 +90,20 @@ fn build_tree() -> Generator {
             ));
         }
     }
+    for sz in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered([0.62, 0.05, 0.05], 0.0, plank(DECK_WOOD))),
+            [0.0, 0.14, sz * 0.5],
+            id_quat(),
+        ));
+    }
+
+    // A folded striped towel draped over the foot of the lounger.
+    prims.push(prim(
+        cuboid_tapered([0.56, 0.08, 0.34], 0.0, canvas(AWNING_RED, AWNING_WHITE)),
+        [0.0, 0.52, 0.42],
+        id_quat(),
+    ));
 
     assemble(prims)
 }

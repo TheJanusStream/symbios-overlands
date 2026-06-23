@@ -8,15 +8,15 @@
 //! [`assemble`], which reparents every piece under the deck.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, solid,
+    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
 use super::{
-    AWNING_TEAL, AWNING_WHITE, DECK_PALE, PILING_GREY, STEEL_GREY, canvas, concrete, fx, plank,
-    steel,
+    AWNING_TEAL, AWNING_WHITE, DECK_PALE, DECK_WOOD, LAMP_WARM, PILING_GREY, SIGN_AMBER,
+    STEEL_GREY, canvas, concrete, fx, plank, steel,
 };
 
 pub struct ResortPier;
@@ -67,7 +67,8 @@ fn build_tree() -> Generator {
         ),
     ];
 
-    // Concrete pilings in pairs marching out under the deck.
+    // Concrete pilings in pairs marching out under the deck, each bent tied by
+    // a cross-beam and a pair of diagonal braces.
     for k in 0..7 {
         let z = z0 + 1.0 + k as f32 * 3.6;
         for sx in [-1.0_f32, 1.0] {
@@ -81,6 +82,20 @@ fn build_tree() -> Generator {
                 )),
                 [sx * 1.6, deck_y * 0.5, z],
                 id_quat(),
+            ));
+        }
+        // Horizontal cross-tie.
+        prims.push(prim(
+            solid(cuboid_tapered([3.2, 0.16, 0.16], 0.0, plank(DECK_WOOD))),
+            [0.0, deck_y * 0.55, z],
+            id_quat(),
+        ));
+        // Diagonal braces forming a shallow V under the deck.
+        for sx in [-1.0_f32, 1.0] {
+            prims.push(prim(
+                solid(cuboid_tapered([2.0, 0.12, 0.12], 0.0, plank(DECK_WOOD))),
+                [sx * 0.8, deck_y * 0.5, z],
+                quat_z(sx * 0.7),
             ));
         }
     }
@@ -125,6 +140,60 @@ fn build_tree() -> Generator {
             canvas(AWNING_TEAL, AWNING_WHITE),
         )),
         [0.0, deck_y + 3.1, pav_z],
+        id_quat(),
+    ));
+
+    // A plank bench under the pavilion, back to the head rail.
+    prims.push(prim(
+        solid(cuboid_tapered([3.0, 0.1, 0.5], 0.0, plank(DECK_WOOD))),
+        [0.0, deck_y + 0.6, pav_z + 1.4],
+        id_quat(),
+    ));
+    prims.push(prim(
+        cuboid_tapered([3.0, 0.6, 0.08], 0.0, plank(DECK_WOOD)),
+        [0.0, deck_y + 0.95, pav_z + 1.7],
+        id_quat(),
+    ));
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered([0.1, 0.6, 0.5], 0.0, plank(DECK_WOOD))),
+            [sx * 1.3, deck_y + 0.3, pav_z + 1.4],
+            id_quat(),
+        ));
+    }
+
+    // Warm lantern caps on selected rail posts, lighting the deck at dusk.
+    for z in [z0 + 4.0, center_z, z0 + length - 4.0] {
+        for sx in [-1.0_f32, 1.0] {
+            prims.push(prim(
+                solid(cuboid_tapered([0.08, 1.0, 0.08], 0.0, steel(STEEL_GREY))),
+                [sx * 1.95, deck_y + 1.5, z],
+                id_quat(),
+            ));
+            prims.push(prim(
+                cuboid_tapered([0.24, 0.3, 0.24], 0.0, glow(LAMP_WARM, 2.4)),
+                [sx * 1.95, deck_y + 2.1, z],
+                id_quat(),
+            ));
+        }
+    }
+
+    // Shore-end entrance gateway with a lit welcome sign facing the strand.
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered([0.2, 2.6, 0.2], 0.0, steel(STEEL_GREY))),
+            [sx * 2.1, deck_y + 1.3, z0],
+            id_quat(),
+        ));
+    }
+    prims.push(prim(
+        solid(cuboid_tapered([4.6, 0.3, 0.3], 0.0, plank(DECK_WOOD))),
+        [0.0, deck_y + 2.7, z0],
+        id_quat(),
+    ));
+    prims.push(prim(
+        cuboid_tapered([3.4, 0.7, 0.08], 0.0, glow(SIGN_AMBER, 2.2)),
+        [0.0, deck_y + 2.1, z0 - 0.18],
         id_quat(),
     ));
 

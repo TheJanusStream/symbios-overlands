@@ -3,13 +3,44 @@
 //! of the fishing hamlet's quay.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, id_quat, prim, solid, sphere, torus,
+    assemble, cone, cylinder_tapered, id_quat, prim, solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{AWNING_WHITE, BUOY_RED, DECK_WOOD, STEEL_GREY, enamel, plank, steel};
+use super::{AWNING_WHITE, BUOY_RED, DECK_WOOD, enamel, plank, steel};
+
+/// Galvanised wire of the pot hoops.
+const WIRE_GALV: [f32; 3] = [0.62, 0.64, 0.66];
+/// Dark tarred drum of the pot body.
+const POT_DARK: [f32; 3] = [0.30, 0.31, 0.33];
+
+/// A round wire crab pot: a dark drum ringed by two galvanised hoops with a
+/// funnel mouth on top — reads as a cage rather than a solid block.
+fn crab_pot(center: [f32; 3]) -> Vec<Generator> {
+    let [cx, cy, cz] = center;
+    let r = 0.36_f32;
+    let mut out = vec![prim(
+        solid(cylinder_tapered(r, 0.42, 12, 0.0, steel(POT_DARK))),
+        [cx, cy, cz],
+        id_quat(),
+    )];
+    for dy in [-0.14_f32, 0.14] {
+        out.push(prim(
+            torus(0.045, r, steel(WIRE_GALV)),
+            [cx, cy + dy, cz],
+            id_quat(),
+        ));
+    }
+    // Funnel mouth on top — a small inverted cone narrowing into the pot.
+    out.push(prim(
+        cone(0.16, 0.2, 10, steel(WIRE_GALV)),
+        [cx, cy + 0.31, cz],
+        id_quat(),
+    ));
+    out
+}
 
 pub struct CrabTraps;
 
@@ -45,32 +76,17 @@ impl CatalogueEntry for CrabTraps {
 }
 
 fn build_tree() -> Generator {
-    let mut prims = vec![
-        // Bottom trap — the root.
-        prim(
-            solid(cuboid_tapered([0.7, 0.5, 0.7], 0.0, steel(STEEL_GREY))),
-            [0.0, 0.25, 0.0],
-            id_quat(),
-        ),
-    ];
-
-    // Two more traps stacked and offset.
-    prims.push(prim(
-        solid(cuboid_tapered([0.7, 0.5, 0.7], 0.0, steel(STEEL_GREY))),
-        [0.12, 0.75, 0.06],
-        id_quat(),
-    ));
-    prims.push(prim(
-        solid(cuboid_tapered([0.7, 0.5, 0.7], 0.0, steel(STEEL_GREY))),
-        [-0.62, 0.25, 0.32],
-        id_quat(),
-    ));
+    // Three round wire pots in a leaning stack — the bottom pot's drum is the
+    // flat root.
+    let mut prims = crab_pot([0.0, 0.24, 0.0]);
+    prims.extend(crab_pot([-0.58, 0.24, 0.34]));
+    prims.extend(crab_pot([0.1, 0.78, 0.05]));
 
     // Bright net floats perched on the stack.
     for (pos, color) in [
-        ([0.12_f32, 1.08, 0.06], BUOY_RED),
-        ([-0.1, 1.08, -0.2], AWNING_WHITE),
-        ([-0.62, 0.58, 0.32], BUOY_RED),
+        ([0.12_f32, 1.18, 0.06], BUOY_RED),
+        ([-0.12, 1.18, -0.2], AWNING_WHITE),
+        ([-0.58, 0.64, 0.34], BUOY_RED),
     ] {
         prims.push(prim(solid(sphere(0.16, 3, enamel(color))), pos, id_quat()));
     }

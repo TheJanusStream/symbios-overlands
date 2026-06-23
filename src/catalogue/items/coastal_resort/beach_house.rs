@@ -6,15 +6,21 @@
 //! [`assemble`], which reparents every piece under the deck floor.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, solid,
+    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, glow, id_quat, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{
-    DECK_PALE, DECK_WOOD, GLASS_AQUA, STEEL_GREY, STUCCO_SAND, glass, plank, steel, stucco,
-};
+use super::{DECK_PALE, DECK_WOOD, GLASS_AQUA, LAMP_WARM, STEEL_GREY, glass, plank, steel, stucco};
+
+/// Pastel coral render of the bungalow walls — a brighter holiday-let plaster
+/// than the duskier hamlet sand, so it reads as a cheerful seaside cottage.
+const PASTEL_CORAL: [f32; 3] = [0.93, 0.79, 0.71];
+/// Painted teal shutters and trim against the coral walls.
+const TRIM_TEAL: [f32; 3] = [0.20, 0.50, 0.52];
+/// Window-box greenery.
+const PLANT_GREEN: [f32; 3] = [0.30, 0.46, 0.24];
 
 pub struct BeachHouse;
 
@@ -54,6 +60,9 @@ fn build_tree() -> Generator {
     let wall_h = 2.6_f32;
     let wall_y = deck_y + 0.15 + wall_h * 0.5;
     let wall_top = deck_y + 0.15 + wall_h;
+    // The render front looks down -Z, so the door, lit windows, porch and
+    // steps face -Z; the wall front face sits at z = -2.0.
+    let face = -2.0_f32;
 
     let mut prims = vec![
         // Plank deck floor — the root, raised on stilts.
@@ -75,51 +84,96 @@ fn build_tree() -> Generator {
         }
     }
 
-    // Stucco walls.
+    // Pastel stucco walls.
     prims.push(prim(
-        solid(cuboid_tapered([5.0, wall_h, 4.0], 0.0, stucco(STUCCO_SAND))),
+        solid(cuboid_tapered(
+            [5.0, wall_h, 4.0],
+            0.0,
+            stucco(PASTEL_CORAL),
+        )),
         [0.0, wall_y, 0.0],
         id_quat(),
     ));
 
-    // Low gabled plank roof.
+    // Low gabled plank roof, with a proud ridge cap along the apex.
     prims.push(prim(
-        solid(cuboid_tapered([6.0, 1.6, 5.0], 0.55, plank(DECK_WOOD))),
+        solid(cuboid_tapered_xz(
+            [6.0, 1.6, 5.0],
+            [0.0, 0.85],
+            plank(DECK_WOOD),
+        )),
         [0.0, wall_top + 0.8, 0.0],
         id_quat(),
     ));
+    prims.push(prim(
+        solid(cuboid_tapered([6.2, 0.2, 0.3], 0.0, plank(DECK_PALE))),
+        [0.0, wall_top + 1.55, 0.0],
+        id_quat(),
+    ));
 
-    // Front door + flanking lit windows on the +Z face.
+    // Front door + flanking lit windows on the -Z face, with painted shutters
+    // and planted window boxes.
     prims.push(prim(
         solid(cuboid_tapered([1.0, 2.0, 0.2], 0.0, plank(DECK_WOOD))),
-        [0.0, deck_y + 0.15 + 1.0, 2.0],
+        [0.0, deck_y + 0.15 + 1.0, face],
+        id_quat(),
+    ));
+    prims.push(prim(
+        cuboid_tapered([1.1, 0.16, 0.22], 0.0, stucco(TRIM_TEAL)),
+        [0.0, deck_y + 0.15 + 2.0, face - 0.02],
         id_quat(),
     ));
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
             cuboid_tapered([1.2, 1.2, 0.15], 0.0, glass(GLASS_AQUA, 1.2)),
-            [sx * 1.6, wall_y + 0.2, 2.0],
+            [sx * 1.6, wall_y + 0.2, face],
+            id_quat(),
+        ));
+        // Shutters either side of each window.
+        for sh in [-1.0_f32, 1.0] {
+            prims.push(prim(
+                solid(cuboid_tapered([0.22, 1.2, 0.06], 0.0, stucco(TRIM_TEAL))),
+                [sx * 1.6 + sh * 0.78, wall_y + 0.2, face - 0.03],
+                id_quat(),
+            ));
+        }
+        // Window box + greenery, proud below each sill.
+        prims.push(prim(
+            solid(cuboid_tapered([1.3, 0.24, 0.32], 0.0, plank(DECK_WOOD))),
+            [sx * 1.6, wall_y - 0.5, face - 0.18],
+            id_quat(),
+        ));
+        prims.push(prim(
+            cuboid_tapered([1.2, 0.22, 0.26], 0.6, stucco(PLANT_GREEN)),
+            [sx * 1.6, wall_y - 0.3, face - 0.18],
             id_quat(),
         ));
     }
 
-    // Railed front porch along the +Z edge of the deck.
+    // Warm porch lantern by the door.
+    prims.push(prim(
+        cuboid_tapered([0.22, 0.34, 0.16], 0.0, glow(LAMP_WARM, 2.2)),
+        [0.85, deck_y + 0.15 + 1.7, face - 0.1],
+        id_quat(),
+    ));
+
+    // Railed front porch along the -Z edge of the deck.
     prims.push(prim(
         cuboid_tapered([7.0, 0.5, 0.08], 0.0, steel(STEEL_GREY)),
-        [0.0, deck_y + 0.45, 3.0],
+        [0.0, deck_y + 0.45, -3.0],
         id_quat(),
     ));
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
             solid(cuboid_tapered([0.1, 0.7, 0.1], 0.0, steel(STEEL_GREY))),
-            [sx * 3.3, deck_y + 0.35, 3.0],
+            [sx * 3.3, deck_y + 0.35, -3.0],
             id_quat(),
         ));
     }
 
     // Two plank steps down off the porch.
     for (k, step) in [0.5_f32, 1.0].into_iter().enumerate() {
-        let z = 3.3 + k as f32 * 0.6;
+        let z = -(3.3 + k as f32 * 0.6);
         prims.push(prim(
             solid(cuboid_tapered([2.0, 0.25, 0.6], 0.0, plank(DECK_WOOD))),
             [0.0, deck_y - step, z],

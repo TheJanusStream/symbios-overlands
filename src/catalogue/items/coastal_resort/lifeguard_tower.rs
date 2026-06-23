@@ -6,8 +6,10 @@
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], which reparents every piece under the cabin deck.
 
+use std::f32::consts::FRAC_PI_2;
+
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, solid,
+    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -92,42 +94,63 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Cabin box with a lit observation window facing +Z.
+    // Cabin box with a lit observation window facing the -Z render front.
     prims.push(prim(
         solid(cuboid_tapered([3.0, cabin_h, 2.6], 0.0, plank(DECK_PALE))),
-        [0.0, cabin_y, -0.2],
+        [0.0, cabin_y, 0.2],
         id_quat(),
     ));
     prims.push(prim(
         cuboid_tapered([2.4, 1.1, 0.15], 0.0, glass(GLASS_AQUA, 1.0)),
-        [0.0, cabin_y + 0.1, 1.1],
+        [0.0, cabin_y + 0.1, -1.1],
         id_quat(),
     ));
 
-    // Slanted shed roof.
+    // Slanted shed roof, pitched down toward the seaward (-Z) front.
     prims.push(prim(
         solid(cuboid_tapered([3.4, 0.3, 3.0], 0.0, plank(DECK_WOOD))),
-        [0.0, roof_y, -0.1],
-        quat_x(0.22),
+        [0.0, roof_y, 0.1],
+        quat_x(-0.22),
     ));
 
     // Red rescue cross on the +X flank (two crossing enamel bars).
     prims.push(prim(
         cuboid_tapered([0.05, 0.85, 0.26], 0.0, enamel(BUOY_RED)),
-        [1.53, cabin_y, -0.2],
+        [1.53, cabin_y, 0.2],
         id_quat(),
     ));
     prims.push(prim(
         cuboid_tapered([0.05, 0.26, 0.85], 0.0, enamel(BUOY_RED)),
-        [1.53, cabin_y, -0.2],
+        [1.53, cabin_y, 0.2],
         id_quat(),
     ));
 
-    // Warm eave lamp — the tower's emissive trim.
+    // Warm eave lamp under the front eave — the tower's emissive trim.
     prims.push(prim(
         cuboid_tapered([0.3, 0.3, 0.2], 0.0, glow(LAMP_WARM, 2.5)),
-        [0.0, deck_y + 0.15 + cabin_h, 1.3],
+        [0.0, deck_y + 0.15 + cabin_h, -1.3],
         id_quat(),
+    ));
+
+    // Deck guardrail around the open front and sides — side rails full length,
+    // the front rail split to leave a central opening for the boarding ramp.
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            cuboid_tapered([0.08, 0.1, 3.0], 0.0, steel(STEEL_GREY)),
+            [sx * 1.45, deck_y + 0.7, 0.0],
+            id_quat(),
+        ));
+        prims.push(prim(
+            cuboid_tapered([1.0, 0.1, 0.08], 0.0, steel(STEEL_GREY)),
+            [sx * 1.0, deck_y + 0.7, -1.45],
+            id_quat(),
+        ));
+    }
+    // A red-and-white ring buoy hung on the front rail, facing the shore.
+    prims.push(prim(
+        torus(0.07, 0.26, enamel(BUOY_RED)),
+        [0.75, deck_y + 0.55, -1.5],
+        quat_x(FRAC_PI_2),
     ));
 
     // Rooftop pennant on a short steel pole.
@@ -142,11 +165,11 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Boarding ramp down to the sand off the +Z side.
+    // Boarding ramp down to the sand off the -Z front.
     prims.push(prim(
         solid(cuboid_tapered([1.2, 0.2, 3.4], 0.0, plank(DECK_WOOD))),
-        [0.0, deck_y * 0.5, 2.4],
-        quat_x(0.95),
+        [0.0, deck_y * 0.5, -2.4],
+        quat_x(-0.95),
     ));
 
     assemble(prims)

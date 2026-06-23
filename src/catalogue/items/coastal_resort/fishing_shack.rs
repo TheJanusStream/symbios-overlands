@@ -9,13 +9,14 @@
 //! [`assemble`], which reparents every piece under the deck floor.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, solid,
+    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, glow, id_quat, prim, solid,
+    sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{DECK_WOOD, DRIFT_GREY, canvas, plank};
+use super::{BUOY_RED, DECK_WOOD, DRIFT_GREY, LAMP_WARM, STEEL_GREY, canvas, enamel, plank, steel};
 
 pub struct FishingShack;
 
@@ -84,31 +85,71 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Sagging gabled plank roof.
+    // Sagging gabled plank roof (ridge along X) with a mismatched patch board.
     prims.push(prim(
-        solid(cuboid_tapered([4.6, 1.2, 3.6], 0.45, plank(DRIFT_GREY))),
+        solid(cuboid_tapered_xz(
+            [4.6, 1.2, 3.6],
+            [0.0, 0.7],
+            plank(DRIFT_GREY),
+        )),
         [0.0, wall_top + 0.6, 0.0],
         id_quat(),
     ));
-
-    // Plank door on the +Z face.
     prims.push(prim(
-        solid(cuboid_tapered([0.8, 1.8, 0.2], 0.0, plank(DECK_WOOD))),
-        [0.0, deck_y + 0.15 + 0.9, 1.5],
+        cuboid_tapered([1.4, 0.12, 1.0], 0.0, plank(DECK_WOOD)),
+        [-0.9, wall_top + 0.95, -0.7],
+        id_quat(),
+    ));
+    // Crooked stovepipe poking through the roof.
+    prims.push(prim(
+        solid(cylinder_tapered(0.12, 1.1, 8, 0.0, steel(STEEL_GREY))),
+        [1.1, wall_top + 1.4, 0.5],
         id_quat(),
     ));
 
-    // Drying net slung on the +X wall.
+    // Plank door on the -Z (shore) face, with a small boarded window beside it.
+    prims.push(prim(
+        solid(cuboid_tapered([0.8, 1.8, 0.2], 0.0, plank(DECK_WOOD))),
+        [-0.6, deck_y + 0.15 + 0.9, -1.5],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(cuboid_tapered([0.9, 0.8, 0.12], 0.0, plank(DRIFT_GREY))),
+        [0.9, wall_y + 0.2, -1.5],
+        id_quat(),
+    ));
+    for off in [-0.25_f32, 0.25] {
+        prims.push(prim(
+            cuboid_tapered([0.9, 0.1, 0.16], 0.0, plank(DECK_WOOD)),
+            [0.9, wall_y + 0.2 + off, -1.55],
+            id_quat(),
+        ));
+    }
+    // A dim oil lantern hung by the door — the hamlet's one light.
+    prims.push(prim(
+        cuboid_tapered([0.18, 0.26, 0.16], 0.0, glow(LAMP_WARM, 1.6)),
+        [-1.2, deck_y + 0.15 + 1.6, -1.55],
+        id_quat(),
+    ));
+
+    // Drying net slung on the +X wall, with two cork floats.
     prims.push(prim(
         cuboid_tapered([0.05, 1.4, 2.0], 0.0, net),
         [2.05, wall_y, 0.0],
         id_quat(),
     ));
+    for (sz, col) in [(-0.6_f32, BUOY_RED), (0.5, DECK_WOOD)] {
+        prims.push(prim(
+            solid(sphere(0.16, 3, enamel(col))),
+            [2.1, wall_y - 0.3, sz],
+            id_quat(),
+        ));
+    }
 
     // Salt barrel by the door.
     prims.push(prim(
         solid(cylinder_tapered(0.4, 0.9, 10, 0.08, plank(DECK_WOOD))),
-        [2.4, 0.45, 1.2],
+        [1.6, 0.45, -1.4],
         id_quat(),
     ));
 

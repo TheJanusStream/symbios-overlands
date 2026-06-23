@@ -3,13 +3,16 @@
 //! beached on a patch of sand.
 
 use crate::catalogue::items::util::{
-    assemble, cone, cylinder_tapered, id_quat, prim, solid, sphere,
+    assemble, cone, cylinder_tapered, glow, id_quat, prim, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
 use super::{AWNING_WHITE, BUOY_RED, SAND_TAN, STEEL_GREY, enamel, sand, steel};
+
+/// Green starboard-hand navigation light atop the marker.
+const NAV_GREEN: [f32; 3] = [0.30, 0.95, 0.45];
 
 pub struct Buoy;
 
@@ -52,6 +55,12 @@ fn build_tree() -> Generator {
             [0.0, 0.04, 0.0],
             id_quat(),
         ),
+        // Base collar where the float meets the sand.
+        prim(
+            solid(cylinder_tapered(0.56, 0.14, 14, 0.0, enamel(AWNING_WHITE))),
+            [0.0, 0.12, 0.0],
+            id_quat(),
+        ),
         // Conical enamel float.
         prim(
             solid(cone(0.5, 1.2, 14, enamel(BUOY_RED))),
@@ -70,10 +79,16 @@ fn build_tree() -> Generator {
             [0.0, 1.55, 0.0],
             id_quat(),
         ),
-        // Cage ball at the top.
+        // Cage-ball topmark.
         prim(
             solid(sphere(0.16, 3, steel(STEEL_GREY))),
-            [0.0, 2.0, 0.0],
+            [0.0, 2.1, 0.0],
+            id_quat(),
+        ),
+        // Glowing green navigation light below the topmark.
+        prim(
+            sphere(0.1, 4, glow(NAV_GREEN, 2.6)),
+            [0.0, 1.78, 0.0],
             id_quat(),
         ),
     ];
