@@ -45,8 +45,15 @@ pub mod garden_bed;
 pub mod lantern;
 pub mod market_stall;
 
-use crate::pds::{Fp, Fp3, SovereignMaterialSettings, SovereignTextureConfig};
+use crate::pds::{
+    Fp, Fp3, Fp64, Generator, SovereignBrickConfig, SovereignCobblestoneConfig,
+    SovereignCorrugatedConfig, SovereignFabricConfig, SovereignMarbleConfig,
+    SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignTextureConfig,
+};
 use crate::seeded_defaults::ThemeArchetype;
+use bevy_symbios_texture::metal::MetalStyle;
+
+use super::util::{cuboid_tapered, cylinder_tapered, id_quat, prim, solid, sphere};
 
 /// Rebase-and-parent helper shared with the other primitive-built kits —
 /// see [`super::util::assemble`]. Re-exported so this module's props keep
@@ -76,70 +83,154 @@ pub(super) fn quat_z(angle_rad: f32) -> crate::pds::Fp4 {
 // room's tiers, so e.g. a barrel fire in a calmer room reads less scorched.
 // ---------------------------------------------------------------------------
 
-/// Weathered structural timber — beams, posts, planks.
+/// Weathered structural timber — beams, posts, planks. A sawn-plank grain
+/// with a few knots so a post reads as wood, not a flat-painted dowel.
 pub(super) fn wood(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.88),
         metallic: Fp(0.0),
         uv_scale: Fp(1.5),
-        texture: SovereignTextureConfig::None,
+        texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
+            color_wood_light: Fp3([color[0] * 1.22, color[1] * 1.22, color[2] * 1.22]),
+            color_wood_dark: Fp3([color[0] * 0.58, color[1] * 0.58, color[2] * 0.58]),
+            plank_count: Fp64(4.0),
+            knot_density: Fp64(0.25),
+            grain_warp: Fp64(0.4),
+            ..Default::default()
+        }),
         ..Default::default()
     }
 }
 
-/// Cloth — awnings, banners, hanging laundry, sandbag burlap.
+/// Cloth — awnings, banners, hanging laundry, sandbag burlap. A woven weave
+/// with a darker weft so a banner reads as fabric, not a coloured slab.
 pub(super) fn cloth(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.95),
         metallic: Fp(0.0),
+        texture: SovereignTextureConfig::Fabric(SovereignFabricConfig {
+            color_warp: Fp3(color),
+            color_weft: Fp3([color[0] * 0.72, color[1] * 0.72, color[2] * 0.72]),
+            thread_count: Fp64(18.0),
+            fuzz: Fp64(0.4),
+            ..Default::default()
+        }),
         ..Default::default()
     }
 }
 
-/// Rough cut / cast stone — kerbs, plinths, barricade fill.
+/// Rough cut / cast stone — kerbs, plinths, barricade fill. Mud-set
+/// fieldstone cobble.
 pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.9),
         metallic: Fp(0.0),
         uv_scale: Fp(2.0),
+        texture: SovereignTextureConfig::Cobblestone(SovereignCobblestoneConfig {
+            color_stone: Fp3(color),
+            color_mud: Fp3([color[0] * 0.5, color[1] * 0.48, color[2] * 0.42]),
+            roundness: Fp64(1.2),
+            ..Default::default()
+        }),
         ..Default::default()
     }
 }
 
-/// Polished marble — the prosperity-Rich basin / plinth finish.
+/// Fired brick — the collapsed wall fragments of the conflict set.
+pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.92),
+        metallic: Fp(0.0),
+        uv_scale: Fp(1.5),
+        texture: SovereignTextureConfig::Brick(SovereignBrickConfig {
+            color_brick: Fp3(color),
+            aspect_ratio: Fp64(3.0),
+            scale: Fp64(9.0),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Corrugated sheet — shanty roofs, leaning scrap panels. Ridged + rusted.
+pub(super) fn corrugated(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.8),
+        metallic: Fp(0.45),
+        uv_scale: Fp(1.0),
+        texture: SovereignTextureConfig::Corrugated(SovereignCorrugatedConfig {
+            color_metal: Fp3(color),
+            ridges: Fp64(9.0),
+            rust_level: Fp64(0.4),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Polished marble — the prosperity-Rich basin / plinth finish, veined.
 pub(super) fn marble(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.22),
         metallic: Fp(0.0),
+        texture: SovereignTextureConfig::Marble(SovereignMarbleConfig {
+            color_base: Fp3(color),
+            color_vein: Fp3([color[0] * 0.6, color[1] * 0.58, color[2] * 0.56]),
+            vein_frequency: Fp64(3.0),
+            scale: Fp64(2.5),
+            ..Default::default()
+        }),
         ..Default::default()
     }
 }
 
-/// Corroded / dull metal — scrap, oil drums, tin sheeting.
+/// Corroded / dull metal — scrap, oil drums, tin sheeting. Brushed + rust.
 pub(super) fn rust_metal(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.85),
         metallic: Fp(0.55),
+        texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
+            style: MetalStyle::Brushed,
+            color_metal: Fp3(color),
+            color_rust: Fp3([0.32, 0.18, 0.10]),
+            roughness: Fp64(0.85),
+            metallic: Fp(0.55),
+            rust_level: Fp64(0.45),
+            ..Default::default()
+        }),
         ..Default::default()
     }
 }
 
-/// Burnished metal — bronze statuary, gilt finials.
+/// Burnished metal — bronze statuary, gilt finials, cast-iron frames.
+/// Brushed and barely tarnished so it reads as worked metal.
 pub(super) fn bronze(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.4),
         metallic: Fp(0.9),
+        texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
+            style: MetalStyle::Brushed,
+            color_metal: Fp3(color),
+            color_rust: Fp3([color[0] * 0.5, color[1] * 0.45, color[2] * 0.3]),
+            roughness: Fp64(0.4),
+            metallic: Fp(0.9),
+            rust_level: Fp64(0.08),
+            ..Default::default()
+        }),
         ..Default::default()
     }
 }
 
-/// Matte foliage — hedges, flower-bed leaves, planter greenery.
+/// Matte foliage — hedges, flower-bed leaves, planter greenery. Left
+/// flat-colour: a tiling surface texture only muddies a small leaf clump.
 pub(super) fn foliage(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -147,6 +238,60 @@ pub(super) fn foliage(color: [f32; 3]) -> SovereignMaterialSettings {
         metallic: Fp(0.0),
         ..Default::default()
     }
+}
+
+/// A standing commemorative figure — a robed body with a yoke of shoulders,
+/// a head and two arms (one raised in oratory) — built in the prop's world
+/// frame from `base_y` (the top of its plinth) upward in `bronze(color)`.
+/// Returned as a list of pieces for an [`assemble`] caller to append *after*
+/// a flat root, so the figure's tilted arms never become the rotated assemble
+/// root. `fz` is the sign of the forward axis (`-1.0` puts the gaze and the
+/// raised arm toward the render front, `-Z`).
+pub(super) fn figure_parts(base_y: f32, fz: f32, color: [f32; 3]) -> Vec<Generator> {
+    vec![
+        // Flared robe / lower body.
+        prim(
+            solid(cylinder_tapered(0.30, 0.82, 12, 0.22, bronze(color))),
+            [0.0, base_y + 0.41, 0.0],
+            id_quat(),
+        ),
+        // Torso narrowing toward the shoulders.
+        prim(
+            solid(cylinder_tapered(0.23, 0.5, 12, 0.18, bronze(color))),
+            [0.0, base_y + 0.95, 0.0],
+            id_quat(),
+        ),
+        // Shoulder yoke.
+        prim(
+            cuboid_tapered([0.5, 0.17, 0.24], 0.0, bronze(color)),
+            [0.0, base_y + 1.22, 0.0],
+            id_quat(),
+        ),
+        // Neck.
+        prim(
+            cylinder_tapered(0.07, 0.12, 8, 0.0, bronze(color)),
+            [0.0, base_y + 1.33, 0.0],
+            id_quat(),
+        ),
+        // Head, gaze toward the front.
+        prim(
+            sphere(0.15, 3, bronze(color)),
+            [0.0, base_y + 1.5, fz * 0.03],
+            id_quat(),
+        ),
+        // Raised arm (oratory) — reaches up and toward the front.
+        prim(
+            cylinder_tapered(0.06, 0.62, 8, 0.0, bronze(color)),
+            [0.28, base_y + 1.42, fz * 0.12],
+            quat_z(-1.05),
+        ),
+        // Resting arm at the side.
+        prim(
+            cylinder_tapered(0.06, 0.56, 8, 0.0, bronze(color)),
+            [-0.26, base_y + 1.02, fz * 0.05],
+            quat_z(0.22),
+        ),
+    ]
 }
 
 // Shared colours.
@@ -164,8 +309,14 @@ pub(super) const BRONZE: [f32; 3] = [0.46, 0.32, 0.16];
 pub(super) const GOLD: [f32; 3] = [0.83, 0.66, 0.22];
 pub(super) const FOLIAGE_GREEN: [f32; 3] = [0.18, 0.42, 0.16];
 pub(super) const WATER_BLUE: [f32; 3] = [0.30, 0.62, 0.82];
-pub(super) const FIRE: [f32; 3] = [1.0, 0.5, 0.12];
-pub(super) const LANTERN_WARM: [f32; 3] = [1.0, 0.85, 0.55];
+/// Deep-saturated firelight — a broad cone at high strength blooms near-white,
+/// so the colour carries the heat and the strength stays moderate.
+pub(super) const FIRE: [f32; 3] = [1.0, 0.42, 0.08];
+/// Hot ember core, deeper still than [`FIRE`].
+pub(super) const EMBER: [f32; 3] = [1.0, 0.24, 0.05];
+/// Warm lamplight — deep amber so a lit housing reads incandescent rather
+/// than washing to a pale near-white box.
+pub(super) const LANTERN_WARM: [f32; 3] = [1.0, 0.74, 0.36];
 
 #[cfg(test)]
 mod tests {

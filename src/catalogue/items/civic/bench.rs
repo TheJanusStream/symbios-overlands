@@ -2,7 +2,7 @@
 //! prop: public seating signals a settled, unthreatened place to linger in
 //! any setting.
 
-use crate::catalogue::items::util::{cuboid_tapered, id_quat, prim, solid};
+use crate::catalogue::items::util::{cuboid_tapered, id_quat, prim, quat_x, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::{EscalationBand, EscalationTier, ThemeArchetype};
@@ -45,29 +45,60 @@ impl CatalogueEntry for Bench {
 }
 
 fn build_tree() -> Generator {
-    super::assemble(vec![
-        // Seat.
-        prim(
-            solid(cuboid_tapered([1.5, 0.1, 0.45], 0.0, wood(WOOD))),
-            [0.0, 0.5, 0.0],
+    let mut prims = Vec::new();
+
+    // Seat slats running the length of the bench, with gaps between them.
+    for dz in [-0.18_f32, -0.06, 0.06, 0.18] {
+        prims.push(prim(
+            solid(cuboid_tapered([1.34, 0.05, 0.09], 0.0, wood(WOOD))),
+            [0.0, 0.52, dz],
             id_quat(),
-        ),
-        // Backrest.
-        prim(
-            solid(cuboid_tapered([1.5, 0.45, 0.08], 0.0, wood(WOOD))),
-            [0.0, 0.75, -0.2],
+        ));
+    }
+
+    // Backrest slats, leaning back a touch.
+    for dy in [0.66_f32, 0.82, 0.98] {
+        prims.push(prim(
+            solid(cuboid_tapered([1.34, 0.1, 0.05], 0.0, wood(WOOD))),
+            [0.0, dy, -0.22],
+            quat_x(-0.1),
+        ));
+    }
+
+    // Shaped cast-iron end frames: legs, seat rail, arm post and armrest.
+    for sx in [-1.0_f32, 1.0] {
+        let x = sx * 0.7;
+        // Front leg.
+        prims.push(prim(
+            solid(cuboid_tapered([0.07, 0.52, 0.07], 0.0, bronze(IRON))),
+            [x, 0.26, 0.2],
             id_quat(),
-        ),
-        // Cast-iron end frames.
-        prim(
-            solid(cuboid_tapered([0.08, 0.5, 0.45], 0.0, bronze(IRON))),
-            [-0.65, 0.25, 0.0],
+        ));
+        // Back leg, taller to carry the backrest.
+        prims.push(prim(
+            solid(cuboid_tapered([0.07, 0.8, 0.07], 0.0, bronze(IRON))),
+            [x, 0.4, -0.22],
             id_quat(),
-        ),
-        prim(
-            solid(cuboid_tapered([0.08, 0.5, 0.45], 0.0, bronze(IRON))),
-            [0.65, 0.25, 0.0],
+        ));
+        // Seat rail tying the legs together.
+        prims.push(prim(
+            solid(cuboid_tapered([0.07, 0.07, 0.5], 0.0, bronze(IRON))),
+            [x, 0.49, 0.0],
             id_quat(),
-        ),
-    ])
+        ));
+        // Front arm post.
+        prims.push(prim(
+            solid(cuboid_tapered([0.07, 0.32, 0.07], 0.0, bronze(IRON))),
+            [x, 0.66, 0.2],
+            id_quat(),
+        ));
+        // Armrest.
+        prims.push(prim(
+            solid(cuboid_tapered([0.07, 0.06, 0.5], 0.0, bronze(IRON))),
+            [x, 0.82, 0.0],
+            id_quat(),
+        ));
+    }
+
+    super::assemble(prims)
 }

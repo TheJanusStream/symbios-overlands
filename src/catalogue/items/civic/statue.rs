@@ -2,14 +2,12 @@
 //! prop: commemorative statuary signals an established, well-off settlement
 //! in any setting.
 
-use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, id_quat, prim, solid, sphere,
-};
+use crate::catalogue::items::util::{cuboid_tapered, id_quat, prim, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier, ThemeArchetype};
 
-use super::{BRONZE, MARBLE, bronze, marble, quat_z};
+use super::{BRONZE, MARBLE, bronze, figure_parts, marble};
 
 pub struct Statue;
 
@@ -45,12 +43,13 @@ impl CatalogueEntry for Statue {
 }
 
 fn build_tree() -> Generator {
-    let cap_y = 0.95;
-    let body_h = 1.2;
-    let body_y = cap_y + body_h * 0.5 + 0.06;
-    let head_y = cap_y + body_h + 0.2;
-    super::assemble(vec![
-        // Stepped plinth.
+    // Stepped plinth — base, die and cornice cap, each course overlapping
+    // the one below so no two horizontal faces sit flush (coplanar z-fight).
+    let die_top = 0.94;
+    let cap_top = die_top + 0.10;
+
+    let mut prims = vec![
+        // Base step.
         prim(
             solid(cuboid_tapered(
                 [1.0, 0.25, 1.0],
@@ -60,35 +59,32 @@ fn build_tree() -> Generator {
             [0.0, 0.125, 0.0],
             id_quat(),
         ),
+        // Main die, very slightly battered.
         prim(
-            solid(cuboid_tapered([0.8, 0.7, 0.8], 0.05, marble(MARBLE))),
-            [0.0, 0.6, 0.0],
+            solid(cuboid_tapered([0.78, 0.72, 0.78], 0.04, marble(MARBLE))),
+            [0.0, 0.59, 0.0],
             id_quat(),
         ),
+        // Cornice cap, oversailing the die.
         prim(
             solid(cuboid_tapered(
-                [0.95, 0.12, 0.95],
+                [0.96, 0.14, 0.96],
                 0.0,
                 marble([0.82, 0.81, 0.78]),
             )),
-            [0.0, cap_y, 0.0],
+            [0.0, die_top + 0.03, 0.0],
             id_quat(),
         ),
-        // Bronze figure: tapered body, a head, and one raised arm.
+        // Bronze dedication plate, proud of the die's front (-Z) face.
         prim(
-            solid(cylinder_tapered(0.26, body_h, 12, 0.35, bronze(BRONZE))),
-            [0.0, body_y, 0.0],
+            cuboid_tapered([0.52, 0.3, 0.04], 0.0, bronze([0.40, 0.30, 0.16])),
+            [0.0, 0.6, -0.43],
             id_quat(),
         ),
-        prim(
-            sphere(0.17, 3, bronze(BRONZE)),
-            [0.0, head_y, 0.0],
-            id_quat(),
-        ),
-        prim(
-            solid(cylinder_tapered(0.07, 0.7, 8, 0.0, bronze(BRONZE))),
-            [0.28, body_y + 0.45, 0.0],
-            quat_z(-0.9),
-        ),
-    ])
+    ];
+
+    // The commemorative figure, gaze and raised arm toward the front.
+    prims.extend(figure_parts(cap_top - 0.02, -1.0, BRONZE));
+
+    super::assemble(prims)
 }

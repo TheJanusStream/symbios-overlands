@@ -3,7 +3,7 @@
 //! means in any setting.
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, id_quat, prim, solid, sphere,
+    cone, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -45,40 +45,89 @@ impl CatalogueEntry for Banner {
 }
 
 fn build_tree() -> Generator {
+    use std::f32::consts::PI;
     let pole_h = 3.4;
+    let bz = -0.10; // banner hangs forward of the pole, toward the -Z front.
 
-    let bar_y = pole_h - 0.3;
-    let banner_drop = 1.8;
-    let banner_y = bar_y - banner_drop * 0.5 - 0.03;
-    super::assemble(vec![
+    let crossarm_y = pole_h - 0.25;
+    let banner_top = crossarm_y - 0.05;
+    let field_drop = 1.66;
+    let chief_h = 0.22;
+    let field_y = banner_top - chief_h - field_drop * 0.5;
+    let field_bottom = banner_top - chief_h - field_drop;
+
+    let mut prims = vec![
         // Pole.
         prim(
             solid(cylinder_tapered(0.08, pole_h, 10, 0.0, wood(WOOD))),
             [0.0, pole_h * 0.5, 0.0],
             id_quat(),
         ),
-        // Crossbar near the top the banner hangs from.
+        // Crossbar the gonfalon hangs from, bridging pole to banner.
         prim(
             solid(cuboid_tapered([1.0, 0.06, 0.06], 0.0, wood(WOOD))),
-            [0.35, bar_y, 0.0],
+            [0.0, crossarm_y, bz * 0.5],
             id_quat(),
         ),
-        // Banner cloth, plus a contrasting band near its foot.
+        // Chief band (the contrasting top stripe).
         prim(
-            cuboid_tapered([0.9, banner_drop, 0.04], 0.0, cloth(CANVAS_RED)),
-            [0.35, banner_y, 0.0],
+            cuboid_tapered([0.95, chief_h, 0.04], 0.0, cloth(GOLD)),
+            [0.0, banner_top - chief_h * 0.5, bz],
+            id_quat(),
+        ),
+        // Main red field.
+        prim(
+            cuboid_tapered([0.95, field_drop, 0.04], 0.0, cloth(CANVAS_RED)),
+            [0.0, field_y, bz],
+            id_quat(),
+        ),
+        // Gilt fringe band near the foot of the field.
+        prim(
+            cuboid_tapered([0.95, 0.08, 0.05], 0.0, cloth(GOLD)),
+            [0.0, field_bottom + 0.06, bz],
+            id_quat(),
+        ),
+        // Gold emblem charge — a disc straddling both faces so it reads
+        // front and back, not painted on one side.
+        prim(
+            solid(cylinder_tapered(0.26, 0.12, 12, 0.0, bronze(GOLD))),
+            [0.0, field_y + 0.1, bz],
+            quat_x(PI * 0.5),
+        ),
+        // Spear-point finial.
+        prim(
+            sphere(0.09, 3, bronze(GOLD)),
+            [0.0, pole_h + 0.04, 0.0],
             id_quat(),
         ),
         prim(
-            cuboid_tapered([0.9, 0.18, 0.05], 0.0, cloth(GOLD)),
-            [0.35, banner_y - banner_drop * 0.5 + 0.12, 0.0],
-            id_quat(),
+            cone(0.07, 0.3, 8, bronze(GOLD)),
+            [0.0, pole_h + 0.24, 0.0],
+            quat_x(PI),
         ),
-        // Gilt finial.
+        // Decorative pole bands.
         prim(
-            sphere(0.12, 3, bronze(GOLD)),
-            [0.0, pole_h + 0.06, 0.0],
+            torus(0.02, 0.085, bronze(GOLD)),
+            [0.0, crossarm_y - 0.4, 0.0],
             id_quat(),
         ),
-    ])
+        prim(torus(0.02, 0.085, bronze(GOLD)), [0.0, 0.5, 0.0], id_quat()),
+    ];
+
+    // Swallowtail tails with the central notch between them.
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            cuboid_tapered([0.34, 0.5, 0.04], 0.0, cloth(CANVAS_RED)),
+            [sx * 0.28, field_bottom - 0.25, bz],
+            id_quat(),
+        ));
+        // Tassel hanging from each tail.
+        prims.push(prim(
+            sphere(0.05, 3, bronze(GOLD)),
+            [sx * 0.28, field_bottom - 0.52, bz],
+            id_quat(),
+        ));
+    }
+
+    super::assemble(prims)
 }
