@@ -52,6 +52,16 @@ struct Args {
     /// Avatar subject: a u64 seed or a DID string.
     #[arg(long)]
     avatar: Option<String>,
+    /// List the first `--family-count` seeds whose
+    /// [`ChassisFamily`](crate::seeded_defaults::ChassisFamily) matches
+    /// (`humanoid` | `boat` | `airship` | `skiff`) and exit — a survey aid for
+    /// the avatar overhaul: pick seeds from the printed list, then render each
+    /// with `--avatar <seed>`. Highest precedence (prints, never renders).
+    #[arg(long)]
+    family_seeds: Option<String>,
+    /// How many seeds `--family-seeds` prints.
+    #[arg(long, default_value_t = 8)]
+    family_count: usize,
     /// Catalogue subject: an entry slug (e.g. `villa`, `bench`, `wizard_tower`).
     #[arg(long)]
     catalogue: Option<String>,
@@ -61,8 +71,9 @@ struct Args {
     /// grammar / scalars, re-render. Highest precedence.
     #[arg(long)]
     generator: Option<String>,
-    /// With `--catalogue <slug>`: print that entry's built [`Generator`] as
-    /// pretty JSON to stdout and exit (a valid seed file for `--generator`).
+    /// With `--catalogue <slug>` or `--avatar <seed|did>`: print that subject's
+    /// built [`Generator`] as pretty JSON to stdout and exit (a valid seed file
+    /// for `--generator`, enabling a no-recompile geometry-iteration loop).
     #[arg(long, default_value_t = false)]
     dump: bool,
     /// Primitive subject: a kind tag (`cuboid`, `sphere`, `tube`, `bevel`, …).
@@ -128,16 +139,30 @@ struct Capture {
 pub fn run() {
     let args = Args::parse();
 
-    // `--dump`: serialize a catalogue entry's generator to stdout (a valid
-    // `--generator` seed) and exit before standing up the render app.
+    // `--family-seeds <fam>`: print the first N seeds mapping to a chassis
+    // family and exit — a survey aid, never renders.
+    if let Some(fam) = &args.family_seeds {
+        print_family_seeds(fam, args.family_count);
+        return;
+    }
+
+    // `--dump`: serialize the subject's generator to stdout (a valid
+    // `--generator` seed) and exit before standing up the render app. Supports
+    // a catalogue slug or an avatar seed/DID so either can drive the fast
+    // no-recompile geometry loop.
     if args.dump {
-        let slug = args
-            .catalogue
-            .as_deref()
-            .expect("--dump requires --catalogue <slug>");
-        let entry = crate::catalogue::by_slug(slug)
-            .unwrap_or_else(|| panic!("unknown catalogue slug {slug:?}"));
-        let g = entry.build("did:render:tool");
+        let g = if let Some(slug) = args.catalogue.as_deref() {
+            crate::catalogue::by_slug(slug)
+                .unwrap_or_else(|| panic!("unknown catalogue slug {slug:?}"))
+                .build("did:render:tool")
+        } else if let Some(avatar) = args.avatar.as_deref() {
+            match avatar.parse::<u64>() {
+                Ok(seed) => build_for_seed(seed, &format!("did:render:{seed}")).0,
+                Err(_) => build_for_did(avatar).0,
+            }
+        } else {
+            panic!("--dump requires --catalogue <slug> or --avatar <seed|did>");
+        };
         println!(
             "{}",
             serde_json::to_string_pretty(&g).expect("generator serialize")
@@ -223,6 +248,27 @@ fn resolve_subject(args: &Args) -> (Subject, String) {
         Err(_) => (build_for_did(&avatar).0, avatar.replace([':', '/'], "_")),
     };
     (Subject::Single(Box::new(generator)), label)
+}
+
+/// Print the first `count` u64 seeds whose
+/// [`ChassisFamily`](crate::seeded_defaults::ChassisFamily) matches `fam`
+/// (case-insensitive `humanoid` | `boat` | `airship` | `skiff`). A survey aid
+/// for the avatar overhaul — seeds map 25 % to each family, so scanning a few
+/// thousand always finds enough.
+fn print_family_seeds(fam: &str, count: usize) {
+    use crate::seeded_defaults::ChassisFamily;
+    let want = match fam.to_lowercase().as_str() {
+        "humanoid" => ChassisFamily::Humanoid,
+        "boat" => ChassisFamily::Boat,
+        "airship" => ChassisFamily::Airship,
+        "skiff" => ChassisFamily::Skiff,
+        other => panic!("unknown family {other:?} (humanoid|boat|airship|skiff)"),
+    };
+    let seeds: Vec<u64> = (0u64..1_000_000)
+        .filter(|&s| ChassisFamily::for_seed(s) == want)
+        .take(count)
+        .collect();
+    println!("{want:?} seeds: {seeds:?}");
 }
 
 /// Resolve a primitive tag (case-insensitive) to a default kind. Wraps

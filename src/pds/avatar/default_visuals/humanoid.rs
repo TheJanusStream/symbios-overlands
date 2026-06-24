@@ -18,11 +18,12 @@
 
 use crate::pds::avatar::parts::{PartCtx, PartSlot, by_slug};
 use crate::pds::generator::Generator;
+use crate::pds::types::Fp3;
 use crate::seeded_defaults::AvatarOutfit;
 
 use super::common::{
     PfpFacing, cuboid, id_quat, offset, offset_rot, pastel, pfp_panel, prim, quat_mul, quat_x,
-    quat_xyzw, quat_z,
+    quat_xyzw, quat_z, sphere,
 };
 
 /// `seed` drives the derived look (re-roll re-seeds this); `did` is kept
@@ -45,7 +46,8 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
     let torso_r = 0.155 * w;
     let arm_r = 0.055 * limb;
     let torso_y = 0.32;
-    let head_y = 0.85;
+    // Head sits a clear neck-length above the shoulders so the neck reads.
+    let head_y = 0.90;
     let shoulder_y = 0.55;
     let shoulder_x = torso_r + arm_r + 0.02;
     let hip_x = torso_r * 0.55;
@@ -55,15 +57,28 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
     let arm_forward = 0.05;
 
     // ---- Pelvis (root) -----------------------------------------------------
+    // A small hidden structural core at the origin: the assembler mounts every
+    // other slot onto it, so the root must keep an identity transform (a root
+    // scale would stretch + fling the mounted slots). The *visible* hip is a
+    // rounded ellipsoid child (which may scale), seated low and kept just wider
+    // than the trunk so the trousered legs emerge from a rounded pelvis rather
+    // than the boxy corners of a flared slab.
     let mut root = prim(
         cuboid(
-            [torso_r * 1.9, 0.14, torso_r * 1.35],
+            [torso_r * 0.9, 0.13, torso_r * 0.8],
             ctx.materials.body(trousers),
         ),
         [0.0, 0.0, 0.0],
         id_quat(),
     );
     root.transform = Default::default();
+    let mut pelvis = prim(
+        sphere(1.0, 3, ctx.materials.body(trousers)),
+        [0.0, -0.04, 0.0],
+        id_quat(),
+    );
+    pelvis.transform.scale = Fp3([torso_r * 1.05, 0.12, torso_r * 0.92]);
+    root.children.push(pelvis);
 
     // ---- Mount each filled slot at its anchor ------------------------------
     for choice in &outfit.parts {

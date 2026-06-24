@@ -36,11 +36,33 @@
 
 use std::collections::BTreeMap;
 
-use bevy::audio::{AudioPlayer, AudioSource, PlaybackMode, PlaybackSettings, Volume};
+use bevy::audio::{AudioPlayer, AudioSource, PlaybackMode, PlaybackSettings, SpatialScale, Volume};
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
 
 use crate::pds::SovereignAudioConfig;
+
+/// Spatial-scale applied to looping construct + avatar-voice emitters. Bevy's
+/// default spatial scale is `1.0` (one world-unit = one audio-unit), under
+/// which rodio's inverse-distance falloff makes a small body's hum / shimmer
+/// near-inaudible unless the camera is almost on top of it (the "only audible
+/// when zoomed right in" report). The scale multiplies both emitter and
+/// listener positions, so shrinking it stretches the audible range
+/// proportionally — `0.25` ≈ carries ~4× farther — letting an avatar's engine
+/// hum or arcane shimmer read from a normal viewing distance. One-shot impact
+/// SFX keep the default scale (they fire right next to the listener).
+const CONSTRUCT_SPATIAL_SCALE: f32 = 0.25;
+
+/// Playback settings for a looping, spatial construct / avatar-voice emitter:
+/// Bevy's `LOOP` shape, spatialised, with the gentler [`CONSTRUCT_SPATIAL_SCALE`]
+/// so the loop carries across a normal viewing distance.
+fn looping_construct_playback() -> PlaybackSettings {
+    PlaybackSettings {
+        spatial: true,
+        spatial_scale: Some(SpatialScale::new(CONSTRUCT_SPATIAL_SCALE)),
+        ..PlaybackSettings::LOOP
+    }
+}
 
 /// How the spatial-audio bake should be attached once it completes.
 #[derive(Clone, Copy, Debug)]
@@ -137,10 +159,7 @@ fn attach_baked_audio(
     handle: Handle<AudioSource>,
 ) {
     let settings = match mode {
-        BakeAttachmentMode::LoopingConstruct => PlaybackSettings {
-            spatial: true,
-            ..PlaybackSettings::LOOP
-        },
+        BakeAttachmentMode::LoopingConstruct => looping_construct_playback(),
         BakeAttachmentMode::OneShot { volume } => PlaybackSettings {
             mode: PlaybackMode::Despawn,
             spatial: true,
@@ -229,10 +248,7 @@ pub fn dispatch_construct_audio(
                 source,
                 super::audio_resolver::AudioReferenceTarget::AttachToEntity {
                     entity: target,
-                    settings: PlaybackSettings {
-                        spatial: true,
-                        ..PlaybackSettings::LOOP
-                    },
+                    settings: looping_construct_playback(),
                 },
             );
         }
