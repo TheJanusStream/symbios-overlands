@@ -48,54 +48,6 @@ fn darken(c: [f32; 3]) -> [f32; 3] {
 // Boat
 // ---------------------------------------------------------------------------
 
-fn sleek_hull(ctx: &PartCtx) -> Generator {
-    // The sporty hover-skiff hull: a low, long ellipsoid pod with a pointed
-    // nose fairing and a glowing hover skirt — the styled sibling of the default
-    // pod, in the secondary accent. Root core is hidden; the boat assembler
-    // overwrites the root transform and mounts the cockpit / fin to it, so the
-    // shaped pod is built from scaled children.
-    let dk = |c: [f32; 3], f: f32| [c[0] * f, c[1] * f, c[2] * f];
-    let body = ctx.materials.body(ctx.palette.secondary_accent);
-    let underside = ctx.materials.metal(dk(ctx.palette.secondary_accent, 0.4));
-    let trim = ctx.materials.metal(ctx.palette.tertiary_accent);
-    let underglow = ctx.materials.glow(ctx.palette.tertiary_accent);
-
-    let mut hull = prim(
-        cuboid([0.28, 0.16, 1.1], body.clone()),
-        [0.0, 0.0, 0.0],
-        id_quat(),
-    );
-    // Low, long pod shell.
-    let mut shell = prim(sphere(0.5, 4, body.clone()), [0.0, 0.0, 0.0], id_quat());
-    shell.transform.scale = Fp3([0.52, 0.4, 1.42]);
-    hull.children.push(shell);
-    // Pointed nose fairing at the bow (+Z).
-    hull.children.push(prim(
-        cone(0.22, 0.55, 10, body.clone()),
-        [0.0, -0.02, 0.6],
-        quat_xyzw(quat_x(-FRAC_PI_2)),
-    ));
-    // Dark underbody belly.
-    let mut under = prim(sphere(0.5, 3, underside), [0.0, -0.1, 0.0], id_quat());
-    under.transform.scale = Fp3([0.46, 0.34, 1.3]);
-    hull.children.push(under);
-    // Glowing hover skirt.
-    hull.children.push(prim(
-        cuboid([0.42, 0.04, 1.05], underglow),
-        [0.0, -0.24, 0.0],
-        id_quat(),
-    ));
-    // Flank strakes.
-    for s in [-1.0f32, 1.0] {
-        hull.children.push(prim(
-            cuboid([0.02, 0.03, 1.0], trim.clone()),
-            [s * 0.27, 0.02, 0.0],
-            id_quat(),
-        ));
-    }
-    hull
-}
-
 fn bow_ram(ctx: &PartCtx) -> Generator {
     // A forward-pointing ram cone (apex along +Z).
     prim(
@@ -277,16 +229,6 @@ fn neon_strip(ctx: &PartCtx) -> Generator {
 // Registry
 // ---------------------------------------------------------------------------
 
-static SLEEK_HULL: PartDef = PartDef {
-    slug: "boat_hull_sleek",
-    name: "Sleek Hull",
-    slot: PartSlot::Hull,
-    chassis: BOAT,
-    styles: NEON,
-    ornateness: OrnatenessBand::ANY,
-    wear: WearBand::ANY,
-    build: sleek_hull,
-};
 static BOW_RAM: PartDef = PartDef {
     slug: "boat_bow_ram",
     name: "Ram Prow",
@@ -370,7 +312,6 @@ static NEON_STRIP: PartDef = PartDef {
 
 /// Every styled vehicle part.
 pub(super) static ENTRIES: &[&dyn super::BodyPart] = &[
-    &SLEEK_HULL,
     &BOW_RAM,
     &BOW_FIGUREHEAD,
     &FUNNEL,

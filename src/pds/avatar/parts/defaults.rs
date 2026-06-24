@@ -31,10 +31,11 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::pds::avatar::default_visuals::common::{
-    capsule, cuboid, cylinder, id_quat, prim, quat_mul, quat_x, quat_xyzw, quat_z, sphere, torus,
-    with_cut, with_torture,
+    capsule, cone, cuboid, cylinder, id_quat, prim, quat_mul, quat_x, quat_xyzw, quat_z, sphere,
+    torus, with_cut, with_torture,
 };
 use crate::pds::generator::Generator;
+use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::types::Fp3;
 use crate::seeded_defaults::ChassisFamily;
 
@@ -530,44 +531,266 @@ fn leg(ctx: &PartCtx) -> Generator {
 // Boat
 // ---------------------------------------------------------------------------
 
-fn hull(ctx: &PartCtx) -> Generator {
-    let body = ctx.materials.body(ctx.palette.primary_accent);
-    let underside = ctx.materials.metal(shade(ctx.palette.primary_accent, 0.4));
-    let trim = ctx.materials.metal(ctx.palette.secondary_accent);
-    let underglow = ctx.materials.glow(ctx.palette.tertiary_accent);
-
-    // Tiny structural core at the origin (hidden inside the shell). The root
-    // can't be scaled — the assembler mounts the cockpit / fin to it and
-    // overwrites its transform — so the sleek pod is a scaled-ellipsoid child.
-    let mut hull = prim(
-        cuboid([0.3, 0.16, 1.0], body.clone()),
+/// A hidden structural core for a boat hull at the waterline origin. The boat
+/// assembler overwrites the root transform (travel yaw + hover drop) and mounts
+/// the deck / mast / bow to it, so the root must stay an **unscaled** cuboid;
+/// the visible hull is built from its children.
+fn boat_root(body: &SovereignMaterialSettings) -> Generator {
+    prim(
+        cuboid([0.2, 0.14, 0.9], body.clone()),
         [0.0, 0.0, 0.0],
         id_quat(),
-    );
-    // Sleek pod shell: a rounded, voluminous ellipsoid (rounded nose + tail),
-    // widest amidships — chunky enough to read as a body, not a surfboard.
-    let mut shell = prim(sphere(0.5, 4, body.clone()), [0.0, 0.0, 0.0], id_quat());
-    shell.transform.scale = Fp3([0.56, 0.46, 1.22]);
-    hull.children.push(shell);
-    // Darker underbody ellipsoid protruding below the shell as a keel belly.
-    let mut under = prim(sphere(0.5, 3, underside), [0.0, -0.1, 0.0], id_quat());
-    under.transform.scale = Fp3([0.5, 0.4, 1.12]);
-    hull.children.push(under);
-    // Glowing hover skirt — an emissive pad under the craft (the underglow).
-    hull.children.push(prim(
-        cuboid([0.44, 0.04, 1.0], underglow),
-        [0.0, -0.27, 0.0],
+    )
+}
+
+/// Placement + dimensions for one boat hull built by [`boat_hull_body`].
+#[derive(Clone, Copy)]
+struct HullSpec {
+    /// Lateral offset of this hull from the centreline.
+    x: f32,
+    /// Beam (full width).
+    beam: f32,
+    /// Overall hull length.
+    length: f32,
+    /// Above-waterline height (freeboard).
+    freeboard: f32,
+}
+
+/// Build one boat hull into `parent` at the spec's lateral offset: an
+/// above-waterline topsides box, a pointed cone prow at the bow (+Z) flattened
+/// to the hull's section, a dark below-waterline belly, and a waterline boot
+/// stripe. Shared by the monohull, the catamaran's two pontoons, and the
+/// trimaran's hulls so every form reads as the same vessel, just arranged
+/// differently.
+fn boat_hull_body(
+    parent: &mut Generator,
+    body: &SovereignMaterialSettings,
+    below: &SovereignMaterialSettings,
+    stripe: &SovereignMaterialSettings,
+    spec: HullSpec,
+) {
+    let HullSpec {
+        x,
+        beam,
+        length,
+        freeboard,
+    } = spec;
+    // A short aft topsides box leaves the forward ~40 % of the hull to the prow,
+    // so the pointed bow — not a flat full-beam box wall — is what's seen
+    // head-on. A gentle flare (negative taper) keeps the deck off a plain slab.
+    let box_len = length * 0.58;
+    let z_off = -length * 0.12;
+    parent.children.push(prim(
+        with_torture(
+            cuboid([beam, freeboard, box_len], body.clone()),
+            0.0,
+            -0.1,
+            [0.0, 0.0, 0.0],
+        ),
+        [x, freeboard * 0.15, z_off],
         id_quat(),
     ));
-    // Accent strake along each flank.
+    // Pointed cone prow (apex +Z) forming the forward hull: its base meets the
+    // box front (a touch wider, so it caps the box rather than leaving a flat
+    // wall) and it tapers to the bow tip, so the craft reads pointed from
+    // head-on. quat_x(+90°) sends the cone apex (+Y) to +Z; the node Z-scale
+    // squashes the round section to the hull's freeboard.
+    let mut prow = prim(
+        cone(beam * 0.52, length * 0.52, 14, body.clone()),
+        [x, freeboard * 0.22, length * 0.43],
+        quat_xyzw(quat_x(FRAC_PI_2)),
+    );
+    prow.transform.scale = Fp3([0.96, 1.0, freeboard / (beam * 1.04)]);
+    parent.children.push(prow);
+    // Dark below-waterline belly — a shallow V-keel (negative taper flares the
+    // waterline + narrows the keel) so the underbody reads as a hull bottom,
+    // not a flat skid plate.
+    parent.children.push(prim(
+        with_torture(
+            cuboid([beam * 0.8, freeboard * 0.78, box_len], below.clone()),
+            0.0,
+            -0.35,
+            [0.0, 0.0, 0.0],
+        ),
+        [x, -freeboard * 0.42, z_off],
+        id_quat(),
+    ));
+    // Waterline boot stripe down each flank.
     for s in [-1.0f32, 1.0] {
-        hull.children.push(prim(
-            cuboid([0.02, 0.03, 0.95], trim.clone()),
-            [s * 0.29, 0.04, 0.0],
+        parent.children.push(prim(
+            cuboid([0.016, freeboard * 0.18, box_len * 0.85], stripe.clone()),
+            [x + s * beam * 0.5, -freeboard * 0.05, z_off],
             id_quat(),
         ));
     }
-    hull
+}
+
+fn hull(ctx: &PartCtx) -> Generator {
+    // Monohull — a single sleek launch hull with gunwale rails.
+    let body = ctx.materials.body(ctx.palette.primary_accent);
+    let below = ctx.materials.metal(shade(ctx.palette.primary_accent, 0.4));
+    let stripe = ctx.materials.accent(ctx.palette.secondary_accent);
+    let rail = ctx.materials.metal(ctx.palette.tertiary_accent);
+
+    let mut root = boat_root(&body);
+    boat_hull_body(
+        &mut root,
+        &body,
+        &below,
+        &stripe,
+        HullSpec {
+            x: 0.0,
+            beam: 0.5,
+            length: 1.32,
+            freeboard: 0.26,
+        },
+    );
+    // Gunwale rails along each deck edge.
+    for s in [-1.0f32, 1.0] {
+        root.children.push(prim(
+            cuboid([0.03, 0.035, 0.98], rail.clone()),
+            [s * 0.24, 0.17, -0.06],
+            id_quat(),
+        ));
+    }
+    root
+}
+
+fn hull_catamaran(ctx: &PartCtx) -> Generator {
+    // Catamaran — two slim pontoon hulls under a connecting deck bridge.
+    let body = ctx.materials.body(ctx.palette.primary_accent);
+    let below = ctx.materials.metal(shade(ctx.palette.primary_accent, 0.4));
+    let stripe = ctx.materials.accent(ctx.palette.secondary_accent);
+    let bridge = ctx.materials.body(shade(ctx.palette.primary_accent, 0.8));
+
+    let mut root = boat_root(&body);
+    // Two slim pontoon hulls set well apart so the twin-hull tunnel reads.
+    for s in [-1.0f32, 1.0] {
+        boat_hull_body(
+            &mut root,
+            &body,
+            &below,
+            &stripe,
+            HullSpec {
+                x: s * 0.33,
+                beam: 0.24,
+                length: 1.24,
+                freeboard: 0.2,
+            },
+        );
+    }
+    // An *open* bridge — a narrow centre deck spanning the tunnel plus two
+    // cross-beams reaching the outer hulls — rather than a slab that buries the
+    // catamaran's defining gap.
+    root.children.push(prim(
+        cuboid([0.34, 0.07, 0.62], bridge.clone()),
+        [0.0, 0.13, -0.05],
+        id_quat(),
+    ));
+    for z in [0.3f32, -0.4] {
+        root.children.push(prim(
+            cuboid([0.72, 0.05, 0.09], bridge.clone()),
+            [0.0, 0.1, z],
+            id_quat(),
+        ));
+    }
+    root
+}
+
+fn hull_trimaran(ctx: &PartCtx) -> Generator {
+    // Trimaran — a central main hull flanked by two small outrigger amas on
+    // cross-beams.
+    let body = ctx.materials.body(ctx.palette.primary_accent);
+    let below = ctx.materials.metal(shade(ctx.palette.primary_accent, 0.4));
+    let stripe = ctx.materials.accent(ctx.palette.secondary_accent);
+    let beam_mat = ctx.materials.metal(ctx.palette.tertiary_accent);
+
+    let mut root = boat_root(&body);
+    boat_hull_body(
+        &mut root,
+        &body,
+        &below,
+        &stripe,
+        HullSpec {
+            x: 0.0,
+            beam: 0.42,
+            length: 1.32,
+            freeboard: 0.26,
+        },
+    );
+    for s in [-1.0f32, 1.0] {
+        boat_hull_body(
+            &mut root,
+            &body,
+            &below,
+            &stripe,
+            HullSpec {
+                x: s * 0.44,
+                beam: 0.14,
+                length: 0.82,
+                freeboard: 0.13,
+            },
+        );
+        // Cross-beam (aka) tying the ama to the main hull.
+        root.children.push(prim(
+            cuboid([0.4, 0.04, 0.08], beam_mat.clone()),
+            [s * 0.24, 0.1, 0.06],
+            id_quat(),
+        ));
+    }
+    root
+}
+
+fn hull_barge(ctx: &PartCtx) -> Generator {
+    // Barge — a wide, flat, boxy hull with raked punt ends and gunwale walls.
+    let body = ctx.materials.body(ctx.palette.primary_accent);
+    let below = ctx.materials.metal(shade(ctx.palette.primary_accent, 0.4));
+    let wall = ctx.materials.body(shade(ctx.palette.primary_accent, 0.85));
+    let rail = ctx.materials.metal(ctx.palette.secondary_accent);
+
+    let mut root = boat_root(&body);
+    // Wide flat hull box.
+    root.children.push(prim(
+        cuboid([0.72, 0.22, 1.2], body.clone()),
+        [0.0, 0.03, 0.0],
+        id_quat(),
+    ));
+    // Dark flat bottom.
+    root.children.push(prim(
+        cuboid([0.66, 0.1, 1.12], below.clone()),
+        [0.0, -0.12, 0.0],
+        id_quat(),
+    ));
+    // Raked punt ends (bow lifts forward, stern lifts aft).
+    for (z, ang) in [(0.66f32, -0.5f32), (-0.62, 0.5)] {
+        root.children.push(prim(
+            cuboid([0.7, 0.04, 0.34], body.clone()),
+            [0.0, 0.08, z],
+            quat_xyzw(quat_x(ang)),
+        ));
+    }
+    // Gunwale walls around the deck perimeter.
+    for s in [-1.0f32, 1.0] {
+        root.children.push(prim(
+            cuboid([0.04, 0.1, 1.16], wall.clone()),
+            [s * 0.34, 0.13, 0.0],
+            id_quat(),
+        ));
+    }
+    root.children.push(prim(
+        cuboid([0.66, 0.1, 0.04], wall),
+        [0.0, 0.13, -0.6],
+        id_quat(),
+    ));
+    // Rubbing rail down each flank.
+    for s in [-1.0f32, 1.0] {
+        root.children.push(prim(
+            cuboid([0.03, 0.04, 1.18], rail.clone()),
+            [s * 0.37, 0.04, 0.0],
+            id_quat(),
+        ));
+    }
+    root
 }
 
 fn deck(ctx: &PartCtx) -> Generator {
@@ -608,28 +831,25 @@ fn deck(ctx: &PartCtx) -> Generator {
 }
 
 fn mast(ctx: &PartCtx) -> Generator {
-    // The Boat 'Mast' slot, reinterpreted for the hover-skiff as a swept dorsal
-    // tail fin. The assembler mounts this at the deck centre, so the fin is
-    // pushed aft to rise from the stern.
-    let fin = ctx.materials.body(ctx.palette.primary_accent);
-    let edge = ctx.materials.glow(ctx.palette.tertiary_accent);
+    // A short boat mast: a slightly aft-raked pole rising from the deck pivot
+    // (origin) with a spreader crossbar and a masthead nav light.
+    let pole = ctx.materials.metal(ctx.palette.secondary_accent);
+    let light = ctx.materials.glow(ctx.palette.tertiary_accent);
 
     let mut root = prim(
-        with_torture(
-            cuboid([0.04, 0.42, 0.46], fin.clone()),
-            0.0,
-            0.55,
-            [0.0, 0.0, -0.4],
-        ),
-        [0.0, 0.12, -0.42],
-        id_quat(),
+        cylinder(0.018, 0.42, 8, pole.clone()),
+        [0.0, 0.21, 0.0],
+        quat_xyzw(quat_x(-0.05)),
     );
-    // Glowing trailing edge down the back of the fin.
+    // Spreader crossbar near the top.
     root.children.push(prim(
-        cuboid([0.05, 0.32, 0.04], edge),
-        [0.0, -0.04, -0.2],
+        cuboid([0.26, 0.02, 0.02], pole),
+        [0.0, 0.12, 0.0],
         id_quat(),
     ));
+    // Masthead nav light.
+    root.children
+        .push(prim(sphere(0.03, 2, light), [0.0, 0.23, 0.0], id_quat()));
     root
 }
 
@@ -912,10 +1132,31 @@ static LEG: FnPart = FnPart {
 };
 static HULL: FnPart = FnPart {
     slug: "default_hull",
-    name: "Plain Hull",
+    name: "Monohull",
     slot: PartSlot::Hull,
     chassis: BOAT,
     build: hull,
+};
+static HULL_CATAMARAN: FnPart = FnPart {
+    slug: "default_hull_catamaran",
+    name: "Catamaran",
+    slot: PartSlot::Hull,
+    chassis: BOAT,
+    build: hull_catamaran,
+};
+static HULL_TRIMARAN: FnPart = FnPart {
+    slug: "default_hull_trimaran",
+    name: "Trimaran",
+    slot: PartSlot::Hull,
+    chassis: BOAT,
+    build: hull_trimaran,
+};
+static HULL_BARGE: FnPart = FnPart {
+    slug: "default_hull_barge",
+    name: "Barge",
+    slot: PartSlot::Hull,
+    chassis: BOAT,
+    build: hull_barge,
 };
 static DECK: FnPart = FnPart {
     slug: "default_deck",
@@ -976,8 +1217,23 @@ static WHEEL: FnPart = FnPart {
 
 /// Every universal default part, in slot order per chassis.
 pub(super) static ENTRIES: &[&dyn BodyPart] = &[
-    &HEAD, &TORSO, &COAT, &ARM, &LEG, &HULL, &DECK, &MAST, &ENVELOPE, &GONDOLA, &FIN, &CHASSIS,
-    &CANOPY, &WHEEL,
+    &HEAD,
+    &TORSO,
+    &COAT,
+    &ARM,
+    &LEG,
+    &HULL,
+    &HULL_CATAMARAN,
+    &HULL_TRIMARAN,
+    &HULL_BARGE,
+    &DECK,
+    &MAST,
+    &ENVELOPE,
+    &GONDOLA,
+    &FIN,
+    &CHASSIS,
+    &CANOPY,
+    &WHEEL,
 ];
 
 // ---------------------------------------------------------------------------

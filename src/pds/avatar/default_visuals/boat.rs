@@ -37,29 +37,29 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
         match choice.slot {
             PartSlot::Deck => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.21, 0.0])),
+                .push(offset(part.build(&ctx), [0.0, 0.13, 0.0])),
             PartSlot::Mast => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.27, 0.0])),
+                .push(offset(part.build(&ctx), [0.0, 0.13, -0.05])),
             PartSlot::Bow => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.04, 0.52])),
+                .push(offset(part.build(&ctx), [0.0, 0.1, 0.78])),
             PartSlot::Stack => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.04, -0.5])),
+                .push(offset(part.build(&ctx), [0.0, 0.08, -0.56])),
             PartSlot::Ornament => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.2, 0.15])),
+                .push(offset(part.build(&ctx), [0.0, 0.18, 0.1])),
             _ => {}
         }
     }
 
     // pfp identity worn as a livery decal on the hull flank (normal ±X), since
-    // the hover-skiff carries no sail to fly a crest from.
+    // the boat carries no large sail to fly a crest from.
     root.children.push(pfp_panel(
         did,
-        0.22,
-        [0.32, 0.05, 0.05],
+        0.2,
+        [0.27, 0.06, 0.0],
         pastel(ctx.palette.primary_accent),
         PfpFacing::Side,
     ));
