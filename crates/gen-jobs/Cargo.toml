@@ -1,0 +1,19 @@
+[package]
+name = "gen-jobs"
+version = "0.1.0"
+edition = "2021"
+description = "Platform-agnostic, serialisable CPU generation jobs shared by the Symbios Overlands app (native AsyncComputeTaskPool backend) and the wasm Web Worker. Depends only on the Bevy-free symbios-ground core so the worker stays slim."
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+symbios-ground = "0.3"
+serde = { version = "1", features = ["derive"] }
+
+# `symbios-ground` pulls `rand` (default features) -> `getrandom` 0.3, which on
+# wasm needs the `wasm_js` backend feature to compile (it is dead-stripped here
+# since only seeded `rand_pcg` is used). In the full app `wasm-bindgen` enables
+# this; for standalone builds (the slim worker) we enable it directly.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }

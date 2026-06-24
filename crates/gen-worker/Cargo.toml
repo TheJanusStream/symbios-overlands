@@ -1,0 +1,27 @@
+[package]
+name = "gen-worker"
+version = "0.1.0"
+edition = "2021"
+description = "WASM Web Worker that runs Symbios Overlands gen-jobs off the main thread. Compiled to a separate slim .wasm (no Bevy) via wasm-bindgen. The library exposes the worker type for the app to spawn; the binary registers it as the worker entry point."
+
+[lib]
+crate-type = ["rlib"]
+
+[[bin]]
+name = "gen-worker"
+path = "src/main.rs"
+
+[dependencies]
+gen-jobs = { path = "../gen-jobs" }
+
+# Worker plumbing is wasm-only, so the native workspace build (and the app's
+# native build, which depends on this crate only on wasm) never pulls gloo /
+# web-sys. On native the lib + bin compile to near-nothing.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# `futures` enables the `#[oneshot]` worker macro (off by default).
+gloo-worker = { version = "0.6", features = ["futures"] }
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1"
+# Belt-and-suspenders: gen-jobs already enables this on wasm, but the worker is
+# also built standalone, where getrandom 0.3 needs a backend to compile.
+getrandom = { version = "0.3", features = ["wasm_js"] }

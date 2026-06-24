@@ -72,8 +72,12 @@ pub struct WaterVolume;
 #[derive(Resource)]
 pub struct FinishedHeightMap(pub HeightMap);
 
+/// The in-flight terrain generation, dispatched through [`crate::offload`]
+/// (native: `AsyncComputeTaskPool`; wasm: its task pool / Web Worker). Carries
+/// the platform-agnostic [`crate::offload::GenResult`] which `poll_terrain_task`
+/// turns back into a [`HeightMap`].
 #[derive(Resource)]
-pub struct TerrainTask(pub bevy::tasks::Task<HeightMap>);
+pub struct TerrainTask(pub bevy::tasks::Task<crate::offload::GenResult>);
 
 /// Marker on the PendingTexture entity; value = layer index (0–3).
 #[derive(Component)]

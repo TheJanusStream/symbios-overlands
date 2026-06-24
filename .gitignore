@@ -1,4 +1,6 @@
 /target
+# Workspace members keep their build output here too; ignore at any depth.
+target/
 **/*.rs.bk
 /.claude
 /.chainlink

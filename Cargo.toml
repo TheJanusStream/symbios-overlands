@@ -3,6 +3,12 @@ name = "symbios-overlands"
 version = "0.4.0"
 edition = "2024"
 
+# The app is the workspace root; `crates/*` hold the compute-offload crates
+# shared with the wasm Web Worker (see crates/gen-jobs). Keeping them in one
+# workspace gives a shared lockfile, target dir, and feature unification.
+[workspace]
+members = ["crates/gen-jobs", "crates/gen-worker"]
+
 [dependencies]
 bevy = "0.18"
 bevy_egui = "0.39"
@@ -19,6 +25,7 @@ symbios-turtle-3d = "0.5"
 symbios-shape = "0.2"
 bevy_symbios_shape = "0.2"
 symbios-tensor = "0.2"
+gen-jobs = { path = "crates/gen-jobs" }
 avian3d = "0.6"
 serde = { version = "1.0", features = ["derive"] }
 image = "0.25"
@@ -63,8 +70,14 @@ web-sys = { version = "0.3", features = [
     "History",
 ] }
 wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 gloo-timers = { version = "0.3", features = ["futures"] }
+futures-channel = "0.3"
+# `gloo-worker` is a direct dep so the `Spawnable` trait is in scope to spawn
+# the worker; the worker type + impl live in `gen-worker` (slim, no Bevy).
+gloo-worker = "0.6"
+gen-worker = { path = "crates/gen-worker" }
 
 [profile.release]
 opt-level = "s"   # Optimize for size (helps wasm-bindgen)

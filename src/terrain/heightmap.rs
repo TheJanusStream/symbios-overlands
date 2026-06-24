@@ -4,14 +4,12 @@ use avian3d::prelude::*;
 use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy::tasks::AsyncComputeTaskPool;
-use bevy_symbios_ground::ThermalErosion;
 use bevy_symbios_ground::{
-    DiamondSquare, FbmNoise, HeightMap, HeightMapMeshBuilder, HydraulicErosion, NormalMethod,
-    TerrainGenerator, VoronoiTerracing, build_heightfield_collider,
+    HeightMap, HeightMapMeshBuilder, NormalMethod, build_heightfield_collider,
 };
 
 use crate::config::terrain as tcfg;
+use crate::offload::{GenJob, GenResult};
 use crate::pds::{SovereignGeneratorKind, SovereignTerrainConfig};
 use crate::splat::{SplatExtension, SplatTerrainMaterial, SplatUniforms};
 use crate::state::LiveRoomRecord;
@@ -27,20 +25,25 @@ pub(super) fn start_terrain_generation(mut commands: Commands, record: Res<LiveR
         .cloned()
         .unwrap_or_default();
 
-    let pool = AsyncComputeTaskPool::get();
     // The heightmap is the only product of this task. Roads are re-meshed
     // separately by `roads::maybe_rebuild_roads`, which drapes over the
     // finished heightmap and reacts to road-config edits without a regen.
-    let task = pool.spawn(async move { generate_terrain(&cfg) });
+    // Dispatched through `offload` so the heavy noise + erosion run off the
+    // schedule (native: AsyncComputeTaskPool; wasm: task pool / Web Worker).
+    let task = crate::offload::offload(GenJob::Heightmap(heightmap_params(&cfg)));
     commands.insert_resource(TerrainTask(task));
 }
 
 pub(super) fn poll_terrain_task(mut commands: Commands, mut task_res: ResMut<TerrainTask>) {
-    if let Some(hm) =
+    if let Some(result) =
         futures_lite::future::block_on(futures_lite::future::poll_once(&mut task_res.0))
     {
         commands.remove_resource::<TerrainTask>();
-        commands.insert_resource(FinishedHeightMap(hm));
+        match result {
+            GenResult::Heightmap(data) => {
+                commands.insert_resource(FinishedHeightMap(heightmap_from_data(data)));
+            }
+        }
     }
 }
 
@@ -147,67 +150,45 @@ pub(super) fn spawn_terrain_mesh(
     // spawned by the `world_builder` module from the active record's `Water`.
 }
 
-/// Generate the heightmap for `cfg` — runs on the async compute pool.
-fn generate_terrain(cfg: &SovereignTerrainConfig) -> HeightMap {
-    let grid = (cfg.grid_size as usize).max(2);
-    let mut hm = HeightMap::new(grid, grid, cfg.cell_scale.0.max(0.01));
-
-    // Dispatch on the requested algorithm; each generator is reproducible
-    // from `cfg.seed` alone, which is the same across every visiting peer.
-    match cfg.generator_kind {
-        SovereignGeneratorKind::FbmNoise => {
-            let fbm = FbmNoise {
-                seed: cfg.seed,
-                octaves: cfg.octaves.clamp(1, 32),
-                persistence: cfg.persistence.0,
-                lacunarity: cfg.lacunarity.0,
-                base_frequency: cfg.base_frequency.0,
-            };
-            fbm.generate(&mut hm);
-            hm.normalize();
-        }
-        SovereignGeneratorKind::DiamondSquare => {
-            DiamondSquare::new(cfg.seed, cfg.ds_roughness.0).generate(&mut hm);
-            hm.normalize();
-        }
-        SovereignGeneratorKind::VoronoiTerracing => {
-            VoronoiTerracing::new(
-                cfg.seed,
-                cfg.voronoi_num_seeds.max(1) as usize,
-                cfg.voronoi_num_terraces.max(1) as usize,
-            )
-            .generate(&mut hm);
-            // Voronoi already emits bounded [0, 1] output.
-        }
+/// Distil the app's terrain config into the platform-agnostic
+/// [`gen_jobs::HeightmapParams`] the offload layer runs. The generation itself
+/// lives in the Bevy-free [`gen_jobs`] crate so native and the wasm Web Worker
+/// share one (deterministic) implementation.
+fn heightmap_params(cfg: &SovereignTerrainConfig) -> gen_jobs::HeightmapParams {
+    use gen_jobs::GeneratorKind;
+    gen_jobs::HeightmapParams {
+        grid_size: cfg.grid_size,
+        cell_scale: cfg.cell_scale.0,
+        height_scale: cfg.height_scale.0,
+        generator_kind: match cfg.generator_kind {
+            SovereignGeneratorKind::FbmNoise => GeneratorKind::FbmNoise,
+            SovereignGeneratorKind::DiamondSquare => GeneratorKind::DiamondSquare,
+            SovereignGeneratorKind::VoronoiTerracing => GeneratorKind::VoronoiTerracing,
+        },
+        seed: cfg.seed,
+        octaves: cfg.octaves,
+        persistence: cfg.persistence.0,
+        lacunarity: cfg.lacunarity.0,
+        base_frequency: cfg.base_frequency.0,
+        ds_roughness: cfg.ds_roughness.0,
+        voronoi_num_seeds: cfg.voronoi_num_seeds,
+        voronoi_num_terraces: cfg.voronoi_num_terraces,
+        erosion_enabled: cfg.erosion_enabled,
+        erosion_drops: cfg.erosion_drops,
+        inertia: cfg.inertia.0,
+        erosion_rate: cfg.erosion_rate.0,
+        deposition_rate: cfg.deposition_rate.0,
+        evaporation_rate: cfg.evaporation_rate.0,
+        capacity_factor: cfg.capacity_factor.0,
+        thermal_enabled: cfg.thermal_enabled,
+        thermal_iterations: cfg.thermal_iterations,
+        thermal_talus_angle: cfg.thermal_talus_angle.0,
     }
+}
 
-    for v in hm.data_mut() {
-        *v *= cfg.height_scale.0;
-    }
-
-    if cfg.erosion_enabled {
-        HydraulicErosion {
-            seed: cfg.seed,
-            num_drops: cfg.erosion_drops,
-            max_steps: tcfg::hydraulic::MAX_STEPS,
-            inertia: cfg.inertia.0,
-            erosion_rate: cfg.erosion_rate.0,
-            deposition_rate: cfg.deposition_rate.0,
-            evaporation_rate: cfg.evaporation_rate.0,
-            capacity_factor: cfg.capacity_factor.0,
-            min_slope: tcfg::hydraulic::MIN_SLOPE,
-            water_level: tcfg::hydraulic::WATER_LEVEL,
-            ..HydraulicErosion::new(cfg.seed)
-        }
-        .erode(&mut hm);
-    }
-
-    if cfg.thermal_enabled {
-        ThermalErosion::new()
-            .with_iterations(cfg.thermal_iterations)
-            .with_talus_angle(cfg.thermal_talus_angle.0)
-            .erode(&mut hm);
-    }
-
+/// Rebuild a [`HeightMap`] from the plain data returned by the offload job.
+fn heightmap_from_data(d: gen_jobs::HeightmapData) -> HeightMap {
+    let mut hm = HeightMap::new(d.width as usize, d.height as usize, d.scale);
+    hm.data_mut().copy_from_slice(&d.data);
     hm
 }

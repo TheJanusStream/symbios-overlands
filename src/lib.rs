@@ -45,6 +45,7 @@ pub mod loading;
 pub mod logout;
 pub mod network;
 pub mod oauth;
+pub mod offload;
 pub mod pds;
 pub mod player;
 pub mod protocol;
