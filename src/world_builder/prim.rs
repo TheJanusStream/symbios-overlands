@@ -202,9 +202,19 @@ fn base_primitive_mesh(kind: &GeneratorKind) -> Mesh {
             } else {
                 use std::f32::consts::TAU;
                 let (maj0, maj1) = path_cut_angles(torture);
+                // Profile-cut convention for a torus: the band endpoints `0.0`
+                // and `1.0` sit on the **top flat pole** of the tube cross-section
+                // (`+Y`, the donut's broad face), not on the outer perimeter. So a
+                // `[0.0, 0.5]` band keeps the inner-radius half (toward the major
+                // axis) and `[0.5, 1.0]` keeps the outer-radius half — letting a
+                // single profile-cut remove the inner half of a ring (e.g. a
+                // wheel-fender hugging only the outer tread). The `+TAU/4` phase
+                // rotates the band start from the outer equator (the bare-sweep
+                // zero) to that top pole.
+                let phase = TAU / 4.0;
                 let (min0, min1) = (
-                    torture.profile_cut.0[0] * TAU,
-                    torture.profile_cut.0[1] * TAU,
+                    torture.profile_cut.0[0] * TAU + phase,
+                    torture.profile_cut.0[1] * TAU + phase,
                 );
                 build_torus(
                     major_radius.0,

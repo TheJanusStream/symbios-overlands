@@ -194,6 +194,28 @@ pub(crate) fn with_torture(
     kind
 }
 
+/// Per-axis shaping for box bodies — [`with_torture`]'s sibling for when the
+/// X and Z taper differ (a cabin greenhouse that narrows more across than
+/// fore-aft) or a top-shear lean is wanted. `taper` scales `[x, z]` toward the
+/// top (`1 - taper·t`, so `0.0` = straight, positive draws the top in,
+/// negative flares it); `bend` is the quadratic top displacement; `shear`
+/// slides the top linearly in `[x, z]` (a parallelepiped, edges stay straight).
+/// On an 8-corner cuboid this turns the box into a frustum / wedge / leaning
+/// prism — the cheapest de-blocking deform. Non-primitive kinds pass through.
+pub(crate) fn with_shape(
+    mut kind: GeneratorKind,
+    taper: [f32; 2],
+    bend: [f32; 3],
+    shear: [f32; 2],
+) -> GeneratorKind {
+    if let Some(t) = kind.torture_mut() {
+        t.taper = Fp2(taper);
+        t.bend = Fp3(bend);
+        t.shear = Fp2(shear);
+    }
+    kind
+}
+
 /// Stamp the SL-style topology cuts onto a swept primitive (Sphere / Cylinder /
 /// Cone / Torus / Tube): `path_cut` (`[begin, end]` kept angular fraction),
 /// `profile_cut` (`[begin, end]` kept latitude band — domes / bowls), and

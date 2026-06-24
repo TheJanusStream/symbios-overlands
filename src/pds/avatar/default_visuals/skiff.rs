@@ -63,13 +63,17 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
         }
     }
 
-    // pfp identity worn as a door decal flush on the chassis flank (±X).
+    // pfp identity worn as a front-facing badge on the hood nose (above the
+    // grille, between the headlights), where a racing number / marque emblem
+    // sits — far more visible than the old flank door-decal. Authored at +Z
+    // (the front), so the 180° yaw below lands it facing the camera's front
+    // tile.
     root.children.push(pfp_panel(
         did,
-        0.22,
-        [0.41, 0.05, 0.1],
+        0.18,
+        [0.0, 0.11, 0.78],
         pastel(ctx.palette.primary_accent),
-        PfpFacing::Side,
+        PfpFacing::Front,
     ));
 
     // Vehicles travel toward local -Z (`Transform::forward`), but the parts
