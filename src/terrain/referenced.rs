@@ -2,8 +2,9 @@
 //! ATProto-blob fetch path that overrides a procedural placeholder
 //! layer with explicit image bytes once they arrive.
 
+use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
-use bevy_symbios_texture::{TextureMap, map_to_images};
+use bevy_symbios_texture::{TextureMap, map_to_images_with_usages};
 
 use crate::pds::SovereignAssetReference;
 use crate::world_builder::blob_fetch;
@@ -89,7 +90,7 @@ enum SplatFetchRequest {
 /// Drain finished splat-layer fetches: decode the bytes, resize to the
 /// room's authored `texture_size`, wrap as a [`TextureMap`] with flat
 /// normal + neutral roughness fillers, and upload via
-/// [`bevy_symbios_texture::map_to_images`] so the result carries the
+/// [`map_to_images_with_usages`] so the result carries the
 /// same mip chain + repeat sampler shape as procedural layers. The
 /// resolved albedo handle overrides [`TerrainSplatState::layer_albedo`]
 /// for the layer index, and `state.applied` is flipped to `false` so
@@ -142,7 +143,7 @@ pub(super) fn poll_splat_layer_fetches(
 /// Decode `bytes` via the `image` crate, resize to
 /// `texture_size × texture_size`, and turn the result into a
 /// [`TextureMap`] with flat normal + neutral roughness fillers so
-/// [`map_to_images`] produces the same shape (Rgba8 sRGB albedo +
+/// [`map_to_images_with_usages`] produces the same shape (Rgba8 sRGB albedo +
 /// Rgba8 normal + Rgba8 ORM, mipchain, repeat sampler) the procedural
 /// pipeline yields. Returns `None` on any decode failure.
 fn decode_and_upload_splat_layer(
@@ -177,13 +178,20 @@ fn decode_and_upload_splat_layer(
         normal,
         roughness,
         // No glow layer on a decoded splat image, and the base level is the
-        // only level we synthesise — `map_to_images` mip-chains it on upload.
+        // only level we synthesise — the upload mip-chains it.
         emissive: None,
         mip_level_count: 1,
         width: texture_size,
         height: texture_size,
     };
-    Some(map_to_images(map, images))
+    // `MAIN_WORLD`-only, like the procedural splat layers: this image is read
+    // back on the CPU by `build_texture_array`, never bound to a material, so
+    // skip the GPU upload and keep `Image::data` resident.
+    Some(map_to_images_with_usages(
+        map,
+        RenderAssetUsages::MAIN_WORLD,
+        images,
+    ))
 }
 
 #[cfg(test)]

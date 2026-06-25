@@ -256,6 +256,16 @@ pub(super) fn compile_room_record(
             .shape_mesh
             .entries
             .retain(|k, _| job.touched.shape_mesh.contains(k));
+        // The upstream `ShapeMeshCache` is keyed by float-exact terminal
+        // footprint, has no eviction, and (unlike the caches above) exposes no
+        // per-key retain — so a slider drag mints a fresh `Handle<Mesh>` per
+        // distinct footprint that is otherwise pinned for the whole session,
+        // an unbounded leak. It is only a derivation-time dedup accelerator:
+        // every mesh it holds is also kept alive by the spawned entities and
+        // the local `shape_mesh` cache's instances, so clearing it on each full
+        // rebuild frees the orphaned footprints without touching live geometry
+        // (a re-edited generator simply re-bakes its terminals on the next miss).
+        generator_caches.upstream_shape_mesh.clear();
     }
 
     let line = format!(

@@ -395,7 +395,9 @@ fn construct_bake_job(audio: &SovereignAudioConfig) -> Option<gen_jobs::AudioBak
         | SovereignAudioConfig::Referenced { .. } => None,
         SovereignAudioConfig::Patch { .. } => Some(gen_jobs::AudioBakeJob::Patch {
             patch: audio.parse_patch()?,
-            sample_rate: 44_100,
+            // 22.05 kHz halves the baked + cached buffers; per-construct hums
+            // are within the 11 kHz Nyquist (#568, matches the ambient rate).
+            sample_rate: 22_050,
             duration_secs: 1.0,
         }),
         SovereignAudioConfig::Sequence { .. } => Some(gen_jobs::AudioBakeJob::Sequence {
@@ -588,12 +590,12 @@ mod tests {
         let (bytes, sample_rate) =
             bake_construct_wav_bytes(&stash).expect("hum bakes successfully");
         assert!(bytes.starts_with(b"RIFF"), "WAV header present");
-        assert_eq!(sample_rate, 44_100);
-        // 1 second at 44.1 kHz mono float32 = ~176 KB raw + ~44 byte
+        assert_eq!(sample_rate, 22_050);
+        // 1 second at 22.05 kHz mono 16-bit PCM = ~44 KB raw + ~44 byte
         // header. Sanity-check the magnitude.
         assert!(
-            bytes.len() > 100_000,
-            "hum WAV should be at least 100 KB; got {}",
+            bytes.len() > 40_000,
+            "hum WAV should be at least 40 KB; got {}",
             bytes.len()
         );
     }

@@ -207,6 +207,7 @@ pub fn run() {
         .init_resource::<loading::LiveAmbientConfig>()
         .init_resource::<loading::PlayingAmbient>()
         .init_resource::<loading::AmbientSettle>()
+        .init_resource::<loading::AmbientRebakePending>()
         .init_resource::<editor_gizmo::GizmoFramePref>()
         .init_resource::<oauth::OauthClientRes>()
         .insert_resource(boot)

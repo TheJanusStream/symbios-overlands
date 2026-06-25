@@ -121,7 +121,9 @@ fn ambient_bake_job(audio: &crate::pds::SovereignAudioConfig) -> Option<gen_jobs
         // example envelope; future iterations can pull it from a Patch wrapper.
         SovereignAudioConfig::Patch { .. } => Some(gen_jobs::AudioBakeJob::Patch {
             patch: audio.parse_patch()?,
-            sample_rate: 44_100,
+            // 22.05 kHz halves the baked + decoded buffers; ambient content is
+            // within the 11 kHz Nyquist (#568, matches the Sequence default).
+            sample_rate: 22_050,
             duration_secs: 4.0,
         }),
         SovereignAudioConfig::Sequence { .. } => Some(gen_jobs::AudioBakeJob::Sequence {
@@ -232,13 +234,16 @@ pub(crate) fn reset_ambient_bake_state(
     mut commands: Commands,
     mut live_cfg: ResMut<LiveAmbientConfig>,
     mut playing: ResMut<PlayingAmbient>,
+    mut pending: ResMut<AmbientRebakePending>,
 ) {
     commands.remove_resource::<AmbientHandle>();
     commands.remove_resource::<AmbientBakeStarted>();
     // Forget the previous room's ambient bed and player handle so the next
-    // room bakes fresh and the player respawns from its new handle.
+    // room bakes fresh and the player respawns from its new handle. Also drop
+    // any debounced-but-undispatched config so it can't bake into the new room.
     live_cfg.0 = None;
     playing.0 = None;
+    pending.0 = None;
 }
 
 /// Quiet window the ambient (re)start waits out before it spawns or
@@ -297,6 +302,16 @@ pub(crate) fn tick_ambient_settle(
 /// Re-bake the ambient bed when the live room record's `ambient_audio`
 /// changes in-game — the editor counterpart of the loading-gate bake.
 ///
+/// Newest ambient-bed config awaiting a (debounced) re-bake dispatch.
+///
+/// A slider drag mutates `ambient_audio` many times a second; baking on each
+/// change spawns a worker and a multi-MiB transient per frame (and orphans the
+/// previous worker). [`rebake_ambient_on_record_change`] stashes the latest
+/// config here and dispatches once — after the edit settles — so a drag bakes
+/// a single time.
+#[derive(Resource, Default)]
+pub(crate) struct AmbientRebakePending(Option<crate::pds::SovereignAudioConfig>);
+
 /// Mirrors [`start_ambient_bake`]'s pipeline split (None/Referenced/
 /// procedural) but is driven by `LiveRoomRecord`'s change tick instead of
 /// the one-shot loading gate, so a manual re-roll, a "Reset to default",
@@ -306,29 +321,45 @@ pub(crate) fn tick_ambient_settle(
 /// stutter on every slider drag. The resulting handle lands in
 /// [`AmbientHandle`] (directly, via the resolver, or via the baked task)
 /// and [`swap_ambient_player_to_handle`] swaps the player.
+///
+/// The dispatch is **debounced** through [`AmbientRebakePending`] +
+/// [`AmbientSettle`]: a change is stashed immediately, but the bake fires only
+/// once the same quiet window the player start waits out has drained, so a
+/// slider drag bakes once instead of per frame.
 pub(crate) fn rebake_ambient_on_record_change(
     mut commands: Commands,
     room_record: Option<Res<LiveRoomRecord>>,
     mut live_cfg: ResMut<LiveAmbientConfig>,
+    mut pending: ResMut<AmbientRebakePending>,
+    settle: Res<AmbientSettle>,
     mut audio_cache: ResMut<crate::world_builder::audio_resolver::BlobAudioCache>,
     in_flight: Query<Entity, With<AmbientRebakeTask>>,
 ) {
     let Some(record) = room_record else {
         return;
     };
-    if !record.is_changed() {
-        return;
-    }
-    let audio = record.0.environment.ambient_audio.clone();
-    if live_cfg.0.as_ref() == Some(&audio) {
-        // The edit didn't touch the ambient bed — leave the loop playing.
-        return;
-    }
-    live_cfg.0 = Some(audio.clone());
 
-    // Cancel any still-running re-bake so a rapid re-roll burst doesn't
-    // race several tasks into AmbientHandle (last-finished would otherwise
-    // win non-deterministically).
+    // Capture an ambient-bed change into `pending`; the dispatch is deferred to
+    // the settle gate below. Edits that don't touch the bed are skipped.
+    if record.is_changed() {
+        let audio = record.0.environment.ambient_audio.clone();
+        if live_cfg.0.as_ref() != Some(&audio) {
+            live_cfg.0 = Some(audio.clone());
+            pending.0 = Some(audio);
+        }
+    }
+
+    // Wait out the same quiet window `swap_ambient_player_to_handle` uses, so a
+    // burst of edits collapses to a single bake once the owner pauses.
+    if settle.remaining > 0.0 {
+        return;
+    }
+    let Some(audio) = pending.0.take() else {
+        return;
+    };
+
+    // Cancel any still-running re-bake so the settled dispatch wins
+    // deterministically (a previous bed's bake may still be in flight).
     for entity in &in_flight {
         commands.entity(entity).despawn();
     }
@@ -529,7 +560,7 @@ mod tests {
         let recipe = crate::seeded_defaults::AmbientRecipe::from_scene(&scene, 42).recipe;
         let stash = SovereignAudioConfig::from_sequence(&recipe);
         let bytes = bake_ambient_wav_bytes(&stash).expect("bake produces bytes");
-        // RIFF/WAVE header check — the audio crate emits IEEE-float
+        // RIFF/WAVE header check — the offload path emits 16-bit PCM
         // mono WAV; "RIFF" at offset 0, "WAVEfmt " at offset 8.
         assert!(
             bytes.starts_with(b"RIFF"),
@@ -539,13 +570,13 @@ mod tests {
             bytes[8..16] == *b"WAVEfmt ",
             "bytes must carry WAVEfmt subchunk"
         );
-        // Sanity-check size — 16 beats at 60 BPM = 16 seconds, plus
-        // crossfade tail, at 44.1 kHz mono float = at least 16 s ×
-        // 44_100 × 4 bytes = 2.8 MiB. WAV header (~44 bytes) is
-        // dwarfed by the data chunk.
+        // Sanity-check size — WARMUP_BEATS + LOOP_BEATS = 34 beats at 60 BPM =
+        // 34 seconds, plus crossfade tail, at 22.05 kHz mono 16-bit PCM ≈ 34 s ×
+        // 22_050 × 2 bytes ≈ 1.5 MiB. WAV header (~44 bytes) is dwarfed by the
+        // data chunk.
         assert!(
-            bytes.len() > 2_000_000,
-            "wav bytes should be at least 2 MB for a 16-beat loop at 60 BPM, got {}",
+            bytes.len() > 1_000_000,
+            "wav bytes should be at least 1 MB for the seeded loop at 60 BPM, got {}",
             bytes.len()
         );
     }

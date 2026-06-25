@@ -329,11 +329,12 @@ pub fn poll_blob_image_tasks(
             cache.remove(&task.key);
             continue;
         };
-        let mut img = Image::from_dynamic(
-            dyn_img,
-            true,
-            RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
-        );
+        // `RENDER_WORLD`-only: these decoded images are bound straight to Sign /
+        // particle materials and never sampled back on the CPU, so releasing the
+        // CPU pixel buffer after the GPU upload saves the full decoded RGBA
+        // (up to ~64 MiB for a 4K source) — significant on wasm, where freed
+        // linear memory is never returned to the OS.
+        let mut img = Image::from_dynamic(dyn_img, true, RenderAssetUsages::RENDER_WORLD);
         // Honour the requested sampler filter — Linear (default) gives
         // the soft filtering Sign panels and smooth particles want;
         // Nearest preserves crisp texel edges for pixel-art atlases.

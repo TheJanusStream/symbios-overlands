@@ -9,7 +9,7 @@ use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerD
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy_symbios_ground::{SplatMapper, SplatRule, TerrainQuery};
-use bevy_symbios_texture::{TextureMap, map_to_images};
+use bevy_symbios_texture::{TextureMap, map_to_images_with_usages};
 
 use crate::config::terrain as tcfg;
 use crate::config::terrain::stains as scfg;
@@ -152,10 +152,10 @@ fn texture_bake_job(layer: &SovereignTextureConfig) -> gen_jobs::TextureBakeJob 
 ///
 /// The bake ran the procedural generator off the schedule (native:
 /// `AsyncComputeTaskPool`; wasm: a Web Worker — see [`crate::offload`]),
-/// returning base-level RGBA buffers. [`map_to_images`] uploads them with the
-/// same repeat sampler + mip chain the rest of the splat pipeline expects (the
-/// mip chain is box-filtered here on upload, since only the base level crossed
-/// the worker boundary), so [`build_texture_array`] can stack them unchanged.
+/// returning base-level RGBA buffers. [`map_to_images_with_usages`] mip-chains
+/// and stores them `MAIN_WORLD`-only (no GPU upload — these per-layer images
+/// are only read back on the CPU by [`build_texture_array`], never bound), so
+/// it can stack them unchanged before [`apply_splat_textures`] drops them.
 pub(super) fn collect_texture_results(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut SplatTexTask)>,
@@ -179,13 +179,18 @@ pub(super) fn collect_texture_results(
             normal: data.normal,
             roughness: data.roughness,
             emissive: data.emissive,
-            // Base level only crossed the worker boundary; `map_to_images`
-            // mip-chains it on upload (same as the Referenced-layer path).
+            // Base level only crossed the worker boundary; the upload
+            // mip-chains it (same as the Referenced-layer path).
             mip_level_count: 1,
             width: data.width,
             height: data.height,
         };
-        let handles = map_to_images(map, &mut images);
+        // `MAIN_WORLD`-only: these per-layer images are never bound to a
+        // material — `build_texture_array` reads their CPU bytes to assemble
+        // the two splat arrays — so skip the GPU upload entirely and keep
+        // `Image::data` resident for that read. `apply_splat_textures` drops
+        // them once the arrays are built.
+        let handles = map_to_images_with_usages(map, RenderAssetUsages::MAIN_WORLD, &mut images);
         state.layer_albedo[pending.index] = Some(handles.albedo);
         state.layer_normal[pending.index] = Some(handles.normal);
     }
@@ -349,6 +354,26 @@ pub(super) fn apply_splat_textures(
         }
         #[cfg(target_arch = "wasm32")]
         let _ = stains;
+    }
+
+    // The four per-layer source images have now been concatenated into the two
+    // RENDER_WORLD splat arrays bound above, so their bytes are fully redundant.
+    // Drop the handles to free their MAIN_WORLD CPU copies (~11 MiB at the 512
+    // splat resolution) — except when a Referenced layer is present, since a
+    // late blob fetch can re-trigger this system, which needs all four sources
+    // to rebuild the arrays.
+    let has_referenced = record
+        .as_ref()
+        .and_then(|r| crate::pds::find_terrain_config(&r.0))
+        .is_some_and(|c| {
+            c.material
+                .layers
+                .iter()
+                .any(|l| matches!(l, SovereignTextureConfig::Referenced { .. }))
+        });
+    if !has_referenced {
+        state.layer_albedo = Default::default();
+        state.layer_normal = Default::default();
     }
 
     state.applied = true;

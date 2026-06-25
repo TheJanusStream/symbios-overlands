@@ -49,6 +49,7 @@ fn cleanup_on_logout(
     mut blob_image_cache: ResMut<BlobImageCache>,
     mut pending_offers: ResMut<PendingOutgoingOffers>,
     mut baked_audio_cache: ResMut<crate::world_builder::spatial_audio::BakedAudioCache>,
+    mut upstream_shape_mesh: ResMut<bevy_symbios_shape::cache::ShapeMeshCache>,
     ambient_players: Query<Entity, With<crate::loading::AmbientPlayer>>,
     mut playing_ambient: ResMut<crate::loading::PlayingAmbient>,
 ) {
@@ -200,4 +201,11 @@ fn cleanup_on_logout(
     // any in-flight Pending waiter lists that point at entities the
     // teardown above just despawned.
     baked_audio_cache.clear();
+
+    // The upstream shape-mesh cache is keyed by float-exact terminal footprint
+    // and never evicts, so an editing session's slider drags pin a growing set
+    // of `Handle<Mesh>` that otherwise survives logout into the next session.
+    // Drop them here (the full-rebuild GC bounds it within a session; this
+    // bounds it across login cycles). See `world_builder::compile`.
+    upstream_shape_mesh.clear();
 }

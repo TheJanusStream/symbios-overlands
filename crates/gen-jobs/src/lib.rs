@@ -14,7 +14,7 @@
 //! worker `.wasm` that links it stays slim instead of pulling Bevy.
 
 use serde::{Deserialize, Serialize};
-use symbios_audio::{bake, bake_sequence, samples_to_wav_bytes, AudioPatch, SequenceRecipe};
+use symbios_audio::{bake, bake_sequence, samples_to_wav_bytes_pcm16, AudioPatch, SequenceRecipe};
 use symbios_ground::{
     DiamondSquare, FbmNoise, HeightMap, HydraulicErosion, TerrainGenerator, ThermalErosion,
     VoronoiTerracing,
@@ -76,8 +76,9 @@ pub struct HeightmapData {
 // ---------------------------------------------------------------------------
 
 /// A procedural audio bake — a patch one-shot or a multi-track sequence —
-/// producing WAV bytes (mono IEEE float). The inputs are serialisable so the
-/// job crosses the worker boundary; the heavy synthesis runs in [`run`].
+/// producing WAV bytes (mono 16-bit PCM — half the size of 32-bit float, which
+/// matters on wasm where the heap never shrinks). The inputs are serialisable
+/// so the job crosses the worker boundary; the heavy synthesis runs in [`run`].
 #[derive(Serialize, Deserialize, Clone)]
 pub enum AudioBakeJob {
     /// One-shot patch render of `duration_secs` at `sample_rate`.
@@ -99,12 +100,12 @@ impl AudioBakeJob {
                 duration_secs,
             } => {
                 let samples = bake(&patch, sample_rate, duration_secs);
-                samples_to_wav_bytes(&samples, sample_rate)
+                samples_to_wav_bytes_pcm16(&samples, sample_rate)
             }
             AudioBakeJob::Sequence { recipe } => {
                 let sample_rate = recipe.sample_rate;
                 let samples = bake_sequence(&recipe);
-                samples_to_wav_bytes(&samples, sample_rate)
+                samples_to_wav_bytes_pcm16(&samples, sample_rate)
             }
         }
     }
@@ -217,7 +218,7 @@ pub enum GenJob {
 #[derive(Serialize, Deserialize, Clone)]
 pub enum GenResult {
     Heightmap(HeightmapData),
-    /// WAV bytes (mono IEEE float).
+    /// WAV bytes (mono 16-bit PCM).
     Audio(#[serde(with = "serde_bytes")] Vec<u8>),
     Texture(TextureData),
 }
