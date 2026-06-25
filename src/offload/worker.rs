@@ -12,9 +12,12 @@ use gloo_worker::Spawnable;
 ///
 /// `gloo-worker` defaults (`as_module = true`, `with_loader = false`) match a
 /// `wasm-bindgen --target web` build: it generates the worker bootstrap and
-/// imports `gen-worker.js` as an ES module. Messages use the default Bincode
-/// codec (`GenJob`/`GenResult` are `Serialize`/`Deserialize`).
+/// imports `gen-worker.js` as an ES module. Messages use
+/// [`gen_worker::MsgpackCodec`] (not gloo's default Bincode, which can't decode
+/// the audio cores' internally-tagged enums).
 pub async fn run_on_worker(job: GenJob) -> GenResult {
-    let mut bridge = gen_worker::GenWorker::spawner().spawn("./gen-worker.js");
+    let mut bridge = gen_worker::GenWorker::spawner()
+        .encoding::<gen_worker::MsgpackCodec>()
+        .spawn("./gen-worker.js");
     bridge.run(job).await
 }

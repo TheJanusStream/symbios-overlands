@@ -7,7 +7,9 @@
 fn main() {
     use gloo_worker::Registrable;
     console_error_panic_hook::set_once();
-    gen_worker::GenWorker::registrar().register();
+    gen_worker::GenWorker::registrar()
+        .encoding::<gen_worker::MsgpackCodec>()
+        .register();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
