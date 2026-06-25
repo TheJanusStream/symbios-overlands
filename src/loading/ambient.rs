@@ -31,14 +31,14 @@ pub struct AmbientHandle(pub Option<Handle<bevy::audio::AudioSource>>);
 /// pipeline. The poll system wraps these as `AudioSource` and
 /// writes [`AmbientHandle`].
 #[derive(Component)]
-pub(crate) struct AmbientBakeTask(bevy::tasks::Task<Option<Vec<u8>>>);
+pub(crate) struct AmbientBakeTask(bevy::tasks::Task<crate::offload::GenResult>);
 
 /// In-flight *in-game* ambient re-bake task — the editor counterpart of
 /// [`AmbientBakeTask`]. Kept as a distinct component so the loading-gate
 /// poll and the in-game poll never drain each other's tasks (the two run
 /// in different `AppState`s and own separate pipelines).
 #[derive(Component)]
-pub(crate) struct AmbientRebakeTask(bevy::tasks::Task<Option<Vec<u8>>>);
+pub(crate) struct AmbientRebakeTask(bevy::tasks::Task<crate::offload::GenResult>);
 
 /// Wrap freshly-baked WAV bytes into an [`AudioSource`]
 /// handle, or `None` for the no-audio variants. Shared by the loading-gate
@@ -96,9 +96,9 @@ impl PlayingAmbient {
 
 /// Bake the room's ambient track into WAV bytes off the main thread.
 ///
-/// Returns `Some(bytes)` for successfully baked procedural variants;
-/// `None` for variants that yield no audio under this loading-gate
-/// path:
+/// Returns `Some(job)` for procedural variants (the heavy synth is then run
+/// off-thread via [`crate::offload`]); `None` for variants that yield no audio
+/// under this loading-gate path:
 ///
 /// * [`SovereignAudioConfig::None`](crate::pds::SovereignAudioConfig::None)
 ///   / [`SovereignAudioConfig::Unknown`](crate::pds::SovereignAudioConfig::Unknown):
@@ -110,30 +110,34 @@ impl PlayingAmbient {
 /// * Malformed JSON inside `Patch` / `Sequence`: logged at warn-level
 ///   by the caller, treated as "no audio" so a corrupt record never
 ///   blocks room load.
-fn bake_ambient_wav_bytes(audio: &crate::pds::SovereignAudioConfig) -> Option<Vec<u8>> {
+fn ambient_bake_job(audio: &crate::pds::SovereignAudioConfig) -> Option<gen_jobs::AudioBakeJob> {
     use crate::pds::SovereignAudioConfig;
 
     match audio {
         SovereignAudioConfig::None
         | SovereignAudioConfig::Unknown
         | SovereignAudioConfig::Referenced { .. } => None,
-        SovereignAudioConfig::Patch { .. } => {
-            // One-shot bake. Default duration of 4.0s matches the
-            // audio crate's example envelope; future iterations can
-            // pull the duration from a Patch-side wrapper.
-            let patch = audio.parse_patch()?;
-            let samples = bevy_symbios_audio::bake(&patch, 44_100, 4.0);
-            Some(bevy_symbios_audio::samples_to_wav_bytes(&samples, 44_100))
-        }
-        SovereignAudioConfig::Sequence { .. } => {
-            let recipe = audio.parse_sequence()?;
-            let sample_rate = recipe.sample_rate;
-            let samples = bevy_symbios_audio::bake_sequence(&recipe);
-            Some(bevy_symbios_audio::samples_to_wav_bytes(
-                &samples,
-                sample_rate,
-            ))
-        }
+        // One-shot bake. Default duration of 4.0s matches the audio crate's
+        // example envelope; future iterations can pull it from a Patch wrapper.
+        SovereignAudioConfig::Patch { .. } => Some(gen_jobs::AudioBakeJob::Patch {
+            patch: audio.parse_patch()?,
+            sample_rate: 44_100,
+            duration_secs: 4.0,
+        }),
+        SovereignAudioConfig::Sequence { .. } => Some(gen_jobs::AudioBakeJob::Sequence {
+            recipe: audio.parse_sequence()?,
+        }),
+    }
+}
+
+/// Test helper: run the full procedural bake path (parse → `gen-jobs` synth →
+/// WAV) synchronously — what the offloaded task produces, minus the dispatch.
+#[cfg(test)]
+fn bake_ambient_wav_bytes(audio: &crate::pds::SovereignAudioConfig) -> Option<Vec<u8>> {
+    let job = ambient_bake_job(audio)?;
+    match gen_jobs::GenJob::AudioBake(job).run() {
+        gen_jobs::GenResult::Audio(bytes) => Some(bytes),
+        _ => None,
     }
 }
 
@@ -184,14 +188,21 @@ pub(crate) fn start_ambient_bake(
                 crate::world_builder::audio_resolver::AudioReferenceTarget::AmbientHandle,
             );
         }
-        // Procedural path — bake on AsyncComputeTaskPool. Works on
-        // both native and wasm without the rayon/wasm split.
+        // Procedural path — synth off the render frame via the offload seam
+        // (native: AsyncComputeTaskPool; wasm: Web Worker).
         crate::pds::SovereignAudioConfig::Patch { .. }
-        | crate::pds::SovereignAudioConfig::Sequence { .. } => {
-            let pool = bevy::tasks::AsyncComputeTaskPool::get();
-            let task = pool.spawn(async move { bake_ambient_wav_bytes(&audio) });
-            commands.spawn(AmbientBakeTask(task));
-        }
+        | crate::pds::SovereignAudioConfig::Sequence { .. } => match ambient_bake_job(&audio) {
+            Some(job) => {
+                commands.spawn(AmbientBakeTask(crate::offload::offload(
+                    crate::offload::GenJob::AudioBake(job),
+                )));
+            }
+            // Malformed Patch/Sequence JSON → treat as "no audio" so a corrupt
+            // record never blocks room load.
+            None => {
+                commands.insert_resource(AmbientHandle(None));
+            }
+        },
     }
     commands.insert_resource(AmbientBakeStarted);
 }
@@ -337,11 +348,16 @@ pub(crate) fn rebake_ambient_on_record_change(
             );
         }
         crate::pds::SovereignAudioConfig::Patch { .. }
-        | crate::pds::SovereignAudioConfig::Sequence { .. } => {
-            let pool = bevy::tasks::AsyncComputeTaskPool::get();
-            let task = pool.spawn(async move { bake_ambient_wav_bytes(&audio) });
-            commands.spawn(AmbientRebakeTask(task));
-        }
+        | crate::pds::SovereignAudioConfig::Sequence { .. } => match ambient_bake_job(&audio) {
+            Some(job) => {
+                commands.spawn(AmbientRebakeTask(crate::offload::offload(
+                    crate::offload::GenJob::AudioBake(job),
+                )));
+            }
+            None => {
+                commands.insert_resource(AmbientHandle(None));
+            }
+        },
     }
 }
 
@@ -416,7 +432,11 @@ pub(crate) fn poll_ambient_bake_task(
         };
         commands.entity(entity).despawn();
 
-        let handle = wrap_baked_handle(result, &mut audio_sources);
+        let wav = match result {
+            crate::offload::GenResult::Audio(bytes) => Some(bytes),
+            _ => None,
+        };
+        let handle = wrap_baked_handle(wav, &mut audio_sources);
         if handle.is_some() {
             info!("Ambient audio baked");
         }
@@ -440,7 +460,11 @@ pub(crate) fn poll_ambient_rebake_task(
             continue;
         };
         commands.entity(entity).despawn();
-        commands.insert_resource(AmbientHandle(wrap_baked_handle(result, &mut audio_sources)));
+        let wav = match result {
+            crate::offload::GenResult::Audio(bytes) => Some(bytes),
+            _ => None,
+        };
+        commands.insert_resource(AmbientHandle(wrap_baked_handle(wav, &mut audio_sources)));
     }
 }
 

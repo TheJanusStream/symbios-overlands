@@ -43,6 +43,7 @@ pub(super) fn poll_terrain_task(mut commands: Commands, mut task_res: ResMut<Ter
             GenResult::Heightmap(data) => {
                 commands.insert_resource(FinishedHeightMap(heightmap_from_data(data)));
             }
+            _ => unreachable!("a heightmap offload job yields a heightmap result"),
         }
     }
 }

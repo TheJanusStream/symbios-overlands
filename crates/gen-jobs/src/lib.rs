@@ -8,15 +8,18 @@
 //! native and worker execution are byte-identical (the determinism invariant
 //! the terrain pipeline already relies on).
 //!
-//! This crate deliberately depends only on the **Bevy-free** `symbios-ground`
-//! core (which `bevy_symbios_ground` merely re-exports), so the worker `.wasm`
-//! that links it stays tiny (~16 KB gzipped) instead of pulling the engine.
+//! This crate deliberately depends only on the **Bevy-free** `symbios-*` cores
+//! (`symbios-ground` / `symbios-texture` / `symbios-audio`, which the
+//! `bevy_symbios_*` crates merely re-export + wrap), never the engine, so the
+//! worker `.wasm` that links it stays slim instead of pulling Bevy.
 
 use serde::{Deserialize, Serialize};
+use symbios_audio::{bake, bake_sequence, samples_to_wav_bytes, AudioPatch, SequenceRecipe};
 use symbios_ground::{
     DiamondSquare, FbmNoise, HeightMap, HydraulicErosion, TerrainGenerator, ThermalErosion,
     VoronoiTerracing,
 };
+use symbios_texture::generator::{TextureGenerator, TextureMap};
 
 /// Base terrain algorithm. Mirrors the app's `SovereignGeneratorKind` (kept
 /// independent so this crate stays free of the app and Bevy).
@@ -68,17 +71,151 @@ pub struct HeightmapData {
     pub data: Vec<f32>,
 }
 
-/// A self-contained generation job. New offloadable hotspots (texture/audio
-/// bake, mesh gen) get added as further variants.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+// ---------------------------------------------------------------------------
+// Audio bake job (symbios-audio core)
+// ---------------------------------------------------------------------------
+
+/// A procedural audio bake — a patch one-shot or a multi-track sequence —
+/// producing WAV bytes (mono IEEE float). The inputs are serialisable so the
+/// job crosses the worker boundary; the heavy synthesis runs in [`run`].
+#[derive(Serialize, Deserialize, Clone)]
+pub enum AudioBakeJob {
+    /// One-shot patch render of `duration_secs` at `sample_rate`.
+    Patch {
+        patch: AudioPatch,
+        sample_rate: u32,
+        duration_secs: f32,
+    },
+    /// Multi-track sequence render (its sample rate is carried in the recipe).
+    Sequence { recipe: SequenceRecipe },
+}
+
+impl AudioBakeJob {
+    fn run(self) -> Vec<u8> {
+        match self {
+            AudioBakeJob::Patch {
+                patch,
+                sample_rate,
+                duration_secs,
+            } => {
+                let samples = bake(&patch, sample_rate, duration_secs);
+                samples_to_wav_bytes(&samples, sample_rate)
+            }
+            AudioBakeJob::Sequence { recipe } => {
+                let sample_rate = recipe.sample_rate;
+                let samples = bake_sequence(&recipe);
+                samples_to_wav_bytes(&samples, sample_rate)
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Texture bake job (symbios-texture core)
+// ---------------------------------------------------------------------------
+
+/// Plain, serialisable pixel buffers extracted from a `symbios_texture`
+/// [`TextureMap`] (which is not itself `Serialize`). RGBA8, row-major. `albedo`
+/// is the large payload transferred back from the worker; the app rebuilds
+/// Bevy `Image`s from these.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct TextureData {
+    pub albedo: Vec<u8>,
+    pub normal: Vec<u8>,
+    pub roughness: Vec<u8>,
+    pub emissive: Option<Vec<u8>>,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl From<TextureMap> for TextureData {
+    fn from(m: TextureMap) -> Self {
+        Self {
+            albedo: m.albedo,
+            normal: m.normal,
+            roughness: m.roughness,
+            emissive: m.emissive,
+            width: m.width,
+            height: m.height,
+        }
+    }
+}
+
+impl TextureData {
+    /// Flat fallback of the requested size — used only if a generator rejects
+    /// the dimensions (zero / over-`MAX_DIMENSION`), which the app's size clamps
+    /// prevent, so the worker never panics on a stray config.
+    fn flat(width: u32, height: u32) -> Self {
+        let px = (width as usize) * (height as usize);
+        Self {
+            albedo: [0, 0, 0, 255].repeat(px),
+            normal: [128, 128, 255, 255].repeat(px),
+            roughness: [255, 255, 255, 255].repeat(px),
+            emissive: None,
+            width,
+            height,
+        }
+    }
+}
+
+/// `symbios_texture::for_each_generator!` callback: build a unified,
+/// serialisable [`TextureBakeJob`] enum (one variant per texture kind, carrying
+/// that kind's config) plus a `generate()` that constructs the matching
+/// generator and renders a `TextureMap`. This keeps the full texture catalogue
+/// in lock-step with the core automatically — the same table the wrapper uses
+/// for its (Bevy-coupled) `TextureConfig` — without depending on the wrapper.
+macro_rules! define_texture_bake {
+    ($(($variant:ident, $module:ident, $config_ty:ty, $generator_ty:ty, $kind:ident)),* $(,)?) => {
+        /// A texture bake — every generator the `symbios-texture` core exposes.
+        #[derive(Serialize, Deserialize, Clone)]
+        pub enum TextureBakeJob {
+            $( $variant($config_ty), )*
+        }
+
+        impl TextureBakeJob {
+            fn generate(self, width: u32, height: u32) -> TextureData {
+                let map = match self {
+                    $(
+                        TextureBakeJob::$variant(config) => {
+                            <$generator_ty>::new(config).generate(width, height)
+                        }
+                    )*
+                };
+                map.map(TextureData::from)
+                    .unwrap_or_else(|_| TextureData::flat(width.max(1), height.max(1)))
+            }
+        }
+    };
+}
+
+symbios_texture::for_each_generator!(define_texture_bake);
+
+// ---------------------------------------------------------------------------
+// Job / result
+// ---------------------------------------------------------------------------
+
+/// A self-contained generation job. New offloadable hotspots get added as
+/// further variants; `run()` and the worker pick them up automatically.
+#[derive(Serialize, Deserialize, Clone)]
 pub enum GenJob {
     Heightmap(HeightmapParams),
+    /// Procedural audio bake (patch or sequence) → WAV bytes.
+    AudioBake(AudioBakeJob),
+    /// Procedural texture bake at `width`×`height` → RGBA pixel buffers.
+    TextureBake {
+        job: TextureBakeJob,
+        width: u32,
+        height: u32,
+    },
 }
 
 /// The output of a [`GenJob`], paired by variant with the job that produced it.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone)]
 pub enum GenResult {
     Heightmap(HeightmapData),
+    /// WAV bytes (mono IEEE float).
+    Audio(Vec<u8>),
+    Texture(TextureData),
 }
 
 // Hydraulic-erosion tuning fixed by the app (mirror of
@@ -93,6 +230,10 @@ impl GenJob {
     pub fn run(self) -> GenResult {
         match self {
             GenJob::Heightmap(p) => GenResult::Heightmap(run_heightmap(p)),
+            GenJob::AudioBake(j) => GenResult::Audio(j.run()),
+            GenJob::TextureBake { job, width, height } => {
+                GenResult::Texture(job.generate(width, height))
+            }
         }
     }
 }
@@ -200,6 +341,7 @@ mod tests {
     fn run(p: HeightmapParams) -> HeightmapData {
         match GenJob::Heightmap(p).run() {
             GenResult::Heightmap(d) => d,
+            _ => unreachable!("a heightmap job must yield a heightmap result"),
         }
     }
 

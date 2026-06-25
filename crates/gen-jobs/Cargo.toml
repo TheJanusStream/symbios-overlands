@@ -9,6 +9,8 @@ crate-type = ["rlib"]
 
 [dependencies]
 symbios-ground = "0.3"
+symbios-texture = "0.1"
+symbios-audio = "0.1"
 serde = { version = "1", features = ["derive"] }
 
 # `symbios-ground` pulls `rand` (default features) -> `getrandom` 0.3, which on

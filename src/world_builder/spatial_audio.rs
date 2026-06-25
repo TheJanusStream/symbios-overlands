@@ -38,7 +38,7 @@ use std::collections::BTreeMap;
 
 use bevy::audio::{AudioPlayer, AudioSource, PlaybackMode, PlaybackSettings, SpatialScale, Volume};
 use bevy::prelude::*;
-use bevy::tasks::{AsyncComputeTaskPool, Task};
+use bevy::tasks::Task;
 
 use crate::pds::SovereignAudioConfig;
 
@@ -82,7 +82,7 @@ pub enum BakeAttachmentMode {
 #[derive(Component)]
 pub struct SpatialAudioBakeTask {
     pub key: String,
-    pub task: Task<Option<(Vec<u8>, u32)>>,
+    pub task: Task<crate::offload::GenResult>,
 }
 
 /// Hard cap on retained baked buffers. Keys are full serialised audio
@@ -202,15 +202,19 @@ fn request_baked_audio(
             waiters.push((target, mode));
         }
         None => {
+            // Build the offloadable job first; a malformed procedural config
+            // yields no job — the construct simply doesn't hum, and we leave no
+            // cache entry so a corrected config can re-bake later.
+            let Some(job) = construct_bake_job(audio) else {
+                return;
+            };
             bake_cache
                 .entries
                 .insert(key.clone(), BakedAudioEntry::Pending(vec![(target, mode)]));
             bake_cache.order.push_back(key.clone());
             bake_cache.evict_to_cap();
 
-            let audio = audio.clone();
-            let pool = AsyncComputeTaskPool::get();
-            let task = pool.spawn(async move { bake_construct_wav_bytes(&audio) });
+            let task = crate::offload::offload(crate::offload::GenJob::AudioBake(job));
             commands.spawn(SpatialAudioBakeTask { key, task });
         }
     }
@@ -360,11 +364,9 @@ pub fn poll_spatial_audio_tasks(
             None => Vec::new(),
         };
 
-        let Some((bytes, _sample_rate)) = result else {
-            // bake_construct_wav_bytes returned None — malformed config
-            // or future variants. Silent fallback is correct here; a
-            // construct with broken audio just doesn't hum. The entry
-            // stays removed so a corrected config can re-bake.
+        let crate::offload::GenResult::Audio(bytes) = result else {
+            // Unreachable: an AudioBake job yields Audio. Stay graceful — drop
+            // the entry so a corrected config can re-bake.
             bake_cache.order.retain(|k| k != &bake.key);
             continue;
         };
@@ -381,37 +383,39 @@ pub fn poll_spatial_audio_tasks(
     }
 }
 
-/// Bake the construct's audio config into WAV bytes off the main
-/// thread. Mirrors the loading-gate ambient bake but returns
-/// `(bytes, sample_rate)` so a future enhancement can preserve the
-/// sample rate through to the AudioSource bytes encoding. Currently
-/// the sample rate is encoded in the WAV header itself, so the
-/// returned `sample_rate` is informational only.
-fn bake_construct_wav_bytes(audio: &SovereignAudioConfig) -> Option<(Vec<u8>, u32)> {
+/// Build the offloadable bake job for a construct's *procedural* audio config.
+/// `None` for non-procedural variants or malformed JSON (the construct then
+/// simply doesn't hum). Construct patches loop on a 1-second window — long
+/// enough for transients to read, short enough that the loop seam is
+/// imperceptible. The heavy synth runs off-thread via [`crate::offload`].
+fn construct_bake_job(audio: &SovereignAudioConfig) -> Option<gen_jobs::AudioBakeJob> {
     match audio {
         SovereignAudioConfig::None
         | SovereignAudioConfig::Unknown
         | SovereignAudioConfig::Referenced { .. } => None,
-        SovereignAudioConfig::Patch { .. } => {
-            // Construct one-shot patches loop on a 1-second window —
-            // long enough that fast transient noises read clearly,
-            // short enough that the loop seam isn't perceptible.
-            let patch = audio.parse_patch()?;
-            let samples = bevy_symbios_audio::bake(&patch, 44_100, 1.0);
-            Some((
-                bevy_symbios_audio::samples_to_wav_bytes(&samples, 44_100),
-                44_100,
-            ))
-        }
-        SovereignAudioConfig::Sequence { .. } => {
-            let recipe = audio.parse_sequence()?;
-            let sample_rate = recipe.sample_rate;
-            let samples = bevy_symbios_audio::bake_sequence(&recipe);
-            Some((
-                bevy_symbios_audio::samples_to_wav_bytes(&samples, sample_rate),
-                sample_rate,
-            ))
-        }
+        SovereignAudioConfig::Patch { .. } => Some(gen_jobs::AudioBakeJob::Patch {
+            patch: audio.parse_patch()?,
+            sample_rate: 44_100,
+            duration_secs: 1.0,
+        }),
+        SovereignAudioConfig::Sequence { .. } => Some(gen_jobs::AudioBakeJob::Sequence {
+            recipe: audio.parse_sequence()?,
+        }),
+    }
+}
+
+/// Test helper: run the construct bake path synchronously, returning
+/// `(wav_bytes, sample_rate)` to match the prior contract.
+#[cfg(test)]
+fn bake_construct_wav_bytes(audio: &SovereignAudioConfig) -> Option<(Vec<u8>, u32)> {
+    let job = construct_bake_job(audio)?;
+    let sample_rate = match &job {
+        gen_jobs::AudioBakeJob::Patch { sample_rate, .. } => *sample_rate,
+        gen_jobs::AudioBakeJob::Sequence { recipe } => recipe.sample_rate,
+    };
+    match gen_jobs::GenJob::AudioBake(job).run() {
+        gen_jobs::GenResult::Audio(bytes) => Some((bytes, sample_rate)),
+        _ => None,
     }
 }
 

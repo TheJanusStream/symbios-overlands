@@ -4,6 +4,8 @@ target/
 **/*.rs.bk
 /.claude
 /.chainlink
+# Hook-created .chainlink caches inside workspace member crates.
+**/.chainlink/
 Cargo.lock
 CHANGELOG.md
 symbios-overlands-primer.sh
