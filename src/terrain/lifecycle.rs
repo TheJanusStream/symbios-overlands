@@ -2,7 +2,6 @@
 //! trigger driven by terrain-config edits in the live room record.
 
 use bevy::prelude::*;
-use bevy_symbios_texture::async_gen::PendingTexture;
 
 use crate::interaction::TerrainSurfaceQuery;
 use crate::state::LiveRoomRecord;
@@ -26,7 +25,6 @@ pub(super) fn cleanup_terrain(
     water: Query<Entity, With<WaterVolume>>,
     roads: Query<Entity, With<RoadMeshEntity>>,
     pending_textures: Query<Entity, With<TextureLayerIndex>>,
-    pending_raw: Query<Entity, With<PendingTexture>>,
     pending_splat_refs: Query<Entity, With<PendingSplatLayerFetch>>,
     mut splat_state: ResMut<TerrainSplatState>,
     mut road_fp: ResMut<RoadFingerprint>,
@@ -45,14 +43,10 @@ pub(super) fn cleanup_terrain(
     for e in &roads {
         commands.entity(e).despawn();
     }
-    // In-flight splat texture tasks would otherwise survive into the next
-    // login cycle, land their `TextureReady` components on orphaned entities,
-    // and leak until process exit. Drain both the marker-tagged and any
-    // `PendingTexture` entities missing the marker (recovery path) here.
+    // In-flight splat texture bakes would otherwise survive into the next
+    // login cycle, resolve onto orphaned entities, and leak until process
+    // exit. Drain the marker-tagged bake entities here.
     for e in &pending_textures {
-        commands.entity(e).despawn();
-    }
-    for e in &pending_raw {
         commands.entity(e).despawn();
     }
     // In-flight Referenced-texture fetches likewise need to be drained

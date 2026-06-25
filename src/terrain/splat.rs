@@ -9,11 +9,12 @@ use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerD
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy_symbios_ground::{SplatMapper, SplatRule, TerrainQuery};
-use bevy_symbios_texture::async_gen::{PendingTexture, TextureReady};
+use bevy_symbios_texture::{TextureMap, map_to_images};
 
 use crate::config::terrain as tcfg;
 use crate::config::terrain::stains as scfg;
 use crate::interaction::{StainsImage, TerrainSurfaceQuery};
+use crate::offload::{GenJob, GenResult};
 use crate::pds::{SovereignTerrainConfig, SovereignTextureConfig};
 use crate::splat::SplatTerrainMaterial;
 use crate::state::LiveRoomRecord;
@@ -24,11 +25,14 @@ use super::{
     TextureTasksStarted,
 };
 
-/// Spawn four `PendingTexture` entities (one per splat layer), pulling the
-/// procedural configs from the active `RoomRecord`'s terrain generator.
-/// `SymbiosTexturePlugin` polls them every frame and attaches `TextureReady`
-/// when done. A `TextureTasksStarted` marker is inserted to make this a
-/// one-shot inside the Loading-phase scheduler loop.
+/// Dispatch four procedural splat-layer texture bakes (one per layer), pulling
+/// the configs from the active `RoomRecord`'s terrain generator and routing each
+/// through [`crate::offload`] so the heavy pattern synthesis runs off the
+/// schedule (native: `AsyncComputeTaskPool`; wasm: a Web Worker — the texture
+/// crate's own rayon pool is a no-op on wasm and would run inline on the render
+/// frame, which is the gap this closes). Each bake is parked on a
+/// [`SplatTexTask`]; a `TextureTasksStarted` marker makes this a one-shot inside
+/// the Loading-phase scheduler loop.
 ///
 /// For `SovereignTextureConfig::Referenced` layers, an additional
 /// `PendingSplatLayerFetch` task is spawned alongside the procedural
@@ -44,8 +48,12 @@ pub(super) fn start_texture_tasks(mut commands: Commands, record: Res<LiveRoomRe
     let texture_size = mat.texture_size.max(16);
 
     for (i, layer) in mat.layers.iter().enumerate() {
-        let pending = pending_texture_from_sovereign(layer, texture_size);
-        commands.spawn((pending, TextureLayerIndex(i)));
+        let task = crate::offload::offload(GenJob::TextureBake {
+            job: texture_bake_job(layer),
+            width: texture_size,
+            height: texture_size,
+        });
+        commands.spawn((SplatTexTask { index: i, task }, TextureLayerIndex));
 
         // Referenced layers ALSO trigger an HTTP / ATProto-blob fetch.
         // The decoded image overrides the procedural placeholder once
@@ -59,64 +67,61 @@ pub(super) fn start_texture_tasks(mut commands: Commands, record: Res<LiveRoomRe
     commands.insert_resource(TextureTasksStarted);
 }
 
-/// Build a [`PendingTexture`] from any [`SovereignTextureConfig`] variant.
-/// Unknown / None variants fall back to a default ground config so all four
-/// terrain splat layers always produce a baked texture — the splat shader
-/// samples all four unconditionally.
-fn pending_texture_from_sovereign(layer: &SovereignTextureConfig, size: u32) -> PendingTexture {
+/// In-flight procedural bake of one splat layer's texture, dispatched through
+/// [`crate::offload`]. `index` is the layer slot (0–3) the resolved images are
+/// stored into; the entity also carries a [`TextureLayerIndex`] marker that the
+/// terrain lifecycle systems use to sweep pending bakes on logout / regen.
+#[derive(Component)]
+pub(super) struct SplatTexTask {
+    index: usize,
+    task: bevy::tasks::Task<GenResult>,
+}
+
+/// Build a [`gen_jobs::TextureBakeJob`] from any [`SovereignTextureConfig`]
+/// variant — the offload-layer mirror of the procedural splat config. Unknown /
+/// None / Referenced / particle-sprite variants fall back to a default ground
+/// config so all four splat layers always bake a tileable surface (the splat
+/// shader samples all four unconditionally).
+fn texture_bake_job(layer: &SovereignTextureConfig) -> gen_jobs::TextureBakeJob {
+    use gen_jobs::TextureBakeJob as Job;
     match layer {
-        SovereignTextureConfig::Ground(c) => PendingTexture::ground(c.to_native(), size, size),
-        SovereignTextureConfig::Rock(c) => PendingTexture::rock(c.to_native(), size, size),
-        SovereignTextureConfig::Bark(c) => PendingTexture::bark(c.to_native(), size, size),
-        SovereignTextureConfig::Brick(c) => PendingTexture::brick(c.to_native(), size, size),
-        SovereignTextureConfig::Plank(c) => PendingTexture::plank(c.to_native(), size, size),
-        SovereignTextureConfig::Shingle(c) => PendingTexture::shingle(c.to_native(), size, size),
-        SovereignTextureConfig::Stucco(c) => PendingTexture::stucco(c.to_native(), size, size),
-        SovereignTextureConfig::Concrete(c) => PendingTexture::concrete(c.to_native(), size, size),
-        SovereignTextureConfig::Metal(c) => PendingTexture::metal(c.to_native(), size, size),
-        SovereignTextureConfig::Pavers(c) => PendingTexture::pavers(c.to_native(), size, size),
-        SovereignTextureConfig::Ashlar(c) => PendingTexture::ashlar(c.to_native(), size, size),
-        SovereignTextureConfig::Cobblestone(c) => {
-            PendingTexture::cobblestone(c.to_native(), size, size)
-        }
-        SovereignTextureConfig::Thatch(c) => PendingTexture::thatch(c.to_native(), size, size),
-        SovereignTextureConfig::Marble(c) => PendingTexture::marble(c.to_native(), size, size),
-        SovereignTextureConfig::Corrugated(c) => {
-            PendingTexture::corrugated(c.to_native(), size, size)
-        }
-        SovereignTextureConfig::Asphalt(c) => PendingTexture::asphalt(c.to_native(), size, size),
-        SovereignTextureConfig::Wainscoting(c) => {
-            PendingTexture::wainscoting(c.to_native(), size, size)
-        }
-        SovereignTextureConfig::Encaustic(c) => {
-            PendingTexture::encaustic(c.to_native(), size, size)
-        }
+        SovereignTextureConfig::Ground(c) => Job::Ground(c.to_native()),
+        SovereignTextureConfig::Rock(c) => Job::Rock(c.to_native()),
+        SovereignTextureConfig::Bark(c) => Job::Bark(c.to_native()),
+        SovereignTextureConfig::Brick(c) => Job::Brick(c.to_native()),
+        SovereignTextureConfig::Plank(c) => Job::Plank(c.to_native()),
+        SovereignTextureConfig::Shingle(c) => Job::Shingle(c.to_native()),
+        SovereignTextureConfig::Stucco(c) => Job::Stucco(c.to_native()),
+        SovereignTextureConfig::Concrete(c) => Job::Concrete(c.to_native()),
+        SovereignTextureConfig::Metal(c) => Job::Metal(c.to_native()),
+        SovereignTextureConfig::Pavers(c) => Job::Pavers(c.to_native()),
+        SovereignTextureConfig::Ashlar(c) => Job::Ashlar(c.to_native()),
+        SovereignTextureConfig::Cobblestone(c) => Job::Cobblestone(c.to_native()),
+        SovereignTextureConfig::Thatch(c) => Job::Thatch(c.to_native()),
+        SovereignTextureConfig::Marble(c) => Job::Marble(c.to_native()),
+        SovereignTextureConfig::Corrugated(c) => Job::Corrugated(c.to_native()),
+        SovereignTextureConfig::Asphalt(c) => Job::Asphalt(c.to_native()),
+        SovereignTextureConfig::Wainscoting(c) => Job::Wainscoting(c.to_native()),
+        SovereignTextureConfig::Encaustic(c) => Job::Encaustic(c.to_native()),
         // Additional tileable surfaces — usable as biome splat layers (sand
         // for desert, snow for tundra, lava for volcanic crust).
-        SovereignTextureConfig::Fabric(c) => PendingTexture::fabric(c.to_native(), size, size),
-        SovereignTextureConfig::Sand(c) => PendingTexture::sand(c.to_native(), size, size),
-        SovereignTextureConfig::Snow(c) => PendingTexture::snow(c.to_native(), size, size),
-        SovereignTextureConfig::Ice(c) => PendingTexture::ice(c.to_native(), size, size),
-        SovereignTextureConfig::Lava(c) => PendingTexture::lava(c.to_native(), size, size),
-        SovereignTextureConfig::Leaf(c) => PendingTexture::leaf(c.to_native(), size, size),
-        SovereignTextureConfig::Twig(c) => PendingTexture::twig(c.to_native(), size, size),
-        SovereignTextureConfig::Window(c) => PendingTexture::window(c.to_native(), size, size),
-        SovereignTextureConfig::StainedGlass(c) => {
-            PendingTexture::stained_glass(c.to_native(), size, size)
-        }
-        SovereignTextureConfig::IronGrille(c) => {
-            PendingTexture::iron_grille(c.to_native(), size, size)
-        }
-        SovereignTextureConfig::ChainLink(c) => {
-            PendingTexture::chain_link(c.to_native(), size, size)
-        }
-        SovereignTextureConfig::LogEnd(c) => PendingTexture::log_end(c.to_native(), size, size),
+        SovereignTextureConfig::Fabric(c) => Job::Fabric(c.to_native()),
+        SovereignTextureConfig::Sand(c) => Job::Sand(c.to_native()),
+        SovereignTextureConfig::Snow(c) => Job::Snow(c.to_native()),
+        SovereignTextureConfig::Ice(c) => Job::Ice(c.to_native()),
+        SovereignTextureConfig::Lava(c) => Job::Lava(c.to_native()),
+        SovereignTextureConfig::Leaf(c) => Job::Leaf(c.to_native()),
+        SovereignTextureConfig::Twig(c) => Job::Twig(c.to_native()),
+        SovereignTextureConfig::Window(c) => Job::Window(c.to_native()),
+        SovereignTextureConfig::StainedGlass(c) => Job::StainedGlass(c.to_native()),
+        SovereignTextureConfig::IronGrille(c) => Job::IronGrille(c.to_native()),
+        SovereignTextureConfig::ChainLink(c) => Job::ChainLink(c.to_native()),
+        SovereignTextureConfig::LogEnd(c) => Job::LogEnd(c.to_native()),
         // None / Unknown / Referenced — fall back to an opaque placeholder
         // via GroundConfig default so the splat array always has four live
         // textures to sample. For Referenced the fallback is what the splat
-        // shows BEFORE the resolver paints the fetched image in; once
-        // BlobImageCache delivers the handle the layer's StandardMaterial
-        // base_color_texture is swapped over the placeholder.
+        // shows BEFORE the resolver paints the fetched image in; once the
+        // fetch lands the layer's albedo handle is swapped over the placeholder.
         //
         // The particle sprite cards share the SovereignTextureConfig dropdown
         // but are alpha-silhouette billboards, not tileable surfaces — tiling
@@ -135,25 +140,54 @@ fn pending_texture_from_sovereign(layer: &SovereignTextureConfig, size: u32) -> 
         | SovereignTextureConfig::Shard(_)
         | SovereignTextureConfig::LeafSprite(_)
         | SovereignTextureConfig::Flame(_)
-        | SovereignTextureConfig::Flower(_) => PendingTexture::ground(
-            crate::pds::SovereignGroundConfig::default().to_native(),
-            size,
-            size,
-        ),
+        | SovereignTextureConfig::Flower(_) => {
+            Job::Ground(crate::pds::SovereignGroundConfig::default().to_native())
+        }
     }
 }
 
-/// Consume `TextureReady` components attached by `SymbiosTexturePlugin` and
-/// store the GPU handles by layer index.
+/// Poll the in-flight [`SplatTexTask`] bakes; when one resolves, rebuild its
+/// per-layer albedo + normal `Image`s from the returned [`GenResult::Texture`]
+/// pixel buffers and store them by layer index.
+///
+/// The bake ran the procedural generator off the schedule (native:
+/// `AsyncComputeTaskPool`; wasm: a Web Worker — see [`crate::offload`]),
+/// returning base-level RGBA buffers. [`map_to_images`] uploads them with the
+/// same repeat sampler + mip chain the rest of the splat pipeline expects (the
+/// mip chain is box-filtered here on upload, since only the base level crossed
+/// the worker boundary), so [`build_texture_array`] can stack them unchanged.
 pub(super) fn collect_texture_results(
     mut commands: Commands,
-    ready: Query<(Entity, &TextureLayerIndex, &TextureReady)>,
+    mut tasks: Query<(Entity, &mut SplatTexTask)>,
     mut state: ResMut<TerrainSplatState>,
+    mut images: ResMut<Assets<Image>>,
 ) {
-    for (entity, idx, ready) in &ready {
-        state.layer_albedo[idx.0] = Some(ready.0.albedo.clone());
-        state.layer_normal[idx.0] = Some(ready.0.normal.clone());
+    for (entity, mut pending) in tasks.iter_mut() {
+        let Some(result) =
+            futures_lite::future::block_on(futures_lite::future::poll_once(&mut pending.task))
+        else {
+            continue;
+        };
         commands.entity(entity).despawn();
+
+        let GenResult::Texture(data) = result else {
+            unreachable!("a texture-bake offload job yields a texture result");
+        };
+
+        let map = TextureMap {
+            albedo: data.albedo,
+            normal: data.normal,
+            roughness: data.roughness,
+            emissive: data.emissive,
+            // Base level only crossed the worker boundary; `map_to_images`
+            // mip-chains it on upload (same as the Referenced-layer path).
+            mip_level_count: 1,
+            width: data.width,
+            height: data.height,
+        };
+        let handles = map_to_images(map, &mut images);
+        state.layer_albedo[pending.index] = Some(handles.albedo);
+        state.layer_normal[pending.index] = Some(handles.normal);
     }
 }
 

@@ -79,11 +79,14 @@ pub struct FinishedHeightMap(pub HeightMap);
 #[derive(Resource)]
 pub struct TerrainTask(pub bevy::tasks::Task<crate::offload::GenResult>);
 
-/// Marker on the PendingTexture entity; value = layer index (0–3).
+/// Shared marker on an in-flight splat-texture-bake entity. The bake task and
+/// its layer index live on the splat module's `SplatTexTask`; this lightweight
+/// marker is the stable handle the terrain lifecycle systems use to sweep
+/// pending bakes on logout / regen.
 #[derive(Component)]
-struct TextureLayerIndex(usize);
+struct TextureLayerIndex;
 
-/// Accumulated handles from completed PendingTexture tasks.
+/// Accumulated handles from completed splat-texture bake tasks.
 #[derive(Resource, Default)]
 struct TerrainSplatState {
     layer_albedo: [Option<Handle<Image>>; 4],

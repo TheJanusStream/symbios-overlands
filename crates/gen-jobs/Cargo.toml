@@ -12,6 +12,11 @@ symbios-ground = "0.3"
 symbios-texture = "0.1"
 symbios-audio = "0.1"
 serde = { version = "1", features = ["derive"] }
+# Encode the large RGBA / WAV byte buffers as compact msgpack `bin` blobs
+# instead of per-element integer arrays across the wasm worker boundary (the
+# worker codec is self-describing msgpack; see gen-worker). No effect on the
+# native path, which runs the job without a serde round-trip.
+serde_bytes = "0.11"
 
 # `symbios-ground` pulls `rand` (default features) -> `getrandom` 0.3, which on
 # wasm needs the `wasm_js` backend feature to compile (it is dead-stripped here

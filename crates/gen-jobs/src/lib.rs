@@ -120,9 +120,13 @@ impl AudioBakeJob {
 /// Bevy `Image`s from these.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct TextureData {
+    #[serde(with = "serde_bytes")]
     pub albedo: Vec<u8>,
+    #[serde(with = "serde_bytes")]
     pub normal: Vec<u8>,
+    #[serde(with = "serde_bytes")]
     pub roughness: Vec<u8>,
+    #[serde(with = "serde_bytes")]
     pub emissive: Option<Vec<u8>>,
     pub width: u32,
     pub height: u32,
@@ -214,7 +218,7 @@ pub enum GenJob {
 pub enum GenResult {
     Heightmap(HeightmapData),
     /// WAV bytes (mono IEEE float).
-    Audio(Vec<u8>),
+    Audio(#[serde(with = "serde_bytes")] Vec<u8>),
     Texture(TextureData),
 }
 
