@@ -90,8 +90,10 @@ impl Dims {
 }
 
 /// Engine-agnostic vertex buffers for one road *surface* (Y-up), built CPU-side
-/// in the terrain task and uploaded by the caller. Per-face flat normals (matches
-/// the low-poly look).
+/// in the terrain task and uploaded by the caller. Ribbon strips carry normals
+/// **smoothed along their length** so the deck reads as one continuous surface;
+/// the crease *across* the profile (deck↔curb↔skirt) stays sharp because each
+/// profile face is its own strip. Junction fans use the draped terrain normal.
 #[derive(Default)]
 pub struct RoadGeometry {
     vertices: Vec<[f32; 3]>,
@@ -125,6 +127,51 @@ impl RoadGeometry {
         }
         self.indices
             .extend_from_slice(&[base, base + 1, base + 3, base, base + 3, base + 2]);
+    }
+
+    /// Append one longitudinally-smoothed quad strip for a single profile face:
+    /// `left[i]`/`right[i]` are the face's two edges at frame `i`, `seg_normals`
+    /// (len `frames-1`) the flat outward normal of each segment. Each frame
+    /// contributes a shared vertex pair carrying the **average** of its adjacent
+    /// segment normals, so the strip shades smoothly along its length while
+    /// remaining a hard crease against the neighbouring face (a separate strip).
+    /// `uv_u` is the lateral U of the two edges; `v[i]` the along-road V.
+    fn push_smoothed_strip(
+        &mut self,
+        left: &[[f32; 3]],
+        right: &[[f32; 3]],
+        seg_normals: &[[f32; 3]],
+        uv_u: (f32, f32),
+        v: &[f32],
+    ) {
+        let n = left.len();
+        if n < 2 {
+            return;
+        }
+        let base = self.vertices.len() as u32;
+        for i in 0..n {
+            // Average the (up to two) segment normals meeting at frame `i`.
+            let mut acc = [0.0_f32; 3];
+            for s in [i.checked_sub(1), (i < seg_normals.len()).then_some(i)]
+                .into_iter()
+                .flatten()
+            {
+                let nrm = seg_normals[s];
+                acc = [acc[0] + nrm[0], acc[1] + nrm[1], acc[2] + nrm[2]];
+            }
+            let nrm = normalize(acc);
+            self.vertices.push(left[i]);
+            self.vertices.push(right[i]);
+            self.normals.push(nrm);
+            self.normals.push(nrm);
+            self.uvs.push([uv_u.0, v[i]]);
+            self.uvs.push([uv_u.1, v[i]]);
+        }
+        for i in 0..n - 1 {
+            let a = base + (i as u32) * 2; // left[i]
+            self.indices
+                .extend_from_slice(&[a, a + 1, a + 3, a, a + 3, a + 2]);
+        }
     }
 }
 
@@ -833,6 +880,9 @@ fn extrude_chain(
         ]
     };
 
+    // Per-frame along-road V, shared by every profile face.
+    let v: Vec<f32> = frames.iter().map(|f| f.arc / UV_TILE_M).collect();
+
     for j in 0..10 {
         let k = (j + 1) % 10;
         let (uj, uk) = (u[j] / UV_TILE_M, u[k] / UV_TILE_M);
@@ -843,17 +893,23 @@ fn extrude_chain(
         } else {
             &mut parts.structure
         };
+        // One strip per face: normals are averaged ALONG the chain (smooth
+        // ribbon) but each face is its own strip, so the crease ACROSS the
+        // profile stays sharp.
+        let left: Vec<[f32; 3]> = frames.iter().map(|f| world(f, prof[j])).collect();
+        let right: Vec<[f32; 3]> = frames.iter().map(|f| world(f, prof[k])).collect();
+        let mut seg_n = Vec::with_capacity(frames.len().saturating_sub(1));
         for i in 0..frames.len() - 1 {
-            let (f0, f1) = (&frames[i], &frames[i + 1]);
-            let a = world(f0, prof[j]);
-            let b = world(f0, prof[k]);
-            let c = world(f1, prof[j]);
-            let d = world(f1, prof[k]);
-            let axis = beam_axis(f0, f1, dims.skirt_depth, world_offset);
-            let nrm = quad_normal(a, b, c, d, axis);
-            let (vi, vi1) = (f0.arc / UV_TILE_M, f1.arc / UV_TILE_M);
-            target.push_quad(a, b, c, d, [[uj, vi], [uk, vi], [uj, vi1], [uk, vi1]], nrm);
+            let axis = beam_axis(&frames[i], &frames[i + 1], dims.skirt_depth, world_offset);
+            seg_n.push(quad_normal(
+                left[i],
+                right[i],
+                left[i + 1],
+                right[i + 1],
+                axis,
+            ));
         }
+        target.push_smoothed_strip(&left, &right, &seg_n, (uj, uk), &v);
     }
 
     // Emissive neon edge-line: a thin strip riding proud of each curb's inner
@@ -939,7 +995,9 @@ fn extrude_junctions(
             hm.get_height_at(cx, cz) + lift,
             cz + world_offset,
         ]);
-        geo.normals.push([0.0, 1.0, 0.0]);
+        // Shade the fan by the draped terrain normal, not a flat [0,1,0] — the
+        // latter lit every fan as a hard disc against the slope-lit chains.
+        geo.normals.push(hm.get_normal_at(cx, cz));
         geo.uvs.push([0.5, 0.5]);
         for k in 0..=RING {
             let a = k as f32 / RING as f32 * std::f32::consts::TAU;
@@ -949,7 +1007,7 @@ fn extrude_junctions(
                 hm.get_height_at(px, pz) + lift,
                 pz + world_offset,
             ]);
-            geo.normals.push([0.0, 1.0, 0.0]);
+            geo.normals.push(hm.get_normal_at(px, pz));
             geo.uvs.push([a.cos() * 0.5 + 0.5, a.sin() * 0.5 + 0.5]);
         }
         for k in 0..RING {
@@ -1623,6 +1681,29 @@ mod tests {
                 for nrm in &geo.normals {
                     assert!(nrm.iter().all(|c| c.is_finite()), "non-finite normal");
                 }
+            }
+        }
+    }
+
+    /// WS2: the ribbon is shaded smoothly. The deck strip welds its vertices
+    /// along the chain (so adjacent quads share normals → no facet), which means
+    /// far fewer vertices than the 4-per-quad an unwelded flat-shaded build would
+    /// emit; and every normal is unit length (the smoothing's `normalize`).
+    #[test]
+    fn deck_is_welded_with_unit_normals() {
+        let parts = build_road_geometry(&pilot_heightmap(), &cfg(PILOT_ROAD_SEED))
+            .expect("pilot network must produce roads");
+        let deck_quads = parts.deck.indices.len() / 6;
+        assert!(deck_quads > 0, "no deck quads");
+        assert!(
+            parts.deck.vertices.len() < 4 * deck_quads,
+            "deck is not welded ({} verts for {deck_quads} quads — flat per-face?)",
+            parts.deck.vertices.len()
+        );
+        for geo in surfaces(&parts) {
+            for nrm in &geo.normals {
+                let len2 = nrm[0] * nrm[0] + nrm[1] * nrm[1] + nrm[2] * nrm[2];
+                assert!((len2 - 1.0).abs() < 1.0e-3, "non-unit normal {nrm:?}");
             }
         }
     }
