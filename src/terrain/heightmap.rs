@@ -155,7 +155,7 @@ pub(super) fn spawn_terrain_mesh(
 /// [`gen_jobs::HeightmapParams`] the offload layer runs. The generation itself
 /// lives in the Bevy-free [`gen_jobs`] crate so native and the wasm Web Worker
 /// share one (deterministic) implementation.
-fn heightmap_params(cfg: &SovereignTerrainConfig) -> gen_jobs::HeightmapParams {
+pub(super) fn heightmap_params(cfg: &SovereignTerrainConfig) -> gen_jobs::HeightmapParams {
     use gen_jobs::GeneratorKind;
     gen_jobs::HeightmapParams {
         grid_size: cfg.grid_size,
@@ -188,7 +188,7 @@ fn heightmap_params(cfg: &SovereignTerrainConfig) -> gen_jobs::HeightmapParams {
 }
 
 /// Rebuild a [`HeightMap`] from the plain data returned by the offload job.
-fn heightmap_from_data(d: gen_jobs::HeightmapData) -> HeightMap {
+pub(super) fn heightmap_from_data(d: gen_jobs::HeightmapData) -> HeightMap {
     let mut hm = HeightMap::new(d.width as usize, d.height as usize, d.scale);
     hm.data_mut().copy_from_slice(&d.data);
     hm

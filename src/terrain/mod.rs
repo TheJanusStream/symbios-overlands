@@ -137,6 +137,23 @@ struct LastTerrainConfigJson(Option<String>);
 #[derive(Resource, Default)]
 struct PendingTerrainConfigJson(Option<Option<String>>);
 
+/// Synchronously reproduce a record's heightmap off the schedule — the same
+/// params and deterministic [`crate::offload`] core the async terrain task runs,
+/// just inline. For native tooling (the render harness's `--road-dump`) that
+/// needs the *real* surface a room would render on without standing up the Bevy
+/// terrain pipeline. Matches [`heightmap::start_terrain_generation`]'s config
+/// resolution exactly so the heightmap is identical to the live one.
+pub(crate) fn rebuild_heightmap_for_record(record: &crate::pds::RoomRecord) -> HeightMap {
+    let cfg = crate::pds::find_terrain_config(record)
+        .cloned()
+        .unwrap_or_default();
+    let params = heightmap::heightmap_params(&cfg);
+    match crate::offload::GenJob::Heightmap(params).run() {
+        crate::offload::GenResult::Heightmap(data) => heightmap::heightmap_from_data(data),
+        _ => unreachable!("a heightmap offload job yields a heightmap result"),
+    }
+}
+
 pub struct TerrainPlugin;
 
 impl Plugin for TerrainPlugin {

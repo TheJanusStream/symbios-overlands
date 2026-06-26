@@ -717,6 +717,352 @@ pub fn to_bevy_mesh(geo: &RoadGeometry) -> Mesh {
     mesh
 }
 
+// --- Diagnostics ------------------------------------------------------------
+//
+// A no-render dump of the *meshed* road graph's topology + geometry-risk, to
+// guide road-network data filtering (the spurious junctions, dead-end spurs,
+// near-duplicate nodes and tight-bend spikes seen in-game all originate in raw
+// tracer/rationalize output that the mesher consumes with no clean-up pass).
+// Surfaced through the render harness's `--road-dump <seed|did>`.
+//
+// The classification thresholds below are *reporting* heuristics — the dump
+// also prints the raw distributions so they can be retuned against real seeds
+// before any filter is baked into generation.
+
+/// Node pair closer than this (m) counts as near-coincident (lumpy double-hubs).
+const DIAG_NEAR_NODE_EPS_M: f32 = 1.0;
+/// A dead-end edge shorter than this (m) counts as a stub (degree-inflating).
+const DIAG_STUB_LEN_M: f32 = 8.0;
+/// Two branches within this of 180° count as a straight through-road.
+const DIAG_COLLINEAR_TOL_DEG: f32 = 25.0;
+/// A third branch within this of the through-line counts as a glancing graze.
+const DIAG_SHALLOW_ANGLE_DEG: f32 = 20.0;
+/// Miter scale at/above this (the builder clamps at 3.0) marks a spike-risk bend.
+const DIAG_SPIKE_SCALE: f32 = 2.5;
+
+/// Topology + geometry-risk statistics for one room's *meshed* road graph,
+/// gathered by [`road_graph_diagnostics`]. Purely diagnostic — nothing here
+/// feeds generation; it exists to size the filtering work.
+pub struct RoadGraphStats {
+    nodes: usize,
+    edges_total: usize,
+    edges_active: usize,
+    degree_hist: std::collections::BTreeMap<usize, usize>,
+    dead_ends_total: usize,
+    short_stubs: usize,
+    spur_lengths: Vec<f32>,
+    coincident_pairs: usize,
+    hubs_total: usize,
+    hubs_with_stub: usize,
+    hubs_collinear_graze: usize,
+    hubs_near_duplicate: usize,
+    hubs_spurious: usize,
+    hub_min_branch_angle: Vec<f32>,
+    chains: usize,
+    chain_lengths: Vec<f32>,
+    densified_vertices: usize,
+    spike_vertices: usize,
+    spike_max_scale: f32,
+}
+
+/// `min / p50 / p90 / max / mean` of a sample, or `—` when empty.
+fn distro(v: &[f32]) -> String {
+    if v.is_empty() {
+        return "—".to_string();
+    }
+    let mut s = v.to_vec();
+    s.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let pick = |q: f32| s[(((s.len() - 1) as f32) * q).round() as usize];
+    let mean = s.iter().sum::<f32>() / s.len() as f32;
+    format!(
+        "min {:.1}  p50 {:.1}  p90 {:.1}  max {:.1}  mean {:.1}",
+        s[0],
+        pick(0.5),
+        pick(0.9),
+        s[s.len() - 1],
+        mean
+    )
+}
+
+/// Count unordered node pairs within `eps` that are **not** directly joined by
+/// an active edge — genuine near-duplicate vertices the topology should merge,
+/// excluding legitimately close chain-adjacent nodes (consecutive fillet
+/// points). `pts` holds `(node_index, position)`; grid-bucketed, O(n).
+fn count_near_duplicate_nodes(
+    pts: &[(usize, (f32, f32))],
+    eps: f32,
+    adj: &[Vec<(usize, f32)>],
+) -> usize {
+    use std::collections::HashMap;
+    let cell = eps.max(1.0e-3);
+    let key = |p: (f32, f32)| ((p.0 / cell).floor() as i32, (p.1 / cell).floor() as i32);
+    let mut grid: HashMap<(i32, i32), Vec<usize>> = HashMap::new();
+    let mut count = 0usize;
+    for (slot, &(ni, p)) in pts.iter().enumerate() {
+        let (kx, kz) = key(p);
+        for dx in -1..=1 {
+            for dz in -1..=1 {
+                if let Some(bucket) = grid.get(&(kx + dx, kz + dz)) {
+                    for &other in bucket {
+                        let (nj, q) = pts[other];
+                        if (p.0 - q.0).hypot(p.1 - q.1) < eps
+                            && !adj[ni].iter().any(|&(nb, _)| nb == nj)
+                        {
+                            count += 1;
+                        }
+                    }
+                }
+            }
+        }
+        grid.entry((kx, kz)).or_default().push(slot);
+    }
+    count
+}
+
+/// Build the room's road graph (the exact one [`build_road_geometry`] meshes)
+/// and gather topology + geometry-risk stats. `None` when the network is
+/// disabled or the tracer produces nothing — same gate as the mesher.
+pub fn road_graph_diagnostics(hm: &HeightMap, config: &RoadConfig) -> Option<RoadGraphStats> {
+    let (graph, sub, _lo) = build_road_graph(hm, config)?;
+    let dims = Dims::from_config(config);
+
+    let pos = |i: usize| {
+        let p = graph.nodes[i].position;
+        (p.x, p.y)
+    };
+    let dist = |a: (f32, f32), b: (f32, f32)| (a.0 - b.0).hypot(a.1 - b.1);
+
+    let n = graph.nodes.len();
+    // Active adjacency: (neighbour, edge length).
+    let mut adj: Vec<Vec<(usize, f32)>> = vec![Vec::new(); n];
+    let mut edges_active = 0usize;
+    for e in &graph.edges {
+        if !e.active {
+            continue;
+        }
+        edges_active += 1;
+        let (s, t) = (e.start as usize, e.end as usize);
+        let l = dist(pos(s), pos(t));
+        adj[s].push((t, l));
+        adj[t].push((s, l));
+    }
+    let degree: Vec<usize> = adj.iter().map(Vec::len).collect();
+
+    let mut degree_hist: std::collections::BTreeMap<usize, usize> = Default::default();
+    for &d in &degree {
+        *degree_hist.entry(d).or_default() += 1;
+    }
+
+    // Interior clip — matches `extrude_junctions`' emission gate, so the hub
+    // counts reflect what is actually rendered.
+    let center = sub.width() as f32 * sub.scale() * 0.5;
+    let interior_r2 = (center * ROAD_INTERIOR_FRACTION).powi(2);
+    let inside = |i: usize| {
+        let (x, z) = pos(i);
+        let (dx, dz) = (x - center, z - center);
+        dx * dx + dz * dz <= interior_r2
+    };
+
+    // Dead-end spurs (active degree 1).
+    let spur_lengths: Vec<f32> = (0..n)
+        .filter(|&i| degree[i] == 1)
+        .map(|i| adj[i][0].1)
+        .collect();
+    let dead_ends_total = spur_lengths.len();
+    let short_stubs = spur_lengths
+        .iter()
+        .filter(|&&l| l < DIAG_STUB_LEN_M)
+        .count();
+
+    let active_nodes: Vec<(usize, (f32, f32))> = (0..n)
+        .filter(|&i| degree[i] > 0)
+        .map(|i| (i, pos(i)))
+        .collect();
+    let coincident_pairs = count_near_duplicate_nodes(&active_nodes, DIAG_NEAR_NODE_EPS_M, &adj);
+
+    // Hubs = rendered fans = active degree ≥ 3 inside the district interior.
+    let hub_ids: Vec<usize> = (0..n).filter(|&i| degree[i] >= 3 && inside(i)).collect();
+    let hubs_total = hub_ids.len();
+
+    let collinear_cos = (180.0 - DIAG_COLLINEAR_TOL_DEG).to_radians().cos();
+    let shallow_cos = DIAG_SHALLOW_ANGLE_DEG.to_radians().cos();
+
+    let (mut hubs_with_stub, mut hubs_collinear_graze, mut hubs_near_duplicate, mut hubs_spurious) =
+        (0usize, 0usize, 0usize, 0usize);
+    let mut hub_min_branch_angle: Vec<f32> = Vec::with_capacity(hubs_total);
+
+    for &h in &hub_ids {
+        let hp = pos(h);
+        let mut dirs: Vec<(f32, f32)> = Vec::with_capacity(adj[h].len());
+        let mut has_stub = false;
+        for &(nb, l) in &adj[h] {
+            let np = pos(nb);
+            let (dx, dz) = (np.0 - hp.0, np.1 - hp.1);
+            let m = (dx * dx + dz * dz).sqrt().max(1.0e-6);
+            dirs.push((dx / m, dz / m));
+            if degree[nb] == 1 && l < DIAG_STUB_LEN_M {
+                has_stub = true;
+            }
+        }
+
+        // Smallest angle between any two branches — a tiny value means two
+        // roads graze almost tangentially (a false crossing).
+        let mut min_ang = 180.0_f32;
+        for a in 0..dirs.len() {
+            for b in (a + 1)..dirs.len() {
+                let c = (dirs[a].0 * dirs[b].0 + dirs[a].1 * dirs[b].1).clamp(-1.0, 1.0);
+                min_ang = min_ang.min(c.acos().to_degrees());
+            }
+        }
+        hub_min_branch_angle.push(min_ang);
+
+        // Degree-3 "through-road + glancing spur": two branches near-collinear,
+        // the third nearly parallel to that through-line.
+        let mut collinear_graze = false;
+        if dirs.len() == 3 {
+            let mut best = (0usize, 1usize, 1.0_f32);
+            for a in 0..3 {
+                for b in (a + 1)..3 {
+                    let c = dirs[a].0 * dirs[b].0 + dirs[a].1 * dirs[b].1;
+                    if c < best.2 {
+                        best = (a, b, c);
+                    }
+                }
+            }
+            if best.2 <= collinear_cos {
+                let k = 3 - best.0 - best.1;
+                let (ax, az) = (
+                    dirs[best.0].0 - dirs[best.1].0,
+                    dirs[best.0].1 - dirs[best.1].1,
+                );
+                let am = (ax * ax + az * az).sqrt().max(1.0e-6);
+                let c = (dirs[k].0 * ax / am + dirs[k].1 * az / am).abs();
+                collinear_graze = c >= shallow_cos;
+            }
+        }
+
+        let near_dup = hub_ids
+            .iter()
+            .any(|&o| o != h && dist(hp, pos(o)) < DIAG_NEAR_NODE_EPS_M);
+
+        hubs_with_stub += usize::from(has_stub);
+        hubs_collinear_graze += usize::from(collinear_graze);
+        hubs_near_duplicate += usize::from(near_dup);
+        hubs_spurious += usize::from(has_stub || collinear_graze || near_dup);
+    }
+
+    // Chains + spike risk, via the *exact* mesher paths.
+    let chains = extract_chains(&graph, &sub, &dims);
+    let mut chain_lengths: Vec<f32> = Vec::with_capacity(chains.len());
+    let (mut densified_vertices, mut spike_vertices, mut spike_max_scale) =
+        (0usize, 0usize, 0.0_f32);
+    for chain in &chains {
+        let len = chain
+            .pts
+            .windows(2)
+            .map(|w| (w[1].0 - w[0].0).hypot(w[1].1 - w[0].1))
+            .sum();
+        chain_lengths.push(len);
+        let pts = densify(&chain.pts, RIBBON_STEP_M);
+        densified_vertices += pts.len();
+        for i in 1..pts.len().saturating_sub(1) {
+            let (_, _, scale) = frame_right(&pts, i);
+            spike_max_scale = spike_max_scale.max(scale);
+            spike_vertices += usize::from(scale >= DIAG_SPIKE_SCALE);
+        }
+    }
+
+    Some(RoadGraphStats {
+        nodes: n,
+        edges_total: graph.edges.len(),
+        edges_active,
+        degree_hist,
+        dead_ends_total,
+        short_stubs,
+        spur_lengths,
+        coincident_pairs,
+        hubs_total,
+        hubs_with_stub,
+        hubs_collinear_graze,
+        hubs_near_duplicate,
+        hubs_spurious,
+        hub_min_branch_angle,
+        chains: chains.len(),
+        chain_lengths,
+        densified_vertices,
+        spike_vertices,
+        spike_max_scale,
+    })
+}
+
+impl RoadGraphStats {
+    /// Render the stats as a human-readable report block for the CLI dump.
+    pub fn report(&self, label: &str) -> String {
+        use std::fmt::Write;
+        let mut s = String::new();
+        let _ = writeln!(s, "=== road-graph diagnostics — room {label} ===");
+        let _ = writeln!(
+            s,
+            "nodes: {}   edges: {} active / {} total",
+            self.nodes, self.edges_active, self.edges_total
+        );
+        let _ = write!(s, "active-degree histogram:");
+        for (d, c) in &self.degree_hist {
+            let _ = write!(s, "  deg{d}:{c}");
+        }
+        let _ = writeln!(s);
+        let _ = writeln!(
+            s,
+            "dead-end spurs: {} ({} shorter than {:.0} m)   spur length: {}",
+            self.dead_ends_total,
+            self.short_stubs,
+            DIAG_STUB_LEN_M,
+            distro(&self.spur_lengths)
+        );
+        let _ = writeln!(
+            s,
+            "near-duplicate node pairs (< {:.1} m, non-adjacent): {}",
+            DIAG_NEAR_NODE_EPS_M, self.coincident_pairs
+        );
+        let _ = writeln!(
+            s,
+            "-- junctions (rendered hubs: active-degree >= 3, interior) --"
+        );
+        let _ = writeln!(s, "total hubs: {}", self.hubs_total);
+        let _ = writeln!(
+            s,
+            "  spurious: {}  [stub-induced {}, collinear-graze {}, near-duplicate {}]",
+            self.hubs_spurious,
+            self.hubs_with_stub,
+            self.hubs_collinear_graze,
+            self.hubs_near_duplicate
+        );
+        let _ = writeln!(
+            s,
+            "  real (survive gate): {}",
+            self.hubs_total.saturating_sub(self.hubs_spurious)
+        );
+        let _ = writeln!(
+            s,
+            "  min branch-angle per hub (deg): {}",
+            distro(&self.hub_min_branch_angle)
+        );
+        let _ = writeln!(s, "-- ribbon / spike risk --");
+        let _ = writeln!(
+            s,
+            "chains: {}   chain length (m): {}",
+            self.chains,
+            distro(&self.chain_lengths)
+        );
+        let _ = writeln!(
+            s,
+            "densified vertices: {}   spike-risk (miter scale >= {:.1}): {}   max miter scale: {:.2}",
+            self.densified_vertices, DIAG_SPIKE_SCALE, self.spike_vertices, self.spike_max_scale
+        );
+        s
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -885,6 +1231,39 @@ mod tests {
             probe.data_mut(),
             "build_road_geometry must not carve the terrain"
         );
+    }
+
+    /// The road-graph diagnostic must run on the pilot network and report
+    /// internally-consistent counts — a guard for the filtering work that
+    /// reads these numbers to size thresholds.
+    #[test]
+    fn road_graph_diagnostics_reports_consistent_stats() {
+        let hm = pilot_heightmap();
+        let stats = road_graph_diagnostics(&hm, &cfg(PILOT_ROAD_SEED))
+            .expect("pilot network must yield diagnostics");
+        // The degree histogram partitions every node exactly once.
+        let hist_sum: usize = stats.degree_hist.values().sum();
+        assert_eq!(
+            hist_sum, stats.nodes,
+            "degree histogram must cover all nodes"
+        );
+        // Spurious-hub sub-counts are each a subset of all hubs.
+        assert!(stats.hubs_spurious <= stats.hubs_total);
+        assert!(stats.hubs_with_stub <= stats.hubs_total);
+        assert!(stats.hubs_collinear_graze <= stats.hubs_total);
+        assert!(stats.hubs_near_duplicate <= stats.hubs_total);
+        // Spike-risk vertices are a subset of densified vertices, and the
+        // builder's miter clamp (3.0) is never exceeded.
+        assert!(stats.spike_vertices <= stats.densified_vertices);
+        assert!(
+            stats.spike_max_scale <= 3.0 + 1.0e-3,
+            "miter scale clamp is 3.0"
+        );
+        // One sample per hub / per spur.
+        assert_eq!(stats.hub_min_branch_angle.len(), stats.hubs_total);
+        assert_eq!(stats.spur_lengths.len(), stats.dead_ends_total);
+        // The report renders without panicking and labels the room.
+        assert!(stats.report("pilot").contains("road-graph diagnostics"));
     }
 
     /// Every emitted vertex must be finite — a NaN from a degenerate miter or

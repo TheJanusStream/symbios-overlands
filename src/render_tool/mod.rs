@@ -82,6 +82,13 @@ struct Args {
     /// Room subject: a u64 seed or DID — renders the seeded settlement cluster.
     #[arg(long)]
     room: Option<String>,
+    /// Road-graph diagnostics: a u64 seed or DID — reproduces the room's
+    /// heightmap, builds the *meshed* road graph, and prints topology +
+    /// geometry-risk stats (degree histogram, dead-end spurs, spurious-junction
+    /// and spike-risk counts), then exits. A no-render dump to size road-network
+    /// data filtering. Runs before any render app stands up.
+    #[arg(long)]
+    road_dump: Option<String>,
     /// Torture/cut overrides for a `--prim` subject (for testing the prim
     /// system). `--shear x,z` · `--twist rad` · `--taper x,z` · `--pathcut a,b`
     /// · `--profilecut a,b` · `--hollow h`.
@@ -143,6 +150,13 @@ pub fn run() {
     // family and exit — a survey aid, never renders.
     if let Some(fam) = &args.family_seeds {
         print_family_seeds(fam, args.family_count);
+        return;
+    }
+
+    // `--road-dump <seed|did>`: print the room's road-graph diagnostics and
+    // exit — a no-render topology/geometry-risk dump for the road-filtering work.
+    if let Some(room) = &args.road_dump {
+        dump_road_graph(room);
         return;
     }
 
@@ -269,6 +283,35 @@ fn print_family_seeds(fam: &str, count: usize) {
         .take(count)
         .collect();
     println!("{want:?} seeds: {seeds:?}");
+}
+
+/// Reproduce a room's heightmap + road config and print the road-graph
+/// diagnostics (see [`crate::urban::road_graph_diagnostics`]) to stdout. The
+/// room is the seeded default for a `u64` seed or a DID string — the same
+/// derivation `--room` uses — so the heightmap and road network match what the
+/// game renders for that room.
+fn dump_road_graph(room: &str) {
+    let record = match room.parse::<u64>() {
+        Ok(seed) => RoomRecord::default_for_seed(seed, &format!("did:render:{seed}")),
+        Err(_) => RoomRecord::default_for_did(room),
+    };
+    let Some(config) = crate::pds::find_road_config(&record).cloned() else {
+        println!(
+            "room {room:?}: no road config — this room grows no roads (try a road-growing theme seed)"
+        );
+        return;
+    };
+    if !config.enabled {
+        println!("room {room:?}: road config present but disabled");
+        return;
+    }
+    let hm = crate::terrain::rebuild_heightmap_for_record(&record);
+    match crate::urban::road_graph_diagnostics(&hm, &config) {
+        Some(stats) => print!("{}", stats.report(room)),
+        None => println!(
+            "room {room:?}: road graph produced no network (district window too small or tracer empty)"
+        ),
+    }
 }
 
 /// Resolve a primitive tag (case-insensitive) to a default kind. Wraps
