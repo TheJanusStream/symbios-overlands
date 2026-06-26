@@ -232,11 +232,22 @@ const SANITIZE_GRAZE_ANGLE_DEG: f32 = 20.0;
 /// cascade; this bounds the fixed-point loop well above the depth real networks
 /// reach.
 const SANITIZE_MAX_PASSES: usize = 24;
+/// Collapse an active edge shorter than this (m): a near-zero segment whose
+/// unstable direction is what makes the miter spike (the in-game "glitch
+/// segments"). Well below any real road feature.
+const MERGE_EDGE_LEN_M: f32 = 0.5;
+/// Merge two distinct nodes closer than this (m): the snap-welded near-duplicate
+/// vertices that render as lumpy double-hubs and parallel edges. Far below the
+/// ~100 m+ spacing of real junctions, so genuine ones never merge.
+const MERGE_NODE_EPS_M: f32 = 1.0;
 
-/// Deactivate the road-graph artefacts described above, in place and
-/// deterministically. Iterates to a fixed point: cutting a graze can expose a
-/// fresh stub (and vice-versa), so passes repeat until a pass cuts nothing.
+/// Clean the road graph in place and deterministically. First **merge**
+/// coincident nodes (collapsing near-zero segments and near-duplicate vertices —
+/// the source of the glitch spikes and lumpy double-hubs), then **cut** the
+/// remaining stub / graze artefacts to a fixed point (a cut can expose a fresh
+/// stub, and vice-versa, so passes repeat until one cuts nothing).
 fn sanitize_graph(graph: &mut RoadGraph) {
+    merge_coincident_nodes(graph);
     for _ in 0..SANITIZE_MAX_PASSES {
         let targets = sanitize_targets(graph);
         if targets.is_empty() {
@@ -322,6 +333,142 @@ fn sanitize_targets(graph: &RoadGraph) -> Vec<usize> {
     }
 
     targets.into_iter().collect()
+}
+
+/// Union-find root with path-halving.
+fn uf_find(parent: &mut [usize], mut x: usize) -> usize {
+    while parent[x] != x {
+        parent[x] = parent[parent[x]];
+        x = parent[x];
+    }
+    x
+}
+
+/// Union two sets, keeping the lowest index as the representative (deterministic).
+fn uf_union(parent: &mut [usize], a: usize, b: usize) {
+    let (ra, rb) = (uf_find(parent, a), uf_find(parent, b));
+    if ra != rb {
+        parent[ra.max(rb)] = ra.min(rb);
+    }
+}
+
+/// Merge coincident nodes in place. Two sources of coincidence get collapsed:
+/// active edges shorter than [`MERGE_EDGE_LEN_M`] (degenerate segments — the
+/// unstable direction that spikes the miter) and distinct active nodes within
+/// [`MERGE_NODE_EPS_M`] (snap-welded duplicates that render as double-hubs /
+/// parallel edges). Each cluster collapses to its lowest-index node; edges are
+/// rewired to representatives, and self-loops / duplicate edges are deactivated.
+///
+/// Only `edge.start/end`, `edge.active` and `node.edges` change — positions are
+/// untouched, and `extract_blocks` rebuilds its own adjacency from the active
+/// edges, so the planar structure stays valid for the lot layer.
+fn merge_coincident_nodes(graph: &mut RoadGraph) {
+    let n = graph.nodes.len();
+    let pos = |i: usize| {
+        let p = graph.nodes[i].position;
+        (p.x, p.y)
+    };
+    let mut parent: Vec<usize> = (0..n).collect();
+
+    // Active degree, to tell curve samples (degree-2) from junctions (degree-3+).
+    let mut deg = vec![0u32; n];
+    for e in &graph.edges {
+        if e.active {
+            deg[e.start as usize] += 1;
+            deg[e.end as usize] += 1;
+        }
+    }
+
+    // 1. Collapse a short active edge when it is either a near-zero segment (the
+    //    spike source) OR a short connector *between two junctions* (a double-
+    //    hub). Real junctions are never within MERGE_NODE_EPS, while a real curve
+    //    sample is degree-2, so this never collapses legitimate road geometry.
+    for e in &graph.edges {
+        if !e.active {
+            continue;
+        }
+        let (s, t) = (e.start as usize, e.end as usize);
+        let (a, b) = (pos(s), pos(t));
+        let l = (a.0 - b.0).hypot(a.1 - b.1);
+        let junction_pair = deg[s] >= 3 && deg[t] >= 3;
+        if l < MERGE_EDGE_LEN_M || (junction_pair && l < MERGE_NODE_EPS_M) {
+            uf_union(&mut parent, s, t);
+        }
+    }
+
+    // 2. Merge near-duplicate active nodes that are NOT directly connected by an
+    //    edge (grid-bucketed, O(n)). Skipping adjacent pairs is load-bearing: the
+    //    tensor graph is sampled at ~1 m, so merging adjacent samples would
+    //    collapse and distort real curves — those are left to the near-zero rule
+    //    above. Only genuine snap-welded duplicates (two *distinct* roads meeting
+    //    at the same point) are merged here.
+    let mut is_active = vec![false; n];
+    let mut adjacent: std::collections::HashSet<(usize, usize)> = Default::default();
+    for e in &graph.edges {
+        if e.active {
+            let (s, t) = (e.start as usize, e.end as usize);
+            is_active[s] = true;
+            is_active[t] = true;
+            adjacent.insert((s.min(t), s.max(t)));
+        }
+    }
+    let cell = MERGE_NODE_EPS_M.max(1.0e-3);
+    let key = |p: (f32, f32)| ((p.0 / cell).floor() as i32, (p.1 / cell).floor() as i32);
+    let mut grid: std::collections::HashMap<(i32, i32), Vec<usize>> = Default::default();
+    for (i, &active) in is_active.iter().enumerate() {
+        if !active {
+            continue;
+        }
+        let p = pos(i);
+        let (kx, kz) = key(p);
+        for dx in -1..=1 {
+            for dz in -1..=1 {
+                if let Some(bucket) = grid.get(&(kx + dx, kz + dz)) {
+                    for &j in bucket {
+                        let q = pos(j);
+                        if (p.0 - q.0).hypot(p.1 - q.1) < MERGE_NODE_EPS_M
+                            && !adjacent.contains(&(i.min(j), i.max(j)))
+                        {
+                            uf_union(&mut parent, i, j);
+                        }
+                    }
+                }
+            }
+        }
+        grid.entry((kx, kz)).or_default().push(i);
+    }
+
+    // 3. Rewire edges to representatives; drop self-loops and parallels.
+    let mut seen: std::collections::HashSet<(usize, usize)> = Default::default();
+    for e in &mut graph.edges {
+        if !e.active {
+            continue;
+        }
+        let ns = uf_find(&mut parent, e.start as usize);
+        let ne = uf_find(&mut parent, e.end as usize);
+        if ns == ne || !seen.insert((ns.min(ne), ns.max(ne))) {
+            e.active = false;
+            continue;
+        }
+        e.start = ns as u32;
+        e.end = ne as u32;
+    }
+
+    // 4. Rebuild `node.edges` from the surviving active edges (order-agnostic;
+    //    consumers that read it re-derive any angular order they need).
+    let incidence: Vec<(usize, u32)> = graph
+        .edges
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e.active)
+        .flat_map(|(i, e)| [(e.start as usize, i as u32), (e.end as usize, i as u32)])
+        .collect();
+    for node in &mut graph.nodes {
+        node.edges.clear();
+    }
+    for (nid, eid) in incidence {
+        graph.nodes[nid].edges.push(eid);
+    }
 }
 
 /// Build terrain-conforming road geometry from a [`RoadConfig`], or `None` if
@@ -1450,11 +1597,15 @@ mod tests {
             assert_eq!(stats.hub_min_branch_angle.len(), stats.hubs_total);
             assert_eq!(stats.spur_lengths.len(), stats.dead_ends_total);
         }
-        // WS1 acceptance: sanitation only ever removes the artefacts it targets
-        // (and only by deactivating edges) — never adds them.
+        // WS1 acceptance: sanitation only ever removes the artefacts it targets —
+        // never adds them — and the merge leaves no near-duplicate nodes behind.
         assert!(diag.sanitized.hubs_spurious <= diag.raw.hubs_spurious);
         assert!(diag.sanitized.spike_vertices <= diag.raw.spike_vertices);
         assert!(diag.sanitized.edges_active <= diag.raw.edges_active);
+        assert_eq!(
+            diag.sanitized.coincident_pairs, 0,
+            "merge must leave no near-duplicate (non-adjacent) nodes"
+        );
         // The report renders without panicking and labels the room.
         assert!(diag.report("pilot").contains("road-graph diagnostics"));
     }
