@@ -161,6 +161,21 @@ struct Chain {
 /// building can only sit on a street if it was placed from the geometry the
 /// player actually sees.
 fn build_road_graph(hm: &HeightMap, config: &RoadConfig) -> Option<(RoadGraph, HeightMap, usize)> {
+    let (mut graph, sub, lo) = build_road_graph_raw(hm, config)?;
+    // Clean tracer / rationalize artefacts (grazing false junctions and dead-end
+    // stubs) out of the topology before it is meshed *or* lotted — see
+    // [`sanitize_graph`]. Both consumers read the same cleaned graph.
+    sanitize_graph(&mut graph);
+    Some((graph, sub, lo))
+}
+
+/// The raw rationalized graph — `generate_roads` + `rationalize_graph`, *before*
+/// [`sanitize_graph`]. Split out so the diagnostic dump can compare the graph
+/// before and after sanitation (see [`road_graph_diagnostics`]).
+fn build_road_graph_raw(
+    hm: &HeightMap,
+    config: &RoadConfig,
+) -> Option<(RoadGraph, HeightMap, usize)> {
     if !config.enabled {
         return None;
     }
@@ -193,6 +208,120 @@ fn build_road_graph(hm: &HeightMap, config: &RoadConfig) -> Option<(RoadGraph, H
     // ignore its smoothed elevations and sample the real terrain when draping.
     rationalize_graph(&mut graph, &sub, &RationalizeConfig::default());
     Some((graph, sub, lo))
+}
+
+// --- Graph sanitation (#571) ------------------------------------------------
+//
+// The tensor tracer welds a junction wherever a trace passes within
+// `snap_radius` of an existing edge, and leaves dead-end stubs where a trace
+// runs out; `rationalize_graph` straightens and fillets but never cleans the
+// *topology*. So the mesher inherits two artefacts the `--road-dump` diagnostic
+// measured as dominant: grazing false junctions (~23 % of hubs) and short
+// dead-end stubs. We clear both here by deactivating edges — the exact `active`
+// mechanism `prune_unused_roads` uses, so node lists / positions are untouched
+// and the planar structure stays valid for `extract_blocks` / `extract_lots`.
+
+/// A dead-end edge shorter than this (m) is a tracer stub: deactivated.
+const SANITIZE_STUB_LEN_M: f32 = 8.0;
+/// Two branches within this of 180° at a node form a straight through-road.
+const SANITIZE_COLLINEAR_TOL_DEG: f32 = 25.0;
+/// A third branch within this of the through-line is a glancing graze: cut.
+const SANITIZE_GRAZE_ANGLE_DEG: f32 = 20.0;
+/// Safety cap on sanitation passes. Cutting a graze can drop a degree-4 node to
+/// degree-3 and expose a fresh graze (or leave a fresh stub), so removals
+/// cascade; this bounds the fixed-point loop well above the depth real networks
+/// reach.
+const SANITIZE_MAX_PASSES: usize = 24;
+
+/// Deactivate the road-graph artefacts described above, in place and
+/// deterministically. Iterates to a fixed point: cutting a graze can expose a
+/// fresh stub (and vice-versa), so passes repeat until a pass cuts nothing.
+fn sanitize_graph(graph: &mut RoadGraph) {
+    for _ in 0..SANITIZE_MAX_PASSES {
+        let targets = sanitize_targets(graph);
+        if targets.is_empty() {
+            break;
+        }
+        for ei in targets {
+            graph.edges[ei].active = false;
+        }
+    }
+}
+
+/// One pass: the set of edge ids to deactivate given the current active graph.
+/// Read-only so the caller applies all cuts atomically (order-independent →
+/// deterministic). Returns sorted unique ids.
+fn sanitize_targets(graph: &RoadGraph) -> Vec<usize> {
+    let n = graph.nodes.len();
+    let pos = |i: usize| {
+        let p = graph.nodes[i].position;
+        (p.x, p.y)
+    };
+    // Active adjacency: per node, (neighbour, edge id, length).
+    let mut adj: Vec<Vec<(usize, usize, f32)>> = vec![Vec::new(); n];
+    for (ei, e) in graph.edges.iter().enumerate() {
+        if !e.active {
+            continue;
+        }
+        let (s, t) = (e.start as usize, e.end as usize);
+        let (a, b) = (pos(s), pos(t));
+        let l = (a.0 - b.0).hypot(a.1 - b.1);
+        adj[s].push((t, ei, l));
+        adj[t].push((s, ei, l));
+    }
+
+    let mut targets: std::collections::BTreeSet<usize> = Default::default();
+
+    // 1. Short dead-end stubs.
+    for edges in &adj {
+        if edges.len() == 1 {
+            let (_, ei, l) = edges[0];
+            if l < SANITIZE_STUB_LEN_M {
+                targets.insert(ei);
+            }
+        }
+    }
+
+    // 2. Grazing T-junctions: a degree-3 node with a near-collinear through-pair
+    //    and a third branch nearly parallel to that through-line. Real 3-way
+    //    junctions (branches ~120° apart) have no collinear pair, so they are
+    //    never touched; only the snap-welded tangential touch is cut.
+    let collinear_cos = (180.0 - SANITIZE_COLLINEAR_TOL_DEG).to_radians().cos();
+    let graze_cos = SANITIZE_GRAZE_ANGLE_DEG.to_radians().cos();
+    for (h, edges) in adj.iter().enumerate() {
+        if edges.len() != 3 {
+            continue;
+        }
+        let hp = pos(h);
+        let dir = |k: usize| {
+            let np = pos(edges[k].0);
+            let (dx, dz) = (np.0 - hp.0, np.1 - hp.1);
+            let m = (dx * dx + dz * dz).sqrt().max(1.0e-6);
+            (dx / m, dz / m)
+        };
+        let d = [dir(0), dir(1), dir(2)];
+        // Through-pair = the pair closest to 180° (most-negative cosine).
+        let mut best = (0usize, 1usize, 1.0_f32);
+        for a in 0..3 {
+            for b in (a + 1)..3 {
+                let c = d[a].0 * d[b].0 + d[a].1 * d[b].1;
+                if c < best.2 {
+                    best = (a, b, c);
+                }
+            }
+        }
+        if best.2 > collinear_cos {
+            continue; // no straight through-road here → a real junction
+        }
+        let k = 3 - best.0 - best.1; // the remaining (graze) branch
+        let (ax, az) = (d[best.0].0 - d[best.1].0, d[best.0].1 - d[best.1].1);
+        let am = (ax * ax + az * az).sqrt().max(1.0e-6);
+        if (d[k].0 * ax / am + d[k].1 * az / am).abs() >= graze_cos {
+            targets.insert(edges[k].1);
+        }
+    }
+
+    targets.into_iter().collect()
 }
 
 /// Build terrain-conforming road geometry from a [`RoadConfig`], or `None` if
@@ -819,13 +948,23 @@ fn count_near_duplicate_nodes(
     count
 }
 
-/// Build the room's road graph (the exact one [`build_road_geometry`] meshes)
-/// and gather topology + geometry-risk stats. `None` when the network is
-/// disabled or the tracer produces nothing — same gate as the mesher.
-pub fn road_graph_diagnostics(hm: &HeightMap, config: &RoadConfig) -> Option<RoadGraphStats> {
-    let (graph, sub, _lo) = build_road_graph(hm, config)?;
+/// Before/after sanitation diagnostics for a room's road graph (raw rationalized
+/// vs [`sanitize_graph`]-cleaned), for the render harness's `--road-dump`.
+/// `None` when the network is disabled or the tracer produces nothing.
+pub fn road_graph_diagnostics(hm: &HeightMap, config: &RoadConfig) -> Option<RoadDiagnostics> {
     let dims = Dims::from_config(config);
+    let (graph_raw, sub, _lo) = build_road_graph_raw(hm, config)?;
+    let raw = collect_graph_stats(&graph_raw, &sub, &dims);
+    // Sanitise a fresh raw build (deterministic, so byte-identical to `graph_raw`).
+    let (mut graph_san, sub2, _lo2) = build_road_graph_raw(hm, config)?;
+    sanitize_graph(&mut graph_san);
+    let sanitized = collect_graph_stats(&graph_san, &sub2, &dims);
+    Some(RoadDiagnostics { raw, sanitized })
+}
 
+/// Gather topology + geometry-risk stats for one graph — the exact one
+/// [`build_road_geometry`] would mesh from `sub`.
+fn collect_graph_stats(graph: &RoadGraph, sub: &HeightMap, dims: &Dims) -> RoadGraphStats {
     let pos = |i: usize| {
         let p = graph.nodes[i].position;
         (p.x, p.y)
@@ -952,7 +1091,7 @@ pub fn road_graph_diagnostics(hm: &HeightMap, config: &RoadConfig) -> Option<Roa
     }
 
     // Chains + spike risk, via the *exact* mesher paths.
-    let chains = extract_chains(&graph, &sub, &dims);
+    let chains = extract_chains(graph, sub, dims);
     let mut chain_lengths: Vec<f32> = Vec::with_capacity(chains.len());
     let (mut densified_vertices, mut spike_vertices, mut spike_max_scale) =
         (0usize, 0usize, 0.0_f32);
@@ -972,7 +1111,7 @@ pub fn road_graph_diagnostics(hm: &HeightMap, config: &RoadConfig) -> Option<Roa
         }
     }
 
-    Some(RoadGraphStats {
+    RoadGraphStats {
         nodes: n,
         edges_total: graph.edges.len(),
         edges_active,
@@ -992,15 +1131,15 @@ pub fn road_graph_diagnostics(hm: &HeightMap, config: &RoadConfig) -> Option<Roa
         densified_vertices,
         spike_vertices,
         spike_max_scale,
-    })
+    }
 }
 
 impl RoadGraphStats {
-    /// Render the stats as a human-readable report block for the CLI dump.
-    pub fn report(&self, label: &str) -> String {
+    /// Render one graph's stats as a labelled report block.
+    fn section(&self, title: &str) -> String {
         use std::fmt::Write;
         let mut s = String::new();
-        let _ = writeln!(s, "=== road-graph diagnostics — room {label} ===");
+        let _ = writeln!(s, "-- {title} --");
         let _ = writeln!(
             s,
             "nodes: {}   edges: {} active / {} total",
@@ -1058,6 +1197,53 @@ impl RoadGraphStats {
             s,
             "densified vertices: {}   spike-risk (miter scale >= {:.1}): {}   max miter scale: {:.2}",
             self.densified_vertices, DIAG_SPIKE_SCALE, self.spike_vertices, self.spike_max_scale
+        );
+        s
+    }
+}
+
+/// Raw-vs-sanitised road-graph diagnostics — the before/after the
+/// [`sanitize_graph`] pass achieves, surfaced by [`road_graph_diagnostics`].
+pub struct RoadDiagnostics {
+    raw: RoadGraphStats,
+    sanitized: RoadGraphStats,
+}
+
+impl RoadDiagnostics {
+    /// A before/after report block for the CLI dump: the raw rationalized graph,
+    /// the sanitised graph, and the headline deltas sanitation achieved.
+    pub fn report(&self, label: &str) -> String {
+        use std::fmt::Write;
+        let (r, c) = (&self.raw, &self.sanitized);
+        let mut s = String::new();
+        let _ = writeln!(s, "=== road-graph diagnostics — room {label} ===");
+        let _ = write!(
+            s,
+            "{}",
+            r.section("RAW (generate_roads + rationalize_graph)")
+        );
+        let _ = writeln!(s);
+        let _ = write!(s, "{}", c.section("SANITIZED (+ sanitize_graph)"));
+        let _ = writeln!(s, "-- sanitation delta --");
+        let _ = writeln!(
+            s,
+            "spurious hubs {} -> {} (-{})   spike-risk verts {} -> {} (-{})",
+            r.hubs_spurious,
+            c.hubs_spurious,
+            r.hubs_spurious.saturating_sub(c.hubs_spurious),
+            r.spike_vertices,
+            c.spike_vertices,
+            r.spike_vertices.saturating_sub(c.spike_vertices),
+        );
+        let _ = writeln!(
+            s,
+            "active edges {} -> {}   dead-ends {} -> {}   near-dup pairs {} -> {}",
+            r.edges_active,
+            c.edges_active,
+            r.dead_ends_total,
+            c.dead_ends_total,
+            r.coincident_pairs,
+            c.coincident_pairs,
         );
         s
     }
@@ -1239,31 +1425,38 @@ mod tests {
     #[test]
     fn road_graph_diagnostics_reports_consistent_stats() {
         let hm = pilot_heightmap();
-        let stats = road_graph_diagnostics(&hm, &cfg(PILOT_ROAD_SEED))
+        let diag = road_graph_diagnostics(&hm, &cfg(PILOT_ROAD_SEED))
             .expect("pilot network must yield diagnostics");
-        // The degree histogram partitions every node exactly once.
-        let hist_sum: usize = stats.degree_hist.values().sum();
-        assert_eq!(
-            hist_sum, stats.nodes,
-            "degree histogram must cover all nodes"
-        );
-        // Spurious-hub sub-counts are each a subset of all hubs.
-        assert!(stats.hubs_spurious <= stats.hubs_total);
-        assert!(stats.hubs_with_stub <= stats.hubs_total);
-        assert!(stats.hubs_collinear_graze <= stats.hubs_total);
-        assert!(stats.hubs_near_duplicate <= stats.hubs_total);
-        // Spike-risk vertices are a subset of densified vertices, and the
-        // builder's miter clamp (3.0) is never exceeded.
-        assert!(stats.spike_vertices <= stats.densified_vertices);
-        assert!(
-            stats.spike_max_scale <= 3.0 + 1.0e-3,
-            "miter scale clamp is 3.0"
-        );
-        // One sample per hub / per spur.
-        assert_eq!(stats.hub_min_branch_angle.len(), stats.hubs_total);
-        assert_eq!(stats.spur_lengths.len(), stats.dead_ends_total);
+        for stats in [&diag.raw, &diag.sanitized] {
+            // The degree histogram partitions every node exactly once.
+            let hist_sum: usize = stats.degree_hist.values().sum();
+            assert_eq!(
+                hist_sum, stats.nodes,
+                "degree histogram must cover all nodes"
+            );
+            // Spurious-hub sub-counts are each a subset of all hubs.
+            assert!(stats.hubs_spurious <= stats.hubs_total);
+            assert!(stats.hubs_with_stub <= stats.hubs_total);
+            assert!(stats.hubs_collinear_graze <= stats.hubs_total);
+            assert!(stats.hubs_near_duplicate <= stats.hubs_total);
+            // Spike-risk vertices are a subset of densified vertices, and the
+            // builder's miter clamp (3.0) is never exceeded.
+            assert!(stats.spike_vertices <= stats.densified_vertices);
+            assert!(
+                stats.spike_max_scale <= 3.0 + 1.0e-3,
+                "miter scale clamp is 3.0"
+            );
+            // One sample per hub / per spur.
+            assert_eq!(stats.hub_min_branch_angle.len(), stats.hubs_total);
+            assert_eq!(stats.spur_lengths.len(), stats.dead_ends_total);
+        }
+        // WS1 acceptance: sanitation only ever removes the artefacts it targets
+        // (and only by deactivating edges) — never adds them.
+        assert!(diag.sanitized.hubs_spurious <= diag.raw.hubs_spurious);
+        assert!(diag.sanitized.spike_vertices <= diag.raw.spike_vertices);
+        assert!(diag.sanitized.edges_active <= diag.raw.edges_active);
         // The report renders without panicking and labels the room.
-        assert!(stats.report("pilot").contains("road-graph diagnostics"));
+        assert!(diag.report("pilot").contains("road-graph diagnostics"));
     }
 
     /// Every emitted vertex must be finite — a NaN from a degenerate miter or
