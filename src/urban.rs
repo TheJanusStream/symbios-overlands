@@ -780,11 +780,24 @@ fn densify(pts: &[(f32, f32)], step: f32) -> Vec<(f32, f32)> {
     out
 }
 
-/// Per-vertex extrusion frame. The deck *banks* with the terrain cross-slope:
-/// we sample both deck edges and store a base height + lateral slope, so the
-/// cross-section tilts to hug the ground (a flat-across deck floats its uphill
-/// edge into the hillside). `base_y` is the height at the centreline, `slope_u`
-/// the rise per unit lateral offset, `arc` the running arc length (for V UVs).
+/// Lateral samples across the deck width for the upward-only height: the flat
+/// deck is lifted to clear the MAX of these, so no part of the drivable surface
+/// ever buries (the uphill edge sits flush, the downhill edge rides proud).
+const DECK_SAMPLES: usize = 5;
+/// Cap (rise/run) on the deck's *downhill* drop between frames — keeps the grade
+/// gentle and lets the deck bridge dips as an embankment instead of diving in.
+/// Up/down inclines are tolerable; only the lateral roll is engineered out.
+const MAX_LONGITUDINAL_GRADE: f32 = 0.18;
+/// How far (m) the skirt bottom sinks below the lower outer-edge terrain, so an
+/// elevated (downhill) side always reads as a retaining wall meeting the ground.
+const SKIRT_BURY_MARGIN_M: f32 = 0.3;
+
+/// Per-vertex extrusion frame. The deck is **flat across** (no lateral banking,
+/// so vehicles don't roll side-to-side) and drainage-correct: `base_y` is the
+/// flat deck height — lifted to clear the highest terrain under the road and
+/// longitudinally grade-limited — and `skirt_bottom_y` is where the skirt drops
+/// to so an elevated side still meets the ground. `arc` is the running arc
+/// length (for V UVs).
 struct Frame {
     cx: f32,
     cz: f32,
@@ -792,16 +805,17 @@ struct Frame {
     rz: f32,
     scale: f32,
     base_y: f32,
-    slope_u: f32,
+    skirt_bottom_y: f32,
     arc: f32,
 }
 
-/// Interior reference point of a chain segment (the deck centreline dropped
-/// halfway down the skirt), used to orient each face's flat normal outward.
-fn beam_axis(f0: &Frame, f1: &Frame, skirt_depth: f32, world_offset: f32) -> [f32; 3] {
+/// Interior reference point of a chain segment (the centreline at mid-height
+/// between the deck and the skirt bottom), used to orient each face's normal
+/// outward.
+fn beam_axis(f0: &Frame, f1: &Frame, world_offset: f32) -> [f32; 3] {
     [
         (f0.cx + f1.cx) * 0.5 + world_offset,
-        (f0.base_y + f1.base_y) * 0.5 - skirt_depth * 0.5,
+        (f0.base_y + f1.base_y + f0.skirt_bottom_y + f1.skirt_bottom_y) * 0.25,
         (f0.cz + f1.cz) * 0.5 + world_offset,
     ]
 }
@@ -824,10 +838,11 @@ fn quad_normal(a: [f32; 3], b: [f32; 3], c: [f32; 3], d: [f32; 3], axis: [f32; 3
     normalize(nrm)
 }
 
-/// Extrude the curb/skirt profile along one chain into `parts`, draping the deck
-/// over the terrain (`hm`) and shifting into the full-terrain frame by
-/// `world_offset`. The drivable deck top, the structural curb/skirt and the
-/// emissive neon edge-lines are routed to their respective [`RoadParts`] buffers.
+/// Extrude the curb/skirt profile along one chain into `parts`. The deck drapes
+/// over `hm` **flat-across and upward-only** (it never sinks below the terrain —
+/// see [`Frame`]), shifted into the full-terrain frame by `world_offset`. The
+/// drivable deck top, the structural curb/skirt and the emissive neon edge-lines
+/// are routed to their respective [`RoadParts`] buffers.
 fn extrude_chain(
     chain: &Chain,
     hm: &HeightMap,
@@ -840,8 +855,23 @@ fn extrude_chain(
         return;
     }
     let prof = profile(chain.half_w, dims);
+    let half_w = chain.half_w;
+    let wo = half_w + dims.curb_top_width + dims.chamfer_width;
 
-    let mut frames = Vec::with_capacity(pts.len());
+    // Pass A: per-frame geometry, the upward-only deck *floor* (a flat deck must
+    // clear the highest terrain across its width) and the lowest outer-edge
+    // terrain (how far the skirt must drop to meet the ground on an elevated side).
+    struct Raw {
+        cx: f32,
+        cz: f32,
+        rx: f32,
+        rz: f32,
+        scale: f32,
+        arc: f32,
+        floor: f32,
+        ground: f32,
+    }
+    let mut raw: Vec<Raw> = Vec::with_capacity(pts.len());
     let mut arc = 0.0;
     for i in 0..pts.len() {
         let (cx, cz) = pts[i];
@@ -849,21 +879,62 @@ fn extrude_chain(
             arc += (cx - pts[i - 1].0).hypot(cz - pts[i - 1].1);
         }
         let (rx, rz, scale) = frame_right(&pts, i);
-        // Sample terrain at the two deck edges (±half_w along the lateral axis).
-        let (ex, ez) = (rx * chain.half_w * scale, rz * chain.half_w * scale);
-        let h_l = hm.get_height_at(cx - ex, cz - ez);
-        let h_r = hm.get_height_at(cx + ex, cz + ez);
-        frames.push(Frame {
+        let mut maxh = f32::MIN;
+        for s in 0..DECK_SAMPLES {
+            let t = s as f32 / (DECK_SAMPLES - 1) as f32;
+            let off = (-half_w + 2.0 * half_w * t) * scale;
+            maxh = maxh.max(hm.get_height_at(cx + rx * off, cz + rz * off));
+        }
+        let g_r = hm.get_height_at(cx + rx * wo * scale, cz + rz * wo * scale);
+        let g_l = hm.get_height_at(cx - rx * wo * scale, cz - rz * wo * scale);
+        raw.push(Raw {
             cx,
             cz,
             rx,
             rz,
             scale,
-            base_y: (h_l + h_r) * 0.5 + ROAD_DEPTH_BIAS_M,
-            slope_u: (h_r - h_l) / (2.0 * chain.half_w),
             arc,
+            floor: maxh + ROAD_DEPTH_BIAS_M,
+            ground: g_r.min(g_l),
         });
     }
+
+    // Longitudinal upward grade-limit: raise the deck so it never descends faster
+    // than `MAX_LONGITUDINAL_GRADE` (a gentle grade that bridges dips), but never
+    // below the floor (so the deck never buries). Two passes give symmetry both
+    // ways along the chain.
+    let mut base_y: Vec<f32> = raw.iter().map(|r| r.floor).collect();
+    let seg: Vec<f32> = raw
+        .windows(2)
+        .map(|w| (w[1].cx - w[0].cx).hypot(w[1].cz - w[0].cz).max(1.0e-3))
+        .collect();
+    for i in 1..base_y.len() {
+        base_y[i] = base_y[i].max(base_y[i - 1] - MAX_LONGITUDINAL_GRADE * seg[i - 1]);
+    }
+    for i in (0..base_y.len().saturating_sub(1)).rev() {
+        base_y[i] = base_y[i].max(base_y[i + 1] - MAX_LONGITUDINAL_GRADE * seg[i]);
+    }
+
+    let frames: Vec<Frame> = raw
+        .iter()
+        .enumerate()
+        .map(|(i, r)| {
+            let by = base_y[i];
+            // Drop the skirt to the deeper of its fixed depth and just below the
+            // outer ground, so an elevated downhill side still reaches terrain.
+            let skirt_bottom_y = (by - dims.skirt_depth).min(r.ground - SKIRT_BURY_MARGIN_M);
+            Frame {
+                cx: r.cx,
+                cz: r.cz,
+                rx: r.rx,
+                rz: r.rz,
+                scale: r.scale,
+                base_y: by,
+                skirt_bottom_y,
+                arc: r.arc,
+            }
+        })
+        .collect();
 
     // Cumulative cross-section perimeter, for the U coordinate.
     let mut u = [0.0_f32; 10];
@@ -872,11 +943,20 @@ fn extrude_chain(
         u[j] = u[j - 1] + (b.0 - a.0).hypot(b.1 - a.1);
     }
 
-    let world = |f: &Frame, p: (f32, f32)| {
+    // World position of profile point `pi` at frame `f`: flat deck (no lateral
+    // banking); the skirt-bottom points (5, 6) drop to `skirt_bottom_y`.
+    let world = |f: &Frame, pi: usize| {
+        let (pu, ph) = prof[pi];
+        let lateral = pu * f.scale;
+        let y = if pi == 5 || pi == 6 {
+            f.skirt_bottom_y
+        } else {
+            f.base_y + ph
+        };
         [
-            f.cx + f.rx * (p.0 * f.scale) + world_offset,
-            f.base_y + f.slope_u * p.0 + p.1,
-            f.cz + f.rz * (p.0 * f.scale) + world_offset,
+            f.cx + f.rx * lateral + world_offset,
+            y,
+            f.cz + f.rz * lateral + world_offset,
         ]
     };
 
@@ -896,11 +976,11 @@ fn extrude_chain(
         // One strip per face: normals are averaged ALONG the chain (smooth
         // ribbon) but each face is its own strip, so the crease ACROSS the
         // profile stays sharp.
-        let left: Vec<[f32; 3]> = frames.iter().map(|f| world(f, prof[j])).collect();
-        let right: Vec<[f32; 3]> = frames.iter().map(|f| world(f, prof[k])).collect();
+        let left: Vec<[f32; 3]> = frames.iter().map(|f| world(f, j)).collect();
+        let right: Vec<[f32; 3]> = frames.iter().map(|f| world(f, k)).collect();
         let mut seg_n = Vec::with_capacity(frames.len().saturating_sub(1));
         for i in 0..frames.len() - 1 {
-            let axis = beam_axis(&frames[i], &frames[i + 1], dims.skirt_depth, world_offset);
+            let axis = beam_axis(&frames[i], &frames[i + 1], world_offset);
             seg_n.push(quad_normal(
                 left[i],
                 right[i],
@@ -912,25 +992,26 @@ fn extrude_chain(
         target.push_smoothed_strip(&left, &right, &seg_n, (uj, uk), &v);
     }
 
-    // Emissive neon edge-line: a thin strip riding proud of each curb's inner
-    // top crease (lateral ±half_w, just above the curb top). Kept on its own
-    // surface so it gets the hot emissive material, and lifted clear of the
-    // curb top so it never z-fights the face it rides.
+    // Emissive neon edge-line: a thin strip riding proud of each curb's inner top
+    // crease (lateral ±half_w, just above the curb top), lifted clear so it never
+    // z-fights the curb. Kept on its own surface for the hot emissive material.
     let lift = dims.curb_height + NEON_LINE_LIFT_M;
-    let w = chain.half_w;
-    let strips = [
-        [(w, lift), (w + NEON_LINE_WIDTH_M, lift)],
-        [(-w, lift), (-w - NEON_LINE_WIDTH_M, lift)],
-    ];
-    for strip in strips {
+    let neon_at = |f: &Frame, lu: f32| {
+        [
+            f.cx + f.rx * (lu * f.scale) + world_offset,
+            f.base_y + lift,
+            f.cz + f.rz * (lu * f.scale) + world_offset,
+        ]
+    };
+    for (u0, u1) in [
+        (half_w, half_w + NEON_LINE_WIDTH_M),
+        (-half_w, -half_w - NEON_LINE_WIDTH_M),
+    ] {
         for i in 0..frames.len() - 1 {
             let (f0, f1) = (&frames[i], &frames[i + 1]);
-            let a = world(f0, strip[0]);
-            let b = world(f0, strip[1]);
-            let c = world(f1, strip[0]);
-            let d = world(f1, strip[1]);
-            let axis = beam_axis(f0, f1, dims.skirt_depth, world_offset);
-            let nrm = quad_normal(a, b, c, d, axis);
+            let (a, b) = (neon_at(f0, u0), neon_at(f0, u1));
+            let (c, d) = (neon_at(f1, u0), neon_at(f1, u1));
+            let nrm = quad_normal(a, b, c, d, beam_axis(f0, f1, world_offset));
             let (vi, vi1) = (f0.arc / UV_TILE_M, f1.arc / UV_TILE_M);
             parts.neon.push_quad(
                 a,
@@ -1705,6 +1786,24 @@ mod tests {
                 let len2 = nrm[0] * nrm[0] + nrm[1] * nrm[1] + nrm[2] * nrm[2];
                 assert!((len2 - 1.0).abs() < 1.0e-3, "non-unit normal {nrm:?}");
             }
+        }
+    }
+
+    /// WS3: the drivable deck never sinks below the terrain. Every deck vertex
+    /// sits at or above the ground beneath it — the upward-only drape. (Road
+    /// geometry is authored in the heightmap frame, so `get_height_at` at the
+    /// vertex XZ is the terrain under it.)
+    #[test]
+    fn deck_never_buries() {
+        let hm = pilot_heightmap();
+        let parts = build_road_geometry(&hm, &cfg(PILOT_ROAD_SEED))
+            .expect("pilot network must produce roads");
+        for v in &parts.deck.vertices {
+            let ground = hm.get_height_at(v[0], v[2]);
+            assert!(
+                v[1] + 1.0e-3 >= ground,
+                "deck vertex {v:?} buried below terrain {ground}"
+            );
         }
     }
 }
