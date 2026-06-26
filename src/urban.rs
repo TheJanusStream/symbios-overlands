@@ -53,6 +53,10 @@ const ROAD_DEPTH_BIAS_M: f32 = 0.2;
 /// Spacing (m) of ribbon cross-sections along a road. Straight edges are
 /// subdivided to this so the deck still drapes over relief between graph nodes.
 const RIBBON_STEP_M: f32 = 3.0;
+/// Shortest ribbon (m) worth meshing after junction truncation (#575). A chain
+/// trimmed below this at both ends sits entirely inside its hubs, so it grows no
+/// ribbon — the hubs cover the gap — rather than a curb-framed sliver.
+const MIN_RIBBON_LEN_M: f32 = 1.0;
 /// Drop edges whose endpoints fall beyond this fraction of the district
 /// half-extent, so the network ends in the interior, not at the visible edge.
 const ROAD_INTERIOR_FRACTION: f32 = 0.88;
@@ -191,10 +195,13 @@ pub struct RoadParts {
 }
 
 /// One continuous road run (between intersections / endpoints), as an ordered
-/// XZ polyline plus the deck half-width for its road class.
+/// XZ polyline plus the deck half-width for its road class. `end_nodes` are the
+/// graph node ids at `pts[0]` / `pts[last]`, so a chain end abutting a junction
+/// can be recorded for the hub builder.
 struct Chain {
     pts: Vec<(f32, f32)>,
     half_w: f32,
+    end_nodes: [usize; 2],
 }
 
 /// The road network's rationalized planar graph for `config`, plus the district
@@ -527,13 +534,46 @@ pub fn build_road_geometry(hm: &HeightMap, config: &RoadConfig) -> Option<RoadPa
     let (graph, sub, lo) = build_road_graph(hm, config)?;
     let dims = Dims::from_config(config);
     let chains = extract_chains(&graph, &sub, &dims);
+
+    // Active degree per node — distinguishes a junction end (≥3) from a mid-chain
+    // / district-clip terminus, so only real intersections grow a hub.
+    let mut degree = vec![0u32; graph.nodes.len()];
+    for e in &graph.edges {
+        if e.active {
+            degree[e.start as usize] += 1;
+            degree[e.end as usize] += 1;
+        }
+    }
+
+    // Pull-back distance per chain end abutting a junction (active degree ≥ 3),
+    // so each ribbon stops at the intersection boundary instead of overlapping
+    // into the hub (#575). Computed once, ahead of extrusion.
+    let trims = compute_truncations(
+        &chains,
+        |nd| degree.get(nd).copied().unwrap_or(0) >= 3,
+        &dims,
+    );
+
     let mut parts = RoadParts::default();
     let world_offset = lo as f32 * sub.scale();
-    for chain in &chains {
-        extrude_chain(chain, &sub, world_offset, &dims, &mut parts);
+    // Each chain extrudes its ribbon and records its end-frames at junctions, so
+    // the hubs can be built to meet every incident road at its exact mouth.
+    let mut road_ends: Vec<RoadEnd> = Vec::new();
+    for (ci, chain) in chains.iter().enumerate() {
+        let [start_trim, end_trim] = trims[ci];
+        extrude_chain(
+            chain,
+            start_trim,
+            end_trim,
+            &sub,
+            world_offset,
+            &dims,
+            &degree,
+            &mut road_ends,
+            &mut parts,
+        );
     }
-    // Fill the intersections the chains leave open — flat fans at deck level.
-    extrude_junctions(&graph, &sub, world_offset, &dims, &mut parts.deck);
+    extrude_hubs(&road_ends, &sub, world_offset, &dims, &mut parts);
     (!parts.deck.is_empty() || !parts.structure.is_empty()).then_some(parts)
 }
 
@@ -684,26 +724,284 @@ fn push_interior_runs(
     half_w: f32,
     out: &mut Vec<Chain>,
 ) {
-    let mut run: Vec<(f32, f32)> = Vec::new();
-    let flush = |run: &mut Vec<(f32, f32)>, out: &mut Vec<Chain>| {
+    let mut run: Vec<(usize, f32, f32)> = Vec::new();
+    let flush = |run: &mut Vec<(usize, f32, f32)>, out: &mut Vec<Chain>| {
         if run.len() >= 2 {
+            let end_nodes = [run[0].0, run[run.len() - 1].0];
+            let pts = run.iter().map(|&(_, x, z)| (x, z)).collect();
             out.push(Chain {
-                pts: std::mem::take(run),
+                pts,
                 half_w,
+                end_nodes,
             });
-        } else {
-            run.clear();
         }
+        run.clear();
     };
     for &nd in nodes {
         let (x, z) = pos(nd);
         if inside(x, z) {
-            run.push((x, z));
+            run.push((nd, x, z));
         } else {
             flush(&mut run, out);
         }
     }
     flush(&mut run, out);
+}
+
+// --- Junction truncation (#575) ---------------------------------------------
+//
+// At a real intersection (active degree ≥ 3) the incident ribbons must be
+// *truncated* — pulled back along their centreline so they stop at the hub
+// boundary rather than running to the node and overlapping each other (the
+// un-truncated ribbons left holes / diamond gaps and the hub had no real
+// polygon to fill). The pull-back distance per arm is the field-standard
+// adjacent-boundary intersection, ported from `symbios-tensor`
+// `roads_3d::compute_truncations`: arms are sorted by angle and each adjacent
+// pair's *outer* boundary lines are intersected (a 2×2 solve) to find how far
+// each arm must retreat so its footprint just clears its neighbour's. The
+// boundary half-width is the full outer footprint `wo` (deck + curb + chamfer),
+// so neither asphalt nor curb/skirt of adjacent roads overlaps; the hub
+// (#576) still places its deck corners at the deck half-width.
+
+/// Baseline (m) over which an arm's outgoing heading is measured, past the
+/// junction fillet — short enough to track the road's true direction at the cut,
+/// long enough that a rounded-corner tangent segment doesn't read as acute.
+const ARM_DIR_BASELINE_M: f32 = 6.0;
+/// Cap on a single arm's pull-back as a multiple of its outer footprint width.
+/// Bounds the acute-fork blow-up (t → ∞ as the branch angle → 0) so truncation
+/// never deletes a chain; genuinely acute joins are handled by the merge (#578).
+const MAX_TRUNCATION_FACTOR: f32 = 4.0;
+
+/// One road arm meeting a junction: which chain end it is, plus the centreline
+/// geometry (unit `dir` node→road, its `right` perpendicular, deck half-width)
+/// and the `angle` used to order arms around the node.
+struct Arm {
+    chain: usize,
+    slot: usize,
+    dir: (f32, f32),
+    right: (f32, f32),
+    half_w: f32,
+    angle: f32,
+}
+
+/// The arm geometry at end `slot` (0 = start, 1 = end) of `chain`, or `None`
+/// when the chain is degenerate (near-zero length). The heading is the chord
+/// from the end node to the first point at least [`ARM_DIR_BASELINE_M`] inward,
+/// so a short tangent *fillet* segment at the junction (rationalize rounds every
+/// corner) can't masquerade as a near-parallel fork and blow the boundary solve
+/// up. `dir` points from the end node *into* the road; `angle` uses the tensor
+/// `atan2(-dz, dx)` convention so the radial sort matches the ported solve.
+fn chain_arm(chain: &Chain, slot: usize) -> Option<(f32, f32, f32, f32, f32)> {
+    let pts = &chain.pts;
+    let n = pts.len();
+    if n < 2 {
+        return None;
+    }
+    let base = if slot == 0 { pts[0] } else { pts[n - 1] };
+    // Walk inward from the junction end, accumulating arc length, until the
+    // chord clears the fillet baseline or the chain runs out.
+    let (mut tip, mut prev, mut acc) = (base, base, 0.0_f32);
+    for step in 1..n {
+        let p = pts[if slot == 0 { step } else { n - 1 - step }];
+        acc += (p.0 - prev.0).hypot(p.1 - prev.1);
+        tip = p;
+        prev = p;
+        if acc >= ARM_DIR_BASELINE_M {
+            break;
+        }
+    }
+    let (dx, dz) = (tip.0 - base.0, tip.1 - base.1);
+    let m = (dx * dx + dz * dz).sqrt();
+    if m < 1.0e-6 {
+        return None;
+    }
+    let dir = (dx / m, dz / m);
+    let right = (-dir.1, dir.0);
+    let angle = (-dir.1).atan2(dir.0);
+    Some((dir.0, dir.1, right.0, right.1, angle))
+}
+
+/// Per-chain `[start_trim, end_trim]` pull-back distances (m): how far to shorten
+/// each chain at each end that abuts a junction (`is_junction(end_node)` true).
+/// Non-junction ends (dead-ends, district-edge clips) trim `0`. Deterministic:
+/// chains are visited in order and arms ordered by a stable radial sort, so the
+/// 2×2 solve assigns the same `t` to the same `(chain, slot)` every run.
+fn compute_truncations(
+    chains: &[Chain],
+    is_junction: impl Fn(usize) -> bool,
+    dims: &Dims,
+) -> Vec<[f32; 2]> {
+    use std::collections::BTreeMap;
+
+    let mut trims = vec![[0.0_f32; 2]; chains.len()];
+    let extra = dims.curb_top_width + dims.chamfer_width;
+
+    // Gather the arms meeting each junction node.
+    let mut by_node: BTreeMap<usize, Vec<Arm>> = BTreeMap::new();
+    for (ci, chain) in chains.iter().enumerate() {
+        for slot in 0..2 {
+            let nd = chain.end_nodes[slot];
+            if !is_junction(nd) {
+                continue;
+            }
+            if let Some((dx, dz, rx, rz, angle)) = chain_arm(chain, slot) {
+                by_node.entry(nd).or_default().push(Arm {
+                    chain: ci,
+                    slot,
+                    dir: (dx, dz),
+                    right: (rx, rz),
+                    half_w: chain.half_w,
+                    angle,
+                });
+            }
+        }
+    }
+
+    for (_node, mut arms) in by_node {
+        // Radial sort (stable → deterministic even for coincident angles).
+        arms.sort_by(|a, b| {
+            a.angle
+                .partial_cmp(&b.angle)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let n = arms.len();
+        // Each arm retreats at least its own deck half-width (a minimum hub
+        // volume), then is pushed back further by each adjacent-boundary solve.
+        let mut t: Vec<f32> = arms.iter().map(|a| a.half_w).collect();
+
+        if n >= 2 {
+            for i in 0..n {
+                let j = (i + 1) % n;
+                let (a, b) = (&arms[i], &arms[j]);
+                let w_a = a.half_w + extra;
+                let w_b = b.half_w + extra;
+
+                // Arm A's left boundary  : center − right_A·w_A + dir_A·t_A
+                // Arm B's right boundary : center + right_B·w_B + dir_B·t_B
+                // Equate and solve the 2×2 system for (t_A, t_B):
+                //   [dir_A.x  −dir_B.x][t_A]   [right_A.x·w_A + right_B.x·w_B]
+                //   [dir_A.z  −dir_B.z][t_B] = [right_A.z·w_A + right_B.z·w_B]
+                let rhs_x = a.right.0 * w_a + b.right.0 * w_b;
+                let rhs_z = a.right.1 * w_a + b.right.1 * w_b;
+                let det = a.dir.0 * (-b.dir.1) - (-b.dir.0) * a.dir.1;
+
+                if det.abs() < 1.0e-6 {
+                    // Near-parallel (collinear through-road or an acute pair):
+                    // no clean crossing — fall back to half the combined width.
+                    let fallback = (w_a + w_b) * 0.5;
+                    t[i] = t[i].max(fallback);
+                    t[j] = t[j].max(fallback);
+                    continue;
+                }
+
+                let t_a = (rhs_x * (-b.dir.1) - (-b.dir.0) * rhs_z) / det;
+                let t_b = (a.dir.0 * rhs_z - a.dir.1 * rhs_x) / det;
+                if t_a > 0.0 {
+                    t[i] = t[i].max(t_a);
+                }
+                if t_b > 0.0 {
+                    t[j] = t[j].max(t_b);
+                }
+            }
+        }
+
+        for (k, a) in arms.iter().enumerate() {
+            // Cap the pull-back at a width-relative maximum. Acute forks need a
+            // far-away boundary crossing (t → ∞ as the branch angle → 0); without
+            // a cap a single acute join would truncate whole chains out of
+            // existence. Capping keeps a blunt over-truncation here — acute joins
+            // are blended properly by the smooth-merge pass (#578).
+            let cap = MAX_TRUNCATION_FACTOR * (a.half_w + extra);
+            trims[a.chain][a.slot] = t[k].min(cap);
+        }
+    }
+
+    // Keep at least [`MIN_RIBBON_LEN_M`] of ribbon on every trimmed chain. The
+    // hub builder is mouth-driven — a chain only tells its junction where to put
+    // the mouth by recording a `RoadEnd` during extrusion, which it can only do
+    // if it meshes at least a stub. A short connector between two close junctions
+    // (both ends pulled back ~wo) would otherwise be wholly consumed, dropping
+    // its mouths and deleting the whole intersection (a hole — the inverse of the
+    // gap #575 closes). Scale a chain's two pull-backs down together so the
+    // surviving length is the floor; an untrimmed chain is left alone.
+    for (ci, chain) in chains.iter().enumerate() {
+        let [s, e] = trims[ci];
+        if s + e <= 0.0 {
+            continue;
+        }
+        let total: f32 = chain
+            .pts
+            .windows(2)
+            .map(|w| (w[1].0 - w[0].0).hypot(w[1].1 - w[0].1))
+            .sum();
+        let avail = (total - MIN_RIBBON_LEN_M).max(0.0);
+        if s + e > avail {
+            let scale = avail / (s + e); // s + e > 0 here
+            trims[ci] = [s * scale, e * scale];
+        }
+    }
+
+    trims
+}
+
+/// Shorten a polyline by `start_trim` / `end_trim` metres of arc length from
+/// each end, inserting interpolated cut points so the ribbon stops exactly at
+/// the hub boundary. If the two pull-backs would leave less than
+/// [`MIN_RIBBON_LEN_M`] of road, returns fewer than two points (no ribbon).
+/// Never inverts. In production [`compute_truncations`] already scales the
+/// pull-backs so a junction chain keeps at least the floor — so this guard only
+/// fires for a chain trimmed in isolation; a real junction chain always survives
+/// to record its mouth.
+fn trim_polyline(pts: &[(f32, f32)], start_trim: f32, end_trim: f32) -> Vec<(f32, f32)> {
+    let (start_trim, end_trim) = (start_trim.max(0.0), end_trim.max(0.0));
+    if pts.len() < 2 || (start_trim <= 0.0 && end_trim <= 0.0) {
+        return pts.to_vec();
+    }
+
+    let mut arc = Vec::with_capacity(pts.len());
+    arc.push(0.0_f32);
+    for w in pts.windows(2) {
+        let d = (w[1].0 - w[0].0).hypot(w[1].1 - w[0].1);
+        arc.push(arc[arc.len() - 1] + d);
+    }
+    let total = arc[arc.len() - 1];
+
+    // Inversion guard only — the real keep-a-stub floor ([`MIN_RIBBON_LEN_M`]) is
+    // applied upstream in [`compute_truncations`], which scales a junction chain's
+    // pull-backs so a meshable length always survives. This catches a chain
+    // trimmed in isolation (or a degenerate near-zero one) so we never emit a
+    // back-to-front ribbon.
+    let (t0, t1) = (start_trim, total - end_trim);
+    if t1 - t0 < 1.0e-3 {
+        return Vec::new();
+    }
+
+    let at = |target: f32| -> (f32, f32) {
+        for i in 1..pts.len() {
+            if arc[i] >= target {
+                let seg = arc[i] - arc[i - 1];
+                if seg < 1.0e-6 {
+                    return pts[i];
+                }
+                let f = (target - arc[i - 1]) / seg;
+                return (
+                    pts[i - 1].0 + (pts[i].0 - pts[i - 1].0) * f,
+                    pts[i - 1].1 + (pts[i].1 - pts[i - 1].1) * f,
+                );
+            }
+        }
+        *pts.last().unwrap_or(&pts[0])
+    };
+
+    let mut out = Vec::new();
+    out.push(at(t0));
+    for i in 1..pts.len() - 1 {
+        if arc[i] > t0 && arc[i] < t1 {
+            out.push(pts[i]);
+        }
+    }
+    out.push(at(t1));
+    out
 }
 
 // --- Profile extrusion ------------------------------------------------------
@@ -843,14 +1141,23 @@ fn quad_normal(a: [f32; 3], b: [f32; 3], c: [f32; 3], d: [f32; 3], axis: [f32; 3
 /// see [`Frame`]), shifted into the full-terrain frame by `world_offset`. The
 /// drivable deck top, the structural curb/skirt and the emissive neon edge-lines
 /// are routed to their respective [`RoadParts`] buffers.
+#[allow(clippy::too_many_arguments)] // each arg is a distinct input/sink.
 fn extrude_chain(
     chain: &Chain,
+    start_trim: f32,
+    end_trim: f32,
     hm: &HeightMap,
     world_offset: f32,
     dims: &Dims,
+    degree: &[u32],
+    road_ends: &mut Vec<RoadEnd>,
     parts: &mut RoadParts,
 ) {
-    let pts = densify(&chain.pts, RIBBON_STEP_M);
+    // Shorten the chain at any junction end (#575) so the ribbon stops at the hub
+    // boundary, then drape the remaining run. A chain wholly consumed by its
+    // hubs trims to nothing and grows no ribbon.
+    let trimmed = trim_polyline(&chain.pts, start_trim, end_trim);
+    let pts = densify(&trimmed, RIBBON_STEP_M);
     if pts.len() < 2 {
         return;
     }
@@ -935,6 +1242,25 @@ fn extrude_chain(
             }
         })
         .collect();
+
+    // Record this chain's ends that abut a junction (degree ≥ 3) so the hub
+    // builder can meet each road at its exact deck mouth and height.
+    let last = frames.len() - 1;
+    for (slot, &nd) in chain.end_nodes.iter().enumerate() {
+        if degree.get(nd).copied().unwrap_or(0) < 3 {
+            continue;
+        }
+        let f = &frames[if slot == 0 { 0 } else { last }];
+        road_ends.push(RoadEnd {
+            node: nd,
+            cx: f.cx,
+            cz: f.cz,
+            rx: f.rx,
+            rz: f.rz,
+            half_w,
+            deck_y: f.base_y,
+        });
+    }
 
     // Cumulative cross-section perimeter, for the U coordinate.
     let mut u = [0.0_f32; 10];
@@ -1025,77 +1351,214 @@ fn extrude_chain(
     }
 }
 
-/// Fill 3+-way intersections with a small terrain-draped polygon, so chains
-/// that end at a junction don't leave wedge gaps where their flat end-caps meet
-/// at an angle. Degree-1/2 nodes are covered by the chains themselves.
-fn extrude_junctions(
-    graph: &RoadGraph,
+/// One ribbon end abutting a junction node, recorded during chain extrusion so
+/// the hub can meet each incident road at its exact mouth corners and deck
+/// height (seamless, upward-only). All positions are in the sub-heightmap frame.
+struct RoadEnd {
+    node: usize,
+    /// Truncated mouth centre (XZ): where the ribbon actually ends after #575.
+    /// The hub fans from the centroid of all its mouth corners, so neither the
+    /// node position nor the arm direction is needed here.
+    cx: f32,
+    cz: f32,
+    /// Mouth-frame right axis and deck half-width — give the two mouth corners
+    /// `(cx, cz) ± (rx, rz)·half_w`, which coincide with the ribbon's end edge.
+    rx: f32,
+    rz: f32,
+    half_w: f32,
+    deck_y: f32,
+}
+
+/// Build a real intersection hub at every junction (≥3 incident roads) from the
+/// truncated ribbon ends (#576): a deck polygon whose mouth edges coincide with
+/// each road's end cross-section (the deck flows in seamlessly at the road's own
+/// height), its surface a **level-plane fit** to the incident mouth heights (the
+/// apex sits at their mean, not the max — so it stays level instead of tenting),
+/// kept upward-only, plus curb+skirt walls closing the angular gaps so the curb
+/// runs round the corner and the hub meets the ground (#577 refines these into
+/// curb-return arc fillets). Smooth-shaded; every deck triangle wound front-up.
+fn extrude_hubs(
+    road_ends: &[RoadEnd],
     hm: &HeightMap,
     world_offset: f32,
     dims: &Dims,
-    geo: &mut RoadGeometry,
+    parts: &mut RoadParts,
 ) {
-    let center = hm.width() as f32 * hm.scale() * 0.5;
-    let interior_r2 = (center * ROAD_INTERIOR_FRACTION).powi(2);
-
-    let n = graph.nodes.len();
-    let mut degree = vec![0u32; n];
-    let mut max_hw = vec![0.0_f32; n];
-    for e in &graph.edges {
-        if !e.active {
-            continue;
-        }
-        let hw = match &e.road_type {
-            RoadType::Major => dims.major_half_width,
-            RoadType::Minor => dims.minor_half_width,
-        };
-        for &nd in &[e.start as usize, e.end as usize] {
-            degree[nd] += 1;
-            max_hw[nd] = max_hw[nd].max(hw);
-        }
+    use std::collections::BTreeMap;
+    let mut by_node: BTreeMap<usize, Vec<&RoadEnd>> = BTreeMap::new();
+    for e in road_ends {
+        by_node.entry(e.node).or_default().push(e);
     }
 
-    const RING: u32 = 14;
-    for i in 0..n {
-        if degree[i] < 3 {
-            continue;
+    let uv = |q: [f32; 3]| [q[0] / UV_TILE_M, q[2] / UV_TILE_M];
+
+    for (_node, arms) in by_node {
+        if arms.len() < 3 {
+            continue; // a real junction has ≥3 incident roads
         }
-        let p = graph.nodes[i].position;
-        let (cx, cz) = (p.x, p.y);
-        let (dx, dz) = (cx - center, cz - center);
-        if dx * dx + dz * dz > interior_r2 {
-            continue;
+
+        // Mouth corners (world), two per arm at the road's own deck height so the
+        // hub meets every ribbon seamlessly. Each is tagged with the arm it
+        // belongs to, so a polygon edge *within* one arm is a mouth (left open for
+        // the road) and an edge *between* arms is an exterior gap (gets a wall).
+        let mut corners: Vec<([f32; 3], usize)> = Vec::with_capacity(arms.len() * 2);
+        for (ai, a) in arms.iter().enumerate() {
+            corners.push((
+                [
+                    a.cx - a.rx * a.half_w + world_offset,
+                    a.deck_y,
+                    a.cz - a.rz * a.half_w + world_offset,
+                ],
+                ai,
+            ));
+            corners.push((
+                [
+                    a.cx + a.rx * a.half_w + world_offset,
+                    a.deck_y,
+                    a.cz + a.rz * a.half_w + world_offset,
+                ],
+                ai,
+            ));
         }
-        // Cover the incident curbs; sit a hair above the deck so the fan wins
-        // the depth test over the abutting chain ends rather than z-fighting.
-        let radius = max_hw[i] + dims.curb_top_width + dims.chamfer_width;
-        let lift = ROAD_DEPTH_BIAS_M + 0.03;
-        let base = geo.vertices.len() as u32;
-        geo.vertices.push([
-            cx + world_offset,
-            hm.get_height_at(cx, cz) + lift,
-            cz + world_offset,
-        ]);
-        // Shade the fan by the draped terrain normal, not a flat [0,1,0] — the
-        // latter lit every fan as a hard disc against the slope-lit chains.
-        geo.normals.push(hm.get_normal_at(cx, cz));
-        geo.uvs.push([0.5, 0.5]);
-        for k in 0..=RING {
-            let a = k as f32 / RING as f32 * std::f32::consts::TAU;
-            let (px, pz) = (cx + a.cos() * radius, cz + a.sin() * radius);
-            geo.vertices.push([
-                px + world_offset,
-                hm.get_height_at(px, pz) + lift,
-                pz + world_offset,
-            ]);
-            geo.normals.push(hm.get_normal_at(px, pz));
-            geo.uvs.push([a.cos() * 0.5 + 0.5, a.sin() * 0.5 + 0.5]);
+
+        // Fan centre = the mouth corners' centroid (always inside their hull). A
+        // node-anchored fan over arm-grouped corners self-intersects whenever the
+        // per-arm truncations differ and the deck half-width is comparable to the
+        // pull-back (the common case) — adjacent mouths splay past each other.
+        // Sweeping the corners by angle around the centroid and fanning from it
+        // tiles a SIMPLE polygon regardless. Level-plane fit: apex at the MEAN
+        // incident deck height (the least-squares plane evaluated at the centroid
+        // — no tent), kept upward-only.
+        let (cx, cz) = (
+            corners.iter().map(|(q, _)| q[0]).sum::<f32>() / corners.len() as f32,
+            corners.iter().map(|(q, _)| q[2]).sum::<f32>() / corners.len() as f32,
+        );
+        let mean_y = arms.iter().map(|a| a.deck_y).sum::<f32>() / arms.len() as f32;
+        let center_y =
+            mean_y.max(hm.get_height_at(cx - world_offset, cz - world_offset) + ROAD_DEPTH_BIAS_M);
+        let center = [cx, center_y, cz];
+
+        // Angular sweep around the centroid → a simple polygon however the mouths
+        // splay; the radius tiebreak keeps coincident-angle corners deterministic.
+        corners.sort_by(|(q, _), (r, _)| {
+            let aq = (q[2] - cz).atan2(q[0] - cx);
+            let ar = (r[2] - cz).atan2(r[0] - cx);
+            aq.partial_cmp(&ar)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(
+                    (q[0] - cx)
+                        .hypot(q[2] - cz)
+                        .partial_cmp(&(r[0] - cx).hypot(r[2] - cz))
+                        .unwrap_or(std::cmp::Ordering::Equal),
+                )
+        });
+        let p = corners.len();
+
+        // --- Deck: a triangle fan from the levelled centroid, smooth-shaded. ---
+        let mut vn = vec![[0.0_f32; 3]; p + 1]; // [0] = centre, [1+i] = corner i
+        for i in 0..p {
+            let f = tri_up_normal(center, corners[i].0, corners[(i + 1) % p].0);
+            for idx in [0, 1 + i, 1 + (i + 1) % p] {
+                vn[idx] = [vn[idx][0] + f[0], vn[idx][1] + f[1], vn[idx][2] + f[2]];
+            }
         }
-        for k in 0..RING {
-            geo.indices
-                .extend_from_slice(&[base, base + 1 + k, base + 2 + k]);
+        let base = parts.deck.vertices.len() as u32;
+        parts.deck.vertices.push(center);
+        parts.deck.normals.push(normalize(vn[0]));
+        parts.deck.uvs.push(uv(center));
+        for (i, (c, _)) in corners.iter().enumerate() {
+            parts.deck.vertices.push(*c);
+            parts.deck.normals.push(normalize(vn[1 + i]));
+            parts.deck.uvs.push(uv(*c));
+        }
+        for i in 0..p {
+            let (a, b) = (1 + i as u32, 1 + ((i + 1) % p) as u32);
+            // Wind every triangle front-up so back-face culling keeps it visible
+            // from above regardless of the sweep's sense.
+            let e1 = sub3(corners[i].0, center);
+            let e2 = sub3(corners[(i + 1) % p].0, center);
+            if cross(e1, e2)[1] >= 0.0 {
+                parts
+                    .deck
+                    .indices
+                    .extend_from_slice(&[base, base + a, base + b]);
+            } else {
+                parts
+                    .deck
+                    .indices
+                    .extend_from_slice(&[base, base + b, base + a]);
+            }
+        }
+
+        // --- Gap walls: a polygon edge between corners of DIFFERENT arms is an
+        //     exterior gap → curb + skirt down to ground so the curb runs round
+        //     the corner and the hub grounds; an edge within ONE arm is a mouth →
+        //     left open for the road. (#577 replaces these with curb-return arc
+        //     fillets.) ---
+        let (ct, cf) = (dims.curb_top_width, dims.chamfer_width);
+        const GAP_SEG: usize = 3;
+        for i in 0..p {
+            let (l, la) = corners[i];
+            let (r, ra) = corners[(i + 1) % p];
+            if la == ra {
+                continue; // a mouth edge: open for the road
+            }
+            // Ring at gap parameter t: (deck edge, curb top, skirt foot at ground).
+            let ring = |t: f32| {
+                let inner = [
+                    l[0] + (r[0] - l[0]) * t,
+                    l[1] + (r[1] - l[1]) * t,
+                    l[2] + (r[2] - l[2]) * t,
+                ];
+                let (mut ox, mut oz) = (inner[0] - center[0], inner[2] - center[2]);
+                let om = (ox * ox + oz * oz).sqrt().max(1.0e-6);
+                ox /= om;
+                oz /= om;
+                let curb_top = [
+                    inner[0] + ox * ct,
+                    inner[1] + dims.curb_height,
+                    inner[2] + oz * ct,
+                ];
+                let (fx, fz) = (inner[0] + ox * (ct + cf), inner[2] + oz * (ct + cf));
+                // Skirt foot below the outer terrain, but never above the deck edge
+                // it drops from — so the wall always descends, even where the gap
+                // terrain humps up above the mouth grades.
+                let fy = (hm.get_height_at(fx - world_offset, fz - world_offset)
+                    - SKIRT_BURY_MARGIN_M)
+                    .min(inner[1] - 1.0e-3);
+                (inner, curb_top, [fx, fy, fz])
+            };
+            for s in 0..GAP_SEG {
+                let (i0, c0, f0) = ring(s as f32 / GAP_SEG as f32);
+                let (i1, c1, f1) = ring((s + 1) as f32 / GAP_SEG as f32);
+                // Curb wall (deck edge → curb top), then skirt (curb top → foot).
+                let n_curb = quad_normal(i0, c0, i1, c1, center);
+                parts
+                    .structure
+                    .push_quad(i0, c0, i1, c1, [uv(i0), uv(c0), uv(i1), uv(c1)], n_curb);
+                let n_skirt = quad_normal(c0, f0, c1, f1, center);
+                parts.structure.push_quad(
+                    c0,
+                    f0,
+                    c1,
+                    f1,
+                    [uv(c0), uv(f0), uv(c1), uv(f1)],
+                    n_skirt,
+                );
+            }
         }
     }
+}
+
+/// Upward-facing flat normal of triangle `(c, a, b)`.
+fn tri_up_normal(c: [f32; 3], a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    let e1 = [a[0] - c[0], a[1] - c[1], a[2] - c[2]];
+    let e2 = [b[0] - c[0], b[1] - c[1], b[2] - c[2]];
+    let mut nn = cross(e1, e2);
+    if nn[1] < 0.0 {
+        nn = [-nn[0], -nn[1], -nn[2]];
+    }
+    normalize(nn)
 }
 
 fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
@@ -1108,6 +1571,10 @@ fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
 
 fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn sub3(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
 
 fn normalize(a: [f32; 3]) -> [f32; 3] {
@@ -1173,6 +1640,7 @@ pub struct RoadGraphStats {
     hubs_near_duplicate: usize,
     hubs_spurious: usize,
     hub_min_branch_angle: Vec<f32>,
+    truncation_dists: Vec<f32>,
     chains: usize,
     chain_lengths: Vec<f32>,
     densified_vertices: usize,
@@ -1378,6 +1846,14 @@ fn collect_graph_stats(graph: &RoadGraph, sub: &HeightMap, dims: &Dims) -> RoadG
 
     // Chains + spike risk, via the *exact* mesher paths.
     let chains = extract_chains(graph, sub, dims);
+    // Per-arm junction pull-back (#575) — the same truncation the mesher applies,
+    // so the dump reports how far each ribbon retreats into its hub.
+    let truncation_dists: Vec<f32> = compute_truncations(&chains, |nd| degree[nd] >= 3, dims)
+        .iter()
+        .flatten()
+        .copied()
+        .filter(|&t| t > 0.0)
+        .collect();
     let mut chain_lengths: Vec<f32> = Vec::with_capacity(chains.len());
     let (mut densified_vertices, mut spike_vertices, mut spike_max_scale) =
         (0usize, 0usize, 0.0_f32);
@@ -1412,6 +1888,7 @@ fn collect_graph_stats(graph: &RoadGraph, sub: &HeightMap, dims: &Dims) -> RoadG
         hubs_near_duplicate,
         hubs_spurious,
         hub_min_branch_angle,
+        truncation_dists,
         chains: chains.len(),
         chain_lengths,
         densified_vertices,
@@ -1471,6 +1948,12 @@ impl RoadGraphStats {
             s,
             "  min branch-angle per hub (deg): {}",
             distro(&self.hub_min_branch_angle)
+        );
+        let _ = writeln!(
+            s,
+            "  truncation pull-back per arm (m): {}   (arms truncated: {})",
+            distro(&self.truncation_dists),
+            self.truncation_dists.len()
         );
         let _ = writeln!(s, "-- ribbon / spike risk --");
         let _ = writeln!(
@@ -1711,6 +2194,7 @@ mod tests {
     #[test]
     fn road_graph_diagnostics_reports_consistent_stats() {
         let hm = pilot_heightmap();
+        let dims = Dims::from_config(&cfg(PILOT_ROAD_SEED));
         let diag = road_graph_diagnostics(&hm, &cfg(PILOT_ROAD_SEED))
             .expect("pilot network must yield diagnostics");
         for stats in [&diag.raw, &diag.sanitized] {
@@ -1735,6 +2219,18 @@ mod tests {
             // One sample per hub / per spur.
             assert_eq!(stats.hub_min_branch_angle.len(), stats.hubs_total);
             assert_eq!(stats.spur_lengths.len(), stats.dead_ends_total);
+            // Every reported truncation is a finite, positive pull-back bounded
+            // by the per-class cap (#575) — the dump can't render NaN or a
+            // cap-escape from a degenerate fan.
+            let trunc_cap = MAX_TRUNCATION_FACTOR
+                * (dims.major_half_width + dims.curb_top_width + dims.chamfer_width);
+            for &t in &stats.truncation_dists {
+                assert!(t.is_finite() && t > 0.0, "bad truncation distance {t}");
+                assert!(
+                    t <= trunc_cap + 1.0e-3,
+                    "truncation {t} exceeds the cap {trunc_cap}"
+                );
+            }
         }
         // WS1 acceptance: sanitation only ever removes the artefacts it targets —
         // never adds them — and the merge leaves no near-duplicate nodes behind.
@@ -1805,5 +2301,554 @@ mod tests {
                 "deck vertex {v:?} buried below terrain {ground}"
             );
         }
+    }
+
+    /// #576 on the real pilot network (it carries acute junctions down to ~23°):
+    /// every deck normal — ribbon *and* hub — faces up, so back-face culling
+    /// keeps the drivable surface visible from above, and every vertex is finite.
+    /// Guards against a folded / downward-wound hub fan on real data.
+    #[test]
+    fn pilot_deck_is_finite_and_faces_up() {
+        let hm = pilot_heightmap();
+        let parts = build_road_geometry(&hm, &cfg(PILOT_ROAD_SEED))
+            .expect("pilot network must produce roads");
+        for v in &parts.deck.vertices {
+            assert!(
+                v.iter().all(|c| c.is_finite()),
+                "non-finite deck vertex {v:?}"
+            );
+        }
+        for nrm in &parts.deck.normals {
+            assert!(
+                nrm.iter().all(|c| c.is_finite()) && nrm[1] > 0.0,
+                "deck normal {nrm:?} not finite-and-upward",
+            );
+        }
+    }
+
+    /// WS4: a junction grows a real hub — a deck polygon meeting each incident
+    /// road at its mouth (one centre + 2 corners per arm) plus curb/skirt walls
+    /// closing the gaps — not the old circular fan.
+    #[test]
+    fn hub_meets_each_road_and_closes_gaps() {
+        let dims = Dims::from_config(&cfg(7));
+        // Three roads meeting at the origin at 0° / 120° / 240° — a clean Y.
+        // Each arm's mouth is truncated 5 m out from the node along its heading.
+        let t = 5.0_f32;
+        let arm = |ang: f32| {
+            let (dx, dz) = (ang.cos(), ang.sin());
+            RoadEnd {
+                node: 0,
+                cx: dx * t,
+                cz: dz * t,
+                rx: -dz,
+                rz: dx,
+                half_w: 4.0,
+                deck_y: 1.0,
+            }
+        };
+        let third = std::f32::consts::TAU / 3.0;
+        let ends = [arm(0.0), arm(third), arm(2.0 * third)];
+        let hm = HeightMap::new(64, 64, 2.0); // flat → skirt feet at 0 − margin
+        let mut parts = RoadParts::default();
+        extrude_hubs(&ends, &hm, 0.0, &dims, &mut parts);
+
+        // Deck: 1 centre + 3 arms × 2 corners = 7 verts, 6 fan triangles.
+        assert_eq!(parts.deck.vertices.len(), 1 + 3 * 2);
+        assert_eq!(parts.deck.indices.len(), 6 * 3);
+        // The gaps grow curb/skirt walls (not an open or flat fan).
+        assert!(!parts.structure.is_empty(), "hub gaps left unclosed");
+        // Every deck vertex sits at the incident deck height or above (the level
+        // fit is upward-only; nothing dips below the roads it joins).
+        for v in &parts.deck.vertices {
+            assert!(
+                v[1] + 1.0e-4 >= 1.0,
+                "hub deck vertex {v:?} below the roads"
+            );
+        }
+        // Every deck normal points up (the fan is wound front-up, not folded).
+        for nrm in &parts.deck.normals {
+            assert!(nrm[1] > 0.0, "hub deck normal {nrm:?} not upward");
+        }
+    }
+
+    /// #576: the hub surface is a LEVEL-plane fit — its apex sits at the mean of
+    /// the incident deck heights, well below the highest mouth (no tent/crown) —
+    /// while each mouth corner stays at its own road's deck height (seamless).
+    #[test]
+    fn hub_levels_to_the_mean_deck_height_not_a_crown() {
+        let dims = Dims::from_config(&cfg(7));
+        let t = 5.0_f32;
+        // Three arms at deck heights 1 / 2 / 3 → mean 2, max 3.
+        let arm = |ang: f32, deck_y: f32| {
+            let (dx, dz) = (ang.cos(), ang.sin());
+            RoadEnd {
+                node: 0,
+                cx: dx * t,
+                cz: dz * t,
+                rx: -dz,
+                rz: dx,
+                half_w: 4.0,
+                deck_y,
+            }
+        };
+        let third = std::f32::consts::TAU / 3.0;
+        let ends = [arm(0.0, 1.0), arm(third, 2.0), arm(2.0 * third, 3.0)];
+        let hm = HeightMap::new(64, 64, 2.0); // flat terrain at 0 → no upward clamp
+        let mut parts = RoadParts::default();
+        extrude_hubs(&ends, &hm, 0.0, &dims, &mut parts);
+
+        // The apex (vertex 0) sits at the mean (2.0), well below the highest
+        // mouth (3.0) — a level fit, not a crown to the peak.
+        let apex_y = parts.deck.vertices[0][1];
+        assert!((apex_y - 2.0).abs() < 1.0e-3, "apex {apex_y} ≠ mean 2.0");
+        assert!(apex_y < 3.0 - 0.5, "apex tents toward the max deck height");
+        // The mouth corners keep each road's own height → seamless at both
+        // extremes.
+        assert!(
+            parts
+                .deck
+                .vertices
+                .iter()
+                .any(|v| (v[1] - 3.0).abs() < 1.0e-3),
+            "highest mouth not met seamlessly"
+        );
+        assert!(
+            parts
+                .deck
+                .vertices
+                .iter()
+                .any(|v| (v[1] - 1.0).abs() < 1.0e-3),
+            "lowest mouth not met seamlessly"
+        );
+    }
+
+    /// #576 regression (review wf_39a9f056-ef1): when arms truncate to different
+    /// distances and the deck half-width rivals the pull-back, adjacent mouths
+    /// splay past each other — a node-anchored fan over arm-grouped corners then
+    /// self-intersects (overlapping deck triangles that z-fight at their differing
+    /// heights). The centroid angular-sweep keeps the deck a SIMPLE polygon: its
+    /// corners come out monotonically ordered by angle around the apex.
+    #[test]
+    fn hub_deck_stays_simple_with_asymmetric_mouths() {
+        let dims = Dims::from_config(&cfg(7));
+        let hm = HeightMap::new(64, 64, 2.0);
+        // Arms at 0 / 120 / 240°, deliberately asymmetric pull-backs (1.5 / 8 / 4 m)
+        // with a wide deck (half_w 4) so arm 0's short mouth splays ±~69°.
+        let arm = |ang: f32, t: f32, deck_y: f32| {
+            let (dx, dz) = (ang.cos(), ang.sin());
+            RoadEnd {
+                node: 0,
+                cx: dx * t,
+                cz: dz * t,
+                rx: -dz,
+                rz: dx,
+                half_w: 4.0,
+                deck_y,
+            }
+        };
+        let third = std::f32::consts::TAU / 3.0;
+        let ends = [
+            arm(0.0, 1.5, 1.0),
+            arm(third, 8.0, 2.0),
+            arm(2.0 * third, 4.0, 1.5),
+        ];
+        let mut parts = RoadParts::default();
+        extrude_hubs(&ends, &hm, 0.0, &dims, &mut parts);
+
+        // Apex = vertex 0; the mouth corners follow in angular-sweep order, so
+        // their angle around the apex is monotonic (⇒ a simple polygon).
+        let apex = parts.deck.vertices[0];
+        let angles: Vec<f32> = parts.deck.vertices[1..]
+            .iter()
+            .map(|v| (v[2] - apex[2]).atan2(v[0] - apex[0]))
+            .collect();
+        for w in angles.windows(2) {
+            assert!(
+                w[1] >= w[0] - 1.0e-4,
+                "deck corners not angle-sorted (self-intersecting fan): {angles:?}"
+            );
+        }
+        // Every triangle still faces up and is finite (not folded/degenerate).
+        for nrm in &parts.deck.normals {
+            assert!(
+                nrm[1] > 0.0 && nrm.iter().all(|c| c.is_finite()),
+                "bad hub deck normal {nrm:?}"
+            );
+        }
+    }
+
+    /// #576 seamlessness: the hub's two mouth corners must land exactly on the
+    /// ribbon's end deck cross-section, so the deck flows in with no crack or
+    /// overlap. Drives a real ribbon through `extrude_chain`, then checks the
+    /// recorded `RoadEnd`'s mouth corners coincide with ribbon deck vertices.
+    #[test]
+    fn hub_mouth_corners_coincide_with_the_ribbon_end() {
+        let dims = Dims::from_config(&cfg(7));
+        let hm = HeightMap::new(64, 64, 2.0);
+        let half = dims.minor_half_width;
+        // A straight chain; node 1 (the +x end) is a junction, so it records a
+        // truncated mouth.
+        let chain = Chain {
+            pts: vec![(10.0, 10.0), (20.0, 10.0), (40.0, 10.0)],
+            half_w: half,
+            end_nodes: [0, 1],
+        };
+        let degree = vec![1u32, 3u32];
+        let mut road_ends = Vec::new();
+        let mut parts = RoadParts::default();
+        extrude_chain(
+            &chain,
+            0.0,
+            3.0,
+            &hm,
+            0.0,
+            &dims,
+            &degree,
+            &mut road_ends,
+            &mut parts,
+        );
+        assert_eq!(road_ends.len(), 1, "the junction end must record a mouth");
+
+        let e = &road_ends[0];
+        let deck = parts.deck.vertices.clone();
+        for sgn in [-1.0_f32, 1.0] {
+            let corner = [
+                e.cx + sgn * e.rx * e.half_w,
+                e.deck_y,
+                e.cz + sgn * e.rz * e.half_w,
+            ];
+            let hit = deck.iter().any(|v| {
+                (v[0] - corner[0]).abs() < 1.0e-3
+                    && (v[1] - corner[1]).abs() < 1.0e-3
+                    && (v[2] - corner[2]).abs() < 1.0e-3
+            });
+            assert!(
+                hit,
+                "hub mouth corner {corner:?} not on the ribbon end (seam)"
+            );
+        }
+    }
+
+    /// #575: a clean orthogonal cross truncates every arm by exactly the outer
+    /// footprint half-width `wo` — the adjacent-boundary solve's closed form for
+    /// right-angle arms — while the non-junction far ends are left untrimmed.
+    #[test]
+    fn truncation_pulls_arms_back_at_an_orthogonal_cross() {
+        let dims = Dims::from_config(&cfg(7));
+        let w = dims.minor_half_width;
+        let wo = w + dims.curb_top_width + dims.chamfer_width;
+        // Four arms leaving junction node 0 along ±x / ±z; the far ends (nodes
+        // 1..4) are dead-ends, so only the slot-0 (junction) end truncates.
+        let arm = |to: (f32, f32), far: usize| Chain {
+            pts: vec![
+                (0.0, 0.0),
+                (to.0 * 10.0, to.1 * 10.0),
+                (to.0 * 40.0, to.1 * 40.0),
+            ],
+            half_w: w,
+            end_nodes: [0, far],
+        };
+        let chains = [
+            arm((1.0, 0.0), 1),
+            arm((-1.0, 0.0), 2),
+            arm((0.0, 1.0), 3),
+            arm((0.0, -1.0), 4),
+        ];
+        let trims = compute_truncations(&chains, |nd| nd == 0, &dims);
+        for (ci, t) in trims.iter().enumerate() {
+            assert!(
+                (t[0] - wo).abs() < 1.0e-3,
+                "arm {ci} start trim {} ≠ wo {wo}",
+                t[0]
+            );
+            assert_eq!(t[1], 0.0, "non-junction far end of arm {ci} must not trim");
+        }
+    }
+
+    /// #575: with no junction ends, nothing truncates (every trim is zero).
+    #[test]
+    fn truncation_skips_non_junction_ends() {
+        let dims = Dims::from_config(&cfg(7));
+        let chains = [Chain {
+            pts: vec![(0.0, 0.0), (10.0, 0.0), (20.0, 0.0)],
+            half_w: dims.minor_half_width,
+            end_nodes: [0, 1],
+        }];
+        // No node is a junction → no pull-back anywhere.
+        let trims = compute_truncations(&chains, |_| false, &dims);
+        assert_eq!(trims, vec![[0.0, 0.0]]);
+    }
+
+    /// #575: `trim_polyline` removes arc length from each end, interpolating the
+    /// cut points, and keeps the interior vertices that survive.
+    #[test]
+    fn trim_polyline_shortens_both_ends() {
+        let pts = vec![(0.0, 0.0), (10.0, 0.0), (20.0, 0.0)];
+        let out = trim_polyline(&pts, 3.0, 4.0);
+        assert!(
+            (out[0].0 - 3.0).abs() < 1.0e-4,
+            "start cut at x=3, got {out:?}"
+        );
+        assert!(
+            (out.last().unwrap().0 - 16.0).abs() < 1.0e-4,
+            "end cut at x=16, got {out:?}"
+        );
+        // The mid vertex (x=10) lies inside (3, 16) → retained.
+        assert!(out.iter().any(|p| (p.0 - 10.0).abs() < 1.0e-4));
+    }
+
+    /// #575: a chain shorter than the combined pull-back is wholly consumed by
+    /// the hubs and grows no ribbon (fewer than two points back).
+    #[test]
+    fn trim_polyline_consumes_short_chain() {
+        let pts = vec![(0.0, 0.0), (5.0, 0.0)];
+        assert!(trim_polyline(&pts, 4.0, 4.0).len() < 2);
+    }
+
+    /// #575: truncation never changes the geometry's determinism — the same
+    /// chains yield byte-identical pull-backs each run.
+    #[test]
+    fn truncation_is_deterministic() {
+        let dims = Dims::from_config(&cfg(7));
+        let mk = || {
+            let arm = |to: (f32, f32), far: usize| Chain {
+                pts: vec![(0.0, 0.0), (to.0 * 12.0, to.1 * 12.0)],
+                half_w: dims.major_half_width,
+                end_nodes: [0, far],
+            };
+            [
+                arm((1.0, 0.2), 1),
+                arm((-0.3, 1.0), 2),
+                arm((-0.7, -0.7), 3),
+            ]
+        };
+        let a = compute_truncations(&mk(), |nd| nd == 0, &dims);
+        let b = compute_truncations(&mk(), |nd| nd == 0, &dims);
+        assert_eq!(a, b, "truncation must be deterministic");
+    }
+
+    /// #575: an acute fork would need an unbounded pull-back (the boundary
+    /// crossing runs to infinity as the branch angle → 0); the cap keeps it at a
+    /// width-relative maximum so the chains survive for the merge pass (#578).
+    #[test]
+    fn truncation_caps_an_acute_fork() {
+        let dims = Dims::from_config(&cfg(7));
+        let w = dims.minor_half_width;
+        let cap = MAX_TRUNCATION_FACTOR * (w + dims.curb_top_width + dims.chamfer_width);
+        // Two arms leaving node 0 ~5° apart — a sliver fork. Long arms (60 m) so
+        // the baseline heading is unambiguous and nothing else trims them.
+        let ang = 5.0_f32.to_radians();
+        let arm = |a: f32, far: usize| Chain {
+            pts: vec![(0.0, 0.0), (a.cos() * 60.0, a.sin() * 60.0)],
+            half_w: w,
+            end_nodes: [0, far],
+        };
+        let chains = [arm(0.0, 1), arm(ang, 2)];
+        let trims = compute_truncations(&chains, |nd| nd == 0, &dims);
+        for (ci, t) in trims.iter().enumerate() {
+            assert!(
+                t[0].is_finite() && t[0] <= cap + 1.0e-3,
+                "acute arm {ci} pull-back {} exceeded the cap {cap}",
+                t[0]
+            );
+        }
+        // The fork is acute enough that at least one arm is pinned to the cap
+        // (proving the bound actually engaged, not a coincidentally small solve).
+        assert!(
+            trims.iter().any(|t| (t[0] - cap).abs() < 1.0e-3),
+            "cap never engaged on a 5° fork: {trims:?}"
+        );
+    }
+
+    /// #575: a T-junction's straight through road is two anti-parallel adjacent
+    /// arms, so its 2×2 boundary solve is singular and takes the parallel
+    /// fallback `(w_a + w_b)/2 = wo`. Every arm (through pair + side street)
+    /// truncates to `wo`. (This is the commonest real junction — the fallback is
+    /// load-bearing, so it gets its own pin.)
+    #[test]
+    fn truncation_handles_a_t_junction_through_pair() {
+        let dims = Dims::from_config(&cfg(7));
+        let w = dims.minor_half_width;
+        let wo = w + dims.curb_top_width + dims.chamfer_width;
+        // Through road ±x with a side street +z, meeting node 0. Long arms so the
+        // floor/clamp never interfere.
+        let arm = |to: (f32, f32), far: usize| Chain {
+            pts: vec![(0.0, 0.0), (to.0 * 40.0, to.1 * 40.0)],
+            half_w: w,
+            end_nodes: [0, far],
+        };
+        let chains = [arm((1.0, 0.0), 1), arm((-1.0, 0.0), 2), arm((0.0, 1.0), 3)];
+        let trims = compute_truncations(&chains, |nd| nd == 0, &dims);
+        for (ci, t) in trims.iter().enumerate() {
+            assert!(
+                (t[0] - wo).abs() < 1.0e-3,
+                "T-junction arm {ci} trim {} ≠ wo {wo}",
+                t[0]
+            );
+        }
+    }
+
+    /// #575: a wide-open 120° Y is so splayed the adjacent-boundary solve returns
+    /// *less* than the half-width floor, so every arm pins to `half_w` (not `wo`).
+    /// Pins the floor branch — the dominant organic-junction regime — which a
+    /// dropped floor-init would silently under-truncate.
+    #[test]
+    fn truncation_floors_a_wide_y_at_the_half_width() {
+        let dims = Dims::from_config(&cfg(7));
+        let w = dims.minor_half_width;
+        let wo = w + dims.curb_top_width + dims.chamfer_width;
+        let arm = |deg: f32, far: usize| {
+            let a = deg.to_radians();
+            Chain {
+                pts: vec![(0.0, 0.0), (a.cos() * 40.0, a.sin() * 40.0)],
+                half_w: w,
+                end_nodes: [0, far],
+            }
+        };
+        // 90° / 210° / 330° — three arms 120° apart.
+        let chains = [arm(90.0, 1), arm(210.0, 2), arm(330.0, 3)];
+        let trims = compute_truncations(&chains, |nd| nd == 0, &dims);
+        for (ci, t) in trims.iter().enumerate() {
+            assert!(
+                (t[0] - w).abs() < 1.0e-3,
+                "wide-Y arm {ci} trim {} ≠ half_w floor {w}",
+                t[0]
+            );
+        }
+        assert!(w < wo, "sanity: the floor sits below the outer footprint");
+    }
+
+    /// #575 regression (review wf_e27b3d8b-91d): a short connector between two
+    /// junctions is shorter than its combined pull-back, so before the clamp it
+    /// trimmed to nothing and BOTH junctions silently lost an arm — and a
+    /// mouth-driven hub with < 3 arms is dropped entirely (a hole at a real
+    /// intersection). The clamp keeps a meshable stub, so each junction still
+    /// records all three mouths and grows its hub.
+    #[test]
+    fn short_junction_connector_keeps_both_hubs() {
+        let dims = Dims::from_config(&cfg(7));
+        let hm = HeightMap::new(64, 64, 2.0);
+        let w = dims.minor_half_width;
+        let chain = |pts: Vec<(f32, f32)>, ends: [usize; 2]| Chain {
+            pts,
+            half_w: w,
+            end_nodes: ends,
+        };
+        // Two degree-3 junctions (nodes 0, 1) 3 m apart, each with two splayed
+        // dead-end arms; the connector abuts a junction at both ends.
+        let chains = [
+            chain(vec![(0.0, 0.0), (3.0, 0.0)], [0, 1]), // the short connector
+            chain(vec![(0.0, 0.0), (-20.0, -20.0)], [0, 2]),
+            chain(vec![(0.0, 0.0), (-20.0, 20.0)], [0, 3]),
+            chain(vec![(3.0, 0.0), (23.0, -20.0)], [1, 4]),
+            chain(vec![(3.0, 0.0), (23.0, 20.0)], [1, 5]),
+        ];
+        let mut degree = vec![0u32; 6];
+        degree[0] = 3;
+        degree[1] = 3;
+        for d in degree.iter_mut().skip(2) {
+            *d = 1;
+        }
+        let trims = compute_truncations(&chains, |nd| degree[nd] >= 3, &dims);
+        // The connector keeps at least the floor (not consumed).
+        let surviving = 3.0 - (trims[0][0] + trims[0][1]);
+        assert!(
+            surviving + 1.0e-4 >= MIN_RIBBON_LEN_M,
+            "connector consumed: only {surviving} m left"
+        );
+
+        let mut road_ends = Vec::new();
+        let mut parts = RoadParts::default();
+        for (ci, c) in chains.iter().enumerate() {
+            let [s, e] = trims[ci];
+            extrude_chain(
+                c,
+                s,
+                e,
+                &hm,
+                0.0,
+                &dims,
+                &degree,
+                &mut road_ends,
+                &mut parts,
+            );
+        }
+        let arms_at = |n: usize| road_ends.iter().filter(|r| r.node == n).count();
+        assert_eq!(arms_at(0), 3, "node 0 lost an arm to over-truncation");
+        assert_eq!(arms_at(1), 3, "node 1 lost an arm to over-truncation");
+
+        extrude_hubs(&road_ends, &hm, 0.0, &dims, &mut parts);
+        assert!(
+            !parts.deck.is_empty(),
+            "both junctions failed to grow a hub"
+        );
+    }
+
+    /// #575 regression on the real pilot network (review wf_e27b3d8b-91d measured
+    /// 12 of 45 junctions losing their hub before the clamp): replays
+    /// `build_road_geometry`'s mouth collection and asserts every junction keeps
+    /// exactly the mouths its incident chains carry — no arm is silently trimmed
+    /// out of existence, so no real intersection is left a hole.
+    #[test]
+    fn pilot_junctions_keep_every_mouth_after_truncation() {
+        use std::collections::BTreeMap;
+        let hm = pilot_heightmap();
+        let config = cfg(PILOT_ROAD_SEED);
+        let (graph, sub, _lo) = build_road_graph(&hm, &config).expect("pilot must trace");
+        let dims = Dims::from_config(&config);
+        let chains = extract_chains(&graph, &sub, &dims);
+
+        let mut degree = vec![0u32; graph.nodes.len()];
+        for e in &graph.edges {
+            if e.active {
+                degree[e.start as usize] += 1;
+                degree[e.end as usize] += 1;
+            }
+        }
+        let is_junction = |nd: usize| degree.get(nd).copied().unwrap_or(0) >= 3;
+        let trims = compute_truncations(&chains, is_junction, &dims);
+
+        // Mouths each junction *should* carry = chain ends abutting a degree≥3 node.
+        let mut expected: BTreeMap<usize, usize> = BTreeMap::new();
+        for c in &chains {
+            for &nd in &c.end_nodes {
+                if is_junction(nd) {
+                    *expected.entry(nd).or_default() += 1;
+                }
+            }
+        }
+        // Mouths actually recorded after truncation + trimming.
+        let mut road_ends = Vec::new();
+        let mut parts = RoadParts::default();
+        for (ci, c) in chains.iter().enumerate() {
+            let [s, e] = trims[ci];
+            extrude_chain(
+                c,
+                s,
+                e,
+                &sub,
+                0.0,
+                &dims,
+                &degree,
+                &mut road_ends,
+                &mut parts,
+            );
+        }
+        let mut recorded: BTreeMap<usize, usize> = BTreeMap::new();
+        for r in &road_ends {
+            *recorded.entry(r.node).or_default() += 1;
+        }
+
+        assert_eq!(
+            recorded, expected,
+            "truncation dropped a junction mouth on the pilot network"
+        );
+        // Sanity: the pilot really does exercise multi-arm junctions (so the
+        // assertion above is non-vacuous).
+        assert!(
+            expected.values().filter(|&&c| c >= 3).count() > 10,
+            "pilot expected to have many real junctions"
+        );
     }
 }
