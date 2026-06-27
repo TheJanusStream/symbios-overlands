@@ -1351,6 +1351,37 @@ fn extrude_chain(
             );
         }
     }
+
+    // Dead-end caps (#579): a degree-1 chain end leaves the extruded cross-section
+    // open — a visible hollow tube into the road's underside. Close it with a flat
+    // cross-section cap facing outward (away from the ribbon). Junctions (degree ≥
+    // 3) are closed by their hub; a district-edge clip ends at a degree-2 node and
+    // runs off the interior boundary, so it is left open (never seen).
+    for (slot, &nd) in chain.end_nodes.iter().enumerate() {
+        if degree.get(nd).copied().unwrap_or(0) != 1 {
+            continue;
+        }
+        let (fe, fi) = if slot == 0 {
+            (&frames[0], &frames[1.min(last)])
+        } else {
+            (&frames[last], &frames[last.saturating_sub(1)])
+        };
+        // The cap is the (vertical) end cross-section, so its true normal is the
+        // HORIZONTAL lateral-perp `(rx,rz)⊥` — independent of the deck/skirt grade
+        // — oriented away from the ribbon. Using the road tangent would tilt the
+        // normal by the longitudinal slope and mis-shade the cap (review
+        // wf_aabe1626).
+        let perp = [-fe.rz, fe.rx];
+        let away = [fe.cx - fi.cx, fe.cz - fi.cz];
+        let s = if perp[0] * away[0] + perp[1] * away[1] >= 0.0 {
+            1.0
+        } else {
+            -1.0
+        };
+        let outward = [perp[0] * s, 0.0, perp[1] * s];
+        let pts: [[f32; 3]; 10] = std::array::from_fn(|pi| world(fe, pi));
+        push_end_cap(parts, &pts, &prof, outward);
+    }
 }
 
 /// One ribbon end abutting a junction node, recorded during chain extrusion so
@@ -1798,6 +1829,52 @@ fn push_fillet_face(
         );
         tri(li, ri, rj, vn[i], vn[i], vn[i + 1]);
         tri(li, rj, lj, vn[i], vn[i + 1], vn[i + 1]);
+    }
+}
+
+/// Cap a degree-1 dead-end's open cross-section (#579): a flat end wall filling
+/// the profile's world points `pts`, every normal the (horizontal) outward
+/// `outward` and each triangle wound to face it. UVs project the profile's
+/// (lateral, height) so the cap textures continuously with the curb/skirt it
+/// closes. Routed to `structure`.
+///
+/// The profile is CONCAVE (the deck dips between the two raised curbs), so it is
+/// triangulated EXPLICITLY by its convex sub-regions — the skirt **body**
+/// rectangle (full width, deck level down to the skirt floor) plus the two
+/// **curb** wedges above deck level. A single fan from any centreline apex cannot
+/// tile this: the vertical curb inner faces are back-facing from the centreline,
+/// so fan triangles spill past the silhouette (review wf_aabe1626).
+fn push_end_cap(
+    parts: &mut RoadParts,
+    pts: &[[f32; 3]; 10],
+    prof: &[(f32, f32); 10],
+    outward: [f32; 3],
+) {
+    let g = &mut parts.structure;
+    let base = g.vertices.len() as u32;
+    for (i, p) in pts.iter().enumerate() {
+        g.vertices.push(*p);
+        g.normals.push(outward);
+        g.uvs.push([prof[i].0 / UV_TILE_M, prof[i].1 / UV_TILE_M]);
+    }
+    // Profile indices (see [`profile`]): 0/1 deck edges, 2/3 & 8/9 curb tops,
+    // 4/7 chamfer bases, 5/6 skirt floor.
+    const TRIS: [[usize; 3]; 6] = [
+        [7, 4, 5],
+        [7, 5, 6], // body rectangle: chamfer bases → skirt floor (full width)
+        [1, 2, 3],
+        [1, 3, 4], // right curb wedge
+        [7, 8, 9],
+        [7, 9, 0], // left curb wedge
+    ];
+    for t in TRIS {
+        let geo = cross(sub3(pts[t[1]], pts[t[0]]), sub3(pts[t[2]], pts[t[0]]));
+        let (i0, i1, i2) = (base + t[0] as u32, base + t[1] as u32, base + t[2] as u32);
+        if dot(geo, outward) >= 0.0 {
+            g.indices.extend_from_slice(&[i0, i1, i2]);
+        } else {
+            g.indices.extend_from_slice(&[i0, i2, i1]);
+        }
     }
 }
 
@@ -3405,6 +3482,170 @@ mod tests {
                     "asymmetric fillet missed the ribbon outer-curb point {o:?} (endpoint drift)"
                 );
             }
+        }
+    }
+
+    /// #579: a degree-1 dead-end gets a flat cross-section cap (closing the open
+    /// hollow tube), facing outward; a degree-2 district-edge clip does NOT (it
+    /// runs off the interior boundary). The cap faces along the road tangent
+    /// (±x for an x-running chain), HORIZONTAL — no ribbon face does (deck +y,
+    /// curb/skirt ±z lateral) — so counting its ±x normals uniquely detects it.
+    #[test]
+    fn dead_end_gets_a_cross_section_cap() {
+        let dims = Dims::from_config(&cfg(7));
+        let hm = HeightMap::new(64, 64, 2.0); // flat at 0
+        let chain = Chain {
+            pts: vec![(20.0, 20.0), (30.0, 20.0), (50.0, 20.0)],
+            half_w: dims.minor_half_width,
+            end_nodes: [0, 1],
+        };
+        // Cap normals for a given per-node degree: horizontal (|n.y|≈0), facing ±x.
+        let cap_x = |degree: &[u32]| -> Vec<f32> {
+            let mut road_ends = Vec::new();
+            let mut parts = RoadParts::default();
+            extrude_chain(
+                &chain,
+                0.0,
+                0.0,
+                &hm,
+                0.0,
+                &dims,
+                degree,
+                &mut road_ends,
+                &mut parts,
+            );
+            for v in &parts.structure.vertices {
+                assert!(
+                    v.iter().all(|c| c.is_finite()),
+                    "non-finite cap vertex {v:?}"
+                );
+            }
+            parts
+                .structure
+                .normals
+                .iter()
+                .filter(|n| n[0].abs() > 0.9 && n[1].abs() < 0.05)
+                .map(|n| n[0])
+                .collect()
+        };
+        // degree-1 START → one cap (10 verts) facing −x; degree-2 end → none.
+        let start = cap_x(&[1, 2]);
+        assert_eq!(
+            start.len(),
+            10,
+            "degree-1 start: expected one capped cross-section"
+        );
+        assert!(
+            start.iter().all(|&x| x < 0.0),
+            "start cap must face −x (outward)"
+        );
+        // degree-1 END → one cap facing +x (exercises the slot-last path + sign).
+        let end = cap_x(&[2, 1]);
+        assert_eq!(
+            end.len(),
+            10,
+            "degree-1 end: expected one capped cross-section"
+        );
+        assert!(
+            end.iter().all(|&x| x > 0.0),
+            "end cap must face +x (outward)"
+        );
+        // Both ends degree-2 (district clips) → no caps.
+        assert_eq!(
+            cap_x(&[2, 2]).len(),
+            0,
+            "district-edge clips wrongly capped"
+        );
+        // A junction end (≥3) is closed by its hub, not a cap.
+        assert_eq!(cap_x(&[1, 3]).len(), 10, "only the degree-1 end caps");
+    }
+
+    /// #579 (review wf_aabe1626 HIGH): the cap's explicit triangulation must TILE
+    /// the concave profile exactly — no gap, no overlap, no spill past the
+    /// silhouette (the bug the apex-fan had). The cross-section is rigid, so the
+    /// summed triangle areas must equal the profile polygon's shoelace area.
+    #[test]
+    fn dead_end_cap_triangulation_tiles_the_profile() {
+        let dims = Dims::from_config(&cfg(7));
+        let prof = profile(dims.minor_half_width, &dims);
+        let tri_area = |a: (f32, f32), b: (f32, f32), c: (f32, f32)| {
+            ((b.0 - a.0) * (c.1 - a.1) - (c.0 - a.0) * (b.1 - a.1)).abs() * 0.5
+        };
+        // The exact triangulation push_end_cap emits (body + two curb wedges).
+        let tris = [
+            [7, 4, 5],
+            [7, 5, 6],
+            [1, 2, 3],
+            [1, 3, 4],
+            [7, 8, 9],
+            [7, 9, 0],
+        ];
+        let tri_sum: f32 = tris
+            .iter()
+            .map(|t| tri_area(prof[t[0]], prof[t[1]], prof[t[2]]))
+            .sum();
+        let mut shoelace = 0.0_f32;
+        for i in 0..prof.len() {
+            let (a, b) = (prof[i], prof[(i + 1) % prof.len()]);
+            shoelace += a.0 * b.1 - b.0 * a.1;
+        }
+        let poly = shoelace.abs() * 0.5;
+        assert!(
+            (tri_sum - poly).abs() < 1.0e-4,
+            "cap triangulation does not tile the profile: triangles {tri_sum} vs polygon {poly}"
+        );
+        assert!(poly > 0.0, "degenerate profile");
+    }
+
+    /// #579 (review wf_aabe1626): the cap is a VERTICAL cross-section, so its normal
+    /// must stay HORIZONTAL on sloped terrain — using the road tangent would tilt it
+    /// by the longitudinal grade and mis-shade the cul-de-sac on a hill.
+    #[test]
+    fn dead_end_cap_normal_is_horizontal_on_a_slope() {
+        let dims = Dims::from_config(&cfg(7));
+        // A ramp in x → the deck/skirt grade is non-zero along the road.
+        let mut hm = HeightMap::new(64, 64, 2.0);
+        let w = hm.width();
+        for z in 0..w {
+            for x in 0..w {
+                hm.set(x, z, x as f32 * 0.5);
+            }
+        }
+        let chain = Chain {
+            pts: vec![(20.0, 20.0), (35.0, 20.0), (60.0, 20.0)],
+            half_w: dims.minor_half_width,
+            end_nodes: [0, 1],
+        };
+        let degree = vec![1u32, 2u32];
+        let mut road_ends = Vec::new();
+        let mut parts = RoadParts::default();
+        extrude_chain(
+            &chain,
+            0.0,
+            0.0,
+            &hm,
+            0.0,
+            &dims,
+            &degree,
+            &mut road_ends,
+            &mut parts,
+        );
+        // Cap normals face ±x strongly; the grade-limited deck/curb never exceeds
+        // |n.x| 0.5, so this isolates the cap.
+        let caps: Vec<_> = parts
+            .structure
+            .normals
+            .iter()
+            .filter(|n| n[0].abs() > 0.5)
+            .collect();
+        assert!(!caps.is_empty(), "no cap emitted on sloped terrain");
+        for n in caps {
+            assert!(
+                n[1].abs() < 1.0e-3,
+                "cap normal not horizontal on a slope: {n:?}"
+            );
+            let len2 = n[0] * n[0] + n[1] * n[1] + n[2] * n[2];
+            assert!((len2 - 1.0).abs() < 1.0e-3, "cap normal not unit: {n:?}");
         }
     }
 
