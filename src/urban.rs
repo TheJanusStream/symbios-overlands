@@ -203,6 +203,13 @@ struct Chain {
     pts: Vec<(f32, f32)>,
     half_w: f32,
     end_nodes: [usize; 2],
+    /// Per-end boundary-clip markers (index matches `end_nodes`). `true` when the
+    /// run was cut at the district-interior boundary because the next sampled
+    /// node fell *outside* — i.e. a road running off the network perimeter, which
+    /// leaves an open cross-section and must be capped like a dead-end (#582). A
+    /// genuine graph terminus is `false` here: a degree-1 dead-end is capped by
+    /// degree (#579) and a loop closure / used-edge break stays open.
+    clip: [bool; 2],
 }
 
 /// The road network's rationalized planar graph for `config`, plus the district
@@ -726,7 +733,17 @@ fn push_interior_runs(
     out: &mut Vec<Chain>,
 ) {
     let mut run: Vec<(usize, f32, f32)> = Vec::new();
-    let flush = |run: &mut Vec<(usize, f32, f32)>, out: &mut Vec<Chain>| {
+    // Clip provenance: a run *starts* on a clip when the node just before it fell
+    // outside (the street entered the interior from beyond the rim), and *ends* on
+    // a clip when it is flushed because the next node is outside (it runs back off
+    // the rim). A run flushed at the end of `nodes` reached the walked chain's real
+    // terminus (dead-end / junction / loop end), so that end is not a clip.
+    let mut run_start_clip = false;
+    let mut prev_outside = false;
+    let flush = |run: &mut Vec<(usize, f32, f32)>,
+                 out: &mut Vec<Chain>,
+                 start_clip: bool,
+                 end_clip: bool| {
         if run.len() >= 2 {
             let end_nodes = [run[0].0, run[run.len() - 1].0];
             let pts = run.iter().map(|&(_, x, z)| (x, z)).collect();
@@ -734,6 +751,7 @@ fn push_interior_runs(
                 pts,
                 half_w,
                 end_nodes,
+                clip: [start_clip, end_clip],
             });
         }
         run.clear();
@@ -741,12 +759,19 @@ fn push_interior_runs(
     for &nd in nodes {
         let (x, z) = pos(nd);
         if inside(x, z) {
+            if run.is_empty() {
+                run_start_clip = prev_outside;
+            }
             run.push((nd, x, z));
+            prev_outside = false;
         } else {
-            flush(&mut run, out);
+            // Boundary crossing: the open run (if any) ends at the district edge.
+            flush(&mut run, out, run_start_clip, true);
+            prev_outside = true;
         }
     }
-    flush(&mut run, out);
+    // Trailing flush: the run reached the walked chain's real terminus, not a clip.
+    flush(&mut run, out, run_start_clip, false);
 }
 
 // --- Junction truncation (#575) ---------------------------------------------
@@ -1352,13 +1377,15 @@ fn extrude_chain(
         }
     }
 
-    // Dead-end caps (#579): a degree-1 chain end leaves the extruded cross-section
-    // open — a visible hollow tube into the road's underside. Close it with a flat
-    // cross-section cap facing outward (away from the ribbon). Junctions (degree ≥
-    // 3) are closed by their hub; a district-edge clip ends at a degree-2 node and
-    // runs off the interior boundary, so it is left open (never seen).
+    // End caps: an open chain end leaves the extruded cross-section open — a
+    // visible hollow tube into the road's underside. Close it with a flat
+    // cross-section cap facing outward (away from the ribbon). Two ends need it:
+    // a degree-1 dead-end / cul-de-sac (#579), and a district-edge clip running
+    // off the network perimeter (#582, `chain.clip[slot]`). Junctions (degree ≥ 3)
+    // are closed by their hub; a loop closure / used-edge break stays open.
     for (slot, &nd) in chain.end_nodes.iter().enumerate() {
-        if degree.get(nd).copied().unwrap_or(0) != 1 {
+        let is_dead_end = degree.get(nd).copied().unwrap_or(0) == 1;
+        if !is_dead_end && !chain.clip[slot] {
             continue;
         }
         let (fe, fi) = if slot == 0 {
@@ -1982,6 +2009,13 @@ pub struct RoadGraphStats {
     truncation_dists: Vec<f32>,
     chains: usize,
     chain_lengths: Vec<f32>,
+    /// Chain-end disposition, mirroring how the mesher closes each end:
+    /// `[junction, dead_end, clip, open]`. junction = degree ≥ 3 (closed by a
+    /// hub); dead_end = degree 1 (capped, #579); clip = boundary clip running off
+    /// the perimeter (capped, #582); open = the residue (degree-2 loop closure /
+    /// used-edge break) deliberately left open. `open` is the count of still-open
+    /// cross-sections — only genuine interior seams should remain here.
+    chain_end_class: [usize; 4],
     densified_vertices: usize,
     spike_vertices: usize,
     spike_max_scale: f32,
@@ -2196,7 +2230,21 @@ fn collect_graph_stats(graph: &RoadGraph, sub: &HeightMap, dims: &Dims) -> RoadG
     let mut chain_lengths: Vec<f32> = Vec::with_capacity(chains.len());
     let (mut densified_vertices, mut spike_vertices, mut spike_max_scale) =
         (0usize, 0usize, 0.0_f32);
+    // Classify each chain end the way the mesher closes it (hub / cap / open).
+    let mut chain_end_class = [0usize; 4];
     for chain in &chains {
+        for (slot, &nd) in chain.end_nodes.iter().enumerate() {
+            let bucket = if degree.get(nd).copied().unwrap_or(0) >= 3 {
+                0 // junction → hub
+            } else if degree.get(nd).copied().unwrap_or(0) == 1 {
+                1 // dead-end → cap (#579)
+            } else if chain.clip[slot] {
+                2 // perimeter clip → cap (#582)
+            } else {
+                3 // loop closure / used-edge break → left open
+            };
+            chain_end_class[bucket] += 1;
+        }
         let len = chain
             .pts
             .windows(2)
@@ -2230,6 +2278,7 @@ fn collect_graph_stats(graph: &RoadGraph, sub: &HeightMap, dims: &Dims) -> RoadG
         truncation_dists,
         chains: chains.len(),
         chain_lengths,
+        chain_end_class,
         densified_vertices,
         spike_vertices,
         spike_max_scale,
@@ -2300,6 +2349,12 @@ impl RoadGraphStats {
             "chains: {}   chain length (m): {}",
             self.chains,
             distro(&self.chain_lengths)
+        );
+        let [j, d, c, o] = self.chain_end_class;
+        let _ = writeln!(
+            s,
+            "chain ends: {} junction(hub)  {} dead-end(cap)  {} perimeter-clip(cap, #582)  {} open(loop/break)",
+            j, d, c, o
         );
         let _ = writeln!(
             s,
@@ -2835,6 +2890,7 @@ mod tests {
             pts: vec![(10.0, 10.0), (20.0, 10.0), (40.0, 10.0)],
             half_w: half,
             end_nodes: [0, 1],
+            clip: [false, false],
         };
         let degree = vec![1u32, 3u32];
         let mut road_ends = Vec::new();
@@ -2993,6 +3049,7 @@ mod tests {
                     ],
                     half_w: half,
                     end_nodes: [0, 1 + k],
+                    clip: [false, false],
                 }
             })
             .collect();
@@ -3093,6 +3150,7 @@ mod tests {
                     ],
                     half_w: w,
                     end_nodes: [0, 1 + k],
+                    clip: [false, false],
                 }
             })
             .collect();
@@ -3486,10 +3544,11 @@ mod tests {
     }
 
     /// #579: a degree-1 dead-end gets a flat cross-section cap (closing the open
-    /// hollow tube), facing outward; a degree-2 district-edge clip does NOT (it
-    /// runs off the interior boundary). The cap faces along the road tangent
-    /// (±x for an x-running chain), HORIZONTAL — no ribbon face does (deck +y,
-    /// curb/skirt ±z lateral) — so counting its ±x normals uniquely detects it.
+    /// hollow tube), facing outward; an UNclipped degree-2 end does NOT (a mid-run
+    /// node, loop closure or used-edge break — perimeter clips are #582's job and
+    /// carry `clip=true`, set false throughout here). The cap faces along the road
+    /// tangent (±x for an x-running chain), HORIZONTAL — no ribbon face does (deck
+    /// +y, curb/skirt ±z lateral) — so counting its ±x normals uniquely detects it.
     #[test]
     fn dead_end_gets_a_cross_section_cap() {
         let dims = Dims::from_config(&cfg(7));
@@ -3498,6 +3557,7 @@ mod tests {
             pts: vec![(20.0, 20.0), (30.0, 20.0), (50.0, 20.0)],
             half_w: dims.minor_half_width,
             end_nodes: [0, 1],
+            clip: [false, false],
         };
         // Cap normals for a given per-node degree: horizontal (|n.y|≈0), facing ±x.
         let cap_x = |degree: &[u32]| -> Vec<f32> {
@@ -3615,6 +3675,7 @@ mod tests {
             pts: vec![(20.0, 20.0), (35.0, 20.0), (60.0, 20.0)],
             half_w: dims.minor_half_width,
             end_nodes: [0, 1],
+            clip: [false, false],
         };
         let degree = vec![1u32, 2u32];
         let mut road_ends = Vec::new();
@@ -3649,6 +3710,196 @@ mod tests {
         }
     }
 
+    /// #582: a boundary-clip end (a road running off the network perimeter) is
+    /// capped like a dead-end even though its node is degree-2 — the cap is driven
+    /// by `chain.clip[slot]`, independent of degree. Same ±x-horizontal-normal
+    /// signature as the #579 dead-end cap, so counting those isolates it.
+    #[test]
+    fn clip_end_emits_a_cap_cross_section() {
+        let dims = Dims::from_config(&cfg(7));
+        let hm = HeightMap::new(64, 64, 2.0); // flat at 0
+        // Degree-2 at BOTH ends: no dead-end, no junction → caps depend purely on
+        // the clip flags, isolating the #582 path from the #579 degree path.
+        let degree = vec![2u32, 2u32];
+        let cap_x = |clip: [bool; 2]| -> Vec<f32> {
+            let chain = Chain {
+                pts: vec![(20.0, 20.0), (30.0, 20.0), (50.0, 20.0)],
+                half_w: dims.minor_half_width,
+                end_nodes: [0, 1],
+                clip,
+            };
+            let mut road_ends = Vec::new();
+            let mut parts = RoadParts::default();
+            extrude_chain(
+                &chain,
+                0.0,
+                0.0,
+                &hm,
+                0.0,
+                &dims,
+                &degree,
+                &mut road_ends,
+                &mut parts,
+            );
+            for v in &parts.structure.vertices {
+                assert!(
+                    v.iter().all(|c| c.is_finite()),
+                    "non-finite cap vertex {v:?}"
+                );
+            }
+            parts
+                .structure
+                .normals
+                .iter()
+                .filter(|n| n[0].abs() > 0.9 && n[1].abs() < 0.05)
+                .map(|n| n[0])
+                .collect()
+        };
+        // clip START only → one cap (10 verts) facing −x (outward).
+        let start = cap_x([true, false]);
+        assert_eq!(
+            start.len(),
+            10,
+            "clip start: expected one capped cross-section"
+        );
+        assert!(
+            start.iter().all(|&x| x < 0.0),
+            "clip start cap must face −x"
+        );
+        // clip END only → one cap facing +x (exercises slot-last + sign).
+        let end = cap_x([false, true]);
+        assert_eq!(end.len(), 10, "clip end: expected one capped cross-section");
+        assert!(end.iter().all(|&x| x > 0.0), "clip end cap must face +x");
+        // No clip, degree-2 both ends → still open (regression lock: the #582 bug
+        // was exactly this end left uncapped). A loop closure / used-edge break
+        // arrives here as clip=[false,false] and must stay open.
+        assert_eq!(
+            cap_x([false, false]).len(),
+            0,
+            "non-clip degree-2 ends must stay open"
+        );
+        // Both ends clipped (a fully-perimeter sliver) → two caps.
+        assert_eq!(cap_x([true, true]).len(), 20, "both rim ends must cap");
+    }
+
+    /// #582 (mirrors the #579 review wf_aabe1626 finding): a clip cap is a VERTICAL
+    /// cross-section, so its normal must stay HORIZONTAL on sloped terrain — the
+    /// road tangent would tilt it by the longitudinal grade and mis-shade the
+    /// perimeter end on a hill. Driven through the clip path (degree-2 end).
+    #[test]
+    fn clip_end_cap_normal_is_horizontal_on_a_slope() {
+        let dims = Dims::from_config(&cfg(7));
+        let mut hm = HeightMap::new(64, 64, 2.0);
+        let w = hm.width();
+        for z in 0..w {
+            for x in 0..w {
+                hm.set(x, z, x as f32 * 0.5); // ramp in x → non-zero deck grade
+            }
+        }
+        let chain = Chain {
+            pts: vec![(20.0, 20.0), (35.0, 20.0), (60.0, 20.0)],
+            half_w: dims.minor_half_width,
+            end_nodes: [0, 1],
+            clip: [false, true], // far end runs off the rim
+        };
+        let degree = vec![2u32, 2u32];
+        let mut road_ends = Vec::new();
+        let mut parts = RoadParts::default();
+        extrude_chain(
+            &chain,
+            0.0,
+            0.0,
+            &hm,
+            0.0,
+            &dims,
+            &degree,
+            &mut road_ends,
+            &mut parts,
+        );
+        let caps: Vec<_> = parts
+            .structure
+            .normals
+            .iter()
+            .filter(|n| n[0].abs() > 0.5)
+            .collect();
+        assert!(!caps.is_empty(), "no clip cap emitted on sloped terrain");
+        for n in caps {
+            assert!(
+                n[1].abs() < 1.0e-3,
+                "clip cap normal not horizontal on a slope: {n:?}"
+            );
+            let len2 = n[0] * n[0] + n[1] * n[1] + n[2] * n[2];
+            assert!(
+                (len2 - 1.0).abs() < 1.0e-3,
+                "clip cap normal not unit: {n:?}"
+            );
+        }
+    }
+
+    /// #582: when a run is cut because the next sampled node falls outside the
+    /// district interior, that end is flagged `clip`; the run's other end, a real
+    /// graph terminus, is not.
+    #[test]
+    fn push_interior_runs_marks_a_boundary_clip_end() {
+        // Nodes 0,1,2 inside (x<100); node 3 outside → the run clips at the rim.
+        let pos = |i: usize| (i as f32 * 40.0, 0.0); // 0, 40, 80, 120
+        let inside = |x: f32, _z: f32| x < 100.0;
+        let mut out = Vec::new();
+        push_interior_runs(&[0, 1, 2, 3], &pos, &inside, 5.0, &mut out);
+        assert_eq!(out.len(), 1, "one interior sub-run");
+        assert_eq!(out[0].end_nodes, [0, 2]);
+        assert_eq!(
+            out[0].clip,
+            [false, true],
+            "start is a real terminus, end is clipped at the rim"
+        );
+    }
+
+    /// #582 (review risk: re-entrant bookkeeping): a street that dips out of the
+    /// interior and back in (in→out→in) yields two runs whose INNER ends — both at
+    /// the rim — are clipped, while the outer ends stay real termini. `prev_outside`
+    /// must be function-local so the second run picks up the clipped start.
+    #[test]
+    fn push_interior_runs_reentrant_street_marks_both_inner_ends() {
+        let xs = [0.0_f32, 40.0, 120.0, 200.0, 240.0]; // node 2 outside the band
+        let pos = move |i: usize| (xs[i], 0.0);
+        let inside = |x: f32, _z: f32| x < 100.0 || x > 150.0;
+        let mut out = Vec::new();
+        push_interior_runs(&[0, 1, 2, 3, 4], &pos, &inside, 5.0, &mut out);
+        assert_eq!(out.len(), 2, "two interior sub-runs straddling the gap");
+        assert_eq!(out[0].end_nodes, [0, 1]);
+        assert_eq!(out[0].clip, [false, true], "first run clips at its rim end");
+        assert_eq!(out[1].end_nodes, [3, 4]);
+        assert_eq!(
+            out[1].clip,
+            [true, false],
+            "second run clips at its rim start"
+        );
+    }
+
+    /// #582 (review risk: first-node-outside): a walked chain whose FIRST node is
+    /// outside must not flush an empty run nor mis-set the flag, but the following
+    /// run must still pick up the clipped start from `prev_outside`.
+    #[test]
+    fn push_interior_runs_leading_outside_marks_start_clip() {
+        let xs = [120.0_f32, 0.0, 40.0, 80.0]; // node 0 outside, then 1,2,3 inside
+        let pos = move |i: usize| (xs[i], 0.0);
+        let inside = |x: f32, _z: f32| x < 100.0;
+        let mut out = Vec::new();
+        push_interior_runs(&[0, 1, 2, 3], &pos, &inside, 5.0, &mut out);
+        assert_eq!(
+            out.len(),
+            1,
+            "one interior sub-run after the leading-outside node"
+        );
+        assert_eq!(out[0].end_nodes, [1, 3]);
+        assert_eq!(
+            out[0].clip,
+            [true, false],
+            "leading-outside → clipped start, real end"
+        );
+    }
+
     /// #575: a clean orthogonal cross truncates every arm by exactly the outer
     /// footprint half-width `wo` — the adjacent-boundary solve's closed form for
     /// right-angle arms — while the non-junction far ends are left untrimmed.
@@ -3667,6 +3918,7 @@ mod tests {
             ],
             half_w: w,
             end_nodes: [0, far],
+            clip: [false, false],
         };
         let chains = [
             arm((1.0, 0.0), 1),
@@ -3693,6 +3945,7 @@ mod tests {
             pts: vec![(0.0, 0.0), (10.0, 0.0), (20.0, 0.0)],
             half_w: dims.minor_half_width,
             end_nodes: [0, 1],
+            clip: [false, false],
         }];
         // No node is a junction → no pull-back anywhere.
         let trims = compute_truncations(&chains, |_| false, &dims);
@@ -3735,6 +3988,7 @@ mod tests {
                 pts: vec![(0.0, 0.0), (to.0 * 12.0, to.1 * 12.0)],
                 half_w: dims.major_half_width,
                 end_nodes: [0, far],
+                clip: [false, false],
             };
             [
                 arm((1.0, 0.2), 1),
@@ -3762,6 +4016,7 @@ mod tests {
             pts: vec![(0.0, 0.0), (a.cos() * 60.0, a.sin() * 60.0)],
             half_w: w,
             end_nodes: [0, far],
+            clip: [false, false],
         };
         let chains = [arm(0.0, 1), arm(ang, 2)];
         let trims = compute_truncations(&chains, |nd| nd == 0, &dims);
@@ -3796,6 +4051,7 @@ mod tests {
             pts: vec![(0.0, 0.0), (to.0 * 40.0, to.1 * 40.0)],
             half_w: w,
             end_nodes: [0, far],
+            clip: [false, false],
         };
         let chains = [arm((1.0, 0.0), 1), arm((-1.0, 0.0), 2), arm((0.0, 1.0), 3)];
         let trims = compute_truncations(&chains, |nd| nd == 0, &dims);
@@ -3823,6 +4079,7 @@ mod tests {
                 pts: vec![(0.0, 0.0), (a.cos() * 40.0, a.sin() * 40.0)],
                 half_w: w,
                 end_nodes: [0, far],
+                clip: [false, false],
             }
         };
         // 90° / 210° / 330° — three arms 120° apart.
@@ -3853,6 +4110,7 @@ mod tests {
             pts,
             half_w: w,
             end_nodes: ends,
+            clip: [false, false],
         };
         // Two degree-3 junctions (nodes 0, 1) 3 m apart, each with two splayed
         // dead-end arms; the connector abuts a junction at both ends.
