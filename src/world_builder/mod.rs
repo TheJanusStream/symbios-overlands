@@ -8,7 +8,7 @@
 //! to avoid double-spawning colliders (Avian crashes if two heightfields
 //! coexist at the origin) whenever a patch lands.
 //!
-//! Terrain heightmap generation stays in `terrain.rs` because the collider
+//! Terrain heightmap generation stays in the [`crate::terrain`] plugin because the collider
 //! must be solid before `AppState::InGame` starts; the recipe's
 //! `Terrain` generator is recorded here as a no-op spawn but its `traits`
 //! are still applied to the already-existing terrain mesh. Water, shapes

@@ -17,23 +17,26 @@
 //!
 //! # Patch shape
 //!
-//! Every impact uses the same three-node topology because the audio
-//! crate has no built-in amplitude-multiplier node — instead the ADSR
-//! envelope drives the filter cutoff, which gates the noise via
-//! frequency-domain attenuation:
+//! Every impact uses the same four-node topology — a noise source, an
+//! ADSR envelope, a biquad low-pass, and a final gain (VCA). The single
+//! ADSR does double duty: it sweeps the filter cutoff (so the transient
+//! opens bright then darkens) *and* drives the output gain (so the tail
+//! also decays in level, not just in brightness — a cleaner one-shot
+//! than the filter sweep alone):
 //!
 //! ```text
-//! noise --in-->  biquad LP  --out--> patch output
-//!                  ^ cutoff_hz
-//!                  |  base = 20 Hz (effectively muted)
-//!   adsr (gate=1) -+  modulation amount = peak_cutoff_hz
-//!     attack: ~5ms   sustain: 0
-//!     decay: material-dependent
+//! noise --in--> biquad LP --in--> gain (VCA) --> patch output
+//!                 ^ cutoff_hz        ^ gain
+//!                 |                  |
+//!   adsr (gate=1) +------------------+
+//!     attack ~5 ms, sustain 0, decay material-dependent
+//!     · cutoff_hz: base 20 Hz, modulation amount = peak_cutoff_hz
+//!     · gain:      base 0.0,   driven 0 → 1 by the envelope
 //! ```
 //!
 //! With ADSR sustain at 0 and gate held high, the envelope ramps up to
-//! 1.0 (filter fully open at peak_cutoff_hz), decays to 0 (filter
-//! returns to its 20 Hz base = silence in the audible band), and stays
+//! 1.0 (filter fully open at `peak_cutoff_hz`, VCA at unity), decays to
+//! 0 (filter back to its 20 Hz base and the VCA to silence), and stays
 //! at 0. Bake-side `duration_secs` = `attack + decay + tail`.
 //!
 //! [`AudioPatch`]: bevy_symbios_audio::AudioPatch

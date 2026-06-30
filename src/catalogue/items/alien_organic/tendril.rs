@@ -2,7 +2,7 @@
 //! creep pad, lesser feelers branching off it, a lone light-node glowing where
 //! they meet. Scatter clutter writhing across the colony floor.
 //!
-//! Rooted on a flat creep pad (`id_quat`); each tendril is a [`tendril`]
+//! Rooted on a flat creep pad (`id_quat`); each tendril is a [`tendril`](fn@super::tendril)
 //! subtree (its base segment carries a yaw, so it rides as a child — a rotated
 //! `assemble` root would spin every sibling into its frame).
 

@@ -112,7 +112,7 @@ impl OverlandsMessage {
         }
     }
 
-    /// Attempt to decode a[`RoomRecord`] from a `RoomStateUpdate` payload.
+    /// Attempt to decode a [`RoomRecord`] from a `RoomStateUpdate` payload.
     /// Returns `None` if the bytes are not valid JSON or the schema drifted
     /// incompatibly — the caller should log and ignore rather than crash.
     pub fn decode_room_state(bytes: &[u8]) -> Option<RoomRecord> {

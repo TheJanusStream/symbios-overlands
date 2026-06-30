@@ -286,7 +286,7 @@ pub(super) fn gable_roof(
 /// A rearing carved dragon / serpent head — the Norse signature finial.
 /// Built facing `+X` (snout forward) on a neck rising from `foot`, returned
 /// as one positioned subtree (the neck is its local root) so the whole head
-/// rides a single [`quat_y`](crate::catalogue::items::util::quat_y)`(yaw)`:
+/// rides a single [`quat_y`]`(yaw)`:
 /// `yaw = 0` faces `+X`, `yaw = PI` faces `-X`. `s` scales the head. Open
 /// jaws, ridged crest, and glinting eyes carry the beast read a plain block
 /// never did. Used on the longship's prow and stern and on the mead hall's

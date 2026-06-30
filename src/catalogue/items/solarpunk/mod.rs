@@ -146,7 +146,7 @@ pub(super) fn foliage(color: [f32; 3]) -> SovereignMaterialSettings {
 /// organic, hand-planted look (a deterministic jitter, no RNG — so the
 /// sanitiser round-trip stays stable). `center` is the soil-top centre,
 /// `span` the bed `[x, z]` extent the clumps fill, `h` the nominal clump
-/// height. Returns the clumps for an [`assemble`](super::super::util::assemble)
+/// height. Returns the clumps for an [`assemble`](crate::catalogue::items::util::assemble)
 /// list — the solarpunk green signature, reused on every planter and terrace.
 pub(super) fn crop_tufts(
     center: [f32; 3],

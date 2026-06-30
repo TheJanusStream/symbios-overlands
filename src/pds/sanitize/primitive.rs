@@ -1,6 +1,7 @@
 //! Sanitiser for the parametric primitive variants of [`GeneratorKind`]
 //! (Cuboid / Sphere / Cylinder / Capsule / Cone / Torus / Plane /
-//! Tetrahedron). Mirrors the bounds the World Editor UI exposes so a
+//! Tetrahedron / Tube / Bevel / Wedge / Helix). Mirrors the bounds the
+//! World Editor UI exposes so a
 //! hand-crafted record can't push mesh/collider builders into NaN / OOM
 //! territory.
 

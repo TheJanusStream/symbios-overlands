@@ -221,7 +221,7 @@ pub(super) fn tank_hoops(
 /// A spoked hand-wheel valve — an outer rim `torus`, a stubby hub axle, and
 /// three diameter spoke bars crossing it. Authored flat in its local XZ plane
 /// (axle along Y); `rot` stands it up (`quat_x(FRAC_PI_2)` faces it ±Z on a
-/// riser). One positioned subtree → drop into an [`assemble`] list (the spokes
+/// riser). One positioned subtree → drop into an [`assemble`](crate::catalogue::items::util::assemble) list (the spokes
 /// ride its rotation, so the rotated-root rule never applies). A bare `torus`
 /// reads as a washer; the spokes make it a wheel.
 pub(super) fn valve_wheel(
@@ -262,7 +262,7 @@ pub(super) fn valve_wheel(
 
 /// A braced steel lattice mast — four corner legs leaning slightly inward as
 /// they rise, ringed by horizontal bands and crossed by zig-zag diagonals on
-/// every face. Returns the pieces for an [`assemble`] list; none is the root,
+/// every face. Returns the pieces for an [`assemble`](crate::catalogue::items::util::assemble) list; none is the root,
 /// so the lean is safe. `base_y` is the foot, `h` the height, `half` the
 /// half-width at the foot. A plain pole reads as a lamppost; the lattice reads
 /// as plant steelwork.

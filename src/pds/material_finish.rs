@@ -15,7 +15,7 @@
 //!
 //! The pass is a pure function of the two dials (no RNG), so peers deriving
 //! the same room produce bit-identical finishes. It reaches every
-//! material-bearing variant — the eight primitives' `material`, `Sign`'s
+//! material-bearing variant — the twelve primitives' `material`, `Sign`'s
 //! `material`, and every value in the `Shape` / `LSystem` materials maps —
 //! and recurses through `children`, so a deeply-nested construct is
 //! finished uniformly. Variants with no

@@ -233,7 +233,7 @@ pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
 /// (a pylon price board, a neon name strip, a vending selector). `face` (±1)
 /// is the look direction — the cells stand proud of the backing toward it, so
 /// for a sign facing the −Z camera front pass `face = -1.0`. Returned in the
-/// prop's flat world frame, ready to drop into an [`assemble`] list.
+/// prop's flat world frame, ready to drop into an [`assemble`](crate::catalogue::items::util::assemble) list.
 pub(super) fn sign_board(
     center: [f32; 3],
     size: [f32; 2],

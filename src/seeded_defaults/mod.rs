@@ -20,7 +20,7 @@
 //!         · room::scatters   (biome-biased tree-scatter specs)
 //!         · room::rocks      (landform-biased boulder scatters)
 //!         · room::particles  (biome-mood ambient emitter)
-//!         · room::landmark   (biome-matched structure near spawn)
+//!         · room::settlement (themed catalogue cluster near spawn)
 //!         · room::audio      (biome-matched ambient bed)
 //!         · avatar::character (anchor: chassis + style + ornateness/wear)
 //!         · avatar::palette  (skin/hair + style/temperature/wear accents)

@@ -37,14 +37,15 @@ The project is "thin client, heavy world":
 - **Networking:** [`bevy_symbios_multiuser`](https://github.com/TheJanusStream/bevy_symbios_multiuser) over WebRTC ([`matchbox`](https://github.com/johanhelsing/matchbox)) for the peer mesh; [`proto-blue-oauth` + `proto-blue-api`](https://github.com/dollspace-gay/proto-blue) for ATProto identity and PDS plumbing. Peer DIDs are authenticated against the relay-signed session map so a peer can't impersonate another identity over the unauthenticated data channel.
 - **Protocol safety.** ATProto's DAG-CBOR encoding forbids floats, so every continuous spatial value is wrapped in fixed-point (`Fp` / `Fp2` / `Fp3` / `Fp4` / `Fp64`). Every record class also carries a `sanitize()` step that clamps sizes, counts, depths and octaves so a malformed payload from a hostile peer can't OOM or crash the engine.
 - **State machine.** A three-stage `AppState` (`Login` → `Loading` → `InGame`). The loading gate waits on the heightmap, the seeded ambient-audio bake, the room / avatar / inventory PDS fetches, *and* the room compile itself before gameplay starts, so a slow round-trip can't leave the world half-loaded or silent — and the browser build's long synchronous world build stays behind the loading screen instead of freezing the first visible frame.
+- **Compute offload.** CPU-heavy generation (the heightmap and the seeded ambient-audio bake) runs off the render frame through one platform-routed [`offload`](src/offload.rs) API: on native via Bevy's rayon-backed `AsyncComputeTaskPool`, on wasm via a dedicated Web Worker (Bevy's task pools collapse to a single cooperative thread there, so an inline job would stall the frame). Each job is a self-contained, serialisable `GenJob` whose pure `run()` is byte-identical on both backends, keeping progressive loading deterministic across peers. The worker links only the Bevy-free `symbios-*` cores, so its `.wasm` stays tiny — which is why the repo is a small Cargo workspace ([`crates/gen-jobs`](crates/gen-jobs/) + [`crates/gen-worker`](crates/gen-worker/)), not a lone crate.
 
 ## Project layout
 
-The crate is a library with a thin `main.rs` shim so integration tests in [`tests/`](tests/) can import the module tree directly.
+The app is a library crate with a thin `main.rs` shim so integration tests in [`tests/`](tests/) can import the module tree directly. It also roots a small Cargo workspace — the [`crates/`](crates/) members are the Bevy-free generation cores shared with the wasm Web Worker.
 
 - [`src/pds/`](src/pds/) — record schemas (`RoomRecord`, `AvatarRecord`, `InventoryRecord`), the `Generator` / `Placement` / `LocomotionConfig` open unions, fixed-point wrappers, per-variant sanitisers, and the shared XRPC plumbing.
 - [`src/world_builder/`](src/world_builder/) — the recipe → ECS compiler. Per-generator spawn arms (terrain, water, portal, sign, particles, L-system, shape grammar, primitives), the cross-compile geometry / material caches, and the source-keyed [image cache](src/world_builder/image_cache.rs) shared by signs / portals / particles.
-- [`src/terrain/`](src/terrain/), [`src/urban.rs`](src/urban.rs), [`src/splat.rs`](src/splat.rs), [`src/water.rs`](src/water.rs), [`src/clouds.rs`](src/clouds.rs) — heightmap + Avian heightfield collider, four-layer splat material extension, Gerstner-wave water shader, FBM cloud-deck shader, and the urban-theme road layer: a `symbios-tensor` road topology draped over the terrain ([`roads.rs`](src/terrain/roads.rs)) with themed buildings populated onto its enclosed lots at load time ([`lots.rs`](src/terrain/lots.rs)).
+- [`src/terrain/`](src/terrain/), [`src/urban/`](src/urban/), [`src/splat.rs`](src/splat.rs), [`src/water.rs`](src/water.rs), [`src/clouds.rs`](src/clouds.rs) — heightmap + Avian heightfield collider, four-layer splat material extension, Gerstner-wave water shader, FBM cloud-deck shader, and the urban-theme road layer: [`src/urban/`](src/urban/) meshes a `symbios-tensor` road topology into a ribbon draped over the terrain (graph sanitation → chain extraction → ribbon extrusion → junction levelling → end/intersection caps), wired in as a terrain child that rebuilds reactively ([`roads.rs`](src/terrain/roads.rs)) with themed buildings populated onto its enclosed lots at load time ([`lots.rs`](src/terrain/lots.rs)).
 - [`src/player/`](src/player/) — the five locomotion presets and portal interaction.
 - [`src/interaction/`](src/interaction/) — the contact-effects framework: one classifier feeds independent water-wake / particle-burst / splat-stain / decal / audio channels.
 - [`src/pds/audio.rs`](src/pds/audio.rs), [`src/audio_materials.rs`](src/audio_materials.rs), [`src/audio_mute.rs`](src/audio_mute.rs), [`src/world_builder/spatial_audio.rs`](src/world_builder/spatial_audio.rs) / [`audio_resolver.rs`](src/world_builder/audio_resolver.rs), [`src/seeded_defaults/room/audio/`](src/seeded_defaults/room/audio/) — the procedural-audio subsystem: DAG-CBOR-safe `Sovereign*` mirrors of `bevy_symbios_audio` patches / sequences, material-keyed impact-SFX patches, the construct- and ambient-emitter spatial spawners, the URL/blob audio reference resolver, the app-wide master mute, and the seeded layered ambient soundtrack (baked in [`src/loading/`](src/loading/) as the gate's 5th task).
@@ -57,6 +58,8 @@ The crate is a library with a thin `main.rs` shim so integration tests in [`test
 - [`src/editor_gizmo/`](src/editor_gizmo/) — bridge between the editor selection and the in-world 3D transform gizmo.
 - [`src/loading/`](src/loading/), [`src/state.rs`](src/state.rs), [`src/boot_params.rs`](src/boot_params.rs), [`src/logout.rs`](src/logout.rs) — state-machine plumbing (with the generic per-record fetch/retry pipeline and the per-task loading screen), shared resources, landmark-link parsing, and the on-logout cache teardown.
 - [`src/config.rs`](src/config.rs) — centralised tuneable constants (lighting, fog, locomotion physics, terrain, splat layers, contact-effect pools, networking, HTTP timeouts, UI windows).
+- [`src/offload.rs`](src/offload.rs) + [`src/offload/`](src/offload/), [`crates/gen-jobs/`](crates/gen-jobs/), [`crates/gen-worker/`](crates/gen-worker/) — the compute-offload layer: the platform-routed `offload()` dispatcher (native `AsyncComputeTaskPool` / wasm Web Worker), the serialisable `GenJob` definitions, and the slim no-Bevy worker crate that runs them off the main thread on the web.
+- [`src/render_tool/`](src/render_tool/) + [`src/bin/render.rs`](src/bin/render.rs) — a native-only headless render tool (`cargo run --bin render -- --avatar … / --catalogue … / --prim … / --room …`) that drives the real spawn path to emit multi-angle contact-sheet PNGs, for self-validating geometry and materials without in-game screenshots.
 
 ## Running locally
 
@@ -87,9 +90,16 @@ cargo run --release -- \
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli
 
-cargo build --release --target wasm32-unknown-unknown
-wasm-bindgen --out-dir ./dist --target web \
+# `--workspace` builds the app *and* the off-thread generation Web Worker
+# (the slim, no-Bevy `gen-worker`) for wasm in one pass.
+cargo build --workspace --release --target wasm32-unknown-unknown
+
+# Two wasm-bindgen passes: the app, then the worker the app spawns as
+# `./gen-worker.js` (both land beside each other in ./dist).
+wasm-bindgen --out-dir ./dist --target web --out-name symbios-overlands \
     target/wasm32-unknown-unknown/release/symbios-overlands.wasm
+wasm-bindgen --out-dir ./dist --target web --out-name gen-worker \
+    target/wasm32-unknown-unknown/release/gen-worker.wasm
 
 # index.html imports ./symbios-overlands.js relative to itself, so
 # assemble a flat site directory (mirrors .github/workflows/deploy.yml):

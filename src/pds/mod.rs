@@ -10,10 +10,11 @@
 //! A `RoomRecord` is composed of three top-level collections:
 //!
 //! * `generators`  — name → [`Generator`] map. Each entry is a hierarchical
-//!   node carrying a [`GeneratorKind`] (Terrain / Water / Portal / LSystem /
-//!   Shape / `Sign` / `ParticleSystem` / one of the eight primitives
-//!   Cuboid / Sphere / Cylinder / Capsule / Cone / Torus / Plane /
-//!   Tetrahedron), a local [`TransformData`], and a `Vec<Generator>` of
+//!   node carrying a [`GeneratorKind`] (Terrain / Water / RoadNetwork /
+//!   Portal / LSystem / Shape / `Sign` / `ParticleSystem` / one of the
+//!   twelve parametric primitives — Cuboid / Sphere / Cylinder / Capsule /
+//!   Cone / Torus / Plane / Tetrahedron / Tube / Bevel / Wedge / Helix), a
+//!   local [`TransformData`], and a `Vec<Generator>` of
 //!   children — so a single named entry can describe an entire fractal
 //!   blueprint.
 //! * `placements`  — open-union [`Placement`] list describing how and where

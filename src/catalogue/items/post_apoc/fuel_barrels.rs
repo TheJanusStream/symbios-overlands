@@ -2,7 +2,7 @@
 //! standing and one toppled, ringed with ribbing. Scatter clutter of the
 //! holdout's stores.
 //!
-//! The toppled drum lies on its side with a [`quat_x`] of π/2.
+//! The toppled drum lies on its side with a [`quat_x`](crate::catalogue::items::util::quat_x) of π/2.
 
 use std::f32::consts::FRAC_PI_2;
 

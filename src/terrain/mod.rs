@@ -5,7 +5,8 @@
 //! — there is no authoritative server to replicate from.  Heightmap
 //! generation (Voronoi terracing → hydraulic erosion → thermal erosion) runs
 //! on `AsyncComputeTaskPool` while the four splat layer textures
-//! (grass / dirt / rock / snow) are baked in parallel by
+//! (e.g. grass / dirt / rock / snow — the actual material per layer is
+//! biome-derived) are baked in parallel by
 //! `bevy_symbios_texture`.  Once every task has finished, the layers are
 //! concatenated into a 2D texture array and the `SplatExtension` material is
 //! flipped from placeholder flat-colour mode to triplanar PBR splat blending.

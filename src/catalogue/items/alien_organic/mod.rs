@@ -124,7 +124,7 @@ pub(super) const SAC_GLOW: [f32; 3] = [1.0, 0.20, 0.48];
 /// the one below, so it *inherits* the curl beneath it — the leans compound
 /// into a natural coil (the nordic `dragon_head` neck-as-subtree-root trick).
 /// `yaw` aims the curl azimuth, `curl` is the lean added at every joint, the
-/// radius tapers up the chain. Drop it into an [`assemble`] list as a
+/// radius tapers up the chain. Drop it into an [`assemble`](crate::catalogue::items::util::assemble) list as a
 /// NON-first child: the base carries a `quat_y(yaw)` rotation, so it must
 /// never be `prims[0]` (the root-rotation gotcha — a rotated assemble root
 /// spins every sibling into its frame).
