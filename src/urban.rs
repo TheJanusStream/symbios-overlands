@@ -741,22 +741,34 @@ pub fn build_road_geometry(hm: &HeightMap, config: &RoadConfig) -> Option<RoadPa
 
     let mut parts = RoadParts::default();
     let world_offset = lo as f32 * sub.scale();
+
+    // Sample each chain's terrain ONCE (the only heightmap-sampling site), then
+    // resolve flat junction heights + the per-chain deck heights network-wide
+    // (#584). The mesh pass consumes the cached sample + resolved heights, so the
+    // pre-pass and the ribbon agree to the bit (no floor-drift seam at the mouths).
+    let samples: Vec<Option<ChainSample>> = chains
+        .iter()
+        .zip(&trims)
+        .map(|(chain, &[s, e])| sample_chain(chain, s, e, &sub, &dims))
+        .collect();
+    let base_ys = level_network(&chains, &samples, &degree, &sub);
+
     // Each chain extrudes its ribbon and records its end-frames at junctions, so
-    // the hubs can be built to meet every incident road at its exact mouth.
+    // the hubs can be built to meet every incident road at its exact (levelled) mouth.
     let mut road_ends: Vec<RoadEnd> = Vec::new();
     for (ci, chain) in chains.iter().enumerate() {
-        let [start_trim, end_trim] = trims[ci];
-        extrude_chain(
-            chain,
-            start_trim,
-            end_trim,
-            &sub,
-            world_offset,
-            &dims,
-            &degree,
-            &mut road_ends,
-            &mut parts,
-        );
+        if let Some(sample) = &samples[ci] {
+            extrude_ribbon(
+                chain,
+                sample,
+                &base_ys[ci],
+                world_offset,
+                &dims,
+                &degree,
+                &mut road_ends,
+                &mut parts,
+            );
+        }
     }
     extrude_hubs(&road_ends, &sub, world_offset, &dims, &mut parts);
     (!parts.deck.is_empty() || !parts.structure.is_empty()).then_some(parts)
@@ -1289,6 +1301,21 @@ const DECK_SAMPLES: usize = 5;
 /// gentle and lets the deck bridge dips as an embankment instead of diving in.
 /// Up/down inclines are tolerable; only the lateral roll is engineered out.
 const MAX_LONGITUDINAL_GRADE: f32 = 0.18;
+/// Gentler grade (rise/run) for a junction APPROACH ramp (#584): when a road is
+/// pinned up to meet a flat junction, it ramps back to its natural draped height
+/// over `rise / this` metres — long enough to read as a smooth transition, not a
+/// short kick right at the intersection. Separate from (and below) the global
+/// drainage grade so the rest of the road is unaffected.
+const JUNCTION_APPROACH_GRADE: f32 = 0.09;
+/// Safety cap on the junction-levelling relaxation passes (#584). Each pass raises
+/// junction heights to the max incident mouth and re-ramps; heights only ever rise
+/// and are bounded by the highest terrain floor, so it converges. One pass
+/// propagates a height change across one chain, so a connected run of N junctions
+/// needs ~N passes — set well above the longest junction-path real networks reach.
+const MAX_LEVEL_ITERS: usize = 64;
+/// Junction-levelling has converged once no junction height moved more than this
+/// (m) in a pass (#584).
+const LEVEL_CONVERGE_EPS_M: f32 = 1.0e-3;
 /// How far (m) the skirt bottom sinks below the lower outer-edge terrain, so an
 /// elevated (downhill) side always reads as a retaining wall meeting the ground.
 const SKIRT_BURY_MARGIN_M: f32 = 0.3;
@@ -1339,49 +1366,49 @@ fn quad_normal(a: [f32; 3], b: [f32; 3], c: [f32; 3], d: [f32; 3], axis: [f32; 3
     normalize(nrm)
 }
 
-/// Extrude the curb/skirt profile along one chain into `parts`. The deck drapes
-/// over `hm` **flat-across and upward-only** (it never sinks below the terrain —
-/// see [`Frame`]), shifted into the full-terrain frame by `world_offset`. The
-/// drivable deck top, the structural curb/skirt and the emissive neon edge-lines
-/// are routed to their respective [`RoadParts`] buffers.
-#[allow(clippy::too_many_arguments)] // each arg is a distinct input/sink.
-fn extrude_chain(
+/// One frame's terrain-sampled geometry, independent of the final deck height —
+/// the heightmap-sampling output of [`sample_chain`], reused by both the levelling
+/// pre-pass and the mesh pass so the deck floor is bit-identical between them
+/// (#584; the float-drift seam closes by having ONE sampling site).
+struct RawFrame {
+    cx: f32,
+    cz: f32,
+    rx: f32,
+    rz: f32,
+    scale: f32,
+    arc: f32,
+    /// Upward-only deck floor: max terrain across the deck width + the depth bias.
+    floor: f32,
+    /// Lowest outer-edge terrain, for the skirt drop on an elevated side.
+    ground: f32,
+}
+
+/// A chain's trimmed, densified, terrain-sampled frames plus inter-frame segment
+/// lengths — everything the deck height and mesh need that does NOT depend on the
+/// chosen deck height. Sampled ONCE per chain (the only heightmap-sampling site).
+struct ChainSample {
+    frames: Vec<RawFrame>,
+    seg: Vec<f32>,
+}
+
+/// Trim a chain at its junction ends (#575), densify it, and sample the terrain
+/// floor / outer ground per frame (Pass A) — `None` if nothing meshable survives.
+/// The single heightmap-sampling site for a chain (#584).
+fn sample_chain(
     chain: &Chain,
     start_trim: f32,
     end_trim: f32,
     hm: &HeightMap,
-    world_offset: f32,
     dims: &Dims,
-    degree: &[u32],
-    road_ends: &mut Vec<RoadEnd>,
-    parts: &mut RoadParts,
-) {
-    // Shorten the chain at any junction end (#575) so the ribbon stops at the hub
-    // boundary, then drape the remaining run. A chain wholly consumed by its
-    // hubs trims to nothing and grows no ribbon.
+) -> Option<ChainSample> {
     let trimmed = trim_polyline(&chain.pts, start_trim, end_trim);
     let pts = densify(&trimmed, RIBBON_STEP_M);
     if pts.len() < 2 {
-        return;
+        return None;
     }
-    let prof = profile(chain.half_w, dims);
     let half_w = chain.half_w;
     let wo = half_w + dims.curb_top_width + dims.chamfer_width;
-
-    // Pass A: per-frame geometry, the upward-only deck *floor* (a flat deck must
-    // clear the highest terrain across its width) and the lowest outer-edge
-    // terrain (how far the skirt must drop to meet the ground on an elevated side).
-    struct Raw {
-        cx: f32,
-        cz: f32,
-        rx: f32,
-        rz: f32,
-        scale: f32,
-        arc: f32,
-        floor: f32,
-        ground: f32,
-    }
-    let mut raw: Vec<Raw> = Vec::with_capacity(pts.len());
+    let mut frames: Vec<RawFrame> = Vec::with_capacity(pts.len());
     let mut arc = 0.0;
     for i in 0..pts.len() {
         let (cx, cz) = pts[i];
@@ -1397,7 +1424,7 @@ fn extrude_chain(
         }
         let g_r = hm.get_height_at(cx + rx * wo * scale, cz + rz * wo * scale);
         let g_l = hm.get_height_at(cx - rx * wo * scale, cz - rz * wo * scale);
-        raw.push(Raw {
+        frames.push(RawFrame {
             cx,
             cz,
             rx,
@@ -1408,24 +1435,220 @@ fn extrude_chain(
             ground: g_r.min(g_l),
         });
     }
-
-    // Longitudinal upward grade-limit: raise the deck so it never descends faster
-    // than `MAX_LONGITUDINAL_GRADE` (a gentle grade that bridges dips), but never
-    // below the floor (so the deck never buries). Two passes give symmetry both
-    // ways along the chain.
-    let mut base_y: Vec<f32> = raw.iter().map(|r| r.floor).collect();
-    let seg: Vec<f32> = raw
+    let seg: Vec<f32> = frames
         .windows(2)
         .map(|w| (w[1].cx - w[0].cx).hypot(w[1].cz - w[0].cz).max(1.0e-3))
         .collect();
+    Some(ChainSample { frames, seg })
+}
+
+/// Resolve the deck base height per frame from the terrain `floor` (#573/#584).
+/// Two parts, each an upward-only lower bound (the deck only ever rises — it never
+/// buries): first the longitudinal grade-limit at [`MAX_LONGITUDINAL_GRADE`] (a
+/// gentle drainage grade that bridges dips), then — for each junction end carrying
+/// a height `pin` — a ramp cone down from that pinned height at the gentler
+/// [`JUNCTION_APPROACH_GRADE`], so a road pinned up to a flat junction ramps back
+/// to its natural height over enough of its length to read smooth. With both pins
+/// `None` this is exactly the #573 two-pass levelling (a strict refactor).
+fn level_chain(floor: &[f32], seg: &[f32], pin: [Option<f32>; 2]) -> Vec<f32> {
+    let mut base_y = floor.to_vec();
     for i in 1..base_y.len() {
         base_y[i] = base_y[i].max(base_y[i - 1] - MAX_LONGITUDINAL_GRADE * seg[i - 1]);
     }
     for i in (0..base_y.len().saturating_sub(1)).rev() {
         base_y[i] = base_y[i].max(base_y[i + 1] - MAX_LONGITUDINAL_GRADE * seg[i]);
     }
+    // Junction-approach ramp cones: base_y[i] >= H - grade * arc-distance-to-the-
+    // pinned end. Cones only RAISE the deck and ramp at a gentler grade than the
+    // floor pass, so they never violate the longitudinal limit.
+    if let Some(h) = pin[0] {
+        let mut dist = 0.0;
+        for i in 0..base_y.len() {
+            base_y[i] = base_y[i].max(h - JUNCTION_APPROACH_GRADE * dist);
+            if i + 1 < base_y.len() {
+                dist += seg[i];
+            }
+        }
+    }
+    if let Some(h) = pin[1] {
+        let mut dist = 0.0;
+        for i in (0..base_y.len()).rev() {
+            base_y[i] = base_y[i].max(h - JUNCTION_APPROACH_GRADE * dist);
+            if i > 0 {
+                dist += seg[i - 1];
+            }
+        }
+    }
+    base_y
+}
 
-    let frames: Vec<Frame> = raw
+/// Resolve a FLAT height per junction and the final deck height per chain across
+/// the whole network (#584). Each junction is lifted to the max of (a) the terrain
+/// under its mouth-centroid + the depth bias — so a junction on a local rise stays
+/// flat by lifting its mouths to clear it rather than doming the hub — and (b) the
+/// highest road mouth meeting it; every incident road is then ramped up to that
+/// height by [`level_chain`]'s pin cones. A chain joins two junctions, and raising
+/// one can raise the next, so junction heights are RELAXED to a monotone-upward
+/// fixed point. Heights only ever rise and are bounded by the highest terrain
+/// floor, so it converges; capped at [`MAX_LEVEL_ITERS`] (graceful degradation —
+/// every chain still levels watertight, just under-pinned). Returns `base_y` per
+/// chain (empty where the chain had no meshable sample).
+fn level_network(
+    chains: &[Chain],
+    samples: &[Option<ChainSample>],
+    degree: &[u32],
+    hm: &HeightMap,
+) -> Vec<Vec<f32>> {
+    use std::collections::BTreeMap;
+    let is_junction = |nd: usize| degree.get(nd).copied().unwrap_or(0) >= 3;
+    let floor_of = |s: &ChainSample| -> Vec<f32> { s.frames.iter().map(|r| r.floor).collect() };
+
+    // Seed each junction at the terrain under its incident mouths' centroid + bias.
+    let mut centroid: BTreeMap<usize, (f32, f32, u32)> = BTreeMap::new();
+    for (ci, chain) in chains.iter().enumerate() {
+        let Some(s) = &samples[ci] else { continue };
+        for (slot, &nd) in chain.end_nodes.iter().enumerate() {
+            if !is_junction(nd) {
+                continue;
+            }
+            let f = if slot == 0 {
+                &s.frames[0]
+            } else {
+                s.frames.last().expect("sample has >= 2 frames")
+            };
+            let acc = centroid.entry(nd).or_insert((0.0, 0.0, 0));
+            acc.0 += f.cx;
+            acc.1 += f.cz;
+            acc.2 += 1;
+        }
+    }
+    let mut hub_h: BTreeMap<usize, f32> = BTreeMap::new();
+    for (&nd, &(sx, sz, n)) in &centroid {
+        let (cx, cz) = (sx / n as f32, sz / n as f32);
+        hub_h.insert(nd, hm.get_height_at(cx, cz) + ROAD_DEPTH_BIAS_M);
+    }
+
+    let pin_for = |hub_h: &BTreeMap<usize, f32>, nd: usize| -> Option<f32> {
+        if is_junction(nd) {
+            hub_h.get(&nd).copied()
+        } else {
+            None
+        }
+    };
+    let mut base_ys: Vec<Vec<f32>> = vec![Vec::new(); chains.len()];
+    for _ in 0..MAX_LEVEL_ITERS {
+        // Re-level every chain to its current junction pins.
+        for (ci, chain) in chains.iter().enumerate() {
+            let Some(s) = &samples[ci] else { continue };
+            let pin = [
+                pin_for(&hub_h, chain.end_nodes[0]),
+                pin_for(&hub_h, chain.end_nodes[1]),
+            ];
+            base_ys[ci] = level_chain(&floor_of(s), &s.seg, pin);
+        }
+        // Lift each junction to the highest mouth now meeting it; track movement.
+        let mut moved = 0.0_f32;
+        for (ci, chain) in chains.iter().enumerate() {
+            if base_ys[ci].is_empty() {
+                continue;
+            }
+            for (slot, &nd) in chain.end_nodes.iter().enumerate() {
+                if !is_junction(nd) {
+                    continue;
+                }
+                let m = if slot == 0 {
+                    base_ys[ci][0]
+                } else {
+                    base_ys[ci][base_ys[ci].len() - 1]
+                };
+                // Every junction reaching the lift was seeded above (same Some-sample
+                // gate), so the entry exists; `or_insert(m)` is a sane fallback (the
+                // mouth itself), never a garbage `f32::MIN`, if that ever changes.
+                let h = hub_h.entry(nd).or_insert(m);
+                if m > *h + LEVEL_CONVERGE_EPS_M {
+                    moved = moved.max(m - *h);
+                    *h = m;
+                }
+            }
+        }
+        if moved < LEVEL_CONVERGE_EPS_M {
+            break;
+        }
+    }
+    // Final re-level to the converged junction heights: the loop breaks just after a
+    // lift, so without this the deck would lag the last (sub-eps) lift. This pins
+    // every mouth EXACTLY to its junction's resolved height → spread is exactly 0.
+    for (ci, chain) in chains.iter().enumerate() {
+        let Some(s) = &samples[ci] else { continue };
+        let pin = [
+            pin_for(&hub_h, chain.end_nodes[0]),
+            pin_for(&hub_h, chain.end_nodes[1]),
+        ];
+        base_ys[ci] = level_chain(&floor_of(s), &s.seg, pin);
+    }
+    base_ys
+}
+
+/// Per-junction incident-mouth height SPREAD (max − min over the roads meeting it)
+/// for junctions with ≥ 2 meshed incident roads — 0 once the network levelling has
+/// pinned every incident mouth to one height (#584 diagnostic).
+fn junction_mouth_spreads(
+    chains: &[Chain],
+    base_ys: &[Vec<f32>],
+    is_junction: &impl Fn(usize) -> bool,
+) -> Vec<f32> {
+    use std::collections::BTreeMap;
+    let mut acc: BTreeMap<usize, (f32, f32, u32)> = BTreeMap::new(); // (min, max, count)
+    for (ci, chain) in chains.iter().enumerate() {
+        if base_ys[ci].is_empty() {
+            continue;
+        }
+        for (slot, &nd) in chain.end_nodes.iter().enumerate() {
+            if !is_junction(nd) {
+                continue;
+            }
+            let m = if slot == 0 {
+                base_ys[ci][0]
+            } else {
+                base_ys[ci][base_ys[ci].len() - 1]
+            };
+            let e = acc.entry(nd).or_insert((f32::MAX, f32::MIN, 0));
+            e.0 = e.0.min(m);
+            e.1 = e.1.max(m);
+            e.2 += 1;
+        }
+    }
+    acc.values()
+        .filter(|&&(_, _, n)| n >= 2)
+        .map(|&(mn, mx, _)| mx - mn)
+        .collect()
+}
+
+/// Extrude the curb/skirt profile along one chain into `parts`. The deck drapes
+/// over the terrain **flat-across and upward-only** (it never sinks below the
+/// terrain — see [`Frame`]), shifted into the full-terrain frame by `world_offset`.
+/// The drivable deck top, the structural curb/skirt and the emissive neon
+/// edge-lines are routed to their respective [`RoadParts`] buffers.
+/// `sample` is the chain's terrain-sampled frames ([`sample_chain`]) and `base_y`
+/// the resolved per-frame deck height ([`level_chain`], with junction pins folded
+/// in by the network pass) — both supplied by the caller so the heightmap is
+/// sampled exactly once and the pre-pass and mesh agree to the bit (#584).
+#[allow(clippy::too_many_arguments)] // each arg is a distinct input/sink.
+fn extrude_ribbon(
+    chain: &Chain,
+    sample: &ChainSample,
+    base_y: &[f32],
+    world_offset: f32,
+    dims: &Dims,
+    degree: &[u32],
+    road_ends: &mut Vec<RoadEnd>,
+    parts: &mut RoadParts,
+) {
+    let prof = profile(chain.half_w, dims);
+    let half_w = chain.half_w;
+
+    let frames: Vec<Frame> = sample
+        .frames
         .iter()
         .enumerate()
         .map(|(i, r)| {
@@ -1630,10 +1853,10 @@ const FILLET_SEG: usize = 6;
 /// Build a real intersection hub at every junction (≥3 incident roads) from the
 /// truncated ribbon ends (#576): a deck polygon whose mouth edges coincide with
 /// each road's end cross-section (the deck flows in seamlessly at the road's own
-/// height), its surface a **level-plane fit** to the incident mouth heights (the
-/// apex sits at their mean, not the max — so it stays level instead of tenting),
-/// kept upward-only, plus **curb-return arc fillets** (#577) closing the angular
-/// gaps: each corner between two adjacent roads rounds with a circular arc
+/// height), its surface FLAT at the **max** incident mouth height — the #584
+/// network levelling pins every incident road up to that one height, so the fan
+/// is level, not domed (kept upward-only). Plus **curb-return arc fillets** (#577)
+/// close the angular gaps: each corner between two adjacent roads rounds with an arc
 /// joining their outer curbs, the curb profile swept along it (continuous with
 /// the incident ribbon curbs) and a skirt dropping to the ground. Smooth-shaded;
 /// every deck triangle wound front-up.
@@ -1686,16 +1909,19 @@ fn extrude_hubs(
         // per-arm truncations differ and the deck half-width is comparable to the
         // pull-back (the common case) — adjacent mouths splay past each other.
         // Sweeping the corners by angle around the centroid and fanning from it
-        // tiles a SIMPLE polygon regardless. Level-plane fit: apex at the MEAN
-        // incident deck height (the least-squares plane evaluated at the centroid
-        // — no tent), kept upward-only.
+        // tiles a SIMPLE polygon regardless. Apex at the MAX incident deck height
+        // (#584): the network levelling pins every incident mouth UP to that same
+        // height, so apex == every corner → a genuinely FLAT junction plane (the
+        // upward-only terrain clamp is a defensive floor that the pins already meet).
+        // If the relaxation capped out under-pinned, the corners stay at their own
+        // mouths (seamless) and the apex at the max keeps the fan from drooping.
         let (cx, cz) = (
             corners.iter().map(|(q, _)| q[0]).sum::<f32>() / corners.len() as f32,
             corners.iter().map(|(q, _)| q[2]).sum::<f32>() / corners.len() as f32,
         );
-        let mean_y = arms.iter().map(|a| a.deck_y).sum::<f32>() / arms.len() as f32;
+        let max_y = arms.iter().map(|a| a.deck_y).fold(f32::MIN, f32::max);
         let center_y =
-            mean_y.max(hm.get_height_at(cx - world_offset, cz - world_offset) + ROAD_DEPTH_BIAS_M);
+            max_y.max(hm.get_height_at(cx - world_offset, cz - world_offset) + ROAD_DEPTH_BIAS_M);
         let center = [cx, center_y, cz];
 
         // Angular sweep around the centroid → a simple polygon however the mouths
@@ -2188,6 +2414,11 @@ pub struct RoadGraphStats {
     hubs_spurious: usize,
     hub_min_branch_angle: Vec<f32>,
     truncation_dists: Vec<f32>,
+    /// #584 per-junction incident-mouth height spread (m): natural (each road
+    /// levelled alone) vs network-levelled (mouths pinned flat). The levelled
+    /// spread collapses toward 0 as junctions go flat.
+    junction_spread_raw: Vec<f32>,
+    junction_spread_level: Vec<f32>,
     chains: usize,
     chain_lengths: Vec<f32>,
     /// Chain-end disposition, mirroring how the mesher closes each end:
@@ -2406,12 +2637,36 @@ fn collect_graph_stats(graph: &RoadGraph, sub: &HeightMap, dims: &Dims) -> RoadG
     let chains = extract_chains(graph, sub, dims);
     // Per-arm junction pull-back (#575) — the same truncation the mesher applies,
     // so the dump reports how far each ribbon retreats into its hub.
-    let truncation_dists: Vec<f32> = compute_truncations(&chains, |nd| degree[nd] >= 3, dims)
+    let trims = compute_truncations(&chains, |nd| degree[nd] >= 3, dims);
+    let truncation_dists: Vec<f32> = trims
         .iter()
         .flatten()
         .copied()
         .filter(|&t| t > 0.0)
         .collect();
+    // #584 junction levelling: per-junction incident-mouth height SPREAD, natural
+    // (each road levelled independently) vs network-levelled (mouths pinned to one
+    // height) — the spread collapses toward 0 as junctions go flat.
+    let degree_u32: Vec<u32> = degree.iter().map(|&d| d as u32).collect();
+    let samples: Vec<Option<ChainSample>> = chains
+        .iter()
+        .zip(&trims)
+        .map(|(c, &[s, e])| sample_chain(c, s, e, sub, dims))
+        .collect();
+    let natural_by: Vec<Vec<f32>> = samples
+        .iter()
+        .map(|s| match s {
+            Some(s) => {
+                let floor: Vec<f32> = s.frames.iter().map(|r| r.floor).collect();
+                level_chain(&floor, &s.seg, [None, None])
+            }
+            None => Vec::new(),
+        })
+        .collect();
+    let levelled_by = level_network(&chains, &samples, &degree_u32, sub);
+    let is_junction = |nd: usize| degree.get(nd).copied().unwrap_or(0) >= 3;
+    let junction_spread_raw = junction_mouth_spreads(&chains, &natural_by, &is_junction);
+    let junction_spread_level = junction_mouth_spreads(&chains, &levelled_by, &is_junction);
     let mut chain_lengths: Vec<f32> = Vec::with_capacity(chains.len());
     let (mut densified_vertices, mut spike_vertices, mut spike_max_scale) =
         (0usize, 0usize, 0.0_f32);
@@ -2476,6 +2731,8 @@ fn collect_graph_stats(graph: &RoadGraph, sub: &HeightMap, dims: &Dims) -> RoadG
         hubs_spurious,
         hub_min_branch_angle,
         truncation_dists,
+        junction_spread_raw,
+        junction_spread_level,
         chains: chains.len(),
         chain_lengths,
         chain_end_class,
@@ -2543,6 +2800,12 @@ impl RoadGraphStats {
             "  truncation pull-back per arm (m): {}   (arms truncated: {})",
             distro(&self.truncation_dists),
             self.truncation_dists.len()
+        );
+        let _ = writeln!(
+            s,
+            "  junction mouth-height spread (m, #584): natural {}  ->  levelled {}",
+            distro(&self.junction_spread_raw),
+            distro(&self.junction_spread_level)
         );
         let _ = writeln!(s, "-- ribbon / spike risk --");
         let _ = writeln!(
@@ -2623,6 +2886,38 @@ impl RoadDiagnostics {
 mod tests {
     use super::*;
     use bevy_symbios_ground::{FbmNoise, TerrainGenerator};
+
+    /// Drape and extrude ONE chain with its natural (un-pinned) single-chain
+    /// levelling — the pre-#584 path, so cap / mouth / truncation tests read the
+    /// same per-chain geometry independent of the network levelling pass. Mirrors
+    /// the old `extrude_chain` signature so those tests need no changes.
+    #[allow(clippy::too_many_arguments)]
+    fn extrude_chain(
+        chain: &Chain,
+        start_trim: f32,
+        end_trim: f32,
+        hm: &HeightMap,
+        world_offset: f32,
+        dims: &Dims,
+        degree: &[u32],
+        road_ends: &mut Vec<RoadEnd>,
+        parts: &mut RoadParts,
+    ) {
+        if let Some(s) = sample_chain(chain, start_trim, end_trim, hm, dims) {
+            let floor: Vec<f32> = s.frames.iter().map(|r| r.floor).collect();
+            let base_y = level_chain(&floor, &s.seg, [None, None]);
+            extrude_ribbon(
+                chain,
+                &s,
+                &base_y,
+                world_offset,
+                dims,
+                degree,
+                road_ends,
+                parts,
+            );
+        }
+    }
 
     /// A small heightmap with real slopes — tensor needs non-flat terrain for
     /// the major/minor directions to cross and enclose blocks.
@@ -3140,14 +3435,15 @@ mod tests {
         }
     }
 
-    /// #576: the hub surface is a LEVEL-plane fit — its apex sits at the mean of
-    /// the incident deck heights, well below the highest mouth (no tent/crown) —
-    /// while each mouth corner stays at its own road's deck height (seamless).
+    /// #584 (was #576 mean-fit): the hub apex fits the MAX incident mouth, kept
+    /// upward-only — never the mean (which would droop below the highest road). The
+    /// network levelling pins every incident mouth UP to that max, so once the
+    /// mouths are level the apex and every corner coincide → a genuinely FLAT
+    /// junction plane (no tent, no droop).
     #[test]
-    fn hub_levels_to_the_mean_deck_height_not_a_crown() {
+    fn hub_is_flat_at_the_max_incident_mouth() {
         let dims = Dims::from_config(&cfg(7));
         let t = 5.0_f32;
-        // Three arms at deck heights 1 / 2 / 3 → mean 2, max 3.
         let arm = |ang: f32, deck_y: f32| {
             let (dx, dz) = (ang.cos(), ang.sin());
             RoadEnd {
@@ -3162,26 +3458,16 @@ mod tests {
             }
         };
         let third = std::f32::consts::TAU / 3.0;
-        let ends = [arm(0.0, 1.0), arm(third, 2.0), arm(2.0 * third, 3.0)];
         let hm = HeightMap::new(64, 64, 2.0); // flat terrain at 0 → no upward clamp
-        let mut parts = RoadParts::default();
-        extrude_hubs(&ends, &hm, 0.0, &dims, &mut parts);
 
-        // The apex (vertex 0) sits at the mean (2.0), well below the highest
-        // mouth (3.0) — a level fit, not a crown to the peak.
+        // Differing mouths (the pre-relaxation shape): the apex fits the MAX (3.0),
+        // not the mean (2.0) — so the hub never droops below the highest road —
+        // while each corner still meets its own mouth seamlessly.
+        let mixed = [arm(0.0, 1.0), arm(third, 2.0), arm(2.0 * third, 3.0)];
+        let mut parts = RoadParts::default();
+        extrude_hubs(&mixed, &hm, 0.0, &dims, &mut parts);
         let apex_y = parts.deck.vertices[0][1];
-        assert!((apex_y - 2.0).abs() < 1.0e-3, "apex {apex_y} ≠ mean 2.0");
-        assert!(apex_y < 3.0 - 0.5, "apex tents toward the max deck height");
-        // The mouth corners keep each road's own height → seamless at both
-        // extremes.
-        assert!(
-            parts
-                .deck
-                .vertices
-                .iter()
-                .any(|v| (v[1] - 3.0).abs() < 1.0e-3),
-            "highest mouth not met seamlessly"
-        );
+        assert!((apex_y - 3.0).abs() < 1.0e-3, "apex {apex_y} ≠ max 3.0");
         assert!(
             parts
                 .deck
@@ -3190,6 +3476,204 @@ mod tests {
                 .any(|v| (v[1] - 1.0).abs() < 1.0e-3),
             "lowest mouth not met seamlessly"
         );
+
+        // Level mouths (the post-relaxation state): the whole deck — apex and every
+        // corner — sits at the one height → a flat plane.
+        let level = [arm(0.0, 3.0), arm(third, 3.0), arm(2.0 * third, 3.0)];
+        let mut flat = RoadParts::default();
+        extrude_hubs(&level, &hm, 0.0, &dims, &mut flat);
+        assert!(!flat.deck.vertices.is_empty(), "hub produced no deck");
+        for v in &flat.deck.vertices {
+            assert!(
+                (v[1] - 3.0).abs() < 1.0e-3,
+                "hub deck vertex {v:?} not flat at 3.0"
+            );
+        }
+    }
+
+    /// Build a ChainSample from frame centres + per-frame terrain floor (the only
+    /// fields the levelling reads), for #584 levelling tests.
+    fn mk_sample(centres: &[(f32, f32)], floors: &[f32]) -> ChainSample {
+        let frames: Vec<RawFrame> = centres
+            .iter()
+            .zip(floors)
+            .map(|(&(cx, cz), &floor)| RawFrame {
+                cx,
+                cz,
+                rx: 0.0,
+                rz: 1.0,
+                scale: 1.0,
+                arc: 0.0,
+                floor,
+                ground: floor - 5.0,
+            })
+            .collect();
+        let seg: Vec<f32> = frames
+            .windows(2)
+            .map(|w| (w[1].cx - w[0].cx).hypot(w[1].cz - w[0].cz).max(1.0e-3))
+            .collect();
+        ChainSample { frames, seg }
+    }
+
+    /// #584 STEP-A lock: with no junction pins, `level_chain` is the #573 two-pass
+    /// upward grade limit — a flat floor stays flat, a dip is bridged UPWARD (never
+    /// buries) at no more than the longitudinal grade.
+    #[test]
+    fn level_chain_no_pins_keeps_the_floor() {
+        let flat = vec![5.0; 5];
+        let seg = vec![10.0; 4];
+        assert_eq!(level_chain(&flat, &seg, [None, None]), flat);
+
+        let dip = vec![5.0, 5.0, 0.0, 5.0, 5.0];
+        let out = level_chain(&dip, &seg, [None, None]);
+        for (i, &b) in out.iter().enumerate() {
+            assert!(b >= dip[i] - 1.0e-6, "buried below the floor at {i}: {b}");
+        }
+        for i in 1..out.len() {
+            assert!(
+                (out[i - 1] - out[i]) <= MAX_LONGITUDINAL_GRADE * seg[i - 1] + 1.0e-4,
+                "descends faster than the longitudinal grade at {i}"
+            );
+        }
+    }
+
+    /// #584: a junction pin ramps the deck back to its natural floor at the gentler
+    /// [`JUNCTION_APPROACH_GRADE`] — over a flat floor the height is exactly the
+    /// pin minus grade × arc-distance (until it meets the floor), so the transition
+    /// spreads over many frames, not a kick at the mouth.
+    #[test]
+    fn level_chain_pin_ramps_back_at_the_junction_grade() {
+        let floor = vec![0.0; 30];
+        let seg = vec![1.0; 29];
+        let out = level_chain(&floor, &seg, [Some(5.0), None]);
+        for (i, &b) in out.iter().enumerate() {
+            let cone = (5.0 - JUNCTION_APPROACH_GRADE * i as f32).max(0.0);
+            assert!(
+                (b - cone).abs() < 1.0e-4,
+                "frame {i}: {b} ≠ ramp cone {cone}"
+            );
+        }
+    }
+
+    /// #584: every road meeting a junction is levelled to ONE shared height — the
+    /// max incident mouth — and the deck never carves below its terrain floor. The
+    /// pass is deterministic (a pure function of its inputs).
+    #[test]
+    fn level_network_pins_all_arm_mouths_to_the_max() {
+        let hm = HeightMap::new(64, 64, 2.0); // flat at 0 → seed = bias
+        let chains = vec![
+            Chain {
+                pts: vec![(0.0, 0.0), (30.0, 0.0)],
+                half_w: 4.0,
+                end_nodes: [0, 1],
+                clip: [false, false],
+            },
+            Chain {
+                pts: vec![(0.0, 1.0), (0.0, 30.0)],
+                half_w: 4.0,
+                end_nodes: [0, 2],
+                clip: [false, false],
+            },
+            Chain {
+                pts: vec![(0.0, -1.0), (0.0, -30.0)],
+                half_w: 4.0,
+                end_nodes: [0, 3],
+                clip: [false, false],
+            },
+        ];
+        let samples = vec![
+            Some(mk_sample(&[(0.0, 0.0), (30.0, 0.0)], &[1.0, 0.0])),
+            Some(mk_sample(&[(0.0, 1.0), (0.0, 30.0)], &[2.0, 0.0])),
+            Some(mk_sample(&[(0.0, -1.0), (0.0, -30.0)], &[3.0, 0.0])),
+        ];
+        let degree = vec![3u32, 1, 1, 1];
+        let base = level_network(&chains, &samples, &degree, &hm);
+        for (ci, b) in base.iter().enumerate() {
+            assert!(
+                (b[0] - 3.0).abs() < 1.0e-3,
+                "arm {ci} mouth {} ≠ shared H 3.0",
+                b[0]
+            );
+        }
+        for (ci, b) in base.iter().enumerate() {
+            for (i, &v) in b.iter().enumerate() {
+                let floor = samples[ci].as_ref().unwrap().frames[i].floor;
+                assert!(
+                    v >= floor - 1.0e-6,
+                    "arm {ci} frame {i} carved: {v} < floor {floor}"
+                );
+            }
+        }
+        assert_eq!(
+            base,
+            level_network(&chains, &samples, &degree, &hm),
+            "not deterministic"
+        );
+    }
+
+    /// #584: a connector between TWO junctions satisfies both — each junction's
+    /// incident mouths come out level, and raising the high junction propagates up
+    /// the low one through the connector (the relaxation's cross-junction coupling).
+    #[test]
+    fn level_network_two_junction_chain_levels_both_junctions() {
+        let hm = HeightMap::new(64, 64, 2.0);
+        let chains = vec![
+            Chain {
+                pts: vec![(0.0, 0.0), (40.0, 0.0)],
+                half_w: 4.0,
+                end_nodes: [0, 1],
+                clip: [false, false],
+            },
+            Chain {
+                pts: vec![(0.0, 0.0), (0.0, 30.0)],
+                half_w: 4.0,
+                end_nodes: [0, 2],
+                clip: [false, false],
+            },
+            Chain {
+                pts: vec![(0.0, 0.0), (0.0, -30.0)],
+                half_w: 4.0,
+                end_nodes: [0, 3],
+                clip: [false, false],
+            },
+            Chain {
+                pts: vec![(40.0, 0.0), (40.0, 30.0)],
+                half_w: 4.0,
+                end_nodes: [1, 4],
+                clip: [false, false],
+            },
+            Chain {
+                pts: vec![(40.0, 0.0), (40.0, -30.0)],
+                half_w: 4.0,
+                end_nodes: [1, 5],
+                clip: [false, false],
+            },
+        ];
+        let samples = vec![
+            Some(mk_sample(&[(0.0, 0.0), (40.0, 0.0)], &[0.0, 0.0])),
+            Some(mk_sample(&[(0.0, 0.0), (0.0, 30.0)], &[5.0, 0.0])),
+            Some(mk_sample(&[(0.0, 0.0), (0.0, -30.0)], &[5.0, 0.0])),
+            Some(mk_sample(&[(40.0, 0.0), (40.0, 30.0)], &[1.0, 0.0])),
+            Some(mk_sample(&[(40.0, 0.0), (40.0, -30.0)], &[1.0, 0.0])),
+        ];
+        let degree = vec![3u32, 3, 1, 1, 1, 1];
+        let base = level_network(&chains, &samples, &degree, &hm);
+        let last = base[0].len() - 1;
+        let (h0, h1) = (base[0][0], base[0][last]);
+        // Both junctions are internally flat (all incident mouths share one height).
+        assert!(
+            (base[1][0] - h0).abs() < 1.0e-3 && (base[2][0] - h0).abs() < 1.0e-3,
+            "junction 0 not level"
+        );
+        assert!(
+            (base[3][0] - h1).abs() < 1.0e-3 && (base[4][0] - h1).abs() < 1.0e-3,
+            "junction 1 not level"
+        );
+        // Junction 0 clears its 5.0 arms; junction 1 is pulled up above its 1.0 arms
+        // by the connector ramping down from the high junction.
+        assert!(h0 >= 5.0 - 1.0e-3, "junction 0 below its 5.0 arm: {h0}");
+        assert!(h1 >= 1.0 - 1.0e-3, "junction 1 below its 1.0 arm: {h1}");
+        assert!(h0 > h1, "the high junction should sit above the low one");
     }
 
     /// #576 regression (review wf_39a9f056-ef1): when arms truncate to different
