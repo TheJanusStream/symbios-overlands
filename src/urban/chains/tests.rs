@@ -27,7 +27,7 @@ fn push_interior_runs_marks_a_boundary_clip_end() {
 fn push_interior_runs_reentrant_street_marks_both_inner_ends() {
     let xs = [0.0_f32, 40.0, 120.0, 200.0, 240.0]; // node 2 outside the band
     let pos = move |i: usize| (xs[i], 0.0);
-    let inside = |x: f32, _z: f32| x < 100.0 || x > 150.0;
+    let inside = |x: f32, _z: f32| !(100.0..=150.0).contains(&x);
     let mut out = Vec::new();
     push_interior_runs(&[0, 1, 2, 3, 4], &pos, &inside, 5.0, &mut out);
     assert_eq!(out.len(), 2, "two interior sub-runs straddling the gap");
