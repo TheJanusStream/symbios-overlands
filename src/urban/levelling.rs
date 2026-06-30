@@ -1,8 +1,6 @@
 use bevy_symbios_ground::HeightMap;
 
-use crate::urban::{
-    Chain, Dims, RIBBON_STEP_M, ROAD_DEPTH_BIAS_M, densify, frame_right, trim_polyline,
-};
+use crate::urban::{Chain, RIBBON_STEP_M, ROAD_DEPTH_BIAS_M, densify, frame_right, trim_polyline};
 
 /// Lateral samples across the deck width for the upward-only height: the flat
 /// deck is lifted to clear the MAX of these, so no part of the drivable surface
@@ -27,9 +25,6 @@ const MAX_LEVEL_ITERS: usize = 64;
 /// Junction-levelling has converged once no junction height moved more than this
 /// (m) in a pass (#584).
 const LEVEL_CONVERGE_EPS_M: f32 = 1.0e-3;
-/// How far (m) the skirt bottom sinks below the lower outer-edge terrain, so an
-/// elevated (downhill) side always reads as a retaining wall meeting the ground.
-pub(crate) const SKIRT_BURY_MARGIN_M: f32 = 0.3;
 
 /// One frame's terrain-sampled geometry, independent of the final deck height —
 /// the heightmap-sampling output of [`sample_chain`], reused by both the levelling
@@ -44,8 +39,6 @@ pub(crate) struct RawFrame {
     pub(crate) arc: f32,
     /// Upward-only deck floor: max terrain across the deck width + the depth bias.
     pub(crate) floor: f32,
-    /// Lowest outer-edge terrain, for the skirt drop on an elevated side.
-    pub(crate) ground: f32,
 }
 
 /// A chain's trimmed, densified, terrain-sampled frames plus inter-frame segment
@@ -57,14 +50,13 @@ pub(crate) struct ChainSample {
 }
 
 /// Trim a chain at its junction ends (#575), densify it, and sample the terrain
-/// floor / outer ground per frame (Pass A) — `None` if nothing meshable survives.
-/// The single heightmap-sampling site for a chain (#584).
+/// floor per frame (Pass A) — `None` if nothing meshable survives. The single
+/// heightmap-sampling site for a chain (#584).
 pub(crate) fn sample_chain(
     chain: &Chain,
     start_trim: f32,
     end_trim: f32,
     hm: &HeightMap,
-    dims: &Dims,
 ) -> Option<ChainSample> {
     let trimmed = trim_polyline(&chain.pts, start_trim, end_trim);
     let pts = densify(&trimmed, RIBBON_STEP_M);
@@ -72,7 +64,6 @@ pub(crate) fn sample_chain(
         return None;
     }
     let half_w = chain.half_w;
-    let wo = half_w + dims.curb_top_width + dims.chamfer_width;
     let mut frames: Vec<RawFrame> = Vec::with_capacity(pts.len());
     let mut arc = 0.0;
     for i in 0..pts.len() {
@@ -87,8 +78,6 @@ pub(crate) fn sample_chain(
             let off = (-half_w + 2.0 * half_w * t) * scale;
             maxh = maxh.max(hm.get_height_at(cx + rx * off, cz + rz * off));
         }
-        let g_r = hm.get_height_at(cx + rx * wo * scale, cz + rz * wo * scale);
-        let g_l = hm.get_height_at(cx - rx * wo * scale, cz - rz * wo * scale);
         frames.push(RawFrame {
             cx,
             cz,
@@ -97,7 +86,6 @@ pub(crate) fn sample_chain(
             scale,
             arc,
             floor: maxh + ROAD_DEPTH_BIAS_M,
-            ground: g_r.min(g_l),
         });
     }
     let seg: Vec<f32> = frames

@@ -25,7 +25,7 @@ pub(crate) fn extrude_chain(
     road_ends: &mut Vec<RoadEnd>,
     parts: &mut RoadParts,
 ) {
-    if let Some(s) = sample_chain(chain, start_trim, end_trim, hm, dims) {
+    if let Some(s) = sample_chain(chain, start_trim, end_trim, hm) {
         let floor: Vec<f32> = s.frames.iter().map(|r| r.floor).collect();
         let base_y = level_chain(&floor, &s.seg, [None, None]);
         extrude_ribbon(
@@ -128,7 +128,6 @@ pub(crate) fn mk_sample(centres: &[(f32, f32)], floors: &[f32]) -> ChainSample {
             scale: 1.0,
             arc: 0.0,
             floor,
-            ground: floor - 5.0,
         })
         .collect();
     let seg: Vec<f32> = frames

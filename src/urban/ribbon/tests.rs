@@ -61,6 +61,89 @@ fn deck_never_buries() {
     }
 }
 
+/// The skirt drops a FIXED `skirt_depth` below the deck instead of reaching down
+/// to the terrain, so a deck that grade-levels HIGH over a deep dip leaves the
+/// road underside floating clear — a bridge, not an earth-filled embankment.
+/// Builds a road crossing a narrow deep dip and asserts (a) the structure over
+/// the dip clears the dip floor by a wide margin and (b) the skirt bottom sits
+/// exactly `skirt_depth` below the deck above it.
+#[test]
+fn high_deck_skirt_floats_clear_over_a_dip() {
+    let dims = Dims::from_config(&cfg(7)); // skirt_depth = 5.0
+    // A high plateau (30 m) with a narrow, deep dip (0 m) in the middle band. The
+    // deck's longitudinal grade limit keeps it near the plateau across the 24 m
+    // dip, so the deck rides ~28 m above a 0 m floor.
+    let mut hm = HeightMap::new(96, 96, 2.0);
+    let w = hm.width();
+    for z in 0..w {
+        for x in 0..w {
+            let world_x = x as f32 * hm.scale();
+            hm.set(
+                x,
+                z,
+                if (world_x - 96.0).abs() < 12.0 {
+                    0.0
+                } else {
+                    30.0
+                },
+            );
+        }
+    }
+    let chain = Chain {
+        pts: vec![(40.0, 96.0), (96.0, 96.0), (152.0, 96.0)],
+        half_w: dims.minor_half_width,
+        end_nodes: [0, 1],
+        clip: [false, false],
+    };
+    let degree = vec![2u32, 2u32];
+    let mut road_ends = Vec::new();
+    let mut parts = RoadParts::default();
+    extrude_chain(
+        &chain,
+        0.0,
+        0.0,
+        &hm,
+        0.0,
+        &dims,
+        &degree,
+        &mut road_ends,
+        &mut parts,
+    );
+
+    // Over the dip centre nothing reaches down to the 0 m floor — the underside
+    // floats clear. (A dynamic terrain-reaching skirt would sit at ~floor − 0.3.)
+    let over_dip = |v: &[f32; 3]| (v[0] - 96.0).abs() < 8.0;
+    let mut struct_min = f32::INFINITY;
+    for v in &parts.structure.vertices {
+        if over_dip(v) {
+            let terrain = hm.get_height_at(v[0], v[2]); // ~0 over the dip
+            assert!(
+                v[1] > terrain + 2.0,
+                "structure vertex {v:?} dives toward the dip floor {terrain} — not a bridge"
+            );
+            struct_min = struct_min.min(v[1]);
+        }
+    }
+    let mut deck_min = f32::INFINITY;
+    for v in &parts.deck.vertices {
+        if over_dip(v) {
+            deck_min = deck_min.min(v[1]);
+        }
+    }
+    assert!(
+        struct_min.is_finite() && deck_min.is_finite(),
+        "road did not span the dip"
+    );
+    // The skirt bottom sits EXACTLY skirt_depth below the deck it hangs from —
+    // the fixed-depth contract, independent of the terrain below.
+    assert!(
+        (deck_min - struct_min - dims.skirt_depth).abs() < 0.05,
+        "skirt sat {} m below the deck, expected the fixed {} m",
+        deck_min - struct_min,
+        dims.skirt_depth
+    );
+}
+
 /// #576 on the real pilot network (it carries acute junctions down to ~23°):
 /// every deck normal — ribbon *and* hub — faces up, so back-face culling
 /// keeps the drivable surface visible from above, and every vertex is finite.

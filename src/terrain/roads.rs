@@ -13,6 +13,7 @@
 //! ribbon geometry is authored in the full heightmap's coordinate frame, the
 //! same frame the terrain mesh child is spawned in.
 
+use avian3d::prelude::{Collider, RigidBody};
 use bevy::prelude::*;
 
 use crate::seeded_defaults::{SceneCharacter, ThemeArchetype};
@@ -203,23 +204,39 @@ pub(super) fn maybe_rebuild_roads(
         });
 
         // One mesh + material per non-empty surface; the despawn marker on each
-        // sweeps them all on the next rebuild.
-        for (geo, material) in [
-            (&parts.deck, deck),
-            (&parts.structure, structure),
-            (&parts.neon, neon),
+        // sweeps them all on the next rebuild. The drivable deck and the
+        // curb/skirt structure each carry a static trimesh collider built from
+        // their own geometry, so the WHOLE road body is solid — a high road over
+        // a dip is a real bridge the player and vehicles stand on. The neon
+        // edge-line is a decorative emissive overlay riding proud of the curb, so
+        // it stays non-collidable (it would only add thin lips above the curb the
+        // structure collider already covers).
+        for (geo, material, collide) in [
+            (&parts.deck, deck, true),
+            (&parts.structure, structure, true),
+            (&parts.neon, neon, false),
         ] {
             if geo.is_empty() {
                 continue;
             }
-            let mesh = meshes.add(crate::urban::to_bevy_mesh(geo));
-            commands.spawn((
+            let bevy_mesh = crate::urban::to_bevy_mesh(geo);
+            // `trimesh_from_mesh` merges duplicate vertices and returns `None`
+            // (never panics) if the buffers can't form a trimesh, so a malformed
+            // surface degrades to a visible-but-non-collidable mesh, never a crash.
+            let collider = collide
+                .then(|| Collider::trimesh_from_mesh(&bevy_mesh))
+                .flatten();
+            let mesh = meshes.add(bevy_mesh);
+            let mut entity = commands.spawn((
                 Mesh3d(mesh),
                 MeshMaterial3d(material),
                 offset,
                 Visibility::default(),
                 RoadMeshEntity,
             ));
+            if let Some(collider) = collider {
+                entity.insert((RigidBody::Static, collider));
+            }
         }
     }
     fingerprint.0 = want;

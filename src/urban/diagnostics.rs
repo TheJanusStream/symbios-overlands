@@ -293,7 +293,7 @@ fn collect_graph_stats(graph: &RoadGraph, sub: &HeightMap, dims: &Dims) -> RoadG
     let samples: Vec<Option<ChainSample>> = chains
         .iter()
         .zip(&trims)
-        .map(|(c, &[s, e])| sample_chain(c, s, e, sub, dims))
+        .map(|(c, &[s, e])| sample_chain(c, s, e, sub))
         .collect();
     let natural_by: Vec<Vec<f32>> = samples
         .iter()

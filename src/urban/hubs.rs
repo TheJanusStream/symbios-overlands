@@ -1,9 +1,7 @@
 use bevy_symbios_ground::HeightMap;
 
 use crate::urban::math::{cross, dot, norm2, normalize, sub3, tri_up_normal};
-use crate::urban::{
-    Dims, ROAD_DEPTH_BIAS_M, RoadParts, SKIRT_BURY_MARGIN_M, UV_TILE_M, quad_normal,
-};
+use crate::urban::{Dims, ROAD_DEPTH_BIAS_M, RoadParts, UV_TILE_M, quad_normal};
 
 /// One ribbon end abutting a junction node, recorded during chain extrusion so
 /// the hub can meet each incident road at its exact mouth corners and deck
@@ -52,8 +50,8 @@ const FILLET_SEG: usize = 6;
 /// is level, not domed (kept upward-only). Plus **curb-return arc fillets** (#577)
 /// close the angular gaps: each corner between two adjacent roads rounds with an arc
 /// joining their outer curbs, the curb profile swept along it (continuous with
-/// the incident ribbon curbs) and a skirt dropping to the ground. Smooth-shaded;
-/// every deck triangle wound front-up.
+/// the incident ribbon curbs) and a skirt dropping to the incident ribbons'
+/// fixed depth. Smooth-shaded; every deck triangle wound front-up.
 pub(crate) fn extrude_hubs(
     road_ends: &[RoadEnd],
     hm: &HeightMap,
@@ -257,18 +255,13 @@ pub(crate) fn extrude_hubs(
                 // Across-curb direction: from the deck-chord edge out to the arc.
                 let rad = norm2([outer[0] - inner[0], outer[2] - inner[2]]);
                 // Skirt foot: weld to the incident ribbons' skirt bottoms by
-                // interpolating each arm's recorded `skirt_y` across the arc (so at
-                // the two ends the foot equals the ribbon skirt exactly — at ANY
-                // skirt depth or cross-slope, no open band at the seam), then drop
-                // further to reach a terrain dip under the arc, but never above the
-                // deck edge it drops from (the #576 finding-2 upward clamp).
-                let skirt = arm_l.skirt_y + (arm_r.skirt_y - arm_l.skirt_y) * t;
-                let fy = skirt
-                    .min(
-                        hm.get_height_at(outer[0] - world_offset, outer[2] - world_offset)
-                            - SKIRT_BURY_MARGIN_M,
-                    )
-                    .min(dy - 1.0e-3);
+                // interpolating each arm's recorded `skirt_y` across the arc, so at
+                // the two ends the foot equals the ribbon skirt exactly (at ANY
+                // skirt depth or cross-slope, no open band at the seam) and tracks
+                // the fixed-depth underside between them. Like the ribbon, it no
+                // longer reaches down to the terrain — a high junction floats clear
+                // as a bridge rather than filling the dip beneath it.
+                let fy = arm_l.skirt_y + (arm_r.skirt_y - arm_l.skirt_y) * t;
                 if k > 0 {
                     acc += (outer[0] - p4[k - 1][0]).hypot(outer[2] - p4[k - 1][2]);
                 }

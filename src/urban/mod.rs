@@ -14,9 +14,9 @@
 //! cross-section profile along each, with **miter joins** at the bends (so
 //! curves have no gaps) and continuous arc-length UVs (so a texture flows down
 //! the street). The profile is a chamfered curb framing a flat deck, over a
-//! deep skirt that buries into the terrain and is capped by a textured bottom
-//! — so where the road runs out over a cliff edge it reads as a solid
-//! retaining structure, not a hollow strip.
+//! skirt that drops a fixed depth below the deck and is capped by a textured
+//! bottom — so where the road runs out high over a dip the underside floats
+//! clear as a bridge, not a hollow strip.
 //!
 //! Generation is localized to a district window around spawn (the seeded
 //! settlement only reaches ~140 m) and clipped to the district interior so no
@@ -55,8 +55,7 @@ pub(crate) use crate::urban::chains::{Chain, extract_chains};
 pub use crate::urban::diagnostics::{RoadDiagnostics, RoadGraphStats, road_graph_diagnostics};
 pub(crate) use crate::urban::hubs::{RoadEnd, extrude_hubs};
 pub(crate) use crate::urban::levelling::{
-    ChainSample, SKIRT_BURY_MARGIN_M, junction_mouth_spreads, level_chain, level_network,
-    sample_chain,
+    ChainSample, junction_mouth_spreads, level_chain, level_network, sample_chain,
 };
 pub(crate) use crate::urban::ribbon::{
     RIBBON_STEP_M, UV_TILE_M, densify, extrude_ribbon, frame_right, quad_normal,
@@ -243,7 +242,7 @@ pub fn build_road_geometry(hm: &HeightMap, config: &RoadConfig) -> Option<RoadPa
     let samples: Vec<Option<ChainSample>> = chains
         .iter()
         .zip(&trims)
-        .map(|(chain, &[s, e])| sample_chain(chain, s, e, &sub, &dims))
+        .map(|(chain, &[s, e])| sample_chain(chain, s, e, &sub))
         .collect();
     let base_ys = level_network(&chains, &samples, &degree, &sub);
 

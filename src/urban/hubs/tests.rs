@@ -27,7 +27,7 @@ fn hub_meets_each_road_and_closes_gaps() {
     };
     let third = std::f32::consts::TAU / 3.0;
     let ends = [arm(0.0), arm(third), arm(2.0 * third)];
-    let hm = HeightMap::new(64, 64, 2.0); // flat → skirt feet at 0 − margin
+    let hm = HeightMap::new(64, 64, 2.0); // flat; hub welds skirt feet to each arm's skirt_y
     let mut parts = RoadParts::default();
     extrude_hubs(&ends, &hm, 0.0, &dims, &mut parts);
 
@@ -371,10 +371,10 @@ fn hub_fillet_joins_the_ribbon_outer_curbs() {
                 && (v[2] - p[2]).abs() < 1.0e-3
         })
     };
-    // Flat terrain at 0 → the ribbon's skirt bottom is `(base_y −
-    // skirt_depth).min(ground − margin)` with ground = 0; the fillet must drop
-    // to the SAME depth so the two skirts weld (no open band at the seam).
-    let skirt_y = |deck_y: f32| (deck_y - dims.skirt_depth).min(-SKIRT_BURY_MARGIN_M);
+    // The ribbon's skirt bottom is now a FIXED `skirt_depth` below the deck (no
+    // terrain reach); the fillet must drop to the SAME depth so the two skirts
+    // weld (no open band at the seam).
+    let skirt_y = |deck_y: f32| deck_y - dims.skirt_depth;
     for e in &road_ends {
         for sgn in [-1.0_f32, 1.0] {
             // Outer-curb point (chamfer base, deck level) — the arc endpoint.
@@ -403,10 +403,9 @@ fn hub_fillet_joins_the_ribbon_outer_curbs() {
 }
 
 /// #577 (verify wf_7f36d6ce LOW): the skirt welds even with a SHALLOW skirt on
-/// a CROSS-SLOPE — the case where sampling terrain at one outer point (rather
-/// than the ribbon's `min(g_left, g_right)`) would leave a partial seam. The
-/// fillet carries each ribbon's recorded `skirt_y`, so the foot lands exactly on
-/// the ribbon skirt bottom regardless. Reads the ribbon's own skirt-bottom
+/// a CROSS-SLOPE. The fillet carries each ribbon's recorded `skirt_y` (a fixed
+/// `skirt_depth` below the deck), so the foot lands exactly on the ribbon skirt
+/// bottom regardless of depth or slope. Reads the ribbon's own skirt-bottom
 /// vertex (lowest at each outer-curb XZ) and asserts the hub meets it.
 #[test]
 fn hub_fillet_skirt_welds_on_shallow_cross_slope() {
@@ -550,15 +549,16 @@ fn hub_fillet_faces_out() {
     }
 }
 
-/// #577: the skirt drops the full depth (welding to the ribbon) yet never
-/// inverts — even where the gap terrain humps ABOVE the deck, no structure
-/// pokes above the curb top (the #576 finding-2 clamp keeps the foot under the
-/// deck edge it drops from).
+/// The hub fillet skirt welds to each arm's recorded `skirt_y` (the ribbon's
+/// fixed depth below the deck) and IGNORES the terrain: even where the gap
+/// terrain humps ABOVE the deck, the foot stays at the arm depth — it floats
+/// clear as a bridge instead of rising to meet the ground — and no structure
+/// pokes above the curb top (no inversion).
 #[test]
-fn hub_fillet_skirt_never_inverts() {
+fn hub_fillet_skirt_holds_the_arm_depth_over_humped_terrain() {
     let dims = Dims::from_config(&cfg(7));
-    // Terrain humped to 2 m — above the deck (1 m) — so a terrain-only foot
-    // would rise to ~1.7 (above the deck); the clamp + depth must keep it down.
+    // Terrain humped to 2 m, above the deck (1 m): a terrain-reaching foot would
+    // ride up onto it (~1.7). The fixed-depth skirt must ignore the hump.
     let mut hm = HeightMap::new(64, 64, 2.0);
     for c in hm.data_mut() {
         *c = 2.0;
@@ -590,12 +590,12 @@ fn hub_fillet_skirt_never_inverts() {
         );
         min_y = min_y.min(v[1]);
     }
-    // The skirt dropped the full depth (welding to the ribbon's deep skirt),
-    // well below the deck — NOT clamped to the humped terrain at 1.7.
-    let want = 1.0 - dims.skirt_depth; // deck_y − skirt_depth
+    // The skirt foot sits at the arms' recorded skirt_y — the fixed depth below
+    // the deck — NOT lifted to the 2 m terrain hump above it.
+    let want = ends[0].skirt_y;
     assert!(
         (min_y - want).abs() < 0.1,
-        "skirt foot {min_y} did not drop the full depth to {want}",
+        "skirt foot {min_y} did not weld to the arm skirt depth {want}",
     );
 }
 

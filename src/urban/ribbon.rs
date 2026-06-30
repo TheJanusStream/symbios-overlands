@@ -1,5 +1,5 @@
 use crate::urban::math::{cross, dot, normalize, sub3};
-use crate::urban::{Chain, ChainSample, Dims, RoadEnd, RoadParts, SKIRT_BURY_MARGIN_M};
+use crate::urban::{Chain, ChainSample, Dims, RoadEnd, RoadParts};
 
 /// Spacing (m) of ribbon cross-sections along a road. Straight edges are
 /// subdivided to this so the deck still drapes over relief between graph nodes.
@@ -87,9 +87,9 @@ pub(crate) fn densify(pts: &[(f32, f32)], step: f32) -> Vec<(f32, f32)> {
 /// Per-vertex extrusion frame. The deck is **flat across** (no lateral banking,
 /// so vehicles don't roll side-to-side) and drainage-correct: `base_y` is the
 /// flat deck height — lifted to clear the highest terrain under the road and
-/// longitudinally grade-limited — and `skirt_bottom_y` is where the skirt drops
-/// to so an elevated side still meets the ground. `arc` is the running arc
-/// length (for V UVs).
+/// longitudinally grade-limited — and `skirt_bottom_y` is a FIXED `skirt_depth`
+/// below it (no terrain reach), so a deck riding high over a dip floats clear as
+/// a bridge. `arc` is the running arc length (for V UVs).
 struct Frame {
     cx: f32,
     cz: f32,
@@ -165,9 +165,11 @@ pub(crate) fn extrude_ribbon(
         .enumerate()
         .map(|(i, r)| {
             let by = base_y[i];
-            // Drop the skirt to the deeper of its fixed depth and just below the
-            // outer ground, so an elevated downhill side still reaches terrain.
-            let skirt_bottom_y = (by - dims.skirt_depth).min(r.ground - SKIRT_BURY_MARGIN_M);
+            // The skirt drops a FIXED `skirt_depth` below the deck — it no longer
+            // reaches down to meet the terrain. Where the deck rides high over a
+            // dip the underside stays shallow and floats clear, so a high road
+            // reads as a bridge rather than a solid earth-filled embankment.
+            let skirt_bottom_y = by - dims.skirt_depth;
             Frame {
                 cx: r.cx,
                 cz: r.cz,
