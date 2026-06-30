@@ -305,6 +305,10 @@ fn dump_road_graph(room: &str) {
         println!("room {room:?}: road config present but disabled");
         return;
     }
+    println!(
+        "room {room:?}: minor_spacing {:.1} m, major_spacing {:.1} m",
+        config.minor_spacing.0, config.major_spacing.0
+    );
     let hm = crate::terrain::rebuild_heightmap_for_record(&record);
     match crate::urban::road_graph_diagnostics(&hm, &config) {
         Some(stats) => print!("{}", stats.report(room)),

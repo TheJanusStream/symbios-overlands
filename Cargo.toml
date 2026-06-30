@@ -42,6 +42,9 @@ proto-blue-api = "0.2"
 url = "2"
 
 [dev-dependencies]
+# Matches symbios-tensor's glam (0.30.10) so tests can hand-build a RoadGraph
+# with the same Vec2 type. Dev-only — never enters the production/wasm build.
+glam = "0.30"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tiny_http = "0.12"

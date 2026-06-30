@@ -225,9 +225,10 @@ struct Chain {
 fn build_road_graph(hm: &HeightMap, config: &RoadConfig) -> Option<(RoadGraph, HeightMap, usize)> {
     let (mut graph, sub, lo) = build_road_graph_raw(hm, config)?;
     // Clean tracer / rationalize artefacts (grazing false junctions and dead-end
-    // stubs) out of the topology before it is meshed *or* lotted — see
-    // [`sanitize_graph`]. Both consumers read the same cleaned graph.
-    sanitize_graph(&mut graph);
+    // stubs) out of the topology, and weld near-miss dead-ends into junctions,
+    // before it is meshed *or* lotted — see [`sanitize_graph`]. Both consumers read
+    // the same cleaned graph. Weld tolerance is per-room (a fraction of spacing).
+    sanitize_graph(&mut graph, WELD_TOL_FRACTION * config.minor_spacing.0);
     Some((graph, sub, lo))
 }
 
@@ -302,21 +303,45 @@ const MERGE_EDGE_LEN_M: f32 = 0.5;
 /// vertices that render as lumpy double-hubs and parallel edges. Far below the
 /// ~100 m+ spacing of real junctions, so genuine ones never merge.
 const MERGE_NODE_EPS_M: f32 = 1.0;
+/// Foot-of-perpendicular must land at least this fraction of a target segment's
+/// length inside each endpoint for a dead-end to weld onto it (#583): landing in
+/// the outer margin is a near-NODE case, owned by [`merge_coincident_nodes`], not
+/// a mid-span T-junction.
+const WELD_T_MARGIN: f32 = 0.05;
+/// Minimum crossing angle (deg) between a dead-end's heading and the edge it would
+/// weld onto. Shallower than this the two roads run near-parallel — a graze, not a
+/// junction — and are left alone. The additive counterpart to the #571 graze CUT:
+/// that removes false junctions, this creates the missing true ones.
+const WELD_MIN_CROSS_ANGLE_DEG: f32 = 25.0;
+/// Weld tolerance as a fraction of the room's minor-road spacing (#583): a dead-end
+/// whose perpendicular gap to a non-incident edge is under `fraction × minor_spacing`
+/// welds into it. Per-room-relative so a dense room can't cross-weld the next street.
+/// At 0.08 it is ≈7.5 m on the densest seeded room (94 m spacing) up to ≈14 m on the
+/// sparsest, and ≥ 4 m even on the 55 m struct default — always well under spacing yet
+/// at/above the tracer's 4 m snap radius (the sizing sweep showed the candidate count
+/// is flat from 4–8 m on every road-growing seed, so the exact value isn't delicate).
+const WELD_TOL_FRACTION: f32 = 0.08;
 
 /// Clean the road graph in place and deterministically. First **merge**
 /// coincident nodes (collapsing near-zero segments and near-duplicate vertices —
 /// the source of the glitch spikes and lumpy double-hubs), then **cut** the
 /// remaining stub / graze artefacts to a fixed point (a cut can expose a fresh
 /// stub, and vice-versa, so passes repeat until one cuts nothing).
-fn sanitize_graph(graph: &mut RoadGraph) {
+fn sanitize_graph(graph: &mut RoadGraph, weld_tol: f32) {
     merge_coincident_nodes(graph);
     for _ in 0..SANITIZE_MAX_PASSES {
+        // Weld near-miss dead-ends into junctions (#583, additive), then cut the
+        // remaining stub / graze artefacts (subtractive). A weld only raises node
+        // degree (never makes a fresh dead-end) and always meets the split edge
+        // perpendicularly (never a graze), so it neither feeds the cuts nor is
+        // undone by them — the loop still converges.
+        let welds = weld_endpoint_dangles(graph, weld_tol);
         let targets = sanitize_targets(graph);
-        if targets.is_empty() {
-            break;
+        for ei in &targets {
+            graph.edges[*ei].active = false;
         }
-        for ei in targets {
-            graph.edges[ei].active = false;
+        if welds == 0 && targets.is_empty() {
+            break;
         }
     }
 }
@@ -531,6 +556,158 @@ fn merge_coincident_nodes(graph: &mut RoadGraph) {
     for (nid, eid) in incidence {
         graph.nodes[nid].edges.push(eid);
     }
+}
+
+// --- Endpoint-to-edge weld (#583) -------------------------------------------
+//
+// The tracer welds a junction only where a trace passes within `snap_radius`
+// (~4 m) of an existing edge; a road that ends just beyond that is left as a
+// free degree-1 dead-end touching another road's flank — so the mesher caps it
+// as a cul-de-sac (#579) instead of meeting the junction. We close that gap by
+// splitting the touched edge at the foot-of-perpendicular and welding the
+// endpoint in, creating a real (degree-3) junction the hub builder then renders.
+// Purely additive — the opposite of the subtractive stub/graze cuts.
+
+/// Active adjacency as `(neighbour, edge_id)` per node, built from the `active`
+/// edge flags — NOT `node.edges`, which [`sanitize_targets`] leaves carrying stale
+/// ids after a cut. Shared by the endpoint-weld search (#583).
+fn active_adjacency(graph: &RoadGraph) -> Vec<Vec<(usize, usize)>> {
+    let mut adj = vec![Vec::new(); graph.nodes.len()];
+    for (ei, e) in graph.edges.iter().enumerate() {
+        if e.active {
+            adj[e.start as usize].push((e.end as usize, ei));
+            adj[e.end as usize].push((e.start as usize, ei));
+        }
+    }
+    adj
+}
+
+/// Edge ids on the chain a degree-1 node `p` belongs to: walk outward through
+/// degree-2 nodes from `p`'s single neighbour to the first junction / dead-end /
+/// ring. A dead-end must never weld onto its OWN road (a hairpin curling back near
+/// its shaft), so these edges are excluded as weld targets (#583).
+fn weld_self_chain(adj: &[Vec<(usize, usize)>], p: usize) -> std::collections::HashSet<usize> {
+    let mut edges = std::collections::HashSet::new();
+    if adj[p].len() != 1 {
+        return edges;
+    }
+    let (mut cur, mut e) = adj[p][0];
+    edges.insert(e);
+    while cur != p && adj[cur].len() == 2 {
+        match adj[cur].iter().find(|&&(_, ne)| ne != e) {
+            Some(&(nn, ne)) => {
+                edges.insert(ne);
+                cur = nn;
+                e = ne;
+            }
+            None => break,
+        }
+    }
+    edges
+}
+
+/// The best edge for a degree-1 dead-end `p` to weld onto (#583), or `None`: the
+/// nearest active, non-incident, non-self-chain edge whose foot-of-perpendicular
+/// from `p` lies strictly interior (≥ [`WELD_T_MARGIN`] from each end), within
+/// `tol` metres, and meets `p`'s heading transversely (crossing angle
+/// ≥ [`WELD_MIN_CROSS_ANGLE_DEG`] — not a near-parallel graze). Returns
+/// `(edge_id, t)` with `t` the parametric foot along the edge; the caller
+/// reconstructs the split point from the edge's own endpoints so the `glam` `Vec2`
+/// type never crosses this boundary. Planar (XZ) — the mesher re-drapes elevation.
+/// Deterministic: ties break to the nearest foot, then the lowest edge id.
+fn weld_candidate(
+    graph: &RoadGraph,
+    adj: &[Vec<(usize, usize)>],
+    p: usize,
+    tol: f32,
+) -> Option<(usize, f32)> {
+    if adj[p].len() != 1 {
+        return None;
+    }
+    let nb = adj[p][0].0;
+    let pe = graph.nodes[p].position;
+    // Heading toward the dead end; degenerate (coincident) shaft → no weld.
+    let arm = (pe - graph.nodes[nb].position).normalize_or_zero();
+    if arm.length_squared() < 0.5 {
+        return None;
+    }
+    let cos_min = WELD_MIN_CROSS_ANGLE_DEG.to_radians().cos();
+    let self_chain = weld_self_chain(adj, p);
+    let mut best: Option<(f32, usize, f32)> = None; // (foot distance, edge id, t)
+    for (ei, e) in graph.edges.iter().enumerate() {
+        if !e.active {
+            continue;
+        }
+        let (s, t_node) = (e.start as usize, e.end as usize);
+        if s == p || t_node == p || self_chain.contains(&ei) {
+            continue;
+        }
+        let a = graph.nodes[s].position;
+        let ab = graph.nodes[t_node].position - a;
+        let len2 = ab.length_squared();
+        if len2 < 1.0e-6 {
+            continue;
+        }
+        let t = (pe - a).dot(ab) / len2;
+        if t <= WELD_T_MARGIN || t >= 1.0 - WELD_T_MARGIN {
+            continue; // near an endpoint → merge_coincident_nodes' job, not a T
+        }
+        let d = (pe - (a + ab * t)).length();
+        if d >= tol {
+            continue;
+        }
+        // Transverse-crossing gate: reject a near-parallel graze (the road runs
+        // alongside the edge rather than ending into it).
+        if arm.dot(ab / len2.sqrt()).abs() > cos_min {
+            continue;
+        }
+        if best.is_none_or(|(bd, bei, _)| (d, ei) < (bd, bei)) {
+            best = Some((d, ei, t));
+        }
+    }
+    best.map(|(_, ei, t)| (ei, t))
+}
+
+/// Weld every degree-1 dead-end that ends within `tol` of a non-incident edge into
+/// a real junction (#583): split the touched edge at the foot-of-perpendicular and
+/// connect the dead-end to the new node, so the hub builder renders a junction
+/// instead of the mesher capping a cul-de-sac. Returns the number of welds applied.
+///
+/// Candidates are chosen against a FROZEN snapshot of the active graph, so the
+/// result is independent of application order (deterministic). A planned weld whose
+/// target edge a prior weld this pass already split is skipped — its dead-end is
+/// reconsidered on the next sanitation pass against the new geometry. Welds only
+/// ever raise a node's degree, never create a degree-1 node, so the candidate set
+/// strictly shrinks and the enclosing fixed-point loop terminates.
+fn weld_endpoint_dangles(graph: &mut RoadGraph, tol: f32) -> usize {
+    let adj = active_adjacency(graph);
+    // Plan against the frozen snapshot, in node order; carry the dead-end's own
+    // road type for the connector edge.
+    let mut plans: Vec<(usize, usize, f32, RoadType)> = Vec::new();
+    for (p, edges) in adj.iter().enumerate() {
+        if edges.len() != 1 {
+            continue;
+        }
+        if let Some((ei, t)) = weld_candidate(graph, &adj, p, tol) {
+            plans.push((p, ei, t, graph.edges[edges[0].1].road_type));
+        }
+    }
+    let mut welded = 0;
+    for (p, ei, t, road_type) in plans {
+        if !graph.edges[ei].active {
+            continue; // a prior weld this pass already split this edge
+        }
+        // Reconstruct the split point from the edge's own endpoints, so the `glam`
+        // `Vec2` type stays internal to the graph (and `split_edge` re-derives the
+        // same `t` from the distance ratio, since the foot is exactly on the edge).
+        let a = graph.nodes[graph.edges[ei].start as usize].position;
+        let b = graph.nodes[graph.edges[ei].end as usize].position;
+        let foot = a + (b - a) * t;
+        let (mid, _, _) = graph.split_edge(ei as u32, foot);
+        graph.add_edge(p as u32, mid, road_type);
+        welded += 1;
+    }
+    welded
 }
 
 /// Build terrain-conforming road geometry from a [`RoadConfig`], or `None` if
@@ -1987,6 +2164,10 @@ const DIAG_COLLINEAR_TOL_DEG: f32 = 25.0;
 const DIAG_SHALLOW_ANGLE_DEG: f32 = 20.0;
 /// Miter scale at/above this (the builder clamps at 3.0) marks a spike-risk bend.
 const DIAG_SPIKE_SCALE: f32 = 2.5;
+/// Tolerances (m) the diagnostic sweeps when counting near-miss dead-ends (#583
+/// weld candidates), to size the candidate population before pinning the weld
+/// tolerance below the next parallel street.
+const NEAR_MISS_SWEEP_M: [f32; 3] = [4.0, 6.0, 8.0];
 
 /// Topology + geometry-risk statistics for one room's *meshed* road graph,
 /// gathered by [`road_graph_diagnostics`]. Purely diagnostic — nothing here
@@ -2016,6 +2197,10 @@ pub struct RoadGraphStats {
     /// used-edge break) deliberately left open. `open` is the count of still-open
     /// cross-sections — only genuine interior seams should remain here.
     chain_end_class: [usize; 4],
+    /// Near-miss dead-ends (degree-1 nodes that would weld onto a non-incident
+    /// edge) at each [`NEAR_MISS_SWEEP_M`] tolerance — the #583 weld-candidate
+    /// population, used to size the weld tolerance.
+    near_miss_dangles: [usize; 3],
     densified_vertices: usize,
     spike_vertices: usize,
     spike_max_scale: f32,
@@ -2084,7 +2269,7 @@ pub fn road_graph_diagnostics(hm: &HeightMap, config: &RoadConfig) -> Option<Roa
     let raw = collect_graph_stats(&graph_raw, &sub, &dims);
     // Sanitise a fresh raw build (deterministic, so byte-identical to `graph_raw`).
     let (mut graph_san, sub2, _lo2) = build_road_graph_raw(hm, config)?;
-    sanitize_graph(&mut graph_san);
+    sanitize_graph(&mut graph_san, WELD_TOL_FRACTION * config.minor_spacing.0);
     let sanitized = collect_graph_stats(&graph_san, &sub2, &dims);
     Some(RoadDiagnostics { raw, sanitized })
 }
@@ -2260,6 +2445,21 @@ fn collect_graph_stats(graph: &RoadGraph, sub: &HeightMap, dims: &Dims) -> RoadG
         }
     }
 
+    // #583 weld-candidate population: degree-1 dead-ends that would weld onto a
+    // non-incident edge at each sweep tolerance (monotone in the tolerance).
+    let weld_adj = active_adjacency(graph);
+    let mut near_miss_dangles = [0usize; 3];
+    for (p, edges) in weld_adj.iter().enumerate() {
+        if edges.len() != 1 {
+            continue;
+        }
+        for (i, &tol) in NEAR_MISS_SWEEP_M.iter().enumerate() {
+            if weld_candidate(graph, &weld_adj, p, tol).is_some() {
+                near_miss_dangles[i] += 1;
+            }
+        }
+    }
+
     RoadGraphStats {
         nodes: n,
         edges_total: graph.edges.len(),
@@ -2279,6 +2479,7 @@ fn collect_graph_stats(graph: &RoadGraph, sub: &HeightMap, dims: &Dims) -> RoadG
         chains: chains.len(),
         chain_lengths,
         chain_end_class,
+        near_miss_dangles,
         densified_vertices,
         spike_vertices,
         spike_max_scale,
@@ -2355,6 +2556,12 @@ impl RoadGraphStats {
             s,
             "chain ends: {} junction(hub)  {} dead-end(cap)  {} perimeter-clip(cap, #582)  {} open(loop/break)",
             j, d, c, o
+        );
+        let [m0, m1, m2] = self.near_miss_dangles;
+        let [s0, s1, s2] = NEAR_MISS_SWEEP_M;
+        let _ = writeln!(
+            s,
+            "near-miss dead-ends (#583 weld candidates) within {s0:.0}/{s1:.0}/{s2:.0} m: {m0} / {m1} / {m2}",
         );
         let _ = writeln!(
             s,
@@ -2626,17 +2833,183 @@ mod tests {
                 );
             }
         }
-        // WS1 acceptance: sanitation only ever removes the artefacts it targets —
-        // never adds them — and the merge leaves no near-duplicate nodes behind.
+        // WS1 acceptance, adjusted for the #583 weld: sanitation still only removes
+        // the spurious-hub / spike-risk artefacts it targets and the merge leaves
+        // no near-duplicate nodes. The weld is ADDITIVE (splits an edge + adds a
+        // connector, ≤ 2 active edges each) but only ever CLOSES near-miss dead-ends
+        // — so the within-tolerance near-miss population only shrinks, and the edge
+        // count grows by no more than the weld contribution (bounded by the raw
+        // candidate count).
         assert!(diag.sanitized.hubs_spurious <= diag.raw.hubs_spurious);
-        assert!(diag.sanitized.spike_vertices <= diag.raw.spike_vertices);
-        assert!(diag.sanitized.edges_active <= diag.raw.edges_active);
+        // EXACT weld count: only `split_edge` adds a node during sanitation, exactly
+        // one per weld (merge and cuts never add nodes) — a tight basis for the
+        // additive bounds, independent of any sweep tolerance.
+        let welds = diag.sanitized.nodes - diag.raw.nodes;
+        // Each weld adds at most 2 active edges (split nets +1, connector +1); cuts
+        // only remove. So edge growth is bounded tightly by 2 per weld.
+        assert!(
+            diag.sanitized.edges_active <= diag.raw.edges_active + 2 * welds,
+            "edge growth {} exceeds 2 per weld over raw {} ({welds} welds)",
+            diag.sanitized.edges_active,
+            diag.raw.edges_active
+        );
+        // Each weld adds at most ONE spike-risk vertex (the bend where the welded arm
+        // meets its junction — the split point is collinear, the junction a chain
+        // end). The 3.0 miter clamp (asserted per-stats above) still caps the worst
+        // spike, so a weld is never sharper than the existing network.
+        assert!(
+            diag.sanitized.spike_vertices <= diag.raw.spike_vertices + welds,
+            "spike-risk {} grew beyond one per weld over raw {} ({welds} welds)",
+            diag.sanitized.spike_vertices,
+            diag.raw.spike_vertices
+        );
+        // The weld only ever CLOSES near-miss dead-ends, never creates them.
+        assert!(
+            diag.sanitized.near_miss_dangles[0] <= diag.raw.near_miss_dangles[0],
+            "weld must not increase near-miss dead-ends"
+        );
         assert_eq!(
             diag.sanitized.coincident_pairs, 0,
             "merge must leave no near-duplicate (non-adjacent) nodes"
         );
         // The report renders without panicking and labels the room.
         assert!(diag.report("pilot").contains("road-graph diagnostics"));
+    }
+
+    /// #583 weld scenario helper: build a graph from XZ node positions and minor
+    /// edges (by node index). Uses glam 0.30 (a dev-dependency matching tensor) so
+    /// the `Vec2` type lines up with `RoadGraph::add_node`.
+    fn weld_graph(nodes: &[(f32, f32)], edges: &[(u32, u32)]) -> RoadGraph {
+        let mut g = RoadGraph::default();
+        for &(x, z) in nodes {
+            g.add_node(glam::Vec2::new(x, z));
+        }
+        for &(s, e) in edges {
+            g.add_edge(s, e, RoadType::Minor);
+        }
+        g
+    }
+
+    /// Active degree of every node (built from `active` edges), for weld assertions.
+    fn active_degrees(g: &RoadGraph) -> Vec<usize> {
+        active_adjacency(g).iter().map(Vec::len).collect()
+    }
+
+    /// #583: a degree-1 dead-end ending transversely a few metres off a through-road
+    /// welds in — the touched edge splits at the foot-of-perpendicular, a real
+    /// (degree-3) junction appears there, and the dead-end becomes a degree-2 node.
+    #[test]
+    fn weld_creates_junction_for_real_near_miss() {
+        // Through-road 0—1 along +x; shaft 2→3 drops toward it, tip 3 is 5 m above.
+        let mut g = weld_graph(
+            &[(0.0, 0.0), (100.0, 0.0), (50.0, 20.0), (50.0, 5.0)],
+            &[(0, 1), (2, 3)],
+        );
+        assert_eq!(active_degrees(&g)[3], 1, "node 3 starts as a dead-end");
+        assert_eq!(
+            weld_endpoint_dangles(&mut g, 8.0),
+            1,
+            "the near-miss dead-end should weld"
+        );
+        let deg = active_degrees(&g);
+        assert_eq!(deg[3], 2, "the welded dead-end becomes a through node");
+        let junction = (0..g.nodes.len())
+            .find(|&i| deg[i] == 3)
+            .expect("a real degree-3 junction must appear");
+        let p = g.nodes[junction].position;
+        assert!(
+            (p.x - 50.0).abs() < 1.0e-3 && p.y.abs() < 1.0e-3,
+            "junction sits at the foot of perpendicular (50,0), got {p:?}"
+        );
+    }
+
+    /// #583: a dead-end running NEAR-PARALLEL to a road (crossing angle below
+    /// WELD_MIN_CROSS_ANGLE) is a graze, not a junction — it must NOT weld (the
+    /// additive twin of the #571 graze cut must not re-introduce false junctions).
+    #[test]
+    fn graze_is_left_alone() {
+        let mut g = weld_graph(
+            &[(0.0, 0.0), (100.0, 0.0), (30.0, 3.0), (70.0, 3.0)],
+            &[(0, 1), (2, 3)],
+        );
+        assert_eq!(
+            weld_endpoint_dangles(&mut g, 8.0),
+            0,
+            "a parallel graze must not weld"
+        );
+    }
+
+    /// #583: a genuine cul-de-sac ending in open space (no edge within tolerance) is
+    /// left for the #579 cap — the weld only fires when another road is near.
+    #[test]
+    fn true_cul_de_sac_is_left_alone() {
+        let mut g = weld_graph(
+            &[(0.0, 0.0), (100.0, 0.0), (50.0, 50.0), (50.0, 30.0)],
+            &[(0, 1), (2, 3)],
+        );
+        assert_eq!(
+            weld_endpoint_dangles(&mut g, 8.0),
+            0,
+            "a far cul-de-sac (30 m off) must not weld"
+        );
+    }
+
+    /// #583: a dead-end whose foot lands in the outer margin of a segment (near an
+    /// endpoint) is a near-NODE case owned by merge_coincident_nodes — it must NOT
+    /// split the edge mid-span.
+    #[test]
+    fn endpoint_near_node_is_not_welded() {
+        // Tip 3 is 5 m off the road but its foot is at t≈0.02 (< WELD_T_MARGIN).
+        let mut g = weld_graph(
+            &[(0.0, 0.0), (100.0, 0.0), (2.0, 25.0), (2.0, 5.0)],
+            &[(0, 1), (2, 3)],
+        );
+        assert_eq!(
+            weld_endpoint_dangles(&mut g, 8.0),
+            0,
+            "a near-endpoint foot must not split the edge"
+        );
+    }
+
+    /// #583: a dead-end must never weld onto its OWN chain (a hairpin curling back
+    /// near an earlier segment of the same road) — the self-chain guard excludes it.
+    #[test]
+    fn self_chain_is_not_welded() {
+        // Chain 0—1—2—3—4: edge 0—1 lies at y=0; the tip 4=(5,3) comes back 3 m
+        // above it, but 0—1 is part of 4's own chain.
+        let mut g = weld_graph(
+            &[
+                (0.0, 0.0),
+                (50.0, 0.0),
+                (50.0, 30.0),
+                (5.0, 30.0),
+                (5.0, 3.0),
+            ],
+            &[(0, 1), (1, 2), (2, 3), (3, 4)],
+        );
+        assert_eq!(active_degrees(&g)[4], 1, "node 4 is the dead-end");
+        assert_eq!(
+            weld_endpoint_dangles(&mut g, 8.0),
+            0,
+            "the only nearby edge is the dead-end's own chain → no weld"
+        );
+        assert_eq!(active_degrees(&g)[4], 1, "node 4 stays a dead-end");
+    }
+
+    /// #583: welding is idempotent — a second pass over an already-welded graph
+    /// welds nothing (the dead-end is now a degree-2 through node).
+    #[test]
+    fn weld_is_idempotent() {
+        let mut g = weld_graph(
+            &[(0.0, 0.0), (100.0, 0.0), (50.0, 20.0), (50.0, 5.0)],
+            &[(0, 1), (2, 3)],
+        );
+        assert_eq!(weld_endpoint_dangles(&mut g, 8.0), 1);
+        assert_eq!(
+            weld_endpoint_dangles(&mut g, 8.0),
+            0,
+            "second pass welds nothing"
+        );
     }
 
     /// Every emitted vertex must be finite — a NaN from a degenerate miter or
