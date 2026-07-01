@@ -15,6 +15,7 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 
 use crate::boot_params::{build_landmark_link, write_to_clipboard};
 use crate::diagnostics::SessionLog;
+use crate::diagnostics::anomaly::InvariantRegistry;
 use crate::diagnostics::event::Severity;
 use crate::state::{CurrentRoomDid, LocalPlayer, RemotePeer};
 use crate::ui::unsaved_guard::{GuardedAction, UnsavedGuard};
@@ -54,6 +55,93 @@ impl DiagTab {
     }
 }
 
+/// Map a [`Severity`] to the HUD colour used for both the event-log line tint
+/// and the anomaly badges / toolbar dot (D-6), so a warning reads the same amber
+/// everywhere. `pub(crate)` so [`crate::ui::toolbar`] can colour its worst-active
+/// dot identically.
+pub(crate) fn severity_color(sev: Severity) -> egui::Color32 {
+    match sev {
+        Severity::Trace => egui::Color32::DARK_GRAY,
+        Severity::Info => egui::Color32::LIGHT_GRAY,
+        Severity::Warn => egui::Color32::from_rgb(210, 170, 90),
+        Severity::Error => egui::Color32::from_rgb(210, 120, 90),
+        Severity::Critical => egui::Color32::from_rgb(220, 90, 90),
+    }
+}
+
+/// The currently-violated rules as `(id, severity, last detail, fire count)`,
+/// worst-severity first (ties broken by id for stable output). The pure data
+/// behind the badge strip, unit-tested independently of egui.
+fn collect_badges(invariants: &InvariantRegistry) -> Vec<(&'static str, Severity, String, u64)> {
+    let mut badges: Vec<(&'static str, Severity, String, u64)> = invariants
+        .active_badges()
+        .map(|(id, sev, st)| (id, sev, st.last_detail.clone(), st.fire_count))
+        .collect();
+    badges.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+    badges
+}
+
+/// Render the anomaly badge strip (Pillar D-6): a persistent red banner while
+/// any `Critical` invariant is active, then one severity-coloured badge per
+/// currently-violated rule with its last detail, worst-severity first. Reads the
+/// same [`InvariantRegistry::active_badges`] / [`InvariantRegistry::worst_active`]
+/// ledger the live engine writes, so the panel mirrors the anomaly engine's
+/// current state. Shown on every tab so the health signal is never hidden.
+fn render_anomaly_section(ui: &mut egui::Ui, invariants: &InvariantRegistry) {
+    let badges = collect_badges(invariants);
+
+    // Persistent banner while any Critical invariant is active — the same
+    // Frame idiom the room-recovery banner uses.
+    let crit = badges.iter().filter(|b| b.1 == Severity::Critical).count();
+    if crit > 0 {
+        egui::Frame::new()
+            .fill(egui::Color32::from_rgb(90, 20, 20))
+            .inner_margin(6.0)
+            .corner_radius(4.0)
+            .show(ui, |ui| {
+                ui.colored_label(
+                    egui::Color32::from_rgb(255, 210, 210),
+                    format!(
+                        "⚠ {crit} CRITICAL invariant{} active — session health is compromised.",
+                        if crit == 1 { "" } else { "s" }
+                    ),
+                );
+            });
+        ui.add_space(4.0);
+    }
+
+    if badges.is_empty() {
+        ui.colored_label(
+            egui::Color32::from_rgb(130, 190, 130),
+            "✓ No active anomalies",
+        );
+    } else {
+        ui.label(format!("Active Anomalies ({})", badges.len()));
+        for (id, sev, detail, fires) in &badges {
+            let color = severity_color(*sev);
+            ui.horizontal(|ui| {
+                ui.colored_label(color, "●");
+                ui.monospace(egui::RichText::new(*id).small().color(color));
+                if *fires > 1 {
+                    ui.label(
+                        egui::RichText::new(format!("×{fires}"))
+                            .small()
+                            .color(egui::Color32::DARK_GRAY),
+                    );
+                }
+                if !detail.is_empty() {
+                    ui.monospace(
+                        egui::RichText::new(format!("— {detail}"))
+                            .small()
+                            .color(egui::Color32::GRAY),
+                    );
+                }
+            });
+        }
+    }
+    ui.separator();
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn diagnostics_ui(
     mut commands: Commands,
@@ -63,6 +151,7 @@ pub fn diagnostics_ui(
     room_did: Option<Res<CurrentRoomDid>>,
     mut peers: Query<&mut RemotePeer>,
     session_log: Res<SessionLog>,
+    invariants: Res<InvariantRegistry>,
     mut landmark_status: Local<Option<(String, f64)>>,
     mut active_tab: Local<DiagTab>,
     time: Res<Time>,
@@ -72,18 +161,6 @@ pub fn diagnostics_ui(
     #[cfg(not(target_arch = "wasm32"))] mut wireframe: ResMut<WireframeConfig>,
 ) {
     use crate::config::ui::diagnostics as cfg;
-
-    // Tint the event-log line by severity so warnings/errors stand out in the
-    // scrolling HUD (the same severity that drives the analyzer's verdict).
-    fn severity_color(sev: Severity) -> egui::Color32 {
-        match sev {
-            Severity::Trace => egui::Color32::DARK_GRAY,
-            Severity::Info => egui::Color32::LIGHT_GRAY,
-            Severity::Warn => egui::Color32::from_rgb(210, 170, 90),
-            Severity::Error => egui::Color32::from_rgb(210, 120, 90),
-            Severity::Critical => egui::Color32::from_rgb(220, 90, 90),
-        }
-    }
 
     egui::Window::new("Diagnostics")
         .open(&mut panels.diagnostics)
@@ -100,6 +177,11 @@ pub fn diagnostics_ui(
                 }
             });
             ui.separator();
+
+            // Anomaly badges (D-6) — shown on every tab so the live invariant
+            // state (Critical banner + violated-rule list) is never hidden
+            // behind an un-built health tab.
+            render_anomaly_section(ui, &invariants);
 
             // Non-Identity tabs are not built yet — show a placeholder and skip
             // the historic body (early-return from the window closure).
@@ -266,4 +348,73 @@ pub fn diagnostics_ui(
                     }
                 });
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::diagnostics::anomaly::{DebouncePolicy, Verdict, default_registry};
+
+    /// Note a violation for a real registered rule id so `active_badges` yields
+    /// it (the ledger keys badges by header id).
+    fn violate(reg: &mut InvariantRegistry, id: &'static str, detail: &str) {
+        reg.note_verdict(
+            id,
+            DebouncePolicy::OncePerCondition,
+            &Verdict::violated(detail.to_string()),
+            1.0,
+        );
+    }
+
+    #[test]
+    fn collect_badges_orders_worst_first_and_carries_detail() {
+        let mut reg = default_registry();
+        violate(&mut reg, "runtime.frame_time_spike", "60ms"); // Warn
+        violate(&mut reg, "runtime.terrain_collider_missing", "0 colliders"); // Critical
+
+        let badges = collect_badges(&reg);
+        assert!(badges.len() >= 2);
+        // Critical sorts ahead of Warn.
+        assert_eq!(badges[0].0, "runtime.terrain_collider_missing");
+        assert_eq!(badges[0].1, Severity::Critical);
+        assert_eq!(badges[0].2, "0 colliders");
+        assert!(
+            badges
+                .iter()
+                .any(|b| b.0 == "runtime.frame_time_spike" && b.1 == Severity::Warn)
+        );
+    }
+
+    #[test]
+    fn collect_badges_empty_when_healthy() {
+        let reg = default_registry();
+        assert!(collect_badges(&reg).is_empty());
+    }
+
+    /// Headless egui frame: the badge strip renders (empty, and with a Critical
+    /// banner + badge active) without panicking against the real egui call path.
+    #[test]
+    fn anomaly_section_renders_without_panicking() {
+        fn render_once(reg: &InvariantRegistry) {
+            let ctx = egui::Context::default();
+            let _ = ctx.run(egui::RawInput::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    render_anomaly_section(ui, reg);
+                });
+            });
+        }
+
+        // Healthy path (the "✓ No active anomalies" branch).
+        render_once(&default_registry());
+
+        // Critical path (banner + badge row).
+        let mut reg = default_registry();
+        violate(
+            &mut reg,
+            "runtime.terrain_collider_missing",
+            "0 colliders in-game",
+        );
+        assert_eq!(reg.worst_active(), Some(Severity::Critical));
+        render_once(&reg);
+    }
 }

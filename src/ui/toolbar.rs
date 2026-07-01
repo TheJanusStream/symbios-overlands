@@ -18,6 +18,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
+use crate::diagnostics::anomaly::InvariantRegistry;
 use crate::state::CurrentRoomDid;
 
 /// Open/closed state for every toolbar-managed window. Initialised at
@@ -62,6 +63,7 @@ pub fn toolbar_ui(
     mut audio_muted: ResMut<crate::audio_mute::AudioMuted>,
     session: Option<Res<AtprotoSession>>,
     current_room: Option<Res<CurrentRoomDid>>,
+    invariants: Res<InvariantRegistry>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
@@ -94,6 +96,18 @@ pub fn toolbar_ui(
                     audio_muted.0 = !audio_muted.0;
                 }
                 ui.toggle_value(&mut panels.diagnostics, "Diagnostics");
+                // Worst-active anomaly dot (D-6): a severity-coloured ● appears
+                // beside the Diagnostics toggle whenever an invariant is
+                // violated, so a broken session is visible even with the panel
+                // closed. Nothing renders while healthy.
+                if let Some(worst) = invariants.worst_active() {
+                    let n = invariants.active_badges().count();
+                    ui.colored_label(crate::ui::diagnostics::severity_color(worst), "●")
+                        .on_hover_text(format!(
+                            "{n} active anomal{} — open Diagnostics",
+                            if n == 1 { "y" } else { "ies" }
+                        ));
+                }
                 ui.toggle_value(&mut panels.controls, "Controls");
             });
         });
