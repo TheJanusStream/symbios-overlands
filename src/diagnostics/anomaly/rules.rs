@@ -78,6 +78,9 @@ impl Rule for LoadingGateStall {
     fn header(&self) -> &RuleHeader {
         &LOADING_GATE_STALL
     }
+    fn is_replayable(&self) -> bool {
+        true
+    }
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
         let elapsed = cx.loading_elapsed_secs?;
         Some(if elapsed > GATE_STALL_SECS {
@@ -115,6 +118,9 @@ impl Rule for RecordFetchExhausted {
     fn header(&self) -> &RuleHeader {
         &RECORD_FETCH_EXHAUSTED
     }
+    fn is_replayable(&self) -> bool {
+        true
+    }
     fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
         events
             .iter()
@@ -148,6 +154,9 @@ const AMBIENT_BAKE_STALL: RuleHeader = RuleHeader {
 impl Rule for AmbientBakeStall {
     fn header(&self) -> &RuleHeader {
         &AMBIENT_BAKE_STALL
+    }
+    fn is_replayable(&self) -> bool {
+        true
     }
     fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
         stall_durations(
@@ -183,6 +192,9 @@ const TASK_NEVER_RESOLVES: RuleHeader = RuleHeader {
 impl Rule for TaskNeverResolves {
     fn header(&self) -> &RuleHeader {
         &TASK_NEVER_RESOLVES
+    }
+    fn is_replayable(&self) -> bool {
+        true
     }
     fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
         let last = last_ts(events);
@@ -233,6 +245,9 @@ impl Rule for PeerChurnSpike {
     fn header(&self) -> &RuleHeader {
         &PEER_CHURN_SPIKE
     }
+    fn is_replayable(&self) -> bool {
+        true
+    }
     fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
         let leaves: Vec<f64> = events
             .iter()
@@ -270,6 +285,9 @@ const OFFER_ACCEPTANCE_ANOMALY: RuleHeader = RuleHeader {
 impl Rule for OfferAcceptanceAnomaly {
     fn header(&self) -> &RuleHeader {
         &OFFER_ACCEPTANCE_ANOMALY
+    }
+    fn is_replayable(&self) -> bool {
+        true
     }
     fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
         let (mut acc, mut total) = (0usize, 0usize);
@@ -309,6 +327,9 @@ impl Rule for IdentitySpoofBurst {
     fn header(&self) -> &RuleHeader {
         &IDENTITY_SPOOF_BURST
     }
+    fn is_replayable(&self) -> bool {
+        true
+    }
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
         let n = cx
             .metrics
@@ -346,6 +367,9 @@ const SILENT_DECODE_FAILURE: RuleHeader = RuleHeader {
 impl Rule for SilentDecodeFailure {
     fn header(&self) -> &RuleHeader {
         &SILENT_DECODE_FAILURE
+    }
+    fn is_replayable(&self) -> bool {
+        true
     }
     fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
         events

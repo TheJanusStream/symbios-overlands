@@ -89,6 +89,13 @@ struct Args {
     /// data filtering. Runs before any render app stands up.
     #[arg(long)]
     road_dump: Option<String>,
+    /// Offline session-log post-mortem: read a captured session log
+    /// (`diagnostics/session-latest.jsonl`, or the wasm "Download log" dump —
+    /// same NDJSON format), replay the anomaly rules over it, and print an
+    /// agent-facing report (header + verdict + `[Invariant Violations]`), then
+    /// exit. A no-render analysis alongside `--road-dump`. Native-only.
+    #[arg(long)]
+    analyze_session: Option<String>,
     /// Torture/cut overrides for a `--prim` subject (for testing the prim
     /// system). `--shear x,z` · `--twist rad` · `--taper x,z` · `--pathcut a,b`
     /// · `--profilecut a,b` · `--hollow h`.
@@ -157,6 +164,14 @@ pub fn run() {
     // exit — a no-render topology/geometry-risk dump for the road-filtering work.
     if let Some(room) = &args.road_dump {
         dump_road_graph(room);
+        return;
+    }
+
+    // `--analyze-session <path>`: read a captured NDJSON session log, replay the
+    // anomaly rules over it, and print an agent-facing post-mortem — a no-render
+    // analysis, the offline counterpart to the live diagnostic engine.
+    if let Some(path) = &args.analyze_session {
+        analyze_session(path);
         return;
     }
 
@@ -316,6 +331,23 @@ fn dump_road_graph(room: &str) {
             "room {room:?}: road graph produced no network (district window too small or tracer empty)"
         ),
     }
+}
+
+/// Read a captured NDJSON session log and print its post-mortem report (see
+/// [`crate::diagnostics::analyze`]). An unreadable file is reported to stderr;
+/// a torn/truncated log is analyzed best-effort (unparseable lines are counted,
+/// not fatal). The report is the offline counterpart to the live anomaly engine
+/// — the same rule set, replayed over a captured log.
+fn analyze_session(path: &str) {
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("cannot read session log {path:?}: {e}");
+            return;
+        }
+    };
+    let parsed = crate::diagnostics::analyze::parse_ndjson(&text);
+    print!("{}", crate::diagnostics::analyze::report(path, &parsed));
 }
 
 /// Resolve a primitive tag (case-insensitive) to a default kind. Wraps

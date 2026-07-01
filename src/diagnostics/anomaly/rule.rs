@@ -103,6 +103,16 @@ pub trait Rule: Send + Sync {
     fn replay(&self, _events: &[SessionEvent]) -> Vec<Verdict> {
         Vec::new()
     }
+
+    /// Whether this rule carries a [`replay`](Rule::replay) body — i.e. its
+    /// violations can be re-derived offline from the event stream. Defaults to
+    /// `false` (a live-only rule); override to `true` alongside a real `replay`
+    /// impl. The offline analyzer (D-5) uses this to tell a re-derivable rule
+    /// from a live-only one, whose fires it can only *surface* from the captured
+    /// `InvariantViolation` events rather than re-derive.
+    fn is_replayable(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

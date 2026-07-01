@@ -15,11 +15,13 @@
 //! D-5).
 
 pub mod registry;
+pub mod replay;
 pub mod rule;
 pub mod rules;
 pub mod rules_ecs;
 pub mod tick;
 
 pub use registry::{InvariantRegistry, RuleRuntimeState, default_registry};
+pub use replay::{RuleFinding, replay_findings, replay_invariants};
 pub use rule::{DebouncePolicy, LiveCtx, Rule, RuleHeader, RuleId, Verdict};
 pub use tick::AnomalyPlugin;
