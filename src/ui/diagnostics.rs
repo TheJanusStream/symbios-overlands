@@ -20,11 +20,11 @@ use crate::diagnostics::{MetricsRegistry, SessionLog, names};
 use crate::state::{CurrentRoomDid, LocalPlayer, RemotePeer};
 use crate::ui::unsaved_guard::{GuardedAction, UnsavedGuard};
 
-/// Which tab of the Diagnostics panel is showing. Only the Identity tab carries
-/// content today (the historic panel, preserved verbatim); the health tabs are
-/// filled in by later pillar-C steps (C-3/C-4) and read the shared metrics
-/// registry + anomaly badges then. Default is Identity so the panel opens
-/// exactly as it did before tabs were added.
+/// Which tab of the Diagnostics panel is showing. Identity carries the historic
+/// panel (preserved verbatim); Overview (C-3) draws the frame-time sparkline +
+/// counts + memory, and the Runtime / Network / Offload tabs (C-4) draw the
+/// per-subsystem health cards over the shared metrics registry + anomaly badges.
+/// Default is Identity so the panel opens exactly as it did before tabs existed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum DiagTab {
     Overview,
@@ -293,6 +293,207 @@ fn render_overview_tab(
     memory_readout(ui, metrics);
 }
 
+/// One subsystem health card: a titled `egui::Frame` wrapping a 3-column grid of
+/// `(label, value, anomaly badge)` rows. `rows` is `(label, value, rule_id)`; a
+/// row with no associated rule passes `""` (no dot).
+fn health_card(
+    ui: &mut egui::Ui,
+    invariants: &InvariantRegistry,
+    title: &str,
+    rows: &[(&str, String, &str)],
+) {
+    egui::Frame::new()
+        .fill(egui::Color32::from_gray(28))
+        .inner_margin(6.0)
+        .corner_radius(4.0)
+        .show(ui, |ui| {
+            ui.label(egui::RichText::new(title).strong());
+            // Titles are unique within a tab (only one tab renders per frame), so
+            // the title doubles as the grid id.
+            egui::Grid::new(title)
+                .num_columns(3)
+                .spacing([12.0, 3.0])
+                .show(ui, |ui| {
+                    for (label, value, rule) in rows {
+                        ui.label(*label);
+                        ui.monospace(value.as_str());
+                        anomaly_badge(ui, invariants, rule);
+                        ui.end_row();
+                    }
+                });
+        });
+    ui.add_space(6.0);
+}
+
+/// The per-subsystem health tab (Pillar C-4): one or more `egui::Frame` cards of
+/// the live metrics for `tab` (Runtime / Network / Offload), each row reading the
+/// C-2 metric readers + surfacing its anomaly badge. The Overview + Identity tabs
+/// render elsewhere.
+fn render_health_tab(
+    ui: &mut egui::Ui,
+    tab: DiagTab,
+    metrics: &MetricsRegistry,
+    invariants: &InvariantRegistry,
+) {
+    // Row-value shorthands over the C-2 readers: gauge latest / counter / distro.
+    let g = |name: &str| {
+        metrics
+            .gauge_latest(name)
+            .map(|v| format!("{v:.0}"))
+            .unwrap_or_else(|| "—".to_string())
+    };
+    let c = |name: &str| metrics.counter_value(name).to_string();
+    let h = |name: &str| metrics.hist_distro_str(name);
+
+    match tab {
+        DiagTab::Runtime => health_card(
+            ui,
+            invariants,
+            "Runtime",
+            &[
+                (
+                    "Frame time (ms)",
+                    g(names::RUNTIME_FRAME_TIME_MS),
+                    "runtime.frame_time_spike",
+                ),
+                ("FPS", g(names::RUNTIME_FPS), ""),
+                ("Entities", g(names::RUNTIME_ENTITY_COUNT), ""),
+                (
+                    "Mesh handles",
+                    g(names::RUNTIME_MESH_HANDLE_COUNT),
+                    "runtime.asset_handle_spike",
+                ),
+                (
+                    "Material handles",
+                    g(names::RUNTIME_MATERIAL_HANDLE_COUNT),
+                    "",
+                ),
+                (
+                    "Colliders",
+                    g(names::RUNTIME_COLLIDER_COUNT),
+                    "runtime.terrain_collider_missing",
+                ),
+                (
+                    "ShapeMeshCache",
+                    g(names::RUNTIME_SHAPE_MESH_CACHE_LEN),
+                    "runtime.shape_mesh_cache_growth",
+                ),
+                (
+                    "Respawns",
+                    c(names::RUNTIME_RESPAWN_COUNT),
+                    "runtime.respawn_thrashing",
+                ),
+            ],
+        ),
+        DiagTab::Network => {
+            health_card(
+                ui,
+                invariants,
+                "Peers",
+                &[
+                    (
+                        "Connected",
+                        c(names::NET_PEER_CONNECTED_COUNT),
+                        "net.peer_churn_spike",
+                    ),
+                    ("Disconnected", c(names::NET_PEER_DISCONNECTED_COUNT), ""),
+                    (
+                        "Transform rejects",
+                        c(names::NET_TRANSFORM_REJECTED_COUNT),
+                        "",
+                    ),
+                    (
+                        "Spoof rejects",
+                        c(names::NET_IDENTITY_SPOOFED_COUNT),
+                        "net.identity_spoof_burst",
+                    ),
+                ],
+            );
+            health_card(
+                ui,
+                invariants,
+                "Avatar fetch",
+                &[
+                    ("Latency (ms)", h(names::NET_AVATAR_FETCH_LATENCY_MS), ""),
+                    ("Succeeded", c(names::NET_AVATAR_FETCH_SUCCESS_COUNT), ""),
+                    ("Failed", c(names::NET_AVATAR_FETCH_FAIL_COUNT), ""),
+                ],
+            );
+            health_card(
+                ui,
+                invariants,
+                "Jitter & offers",
+                &[
+                    (
+                        "Playout latency (ms)",
+                        h(names::NET_JITTER_PLAYOUT_LATENCY_MS),
+                        "",
+                    ),
+                    (
+                        "Offers accepted",
+                        c(names::NET_OFFER_ACCEPTED_COUNT),
+                        "net.offer_acceptance_anomaly",
+                    ),
+                    ("Offers declined", c(names::NET_OFFER_DECLINED_COUNT), ""),
+                    (
+                        "Auto-declined (busy)",
+                        c(names::NET_OFFER_AUTO_DECLINED_BUSY_COUNT),
+                        "",
+                    ),
+                ],
+            );
+        }
+        DiagTab::Offload => {
+            health_card(
+                ui,
+                invariants,
+                "Async jobs",
+                &[
+                    ("Heightmap (ms)", h(names::OFFLOAD_HEIGHTMAP_LATENCY_MS), ""),
+                    (
+                        "Ambient bake (ms)",
+                        h(names::OFFLOAD_AMBIENT_BAKE_LATENCY_MS),
+                        "offload.ambient_bake_stall",
+                    ),
+                    (
+                        "Texture bake (ms)",
+                        h(names::OFFLOAD_TEXTURE_BAKE_LATENCY_MS),
+                        "",
+                    ),
+                    (
+                        "Job errors",
+                        c(names::OFFLOAD_JOB_ERROR_COUNT),
+                        "offload.task_never_resolves",
+                    ),
+                ],
+            );
+            health_card(
+                ui,
+                invariants,
+                "Loading gate",
+                &[
+                    (
+                        "Record fetch (ms)",
+                        h(names::LOADING_RECORD_FETCH_LATENCY_MS),
+                        "loading.record_fetch_exhausted",
+                    ),
+                    (
+                        "Fetch retries",
+                        c(names::LOADING_RECORD_FETCH_RETRY_COUNT),
+                        "",
+                    ),
+                    (
+                        "Last gate (s)",
+                        g(names::LOADING_GATE_TOTAL_SECS),
+                        "loading.gate_stall",
+                    ),
+                ],
+            );
+        }
+        DiagTab::Overview | DiagTab::Identity => {}
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn diagnostics_ui(
     mut commands: Commands,
@@ -322,7 +523,8 @@ pub fn diagnostics_ui(
         .collapsible(true)
         .show(contexts.ctx_mut().unwrap(), |ui| {
             // Tab selector. The historic panel content lives under Identity;
-            // the health tabs are placeholders until C-3/C-4 populate them.
+            // Overview (C-3) + the Runtime/Network/Offload health cards (C-4)
+            // render the shared metrics spine.
             ui.horizontal(|ui| {
                 for tab in DiagTab::ALL {
                     ui.selectable_value(&mut *active_tab, tab, tab.label());
@@ -341,17 +543,12 @@ pub fn diagnostics_ui(
                 return;
             }
 
-            // The per-subsystem health tabs (Runtime / Network / Offload) are
-            // built in C-4; until then they show a placeholder and skip the
-            // historic body (early-return from the window closure).
-            if *active_tab != DiagTab::Identity {
-                ui.add_space(16.0);
-                ui.vertical_centered(|ui| {
-                    ui.colored_label(
-                        egui::Color32::GRAY,
-                        format!("{} health — populated in a later step.", active_tab.label()),
-                    );
-                });
+            // Per-subsystem health cards (C-4): Runtime / Network / Offload.
+            if matches!(
+                *active_tab,
+                DiagTab::Runtime | DiagTab::Network | DiagTab::Offload
+            ) {
+                render_health_tab(ui, *active_tab, &metrics, &invariants);
                 return;
             }
 
@@ -615,5 +812,38 @@ mod tests {
             5.0,
         );
         render_once(&m, &default_registry());
+    }
+
+    /// Headless egui frame: every health tab (Runtime / Network / Offload)
+    /// renders both empty and populated (incl. an active badge) without panic.
+    #[test]
+    fn health_tabs_render_without_panicking() {
+        fn render_once(tab: DiagTab, m: &MetricsRegistry, reg: &InvariantRegistry) {
+            let ctx = egui::Context::default();
+            let _ = ctx.run(egui::RawInput::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    render_health_tab(ui, tab, m, reg);
+                });
+            });
+        }
+
+        let tabs = [DiagTab::Runtime, DiagTab::Network, DiagTab::Offload];
+        // Empty registry — every row shows "—" / 0.
+        for tab in tabs {
+            render_once(tab, &MetricsRegistry::default(), &default_registry());
+        }
+
+        // Populated metrics + a live Critical badge (collider missing) that a
+        // Runtime row should surface.
+        let mut m = MetricsRegistry::default();
+        m.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 0.0, 1.0);
+        m.incr_by(names::NET_PEER_CONNECTED_COUNT, 4, 1.0);
+        m.observe_hist(names::NET_AVATAR_FETCH_LATENCY_MS, 120.0);
+        m.observe_hist(names::OFFLOAD_HEIGHTMAP_LATENCY_MS, 800.0);
+        let mut reg = default_registry();
+        violate(&mut reg, "runtime.terrain_collider_missing", "0 colliders");
+        for tab in tabs {
+            render_once(tab, &m, &reg);
+        }
     }
 }
