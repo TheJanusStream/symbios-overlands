@@ -173,6 +173,10 @@ pub fn run() {
         // registers the flush + legacy-forward systems.
         .insert_resource(boot)
         .add_plugins(diagnostics::DiagnosticsPlugin)
+        // Metrics spine: registers Bevy's FrameTime/EntityCount/SystemInfo
+        // diagnostics (previously unused) + scrapes them, asset/collider counts
+        // and the ShapeMeshCache length into the shared MetricsRegistry at 1 Hz.
+        .add_plugins(diagnostics::MetricsPlugin)
         .add_plugins(transform_gizmo_bevy::TransformGizmoPlugin)
         .add_plugins(MaterialPlugin::<clouds::CloudMaterial>::default())
         .add_plugins(terrain::TerrainPlugin)

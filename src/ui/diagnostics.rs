@@ -244,6 +244,14 @@ pub fn diagnostics_ui(
                     // `SessionLog` stream, so the on-disk NDJSON file and this
                     // HUD can never diverge (Pillar A-6).
                     for ev in session_log.tail(crate::config::state::MAX_DIAGNOSTICS_ENTRIES) {
+                        // Periodic metric snapshots are file/analyzer-only
+                        // telemetry — keep them out of the human event log.
+                        if matches!(
+                            ev.payload,
+                            crate::diagnostics::event::EventPayload::MetricsSnapshot(_)
+                        ) {
+                            continue;
+                        }
                         let ts = crate::format_elapsed_ts(ev.t_mono_secs);
                         ui.horizontal(|ui| {
                             ui.monospace(

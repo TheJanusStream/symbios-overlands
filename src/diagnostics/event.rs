@@ -160,6 +160,9 @@ pub enum EventPayload {
         rule: String,
         detail: String,
     },
+    /// A periodic flat snapshot of the metrics registry (E-5), so a post-mortem
+    /// can chart metric trends over the session. Boxed to keep the enum small.
+    MetricsSnapshot(Box<crate::diagnostics::registry::MetricSnapshot>),
 
     // ---- Loading / state machine ------------------------------------------
     /// Entered `AppState::Loading`.
@@ -416,6 +419,7 @@ impl EventPayload {
             | SessionSegmentReset { .. }
             | SessionEnd { .. }
             | InvariantViolation { .. }
+            | MetricsSnapshot(_)
             | Legacy { .. } => Subsystem::Session,
 
             LoadingPhaseStarted
@@ -492,6 +496,7 @@ impl EventPayload {
             StartupSnapshot(_) => Category::Snapshot,
             SessionSegmentReset { .. } | SessionEnd { .. } => Category::Lifecycle,
             InvariantViolation { .. } => Category::Anomaly,
+            MetricsSnapshot(_) => Category::Snapshot,
             Legacy { .. } => Category::Legacy,
 
             LoadingPhaseStarted
@@ -587,6 +592,12 @@ impl EventPayload {
             SessionSegmentReset { reason } => format!("session segment reset ({reason})"),
             SessionEnd { reason } => format!("session end ({reason})"),
             InvariantViolation { rule, detail } => format!("⚠ invariant {rule}: {detail}"),
+            MetricsSnapshot(s) => format!(
+                "metrics snapshot ({} gauges, {} counters, {} hists)",
+                s.gauges.len(),
+                s.counters.len(),
+                s.histograms.len()
+            ),
 
             LoadingPhaseStarted => "loading started".to_string(),
             RecordFetchInitiated {

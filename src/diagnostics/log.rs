@@ -66,8 +66,34 @@ impl SessionLog {
     /// Record an event with the given session-relative time, severity and
     /// payload. The subsystem/category are derived from the payload
     /// ([`SessionEvent::new`]); the sequence number and wall clock are stamped
-    /// here. Returns the assigned `seq`.
+    /// here. Goes to both the durable sink and the in-memory ring (GUI tail).
+    /// Returns the assigned `seq`.
     pub fn record(&mut self, t_mono_secs: f64, severity: Severity, payload: EventPayload) -> u64 {
+        self.write(t_mono_secs, severity, payload, true)
+    }
+
+    /// Record an event to the durable sink **only**, skipping the in-memory
+    /// ring — for high-frequency file/analyzer-only telemetry (metric
+    /// snapshots) that would otherwise crowd the GUI tail and evict real events
+    /// from the bounded ring. On wasm (no file sink) it falls back to the ring,
+    /// since there the ring *is* the downloadable log.
+    pub fn record_file_only(
+        &mut self,
+        t_mono_secs: f64,
+        severity: Severity,
+        payload: EventPayload,
+    ) -> u64 {
+        let to_ring = matches!(self.sink, Sink::Disabled);
+        self.write(t_mono_secs, severity, payload, to_ring)
+    }
+
+    fn write(
+        &mut self,
+        t_mono_secs: f64,
+        severity: Severity,
+        payload: EventPayload,
+        to_ring: bool,
+    ) -> u64 {
         let wall = wall_now_ms();
         if self.session_start_wall_ms.is_none() {
             self.session_start_wall_ms = wall;
@@ -75,10 +101,10 @@ impl SessionLog {
         let seq = self.next_seq;
         self.next_seq += 1;
         let ev = SessionEvent::new(seq, t_mono_secs, wall, severity, payload);
-        // Append to the durable sink *before* the ring push, so an
-        // over-capacity drop can never lose a line from the on-disk file. The
-        // serialize is skipped entirely when the sink is disabled (tests /
-        // wasm / SYMBIOS_DIAG=0), where the ring is the only store.
+        // Append to the durable sink first, so an over-capacity ring drop can
+        // never lose a line from the on-disk file. The serialize is skipped
+        // entirely when the sink is disabled (tests / wasm / SYMBIOS_DIAG=0),
+        // where the ring is the only store.
         if !matches!(self.sink, Sink::Disabled)
             && let Ok(line) = serde_json::to_string(&ev)
         {
@@ -88,9 +114,11 @@ impl SessionLog {
             crate::diagnostics::panic::shadow_push(&line);
             self.since_flush += 1;
         }
-        self.ring.push_back(ev);
-        while self.ring.len() > self.ring_cap {
-            self.ring.pop_front();
+        if to_ring {
+            self.ring.push_back(ev);
+            while self.ring.len() > self.ring_cap {
+                self.ring.pop_front();
+            }
         }
         seq
     }

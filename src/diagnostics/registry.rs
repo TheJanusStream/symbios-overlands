@@ -14,6 +14,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 
 use bevy::prelude::Resource;
+use serde::{Deserialize, Serialize};
 
 /// Ring length for gauge sparklines: 120 samples = 2 min at the 1 Hz scrape.
 pub const RING_CAP: usize = 120;
@@ -201,6 +202,46 @@ pub fn distro_str(v: &[f64]) -> String {
         .unwrap_or_else(|| "—".to_string())
 }
 
+/// One gauge's latest value in a [`MetricSnapshot`].
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct GaugePoint {
+    pub name: String,
+    pub last: f64,
+}
+
+/// One counter's value in a [`MetricSnapshot`].
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct CounterPoint {
+    pub name: String,
+    pub value: u64,
+}
+
+/// One histogram's reduced distribution in a [`MetricSnapshot`].
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct HistPoint {
+    pub name: String,
+    pub min: f64,
+    pub p50: f64,
+    pub p90: f64,
+    pub max: f64,
+    pub mean: f64,
+    pub n: usize,
+}
+
+/// A flat, serde-friendly snapshot of the registry at one instant — the payload
+/// the session log records periodically (E-5) so a post-mortem can chart metric
+/// trends over the session (memory growth, frame-time p95, entity/asset drift).
+/// Only scalars are captured (gauge `last`, counter `value`, histogram distro);
+/// the gauge sparkline rings are GUI-only and never serialized, so each JSONL
+/// line stays compact.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct MetricSnapshot {
+    pub at_secs: f64,
+    pub gauges: Vec<GaugePoint>,
+    pub counters: Vec<CounterPoint>,
+    pub histograms: Vec<HistPoint>,
+}
+
 /// The metrics store, resident as a Bevy resource. Fed by the Bevy-diagnostics
 /// bridge + per-subsystem samplers (E-3/E-4); read by GUI, log and engine.
 #[derive(Resource, Default)]
@@ -211,6 +252,26 @@ pub struct MetricsRegistry {
 }
 
 impl MetricsRegistry {
+    /// Insert an empty entry for every listed metric so the GUI can enumerate
+    /// the full catalogue (showing a named-but-empty metric rather than nothing)
+    /// before the first observation. Called once at plugin init with
+    /// [`names::ALL`](crate::diagnostics::names::ALL).
+    pub fn preseed(&mut self, all: &[(&'static str, MetricKind)]) {
+        for (name, kind) in all {
+            match kind {
+                MetricKind::Gauge => {
+                    self.gauges.entry(name).or_default();
+                }
+                MetricKind::Counter => {
+                    self.counters.entry(name).or_default();
+                }
+                MetricKind::Histogram => {
+                    self.histograms.entry(name).or_default();
+                }
+            }
+        }
+    }
+
     /// Record a gauge sample (latest value + sparkline point).
     pub fn observe_gauge(&mut self, name: &'static str, v: f64, now: f64) {
         self.gauges.entry(name).or_default().observe(v, now);
@@ -276,6 +337,51 @@ impl MetricsRegistry {
     pub fn histograms(&self) -> impl Iterator<Item = (&'static str, &Histogram)> {
         self.histograms.iter().map(|(k, v)| (*k, v))
     }
+
+    /// Flatten the currently-active metrics into a serde [`MetricSnapshot`] for
+    /// the session log. Never-observed (preseeded-empty) gauges/histograms and
+    /// still-zero counters are skipped so snapshot lines carry only live data.
+    pub fn snapshot(&self, at_secs: f64) -> MetricSnapshot {
+        let gauges = self
+            .gauges
+            .iter()
+            .filter(|(_, g)| !g.is_empty())
+            .map(|(n, g)| GaugePoint {
+                name: n.to_string(),
+                last: g.last(),
+            })
+            .collect();
+        let counters = self
+            .counters
+            .iter()
+            .filter(|(_, c)| c.value() > 0)
+            .map(|(n, c)| CounterPoint {
+                name: n.to_string(),
+                value: c.value(),
+            })
+            .collect();
+        let histograms = self
+            .histograms
+            .iter()
+            .filter_map(|(n, h)| {
+                h.distro().map(|d| HistPoint {
+                    name: n.to_string(),
+                    min: d.min,
+                    p50: d.p50,
+                    p90: d.p90,
+                    max: d.max,
+                    mean: d.mean,
+                    n: d.n,
+                })
+            })
+            .collect();
+        MetricSnapshot {
+            at_secs,
+            gauges,
+            counters,
+            histograms,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -327,6 +433,39 @@ mod tests {
             d.to_string(),
             "min 1.0  p50 3.0  p90 4.0  max 4.0  mean 2.5"
         );
+    }
+
+    #[test]
+    fn snapshot_captures_active_metrics_and_round_trips() {
+        let mut r = MetricsRegistry::default();
+        r.preseed(&[("runtime.frame_time.ms", MetricKind::Gauge)]); // preseeded-empty
+        r.observe_gauge("runtime.entity.count", 42.0, 1.0);
+        r.incr_by("net.peer.connected_count", 3, 1.0);
+        r.observe_hist("net.jitter.playout_latency_ms", 12.0);
+
+        let snap = r.snapshot(1.0);
+        // Preseeded-but-never-observed gauge is skipped; the observed one is in.
+        assert!(
+            snap.gauges
+                .iter()
+                .all(|g| g.name != "runtime.frame_time.ms")
+        );
+        assert!(
+            snap.gauges
+                .iter()
+                .any(|g| g.name == "runtime.entity.count" && g.last == 42.0)
+        );
+        assert!(
+            snap.counters
+                .iter()
+                .any(|c| c.name == "net.peer.connected_count" && c.value == 3)
+        );
+        assert_eq!(snap.histograms.len(), 1);
+
+        // Round-trips as an event payload for the session log.
+        let line = serde_json::to_string(&snap).unwrap();
+        let back: MetricSnapshot = serde_json::from_str(&line).unwrap();
+        assert_eq!(snap, back);
     }
 
     #[test]

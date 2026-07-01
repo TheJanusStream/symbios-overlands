@@ -266,6 +266,30 @@ mod tests {
     }
 
     #[test]
+    fn file_only_writes_to_disk_but_not_the_ring() {
+        use crate::diagnostics::log::SessionLog;
+        let dir = TempDir::new();
+        let mut log = SessionLog::with_capacity(8);
+        log.set_sink(Sink::open_in(&dir.0, None));
+        log.record_file_only(
+            0.0,
+            Severity::Trace,
+            EventPayload::Legacy {
+                text: "snap".into(),
+            },
+        );
+        assert_eq!(
+            log.len(),
+            0,
+            "file-only telemetry stays out of the GUI ring"
+        );
+        log.flush();
+        let latest = dir.0.join(crate::config::diagnostics::LATEST_FILENAME);
+        let body = std::fs::read_to_string(&latest).expect("written to disk");
+        assert_eq!(body.lines().count(), 1, "but it is durably persisted");
+    }
+
+    #[test]
     fn disable_env_value_yields_disabled_sink() {
         // open_in bypasses env; the disabled path is exercised via disabled().
         let mut sink = Sink::disabled();
