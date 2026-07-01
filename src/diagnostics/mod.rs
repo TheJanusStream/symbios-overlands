@@ -22,6 +22,7 @@
 //! (native NDJSON writer), `snapshot` (the startup record), `registry`/`names`
 //! (the metrics spine), and `anomaly` (the invariant engine).
 
+pub mod anomaly;
 pub mod bevy_bridge;
 pub mod event;
 pub mod log;

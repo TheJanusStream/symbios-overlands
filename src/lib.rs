@@ -191,6 +191,11 @@ pub fn run() {
         .add_plugins(interaction::InteractionPlugin)
         .add_plugins(audio_mute::AudioMutePlugin)
         .init_state::<AppState>()
+        // Live anomaly engine — added after init_state so its OnEnter/OnExit
+        // (Loading) systems bind to the now-registered state schedules. Reads
+        // the metrics registry + ECS state each second and routes rule fires
+        // into the session log + GUI badges.
+        .add_plugins(diagnostics::anomaly::AnomalyPlugin)
         .init_resource::<ChatHistory>()
         .init_resource::<DiagnosticsLog>()
         .init_resource::<LocalSettings>()
