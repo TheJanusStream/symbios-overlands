@@ -24,4 +24,4 @@ pub mod tick;
 pub use registry::{InvariantRegistry, RuleRuntimeState, default_registry};
 pub use replay::{RuleFinding, replay_findings, replay_invariants};
 pub use rule::{DebouncePolicy, LiveCtx, Rule, RuleHeader, RuleId, Verdict};
-pub use tick::AnomalyPlugin;
+pub use tick::{AnomalyPlugin, LoadingClock};

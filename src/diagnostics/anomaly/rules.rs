@@ -63,7 +63,10 @@ fn stall_durations(
 }
 
 // --- LoadingGateStall -------------------------------------------------------
-const GATE_STALL_SECS: f64 = 120.0;
+/// The loading gate is considered stalled (Critical) past this many seconds —
+/// the shared threshold the live rule, the replay rule, and the loading-screen
+/// countdown (C-5) all colour against.
+pub const GATE_STALL_SECS: f64 = 120.0;
 
 struct LoadingGateStall;
 const LOADING_GATE_STALL: RuleHeader = RuleHeader {

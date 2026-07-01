@@ -17,11 +17,33 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
+use crate::diagnostics::anomaly::LoadingClock;
+use crate::diagnostics::anomaly::rules::GATE_STALL_SECS;
 use crate::loading::AmbientHandle;
 use crate::loading::fetch::{LoadedRecord, PendingRecordRetry};
 use crate::pds::{AvatarRecord, RoomRecord};
 use crate::state::{LiveAvatarRecord, LiveInventoryRecord, LiveRoomRecord};
 use crate::terrain::FinishedHeightMap;
+
+/// Gate-elapsed past which the countdown turns amber ("slower than a healthy
+/// load"); it turns red at the D-engine critical stall threshold
+/// [`GATE_STALL_SECS`]. A normal login load settles in a few seconds.
+const GATE_WARN_SECS: f64 = 15.0;
+
+/// Colour + suffix for the live gate-elapsed line by how long the gate has been
+/// open. Pure over `elapsed` so it unit-tests without egui.
+fn gate_elapsed_style(elapsed: f64) -> (egui::Color32, &'static str) {
+    if elapsed >= GATE_STALL_SECS {
+        (egui::Color32::from_rgb(220, 90, 90), " — stalled")
+    } else if elapsed >= GATE_WARN_SECS {
+        (
+            egui::Color32::from_rgb(210, 170, 90),
+            " — slower than usual",
+        )
+    } else {
+        (egui::Color32::LIGHT_GRAY, "")
+    }
+}
 
 /// Display state of one gate task.
 enum RowStatus {
@@ -105,6 +127,7 @@ pub fn loading_ui(
     room_retries: Query<&PendingRecordRetry<RoomRecord>>,
     avatar_retries: Query<&PendingRecordRetry<AvatarRecord>>,
     time: Res<Time>,
+    loading_clock: Res<LoadingClock>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
@@ -151,6 +174,13 @@ pub fn loading_ui(
             // one line).
             ui.add_space(ui.available_height() * 0.35);
             ui.heading("Generating the overlands…");
+            // Live loading-gate countdown (C-5): how long the gate has been open,
+            // amber past the warn point and red at the D critical stall threshold.
+            if let Some(entered) = loading_clock.entered_at() {
+                let elapsed = (now - entered).max(0.0);
+                let (color, note) = gate_elapsed_style(elapsed);
+                ui.colored_label(color, format!("Loading gate: {elapsed:.0}s{note}"));
+            }
             ui.add_space(12.0);
             // Fixed-width child so the five rows left-align with each
             // other while the block as a whole stays centred.
@@ -166,4 +196,24 @@ pub fn loading_ui(
             });
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gate_elapsed_style_thresholds() {
+        // Fresh load → neutral (no suffix).
+        assert_eq!(gate_elapsed_style(0.0).1, "");
+        assert_eq!(gate_elapsed_style(GATE_WARN_SECS - 0.1).1, "");
+        // Past the warn point → amber.
+        assert_eq!(gate_elapsed_style(GATE_WARN_SECS).1, " — slower than usual");
+        assert_eq!(
+            gate_elapsed_style(GATE_STALL_SECS - 0.1).1,
+            " — slower than usual"
+        );
+        // Past the D critical stall threshold → red.
+        assert_eq!(gate_elapsed_style(GATE_STALL_SECS).1, " — stalled");
+    }
 }

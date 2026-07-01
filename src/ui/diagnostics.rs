@@ -489,6 +489,26 @@ fn render_health_tab(
                     ),
                 ],
             );
+            // Render / WebGL2 texture-slot budget (C-5): the splat material's
+            // bind-slot footprint against the 16-slot GLES ceiling on wasm (on
+            // native the stains overlay adds one and there is no fixed ceiling).
+            // The worker-spawn / msgpack-codec rows from the C-5 brief are not
+            // shown: those failures live inside the off-ECS gloo-worker future
+            // and never surface to the registry — see the issue for the blocker.
+            #[cfg(target_arch = "wasm32")]
+            let slot_note = " / 16 (WebGL2 ceiling)";
+            #[cfg(not(target_arch = "wasm32"))]
+            let slot_note = " (WebGPU — no fixed ceiling)";
+            let slots = metrics
+                .gauge_latest(names::RUNTIME_TEXTURE_BIND_SLOTS)
+                .map(|v| format!("{}{slot_note}", v as u32))
+                .unwrap_or_else(|| "—".to_string());
+            health_card(
+                ui,
+                invariants,
+                "Render",
+                &[("Splat texture slots", slots, "")],
+            );
         }
         DiagTab::Overview | DiagTab::Identity => {}
     }

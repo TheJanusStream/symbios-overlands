@@ -119,6 +119,15 @@ fn scrape_bevy_diagnostics(
     if let Some(cache) = shape_cache {
         reg.observe_gauge(names::RUNTIME_SHAPE_MESH_CACHE_LEN, cache.len() as f64, now);
     }
+
+    // The splat material's texture-slot footprint is a compile-time constant
+    // (cfg-split for the native-only stains overlay); surface it as a gauge so
+    // the GUI can show headroom against the WebGL2 16-slot ceiling (C-5).
+    reg.observe_gauge(
+        names::RUNTIME_TEXTURE_BIND_SLOTS,
+        crate::splat::SPLAT_TEXTURE_BIND_SLOTS as f64,
+        now,
+    );
 }
 
 /// Record a flat [`MetricSnapshot`](crate::diagnostics::registry::MetricSnapshot)

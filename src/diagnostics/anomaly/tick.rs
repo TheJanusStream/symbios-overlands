@@ -32,6 +32,15 @@ pub struct LoadingClock {
     entered_at: Option<f64>,
 }
 
+impl LoadingClock {
+    /// Session-relative seconds when `Loading` was entered, or `None` outside
+    /// the loading gate — lets the loading screen render a live gate countdown
+    /// against the same clock the stall rule measures (C-5).
+    pub fn entered_at(&self) -> Option<f64> {
+        self.entered_at
+    }
+}
+
 /// Evaluate every applicable rule against `cx`, debounce, and route fires into
 /// `log` + the registry ledger. Pure over its inputs (no `World` access), so
 /// tests drive it directly. Returns the number of rules that actually fired.

@@ -38,6 +38,9 @@ pub const RUNTIME_MEMORY_WASM_BYTES: &str = "runtime.memory.wasm_bytes";
 pub const RUNTIME_CPU_USAGE_PCT: &str = "runtime.cpu.usage_pct";
 /// Times the player fell through terrain and was respawned.
 pub const RUNTIME_RESPAWN_COUNT: &str = "runtime.respawn.count";
+/// Terrain splat material's texture bind-slot footprint — the WebGL2 16-slot
+/// ceiling watch (one higher on native, which keeps the stains overlay).
+pub const RUNTIME_TEXTURE_BIND_SLOTS: &str = "runtime.texture_bind_slots";
 
 // ---- network / multiuser --------------------------------------------------
 /// Peer connections observed.
@@ -97,6 +100,7 @@ pub const ALL: &[(&str, MetricKind)] = &[
     (RUNTIME_MEMORY_PROCESS_RSS_BYTES, MetricKind::Gauge),
     (RUNTIME_MEMORY_WASM_BYTES, MetricKind::Gauge),
     (RUNTIME_CPU_USAGE_PCT, MetricKind::Gauge),
+    (RUNTIME_TEXTURE_BIND_SLOTS, MetricKind::Gauge),
     (RUNTIME_RESPAWN_COUNT, MetricKind::Counter),
     // net
     (NET_PEER_CONNECTED_COUNT, MetricKind::Counter),
