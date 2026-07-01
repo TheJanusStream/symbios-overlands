@@ -309,6 +309,40 @@ impl MetricsRegistry {
         self.histograms.get(name).and_then(Histogram::distro)
     }
 
+    /// A histogram's distribution as the shared `min p50 p90 max mean` string,
+    /// or `—` when the histogram is unknown / has no samples yet — the display
+    /// idiom the GUI health cards (C-4) and the road report share. Ergonomic
+    /// "distro_string" reader so a card line is a single call.
+    pub fn hist_distro_str(&self, name: &str) -> String {
+        self.hist_distro(name)
+            .map(|d| d.to_string())
+            .unwrap_or_else(|| "—".to_string())
+    }
+
+    /// The latest value of a gauge, or `None` when the gauge is unknown or has
+    /// never been observed (so the GUI shows `—` rather than a misleading `0`;
+    /// an *observed* zero — e.g. a real zero collider count — returns `Some(0.0)`).
+    pub fn gauge_latest(&self, name: &str) -> Option<f64> {
+        self.gauges
+            .get(name)
+            .filter(|g| !g.is_empty())
+            .map(Gauge::last)
+    }
+
+    /// A counter's value, or `0` when it is unknown / never incremented — the
+    /// ergonomic reader for the GUI's counter rows (peer churn, rejects, offers).
+    pub fn counter_value(&self, name: &str) -> u64 {
+        self.counters.get(name).map(Counter::value).unwrap_or(0)
+    }
+
+    /// The `Distro` over a gauge's retained sparkline ring (min/p50/p90/max/mean
+    /// of the recent ~2-min history), for the Overview tab's frame-time p50/p95
+    /// line (C-3). `None` when the gauge is unknown or has no samples yet.
+    pub fn gauge_distro(&self, name: &str) -> Option<Distro> {
+        let samples = self.ring_slice(name);
+        distro(&samples)
+    }
+
     /// Sparkline samples for a gauge (oldest → newest); empty if unknown.
     pub fn ring_slice(&self, name: &str) -> Vec<f64> {
         self.gauges
@@ -478,5 +512,44 @@ mod tests {
         r.clear();
         assert!(r.gauge("runtime.frame_time.ms").is_none());
         assert!(r.hist_distro("net.jitter.playout_latency_ms").is_none());
+    }
+
+    #[test]
+    fn gui_read_surface_readers() {
+        let mut r = MetricsRegistry::default();
+        r.preseed(&[
+            ("runtime.frame_time.ms", MetricKind::Gauge),
+            ("runtime.collider.count", MetricKind::Gauge),
+            ("net.peer.connected_count", MetricKind::Counter),
+            ("net.jitter.playout_latency_ms", MetricKind::Histogram),
+        ]);
+        // Never-observed / never-incremented → the GUI shows "—" / 0, not stale data.
+        assert_eq!(r.gauge_latest("runtime.frame_time.ms"), None);
+        assert!(r.gauge_distro("runtime.frame_time.ms").is_none());
+        assert_eq!(r.counter_value("net.peer.connected_count"), 0);
+        assert_eq!(r.hist_distro_str("net.jitter.playout_latency_ms"), "—");
+
+        for (i, v) in [16.0, 18.0, 20.0, 22.0].iter().enumerate() {
+            r.observe_gauge("runtime.frame_time.ms", *v, i as f64);
+        }
+        r.observe_gauge("runtime.collider.count", 0.0, 5.0); // an OBSERVED zero
+        r.incr_by("net.peer.connected_count", 3, 5.0);
+        r.observe_hist("net.jitter.playout_latency_ms", 100.0);
+
+        assert_eq!(r.gauge_latest("runtime.frame_time.ms"), Some(22.0));
+        // An observed zero is Some(0.0), distinct from never-observed None.
+        assert_eq!(r.gauge_latest("runtime.collider.count"), Some(0.0));
+        assert_eq!(r.counter_value("net.peer.connected_count"), 3);
+        let d = r.gauge_distro("runtime.frame_time.ms").unwrap();
+        assert_eq!((d.min, d.max, d.n), (16.0, 22.0, 4));
+        assert!(
+            r.hist_distro_str("net.jitter.playout_latency_ms")
+                .contains("100")
+        );
+
+        // Unknown names never panic.
+        assert_eq!(r.gauge_latest("nope"), None);
+        assert_eq!(r.counter_value("nope"), 0);
+        assert_eq!(r.hist_distro_str("nope"), "—");
     }
 }

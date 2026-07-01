@@ -14,9 +14,9 @@ use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
 use crate::boot_params::{build_landmark_link, write_to_clipboard};
-use crate::diagnostics::SessionLog;
 use crate::diagnostics::anomaly::InvariantRegistry;
 use crate::diagnostics::event::Severity;
+use crate::diagnostics::{MetricsRegistry, SessionLog, names};
 use crate::state::{CurrentRoomDid, LocalPlayer, RemotePeer};
 use crate::ui::unsaved_guard::{GuardedAction, UnsavedGuard};
 
@@ -142,6 +142,157 @@ fn render_anomaly_section(ui: &mut egui::Ui, invariants: &InvariantRegistry) {
     ui.separator();
 }
 
+/// A per-metric anomaly dot (Pillar C, reading the D-6 badge ledger): draws a
+/// severity-coloured `●` beside a metric row when the named invariant rule is
+/// currently violated, with its detail on hover. A row with no associated rule
+/// passes `""` (never matches → nothing drawn). C-6 (#618) extends this into the
+/// full metric→rule table across every subsystem card.
+fn anomaly_badge(ui: &mut egui::Ui, invariants: &InvariantRegistry, rule_id: &str) {
+    if let Some((_, sev, st)) = invariants.active_badges().find(|(id, _, _)| *id == rule_id) {
+        ui.colored_label(severity_color(sev), "●")
+            .on_hover_text(st.last_detail.clone());
+    }
+}
+
+/// Hand-rolled polyline sparkline over a metric's recent history, drawn straight
+/// onto the panel via `ui.painter()` (no `egui_plot` dependency). Auto-scales to
+/// the sample min/max; fewer than two samples just shows the backing strip.
+fn sparkline(ui: &mut egui::Ui, samples: &[f64], height: f32) {
+    let width = ui.available_width().max(32.0);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 2.0, egui::Color32::from_gray(24));
+    if samples.len() < 2 {
+        return;
+    }
+    let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+    for &v in samples {
+        lo = lo.min(v);
+        hi = hi.max(v);
+    }
+    let range = (hi - lo).max(1e-6);
+    let n = samples.len();
+    let pts: Vec<egui::Pos2> = samples
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| {
+            let x = rect.left() + rect.width() * (i as f32 / (n - 1) as f32);
+            let t = ((v - lo) / range) as f32;
+            egui::pos2(x, rect.bottom() - rect.height() * t)
+        })
+        .collect();
+    painter.add(egui::Shape::line(
+        pts,
+        egui::Stroke::new(1.5, egui::Color32::from_rgb(120, 200, 140)),
+    ));
+}
+
+/// Human-readable byte size (B / KiB / MiB / GiB).
+fn fmt_bytes(bytes: f64) -> String {
+    const KIB: f64 = 1024.0;
+    let (mib, gib) = (KIB * KIB, KIB * KIB * KIB);
+    if bytes >= gib {
+        format!("{:.2} GiB", bytes / gib)
+    } else if bytes >= mib {
+        format!("{:.1} MiB", bytes / mib)
+    } else if bytes >= KIB {
+        format!("{:.0} KiB", bytes / KIB)
+    } else {
+        format!("{bytes:.0} B")
+    }
+}
+
+/// Process-memory readout — native RSS or the wasm linear-memory size, cfg-split
+/// (scraped from different sources), with a GRAY "unavailable" fallback when the
+/// gauge has no sample yet (mirroring the native-only wireframe gate's absence
+/// handling).
+fn memory_readout(ui: &mut egui::Ui, metrics: &MetricsRegistry) {
+    #[cfg(not(target_arch = "wasm32"))]
+    let (label, name) = ("Process RSS", names::RUNTIME_MEMORY_PROCESS_RSS_BYTES);
+    #[cfg(target_arch = "wasm32")]
+    let (label, name) = ("WASM heap", names::RUNTIME_MEMORY_WASM_BYTES);
+    match metrics.gauge_latest(name) {
+        Some(bytes) => {
+            ui.monospace(format!("{label}: {}", fmt_bytes(bytes)));
+        }
+        None => {
+            ui.colored_label(egui::Color32::GRAY, format!("{label}: unavailable"));
+        }
+    }
+}
+
+/// The Overview / Perf tab (Pillar C-3): a frame-time sparkline + an FPS/distro
+/// line, a compact grid of the live entity/asset/collider counts, and the
+/// memory readout. Each row surfaces its anomaly badge from the shared ledger.
+fn render_overview_tab(
+    ui: &mut egui::Ui,
+    metrics: &MetricsRegistry,
+    invariants: &InvariantRegistry,
+) {
+    ui.label("Frame time (ms, last ~2 min)");
+    sparkline(ui, &metrics.ring_slice(names::RUNTIME_FRAME_TIME_MS), 40.0);
+    ui.horizontal(|ui| {
+        let fps = metrics
+            .gauge_latest(names::RUNTIME_FPS)
+            .map(|f| format!("{f:.0}"))
+            .unwrap_or_else(|| "—".to_string());
+        ui.monospace(format!("FPS {fps}"));
+        let frame = metrics
+            .gauge_distro(names::RUNTIME_FRAME_TIME_MS)
+            .map(|d| d.to_string())
+            .unwrap_or_else(|| "—".to_string());
+        ui.monospace(egui::RichText::new(format!("· frame {frame}")).small());
+        anomaly_badge(ui, invariants, "runtime.frame_time_spike");
+    });
+
+    ui.separator();
+
+    // Live counts — a compact grid; each metric row shows its anomaly badge.
+    egui::Grid::new("diag-overview-counts")
+        .num_columns(3)
+        .spacing([12.0, 4.0])
+        .show(ui, |ui| {
+            let count_row = |ui: &mut egui::Ui, label: &str, name: &str, rule: &str| {
+                ui.label(label);
+                let v = metrics
+                    .gauge_latest(name)
+                    .map(|n| format!("{n:.0}"))
+                    .unwrap_or_else(|| "—".to_string());
+                ui.monospace(v);
+                anomaly_badge(ui, invariants, rule);
+                ui.end_row();
+            };
+            count_row(ui, "Entities", names::RUNTIME_ENTITY_COUNT, "");
+            count_row(
+                ui,
+                "Mesh handles",
+                names::RUNTIME_MESH_HANDLE_COUNT,
+                "runtime.asset_handle_spike",
+            );
+            count_row(
+                ui,
+                "Material handles",
+                names::RUNTIME_MATERIAL_HANDLE_COUNT,
+                "",
+            );
+            count_row(
+                ui,
+                "Colliders",
+                names::RUNTIME_COLLIDER_COUNT,
+                "runtime.terrain_collider_missing",
+            );
+            count_row(
+                ui,
+                "ShapeMeshCache",
+                names::RUNTIME_SHAPE_MESH_CACHE_LEN,
+                "runtime.shape_mesh_cache_growth",
+            );
+        });
+
+    ui.separator();
+    memory_readout(ui, metrics);
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn diagnostics_ui(
     mut commands: Commands,
@@ -152,6 +303,7 @@ pub fn diagnostics_ui(
     mut peers: Query<&mut RemotePeer>,
     session_log: Res<SessionLog>,
     invariants: Res<InvariantRegistry>,
+    metrics: Res<MetricsRegistry>,
     mut landmark_status: Local<Option<(String, f64)>>,
     mut active_tab: Local<DiagTab>,
     time: Res<Time>,
@@ -183,8 +335,15 @@ pub fn diagnostics_ui(
             // behind an un-built health tab.
             render_anomaly_section(ui, &invariants);
 
-            // Non-Identity tabs are not built yet — show a placeholder and skip
-            // the historic body (early-return from the window closure).
+            // Overview / Perf tab (C-3).
+            if *active_tab == DiagTab::Overview {
+                render_overview_tab(ui, &metrics, &invariants);
+                return;
+            }
+
+            // The per-subsystem health tabs (Runtime / Network / Offload) are
+            // built in C-4; until then they show a placeholder and skip the
+            // historic body (early-return from the window closure).
             if *active_tab != DiagTab::Identity {
                 ui.add_space(16.0);
                 ui.vertical_centered(|ui| {
@@ -416,5 +575,45 @@ mod tests {
         );
         assert_eq!(reg.worst_active(), Some(Severity::Critical));
         render_once(&reg);
+    }
+
+    #[test]
+    fn fmt_bytes_scales_units() {
+        assert_eq!(fmt_bytes(512.0), "512 B");
+        assert_eq!(fmt_bytes(2.0 * 1024.0), "2 KiB");
+        assert_eq!(fmt_bytes(3.0 * 1024.0 * 1024.0), "3.0 MiB");
+        assert_eq!(fmt_bytes(2.0 * 1024.0 * 1024.0 * 1024.0), "2.00 GiB");
+    }
+
+    /// Headless egui frame: the Overview tab renders both empty (every reader
+    /// returns None/0 → "—", blank sparkline) and populated without panicking.
+    #[test]
+    fn overview_tab_renders_empty_and_populated_without_panicking() {
+        fn render_once(m: &MetricsRegistry, reg: &InvariantRegistry) {
+            let ctx = egui::Context::default();
+            let _ = ctx.run(egui::RawInput::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    render_overview_tab(ui, m, reg);
+                });
+            });
+        }
+
+        // Empty registry — the all-"—" path.
+        render_once(&MetricsRegistry::default(), &default_registry());
+
+        // Populated — frame-time ring + counts + memory readout.
+        let mut m = MetricsRegistry::default();
+        for (i, v) in [16.0, 20.0, 18.0, 22.0, 17.0].iter().enumerate() {
+            m.observe_gauge(names::RUNTIME_FRAME_TIME_MS, *v, i as f64);
+        }
+        m.observe_gauge(names::RUNTIME_FPS, 58.0, 5.0);
+        m.observe_gauge(names::RUNTIME_ENTITY_COUNT, 1234.0, 5.0);
+        m.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 3.0, 5.0);
+        m.observe_gauge(
+            names::RUNTIME_MEMORY_PROCESS_RSS_BYTES,
+            512.0 * 1024.0 * 1024.0,
+            5.0,
+        );
+        render_once(&m, &default_registry());
     }
 }
