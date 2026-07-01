@@ -876,6 +876,17 @@ pub mod ui {
         pub const WINDOW_DEFAULT_WIDTH: f32 = 280.0;
         pub const WINDOW_DEFAULT_HEIGHT: f32 = 480.0;
         pub const WINDOW_DEFAULT_POS: [f32; 2] = [10.0, 10.0];
+
+        /// Severity → HUD colour `[R, G, B]` — the single map the diagnostics
+        /// event-log tint, the anomaly badges/pills, the per-metric dots and the
+        /// toolbar worst-active dot all read (C-6), so a warning is the same
+        /// amber everywhere. Trace/Info are neutral greys; Warn amber, Error
+        /// orange-red, Critical red.
+        pub const SEVERITY_TRACE_RGB: [u8; 3] = [96, 96, 96];
+        pub const SEVERITY_INFO_RGB: [u8; 3] = [220, 220, 220];
+        pub const SEVERITY_WARN_RGB: [u8; 3] = [210, 170, 90];
+        pub const SEVERITY_ERROR_RGB: [u8; 3] = [210, 120, 90];
+        pub const SEVERITY_CRITICAL_RGB: [u8; 3] = [220, 90, 90];
     }
 
     pub mod people {

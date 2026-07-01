@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use bevy::prelude::Resource;
 
 use crate::diagnostics::anomaly::rule::{DebouncePolicy, Rule, RuleId, Verdict};
-use crate::diagnostics::event::Severity;
+use crate::diagnostics::event::{Severity, Subsystem};
 
 /// Per-rule runtime state — the debounce ledger and the badge source.
 #[derive(Clone, Debug, Default)]
@@ -112,6 +112,20 @@ impl InvariantRegistry {
     pub fn worst_active(&self) -> Option<Severity> {
         self.active_badges().map(|(_, sev, _)| sev).max()
     }
+
+    /// Count currently-violated rules whose subsystem is `subsystem` — the
+    /// GUI's per-tab anomaly counter (C-6). Zero when nothing in that subsystem
+    /// is active, so the tab label stays clean.
+    pub fn active_count_for(&self, subsystem: Subsystem) -> usize {
+        self.rules
+            .iter()
+            .filter(|r| {
+                let h = r.header();
+                h.subsystem == subsystem
+                    && self.state.get(h.id).is_some_and(|s| s.currently_violated)
+            })
+            .count()
+    }
 }
 
 /// Build the registry with every built-in rule registered. Shared by the app
@@ -197,5 +211,21 @@ mod tests {
         assert_eq!(reg.active_badges().count(), 1);
         reg.clear_violation("a");
         assert!(reg.worst_active().is_none());
+    }
+
+    #[test]
+    fn active_count_for_counts_currently_violated_by_subsystem() {
+        let mut reg = default_registry();
+        let d = DebouncePolicy::OncePerCondition;
+        // terrain_collider_missing is Runtime; identity_spoof_burst is Network.
+        reg.note_verdict("runtime.terrain_collider_missing", d, &violated(), 0.0);
+        reg.note_verdict("net.identity_spoof_burst", d, &violated(), 0.0);
+
+        assert_eq!(reg.active_count_for(Subsystem::Runtime), 1);
+        assert_eq!(reg.active_count_for(Subsystem::Network), 1);
+        assert_eq!(reg.active_count_for(Subsystem::Offload), 0);
+        // Clearing one drops its subsystem's count back to zero.
+        reg.clear_violation("runtime.terrain_collider_missing");
+        assert_eq!(reg.active_count_for(Subsystem::Runtime), 0);
     }
 }

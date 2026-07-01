@@ -15,7 +15,7 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 
 use crate::boot_params::{build_landmark_link, write_to_clipboard};
 use crate::diagnostics::anomaly::InvariantRegistry;
-use crate::diagnostics::event::Severity;
+use crate::diagnostics::event::{Severity, Subsystem};
 use crate::diagnostics::{MetricsRegistry, SessionLog, names};
 use crate::state::{CurrentRoomDid, LocalPlayer, RemotePeer};
 use crate::ui::unsaved_guard::{GuardedAction, UnsavedGuard};
@@ -60,13 +60,15 @@ impl DiagTab {
 /// everywhere. `pub(crate)` so [`crate::ui::toolbar`] can colour its worst-active
 /// dot identically.
 pub(crate) fn severity_color(sev: Severity) -> egui::Color32 {
-    match sev {
-        Severity::Trace => egui::Color32::DARK_GRAY,
-        Severity::Info => egui::Color32::LIGHT_GRAY,
-        Severity::Warn => egui::Color32::from_rgb(210, 170, 90),
-        Severity::Error => egui::Color32::from_rgb(210, 120, 90),
-        Severity::Critical => egui::Color32::from_rgb(220, 90, 90),
-    }
+    use crate::config::ui::diagnostics as cfg;
+    let [r, g, b] = match sev {
+        Severity::Trace => cfg::SEVERITY_TRACE_RGB,
+        Severity::Info => cfg::SEVERITY_INFO_RGB,
+        Severity::Warn => cfg::SEVERITY_WARN_RGB,
+        Severity::Error => cfg::SEVERITY_ERROR_RGB,
+        Severity::Critical => cfg::SEVERITY_CRITICAL_RGB,
+    };
+    egui::Color32::from_rgb(r, g, b)
 }
 
 /// The currently-violated rules as `(id, severity, last detail, fire count)`,
@@ -142,15 +144,88 @@ fn render_anomaly_section(ui: &mut egui::Ui, invariants: &InvariantRegistry) {
     ui.separator();
 }
 
-/// A per-metric anomaly dot (Pillar C, reading the D-6 badge ledger): draws a
-/// severity-coloured `●` beside a metric row when the named invariant rule is
-/// currently violated, with its detail on hover. A row with no associated rule
-/// passes `""` (never matches → nothing drawn). C-6 (#618) extends this into the
-/// full metric→rule table across every subsystem card.
-fn anomaly_badge(ui: &mut egui::Ui, invariants: &InvariantRegistry, rule_id: &str) {
+/// The single metric→invariant-rule mapping the GUI badges read (Pillar C-6):
+/// which rule's live state badges each metric row. A metric absent here shows no
+/// badge; a mapped rule only lights up while it is *live*-violated (the
+/// replay-only rules surface in the analyzer/log, not the live panel).
+const METRIC_RULE_TABLE: &[(&str, &str)] = &[
+    (names::RUNTIME_FRAME_TIME_MS, "runtime.frame_time_spike"),
+    (
+        names::RUNTIME_MESH_HANDLE_COUNT,
+        "runtime.asset_handle_spike",
+    ),
+    (
+        names::RUNTIME_COLLIDER_COUNT,
+        "runtime.terrain_collider_missing",
+    ),
+    (
+        names::RUNTIME_SHAPE_MESH_CACHE_LEN,
+        "runtime.shape_mesh_cache_growth",
+    ),
+    (names::RUNTIME_RESPAWN_COUNT, "runtime.respawn_thrashing"),
+    (names::NET_PEER_DISCONNECTED_COUNT, "net.peer_churn_spike"),
+    (
+        names::NET_IDENTITY_SPOOFED_COUNT,
+        "net.identity_spoof_burst",
+    ),
+    (
+        names::NET_OFFER_ACCEPTED_COUNT,
+        "net.offer_acceptance_anomaly",
+    ),
+    (
+        names::OFFLOAD_AMBIENT_BAKE_LATENCY_MS,
+        "offload.ambient_bake_stall",
+    ),
+    (
+        names::OFFLOAD_JOB_ERROR_COUNT,
+        "offload.task_never_resolves",
+    ),
+    (
+        names::LOADING_RECORD_FETCH_LATENCY_MS,
+        "loading.record_fetch_exhausted",
+    ),
+    (names::LOADING_GATE_TOTAL_SECS, "loading.gate_stall"),
+];
+
+/// The invariant rule that badges `metric`, if any (see [`METRIC_RULE_TABLE`]).
+fn rule_for_metric(metric: &str) -> Option<&'static str> {
+    METRIC_RULE_TABLE
+        .iter()
+        .find(|(m, _)| *m == metric)
+        .map(|(_, rule)| *rule)
+}
+
+/// A per-metric anomaly pill (Pillar C-6): when the rule that badges `metric_id`
+/// (via [`METRIC_RULE_TABLE`]) is currently live-violated, draw a severity-
+/// coloured `●` beside the row, hovering the rule name + when it last fired + its
+/// detail. No mapping, or nothing active, draws nothing — so a clean session (or
+/// a build without the anomaly engine populated) shows a plain panel.
+fn anomaly_badge(ui: &mut egui::Ui, invariants: &InvariantRegistry, metric_id: &str) {
+    let Some(rule_id) = rule_for_metric(metric_id) else {
+        return;
+    };
     if let Some((_, sev, st)) = invariants.active_badges().find(|(id, _, _)| *id == rule_id) {
         ui.colored_label(severity_color(sev), "●")
-            .on_hover_text(st.last_detail.clone());
+            .on_hover_text(format!(
+                "{rule_id} — last fired {:.0}s: {}",
+                st.last_fired_secs, st.last_detail
+            ));
+    }
+}
+
+/// The count of live-violated invariants attributable to a tab, for its label
+/// badge (C-6). Overview aggregates everything; the subsystem tabs count their
+/// own subsystem (Offload also owns the loading-gate rules).
+fn tab_anomaly_count(tab: DiagTab, invariants: &InvariantRegistry) -> usize {
+    match tab {
+        DiagTab::Overview => invariants.active_badges().count(),
+        DiagTab::Runtime => invariants.active_count_for(Subsystem::Runtime),
+        DiagTab::Network => invariants.active_count_for(Subsystem::Network),
+        DiagTab::Offload => {
+            invariants.active_count_for(Subsystem::Offload)
+                + invariants.active_count_for(Subsystem::Loading)
+        }
+        DiagTab::Identity => 0,
     }
 }
 
@@ -242,51 +317,32 @@ fn render_overview_tab(
             .map(|d| d.to_string())
             .unwrap_or_else(|| "—".to_string());
         ui.monospace(egui::RichText::new(format!("· frame {frame}")).small());
-        anomaly_badge(ui, invariants, "runtime.frame_time_spike");
+        anomaly_badge(ui, invariants, names::RUNTIME_FRAME_TIME_MS);
     });
 
     ui.separator();
 
-    // Live counts — a compact grid; each metric row shows its anomaly badge.
+    // Live counts — a compact grid; the badge is keyed on the row's own metric
+    // via the shared METRIC_RULE_TABLE (C-6).
     egui::Grid::new("diag-overview-counts")
         .num_columns(3)
         .spacing([12.0, 4.0])
         .show(ui, |ui| {
-            let count_row = |ui: &mut egui::Ui, label: &str, name: &str, rule: &str| {
+            let count_row = |ui: &mut egui::Ui, label: &str, name: &str| {
                 ui.label(label);
                 let v = metrics
                     .gauge_latest(name)
                     .map(|n| format!("{n:.0}"))
                     .unwrap_or_else(|| "—".to_string());
                 ui.monospace(v);
-                anomaly_badge(ui, invariants, rule);
+                anomaly_badge(ui, invariants, name);
                 ui.end_row();
             };
-            count_row(ui, "Entities", names::RUNTIME_ENTITY_COUNT, "");
-            count_row(
-                ui,
-                "Mesh handles",
-                names::RUNTIME_MESH_HANDLE_COUNT,
-                "runtime.asset_handle_spike",
-            );
-            count_row(
-                ui,
-                "Material handles",
-                names::RUNTIME_MATERIAL_HANDLE_COUNT,
-                "",
-            );
-            count_row(
-                ui,
-                "Colliders",
-                names::RUNTIME_COLLIDER_COUNT,
-                "runtime.terrain_collider_missing",
-            );
-            count_row(
-                ui,
-                "ShapeMeshCache",
-                names::RUNTIME_SHAPE_MESH_CACHE_LEN,
-                "runtime.shape_mesh_cache_growth",
-            );
+            count_row(ui, "Entities", names::RUNTIME_ENTITY_COUNT);
+            count_row(ui, "Mesh handles", names::RUNTIME_MESH_HANDLE_COUNT);
+            count_row(ui, "Material handles", names::RUNTIME_MATERIAL_HANDLE_COUNT);
+            count_row(ui, "Colliders", names::RUNTIME_COLLIDER_COUNT);
+            count_row(ui, "ShapeMeshCache", names::RUNTIME_SHAPE_MESH_CACHE_LEN);
         });
 
     ui.separator();
@@ -294,8 +350,9 @@ fn render_overview_tab(
 }
 
 /// One subsystem health card: a titled `egui::Frame` wrapping a 3-column grid of
-/// `(label, value, anomaly badge)` rows. `rows` is `(label, value, rule_id)`; a
-/// row with no associated rule passes `""` (no dot).
+/// `(label, value, anomaly badge)` rows. `rows` is `(label, value, metric_id)` —
+/// the metric id keys the badge via [`METRIC_RULE_TABLE`] (C-6); a metric with no
+/// mapped rule simply draws no dot.
 fn health_card(
     ui: &mut egui::Ui,
     invariants: &InvariantRegistry,
@@ -314,10 +371,10 @@ fn health_card(
                 .num_columns(3)
                 .spacing([12.0, 3.0])
                 .show(ui, |ui| {
-                    for (label, value, rule) in rows {
+                    for (label, value, metric) in rows {
                         ui.label(*label);
                         ui.monospace(value.as_str());
-                        anomaly_badge(ui, invariants, rule);
+                        anomaly_badge(ui, invariants, metric);
                         ui.end_row();
                     }
                 });
@@ -354,34 +411,38 @@ fn render_health_tab(
                 (
                     "Frame time (ms)",
                     g(names::RUNTIME_FRAME_TIME_MS),
-                    "runtime.frame_time_spike",
+                    names::RUNTIME_FRAME_TIME_MS,
                 ),
-                ("FPS", g(names::RUNTIME_FPS), ""),
-                ("Entities", g(names::RUNTIME_ENTITY_COUNT), ""),
+                ("FPS", g(names::RUNTIME_FPS), names::RUNTIME_FPS),
+                (
+                    "Entities",
+                    g(names::RUNTIME_ENTITY_COUNT),
+                    names::RUNTIME_ENTITY_COUNT,
+                ),
                 (
                     "Mesh handles",
                     g(names::RUNTIME_MESH_HANDLE_COUNT),
-                    "runtime.asset_handle_spike",
+                    names::RUNTIME_MESH_HANDLE_COUNT,
                 ),
                 (
                     "Material handles",
                     g(names::RUNTIME_MATERIAL_HANDLE_COUNT),
-                    "",
+                    names::RUNTIME_MATERIAL_HANDLE_COUNT,
                 ),
                 (
                     "Colliders",
                     g(names::RUNTIME_COLLIDER_COUNT),
-                    "runtime.terrain_collider_missing",
+                    names::RUNTIME_COLLIDER_COUNT,
                 ),
                 (
                     "ShapeMeshCache",
                     g(names::RUNTIME_SHAPE_MESH_CACHE_LEN),
-                    "runtime.shape_mesh_cache_growth",
+                    names::RUNTIME_SHAPE_MESH_CACHE_LEN,
                 ),
                 (
                     "Respawns",
                     c(names::RUNTIME_RESPAWN_COUNT),
-                    "runtime.respawn_thrashing",
+                    names::RUNTIME_RESPAWN_COUNT,
                 ),
             ],
         ),
@@ -394,18 +455,22 @@ fn render_health_tab(
                     (
                         "Connected",
                         c(names::NET_PEER_CONNECTED_COUNT),
-                        "net.peer_churn_spike",
+                        names::NET_PEER_CONNECTED_COUNT,
                     ),
-                    ("Disconnected", c(names::NET_PEER_DISCONNECTED_COUNT), ""),
+                    (
+                        "Disconnected",
+                        c(names::NET_PEER_DISCONNECTED_COUNT),
+                        names::NET_PEER_DISCONNECTED_COUNT,
+                    ),
                     (
                         "Transform rejects",
                         c(names::NET_TRANSFORM_REJECTED_COUNT),
-                        "",
+                        names::NET_TRANSFORM_REJECTED_COUNT,
                     ),
                     (
                         "Spoof rejects",
                         c(names::NET_IDENTITY_SPOOFED_COUNT),
-                        "net.identity_spoof_burst",
+                        names::NET_IDENTITY_SPOOFED_COUNT,
                     ),
                 ],
             );
@@ -414,9 +479,21 @@ fn render_health_tab(
                 invariants,
                 "Avatar fetch",
                 &[
-                    ("Latency (ms)", h(names::NET_AVATAR_FETCH_LATENCY_MS), ""),
-                    ("Succeeded", c(names::NET_AVATAR_FETCH_SUCCESS_COUNT), ""),
-                    ("Failed", c(names::NET_AVATAR_FETCH_FAIL_COUNT), ""),
+                    (
+                        "Latency (ms)",
+                        h(names::NET_AVATAR_FETCH_LATENCY_MS),
+                        names::NET_AVATAR_FETCH_LATENCY_MS,
+                    ),
+                    (
+                        "Succeeded",
+                        c(names::NET_AVATAR_FETCH_SUCCESS_COUNT),
+                        names::NET_AVATAR_FETCH_SUCCESS_COUNT,
+                    ),
+                    (
+                        "Failed",
+                        c(names::NET_AVATAR_FETCH_FAIL_COUNT),
+                        names::NET_AVATAR_FETCH_FAIL_COUNT,
+                    ),
                 ],
             );
             health_card(
@@ -427,18 +504,22 @@ fn render_health_tab(
                     (
                         "Playout latency (ms)",
                         h(names::NET_JITTER_PLAYOUT_LATENCY_MS),
-                        "",
+                        names::NET_JITTER_PLAYOUT_LATENCY_MS,
                     ),
                     (
                         "Offers accepted",
                         c(names::NET_OFFER_ACCEPTED_COUNT),
-                        "net.offer_acceptance_anomaly",
+                        names::NET_OFFER_ACCEPTED_COUNT,
                     ),
-                    ("Offers declined", c(names::NET_OFFER_DECLINED_COUNT), ""),
+                    (
+                        "Offers declined",
+                        c(names::NET_OFFER_DECLINED_COUNT),
+                        names::NET_OFFER_DECLINED_COUNT,
+                    ),
                     (
                         "Auto-declined (busy)",
                         c(names::NET_OFFER_AUTO_DECLINED_BUSY_COUNT),
-                        "",
+                        names::NET_OFFER_AUTO_DECLINED_BUSY_COUNT,
                     ),
                 ],
             );
@@ -449,21 +530,25 @@ fn render_health_tab(
                 invariants,
                 "Async jobs",
                 &[
-                    ("Heightmap (ms)", h(names::OFFLOAD_HEIGHTMAP_LATENCY_MS), ""),
+                    (
+                        "Heightmap (ms)",
+                        h(names::OFFLOAD_HEIGHTMAP_LATENCY_MS),
+                        names::OFFLOAD_HEIGHTMAP_LATENCY_MS,
+                    ),
                     (
                         "Ambient bake (ms)",
                         h(names::OFFLOAD_AMBIENT_BAKE_LATENCY_MS),
-                        "offload.ambient_bake_stall",
+                        names::OFFLOAD_AMBIENT_BAKE_LATENCY_MS,
                     ),
                     (
                         "Texture bake (ms)",
                         h(names::OFFLOAD_TEXTURE_BAKE_LATENCY_MS),
-                        "",
+                        names::OFFLOAD_TEXTURE_BAKE_LATENCY_MS,
                     ),
                     (
                         "Job errors",
                         c(names::OFFLOAD_JOB_ERROR_COUNT),
-                        "offload.task_never_resolves",
+                        names::OFFLOAD_JOB_ERROR_COUNT,
                     ),
                 ],
             );
@@ -475,17 +560,17 @@ fn render_health_tab(
                     (
                         "Record fetch (ms)",
                         h(names::LOADING_RECORD_FETCH_LATENCY_MS),
-                        "loading.record_fetch_exhausted",
+                        names::LOADING_RECORD_FETCH_LATENCY_MS,
                     ),
                     (
                         "Fetch retries",
                         c(names::LOADING_RECORD_FETCH_RETRY_COUNT),
-                        "",
+                        names::LOADING_RECORD_FETCH_RETRY_COUNT,
                     ),
                     (
                         "Last gate (s)",
                         g(names::LOADING_GATE_TOTAL_SECS),
-                        "loading.gate_stall",
+                        names::LOADING_GATE_TOTAL_SECS,
                     ),
                 ],
             );
@@ -507,7 +592,11 @@ fn render_health_tab(
                 ui,
                 invariants,
                 "Render",
-                &[("Splat texture slots", slots, "")],
+                &[(
+                    "Splat texture slots",
+                    slots,
+                    names::RUNTIME_TEXTURE_BIND_SLOTS,
+                )],
             );
         }
         DiagTab::Overview | DiagTab::Identity => {}
@@ -547,7 +636,15 @@ pub fn diagnostics_ui(
             // render the shared metrics spine.
             ui.horizontal(|ui| {
                 for tab in DiagTab::ALL {
-                    ui.selectable_value(&mut *active_tab, tab, tab.label());
+                    // Per-subsystem fired-count badge on the tab label (C-6):
+                    // e.g. "Network (2)" while two network invariants are live.
+                    let n = tab_anomaly_count(tab, &invariants);
+                    let label = if n > 0 {
+                        format!("{} ({n})", tab.label())
+                    } else {
+                        tab.label().to_string()
+                    };
+                    ui.selectable_value(&mut *active_tab, tab, label);
                 }
             });
             ui.separator();
@@ -865,5 +962,36 @@ mod tests {
         for tab in tabs {
             render_once(tab, &m, &reg);
         }
+    }
+
+    #[test]
+    fn rule_for_metric_maps_known_metrics_only() {
+        assert_eq!(
+            rule_for_metric(names::RUNTIME_COLLIDER_COUNT),
+            Some("runtime.terrain_collider_missing")
+        );
+        assert_eq!(
+            rule_for_metric(names::NET_IDENTITY_SPOOFED_COUNT),
+            Some("net.identity_spoof_burst")
+        );
+        // Unmapped metric / unknown name → no badge.
+        assert_eq!(rule_for_metric(names::RUNTIME_FPS), None);
+        assert_eq!(rule_for_metric("nope"), None);
+    }
+
+    #[test]
+    fn tab_anomaly_count_attributes_by_subsystem() {
+        let mut reg = default_registry();
+        violate(&mut reg, "runtime.terrain_collider_missing", "x"); // Runtime
+        violate(&mut reg, "net.identity_spoof_burst", "y"); // Network
+        violate(&mut reg, "loading.gate_stall", "z"); // Loading → Offload tab
+
+        assert_eq!(tab_anomaly_count(DiagTab::Runtime, &reg), 1);
+        assert_eq!(tab_anomaly_count(DiagTab::Network, &reg), 1);
+        // The Offload tab owns the Loading subsystem's gate rules.
+        assert_eq!(tab_anomaly_count(DiagTab::Offload, &reg), 1);
+        // Overview aggregates everything.
+        assert_eq!(tab_anomaly_count(DiagTab::Overview, &reg), 3);
+        assert_eq!(tab_anomaly_count(DiagTab::Identity, &reg), 0);
     }
 }
