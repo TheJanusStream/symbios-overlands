@@ -84,32 +84,37 @@ pub struct ChatHistory {
     pub messages: Vec<ChatEntry>,
 }
 
-/// Rolling diagnostic event log with session-relative timestamps.
+/// Legacy free-text diagnostic lines, buffered for forwarding into the unified
+/// [`SessionLog`](crate::diagnostics::SessionLog) event stream (Pillar A-6).
+///
+/// Historically this *was* the rolling event log the Diagnostics HUD rendered
+/// directly. That display is now a bounded **tail view** over `SessionLog`, so
+/// the two can never diverge; this resource survives only as the migration
+/// bridge for the free-text `push` call sites that have not yet moved to typed
+/// [`EventPayload`](crate::diagnostics::event::EventPayload) variants (A-9).
+/// Each frame `diagnostics::plugin::forward_legacy_events` drains it into
+/// `SessionLog` as `Legacy` events.
 #[derive(Resource, Default)]
 pub struct DiagnosticsLog {
-    entries: std::collections::VecDeque<(String, String)>,
+    /// `(session-relative secs, message)` pairs awaiting forwarding.
+    pending: std::collections::VecDeque<(f64, String)>,
 }
 
 impl DiagnosticsLog {
-    /// Push a new entry. `elapsed_secs` comes from `Time::elapsed_secs_f64`.
+    /// Buffer a free-text diagnostic line. `elapsed_secs` comes from
+    /// `Time::elapsed_secs_f64` and is carried through to the forwarded event's
+    /// `t_mono_secs`. Bounded so a state in which the forwarder is not running
+    /// cannot grow the buffer without limit.
     pub fn push(&mut self, elapsed_secs: f64, entry: String) {
-        let total = elapsed_secs as u64;
-        let h = total / 3600;
-        let m = (total % 3600) / 60;
-        let s = total % 60;
-        let ts = if h > 0 {
-            format!("{h}:{m:02}:{s:02}")
-        } else {
-            format!("{m:02}:{s:02}")
-        };
-        self.entries.push_back((ts, entry));
-        if self.entries.len() > crate::config::state::MAX_DIAGNOSTICS_ENTRIES {
-            self.entries.pop_front();
+        self.pending.push_back((elapsed_secs, entry));
+        while self.pending.len() > crate::config::state::MAX_DIAGNOSTICS_ENTRIES * 2 {
+            self.pending.pop_front();
         }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &(String, String)> {
-        self.entries.iter()
+    /// Drain the buffered lines for forwarding into `SessionLog`.
+    pub fn take_pending(&mut self) -> Vec<(f64, String)> {
+        self.pending.drain(..).collect()
     }
 }
 

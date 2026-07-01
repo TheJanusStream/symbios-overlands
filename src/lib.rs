@@ -39,6 +39,7 @@ pub mod camera;
 pub mod catalogue;
 pub mod clouds;
 pub mod config;
+pub mod diagnostics;
 pub mod editor_gizmo;
 pub mod interaction;
 pub mod loading;
@@ -165,6 +166,13 @@ pub fn run() {
     #[cfg(not(target_arch = "wasm32"))]
     app.add_plugins(WireframePlugin::default());
     app.add_plugins(PhysicsPlugins::default())
+        // BootParams must be resident before DiagnosticsPlugin::build reads it
+        // for the boot StartupSnapshot, so insert it here and add the plugin
+        // right after. The plugin opens the native session-log sink, records
+        // the boot snapshot as seq 0, installs the crash-dump panic hook, and
+        // registers the flush + legacy-forward systems.
+        .insert_resource(boot)
+        .add_plugins(diagnostics::DiagnosticsPlugin)
         .add_plugins(transform_gizmo_bevy::TransformGizmoPlugin)
         .add_plugins(MaterialPlugin::<clouds::CloudMaterial>::default())
         .add_plugins(terrain::TerrainPlugin)
@@ -210,7 +218,6 @@ pub fn run() {
         .init_resource::<loading::AmbientRebakePending>()
         .init_resource::<editor_gizmo::GizmoFramePref>()
         .init_resource::<oauth::OauthClientRes>()
-        .insert_resource(boot)
         .add_systems(
             EguiPrimaryContextPass,
             ui::login::login_ui.run_if(in_state(AppState::Login)),
@@ -235,6 +242,7 @@ pub fn run() {
         .add_systems(
             OnEnter(AppState::Loading),
             (
+                diagnostics::plugin::record_session_snapshot,
                 loading::reset_ambient_bake_state,
                 loading::start_room_record_fetch,
                 loading::start_avatar_record_fetch,

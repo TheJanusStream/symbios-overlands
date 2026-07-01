@@ -1,0 +1,933 @@
+//! Session-event data model — the taxonomy every subsystem records into the
+//! single append-only diagnostic stream (Pillar A of the diagnostic suite).
+//!
+//! One [`SessionEvent`] is emitted per notable thing that happens between app
+//! launch and exit. The stream has three consumers, all reading the *same*
+//! records: the in-game Diagnostics event log (a bounded tail view), the
+//! native NDJSON file a coding agent reads for a post-mortem, and the offline
+//! `--analyze-session` analyzer. One model means the GUI and the file can
+//! never disagree.
+//!
+//! This module is deliberately free of gameplay types — peer ids, DIDs and
+//! positions are stored as plain strings / arrays so it depends only on
+//! `serde` and round-trips losslessly through JSON on both native and wasm.
+//! Call sites format their domain values into these fields when they record.
+
+use serde::{Deserialize, Serialize};
+
+/// Which subsystem an event originated in — one of the three filter axes
+/// (`subsystem` × [`Category`] × [`Severity`]) the analyzer slices on.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Subsystem {
+    /// App-state machine + the loading gate (Login → Loading → InGame).
+    Loading,
+    /// Peer-to-peer networking and multiuser presence.
+    Network,
+    /// Async work offloaded to task pools / web workers.
+    Offload,
+    /// Frame time, assets, physics, memory — live-session health.
+    Runtime,
+    /// Session-level bookkeeping (snapshots, segment resets, exit, anomalies).
+    Session,
+}
+
+/// Severity of an event — drives log level, GUI badge colour, and the
+/// analyzer's verdict tally. `Ord` so the GUI can pick the worst active.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Severity {
+    /// Fine-grained / high-frequency; usually rate-limited before recording.
+    Trace,
+    /// Normal lifecycle progress.
+    Info,
+    /// Something recoverable but worth noticing.
+    Warn,
+    /// A failure that degraded behaviour.
+    Error,
+    /// A failure that blocks or breaks the session.
+    Critical,
+}
+
+/// A coarse topical grouping, the middle filter axis between [`Subsystem`] and
+/// the fine-grained payload `kind`. Derived from the payload via
+/// [`EventPayload::category`] so callers never have to pass it by hand.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Category {
+    Lifecycle,
+    Fetch,
+    Generation,
+    Audio,
+    Peer,
+    Transport,
+    Offer,
+    Chat,
+    Social,
+    Job,
+    Physics,
+    Asset,
+    Perf,
+    Portal,
+    Anomaly,
+    Snapshot,
+    Legacy,
+}
+
+/// Which PDS-backed record a fetch event refers to.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum RecordKind {
+    Room,
+    Avatar,
+    Inventory,
+}
+
+/// Terminal disposition of a record fetch.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum FetchStatus {
+    /// Record decoded and installed.
+    Ok,
+    /// PDS returned 404 → fell back to the DID-seeded default.
+    NotFound,
+    /// Response body failed to decode against the current lexicon.
+    DecodeError,
+    /// A transient error (DNS / timeout / 5xx) that will be retried.
+    TransientError,
+    /// The retry budget was exhausted and the default was installed.
+    Exhausted,
+    /// Best-effort fetch (inventory) fell back without retrying.
+    BestEffortFallback,
+}
+
+/// Which phase a [`StartupInfo`] snapshot was taken in.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SnapshotPhase {
+    /// Emitted at app build, before login — the DID is not yet known.
+    Boot,
+    /// Emitted on Login → Loading, with the authenticated DID/relay filled in.
+    Session,
+}
+
+/// The first record of every session: enough build/environment context to key
+/// a log to a DID and correlate it across runs. Built by
+/// `crate::diagnostics::snapshot` (Pillar A-4); the type lives here because it
+/// is part of the event taxonomy. Boxed inside [`EventPayload`] so the enum
+/// stays small.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct StartupInfo {
+    pub phase: SnapshotPhase,
+    /// `CARGO_PKG_VERSION` of the overlands crate.
+    pub version: String,
+    /// Short git sha (or `"unknown"` when built outside a git checkout).
+    pub git_sha: String,
+    /// `target_arch` the binary was compiled for.
+    pub target_arch: String,
+    /// `"debug"` or `"release"`.
+    pub profile: String,
+    /// True on the wasm32 web build.
+    pub wasm: bool,
+    /// Boot params (see `crate::boot_params`), if any were supplied.
+    pub boot_target_did: Option<String>,
+    pub boot_pos: Option<[f32; 3]>,
+    pub boot_yaw_deg: Option<f32>,
+    pub pds: Option<String>,
+    pub relay: Option<String>,
+    /// The authenticated session DID — `None` in the `Boot` phase snapshot.
+    pub session_did: Option<String>,
+}
+
+/// The payload of a [`SessionEvent`]. Internally tagged (`"kind": "…"`) so each
+/// JSONL line self-describes; every variant is a struct or unit variant (serde
+/// internal tagging forbids tuple variants). The union is drawn from the four
+/// priority subsystems surveyed for the suite plus session-level records.
+///
+/// Fields carry only serde-friendly scalars/strings — domain values (peer ids,
+/// DIDs, positions) are pre-formatted to strings/arrays at the call site.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(tag = "kind")]
+pub enum EventPayload {
+    // ---- Session-level -----------------------------------------------------
+    /// First record of a session (see [`StartupInfo`]).
+    StartupSnapshot(Box<StartupInfo>),
+    /// A logout / room-change started a fresh session segment.
+    SessionSegmentReset {
+        reason: String,
+    },
+    /// The session ended (clean exit, logout, or a captured crash).
+    SessionEnd {
+        reason: String,
+    },
+    /// An invariant/anomaly rule fired (Pillar D routes these in). The event's
+    /// own `severity` carries the rule severity.
+    InvariantViolation {
+        rule: String,
+        detail: String,
+    },
+
+    // ---- Loading / state machine ------------------------------------------
+    /// Entered `AppState::Loading`.
+    LoadingPhaseStarted,
+    RecordFetchInitiated {
+        record: RecordKind,
+        did: String,
+        attempt: u32,
+    },
+    RecordFetchRetrying {
+        record: RecordKind,
+        did: String,
+        attempt: u32,
+        backoff_secs: u64,
+        reason: String,
+    },
+    RecordFetchCompleted {
+        record: RecordKind,
+        did: String,
+        status: FetchStatus,
+        duration_secs: f64,
+    },
+    /// The room record could not be decoded; the recovery banner was raised.
+    RoomRecoveryBannerRaised {
+        reason: String,
+    },
+    HeightmapGenStarted {
+        seed: u64,
+    },
+    HeightmapGenCompleted {
+        duration_secs: f64,
+        width: u32,
+        height: u32,
+    },
+    SplatTexturesStarted {
+        layer_count: u32,
+    },
+    SplatTexturesCompleted {
+        layer_count: u32,
+        duration_secs: f64,
+    },
+    AmbientBakeStarted {
+        variant: String,
+    },
+    AmbientBakeCompleted {
+        bytes: u64,
+        duration_secs: f64,
+    },
+    AmbientBakeFallback {
+        reason: String,
+    },
+    WorldCompileStarted {
+        placement_count: u32,
+    },
+    WorldCompileCompleted {
+        entity_count: u32,
+        duration_secs: f64,
+    },
+    /// All nine loading-gate resources are present.
+    LoadingGateReady {
+        elapsed_secs: f64,
+    },
+    /// Transitioned Loading → InGame.
+    LoadingGateTransitionToInGame {
+        elapsed_secs: f64,
+    },
+    LoadingGateWarning {
+        stage: String,
+        message: String,
+    },
+    LoadingGateTimeout {
+        stage: String,
+        elapsed_secs: f64,
+        expected_max_secs: f64,
+    },
+    LoginFeedFetchInitiated,
+    LoginFeedFetchCompleted {
+        post_count: u32,
+        duration_secs: f64,
+        success: bool,
+    },
+    AmbientSettleCompleted {
+        settled_at_secs: f64,
+    },
+
+    // ---- Network / multiuser ----------------------------------------------
+    PeerJoined {
+        peer: String,
+    },
+    PeerLeft {
+        peer: String,
+        label: String,
+    },
+    PeerIdentityVerified {
+        peer: String,
+        did: String,
+        handle: String,
+    },
+    PeerIdentitySpoofRejected {
+        peer: String,
+        claimed_did: String,
+        authenticated_did: String,
+    },
+    AvatarFetchStarted {
+        peer: String,
+        did: String,
+    },
+    AvatarFetchSucceeded {
+        peer: String,
+        did: String,
+        from_cache: bool,
+    },
+    AvatarFetchFailed {
+        peer: String,
+        did: String,
+        error: String,
+    },
+    AvatarStateDecodeFailed {
+        peer: String,
+        reason: String,
+    },
+    TransformSampleRejected {
+        peer: String,
+        reason: String,
+    },
+    RoomStateRejected {
+        sender_did: String,
+        reason: String,
+    },
+    RoomStateDecodeFailed {
+        sender_did: String,
+        error: String,
+    },
+    RoomStateApplied,
+    ChatReceived {
+        sender_did: String,
+        text_len: u32,
+        muted: bool,
+    },
+    ChatDroppedMuted {
+        sender_did: String,
+    },
+    ItemOfferReceived {
+        offer_id: u64,
+        sender_did: String,
+        item_name: String,
+    },
+    ItemOfferAutoDeclinedMuted {
+        offer_id: u64,
+    },
+    ItemOfferAutoDeclinedBusy {
+        offer_id: u64,
+    },
+    ItemOfferDecodeFailed {
+        reason: String,
+    },
+    ItemOfferDialogShown {
+        offer_id: u64,
+        item_name: String,
+    },
+    ItemOfferDialogAutoDeclinedTimeout {
+        offer_id: u64,
+    },
+    ItemOfferUserResponded {
+        offer_id: u64,
+        accepted: bool,
+    },
+    ItemOfferResponseReceived {
+        offer_id: u64,
+        accepted: bool,
+    },
+    PendingOfferTimedOut {
+        offer_id: u64,
+    },
+    PeerMuteToggled {
+        peer: String,
+        muted: bool,
+    },
+    SocialResonanceCompleted {
+        peer: String,
+        resonance: String,
+    },
+    SocialResonanceFailed {
+        peer: String,
+        error: String,
+    },
+
+    // ---- Async / offload ---------------------------------------------------
+    OffloadJobStarted {
+        job: String,
+    },
+    OffloadJobCompleted {
+        job: String,
+        duration_secs: f64,
+    },
+    OffloadJobFailed {
+        job: String,
+        reason: String,
+    },
+    OffloadTaskTimeout {
+        job: String,
+        elapsed_secs: f64,
+    },
+    WorkerSpawnFailed {
+        reason: String,
+    },
+
+    // ---- Runtime health ----------------------------------------------------
+    RespawnTriggered {
+        fell_to_y: f32,
+        ground_y: f32,
+    },
+    TerrainColliderMissing,
+    PhysicsNanDetected {
+        entity: String,
+    },
+    AssetHandleSpike {
+        class: String,
+        count: u32,
+    },
+    FrameTimeSpike {
+        p95_ms: f32,
+    },
+    ShapeMeshCacheGrowth {
+        len: u32,
+    },
+    OrphanAvatarVisual {
+        count: u32,
+    },
+    PortalTravelInitiated {
+        target_did: String,
+    },
+    PortalTravelCompleted {
+        target_did: String,
+    },
+
+    // ---- Migration shim ----------------------------------------------------
+    /// A legacy free-text `DiagnosticsLog::push` line, kept so the 17 existing
+    /// string call sites compile while they are migrated to typed variants
+    /// (Pillar A-9). The recording call site supplies the real subsystem.
+    Legacy {
+        text: String,
+    },
+}
+
+impl EventPayload {
+    /// The subsystem this payload naturally belongs to. Used as the default
+    /// when recording; a caller (e.g. the anomaly router) may override the
+    /// event's `subsystem` field for cross-cutting events.
+    pub fn subsystem(&self) -> Subsystem {
+        use EventPayload::*;
+        match self {
+            StartupSnapshot(_)
+            | SessionSegmentReset { .. }
+            | SessionEnd { .. }
+            | InvariantViolation { .. }
+            | Legacy { .. } => Subsystem::Session,
+
+            LoadingPhaseStarted
+            | RecordFetchInitiated { .. }
+            | RecordFetchRetrying { .. }
+            | RecordFetchCompleted { .. }
+            | RoomRecoveryBannerRaised { .. }
+            | HeightmapGenStarted { .. }
+            | HeightmapGenCompleted { .. }
+            | SplatTexturesStarted { .. }
+            | SplatTexturesCompleted { .. }
+            | AmbientBakeStarted { .. }
+            | AmbientBakeCompleted { .. }
+            | AmbientBakeFallback { .. }
+            | WorldCompileStarted { .. }
+            | WorldCompileCompleted { .. }
+            | LoadingGateReady { .. }
+            | LoadingGateTransitionToInGame { .. }
+            | LoadingGateWarning { .. }
+            | LoadingGateTimeout { .. }
+            | LoginFeedFetchInitiated
+            | LoginFeedFetchCompleted { .. }
+            | AmbientSettleCompleted { .. } => Subsystem::Loading,
+
+            PeerJoined { .. }
+            | PeerLeft { .. }
+            | PeerIdentityVerified { .. }
+            | PeerIdentitySpoofRejected { .. }
+            | AvatarFetchStarted { .. }
+            | AvatarFetchSucceeded { .. }
+            | AvatarFetchFailed { .. }
+            | AvatarStateDecodeFailed { .. }
+            | TransformSampleRejected { .. }
+            | RoomStateRejected { .. }
+            | RoomStateDecodeFailed { .. }
+            | RoomStateApplied
+            | ChatReceived { .. }
+            | ChatDroppedMuted { .. }
+            | ItemOfferReceived { .. }
+            | ItemOfferAutoDeclinedMuted { .. }
+            | ItemOfferAutoDeclinedBusy { .. }
+            | ItemOfferDecodeFailed { .. }
+            | ItemOfferDialogShown { .. }
+            | ItemOfferDialogAutoDeclinedTimeout { .. }
+            | ItemOfferUserResponded { .. }
+            | ItemOfferResponseReceived { .. }
+            | PendingOfferTimedOut { .. }
+            | PeerMuteToggled { .. }
+            | SocialResonanceCompleted { .. }
+            | SocialResonanceFailed { .. } => Subsystem::Network,
+
+            OffloadJobStarted { .. }
+            | OffloadJobCompleted { .. }
+            | OffloadJobFailed { .. }
+            | OffloadTaskTimeout { .. }
+            | WorkerSpawnFailed { .. } => Subsystem::Offload,
+
+            RespawnTriggered { .. }
+            | TerrainColliderMissing
+            | PhysicsNanDetected { .. }
+            | AssetHandleSpike { .. }
+            | FrameTimeSpike { .. }
+            | ShapeMeshCacheGrowth { .. }
+            | OrphanAvatarVisual { .. }
+            | PortalTravelInitiated { .. }
+            | PortalTravelCompleted { .. } => Subsystem::Runtime,
+        }
+    }
+
+    /// The topical category of this payload (middle filter axis).
+    pub fn category(&self) -> Category {
+        use EventPayload::*;
+        match self {
+            StartupSnapshot(_) => Category::Snapshot,
+            SessionSegmentReset { .. } | SessionEnd { .. } => Category::Lifecycle,
+            InvariantViolation { .. } => Category::Anomaly,
+            Legacy { .. } => Category::Legacy,
+
+            LoadingPhaseStarted
+            | LoadingGateReady { .. }
+            | LoadingGateTransitionToInGame { .. }
+            | LoadingGateWarning { .. }
+            | LoadingGateTimeout { .. }
+            | AmbientSettleCompleted { .. } => Category::Lifecycle,
+
+            RecordFetchInitiated { .. }
+            | RecordFetchRetrying { .. }
+            | RecordFetchCompleted { .. }
+            | RoomRecoveryBannerRaised { .. }
+            | LoginFeedFetchInitiated
+            | LoginFeedFetchCompleted { .. } => Category::Fetch,
+
+            HeightmapGenStarted { .. }
+            | HeightmapGenCompleted { .. }
+            | SplatTexturesStarted { .. }
+            | SplatTexturesCompleted { .. }
+            | WorldCompileStarted { .. }
+            | WorldCompileCompleted { .. } => Category::Generation,
+
+            AmbientBakeStarted { .. }
+            | AmbientBakeCompleted { .. }
+            | AmbientBakeFallback { .. } => Category::Audio,
+
+            PeerJoined { .. }
+            | PeerLeft { .. }
+            | PeerIdentityVerified { .. }
+            | PeerIdentitySpoofRejected { .. }
+            | AvatarFetchStarted { .. }
+            | AvatarFetchSucceeded { .. }
+            | AvatarFetchFailed { .. }
+            | AvatarStateDecodeFailed { .. }
+            | PeerMuteToggled { .. } => Category::Peer,
+
+            TransformSampleRejected { .. }
+            | RoomStateRejected { .. }
+            | RoomStateDecodeFailed { .. }
+            | RoomStateApplied => Category::Transport,
+
+            ChatReceived { .. } | ChatDroppedMuted { .. } => Category::Chat,
+
+            ItemOfferReceived { .. }
+            | ItemOfferAutoDeclinedMuted { .. }
+            | ItemOfferAutoDeclinedBusy { .. }
+            | ItemOfferDecodeFailed { .. }
+            | ItemOfferDialogShown { .. }
+            | ItemOfferDialogAutoDeclinedTimeout { .. }
+            | ItemOfferUserResponded { .. }
+            | ItemOfferResponseReceived { .. }
+            | PendingOfferTimedOut { .. } => Category::Offer,
+
+            SocialResonanceCompleted { .. } | SocialResonanceFailed { .. } => Category::Social,
+
+            OffloadJobStarted { .. }
+            | OffloadJobCompleted { .. }
+            | OffloadJobFailed { .. }
+            | OffloadTaskTimeout { .. }
+            | WorkerSpawnFailed { .. } => Category::Job,
+
+            RespawnTriggered { .. } | TerrainColliderMissing | PhysicsNanDetected { .. } => {
+                Category::Physics
+            }
+
+            AssetHandleSpike { .. } | ShapeMeshCacheGrowth { .. } | OrphanAvatarVisual { .. } => {
+                Category::Asset
+            }
+
+            FrameTimeSpike { .. } => Category::Perf,
+
+            PortalTravelInitiated { .. } | PortalTravelCompleted { .. } => Category::Portal,
+        }
+    }
+
+    /// A one-line human string for the in-game event log (the tail view keeps
+    /// rendering the same terse lines the current `DiagnosticsLog` shows).
+    pub fn short_line(&self) -> String {
+        use EventPayload::*;
+        match self {
+            StartupSnapshot(s) => format!(
+                "startup {:?}: v{} ({}) {}{}",
+                s.phase,
+                s.version,
+                s.git_sha,
+                s.target_arch,
+                s.session_did
+                    .as_deref()
+                    .map(|d| format!(" — {d}"))
+                    .unwrap_or_default()
+            ),
+            SessionSegmentReset { reason } => format!("session segment reset ({reason})"),
+            SessionEnd { reason } => format!("session end ({reason})"),
+            InvariantViolation { rule, detail } => format!("⚠ invariant {rule}: {detail}"),
+
+            LoadingPhaseStarted => "loading started".to_string(),
+            RecordFetchInitiated {
+                record, attempt, ..
+            } => {
+                format!("{record:?} fetch (attempt {attempt})")
+            }
+            RecordFetchRetrying {
+                record,
+                attempt,
+                backoff_secs,
+                reason,
+                ..
+            } => {
+                format!("{record:?} fetch retry #{attempt} in {backoff_secs}s ({reason})")
+            }
+            RecordFetchCompleted {
+                record,
+                status,
+                duration_secs,
+                ..
+            } => {
+                format!("{record:?} fetch {status:?} in {duration_secs:.1}s")
+            }
+            RoomRecoveryBannerRaised { reason } => format!("room recovery banner ({reason})"),
+            HeightmapGenStarted { seed } => format!("heightmap gen started (seed {seed})"),
+            HeightmapGenCompleted {
+                duration_secs,
+                width,
+                height,
+            } => {
+                format!("heightmap gen done {width}×{height} in {duration_secs:.1}s")
+            }
+            SplatTexturesStarted { layer_count } => {
+                format!("splat textures started ({layer_count} layers)")
+            }
+            SplatTexturesCompleted {
+                layer_count,
+                duration_secs,
+            } => {
+                format!("splat textures done ({layer_count} layers) in {duration_secs:.1}s")
+            }
+            AmbientBakeStarted { variant } => format!("ambient bake started ({variant})"),
+            AmbientBakeCompleted {
+                bytes,
+                duration_secs,
+            } => {
+                format!("ambient bake done ({bytes} B) in {duration_secs:.1}s")
+            }
+            AmbientBakeFallback { reason } => format!("ambient bake fallback ({reason})"),
+            WorldCompileStarted { placement_count } => {
+                format!("world compile started ({placement_count} placements)")
+            }
+            WorldCompileCompleted {
+                entity_count,
+                duration_secs,
+            } => {
+                format!("world compile done ({entity_count} entities) in {duration_secs:.1}s")
+            }
+            LoadingGateReady { elapsed_secs } => {
+                format!("loading gate ready ({elapsed_secs:.1}s)")
+            }
+            LoadingGateTransitionToInGame { elapsed_secs } => {
+                format!("→ InGame ({elapsed_secs:.1}s)")
+            }
+            LoadingGateWarning { stage, message } => format!("gate warning [{stage}]: {message}"),
+            LoadingGateTimeout {
+                stage,
+                elapsed_secs,
+                expected_max_secs,
+            } => {
+                format!("gate TIMEOUT [{stage}] {elapsed_secs:.1}s > {expected_max_secs:.1}s")
+            }
+            LoginFeedFetchInitiated => "login feed fetch".to_string(),
+            LoginFeedFetchCompleted {
+                post_count,
+                duration_secs,
+                success,
+            } => {
+                format!("login feed {post_count} posts in {duration_secs:.1}s (ok={success})")
+            }
+            AmbientSettleCompleted { settled_at_secs } => {
+                format!("ambient settled ({settled_at_secs:.1}s)")
+            }
+
+            PeerJoined { peer } => format!("peer joined: {peer}"),
+            PeerLeft { peer, label } => format!("peer left: {label} ({peer})"),
+            PeerIdentityVerified { did, handle, .. } => format!("identity: @{handle} {did}"),
+            PeerIdentitySpoofRejected {
+                claimed_did,
+                authenticated_did,
+                ..
+            } => {
+                format!("SPOOF rejected: claimed {claimed_did} ≠ {authenticated_did}")
+            }
+            AvatarFetchStarted { did, .. } => format!("avatar fetch: {did}"),
+            AvatarFetchSucceeded {
+                did, from_cache, ..
+            } => {
+                format!("avatar ok: {did} (cache={from_cache})")
+            }
+            AvatarFetchFailed { did, error, .. } => format!("avatar FAILED: {did} ({error})"),
+            AvatarStateDecodeFailed { peer, reason } => {
+                format!("avatar state decode failed [{peer}]: {reason}")
+            }
+            TransformSampleRejected { peer, reason } => {
+                format!("transform rejected [{peer}]: {reason}")
+            }
+            RoomStateRejected { sender_did, reason } => {
+                format!("room-state rejected from {sender_did} ({reason})")
+            }
+            RoomStateDecodeFailed { sender_did, error } => {
+                format!("room-state decode failed from {sender_did}: {error}")
+            }
+            RoomStateApplied => "room-state applied".to_string(),
+            ChatReceived {
+                sender_did,
+                text_len,
+                muted,
+            } => {
+                format!("chat from {sender_did} ({text_len} B, muted={muted})")
+            }
+            ChatDroppedMuted { sender_did } => format!("chat dropped (muted): {sender_did}"),
+            ItemOfferReceived {
+                offer_id,
+                sender_did,
+                item_name,
+            } => {
+                format!("offer #{offer_id} '{item_name}' from {sender_did}")
+            }
+            ItemOfferAutoDeclinedMuted { offer_id } => {
+                format!("offer #{offer_id} auto-declined (muted)")
+            }
+            ItemOfferAutoDeclinedBusy { offer_id } => {
+                format!("offer #{offer_id} auto-declined (busy)")
+            }
+            ItemOfferDecodeFailed { reason } => format!("offer decode failed ({reason})"),
+            ItemOfferDialogShown {
+                offer_id,
+                item_name,
+            } => {
+                format!("offer #{offer_id} '{item_name}' shown")
+            }
+            ItemOfferDialogAutoDeclinedTimeout { offer_id } => {
+                format!("offer #{offer_id} dialog timed out")
+            }
+            ItemOfferUserResponded { offer_id, accepted } => {
+                format!(
+                    "offer #{offer_id} {}",
+                    if *accepted { "accepted" } else { "declined" }
+                )
+            }
+            ItemOfferResponseReceived { offer_id, accepted } => {
+                format!("offer #{offer_id} response: accepted={accepted}")
+            }
+            PendingOfferTimedOut { offer_id } => format!("pending offer #{offer_id} timed out"),
+            PeerMuteToggled { peer, muted } => format!("peer {peer} muted={muted}"),
+            SocialResonanceCompleted { peer, resonance } => {
+                format!("resonance [{peer}]: {resonance}")
+            }
+            SocialResonanceFailed { peer, error } => {
+                format!("resonance failed [{peer}]: {error}")
+            }
+
+            OffloadJobStarted { job } => format!("offload '{job}' started"),
+            OffloadJobCompleted { job, duration_secs } => {
+                format!("offload '{job}' done in {duration_secs:.2}s")
+            }
+            OffloadJobFailed { job, reason } => format!("offload '{job}' FAILED ({reason})"),
+            OffloadTaskTimeout { job, elapsed_secs } => {
+                format!("offload '{job}' TIMEOUT ({elapsed_secs:.1}s)")
+            }
+            WorkerSpawnFailed { reason } => format!("worker spawn FAILED ({reason})"),
+
+            RespawnTriggered {
+                fell_to_y,
+                ground_y,
+            } => {
+                format!("respawn: fell to y={fell_to_y:.1} (ground {ground_y:.1})")
+            }
+            TerrainColliderMissing => "TERRAIN COLLIDER MISSING".to_string(),
+            PhysicsNanDetected { entity } => format!("NaN in physics body {entity}"),
+            AssetHandleSpike { class, count } => format!("asset spike: {class} +{count}"),
+            FrameTimeSpike { p95_ms } => format!("frame-time spike p95 {p95_ms:.1}ms"),
+            ShapeMeshCacheGrowth { len } => format!("ShapeMeshCache grew to {len}"),
+            OrphanAvatarVisual { count } => format!("{count} orphan avatar visuals"),
+            PortalTravelInitiated { target_did } => format!("portal → {target_did}"),
+            PortalTravelCompleted { target_did } => format!("portal arrived {target_did}"),
+
+            Legacy { text } => text.clone(),
+        }
+    }
+}
+
+/// One record in the append-only session stream. `t_mono_secs` is
+/// session-relative (`Time::elapsed_secs_f64`, the same source the current
+/// `DiagnosticsLog` timestamps use); `wall_ms` is an absolute unix-epoch stamp
+/// (web-time on wasm, std on native) for cross-run correlation, `None` when no
+/// clock is available. `seq` is a gap-free per-process counter so the analyzer
+/// can detect a truncated/torn tail.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SessionEvent {
+    pub seq: u64,
+    pub t_mono_secs: f64,
+    pub wall_ms: Option<u64>,
+    pub subsystem: Subsystem,
+    pub category: Category,
+    pub severity: Severity,
+    pub payload: EventPayload,
+}
+
+impl SessionEvent {
+    /// Build an event, deriving `subsystem` and `category` from the payload so
+    /// call sites only pass the payload + severity (+ the two stamps). The
+    /// derived subsystem can be overridden afterward for cross-cutting events.
+    pub fn new(
+        seq: u64,
+        t_mono_secs: f64,
+        wall_ms: Option<u64>,
+        severity: Severity,
+        payload: EventPayload,
+    ) -> Self {
+        SessionEvent {
+            seq,
+            t_mono_secs,
+            wall_ms,
+            subsystem: payload.subsystem(),
+            category: payload.category(),
+            severity,
+            payload,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One representative event per subsystem group + a unit variant + the
+    /// boxed snapshot, so the round-trip test exercises the tag machinery
+    /// across every shape (struct / unit / newtype-of-struct).
+    fn samples() -> Vec<SessionEvent> {
+        let payloads = vec![
+            EventPayload::StartupSnapshot(Box::new(StartupInfo {
+                phase: SnapshotPhase::Session,
+                version: "0.1.0".into(),
+                git_sha: "deadbee".into(),
+                target_arch: "x86_64".into(),
+                profile: "debug".into(),
+                wasm: false,
+                boot_target_did: Some("did:plc:abc".into()),
+                boot_pos: Some([1.0, 2.0, 3.0]),
+                boot_yaw_deg: Some(90.0),
+                pds: Some("https://pds.example".into()),
+                relay: None,
+                session_did: Some("did:plc:me".into()),
+            })),
+            EventPayload::SessionEnd {
+                reason: "app_exit".into(),
+            },
+            EventPayload::LoadingPhaseStarted,
+            EventPayload::RecordFetchCompleted {
+                record: RecordKind::Room,
+                did: "did:plc:me".into(),
+                status: FetchStatus::Ok,
+                duration_secs: 1.5,
+            },
+            EventPayload::PeerIdentitySpoofRejected {
+                peer: "peer:7".into(),
+                claimed_did: "did:plc:evil".into(),
+                authenticated_did: "did:plc:real".into(),
+            },
+            EventPayload::OffloadJobFailed {
+                job: "heightmap".into(),
+                reason: "worker gone".into(),
+            },
+            EventPayload::TerrainColliderMissing,
+            EventPayload::RespawnTriggered {
+                fell_to_y: -30.0,
+                ground_y: 4.0,
+            },
+            EventPayload::InvariantViolation {
+                rule: "LoadingGateStall".into(),
+                detail: "125s in Loading".into(),
+            },
+            EventPayload::Legacy {
+                text: "some legacy line".into(),
+            },
+        ];
+        payloads
+            .into_iter()
+            .enumerate()
+            .map(|(i, p)| {
+                SessionEvent::new(
+                    i as u64,
+                    i as f64 * 0.5,
+                    Some(1_700_000_000_000 + i as u64),
+                    Severity::Info,
+                    p,
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn round_trips_as_ndjson() {
+        for ev in samples() {
+            let line = serde_json::to_string(&ev).expect("serialize");
+            assert!(!line.contains('\n'), "one event must be one line");
+            assert!(
+                line.contains("\"kind\":"),
+                "internally-tagged payload: {line}"
+            );
+            let back: SessionEvent = serde_json::from_str(&line).expect("deserialize");
+            assert_eq!(ev, back, "lossless round-trip for {line}");
+        }
+    }
+
+    #[test]
+    fn subsystem_and_category_are_derived_consistently() {
+        for ev in samples() {
+            assert_eq!(ev.subsystem, ev.payload.subsystem());
+            assert_eq!(ev.category, ev.payload.category());
+        }
+    }
+
+    #[test]
+    fn every_sample_renders_a_short_line() {
+        for ev in samples() {
+            assert!(!ev.payload.short_line().is_empty());
+        }
+    }
+
+    #[test]
+    fn spoof_rejection_maps_to_network() {
+        let p = EventPayload::PeerIdentitySpoofRejected {
+            peer: "p".into(),
+            claimed_did: "a".into(),
+            authenticated_did: "b".into(),
+        };
+        assert_eq!(p.subsystem(), Subsystem::Network);
+        assert_eq!(p.category(), Category::Peer);
+    }
+}

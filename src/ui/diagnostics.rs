@@ -14,8 +14,45 @@ use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
 use crate::boot_params::{build_landmark_link, write_to_clipboard};
-use crate::state::{CurrentRoomDid, DiagnosticsLog, LocalPlayer, RemotePeer};
+use crate::diagnostics::SessionLog;
+use crate::diagnostics::event::Severity;
+use crate::state::{CurrentRoomDid, LocalPlayer, RemotePeer};
 use crate::ui::unsaved_guard::{GuardedAction, UnsavedGuard};
+
+/// Which tab of the Diagnostics panel is showing. Only the Identity tab carries
+/// content today (the historic panel, preserved verbatim); the health tabs are
+/// filled in by later pillar-C steps (C-3/C-4) and read the shared metrics
+/// registry + anomaly badges then. Default is Identity so the panel opens
+/// exactly as it did before tabs were added.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum DiagTab {
+    Overview,
+    Runtime,
+    Network,
+    Offload,
+    #[default]
+    Identity,
+}
+
+impl DiagTab {
+    const ALL: [DiagTab; 5] = [
+        DiagTab::Overview,
+        DiagTab::Runtime,
+        DiagTab::Network,
+        DiagTab::Offload,
+        DiagTab::Identity,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            DiagTab::Overview => "Overview",
+            DiagTab::Runtime => "Runtime",
+            DiagTab::Network => "Network",
+            DiagTab::Offload => "Offload",
+            DiagTab::Identity => "Identity",
+        }
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 pub fn diagnostics_ui(
@@ -25,8 +62,9 @@ pub fn diagnostics_ui(
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
     mut peers: Query<&mut RemotePeer>,
-    diagnostics: Res<DiagnosticsLog>,
+    session_log: Res<SessionLog>,
     mut landmark_status: Local<Option<(String, f64)>>,
+    mut active_tab: Local<DiagTab>,
     time: Res<Time>,
     local_player_q: Query<&Transform, With<LocalPlayer>>,
     // Native-only: the wireframe plugin (and the resource it inserts) is
@@ -35,6 +73,18 @@ pub fn diagnostics_ui(
 ) {
     use crate::config::ui::diagnostics as cfg;
 
+    // Tint the event-log line by severity so warnings/errors stand out in the
+    // scrolling HUD (the same severity that drives the analyzer's verdict).
+    fn severity_color(sev: Severity) -> egui::Color32 {
+        match sev {
+            Severity::Trace => egui::Color32::DARK_GRAY,
+            Severity::Info => egui::Color32::LIGHT_GRAY,
+            Severity::Warn => egui::Color32::from_rgb(210, 170, 90),
+            Severity::Error => egui::Color32::from_rgb(210, 120, 90),
+            Severity::Critical => egui::Color32::from_rgb(220, 90, 90),
+        }
+    }
+
     egui::Window::new("Diagnostics")
         .open(&mut panels.diagnostics)
         .default_pos(cfg::WINDOW_DEFAULT_POS)
@@ -42,6 +92,28 @@ pub fn diagnostics_ui(
         .resizable(true)
         .collapsible(true)
         .show(contexts.ctx_mut().unwrap(), |ui| {
+            // Tab selector. The historic panel content lives under Identity;
+            // the health tabs are placeholders until C-3/C-4 populate them.
+            ui.horizontal(|ui| {
+                for tab in DiagTab::ALL {
+                    ui.selectable_value(&mut *active_tab, tab, tab.label());
+                }
+            });
+            ui.separator();
+
+            // Non-Identity tabs are not built yet — show a placeholder and skip
+            // the historic body (early-return from the window closure).
+            if *active_tab != DiagTab::Identity {
+                ui.add_space(16.0);
+                ui.vertical_centered(|ui| {
+                    ui.colored_label(
+                        egui::Color32::GRAY,
+                        format!("{} health — populated in a later step.", active_tab.label()),
+                    );
+                });
+                return;
+            }
+
             ui.label("Local Identity");
             match &session {
                 Some(sess) => {
@@ -168,15 +240,19 @@ pub fn diagnostics_ui(
                 .stick_to_bottom(true)
                 .max_height(log_height)
                 .show(ui, |ui| {
-                    for (ts, entry) in diagnostics.iter() {
+                    // The event log is now a bounded tail view over the unified
+                    // `SessionLog` stream, so the on-disk NDJSON file and this
+                    // HUD can never diverge (Pillar A-6).
+                    for ev in session_log.tail(crate::config::state::MAX_DIAGNOSTICS_ENTRIES) {
+                        let ts = crate::format_elapsed_ts(ev.t_mono_secs);
                         ui.horizontal(|ui| {
                             ui.monospace(
                                 egui::RichText::new(ts).small().color(egui::Color32::GRAY),
                             );
                             ui.monospace(
-                                egui::RichText::new(entry)
+                                egui::RichText::new(ev.payload.short_line())
                                     .small()
-                                    .color(egui::Color32::LIGHT_GRAY),
+                                    .color(severity_color(ev.severity)),
                             );
                         });
                     }

@@ -79,23 +79,12 @@ pub struct RoadGraphStats {
     spike_max_scale: f32,
 }
 
-/// `min / p50 / p90 / max / mean` of a sample, or `—` when empty.
+/// `min / p50 / p90 / max / mean` of a sample, or `—` when empty. Delegates to
+/// the shared reducer in [`crate::diagnostics::registry`] so the road report and
+/// the metrics histograms summarise distributions identically (single source).
 fn distro(v: &[f32]) -> String {
-    if v.is_empty() {
-        return "—".to_string();
-    }
-    let mut s = v.to_vec();
-    s.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let pick = |q: f32| s[(((s.len() - 1) as f32) * q).round() as usize];
-    let mean = s.iter().sum::<f32>() / s.len() as f32;
-    format!(
-        "min {:.1}  p50 {:.1}  p90 {:.1}  max {:.1}  mean {:.1}",
-        s[0],
-        pick(0.5),
-        pick(0.9),
-        s[s.len() - 1],
-        mean
-    )
+    let f: Vec<f64> = v.iter().map(|&x| x as f64).collect();
+    crate::diagnostics::distro_str(&f)
 }
 
 /// Count unordered node pairs within `eps` that are **not** directly joined by

@@ -43,7 +43,12 @@ fn cleanup_on_logout(
     session: Option<Res<AtprotoSession>>,
     refresh_ctx: Option<Res<OauthRefreshCtx>>,
     mut chat: ResMut<ChatHistory>,
-    mut diagnostics: ResMut<DiagnosticsLog>,
+    // Grouped into one tuple param to stay within Bevy's 16-param system arity.
+    (mut diagnostics, mut session_log, time): (
+        ResMut<DiagnosticsLog>,
+        ResMut<crate::diagnostics::SessionLog>,
+        Res<Time>,
+    ),
     mut avatar_cache: ResMut<PeerAvatarCache>,
     mut bsky_cache: ResMut<BskyProfileCache>,
     mut blob_image_cache: ResMut<BlobImageCache>,
@@ -174,7 +179,14 @@ fn cleanup_on_logout(
 
     // Reset in-memory buffers so the next session starts fresh.
     chat.messages.clear();
+    // Roll the diagnostic stream into a fresh segment: clear the legacy
+    // forward buffer, flush the departing session to disk, then clear the
+    // in-memory tail so the next user's HUD starts blank. The on-disk NDJSON
+    // file keeps the full history (the segment boundary is marked in it), so
+    // no post-mortem data is lost while the GUI shows nothing cross-session.
     *diagnostics = DiagnosticsLog::default();
+    session_log.reset_segment(time.elapsed_secs_f64(), "logout");
+    session_log.flush();
     // Drop the peer avatar cache so a new login can't see the previous
     // user's peers; the cache lives by DID, so a stale entry would install
     // a stranger's vessel the moment a new session's peer Identity claim

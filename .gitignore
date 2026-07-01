@@ -12,3 +12,6 @@ symbios-overlands-primer.sh
 symbios_overlands_primer_*
 .mcp.json
 /exports
+
+# Diagnostic-suite session logs (epic #588) — local post-mortem artifacts
+/diagnostics/

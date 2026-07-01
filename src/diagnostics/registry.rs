@@ -1,0 +1,343 @@
+//! Shared metrics registry (Spine E-1) — the one source of truth the session
+//! log (A), the Diagnostics GUI (C) and the invariant engine (D) all read.
+//!
+//! It holds three value shapes, all allocation-bounded so the wasm heap stays
+//! flat: [`Gauge`] (latest value + a fixed ring for sparklines), [`Counter`]
+//! (monotonic), and [`Histogram`] (bounded sample set reduced to a [`Distro`]
+//! via the shared [`distro`] reducer — the same `min/p50/p90/max/mean` summary
+//! that used to live in `urban/diagnostics.rs`, now single-sourced here).
+//!
+//! Metrics are keyed by stable `&'static str` names (see the `names` module,
+//! E-2) so lookups are pointer-cheap and typos are compile errors.
+
+use std::collections::{HashMap, VecDeque};
+use std::fmt;
+
+use bevy::prelude::Resource;
+
+/// Ring length for gauge sparklines: 120 samples = 2 min at the 1 Hz scrape.
+pub const RING_CAP: usize = 120;
+/// Max histogram samples retained before oldest-drop — bounded so a long
+/// session can't grow it without limit (the ShapeMeshCache lesson applied to
+/// the metrics themselves).
+pub const HIST_CAP: usize = 512;
+
+/// Which value shape a named metric is, so the GUI/log can enumerate metrics
+/// and pick the right reader. Referenced by the name table (E-2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MetricKind {
+    Gauge,
+    Counter,
+    Histogram,
+}
+
+/// A latest value plus a fixed ring of recent samples for sparklines. The ring
+/// never allocates after construction (`observe` overwrites the oldest slot).
+#[derive(Clone, Debug)]
+pub struct Gauge {
+    last: f64,
+    ring: [f64; RING_CAP],
+    head: usize,
+    len: usize,
+    updated_at_secs: f64,
+}
+
+impl Default for Gauge {
+    fn default() -> Self {
+        // `[f64; 120]` exceeds the arrays that derive `Default`, so hand-roll it.
+        Gauge {
+            last: 0.0,
+            ring: [0.0; RING_CAP],
+            head: 0,
+            len: 0,
+            updated_at_secs: 0.0,
+        }
+    }
+}
+
+impl Gauge {
+    fn observe(&mut self, v: f64, now: f64) {
+        self.last = v;
+        self.updated_at_secs = now;
+        self.ring[self.head] = v;
+        self.head = (self.head + 1) % RING_CAP;
+        if self.len < RING_CAP {
+            self.len += 1;
+        }
+    }
+
+    /// The most recent observed value.
+    pub fn last(&self) -> f64 {
+        self.last
+    }
+
+    /// Session-relative time of the last observation.
+    pub fn updated_at_secs(&self) -> f64 {
+        self.updated_at_secs
+    }
+
+    /// Retained samples, oldest → newest, for a sparkline.
+    pub fn iter(&self) -> impl Iterator<Item = f64> + '_ {
+        let start = if self.len == RING_CAP { self.head } else { 0 };
+        (0..self.len).map(move |i| self.ring[(start + i) % RING_CAP])
+    }
+
+    /// Number of retained samples (≤ [`RING_CAP`]).
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Whether the gauge has been observed yet.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+/// A monotonically increasing count.
+#[derive(Clone, Debug, Default)]
+pub struct Counter {
+    value: u64,
+    updated_at_secs: f64,
+}
+
+impl Counter {
+    fn incr_by(&mut self, n: u64, now: f64) {
+        self.value = self.value.saturating_add(n);
+        self.updated_at_secs = now;
+    }
+
+    pub fn value(&self) -> u64 {
+        self.value
+    }
+
+    pub fn updated_at_secs(&self) -> f64 {
+        self.updated_at_secs
+    }
+}
+
+/// A bounded sample set reduced on read to a [`Distro`].
+#[derive(Clone, Debug, Default)]
+pub struct Histogram {
+    samples: VecDeque<f64>,
+    dropped: u64,
+}
+
+impl Histogram {
+    fn observe(&mut self, v: f64) {
+        self.samples.push_back(v);
+        while self.samples.len() > HIST_CAP {
+            self.samples.pop_front();
+            self.dropped += 1;
+        }
+    }
+
+    /// `min/p50/p90/max/mean` over the retained samples, `None` when empty.
+    pub fn distro(&self) -> Option<Distro> {
+        let v: Vec<f64> = self.samples.iter().copied().collect();
+        distro(&v)
+    }
+
+    /// Samples dropped past [`HIST_CAP`] over the session.
+    pub fn dropped(&self) -> u64 {
+        self.dropped
+    }
+
+    pub fn len(&self) -> usize {
+        self.samples.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.samples.is_empty()
+    }
+}
+
+/// The `min/p50/p90/max/mean` summary of a sample, plus the sample count.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Distro {
+    pub min: f64,
+    pub p50: f64,
+    pub p90: f64,
+    pub max: f64,
+    pub mean: f64,
+    pub n: usize,
+}
+
+impl fmt::Display for Distro {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "min {:.1}  p50 {:.1}  p90 {:.1}  max {:.1}  mean {:.1}",
+            self.min, self.p50, self.p90, self.max, self.mean
+        )
+    }
+}
+
+/// Reduce a sample to `min/p50/p90/max/mean`, or `None` when empty. The single
+/// implementation shared by the road diagnostics, the metrics histograms, and
+/// the offline analyzer, so every distribution summary reads identically.
+pub fn distro(v: &[f64]) -> Option<Distro> {
+    if v.is_empty() {
+        return None;
+    }
+    let mut s = v.to_vec();
+    s.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let pick = |q: f64| s[(((s.len() - 1) as f64) * q).round() as usize];
+    let mean = s.iter().sum::<f64>() / s.len() as f64;
+    Some(Distro {
+        min: s[0],
+        p50: pick(0.5),
+        p90: pick(0.9),
+        max: s[s.len() - 1],
+        mean,
+        n: s.len(),
+    })
+}
+
+/// The [`distro`] summary as a display string, or `—` when empty — the exact
+/// form the road report prints (`urban/diagnostics.rs` calls this).
+pub fn distro_str(v: &[f64]) -> String {
+    distro(v)
+        .map(|d| d.to_string())
+        .unwrap_or_else(|| "—".to_string())
+}
+
+/// The metrics store, resident as a Bevy resource. Fed by the Bevy-diagnostics
+/// bridge + per-subsystem samplers (E-3/E-4); read by GUI, log and engine.
+#[derive(Resource, Default)]
+pub struct MetricsRegistry {
+    gauges: HashMap<&'static str, Gauge>,
+    counters: HashMap<&'static str, Counter>,
+    histograms: HashMap<&'static str, Histogram>,
+}
+
+impl MetricsRegistry {
+    /// Record a gauge sample (latest value + sparkline point).
+    pub fn observe_gauge(&mut self, name: &'static str, v: f64, now: f64) {
+        self.gauges.entry(name).or_default().observe(v, now);
+    }
+
+    /// Increment a counter by one.
+    pub fn incr(&mut self, name: &'static str, now: f64) {
+        self.incr_by(name, 1, now);
+    }
+
+    /// Increment a counter by `n`.
+    pub fn incr_by(&mut self, name: &'static str, n: u64, now: f64) {
+        self.counters.entry(name).or_default().incr_by(n, now);
+    }
+
+    /// Record a histogram sample.
+    pub fn observe_hist(&mut self, name: &'static str, v: f64) {
+        self.histograms.entry(name).or_default().observe(v);
+    }
+
+    pub fn gauge(&self, name: &str) -> Option<&Gauge> {
+        self.gauges.get(name)
+    }
+
+    pub fn counter(&self, name: &str) -> Option<&Counter> {
+        self.counters.get(name)
+    }
+
+    pub fn histogram(&self, name: &str) -> Option<&Histogram> {
+        self.histograms.get(name)
+    }
+
+    /// The `Distro` for a named histogram, if it exists and is non-empty.
+    pub fn hist_distro(&self, name: &str) -> Option<Distro> {
+        self.histograms.get(name).and_then(Histogram::distro)
+    }
+
+    /// Sparkline samples for a gauge (oldest → newest); empty if unknown.
+    pub fn ring_slice(&self, name: &str) -> Vec<f64> {
+        self.gauges
+            .get(name)
+            .map(|g| g.iter().collect())
+            .unwrap_or_default()
+    }
+
+    /// Reset every metric — called at logout so one session's numbers never
+    /// bleed into the next login (parallels the `DiagnosticsLog` wipe).
+    pub fn clear(&mut self) {
+        self.gauges.clear();
+        self.counters.clear();
+        self.histograms.clear();
+    }
+
+    /// Enumerate gauges (for the GUI to list every known metric).
+    pub fn gauges(&self) -> impl Iterator<Item = (&'static str, &Gauge)> {
+        self.gauges.iter().map(|(k, v)| (*k, v))
+    }
+
+    pub fn counters(&self) -> impl Iterator<Item = (&'static str, &Counter)> {
+        self.counters.iter().map(|(k, v)| (*k, v))
+    }
+
+    pub fn histograms(&self) -> impl Iterator<Item = (&'static str, &Histogram)> {
+        self.histograms.iter().map(|(k, v)| (*k, v))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gauge_ring_keeps_newest_in_order() {
+        let mut g = Gauge::default();
+        for i in 0..(RING_CAP + 5) {
+            g.observe(i as f64, i as f64);
+        }
+        let samples: Vec<f64> = g.iter().collect();
+        assert_eq!(samples.len(), RING_CAP);
+        // Oldest retained is sample 5, newest is RING_CAP+4.
+        assert_eq!(samples[0], 5.0);
+        assert_eq!(*samples.last().unwrap(), (RING_CAP + 4) as f64);
+        assert_eq!(g.last(), (RING_CAP + 4) as f64);
+    }
+
+    #[test]
+    fn counter_is_monotonic() {
+        let mut r = MetricsRegistry::default();
+        r.incr("net.peer.connected_count", 1.0);
+        r.incr("net.peer.connected_count", 2.0);
+        r.incr_by("net.peer.connected_count", 3, 3.0);
+        assert_eq!(r.counter("net.peer.connected_count").unwrap().value(), 5);
+    }
+
+    #[test]
+    fn histogram_drops_oldest_past_cap() {
+        let mut h = Histogram::default();
+        for i in 0..(HIST_CAP + 10) {
+            h.observe(i as f64);
+        }
+        assert_eq!(h.len(), HIST_CAP);
+        assert_eq!(h.dropped(), 10);
+    }
+
+    #[test]
+    fn distro_reduces_and_formats() {
+        let d = distro(&[4.0, 1.0, 3.0, 2.0]).unwrap();
+        assert_eq!(d.min, 1.0);
+        assert_eq!(d.max, 4.0);
+        assert_eq!(d.n, 4);
+        assert_eq!((d.mean * 10.0).round() / 10.0, 2.5);
+        assert_eq!(distro_str(&[]), "—");
+        assert_eq!(
+            d.to_string(),
+            "min 1.0  p50 3.0  p90 4.0  max 4.0  mean 2.5"
+        );
+    }
+
+    #[test]
+    fn registry_observe_and_clear() {
+        let mut r = MetricsRegistry::default();
+        r.observe_gauge("runtime.frame_time.ms", 16.6, 1.0);
+        r.observe_hist("net.jitter.playout_latency_ms", 12.0);
+        assert_eq!(r.gauge("runtime.frame_time.ms").unwrap().last(), 16.6);
+        assert!(r.hist_distro("net.jitter.playout_latency_ms").is_some());
+        r.clear();
+        assert!(r.gauge("runtime.frame_time.ms").is_none());
+        assert!(r.hist_distro("net.jitter.playout_latency_ms").is_none());
+    }
+}

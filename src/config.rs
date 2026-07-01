@@ -674,6 +674,35 @@ pub mod state {
 }
 
 // ---------------------------------------------------------------------------
+// Diagnostic suite (diagnostics/) — epic #588
+// ---------------------------------------------------------------------------
+pub mod diagnostics {
+    /// In-memory ring-buffer capacity for the session-event stream. Larger
+    /// than [`super::state::MAX_DIAGNOSTICS_ENTRIES`] (the GUI tail window) so
+    /// the native flush + wasm download-log button see more history than the
+    /// scrolling HUD does. Bounded so the wasm heap stays flat.
+    pub const RING_CAPACITY: usize = 4096;
+    /// Flush the native NDJSON sink at least this often (seconds), so a hang
+    /// or hard kill loses at most this much tail.
+    pub const FLUSH_INTERVAL_SECS: f64 = 2.0;
+    /// …or whenever this many un-flushed events have accrued, whichever first.
+    pub const FLUSH_EVERY_N_EVENTS: usize = 64;
+    /// Default directory (relative to the working dir) the native sink writes
+    /// to. Repo-root `diagnostics/` — git-ignored and, unlike `target/`,
+    /// survives `cargo clean`, so an agent's post-mortem file is not wiped by
+    /// an unrelated rebuild. Overridable via [`DIR_ENV`].
+    pub const DEFAULT_DIR: &str = "diagnostics";
+    /// Stable filename an agent can always read for the newest run; refreshed
+    /// (copied) on every flush alongside the timestamped per-session file.
+    pub const LATEST_FILENAME: &str = "session-latest.jsonl";
+    /// Env var overriding [`DEFAULT_DIR`] (e.g. a durable path outside the repo).
+    pub const DIR_ENV: &str = "SYMBIOS_DIAG_DIR";
+    /// Env var — set to `0` to disable native session-log persistence entirely
+    /// (tests / CI). The in-memory ring still works.
+    pub const DISABLE_ENV: &str = "SYMBIOS_DIAG";
+}
+
+// ---------------------------------------------------------------------------
 // Avatar (avatar.rs)
 // ---------------------------------------------------------------------------
 pub mod avatar {
