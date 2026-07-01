@@ -69,6 +69,7 @@ pub(super) fn handle_incoming_messages(
     mut sender: SendMessage<OverlandsMessage>,
     mut avatar_cache: ResMut<PeerAvatarCache>,
     smoother_cfg: Res<SmootherConfigRes>,
+    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
 ) {
     let now = time.elapsed_secs_f64();
     // Drain the whole queue into a buffer so we can coalesce per
@@ -109,12 +110,17 @@ pub(super) fn handle_incoming_messages(
                 // silently discarded.
                 for (_, peer, _tf, mut buf) in peers.iter_mut() {
                     if peer.peer_id == msg.sender {
-                        buf.push_sample(
+                        let accepted = buf.push_sample(
                             Vec3::from_array(position),
                             Quat::from_array(rotation),
                             now,
                             &smoother_cfg.0,
                         );
+                        // A rejected sample (NaN/Inf or out-of-bounds) is silently
+                        // discarded by the smoother; count it (E-4).
+                        if !accepted {
+                            crate::diagnostics::samplers::transform_rejected(&mut metrics, now);
+                        }
                     }
                 }
             }
@@ -134,6 +140,7 @@ pub(super) fn handle_incoming_messages(
                 match peer_sessions.session_id(&msg.sender) {
                     Some(authenticated_did) if authenticated_did == did => {}
                     Some(authenticated_did) => {
+                        crate::diagnostics::samplers::identity_spoof_rejected(&mut metrics, now);
                         warn!(
                             "Rejecting spoofed Identity from {}: claimed did={}, authenticated did={}",
                             msg.sender, did, authenticated_did
@@ -189,7 +196,7 @@ pub(super) fn handle_incoming_messages(
                         if let Some(cached) = avatar_cache.get(&did) {
                             peer.avatar = Some(cached.clone());
                         } else {
-                            spawn_peer_avatar_fetch(&mut commands, msg.sender, did.clone());
+                            spawn_peer_avatar_fetch(&mut commands, msg.sender, did.clone(), now);
                         }
                     }
                 }
@@ -434,6 +441,7 @@ pub(super) fn handle_incoming_messages(
                             "Auto-declined offer \"{item_name}\" from @{sender_handle} (already handling an offer)"
                         ),
                     );
+                    crate::diagnostics::samplers::offer_auto_declined_busy(&mut metrics, now);
                     continue;
                 }
 

@@ -205,6 +205,7 @@ pub fn incoming_offer_ui(
     mut diagnostics: ResMut<DiagnosticsLog>,
     mut inventory_feedback: ResMut<PublishFeedback<InventoryRecord>>,
     time: Res<Time>,
+    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
 ) {
     let Some(dialog) = dialog else {
         return;
@@ -278,6 +279,12 @@ pub fn incoming_offer_ui(
 
     let now = time.elapsed_secs_f64();
     let accepted = matches!(action, OfferAction::Accept);
+    // Count the local user's offer disposition (E-4) — accept vs any decline.
+    if accepted {
+        crate::diagnostics::samplers::offer_accepted(&mut metrics, now);
+    } else {
+        crate::diagnostics::samplers::offer_declined(&mut metrics, now);
+    }
 
     // Flip the mute flag on the sender's `RemotePeer` before we send the
     // response so any subsequent offer this frame (unlikely but possible

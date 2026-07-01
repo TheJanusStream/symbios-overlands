@@ -44,9 +44,10 @@ fn cleanup_on_logout(
     refresh_ctx: Option<Res<OauthRefreshCtx>>,
     mut chat: ResMut<ChatHistory>,
     // Grouped into one tuple param to stay within Bevy's 16-param system arity.
-    (mut diagnostics, mut session_log, time): (
+    (mut diagnostics, mut session_log, mut metrics, time): (
         ResMut<DiagnosticsLog>,
         ResMut<crate::diagnostics::SessionLog>,
+        ResMut<crate::diagnostics::MetricsRegistry>,
         Res<Time>,
     ),
     mut avatar_cache: ResMut<PeerAvatarCache>,
@@ -187,6 +188,9 @@ fn cleanup_on_logout(
     *diagnostics = DiagnosticsLog::default();
     session_log.reset_segment(time.elapsed_secs_f64(), "logout");
     session_log.flush();
+    // Wipe the metrics registry too, so one session's counters/gauges/histograms
+    // never bleed into the next login (parallels the DiagnosticsLog wipe above).
+    metrics.clear();
     // Drop the peer avatar cache so a new login can't see the previous
     // user's peers; the cache lives by DID, so a stale entry would install
     // a stranger's vessel the moment a new session's peer Identity claim

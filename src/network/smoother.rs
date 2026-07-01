@@ -18,8 +18,10 @@ pub(super) fn smooth_remote_transforms(
     settings: Res<LocalSettings>,
     cfg: Res<SmootherConfigRes>,
     mut peers: Query<(&mut Transform, &mut TransformBuffer), With<RemotePeer>>,
+    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
 ) {
     let now = time.elapsed_secs_f64();
+    let mut smoothed_any = false;
     for (mut tf, mut buf) in peers.iter_mut() {
         let pose = if settings.smooth_kinematics {
             buf.smoothed_at(now, &cfg.0)
@@ -29,6 +31,18 @@ pub(super) fn smooth_remote_transforms(
         if let Some((position, rotation)) = pose {
             tf.translation = position;
             tf.rotation = rotation;
+            smoothed_any = true;
         }
+    }
+    // Sample the jitter-buffer playout latency (E-4) while remote peers are
+    // actually being played out. The upstream `TransformBuffer` doesn't expose a
+    // played-out sample's age, so this records the configured `render_delay_secs`
+    // (the delay the buffer deliberately introduces to absorb jitter) rather than
+    // a measured per-peer staleness.
+    if smoothed_any {
+        crate::diagnostics::samplers::jitter_playout_latency_secs(
+            &mut metrics,
+            cfg.0.render_delay_secs,
+        );
     }
 }

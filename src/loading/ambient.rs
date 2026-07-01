@@ -31,14 +31,22 @@ pub struct AmbientHandle(pub Option<Handle<bevy::audio::AudioSource>>);
 /// pipeline. The poll system wraps these as `AudioSource` and
 /// writes [`AmbientHandle`].
 #[derive(Component)]
-pub(crate) struct AmbientBakeTask(bevy::tasks::Task<crate::offload::GenResult>);
+pub(crate) struct AmbientBakeTask(
+    bevy::tasks::Task<crate::offload::GenResult>,
+    /// Session-relative seconds at dispatch, for the E-4 completion latency.
+    f64,
+);
 
 /// In-flight *in-game* ambient re-bake task — the editor counterpart of
 /// [`AmbientBakeTask`]. Kept as a distinct component so the loading-gate
 /// poll and the in-game poll never drain each other's tasks (the two run
 /// in different `AppState`s and own separate pipelines).
 #[derive(Component)]
-pub(crate) struct AmbientRebakeTask(bevy::tasks::Task<crate::offload::GenResult>);
+pub(crate) struct AmbientRebakeTask(
+    bevy::tasks::Task<crate::offload::GenResult>,
+    /// Session-relative seconds at dispatch, for the E-4 completion latency.
+    f64,
+);
 
 /// Wrap freshly-baked WAV bytes into an [`AudioSource`]
 /// handle, or `None` for the no-audio variants. Shared by the loading-gate
@@ -154,6 +162,7 @@ pub(crate) fn start_ambient_bake(
     started: Option<Res<AmbientBakeStarted>>,
     mut audio_cache: ResMut<crate::world_builder::audio_resolver::BlobAudioCache>,
     mut live_cfg: ResMut<LiveAmbientConfig>,
+    time: Res<Time>,
 ) {
     // Wait until the room record has landed and we haven't already
     // dispatched the ambient pipeline (the latch flips on the frame
@@ -195,9 +204,10 @@ pub(crate) fn start_ambient_bake(
         crate::pds::SovereignAudioConfig::Patch { .. }
         | crate::pds::SovereignAudioConfig::Sequence { .. } => match ambient_bake_job(&audio) {
             Some(job) => {
-                commands.spawn(AmbientBakeTask(crate::offload::offload(
-                    crate::offload::GenJob::AudioBake(job),
-                )));
+                commands.spawn(AmbientBakeTask(
+                    crate::offload::offload(crate::offload::GenJob::AudioBake(job)),
+                    time.elapsed_secs_f64(),
+                ));
             }
             // Malformed Patch/Sequence JSON → treat as "no audio" so a corrupt
             // record never blocks room load.
@@ -326,6 +336,7 @@ pub(crate) struct AmbientRebakePending(Option<crate::pds::SovereignAudioConfig>)
 /// [`AmbientSettle`]: a change is stashed immediately, but the bake fires only
 /// once the same quiet window the player start waits out has drained, so a
 /// slider drag bakes once instead of per frame.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn rebake_ambient_on_record_change(
     mut commands: Commands,
     room_record: Option<Res<LiveRoomRecord>>,
@@ -334,6 +345,7 @@ pub(crate) fn rebake_ambient_on_record_change(
     settle: Res<AmbientSettle>,
     mut audio_cache: ResMut<crate::world_builder::audio_resolver::BlobAudioCache>,
     in_flight: Query<Entity, With<AmbientRebakeTask>>,
+    time: Res<Time>,
 ) {
     let Some(record) = room_record else {
         return;
@@ -381,9 +393,10 @@ pub(crate) fn rebake_ambient_on_record_change(
         crate::pds::SovereignAudioConfig::Patch { .. }
         | crate::pds::SovereignAudioConfig::Sequence { .. } => match ambient_bake_job(&audio) {
             Some(job) => {
-                commands.spawn(AmbientRebakeTask(crate::offload::offload(
-                    crate::offload::GenJob::AudioBake(job),
-                )));
+                commands.spawn(AmbientRebakeTask(
+                    crate::offload::offload(crate::offload::GenJob::AudioBake(job)),
+                    time.elapsed_secs_f64(),
+                ));
             }
             None => {
                 commands.insert_resource(AmbientHandle(None));
@@ -454,6 +467,8 @@ pub(crate) fn poll_ambient_bake_task(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut AmbientBakeTask)>,
     mut audio_sources: ResMut<Assets<bevy::audio::AudioSource>>,
+    time: Res<Time>,
+    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
@@ -461,11 +476,25 @@ pub(crate) fn poll_ambient_bake_task(
         else {
             continue;
         };
+        let now = time.elapsed_secs_f64();
+        let spawned_at = task.1;
         commands.entity(entity).despawn();
 
         let wav = match result {
-            crate::offload::GenResult::Audio(bytes) => Some(bytes),
-            _ => None,
+            // Success only: record the bake latency (E-4).
+            crate::offload::GenResult::Audio(bytes) => {
+                crate::diagnostics::samplers::ambient_bake_latency_secs(
+                    &mut metrics,
+                    now - spawned_at,
+                );
+                Some(bytes)
+            }
+            // A non-audio result means the bake job failed to produce audio —
+            // count it as an offload error (E-4); the None falls back to silence.
+            _ => {
+                crate::diagnostics::samplers::offload_job_error(&mut metrics, now);
+                None
+            }
         };
         let handle = wrap_baked_handle(wav, &mut audio_sources);
         if handle.is_some() {
@@ -483,6 +512,8 @@ pub(crate) fn poll_ambient_rebake_task(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut AmbientRebakeTask)>,
     mut audio_sources: ResMut<Assets<bevy::audio::AudioSource>>,
+    time: Res<Time>,
+    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
@@ -490,10 +521,22 @@ pub(crate) fn poll_ambient_rebake_task(
         else {
             continue;
         };
+        let now = time.elapsed_secs_f64();
+        let spawned_at = task.1;
         commands.entity(entity).despawn();
         let wav = match result {
-            crate::offload::GenResult::Audio(bytes) => Some(bytes),
-            _ => None,
+            // Success only: record the bake latency (E-4).
+            crate::offload::GenResult::Audio(bytes) => {
+                crate::diagnostics::samplers::ambient_bake_latency_secs(
+                    &mut metrics,
+                    now - spawned_at,
+                );
+                Some(bytes)
+            }
+            _ => {
+                crate::diagnostics::samplers::offload_job_error(&mut metrics, now);
+                None
+            }
         };
         commands.insert_resource(AmbientHandle(wrap_baked_handle(wav, &mut audio_sources)));
     }

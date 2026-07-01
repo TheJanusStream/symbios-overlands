@@ -31,6 +31,7 @@ pub mod names;
 pub mod panic;
 pub mod plugin;
 pub mod registry;
+pub mod samplers;
 pub mod sink;
 pub mod snapshot;
 

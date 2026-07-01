@@ -136,6 +136,9 @@ pub(crate) struct RecordFetchTask<R: LoadedRecord> {
     /// Zero for the initial fetch; incremented on each transient-failure
     /// respawn so the retry marker can pick a backoff delay.
     attempt: u32,
+    /// Session-relative seconds when this attempt was dispatched, so the poller
+    /// can record its spawn→resolve latency (E-4).
+    spawned_at: f64,
 }
 
 /// In-flight retry timer for a record fetch. The backoff sleep is
@@ -171,9 +174,15 @@ pub(crate) fn spawn_record_fetch<R: LoadedRecord>(
     commands: &mut Commands,
     did: String,
     attempt: u32,
+    spawned_at: f64,
 ) {
     let task = R::dispatch_fetch(did.clone());
-    commands.spawn(RecordFetchTask::<R> { did, task, attempt });
+    commands.spawn(RecordFetchTask::<R> {
+        did,
+        task,
+        attempt,
+        spawned_at,
+    });
 }
 
 /// Drain a finished [`RecordFetchTask<R>`] and install the result.
@@ -193,6 +202,7 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
     mut tasks: Query<(Entity, &mut RecordFetchTask<R>)>,
     mut diagnostics: ResMut<DiagnosticsLog>,
     time: Res<Time>,
+    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
@@ -202,6 +212,7 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
         };
         let prev_attempt = task.attempt;
         let did = task.did.clone();
+        let spawned_at = task.spawned_at;
         commands.entity(entity).despawn();
 
         let record = match result {
@@ -269,10 +280,19 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                         fire_at_secs: elapsed + backoff as f64,
                         _marker: PhantomData,
                     });
+                    crate::diagnostics::samplers::record_fetch_retry(&mut metrics, elapsed);
                     continue;
                 }
             }
         };
+        // A terminal outcome resolved the fetch (success / decode-fallback /
+        // exhausted-default) — record the resolving attempt's latency (E-4). The
+        // transient-retry path `continue`s above, so a retry cycle's intermediate
+        // (often timeout-length) attempt latencies never pollute this histogram.
+        crate::diagnostics::samplers::record_fetch_latency_secs(
+            &mut metrics,
+            time.elapsed_secs_f64() - spawned_at,
+        );
         record.install(&mut commands);
     }
 }
@@ -292,7 +312,7 @@ pub(crate) fn fire_pending_record_retries<R: LoadedRecord>(
             let did = marker.did.clone();
             let attempt = marker.attempt;
             commands.entity(entity).despawn();
-            spawn_record_fetch::<R>(&mut commands, did, attempt);
+            spawn_record_fetch::<R>(&mut commands, did, attempt, now);
         }
     }
 }

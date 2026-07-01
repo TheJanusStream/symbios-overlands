@@ -78,7 +78,11 @@ pub struct FinishedHeightMap(pub HeightMap);
 /// the platform-agnostic [`crate::offload::GenResult`] which `poll_terrain_task`
 /// turns back into a [`HeightMap`].
 #[derive(Resource)]
-pub struct TerrainTask(pub bevy::tasks::Task<crate::offload::GenResult>);
+pub struct TerrainTask(
+    pub bevy::tasks::Task<crate::offload::GenResult>,
+    /// Session-relative seconds at dispatch, for the E-4 completion latency.
+    pub f64,
+);
 
 /// Shared marker on an in-flight splat-texture-bake entity. The bake task and
 /// its layer index live on the splat module's `SplatTexTask`; this lightweight

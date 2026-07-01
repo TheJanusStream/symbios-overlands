@@ -40,12 +40,17 @@ use super::{
 /// the player isn't staring at flat ground while the fetch is in
 /// flight); when the fetch lands [`super::referenced::poll_splat_layer_fetches`]
 /// overrides the layer's albedo handle and triggers an atlas rebuild.
-pub(super) fn start_texture_tasks(mut commands: Commands, record: Res<LiveRoomRecord>) {
+pub(super) fn start_texture_tasks(
+    mut commands: Commands,
+    record: Res<LiveRoomRecord>,
+    time: Res<Time>,
+) {
     let mat = crate::pds::find_terrain_config(&record.0)
         .map(|c| c.material.clone())
         .unwrap_or_default();
 
     let texture_size = mat.texture_size.max(16);
+    let spawned_at = time.elapsed_secs_f64();
 
     for (i, layer) in mat.layers.iter().enumerate() {
         let task = crate::offload::offload(GenJob::TextureBake {
@@ -53,7 +58,14 @@ pub(super) fn start_texture_tasks(mut commands: Commands, record: Res<LiveRoomRe
             width: texture_size,
             height: texture_size,
         });
-        commands.spawn((SplatTexTask { index: i, task }, TextureLayerIndex));
+        commands.spawn((
+            SplatTexTask {
+                index: i,
+                task,
+                spawned_at,
+            },
+            TextureLayerIndex,
+        ));
 
         // Referenced layers ALSO trigger an HTTP / ATProto-blob fetch.
         // The decoded image overrides the procedural placeholder once
@@ -75,6 +87,8 @@ pub(super) fn start_texture_tasks(mut commands: Commands, record: Res<LiveRoomRe
 pub(super) struct SplatTexTask {
     index: usize,
     task: bevy::tasks::Task<GenResult>,
+    /// Session-relative seconds at dispatch, for the E-4 completion latency.
+    spawned_at: f64,
 }
 
 /// Build a [`gen_jobs::TextureBakeJob`] from any [`SovereignTextureConfig`]
@@ -161,6 +175,8 @@ pub(super) fn collect_texture_results(
     mut tasks: Query<(Entity, &mut SplatTexTask)>,
     mut state: ResMut<TerrainSplatState>,
     mut images: ResMut<Assets<Image>>,
+    time: Res<Time>,
+    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
 ) {
     for (entity, mut pending) in tasks.iter_mut() {
         let Some(result) =
@@ -168,11 +184,23 @@ pub(super) fn collect_texture_results(
         else {
             continue;
         };
+        let now = time.elapsed_secs_f64();
+        let spawned_at = pending.spawned_at;
         commands.entity(entity).despawn();
 
+        // A texture-bake job only ever yields a texture; count an unexpected
+        // variant as an offload error (E-4) and skip the layer rather than panic.
         let GenResult::Texture(data) = result else {
-            unreachable!("a texture-bake offload job yields a texture result");
+            crate::diagnostics::samplers::offload_job_error(&mut metrics, now);
+            warn!(
+                "texture-bake offload job yielded an unexpected result — skipping layer {}",
+                pending.index
+            );
+            continue;
         };
+        // Success only: record the bake latency (E-4) — a skipped/failed layer
+        // above never reaches here, so it can't pollute the latency histogram.
+        crate::diagnostics::samplers::texture_bake_latency_secs(&mut metrics, now - spawned_at);
 
         let map = TextureMap {
             albedo: data.albedo,

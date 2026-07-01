@@ -650,6 +650,8 @@ fn respawn_if_fallen(
         With<LocalPlayer>,
     >,
     hm_res: Option<Res<crate::terrain::FinishedHeightMap>>,
+    time: Res<Time>,
+    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
 ) {
     let Ok((mut pos, mut rot, mut lin_vel, mut ang_vel)) = query.single_mut() else {
         return;
@@ -677,4 +679,5 @@ fn respawn_if_fallen(
     rot.0 = tilt;
     lin_vel.0 = Vec3::ZERO;
     ang_vel.0 = Vec3::ZERO;
+    crate::diagnostics::samplers::player_respawned(&mut metrics, time.elapsed_secs_f64());
 }

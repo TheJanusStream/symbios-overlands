@@ -76,9 +76,17 @@ pub(super) struct PeerAvatarFetchTask {
     pub(super) peer_id: PeerId,
     pub(super) did: String,
     pub(super) task: bevy::tasks::Task<Result<Option<AvatarRecord>, pds::FetchError>>,
+    /// Session-relative seconds when the fetch was dispatched, so the poller can
+    /// record its spawn→resolve latency (E-4).
+    pub(super) spawned_at: f64,
 }
 
-pub(super) fn spawn_peer_avatar_fetch(commands: &mut Commands, peer_id: PeerId, did: String) {
+pub(super) fn spawn_peer_avatar_fetch(
+    commands: &mut Commands,
+    peer_id: PeerId,
+    did: String,
+    spawned_at: f64,
+) {
     // `IoTaskPool` is the correct home for blocking HTTP calls — the
     // `AsyncComputeTaskPool` is sized to the CPU-core count and must not be
     // starved by threads blocked on network sockets.
@@ -98,7 +106,12 @@ pub(super) fn spawn_peer_avatar_fetch(commands: &mut Commands, peer_id: PeerId, 
             config::http::block_on(fut)
         }
     });
-    commands.spawn(PeerAvatarFetchTask { peer_id, did, task });
+    commands.spawn(PeerAvatarFetchTask {
+        peer_id,
+        did,
+        task,
+        spawned_at,
+    });
 }
 
 /// Drain completed peer-avatar fetch tasks and install the fetched record
@@ -113,6 +126,7 @@ pub(super) fn poll_peer_avatar_fetches(
     mut diagnostics: ResMut<DiagnosticsLog>,
     mut avatar_cache: ResMut<PeerAvatarCache>,
     time: Res<Time>,
+    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
 ) {
     let elapsed = time.elapsed_secs_f64();
     for (entity, mut task) in tasks.iter_mut() {
@@ -123,6 +137,11 @@ pub(super) fn poll_peer_avatar_fetches(
         };
         let peer_id = task.peer_id;
         let did = task.did.clone();
+        // Record the fetch's spawn→resolve latency (E-4) before the task despawns.
+        crate::diagnostics::samplers::avatar_fetch_latency_secs(
+            &mut metrics,
+            elapsed - task.spawned_at,
+        );
         commands.entity(entity).despawn();
 
         // Only a true 2xx-with-payload is cached: a 404 or transient
@@ -133,8 +152,14 @@ pub(super) fn poll_peer_avatar_fetches(
         // placeholder for every peer that happened to be on the PDS
         // fallback path).
         let (mut record, cacheable) = match result {
-            Ok(Some(r)) => (r, true),
+            Ok(Some(r)) => {
+                crate::diagnostics::samplers::avatar_fetch_succeeded(&mut metrics, elapsed);
+                (r, true)
+            }
             Ok(None) => {
+                // A 404 resolved to the DID-seeded default — still a successful
+                // fetch (the peer simply hasn't published an avatar).
+                crate::diagnostics::samplers::avatar_fetch_succeeded(&mut metrics, elapsed);
                 info!(
                     "Peer {} ({}) has no avatar record — synthesising default",
                     peer_id, did
@@ -142,6 +167,7 @@ pub(super) fn poll_peer_avatar_fetches(
                 (AvatarRecord::default_for_did(&did), false)
             }
             Err(err) => {
+                crate::diagnostics::samplers::avatar_fetch_failed(&mut metrics, elapsed);
                 diagnostics.push(
                     elapsed,
                     format!("Avatar fetch failed for {peer_id}: {err:?} — using default"),

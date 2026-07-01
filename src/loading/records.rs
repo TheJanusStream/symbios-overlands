@@ -112,8 +112,17 @@ impl LoadedRecord for InventoryRecord {
 /// is visiting. Runs exactly once on entry to `AppState::Loading`; the
 /// result is picked up by `poll_record_task::<RoomRecord>` on subsequent
 /// frames.
-pub(crate) fn start_room_record_fetch(mut commands: Commands, room_did: Res<CurrentRoomDid>) {
-    spawn_record_fetch::<RoomRecord>(&mut commands, room_did.0.clone(), 0);
+pub(crate) fn start_room_record_fetch(
+    mut commands: Commands,
+    room_did: Res<CurrentRoomDid>,
+    time: Res<Time>,
+) {
+    spawn_record_fetch::<RoomRecord>(
+        &mut commands,
+        room_did.0.clone(),
+        0,
+        time.elapsed_secs_f64(),
+    );
 }
 
 /// Kick off the async `getRecord` fetch for the local player's avatar.
@@ -123,21 +132,28 @@ pub(crate) fn start_room_record_fetch(mut commands: Commands, room_did: Res<Curr
 pub(crate) fn start_avatar_record_fetch(
     mut commands: Commands,
     session: Option<Res<bevy_symbios_multiuser::auth::AtprotoSession>>,
+    time: Res<Time>,
 ) {
     let Some(sess) = session else {
         warn!("start_avatar_record_fetch: no session — local avatar will not load");
         return;
     };
-    spawn_record_fetch::<AvatarRecord>(&mut commands, sess.did.clone(), 0);
+    spawn_record_fetch::<AvatarRecord>(&mut commands, sess.did.clone(), 0, time.elapsed_secs_f64());
 }
 
 /// Kick off the best-effort inventory fetch for the local player.
 pub(crate) fn start_inventory_record_fetch(
     mut commands: Commands,
     session: Option<Res<bevy_symbios_multiuser::auth::AtprotoSession>>,
+    time: Res<Time>,
 ) {
     let Some(sess) = session else {
         return;
     };
-    spawn_record_fetch::<InventoryRecord>(&mut commands, sess.did.clone(), 0);
+    spawn_record_fetch::<InventoryRecord>(
+        &mut commands,
+        sess.did.clone(),
+        0,
+        time.elapsed_secs_f64(),
+    );
 }

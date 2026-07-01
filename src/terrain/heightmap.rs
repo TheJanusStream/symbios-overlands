@@ -16,7 +16,11 @@ use crate::state::LiveRoomRecord;
 
 use super::{FinishedHeightMap, OutgoingTerrain, SplatMaterialHandle, TerrainMesh, TerrainTask};
 
-pub(super) fn start_terrain_generation(mut commands: Commands, record: Res<LiveRoomRecord>) {
+pub(super) fn start_terrain_generation(
+    mut commands: Commands,
+    record: Res<LiveRoomRecord>,
+    time: Res<Time>,
+) {
     // `find_terrain_config` walks the generator map in sorted-key order so
     // every peer compiling this record picks the same entry — `HashMap`
     // iteration is SipHash-randomised per process, and without the helper
@@ -31,19 +35,36 @@ pub(super) fn start_terrain_generation(mut commands: Commands, record: Res<LiveR
     // Dispatched through `offload` so the heavy noise + erosion run off the
     // schedule (native: AsyncComputeTaskPool; wasm: task pool / Web Worker).
     let task = crate::offload::offload(GenJob::Heightmap(heightmap_params(&cfg)));
-    commands.insert_resource(TerrainTask(task));
+    commands.insert_resource(TerrainTask(task, time.elapsed_secs_f64()));
 }
 
-pub(super) fn poll_terrain_task(mut commands: Commands, mut task_res: ResMut<TerrainTask>) {
+pub(super) fn poll_terrain_task(
+    mut commands: Commands,
+    mut task_res: ResMut<TerrainTask>,
+    time: Res<Time>,
+    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
+) {
     if let Some(result) =
         futures_lite::future::block_on(futures_lite::future::poll_once(&mut task_res.0))
     {
+        let now = time.elapsed_secs_f64();
+        let spawned_at = task_res.1;
         commands.remove_resource::<TerrainTask>();
         match result {
             GenResult::Heightmap(data) => {
+                crate::diagnostics::samplers::heightmap_latency_secs(
+                    &mut metrics,
+                    now - spawned_at,
+                );
                 commands.insert_resource(FinishedHeightMap(heightmap_from_data(data)));
             }
-            _ => unreachable!("a heightmap offload job yields a heightmap result"),
+            // A heightmap job only ever yields a heightmap; count an unexpected
+            // variant as an offload error (E-4) and leave the terrain unloaded —
+            // the loading-gate stall rule surfaces it — rather than panicking.
+            _ => {
+                crate::diagnostics::samplers::offload_job_error(&mut metrics, now);
+                warn!("heightmap offload job yielded an unexpected result — terrain will not load");
+            }
         }
     }
 }

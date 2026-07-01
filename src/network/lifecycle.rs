@@ -19,12 +19,14 @@ pub(super) fn handle_peer_connections(
     time: Res<Time>,
     session: Option<Res<AtprotoSession>>,
     mut sender: SendMessage<OverlandsMessage>,
+    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
 ) {
     let elapsed = time.elapsed_secs_f64();
     for event in peer_events.drain() {
         match event.state {
             PeerConnectionState::Connected => {
                 diagnostics.push(elapsed, format!("[+] Peer {} connected", event.peer));
+                crate::diagnostics::samplers::peer_connected(&mut metrics, elapsed);
                 // Spawn the peer with no avatar yet — the hot-swap system in
                 // `player.rs` will build visuals once the PDS fetch populates
                 // `RemotePeer::avatar`. Leaving the vessel invisible until
@@ -70,6 +72,7 @@ pub(super) fn handle_peer_connections(
                             elapsed,
                             format!("[-] Peer {} ({}) disconnected", event.peer, label),
                         );
+                        crate::diagnostics::samplers::peer_disconnected(&mut metrics, elapsed);
                         commands.entity(entity).despawn();
                     }
                 }

@@ -123,7 +123,17 @@ fn loading_clock_enter(mut clock: ResMut<LoadingClock>, time: Res<Time>) {
     clock.entered_at = Some(time.elapsed_secs_f64());
 }
 
-fn loading_clock_exit(mut clock: ResMut<LoadingClock>) {
+fn loading_clock_exit(
+    mut clock: ResMut<LoadingClock>,
+    time: Res<Time>,
+    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
+) {
+    // Record the total wall time spent in the loading gate (E-4) before clearing
+    // the entry stamp — this OnExit(Loading) system owns the gate timing.
+    if let Some(entered_at) = clock.entered_at {
+        let now = time.elapsed_secs_f64();
+        crate::diagnostics::samplers::loading_gate_total_secs(&mut metrics, now - entered_at, now);
+    }
     clock.entered_at = None;
 }
 
