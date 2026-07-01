@@ -19,7 +19,6 @@ use crate::config::diagnostics as cfg;
 use crate::diagnostics::SessionLog;
 use crate::diagnostics::event::{EventPayload, Severity, SnapshotPhase};
 use crate::diagnostics::snapshot::build_startup_snapshot;
-use crate::state::DiagnosticsLog;
 
 /// Optional override for the native diagnostics directory (tests inject this to
 /// avoid mutating the process-wide `SYMBIOS_DIAG_DIR`). Ignored on wasm.
@@ -62,25 +61,9 @@ impl Plugin for DiagnosticsPlugin {
             log.record(0.0, Severity::Info, payload);
         }
 
-        app.init_resource::<DiagnosticsLog>()
-            .insert_resource(log)
-            .add_systems(Update, forward_legacy_events)
+        app.insert_resource(log)
             .add_systems(Last, (flush_periodically, flush_on_app_exit));
     }
-}
-
-/// Drain the legacy free-text [`DiagnosticsLog`] buffer into the unified
-/// [`SessionLog`] as `Legacy` events (Pillar A-6). This keeps the ~17 call
-/// sites still emitting `diagnostics.push(..)` visible in the HUD + file until
-/// they migrate to typed variants (A-9), with no divergence between the two.
-fn forward_legacy(diag: &mut DiagnosticsLog, log: &mut SessionLog) {
-    for (t, text) in diag.take_pending() {
-        log.record(t, Severity::Info, EventPayload::Legacy { text });
-    }
-}
-
-fn forward_legacy_events(mut diag: ResMut<DiagnosticsLog>, mut log: ResMut<SessionLog>) {
-    forward_legacy(&mut diag, &mut log);
 }
 
 /// Record the `phase=Session` startup snapshot on entering `Loading`, once the
@@ -142,24 +125,6 @@ fn flush_on_app_exit(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn forward_moves_legacy_lines_into_session_log_in_order() {
-        let mut diag = DiagnosticsLog::default();
-        diag.push(0.5, "first".into());
-        diag.push(1.5, "second".into());
-        let mut log = SessionLog::with_capacity(16);
-        forward_legacy(&mut diag, &mut log);
-
-        // Buffer drained, both lines now in the unified stream as Legacy events
-        // carrying their original timestamps.
-        assert!(diag.take_pending().is_empty());
-        let lines: Vec<(f64, String)> = log
-            .iter()
-            .map(|e| (e.t_mono_secs, e.payload.short_line()))
-            .collect();
-        assert_eq!(lines, vec![(0.5, "first".into()), (1.5, "second".into())]);
-    }
 
     #[test]
     fn plugin_writes_boot_snapshot_to_the_session_file() {

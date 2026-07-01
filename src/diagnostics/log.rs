@@ -5,7 +5,7 @@
 //! plumbing in A-5.
 //!
 //! Timestamps are dual: `t_mono_secs` is session-relative (the caller passes
-//! `Time::elapsed_secs_f64`, the same source the old `DiagnosticsLog` used) and
+//! `Time::elapsed_secs_f64`, the same session-relative clock the HUD uses) and
 //! `wall_ms` is an absolute unix-epoch stamp for cross-run correlation. The
 //! wall clock is read through [`wall_now_ms`], which is cfg-split so it never
 //! calls `std::time` on wasm32 (that panics — see the WASM time gotcha).
@@ -252,7 +252,9 @@ mod tests {
     use crate::diagnostics::event::EventPayload;
 
     fn ev(text: &str) -> EventPayload {
-        EventPayload::Legacy { text: text.into() }
+        EventPayload::SessionEnd {
+            reason: text.into(),
+        }
     }
 
     #[test]

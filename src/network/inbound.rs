@@ -16,10 +16,12 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
 
 use crate::avatar::AvatarFetchPending;
+use crate::diagnostics::SessionLog;
+use crate::diagnostics::event::EventPayload;
 use crate::protocol::OverlandsMessage;
 use crate::state::{
-    ChatHistory, CurrentRoomDid, DiagnosticsLog, IncomingOfferDialog, LiveRoomRecord,
-    PendingOutgoingOffers, RemotePeer,
+    ChatHistory, CurrentRoomDid, IncomingOfferDialog, LiveRoomRecord, PendingOutgoingOffers,
+    RemotePeer,
 };
 
 use super::SmootherConfigRes;
@@ -63,7 +65,7 @@ pub(super) fn handle_incoming_messages(
     mut room_record: Option<ResMut<LiveRoomRecord>>,
     peer_sessions: Res<PeerSessionMapRes>,
     session: Option<Res<AtprotoSession>>,
-    mut diagnostics: ResMut<DiagnosticsLog>,
+    mut session_log: ResMut<SessionLog>,
     incoming_dialog: Option<Res<IncomingOfferDialog>>,
     mut pending_offers: ResMut<PendingOutgoingOffers>,
     mut sender: SendMessage<OverlandsMessage>,
@@ -144,6 +146,14 @@ pub(super) fn handle_incoming_messages(
                         warn!(
                             "Rejecting spoofed Identity from {}: claimed did={}, authenticated did={}",
                             msg.sender, did, authenticated_did
+                        );
+                        session_log.warn(
+                            now,
+                            EventPayload::PeerIdentitySpoofRejected {
+                                peer: msg.sender.to_string(),
+                                claimed_did: did,
+                                authenticated_did: authenticated_did.to_string(),
+                            },
                         );
                         continue;
                     }
@@ -435,12 +445,7 @@ pub(super) fn handle_incoming_messages(
                         },
                         ChannelKind::Reliable,
                     );
-                    diagnostics.push(
-                        now,
-                        format!(
-                            "Auto-declined offer \"{item_name}\" from @{sender_handle} (already handling an offer)"
-                        ),
-                    );
+                    session_log.info(now, EventPayload::ItemOfferAutoDeclinedBusy { offer_id });
                     crate::diagnostics::samplers::offer_auto_declined_busy(&mut metrics, now);
                     continue;
                 }
@@ -459,11 +464,11 @@ pub(super) fn handle_incoming_messages(
                         },
                         ChannelKind::Reliable,
                     );
-                    diagnostics.push(
+                    session_log.warn(
                         now,
-                        format!(
-                            "Dropped malformed item offer from @{sender_handle}: failed to decode"
-                        ),
+                        EventPayload::ItemOfferDecodeFailed {
+                            reason: format!("from @{sender_handle}: failed to decode"),
+                        },
                     );
                     continue;
                 };
@@ -484,18 +489,23 @@ pub(super) fn handle_incoming_messages(
                         },
                         ChannelKind::Reliable,
                     );
-                    diagnostics.push(
+                    session_log.warn(
                         now,
-                        format!(
-                            "Rejected offer \"{item_name}\" from @{sender_handle}: item kind not giftable"
-                        ),
+                        EventPayload::ItemOfferRejected {
+                            offer_id,
+                            reason: format!("from @{sender_handle}: item kind not giftable"),
+                        },
                     );
                     continue;
                 }
 
-                diagnostics.push(
+                session_log.info(
                     now,
-                    format!("Received offer \"{item_name}\" from @{sender_handle}"),
+                    EventPayload::ItemOfferReceived {
+                        offer_id,
+                        sender_did: sender_did.clone(),
+                        item_name: item_name.clone(),
+                    },
                 );
                 commands.insert_resource(IncomingOfferDialog {
                     offer_id,
@@ -546,17 +556,16 @@ pub(super) fn handle_incoming_messages(
                     _ => {}
                 }
 
-                let Some(pending) = pending_offers.by_id.remove(&offer_id) else {
+                // Consume the pending entry now that the responder is
+                // authenticated; the value itself is no longer needed since the
+                // response event is keyed by `offer_id`.
+                if pending_offers.by_id.remove(&offer_id).is_none() {
                     continue;
-                };
+                }
 
-                let outcome = if accepted { "accepted" } else { "declined" };
-                diagnostics.push(
+                session_log.info(
                     now,
-                    format!(
-                        "@{} {} offer \"{}\"",
-                        pending.target_handle, outcome, pending.item_name
-                    ),
+                    EventPayload::ItemOfferResponseReceived { offer_id, accepted },
                 );
             }
         }

@@ -114,7 +114,12 @@ pub fn register_headless_spawn(app: &mut App) {
         .init_resource::<spatial_audio::BakedAudioCache>()
         .init_resource::<particles::ParticleQuadMesh>()
         .init_resource::<particles::ParticleAtlasMeshes>()
-        .init_resource::<crate::state::DiagnosticsLog>();
+        // The compile executor records a `WorldCompileCompleted` event through
+        // `GeneratorCaches::session_log`; init it here so this plugin stays
+        // self-sufficient in tests / the render tool. `init_resource` never
+        // overwrites, so the sink-backed `SessionLog` that `DiagnosticsPlugin`
+        // inserts in the full app still wins.
+        .init_resource::<crate::diagnostics::SessionLog>();
 
     // Insert the shared L-system prop meshes imperatively (not via the
     // `setup_prop_assets` Startup system) so the resource is present before

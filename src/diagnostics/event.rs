@@ -68,7 +68,6 @@ pub enum Category {
     Portal,
     Anomaly,
     Snapshot,
-    Legacy,
 }
 
 /// Which PDS-backed record a fetch event refers to.
@@ -305,6 +304,13 @@ pub enum EventPayload {
     ChatDroppedMuted {
         sender_did: String,
     },
+    /// The local player sent a gift offer to a peer (outbound side of
+    /// [`ItemOfferReceived`](EventPayload::ItemOfferReceived)).
+    ItemOfferSent {
+        offer_id: u64,
+        target_did: String,
+        item_name: String,
+    },
     ItemOfferReceived {
         offer_id: u64,
         sender_did: String,
@@ -317,6 +323,14 @@ pub enum EventPayload {
         offer_id: u64,
     },
     ItemOfferDecodeFailed {
+        reason: String,
+    },
+    /// An inbound offer decoded cleanly but was rejected before the dialog
+    /// was shown (e.g. the item kind is not giftable). Distinct from
+    /// [`ItemOfferDecodeFailed`](EventPayload::ItemOfferDecodeFailed), which
+    /// is a parse failure.
+    ItemOfferRejected {
+        offer_id: u64,
         reason: String,
     },
     ItemOfferDialogShown {
@@ -398,13 +412,11 @@ pub enum EventPayload {
     PortalTravelCompleted {
         target_did: String,
     },
-
-    // ---- Migration shim ----------------------------------------------------
-    /// A legacy free-text `DiagnosticsLog::push` line, kept so the 17 existing
-    /// string call sites compile while they are migrated to typed variants
-    /// (Pillar A-9). The recording call site supplies the real subsystem.
-    Legacy {
-        text: String,
+    /// A portal hop aborted because the destination room record could not be
+    /// fetched (transient PDS failure) — the player stays in the current room.
+    PortalTravelFailed {
+        target_did: String,
+        reason: String,
     },
 }
 
@@ -419,8 +431,7 @@ impl EventPayload {
             | SessionSegmentReset { .. }
             | SessionEnd { .. }
             | InvariantViolation { .. }
-            | MetricsSnapshot(_)
-            | Legacy { .. } => Subsystem::Session,
+            | MetricsSnapshot(_) => Subsystem::Session,
 
             LoadingPhaseStarted
             | RecordFetchInitiated { .. }
@@ -458,10 +469,12 @@ impl EventPayload {
             | RoomStateApplied
             | ChatReceived { .. }
             | ChatDroppedMuted { .. }
+            | ItemOfferSent { .. }
             | ItemOfferReceived { .. }
             | ItemOfferAutoDeclinedMuted { .. }
             | ItemOfferAutoDeclinedBusy { .. }
             | ItemOfferDecodeFailed { .. }
+            | ItemOfferRejected { .. }
             | ItemOfferDialogShown { .. }
             | ItemOfferDialogAutoDeclinedTimeout { .. }
             | ItemOfferUserResponded { .. }
@@ -485,7 +498,8 @@ impl EventPayload {
             | ShapeMeshCacheGrowth { .. }
             | OrphanAvatarVisual { .. }
             | PortalTravelInitiated { .. }
-            | PortalTravelCompleted { .. } => Subsystem::Runtime,
+            | PortalTravelCompleted { .. }
+            | PortalTravelFailed { .. } => Subsystem::Runtime,
         }
     }
 
@@ -497,7 +511,6 @@ impl EventPayload {
             SessionSegmentReset { .. } | SessionEnd { .. } => Category::Lifecycle,
             InvariantViolation { .. } => Category::Anomaly,
             MetricsSnapshot(_) => Category::Snapshot,
-            Legacy { .. } => Category::Legacy,
 
             LoadingPhaseStarted
             | LoadingGateReady { .. }
@@ -541,10 +554,12 @@ impl EventPayload {
 
             ChatReceived { .. } | ChatDroppedMuted { .. } => Category::Chat,
 
-            ItemOfferReceived { .. }
+            ItemOfferSent { .. }
+            | ItemOfferReceived { .. }
             | ItemOfferAutoDeclinedMuted { .. }
             | ItemOfferAutoDeclinedBusy { .. }
             | ItemOfferDecodeFailed { .. }
+            | ItemOfferRejected { .. }
             | ItemOfferDialogShown { .. }
             | ItemOfferDialogAutoDeclinedTimeout { .. }
             | ItemOfferUserResponded { .. }
@@ -569,12 +584,14 @@ impl EventPayload {
 
             FrameTimeSpike { .. } => Category::Perf,
 
-            PortalTravelInitiated { .. } | PortalTravelCompleted { .. } => Category::Portal,
+            PortalTravelInitiated { .. }
+            | PortalTravelCompleted { .. }
+            | PortalTravelFailed { .. } => Category::Portal,
         }
     }
 
     /// A one-line human string for the in-game event log (the tail view keeps
-    /// rendering the same terse lines the current `DiagnosticsLog` shows).
+    /// rendering the same terse one-line-per-event view as before).
     pub fn short_line(&self) -> String {
         use EventPayload::*;
         match self {
@@ -721,6 +738,13 @@ impl EventPayload {
                 format!("chat from {sender_did} ({text_len} B, muted={muted})")
             }
             ChatDroppedMuted { sender_did } => format!("chat dropped (muted): {sender_did}"),
+            ItemOfferSent {
+                offer_id,
+                target_did,
+                item_name,
+            } => {
+                format!("offer #{offer_id} '{item_name}' sent to {target_did}")
+            }
             ItemOfferReceived {
                 offer_id,
                 sender_did,
@@ -735,6 +759,9 @@ impl EventPayload {
                 format!("offer #{offer_id} auto-declined (busy)")
             }
             ItemOfferDecodeFailed { reason } => format!("offer decode failed ({reason})"),
+            ItemOfferRejected { offer_id, reason } => {
+                format!("offer #{offer_id} rejected ({reason})")
+            }
             ItemOfferDialogShown {
                 offer_id,
                 item_name,
@@ -786,15 +813,16 @@ impl EventPayload {
             OrphanAvatarVisual { count } => format!("{count} orphan avatar visuals"),
             PortalTravelInitiated { target_did } => format!("portal → {target_did}"),
             PortalTravelCompleted { target_did } => format!("portal arrived {target_did}"),
-
-            Legacy { text } => text.clone(),
+            PortalTravelFailed { target_did, reason } => {
+                format!("portal → {target_did} FAILED ({reason})")
+            }
         }
     }
 }
 
 /// One record in the append-only session stream. `t_mono_secs` is
 /// session-relative (`Time::elapsed_secs_f64`, the same source the current
-/// `DiagnosticsLog` timestamps use); `wall_ms` is an absolute unix-epoch stamp
+/// session-log timestamps use); `wall_ms` is an absolute unix-epoch stamp
 /// (web-time on wasm, std on native) for cross-run correlation, `None` when no
 /// clock is available. `seq` is a gap-free per-process counter so the analyzer
 /// can detect a truncated/torn tail.
@@ -883,8 +911,18 @@ mod tests {
                 rule: "LoadingGateStall".into(),
                 detail: "125s in Loading".into(),
             },
-            EventPayload::Legacy {
-                text: "some legacy line".into(),
+            EventPayload::ItemOfferSent {
+                offer_id: 7,
+                target_did: "did:plc:friend".into(),
+                item_name: "Lantern".into(),
+            },
+            EventPayload::ItemOfferRejected {
+                offer_id: 8,
+                reason: "item kind not giftable".into(),
+            },
+            EventPayload::PortalTravelFailed {
+                target_did: "did:plc:elsewhere".into(),
+                reason: "PDS timeout".into(),
             },
         ];
         payloads

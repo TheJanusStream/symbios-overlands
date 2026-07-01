@@ -145,7 +145,7 @@ mod tests {
         fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
             events
                 .iter()
-                .filter(|e| matches!(&e.payload, EventPayload::Legacy { text } if text == "spike"))
+                .filter(|e| matches!(&e.payload, EventPayload::SessionEnd { reason } if reason == "spike"))
                 .map(|_| Verdict::violated("logged spike"))
                 .collect()
         }
@@ -174,8 +174,8 @@ mod tests {
             0.0,
             None,
             Severity::Info,
-            EventPayload::Legacy {
-                text: "spike".into(),
+            EventPayload::SessionEnd {
+                reason: "spike".into(),
             },
         )];
         assert_eq!(toy.replay(&events).len(), 1);

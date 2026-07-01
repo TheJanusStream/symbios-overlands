@@ -23,8 +23,9 @@ use bevy::prelude::*;
 use bevy::tasks::Task;
 
 use crate::config;
+use crate::diagnostics::SessionLog;
+use crate::diagnostics::event::{EventPayload, FetchStatus, RecordKind, Severity};
 use crate::pds::FetchError;
-use crate::state::DiagnosticsLog;
 
 /// Per-record policy for the shared fetch pipeline. Implemented in
 /// [`super::records`] for `RoomRecord`, `AvatarRecord` and
@@ -36,6 +37,12 @@ use crate::state::DiagnosticsLog;
 pub trait LoadedRecord: Sized + Send + Sync + 'static {
     /// Capitalised human label for logs and diagnostics ("Room", …).
     const LABEL: &'static str;
+
+    /// Which [`RecordKind`] this fetch is for, so the shared poll system can
+    /// emit typed [`RecordFetchCompleted`](EventPayload::RecordFetchCompleted)
+    /// / [`RecordFetchRetrying`](EventPayload::RecordFetchRetrying) events into
+    /// the session log without a stringly-typed label.
+    const RECORD_KIND: RecordKind;
 
     /// Transient-failure retry budget. The backoff saturates at 60 s
     /// after six attempts, so the room/avatar budget of 12 buys roughly
@@ -77,6 +84,19 @@ pub(crate) fn record_backoff_secs(attempt: u32) -> u64 {
         0
     } else {
         (1u64 << attempt.min(6)).min(60)
+    }
+}
+
+/// The [`FetchStatus`] recorded when a fetch falls through to the DID-seeded
+/// default after its retry budget is spent. A `max_attempts` of `0` means the
+/// record is best-effort (inventory), so the first transient failure is an
+/// expected [`FetchStatus::BestEffortFallback`] rather than an
+/// [`FetchStatus::Exhausted`] failure of a gameplay-critical fetch.
+pub(crate) fn terminal_fallback_status(max_attempts: u32) -> FetchStatus {
+    if max_attempts == 0 {
+        FetchStatus::BestEffortFallback
+    } else {
+        FetchStatus::Exhausted
     }
 }
 
@@ -200,7 +220,7 @@ pub(crate) fn spawn_record_fetch<R: LoadedRecord>(
 pub(crate) fn poll_record_task<R: LoadedRecord>(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut RecordFetchTask<R>)>,
-    mut diagnostics: ResMut<DiagnosticsLog>,
+    mut session_log: ResMut<SessionLog>,
     time: Res<Time>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
 ) {
@@ -223,12 +243,14 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
             }
             Err(FetchError::Decode(msg)) => {
                 let elapsed = time.elapsed_secs_f64();
-                diagnostics.push(
+                session_log.warn(
                     elapsed,
-                    format!(
-                        "Stored {} record incompatible ({msg}) — falling back to default",
-                        R::LABEL
-                    ),
+                    EventPayload::RecordFetchCompleted {
+                        record: R::RECORD_KIND,
+                        did: did.clone(),
+                        status: FetchStatus::DecodeError,
+                        duration_secs: elapsed - spawned_at,
+                    },
                 );
                 warn!(
                     "Stored {} record could not be decoded ({}) — using DID-seeded default",
@@ -242,13 +264,22 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                 let next_attempt = prev_attempt.saturating_add(1);
                 let elapsed = time.elapsed_secs_f64();
                 if next_attempt > R::MAX_ATTEMPTS {
-                    diagnostics.push(
+                    let status = terminal_fallback_status(R::MAX_ATTEMPTS);
+                    // Best-effort records (inventory) fall through by design →
+                    // Info; a gameplay-critical fetch giving up entirely → Error.
+                    let severity = match status {
+                        FetchStatus::BestEffortFallback => Severity::Info,
+                        _ => Severity::Error,
+                    };
+                    session_log.record(
                         elapsed,
-                        format!(
-                            "{} record fetch failed ({err:?}) — giving up after {} attempts",
-                            R::LABEL,
-                            R::MAX_ATTEMPTS
-                        ),
+                        severity,
+                        EventPayload::RecordFetchCompleted {
+                            record: R::RECORD_KIND,
+                            did: did.clone(),
+                            status,
+                            duration_secs: elapsed - spawned_at,
+                        },
                     );
                     warn!(
                         "{} record fetch exhausted {} attempts: {:?} — falling back to default",
@@ -260,12 +291,15 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                     R::default_for(&did)
                 } else {
                     let backoff = record_backoff_secs(next_attempt);
-                    diagnostics.push(
+                    session_log.warn(
                         elapsed,
-                        format!(
-                            "{} record fetch failed ({err:?}) — retrying in {backoff}s (attempt {next_attempt})",
-                            R::LABEL
-                        ),
+                        EventPayload::RecordFetchRetrying {
+                            record: R::RECORD_KIND,
+                            did: did.clone(),
+                            attempt: next_attempt,
+                            backoff_secs: backoff,
+                            reason: format!("{err:?}"),
+                        },
                     );
                     warn!(
                         "{} record fetch failed: {:?} — retrying in {}s (attempt {})",
@@ -319,7 +353,8 @@ pub(crate) fn fire_pending_record_retries<R: LoadedRecord>(
 
 #[cfg(test)]
 mod tests {
-    use super::record_backoff_secs;
+    use super::{record_backoff_secs, terminal_fallback_status};
+    use crate::diagnostics::event::FetchStatus;
 
     #[test]
     fn backoff_doubles_and_saturates() {
@@ -332,5 +367,14 @@ mod tests {
         assert_eq!(record_backoff_secs(6), 60);
         assert_eq!(record_backoff_secs(7), 60);
         assert_eq!(record_backoff_secs(u32::MAX), 60);
+    }
+
+    #[test]
+    fn best_effort_records_fall_through_without_an_exhausted_failure() {
+        // A best-effort record (MAX_ATTEMPTS == 0, i.e. inventory) fell
+        // through by design — not a gameplay-critical fetch giving up.
+        assert_eq!(terminal_fallback_status(0), FetchStatus::BestEffortFallback);
+        // Room / avatar spent a real retry budget before giving up.
+        assert_eq!(terminal_fallback_status(12), FetchStatus::Exhausted);
     }
 }

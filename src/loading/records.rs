@@ -15,6 +15,7 @@
 use bevy::prelude::*;
 use bevy::tasks::Task;
 
+use crate::diagnostics::event::RecordKind;
 use crate::pds::{self, AvatarRecord, FetchError, InventoryRecord, RoomRecord};
 use crate::state::{
     CurrentRoomDid, LiveAvatarRecord, LiveInventoryRecord, LiveRoomRecord, RoomRecordRecovery,
@@ -34,6 +35,7 @@ const MAX_RECORD_FETCH_ATTEMPTS: u32 = 12;
 
 impl LoadedRecord for RoomRecord {
     const LABEL: &'static str = "Room";
+    const RECORD_KIND: RecordKind = RecordKind::Room;
     const MAX_ATTEMPTS: u32 = MAX_RECORD_FETCH_ATTEMPTS;
 
     fn dispatch_fetch(did: String) -> Task<Result<Option<Self>, FetchError>> {
@@ -68,6 +70,7 @@ impl LoadedRecord for RoomRecord {
 
 impl LoadedRecord for AvatarRecord {
     const LABEL: &'static str = "Avatar";
+    const RECORD_KIND: RecordKind = RecordKind::Avatar;
     const MAX_ATTEMPTS: u32 = MAX_RECORD_FETCH_ATTEMPTS;
 
     fn dispatch_fetch(did: String) -> Task<Result<Option<Self>, FetchError>> {
@@ -87,6 +90,7 @@ impl LoadedRecord for AvatarRecord {
 
 impl LoadedRecord for InventoryRecord {
     const LABEL: &'static str = "Inventory";
+    const RECORD_KIND: RecordKind = RecordKind::Inventory;
     /// Best-effort: transient failures fall straight through to an empty
     /// stash rather than retrying, because nothing gameplay-critical
     /// reads the inventory — the owner can re-publish a saved item after

@@ -111,7 +111,7 @@ pub fn format_elapsed_ts(elapsed_secs: f64) -> String {
     }
 }
 use pds::{AvatarRecord, InventoryRecord, RoomRecord};
-use state::{AppState, ChatHistory, DiagnosticsLog, LocalSettings, PublishFeedback};
+use state::{AppState, ChatHistory, LocalSettings, PublishFeedback};
 
 /// Build the Bevy `App`, register every plugin, and block on
 /// `App::run()`. Pulled out of `main.rs` so integration tests in `tests/`
@@ -197,7 +197,6 @@ pub fn run() {
         // into the session log + GUI badges.
         .add_plugins(diagnostics::anomaly::AnomalyPlugin)
         .init_resource::<ChatHistory>()
-        .init_resource::<DiagnosticsLog>()
         .init_resource::<LocalSettings>()
         // One publish-status resource per editable record — never
         // shared, so publishing one no longer stamps another editor's

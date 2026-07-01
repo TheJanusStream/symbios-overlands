@@ -163,6 +163,7 @@ pub(crate) fn start_ambient_bake(
     mut audio_cache: ResMut<crate::world_builder::audio_resolver::BlobAudioCache>,
     mut live_cfg: ResMut<LiveAmbientConfig>,
     time: Res<Time>,
+    mut session_log: ResMut<crate::diagnostics::SessionLog>,
 ) {
     // Wait until the room record has landed and we haven't already
     // dispatched the ambient pipeline (the latch flips on the frame
@@ -212,6 +213,12 @@ pub(crate) fn start_ambient_bake(
             // Malformed Patch/Sequence JSON → treat as "no audio" so a corrupt
             // record never blocks room load.
             None => {
+                session_log.warn(
+                    time.elapsed_secs_f64(),
+                    crate::diagnostics::event::EventPayload::AmbientBakeFallback {
+                        reason: "malformed Patch/Sequence config".to_string(),
+                    },
+                );
                 commands.insert_resource(AmbientHandle(None));
             }
         },
@@ -469,6 +476,7 @@ pub(crate) fn poll_ambient_bake_task(
     mut audio_sources: ResMut<Assets<bevy::audio::AudioSource>>,
     time: Res<Time>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
+    mut session_log: ResMut<crate::diagnostics::SessionLog>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
@@ -490,9 +498,16 @@ pub(crate) fn poll_ambient_bake_task(
                 Some(bytes)
             }
             // A non-audio result means the bake job failed to produce audio —
-            // count it as an offload error (E-4); the None falls back to silence.
+            // count it as an offload error (E-4) and log the fallback; the None
+            // falls back to silence.
             _ => {
                 crate::diagnostics::samplers::offload_job_error(&mut metrics, now);
+                session_log.warn(
+                    now,
+                    crate::diagnostics::event::EventPayload::AmbientBakeFallback {
+                        reason: "bake produced no audio".to_string(),
+                    },
+                );
                 None
             }
         };

@@ -7,7 +7,7 @@
 //! unbounded-growth leak watch).
 //!
 //! `SystemInformationDiagnosticsPlugin` is native-only; on wasm it is absent, so
-//! [`scrape_wasm_memory`] substitutes a `runtime.memory.wasm_bytes` gauge read
+//! `scrape_wasm_memory` substitutes a `runtime.memory.wasm_bytes` gauge read
 //! straight from `WebAssembly.Memory` — the heap-never-shrinks watch.
 
 use std::time::Duration;

@@ -7,14 +7,16 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
 
 use crate::config;
+use crate::diagnostics::SessionLog;
+use crate::diagnostics::event::EventPayload;
 use crate::protocol::OverlandsMessage;
-use crate::state::{DiagnosticsLog, IncomingOfferDialog, PendingOutgoingOffers, RemotePeer};
+use crate::state::{IncomingOfferDialog, PendingOutgoingOffers, RemotePeer};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn handle_peer_connections(
     mut commands: Commands,
     mut peer_events: ResMut<PeerStateQueue<OverlandsMessage>>,
-    mut diagnostics: ResMut<DiagnosticsLog>,
+    mut session_log: ResMut<SessionLog>,
     peers: Query<(Entity, &RemotePeer)>,
     time: Res<Time>,
     session: Option<Res<AtprotoSession>>,
@@ -25,7 +27,12 @@ pub(super) fn handle_peer_connections(
     for event in peer_events.drain() {
         match event.state {
             PeerConnectionState::Connected => {
-                diagnostics.push(elapsed, format!("[+] Peer {} connected", event.peer));
+                session_log.info(
+                    elapsed,
+                    EventPayload::PeerJoined {
+                        peer: event.peer.to_string(),
+                    },
+                );
                 crate::diagnostics::samplers::peer_connected(&mut metrics, elapsed);
                 // Spawn the peer with no avatar yet — the hot-swap system in
                 // `player.rs` will build visuals once the PDS fetch populates
@@ -68,9 +75,12 @@ pub(super) fn handle_peer_connections(
                             .as_deref()
                             .or(peer.did.as_deref())
                             .unwrap_or("unknown");
-                        diagnostics.push(
+                        session_log.info(
                             elapsed,
-                            format!("[-] Peer {} ({}) disconnected", event.peer, label),
+                            EventPayload::PeerLeft {
+                                peer: event.peer.to_string(),
+                                label: label.to_string(),
+                            },
                         );
                         crate::diagnostics::samplers::peer_disconnected(&mut metrics, elapsed);
                         commands.entity(entity).despawn();
@@ -94,7 +104,7 @@ pub(super) fn evict_stale_offer_dialog(
     mut commands: Commands,
     dialog: Option<Res<IncomingOfferDialog>>,
     time: Res<Time>,
-    mut diagnostics: ResMut<DiagnosticsLog>,
+    mut session_log: ResMut<SessionLog>,
     mut sender: SendMessage<OverlandsMessage>,
 ) {
     let Some(dialog) = dialog else {
@@ -117,12 +127,11 @@ pub(super) fn evict_stale_offer_dialog(
         },
         ChannelKind::Reliable,
     );
-    diagnostics.push(
+    session_log.info(
         now,
-        format!(
-            "Auto-declined offer \"{}\" from @{} (timed out)",
-            dialog.item_name, dialog.sender_handle
-        ),
+        EventPayload::ItemOfferDialogAutoDeclinedTimeout {
+            offer_id: dialog.offer_id,
+        },
     );
     commands.remove_resource::<IncomingOfferDialog>();
 }
@@ -135,7 +144,7 @@ pub(super) fn evict_stale_offer_dialog(
 pub(super) fn sweep_stale_pending_offers(
     time: Res<Time>,
     mut pending: ResMut<PendingOutgoingOffers>,
-    mut diagnostics: ResMut<DiagnosticsLog>,
+    mut session_log: ResMut<SessionLog>,
 ) {
     let now = time.elapsed_secs_f64();
     let ttl = config::network::PENDING_OFFER_TIMEOUT_SECS;
@@ -143,19 +152,20 @@ pub(super) fn sweep_stale_pending_offers(
     if before == 0 {
         return;
     }
-    let mut expired: Vec<(u64, String, String)> = Vec::new();
+    let mut expired: Vec<u64> = Vec::new();
     pending.by_id.retain(|&id, entry| {
         let alive = now - entry.sent_at_secs < ttl;
         if !alive {
-            expired.push((id, entry.target_handle.clone(), entry.item_name.clone()));
+            expired.push(id);
         }
         alive
     });
-    for (_id, handle, item_name) in expired {
-        diagnostics.push(
-            now,
-            format!("Offer \"{item_name}\" to @{handle} timed out (no response)"),
-        );
+    for offer_id in expired {
+        // Info, not Warn: a peer not answering a gift offer within the TTL is a
+        // benign, expected social outcome (AFK / implicit decline / brief hiccup)
+        // — it mirrors the incoming-side `ItemOfferDialogAutoDeclinedTimeout`
+        // above and must not inflate the offline analyzer's warning verdict.
+        session_log.info(now, EventPayload::PendingOfferTimedOut { offer_id });
     }
 }
 

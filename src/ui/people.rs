@@ -24,11 +24,13 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
 
 use crate::avatar::{BskyProfileCache, draw_avatar_icon};
+use crate::diagnostics::SessionLog;
+use crate::diagnostics::event::EventPayload;
 use crate::pds::{InventoryRecord, publish_inventory_record};
 use crate::protocol::OverlandsMessage;
 use crate::state::{
-    DiagnosticsLog, IncomingOfferDialog, LiveInventoryRecord, PublishFeedback, PublishStatus,
-    RemotePeer, SocialResonance,
+    IncomingOfferDialog, LiveInventoryRecord, PublishFeedback, PublishStatus, RemotePeer,
+    SocialResonance,
 };
 use crate::ui::chat::AVATAR_ICON_PX;
 use crate::ui::inventory::{
@@ -202,7 +204,7 @@ pub fn incoming_offer_ui(
     refresh_ctx: Option<Res<crate::oauth::OauthRefreshCtx>>,
     mut peers: Query<&mut RemotePeer>,
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
-    mut diagnostics: ResMut<DiagnosticsLog>,
+    mut session_log: ResMut<SessionLog>,
     mut inventory_feedback: ResMut<PublishFeedback<InventoryRecord>>,
     time: Res<Time>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
@@ -293,12 +295,12 @@ pub fn incoming_offer_ui(
         for mut peer in peers.iter_mut() {
             if peer.peer_id == dialog.sender_peer_id && !peer.muted {
                 peer.muted = true;
-                diagnostics.push(
+                session_log.info(
                     now,
-                    format!(
-                        "Muted @{} after declining their offer",
-                        dialog.sender_handle
-                    ),
+                    EventPayload::PeerMuteToggled {
+                        peer: peer.peer_id.to_string(),
+                        muted: true,
+                    },
                 );
                 break;
             }
@@ -308,15 +310,13 @@ pub fn incoming_offer_ui(
     if accepted {
         if let Some(live) = live_inventory.as_mut() {
             let key = choose_inventory_gift_key(&live.0.generators, &dialog.item_name);
-            live.0
-                .generators
-                .insert(key.clone(), dialog.generator.clone());
-            diagnostics.push(
+            live.0.generators.insert(key, dialog.generator.clone());
+            session_log.info(
                 now,
-                format!(
-                    "Accepted \"{}\" from @{} (stored as \"{}\"), publishing…",
-                    dialog.item_name, dialog.sender_handle, key
-                ),
+                EventPayload::ItemOfferUserResponded {
+                    offer_id: dialog.offer_id,
+                    accepted: true,
+                },
             );
 
             // Auto-publish the updated inventory immediately. The user
@@ -339,22 +339,28 @@ pub fn incoming_offer_ui(
         } else {
             // Live inventory resource absent — should not happen in
             // `AppState::InGame`, but decline rather than drop the
-            // response and leave the sender hanging.
-            diagnostics.push(
+            // response and leave the sender hanging. The user's response was
+            // an accept, so it records as such but at Warn severity because
+            // the item could not actually be stored.
+            warn!(
+                "Could not store accepted offer \"{}\" from @{}: inventory not loaded",
+                dialog.item_name, dialog.sender_handle
+            );
+            session_log.warn(
                 now,
-                format!(
-                    "Could not accept \"{}\" from @{}: inventory not loaded",
-                    dialog.item_name, dialog.sender_handle
-                ),
+                EventPayload::ItemOfferUserResponded {
+                    offer_id: dialog.offer_id,
+                    accepted: true,
+                },
             );
         }
     } else {
-        diagnostics.push(
+        session_log.info(
             now,
-            format!(
-                "Declined \"{}\" from @{}",
-                dialog.item_name, dialog.sender_handle
-            ),
+            EventPayload::ItemOfferUserResponded {
+                offer_id: dialog.offer_id,
+                accepted: false,
+            },
         );
     }
 

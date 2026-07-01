@@ -1,6 +1,7 @@
 //! The durable sink for the session-event stream (Pillar A-3).
 //!
-//! Native builds append one NDJSON line per [`SessionEvent`] to a per-session
+//! Native builds append one NDJSON line per
+//! [`SessionEvent`](crate::diagnostics::event::SessionEvent) to a per-session
 //! file under `diagnostics/` (repo-ignored, and unlike `target/` it survives
 //! `cargo clean`), and refresh a stable `session-latest.jsonl` copy on every
 //! flush so a coding agent can always read the newest run without knowing its
@@ -199,8 +200,8 @@ mod tests {
             seq as f64,
             Some(1000 + seq),
             Severity::Info,
-            EventPayload::Legacy {
-                text: format!("e{seq}"),
+            EventPayload::SessionEnd {
+                reason: format!("e{seq}"),
             },
         );
         serde_json::to_string(&ev).unwrap()
@@ -246,8 +247,8 @@ mod tests {
         for i in 0..5 {
             log.info(
                 i as f64,
-                EventPayload::Legacy {
-                    text: format!("e{i}"),
+                EventPayload::SessionEnd {
+                    reason: format!("e{i}"),
                 },
             );
         }
@@ -274,8 +275,8 @@ mod tests {
         log.record_file_only(
             0.0,
             Severity::Trace,
-            EventPayload::Legacy {
-                text: "snap".into(),
+            EventPayload::SessionEnd {
+                reason: "snap".into(),
             },
         );
         assert_eq!(

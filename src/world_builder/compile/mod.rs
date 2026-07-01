@@ -278,7 +278,13 @@ pub(super) fn compile_room_record(
     );
     info!("{line}");
     let now = generator_caches.time.elapsed_secs_f64();
-    generator_caches.diagnostics.push(now, line);
+    generator_caches.session_log.info(
+        now,
+        crate::diagnostics::event::EventPayload::WorldCompileCompleted {
+            entity_count: job.entities_spawned,
+            duration_secs: job.work.as_secs_f64(),
+        },
+    );
 
     // Unblock the loading gate: the world this record describes exists.
     // Idempotent on later jobs; removed by `logout::cleanup_on_logout`.

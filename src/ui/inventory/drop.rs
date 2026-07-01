@@ -13,11 +13,11 @@ use bevy_egui::EguiContexts;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
 
+use crate::diagnostics::SessionLog;
+use crate::diagnostics::event::EventPayload;
 use crate::pds::{Fp3, Fp4, Generator, Placement, TransformData};
 use crate::protocol::OverlandsMessage;
-use crate::state::{
-    CurrentRoomDid, DiagnosticsLog, LiveInventoryRecord, LiveRoomRecord, PendingOutgoingOffers,
-};
+use crate::state::{CurrentRoomDid, LiveInventoryRecord, LiveRoomRecord, PendingOutgoingOffers};
 use crate::terrain::TerrainMesh;
 
 use super::{DropSource, PendingGeneratorDrop, is_drop_placeable};
@@ -60,7 +60,7 @@ pub fn handle_generator_drop(
     inventory: Option<Res<LiveInventoryRecord>>,
     mut room: Option<ResMut<LiveRoomRecord>>,
     mut pending_offers: ResMut<PendingOutgoingOffers>,
-    mut diagnostics: ResMut<DiagnosticsLog>,
+    mut session_log: ResMut<SessionLog>,
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
     time: Res<Time>,
 ) {
@@ -136,12 +136,13 @@ pub fn handle_generator_drop(
             ),
             channel: ChannelKind::Reliable,
         });
-        diagnostics.push(
+        session_log.info(
             now,
-            format!(
-                "Offered \"{}\" to @{} — awaiting response",
-                name, target.handle
-            ),
+            EventPayload::ItemOfferSent {
+                offer_id,
+                target_did: target.did.clone(),
+                item_name: name.clone(),
+            },
         );
         info!(
             "Sent ItemOffer #{} \"{}\" to @{} ({})",

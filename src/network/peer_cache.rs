@@ -7,8 +7,10 @@ use bevy::prelude::*;
 use bevy_symbios_multiuser::prelude::*;
 
 use crate::config;
+use crate::diagnostics::SessionLog;
+use crate::diagnostics::event::EventPayload;
 use crate::pds::{self, AvatarRecord};
-use crate::state::{DiagnosticsLog, RemotePeer};
+use crate::state::RemotePeer;
 
 /// DID → last-known `AvatarRecord` cache, keyed on the authenticated DID.
 ///
@@ -123,7 +125,7 @@ pub(super) fn poll_peer_avatar_fetches(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut PeerAvatarFetchTask)>,
     mut peers: Query<&mut RemotePeer>,
-    mut diagnostics: ResMut<DiagnosticsLog>,
+    mut session_log: ResMut<SessionLog>,
     mut avatar_cache: ResMut<PeerAvatarCache>,
     time: Res<Time>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
@@ -168,9 +170,13 @@ pub(super) fn poll_peer_avatar_fetches(
             }
             Err(err) => {
                 crate::diagnostics::samplers::avatar_fetch_failed(&mut metrics, elapsed);
-                diagnostics.push(
+                session_log.warn(
                     elapsed,
-                    format!("Avatar fetch failed for {peer_id}: {err:?} — using default"),
+                    EventPayload::AvatarFetchFailed {
+                        peer: peer_id.to_string(),
+                        did: did.clone(),
+                        error: format!("{err:?}"),
+                    },
                 );
                 warn!(
                     "Avatar fetch failed for {} ({}): {:?} — falling back to default",

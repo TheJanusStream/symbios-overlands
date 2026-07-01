@@ -19,8 +19,8 @@ use crate::oauth::OauthRefreshCtx;
 use crate::pds::{AvatarRecord, InventoryRecord, RoomRecord};
 use crate::protocol::OverlandsMessage;
 use crate::state::{
-    AppState, ChatHistory, DiagnosticsLog, LiveAvatarRecord, LiveInventoryRecord, LiveRoomRecord,
-    LocalPlayer, PendingOutgoingOffers, PublishFeedback, RelayHost, RemotePeer, RoomRecordRecovery,
+    AppState, ChatHistory, LiveAvatarRecord, LiveInventoryRecord, LiveRoomRecord, LocalPlayer,
+    PendingOutgoingOffers, PublishFeedback, RelayHost, RemotePeer, RoomRecordRecovery,
     StoredAvatarRecord, StoredInventoryRecord, StoredRoomRecord,
 };
 use crate::world_builder::RoomEntity;
@@ -44,8 +44,7 @@ fn cleanup_on_logout(
     refresh_ctx: Option<Res<OauthRefreshCtx>>,
     mut chat: ResMut<ChatHistory>,
     // Grouped into one tuple param to stay within Bevy's 16-param system arity.
-    (mut diagnostics, mut session_log, mut metrics, time): (
-        ResMut<DiagnosticsLog>,
+    (mut session_log, mut metrics, time): (
         ResMut<crate::diagnostics::SessionLog>,
         ResMut<crate::diagnostics::MetricsRegistry>,
         Res<Time>,
@@ -180,16 +179,15 @@ fn cleanup_on_logout(
 
     // Reset in-memory buffers so the next session starts fresh.
     chat.messages.clear();
-    // Roll the diagnostic stream into a fresh segment: clear the legacy
-    // forward buffer, flush the departing session to disk, then clear the
-    // in-memory tail so the next user's HUD starts blank. The on-disk NDJSON
-    // file keeps the full history (the segment boundary is marked in it), so
-    // no post-mortem data is lost while the GUI shows nothing cross-session.
-    *diagnostics = DiagnosticsLog::default();
+    // Roll the diagnostic stream into a fresh segment: flush the departing
+    // session to disk, then clear the in-memory tail so the next user's HUD
+    // starts blank. The on-disk NDJSON file keeps the full history (the segment
+    // boundary is marked in it), so no post-mortem data is lost while the GUI
+    // shows nothing cross-session.
     session_log.reset_segment(time.elapsed_secs_f64(), "logout");
     session_log.flush();
     // Wipe the metrics registry too, so one session's counters/gauges/histograms
-    // never bleed into the next login (parallels the DiagnosticsLog wipe above).
+    // never bleed into the next login (parallels the session-log reset above).
     metrics.clear();
     // Drop the peer avatar cache so a new login can't see the previous
     // user's peers; the cache lives by DID, so a stale entry would install

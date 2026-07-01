@@ -5,10 +5,11 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::diagnostics::SessionLog;
+use crate::diagnostics::event::EventPayload;
 use crate::pds::{FetchError, RoomRecord, fetch_room_record};
 use crate::state::{
-    CurrentRoomDid, DiagnosticsLog, LiveRoomRecord, LocalPlayer, RemotePeer, RoomRecordRecovery,
-    TravelingTo,
+    CurrentRoomDid, LiveRoomRecord, LocalPlayer, RemotePeer, RoomRecordRecovery, TravelingTo,
 };
 use crate::ui::unsaved_guard::{GuardedAction, UnsavedGuard};
 use crate::world_builder::PortalMarker;
@@ -168,7 +169,7 @@ pub(super) fn poll_portal_travel_tasks(
     mut stored_room: Option<ResMut<crate::state::StoredRoomRecord>>,
     mut current_did: Option<ResMut<CurrentRoomDid>>,
     mut chat: ResMut<crate::state::ChatHistory>,
-    mut diagnostics: ResMut<DiagnosticsLog>,
+    mut session_log: ResMut<SessionLog>,
     relay_host: Option<Res<crate::state::RelayHost>>,
     peers: Query<Entity, With<RemotePeer>>,
     mut players: Query<
@@ -207,11 +208,11 @@ pub(super) fn poll_portal_travel_tasks(
             // a recovery banner the destination owner can clear by
             // re-publishing.
             Err(FetchError::Decode(msg)) => {
-                diagnostics.push(
+                session_log.warn(
                     elapsed,
-                    format!(
-                        "Portal travel: stored room record incompatible ({msg}) — using default"
-                    ),
+                    EventPayload::RoomRecoveryBannerRaised {
+                        reason: msg.clone(),
+                    },
                 );
                 warn!(
                     "Portal travel decode error ({}) — installing default + recovery marker",
@@ -227,9 +228,12 @@ pub(super) fn poll_portal_travel_tasks(
             // current room. The destination owner's real record stays
             // safe; the user can walk into the portal again to retry.
             Err(err) => {
-                diagnostics.push(
+                session_log.warn(
                     elapsed,
-                    format!("Portal travel failed ({err:?}) — staying put. Try again."),
+                    EventPayload::PortalTravelFailed {
+                        target_did: travel_data.target_did.clone(),
+                        reason: format!("{err:?}"),
+                    },
                 );
                 warn!("Portal travel fetch failed: {:?} — aborting travel", err);
                 commands.remove_resource::<TravelingTo>();

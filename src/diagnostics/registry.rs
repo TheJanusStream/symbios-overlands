@@ -352,7 +352,7 @@ impl MetricsRegistry {
     }
 
     /// Reset every metric — called at logout so one session's numbers never
-    /// bleed into the next login (parallels the `DiagnosticsLog` wipe).
+    /// bleed into the next login (parallels the session-log segment reset).
     pub fn clear(&mut self) {
         self.gauges.clear();
         self.counters.clear();

@@ -60,8 +60,8 @@ pub struct GeneratorCaches<'w> {
     /// Clock for the executor's per-slice frame budget and the
     /// telemetry timestamp.
     pub(crate) time: Res<'w, Time>,
-    /// Sink for the per-job compile telemetry line.
-    pub(crate) diagnostics: ResMut<'w, crate::state::DiagnosticsLog>,
+    /// Session log for the per-job compile telemetry event.
+    pub(crate) session_log: ResMut<'w, crate::diagnostics::SessionLog>,
 }
 
 /// Hard ceiling on the number of `spawn_generator` calls a single
