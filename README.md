@@ -109,3 +109,17 @@ cp assets/client-metadata.json dist/   # OAuth client metadata sits at the site 
 ```
 
 Serve `./dist` with any static web server (e.g. `python -m http.server -d dist`).
+
+## Diagnostics
+
+The app records an append-only NDJSON session log. Native builds write it to a
+git-ignored `diagnostics/session-latest.jsonl` (override with `SYMBIOS_DIAG_DIR`,
+disable with `SYMBIOS_DIAG=0`); the web build exposes it via the Diagnostics
+panel's “Download session log” button. Analyze a run with:
+
+```sh
+cargo run --bin render -- --analyze-session diagnostics/session-latest.jsonl
+```
+
+See [docs/diagnostics.md](docs/diagnostics.md) for the file locations, the
+environment overrides, and the JSONL schema.

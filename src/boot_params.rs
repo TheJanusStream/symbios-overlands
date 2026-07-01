@@ -306,6 +306,76 @@ pub fn write_to_clipboard(text: &str) -> Result<(), String> {
     Ok(())
 }
 
+// ────────────────────────────────────────────────────────────────────────
+// File download (WASM)
+// ────────────────────────────────────────────────────────────────────────
+
+/// Trigger a browser "save file" download of `contents` under `filename`
+/// (WASM only — native builds write the same data straight to disk). Wraps the
+/// string in an in-memory `Blob`, mints an object URL, wires it to a hidden
+/// `<a download>`, and synthesises a click — the standard "export to file" web
+/// idiom, and the download-log counterpart to [`write_to_clipboard`]. Must be
+/// called from a user-gesture handler (an egui button click qualifies). The
+/// object URL is revoked on a *deferred* timer, not synchronously: the browser
+/// reads the blob on a task scheduled after `click()` returns, so an immediate
+/// revoke can tear the `blob:` URL down before its bytes are read and produce an
+/// empty file (Firefox bug 1282407 — the same reason FileSaver.js defers it).
+#[cfg(target_arch = "wasm32")]
+pub fn download_text_file(filename: &str, mime: &str, contents: &str) -> Result<(), String> {
+    use wasm_bindgen::JsCast;
+
+    let window = web_sys::window().ok_or_else(|| "no window".to_string())?;
+    let document = window.document().ok_or_else(|| "no document".to_string())?;
+
+    // Blob from a single string part, tagged with a text MIME so a browser that
+    // ignores the `download` hint still treats it as text rather than binary.
+    let parts = js_sys::Array::of1(&wasm_bindgen::JsValue::from_str(contents));
+    let opts = web_sys::BlobPropertyBag::new();
+    opts.set_type(mime);
+    let blob = web_sys::Blob::new_with_str_sequence_and_options(&parts, &opts)
+        .map_err(|_| "blob create failed".to_string())?;
+    let url = web_sys::Url::create_object_url_with_blob(&blob)
+        .map_err(|_| "object URL create failed".to_string())?;
+
+    // A hidden `<a href=blob download=filename>` click drives the save dialog.
+    let anchor = document
+        .create_element("a")
+        .map_err(|_| "anchor create failed".to_string())?
+        .dyn_into::<web_sys::HtmlAnchorElement>()
+        .map_err(|_| "anchor cast failed".to_string())?;
+    anchor.set_href(&url);
+    anchor.set_download(filename);
+
+    // Firefox only fires the download for a synthetic click when the anchor is
+    // actually in the document; attach it (hidden), click, then remove it.
+    if let Some(body) = document.body() {
+        let _ = body.append_child(&anchor);
+        anchor.click();
+        let _ = body.remove_child(&anchor);
+    } else {
+        // No <body> (shouldn't happen in a rendered app) — try the detached
+        // click, which Chromium honours.
+        anchor.click();
+    }
+
+    // Defer the revoke: the download task that reads the blob is scheduled
+    // *after* this call returns, so revoking now can race it to an empty file.
+    // A one-shot timer (self-freeing `once_into_js` closure) keeps the URL alive
+    // long enough; 60 s comfortably covers a slow "Save As" prompt. If the timer
+    // can't be scheduled, revoke inline rather than leak the blob URL.
+    let url_for_revoke = url.clone();
+    let revoke = wasm_bindgen::closure::Closure::once_into_js(move || {
+        let _ = web_sys::Url::revoke_object_url(&url_for_revoke);
+    });
+    if window
+        .set_timeout_with_callback_and_timeout_and_arguments_0(revoke.unchecked_ref(), 60_000)
+        .is_err()
+    {
+        let _ = web_sys::Url::revoke_object_url(&url);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

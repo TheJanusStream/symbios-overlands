@@ -603,6 +603,77 @@ fn render_health_tab(
     }
 }
 
+/// Session-log export controls for the Identity tab (Pillar A-8).
+///
+/// The two platforms expose the *same* NDJSON stream two different ways:
+/// - **native** — the log is already appended to `session-latest.jsonl` on
+///   disk, so this shows that read-only path plus a "Copy path" button (so a
+///   coding agent can be pointed straight at the file). When the sink is
+///   disabled (`SYMBIOS_DIAG=0` / a bare test app) there is no path, so it
+///   renders a muted "(session log disabled)" instead.
+/// - **wasm** — there is no filesystem, so the in-memory ring *is* the log; a
+///   "Download session log" button hands [`SessionLog::drain_ndjson`] to the
+///   browser as a byte-for-byte-identical `.jsonl` file the analyzer can read.
+///
+/// `status` carries a transient `(message, shown_at_secs)` toast (mirroring the
+/// landmark-link copy feedback) rendered for a few seconds after a click.
+fn render_log_export_controls(
+    ui: &mut egui::Ui,
+    session_log: &SessionLog,
+    status: &mut Option<(String, f64)>,
+    now: f64,
+) {
+    ui.label("Session log");
+
+    #[cfg(not(target_arch = "wasm32"))]
+    match session_log.sink_path() {
+        Some(path) => {
+            ui.monospace(
+                egui::RichText::new(&path)
+                    .small()
+                    .color(egui::Color32::GRAY),
+            );
+            if ui.button("Copy path").clicked() {
+                *status = Some(match write_to_clipboard(&path) {
+                    Ok(()) => ("Path copied".to_string(), now),
+                    Err(e) => (format!("Copy failed ({e})"), now),
+                });
+            }
+        }
+        None => {
+            ui.colored_label(
+                egui::Color32::GRAY,
+                egui::RichText::new("(session log disabled)").small(),
+            );
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    if ui.button("Download session log").clicked() {
+        let ndjson = session_log.drain_ndjson();
+        let count = session_log.len();
+        *status = Some(
+            match crate::boot_params::download_text_file(
+                "symbios-session-log.jsonl",
+                "application/x-ndjson",
+                &ndjson,
+            ) {
+                Ok(()) => (format!("Downloaded {count} events"), now),
+                Err(e) => (format!("Download failed ({e})"), now),
+            },
+        );
+    }
+
+    if let Some((msg, at)) = status.as_ref()
+        && now - at < 6.0
+    {
+        ui.colored_label(
+            egui::Color32::from_rgb(160, 200, 160),
+            egui::RichText::new(msg).small(),
+        );
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn diagnostics_ui(
     mut commands: Commands,
@@ -615,6 +686,7 @@ pub fn diagnostics_ui(
     invariants: Res<InvariantRegistry>,
     metrics: Res<MetricsRegistry>,
     mut landmark_status: Local<Option<(String, f64)>>,
+    mut log_export_status: Local<Option<(String, f64)>>,
     mut active_tab: Local<DiagTab>,
     time: Res<Time>,
     local_player_q: Query<&Transform, With<LocalPlayer>>,
@@ -787,6 +859,16 @@ pub fn diagnostics_ui(
 
             ui.separator();
 
+            // Session-log export: on-disk path + Copy (native) / Download button
+            // (wasm), so the same NDJSON the analyzer reads is one click away.
+            render_log_export_controls(
+                ui,
+                &session_log,
+                &mut log_export_status,
+                time.elapsed_secs_f64(),
+            );
+            ui.separator();
+
             ui.label("Event Log");
             let log_height = ui.available_height();
             egui::ScrollArea::vertical()
@@ -897,6 +979,40 @@ mod tests {
         assert_eq!(fmt_bytes(2.0 * 1024.0), "2 KiB");
         assert_eq!(fmt_bytes(3.0 * 1024.0 * 1024.0), "3.0 MiB");
         assert_eq!(fmt_bytes(2.0 * 1024.0 * 1024.0 * 1024.0), "2.00 GiB");
+    }
+
+    /// Headless egui frame: the A-8 session-log export controls render without
+    /// panicking with the sink disabled (default log → "(session log disabled)"),
+    /// with a transient toast active, and (native) with a file sink attached so
+    /// the path + "Copy path" branch is exercised.
+    #[test]
+    fn log_export_controls_render_without_panicking() {
+        fn render_once(log: &SessionLog, mut status: Option<(String, f64)>) {
+            let ctx = egui::Context::default();
+            let _ = ctx.run(egui::RawInput::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    render_log_export_controls(ui, log, &mut status, 1.0);
+                });
+            });
+        }
+
+        // Disabled sink → the muted "(session log disabled)" branch, no toast.
+        render_once(&SessionLog::default(), None);
+        // A recent toast still renders (within the 6 s fade window).
+        render_once(&SessionLog::default(), Some(("Path copied".into(), 1.0)));
+
+        // Native sink attached → the path + "Copy path" button branch.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use crate::diagnostics::Sink;
+            let dir = std::env::temp_dir().join(format!("symbios-a8-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            let mut log = SessionLog::default();
+            log.set_sink(Sink::open_in(&dir, None));
+            assert!(log.sink_path().is_some(), "sink path present once attached");
+            render_once(&log, None);
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 
     /// Headless egui frame: the Overview tab renders both empty (every reader
