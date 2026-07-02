@@ -43,6 +43,7 @@ pub(super) fn poll_terrain_task(
     mut task_res: ResMut<TerrainTask>,
     time: Res<Time>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
+    mut session_log: ResMut<crate::diagnostics::SessionLog>,
 ) {
     if let Some(result) =
         futures_lite::future::block_on(futures_lite::future::poll_once(&mut task_res.0))
@@ -55,6 +56,15 @@ pub(super) fn poll_terrain_task(
                 crate::diagnostics::samplers::heightmap_latency_secs(
                     &mut metrics,
                     now - spawned_at,
+                );
+                // Typed completion for the B-2 loading-gate heightmap distro.
+                session_log.info(
+                    now,
+                    crate::diagnostics::event::EventPayload::HeightmapGenCompleted {
+                        duration_secs: now - spawned_at,
+                        width: data.width,
+                        height: data.height,
+                    },
                 );
                 commands.insert_resource(FinishedHeightMap(heightmap_from_data(data)));
             }

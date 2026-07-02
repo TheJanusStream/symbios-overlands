@@ -128,20 +128,38 @@ fn diagnostic_tick(
     run_rules(&mut invariants, &cx, &mut log);
 }
 
-fn loading_clock_enter(mut clock: ResMut<LoadingClock>, time: Res<Time>) {
-    clock.entered_at = Some(time.elapsed_secs_f64());
+fn loading_clock_enter(
+    mut clock: ResMut<LoadingClock>,
+    time: Res<Time>,
+    mut log: ResMut<SessionLog>,
+) {
+    let now = time.elapsed_secs_f64();
+    clock.entered_at = Some(now);
+    // Mark the loading-gate open in the session stream (B-2 timeline start +
+    // the LoadingGateStall replay rule's start marker).
+    log.info(now, EventPayload::LoadingPhaseStarted);
 }
 
 fn loading_clock_exit(
     mut clock: ResMut<LoadingClock>,
     time: Res<Time>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
+    mut log: ResMut<SessionLog>,
 ) {
     // Record the total wall time spent in the loading gate (E-4) before clearing
-    // the entry stamp — this OnExit(Loading) system owns the gate timing.
+    // the entry stamp — this OnExit(Loading) system owns the gate timing. The
+    // only exit from `Loading` is into `InGame` (logout is `InGame → Login`), so
+    // this is the Loading → InGame transition.
     if let Some(entered_at) = clock.entered_at {
         let now = time.elapsed_secs_f64();
-        crate::diagnostics::samplers::loading_gate_total_secs(&mut metrics, now - entered_at, now);
+        let elapsed = now - entered_at;
+        crate::diagnostics::samplers::loading_gate_total_secs(&mut metrics, elapsed, now);
+        log.info(
+            now,
+            EventPayload::LoadingGateTransitionToInGame {
+                elapsed_secs: elapsed,
+            },
+        );
     }
     clock.entered_at = None;
 }

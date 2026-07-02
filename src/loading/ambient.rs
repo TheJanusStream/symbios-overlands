@@ -205,6 +205,21 @@ pub(crate) fn start_ambient_bake(
         crate::pds::SovereignAudioConfig::Patch { .. }
         | crate::pds::SovereignAudioConfig::Sequence { .. } => match ambient_bake_job(&audio) {
             Some(job) => {
+                // Start marker for the B-2 timeline + the AmbientBakeStall replay
+                // rule's start→end pairing. (The `EventPayload` variant is
+                // distinct from the same-named `AmbientBakeStarted` marker
+                // resource inserted below.)
+                let variant = if matches!(audio, crate::pds::SovereignAudioConfig::Patch { .. }) {
+                    "patch"
+                } else {
+                    "sequence"
+                };
+                session_log.info(
+                    time.elapsed_secs_f64(),
+                    crate::diagnostics::event::EventPayload::AmbientBakeStarted {
+                        variant: variant.to_string(),
+                    },
+                );
                 commands.spawn(AmbientBakeTask(
                     crate::offload::offload(crate::offload::GenJob::AudioBake(job)),
                     time.elapsed_secs_f64(),
@@ -489,11 +504,20 @@ pub(crate) fn poll_ambient_bake_task(
         commands.entity(entity).despawn();
 
         let wav = match result {
-            // Success only: record the bake latency (E-4).
+            // Success only: record the bake latency (E-4) + a typed completion
+            // (B-2 timeline / ambient stage distro + the AmbientBakeStall replay
+            // rule's end marker).
             crate::offload::GenResult::Audio(bytes) => {
                 crate::diagnostics::samplers::ambient_bake_latency_secs(
                     &mut metrics,
                     now - spawned_at,
+                );
+                session_log.info(
+                    now,
+                    crate::diagnostics::event::EventPayload::AmbientBakeCompleted {
+                        bytes: bytes.len() as u64,
+                        duration_secs: now - spawned_at,
+                    },
                 );
                 Some(bytes)
             }

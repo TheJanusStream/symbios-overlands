@@ -235,9 +235,16 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
         let spawned_at = task.spawned_at;
         commands.entity(entity).despawn();
 
+        // Set on the successful arms so the terminal-resolve tail emits a typed
+        // `RecordFetchCompleted`; the failure arms below emit their own.
+        let mut fetch_status: Option<FetchStatus> = None;
         let record = match result {
-            Ok(Some(r)) => r,
+            Ok(Some(r)) => {
+                fetch_status = Some(FetchStatus::Ok);
+                r
+            }
             Ok(None) => {
+                fetch_status = Some(FetchStatus::NotFound);
                 info!("No {} record on PDS — using DID-seeded default", R::LABEL);
                 R::default_for(&did)
             }
@@ -323,10 +330,22 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
         // exhausted-default) — record the resolving attempt's latency (E-4). The
         // transient-retry path `continue`s above, so a retry cycle's intermediate
         // (often timeout-length) attempt latencies never pollute this histogram.
-        crate::diagnostics::samplers::record_fetch_latency_secs(
-            &mut metrics,
-            time.elapsed_secs_f64() - spawned_at,
-        );
+        let now = time.elapsed_secs_f64();
+        // Typed completion for the *successful* resolutions (a record, or a
+        // 404-default) — feeds the analyzer's record-fetch stage distro (B-2).
+        // The decode / exhausted / best-effort arms already logged their own.
+        if let Some(status) = fetch_status {
+            session_log.info(
+                now,
+                EventPayload::RecordFetchCompleted {
+                    record: R::RECORD_KIND,
+                    did: did.clone(),
+                    status,
+                    duration_secs: now - spawned_at,
+                },
+            );
+        }
+        crate::diagnostics::samplers::record_fetch_latency_secs(&mut metrics, now - spawned_at);
         record.install(&mut commands);
     }
 }

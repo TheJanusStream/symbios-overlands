@@ -5,10 +5,10 @@
 //! `diagnostics/session-latest.jsonl` a live run writes, or the wasm
 //! "Download log" dump — byte-identical formats), deserializes it back into
 //! [`SessionEvent`]s tolerating unknown/torn lines, and folds it into a
-//! human-readable report. This slice (B-1) builds the header + verdict
-//! skeleton; later slices bolt on the timeline + loading-gate/offload timings
-//! (B-2), the per-subsystem tallies (B-3) and the replayed
-//! `[Invariant Violations]` section (D-5).
+//! human-readable report: the header + verdict (B-1), the `[Timeline]` +
+//! `[Loading Gate]` per-stage timings (B-2), and the replayed
+//! `[Invariant Violations]` section (D-5). Later slices add the per-subsystem
+//! tallies (B-3) and the analyzer filters (B-5).
 //!
 //! The report builders are pure over `&[SessionEvent]`, so they unit-test
 //! without any file IO or a Bevy `App`; the native `render_tool` supplies the
@@ -17,7 +17,7 @@
 
 use std::fmt::Write;
 
-use crate::diagnostics::event::{EventPayload, SessionEvent, Severity, StartupInfo};
+use crate::diagnostics::event::{EventPayload, FetchStatus, SessionEvent, Severity, StartupInfo};
 
 /// A session log parsed from NDJSON, plus the count of lines that failed to
 /// deserialize (an unknown/renamed variant from a newer build, or a torn final
@@ -100,6 +100,138 @@ fn duration_secs(events: &[SessionEvent]) -> f64 {
 
 fn plural(n: usize) -> &'static str {
     if n == 1 { "" } else { "s" }
+}
+
+/// Cap on `[Timeline]` rows so a pathological log (thousands of portal hops)
+/// can't grow the report without bound; the overflow is summarised.
+const TIMELINE_MAX: usize = 60;
+
+/// A short label for the events that define the session's *shape* — the ones the
+/// `[Timeline]` renders at their timestamp. `None` for the high-frequency /
+/// detail events (metric snapshots, per-peer transforms, chat, …) that would
+/// bury the milestones.
+fn timeline_label(p: &EventPayload) -> Option<String> {
+    use EventPayload::*;
+    Some(match p {
+        StartupSnapshot(s) => format!("startup ({:?})", s.phase),
+        LoadingPhaseStarted => "loading gate opened".to_string(),
+        RecordFetchCompleted { record, status, .. } => format!("{record:?} fetch {status:?}"),
+        HeightmapGenCompleted { .. } => "heightmap generated".to_string(),
+        AmbientBakeCompleted { .. } => "ambient bake done".to_string(),
+        AmbientBakeFallback { .. } => "ambient bake fell back to silence".to_string(),
+        WorldCompileCompleted { entity_count, .. } => {
+            format!("world compiled ({entity_count} entities)")
+        }
+        LoadingGateTransitionToInGame { elapsed_secs } => format!("→ InGame ({elapsed_secs:.1}s)"),
+        PortalTravelInitiated { target_did } => format!("portal → {target_did}"),
+        PortalTravelCompleted { target_did } => format!("portal arrived {target_did}"),
+        PortalTravelFailed { target_did, .. } => format!("portal → {target_did} FAILED"),
+        SessionSegmentReset { reason } => format!("segment reset ({reason})"),
+        SessionEnd { reason } => format!("session end ({reason})"),
+        _ => return None,
+    })
+}
+
+/// The `[Timeline]` section: the milestone events (see [`timeline_label`]) at
+/// their session-relative timestamps, so an agent can see the run's arc at a
+/// glance. Capped at [`TIMELINE_MAX`] with an explicit overflow line — never a
+/// silent truncation.
+fn write_timeline(s: &mut String, events: &[SessionEvent]) {
+    let rows: Vec<(f64, String)> = events
+        .iter()
+        .filter_map(|e| timeline_label(&e.payload).map(|l| (e.t_mono_secs, l)))
+        .collect();
+    let _ = writeln!(s);
+    let _ = writeln!(s, "[Timeline]");
+    if rows.is_empty() {
+        let _ = writeln!(s, "  (no milestone events)");
+        return;
+    }
+    let shown = rows.len().min(TIMELINE_MAX);
+    for (t, label) in rows.iter().take(shown) {
+        let _ = writeln!(s, "  {t:>8.1}s  {label}");
+    }
+    if rows.len() > shown {
+        let _ = writeln!(s, "  … {} more milestone(s)", rows.len() - shown);
+    }
+}
+
+/// One stage-timing line: the `min/p50/p90/max/mean` distro of every
+/// `duration_secs` `pick` extracts, via the shared [`distro`] reducer, or `—`
+/// when the stage never ran in this log.
+///
+/// [`distro`]: crate::diagnostics::registry::distro
+fn write_stage_distro(
+    s: &mut String,
+    label: &str,
+    events: &[SessionEvent],
+    pick: fn(&EventPayload) -> Option<f64>,
+) {
+    let v: Vec<f64> = events.iter().filter_map(|e| pick(&e.payload)).collect();
+    match crate::diagnostics::registry::distro(&v) {
+        Some(d) => {
+            let _ = writeln!(s, "  {label:<14} {d}  (n={})", d.n);
+        }
+        None => {
+            let _ = writeln!(s, "  {label:<14} —");
+        }
+    }
+}
+
+/// The `[Loading Gate]` section: the Login → Loading → InGame gate time plus a
+/// per-stage duration distro for the four heavy loading stages the session log
+/// times (record fetch / heightmap / ambient bake / world compile).
+fn write_loading_gate(s: &mut String, events: &[SessionEvent]) {
+    use EventPayload::*;
+    let _ = writeln!(s);
+    let _ = writeln!(s, "[Loading Gate]");
+
+    // The gate elapsed is stamped on the Loading → InGame transition event.
+    let gate = events.iter().find_map(|e| match &e.payload {
+        LoadingGateTransitionToInGame { elapsed_secs } => Some(*elapsed_secs),
+        _ => None,
+    });
+    match gate {
+        Some(secs) => {
+            let _ = writeln!(s, "  Loading → InGame:  {secs:.1}s");
+        }
+        None => {
+            let started = events
+                .iter()
+                .any(|e| matches!(e.payload, LoadingPhaseStarted));
+            let why = if started {
+                "did not reach InGame (stalled or truncated log)"
+            } else {
+                "no loading gate in this log"
+            };
+            let _ = writeln!(s, "  Loading → InGame:  — ({why})");
+        }
+    }
+
+    write_stage_distro(s, "record fetch", events, |p| match p {
+        // Success-only, to match the other three stages: a decode-failure /
+        // exhausted / best-effort fetch also emits a `RecordFetchCompleted`, but
+        // its (often near-timeout) latency would skew a "how long did fetches
+        // take" distro — the failure surfaces in the verdict + invariants instead.
+        RecordFetchCompleted {
+            duration_secs,
+            status: FetchStatus::Ok | FetchStatus::NotFound,
+            ..
+        } => Some(*duration_secs),
+        _ => None,
+    });
+    write_stage_distro(s, "heightmap", events, |p| match p {
+        HeightmapGenCompleted { duration_secs, .. } => Some(*duration_secs),
+        _ => None,
+    });
+    write_stage_distro(s, "ambient bake", events, |p| match p {
+        AmbientBakeCompleted { duration_secs, .. } => Some(*duration_secs),
+        _ => None,
+    });
+    write_stage_distro(s, "world compile", events, |p| match p {
+        WorldCompileCompleted { duration_secs, .. } => Some(*duration_secs),
+        _ => None,
+    });
 }
 
 /// Build the post-mortem report for a parsed session log. `path` is echoed in
@@ -196,6 +328,10 @@ pub fn report(path: &str, log: &ParsedLog) -> String {
         let _ = writeln!(s, "  {}", parts.join(", "));
     }
 
+    // -- timeline + loading-gate stage timing (B-2) ---------------------------
+    write_timeline(&mut s, events);
+    write_loading_gate(&mut s, events);
+
     // -- invariant violations (D-5) -------------------------------------------
     // The offline counterpart to the live anomaly engine: replay the shared rule
     // set over the stream + surface captured live-only fires.
@@ -212,7 +348,7 @@ pub fn report(path: &str, log: &ParsedLog) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diagnostics::event::{SnapshotPhase, StartupInfo};
+    use crate::diagnostics::event::{FetchStatus, RecordKind, SnapshotPhase, StartupInfo};
 
     fn ev(t: f64, sev: Severity, payload: EventPayload) -> SessionEvent {
         SessionEvent::new(0, t, Some(1_700_000_000_000), sev, payload)
@@ -363,5 +499,149 @@ mod tests {
         };
         let r = report("empty.jsonl", &parsed);
         assert!(r.contains("empty log: no parseable events"));
+    }
+
+    #[test]
+    fn report_renders_timeline_and_loading_gate_stage_timings() {
+        use EventPayload::*;
+        let did = "did:plc:me".to_string();
+        let parsed = ParsedLog {
+            events: vec![
+                ev(0.0, Severity::Info, startup_info(Some("did:plc:me"))),
+                ev(0.5, Severity::Info, LoadingPhaseStarted),
+                ev(
+                    1.0,
+                    Severity::Info,
+                    RecordFetchCompleted {
+                        record: RecordKind::Room,
+                        did: did.clone(),
+                        status: FetchStatus::Ok,
+                        duration_secs: 0.8,
+                    },
+                ),
+                ev(
+                    1.2,
+                    Severity::Info,
+                    RecordFetchCompleted {
+                        record: RecordKind::Avatar,
+                        did: did.clone(),
+                        status: FetchStatus::NotFound,
+                        duration_secs: 0.4,
+                    },
+                ),
+                // A FAILED fetch: shows in the timeline but must NOT pollute the
+                // success-only record-fetch stage distro (its ~timeout latency
+                // would skew the percentiles).
+                ev(
+                    1.5,
+                    Severity::Warn,
+                    RecordFetchCompleted {
+                        record: RecordKind::Inventory,
+                        did: did.clone(),
+                        status: FetchStatus::Exhausted,
+                        duration_secs: 30.0,
+                    },
+                ),
+                ev(
+                    2.0,
+                    Severity::Info,
+                    HeightmapGenCompleted {
+                        duration_secs: 1.5,
+                        width: 256,
+                        height: 256,
+                    },
+                ),
+                ev(
+                    2.5,
+                    Severity::Info,
+                    AmbientBakeCompleted {
+                        bytes: 44_100,
+                        duration_secs: 0.3,
+                    },
+                ),
+                ev(
+                    3.0,
+                    Severity::Info,
+                    WorldCompileCompleted {
+                        entity_count: 1200,
+                        duration_secs: 0.9,
+                    },
+                ),
+                ev(
+                    3.2,
+                    Severity::Info,
+                    LoadingGateTransitionToInGame { elapsed_secs: 2.7 },
+                ),
+                ev(
+                    10.0,
+                    Severity::Info,
+                    SessionEnd {
+                        reason: "app_exit".into(),
+                    },
+                ),
+            ],
+            unparseable: 0,
+        };
+        let r = report("s.jsonl", &parsed);
+
+        // Timeline milestones render at their timestamps.
+        assert!(r.contains("[Timeline]"), "{r}");
+        assert!(r.contains("loading gate opened"), "{r}");
+        assert!(r.contains("Room fetch Ok"), "{r}");
+        // The failed fetch is a timeline milestone even though it's distro-excluded.
+        assert!(r.contains("Inventory fetch Exhausted"), "{r}");
+        assert!(r.contains("→ InGame (2.7s)"), "{r}");
+        assert!(r.contains("world compiled (1200 entities)"), "{r}");
+        assert!(r.contains("session end (app_exit)"), "{r}");
+
+        // Loading-gate section: the gate total + per-stage distros.
+        assert!(r.contains("[Loading Gate]"), "{r}");
+        assert!(r.contains("Loading → InGame:  2.7s"), "{r}");
+        // record-fetch distro folds only the two SUCCESSFUL completions (0.8,
+        // 0.4) — the Exhausted failure (30.0s) is excluded, so n=2 not 3 and the
+        // max stays 0.8.
+        assert!(r.contains("record fetch"), "{r}");
+        assert!(
+            r.contains("(n=2)"),
+            "record-fetch distro should exclude the failure (n=2): {r}"
+        );
+        assert!(
+            !r.contains("max 30.0"),
+            "the 30s failure latency must not appear in any distro: {r}"
+        );
+        assert!(r.contains("heightmap"), "{r}");
+        assert!(r.contains("ambient bake"), "{r}");
+        assert!(r.contains("world compile"), "{r}");
+    }
+
+    #[test]
+    fn loading_gate_section_marks_a_missing_gate() {
+        let parsed = ParsedLog {
+            events: vec![
+                ev(0.0, Severity::Info, startup_info(Some("did:plc:me"))),
+                ev(
+                    1.0,
+                    Severity::Info,
+                    EventPayload::SessionEnd {
+                        reason: "app_exit".into(),
+                    },
+                ),
+            ],
+            unparseable: 0,
+        };
+        let r = report("s.jsonl", &parsed);
+        assert!(
+            r.contains("Loading → InGame:  — (no loading gate in this log)"),
+            "{r}"
+        );
+        // Every stage row still renders, but as an empty distro — so no `(n=…)`
+        // count appears anywhere when nothing ran.
+        assert!(r.contains("[Loading Gate]"), "{r}");
+        assert!(r.contains("record fetch"), "{r}");
+        assert!(r.contains("world compile"), "{r}");
+        assert!(
+            !r.contains("(n="),
+            "no stage distro should render when nothing ran: {r}"
+        );
     }
 }
