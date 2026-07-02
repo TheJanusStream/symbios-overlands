@@ -60,9 +60,10 @@ pub struct HeightmapParams {
 }
 
 /// Generated heightmap data — plain row-major `f32` heights plus the dimensions
-/// needed to rebuild a `symbios_ground::HeightMap` on the consuming side. The
-/// `data` buffer is the large payload transferred (zero-copy) back from the
-/// worker on wasm.
+/// needed to rebuild a `symbios_ground::HeightMap` on the consuming side. On
+/// wasm the `data` floats are serialized element-wise across the worker
+/// boundary (a per-element copy — unlike the RGBA / WAV buffers, they are
+/// not sent as a compact `serde_bytes` bin blob).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct HeightmapData {
     pub width: u32,

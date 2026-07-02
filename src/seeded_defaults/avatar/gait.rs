@@ -1,11 +1,11 @@
 //! Avatar gait + idle animation timing.
 //!
-//! Computed by the deriver but **not yet consumed** anywhere: the
-//! current default avatar is a hover-boat whose locomotion preset
-//! ignores step / sway data, and there's no humanoid avatar default
-//! to feed it into yet. Defining the surface now keeps it ready —
-//! a future humanoid spawn path or animation system can read these
-//! fields directly without needing to extend the deriver.
+//! Partially consumed: the humanoid chassis default reads
+//! `step_cadence` into its locomotion walk speed (a long-legged strider
+//! covers ground faster than a short-stepped walker). The bounce /
+//! sway / head-turn fields are **not yet consumed** — defining the full
+//! surface now keeps them ready for a future animation system to read
+//! directly without needing to extend the deriver.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;

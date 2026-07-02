@@ -50,7 +50,8 @@ impl ThemeAccent {
     /// The accent for `theme`. Every theme now carries an identity accent
     /// (the post-cyberpunk overhaul, epic #458); the match is exhaustive so a
     /// new [`ThemeArchetype`] won't compile without one. [`Self::NEUTRAL`]
-    /// remains the do-nothing accent used by callers and tests.
+    /// remains available as a do-nothing sentinel, though today only tests
+    /// reference it — no production caller constructs it.
     pub fn for_theme(theme: ThemeArchetype) -> Self {
         use ThemeArchetype::*;
         match theme {

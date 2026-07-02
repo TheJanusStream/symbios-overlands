@@ -60,7 +60,7 @@
 //!   retired; every primitive is now a first-class [`Generator`] variant).
 //! * [`generator`] — the [`Generator`] hierarchical wrapper, its
 //!   variant-specific [`generator::GeneratorKind`] payload (Terrain /
-//!   Water / Portal / LSystem / Shape / primitives / `Sign` /
+//!   Water / RoadNetwork / Portal / LSystem / Shape / primitives / `Sign` /
 //!   `ParticleSystem`), the [`Placement`] open-union enum, and the
 //!   supporting open unions [`SignSource`], [`EmitterShape`],
 //!   [`ParticleBlendMode`], [`SimulationSpace`], [`AnimationFrameMode`],
@@ -73,6 +73,16 @@
 //! * [`room`] — [`Environment`], [`RoomRecord`], [`find_terrain_config`], and
 //!   room-record XRPC wrappers.
 //! * [`inventory`] — [`InventoryRecord`] + fetch/publish.
+//! * [`audio`] — Sovereign (fixed-point, DAG-CBOR-safe) mirrors of the
+//!   `bevy_symbios_audio` authoring types, rooted at
+//!   [`audio::SovereignAudioConfig`].
+//! * [`contact_effects`] — PDS-authored contact-effect recipes, translated
+//!   into the runtime registry by the world compiler's
+//!   `apply_contact_recipes`.
+//! * [`material_finish`] — socio-political PBR finish pass for seeded
+//!   settlement members ([`material_finish::apply_socio_finish`]).
+//! * [`ruin`] — escalation-driven geometric damage pass
+//!   ([`ruin::apply_ruin`]).
 
 pub(crate) const COLLECTION: &str = "network.symbios.overlands.room";
 pub(crate) const AVATAR_COLLECTION: &str = "network.symbios.overlands.avatar";

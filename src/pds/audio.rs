@@ -27,7 +27,7 @@
 //! `bevy_symbios_audio` equivalent) and `from_native` (builds the
 //! sovereign mirror from a native value). The round-trip is loss-free
 //! modulo `Fp` quantisation (each float quantises to its nearest
-//! `Fp_SCALE` tick — ~0.0001 precision, well below audio-rate
+//! `FP_SCALE` tick — ~0.0001 precision, well below audio-rate
 //! perceptual thresholds for any field these types carry).
 //!
 //! [`Fp`]: super::types::Fp
@@ -84,7 +84,7 @@ impl SovereignAudioConfig {
     /// Build a `Patch` variant from a native
     /// [`bevy_symbios_audio::AudioPatch`]. Conversion is infallible —
     /// the structural walk wraps every float in [`Fp`] without losing
-    /// data outside `Fp_SCALE` quantisation.
+    /// data outside `FP_SCALE` quantisation.
     pub fn from_patch(patch: &bevy_symbios_audio::AudioPatch) -> Self {
         SovereignAudioConfig::Patch {
             patch: SovereignAudioPatch::from_native(patch),

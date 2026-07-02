@@ -192,8 +192,9 @@ pub(super) fn spawn_procedural_material(
 /// Free-function core of [`spawn_procedural_material`] — takes the
 /// resources upstream's
 /// [`bevy_symbios_texture::build_procedural_material_async`] needs instead
-/// of the full [`SpawnCtx`], so avatar builders can reuse it without
-/// constructing a world-builder context.
+/// of the full [`SpawnCtx`], so it could be reused without constructing a
+/// world-builder context. Today that split is only an internal seam:
+/// [`spawn_procedural_material`] is its sole caller.
 ///
 /// Returns a [`StandardMaterial`] handle whose texture slots are populated
 /// asynchronously once the texture-generator task finishes — or

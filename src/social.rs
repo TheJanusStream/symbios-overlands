@@ -5,9 +5,10 @@
 //!
 //! The query is dispatched from the `IoTaskPool` and polled each frame so
 //! the main game loop never stalls on network I/O. The resonance tag is
-//! consumed by future chat/people-panel UI; the legacy in-world mast-tip
-//! glow was dropped together with the rest of the rover-specific marker
-//! plumbing during the avatar-unification work.
+//! consumed by the chat and people-panel UI (`ui/chat.rs` and
+//! `ui/people.rs` both highlight `Mutual`-follow peers); the legacy
+//! in-world mast-tip glow was dropped together with the rest of the
+//! rover-specific marker plumbing during the avatar-unification work.
 
 use bevy::prelude::*;
 use bevy::tasks::{IoTaskPool, Task};

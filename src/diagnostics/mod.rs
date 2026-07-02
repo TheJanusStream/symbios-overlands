@@ -17,10 +17,23 @@
 //! - [`event`] — the [`event::SessionEvent`] model + [`event::EventPayload`]
 //!   taxonomy (Pillar A-1). Free of gameplay types so it round-trips through
 //!   serde on native and wasm.
-//!
-//! Later pillars add: `log` (the `SessionLog` funnel + ring buffer), `sink`
-//! (native NDJSON writer), `snapshot` (the startup record), `registry`/`names`
-//! (the metrics spine), and `anomaly` (the invariant engine).
+//! - [`log`] — the [`SessionLog`] funnel + in-memory ring buffer backing the
+//!   in-game event log and the wasm "Download log" dump.
+//! - [`sink`] — the native NDJSON file writer (per-session files +
+//!   `session-latest.jsonl`); [`panic`](mod@panic) mirrors the tail into a panic-hook
+//!   ring so a crash still leaves a `session-panic-*.jsonl`.
+//! - [`snapshot`] — the startup record (build/environment context) emitted as
+//!   each session's first event.
+//! - [`registry`] / [`names`] — the shared metrics spine (gauges / counters /
+//!   histograms) and its single metric-name vocabulary; [`samplers`] are the
+//!   per-subsystem helpers that feed it, and [`bevy_bridge`] scrapes Bevy's
+//!   built-in diagnostics into it once per second.
+//! - [`anomaly`] — the invariant engine: one rule set run live (1 Hz) and
+//!   replayed offline.
+//! - [`analyze`] — the offline `--analyze-session` / `--diff-sessions`
+//!   post-mortem reports printed by the `render` bin.
+//! - [`plugin`] — the Bevy wiring (`DiagnosticsPlugin`): constructs the log,
+//!   arms the panic hook, records the boot snapshot, registers flush systems.
 
 pub mod analyze;
 pub mod anomaly;

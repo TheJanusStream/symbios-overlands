@@ -157,7 +157,7 @@ pub mod camera {
 }
 
 // ---------------------------------------------------------------------------
-// Terrain generation (terrain.rs)
+// Terrain generation (terrain/)
 // ---------------------------------------------------------------------------
 pub mod terrain {
     pub const SEED: u64 = 42;
@@ -711,7 +711,7 @@ pub mod avatar {
 }
 
 // ---------------------------------------------------------------------------
-// HTTP client defaults (lib.rs, avatar.rs, social.rs, ui/login.rs, ui/room/)
+// HTTP client defaults (lib.rs, avatar.rs, social.rs, ui/login/, ui/room/)
 // ---------------------------------------------------------------------------
 pub mod http {
     use std::time::Duration;
@@ -779,7 +779,7 @@ pub mod http {
 }
 
 // ---------------------------------------------------------------------------
-// Login UI (ui/login.rs)
+// Login UI (ui/login/)
 // ---------------------------------------------------------------------------
 pub mod login {
     /// Default ATProto PDS endpoint.
@@ -840,7 +840,7 @@ pub mod airship {
 }
 
 // ---------------------------------------------------------------------------
-// UI panels (ui/chat.rs, ui/diagnostics.rs, ui/avatar.rs, ui/room/, ui/login.rs)
+// UI panels (ui/chat.rs, ui/diagnostics.rs, ui/avatar/, ui/room/, ui/login/)
 // ---------------------------------------------------------------------------
 pub mod ui {
     pub mod chat {

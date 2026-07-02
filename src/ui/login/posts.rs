@@ -101,7 +101,7 @@ pub struct LoginPostFeed {
     pub posts: Vec<DisplayPost>,
 }
 
-/// In-flight `searchPosts` request. Carried as a component on a throwaway
+/// In-flight `getAuthorFeed` request. Carried as a component on a throwaway
 /// entity so `Query<&mut LoginFeedFetchTask>` can drain it ergonomically
 /// from [`poll_login_feed_fetch`].
 #[derive(Component)]

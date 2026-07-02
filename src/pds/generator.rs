@@ -183,8 +183,6 @@ impl Default for RoadConfig {
     }
 }
 
-/// Variant-specific payload for a [`Generator`]. Open union: unrecognised
-/// `$type` tags deserialise to `Unknown` instead of failing the whole record.
 /// Vertex-torture parameters shared by every parametric primitive. Bundled
 /// into one struct (rather than three flat fields on all eight variants) so a
 /// new torture knob is a single field add — `#[serde(default)]` fills it on
@@ -257,6 +255,8 @@ impl TortureParams {
     }
 }
 
+/// Variant-specific payload for a [`Generator`]. Open union: unrecognised
+/// `$type` tags deserialise to `Unknown` instead of failing the whole record.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "$type")]
 // The Terrain variant carries a full `SovereignTerrainConfig` (~400 bytes);

@@ -557,8 +557,8 @@ fn fragment(
     //   * Angles span ~260° of the circle in irrational steps — clustered
     //     angles on one hemisphere let the crest lines overlap into visible
     //     grid diagonals at grazing view.
-    //   * Wavelengths are a non-harmonic 1.53× geometric progression from
-    //     1.4m to 14.0m so no two waves beat into a low-frequency envelope.
+    //   * Wavelengths are a non-harmonic ~1.5–1.6× progression from
+    //     1.50m to 14.0m so no two waves beat into a low-frequency envelope.
     //   * Amplitudes fall off faster than linearly so the largest wave
     //     dominates the silhouette; smaller waves just add surface texture.
     //   * Speeds scale roughly with sqrt(wavelength) — the physical deep-

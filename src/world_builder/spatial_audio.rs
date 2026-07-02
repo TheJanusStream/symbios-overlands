@@ -322,9 +322,11 @@ pub fn dispatch_one_shot_audio(
     );
 }
 
-/// Marker on a transient one-shot voice entity. Carries the requested
-/// playback volume so the poll system can pick it up at attach time
-/// (without threading volume through the task channel).
+/// Marker on a transient one-shot voice entity. The `volume` field mirrors
+/// the requested playback volume, but nothing reads it today — the volume
+/// actually reaches the attach step via the `BakeAttachmentMode::OneShot`
+/// entry stored in the cache's waiter list. (Wiring it up or removing it is
+/// tracked separately.)
 #[derive(Component)]
 pub struct OneShotAudioVoice {
     pub volume: f32,

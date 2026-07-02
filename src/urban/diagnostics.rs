@@ -166,7 +166,7 @@ fn collect_graph_stats(graph: &RoadGraph, sub: &HeightMap, dims: &Dims) -> RoadG
         *degree_hist.entry(d).or_default() += 1;
     }
 
-    // Interior clip — matches `extrude_junctions`' emission gate, so the hub
+    // Interior clip — matches `extrude_hubs`' emission gate, so the hub
     // counts reflect what is actually rendered.
     let center = sub.width() as f32 * sub.scale() * 0.5;
     let interior_r2 = (center * ROAD_INTERIOR_FRACTION).powi(2);

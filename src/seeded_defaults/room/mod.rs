@@ -1,8 +1,9 @@
 //! Room-scope DID-seeded derivers.
 //!
-//! Each submodule owns one parameter group of the room (palette,
-//! terrain shape, biome textures, atmosphere, tree / rock / particle
-//! scatters, the spawn-side settlement, the ambient-audio bed). They share the
+//! Each submodule owns one parameter group of the room (palette, the
+//! theme identity accent, terrain shape, biome textures, atmosphere,
+//! tree / rock / particle scatters, the spawn-side settlement, the
+//! ambient-audio bed). They share the
 //! [`super::SceneCharacter`] anchor so the derived values stay
 //! internally coherent — see the module-level docstring on
 //! [`super`] for the full data flow.

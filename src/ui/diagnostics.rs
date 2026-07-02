@@ -1,8 +1,12 @@
-//! Diagnostics HUD: local identity, current room DID, peer roster with per-
-//! peer mute toggles, the "Copy Landmark Link" share button (bundles the
-//! current room DID + player position + yaw into a URL that the WASM build
-//! opens directly and the native build accepts as `--did=… --pos=… --rot=…`),
-//! a native-only wireframe-mode checkbox (skipped on WebGL2 where
+//! Diagnostics HUD — a five-tab panel (see [`DiagTab`]). The Overview /
+//! Runtime / Network / Offload tabs draw the frame-time sparkline and
+//! per-subsystem metric health cards + anomaly badges over the shared
+//! metrics registry. The Identity tab carries the historic panel: local
+//! identity, current room DID, peer roster with per-peer mute toggles,
+//! the "Copy Landmark Link" share button (bundles the current room DID +
+//! player position + yaw into a URL that the WASM build opens directly
+//! and the native build accepts as `--did=… --pos=… --rot=…`), a
+//! native-only wireframe-mode checkbox (skipped on WebGL2 where
 //! `POLYGON_MODE_LINE` is unavailable), a scrolling event log, and the
 //! log-out button (routed through [`crate::ui::unsaved_guard`] so
 //! unpublished edits are never silently discarded).

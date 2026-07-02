@@ -252,16 +252,6 @@ pub(crate) fn pastel(color: [f32; 3]) -> [f32; 3] {
     ]
 }
 
-/// Square Sign panel showing the owner's bsky profile picture, flown as a
-/// heraldic side banner (face normal ±X) at `translation`. `size` is the side
-/// length: the panel is kept **square** so the profile picture is never
-/// stretched. `tint` is the fallback colour — pass [`pastel`] of an accent so
-/// an unloaded banner still belongs to the avatar's palette.
-///
-/// The Sign mesh is a plane in local XZ (normal +Y). Two rolls are baked in:
-/// `quat_y(-FRAC_PI_2)` turns the image upright within the panel, and
-/// `quat_z(FRAC_PI_2)` (applied last) stands the panel vertical with its
-/// normal on ±X. Without the Y roll the picture rides 90° on its side.
 /// Which way an integrated pfp panel faces. [`PfpFacing::Side`] keeps the
 /// heraldic ±X normal (a hull / envelope / sail decal seen from the flank);
 /// [`PfpFacing::Front`] yaws it 90° so its normal lies on ±Z (a chest badge or

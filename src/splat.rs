@@ -47,6 +47,16 @@ pub struct StainsUniforms {
     pub _pad1: u32,
 }
 
+/// Texture bind slots the splat material's extension consumes: the weight map
+/// plus the albedo + normal `2d_array`s (3), and on native the extra stains
+/// overlay (4; dropped on wasm — see [`SplatExtension`] for the WebGL2
+/// ceiling rationale). Surfaced as the `runtime.texture_bind_slots` gauge
+/// (C-5) so the GUI can show headroom against the 16-slot ceiling.
+#[cfg(not(target_arch = "wasm32"))]
+pub const SPLAT_TEXTURE_BIND_SLOTS: u32 = 4;
+#[cfg(target_arch = "wasm32")]
+pub const SPLAT_TEXTURE_BIND_SLOTS: u32 = 3;
+
 /// [`MaterialExtension`] that drives `splat.wgsl`.
 ///
 /// Bind-group slots (group `MATERIAL_BIND_GROUP`, 100 +):
@@ -70,17 +80,6 @@ pub struct StainsUniforms {
 /// The corresponding bindings in `assets/shaders/splat.wgsl` are guarded
 /// by `#ifdef STAINS_BINDING`, and [`SplatExtension::specialize`] emits
 /// that shader-def only on non-wasm targets.
-/// Texture bind slots the splat material's extension consumes: the weight map
-/// plus the albedo + normal `2d_array`s (3), and on native the extra stains
-/// overlay (4). The WebGL2/GLES backend caps a fragment shader at 16 texture
-/// slots and the splat material already sits near that ceiling, so wasm drops
-/// the stains overlay. Surfaced as the `runtime.texture_bind_slots` gauge (C-5)
-/// so the GUI can show headroom against the ceiling.
-#[cfg(not(target_arch = "wasm32"))]
-pub const SPLAT_TEXTURE_BIND_SLOTS: u32 = 4;
-#[cfg(target_arch = "wasm32")]
-pub const SPLAT_TEXTURE_BIND_SLOTS: u32 = 3;
-
 #[derive(Asset, TypePath, AsBindGroup, Clone, Default)]
 pub struct SplatExtension {
     #[texture(100)]

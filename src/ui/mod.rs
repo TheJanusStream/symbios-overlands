@@ -3,7 +3,10 @@
 //! appropriate [`crate::state::AppState`] and schedule.
 //!
 //! * [`login`]        — OAuth 2.0 + DPoP login form, runs in `AppState::Login`.
-//! * [`diagnostics`]  — peer roster, mute toggles, event log, logout button.
+//! * [`diagnostics`]  — tabbed diagnostics HUD: Overview / Runtime /
+//!   Network / Offload metric sparklines, per-subsystem health cards and
+//!   anomaly badges, plus the Identity tab (peer roster, mute toggles,
+//!   event log, logout button).
 //! * [`chat`]         — in-room chat window (Reliable channel).
 //! * [`people`]       — room roster with per-peer mute toggles; peer rows
 //!   double as drop targets for inventory gifts, and `incoming_offer_ui`

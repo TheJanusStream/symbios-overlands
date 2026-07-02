@@ -3,11 +3,13 @@
 //! A room's seed is the FNV-1a 64-bit hash of its owner's DID, so every
 //! client visiting the same overland derives the identical landscape locally
 //! — there is no authoritative server to replicate from.  Heightmap
-//! generation (Voronoi terracing → hydraulic erosion → thermal erosion) runs
-//! on `AsyncComputeTaskPool` while the four splat layer textures
-//! (e.g. grass / dirt / rock / snow — the actual material per layer is
-//! biome-derived) are baked in parallel by
-//! `bevy_symbios_texture`.  Once every task has finished, the layers are
+//! generation (Voronoi terracing → hydraulic erosion → thermal erosion) and
+//! the four splat layer textures (e.g. grass / dirt / rock / snow — the
+//! actual material per layer is biome-derived) are dispatched through
+//! [`crate::offload`] (native: `AsyncComputeTaskPool`; wasm: a Web Worker)
+//! and baked by the Bevy-free `gen_jobs` crate; `bevy_symbios_texture` then
+//! assembles the returned pixels into CPU `Image`s.  Once every task has
+//! finished, the layers are
 //! concatenated into a 2D texture array and the `SplatExtension` material is
 //! flipped from placeholder flat-colour mode to triplanar PBR splat blending.
 //!
@@ -17,9 +19,11 @@
 //!
 //! ## Sub-module map
 //!
-//! * [`heightmap`] — the async heightmap generator (FBM / DiamondSquare /
-//!   Voronoi + erosion passes), its start/poll systems, and the
-//!   mesh + heightfield-collider spawner.
+//! * [`heightmap`] — distils the terrain config into the offload job's
+//!   params, dispatches / polls that job, and spawns the
+//!   mesh + heightfield-collider; the generator itself (FBM /
+//!   DiamondSquare / Voronoi + erosion passes) lives in the Bevy-free
+//!   `gen_jobs` crate.
 //! * [`splat`] — the four-layer procedural texture tasks, the
 //!   texture-array atlas build, the splat weight map, and the material
 //!   flip from placeholder to triplanar splat blending (also publishes
@@ -55,6 +59,8 @@ use crate::state::{AppState, LiveRoomRecord};
 #[derive(Resource)]
 struct TextureTasksStarted;
 
+/// Marker on the root terrain entity — the static rigid body carrying the
+/// heightfield collider, with the textured terrain mesh as its child.
 #[derive(Component)]
 pub struct TerrainMesh;
 
@@ -70,6 +76,9 @@ pub struct OutgoingTerrain;
 #[derive(Component)]
 pub struct WaterVolume;
 
+/// The completed heightmap of the active room. Its insertion (and any later
+/// change) is the readiness signal `world_builder` keys off — room
+/// compilation and avatar spawning both gate on this resource.
 #[derive(Resource)]
 pub struct FinishedHeightMap(pub HeightMap);
 

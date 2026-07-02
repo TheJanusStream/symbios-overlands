@@ -20,15 +20,21 @@
 //!                  - splat-stain stamper           (wet/dust terrain-overlay texture)
 //!                  - projected-decal stamper       (fading surface-aligned quads)
 //!                  - bevy_audio cue consumer       (one-shot, optionally spatial voices)
+//!                  - material-keyed impact audio   (procedural footstep/landing SFX, #300)
 //! ```
 //!
 //! The particle / decal / audio channels are **PDS-authored**: a room's
 //! `network.symbios.overlands.room` record carries a `contact_effects`
 //! block ([`crate::pds::ContactEffects`]) that the world compiler
 //! translates into the [`recipes::ContactRecipeRegistry`]; a room that
-//! omits it falls back to the default water-splash / droplet set with
-//! no decal or audio. The water-wake and stains channels are always-on
-//! and locomotion-scaled (see "Footprint radius" below).
+//! omits it falls back to the default water-splash / droplet /
+//! ground-dust set (two water recipes plus one terrain) with no decal
+//! or authored audio. The water-wake and stains channels are always-on
+//! and locomotion-scaled (see "Footprint radius" below); the
+//! material-keyed impact-audio channel
+//! (`audio_materials::play_terrain_impacts`, #300) is likewise
+//! always-on, baking procedural footstep/landing SFX from the dominant
+//! splat layer at each terrain contact.
 //!
 //! The producer is surface-agnostic at the call site:
 //! [`contact::SurfaceContact`] is an enum (`Water` / `Terrain`) and each

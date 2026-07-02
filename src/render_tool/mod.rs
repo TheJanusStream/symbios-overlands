@@ -13,8 +13,15 @@
 //! cargo run --bin render -- --catalogue villa   # any catalogue slug
 //! cargo run --bin render -- --prim tube         # a single primitive kind
 //! cargo run --bin render -- --room 3            # the seeded settlement
+//! cargo run --bin render -- --generator g.json  # a dumped/edited Generator
 //! # → /tmp/avatar-render/<label>.png  (front / ¾ / side / back tiles)
 //! ```
+//!
+//! The same binary also hosts several no-render modes that short-circuit
+//! before any render app stands up: `--family-seeds` (chassis-family seed
+//! survey), `--dump` (print a subject's `Generator` JSON), `--road-dump`
+//! (road-graph topology stats), and the offline session-log analyzers
+//! `--analyze-session` / `--diff-sessions`. See the per-arg docs on `Args`.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -68,7 +75,9 @@ struct Args {
     /// Render a [`Generator`] deserialized from a JSON file. Lets the agent
     /// iterate on an L-system grammar (or any generator) without recompiling
     /// the crate: `--dump` a catalogue entry to seed the JSON, edit the
-    /// grammar / scalars, re-render. Highest precedence.
+    /// grammar / scalars, re-render. Highest precedence among the render
+    /// subjects (`--generator` > `--room` > `--prim` > `--catalogue` >
+    /// `--avatar`); the no-render modes still run first.
     #[arg(long)]
     generator: Option<String>,
     /// With `--catalogue <slug>` or `--avatar <seed|did>`: print that subject's
@@ -431,8 +440,6 @@ fn diff_sessions(path_a: &str, path_b: &str) {
     );
 }
 
-/// Resolve a primitive tag (case-insensitive) to a default kind. Wraps
-/// [`GeneratorKind::default_primitive_for_tag`], which is title-cased.
 /// Parse a `"a,b"` pair into `[f32; 2]` (missing components default to 0).
 fn parse2(s: &str) -> [f32; 2] {
     let mut it = s.split(',').map(|x| x.trim().parse::<f32>().unwrap_or(0.0));
@@ -464,6 +471,8 @@ fn apply_prim_overrides(kind: &mut GeneratorKind, args: &Args) {
     }
 }
 
+/// Resolve a primitive tag (case-insensitive) to a default kind. Wraps
+/// [`GeneratorKind::default_primitive_for_tag`], which is title-cased.
 fn primitive_for_tag(tag: &str) -> Option<GeneratorKind> {
     let mut chars = tag.chars();
     let titled: String = match chars.next() {

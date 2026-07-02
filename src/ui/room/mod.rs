@@ -93,9 +93,10 @@ pub enum EditorTab {
 /// tree-view widget keys its selection / expansion state on this type.
 ///
 /// `Default` returns an `(empty-root, empty-path)` sentinel that stands
-/// in for "the implicit virtual root" of the tree-view widget. Our
-/// `unique_key` rejects empty prefixes, so a real generator can never
-/// have `root == ""`; the sentinel is therefore unambiguous.
+/// in for "the implicit virtual root" of the tree-view widget. A real
+/// generator never has `root == ""` because every `unique_key` caller
+/// passes a non-empty kind-tag/name prefix (`unique_key` itself does not
+/// reject empty prefixes); the sentinel is therefore unambiguous.
 #[derive(Clone, Default, PartialEq, Eq, Hash, Debug)]
 pub struct GenNodeId {
     pub root: String,

@@ -38,6 +38,9 @@ use crate::pds::GeneratorKind;
 ///   `.y` component now lengthens / shortens the shape's top).
 /// * `s_bend` — a `sin(2π t)` lateral wave of amplitude `(x, z)` layered on
 ///   top of `bend`, so a column can snake into an S rather than only arc.
+/// * `shear` — a linear lateral slide of the top relative to the base
+///   (`shear * t` on X / Z), so edges stay straight but lean — a
+///   parallelepiped rather than a curve.
 #[derive(Clone, Copy)]
 pub(super) struct Torture {
     pub twist: f32,
@@ -375,11 +378,6 @@ fn build_tube_mesh(outer: f32, inner: f32, height: f32, resolution: u32) -> Mesh
     mesh_from_parts(pos, nor, uv, idx)
 }
 
-/// Box with chamfered / rounded vertical edges — an extruded rounded-rectangle
-/// prism. `bevel` is the corner radius (clamped inside the footprint);
-/// `segments` is `1` for a flat chamfer (octagonal prism), higher for a
-/// rounded corner. Side normals follow the profile (smooth on arcs, flat on
-/// the straight runs); caps are flat fans.
 /// Convert a `[begin, end]` path-cut (turns) to a `(start, end)` angle pair.
 fn path_cut_angles(t: &crate::pds::TortureParams) -> (f32, f32) {
     use std::f32::consts::TAU;
@@ -967,6 +965,11 @@ fn build_helix_mesh(
     mesh_from_parts(pos, nor, uv, idx)
 }
 
+/// Box with chamfered / rounded vertical edges — an extruded rounded-rectangle
+/// prism. `bevel` is the corner radius (clamped inside the footprint);
+/// `segments` is `1` for a flat chamfer (octagonal prism), higher for a
+/// rounded corner. Side normals follow the profile (smooth on arcs, flat on
+/// the straight runs); caps are flat fans.
 fn build_bevel_mesh(size: [f32; 3], bevel: f32, segments: u32) -> Mesh {
     use std::f32::consts::{FRAC_PI_2, PI};
     let [sx, sy, sz] = size;

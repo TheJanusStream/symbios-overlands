@@ -24,10 +24,10 @@ use crate::state::LiveRoomRecord;
 #[derive(Resource, Debug, Clone)]
 pub struct AmbientHandle(pub Option<Handle<bevy::audio::AudioSource>>);
 
-/// In-flight ambient-bake task. Carries WAV bytes (mono IEEE float)
+/// In-flight ambient-bake task. Carries WAV bytes (mono 16-bit PCM)
 /// produced by the audio crate's [`bake_sequence`](bevy_symbios_audio::bake_sequence)
 /// / [`bake`](bevy_symbios_audio::bake()) +
-/// [`samples_to_wav_bytes`](bevy_symbios_audio::samples_to_wav_bytes)
+/// `samples_to_wav_bytes_pcm16`
 /// pipeline. The poll system wraps these as `AudioSource` and
 /// writes [`AmbientHandle`].
 #[derive(Component)]

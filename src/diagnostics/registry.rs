@@ -408,15 +408,19 @@ impl MetricsRegistry {
         self.histograms.clear();
     }
 
-    /// Enumerate gauges (for the GUI to list every known metric).
+    /// Enumerate every registered gauge. Currently unused — the diagnostics
+    /// GUI reads a hardcoded `names::` row list rather than enumerating the
+    /// registry — kept as a generic enumeration accessor.
     pub fn gauges(&self) -> impl Iterator<Item = (&'static str, &Gauge)> {
         self.gauges.iter().map(|(k, v)| (*k, v))
     }
 
+    /// Enumerate every registered counter (currently unused; see [`Self::gauges`]).
     pub fn counters(&self) -> impl Iterator<Item = (&'static str, &Counter)> {
         self.counters.iter().map(|(k, v)| (*k, v))
     }
 
+    /// Enumerate every registered histogram (currently unused; see [`Self::gauges`]).
     pub fn histograms(&self) -> impl Iterator<Item = (&'static str, &Histogram)> {
         self.histograms.iter().map(|(k, v)| (*k, v))
     }

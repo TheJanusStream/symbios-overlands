@@ -182,7 +182,7 @@ pub fn loading_ui(
                 ui.colored_label(color, format!("Loading gate: {elapsed:.0}s{note}"));
             }
             ui.add_space(12.0);
-            // Fixed-width child so the five rows left-align with each
+            // Fixed-width child so the six rows left-align with each
             // other while the block as a whole stays centred.
             ui.allocate_ui(egui::vec2(340.0, 0.0), |ui| {
                 ui.vertical(|ui| {

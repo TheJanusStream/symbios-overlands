@@ -59,9 +59,11 @@ pub(super) fn sync_gizmo_selection(
     // commit path doesn't touch the editor state), so on the next
     // frame's `rebuild_local_visuals` the freshly-spawned entity has no
     // gizmo and the editor's tick is unchanged → sync would skip and
-    // the gizmo would never come back. Running every frame is cheap —
-    // just iteration over a few small queries — and keeps the gizmo
-    // tracking the selection through every respawn.
+    // the gizmo would never come back. Running every frame keeps the
+    // gizmo tracking the selection through every respawn; the cost is a
+    // linear pass over the placement/prim queries, which scales with the
+    // room's population (every `PrimMarker` node — not a fixed small set
+    // when a room carries a dense scatter).
 
     // Per-frame: push the current orientation preference into the
     // gizmo's global config. Cheap to set unconditionally —

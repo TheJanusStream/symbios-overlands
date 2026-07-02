@@ -25,9 +25,9 @@
 //! heightmap itself.
 //!
 //! `symbios-tensor` consumes a `symbios_ground::HeightMap`; overlands' own
-//! [`bevy_symbios_ground::HeightMap`] is the same crate/type (unified by the
-//! `[patch.crates-io]` on `symbios-ground` in `Cargo.toml`), so the heightmap
-//! passes straight through with no conversion.
+//! [`bevy_symbios_ground::HeightMap`] is the same crate/type — both crates
+//! resolve to the same `symbios-ground` version, so the heightmap passes
+//! straight through with no conversion.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology};

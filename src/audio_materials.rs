@@ -260,9 +260,11 @@ pub fn impact_patch_for(texture: &SovereignTextureConfig) -> AudioPatch {
 /// natural duration so it fits the mixdown-baker's gate semantics
 /// cleanly; volume scales by the caller-supplied intensity in `[0, 1]`.
 ///
-/// This is the helper the future impact-trigger system (#300) will
-/// call: `SequenceRecipe` is what the loading-gate audio pipeline
-/// already knows how to consume.
+/// This is the helper the impact-trigger system (#300) calls:
+/// `play_terrain_impacts` (below) resolves the dominant splat layer at
+/// each terrain contact, builds a recipe here, and feeds it to
+/// `dispatch_one_shot_audio` for a cached bake and spatial one-shot
+/// playback.
 pub fn impact_recipe_for(texture: &SovereignTextureConfig, volume: f32) -> SequenceRecipe {
     let material = classify(texture);
     let patch = build_impact_patch(material.params());

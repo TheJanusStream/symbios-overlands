@@ -117,11 +117,15 @@ pub fn optional_slots(chassis: ChassisFamily) -> &'static [PartSlot] {
 /// derive from a seed via [`Self::for_seed`].
 #[derive(Clone, Copy, Debug)]
 pub struct PartCtx<'a> {
+    /// Seeded style anchor. Currently unread by any part build — the
+    /// assemblers consume it directly; kept in the ctx for parts that may
+    /// need it later.
     pub character: AvatarCharacter,
     pub palette: AvatarPalette,
     pub materials: MaterialKit,
     pub body: AvatarBody,
-    /// Owner DID — threaded through for the identity pfp banner part.
+    /// Owner DID. Currently unread by any part build — the pfp identity
+    /// panel is assembler-owned geometry (`pfp_panel`), not a part.
     pub did: &'a str,
     /// The avatar seed — parts open their own sub-stream for stochastic
     /// detail without re-deriving the anchor.

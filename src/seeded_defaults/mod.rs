@@ -13,6 +13,8 @@
 //!     → fnv1a_64         (one u64 seed per DID)
 //!     → SceneCharacter   (archetype + hue + temperature anchor)
 //!     → per-domain derivers
+//!         · room::accent     (theme identity accent: tint / haze /
+//!                             particle-mood overrides)
 //!         · room::palette    (OkLCH-coordinated colours)
 //!         · room::terrain    (heightmap shape + erosion)
 //!         · room::textures   (per-biome procedural generator knobs)

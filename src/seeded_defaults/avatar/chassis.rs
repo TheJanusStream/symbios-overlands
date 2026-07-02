@@ -21,8 +21,8 @@ use crate::seeded_defaults::scene::pick;
 const AVATAR_CHASSIS_SALT: u64 = 0xC4A5_51F0_C4A5_51F0;
 
 /// Discrete visual family of the default avatar. Picked first; the
-/// matching design deriver then shapes the silhouette within the
-/// family.
+/// silhouette is then shaped by filling that family's outfit slots
+/// from the tagged part catalogue.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChassisFamily {
     /// Hover-boat — monohull / catamaran / trimaran / barge.

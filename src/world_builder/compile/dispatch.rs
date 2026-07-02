@@ -70,8 +70,9 @@ pub(crate) fn dispatch_top_level(
     }
 
     // Clone out the named generator so the recursive spawner doesn't have
-    // to re-borrow `ctx.record.generators` at every depth. The clone is per
-    // placement, not per scatter sample, so the cost is bounded.
+    // to re-borrow `ctx.record.generators` at every depth. The clone runs
+    // once per dispatch — i.e. per grid cell and per scatter sample, not
+    // per placement — so deep blueprints pay it for every sample.
     //
     // Water children of scattered/gridded blueprints used to be stripped here
     // because each cell would spawn a redundant world-extent plane. With

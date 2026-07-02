@@ -133,8 +133,9 @@ pub struct StartupInfo {
 }
 
 /// The payload of a [`SessionEvent`]. Internally tagged (`"kind": "…"`) so each
-/// JSONL line self-describes; every variant is a struct or unit variant (serde
-/// internal tagging forbids tuple variants). The union is drawn from the four
+/// JSONL line self-describes; every variant is a unit variant, a struct
+/// variant, or a newtype wrapping a struct — the shapes serde internal tagging
+/// supports (bare tuple variants are forbidden). The union is drawn from the four
 /// priority subsystems surveyed for the suite plus session-level records.
 ///
 /// Fields carry only serde-friendly scalars/strings — domain values (peer ids,

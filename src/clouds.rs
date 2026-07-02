@@ -107,8 +107,9 @@ pub struct CloudLayer;
 /// The FBM is sampled in world XZ with a time-driven scroll, so the clouds
 /// stay world-anchored regardless of where the mesh sits — moving the mesh
 /// only relocates the sampling window, not the cloud silhouettes. `.y` is
-/// owned by `apply_environment_state` (it's driven by the `cloud_height`
-/// uniform) and deliberately not touched here.
+/// owned by `apply_environment_state` (it's driven by the PDS
+/// `Environment::cloud_height` field via the plane's Transform, not a
+/// shader uniform) and deliberately not touched here.
 pub fn track_cloud_layer_to_camera(
     camera: Query<&GlobalTransform, (With<Camera3d>, Without<CloudLayer>)>,
     mut cloud_layer: Query<&mut Transform, With<CloudLayer>>,

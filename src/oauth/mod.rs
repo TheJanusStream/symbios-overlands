@@ -23,8 +23,11 @@
 //!
 //! * [`discovery`] — client-metadata builder, authorization-server
 //!   discovery, and the URL-bar constants (`WASM_REDIRECT_URI`,
-//!   `NATIVE_CALLBACK_PORT`, `CLIENT_METADATA_URL`,
-//!   `SESSION_STORAGE_KEY`, `PERSISTED_SESSION_KEY`).
+//!   `NATIVE_CALLBACK_PORT`, `CLIENT_METADATA_URL`).
+//! * module root — the wasm browser-storage keys: `SESSION_STORAGE_KEY`
+//!   (`sessionStorage`, parks the pending auth across the redirect) and
+//!   `PERSISTED_SESSION_KEY` (`localStorage`, persists the session across
+//!   page reloads).
 //! * [`refresh`] — DPoP-nonce retry (`oauth_*_with_nonce_retry`),
 //!   refresh-on-expiry retry (`oauth_*_with_refresh`), and the shared
 //!   `refresh_session` helper.

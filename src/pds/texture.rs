@@ -2,10 +2,11 @@
 //! generator configuration, along with the unified [`SovereignTextureConfig`]
 //! tagged-union enum and [`SovereignMaterialSettings`] PBR wrapper.
 //!
-//! Individual config structs are generated via the `define_sovereign_texture_cfg!`
+//! Most config structs are generated via the `define_sovereign_texture_cfg!`
 //! macro so adding a new generator is a single declarative block — each field
 //! just names its wire kind (`fp`, `fp3`, `fp64`, `u32`, `usize`, `bool`,
-//! `enum(Ty)`, `nested(SovTy)`) and default.
+//! `enum(Ty)`, `nested(SovTy)`) and default. [`SovereignGroundConfig`] and
+//! [`SovereignRockConfig`] are the two hand-rolled predecessors of the macro.
 
 use super::types::{Fp, Fp3, Fp64};
 use serde::{Deserialize, Serialize};

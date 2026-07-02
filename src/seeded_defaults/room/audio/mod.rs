@@ -1,16 +1,19 @@
 //! Seeded ambient-audio recipe deriver — the orchestrator.
 //!
 //! Assembles one [`bevy_symbios_audio::SequenceRecipe`] per room from
-//! two layers that mirror the biome/theme axis split used everywhere
-//! else:
+//! layers that mirror the biome/theme axis split used everywhere else:
 //!
-//! - **Biome texture** ([`bed`]) — an atonal noise bed + wind gusts.
-//!   This is the environment's *sound*.
-//! - **Theme music** ([`theme_music`]) — a tonal melodic voice. This is
-//!   the settlement's *music* (today a biome-anchored neutral default;
-//!   authored per-theme voices land in #425).
+//! - **Biome texture** ([`bed`]) — an atonal noise bed plus a wind-gust
+//!   voice. This is the environment's *sound*.
+//! - **Biome punctuation** ([`punctuation`]) — the biome's natural
+//!   signature voice (bird chirps, distant howls, …).
+//! - **Theme music** ([`theme_music`]) — a tonal melodic voice plus a
+//!   low bass-pad voice, both authored per-theme. This is the
+//!   settlement's *music*.
+//! - **Tension** ([`tension`]) — a conflict-gated siren layer, present
+//!   only when escalation reaches Conflict.
 //!
-//! Both contribute instruments + tracks into one recipe; the sequencer
+//! All contribute instruments + tracks into one recipe; the sequencer
 //! plays the tracks simultaneously. The biome texture is derived first
 //! so the theme music can reuse its acoustic space (reverb). The summed
 //! per-event volumes are kept under the mixdown tanh soft-clip knee.

@@ -2,8 +2,9 @@
 //!
 //! [`offload`] takes a self-contained [`GenJob`] and returns a
 //! `bevy::tasks::Task<GenResult>` that the caller polls each frame — the same
-//! API on every target. On **native** the job runs on the rayon-backed
-//! `AsyncComputeTaskPool`, giving real parallelism off the main schedule.
+//! API on every target. On **native** the job runs on the multithreaded
+//! `AsyncComputeTaskPool` (Bevy's async-executor task pool), giving real
+//! parallelism off the main schedule.
 //!
 //! On **wasm** Bevy's task pools collapse to a single cooperative thread, so a
 //! job run inline would stall the render frame. Instead the wasm backend

@@ -110,8 +110,11 @@ pub(super) fn random_spawn_xz() -> (f32, f32) {
     ((u - 0.5) * side, (v - 0.5) * side)
 }
 
-/// Visual water-plane altitude used by both terrain rendering and the
-/// swimming/buoyancy system so the two stay in perfect agreement.
+/// Seeded-default water-plane altitude: `water::LEVEL_FACTOR` of the
+/// terrain height scale, floored at 0.001. Currently unwired — nothing
+/// calls it; the buoyancy (hover-boat) and swim (humanoid) systems read
+/// per-surface `WaterSurfaces` data instead. Removal or re-wiring is
+/// tracked in #658/#659.
 #[inline]
 pub fn water_level_y() -> f32 {
     (tcfg::water::LEVEL_FACTOR * tcfg::HEIGHT_SCALE).max(0.001)

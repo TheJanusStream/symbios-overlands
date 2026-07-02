@@ -2,7 +2,7 @@
 name = "gen-jobs"
 version = "0.1.0"
 edition = "2021"
-description = "Platform-agnostic, serialisable CPU generation jobs shared by the Symbios Overlands app (native AsyncComputeTaskPool backend) and the wasm Web Worker. Depends only on the Bevy-free symbios-ground core so the worker stays slim."
+description = "Platform-agnostic, serialisable CPU generation jobs shared by the Symbios Overlands app (native AsyncComputeTaskPool backend) and the wasm Web Worker. Depends only on the Bevy-free symbios-ground / symbios-texture / symbios-audio cores so the worker stays slim."
 
 [lib]
 crate-type = ["rlib"]

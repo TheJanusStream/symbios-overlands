@@ -2,11 +2,12 @@
 //!
 //! This plugin owns every entity spawned from the active room recipe. When
 //! the owner edits the record — locally through the world editor or
-//! remotely via a `RoomStateUpdate` broadcast — the whole recipe is
-//! replaced, the compiler despawns every previously-spawned `RoomEntity`,
-//! and re-walks the placement graph. That strict rebuild is the only way
-//! to avoid double-spawning colliders (Avian crashes if two heightfields
-//! coexist at the origin) whenever a patch lands.
+//! remotely via a `RoomStateUpdate` broadcast — the compiler diffs the
+//! placement list per-unit and rebuilds only the placements that changed,
+//! spreading the work across frames on a wall-clock budget. Heightmap
+//! swaps and placement-count changes still force a full rebuild that
+//! despawns every previously-spawned `RoomEntity`; see [`compile`] for
+//! the incremental + time-sliced engine in detail.
 //!
 //! Terrain heightmap generation stays in the [`crate::terrain`] plugin because the collider
 //! must be solid before `AppState::InGame` starts; the recipe's
@@ -376,12 +377,8 @@ fn setup_prop_assets(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
     commands.insert_resource(assets);
 }
 
-/// Walks the active `RoomRecord` and produces ECS entities for every
-/// placement. Re-runs whenever the record resource is marked changed *or*
-/// `FinishedHeightMap` is inserted/modified. The first frame inside
-/// `AppState::InGame` counts as a change because the resource was just
-/// inserted during Loading, which performs the initial compilation for free.
-///
+/// Applies the record's `traits` entries for `generator_ref` to `entity`
+/// — currently just the `sensor` trait, which inserts a `Sensor` component.
 fn apply_traits(commands: &mut Commands, entity: Entity, record: &RoomRecord, generator_ref: &str) {
     let Some(traits) = record.traits.get(generator_ref) else {
         return;

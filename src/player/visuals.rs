@@ -85,9 +85,12 @@ pub fn spawn_avatar_visuals(
 
     // The avatar spawner's `record` parameter is unused on every reachable
     // dispatch arm (sanitiser strips Terrain / Water / Portal upstream),
-    // so a default `RoomRecord` is a safe sentinel. Constructed locally
-    // every call rather than cached because `RoomRecord::default` is
-    // ~hundred-byte and the caches we care about live elsewhere.
+    // so a default `RoomRecord` is a safe sentinel. Note the default is
+    // not trivially cheap — `RoomRecord::default` runs the full
+    // seeded-defaults pipeline (terrain shape, palette, scatters, a
+    // generator tree) — but it stays constructed-per-call rather than
+    // cached because avatar (re)spawns are rare and the caches we care
+    // about live elsewhere.
     let empty_record = crate::pds::RoomRecord::default();
 
     spawn_avatar_visuals_subtree(

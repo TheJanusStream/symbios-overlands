@@ -8,118 +8,83 @@
 
 ## What it is
 
-Sign in with your ATProto identity, walk into a 3D world that belongs to you. Edit the terrain, scatter buildings, dress your avatar, then step through a portal into someone else's overland — all without ever hitting a loading screen. There are no central game servers hosting the worlds; only a small broker for the WebRTC handshake. Once peers connect, every transform, edit and chat message flows directly between them.
+Sign in with your ATProto identity, walk into a 3D world that belongs to you.
+Edit the terrain, scatter buildings, dress your avatar, then step through a
+portal into someone else's overland — all without ever hitting a loading
+screen. There are no central game servers hosting the worlds; only a small
+broker for the WebRTC handshake. Once peers connect, every transform, edit and
+chat message flows directly between them.
 
-Built in Rust on the [Bevy](https://bevyengine.org/) engine. The same binary runs natively or in any modern browser via WASM.
+Built in Rust on the [Bevy](https://bevyengine.org/) engine. The same binary
+runs natively or in any modern browser via WASM.
 
 ## Core ideas
 
-**Your DID is your domain.** Authenticate via ATProto OAuth 2.0 + DPoP — the app never sees a password. Your world is deterministically seeded from your DID, so a brand-new user already has a unique homeworld before they touch the editor.
+**Your DID is your domain.** Authenticate via ATProto OAuth — the app never
+sees a password. Your world is deterministically seeded from your DID, so a
+brand-new user already has a unique homeworld before they touch the editor:
+its own landform, biome and settlement theme, its own colour palette, even its
+own soundtrack.
 
-**Worlds are recipes, not assets.** A room is a JSON record (`network.symbios.overlands.room`) carrying a tree of `Generator` nodes — terrain, water, portals, tensor-field road networks, parametric primitives, L-systems, CGA shape grammars, image-bearing signs, and CPU particle emitters. Every widget in the owner-only World Editor mutates the live record in place: the world recompiles, the 3D transform gizmo follows the selection, and remote peers mirror each edit before you press **Publish to PDS**. A whole region — a house, a forest, a market square — becomes one named generator you can scatter, grid-array, or stash in your inventory.
+**Worlds are recipes, not assets.** A room is a small record on your own PDS
+carrying a tree of generators — terrain, water, portals, road networks,
+parametric primitives, L-system plants, building grammars, image-bearing signs,
+particle emitters. Every widget in the owner-only World Editor mutates the live
+recipe in place: the world recompiles around you, and remote peers mirror each
+edit before you press **Publish**. A whole region — a house, a forest, a market
+square — becomes one named generator you can scatter, grid-array, or stash in
+your inventory.
 
-**Avatars are recipes too.** A `visuals` generator tree (same vocabulary as a room) is parented under one of five physics presets — `HoverBoat`, `Humanoid`, `Airplane`, `Helicopter` or `Car`. Visual and locomotion edits stream to peers as a live preview before you commit them.
+**Avatars are recipes too.** Your avatar is built from the same generator
+vocabulary, parented under one of five physics presets — `HoverBoat`,
+`Humanoid`, `Airplane`, `Helicopter` or `Car`. Visual and locomotion edits
+stream to peers as a live preview before you commit them.
 
-**Sound is procedural too.** Audio is a recipe slot, not a shipped asset. The room carries an ambient-bed slot and every construct carries its own audio source — a synthesised single-voice **patch**, a multi-voice **sequence**, or a URL/blob **reference** — played spatially at the node's world position. A pop-out node-graph + step-sequencer editor (`bevy_symbios_audio`) authors patches live, and a fresh room is seeded with a layered ambient soundtrack — an atonal biome texture under a tonal theme voice — plus material-keyed impact SFX before the owner touches a knob.
+**Sound is procedural too.** Audio is a recipe slot, not a shipped asset: the
+room carries an ambient-bed slot and every construct can carry its own
+synthesised voice, played spatially at its world position. A pop-out
+node-graph-and-step-sequencer editor authors patches live, and a fresh room is
+already
+seeded with a layered ambient soundtrack — an atonal biome texture under a
+tonal theme voice — plus material-keyed impact sounds before the owner touches
+a knob.
 
-**The web is seamless.** Walk through a portal doorway and the engine hot-swaps the destination PDS data and the peer mesh in the background. Shareable landmark links bundle a destination DID, position and yaw into a URL (or CLI flags on native) so anyone can drop into a specific spot in someone else's world.
+**The web is seamless.** Walk through a portal doorway and the engine hot-swaps
+the destination world and the peer mesh in the background. Shareable landmark
+links bundle a destination, position and heading into a URL so anyone can drop
+into a specific spot in someone else's world.
 
-**Contact effects bring it to life.** Every avatar — yours and every peer's — is classified against the surface beneath it each frame, and the contact drives a stack of effects: Gerstner-wave water wakes, transient particle bursts, persistent splat-stains baked into the terrain, fading projected decals, and spatial audio cues. Wakes and stains are always-on; particle / decal / audio channels are PDS-authored per room.
+**Contact brings it to life.** Every avatar is classified against the surface
+beneath it each frame, and the contact drives a stack of effects: water wakes,
+dust bursts, stains baked into the terrain, fading decals, and spatial audio
+cues.
 
-**Persistence and gifting.** Inventories live on your PDS (`network.symbios.overlands.inventory`). Stash a custom-tuned tree or a whole region blueprint, carry it across the network, and drag it onto a peer's row in the People panel to gift it. A code-shipped Catalogue ships a starter library alongside whatever you've authored: hundreds of architectural blueprints spanning 23 themes — from ancient villas and medieval keeps to cyberpunk megatowers, steampunk foundries and alien hives — plus L-system trees, abstract fractal patterns, and a teleporter pre-targeted at your own overland. Those same theme tags drive the seeded mini-settlement every fresh homeworld grows around its spawn.
+**Persistence and gifting.** Inventories live on your PDS. Stash a custom-tuned
+tree or a whole region blueprint, carry it across the network, and drag it onto
+a peer's row in the People panel to gift it. A built-in Catalogue ships a
+starter library alongside whatever you've authored: hundreds of architectural
+blueprints spanning 23 themes — from ancient villas and medieval keeps to
+cyberpunk megatowers, steampunk foundries and alien hives. Those same theme
+tags drive the mini-settlement every fresh homeworld grows around its spawn.
 
-## Architecture
+## Try it
 
-The project is "thin client, heavy world":
-
-- **Engine:** Bevy 0.18 + Avian3D 0.6 (physics) + [`bevy_egui`](https://github.com/vladbat00/bevy_egui) (UI) + [`bevy_panorbit_camera`](https://github.com/Plonq/bevy_panorbit_camera) (third-person orbit) + [`transform-gizmo-bevy`](https://github.com/urholaukkarinen/transform-gizmo) (in-world editor handles).
-- **Procedural ecosystem:** the sovereign `symbios` family — [`symbios-ground`](https://github.com/TheJanusStream/symbios-ground) (Voronoi terracing + hydraulic and thermal erosion), [`symbios` + `symbios-turtle-3d`](https://github.com/TheJanusStream/symbios) (L-systems), [`symbios-shape`](https://github.com/TheJanusStream/symbios-shape) (CGA shape grammars), [`symbios-tensor`](https://github.com/TheJanusStream/symbios-tensor) (tensor-field road topology for urban themes), [`bevy_symbios_texture`](https://github.com/TheJanusStream/bevy_symbios_texture) (~30-material procedural PBR catalogue + particle-sprite atlases), and [`bevy_symbios_audio`](https://github.com/TheJanusStream/bevy_symbios_audio) (node-graph synthesis + step-sequencer mixdown).
-- **Networking:** [`bevy_symbios_multiuser`](https://github.com/TheJanusStream/bevy_symbios_multiuser) over WebRTC ([`matchbox`](https://github.com/johanhelsing/matchbox)) for the peer mesh; [`proto-blue-oauth` + `proto-blue-api`](https://github.com/dollspace-gay/proto-blue) for ATProto identity and PDS plumbing. Peer DIDs are authenticated against the relay-signed session map so a peer can't impersonate another identity over the unauthenticated data channel.
-- **Protocol safety.** ATProto's DAG-CBOR encoding forbids floats, so every continuous spatial value is wrapped in fixed-point (`Fp` / `Fp2` / `Fp3` / `Fp4` / `Fp64`). Every record class also carries a `sanitize()` step that clamps sizes, counts, depths and octaves so a malformed payload from a hostile peer can't OOM or crash the engine.
-- **State machine.** A three-stage `AppState` (`Login` → `Loading` → `InGame`). The loading gate waits on the heightmap, the seeded ambient-audio bake, the room / avatar / inventory PDS fetches, *and* the room compile itself before gameplay starts, so a slow round-trip can't leave the world half-loaded or silent — and the browser build's long synchronous world build stays behind the loading screen instead of freezing the first visible frame.
-- **Compute offload.** CPU-heavy generation (the heightmap and the seeded ambient-audio bake) runs off the render frame through one platform-routed [`offload`](src/offload.rs) API: on native via Bevy's rayon-backed `AsyncComputeTaskPool`, on wasm via a dedicated Web Worker (Bevy's task pools collapse to a single cooperative thread there, so an inline job would stall the frame). Each job is a self-contained, serialisable `GenJob` whose pure `run()` is byte-identical on both backends, keeping progressive loading deterministic across peers. The worker links only the Bevy-free `symbios-*` cores, so its `.wasm` stays tiny — which is why the repo is a small Cargo workspace ([`crates/gen-jobs`](crates/gen-jobs/) + [`crates/gen-worker`](crates/gen-worker/)), not a lone crate.
-
-## Project layout
-
-The app is a library crate with a thin `main.rs` shim so integration tests in [`tests/`](tests/) can import the module tree directly. It also roots a small Cargo workspace — the [`crates/`](crates/) members are the Bevy-free generation cores shared with the wasm Web Worker.
-
-- [`src/pds/`](src/pds/) — record schemas (`RoomRecord`, `AvatarRecord`, `InventoryRecord`), the `Generator` / `Placement` / `LocomotionConfig` open unions, fixed-point wrappers, per-variant sanitisers, and the shared XRPC plumbing.
-- [`src/world_builder/`](src/world_builder/) — the recipe → ECS compiler. Per-generator spawn arms (terrain, water, portal, sign, particles, L-system, shape grammar, primitives), the cross-compile geometry / material caches, and the source-keyed [image cache](src/world_builder/image_cache.rs) shared by signs / portals / particles.
-- [`src/terrain/`](src/terrain/), [`src/urban/`](src/urban/), [`src/splat.rs`](src/splat.rs), [`src/water.rs`](src/water.rs), [`src/clouds.rs`](src/clouds.rs) — heightmap + Avian heightfield collider, four-layer splat material extension, Gerstner-wave water shader, FBM cloud-deck shader, and the urban-theme road layer: [`src/urban/`](src/urban/) meshes a `symbios-tensor` road topology into a ribbon draped over the terrain (graph sanitation → chain extraction → ribbon extrusion → junction levelling → end/intersection caps), wired in as a terrain child that rebuilds reactively ([`roads.rs`](src/terrain/roads.rs)) with themed buildings populated onto its enclosed lots at load time ([`lots.rs`](src/terrain/lots.rs)).
-- [`src/player/`](src/player/) — the five locomotion presets and portal interaction.
-- [`src/interaction/`](src/interaction/) — the contact-effects framework: one classifier feeds independent water-wake / particle-burst / splat-stain / decal / audio channels.
-- [`src/pds/audio.rs`](src/pds/audio.rs), [`src/audio_materials.rs`](src/audio_materials.rs), [`src/audio_mute.rs`](src/audio_mute.rs), [`src/world_builder/spatial_audio.rs`](src/world_builder/spatial_audio.rs) / [`audio_resolver.rs`](src/world_builder/audio_resolver.rs), [`src/seeded_defaults/room/audio/`](src/seeded_defaults/room/audio/) — the procedural-audio subsystem: DAG-CBOR-safe `Sovereign*` mirrors of `bevy_symbios_audio` patches / sequences, material-keyed impact-SFX patches, the construct- and ambient-emitter spatial spawners, the URL/blob audio reference resolver, the app-wide master mute, and the seeded layered ambient soundtrack (baked in [`src/loading/`](src/loading/) as the gate's 5th task).
-- [`src/network/`](src/network/), [`src/protocol.rs`](src/protocol.rs) — peer wire format, jitter-buffered transform smoothing, identity authentication, live preview broadcast, item-offer arbitration.
-- [`src/camera.rs`](src/camera.rs), [`src/avatar.rs`](src/avatar.rs), [`src/social.rs`](src/social.rs) — the third-person orbit camera + distance fog, the peer profile-picture cache that backs the chat / People panel icons, and the ATProto social-graph (mutual-follow) resonance tagger.
-- [`src/ui/`](src/ui/) — egui panels: [login](src/ui/login/), [chat](src/ui/chat.rs), [people](src/ui/people.rs) (with drag-to-gift), [avatar editor](src/ui/avatar/), [inventory](src/ui/inventory/), [catalogue](src/ui/catalogue.rs), [diagnostics](src/ui/diagnostics.rs), and the owner-only [world editor](src/ui/room/) (Environment / Region Assets / Placements / Effects / Raw JSON tabs, plus a pop-out [audio editor](src/ui/room/audio.rs) hosting the node-graph + sequence canvas).
-- [`src/oauth/`](src/oauth/) — ATProto OAuth 2.0 + DPoP (WASM redirect / native loopback) and token refresh.
-- [`src/seeded_defaults/`](src/seeded_defaults/) — DID-seeded deterministic defaults, derived along two orthogonal axes: a natural *biome* and an artificial *theme*. Room side: terrain, palette, biome textures, atmosphere, tree / rock / particle scatters, a themed mini-settlement near spawn (a landmark plus secondary buildings and scatter props, drawn from the catalogue by theme), a light theme accent nudged back onto the natural derivers (fog tint, particle mood), and the layered ambient soundtrack. Avatar side: one of four chassis families (boat / airship / humanoid / skiff) plus its per-family design, body proportions, palette, and gait. Record-authored values always win; the derivers fill in only what's unset, so a fresh account is already a fully-furnished room.
-- [`src/catalogue/`](src/catalogue/) — code-shipped read-only library of starter generator blueprints, organised by theme and structural role (landmark / secondary / prop / plant / pattern / tool), functionally analogous to a user inventory but always present; the same entries the seeded settlement deriver draws from.
-- [`src/editor_gizmo/`](src/editor_gizmo/) — bridge between the editor selection and the in-world 3D transform gizmo.
-- [`src/loading/`](src/loading/), [`src/state.rs`](src/state.rs), [`src/boot_params.rs`](src/boot_params.rs), [`src/logout.rs`](src/logout.rs) — state-machine plumbing (with the generic per-record fetch/retry pipeline and the per-task loading screen), shared resources, landmark-link parsing, and the on-logout cache teardown.
-- [`src/config.rs`](src/config.rs) — centralised tuneable constants (lighting, fog, locomotion physics, terrain, splat layers, contact-effect pools, networking, HTTP timeouts, UI windows).
-- [`src/offload.rs`](src/offload.rs) + [`src/offload/`](src/offload/), [`crates/gen-jobs/`](crates/gen-jobs/), [`crates/gen-worker/`](crates/gen-worker/) — the compute-offload layer: the platform-routed `offload()` dispatcher (native `AsyncComputeTaskPool` / wasm Web Worker), the serialisable `GenJob` definitions, and the slim no-Bevy worker crate that runs them off the main thread on the web.
-- [`src/render_tool/`](src/render_tool/) + [`src/bin/render.rs`](src/bin/render.rs) — a native-only headless render tool (`cargo run --bin render -- --avatar … / --catalogue … / --prim … / --room …`) that drives the real spawn path to emit multi-angle contact-sheet PNGs, for self-validating geometry and materials without in-game screenshots.
-
-## Running locally
-
-To meet other players the client connects to a `bevy_symbios_multiuser` relay; the login UI defaults to a public instance if one is available.
-
-### Native
+The quickest way is the **[browser demo](https://thejanusstream.github.io/symbios-overlands)**.
+Natively:
 
 ```bash
 cargo run --release
 ```
 
-The native build also accepts the same parameters a landmark link encodes:
+See [docs/building.md](docs/building.md) for the WebAssembly build, the
+landmark-link CLI flags, and the developer tooling.
 
-```bash
-cargo run --release -- \
-    --did=did:plc:example \
-    --pos=10,5,-3 \          # x,z (heightmap-resolved) or x,y,z (exact)
-    --rot=90 \               # spawn yaw in degrees
-    --pds=https://bsky.social \
-    --relay=relay.example.com
-```
+## Learn more
 
-`--did` alone is enough to drop into someone else's overland.
-
-### WebAssembly
-
-```bash
-rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli
-
-# `--workspace` builds the app *and* the off-thread generation Web Worker
-# (the slim, no-Bevy `gen-worker`) for wasm in one pass.
-cargo build --workspace --release --target wasm32-unknown-unknown
-
-# Two wasm-bindgen passes: the app, then the worker the app spawns as
-# `./gen-worker.js` (both land beside each other in ./dist).
-wasm-bindgen --out-dir ./dist --target web --out-name symbios-overlands \
-    target/wasm32-unknown-unknown/release/symbios-overlands.wasm
-wasm-bindgen --out-dir ./dist --target web --out-name gen-worker \
-    target/wasm32-unknown-unknown/release/gen-worker.wasm
-
-# index.html imports ./symbios-overlands.js relative to itself, so
-# assemble a flat site directory (mirrors .github/workflows/deploy.yml):
-cp index.html dist/
-cp -r assets dist/
-cp assets/client-metadata.json dist/   # OAuth client metadata sits at the site root
-```
-
-Serve `./dist` with any static web server (e.g. `python -m http.server -d dist`).
-
-## Diagnostics
-
-The app records an append-only NDJSON session log. Native builds write it to a
-git-ignored `diagnostics/session-latest.jsonl` (override with `SYMBIOS_DIAG_DIR`,
-disable with `SYMBIOS_DIAG=0`); the web build exposes it via the Diagnostics
-panel's “Download session log” button. Analyze a run with:
-
-```sh
-cargo run --bin render -- --analyze-session diagnostics/session-latest.jsonl
-```
-
-See [docs/diagnostics.md](docs/diagnostics.md) for the file locations, the
-environment overrides, and the JSONL schema.
+- [docs/architecture.md](docs/architecture.md) — how it's put together: the
+  engine stack, the `symbios` procedural ecosystem, protocol safety, the
+  loading gate, compute offload, data flow, and the full module map.
+- [docs/building.md](docs/building.md) — building & running (native + WASM),
+  tests, and the headless render/analysis tooling.
+- [docs/diagnostics.md](docs/diagnostics.md) — the session log, the in-game
+  diagnostics panel, and the offline analyzer.

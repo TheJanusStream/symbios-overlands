@@ -53,8 +53,8 @@ pub fn build_for_seed(seed: u64, did: &str) -> (Generator, LocomotionConfig) {
         ChassisFamily::Skiff => (skiff::build(seed, did), CarParams::default_config()),
     };
     // Seeded FX: hang the style's signature particle aura + body voice on the
-    // built root. The mount is a coarse per-family body centre; once the part
-    // catalogue lands each part can mount its own FX precisely.
+    // built root. The mount is a coarse per-family body centre; the part
+    // catalogue could later let each part mount its own FX precisely.
     let fx = AvatarFx::for_seed(seed);
     let accent = AvatarPalette::for_seed(seed).primary_accent;
     fx::attach(&mut visuals, &fx, fx_mount(family), accent, seed);

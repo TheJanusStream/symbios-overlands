@@ -422,7 +422,3 @@ fn draw_biome_filter(ui: &mut egui::Ui, filter: &mut BiomeFilter, dirty: &mut bo
         }
     });
 }
-
-// ---------------------------------------------------------------------------
-// Tab: Raw JSON (fallback + forward-compat escape hatch)
-// ---------------------------------------------------------------------------

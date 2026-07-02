@@ -1,8 +1,9 @@
 //! Shared ECS state: the `AppState` enum driving the login/loading/ingame
 //! state machine, marker components for the local player and remote peers,
-//! the per-peer transform jitter buffer, rolling chat and diagnostics logs,
-//! and the live/stored avatar + room + inventory record resources backing
-//! the "Live UX" editor paradigm.
+//! the rolling chat log, and the live/stored avatar + room + inventory
+//! record resources backing the "Live UX" editor paradigm. (The per-peer
+//! transform jitter buffer lives in `network`, and the diagnostics session
+//! log lives in `diagnostics`.)
 //!
 //! Peer-to-peer item-offer bookkeeping also lives here:
 //! [`IncomingOfferDialog`] is the single active "someone sent you a gift"
@@ -17,13 +18,14 @@ use bevy::prelude::*;
 
 use crate::pds::{AvatarRecord, Generator, InventoryRecord, RoomRecord};
 
-/// Application state machine. `Loading` waits on all five loading tasks —
+/// Application state machine. `Loading` waits on all six loading tasks —
 /// the async heightmap generation task, the ATProto PDS room-record fetch,
-/// the local avatar-record fetch, the local inventory-record fetch, *and*
-/// the seeded ambient-audio bake — before handing off to `InGame`, so the
-/// terrain collider is solid, every recipe (room + avatar + inventory) is
-/// resident, and the ambient bed is ready to play when the first gameplay
-/// frame runs.
+/// the local avatar-record fetch, the local inventory-record fetch, the
+/// seeded ambient-audio bake, *and* the room compile (`WorldCompiled`) —
+/// before handing off to `InGame`, so the terrain collider is solid, every
+/// recipe (room + avatar + inventory) is resident, the ambient bed is ready
+/// to play, and the world's entities exist when the first gameplay frame
+/// runs.
 #[derive(States, Default, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AppState {
     #[default]

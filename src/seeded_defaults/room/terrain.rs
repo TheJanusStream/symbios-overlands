@@ -26,7 +26,7 @@ use crate::seeded_defaults::scene::{
 const TERRAIN_SHAPE_STREAM_SALT: u64 = 0x5EED_5AFE_E000_0000;
 
 /// Heightmap algorithm. Mirrors [`crate::pds::SovereignGeneratorKind`]
-/// so the `apply_to_terrain_config` mapping is one-to-one with no
+/// so the `apply_shape_to_terrain_config` mapping is one-to-one with no
 /// translation table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum GeneratorKind {

@@ -1,9 +1,13 @@
 //! Seeded ambient-particle spec — the room's "air".
 //!
-//! One looping emitter per room, mood-matched to the biome: fireflies
-//! drifting through lush valleys, snowfall on tundra and alpine
-//! ridges, rising embers over volcanic rock, wind-blown dust motes in
-//! deserts, and faint sea-mist motes on coasts. Numbers stay well
+//! One looping emitter per room. Mood precedence is conflict > theme >
+//! biome: a Conflict-tier room always gets drifting `Smoke`, otherwise a
+//! theme accent's `particle_mood` (e.g. `Petals` over Feudal Japan, eerie
+//! motes for alien themes) overrides the biome default, and the biome
+//! mood is the fallback: fireflies drifting through lush valleys,
+//! snowfall on tundra and alpine ridges, rising embers over volcanic
+//! rock, wind-blown dust motes in deserts, faint sea-mist motes on
+//! coasts, and drifting `Leaves` on forest floors. Numbers stay well
 //! inside the particle sanitiser budget (`MAX_PARTICLES = 512`) so
 //! the layer reads as atmosphere, not weather-system spectacle.
 //!

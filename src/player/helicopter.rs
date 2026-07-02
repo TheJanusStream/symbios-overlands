@@ -61,7 +61,7 @@ pub(super) fn apply_helicopter_forces(
         _ => lin_vel.y,
     };
     // Approach the target Y velocity at a fixed rate so input feels
-    // immediate without overshooting. The 8.0 here matches the cyclic
+    // immediate without overshooting. The 4.0 here matches the cyclic
     // feel — tunable, but again a behavioural constant.
     let dy = (target_vy - lin_vel.y).clamp(-15.0, 15.0);
     forces.apply_force(Vec3::Y * dy * p.mass.0 * 4.0);

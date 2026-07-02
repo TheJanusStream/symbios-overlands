@@ -241,7 +241,8 @@ fn build_punctuation_patch(
             }
             DistantHowl => {
                 // Slow vibrato. Whole cycles per loop region keeps the
-                // loop-sync invariant (4–6 Hz ⇒ 64–96 cycles).
+                // loop-sync invariant (64–96 cycles ⇒ 2–3 Hz over the
+                // 32-beat loop).
                 nodes.push(GraphNode {
                     id: PUNCT_VIBRATO_ID,
                     kind: NodeKind::Lfo(Lfo {

@@ -76,9 +76,10 @@ pub trait LoadedRecord: Sized + Send + Sync + 'static {
 /// Exponential backoff for transient fetch failures. Without a delay, a
 /// DNS error or immediate `ConnRefused` returns so fast that the retry
 /// runs in the same or next frame, producing a busy loop that burns a
-/// full CPU core and floods the log with warnings. Doubling from 1 s up
-/// to a 60 s ceiling yields ~a minute-of-retries over six attempts while
-/// still converging quickly when the PDS recovers.
+/// full CPU core and floods the log with warnings. Doubling from 2 s up
+/// to a 60 s ceiling (2, 4, 8, 16, 32, 60) yields ~two minutes of
+/// retries over six attempts while still converging quickly when the
+/// PDS recovers.
 pub(crate) fn record_backoff_secs(attempt: u32) -> u64 {
     if attempt == 0 {
         0
