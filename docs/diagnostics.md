@@ -96,3 +96,14 @@ cargo run --bin render -- --analyze-session diagnostics/session-latest.jsonl
 prints a post-mortem: a build/session header, a health `[Verdict]`, and an
 `[Invariant Violations]` section (see the Pillar B analyzer). The same NDJSON is
 the input to every analyzer subcommand.
+
+## Adding an invariant rule
+
+Anomalies are detected by **invariant rules** — one definition runs both live
+(GUI badges + logged `InvariantViolation` events) and offline (replayed by the
+analyzer). Adding one is a three-step recipe (define a `Rule` with a
+`const RuleHeader`; add a `LiveCtx` field only if a new reading is needed; one
+`register()` line), with a fully-worked example, in the module docs for
+[`src/diagnostics/anomaly/`](../src/diagnostics/anomaly/mod.rs) — run
+`cargo doc --no-deps --document-private-items --open` and open the `anomaly`
+module.

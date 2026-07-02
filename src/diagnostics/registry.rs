@@ -9,6 +9,50 @@
 //!
 //! Metrics are keyed by stable `&'static str` names (see the `names` module,
 //! E-2) so lookups are pointer-cheap and typos are compile errors.
+//!
+//! # Read API — the stable contract (E-6)
+//!
+//! The reader methods on [`MetricsRegistry`] (grouped under the "Read API"
+//! banner below) plus the metric **names**
+//! ([`names::ALL`](crate::diagnostics::names::ALL)) are the published surface
+//! every downstream pillar binds to — treat them as API. Renaming a metric or
+//! changing a reader's shape breaks both a GUI row *and* any invariant that
+//! reads it (see the map below).
+//!
+//! | Consumer | Reads via |
+//! | --- | --- |
+//! | C — Overview sparkline (C-3) | [`ring_slice`](MetricsRegistry::ring_slice) (raw samples), [`gauge_distro`](MetricsRegistry::gauge_distro) (p50/p90/max), [`gauge_latest`](MetricsRegistry::gauge_latest) |
+//! | C — health cards (C-4) | [`counter_value`](MetricsRegistry::counter_value), [`hist_distro_str`](MetricsRegistry::hist_distro_str), [`gauge_latest`](MetricsRegistry::gauge_latest) |
+//! | D — invariant thresholds | [`gauge`](MetricsRegistry::gauge) / [`counter`](MetricsRegistry::counter) (latest value + windowed growth over the sparkline ring) |
+//!
+//! Every name in `names::ALL` is pre-seeded at startup, so a named-but-never-
+//! observed metric reads as `—` ([`gauge_latest`](MetricsRegistry::gauge_latest)
+//! → `None`) / `0` ([`counter_value`](MetricsRegistry::counter_value)) rather
+//! than looking absent.
+//!
+//! ## Which invariant reads which metric (D)
+//!
+//! The D-pillar rules that threshold on a metric — the rest read pre-gathered
+//! [`LiveCtx`](crate::diagnostics::anomaly::LiveCtx) scalars, or (the
+//! replay-only rules) only the event log:
+//!
+//! | Invariant (rule id) | Metric(s) read live |
+//! | --- | --- |
+//! | `runtime.frame_time_spike` | `runtime.frame_time.ms` |
+//! | `runtime.terrain_collider_missing` | `runtime.collider.count` |
+//! | `runtime.asset_handle_spike` | `runtime.mesh_handle.count` (window growth) |
+//! | `runtime.shape_mesh_cache_growth` | `runtime.shape_mesh_cache.len` (window growth) |
+//! | `net.identity_spoof_burst` | `net.identity.spoofed_count` (also replays `PeerIdentitySpoofRejected`) |
+//!
+//! `LiveCtx`-scalar rules (no metric read): `runtime.player_fell_through_terrain`
+//! (player/ground Y), `runtime.nan_in_physics` (NaN body count),
+//! `runtime.respawn_thrashing` (recent respawns — cf. `runtime.respawn.count`),
+//! `runtime.orphan_avatar_visual` (orphan count), `loading.gate_stall`
+//! (`loading_elapsed_secs` — cf. `loading.gate.total_secs`). Replay-only rules
+//! (event log, no live metric): `loading.record_fetch_exhausted`,
+//! `offload.ambient_bake_stall`, `offload.task_never_resolves`,
+//! `net.peer_churn_spike`, `net.offer_acceptance_anomaly`,
+//! `net.silent_decode_failure`.
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
@@ -291,6 +335,11 @@ impl MetricsRegistry {
     pub fn observe_hist(&mut self, name: &'static str, v: f64) {
         self.histograms.entry(name).or_default().observe(v);
     }
+
+    // ---- Read API (the E-6 stable contract; see the module docs) -----------
+    // The published read surface for pillars C (GUI) and D (invariants). These
+    // names + shapes are API: a rename ripples into a GUI row and any rule that
+    // thresholds on the metric.
 
     pub fn gauge(&self, name: &str) -> Option<&Gauge> {
         self.gauges.get(name)
