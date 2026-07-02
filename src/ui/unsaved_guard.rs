@@ -357,6 +357,7 @@ pub fn unsaved_guard_ui(
                             session,
                             refresh_ctx,
                             live.0.clone(),
+                            time.elapsed_secs_f64(),
                         );
                     }
                     if dirty.inventory
@@ -368,6 +369,7 @@ pub fn unsaved_guard_ui(
                             session,
                             refresh_ctx,
                             live.0.clone(),
+                            time.elapsed_secs_f64(),
                         );
                     }
                 }

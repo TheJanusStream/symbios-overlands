@@ -334,6 +334,7 @@ pub fn incoming_offer_ui(
                     sess.clone(),
                     refresh.clone(),
                     live.0.clone(),
+                    time.elapsed_secs_f64(),
                 );
             }
         } else {
@@ -390,7 +391,11 @@ fn spawn_inventory_publish_task(
     session: AtprotoSession,
     refresh: crate::oauth::OauthRefreshCtx,
     record: InventoryRecord,
+    now: f64,
 ) {
+    // Gift-acceptance writes the local user's own inventory → the write DID is
+    // the session DID. Captured before `session` moves into the task.
+    let did = session.did.clone();
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
@@ -406,5 +411,9 @@ fn spawn_inventory_publish_task(
             crate::config::http::block_on(fut)
         }
     });
-    commands.spawn(PublishInventoryTask(task));
+    commands.spawn(PublishInventoryTask {
+        task,
+        did,
+        spawned_at: now,
+    });
 }

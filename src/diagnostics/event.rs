@@ -235,6 +235,14 @@ pub enum EventPayload {
         entity_count: u32,
         duration_secs: f64,
     },
+    /// The local player re-seeded their avatar in the editor (a `Reroll(seed)`),
+    /// regenerating the avatar visuals. Grouped with the other in-game
+    /// regeneration events (region re-seed → heightmap/world-compile) so an
+    /// avatar re-seed is visible in the analyzer timeline rather than inferable
+    /// only from asset-handle churn.
+    AvatarReseeded {
+        seed: u64,
+    },
     /// All nine loading-gate resources are present.
     LoadingGateReady {
         elapsed_secs: f64,
@@ -464,6 +472,7 @@ impl EventPayload {
             | AmbientBakeFallback { .. }
             | WorldCompileStarted { .. }
             | WorldCompileCompleted { .. }
+            | AvatarReseeded { .. }
             | LoadingGateReady { .. }
             | LoadingGateTransitionToInGame { .. }
             | LoadingGateWarning { .. }
@@ -550,7 +559,8 @@ impl EventPayload {
             | SplatTexturesStarted { .. }
             | SplatTexturesCompleted { .. }
             | WorldCompileStarted { .. }
-            | WorldCompileCompleted { .. } => Category::Generation,
+            | WorldCompileCompleted { .. }
+            | AvatarReseeded { .. } => Category::Generation,
 
             AmbientBakeStarted { .. }
             | AmbientBakeCompleted { .. }
@@ -703,6 +713,7 @@ impl EventPayload {
             } => {
                 format!("world compile done ({entity_count} entities) in {duration_secs:.1}s")
             }
+            AvatarReseeded { seed } => format!("avatar reseeded (seed {seed})"),
             LoadingGateReady { elapsed_secs } => {
                 format!("loading gate ready ({elapsed_secs:.1}s)")
             }
@@ -927,6 +938,7 @@ mod tests {
                 did: "did:plc:me".into(),
                 duration_secs: 0.4,
             },
+            EventPayload::AvatarReseeded { seed: 42 },
             EventPayload::PeerIdentitySpoofRejected {
                 peer: "peer:7".into(),
                 claimed_did: "did:plc:evil".into(),

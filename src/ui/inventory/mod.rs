@@ -31,6 +31,8 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
+use crate::diagnostics::SessionLog;
+use crate::diagnostics::event::{EventPayload, RecordKind};
 use crate::pds::{Generator, GeneratorKind, InventoryRecord};
 use crate::state::{
     CurrentRoomDid, LiveInventoryRecord, PublishFeedback, PublishStatus, StoredInventoryRecord,
@@ -47,9 +49,15 @@ pub struct InventoryEditorState {
     pub renaming_generator: Option<(String, String)>,
 }
 
-/// Async task for publishing the inventory record to the owner's PDS.
+/// Async task for publishing the inventory record to the owner's PDS. Carries
+/// the target `did` + dispatch time so [`poll_publish_inventory_tasks`] can emit
+/// a typed `RecordWrite*` session event (with the write's duration) on resolve.
 #[derive(Component)]
-pub struct PublishInventoryTask(pub bevy::tasks::Task<Result<(), String>>);
+pub struct PublishInventoryTask {
+    pub task: bevy::tasks::Task<Result<(), String>>,
+    pub did: String,
+    pub spawned_at: f64,
+}
 
 /// Origin of a drag-to-place operation. The raycast + placement path
 /// is identical for every source; only the generator lookup differs.
@@ -282,6 +290,7 @@ pub fn inventory_ui(
                         &session,
                         &refresh_ctx,
                         live.0.clone(),
+                        time.elapsed_secs_f64(),
                     );
                 }
                 RecordAction::Load => {
@@ -305,7 +314,11 @@ pub(crate) fn spawn_publish_inventory_task(
     session: &AtprotoSession,
     refresh: &crate::oauth::OauthRefreshCtx,
     record: InventoryRecord,
+    now: f64,
 ) {
+    // The inventory record is the local user's own, saved to their PDS → the
+    // write DID is the session DID (like the avatar save).
+    let did = session.did.clone();
     let session_clone = session.clone();
     let refresh_clone = refresh.clone();
     let pool = bevy::tasks::IoTaskPool::get();
@@ -324,7 +337,11 @@ pub(crate) fn spawn_publish_inventory_task(
             crate::config::http::block_on(fut)
         }
     });
-    commands.spawn(PublishInventoryTask(task));
+    commands.spawn(PublishInventoryTask {
+        task,
+        did,
+        spawned_at: now,
+    });
 }
 
 pub fn poll_publish_inventory_tasks(
@@ -333,17 +350,20 @@ pub fn poll_publish_inventory_tasks(
     live: Option<Res<LiveInventoryRecord>>,
     mut stored: Option<ResMut<StoredInventoryRecord>>,
     mut feedback: ResMut<PublishFeedback<InventoryRecord>>,
+    mut session_log: ResMut<SessionLog>,
     time: Res<Time>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
-            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.0))
+            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.task))
         else {
             continue;
         };
         commands.entity(entity).despawn();
 
         let now = time.elapsed_secs_f64();
+        let did = task.did.clone();
+        let duration_secs = now - task.spawned_at;
         match result {
             Ok(()) => {
                 info!("Inventory record saved to PDS");
@@ -351,9 +371,25 @@ pub fn poll_publish_inventory_tasks(
                     stored.0 = live.0.clone();
                 }
                 feedback.status = PublishStatus::Success { at_secs: now };
+                session_log.info(
+                    now,
+                    EventPayload::RecordWriteCompleted {
+                        record: RecordKind::Inventory,
+                        did,
+                        duration_secs,
+                    },
+                );
             }
             Err(e) => {
                 warn!("Failed to save inventory record: {}", e);
+                session_log.error(
+                    now,
+                    EventPayload::RecordWriteFailed {
+                        record: RecordKind::Inventory,
+                        did,
+                        reason: e.clone(),
+                    },
+                );
                 feedback.status = PublishStatus::Failed {
                     at_secs: now,
                     message: e,

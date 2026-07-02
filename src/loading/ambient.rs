@@ -553,6 +553,7 @@ pub(crate) fn poll_ambient_rebake_task(
     mut audio_sources: ResMut<Assets<bevy::audio::AudioSource>>,
     time: Res<Time>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
+    mut session_log: ResMut<crate::diagnostics::SessionLog>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
@@ -569,6 +570,18 @@ pub(crate) fn poll_ambient_rebake_task(
                 crate::diagnostics::samplers::ambient_bake_latency_secs(
                     &mut metrics,
                     now - spawned_at,
+                );
+                // Surface the in-game re-bake in the timeline (#627) — matches
+                // the loading-gate bake's `poll_ambient_bake_task`. Only the
+                // Completed side is emitted (not Started): a superseded re-bake
+                // is despawned by the dispatcher, so a paired Started could
+                // read as a false ambient-bake stall.
+                session_log.info(
+                    now,
+                    crate::diagnostics::event::EventPayload::AmbientBakeCompleted {
+                        bytes: bytes.len() as u64,
+                        duration_secs: now - spawned_at,
+                    },
                 );
                 Some(bytes)
             }

@@ -131,6 +131,7 @@ fn timeline_label(p: &EventPayload) -> Option<String> {
         WorldCompileCompleted { entity_count, .. } => {
             format!("world compiled ({entity_count} entities)")
         }
+        AvatarReseeded { seed } => format!("avatar reseeded (seed {seed})"),
         LoadingGateTransitionToInGame { elapsed_secs } => format!("→ InGame ({elapsed_secs:.1}s)"),
         PortalTravelInitiated { target_did } => format!("portal → {target_did}"),
         PortalTravelCompleted { target_did } => format!("portal arrived {target_did}"),
@@ -2222,18 +2223,23 @@ mod tests {
     #[test]
     fn timeline_shows_record_writes() {
         use crate::diagnostics::event::RecordKind;
+        let write = |t: f64, record| {
+            ev(
+                t,
+                Severity::Info,
+                EventPayload::RecordWriteCompleted {
+                    record,
+                    did: "did:plc:me".into(),
+                    duration_secs: 0.4,
+                },
+            )
+        };
         let parsed = ParsedLog {
             events: vec![
                 ev(0.0, Severity::Info, startup_info(Some("did:plc:me"))),
-                ev(
-                    30.0,
-                    Severity::Info,
-                    EventPayload::RecordWriteCompleted {
-                        record: RecordKind::Room,
-                        did: "did:plc:me".into(),
-                        duration_secs: 0.4,
-                    },
-                ),
+                write(30.0, RecordKind::Room),
+                write(35.0, RecordKind::Avatar),
+                write(38.0, RecordKind::Inventory),
                 ev(
                     40.0,
                     Severity::Info,
@@ -2245,11 +2251,43 @@ mod tests {
             unparseable: 0,
         };
         let r = report("s.jsonl", &parsed);
+        // #624 + #626: room, avatar, and inventory saves all trace.
         assert!(r.contains("Room saved to PDS"), "{r}");
-        // A write lands in the Loading/Fetch bucket (PDS record I/O).
+        assert!(r.contains("Avatar saved to PDS"), "{r}");
+        assert!(r.contains("Inventory saved to PDS"), "{r}");
+        // Writes land in the Loading/Fetch bucket (PDS record I/O) — 3 of them.
         assert!(
-            r.contains("Fetch 1"),
+            r.contains("Fetch 3"),
             "record writes count under Fetch: {r}"
         );
+    }
+
+    /// #627: an avatar re-seed is a timeline milestone (Loading/Generation),
+    /// so an in-game avatar re-roll is visible rather than inferable only from
+    /// asset-handle churn.
+    #[test]
+    fn timeline_shows_avatar_reseed() {
+        let parsed = ParsedLog {
+            events: vec![
+                ev(0.0, Severity::Info, startup_info(Some("did:plc:me"))),
+                ev(
+                    50.0,
+                    Severity::Info,
+                    EventPayload::AvatarReseeded { seed: 7 },
+                ),
+                ev(
+                    60.0,
+                    Severity::Info,
+                    EventPayload::SessionEnd {
+                        reason: "app_exit".into(),
+                    },
+                ),
+            ],
+            unparseable: 0,
+        };
+        let r = report("s.jsonl", &parsed);
+        assert!(r.contains("avatar reseeded (seed 7)"), "{r}");
+        // Counts under Loading/Generation, alongside region-regen events.
+        assert!(r.contains("Generation 1"), "{r}");
     }
 }

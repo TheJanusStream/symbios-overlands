@@ -33,6 +33,8 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
+use crate::diagnostics::SessionLog;
+use crate::diagnostics::event::{EventPayload, RecordKind};
 use crate::pds::{self, AvatarRecord};
 use crate::state::{
     LiveAvatarRecord, LiveInventoryRecord, LocalSettings, PublishFeedback, PublishStatus,
@@ -46,9 +48,15 @@ use crate::ui::room::generators::{AvatarVisualsTreeSource, GenNodeId, draw_gener
 
 use locomotion::draw_locomotion_tab;
 
-/// Async task for publishing the avatar record to the owner's PDS.
+/// Async task for publishing the avatar record to the owner's PDS. Carries the
+/// target `did` + dispatch time so [`poll_publish_avatar_tasks`] can emit a typed
+/// `RecordWrite*` session event (with the write's duration) when it resolves.
 #[derive(Component)]
-pub struct PublishAvatarTask(pub bevy::tasks::Task<Result<(), String>>);
+pub struct PublishAvatarTask {
+    pub task: bevy::tasks::Task<Result<(), String>>,
+    pub did: String,
+    pub spawned_at: f64,
+}
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum AvatarTab {
@@ -123,9 +131,14 @@ pub fn avatar_ui(
     mut editor: ResMut<AvatarEditorState>,
     mut room_editor: Option<ResMut<RoomEditorState>>,
     mut gizmo_frame_pref: ResMut<crate::editor_gizmo::GizmoFramePref>,
-    audio_monitor: Res<bevy_symbios_audio::ui::AudioMonitor>,
-    mut audio_requests: MessageWriter<bevy_symbios_audio::ui::MonitorRequest>,
-    time: Res<Time>,
+    // Grouped into one tuple param so `session_log` fits under Bevy's 16-param
+    // `IntoSystem` ceiling (needed to record an avatar re-seed, #627).
+    (audio_monitor, mut audio_requests, time, mut session_log): (
+        Res<bevy_symbios_audio::ui::AudioMonitor>,
+        MessageWriter<bevy_symbios_audio::ui::MonitorRequest>,
+        Res<Time>,
+        ResMut<SessionLog>,
+    ),
 ) {
     use crate::config::ui::airship as cfg;
 
@@ -266,6 +279,10 @@ pub fn avatar_ui(
                     );
                     if let SeedAction::Reroll(seed) = reroll {
                         live_mut.0 = AvatarRecord::default_for_seed(seed, &s.did);
+                        session_log.info(
+                            time.elapsed_secs_f64(),
+                            EventPayload::AvatarReseeded { seed },
+                        );
                     }
                 }
                 ui.separator();
@@ -293,6 +310,7 @@ pub fn avatar_ui(
                                 session,
                                 refresh,
                                 live_mut.0.clone(),
+                                time.elapsed_secs_f64(),
                             );
                         }
                     }
@@ -395,7 +413,12 @@ pub(crate) fn spawn_publish_avatar_task(
     session: &AtprotoSession,
     refresh: &crate::oauth::OauthRefreshCtx,
     record: AvatarRecord,
+    now: f64,
 ) {
+    // The avatar record is always the local user's own, saved to their PDS, so
+    // the write DID is the session DID (unlike a room save, whose DID is the
+    // room owner's `CurrentRoomDid`).
+    let did = session.did.clone();
     let session_clone = session.clone();
     let refresh_clone = refresh.clone();
     let pool = bevy::tasks::IoTaskPool::get();
@@ -413,7 +436,11 @@ pub(crate) fn spawn_publish_avatar_task(
             crate::config::http::block_on(fut)
         }
     });
-    commands.spawn(PublishAvatarTask(task));
+    commands.spawn(PublishAvatarTask {
+        task,
+        did,
+        spawned_at: now,
+    });
 }
 
 /// Poll outstanding avatar publish tasks. On success, sync `LiveAvatarRecord`
@@ -425,16 +452,19 @@ pub fn poll_publish_avatar_tasks(
     live: Res<LiveAvatarRecord>,
     mut stored: Option<ResMut<StoredAvatarRecord>>,
     mut feedback: ResMut<PublishFeedback<AvatarRecord>>,
+    mut session_log: ResMut<SessionLog>,
     time: Res<Time>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
-            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.0))
+            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.task))
         else {
             continue;
         };
         commands.entity(entity).despawn();
         let now = time.elapsed_secs_f64();
+        let did = task.did.clone();
+        let duration_secs = now - task.spawned_at;
         match result {
             Ok(()) => {
                 info!("Avatar record saved to PDS");
@@ -442,9 +472,25 @@ pub fn poll_publish_avatar_tasks(
                     stored.0 = live.0.clone();
                 }
                 feedback.status = PublishStatus::Success { at_secs: now };
+                session_log.info(
+                    now,
+                    EventPayload::RecordWriteCompleted {
+                        record: RecordKind::Avatar,
+                        did,
+                        duration_secs,
+                    },
+                );
             }
             Err(e) => {
                 warn!("Failed to save avatar record: {}", e);
+                session_log.error(
+                    now,
+                    EventPayload::RecordWriteFailed {
+                        record: RecordKind::Avatar,
+                        did,
+                        reason: e.clone(),
+                    },
+                );
                 feedback.status = PublishStatus::Failed {
                     at_secs: now,
                     message: e,
