@@ -30,7 +30,7 @@ pub enum PontoonShape {
 /// All messages exchanged over the P2P network.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum OverlandsMessage {
-    /// Physics transform broadcast at ~60 Hz over the Unreliable channel.
+    /// Physics transform broadcast at ~64 Hz over the Unreliable channel.
     Transform {
         position: [f32; 3],
         rotation: [f32; 4],

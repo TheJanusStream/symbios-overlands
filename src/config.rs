@@ -582,12 +582,20 @@ pub mod interaction {
 pub mod network {
     /// Broadcast identity to peers every N fixed-update ticks.
     pub const IDENTITY_BROADCAST_INTERVAL_TICKS: u32 = 60;
-    /// Expected spacing (seconds) between consecutive Transform broadcasts
+    /// Fallback spacing (seconds) between consecutive Transform broadcasts
     /// from a given peer, used by the jitter buffer to assign synthetic
-    /// playout timestamps when WebRTC delivers packets in a burst.  Chosen
-    /// slightly smaller than the nominal FixedUpdate tick so the buffer stays
-    /// in step with wall clock under normal delivery.
-    pub const EXPECTED_BROADCAST_INTERVAL_SECS: f64 = 1.0 / 60.0;
+    /// playout timestamps when WebRTC delivers packets in a burst.
+    ///
+    /// Broadcasts fire once per `FixedUpdate` tick, so the *true* spacing is
+    /// exactly the fixed timestep. The live value is therefore read from
+    /// `Time<Fixed>` at plugin build (see
+    /// [`crate::network::SmootherConfigRes::from_fixed_timestep`]) rather than
+    /// assumed here — that keeps the buffer's expected cadence provably equal
+    /// to the real broadcast rate, so the synthetic playout clock cannot drift
+    /// against wall clock and repeatedly slam the `MAX_JITTER_DRIFT_SECS`
+    /// ceiling. This constant is used only as a fallback if `Time<Fixed>` is
+    /// unavailable; it mirrors Bevy's default fixed timestep of 64 Hz.
+    pub const EXPECTED_BROADCAST_INTERVAL_SECS: f64 = 1.0 / 64.0;
     /// Maximum amount (seconds) a jitter-buffered playout timestamp is
     /// allowed to sit ahead of wall-clock `now`.  If the sender's clock
     /// runs faster than ours, `(last + expected).max(now)` would
@@ -624,8 +632,8 @@ pub mod network {
     /// before throttling kicks in, so a spinning-in-place chassis still
     /// streams smooth rotation updates at full rate.
     pub const STATIONARY_ANGULAR_THRESHOLD: f32 = 0.05;
-    /// Only send a transform every N-th tick while stationary.  At 60 fps this
-    /// yields ~2 Hz (60 / 30 = 2).
+    /// Only send a transform every N-th tick while stationary.  At the 64 Hz
+    /// `FixedUpdate` tick this yields ~2 Hz (64 / 30 ≈ 2.1).
     pub const STATIONARY_BROADCAST_DIVISOR: u32 = 30;
 
     /// Maximum age (seconds) an `IncomingOfferDialog` is allowed to sit on

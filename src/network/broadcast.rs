@@ -24,7 +24,7 @@ pub(super) fn broadcast_local_state(
         return;
     };
 
-    // Throttle transform broadcasts when nearly stationary: drop from ~60 Hz
+    // Throttle transform broadcasts when nearly stationary: drop from ~64 Hz
     // to ~2 Hz (every 30th tick) to save WebRTC bandwidth and WASM CPU.
     // Check both linear *and* angular velocity so a spinning-in-place rover
     // still streams smooth rotation updates to peers.
