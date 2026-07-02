@@ -66,6 +66,7 @@ fn scrape_bevy_diagnostics(
     time: Res<Time>,
     meshes: Res<Assets<Mesh>>,
     materials: Res<Assets<StandardMaterial>>,
+    images: Res<Assets<Image>>,
     colliders: Query<(), With<avian3d::prelude::Collider>>,
     shape_cache: Option<Res<bevy_symbios_shape::cache::ShapeMeshCache>>,
     mut reg: ResMut<MetricsRegistry>,
@@ -111,6 +112,10 @@ fn scrape_bevy_diagnostics(
         materials.len() as f64,
         now,
     );
+    // Image-asset registry: the dominant memory consumer across a region re-seed
+    // and the one the mesh/material counts miss (caches retain `Handle<Image>`) —
+    // watches whether textures actually shrink after a rebuild/logout (#625).
+    reg.observe_gauge(names::RUNTIME_IMAGE_HANDLE_COUNT, images.len() as f64, now);
     reg.observe_gauge(
         names::RUNTIME_COLLIDER_COUNT,
         colliders.iter().count() as f64,
@@ -190,6 +195,8 @@ mod tests {
         // Every catalogued metric is present as an empty entry after preseed.
         assert!(reg.gauge(names::RUNTIME_FRAME_TIME_MS).is_some());
         assert!(reg.gauge(names::RUNTIME_ENTITY_COUNT).is_some());
+        // The image-asset registry gauge (the #625 leak-signal metric).
+        assert!(reg.gauge(names::RUNTIME_IMAGE_HANDLE_COUNT).is_some());
         assert!(reg.counter(names::NET_PEER_CONNECTED_COUNT).is_some());
         assert!(
             reg.histogram(names::NET_JITTER_PLAYOUT_LATENCY_MS)

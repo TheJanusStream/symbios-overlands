@@ -34,7 +34,10 @@ impl Plugin for LogoutPlugin {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+// Grab-bag teardown system at Bevy's 16-param ceiling: the session-scoped caches
+// ride in a tuple param (their combined type trips `type_complexity`) to stay
+// under it, so both lints are expected here.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn cleanup_on_logout(
     mut commands: Commands,
     players: Query<Entity, With<LocalPlayer>>,
@@ -43,11 +46,24 @@ fn cleanup_on_logout(
     session: Option<Res<AtprotoSession>>,
     refresh_ctx: Option<Res<OauthRefreshCtx>>,
     mut chat: ResMut<ChatHistory>,
-    // Grouped into one tuple param to stay within Bevy's 16-param system arity.
-    (mut session_log, mut metrics, time): (
+    // Grouped into one tuple param to stay within Bevy's 16-param system arity;
+    // the four per-generator caches ride along here for the same reason (#625).
+    (
+        mut session_log,
+        mut metrics,
+        time,
+        mut shape_mesh,
+        mut shape_material,
+        mut lsystem_mesh,
+        mut lsystem_material,
+    ): (
         ResMut<crate::diagnostics::SessionLog>,
         ResMut<crate::diagnostics::MetricsRegistry>,
         Res<Time>,
+        ResMut<crate::world_builder::ShapeMeshCache>,
+        ResMut<crate::world_builder::ShapeMaterialCache>,
+        ResMut<crate::world_builder::LSystemMeshCache>,
+        ResMut<crate::world_builder::LSystemMaterialCache>,
     ),
     mut avatar_cache: ResMut<PeerAvatarCache>,
     mut bsky_cache: ResMut<BskyProfileCache>,
@@ -222,4 +238,19 @@ fn cleanup_on_logout(
     // Drop them here (the full-rebuild GC bounds it within a session; this
     // bounds it across login cycles). See `world_builder::compile`.
     upstream_shape_mesh.clear();
+
+    // The four per-generator geometry/material caches (Shape + L-system) are
+    // bounded within a session by the full-rebuild GC, but nothing else clears
+    // them at logout — so the last room's `Handle<Mesh>` / `Handle<StandardMaterial>`
+    // survive into the next login. Drop them here (#625).
+    shape_mesh.clear();
+    shape_material.clear();
+    lsystem_mesh.clear();
+    lsystem_material.clear();
+
+    // The procedural `TextureCache` (FIFO-64, ~192 MiB worst case) is content-
+    // keyed and deliberately survives room *changes*, but nothing clears it at
+    // logout — its retained `Handle<Image>`s are the dominant texture memory the
+    // next session would inherit. Re-insert a fresh one to release them (#625).
+    commands.insert_resource(crate::world_builder::fresh_texture_cache());
 }

@@ -341,6 +341,7 @@ fn render_overview_tab(
             count_row(ui, "Entities", names::RUNTIME_ENTITY_COUNT);
             count_row(ui, "Mesh handles", names::RUNTIME_MESH_HANDLE_COUNT);
             count_row(ui, "Material handles", names::RUNTIME_MATERIAL_HANDLE_COUNT);
+            count_row(ui, "Image handles", names::RUNTIME_IMAGE_HANDLE_COUNT);
             count_row(ui, "Colliders", names::RUNTIME_COLLIDER_COUNT);
             count_row(ui, "ShapeMeshCache", names::RUNTIME_SHAPE_MESH_CACHE_LEN);
         });

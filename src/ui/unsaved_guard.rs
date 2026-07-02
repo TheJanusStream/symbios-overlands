@@ -334,11 +334,17 @@ pub fn unsaved_guard_ui(
                     && let Some(live) = records.live_room.as_deref()
                 {
                     feedbacks.room.status = PublishStatus::Publishing;
+                    let room_did = current_room
+                        .as_deref()
+                        .map(|d| d.0.clone())
+                        .unwrap_or_default();
                     crate::ui::room::spawn_room_publish_task(
                         &mut commands,
                         session,
                         refresh_ctx,
                         live.0.clone(),
+                        room_did,
+                        time.elapsed_secs_f64(),
                     );
                 }
                 if matches!(guard.action, GuardedAction::Logout) {

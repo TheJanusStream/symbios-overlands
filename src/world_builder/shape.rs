@@ -52,6 +52,15 @@ pub struct ShapeMaterialCache {
     pub(super) entries: HashMap<(String, String), CachedShapeMaterial>,
 }
 
+impl ShapeMaterialCache {
+    /// Drop every cached material handle. Called on logout so one session's
+    /// baked shape materials don't outlive it — during a session the per-pass
+    /// GC keeps this bounded, but nothing else clears it at logout (#625).
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
+}
+
 /// One pre-baked terminal: the world-relative transform produced by
 /// `scope_to_transform`, the unit-sized procedural mesh handle (shared across
 /// all terminals with the same `(profile, size)` triple), and the optional
@@ -88,6 +97,15 @@ pub(super) struct CachedShapeGeometry {
 #[derive(Resource, Default)]
 pub struct ShapeMeshCache {
     pub(super) entries: HashMap<String, CachedShapeGeometry>,
+}
+
+impl ShapeMeshCache {
+    /// Drop every cached geometry entry (and its `Handle<Mesh>`s). Called on
+    /// logout so the last room's shape meshes stop pinning `Assets<Mesh>` into
+    /// the next session (#625).
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
 }
 
 /// Stable content hash of the geometry-affecting fields of a

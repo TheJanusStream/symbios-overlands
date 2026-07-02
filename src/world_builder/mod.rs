@@ -90,6 +90,23 @@ pub use material::build_procedural_material;
 pub use prim::build_primitive_mesh;
 pub use shape::{ShapeMaterialCache, ShapeMeshCache};
 
+/// Capacity (entries) of the shared procedural-[`TextureCache`]. At the 512²
+/// bake size one entry pins ~3 MiB of pixel data (albedo + normal + ORM), so
+/// the upstream 256-entry default would allow ~768 MiB — too much headroom for
+/// the wasm heap. 64 entries (~192 MiB worst case, far less in practice) covers
+/// several rooms' worth of distinct configs before FIFO eviction kicks in.
+///
+/// [`TextureCache`]: bevy_symbios_texture::TextureCache
+pub const TEXTURE_CACHE_CAPACITY: usize = 64;
+
+/// A fresh, empty [`TextureCache`](bevy_symbios_texture::TextureCache) at the
+/// shared [`TEXTURE_CACHE_CAPACITY`]. Single source for the resource the plugin
+/// and the headless render tool insert at startup, and the one logout re-inserts
+/// to reclaim the previous room's cached textures (#625).
+pub fn fresh_texture_cache() -> bevy_symbios_texture::TextureCache {
+    bevy_symbios_texture::TextureCache::memory(TEXTURE_CACHE_CAPACITY)
+}
+
 /// Register the resources + plugins the generator spawn path
 /// (`avatar_spawn::spawn_avatar_visuals_subtree` / `compile::spawn_generator`)
 /// reads, *minus* the room-compile systems and `AppState` gating that
@@ -100,7 +117,7 @@ pub use shape::{ShapeMaterialCache, ShapeMeshCache};
 pub fn register_headless_spawn(app: &mut App) {
     app.add_plugins(MaterialPlugin::<WaterMaterial>::default())
         .add_plugins(bevy_symbios_texture::SymbiosTexturePlugin::default())
-        .insert_resource(bevy_symbios_texture::TextureCache::memory(64))
+        .insert_resource(fresh_texture_cache())
         .init_resource::<LSystemMaterialCache>()
         .init_resource::<LSystemMeshCache>()
         .init_resource::<ShapeMaterialCache>()
@@ -235,15 +252,12 @@ impl Plugin for WorldBuilderPlugin {
             // `build_procedural_material` before dispatching a bake and
             // populated by the upstream `patch_procedural_material_textures`
             // system (which takes it as an optional resource — inserting it
-            // here is what switches caching on). Survives room changes by
-            // design: keys are pure content hashes, so a revisited room
-            // re-uses its textures. Capacity note: at the 512² bake size one
-            // entry pins ~3 MiB of pixel data (albedo + normal + ORM), so
-            // the upstream 256-entry default would allow ~768 MiB — too much
-            // headroom for the wasm heap. 64 entries (~192 MiB worst case,
-            // far less in practice) covers several rooms' worth of distinct
-            // configs before FIFO eviction kicks in.
-            .insert_resource(bevy_symbios_texture::TextureCache::memory(64))
+            // here is what switches caching on). Survives room *changes* by
+            // design (keys are pure content hashes, so a revisited room re-uses
+            // its textures), but is re-inserted fresh on logout so one user's
+            // textures don't outlive their session (#625). See
+            // [`TEXTURE_CACHE_CAPACITY`] for the sizing rationale.
+            .insert_resource(fresh_texture_cache())
             .init_resource::<LSystemMaterialCache>()
             .init_resource::<LSystemMeshCache>()
             .init_resource::<ShapeMaterialCache>()

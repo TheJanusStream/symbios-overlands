@@ -26,6 +26,12 @@ pub const RUNTIME_ENTITY_COUNT: &str = "runtime.entity.count";
 pub const RUNTIME_MESH_HANDLE_COUNT: &str = "runtime.mesh_handle.count";
 /// `Assets<StandardMaterial>` handle count.
 pub const RUNTIME_MATERIAL_HANDLE_COUNT: &str = "runtime.material_handle.count";
+/// `Assets<Image>` handle count — the texture-asset registry. The dominant
+/// memory consumer across a region re-seed (512² splat/procedural textures), and
+/// the one the mesh/material counts miss: caches that survive a rebuild hold
+/// `Handle<Image>`, so this gauge reveals whether image assets actually shrink
+/// after a rebuild/logout (#625).
+pub const RUNTIME_IMAGE_HANDLE_COUNT: &str = "runtime.image_handle.count";
 /// Physics collider count — a double-count signals a duplicate terrain body.
 pub const RUNTIME_COLLIDER_COUNT: &str = "runtime.collider.count";
 /// Upstream `ShapeMeshCache` length — the documented unbounded-growth leak.
@@ -95,6 +101,7 @@ pub const ALL: &[(&str, MetricKind)] = &[
     (RUNTIME_ENTITY_COUNT, MetricKind::Gauge),
     (RUNTIME_MESH_HANDLE_COUNT, MetricKind::Gauge),
     (RUNTIME_MATERIAL_HANDLE_COUNT, MetricKind::Gauge),
+    (RUNTIME_IMAGE_HANDLE_COUNT, MetricKind::Gauge),
     (RUNTIME_COLLIDER_COUNT, MetricKind::Gauge),
     (RUNTIME_SHAPE_MESH_CACHE_LEN, MetricKind::Gauge),
     (RUNTIME_MEMORY_PROCESS_RSS_BYTES, MetricKind::Gauge),

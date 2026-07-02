@@ -123,6 +123,8 @@ fn timeline_label(p: &EventPayload) -> Option<String> {
         StartupSnapshot(s) => format!("startup ({:?})", s.phase),
         LoadingPhaseStarted => "loading gate opened".to_string(),
         RecordFetchCompleted { record, status, .. } => format!("{record:?} fetch {status:?}"),
+        RecordWriteCompleted { record, .. } => format!("{record:?} saved to PDS"),
+        RecordWriteFailed { record, .. } => format!("{record:?} save FAILED"),
         HeightmapGenCompleted { .. } => "heightmap generated".to_string(),
         AmbientBakeCompleted { .. } => "ambient bake done".to_string(),
         AmbientBakeFallback { .. } => "ambient bake fell back to silence".to_string(),
@@ -2212,6 +2214,42 @@ mod tests {
         assert_eq!(
             report("s.jsonl", &log),
             report_with("s.jsonl", &log, &Filters::default())
+        );
+    }
+
+    /// A record write (region save) is a timeline milestone (#624) — an in-game
+    /// save must be visible in the post-mortem, not just record reads.
+    #[test]
+    fn timeline_shows_record_writes() {
+        use crate::diagnostics::event::RecordKind;
+        let parsed = ParsedLog {
+            events: vec![
+                ev(0.0, Severity::Info, startup_info(Some("did:plc:me"))),
+                ev(
+                    30.0,
+                    Severity::Info,
+                    EventPayload::RecordWriteCompleted {
+                        record: RecordKind::Room,
+                        did: "did:plc:me".into(),
+                        duration_secs: 0.4,
+                    },
+                ),
+                ev(
+                    40.0,
+                    Severity::Info,
+                    EventPayload::SessionEnd {
+                        reason: "app_exit".into(),
+                    },
+                ),
+            ],
+            unparseable: 0,
+        };
+        let r = report("s.jsonl", &parsed);
+        assert!(r.contains("Room saved to PDS"), "{r}");
+        // A write lands in the Loading/Fetch bucket (PDS record I/O).
+        assert!(
+            r.contains("Fetch 1"),
+            "record writes count under Fetch: {r}"
         );
     }
 }

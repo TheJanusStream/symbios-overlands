@@ -40,6 +40,14 @@ pub struct LSystemMaterialCache {
     pub(super) entries: HashMap<(String, u16), CachedLSystemMaterial>,
 }
 
+impl LSystemMaterialCache {
+    /// Drop every cached material handle. Called on logout so one session's
+    /// L-system materials don't outlive it (#625).
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
+}
+
 /// Cached geometry for a single L-system generator: the fingerprint of the
 /// geometry-affecting settings that produced it, the shared per-material mesh
 /// handles, and the skeleton's prop list. Props are stored raw because the
@@ -72,6 +80,15 @@ pub(super) struct CachedLSystemGeometry {
 #[derive(Resource, Default)]
 pub struct LSystemMeshCache {
     pub(super) entries: HashMap<String, CachedLSystemGeometry>,
+}
+
+impl LSystemMeshCache {
+    /// Drop every cached geometry entry (and its `Handle<Mesh>`s). Called on
+    /// logout so the last room's L-system meshes stop pinning `Assets<Mesh>`
+    /// into the next session (#625).
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
 }
 
 pub(super) fn settings_fingerprint(settings: &SovereignMaterialSettings) -> u64 {

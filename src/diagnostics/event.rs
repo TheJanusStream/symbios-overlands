@@ -184,6 +184,21 @@ pub enum EventPayload {
         status: FetchStatus,
         duration_secs: f64,
     },
+    /// A PDS record *write* succeeded — e.g. saving the edited room to the
+    /// owner's PDS (`com.atproto.repo.putRecord`). The write counterpart of
+    /// [`RecordFetchCompleted`](EventPayload::RecordFetchCompleted); makes an
+    /// in-game save visible in the analyzer timeline.
+    RecordWriteCompleted {
+        record: RecordKind,
+        did: String,
+        duration_secs: f64,
+    },
+    /// A PDS record write failed (a `putRecord` / delete error).
+    RecordWriteFailed {
+        record: RecordKind,
+        did: String,
+        reason: String,
+    },
     /// The room record could not be decoded; the recovery banner was raised.
     RoomRecoveryBannerRaised {
         reason: String,
@@ -437,6 +452,8 @@ impl EventPayload {
             | RecordFetchInitiated { .. }
             | RecordFetchRetrying { .. }
             | RecordFetchCompleted { .. }
+            | RecordWriteCompleted { .. }
+            | RecordWriteFailed { .. }
             | RoomRecoveryBannerRaised { .. }
             | HeightmapGenStarted { .. }
             | HeightmapGenCompleted { .. }
@@ -522,6 +539,8 @@ impl EventPayload {
             RecordFetchInitiated { .. }
             | RecordFetchRetrying { .. }
             | RecordFetchCompleted { .. }
+            | RecordWriteCompleted { .. }
+            | RecordWriteFailed { .. }
             | RoomRecoveryBannerRaised { .. }
             | LoginFeedFetchInitiated
             | LoginFeedFetchCompleted { .. } => Category::Fetch,
@@ -638,6 +657,16 @@ impl EventPayload {
                 ..
             } => {
                 format!("{record:?} fetch {status:?} in {duration_secs:.1}s")
+            }
+            RecordWriteCompleted {
+                record,
+                duration_secs,
+                ..
+            } => {
+                format!("{record:?} saved to PDS in {duration_secs:.1}s")
+            }
+            RecordWriteFailed { record, reason, .. } => {
+                format!("{record:?} save FAILED ({reason})")
             }
             RoomRecoveryBannerRaised { reason } => format!("room recovery banner ({reason})"),
             HeightmapGenStarted { seed } => format!("heightmap gen started (seed {seed})"),
@@ -892,6 +921,11 @@ mod tests {
                 did: "did:plc:me".into(),
                 status: FetchStatus::Ok,
                 duration_secs: 1.5,
+            },
+            EventPayload::RecordWriteCompleted {
+                record: RecordKind::Room,
+                did: "did:plc:me".into(),
+                duration_secs: 0.4,
             },
             EventPayload::PeerIdentitySpoofRejected {
                 peer: "peer:7".into(),

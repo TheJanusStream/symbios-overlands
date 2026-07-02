@@ -44,6 +44,8 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
+use crate::diagnostics::SessionLog;
+use crate::diagnostics::event::{EventPayload, RecordKind};
 use crate::pds::{self, Placement, RoomRecord};
 use crate::state::{
     CurrentRoomDid, LiveInventoryRecord, LiveRoomRecord, PublishFeedback, PublishStatus,
@@ -54,15 +56,25 @@ use crate::ui::editable::{
     RecordAction, SeedAction, publish_status_line, save_load_reset_row, seed_row,
 };
 
-/// Async task for publishing the room record to the owner's PDS.
+/// Async task for publishing the room record to the owner's PDS. Carries the
+/// target `did` and the dispatch time so [`poll_publish_tasks`] can emit a typed
+/// `RecordWrite*` session event (with the write's duration) when it resolves.
 #[derive(Component)]
-pub struct PublishRoomTask(pub bevy::tasks::Task<Result<(), String>>);
+pub struct PublishRoomTask {
+    pub task: bevy::tasks::Task<Result<(), String>>,
+    pub did: String,
+    pub spawned_at: f64,
+}
 
 /// Async task for the hard-reset publish path (delete-then-put). Separate
 /// from `PublishRoomTask` only for logging clarity — the two share the same
 /// result type and poll system.
 #[derive(Component)]
-pub struct ResetRoomTask(pub bevy::tasks::Task<Result<(), String>>);
+pub struct ResetRoomTask {
+    pub task: bevy::tasks::Task<Result<(), String>>,
+    pub did: String,
+    pub spawned_at: f64,
+}
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum EditorTab {
@@ -367,7 +379,14 @@ pub fn room_admin_ui(
                             // putRecord upsert can return 500 when the stored
                             // record is incompatible with the current lexicon;
                             // hard-deleting first sidesteps that failure mode.
-                            spawn_reset_task(&mut commands, &session, &refresh_ctx, default_record);
+                            spawn_reset_task(
+                                &mut commands,
+                                &session,
+                                &refresh_ctx,
+                                default_record,
+                                room_did.0.clone(),
+                                time.elapsed_secs_f64(),
+                            );
                             commands.remove_resource::<RoomRecordRecovery>();
                         }
                     });
@@ -540,6 +559,8 @@ pub fn room_admin_ui(
                             &session,
                             &refresh_ctx,
                             record_mut.clone(),
+                            room_did.0.clone(),
+                            time.elapsed_secs_f64(),
                         );
                     }
                     RecordAction::Load => {
@@ -653,6 +674,8 @@ pub(crate) fn spawn_room_publish_task(
     session: &AtprotoSession,
     refresh: &crate::oauth::OauthRefreshCtx,
     record: RoomRecord,
+    did: String,
+    now: f64,
 ) {
     let session_clone = session.clone();
     let refresh_clone = refresh.clone();
@@ -671,7 +694,11 @@ pub(crate) fn spawn_room_publish_task(
             crate::config::http::block_on(fut)
         }
     });
-    commands.spawn(PublishRoomTask(task));
+    commands.spawn(PublishRoomTask {
+        task,
+        did,
+        spawned_at: now,
+    });
 }
 
 /// Spawn the hard-reset publish task — delete the stored record first, then
@@ -683,6 +710,8 @@ fn spawn_reset_task(
     session: &AtprotoSession,
     refresh: &crate::oauth::OauthRefreshCtx,
     record: RoomRecord,
+    did: String,
+    now: f64,
 ) {
     let session_clone = session.clone();
     let refresh_clone = refresh.clone();
@@ -701,13 +730,18 @@ fn spawn_reset_task(
             crate::config::http::block_on(fut)
         }
     });
-    commands.spawn(ResetRoomTask(task));
+    commands.spawn(ResetRoomTask {
+        task,
+        did,
+        spawned_at: now,
+    });
 }
 
 /// Poll outstanding publish and reset tasks and log results. On success,
 /// pin `StoredRoomRecord` to the live `RoomRecord` so subsequent "Load from
 /// PDS" presses restore the now-committed state and the dirty indicator
 /// resets.
+#[allow(clippy::too_many_arguments)]
 pub fn poll_publish_tasks(
     mut commands: Commands,
     mut publish_tasks: Query<(Entity, &mut PublishRoomTask)>,
@@ -715,17 +749,20 @@ pub fn poll_publish_tasks(
     live: Option<Res<LiveRoomRecord>>,
     mut stored: Option<ResMut<StoredRoomRecord>>,
     mut publish_feedback: ResMut<PublishFeedback<RoomRecord>>,
+    mut session_log: ResMut<SessionLog>,
     time: Res<Time>,
 ) {
     for (entity, mut task) in publish_tasks.iter_mut() {
         let Some(result) =
-            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.0))
+            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.task))
         else {
             continue;
         };
 
         commands.entity(entity).despawn();
         let now = time.elapsed_secs_f64();
+        let did = task.did.clone();
+        let duration_secs = now - task.spawned_at;
         match result {
             Ok(()) => {
                 info!("Room record saved to PDS");
@@ -733,9 +770,25 @@ pub fn poll_publish_tasks(
                     stored.0 = live.0.clone();
                 }
                 publish_feedback.status = PublishStatus::Success { at_secs: now };
+                session_log.info(
+                    now,
+                    EventPayload::RecordWriteCompleted {
+                        record: RecordKind::Room,
+                        did,
+                        duration_secs,
+                    },
+                );
             }
             Err(e) => {
                 warn!("Failed to save room record: {}", e);
+                session_log.error(
+                    now,
+                    EventPayload::RecordWriteFailed {
+                        record: RecordKind::Room,
+                        did,
+                        reason: e.clone(),
+                    },
+                );
                 publish_feedback.status = PublishStatus::Failed {
                     at_secs: now,
                     message: e,
@@ -745,13 +798,15 @@ pub fn poll_publish_tasks(
     }
     for (entity, mut task) in reset_tasks.iter_mut() {
         let Some(result) =
-            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.0))
+            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.task))
         else {
             continue;
         };
 
         commands.entity(entity).despawn();
         let now = time.elapsed_secs_f64();
+        let did = task.did.clone();
+        let duration_secs = now - task.spawned_at;
         match result {
             Ok(()) => {
                 info!("Room record reset on PDS (delete + put)");
@@ -759,9 +814,25 @@ pub fn poll_publish_tasks(
                     stored.0 = live.0.clone();
                 }
                 publish_feedback.status = PublishStatus::Success { at_secs: now };
+                session_log.info(
+                    now,
+                    EventPayload::RecordWriteCompleted {
+                        record: RecordKind::Room,
+                        did,
+                        duration_secs,
+                    },
+                );
             }
             Err(e) => {
                 warn!("Failed to reset room record: {}", e);
+                session_log.error(
+                    now,
+                    EventPayload::RecordWriteFailed {
+                        record: RecordKind::Room,
+                        did,
+                        reason: e.clone(),
+                    },
+                );
                 publish_feedback.status = PublishStatus::Failed {
                     at_secs: now,
                     message: e,
