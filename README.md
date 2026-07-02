@@ -73,7 +73,7 @@ The quickest way is the **[browser demo](https://thejanusstream.github.io/symbio
 Natively:
 
 ```bash
-cargo run --release
+cargo run --release --bin symbios-overlands
 ```
 
 See [docs/building.md](docs/building.md) for the WebAssembly build, the
