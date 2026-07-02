@@ -87,15 +87,72 @@ The full set of `kind` values (several dozen — `LoadingGate*`, `RecordFetch*`,
 `EventPayload` enum in [`src/diagnostics/event.rs`](../src/diagnostics/event.rs);
 that file is the authoritative schema.
 
-## Reading a log
+## Reading a log (the analyzer)
+
+The offline analyzer ([Pillar B](../src/diagnostics/analyze.rs)) turns a captured
+NDJSON log into an agent-facing post-mortem. It is a no-render subcommand of the
+`render` bin, so it needs no GPU and reads the native file or the WASM download
+interchangeably. A torn/truncated log is analyzed best-effort (unparseable lines
+are counted and surfaced, never fatal).
+
+### Post-mortem — `--analyze-session`
 
 ```sh
 cargo run --bin render -- --analyze-session diagnostics/session-latest.jsonl
 ```
 
-prints a post-mortem: a build/session header, a health `[Verdict]`, and an
-`[Invariant Violations]` section (see the Pillar B analyzer). The same NDJSON is
-the input to every analyzer subcommand.
+prints, in order:
+
+| Section | What it tells you |
+| --- | --- |
+| header | `session-id` / `did` / `build` (version·sha·arch·profile) / `duration` / `exit` reason (or a crash/truncation note). |
+| `[Verdict]` | `HEALTHY`, or the count of `warning` / `error` / `critical` events. |
+| `[Event Tallies]` | A `subsystem × severity` matrix + a by-category line — *where* the noise came from. The 1 Hz metric snapshots are excluded (and the count noted) so they don't bury the counts. |
+| `[Timeline]` | The milestone events (loading gate, fetches, heightmap/ambient/world-compile, `→ InGame`, portals, segment resets, session end) at their timestamps. |
+| `[Loading Gate]` | The Login → Loading → InGame gate time, plus each heavy loading stage's duration distribution (`min/p50/p90/max/mean`). |
+| `[Metric Trends]` | The gauge/counter/histogram series charted from the periodic `MetricsSnapshot` records — memory-growth curve, frame-time percentiles, entity/asset drift (the leak signal). |
+| `[Invariant Violations]` | The anomaly rules **replayed** over the log (offline re-derived) plus any captured live-only fires — the offline counterpart to the in-game anomaly engine. |
+
+### Filters
+
+Restrict the *analysis* sections to a slice of the log (the header always shows
+the full run's identity). An invalid filter name aborts with a clear message.
+
+| Flag | Effect |
+| --- | --- |
+| `--subsystem <s>` | `loading` \| `network` \| `offload` \| `runtime` \| `session` |
+| `--category <c>` | `lifecycle` \| `fetch` \| `generation` \| `audio` \| `peer` \| `transport` \| `offer` \| `chat` \| `social` \| `job` \| `physics` \| `asset` \| `perf` \| `portal` \| `anomaly` \| `snapshot` |
+| `--severity <min>` | minimum severity — `trace` \| `info` \| `warn` \| `error` \| `critical` (matches that level *and above*) |
+| `--since <secs>` / `--until <secs>` | inclusive session-relative time window (`t_mono_secs`) |
+
+```sh
+# Just the network events, warnings and worse, in the first two minutes:
+cargo run --bin render -- --analyze-session diagnostics/session-latest.jsonl \
+  --subsystem network --severity warn --until 120
+```
+
+A `[Filter]` line then documents the active lens and how many of the total events
+matched. Only the header (session identity) is derived from the full run;
+**every** section below it — `[Verdict]`, `[Event Tallies]`, `[Timeline]`,
+`[Loading Gate]`, `[Metric Trends]` and `[Invariant Violations]` — folds only the
+matching subset. In particular, a narrow time window (`--since`/`--until`) that
+clips the `→ InGame` transition can make `[Loading Gate]` report *“did not reach
+InGame (stalled or truncated log)”* for the slice even though the full run reached
+it; read the `[Filter]` match count as your cue that these sections describe a
+subset, not the whole session.
+
+### Before/after diff — `--diff-sessions`
+
+```sh
+cargo run --bin render -- --diff-sessions baseline.jsonl candidate.jsonl
+```
+
+diffs two logs (A = baseline, B = candidate) so an agent can confirm a fix in B
+improved on A. It prints `[Verdict Delta]` (event counts + an improved/regressed
+read), `[Loading Gate Delta]` (gate + per-stage mean A → B), `[Metric Delta]`
+(gauge peaks + counter totals A → B), and `[Invariant Delta]` (per-rule fire
+counts A → B, tagged `NEW` / `worse` / `resolved` / `better` / `same`, regressions
+first). Filters apply to `--analyze-session`, not to the diff.
 
 ## Adding an invariant rule
 

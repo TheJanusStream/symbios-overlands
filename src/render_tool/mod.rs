@@ -91,11 +91,41 @@ struct Args {
     road_dump: Option<String>,
     /// Offline session-log post-mortem: read a captured session log
     /// (`diagnostics/session-latest.jsonl`, or the wasm "Download log" dump —
-    /// same NDJSON format), replay the anomaly rules over it, and print an
-    /// agent-facing report (header + verdict + `[Invariant Violations]`), then
-    /// exit. A no-render analysis alongside `--road-dump`. Native-only.
+    /// same NDJSON format) and print an agent-facing report (header, `[Verdict]`,
+    /// `[Event Tallies]`, `[Timeline]`, `[Loading Gate]`, `[Metric Trends]`,
+    /// `[Invariant Violations]`), then exit. Narrow the analysis with the
+    /// `--subsystem` / `--category` / `--severity` / `--since` / `--until`
+    /// filters. A no-render analysis alongside `--road-dump`. Native-only.
     #[arg(long)]
     analyze_session: Option<String>,
+    /// Offline before/after diff: read two captured session logs (A = baseline,
+    /// B = candidate) and print a delta report (verdict / loading-gate timings /
+    /// metric peaks / invariant fires) so an agent can confirm a fix in run B
+    /// improved on the baseline A, then exit. `--diff-sessions <a> <b>`. A
+    /// no-render analysis; runs after `--analyze-session`. Native-only.
+    #[arg(long, num_args = 2, value_names = ["A", "B"])]
+    diff_sessions: Option<Vec<String>>,
+    /// `--analyze-session` filter: restrict the analysis sections to one
+    /// subsystem (`loading`|`network`|`offload`|`runtime`|`session`). The header
+    /// (session identity) is always shown in full.
+    #[arg(long)]
+    subsystem: Option<String>,
+    /// `--analyze-session` filter: restrict to one event category
+    /// (`lifecycle`|`fetch`|`generation`|`audio`|`peer`|… — see docs/diagnostics.md).
+    #[arg(long)]
+    category: Option<String>,
+    /// `--analyze-session` filter: restrict to events at or above this severity
+    /// (`trace`|`info`|`warn`|`error`|`critical`).
+    #[arg(long)]
+    severity: Option<String>,
+    /// `--analyze-session` filter: restrict to events at or after this
+    /// session-relative time (seconds).
+    #[arg(long)]
+    since: Option<f64>,
+    /// `--analyze-session` filter: restrict to events at or before this
+    /// session-relative time (seconds).
+    #[arg(long)]
+    until: Option<f64>,
     /// Torture/cut overrides for a `--prim` subject (for testing the prim
     /// system). `--shear x,z` · `--twist rad` · `--taper x,z` · `--pathcut a,b`
     /// · `--profilecut a,b` · `--hollow h`.
@@ -171,7 +201,14 @@ pub fn run() {
     // anomaly rules over it, and print an agent-facing post-mortem — a no-render
     // analysis, the offline counterpart to the live diagnostic engine.
     if let Some(path) = &args.analyze_session {
-        analyze_session(path);
+        analyze_session(&args, path);
+        return;
+    }
+
+    // `--diff-sessions <a> <b>`: read two captured logs and print a before/after
+    // delta report — the fix-validation counterpart to `--analyze-session`.
+    if let Some(pair) = &args.diff_sessions {
+        diff_sessions(&pair[0], &pair[1]);
         return;
     }
 
@@ -338,7 +375,22 @@ fn dump_road_graph(room: &str) {
 /// a torn/truncated log is analyzed best-effort (unparseable lines are counted,
 /// not fatal). The report is the offline counterpart to the live anomaly engine
 /// — the same rule set, replayed over a captured log.
-fn analyze_session(path: &str) {
+fn analyze_session(args: &Args, path: &str) {
+    // Filters (all optional) restrict the analysis sections; an invalid filter
+    // name aborts with a clear message rather than silently analyzing everything.
+    let filters = match crate::diagnostics::analyze::Filters::parse(
+        args.subsystem.as_deref(),
+        args.category.as_deref(),
+        args.severity.as_deref(),
+        args.since,
+        args.until,
+    ) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("invalid analyzer filter: {e}");
+            return;
+        }
+    };
     let text = match std::fs::read_to_string(path) {
         Ok(t) => t,
         Err(e) => {
@@ -347,7 +399,36 @@ fn analyze_session(path: &str) {
         }
     };
     let parsed = crate::diagnostics::analyze::parse_ndjson(&text);
-    print!("{}", crate::diagnostics::analyze::report(path, &parsed));
+    print!(
+        "{}",
+        crate::diagnostics::analyze::report_with(path, &parsed, &filters)
+    );
+}
+
+/// Read two captured NDJSON session logs (A = baseline, B = candidate) and print
+/// their before/after diff (see [`crate::diagnostics::analyze::diff_report`]) —
+/// the fix-validation counterpart to [`analyze_session`]. An unreadable file is
+/// reported to stderr and aborts the diff; torn/truncated logs are diffed
+/// best-effort (unparseable lines counted, surfaced in each session's header).
+fn diff_sessions(path_a: &str, path_b: &str) {
+    let read = |path: &str| -> Option<String> {
+        match std::fs::read_to_string(path) {
+            Ok(t) => Some(t),
+            Err(e) => {
+                eprintln!("cannot read session log {path:?}: {e}");
+                None
+            }
+        }
+    };
+    let (Some(text_a), Some(text_b)) = (read(path_a), read(path_b)) else {
+        return;
+    };
+    let parsed_a = crate::diagnostics::analyze::parse_ndjson(&text_a);
+    let parsed_b = crate::diagnostics::analyze::parse_ndjson(&text_b);
+    print!(
+        "{}",
+        crate::diagnostics::analyze::diff_report(path_a, &parsed_a, path_b, &parsed_b)
+    );
 }
 
 /// Resolve a primitive tag (case-insensitive) to a default kind. Wraps
