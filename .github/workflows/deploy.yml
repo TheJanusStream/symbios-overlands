@@ -73,11 +73,12 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with: 
-          name: github-pages-dist-${{ github.run_id }}
+          name: github-pages-dist-${{ github.run_id }}-${{ github.run_number }}
           path: "./dist"
+          overwrite: true
 
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
         with:
-          artifact_name: github-pages-dist-${{ github.run_id }}
+          artifact_name: github-pages-dist-${{ github.run_id }}-${{ github.run_number }}
