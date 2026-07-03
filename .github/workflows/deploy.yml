@@ -70,15 +70,17 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Check dist for links and size
+        run: | 
+          echo "Size of dist:" du -sh ./dist || true
+          echo "Listing symlinks (if any):" SYMLINKS=$(find ./dist -type l -print) if [ -n "$SYMLINKS" ]; then echo "Symlinks found:" echo "$SYMLINKS" else echo "No symlinks found." fi
+          echo "Listing files with link count >1 (possible hard links):" HARDLINKS=$(find ./dist -type f -links +1 -printf '%p (%n links)\n') if [ -n "$HARDLINKS" ]; then echo "Hard links found:" echo "$HARDLINKS" else echo "No hard links found." fi
+          if [ -n "SYMLINKS"]||[-n"HARDLINKS" ]; then echo "Remove or dereference symlinks/hardlinks before uploading." exit 1 fi
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v1
         with: 
-          name: github-pages-dist-${{ github.run_id }}-${{ github.run_number }}
-          path: "./dist"
-          overwrite: true
+          path: ./dist
 
       - name: Deploy to GitHub Pages
-        id: deployment
         uses: actions/deploy-pages@v4
-        with:
-          artifact_name: github-pages-dist-${{ github.run_id }}-${{ github.run_number }}
