@@ -122,8 +122,18 @@ fn spawn_orbit_camera(mut commands: Commands) {
     ));
 }
 
+/// Keep the orbit camera glued to the local chassis.
+///
+/// Reads the chassis `Transform`, not `GlobalTransform` (#670): the root
+/// is parentless, and the avatar's interpolation easing writes the
+/// smoothed pose to `Transform` in `RunFixedMainLoop`, before `Update`,
+/// so this system sees the *same-frame eased* pose. `GlobalTransform` is
+/// only refreshed by `PostUpdate` propagation (and by Avian just before
+/// each fixed step), so it lags a frame and its staleness oscillates at
+/// the fixed-vs-refresh beat — feeding it into the focus lerp was the
+/// rubber-band half of the own-avatar stutter.
 fn follow_local_player(
-    player_query: Query<(&GlobalTransform, Option<&VehicleChassis>), With<LocalPlayer>>,
+    player_query: Query<(&Transform, Option<&VehicleChassis>), With<LocalPlayer>>,
     mut camera_query: Query<&mut PanOrbitCamera>,
     mut prev_yaw: Local<Option<f32>>,
 ) {
@@ -133,15 +143,14 @@ fn follow_local_player(
     let Ok(mut cam) = camera_query.single_mut() else {
         return;
     };
-    cam.target_focus = player_tf.translation();
+    cam.target_focus = player_tf.translation;
 
     // Only inherit yaw when driving a vehicle preset (hover-boat, airplane,
     // helicopter, car). On the humanoid preset the physics body never
     // rotates, and we want the mouse to orbit freely without snapping when
     // the visual rig turns to face movement.
     if vehicle.is_some() {
-        let (_, rotation, _) = player_tf.to_scale_rotation_translation();
-        let (vehicle_yaw, _, _) = rotation.to_euler(EulerRot::YXZ);
+        let (vehicle_yaw, _, _) = player_tf.rotation.to_euler(EulerRot::YXZ);
         if let Some(prev) = *prev_yaw {
             let delta = {
                 use std::f32::consts::{PI, TAU};
@@ -153,5 +162,71 @@ fn follow_local_player(
         *prev_yaw = Some(vehicle_yaw);
     } else {
         *prev_yaw = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::MinimalPlugins;
+
+    /// #670 guard: the follow target must come from `Transform` — the
+    /// same-frame eased pose — not `GlobalTransform`. `MinimalPlugins`
+    /// registers no transform propagation, so a regression back to
+    /// `GlobalTransform` would read the never-propagated identity here
+    /// and miss the spawned position.
+    #[test]
+    fn follow_reads_the_same_frame_transform() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_systems(Update, follow_local_player);
+        let pos = Vec3::new(5.0, 2.0, 7.0);
+        app.world_mut()
+            .spawn((Transform::from_translation(pos), LocalPlayer));
+        app.world_mut().spawn(PanOrbitCamera::default());
+
+        app.update();
+
+        let mut cams = app.world_mut().query::<&PanOrbitCamera>();
+        let cam = cams.single(app.world()).unwrap();
+        assert_eq!(
+            cam.target_focus, pos,
+            "focus must track the player's same-frame Transform"
+        );
+    }
+
+    /// Vehicle yaw rides the same `Transform` read: the first frame only
+    /// records the reference yaw, later frames accumulate the wrapped
+    /// delta into `target_yaw`.
+    #[test]
+    fn vehicle_yaw_delta_accumulates_from_transform() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_systems(Update, follow_local_player);
+        let player = app
+            .world_mut()
+            .spawn((
+                Transform::from_rotation(Quat::from_rotation_y(0.3)),
+                LocalPlayer,
+                VehicleChassis,
+            ))
+            .id();
+        app.world_mut().spawn(PanOrbitCamera::default());
+
+        app.update();
+        app.world_mut()
+            .entity_mut(player)
+            .get_mut::<Transform>()
+            .unwrap()
+            .rotation = Quat::from_rotation_y(0.8);
+        app.update();
+
+        let mut cams = app.world_mut().query::<&PanOrbitCamera>();
+        let cam = cams.single(app.world()).unwrap();
+        assert!(
+            (cam.target_yaw - 0.5).abs() < 1e-5,
+            "target_yaw must accumulate the wrapped yaw delta, got {}",
+            cam.target_yaw
+        );
     }
 }
