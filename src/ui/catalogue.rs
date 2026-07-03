@@ -397,7 +397,11 @@ pub(crate) fn catalogue_ui(
             // every frame just to read one enum discriminant (#639).
             let placeable = match browser.selected.as_deref() {
                 Some(slug) => {
-                    if placeable_cache.as_ref().map(|(s, _)| s != slug).unwrap_or(true) {
+                    if placeable_cache
+                        .as_ref()
+                        .map(|(s, _)| s != slug)
+                        .unwrap_or(true)
+                    {
                         let p = by_slug(slug)
                             .map(|e| is_drop_placeable(&e.build("")))
                             .unwrap_or(false);
