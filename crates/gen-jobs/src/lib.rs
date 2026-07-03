@@ -366,4 +366,64 @@ mod tests {
     fn distinct_seeds_differ() {
         assert_ne!(run(params(1)).data, run(params(2)).data);
     }
+
+    /// The app's `SovereignTerrainConfig::sanitize` clamps every coefficient
+    /// into a finite envelope so the generated heightmap can never feed a
+    /// non-finite value into `build_heightfield_collider`'s `assert!(is_finite)`
+    /// (a remote crash — overlands #629). The value-noise output is always
+    /// finite (its lattice table is bounded), so the place a non-finite value
+    /// could actually originate is the *arithmetic*: the hydraulic/thermal
+    /// erosion terms and the height-scale multiply. Exercise that corner — every
+    /// erosion coefficient and `height_scale` at the top of its clamp range —
+    /// for all three generators and assert the output stays finite.
+    ///
+    /// Octaves / lacunarity / base-frequency are held at moderate values rather
+    /// than their clamp ceilings on purpose: the upstream value-noise lattice
+    /// indexes with `coord as i32` and, at a huge `base_frequency ·
+    /// lacunarity^octaves` product, hits a *debug-only* integer overflow (native
+    /// and wasm release both wrap it harmlessly via `rem_euclid`). That is a
+    /// separate upstream concern from the release-mode non-finite panic #629 is
+    /// about, and it is reachable with editor-legal params independent of this
+    /// clamp, so it is out of scope here.
+    fn erosion_corner(kind: GeneratorKind) -> HeightmapParams {
+        HeightmapParams {
+            grid_size: 64,
+            cell_scale: 0.01,       // MIN_CELL_SCALE
+            height_scale: 10_000.0, // MAX_HEIGHT_SCALE
+            generator_kind: kind,
+            seed: 7,
+            octaves: 8,
+            persistence: 1.0,
+            lacunarity: 4.0,      // MAX_LACUNARITY
+            base_frequency: 32.0, // MAX_BASE_FREQUENCY
+            ds_roughness: 1.0,
+            voronoi_num_seeds: 256,
+            voronoi_num_terraces: 8,
+            erosion_enabled: true,
+            erosion_drops: 4_000,
+            inertia: 1.0,
+            erosion_rate: 1.0,
+            deposition_rate: 1.0,
+            evaporation_rate: 1.0,
+            capacity_factor: 256.0, // MAX_CAPACITY_FACTOR
+            thermal_enabled: true,
+            thermal_iterations: 40,
+            thermal_talus_angle: 1.0,
+        }
+    }
+
+    #[test]
+    fn erosion_corner_output_is_finite() {
+        for kind in [
+            GeneratorKind::FbmNoise,
+            GeneratorKind::DiamondSquare,
+            GeneratorKind::VoronoiTerracing,
+        ] {
+            let d = run(erosion_corner(kind));
+            assert!(
+                d.data.iter().all(|v| v.is_finite()),
+                "{kind:?} produced a non-finite height at the erosion/height clamp corner",
+            );
+        }
+    }
 }

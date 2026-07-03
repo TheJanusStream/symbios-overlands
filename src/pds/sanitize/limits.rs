@@ -101,6 +101,25 @@ pub const MAX_CELL_SCALE: f32 = 64.0;
 /// NaN/infinity into `HeightMapMeshBuilder`.
 pub const MIN_HEIGHT_SCALE: f32 = 0.01;
 pub const MAX_HEIGHT_SCALE: f32 = 10_000.0;
+/// FBM lacunarity — the per-octave frequency multiplier. Floored at `1.0`
+/// (frequency never decreases across octaves) and capped at the terrain
+/// editor's authoring ceiling. No headroom above the editor here on purpose:
+/// the value-noise lattice wraps mod 256, so `base_frequency · lacunarity^k`
+/// past a few hundred is pure aliasing with no visual payoff — and pushes the
+/// `coord as i32` lattice index toward overflow. The float output stays finite
+/// regardless (the noise table is bounded), so this bound is about sanity, not
+/// the finiteness that keeps `build_heightfield_collider` from panicking.
+pub const MAX_LACUNARITY: f32 = 4.0;
+/// FBM base (octave-0) frequency. Capped at the editor's slider ceiling for the
+/// same reason as [`MAX_LACUNARITY`] — beyond it the noise only aliases.
+pub const MAX_BASE_FREQUENCY: f32 = 32.0;
+/// Hydraulic-erosion sediment-capacity multiplier. A finite cap keeps the
+/// `slope · vel · water · capacity_factor` product finite; the value is only
+/// ever a multiplier (never a divisor — see `HydraulicErosion::erode`), so the
+/// lower bound can safely be `0`. Carries the usual forward-compat headroom
+/// past the editor's 64.0 slider (unlike the frequency bounds above, a larger
+/// multiplier only scales erosion, it can't overflow a coordinate).
+pub const MAX_CAPACITY_FACTOR: f32 = 256.0;
 /// Maximum recursion depth for any generator's child tree. Deep
 /// hierarchies cost an entity + Transform chain per node; 16 is well
 /// past any plausible hand-authored assembly.

@@ -47,6 +47,81 @@ fn terrain_grid_size_clamped_to_max() {
     }
 }
 
+#[test]
+fn terrain_coefficients_clamped_to_finite() {
+    // A hostile record can carry NaN / ±∞ in any terrain coefficient. They feed
+    // the heightmap noise + erosion math, survive `HeightMap::normalize` (its
+    // min/max fold ignores NaN), and reach `build_heightfield_collider`'s
+    // `assert!(is_finite)` — a remote crash on every peer that loads or receives
+    // the record. `f32::clamp` alone would not catch it (`NaN.clamp(..)` is
+    // NaN), so sanitise routes each field through `clamp_finite`. Assert every
+    // one is finite and inside its documented range afterwards.
+    let mut r = RoomRecord::default_for_did(TEST_DID);
+    if let Some(g) = r.generators.get_mut("base_terrain")
+        && let GeneratorKind::Terrain(cfg) = &mut g.kind
+    {
+        cfg.cell_scale = Fp(f32::NAN);
+        cfg.height_scale = Fp(f32::NAN);
+        cfg.persistence = Fp(f32::NAN);
+        cfg.lacunarity = Fp(f32::INFINITY);
+        cfg.base_frequency = Fp(f32::NEG_INFINITY);
+        cfg.ds_roughness = Fp(f32::NAN);
+        cfg.inertia = Fp(f32::INFINITY);
+        cfg.erosion_rate = Fp(f32::NAN);
+        cfg.deposition_rate = Fp(f32::NEG_INFINITY);
+        cfg.evaporation_rate = Fp(f32::NAN);
+        cfg.capacity_factor = Fp(f32::INFINITY);
+        cfg.thermal_talus_angle = Fp(f32::NAN);
+    }
+    r.sanitize();
+
+    match r.generators.get("base_terrain").map(|g| &g.kind) {
+        Some(GeneratorKind::Terrain(cfg)) => {
+            for (name, v) in [
+                ("cell_scale", cfg.cell_scale.0),
+                ("height_scale", cfg.height_scale.0),
+                ("persistence", cfg.persistence.0),
+                ("lacunarity", cfg.lacunarity.0),
+                ("base_frequency", cfg.base_frequency.0),
+                ("ds_roughness", cfg.ds_roughness.0),
+                ("inertia", cfg.inertia.0),
+                ("erosion_rate", cfg.erosion_rate.0),
+                ("deposition_rate", cfg.deposition_rate.0),
+                ("evaporation_rate", cfg.evaporation_rate.0),
+                ("capacity_factor", cfg.capacity_factor.0),
+                ("thermal_talus_angle", cfg.thermal_talus_angle.0),
+            ] {
+                assert!(
+                    v.is_finite(),
+                    "{name} must be finite after sanitise, got {v}"
+                );
+            }
+            // Overflow-safety bounds: the products these feed must stay finite.
+            assert!((limits::MIN_CELL_SCALE..=limits::MAX_CELL_SCALE).contains(&cfg.cell_scale.0));
+            assert!(
+                (limits::MIN_HEIGHT_SCALE..=limits::MAX_HEIGHT_SCALE).contains(&cfg.height_scale.0)
+            );
+            assert!((1.0..=limits::MAX_LACUNARITY).contains(&cfg.lacunarity.0));
+            assert!((0.0..=limits::MAX_BASE_FREQUENCY).contains(&cfg.base_frequency.0));
+            assert!((0.0..=limits::MAX_CAPACITY_FACTOR).contains(&cfg.capacity_factor.0));
+            // Fraction fields land back in [0, 1].
+            for (name, v) in [
+                ("persistence", cfg.persistence.0),
+                ("inertia", cfg.inertia.0),
+                ("erosion_rate", cfg.erosion_rate.0),
+                ("deposition_rate", cfg.deposition_rate.0),
+                ("evaporation_rate", cfg.evaporation_rate.0),
+            ] {
+                assert!(
+                    (0.0..=1.0).contains(&v),
+                    "{name} must land in [0, 1], got {v}"
+                );
+            }
+        }
+        other => panic!("expected Terrain, got {other:?}"),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Placement clamps
 // ---------------------------------------------------------------------------
