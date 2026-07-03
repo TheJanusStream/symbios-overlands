@@ -62,6 +62,11 @@ jobs:
           cp -r assets ./dist/
           cp assets/client-metadata.json ./dist/
 
+      - name: Clean up dist for deployment
+        run: |
+          find ./dist -type l -delete
+          du -sh ./dist
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
