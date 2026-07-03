@@ -71,11 +71,29 @@ jobs:
         uses: actions/configure-pages@v4
 
       - name: Check dist for links and size
-        run: | 
-          echo "Size of dist:" du -sh ./dist || true
-          echo "Listing symlinks (if any):" SYMLINKS=$(find ./dist -type l -print) if [ -n "$SYMLINKS" ]; then echo "Symlinks found:" echo "$SYMLINKS" else echo "No symlinks found." fi
-          echo "Listing files with link count >1 (possible hard links):" HARDLINKS=$(find ./dist -type f -links +1 -printf '%p (%n links)\n') if [ -n "$HARDLINKS" ]; then echo "Hard links found:" echo "$HARDLINKS" else echo "No hard links found." fi
-          if [ -n "SYMLINKS"]||[-n"HARDLINKS" ]; then echo "Remove or dereference symlinks/hardlinks before uploading." exit 1 fi
+        run: |
+          echo "Size of dist:"
+          du -sh ./dist || true
+          echo "Listing symlinks (if any):"
+          SYMLINKS=$(find ./dist -type l -print)
+          if [ -n "$SYMLINKS" ]; then
+            echo "Symlinks found:"
+            echo "$SYMLINKS"
+          else
+            echo "No symlinks found."
+          fi
+          echo "Listing files with link count >1 (possible hard links):"
+          HARDLINKS=$(find ./dist -type f -links +1 -printf '%p (%n links)\n')
+          if [ -n "$HARDLINKS" ]; then
+            echo "Hard links found:"
+            echo "$HARDLINKS"
+          else
+            echo "No hard links found."
+          fi
+          if [ -n "$SYMLINKS" ] || [ -n "$HARDLINKS" ]; then
+            echo "Remove or dereference symlinks/hardlinks before uploading."
+            exit 1
+          fi
 
       - name: Upload Pages artifact
         id: deployment
