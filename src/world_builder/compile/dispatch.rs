@@ -14,7 +14,7 @@ use super::super::lsystem::spawn_lsystem_entity;
 use super::super::material::{spawn_procedural_material, spawn_water_volume};
 use super::super::particles::{snapshot_from_record, spawn_particle_emitter_entity};
 use super::super::portal::spawn_portal_entity;
-use super::super::prim::{build_primitive_mesh, collider_for_primitive};
+use super::super::prim::{build_primitive_mesh, collider_for_primitive, prim_parts};
 use super::super::shape::spawn_shape_entity;
 use super::super::sign::spawn_sign_entity;
 use super::super::{PlacementUnit, PrimMarker, RoomEntity, apply_traits, reset_traits};
@@ -407,45 +407,12 @@ fn spawn_primitive_entity(
     kind: &GeneratorKind,
     transform: Transform,
 ) -> Entity {
-    let (solid, material_settings) = match kind {
-        GeneratorKind::Cuboid {
-            solid, material, ..
-        }
-        | GeneratorKind::Sphere {
-            solid, material, ..
-        }
-        | GeneratorKind::Cylinder {
-            solid, material, ..
-        }
-        | GeneratorKind::Capsule {
-            solid, material, ..
-        }
-        | GeneratorKind::Cone {
-            solid, material, ..
-        }
-        | GeneratorKind::Torus {
-            solid, material, ..
-        }
-        | GeneratorKind::Plane {
-            solid, material, ..
-        }
-        | GeneratorKind::Tetrahedron {
-            solid, material, ..
-        }
-        | GeneratorKind::Tube {
-            solid, material, ..
-        }
-        | GeneratorKind::Bevel {
-            solid, material, ..
-        }
-        | GeneratorKind::Wedge {
-            solid, material, ..
-        }
-        | GeneratorKind::Helix {
-            solid, material, ..
-        } => (*solid, material.clone()),
-        _ => unreachable!("spawn_primitive_entity called on non-primitive kind"),
-    };
+    // The one primitive destructure lives in `prim::shapes::prim_parts`
+    // (#644); non-primitive kinds can't reach here — the router's variant
+    // list gates the call.
+    let parts = prim_parts(kind).expect("spawn_primitive_entity called on non-primitive kind");
+    let solid = parts.solid;
+    let material_settings = parts.material;
 
     let raw_mesh = build_primitive_mesh(kind);
     // Avatar mode strips colliders unconditionally — the locomotion
@@ -458,7 +425,7 @@ fn spawn_primitive_entity(
         None
     };
     let mesh_handle = ctx.meshes.add(raw_mesh);
-    let material_handle = spawn_procedural_material(ctx, &material_settings);
+    let material_handle = spawn_procedural_material(ctx, material_settings);
 
     let mut cmd = ctx.commands.spawn((
         Mesh3d(mesh_handle),

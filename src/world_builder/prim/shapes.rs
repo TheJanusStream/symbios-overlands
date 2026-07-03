@@ -1,0 +1,548 @@
+//! Per-variant primitive dispatch (#644): one [`PrimitiveShape`] impl per
+//! parametric [`GeneratorKind`] variant, produced by the single
+//! [`prim_parts`] constructor match. Everything downstream — mesh build,
+//! analytical collider, the spawner's `(solid, material)` split — reads the
+//! trait object, so adding a primitive means one impl + one constructor arm
+//! here (plus its line in `spawn_generator`'s exhaustive router list),
+//! instead of four hand-synced `match GeneratorKind` sites.
+
+use avian3d::prelude::*;
+use bevy::prelude::*;
+
+use crate::pds::texture::SovereignMaterialSettings;
+use crate::pds::{GeneratorKind, TortureParams};
+
+use super::cuts::{build_swept_cylinder, build_torus, build_uv_sphere, path_cut_angles};
+use super::prisms::{build_bevel_mesh, build_helix_mesh, build_tube_mesh, build_wedge_mesh};
+
+/// One parametric primitive's shape behavior: its base mesh (pre-torture)
+/// and the cheap analytical collider matching the *untortured* shape
+/// (`None` when no meaningful solid exists).
+pub(in crate::world_builder) trait PrimitiveShape {
+    fn base_mesh(&self) -> Mesh;
+    fn analytical_collider(&self) -> Option<Collider>;
+}
+
+/// A primitive variant split into the pieces every consumer needs: the
+/// shape behavior plus the `solid` / `material` fields shared by all
+/// twelve variants. `None` for non-primitive kinds — the router's
+/// primitive test.
+pub(in crate::world_builder) struct PrimParts<'a> {
+    pub shape: Box<dyn PrimitiveShape + 'a>,
+    pub solid: bool,
+    pub material: &'a SovereignMaterialSettings,
+}
+
+/// The one place a primitive variant is destructured. Every arm borrows the
+/// variant's fields into its shape impl; `solid` / `material` ride alongside
+/// so the spawner needs no second extraction match.
+pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimParts<'_>> {
+    fn parts<'a>(
+        shape: Box<dyn PrimitiveShape + 'a>,
+        solid: &bool,
+        material: &'a SovereignMaterialSettings,
+    ) -> Option<PrimParts<'a>> {
+        Some(PrimParts {
+            shape,
+            solid: *solid,
+            material,
+        })
+    }
+    match kind {
+        GeneratorKind::Cuboid {
+            size,
+            solid,
+            material,
+            ..
+        } => parts(Box::new(CuboidShape { size: size.0 }), solid, material),
+        GeneratorKind::Sphere {
+            radius,
+            resolution,
+            torture,
+            solid,
+            material,
+        } => parts(
+            Box::new(SphereShape {
+                radius: radius.0,
+                resolution: *resolution,
+                torture,
+            }),
+            solid,
+            material,
+        ),
+        GeneratorKind::Cylinder {
+            radius,
+            height,
+            resolution,
+            torture,
+            solid,
+            material,
+        } => parts(
+            Box::new(CylinderShape {
+                radius: radius.0,
+                height: height.0,
+                resolution: *resolution,
+                torture,
+            }),
+            solid,
+            material,
+        ),
+        GeneratorKind::Capsule {
+            radius,
+            length,
+            latitudes,
+            longitudes,
+            solid,
+            material,
+            ..
+        } => parts(
+            Box::new(CapsuleShape {
+                radius: radius.0,
+                length: length.0,
+                latitudes: *latitudes,
+                longitudes: *longitudes,
+            }),
+            solid,
+            material,
+        ),
+        GeneratorKind::Cone {
+            radius,
+            height,
+            resolution,
+            solid,
+            material,
+            ..
+        } => parts(
+            Box::new(ConeShape {
+                radius: radius.0,
+                height: height.0,
+                resolution: *resolution,
+            }),
+            solid,
+            material,
+        ),
+        GeneratorKind::Torus {
+            minor_radius,
+            major_radius,
+            minor_resolution,
+            major_resolution,
+            torture,
+            solid,
+            material,
+        } => parts(
+            Box::new(TorusShape {
+                minor_radius: minor_radius.0,
+                major_radius: major_radius.0,
+                minor_resolution: *minor_resolution,
+                major_resolution: *major_resolution,
+                torture,
+            }),
+            solid,
+            material,
+        ),
+        GeneratorKind::Plane {
+            size,
+            subdivisions,
+            solid,
+            material,
+            ..
+        } => parts(
+            Box::new(PlaneShape {
+                size: size.0,
+                subdivisions: *subdivisions,
+            }),
+            solid,
+            material,
+        ),
+        GeneratorKind::Tetrahedron {
+            size,
+            solid,
+            material,
+            ..
+        } => parts(Box::new(TetrahedronShape { size: size.0 }), solid, material),
+        GeneratorKind::Tube {
+            radius,
+            inner_radius,
+            height,
+            resolution,
+            torture,
+            solid,
+            material,
+        } => parts(
+            Box::new(TubeShape {
+                radius: radius.0,
+                inner_radius: inner_radius.0,
+                height: height.0,
+                resolution: *resolution,
+                torture,
+            }),
+            solid,
+            material,
+        ),
+        GeneratorKind::Bevel {
+            size,
+            bevel,
+            bevel_segments,
+            solid,
+            material,
+            ..
+        } => parts(
+            Box::new(BevelShape {
+                size: size.0,
+                bevel: bevel.0,
+                bevel_segments: *bevel_segments,
+            }),
+            solid,
+            material,
+        ),
+        GeneratorKind::Wedge {
+            size,
+            solid,
+            material,
+            ..
+        } => parts(Box::new(WedgeShape { size: size.0 }), solid, material),
+        GeneratorKind::Helix {
+            radius,
+            tube_radius,
+            pitch,
+            turns,
+            resolution,
+            solid,
+            material,
+            ..
+        } => parts(
+            Box::new(HelixShape {
+                radius: radius.0,
+                tube_radius: tube_radius.0,
+                pitch: pitch.0,
+                turns: turns.0,
+                resolution: *resolution,
+            }),
+            solid,
+            material,
+        ),
+        _ => None,
+    }
+}
+
+struct CuboidShape {
+    size: [f32; 3],
+}
+
+impl PrimitiveShape for CuboidShape {
+    fn base_mesh(&self) -> Mesh {
+        Cuboid::new(self.size[0], self.size[1], self.size[2])
+            .mesh()
+            .build()
+    }
+    fn analytical_collider(&self) -> Option<Collider> {
+        Some(Collider::cuboid(self.size[0], self.size[1], self.size[2]))
+    }
+}
+
+struct SphereShape<'a> {
+    radius: f32,
+    resolution: u32,
+    torture: &'a TortureParams,
+}
+
+impl PrimitiveShape for SphereShape<'_> {
+    fn base_mesh(&self) -> Mesh {
+        if self.torture.cuts_are_identity() {
+            Sphere::new(self.radius)
+                .mesh()
+                .ico(self.resolution)
+                .unwrap_or_else(|_| Sphere::new(self.radius).mesh().build())
+        } else {
+            let (lon0, lon1) = path_cut_angles(self.torture);
+            build_uv_sphere(
+                self.radius,
+                self.resolution,
+                lon0,
+                lon1,
+                self.torture.profile_cut.0[0],
+                self.torture.profile_cut.0[1],
+                self.torture.hollow.0,
+            )
+        }
+    }
+    fn analytical_collider(&self) -> Option<Collider> {
+        Some(Collider::sphere(self.radius))
+    }
+}
+
+struct CylinderShape<'a> {
+    radius: f32,
+    height: f32,
+    resolution: u32,
+    torture: &'a TortureParams,
+}
+
+impl PrimitiveShape for CylinderShape<'_> {
+    fn base_mesh(&self) -> Mesh {
+        if self.torture.cuts_are_identity() {
+            Cylinder::new(self.radius, self.height)
+                .mesh()
+                .resolution(self.resolution)
+                .build()
+        } else {
+            let (a0, a1) = path_cut_angles(self.torture);
+            build_swept_cylinder(
+                self.radius,
+                self.height,
+                self.resolution,
+                self.torture.hollow.0,
+                a0,
+                a1,
+            )
+        }
+    }
+    fn analytical_collider(&self) -> Option<Collider> {
+        Some(Collider::cylinder(self.radius, self.height))
+    }
+}
+
+struct CapsuleShape {
+    radius: f32,
+    length: f32,
+    latitudes: u32,
+    longitudes: u32,
+}
+
+impl PrimitiveShape for CapsuleShape {
+    fn base_mesh(&self) -> Mesh {
+        Capsule3d::new(self.radius, self.length)
+            .mesh()
+            .latitudes(self.latitudes)
+            .longitudes(self.longitudes)
+            .build()
+    }
+    fn analytical_collider(&self) -> Option<Collider> {
+        Some(Collider::capsule(self.radius, self.length))
+    }
+}
+
+struct ConeShape {
+    radius: f32,
+    height: f32,
+    resolution: u32,
+}
+
+impl PrimitiveShape for ConeShape {
+    fn base_mesh(&self) -> Mesh {
+        Cone::new(self.radius, self.height)
+            .mesh()
+            .resolution(self.resolution)
+            .build()
+    }
+    fn analytical_collider(&self) -> Option<Collider> {
+        Some(Collider::cone(self.radius, self.height))
+    }
+}
+
+struct TorusShape<'a> {
+    minor_radius: f32,
+    major_radius: f32,
+    minor_resolution: u32,
+    major_resolution: u32,
+    torture: &'a TortureParams,
+}
+
+impl PrimitiveShape for TorusShape<'_> {
+    fn base_mesh(&self) -> Mesh {
+        if self.torture.cuts_are_identity() {
+            Torus {
+                minor_radius: self.minor_radius,
+                major_radius: self.major_radius,
+            }
+            .mesh()
+            .minor_resolution(self.minor_resolution as usize)
+            .major_resolution(self.major_resolution as usize)
+            .build()
+        } else {
+            use std::f32::consts::TAU;
+            let (maj0, maj1) = path_cut_angles(self.torture);
+            // Profile-cut convention for a torus: the band endpoints `0.0`
+            // and `1.0` sit on the **top flat pole** of the tube cross-section
+            // (`+Y`, the donut's broad face), not on the outer perimeter. So a
+            // `[0.0, 0.5]` band keeps the inner-radius half (toward the major
+            // axis) and `[0.5, 1.0]` keeps the outer-radius half — letting a
+            // single profile-cut remove the inner half of a ring (e.g. a
+            // wheel-fender hugging only the outer tread). The `+TAU/4` phase
+            // rotates the band start from the outer equator (the bare-sweep
+            // zero) to that top pole.
+            let phase = TAU / 4.0;
+            let (min0, min1) = (
+                self.torture.profile_cut.0[0] * TAU + phase,
+                self.torture.profile_cut.0[1] * TAU + phase,
+            );
+            build_torus(
+                self.major_radius,
+                self.minor_radius,
+                self.major_resolution,
+                self.minor_resolution,
+                maj0,
+                maj1,
+                min0,
+                min1,
+                self.torture.hollow.0,
+            )
+        }
+    }
+    fn analytical_collider(&self) -> Option<Collider> {
+        Some(Collider::cuboid(
+            self.major_radius + self.minor_radius,
+            self.minor_radius * 2.0,
+            self.major_radius + self.minor_radius,
+        ))
+    }
+}
+
+struct PlaneShape {
+    size: [f32; 2],
+    subdivisions: u32,
+}
+
+impl PrimitiveShape for PlaneShape {
+    fn base_mesh(&self) -> Mesh {
+        Plane3d::new(Vec3::Y, Vec2::new(self.size[0] / 2.0, self.size[1] / 2.0))
+            .mesh()
+            .subdivisions(self.subdivisions)
+            .build()
+    }
+    fn analytical_collider(&self) -> Option<Collider> {
+        Some(Collider::cuboid(self.size[0], 0.01, self.size[1]))
+    }
+}
+
+struct TetrahedronShape {
+    size: f32,
+}
+
+impl TetrahedronShape {
+    /// Apex + the three base corners, shared by mesh and collider.
+    fn corners(&self) -> [Vec3; 4] {
+        let s = self.size;
+        [
+            Vec3::new(0.0, 1.0, 0.0) * s,
+            Vec3::new(-1.0, -1.0, 1.0).normalize() * s,
+            Vec3::new(1.0, -1.0, 1.0).normalize() * s,
+            Vec3::new(0.0, -1.0, -1.0).normalize() * s,
+        ]
+    }
+}
+
+impl PrimitiveShape for TetrahedronShape {
+    fn base_mesh(&self) -> Mesh {
+        let [p0, p1, p2, p3] = self.corners();
+        Tetrahedron::new(p0, p1, p2, p3).mesh().build()
+    }
+    fn analytical_collider(&self) -> Option<Collider> {
+        Some(
+            Collider::convex_hull(self.corners().to_vec())
+                .unwrap_or_else(|| Collider::sphere(self.size)),
+        )
+    }
+}
+
+struct TubeShape<'a> {
+    radius: f32,
+    inner_radius: f32,
+    height: f32,
+    resolution: u32,
+    torture: &'a TortureParams,
+}
+
+impl PrimitiveShape for TubeShape<'_> {
+    fn base_mesh(&self) -> Mesh {
+        if self.torture.cuts_are_identity() {
+            build_tube_mesh(self.radius, self.inner_radius, self.height, self.resolution)
+        } else {
+            let (a0, a1) = path_cut_angles(self.torture);
+            let inner_frac = (self.inner_radius / self.radius.max(1e-4)).clamp(0.0, 0.999);
+            build_swept_cylinder(
+                self.radius,
+                self.height,
+                self.resolution,
+                inner_frac,
+                a0,
+                a1,
+            )
+        }
+    }
+    fn analytical_collider(&self) -> Option<Collider> {
+        // The bore is not a walk-through volume — a solid outer cylinder is
+        // the right standoff for a pipe / curb prop.
+        Some(Collider::cylinder(self.radius, self.height))
+    }
+}
+
+struct BevelShape {
+    size: [f32; 3],
+    bevel: f32,
+    bevel_segments: u32,
+}
+
+impl PrimitiveShape for BevelShape {
+    fn base_mesh(&self) -> Mesh {
+        build_bevel_mesh(self.size, self.bevel, self.bevel_segments)
+    }
+    fn analytical_collider(&self) -> Option<Collider> {
+        // The bevel's footprint is within its size box; the box is a tight
+        // enough standoff (the chamfer only shaves the corners).
+        Some(Collider::cuboid(self.size[0], self.size[1], self.size[2]))
+    }
+}
+
+struct WedgeShape {
+    size: [f32; 3],
+}
+
+impl PrimitiveShape for WedgeShape {
+    fn base_mesh(&self) -> Mesh {
+        build_wedge_mesh(self.size)
+    }
+    fn analytical_collider(&self) -> Option<Collider> {
+        let (w, h, d) = (self.size[0] * 0.5, self.size[1] * 0.5, self.size[2] * 0.5);
+        let corners = vec![
+            Vec3::new(-w, -h, -d),
+            Vec3::new(-w, -h, d),
+            Vec3::new(-w, h, -d),
+            Vec3::new(w, -h, -d),
+            Vec3::new(w, -h, d),
+            Vec3::new(w, h, -d),
+        ];
+        Some(
+            Collider::convex_hull(corners)
+                .unwrap_or_else(|| Collider::cuboid(self.size[0], self.size[1], self.size[2])),
+        )
+    }
+}
+
+struct HelixShape {
+    radius: f32,
+    tube_radius: f32,
+    pitch: f32,
+    turns: f32,
+    resolution: u32,
+}
+
+impl PrimitiveShape for HelixShape {
+    fn base_mesh(&self) -> Mesh {
+        build_helix_mesh(
+            self.radius,
+            self.tube_radius,
+            self.pitch,
+            self.turns,
+            self.resolution,
+        )
+    }
+    fn analytical_collider(&self) -> Option<Collider> {
+        // Decorative; a bounding cylinder is a cheap standoff for a
+        // spring/rail.
+        Some(Collider::cylinder(
+            self.radius + self.tube_radius,
+            (self.turns.abs() * self.pitch).max(self.tube_radius * 2.0),
+        ))
+    }
+}
