@@ -36,8 +36,8 @@ pub(crate) mod vehicle;
 
 use crate::pds::generator::Generator;
 use crate::seeded_defaults::{
-    AvatarBody, AvatarCharacter, AvatarOutfit, AvatarPalette, ChassisFamily, MaterialKit,
-    OrnatenessBand, OrnatenessTier, ThemeArchetype, WearBand, WearTier,
+    AvatarBody, AvatarOutfit, AvatarPalette, ChassisFamily, MaterialKit, OrnatenessBand,
+    OrnatenessTier, ThemeArchetype, WearBand, WearTier,
 };
 
 /// One composable slot of an avatar. Flat across every chassis (a part
@@ -113,20 +113,13 @@ pub fn optional_slots(chassis: ChassisFamily) -> &'static [PartSlot] {
 }
 
 /// Everything a [`BodyPart::build`] needs: the seeded colours, finishes,
-/// proportions, and identity for the avatar being assembled. Cheap to
-/// derive from a seed via [`Self::for_seed`].
+/// and proportions for the avatar being assembled. Cheap to derive from a
+/// seed via [`Self::for_seed`].
 #[derive(Clone, Copy, Debug)]
-pub struct PartCtx<'a> {
-    /// Seeded style anchor. Currently unread by any part build — the
-    /// assemblers consume it directly; kept in the ctx for parts that may
-    /// need it later.
-    pub character: AvatarCharacter,
+pub struct PartCtx {
     pub palette: AvatarPalette,
     pub materials: MaterialKit,
     pub body: AvatarBody,
-    /// Owner DID. Currently unread by any part build — the pfp identity
-    /// panel is assembler-owned geometry (`pfp_panel`), not a part.
-    pub did: &'a str,
     /// The avatar seed — parts open their own sub-stream for stochastic
     /// detail without re-deriving the anchor.
     pub seed: u64,
@@ -136,23 +129,21 @@ pub struct PartCtx<'a> {
     pub has_hat: bool,
 }
 
-impl<'a> PartCtx<'a> {
-    /// Derive the full build context from an avatar seed + owner DID.
-    pub fn for_seed(seed: u64, did: &'a str) -> Self {
-        Self::for_seed_with_hat(seed, did, outfit_has_hat(&AvatarOutfit::for_seed(seed)))
+impl PartCtx {
+    /// Derive the full build context from an avatar seed.
+    pub fn for_seed(seed: u64) -> Self {
+        Self::for_seed_with_hat(seed, outfit_has_hat(&AvatarOutfit::for_seed(seed)))
     }
 
     /// Like [`Self::for_seed`] but with `has_hat` precomputed by the caller. The four
     /// family builders already derive the `AvatarOutfit` for their own parts
     /// iteration, so they pass its hat flag in here instead of forcing a second
     /// full `AvatarOutfit::for_seed` derivation per build (#638).
-    pub fn for_seed_with_hat(seed: u64, did: &'a str, has_hat: bool) -> Self {
+    pub fn for_seed_with_hat(seed: u64, has_hat: bool) -> Self {
         Self {
-            character: AvatarCharacter::for_seed(seed),
             palette: AvatarPalette::for_seed(seed),
             materials: MaterialKit::for_seed(seed),
             body: AvatarBody::for_seed(seed),
-            did,
             seed,
             has_hat,
         }
@@ -173,9 +164,6 @@ pub trait BodyPart: Sync {
     /// Stable identifier — written into the outfit so a re-derivation
     /// resolves the same part. Must stay stable across builds.
     fn slug(&self) -> &'static str;
-
-    /// Display name (for any future avatar-editor part picker).
-    fn name(&self) -> &'static str;
 
     /// Which slot this part fills.
     fn slot(&self) -> PartSlot;
@@ -212,7 +200,6 @@ pub trait BodyPart: Sync {
 /// rather than a struct apiece.
 pub(crate) struct PartDef {
     pub slug: &'static str,
-    pub name: &'static str,
     pub slot: PartSlot,
     pub chassis: &'static [ChassisFamily],
     pub styles: &'static [ThemeArchetype],
@@ -224,9 +211,6 @@ pub(crate) struct PartDef {
 impl BodyPart for PartDef {
     fn slug(&self) -> &'static str {
         self.slug
-    }
-    fn name(&self) -> &'static str {
-        self.name
     }
     fn slot(&self) -> PartSlot {
         self.slot
@@ -400,7 +384,7 @@ mod tests {
                 assert_tree_eq(ca, cb, slug);
             }
         }
-        let ctx = PartCtx::for_seed(11, "did:plc:sanitize");
+        let ctx = PartCtx::for_seed(11);
         for part in entries() {
             let built = part.build(&ctx);
             let mut sanitized = built.clone();
@@ -411,7 +395,7 @@ mod tests {
 
     #[test]
     fn parts_serve_only_their_declared_chassis_and_build_deterministically() {
-        let ctx = PartCtx::for_seed(42, "did:plc:parts");
+        let ctx = PartCtx::for_seed(42);
         for part in entries() {
             assert!(
                 !part.chassis().is_empty(),

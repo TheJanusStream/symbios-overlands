@@ -309,9 +309,9 @@ pub fn incoming_offer_ui(
     let accepted = matches!(action, OfferAction::Accept);
     // Count the local user's offer disposition (E-4) — accept vs any decline.
     if accepted {
-        crate::diagnostics::samplers::offer_accepted(&mut metrics, now);
+        crate::diagnostics::samplers::offer_accepted(&mut metrics);
     } else {
-        crate::diagnostics::samplers::offer_declined(&mut metrics, now);
+        crate::diagnostics::samplers::offer_declined(&mut metrics);
     }
 
     // Flip the mute flag on the sender's `RemotePeer` before we send the

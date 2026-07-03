@@ -132,8 +132,15 @@ pub fn spawn_avatar_visuals_subtree(
     // The visuals root carries its own transform — which the spawner
     // applies to the entity it creates. Parent that entity to the
     // chassis so the chassis's world transform anchors the whole tree.
+    // The root is tagged `AvatarVisualRoot` (with its authored base
+    // transform) so the player gait-animation layer has a stable,
+    // rebuild-safe handle to offset.
     let local_tf = transform_from_data(&visuals.transform);
     if let Some(root) = spawn_generator(&mut ctx, visuals, &cache_key, &[], local_tf) {
+        ctx.commands.entity(root).insert(super::AvatarVisualRoot {
+            base_translation: local_tf.translation,
+            base_rotation: local_tf.rotation,
+        });
         ctx.commands.entity(chassis).add_child(root);
     }
 }

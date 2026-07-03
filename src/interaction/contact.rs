@@ -81,6 +81,10 @@ pub enum SurfaceContact {
     ///   recipe key dust colour off the dominant ground material.
     /// - `normal` — world-space surface normal at the contact point
     ///   (unit, `y` up), from the heightmap's central-difference normal.
+    /// - `ground_y` — world-space terrain height at the contact XZ (the
+    ///   same heightmap sample the classifier decided on), so consumers
+    ///   like the decal stamper can anchor to the ground without
+    ///   re-sampling the terrain.
     ///
     /// Terrain has no sub-surface index (unlike water planes): there is
     /// exactly one terrain, so any two terrain contacts count as the
@@ -88,6 +92,7 @@ pub enum SurfaceContact {
     Terrain {
         material_blend: [f32; 4],
         normal: Vec3,
+        ground_y: f32,
     },
 }
 

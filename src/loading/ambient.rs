@@ -539,7 +539,7 @@ pub(crate) fn poll_ambient_bake_task(
             // count it as an offload error (E-4) and log the fallback; the None
             // falls back to silence.
             _ => {
-                crate::diagnostics::samplers::offload_job_error(&mut metrics, now);
+                crate::diagnostics::samplers::offload_job_error(&mut metrics);
                 session_log.warn(
                     now,
                     crate::diagnostics::event::EventPayload::AmbientBakeFallback {
@@ -600,7 +600,7 @@ pub(crate) fn poll_ambient_rebake_task(
                 Some(bytes)
             }
             _ => {
-                crate::diagnostics::samplers::offload_job_error(&mut metrics, now);
+                crate::diagnostics::samplers::offload_job_error(&mut metrics);
                 None
             }
         };

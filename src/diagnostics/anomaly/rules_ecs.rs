@@ -280,18 +280,18 @@ mod tests {
     #[test]
     fn terrain_collider_missing_fires_at_zero_colliders() {
         let mut m = MetricsRegistry::default();
-        m.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 0.0, 1.0);
+        m.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 0.0);
         assert!(TerrainColliderMissing.eval(&ctx(&m)).unwrap().is_violated());
-        m.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 3.0, 2.0);
+        m.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 3.0);
         assert_eq!(TerrainColliderMissing.eval(&ctx(&m)), Some(Verdict::Clear));
     }
 
     #[test]
     fn frame_time_spike_fires_above_threshold() {
         let mut m = MetricsRegistry::default();
-        m.observe_gauge(names::RUNTIME_FRAME_TIME_MS, 60.0, 1.0);
+        m.observe_gauge(names::RUNTIME_FRAME_TIME_MS, 60.0);
         assert!(FrameTimeSpike.eval(&ctx(&m)).unwrap().is_violated());
-        m.observe_gauge(names::RUNTIME_FRAME_TIME_MS, 16.6, 2.0);
+        m.observe_gauge(names::RUNTIME_FRAME_TIME_MS, 16.6);
         assert_eq!(FrameTimeSpike.eval(&ctx(&m)), Some(Verdict::Clear));
     }
 
@@ -315,10 +315,10 @@ mod tests {
     fn shape_cache_growth_needs_a_window_and_a_big_delta() {
         let mut m = MetricsRegistry::default();
         // Single sample → no window → no verdict.
-        m.observe_gauge(names::RUNTIME_SHAPE_MESH_CACHE_LEN, 10.0, 1.0);
+        m.observe_gauge(names::RUNTIME_SHAPE_MESH_CACHE_LEN, 10.0);
         assert!(ShapeMeshCacheGrowth.eval(&ctx(&m)).is_none());
         // Grow far past the leak threshold across the window.
-        m.observe_gauge(names::RUNTIME_SHAPE_MESH_CACHE_LEN, 10_000.0, 2.0);
+        m.observe_gauge(names::RUNTIME_SHAPE_MESH_CACHE_LEN, 10_000.0);
         assert!(ShapeMeshCacheGrowth.eval(&ctx(&m)).unwrap().is_violated());
     }
 }

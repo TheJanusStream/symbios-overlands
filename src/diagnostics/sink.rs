@@ -79,7 +79,9 @@ impl Sink {
 
     /// Append one already-serialized JSON line (no trailing newline).
     /// Best-effort: a write error is swallowed rather than propagated so a full
-    /// disk never crashes the game.
+    /// disk never crashes the game. (On wasm only the `Disabled` arm exists,
+    /// so `line` is unread there.)
+    #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
     pub fn append_line(&mut self, line: &str) {
         match self {
             Sink::Disabled => {}

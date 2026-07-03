@@ -231,7 +231,6 @@ fn neon_strip(ctx: &PartCtx) -> Generator {
 
 static BOW_RAM: PartDef = PartDef {
     slug: "boat_bow_ram",
-    name: "Ram Prow",
     slot: PartSlot::Bow,
     chassis: BOAT,
     styles: MARTIAL,
@@ -241,7 +240,6 @@ static BOW_RAM: PartDef = PartDef {
 };
 static BOW_FIGUREHEAD: PartDef = PartDef {
     slug: "boat_bow_figurehead",
-    name: "Figurehead",
     slot: PartSlot::Bow,
     chassis: BOAT,
     styles: REGAL,
@@ -251,7 +249,6 @@ static BOW_FIGUREHEAD: PartDef = PartDef {
 };
 static FUNNEL: PartDef = PartDef {
     slug: "boat_stack_funnel",
-    name: "Funnel Stack",
     slot: PartSlot::Stack,
     chassis: BOAT,
     styles: STEAM,
@@ -261,7 +258,6 @@ static FUNNEL: PartDef = PartDef {
 };
 static TEARDROP_ENVELOPE: PartDef = PartDef {
     slug: "airship_envelope_teardrop",
-    name: "Teardrop Envelope",
     slot: PartSlot::Envelope,
     chassis: AIRSHIP,
     styles: STEAM,
@@ -271,7 +267,6 @@ static TEARDROP_ENVELOPE: PartDef = PartDef {
 };
 static BUBBLE_CANOPY: PartDef = PartDef {
     slug: "skiff_canopy_bubble",
-    name: "Bubble Canopy",
     slot: PartSlot::Canopy,
     chassis: SKIFF,
     styles: NEON,
@@ -281,7 +276,6 @@ static BUBBLE_CANOPY: PartDef = PartDef {
 };
 static TWIN_PIPES: PartDef = PartDef {
     slug: "skiff_exhaust_twin_pipes",
-    name: "Twin Exhaust",
     slot: PartSlot::Exhaust,
     chassis: SKIFF,
     styles: GRUBBY,
@@ -291,7 +285,6 @@ static TWIN_PIPES: PartDef = PartDef {
 };
 static PENNANT: PartDef = PartDef {
     slug: "veh_orn_pennant",
-    name: "Pennant",
     slot: PartSlot::Ornament,
     chassis: VEHICLES,
     styles: REGAL,
@@ -301,7 +294,6 @@ static PENNANT: PartDef = PartDef {
 };
 static NEON_STRIP: PartDef = PartDef {
     slug: "veh_orn_neon_strip",
-    name: "Neon Strip",
     slot: PartSlot::Ornament,
     chassis: VEHICLES,
     styles: NEON,
@@ -330,7 +322,7 @@ mod tests {
 
     #[test]
     fn every_styled_part_builds_and_is_tagged() {
-        let ctx = PartCtx::for_seed(13, "did:plc:veh");
+        let ctx = PartCtx::for_seed(13);
         for part in ENTRIES {
             assert!(!part.styles().is_empty(), "{} is untagged", part.slug());
             assert!(!part.chassis().is_empty(), "{} no chassis", part.slug());

@@ -306,7 +306,6 @@ pub fn dispatch_one_shot_audio(
             Transform::from_translation(position),
             GlobalTransform::default(),
             Visibility::default(),
-            OneShotAudioVoice { volume },
             crate::world_builder::RoomEntity,
         ))
         .id();
@@ -320,16 +319,6 @@ pub fn dispatch_one_shot_audio(
         target,
         BakeAttachmentMode::OneShot { volume },
     );
-}
-
-/// Marker on a transient one-shot voice entity. The `volume` field mirrors
-/// the requested playback volume, but nothing reads it today — the volume
-/// actually reaches the attach step via the `BakeAttachmentMode::OneShot`
-/// entry stored in the cache's waiter list. (Wiring it up or removing it is
-/// tracked separately.)
-#[derive(Component)]
-pub struct OneShotAudioVoice {
-    pub volume: f32,
 }
 
 /// Drain finished spatial bakes: promote the cache entry to `Ready`

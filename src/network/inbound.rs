@@ -130,7 +130,7 @@ pub(super) fn handle_incoming_messages(
                         // A rejected sample (NaN/Inf or out-of-bounds) is silently
                         // discarded by the smoother; count it (E-4).
                         if !accepted {
-                            crate::diagnostics::samplers::transform_rejected(&mut metrics, now);
+                            crate::diagnostics::samplers::transform_rejected(&mut metrics);
                         }
                     }
                 }
@@ -151,7 +151,7 @@ pub(super) fn handle_incoming_messages(
                 match peer_sessions.session_id(&msg.sender) {
                     Some(authenticated_did) if authenticated_did == did => {}
                     Some(authenticated_did) => {
-                        crate::diagnostics::samplers::identity_spoof_rejected(&mut metrics, now);
+                        crate::diagnostics::samplers::identity_spoof_rejected(&mut metrics);
                         warn!(
                             "Rejecting spoofed Identity from {}: claimed did={}, authenticated did={}",
                             msg.sender, did, authenticated_did
@@ -475,7 +475,7 @@ pub(super) fn handle_incoming_messages(
                         ChannelKind::Reliable,
                     );
                     session_log.info(now, EventPayload::ItemOfferAutoDeclinedBusy { offer_id });
-                    crate::diagnostics::samplers::offer_auto_declined_busy(&mut metrics, now);
+                    crate::diagnostics::samplers::offer_auto_declined_busy(&mut metrics);
                     continue;
                 }
 

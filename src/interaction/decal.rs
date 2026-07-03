@@ -14,7 +14,8 @@
 //!
 //! Lifecycle: [`stamp_decals`] spawns a fading quad on a matched
 //! contact (cooldown-throttled per `(avatar, recipe)`, ground-anchored
-//! via [`TerrainSurfaceQuery`] for terrain so it lies flat);
+//! via the contact sample's own `ground_y` + `normal` for terrain so it
+//! lies flat without re-sampling the heightmap);
 //! [`update_decals`] ages every decal — growing + fading it — GCs the
 //! expired and enforces a global live cap; [`cleanup_decals`] drops the
 //! lot (and their one-off materials) on room exit so logout never
@@ -27,7 +28,6 @@ use bevy::prelude::*;
 use crate::config::interaction::decal as dcfg;
 use crate::state::AppState;
 
-use super::classifier::TerrainSurfaceQuery;
 use super::contact::{AvatarContacts, SurfaceContact};
 use super::recipes::{ContactRecipeRegistry, DecalRuntimeParams};
 
@@ -107,13 +107,11 @@ pub fn setup_decal_assets(mut commands: Commands, mut meshes: ResMut<Assets<Mesh
 /// Spawn a fading quad for each matched authored decal recipe,
 /// cooldown-throttled per `(avatar, recipe)` and ground-anchored so it
 /// lies flat. Zero cost (early return) when no decal recipe is authored.
-#[allow(clippy::too_many_arguments)]
 pub fn stamp_decals(
     time: Res<Time>,
     contacts: Res<AvatarContacts>,
     registry: Res<ContactRecipeRegistry>,
     assets: Option<Res<DecalAssets>>,
-    terrain: Option<Res<TerrainSurfaceQuery>>,
     mut state: ResMut<DecalStampState>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
@@ -125,7 +123,6 @@ pub fn stamp_decals(
         return;
     };
     let now = time.elapsed_secs();
-    let terrain = terrain.as_deref();
 
     for sample in &contacts.samples {
         for (idx, recipe) in registry.decals.iter().enumerate() {
@@ -143,17 +140,16 @@ pub fn stamp_decals(
             }
 
             // Anchor: terrain contacts get the exact ground point +
-            // surface normal (lies flat); any other surface falls back
-            // to the contact position, upright.
+            // surface normal (lies flat) straight off the contact sample —
+            // the classifier already paid for that heightmap read (#659);
+            // any other surface falls back to the contact position, upright.
             let (anchor, normal) = match sample.surface {
-                SurfaceContact::Terrain { .. } => {
-                    if let Some(t) = terrain {
-                        let (gy, n) = t.ground_at(sample.world_pos.x, sample.world_pos.z);
-                        (Vec3::new(sample.world_pos.x, gy, sample.world_pos.z), n)
-                    } else {
-                        (sample.world_pos, Vec3::Y)
-                    }
-                }
+                SurfaceContact::Terrain {
+                    normal, ground_y, ..
+                } => (
+                    Vec3::new(sample.world_pos.x, ground_y, sample.world_pos.z),
+                    normal,
+                ),
                 _ => (sample.world_pos, Vec3::Y),
             };
             let p = &recipe.params;

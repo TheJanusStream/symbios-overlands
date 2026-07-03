@@ -263,7 +263,6 @@ fn robe_torso(ctx: &PartCtx) -> Generator {
 
 static WIZARD_CONE: PartDef = PartDef {
     slug: "hum_hat_wizard_cone",
-    name: "Wizard Hat",
     slot: PartSlot::Hat,
     chassis: HUMANOID,
     styles: ARCANE,
@@ -273,7 +272,6 @@ static WIZARD_CONE: PartDef = PartDef {
 };
 static TOP_HAT: PartDef = PartDef {
     slug: "hum_hat_top_hat",
-    name: "Top Hat",
     slot: PartSlot::Hat,
     chassis: HUMANOID,
     styles: FORMAL,
@@ -283,7 +281,6 @@ static TOP_HAT: PartDef = PartDef {
 };
 static WAR_HELM: PartDef = PartDef {
     slug: "hum_hat_war_helm",
-    name: "War Helm",
     slot: PartSlot::Hat,
     chassis: HUMANOID,
     styles: MARTIAL,
@@ -293,7 +290,6 @@ static WAR_HELM: PartDef = PartDef {
 };
 static CIRCLET: PartDef = PartDef {
     slug: "hum_hat_circlet",
-    name: "Circlet",
     slot: PartSlot::Hat,
     chassis: HUMANOID,
     styles: REGAL,
@@ -304,7 +300,6 @@ static CIRCLET: PartDef = PartDef {
 };
 static VISOR: PartDef = PartDef {
     slug: "hum_hat_visor",
-    name: "Visor",
     slot: PartSlot::Hat,
     chassis: HUMANOID,
     styles: NEON,
@@ -315,7 +310,6 @@ static VISOR: PartDef = PartDef {
 
 static MEDALLION: PartDef = PartDef {
     slug: "hum_orn_medallion",
-    name: "Medallion",
     slot: PartSlot::Ornament,
     chassis: HUMANOID,
     styles: REGAL,
@@ -325,7 +319,6 @@ static MEDALLION: PartDef = PartDef {
 };
 static NEON_SIGIL: PartDef = PartDef {
     slug: "hum_orn_neon_sigil",
-    name: "Neon Sigil",
     slot: PartSlot::Ornament,
     chassis: HUMANOID,
     styles: NEON,
@@ -335,7 +328,6 @@ static NEON_SIGIL: PartDef = PartDef {
 };
 static BANDOLIER: PartDef = PartDef {
     slug: "hum_orn_bandolier",
-    name: "Bandolier",
     slot: PartSlot::Ornament,
     chassis: HUMANOID,
     styles: FRONTIER,
@@ -346,7 +338,6 @@ static BANDOLIER: PartDef = PartDef {
 
 static ROBE_TORSO: PartDef = PartDef {
     slug: "hum_torso_robe",
-    name: "Robe",
     slot: PartSlot::Torso,
     chassis: HUMANOID,
     styles: ROBED,
@@ -375,7 +366,7 @@ mod tests {
 
     #[test]
     fn every_styled_part_builds_and_is_tagged() {
-        let ctx = PartCtx::for_seed(7, "did:plc:hum");
+        let ctx = PartCtx::for_seed(7);
         for part in ENTRIES {
             assert!(!part.styles().is_empty(), "{} is untagged", part.slug());
             assert_eq!(part.chassis(), HUMANOID, "{} wrong chassis", part.slug());

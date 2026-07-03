@@ -1044,16 +1044,15 @@ mod tests {
 
         // Populated — frame-time ring + counts + memory readout.
         let mut m = MetricsRegistry::default();
-        for (i, v) in [16.0, 20.0, 18.0, 22.0, 17.0].iter().enumerate() {
-            m.observe_gauge(names::RUNTIME_FRAME_TIME_MS, *v, i as f64);
+        for v in [16.0, 20.0, 18.0, 22.0, 17.0].iter() {
+            m.observe_gauge(names::RUNTIME_FRAME_TIME_MS, *v);
         }
-        m.observe_gauge(names::RUNTIME_FPS, 58.0, 5.0);
-        m.observe_gauge(names::RUNTIME_ENTITY_COUNT, 1234.0, 5.0);
-        m.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 3.0, 5.0);
+        m.observe_gauge(names::RUNTIME_FPS, 58.0);
+        m.observe_gauge(names::RUNTIME_ENTITY_COUNT, 1234.0);
+        m.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 3.0);
         m.observe_gauge(
             names::RUNTIME_MEMORY_PROCESS_RSS_BYTES,
             512.0 * 1024.0 * 1024.0,
-            5.0,
         );
         render_once(&m, &default_registry());
     }
@@ -1080,8 +1079,8 @@ mod tests {
         // Populated metrics + a live Critical badge (collider missing) that a
         // Runtime row should surface.
         let mut m = MetricsRegistry::default();
-        m.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 0.0, 1.0);
-        m.incr_by(names::NET_PEER_CONNECTED_COUNT, 4, 1.0);
+        m.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 0.0);
+        m.incr_by(names::NET_PEER_CONNECTED_COUNT, 4);
         m.observe_hist(names::NET_AVATAR_FETCH_LATENCY_MS, 120.0);
         m.observe_hist(names::OFFLOAD_HEIGHTMAP_LATENCY_MS, 800.0);
         let mut reg = default_registry();

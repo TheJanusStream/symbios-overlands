@@ -761,6 +761,7 @@ mod tests {
             surface: super::super::contact::SurfaceContact::Terrain {
                 material_blend: [1.0, 0.0, 0.0, 0.0],
                 normal: Vec3::Y,
+                ground_y: 0.0,
             },
             intensity: 0.12,
             phase,

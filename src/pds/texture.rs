@@ -836,47 +836,6 @@ impl SovereignTextureConfig {
         }
     }
 
-    /// Returns `(alpha_mode, double_sided, cull_mode, is_card)` governing how
-    /// the generated `StandardMaterial` and its upload path are configured.
-    /// Card-style textures use clamp-to-edge sampling and alpha masking; all
-    /// others are treated as opaque repeat-tiling surfaces.
-    pub fn render_properties(
-        &self,
-    ) -> (
-        bevy::prelude::AlphaMode,
-        bool,
-        Option<bevy::render::render_resource::Face>,
-        bool,
-    ) {
-        use bevy::prelude::AlphaMode;
-        use bevy::render::render_resource::Face;
-        match self {
-            // Hard-silhouette and soft-sprite cards alike: clamp-to-edge,
-            // double-sided, no culling. The sprite cards carry soft
-            // fractional alpha, but this material path mirrors the upstream
-            // `card_render_properties` (which masks at 0.5); the particle
-            // path sets its own additive/alpha blend and never consults this.
-            Self::Leaf(_)
-            | Self::Twig(_)
-            | Self::Window(_)
-            | Self::StainedGlass(_)
-            | Self::IronGrille(_)
-            | Self::SoftDisc(_)
-            | Self::Spark(_)
-            | Self::Snowflake(_)
-            | Self::Puff(_)
-            | Self::Ring(_)
-            | Self::Petal(_)
-            | Self::Shard(_)
-            | Self::LeafSprite(_)
-            | Self::Flame(_)
-            | Self::Flower(_)
-            | Self::ChainLink(_)
-            | Self::LogEnd(_) => (AlphaMode::Mask(0.5), true, None, true),
-            _ => (AlphaMode::Opaque, false, Some(Face::Back), false),
-        }
-    }
-
     /// Convert this wire-format variant into the upstream
     /// [`bevy_symbios_texture::TextureConfig`] tagged-union the
     /// `build_procedural_material_async` helper consumes.
@@ -1052,9 +1011,8 @@ mod tests {
         rt!(SovereignLogEndConfig);
     }
 
-    /// The new tileable surfaces must be fully wired (label + dispatch) and
-    /// classified as surfaces, not cards — they ride the opaque repeat-tiling
-    /// render path via the `render_properties` catch-all.
+    /// The new tileable surfaces must be fully wired: a non-"Unknown" label
+    /// and a non-`None` upstream dispatch arm.
     #[test]
     fn surface_variants_are_wired_as_surfaces() {
         use bevy_symbios_texture::TextureConfig as T;
@@ -1071,8 +1029,6 @@ mod tests {
                 !matches!(v.to_texture_config(), T::None),
                 "{v:?} collapsed to TextureConfig::None"
             );
-            let (_, _, _, is_card) = v.render_properties();
-            assert!(!is_card, "{v:?} should be a tiling surface, not a card");
         }
     }
 
@@ -1100,9 +1056,6 @@ mod tests {
                 !matches!(v.to_texture_config(), T::None),
                 "{v:?} collapsed to TextureConfig::None"
             );
-            // Sprite cards classify as alpha-masked cards, not surfaces.
-            let (_, _, _, is_card) = v.render_properties();
-            assert!(is_card, "{v:?} should be a card");
         }
     }
 

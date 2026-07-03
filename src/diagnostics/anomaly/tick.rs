@@ -168,7 +168,7 @@ fn loading_clock_exit(
     if let Some(entered_at) = clock.entered_at {
         let now = time.elapsed_secs_f64();
         let elapsed = now - entered_at;
-        crate::diagnostics::samplers::loading_gate_total_secs(&mut metrics, elapsed, now);
+        crate::diagnostics::samplers::loading_gate_total_secs(&mut metrics, elapsed);
         log.info(
             now,
             EventPayload::LoadingGateTransitionToInGame {
@@ -223,7 +223,7 @@ mod tests {
         let mut log = SessionLog::with_capacity(64);
         let mut metrics = MetricsRegistry::default();
         // Zero colliders in-game → TerrainColliderMissing (Critical) violates.
-        metrics.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 0.0, 10.0);
+        metrics.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 0.0);
 
         let fired = run_rules(&mut invariants, &ctx_ingame(&metrics), &mut log);
         assert!(fired >= 1);
@@ -249,7 +249,7 @@ mod tests {
         let mut invariants = default_registry();
         let mut log = SessionLog::with_capacity(64);
         let mut metrics = MetricsRegistry::default();
-        metrics.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 0.0, 10.0);
+        metrics.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 0.0);
 
         let mut cx = ctx_ingame(&metrics);
         assert!(run_rules(&mut invariants, &cx, &mut log) >= 1);
@@ -276,7 +276,7 @@ mod tests {
         let mut invariants = default_registry();
         let mut log = SessionLog::with_capacity(64);
         let mut metrics = MetricsRegistry::default();
-        metrics.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 0.0, 10.0);
+        metrics.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 0.0);
         let mut cx = ctx_ingame(&metrics);
         cx.state = AppState::Login;
         run_rules(&mut invariants, &cx, &mut log);
@@ -302,7 +302,7 @@ mod tests {
         let mut invariants = default_registry();
         let mut log = SessionLog::with_capacity(64);
         let mut metrics = MetricsRegistry::default();
-        metrics.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 0.0, 10.0);
+        metrics.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 0.0);
 
         // In-game with zero colliders → the InGame-gated Critical rule violates
         // and lights its badge.

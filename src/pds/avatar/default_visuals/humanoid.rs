@@ -32,7 +32,7 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
     let outfit = AvatarOutfit::for_seed(seed);
     // Reuse the outfit we just derived for the ctx's hat flag instead of letting
     // `PartCtx::for_seed` derive a second one (#638).
-    let ctx = PartCtx::for_seed_with_hat(seed, did, outfit_has_hat(&outfit));
+    let ctx = PartCtx::for_seed_with_hat(seed, outfit_has_hat(&outfit));
 
     let w = ctx.body.shoulder_width_scale;
     let limb = ctx.body.limb_thickness_scale;
@@ -45,12 +45,20 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
     // The default parts carry fixed segment lengths; these nominal anchors
     // place them into a coherent figure (x scaled by build width). Styled
     // kits author their parts to the same anchors.
+    //
+    // The seeded torso:leg ratio expresses itself as the *upper column's*
+    // share of the silhouette (#659): every anchor above the hips scales by
+    // `ratio / 0.5` (long-torsoed figures carry their head higher), while
+    // the legs stay authored-length so the feet keep meeting the locomotion
+    // capsule's bottom — the hips are pinned to the capsule centre, so leg
+    // stretch would float or bury the feet.
+    let upper = ctx.body.torso_leg_ratio / 0.5;
     let torso_r = 0.155 * w;
     let arm_r = 0.055 * limb;
-    let torso_y = 0.32;
+    let torso_y = 0.32 * upper;
     // Head sits a clear neck-length above the shoulders so the neck reads.
-    let head_y = 0.90;
-    let shoulder_y = 0.55;
+    let head_y = 0.90 * upper;
+    let shoulder_y = 0.55 * upper;
     let shoulder_x = torso_r + arm_r + 0.02;
     let hip_x = torso_r * 0.55;
     // Slight outward (Z-roll) + forward (X-tilt) arm splay. The forward tilt

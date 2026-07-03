@@ -25,7 +25,7 @@ use super::common::{
 pub(super) fn build(seed: u64, did: &str) -> Generator {
     let outfit = AvatarOutfit::for_seed(seed);
     // Reuse the derived outfit for the ctx's hat flag (#638).
-    let ctx = PartCtx::for_seed_with_hat(seed, did, outfit_has_hat(&outfit));
+    let ctx = PartCtx::for_seed_with_hat(seed, outfit_has_hat(&outfit));
 
     // The envelope is the structural root (centred at the origin, no scale).
     let mut root = base_root(&outfit, &ctx, PartSlot::Envelope);

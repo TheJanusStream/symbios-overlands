@@ -84,7 +84,6 @@ pub struct Gauge {
     ring: [f64; RING_CAP],
     head: usize,
     len: usize,
-    updated_at_secs: f64,
 }
 
 impl Default for Gauge {
@@ -95,15 +94,13 @@ impl Default for Gauge {
             ring: [0.0; RING_CAP],
             head: 0,
             len: 0,
-            updated_at_secs: 0.0,
         }
     }
 }
 
 impl Gauge {
-    fn observe(&mut self, v: f64, now: f64) {
+    fn observe(&mut self, v: f64) {
         self.last = v;
-        self.updated_at_secs = now;
         self.ring[self.head] = v;
         self.head = (self.head + 1) % RING_CAP;
         if self.len < RING_CAP {
@@ -114,11 +111,6 @@ impl Gauge {
     /// The most recent observed value.
     pub fn last(&self) -> f64 {
         self.last
-    }
-
-    /// Session-relative time of the last observation.
-    pub fn updated_at_secs(&self) -> f64 {
-        self.updated_at_secs
     }
 
     /// Retained samples, oldest → newest, for a sparkline.
@@ -142,21 +134,15 @@ impl Gauge {
 #[derive(Clone, Debug, Default)]
 pub struct Counter {
     value: u64,
-    updated_at_secs: f64,
 }
 
 impl Counter {
-    fn incr_by(&mut self, n: u64, now: f64) {
+    fn incr_by(&mut self, n: u64) {
         self.value = self.value.saturating_add(n);
-        self.updated_at_secs = now;
     }
 
     pub fn value(&self) -> u64 {
         self.value
-    }
-
-    pub fn updated_at_secs(&self) -> f64 {
-        self.updated_at_secs
     }
 }
 
@@ -317,18 +303,18 @@ impl MetricsRegistry {
     }
 
     /// Record a gauge sample (latest value + sparkline point).
-    pub fn observe_gauge(&mut self, name: &'static str, v: f64, now: f64) {
-        self.gauges.entry(name).or_default().observe(v, now);
+    pub fn observe_gauge(&mut self, name: &'static str, v: f64) {
+        self.gauges.entry(name).or_default().observe(v);
     }
 
     /// Increment a counter by one.
-    pub fn incr(&mut self, name: &'static str, now: f64) {
-        self.incr_by(name, 1, now);
+    pub fn incr(&mut self, name: &'static str) {
+        self.incr_by(name, 1);
     }
 
     /// Increment a counter by `n`.
-    pub fn incr_by(&mut self, name: &'static str, n: u64, now: f64) {
-        self.counters.entry(name).or_default().incr_by(n, now);
+    pub fn incr_by(&mut self, name: &'static str, n: u64) {
+        self.counters.entry(name).or_default().incr_by(n);
     }
 
     /// Record a histogram sample.
@@ -408,23 +394,6 @@ impl MetricsRegistry {
         self.histograms.clear();
     }
 
-    /// Enumerate every registered gauge. Currently unused — the diagnostics
-    /// GUI reads a hardcoded `names::` row list rather than enumerating the
-    /// registry — kept as a generic enumeration accessor.
-    pub fn gauges(&self) -> impl Iterator<Item = (&'static str, &Gauge)> {
-        self.gauges.iter().map(|(k, v)| (*k, v))
-    }
-
-    /// Enumerate every registered counter (currently unused; see [`Self::gauges`]).
-    pub fn counters(&self) -> impl Iterator<Item = (&'static str, &Counter)> {
-        self.counters.iter().map(|(k, v)| (*k, v))
-    }
-
-    /// Enumerate every registered histogram (currently unused; see [`Self::gauges`]).
-    pub fn histograms(&self) -> impl Iterator<Item = (&'static str, &Histogram)> {
-        self.histograms.iter().map(|(k, v)| (*k, v))
-    }
-
     /// Flatten the currently-active metrics into a serde [`MetricSnapshot`] for
     /// the session log. Never-observed (preseeded-empty) gauges/histograms and
     /// still-zero counters are skipped so snapshot lines carry only live data.
@@ -479,7 +448,7 @@ mod tests {
     fn gauge_ring_keeps_newest_in_order() {
         let mut g = Gauge::default();
         for i in 0..(RING_CAP + 5) {
-            g.observe(i as f64, i as f64);
+            g.observe(i as f64);
         }
         let samples: Vec<f64> = g.iter().collect();
         assert_eq!(samples.len(), RING_CAP);
@@ -492,9 +461,9 @@ mod tests {
     #[test]
     fn counter_is_monotonic() {
         let mut r = MetricsRegistry::default();
-        r.incr("net.peer.connected_count", 1.0);
-        r.incr("net.peer.connected_count", 2.0);
-        r.incr_by("net.peer.connected_count", 3, 3.0);
+        r.incr("net.peer.connected_count");
+        r.incr("net.peer.connected_count");
+        r.incr_by("net.peer.connected_count", 3);
         assert_eq!(r.counter("net.peer.connected_count").unwrap().value(), 5);
     }
 
@@ -526,8 +495,8 @@ mod tests {
     fn snapshot_captures_active_metrics_and_round_trips() {
         let mut r = MetricsRegistry::default();
         r.preseed(&[("runtime.frame_time.ms", MetricKind::Gauge)]); // preseeded-empty
-        r.observe_gauge("runtime.entity.count", 42.0, 1.0);
-        r.incr_by("net.peer.connected_count", 3, 1.0);
+        r.observe_gauge("runtime.entity.count", 42.0);
+        r.incr_by("net.peer.connected_count", 3);
         r.observe_hist("net.jitter.playout_latency_ms", 12.0);
 
         let snap = r.snapshot(1.0);
@@ -558,7 +527,7 @@ mod tests {
     #[test]
     fn registry_observe_and_clear() {
         let mut r = MetricsRegistry::default();
-        r.observe_gauge("runtime.frame_time.ms", 16.6, 1.0);
+        r.observe_gauge("runtime.frame_time.ms", 16.6);
         r.observe_hist("net.jitter.playout_latency_ms", 12.0);
         assert_eq!(r.gauge("runtime.frame_time.ms").unwrap().last(), 16.6);
         assert!(r.hist_distro("net.jitter.playout_latency_ms").is_some());
@@ -582,11 +551,11 @@ mod tests {
         assert_eq!(r.counter_value("net.peer.connected_count"), 0);
         assert_eq!(r.hist_distro_str("net.jitter.playout_latency_ms"), "—");
 
-        for (i, v) in [16.0, 18.0, 20.0, 22.0].iter().enumerate() {
-            r.observe_gauge("runtime.frame_time.ms", *v, i as f64);
+        for v in [16.0, 18.0, 20.0, 22.0].iter() {
+            r.observe_gauge("runtime.frame_time.ms", *v);
         }
-        r.observe_gauge("runtime.collider.count", 0.0, 5.0); // an OBSERVED zero
-        r.incr_by("net.peer.connected_count", 3, 5.0);
+        r.observe_gauge("runtime.collider.count", 0.0); // an OBSERVED zero
+        r.incr_by("net.peer.connected_count", 3);
         r.observe_hist("net.jitter.playout_latency_ms", 100.0);
 
         assert_eq!(r.gauge_latest("runtime.frame_time.ms"), Some(22.0));

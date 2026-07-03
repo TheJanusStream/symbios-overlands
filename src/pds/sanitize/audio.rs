@@ -8,7 +8,6 @@
 //! for URL / DID / CID length caps.
 
 use super::Sanitize;
-use super::limits;
 use crate::pds::audio::{
     SovereignAudioConfig, SovereignAudioPatch, SovereignConnection, SovereignEvent,
     SovereignNodeGraph, SovereignNodeKind, SovereignSequenceRecipe, SovereignTrack,
@@ -260,15 +259,6 @@ impl Sanitize for SovereignEvent {
         // it like gate_beats so a huge value can't balloon the bake.
         self.release_beats = Fp(clamp_finite(self.release_beats.0, 0.0, 100_000.0, 0.0));
     }
-}
-
-#[allow(dead_code)]
-fn _retain_unused_limits_link() {
-    // `limits::` would-be reference left in scope so a future tweak
-    // of MAX_AUDIO_PATCH_JSON_BYTES doesn't drop the import warning
-    // before the JSON-stash compatibility layer is fully removed
-    // (none of the structured sanitiser arms need it).
-    let _ = limits::MAX_AUDIO_PATCH_JSON_BYTES;
 }
 
 #[cfg(test)]

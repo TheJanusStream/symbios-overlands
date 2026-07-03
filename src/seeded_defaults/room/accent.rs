@@ -2,8 +2,8 @@
 //! onto the natural derivers so a settlement's surroundings echo its
 //! artificial theme (cyberpunk magenta haze, alien biolume motes,
 //! gothic gloom). Strictly additive and bounded: the biome palette stays
-//! the primary nature driver, and a theme with no accent
-//! ([`ThemeAccent::NEUTRAL`]) is a no-op.
+//! the primary nature driver, and a zero-strength accent
+//! ([`ThemeAccent::is_noop`]) leaves the derivers untouched.
 //!
 //! The accent is keyed on the room's own [`ThemeArchetype`] (not the
 //! settlement's fallback theme), so a not-yet-authored theme still
@@ -38,20 +38,9 @@ pub struct ThemeAccent {
 }
 
 impl ThemeAccent {
-    /// The do-nothing accent: leaves every natural deriver untouched.
-    pub const NEUTRAL: Self = Self {
-        tint: [0.0, 0.0, 0.0],
-        tint_strength: 0.0,
-        haze: 0.0,
-        brightness: 1.0,
-        particle_mood: None,
-    };
-
     /// The accent for `theme`. Every theme now carries an identity accent
     /// (the post-cyberpunk overhaul, epic #458); the match is exhaustive so a
-    /// new [`ThemeArchetype`] won't compile without one. [`Self::NEUTRAL`]
-    /// remains available as a do-nothing sentinel, though today only tests
-    /// reference it — no production caller constructs it.
+    /// new [`ThemeArchetype`] won't compile without one.
     pub fn for_theme(theme: ThemeArchetype) -> Self {
         use ThemeArchetype::*;
         match theme {
@@ -354,10 +343,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn neutral_is_noop_and_identity() {
-        assert!(ThemeAccent::NEUTRAL.is_noop());
+    fn zero_accent_is_noop_and_identity() {
+        // A zero-strength, unity-brightness accent must leave the natural
+        // derivers untouched — the invariant `is_noop` gates on.
+        let neutral = ThemeAccent {
+            tint: [0.0, 0.0, 0.0],
+            tint_strength: 0.0,
+            haze: 0.0,
+            brightness: 1.0,
+            particle_mood: None,
+        };
+        assert!(neutral.is_noop());
         let c = [0.3, 0.6, 0.9];
-        assert_eq!(ThemeAccent::NEUTRAL.tint_rgb(c), c);
+        assert_eq!(neutral.tint_rgb(c), c);
     }
 
     #[test]

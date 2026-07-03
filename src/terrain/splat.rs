@@ -12,6 +12,7 @@ use bevy_symbios_ground::{SplatMapper, SplatRule, TerrainQuery};
 use bevy_symbios_texture::{TextureMap, map_to_images_with_usages};
 
 use crate::config::terrain as tcfg;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::config::terrain::stains as scfg;
 use crate::interaction::{StainsImage, TerrainSurfaceQuery};
 use crate::offload::{GenJob, GenResult};
@@ -203,7 +204,7 @@ pub(super) fn collect_texture_results(
         // A texture-bake job only ever yields a texture; count an unexpected
         // variant as an offload error (E-4) and skip the layer rather than panic.
         let GenResult::Texture(data) = result else {
-            crate::diagnostics::samplers::offload_job_error(&mut metrics, now);
+            crate::diagnostics::samplers::offload_job_error(&mut metrics);
             // Pairs with this layer's `OffloadJobStarted` (#631).
             session_log.error(
                 now,

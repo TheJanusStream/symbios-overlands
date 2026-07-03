@@ -33,7 +33,7 @@ pub(super) fn handle_peer_connections(
                         peer: event.peer.to_string(),
                     },
                 );
-                crate::diagnostics::samplers::peer_connected(&mut metrics, elapsed);
+                crate::diagnostics::samplers::peer_connected(&mut metrics);
                 // Spawn the peer with no avatar yet — the hot-swap system in
                 // `player.rs` will build visuals once the PDS fetch populates
                 // `RemotePeer::avatar`. Leaving the vessel invisible until
@@ -82,7 +82,7 @@ pub(super) fn handle_peer_connections(
                                 label: label.to_string(),
                             },
                         );
-                        crate::diagnostics::samplers::peer_disconnected(&mut metrics, elapsed);
+                        crate::diagnostics::samplers::peer_disconnected(&mut metrics);
                         commands.entity(entity).despawn();
                     }
                 }

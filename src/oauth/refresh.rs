@@ -128,26 +128,6 @@ pub async fn oauth_post_with_refresh(
     }
 }
 
-/// GET counterpart to [`oauth_post_with_refresh`]. See that function's
-/// docs for why both proactive and reactive refresh paths are needed.
-pub async fn oauth_get_with_refresh(
-    session: &OAuthSession,
-    refresh: &OauthRefreshCtx,
-    url: &str,
-) -> Result<(reqwest::StatusCode, String), String> {
-    if session.is_expired_jittered() {
-        refresh_session(session, refresh).await?;
-    }
-    match oauth_get_with_nonce_retry(session, url).await {
-        Ok(pair) => Ok(pair),
-        Err(e) if e.contains(INVALID_TOKEN_ERR) => {
-            refresh_session(session, refresh).await?;
-            oauth_get_with_nonce_retry(session, url).await
-        }
-        Err(e) => Err(e),
-    }
-}
-
 /// Response shape from `com.atproto.server.getSession` — used after the
 /// OAuth exchange to look up the handle that matches the DID in the token.
 #[derive(Deserialize)]

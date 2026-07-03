@@ -1,9 +1,9 @@
 //! Hand-authored impact-sound recipes keyed off the texture variant
 //! a surface carries.
 //!
-//! [`impact_patch_for`] takes the [`SovereignTextureConfig`] of an
-//! authored splat layer or construct material and returns an
-//! [`AudioPatch`] tuned for that material's perceptual character —
+//! [`impact_recipe_for`] takes the [`SovereignTextureConfig`] of an
+//! authored splat layer or construct material and returns a recipe whose
+//! [`AudioPatch`] is tuned for that material's perceptual character —
 //! rock is a bright sharp transient, grass a soft muffled thud, metal
 //! a high-frequency ring, and so on.
 //!
@@ -245,14 +245,6 @@ fn classify(texture: &SovereignTextureConfig) -> ImpactMaterial {
         | SovereignTextureConfig::Referenced { .. }
         | SovereignTextureConfig::Unknown => ImpactMaterial::Generic,
     }
-}
-
-/// Resolve a texture variant to its impact [`AudioPatch`]. The result
-/// is bake-ready: `bevy_symbios_audio::bake(&patch, 44_100,
-/// material.duration_secs())` produces the impact buffer.
-pub fn impact_patch_for(texture: &SovereignTextureConfig) -> AudioPatch {
-    let material = classify(texture);
-    build_impact_patch(material.params())
 }
 
 /// Resolve a texture variant + collision intensity to a one-event
@@ -515,8 +507,8 @@ mod tests {
             ("Leaf", SovereignTextureConfig::Leaf(Default::default())),
             ("Thatch", SovereignTextureConfig::Thatch(Default::default())),
         ] {
-            let patch = impact_patch_for(&texture);
             let material = classify(&texture);
+            let patch = build_impact_patch(material.params());
             let samples = bake(&patch, 44_100, material.duration_secs());
             assert_audible(&samples, label);
         }
@@ -535,8 +527,8 @@ mod tests {
             SovereignTextureConfig::Unknown,
             SovereignTextureConfig::Window(Default::default()),
         ] {
-            let patch = impact_patch_for(&texture);
             let material = classify(&texture);
+            let patch = build_impact_patch(material.params());
             assert_eq!(material, ImpactMaterial::Generic);
             let samples = bake(&patch, 44_100, material.duration_secs());
             assert!(

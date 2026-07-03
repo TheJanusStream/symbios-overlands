@@ -1,11 +1,11 @@
 //! Avatar gait + idle animation timing.
 //!
-//! Partially consumed: the humanoid chassis default reads
+//! Fully consumed (#659): the humanoid chassis default reads
 //! `step_cadence` into its locomotion walk speed (a long-legged strider
-//! covers ground faster than a short-stepped walker). The bounce /
-//! sway / head-turn fields are **not yet consumed** — defining the full
-//! surface now keeps them ready for a future animation system to read
-//! directly without needing to extend the deriver.
+//! covers ground faster than a short-stepped walker), and the player
+//! gait-animation layer (`player::gait`) drives the bounce / sway /
+//! head-turn fields as the humanoid visual root's walking bob and idle
+//! weight-shift / look-around motion.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;

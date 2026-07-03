@@ -28,8 +28,16 @@ use bevy::prelude::*;
 use crate::pds::{EmitterShape, Fp, Fp3};
 use crate::world_builder::particles::{EmitterState, ParticleEmitter, spawn_particle_emitter};
 
-use super::contact::AvatarContacts;
+use super::contact::{AvatarContacts, SurfaceContact};
 use super::recipes::ContactRecipeRegistry;
+
+/// World-space drift acceleration (m/s² per unit of `flow_dir`) biasing
+/// water-contact bursts downstream. Gentle relative to gravity so a
+/// splash still reads as a splash, just carried by the current.
+const FLOW_DRIFT_ACCEL: f32 = 1.2;
+/// Cap on the total drift bias so a pathological flow tangent can't
+/// fling particles horizontally.
+const FLOW_DRIFT_ACCEL_MAX: f32 = 3.0;
 
 /// Marks an emitter spawned by [`particle_dispatcher`] so
 /// [`retire_transient_emitters`] can reclaim it after its one-shot
@@ -125,6 +133,17 @@ pub fn particle_dispatcher(
                 &emitter.shape,
                 sample.footprint_radius * recipe.spawn.radius_scale,
             );
+            // Flowing-water contacts drift their burst downstream: bias
+            // the emitter's world-space acceleration along the surface's
+            // downhill tangent (#659) so splash droplets ride the current
+            // instead of hanging over the entry point. Flat water
+            // (`flow_dir == 0`) is untouched.
+            if let SurfaceContact::Water { flow_dir, .. } = sample.surface
+                && flow_dir != Vec2::ZERO
+            {
+                let drift = (flow_dir * FLOW_DRIFT_ACCEL).clamp_length_max(FLOW_DRIFT_ACCEL_MAX);
+                emitter.acceleration += Vec3::new(drift.x, 0.0, drift.y);
+            }
 
             // Determinism is not required for cosmetic particles (same
             // policy as the perturbation pool); mix avatar + recipe +

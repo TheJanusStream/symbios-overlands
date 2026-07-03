@@ -155,13 +155,13 @@ pub(super) fn poll_peer_avatar_fetches(
         // fallback path).
         let (mut record, cacheable) = match result {
             Ok(Some(r)) => {
-                crate::diagnostics::samplers::avatar_fetch_succeeded(&mut metrics, elapsed);
+                crate::diagnostics::samplers::avatar_fetch_succeeded(&mut metrics);
                 (r, true)
             }
             Ok(None) => {
                 // A 404 resolved to the DID-seeded default — still a successful
                 // fetch (the peer simply hasn't published an avatar).
-                crate::diagnostics::samplers::avatar_fetch_succeeded(&mut metrics, elapsed);
+                crate::diagnostics::samplers::avatar_fetch_succeeded(&mut metrics);
                 info!(
                     "Peer {} ({}) has no avatar record — synthesising default",
                     peer_id, did
@@ -169,7 +169,7 @@ pub(super) fn poll_peer_avatar_fetches(
                 (AvatarRecord::default_for_did(&did), false)
             }
             Err(err) => {
-                crate::diagnostics::samplers::avatar_fetch_failed(&mut metrics, elapsed);
+                crate::diagnostics::samplers::avatar_fetch_failed(&mut metrics);
                 session_log.warn(
                     elapsed,
                     EventPayload::AvatarFetchFailed {

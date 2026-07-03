@@ -322,7 +322,7 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                         fire_at_secs: elapsed + backoff as f64,
                         _marker: PhantomData,
                     });
-                    crate::diagnostics::samplers::record_fetch_retry(&mut metrics, elapsed);
+                    crate::diagnostics::samplers::record_fetch_retry(&mut metrics);
                     continue;
                 }
             }

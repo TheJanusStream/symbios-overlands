@@ -26,18 +26,6 @@ use crate::world_builder::avatar_spawn::spawn_avatar_visuals_subtree;
 use crate::world_builder::compile::GeneratorCaches;
 use crate::world_builder::image_cache::BlobImageCache;
 
-/// Marker for every entity spawned out of an avatar's visuals tree.
-/// Used only as a defensive sweep target — the chassis itself owns the
-/// children, so a `with_children` despawn already handles the hot-path
-/// cleanup. The marker exists so a stray entity left orphaned by a
-/// spawn-time error can still be reaped by tag.
-///
-/// Currently retained for future use; the v1 spawn path doesn't
-/// inject it on every node. A follow-up may pass a closure into the
-/// world_builder spawner to attach this tag generically.
-#[derive(Component)]
-pub struct AvatarVisualEntity;
-
 /// Bundle of every shared `world_builder` resource the avatar spawn
 /// path needs to reach. Bundled because Bevy 0.18 caps `IntoSystem`
 /// at 16 parameters and the host systems already carry a handful of

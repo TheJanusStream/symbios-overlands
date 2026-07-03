@@ -155,7 +155,7 @@ mod tests {
     fn rule_eval_reads_metrics_and_replay_folds_events() {
         let toy = EntitySpikeToy;
         let mut metrics = MetricsRegistry::default();
-        metrics.observe_gauge("runtime.entity.count", 12.0, 1.0);
+        metrics.observe_gauge("runtime.entity.count", 12.0);
         let cx = LiveCtx {
             now_secs: 1.0,
             state: AppState::InGame,

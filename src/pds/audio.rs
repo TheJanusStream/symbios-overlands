@@ -342,31 +342,6 @@ pub enum SovereignNodeKind {
 }
 
 impl SovereignNodeKind {
-    /// Human-readable variant name for editor pickers.
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::Silence => "Silence",
-            Self::Sine(_) => "Sine",
-            Self::Square(_) => "Square",
-            Self::Sawtooth(_) => "Sawtooth",
-            Self::Triangle(_) => "Triangle",
-            Self::WhiteNoise(_) => "White noise",
-            Self::PinkNoise(_) => "Pink noise",
-            Self::BrownNoise(_) => "Brown noise",
-            Self::Adsr(_) => "ADSR",
-            Self::BiquadLowpass(_) => "Lowpass",
-            Self::BiquadHighpass(_) => "Highpass",
-            Self::BiquadBandpass(_) => "Bandpass",
-            Self::Lfo(_) => "LFO",
-            Self::Mix(_) => "Mix",
-            Self::Gain(_) => "Gain (VCA)",
-            Self::Gate(_) => "Gate",
-            Self::Chorus(_) => "Chorus",
-            Self::Reverb(_) => "Reverb",
-            Self::Unknown => "Unknown",
-        }
-    }
-
     pub fn to_native(&self) -> bevy_symbios_audio::NodeKind {
         use bevy_symbios_audio::NodeKind as N;
         match self {
@@ -591,15 +566,6 @@ pub enum SovereignAntiAlias {
 }
 
 impl SovereignAntiAlias {
-    /// Human-readable label for editor pickers.
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Naive => "Naive",
-            Self::PolyBlep => "PolyBLEP",
-            Self::Unknown => "Unknown",
-        }
-    }
-
     pub fn to_native(self) -> bevy_symbios_audio::AntiAlias {
         match self {
             // Unknown -> Naive matches the audio crate's Default impl.
@@ -1323,15 +1289,6 @@ pub enum SovereignPitchMode {
 }
 
 impl SovereignPitchMode {
-    /// Human-readable label for editor pickers.
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Varispeed => "Varispeed",
-            Self::TimePreserving => "Time-preserving",
-            Self::Unknown => "Unknown",
-        }
-    }
-
     pub fn to_native(self) -> bevy_symbios_audio::PitchMode {
         match self {
             // Unknown -> Varispeed matches the audio crate's Default.

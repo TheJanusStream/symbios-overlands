@@ -87,7 +87,6 @@ use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 
 pub use lsystem::{LSystemMaterialCache, LSystemMeshCache};
-pub use material::build_procedural_material;
 pub use prim::build_primitive_mesh;
 pub use shape::{ShapeMaterialCache, ShapeMeshCache};
 
@@ -233,6 +232,19 @@ pub struct PrimMarker {
 #[derive(Component, Clone)]
 pub struct AvatarVisualPrim {
     pub path: Vec<usize>,
+}
+
+/// Marker on the single **root** entity of an avatar's spawned visuals tree
+/// (the one direct chassis child the whole generator tree hangs from) —
+/// local and remote alike. Carries the root's authored local transform so
+/// the cosmetic gait-animation layer (`player::gait`) can compose bounce /
+/// sway offsets on top of it each frame without accumulating drift, and so
+/// an editor rebuild (which respawns the root with a fresh marker) resets
+/// cleanly.
+#[derive(Component, Clone)]
+pub struct AvatarVisualRoot {
+    pub base_translation: Vec3,
+    pub base_rotation: Quat,
 }
 
 /// Base meshes for each [`PropMeshType`] — built once at startup so every

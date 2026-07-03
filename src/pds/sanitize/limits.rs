@@ -185,15 +185,6 @@ pub const MAX_SIGN_URL_BYTES: usize = 2048;
 /// the existing Portal DID cap and gives forward-compat headroom.
 pub const MAX_SIGN_DID_BYTES: usize = 256;
 pub const MAX_SIGN_CID_BYTES: usize = 256;
-/// Maximum length (bytes) of the embedded patch / sequence JSON in a
-/// [`crate::pds::audio::SovereignAudioConfig::Patch`] or
-/// [`crate::pds::audio::SovereignAudioConfig::Sequence`] variant. Caps
-/// the per-record audio authoring blob at the same envelope as
-/// [`MAX_LSYSTEM_CODE_BYTES`] so a hostile peer can't smuggle a
-/// megabyte of inert string through a room recipe. 64 KiB is generous
-/// for any plausible procedurally-authored patch — sequence recipes
-/// large enough to need more headroom are themselves a smell.
-pub const MAX_AUDIO_PATCH_JSON_BYTES: usize = 65_536;
 /// Per-axis panel size (metres) for a Sign generator. Mirrors the
 /// primitive `c_dim` envelope so a megastructure billboard stays within
 /// the 100 m world-cell budget.

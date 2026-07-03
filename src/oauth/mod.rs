@@ -64,8 +64,8 @@ pub use native_server::{
     parse_callback_query, start_native_callback_server,
 };
 pub use refresh::{
-    fetch_session_identity, oauth_get_with_nonce_retry, oauth_get_with_refresh,
-    oauth_post_with_nonce_retry, oauth_post_with_refresh, refresh_session,
+    fetch_session_identity, oauth_get_with_nonce_retry, oauth_post_with_nonce_retry,
+    oauth_post_with_refresh, refresh_session,
 };
 
 /// In-flight OAuth authorization state persisted between the `authorize()`

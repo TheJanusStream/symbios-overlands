@@ -22,7 +22,7 @@ use super::common::{PfpFacing, offset, offset_rot, pastel, pfp_panel, quat_xyzw,
 pub(super) fn build(seed: u64, did: &str) -> Generator {
     let outfit = AvatarOutfit::for_seed(seed);
     // Reuse the derived outfit for the ctx's hat flag (#638).
-    let ctx = PartCtx::for_seed_with_hat(seed, did, outfit_has_hat(&outfit));
+    let ctx = PartCtx::for_seed_with_hat(seed, outfit_has_hat(&outfit));
 
     // The chassis is the structural root (centred at the origin).
     let mut root = base_root(&outfit, &ctx, PartSlot::Chassis);

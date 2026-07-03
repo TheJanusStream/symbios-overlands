@@ -25,23 +25,23 @@ fn ms(secs: f64) -> f64 {
 // ---- network / multiuser --------------------------------------------------
 
 /// A peer connection was observed.
-pub fn peer_connected(m: &mut MetricsRegistry, now: f64) {
-    m.incr(names::NET_PEER_CONNECTED_COUNT, now);
+pub fn peer_connected(m: &mut MetricsRegistry) {
+    m.incr(names::NET_PEER_CONNECTED_COUNT);
 }
 
 /// A peer disconnection was observed.
-pub fn peer_disconnected(m: &mut MetricsRegistry, now: f64) {
-    m.incr(names::NET_PEER_DISCONNECTED_COUNT, now);
+pub fn peer_disconnected(m: &mut MetricsRegistry) {
+    m.incr(names::NET_PEER_DISCONNECTED_COUNT);
 }
 
 /// An identity claim was rejected as spoofed (claimed DID ≠ authenticated DID).
-pub fn identity_spoof_rejected(m: &mut MetricsRegistry, now: f64) {
-    m.incr(names::NET_IDENTITY_SPOOFED_COUNT, now);
+pub fn identity_spoof_rejected(m: &mut MetricsRegistry) {
+    m.incr(names::NET_IDENTITY_SPOOFED_COUNT);
 }
 
 /// A remote transform sample was rejected (NaN/Inf or out-of-bounds).
-pub fn transform_rejected(m: &mut MetricsRegistry, now: f64) {
-    m.incr(names::NET_TRANSFORM_REJECTED_COUNT, now);
+pub fn transform_rejected(m: &mut MetricsRegistry) {
+    m.incr(names::NET_TRANSFORM_REJECTED_COUNT);
 }
 
 /// Remote-peer jitter-buffer playout latency (the render delay), in seconds.
@@ -55,28 +55,28 @@ pub fn avatar_fetch_latency_secs(m: &mut MetricsRegistry, secs: f64) {
 }
 
 /// A peer avatar fetch resolved to a record or the DID-seeded default.
-pub fn avatar_fetch_succeeded(m: &mut MetricsRegistry, now: f64) {
-    m.incr(names::NET_AVATAR_FETCH_SUCCESS_COUNT, now);
+pub fn avatar_fetch_succeeded(m: &mut MetricsRegistry) {
+    m.incr(names::NET_AVATAR_FETCH_SUCCESS_COUNT);
 }
 
 /// A peer avatar fetch errored (transient failure).
-pub fn avatar_fetch_failed(m: &mut MetricsRegistry, now: f64) {
-    m.incr(names::NET_AVATAR_FETCH_FAIL_COUNT, now);
+pub fn avatar_fetch_failed(m: &mut MetricsRegistry) {
+    m.incr(names::NET_AVATAR_FETCH_FAIL_COUNT);
 }
 
 /// The local user accepted an incoming item offer.
-pub fn offer_accepted(m: &mut MetricsRegistry, now: f64) {
-    m.incr(names::NET_OFFER_ACCEPTED_COUNT, now);
+pub fn offer_accepted(m: &mut MetricsRegistry) {
+    m.incr(names::NET_OFFER_ACCEPTED_COUNT);
 }
 
 /// The local user declined an incoming item offer.
-pub fn offer_declined(m: &mut MetricsRegistry, now: f64) {
-    m.incr(names::NET_OFFER_DECLINED_COUNT, now);
+pub fn offer_declined(m: &mut MetricsRegistry) {
+    m.incr(names::NET_OFFER_DECLINED_COUNT);
 }
 
 /// An incoming offer was auto-declined because a dialog was already open.
-pub fn offer_auto_declined_busy(m: &mut MetricsRegistry, now: f64) {
-    m.incr(names::NET_OFFER_AUTO_DECLINED_BUSY_COUNT, now);
+pub fn offer_auto_declined_busy(m: &mut MetricsRegistry) {
+    m.incr(names::NET_OFFER_AUTO_DECLINED_BUSY_COUNT);
 }
 
 // ---- loading / state machine ----------------------------------------------
@@ -87,13 +87,13 @@ pub fn record_fetch_latency_secs(m: &mut MetricsRegistry, secs: f64) {
 }
 
 /// A record fetch fired a retry.
-pub fn record_fetch_retry(m: &mut MetricsRegistry, now: f64) {
-    m.incr(names::LOADING_RECORD_FETCH_RETRY_COUNT, now);
+pub fn record_fetch_retry(m: &mut MetricsRegistry) {
+    m.incr(names::LOADING_RECORD_FETCH_RETRY_COUNT);
 }
 
 /// The loading gate closed; `secs` is total wall time spent in the gate.
-pub fn loading_gate_total_secs(m: &mut MetricsRegistry, secs: f64, now: f64) {
-    m.observe_gauge(names::LOADING_GATE_TOTAL_SECS, secs, now);
+pub fn loading_gate_total_secs(m: &mut MetricsRegistry, secs: f64) {
+    m.observe_gauge(names::LOADING_GATE_TOTAL_SECS, secs);
 }
 
 // ---- async / offload ------------------------------------------------------
@@ -114,15 +114,15 @@ pub fn texture_bake_latency_secs(m: &mut MetricsRegistry, secs: f64) {
 }
 
 /// An offloaded job yielded an unexpected result variant (a job failure).
-pub fn offload_job_error(m: &mut MetricsRegistry, now: f64) {
-    m.incr(names::OFFLOAD_JOB_ERROR_COUNT, now);
+pub fn offload_job_error(m: &mut MetricsRegistry) {
+    m.incr(names::OFFLOAD_JOB_ERROR_COUNT);
 }
 
 // ---- runtime health -------------------------------------------------------
 
 /// The local player fell through the terrain and was respawned.
-pub fn player_respawned(m: &mut MetricsRegistry, now: f64) {
-    m.incr(names::RUNTIME_RESPAWN_COUNT, now);
+pub fn player_respawned(m: &mut MetricsRegistry) {
+    m.incr(names::RUNTIME_RESPAWN_COUNT);
 }
 
 #[cfg(test)]
@@ -132,10 +132,10 @@ mod tests {
     #[test]
     fn counters_increment_under_the_expected_names() {
         let mut m = MetricsRegistry::default();
-        peer_connected(&mut m, 1.0);
-        peer_connected(&mut m, 2.0);
-        identity_spoof_rejected(&mut m, 3.0);
-        player_respawned(&mut m, 4.0);
+        peer_connected(&mut m);
+        peer_connected(&mut m);
+        identity_spoof_rejected(&mut m);
+        player_respawned(&mut m);
         assert_eq!(
             m.counter(names::NET_PEER_CONNECTED_COUNT).unwrap().value(),
             2
@@ -165,7 +165,7 @@ mod tests {
     #[test]
     fn gate_total_records_a_gauge() {
         let mut m = MetricsRegistry::default();
-        loading_gate_total_secs(&mut m, 4.2, 10.0);
+        loading_gate_total_secs(&mut m, 4.2);
         assert_eq!(m.gauge(names::LOADING_GATE_TOTAL_SECS).unwrap().last(), 4.2);
     }
 }

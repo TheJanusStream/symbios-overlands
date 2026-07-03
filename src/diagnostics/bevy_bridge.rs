@@ -55,15 +55,15 @@ impl Plugin for MetricsPlugin {
 
 /// One gibibyte in bytes — the `SystemInformationDiagnosticsPlugin` reports
 /// process memory in GiB, but our metric is named `…_bytes`, so convert.
+/// (Native-only: the wasm memory gauge reads the linear-memory byte length directly.)
+#[cfg(not(target_arch = "wasm32"))]
 const BYTES_PER_GIB: f64 = 1024.0 * 1024.0 * 1024.0;
 
 /// Scrape the Bevy diagnostics + game asset/collider counts into the registry.
 /// Runs at 1 Hz. Reads `smoothed()` (falling back to the raw `value()`) so the
 /// gauges are stable rather than per-frame-noisy.
-#[allow(clippy::too_many_arguments)]
 fn scrape_bevy_diagnostics(
     store: Res<DiagnosticsStore>,
-    time: Res<Time>,
     meshes: Res<Assets<Mesh>>,
     materials: Res<Assets<StandardMaterial>>,
     images: Res<Assets<Image>>,
@@ -71,7 +71,6 @@ fn scrape_bevy_diagnostics(
     shape_cache: Option<Res<bevy_symbios_shape::cache::ShapeMeshCache>>,
     mut reg: ResMut<MetricsRegistry>,
 ) {
-    let now = time.elapsed_secs_f64();
     let read = |p: &DiagnosticPath| {
         store
             .get(p)
@@ -79,50 +78,41 @@ fn scrape_bevy_diagnostics(
     };
 
     if let Some(v) = read(&FrameTimeDiagnosticsPlugin::FRAME_TIME) {
-        reg.observe_gauge(names::RUNTIME_FRAME_TIME_MS, v, now);
+        reg.observe_gauge(names::RUNTIME_FRAME_TIME_MS, v);
     }
     if let Some(v) = read(&FrameTimeDiagnosticsPlugin::FPS) {
-        reg.observe_gauge(names::RUNTIME_FPS, v, now);
+        reg.observe_gauge(names::RUNTIME_FPS, v);
     }
     if let Some(v) = read(&EntityCountDiagnosticsPlugin::ENTITY_COUNT) {
-        reg.observe_gauge(names::RUNTIME_ENTITY_COUNT, v, now);
+        reg.observe_gauge(names::RUNTIME_ENTITY_COUNT, v);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     {
         use bevy::diagnostic::SystemInformationDiagnosticsPlugin as Sys;
         if let Some(gib) = read(&Sys::PROCESS_MEM_USAGE) {
-            reg.observe_gauge(
-                names::RUNTIME_MEMORY_PROCESS_RSS_BYTES,
-                gib * BYTES_PER_GIB,
-                now,
-            );
+            reg.observe_gauge(names::RUNTIME_MEMORY_PROCESS_RSS_BYTES, gib * BYTES_PER_GIB);
         }
         if let Some(pct) = read(&Sys::PROCESS_CPU_USAGE) {
-            reg.observe_gauge(names::RUNTIME_CPU_USAGE_PCT, pct, now);
+            reg.observe_gauge(names::RUNTIME_CPU_USAGE_PCT, pct);
         }
     }
 
     // Game-specific gauges the built-ins don't cover: asset-handle counts (leak
     // watch), collider count (a double signals a duplicate terrain body), and
     // the upstream ShapeMeshCache length (the documented unbounded-growth leak).
-    reg.observe_gauge(names::RUNTIME_MESH_HANDLE_COUNT, meshes.len() as f64, now);
-    reg.observe_gauge(
-        names::RUNTIME_MATERIAL_HANDLE_COUNT,
-        materials.len() as f64,
-        now,
-    );
+    reg.observe_gauge(names::RUNTIME_MESH_HANDLE_COUNT, meshes.len() as f64);
+    reg.observe_gauge(names::RUNTIME_MATERIAL_HANDLE_COUNT, materials.len() as f64);
     // Image-asset registry: the dominant memory consumer across a region re-seed
     // and the one the mesh/material counts miss (caches retain `Handle<Image>`) —
     // watches whether textures actually shrink after a rebuild/logout (#625).
-    reg.observe_gauge(names::RUNTIME_IMAGE_HANDLE_COUNT, images.len() as f64, now);
+    reg.observe_gauge(names::RUNTIME_IMAGE_HANDLE_COUNT, images.len() as f64);
     reg.observe_gauge(
         names::RUNTIME_COLLIDER_COUNT,
         colliders.iter().count() as f64,
-        now,
     );
     if let Some(cache) = shape_cache {
-        reg.observe_gauge(names::RUNTIME_SHAPE_MESH_CACHE_LEN, cache.len() as f64, now);
+        reg.observe_gauge(names::RUNTIME_SHAPE_MESH_CACHE_LEN, cache.len() as f64);
     }
 
     // The splat material's texture-slot footprint is a compile-time constant
@@ -131,7 +121,6 @@ fn scrape_bevy_diagnostics(
     reg.observe_gauge(
         names::RUNTIME_TEXTURE_BIND_SLOTS,
         crate::splat::SPLAT_TEXTURE_BIND_SLOTS as f64,
-        now,
     );
 }
 
@@ -162,7 +151,7 @@ fn emit_metric_snapshot(
 /// wasm, so read the WebAssembly linear-memory byte length directly. This is the
 /// heap-never-shrinks signal for the WASM memory watch.
 #[cfg(target_arch = "wasm32")]
-fn scrape_wasm_memory(time: Res<Time>, mut reg: ResMut<MetricsRegistry>) {
+fn scrape_wasm_memory(mut reg: ResMut<MetricsRegistry>) {
     use wasm_bindgen::JsCast;
     if let Ok(mem) = wasm_bindgen::memory().dyn_into::<js_sys::WebAssembly::Memory>() {
         let bytes = mem
@@ -170,11 +159,7 @@ fn scrape_wasm_memory(time: Res<Time>, mut reg: ResMut<MetricsRegistry>) {
             .dyn_into::<js_sys::ArrayBuffer>()
             .map(|b| b.byte_length());
         if let Ok(bytes) = bytes {
-            reg.observe_gauge(
-                names::RUNTIME_MEMORY_WASM_BYTES,
-                bytes as f64,
-                time.elapsed_secs_f64(),
-            );
+            reg.observe_gauge(names::RUNTIME_MEMORY_WASM_BYTES, bytes as f64);
         }
     }
 }

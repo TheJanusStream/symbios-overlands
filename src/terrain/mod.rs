@@ -157,6 +157,8 @@ struct PendingTerrainConfigJson(Option<Option<String>>);
 /// needs the *real* surface a room would render on without standing up the Bevy
 /// terrain pipeline. Matches [`heightmap::start_terrain_generation`]'s config
 /// resolution exactly so the heightmap is identical to the live one.
+/// (Native-only, like the render tool that calls it.)
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn rebuild_heightmap_for_record(record: &crate::pds::RoomRecord) -> HeightMap {
     let cfg = crate::pds::find_terrain_config(record)
         .cloned()

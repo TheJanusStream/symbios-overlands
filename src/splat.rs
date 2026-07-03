@@ -119,6 +119,8 @@ impl MaterialExtension for SplatExtension {
         SPLAT_SHADER_PATH.into()
     }
 
+    // `descriptor` is only touched on native (the stains shader-def gate).
+    #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
     fn specialize(
         _pipeline: &bevy::pbr::MaterialExtensionPipeline,
         descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,

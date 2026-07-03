@@ -102,12 +102,6 @@ pub mod rover {
     pub const CHASSIS_Y: f32 = 0.2;
     pub const CHASSIS_Z: f32 = 1.2;
 
-    // --- Sail geometry -------------------------------------------------------
-    pub const SAIL_THICKNESS: f32 = 0.05;
-    pub const SAIL_SIZE: f32 = 0.8;
-    /// Local-space Y offset of the sail panel above the chassis origin.
-    pub const SAIL_OFFSET_Y: f32 = 0.7;
-
     // --- Spawn ---------------------------------------------------------------
     /// How many metres above the terrain surface the rover is placed at spawn.
     pub const SPAWN_HEIGHT_OFFSET: f32 = 1.0;
@@ -620,8 +614,6 @@ pub mod network {
     /// 1e6 m is ~3 orders of magnitude beyond plausible play space and
     /// leaves ~32 orders of headroom before f32 arithmetic overflows.
     pub const MAX_REMOTE_COORD_ABS: f32 = 1.0e6;
-    /// Emissive intensity applied to the mast tip of a mutual-follow peer.
-    pub const MUTUAL_MAST_EMISSIVE: f32 = 5.0;
 
     // --- Stationary bandwidth throttling ------------------------------------
     /// Linear speed (m/s) at or below which the rover is considered stationary
@@ -795,56 +787,6 @@ pub mod login {
     /// Default relay signaller hostname.
     pub const DEFAULT_RELAY_HOST: &str = "37.143.131.78.nip.io";
     pub const DEFAULT_TARGET_DID: &str = "";
-}
-
-// ---------------------------------------------------------------------------
-// Airship vehicle (player/ + network/)
-// ---------------------------------------------------------------------------
-pub mod airship {
-    use super::rover;
-
-    /// Main hull dimensions match the physics chassis.
-    pub const HULL_WIDTH: f32 = rover::CHASSIS_X * 2.0; // 1.6 m
-    pub const HULL_HEIGHT: f32 = rover::CHASSIS_Y * 2.0; // 0.4 m
-    pub const HULL_LENGTH: f32 = rover::CHASSIS_Z * 2.0; // 2.4 m
-
-    /// Lateral distance from centre to each outrigger pontoon.
-    pub const PONTOON_SPREAD: f32 = 1.1;
-    pub const PONTOON_LENGTH: f32 = 1.8;
-    /// Cross-section width of each pontoon (m).
-    pub const PONTOON_WIDTH: f32 = 0.22;
-    /// Cross-section height of each pontoon (m); keel depth for V-hull shape.
-    pub const PONTOON_HEIGHT: f32 = 0.22;
-
-    /// Thin horizontal struts connecting hull to pontoons (cylinder diameter).
-    pub const STRUT_THICKNESS: f32 = 0.06;
-
-    /// Depth of the V-hull keel below the deck rim (y = 0 in local mesh space).
-    pub const HULL_DEPTH: f32 = 0.5;
-
-    /// Downward offset for struts & pontoons as fraction (0–1) of hull keel depth.
-    pub const STRUT_DROP: f32 = 0.0;
-
-    pub const MAST_RADIUS: f32 = 0.04;
-    pub const MAST_HEIGHT: f32 = 0.9;
-    /// Default 2D offset [X, Z] of the mast position on the deck (m).
-    pub const MAST_OFFSET: [f32; 2] = [0.0, 0.0];
-
-    /// Square solar sail side length.
-    pub const SAIL_SIZE: f32 = 0.6;
-    pub const SAIL_THICKNESS: f32 = 0.03;
-
-    // --- Default material properties (steampunk palette) --------------------
-    /// Brass hull, sRGB.
-    pub const HULL_COLOR: [f32; 3] = [0.72, 0.50, 0.18];
-    /// Dark-bronze pontoons, sRGB.
-    pub const PONTOON_COLOR: [f32; 3] = [0.48, 0.30, 0.10];
-    /// Copper mast, sRGB.
-    pub const MAST_COLOR: [f32; 3] = [0.60, 0.38, 0.18];
-    /// Dark-iron struts, sRGB.
-    pub const STRUT_COLOR: [f32; 3] = [0.35, 0.28, 0.22];
-    pub const METALLIC: f32 = 0.65;
-    pub const ROUGHNESS: f32 = 0.55;
 }
 
 // ---------------------------------------------------------------------------

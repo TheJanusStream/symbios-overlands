@@ -94,7 +94,7 @@ pub(super) fn poll_terrain_task(
             // variant as an offload error (E-4) and leave the terrain unloaded —
             // the loading-gate stall rule surfaces it — rather than panicking.
             _ => {
-                crate::diagnostics::samplers::offload_job_error(&mut metrics, now);
+                crate::diagnostics::samplers::offload_job_error(&mut metrics);
                 session_log.error(
                     now,
                     crate::diagnostics::event::EventPayload::OffloadJobFailed {

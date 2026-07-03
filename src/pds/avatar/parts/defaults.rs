@@ -69,7 +69,6 @@ fn seed_choice(seed: u64, salt: u64, n: u64) -> u64 {
 /// than a struct apiece; the richer styled kits may use either.
 pub(super) struct FnPart {
     slug: &'static str,
-    name: &'static str,
     slot: PartSlot,
     chassis: &'static [ChassisFamily],
     build: fn(&PartCtx) -> Generator,
@@ -78,9 +77,6 @@ pub(super) struct FnPart {
 impl BodyPart for FnPart {
     fn slug(&self) -> &'static str {
         self.slug
-    }
-    fn name(&self) -> &'static str {
-        self.name
     }
     fn slot(&self) -> PartSlot {
         self.slot
@@ -1375,154 +1371,132 @@ fn wheel(ctx: &PartCtx) -> Generator {
 
 static HEAD: FnPart = FnPart {
     slug: "default_head",
-    name: "Plain Head",
     slot: PartSlot::Head,
     chassis: HUMANOID,
     build: head,
 };
 static TORSO: FnPart = FnPart {
     slug: "default_torso",
-    name: "Plain Torso",
     slot: PartSlot::Torso,
     chassis: HUMANOID,
     build: torso,
 };
 static COAT: FnPart = FnPart {
     slug: "default_torso_coat",
-    name: "Buttoned Coat",
     slot: PartSlot::Torso,
     chassis: HUMANOID,
     build: coat,
 };
 static ARM: FnPart = FnPart {
     slug: "default_arm",
-    name: "Plain Arm",
     slot: PartSlot::Arm,
     chassis: HUMANOID,
     build: arm,
 };
 static LEG: FnPart = FnPart {
     slug: "default_leg",
-    name: "Plain Leg",
     slot: PartSlot::Leg,
     chassis: HUMANOID,
     build: leg,
 };
 static HULL: FnPart = FnPart {
     slug: "default_hull",
-    name: "Monohull",
     slot: PartSlot::Hull,
     chassis: BOAT,
     build: hull,
 };
 static HULL_CATAMARAN: FnPart = FnPart {
     slug: "default_hull_catamaran",
-    name: "Catamaran",
     slot: PartSlot::Hull,
     chassis: BOAT,
     build: hull_catamaran,
 };
 static HULL_TRIMARAN: FnPart = FnPart {
     slug: "default_hull_trimaran",
-    name: "Trimaran",
     slot: PartSlot::Hull,
     chassis: BOAT,
     build: hull_trimaran,
 };
 static HULL_BARGE: FnPart = FnPart {
     slug: "default_hull_barge",
-    name: "Barge",
     slot: PartSlot::Hull,
     chassis: BOAT,
     build: hull_barge,
 };
 static DECK: FnPart = FnPart {
     slug: "default_deck",
-    name: "Plain Deck",
     slot: PartSlot::Deck,
     chassis: BOAT,
     build: deck,
 };
 static MAST: FnPart = FnPart {
     slug: "default_mast",
-    name: "Plain Mast",
     slot: PartSlot::Mast,
     chassis: BOAT,
     build: mast,
 };
 static ENVELOPE: FnPart = FnPart {
     slug: "default_envelope",
-    name: "Zeppelin",
     slot: PartSlot::Envelope,
     chassis: AIRSHIP,
     build: envelope,
 };
 static ENVELOPE_BLIMP: FnPart = FnPart {
     slug: "default_envelope_blimp",
-    name: "Blimp",
     slot: PartSlot::Envelope,
     chassis: AIRSHIP,
     build: envelope_blimp,
 };
 static ENVELOPE_LOBED: FnPart = FnPart {
     slug: "default_envelope_lobed",
-    name: "Lobed Envelope",
     slot: PartSlot::Envelope,
     chassis: AIRSHIP,
     build: envelope_lobed,
 };
 static ENVELOPE_TWIN: FnPart = FnPart {
     slug: "default_envelope_twin",
-    name: "Twin Envelope",
     slot: PartSlot::Envelope,
     chassis: AIRSHIP,
     build: envelope_twin,
 };
 static GONDOLA: FnPart = FnPart {
     slug: "default_gondola",
-    name: "Plain Gondola",
     slot: PartSlot::Gondola,
     chassis: AIRSHIP,
     build: gondola,
 };
 static FIN: FnPart = FnPart {
     slug: "default_fin",
-    name: "Plain Fin",
     slot: PartSlot::Fin,
     chassis: AIRSHIP,
     build: fin,
 };
 static CHASSIS: FnPart = FnPart {
     slug: "default_chassis",
-    name: "Plain Chassis",
     slot: PartSlot::Chassis,
     chassis: SKIFF,
     build: chassis,
 };
 static CANOPY: FnPart = FnPart {
     slug: "default_canopy",
-    name: "Plain Canopy",
     slot: PartSlot::Canopy,
     chassis: SKIFF,
     build: canopy,
 };
 static CANOPY_ROADSTER: FnPart = FnPart {
     slug: "skiff_canopy_roadster",
-    name: "Roadster Cowl",
     slot: PartSlot::Canopy,
     chassis: SKIFF,
     build: canopy_roadster,
 };
 static CANOPY_COUPE: FnPart = FnPart {
     slug: "skiff_canopy_coupe",
-    name: "Fastback Coupe",
     slot: PartSlot::Canopy,
     chassis: SKIFF,
     build: canopy_coupe,
 };
 static WHEEL: FnPart = FnPart {
     slug: "default_wheel",
-    name: "Plain Wheel",
     slot: PartSlot::Wheel,
     chassis: SKIFF,
     build: wheel,

@@ -85,15 +85,6 @@ impl TerrainSurfaceQuery {
         Self { query, half_extent }
     }
 
-    /// World-space ground height and unit surface normal at a world XZ.
-    /// Public accessor for consumers that need to anchor something on
-    /// the ground (e.g. the Phase-4 decal stamper) without re-deriving
-    /// the heightmap-local offset.
-    pub fn ground_at(&self, world_x: f32, world_z: f32) -> (f32, Vec3) {
-        let (h, _, n) = self.sample(world_x, world_z);
-        (h, n)
-    }
-
     /// Ground height, normalised `[Grass, Dirt, Rock, Snow]` splat
     /// weights and unit surface normal at a world XZ.
     fn sample(&self, world_x: f32, world_z: f32) -> (f32, [f32; 4], Vec3) {
@@ -203,6 +194,7 @@ pub(crate) fn classify_terrain_contact(
     Some(SurfaceContact::Terrain {
         material_blend: weights,
         normal,
+        ground_y: surface_y,
     })
 }
 
@@ -601,6 +593,7 @@ mod tests {
         SurfaceContact::Terrain {
             material_blend: [1.0, 0.0, 0.0, 0.0],
             normal: Vec3::Y,
+            ground_y: 0.0,
         }
     }
 
@@ -620,17 +613,21 @@ mod tests {
     }
 
     #[test]
-    fn terrain_contact_carries_blend_and_normal() {
+    fn terrain_contact_carries_blend_normal_and_ground_y() {
         let w = [0.1, 0.2, 0.6, 0.1];
         let n = Vec3::new(0.0, 0.8, 0.6).normalize();
-        let c = classify_terrain_contact(0.0, 0.0, false, w, n).unwrap();
+        let c = classify_terrain_contact(2.45, 2.5, false, w, n).unwrap();
         match c {
             SurfaceContact::Terrain {
                 material_blend,
                 normal,
+                ground_y,
             } => {
                 assert_eq!(material_blend, w);
                 assert!((normal - n).length() < 1e-6);
+                // The stored ground height is the classifier's own
+                // heightmap sample (what the decal stamper anchors to).
+                assert!((ground_y - 2.5).abs() < 1e-6);
             }
             _ => panic!("expected Terrain"),
         }

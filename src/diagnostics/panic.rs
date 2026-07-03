@@ -12,6 +12,8 @@
 
 /// Human-readable crash reason from a panic message + optional source location.
 /// Pulled out as a pure fn so it can be unit-tested without a real panic.
+/// (Native-only: the wasm target has no file-sink panic snapshot to format for.)
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn format_panic_reason(msg: &str, location: Option<(&str, u32)>) -> String {
     match location {
         Some((file, line)) => format!("panic at {file}:{line}: {msg}"),

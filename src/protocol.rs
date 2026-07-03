@@ -7,7 +7,8 @@
 //! from the owner's PDS directly. The lightweight `AvatarStateUpdate`
 //! variant nudges peers to re-fetch after a live edit. `RoomStateUpdate`
 //! uses the same preview-then-publish pattern for the owner's room recipe
-//! so guests mirror mid-slider tweaks before the author presses Publish.
+//! so guests mirror mid-slider tweaks before the author presses "Save to
+//! PDS".
 //!
 //! Peer-to-peer inventory gifts travel as an [`OverlandsMessage::ItemOffer`]
 //! / [`OverlandsMessage::ItemOfferResponse`] pair: both are broadcast over
@@ -18,14 +19,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::pds::{AvatarRecord, Generator, RoomRecord};
-
-/// Shape of the outrigger pontoons.
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Default)]
-pub enum PontoonShape {
-    #[default]
-    Capsule,
-    VHull,
-}
 
 /// All messages exchanged over the P2P network.
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -29,8 +29,9 @@
 //!
 //! ## Sub-module map
 //!
-//! * [`visuals`] — generator-tree visual spawner (`spawn_avatar_visuals`
-//!   plus the `AvatarVisualEntity` marker).
+//! * [`visuals`] — generator-tree visual spawner (`spawn_avatar_visuals`).
+//! * [`gait`] — cosmetic bounce / sway / look-around animation on the
+//!   humanoid visual root, driven by the seeded `AvatarGait`.
 //! * [`hover_boat`] — HoverBoat preset: suspension / buoyancy / drive /
 //!   uprighting systems.
 //! * [`humanoid`] — Humanoid preset: walk controller (dry/wading/swim
@@ -46,6 +47,7 @@
 
 mod airplane;
 mod car;
+mod gait;
 mod helicopter;
 mod hover_boat;
 mod humanoid;
@@ -54,7 +56,6 @@ pub mod visuals;
 
 pub use portal::PortalCooldown;
 pub(crate) use portal::begin_portal_travel;
-pub use visuals::AvatarVisualEntity;
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -62,7 +63,6 @@ use bevy_egui::input::egui_wants_any_keyboard_input;
 
 use crate::boot_params::TargetPos;
 use crate::config::rover as cfg;
-use crate::config::terrain as tcfg;
 use crate::pds::{AvatarRecord, LocomotionConfig};
 use crate::state::{AppState, LiveAvatarRecord, LocalPlayer, PendingSpawnPlacement, RemotePeer};
 use crate::ui::avatar::AvatarEditorState;
@@ -108,16 +108,6 @@ pub(super) fn random_spawn_xz() -> (f32, f32) {
     let v = ((z >> 32) as u32 as f32) / (u32::MAX as f32);
     let side = cfg::SPAWN_SCATTER_SIZE;
     ((u - 0.5) * side, (v - 0.5) * side)
-}
-
-/// Seeded-default water-plane altitude: `water::LEVEL_FACTOR` of the
-/// terrain height scale, floored at 0.001. Currently unwired — nothing
-/// calls it; the buoyancy (hover-boat) and swim (humanoid) systems read
-/// per-surface `WaterSurfaces` data instead. Removal or re-wiring is
-/// tracked in #658/#659.
-#[inline]
-pub fn water_level_y() -> f32 {
-    (tcfg::water::LEVEL_FACTOR * tcfg::HEIGHT_SCALE).max(0.001)
 }
 
 /// Marks the local or remote player as currently using the HoverBoat
@@ -168,6 +158,8 @@ impl Plugin for PlayerPlugin {
                     detect_remote_change,
                     rebuild_local_visuals,
                     lift_player_above_new_ground,
+                    gait::attach_gait_animation,
+                    gait::animate_humanoid_gait,
                     portal::handle_portal_interaction,
                     portal::poll_portal_travel_tasks,
                 )
@@ -538,6 +530,7 @@ fn strip_preset_components(commands: &mut Commands, entity: Entity) {
         HelicopterPreset,
         CarPreset,
         VehicleChassis,
+        gait::GaitAnimation,
     )>();
 }
 
@@ -709,7 +702,7 @@ fn respawn_if_fallen(
     lin_vel.0 = Vec3::ZERO;
     ang_vel.0 = Vec3::ZERO;
     let now = time.elapsed_secs_f64();
-    crate::diagnostics::samplers::player_respawned(&mut metrics, now);
+    crate::diagnostics::samplers::player_respawned(&mut metrics);
     // Typed event (#635d) — the metric counts respawns, this records each one's
     // fall depth vs. the terrain height it dropped through, for the timeline.
     session_log.warn(

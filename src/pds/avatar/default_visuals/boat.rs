@@ -23,7 +23,7 @@ use super::common::{PfpFacing, offset, pastel, pfp_panel, quat_xyzw, quat_y};
 pub(super) fn build(seed: u64, did: &str) -> Generator {
     let outfit = AvatarOutfit::for_seed(seed);
     // Reuse the derived outfit for the ctx's hat flag (#638).
-    let ctx = PartCtx::for_seed_with_hat(seed, did, outfit_has_hat(&outfit));
+    let ctx = PartCtx::for_seed_with_hat(seed, outfit_has_hat(&outfit));
 
     // The hull is the structural root (at the waterline origin).
     let mut root = base_root(&outfit, &ctx, PartSlot::Hull);

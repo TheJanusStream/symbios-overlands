@@ -43,7 +43,9 @@ pub struct AvatarBody {
     /// uniformly (it's the "I'm tall / short" knob).
     pub height_scale: f32,
     /// Torso : leg length ratio (`0.5` is balanced). Unused by the
-    /// hover-boat default; pre-computed for the future humanoid path.
+    /// vehicle chassis; the humanoid assembler scales its upper-body
+    /// anchors by `ratio / 0.5` (#659), so a high ratio reads as a
+    /// long-torsoed figure.
     pub torso_leg_ratio: f32,
     /// Head / finial scale.
     pub head_scale: f32,
