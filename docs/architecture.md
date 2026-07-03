@@ -94,7 +94,7 @@ geometry/materials so identical blueprints are baked once and instanced.
 **Edit loop:** every widget in the owner-only World Editor mutates the live
 `RoomRecord` in place → Bevy change detection triggers an incremental
 recompile (only changed placement units rebuild) → the same record delta is
-broadcast to peers, who mirror it — all before the owner presses **Publish to
+broadcast to peers, who mirror it — all before the owner presses **Save to
 PDS**.
 
 **Peer sync:** transforms stream on a fixed tick into per-peer jitter buffers;

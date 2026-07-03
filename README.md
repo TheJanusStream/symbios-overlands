@@ -31,7 +31,7 @@ carrying a tree of generators — terrain, water, portals, road networks,
 parametric primitives, L-system plants, building grammars, image-bearing signs,
 particle emitters. Every widget in the owner-only World Editor mutates the live
 recipe in place: the world recompiles around you, and remote peers mirror each
-edit before you press **Publish**. A whole region — a house, a forest, a market
+edit before you press **Save to PDS**. A whole region — a house, a forest, a market
 square — becomes one named generator you can scatter, grid-array, or stash in
 your inventory.
 

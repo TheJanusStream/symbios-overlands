@@ -8,7 +8,7 @@
 //! `network::broadcast_room_state` system watching `Res::is_changed`. Three
 //! explicit buttons drive persistence and discard flows:
 //!
-//! - **Publish to PDS** pushes the current `RoomRecord` to the owner's PDS
+//! - **Save to PDS** pushes the current `RoomRecord` to the owner's PDS
 //!   via `com.atproto.repo.putRecord` and syncs the value into
 //!   [`StoredRoomRecord`] on success.
 //! - **Load from PDS** drops all in-flight edits by copying

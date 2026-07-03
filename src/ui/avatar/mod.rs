@@ -19,7 +19,7 @@
 //! author commits. Three explicit buttons drive persistence and discard
 //! flows:
 //!
-//!   * **Publish to PDS** writes the current `LiveAvatarRecord` to the
+//!   * **Save to PDS** writes the current `LiveAvatarRecord` to the
 //!     owner's PDS via `com.atproto.repo.putRecord` and then syncs the
 //!     value into [`StoredAvatarRecord`] on success.
 //!   * **Load from PDS** drops all in-flight edits by copying

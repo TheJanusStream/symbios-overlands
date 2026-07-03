@@ -15,7 +15,7 @@
 //! DID-seeded default immediately. Substituting the default on a
 //! transient network failure would be catastrophic for room and avatar —
 //! the owner would silently be staged on the blank default, and a
-//! "Publish to PDS" click would overwrite their real record.
+//! "Save to PDS" click would overwrite their real record.
 
 use std::marker::PhantomData;
 

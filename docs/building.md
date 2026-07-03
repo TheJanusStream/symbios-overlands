@@ -10,13 +10,16 @@ the login UI defaults to a public instance if one is available.
 ## Native
 
 ```bash
-cargo run --release
+cargo run --release --bin symbios-overlands
 ```
+
+(The `--bin` is required — the crate ships a second binary, the headless
+[render tool](#developer-tooling), so a bare `cargo run` is ambiguous.)
 
 The native build also accepts the same parameters a landmark link encodes:
 
 ```bash
-cargo run --release -- \
+cargo run --release --bin symbios-overlands -- \
     --did=did:plc:example \
     --pos=10,5,-3 \          # x,z (heightmap-resolved) or x,y,z (exact)
     --rot=90 \               # spawn yaw in degrees

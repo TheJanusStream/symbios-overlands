@@ -3,7 +3,7 @@
 //! The Inventory window lists every `Generator` the owner has tucked aside
 //! across editing sessions. Each entry can be renamed in place via a modal,
 //! removed, or kept — and once the stash diverges from the PDS-persisted
-//! copy, "Publish to PDS" pushes the new state through
+//! copy, "Save to PDS" pushes the new state through
 //! `com.atproto.repo.putRecord`. The stash is loaded during `AppState::Loading`
 //! (see [`crate::loading::start_inventory_record_fetch`]) so a freshly-logged-in
 //! owner always sees the previously-saved items the moment they land in-game.

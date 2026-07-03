@@ -29,7 +29,7 @@ use crate::state::PublishStatus;
 pub enum RecordAction {
     /// Nothing clicked this frame.
     None,
-    /// "Publish to PDS" — push `live` to the PDS; on success the poll
+    /// "Save to PDS" — push `live` to the PDS; on success the poll
     /// system pins `stored = live`.
     Publish,
     /// "Load from PDS" — discard uncommitted edits (`live = stored`).

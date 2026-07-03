@@ -116,7 +116,7 @@ pub struct PendingSpawnPlacement {
     pub yaw_deg: Option<f32>,
 }
 
-/// Outcome of the most recent "Publish to PDS" round-trip for one
+/// Outcome of the most recent "Save to PDS" round-trip for one
 /// editable record. Carried inside the per-record [`PublishFeedback`]
 /// resource and rendered verbatim by the shared
 /// [`crate::ui::editable::publish_status_line`], so every editor's
@@ -230,7 +230,7 @@ impl Default for LocalSettings {
 
 /// The owner's **live** inventory record — the in-memory copy the Inventory
 /// window mutates in place. Divergence from [`StoredInventoryRecord`] drives
-/// the "Publish to PDS" button's dirty indicator.
+/// the "Save to PDS" button's dirty indicator.
 #[derive(Resource, Clone)]
 pub struct LiveInventoryRecord(pub InventoryRecord);
 

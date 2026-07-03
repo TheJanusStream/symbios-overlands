@@ -194,7 +194,7 @@ pub(super) fn poll_portal_travel_tasks(
         // owner's PDS contents — substituting the default on a transient
         // network failure would silently destroy the destination user's
         // real room as soon as they (or any autosave hook) clicked
-        // "Publish to PDS". Mirrors the loading-pipeline policy in
+        // "Save to PDS". Mirrors the loading-pipeline policy in
         // `loading::poll_room_record_task`.
         let elapsed = time.elapsed_secs_f64();
         let mut new_record = match result {

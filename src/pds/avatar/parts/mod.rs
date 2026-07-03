@@ -142,7 +142,7 @@ impl<'a> PartCtx<'a> {
         Self::for_seed_with_hat(seed, did, outfit_has_hat(&AvatarOutfit::for_seed(seed)))
     }
 
-    /// Like [`for_seed`] but with `has_hat` precomputed by the caller. The four
+    /// Like [`Self::for_seed`] but with `has_hat` precomputed by the caller. The four
     /// family builders already derive the `AvatarOutfit` for their own parts
     /// iteration, so they pass its hat flag in here instead of forcing a second
     /// full `AvatarOutfit::for_seed` derivation per build (#638).
