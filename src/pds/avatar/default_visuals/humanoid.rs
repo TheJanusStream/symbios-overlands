@@ -16,7 +16,7 @@
 //! re-roll never disturbs it. The seeded FX aura + voice are attached
 //! centrally by [`super::build_for_seed`].
 
-use crate::pds::avatar::parts::{PartCtx, PartSlot, by_slug};
+use crate::pds::avatar::parts::{PartCtx, PartSlot, by_slug, outfit_has_hat};
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
 use crate::seeded_defaults::AvatarOutfit;
@@ -29,8 +29,10 @@ use super::common::{
 /// `seed` drives the derived look (re-roll re-seeds this); `did` is kept
 /// only for identity references the seed must not touch — the pfp badge.
 pub(super) fn build(seed: u64, did: &str) -> Generator {
-    let ctx = PartCtx::for_seed(seed, did);
     let outfit = AvatarOutfit::for_seed(seed);
+    // Reuse the outfit we just derived for the ctx's hat flag instead of letting
+    // `PartCtx::for_seed` derive a second one (#638).
+    let ctx = PartCtx::for_seed_with_hat(seed, did, outfit_has_hat(&outfit));
 
     let w = ctx.body.shoulder_width_scale;
     let limb = ctx.body.limb_thickness_scale;

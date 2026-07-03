@@ -29,22 +29,31 @@ use super::peer_cache::{PeerAvatarCache, spawn_peer_avatar_fetch};
 
 /// Message kinds that can be coalesced to the latest-per-sender within a
 /// single drain. Each fully supersedes any earlier instance from the same
-/// peer — `Identity` re-kicks one avatar fetch per DID change, and
-/// `AvatarStateUpdate` overwrites `peer.avatar` wholesale — so decoding and
+/// peer — `Identity` re-kicks one avatar fetch per DID change,
+/// `AvatarStateUpdate` overwrites `peer.avatar` wholesale, and
+/// `RoomStateUpdate` wholesale-replaces the live room record — so decoding and
 /// sanitising the stale ones is pure wasted work a flooding peer could
 /// weaponise into a main-thread DoS (the sanitize pass on a deeply-nested
-/// generator tree is not cheap). Dropping all but the last is behaviour-
-/// preserving because only the final value ever survives.
+/// generator tree is not cheap). `RoomStateUpdate` is the heaviest of the three
+/// (~1 MiB JSON per broadcast, emitted every `record.is_changed()` frame during
+/// an owner's slider drag), so a guest whose frame is slower than the owner's
+/// send rate would otherwise decode several full snapshots per drain when only
+/// the last feeds the rebuild. Dropping all but the last is behaviour-preserving
+/// because only the final value ever survives. (`RoomStateUpdate`'s authority
+/// check already runs before decode, so the guest-spam DoS is separately
+/// mitigated; this deduplicates legitimate owner-snapshot pile-up.)
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 enum CoalesceKey {
     Identity,
     AvatarState,
+    RoomState,
 }
 
 fn coalesce_key(msg: &OverlandsMessage) -> Option<CoalesceKey> {
     match msg {
         OverlandsMessage::Identity { .. } => Some(CoalesceKey::Identity),
         OverlandsMessage::AvatarStateUpdate { .. } => Some(CoalesceKey::AvatarState),
+        OverlandsMessage::RoomStateUpdate { .. } => Some(CoalesceKey::RoomState),
         _ => None,
     }
 }

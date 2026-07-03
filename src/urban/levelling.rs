@@ -154,7 +154,16 @@ pub(crate) fn level_network(
 ) -> Vec<Vec<f32>> {
     use std::collections::BTreeMap;
     let is_junction = |nd: usize| degree.get(nd).copied().unwrap_or(0) >= 3;
-    let floor_of = |s: &ChainSample| -> Vec<f32> { s.frames.iter().map(|r| r.floor).collect() };
+    // Per-chain floor profiles are immutable across the levelling passes, so
+    // build them once here instead of re-collecting a fresh `Vec` per chain on
+    // every one of the ~64 iterations + the final re-level (#643).
+    let floors: Vec<Vec<f32>> = samples
+        .iter()
+        .map(|opt| {
+            opt.as_ref()
+                .map_or_else(Vec::new, |s| s.frames.iter().map(|r| r.floor).collect())
+        })
+        .collect();
 
     // Seed each junction at the terrain under its incident mouths' centroid + bias.
     let mut centroid: BTreeMap<usize, (f32, f32, u32)> = BTreeMap::new();
@@ -197,7 +206,7 @@ pub(crate) fn level_network(
                 pin_for(&hub_h, chain.end_nodes[0]),
                 pin_for(&hub_h, chain.end_nodes[1]),
             ];
-            base_ys[ci] = level_chain(&floor_of(s), &s.seg, pin);
+            base_ys[ci] = level_chain(&floors[ci], &s.seg, pin);
         }
         // Lift each junction to the highest mouth now meeting it; track movement.
         let mut moved = 0.0_f32;
@@ -237,7 +246,7 @@ pub(crate) fn level_network(
             pin_for(&hub_h, chain.end_nodes[0]),
             pin_for(&hub_h, chain.end_nodes[1]),
         ];
-        base_ys[ci] = level_chain(&floor_of(s), &s.seg, pin);
+        base_ys[ci] = level_chain(&floors[ci], &s.seg, pin);
     }
     base_ys
 }

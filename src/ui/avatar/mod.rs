@@ -98,6 +98,11 @@ pub struct AvatarEditorState {
     /// owner's DID seed, editable to re-roll the whole avatar. See
     /// [`crate::ui::editable::seed_row`].
     seed_row_state: crate::ui::editable::SeedRowState,
+    /// Cached seeded-default record, keyed by the DID it was built for (#637).
+    /// `AvatarRecord::default_for_did` runs the full part-composition pipeline,
+    /// so build it once per session rather than every frame the editor is open;
+    /// invalidated when the session DID changes.
+    default_cache: Option<(String, AvatarRecord)>,
 }
 
 impl AvatarEditorState {
@@ -203,6 +208,7 @@ pub fn avatar_ui(
                     renaming_unused,
                     audio_editor,
                     seed_row_state,
+                    default_cache,
                     ..
                 } = &mut *editor;
 
@@ -291,12 +297,18 @@ pub fn avatar_ui(
                     .as_ref()
                     .is_some_and(|s| records_differ(&s.0, &live_mut.0));
                 let can_publish = session.is_some() && refresh_ctx.is_some();
-                let default_record = session
-                    .as_ref()
-                    .map(|s| AvatarRecord::default_for_did(&s.did));
-                let can_reset = default_record
-                    .as_ref()
-                    .is_some_and(|d| records_differ(d, &live_mut.0));
+                // Rebuild the seeded default only when the session DID changes,
+                // not every frame (#637) — full part-composition build.
+                match session.as_ref() {
+                    Some(s) if default_cache.as_ref().is_none_or(|(d, _)| d != &s.did) => {
+                        *default_cache =
+                            Some((s.did.clone(), AvatarRecord::default_for_did(&s.did)));
+                    }
+                    None => *default_cache = None,
+                    _ => {}
+                }
+                let default_record = default_cache.as_ref().map(|(_, r)| r);
+                let can_reset = default_record.is_some_and(|d| records_differ(d, &live_mut.0));
 
                 match save_load_reset_row(ui, dirty, can_publish, can_reset) {
                     RecordAction::None => {}
@@ -321,7 +333,7 @@ pub fn avatar_ui(
                     }
                     RecordAction::Reset => {
                         if let Some(default_record) = default_record {
-                            live_mut.0 = default_record;
+                            live_mut.0 = default_record.clone();
                         }
                     }
                 }

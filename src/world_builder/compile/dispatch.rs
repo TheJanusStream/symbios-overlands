@@ -45,7 +45,15 @@ pub(crate) fn dispatch_top_level(
     generator_ref: &str,
     cell_tf: Transform,
 ) -> Option<Entity> {
-    let Some(generator) = ctx.record.generators.get(generator_ref) else {
+    // Copy the shared record reference out of `ctx` so the borrowed generator
+    // is tied to the record's lifetime (`'a`), not to `ctx`. That lets the
+    // recursive `spawn_generator` take `&mut ctx` below WITHOUT first deep-
+    // cloning the whole subtree — which `dispatch_top_level` runs once per grid
+    // cell / scatter sample (up to the ~500k entity cap), so the clone was the
+    // pipeline's dominant per-sample allocation (#636). Same proven trick as
+    // `start_unit` (mod.rs).
+    let record = ctx.record;
+    let Some(generator) = record.generators.get(generator_ref) else {
         warn!(
             "Placement references unknown generator `{}` — skipped",
             generator_ref
@@ -69,19 +77,13 @@ pub(crate) fn dispatch_top_level(
         }
     }
 
-    // Clone out the named generator so the recursive spawner doesn't have
-    // to re-borrow `ctx.record.generators` at every depth. The clone runs
-    // once per dispatch — i.e. per grid cell and per scatter sample, not
-    // per placement — so deep blueprints pay it for every sample.
-    //
     // Water children of scattered/gridded blueprints used to be stripped here
     // because each cell would spawn a redundant world-extent plane. With
     // finite, transform-bounded surfaces tracked in `WaterSurfaces`, scattered
     // ponds are now legitimate — each cell's local transform produces a
     // distinct entry in the registry — so the strip step has been removed.
-    let generator = generator.clone();
     let root_tf = cell_tf * transform_from_data(&generator.transform);
-    let entity = spawn_generator(ctx, &generator, generator_ref, &[], root_tf);
+    let entity = spawn_generator(ctx, generator, generator_ref, &[], root_tf);
     if let Some(entity) = entity
         && !is_terrain_root
     {

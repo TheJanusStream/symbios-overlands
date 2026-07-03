@@ -169,6 +169,12 @@ pub struct RoomEditorState {
     /// owner's DID seed, editable to re-roll the whole room. See
     /// [`crate::ui::editable::seed_row`].
     seed_row_state: crate::ui::editable::SeedRowState,
+    /// Cached seeded-default record, keyed by the DID it was built for (#637).
+    /// `RoomRecord::default_for_did` runs the whole procedural pipeline (9
+    /// derivers, catalogue builds, a mini-settlement, an ambient-audio recipe),
+    /// so build it once per room instead of every frame the editor is open;
+    /// invalidated when the keyed DID changes (portal / logout).
+    default_cache: Option<(String, pds::RoomRecord)>,
 }
 
 impl RoomEditorState {
@@ -255,6 +261,7 @@ pub fn room_admin_ui(
         renaming_generator,
         audio_editor,
         seed_row_state,
+        default_cache,
         ..
     } = &mut *editor;
 
@@ -542,12 +549,18 @@ pub fn room_admin_ui(
                 // flag: a failed publish stays dirty and retryable, and an
                 // out-of-band edit (the 3D gizmo, an inventory drop) lights
                 // the row up with no explicit `mark_dirty` call.
-                let default_record = pds::RoomRecord::default_for_did(&room_did.0);
+                // Rebuild the seeded default only when the room DID changes,
+                // not every frame (#637) — it's a full procedural build.
+                let did = &room_did.0;
+                if default_cache.as_ref().is_none_or(|(d, _)| d != did) {
+                    *default_cache = Some((did.clone(), pds::RoomRecord::default_for_did(did)));
+                }
+                let default_record = &default_cache.as_ref().expect("just populated").1;
                 let dirty = stored
                     .as_ref()
                     .map(|s| records_differ(&s.0, &*record_mut))
                     .unwrap_or(true);
-                let can_reset = records_differ(&default_record, &*record_mut);
+                let can_reset = records_differ(default_record, &*record_mut);
                 // `session` + `refresh_ctx` are guaranteed present (the
                 // early return at the top bails otherwise), so the PDS
                 // write can always be attempted while dirty.
@@ -578,7 +591,7 @@ pub fn room_admin_ui(
                         }
                     }
                     RecordAction::Reset => {
-                        *record_mut = default_record;
+                        *record_mut = default_record.clone();
                         *raw_text = serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
                         *raw_error = None;
                         *selected_generator = None;

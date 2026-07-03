@@ -434,6 +434,25 @@ pub(super) fn apply_splat_textures(
     state.applied = true;
 }
 
+/// Free the four per-layer source images of a *Referenced* room once every layer
+/// fetch has resolved (#642). `apply_splat_textures` drops them the same frame
+/// for procedural rooms, but deliberately skips the free while any Referenced
+/// layer is configured — a late blob fetch flips `state.applied = false` and
+/// needs all four sources to rebuild the arrays. Once no `PendingSplatLayerFetch`
+/// entity remains, no rebuild can be re-triggered (the sole trigger is a
+/// resolving fetch), so the retained ~11 MiB of MAIN_WORLD CPU bytes is pure
+/// dead weight and is released here. Self-guarded (a no-op for procedural rooms,
+/// whose slots are already `None`) and idempotent.
+pub(super) fn free_referenced_splat_sources(
+    mut state: ResMut<TerrainSplatState>,
+    pending: Query<(), With<super::referenced::PendingSplatLayerFetch>>,
+) {
+    if state.applied && pending.is_empty() && state.layer_albedo.iter().any(Option::is_some) {
+        state.layer_albedo = Default::default();
+        state.layer_normal = Default::default();
+    }
+}
+
 /// Concatenate the four layer images into a single `texture_2d_array` `Image`.
 ///
 /// Returns `None` if any handle is missing or the image data is not yet

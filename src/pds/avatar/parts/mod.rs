@@ -139,6 +139,14 @@ pub struct PartCtx<'a> {
 impl<'a> PartCtx<'a> {
     /// Derive the full build context from an avatar seed + owner DID.
     pub fn for_seed(seed: u64, did: &'a str) -> Self {
+        Self::for_seed_with_hat(seed, did, outfit_has_hat(&AvatarOutfit::for_seed(seed)))
+    }
+
+    /// Like [`for_seed`] but with `has_hat` precomputed by the caller. The four
+    /// family builders already derive the `AvatarOutfit` for their own parts
+    /// iteration, so they pass its hat flag in here instead of forcing a second
+    /// full `AvatarOutfit::for_seed` derivation per build (#638).
+    pub fn for_seed_with_hat(seed: u64, did: &'a str, has_hat: bool) -> Self {
         Self {
             character: AvatarCharacter::for_seed(seed),
             palette: AvatarPalette::for_seed(seed),
@@ -146,12 +154,16 @@ impl<'a> PartCtx<'a> {
             body: AvatarBody::for_seed(seed),
             did,
             seed,
-            has_hat: AvatarOutfit::for_seed(seed)
-                .parts
-                .iter()
-                .any(|p| p.slot == PartSlot::Hat),
+            has_hat,
         }
     }
+}
+
+/// Whether the outfit fills the Hat slot — the one bit of the outfit the
+/// [`PartCtx`] needs (hair parts self-suppress under a hat). Takes the outfit by
+/// reference so the family builders can reuse the one they already derived.
+pub(crate) fn outfit_has_hat(outfit: &AvatarOutfit) -> bool {
+    outfit.parts.iter().any(|p| p.slot == PartSlot::Hat)
 }
 
 /// One composable avatar part blueprint. Implementors are aggregated into

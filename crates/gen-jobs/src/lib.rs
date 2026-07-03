@@ -69,7 +69,44 @@ pub struct HeightmapData {
     pub width: u32,
     pub height: u32,
     pub scale: f32,
+    /// Sent as a compact little-endian byte blob (msgpack `bin`) rather than an
+    /// element-wise float array (#641) — matching how `TextureData`'s RGBA and
+    /// `GenResult::Audio`'s WAV already cross the worker boundary. One bulk copy
+    /// per side instead of ~262k tagged `serialize_f32`/`deserialize_f32` visitor
+    /// calls at the default 512² grid, ~20% smaller wire. Both wasm and native
+    /// are little-endian, and the raw IEEE-754 bytes round-trip `f32` bit-exactly,
+    /// so the cross-peer determinism invariant is preserved.
+    #[serde(with = "f32_blob")]
     pub data: Vec<f32>,
+}
+
+/// serde `with`-module: serialize a `Vec<f32>` as a contiguous little-endian
+/// byte blob (via `serialize_bytes`, which msgpack encodes as a `bin` payload)
+/// and reconstruct it. Reuses the already-present `serde_bytes` for byte
+/// transport — no new dependency.
+mod f32_blob {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(v: &[f32], s: S) -> Result<S::Ok, S::Error> {
+        let mut bytes = Vec::with_capacity(v.len() * 4);
+        for f in v {
+            bytes.extend_from_slice(&f.to_le_bytes());
+        }
+        s.serialize_bytes(&bytes)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<f32>, D::Error> {
+        let bytes = serde_bytes::ByteBuf::deserialize(d)?;
+        if bytes.len() % 4 != 0 {
+            return Err(serde::de::Error::custom(
+                "heightmap byte length is not a multiple of 4",
+            ));
+        }
+        Ok(bytes
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -425,5 +462,29 @@ mod tests {
                 "{kind:?} produced a non-finite height at the erosion/height clamp corner",
             );
         }
+    }
+
+    /// The heightmap `data` blob (#641) must survive the exact msgpack codec the
+    /// wasm worker uses, byte-for-byte — the cross-peer determinism invariant is
+    /// that the worker's returned heightmap equals native's direct `run()`.
+    #[test]
+    fn heightmap_data_round_trips_through_msgpack() {
+        let original = run(params(2026));
+        // Same codec as gen-worker's MsgpackCodec (to_vec_named / from_slice).
+        let bytes = rmp_serde::to_vec_named(&original).expect("encode");
+        let back: HeightmapData = rmp_serde::from_slice(&bytes).expect("decode");
+        assert_eq!(
+            original, back,
+            "heightmap must round-trip bit-exactly through the worker codec"
+        );
+        // And via the actual boundary type the worker returns.
+        let res = GenResult::Heightmap(original.clone());
+        let res_bytes = rmp_serde::to_vec_named(&res).expect("encode result");
+        let GenResult::Heightmap(res_back) =
+            rmp_serde::from_slice(&res_bytes).expect("decode result")
+        else {
+            unreachable!("a heightmap result must decode as a heightmap");
+        };
+        assert_eq!(original, res_back);
     }
 }

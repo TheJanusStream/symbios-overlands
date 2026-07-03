@@ -24,3 +24,8 @@ serde_bytes = "0.11"
 # this; for standalone builds (the slim worker) we enable it directly.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.3", features = ["wasm_js"] }
+
+[dev-dependencies]
+# Mirror the wasm worker's self-describing msgpack codec (see gen-worker) so the
+# heightmap byte-blob round-trip is exercised against the real serialisation.
+rmp-serde = "1"

@@ -80,7 +80,7 @@ pub struct CatalogueBrowser {
 /// ids are `"<dir-path>#<slug>"` so an entry that appears under several
 /// groups (e.g. a multi-theme entry) gets a unique id per occurrence while
 /// the trailing slug stays recoverable via [`leaf_slug`].
-enum CatNode {
+pub(crate) enum CatNode {
     Dir {
         id: String,
         label: String,
@@ -323,14 +323,23 @@ fn by_role(entries: &[&'static dyn CatalogueEntry]) -> Vec<CatNode> {
 // UI
 // ---------------------------------------------------------------------------
 
+/// Cached catalogue node tree keyed on the `(mode, search)` that built it, with
+/// the precomputed leaf `total` alongside (#639).
+type NodeCache = Option<(BrowseMode, String, Vec<CatNode>, usize)>;
+
 #[allow(clippy::too_many_arguments)]
-pub fn catalogue_ui(
+pub(crate) fn catalogue_ui(
     mut contexts: EguiContexts,
     mut panels: ResMut<crate::ui::toolbar::UiPanels>,
     mut browser: ResMut<CatalogueBrowser>,
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
     mut pending_drop: ResMut<PendingGeneratorDrop>,
+    // Per-frame caches (#639): the node tree is a pure function of (mode,
+    // search) over the `const ENTRIES`; the placeability bool is a pure
+    // function of the selected slug. Rebuild only when those keys change.
+    mut node_cache: Local<NodeCache>,
+    mut placeable_cache: Local<Option<(String, bool)>>,
 ) {
     let can_drag_place = match (session.as_ref(), room_did.as_ref()) {
         (Some(s), Some(r)) => s.did == r.0,
@@ -371,8 +380,33 @@ pub fn catalogue_ui(
             });
             ui.separator();
 
-            let nodes = build_nodes(browser.mode, &browser.search);
-            let total: usize = nodes.iter().map(count_leaves).sum();
+            if node_cache
+                .as_ref()
+                .map(|(m, s, ..)| *m != browser.mode || *s != browser.search)
+                .unwrap_or(true)
+            {
+                let built = build_nodes(browser.mode, &browser.search);
+                let total: usize = built.iter().map(count_leaves).sum();
+                *node_cache = Some((browser.mode, browser.search.clone(), built, total));
+            }
+            let (.., nodes, total) = node_cache.as_ref().expect("node cache just populated");
+            let total = *total;
+
+            // Placeability is a pure function of the selected slug — cache it so
+            // the detail panel doesn't deep-build the whole `Generator` tree
+            // every frame just to read one enum discriminant (#639).
+            let placeable = match browser.selected.as_deref() {
+                Some(slug) => {
+                    if placeable_cache.as_ref().map(|(s, _)| s != slug).unwrap_or(true) {
+                        let p = by_slug(slug)
+                            .map(|e| is_drop_placeable(&e.build("")))
+                            .unwrap_or(false);
+                        *placeable_cache = Some((slug.to_string(), p));
+                    }
+                    placeable_cache.as_ref().map(|(_, p)| *p).unwrap_or(false)
+                }
+                None => false,
+            };
 
             ui.horizontal_top(|ui| {
                 // ── Left: the tree ──
@@ -392,7 +426,7 @@ pub fn catalogue_ui(
                             .show(ui, |ui| {
                                 let (_resp, actions) =
                                     TreeView::new(ui.make_persistent_id("catalogue_tree"))
-                                        .show(ui, |builder| render_nodes(builder, &nodes));
+                                        .show(ui, |builder| render_nodes(builder, nodes));
                                 for action in actions {
                                     if let Action::SetSelected(ids) = action
                                         && let Some(slug) = ids.first().and_then(|id| leaf_slug(id))
@@ -414,6 +448,7 @@ pub fn catalogue_ui(
                             browser.selected.as_deref(),
                             &mut pending_drop,
                             can_drag_place,
+                            placeable,
                         );
                     });
             });
@@ -447,6 +482,9 @@ fn detail_panel(
     selected: Option<&str>,
     pending_drop: &mut PendingGeneratorDrop,
     can_drag_place: bool,
+    // Precomputed + cached by the caller (#639) so the whole generator tree
+    // isn't deep-built every frame just to read its kind discriminant.
+    placeable: bool,
 ) {
     let Some(entry) = selected.and_then(by_slug) else {
         ui.add_space(8.0);
@@ -498,8 +536,9 @@ fn detail_panel(
     ui.separator();
 
     // Placement affordance — a drag handle that arms the same
-    // PendingGeneratorDrop the inventory/viewport path consumes.
-    let placeable = is_drop_placeable(&entry.build(""));
+    // PendingGeneratorDrop the inventory/viewport path consumes. `placeable`
+    // is passed in (cached by the caller) rather than deep-building the
+    // generator here every frame.
     if !placeable {
         ui.label(
             egui::RichText::new("Room-scoped — not point-placeable.")

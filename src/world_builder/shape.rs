@@ -13,6 +13,7 @@
 
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::Arc;
 
 use bevy::prelude::*;
 use bevy_symbios_shape::cache::{
@@ -78,7 +79,10 @@ pub(super) struct ShapeInstance {
 /// resolved against [`ShapeMaterialCache`] at spawn time.
 pub(super) struct CachedShapeGeometry {
     pub geometry_hash: u64,
-    pub instances: Vec<ShapeInstance>,
+    /// Per-terminal spawn list, shared via `Arc` so a cache HIT hands out an
+    /// O(1) refcount bump instead of deep-cloning the `Vec` (+ its per-instance
+    /// `material_id` Strings) on every scatter sample / grid cell (#636).
+    pub instances: Arc<[ShapeInstance]>,
 }
 
 /// Persistent cross-compile cache for shape grammar geometry.
@@ -354,7 +358,7 @@ pub(super) fn spawn_shape_entity(
     let instances = match cached {
         Some(i) => i,
         None => {
-            let Some(instances) = build_shape_geometry(
+            let Some(built) = build_shape_geometry(
                 grammar_source,
                 root_rule,
                 *footprint,
@@ -370,6 +374,7 @@ pub(super) fn spawn_shape_entity(
                 ctx.shape_mesh_cache.entries.remove(generator_ref);
                 return None;
             };
+            let instances: Arc<[ShapeInstance]> = built.into();
             ctx.shape_mesh_cache.entries.insert(
                 generator_ref.to_string(),
                 CachedShapeGeometry {
@@ -404,7 +409,7 @@ pub(super) fn spawn_shape_entity(
     // — the per-generator-node accounting in `spawn_generator` would only
     // charge one per scatter point regardless of terminal count, blowing
     // past `MAX_ROOM_ENTITIES` and OOMing the ECS.
-    for instance in &instances {
+    for instance in instances.iter() {
         if budget_exceeded(*ctx.entities_spawned, ctx.budget_warned) {
             break;
         }

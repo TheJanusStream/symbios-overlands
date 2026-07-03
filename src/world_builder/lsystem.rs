@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::Arc;
 
 use bevy::prelude::*;
 use bevy_symbios::LSystemMeshBuilder;
@@ -55,8 +56,10 @@ impl LSystemMaterialCache {
 /// current generator settings.
 pub(super) struct CachedLSystemGeometry {
     pub geometry_hash: u64,
-    pub mesh_buckets: Vec<(u16, Handle<Mesh>)>,
-    pub props: Vec<SkeletonProp>,
+    // Shared via `Arc` so a cache HIT is an O(1) refcount bump per scatter
+    // sample / grid cell instead of deep-cloning both Vecs (#636).
+    pub mesh_buckets: Arc<[(u16, Handle<Mesh>)]>,
+    pub props: Arc<[SkeletonProp]>,
 }
 
 /// Persistent cross-compile cache for L-system mesh geometry.
@@ -371,10 +374,11 @@ pub(super) fn spawn_lsystem_entity(
                 ctx.lsystem_mesh_cache.entries.remove(generator_ref);
                 return None;
             };
-            let bucket_handles: Vec<(u16, Handle<Mesh>)> = mesh_buckets_raw
+            let bucket_handles: Arc<[(u16, Handle<Mesh>)]> = mesh_buckets_raw
                 .into_iter()
                 .map(|(mat_id, mesh)| (mat_id, ctx.meshes.add(mesh)))
                 .collect();
+            let skeleton_props: Arc<[SkeletonProp]> = skeleton_props.into();
             ctx.lsystem_mesh_cache.entries.insert(
                 generator_ref.to_string(),
                 CachedLSystemGeometry {
@@ -453,7 +457,7 @@ pub(super) fn spawn_lsystem_entity(
     const FALLBACK_SENTINEL_HASH: u64 = u64::MAX;
     let mut referenced_ids: std::collections::HashSet<u16> =
         mesh_bucket_handles.iter().map(|(id, _)| *id).collect();
-    for prop in &props {
+    for prop in props.iter() {
         referenced_ids.insert(prop.material_id as u16);
     }
     for id in referenced_ids {
@@ -485,7 +489,7 @@ pub(super) fn spawn_lsystem_entity(
     // produces a million props — the per-generator-node accounting in
     // `spawn_generator` would only charge 100k of the 100B child
     // entities, blowing past `MAX_ROOM_ENTITIES` and OOMing the ECS.
-    for (material_id, mesh_handle) in &mesh_bucket_handles {
+    for (material_id, mesh_handle) in mesh_bucket_handles.iter() {
         if budget_exceeded(*ctx.entities_spawned, ctx.budget_warned) {
             break;
         }
@@ -519,7 +523,7 @@ pub(super) fn spawn_lsystem_entity(
     // falls back to `PropMeshType::Leaf`.
     if let Some(prop_assets) = ctx.prop_assets {
         let ps = prop_scale.0.max(0.0);
-        for prop in &props {
+        for prop in props.iter() {
             if budget_exceeded(*ctx.entities_spawned, ctx.budget_warned) {
                 break;
             }

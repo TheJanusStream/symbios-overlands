@@ -235,6 +235,10 @@ impl Plugin for TerrainPlugin {
                     splat::collect_texture_results,
                     referenced::poll_splat_layer_fetches,
                     splat::apply_splat_textures,
+                    // Release a Referenced room's source images once its fetches
+                    // drain — apply_splat_textures keeps them for the late-fetch
+                    // rebuild, this frees them when no fetch remains (#642).
+                    splat::free_referenced_splat_sources,
                 )
                     .chain()
                     .run_if(not(in_state(AppState::Login))),

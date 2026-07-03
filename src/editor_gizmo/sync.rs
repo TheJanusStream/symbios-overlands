@@ -53,6 +53,8 @@ pub(super) fn sync_gizmo_selection(
     detached_query: Query<&GizmoDetachedPrim>,
     global_tf: Query<&GlobalTransform>,
     camera_query: Query<&GlobalTransform, With<Camera3d>>,
+    // Any entity still carrying gizmo state a deselect would need to tear down.
+    gizmoed: Query<(), Or<(With<GizmoTarget>, With<GizmoDetachedPrim>)>>,
 ) {
     // No `is_changed()` guard. The earlier optimization missed the case
     // where a drag commit flips only the *record's* change tick (the
@@ -72,6 +74,17 @@ pub(super) fn sync_gizmo_selection(
     gizmo_options.gizmo_orientation = frame_pref.0;
 
     let active = determine_active_target(&room_state, &avatar_state);
+
+    // Idle fast path (#640): nothing selected AND nothing still carrying gizmo
+    // state means every loop below is a full no-op pass over the room's
+    // population (`prim_query` scales with a dense scatter). The transition
+    // frame that clears a selection still has `active == None` but non-empty
+    // `gizmoed` (the previously-selected entity keeps its `GizmoTarget` /
+    // `GizmoDetachedPrim` until this system releases it), so the guard is false
+    // there and the release/reparent path runs exactly as before.
+    if active == ActiveTarget::None && gizmoed.is_empty() {
+        return;
+    }
 
     let cam_pos = camera_query
         .single()
