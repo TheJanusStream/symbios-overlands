@@ -678,6 +678,7 @@ fn respawn_if_fallen(
     hm_res: Option<Res<crate::terrain::FinishedHeightMap>>,
     time: Res<Time>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
+    mut session_log: ResMut<crate::diagnostics::SessionLog>,
 ) {
     let Ok((mut pos, mut rot, mut lin_vel, mut ang_vel)) = query.single_mut() else {
         return;
@@ -694,6 +695,8 @@ fn respawn_if_fallen(
     if pos.y > local_ground - cfg::FALL_BELOW_GROUND {
         return;
     }
+    // Depth the player fell to, before the respawn overwrites their position.
+    let fell_to_y = pos.y;
     let centre = extent * 0.5;
     let (ox, oz) = random_spawn_xz();
     let hm_x = (centre + ox).clamp(0.0, extent);
@@ -705,7 +708,17 @@ fn respawn_if_fallen(
     rot.0 = tilt;
     lin_vel.0 = Vec3::ZERO;
     ang_vel.0 = Vec3::ZERO;
-    crate::diagnostics::samplers::player_respawned(&mut metrics, time.elapsed_secs_f64());
+    let now = time.elapsed_secs_f64();
+    crate::diagnostics::samplers::player_respawned(&mut metrics, now);
+    // Typed event (#635d) — the metric counts respawns, this records each one's
+    // fall depth vs. the terrain height it dropped through, for the timeline.
+    session_log.warn(
+        now,
+        crate::diagnostics::event::EventPayload::RespawnTriggered {
+            fell_to_y,
+            ground_y: local_ground,
+        },
+    );
 }
 
 #[cfg(test)]

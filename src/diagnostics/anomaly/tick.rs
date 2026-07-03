@@ -19,7 +19,7 @@ use bevy::time::common_conditions::on_timer;
 
 use crate::diagnostics::SessionLog;
 use crate::diagnostics::anomaly::registry::{InvariantRegistry, default_registry};
-use crate::diagnostics::anomaly::rule::LiveCtx;
+use crate::diagnostics::anomaly::rule::{LiveCtx, RuleId};
 use crate::diagnostics::event::{EventPayload, Severity};
 use crate::state::{AppState, LocalPlayer};
 
@@ -47,7 +47,10 @@ impl LoadingClock {
 pub fn run_rules(invariants: &mut InvariantRegistry, cx: &LiveCtx, log: &mut SessionLog) -> usize {
     let now = cx.now_secs;
     // Collect (id, debounce, severity, verdict) first so the immutable borrow
-    // of `invariants.rules()` is released before we mutate the ledger.
+    // of `invariants.rules()` is released before we mutate the ledger. In the
+    // same pass, note every rule skipped because its `when_state` no longer
+    // matches — those need their badge cleared below.
+    let mut to_clear: Vec<RuleId> = Vec::new();
     let results: Vec<_> = invariants
         .rules()
         .iter()
@@ -56,11 +59,23 @@ pub fn run_rules(invariants: &mut InvariantRegistry, cx: &LiveCtx, log: &mut Ses
             if let Some(ws) = &h.when_state
                 && *ws != cx.state
             {
+                to_clear.push(h.id);
                 return None;
             }
             r.eval(cx).map(|v| (h.id, h.debounce, h.severity, v))
         })
         .collect();
+
+    // Clear the badge for every state-skipped rule (#632). `note_verdict` only
+    // auto-clears rules it actually evaluates (via `Verdict::Clear`), so a rule
+    // left `Violated` at the instant its gating state was exited — e.g.
+    // `loading.gate_stall` when a slow login finally completes and we switch to
+    // `InGame` — would otherwise keep its Critical badge + "session health
+    // compromised" banner for the entire rest of the session. Re-entering the
+    // state re-evaluates and re-fires normally.
+    for id in to_clear {
+        invariants.clear_violation(id);
+    }
 
     let mut fired = 0;
     for (id, debounce, severity, verdict) in results {
@@ -276,6 +291,49 @@ mod tests {
         );
         // Sanity: the toy subsystem tag on that rule is Runtime.
         assert_eq!(TERRAIN_SUBSYSTEM, Subsystem::Runtime);
+    }
+
+    #[test]
+    fn state_gated_badge_clears_on_state_exit() {
+        // Regression for #632: a rule left `Violated` at the moment its gating
+        // state is exited must have its badge cleared, not stick for the whole
+        // session. Before the fix, `run_rules` silently dropped the skipped rule
+        // and `currently_violated` stayed `true` forever.
+        let mut invariants = default_registry();
+        let mut log = SessionLog::with_capacity(64);
+        let mut metrics = MetricsRegistry::default();
+        metrics.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 0.0, 10.0);
+
+        // In-game with zero colliders → the InGame-gated Critical rule violates
+        // and lights its badge.
+        let mut cx = ctx_ingame(&metrics);
+        run_rules(&mut invariants, &cx, &mut log);
+        assert!(
+            invariants
+                .state("runtime.terrain_collider_missing")
+                .unwrap()
+                .currently_violated,
+            "rule should be violated in-game with zero colliders"
+        );
+        assert_eq!(invariants.worst_active(), Some(Severity::Critical));
+
+        // Leave InGame (e.g. logout → Login). The rule is now state-skipped;
+        // its badge must clear rather than persist.
+        cx.state = AppState::Login;
+        cx.now_secs = 11.0;
+        run_rules(&mut invariants, &cx, &mut log);
+        assert!(
+            !invariants
+                .state("runtime.terrain_collider_missing")
+                .unwrap()
+                .currently_violated,
+            "badge must clear when the gating state is exited (#632)"
+        );
+        assert_eq!(
+            invariants.worst_active(),
+            None,
+            "no active badge should remain after the gating state is exited"
+        );
     }
 
     // Pin the expected subsystem so a rename is caught by the test above.

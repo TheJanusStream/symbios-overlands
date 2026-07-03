@@ -81,12 +81,26 @@ fn dispatch_resonance_queries(
 /// corresponding `RemotePeer` entities as a `SocialResonance` component.
 fn poll_resonance_tasks(
     mut commands: Commands,
-    mut tasks: Query<(Entity, &mut ResonanceFetchTask)>,
+    mut tasks: Query<(Entity, &mut ResonanceFetchTask, &RemotePeer)>,
+    time: Res<Time>,
+    mut session_log: ResMut<crate::diagnostics::SessionLog>,
 ) {
-    for (entity, mut task) in tasks.iter_mut() {
+    for (entity, mut task, peer) in tasks.iter_mut() {
         let Some(status) = future::block_on(future::poll_once(&mut task.0)) else {
             continue;
         };
+        // Log the resolved resonance for the diagnostics timeline (#635a). The
+        // async task returns a bare `SocialResonance`, so a network failure is
+        // indistinguishable from a legitimate `None` here — emitting the typed
+        // `SocialResonanceFailed` needs the task to carry its error and is a
+        // deliberately-deferred follow-up.
+        session_log.info(
+            time.elapsed_secs_f64(),
+            crate::diagnostics::event::EventPayload::SocialResonanceCompleted {
+                peer: peer.peer_id.to_string(),
+                resonance: format!("{status:?}"),
+            },
+        );
         commands
             .entity(entity)
             .remove::<ResonanceFetchTask>()

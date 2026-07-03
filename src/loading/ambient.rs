@@ -323,11 +323,25 @@ pub(crate) fn tick_ambient_settle(
     time: Res<Time>,
     room_record: Option<Res<LiveRoomRecord>>,
     mut settle: ResMut<AmbientSettle>,
+    mut session_log: ResMut<crate::diagnostics::SessionLog>,
 ) {
     if room_record.is_some_and(|r| r.is_changed()) {
         settle.remaining = AMBIENT_SETTLE_SECS;
     } else {
+        let was = settle.remaining;
         settle.remaining = (settle.remaining - time.delta_secs()).max(0.0);
+        // Edge-detect the drain-to-zero (#635c): the timer then sits at 0 for
+        // the rest of the session, so this fires exactly once — the moment the
+        // ambient bed is cleared to (re)start after a recompile/bake burst.
+        if was > 0.0 && settle.remaining == 0.0 {
+            let now = time.elapsed_secs_f64();
+            session_log.info(
+                now,
+                crate::diagnostics::event::EventPayload::AmbientSettleCompleted {
+                    settled_at_secs: now,
+                },
+            );
+        }
     }
 }
 

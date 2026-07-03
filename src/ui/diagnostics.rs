@@ -687,7 +687,7 @@ pub fn diagnostics_ui(
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
     mut peers: Query<&mut RemotePeer>,
-    session_log: Res<SessionLog>,
+    mut session_log: ResMut<SessionLog>,
     invariants: Res<InvariantRegistry>,
     metrics: Res<MetricsRegistry>,
     mut landmark_status: Local<Option<(String, f64)>>,
@@ -855,6 +855,12 @@ pub fn diagnostics_ui(
                 // invalidates any `Changed<RemotePeer>` filters downstream.
                 if peer.muted != muted {
                     peer.muted = muted;
+                    crate::ui::people::log_peer_mute_toggled(
+                        &mut session_log,
+                        time.elapsed_secs_f64(),
+                        peer.peer_id.to_string(),
+                        muted,
+                    );
                 }
             }
 

@@ -218,6 +218,16 @@ pub(super) fn handle_incoming_messages(
                 // `player.rs` rebuilds the visual next frame.
                 let Some(mut new_record) = OverlandsMessage::decode_avatar_state(&record_json)
                 else {
+                    // Emit the typed decode-failure event (#634) so the
+                    // `net.silent_decode_failure` rule sees this arm too — it
+                    // already matches all three, but only ItemOffer was emitting.
+                    session_log.warn(
+                        now,
+                        EventPayload::AvatarStateDecodeFailed {
+                            peer: msg.sender.to_string(),
+                            reason: "payload failed to decode".into(),
+                        },
+                    );
                     warn!(
                         "Dropping AvatarStateUpdate from {:?}: payload failed to decode",
                         msg.sender
@@ -276,6 +286,16 @@ pub(super) fn handle_incoming_messages(
                 // enums are incompatible with bincode's streaming decoder —
                 // see `OverlandsMessage::RoomStateUpdate` docs.
                 let Some(mut new_record) = OverlandsMessage::decode_room_state(&record_json) else {
+                    // Typed decode-failure event (#634). `sender_did` is
+                    // guaranteed `Some` here — the `is_owner` gate above required
+                    // it — but default defensively rather than unwrap.
+                    session_log.warn(
+                        now,
+                        EventPayload::RoomStateDecodeFailed {
+                            sender_did: sender_did.clone().unwrap_or_default(),
+                            error: "failed to decode as RoomRecord".into(),
+                        },
+                    );
                     warn!(
                         "Dropping RoomStateUpdate from {:?}: payload failed to decode as RoomRecord",
                         msg.sender

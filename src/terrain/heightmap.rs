@@ -20,6 +20,7 @@ pub(super) fn start_terrain_generation(
     mut commands: Commands,
     record: Res<LiveRoomRecord>,
     time: Res<Time>,
+    mut session_log: ResMut<crate::diagnostics::SessionLog>,
 ) {
     // `find_terrain_config` walks the generator map in sorted-key order so
     // every peer compiling this record picks the same entry — `HashMap`
@@ -34,8 +35,19 @@ pub(super) fn start_terrain_generation(
     // finished heightmap and reacts to road-config edits without a regen.
     // Dispatched through `offload` so the heavy noise + erosion run off the
     // schedule (native: AsyncComputeTaskPool; wasm: task pool / Web Worker).
+    let now = time.elapsed_secs_f64();
     let task = crate::offload::offload(GenJob::Heightmap(heightmap_params(&cfg)));
-    commands.insert_resource(TerrainTask(task, time.elapsed_secs_f64()));
+    // Mark the offload lifecycle (#631) so the `offload.task_never_resolves`
+    // stall rule can pair this dispatch with its completion in the offline
+    // analyzer. This system is gated on `not(TerrainTask)`, so it emits exactly
+    // once per generation, not per frame.
+    session_log.info(
+        now,
+        crate::diagnostics::event::EventPayload::OffloadJobStarted {
+            job: "heightmap".into(),
+        },
+    );
+    commands.insert_resource(TerrainTask(task, now));
 }
 
 pub(super) fn poll_terrain_task(
@@ -66,6 +78,16 @@ pub(super) fn poll_terrain_task(
                         height: data.height,
                     },
                 );
+                // Generic offload-lifecycle completion (#631) — pairs with the
+                // `OffloadJobStarted { job: "heightmap" }` at dispatch so the
+                // stall rule can measure the round-trip.
+                session_log.info(
+                    now,
+                    crate::diagnostics::event::EventPayload::OffloadJobCompleted {
+                        job: "heightmap".into(),
+                        duration_secs: now - spawned_at,
+                    },
+                );
                 commands.insert_resource(FinishedHeightMap(heightmap_from_data(data)));
             }
             // A heightmap job only ever yields a heightmap; count an unexpected
@@ -73,6 +95,13 @@ pub(super) fn poll_terrain_task(
             // the loading-gate stall rule surfaces it — rather than panicking.
             _ => {
                 crate::diagnostics::samplers::offload_job_error(&mut metrics, now);
+                session_log.error(
+                    now,
+                    crate::diagnostics::event::EventPayload::OffloadJobFailed {
+                        job: "heightmap".into(),
+                        reason: "offload job yielded a non-heightmap result".into(),
+                    },
+                );
                 warn!("heightmap offload job yielded an unexpected result — terrain will not load");
             }
         }

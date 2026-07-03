@@ -37,6 +37,23 @@ use crate::ui::inventory::{
     PeerDropTarget, PendingGeneratorDrop, PublishInventoryTask, choose_inventory_gift_key,
 };
 
+/// Log a `PeerMuteToggled` event (#635b). Shared by the three mute controls
+/// (this roster panel, the diagnostics-panel roster, and the offer dialog) so
+/// the event's shape can't drift between them. Call it only inside the
+/// change-guard, so both mute *and* unmute are captured and a no-op write logs
+/// nothing.
+pub(crate) fn log_peer_mute_toggled(
+    session_log: &mut crate::diagnostics::SessionLog,
+    now: f64,
+    peer: String,
+    muted: bool,
+) {
+    session_log.info(
+        now,
+        crate::diagnostics::event::EventPayload::PeerMuteToggled { peer, muted },
+    );
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn people_ui(
     mut contexts: EguiContexts,
@@ -45,8 +62,11 @@ pub fn people_ui(
     mut peers: Query<(&mut RemotePeer, Option<&SocialResonance>)>,
     profile_cache: Res<BskyProfileCache>,
     mut pending_drop: ResMut<PendingGeneratorDrop>,
+    time: Res<Time>,
+    mut session_log: ResMut<crate::diagnostics::SessionLog>,
 ) {
     use crate::config::ui::people as cfg;
+    let now = time.elapsed_secs_f64();
 
     // Drag-to-gift hover snapshot lives in `pending_drop.peer_target`. We
     // rebuild it from scratch each frame because a peer that was hovered
@@ -175,6 +195,12 @@ pub fn people_ui(
                         // downstream.
                         if peer.muted != muted {
                             peer.muted = muted;
+                            log_peer_mute_toggled(
+                                &mut session_log,
+                                now,
+                                peer.peer_id.to_string(),
+                                muted,
+                            );
                         }
                     }
 
@@ -295,13 +321,7 @@ pub fn incoming_offer_ui(
         for mut peer in peers.iter_mut() {
             if peer.peer_id == dialog.sender_peer_id && !peer.muted {
                 peer.muted = true;
-                session_log.info(
-                    now,
-                    EventPayload::PeerMuteToggled {
-                        peer: peer.peer_id.to_string(),
-                        muted: true,
-                    },
-                );
+                log_peer_mute_toggled(&mut session_log, now, peer.peer_id.to_string(), true);
                 break;
             }
         }

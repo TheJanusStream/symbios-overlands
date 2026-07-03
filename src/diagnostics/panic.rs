@@ -35,6 +35,13 @@ mod imp {
     struct Shadow {
         dir: PathBuf,
         lines: VecDeque<String>,
+        /// The single most-recent high-frequency snapshot line (metric vitals).
+        /// Held in an overwrite slot rather than the `lines` ring so the 1 Hz
+        /// `MetricsSnapshot` drip can't evict the real pre-crash events the
+        /// panic file exists to preserve (#633) — while the last known vitals
+        /// (RSS, image/mesh handle counts, CPU) still reach the dump for an
+        /// OOM / leak post-mortem.
+        last_snapshot: Option<String>,
     }
 
     static SHADOW: OnceLock<Mutex<Shadow>> = OnceLock::new();
@@ -46,10 +53,11 @@ mod imp {
         let _ = SHADOW.set(Mutex::new(Shadow {
             dir,
             lines: VecDeque::with_capacity(SHADOW_CAP),
+            last_snapshot: None,
         }));
     }
 
-    /// Mirror one already-serialized event line into the shadow ring.
+    /// Mirror one already-serialized real-event line into the shadow ring.
     pub fn shadow_push(line: &str) {
         if let Some(m) = SHADOW.get()
             && let Ok(mut s) = m.lock()
@@ -58,6 +66,18 @@ mod imp {
             while s.lines.len() > SHADOW_CAP {
                 s.lines.pop_front();
             }
+        }
+    }
+
+    /// Record the most-recent high-frequency snapshot line, *overwriting* any
+    /// prior one. Unlike [`shadow_push`] this never grows the ring, so the
+    /// periodic metric-snapshot drip can't evict real events (#633) — yet the
+    /// latest vitals still land in the panic file.
+    pub fn shadow_push_snapshot(line: &str) {
+        if let Some(m) = SHADOW.get()
+            && let Ok(mut s) = m.lock()
+        {
+            s.last_snapshot = Some(line.to_string());
         }
     }
 
@@ -89,6 +109,12 @@ mod imp {
         for line in &shadow.lines {
             let _ = writeln!(f, "{line}");
         }
+        // The last known metric snapshot (vitals just before the fault). Kept
+        // out of the event ring above so it couldn't evict real events, appended
+        // here so an OOM / leak post-mortem still sees final RSS / handle counts.
+        if let Some(snap) = &shadow.last_snapshot {
+            let _ = writeln!(f, "{snap}");
+        }
         // Final synthetic marker. seq = u64::MAX is the crash sentinel (the
         // real sequence isn't reachable from the hook).
         let msg = info
@@ -110,10 +136,45 @@ mod imp {
         }
         let _ = f.flush();
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn snapshots_never_enter_the_real_event_ring() {
+            // #633: real events accumulate in the bounded ring; the 1 Hz
+            // snapshot drip goes to a single overwrite slot instead, so it can't
+            // evict them. Asserting "no snapshot ever lands in `lines`" is robust
+            // to the process-global shadow being touched by other tests: only
+            // this test emits the `r633-` markers, and a `snap` marker can reach
+            // `last_snapshot` but never `lines`.
+            arm(std::path::PathBuf::from("."));
+            shadow_push("r633-real-1");
+            shadow_push_snapshot("r633-snap-1");
+            shadow_push("r633-real-2");
+            shadow_push_snapshot("r633-snap-2");
+
+            let s = SHADOW.get().unwrap().lock().unwrap();
+            assert!(
+                s.last_snapshot.is_some(),
+                "the latest snapshot is retained for the panic dump"
+            );
+            assert!(
+                !s.lines.iter().any(|l| l.starts_with("r633-snap-")),
+                "snapshots must never enter the real-event ring (#633)"
+            );
+            assert!(
+                s.lines.iter().any(|l| l == "r633-real-1")
+                    && s.lines.iter().any(|l| l == "r633-real-2"),
+                "real events still accumulate in the ring"
+            );
+        }
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use imp::{arm, install_hook, shadow_push};
+pub use imp::{arm, install_hook, shadow_push, shadow_push_snapshot};
 
 // Wasm has no filesystem and its panics already route to the console via
 // `console_error_panic_hook` (installed in `run()`), so these are no-ops.
@@ -121,6 +182,8 @@ pub use imp::{arm, install_hook, shadow_push};
 pub fn arm(_dir: std::path::PathBuf) {}
 #[cfg(target_arch = "wasm32")]
 pub fn shadow_push(_line: &str) {}
+#[cfg(target_arch = "wasm32")]
+pub fn shadow_push_snapshot(_line: &str) {}
 #[cfg(target_arch = "wasm32")]
 pub fn install_hook() {}
 

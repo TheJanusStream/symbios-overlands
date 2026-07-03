@@ -44,6 +44,7 @@ pub(super) fn start_texture_tasks(
     mut commands: Commands,
     record: Res<LiveRoomRecord>,
     time: Res<Time>,
+    mut session_log: ResMut<crate::diagnostics::SessionLog>,
 ) {
     let mat = crate::pds::find_terrain_config(&record.0)
         .map(|c| c.material.clone())
@@ -58,6 +59,16 @@ pub(super) fn start_texture_tasks(
             width: texture_size,
             height: texture_size,
         });
+        // Offload-lifecycle mark (#631). Each of the four concurrent bakes gets
+        // a DISTINCT job name — a shared name would let a fast layer's
+        // completion satisfy a stalled sibling's `OffloadJobStarted` and mask a
+        // real stall. Gated on `not(TextureTasksStarted)`, so once per gen.
+        session_log.info(
+            spawned_at,
+            crate::diagnostics::event::EventPayload::OffloadJobStarted {
+                job: format!("texture_layer_{i}"),
+            },
+        );
         commands.spawn((
             SplatTexTask {
                 index: i,
@@ -177,6 +188,7 @@ pub(super) fn collect_texture_results(
     mut images: ResMut<Assets<Image>>,
     time: Res<Time>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
+    mut session_log: ResMut<crate::diagnostics::SessionLog>,
 ) {
     for (entity, mut pending) in tasks.iter_mut() {
         let Some(result) =
@@ -192,6 +204,14 @@ pub(super) fn collect_texture_results(
         // variant as an offload error (E-4) and skip the layer rather than panic.
         let GenResult::Texture(data) = result else {
             crate::diagnostics::samplers::offload_job_error(&mut metrics, now);
+            // Pairs with this layer's `OffloadJobStarted` (#631).
+            session_log.error(
+                now,
+                crate::diagnostics::event::EventPayload::OffloadJobFailed {
+                    job: format!("texture_layer_{}", pending.index),
+                    reason: "offload job yielded a non-texture result".into(),
+                },
+            );
             warn!(
                 "texture-bake offload job yielded an unexpected result — skipping layer {}",
                 pending.index
@@ -201,6 +221,13 @@ pub(super) fn collect_texture_results(
         // Success only: record the bake latency (E-4) — a skipped/failed layer
         // above never reaches here, so it can't pollute the latency histogram.
         crate::diagnostics::samplers::texture_bake_latency_secs(&mut metrics, now - spawned_at);
+        session_log.info(
+            now,
+            crate::diagnostics::event::EventPayload::OffloadJobCompleted {
+                job: format!("texture_layer_{}", pending.index),
+                duration_secs: now - spawned_at,
+            },
+        );
 
         let map = TextureMap {
             albedo: data.albedo,

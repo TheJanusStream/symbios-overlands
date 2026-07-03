@@ -69,7 +69,7 @@ impl SessionLog {
     /// here. Goes to both the durable sink and the in-memory ring (GUI tail).
     /// Returns the assigned `seq`.
     pub fn record(&mut self, t_mono_secs: f64, severity: Severity, payload: EventPayload) -> u64 {
-        self.write(t_mono_secs, severity, payload, true)
+        self.write(t_mono_secs, severity, payload, true, false)
     }
 
     /// Record an event to the durable sink **only**, skipping the in-memory
@@ -84,7 +84,7 @@ impl SessionLog {
         payload: EventPayload,
     ) -> u64 {
         let to_ring = matches!(self.sink, Sink::Disabled);
-        self.write(t_mono_secs, severity, payload, to_ring)
+        self.write(t_mono_secs, severity, payload, to_ring, true)
     }
 
     fn write(
@@ -93,6 +93,7 @@ impl SessionLog {
         severity: Severity,
         payload: EventPayload,
         to_ring: bool,
+        file_only: bool,
     ) -> u64 {
         let wall = wall_now_ms();
         if self.session_start_wall_ms.is_none() {
@@ -111,7 +112,14 @@ impl SessionLog {
             self.sink.append_line(&line);
             // Mirror into the process-global panic shadow so a crash can dump
             // the recent tail the BufWriter hasn't flushed (no-op on wasm).
-            crate::diagnostics::panic::shadow_push(&line);
+            // High-frequency file-only telemetry (the 1 Hz `MetricsSnapshot`)
+            // goes into an overwrite slot instead of the ring, so it can't evict
+            // real pre-crash events (#633) while its latest vitals still dump.
+            if file_only {
+                crate::diagnostics::panic::shadow_push_snapshot(&line);
+            } else {
+                crate::diagnostics::panic::shadow_push(&line);
+            }
             self.since_flush += 1;
         }
         if to_ring {

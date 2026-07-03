@@ -305,8 +305,12 @@ impl Rule for OfferAcceptanceAnomaly {
         }
         let ratio = acc as f64 / total as f64;
         if !(0.1..=0.9).contains(&ratio) {
+            // Percent, not the raw fraction: the rule only fires below 0.1 or
+            // above 0.9, so `{ratio:.0}` collapsed every violation to "0" or
+            // "1" (#635f). "5%"/"95%" is what the reader needs.
             vec![Verdict::violated(format!(
-                "accept ratio {ratio:.0} over {total} offers"
+                "accept ratio {:.0}% over {total} offers",
+                ratio * 100.0
             ))]
         } else {
             Vec::new()
