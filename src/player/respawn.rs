@@ -25,6 +25,7 @@ pub(super) fn respawn_if_fallen(
     time: Res<Time>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
+    mut recent_respawns: ResMut<crate::diagnostics::anomaly::RecentRespawns>,
 ) {
     let Ok((mut pos, mut rot, mut lin_vel, mut ang_vel)) = query.single_mut() else {
         return;
@@ -56,6 +57,8 @@ pub(super) fn respawn_if_fallen(
     ang_vel.0 = Vec3::ZERO;
     let now = time.elapsed_secs_f64();
     crate::diagnostics::samplers::player_respawned(&mut metrics);
+    // Feed the respawn-thrashing window (#672) alongside the monotonic metric.
+    recent_respawns.note(now);
     // Typed event (#635d) — the metric counts respawns, this records each one's
     // fall depth vs. the terrain height it dropped through, for the timeline.
     session_log.warn(

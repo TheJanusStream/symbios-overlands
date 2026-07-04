@@ -1650,7 +1650,10 @@ mod tests {
             ev(
                 1.5,
                 Severity::Critical,
-                EventPayload::TerrainColliderMissing,
+                EventPayload::RespawnTriggered {
+                    fell_to_y: -30.0,
+                    ground_y: 4.0,
+                },
             ), // Runtime / Physics
             ev(2.0, Severity::Trace, snapshot(2.0)),                   // excluded
             ev(3.0, Severity::Trace, snapshot(3.0)),                   // excluded

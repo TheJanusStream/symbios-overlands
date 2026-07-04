@@ -413,23 +413,6 @@ pub enum EventPayload {
         fell_to_y: f32,
         ground_y: f32,
     },
-    TerrainColliderMissing,
-    PhysicsNanDetected {
-        entity: String,
-    },
-    AssetHandleSpike {
-        class: String,
-        count: u32,
-    },
-    FrameTimeSpike {
-        p95_ms: f32,
-    },
-    ShapeMeshCacheGrowth {
-        len: u32,
-    },
-    OrphanAvatarVisual {
-        count: u32,
-    },
     PortalTravelInitiated {
         target_did: String,
     },
@@ -518,12 +501,6 @@ impl EventPayload {
             | WorkerSpawnFailed { .. } => Subsystem::Offload,
 
             RespawnTriggered { .. }
-            | TerrainColliderMissing
-            | PhysicsNanDetected { .. }
-            | AssetHandleSpike { .. }
-            | FrameTimeSpike { .. }
-            | ShapeMeshCacheGrowth { .. }
-            | OrphanAvatarVisual { .. }
             | PortalTravelInitiated { .. }
             | PortalTravelCompleted { .. }
             | PortalTravelFailed { .. } => Subsystem::Runtime,
@@ -604,15 +581,7 @@ impl EventPayload {
             | OffloadTaskTimeout { .. }
             | WorkerSpawnFailed { .. } => Category::Job,
 
-            RespawnTriggered { .. } | TerrainColliderMissing | PhysicsNanDetected { .. } => {
-                Category::Physics
-            }
-
-            AssetHandleSpike { .. } | ShapeMeshCacheGrowth { .. } | OrphanAvatarVisual { .. } => {
-                Category::Asset
-            }
-
-            FrameTimeSpike { .. } => Category::Perf,
+            RespawnTriggered { .. } => Category::Physics,
 
             PortalTravelInitiated { .. }
             | PortalTravelCompleted { .. }
@@ -846,12 +815,6 @@ impl EventPayload {
             } => {
                 format!("respawn: fell to y={fell_to_y:.1} (ground {ground_y:.1})")
             }
-            TerrainColliderMissing => "TERRAIN COLLIDER MISSING".to_string(),
-            PhysicsNanDetected { entity } => format!("NaN in physics body {entity}"),
-            AssetHandleSpike { class, count } => format!("asset spike: {class} +{count}"),
-            FrameTimeSpike { p95_ms } => format!("frame-time spike p95 {p95_ms:.1}ms"),
-            ShapeMeshCacheGrowth { len } => format!("ShapeMeshCache grew to {len}"),
-            OrphanAvatarVisual { count } => format!("{count} orphan avatar visuals"),
             PortalTravelInitiated { target_did } => format!("portal → {target_did}"),
             PortalTravelCompleted { target_did } => format!("portal arrived {target_did}"),
             PortalTravelFailed { target_did, reason } => {
@@ -949,7 +912,6 @@ mod tests {
                 job: "heightmap".into(),
                 reason: "worker gone".into(),
             },
-            EventPayload::TerrainColliderMissing,
             EventPayload::RespawnTriggered {
                 fell_to_y: -30.0,
                 ground_y: 4.0,

@@ -69,7 +69,13 @@ impl Rule for TerrainColliderMissing {
 }
 
 // --- PlayerFellThroughTerrain -----------------------------------------------
-const FALL_BELOW_GROUND_M: f32 = 25.0;
+/// Rule threshold: the respawn safety net (`respawn_if_fallen`) teleports
+/// the player back at `cfg::rover::FALL_BELOW_GROUND` within the same 64 Hz
+/// physics tick, so this 1 Hz rule can only ever observe a depth beyond
+/// that margin if the net FAILED to catch (heightmap gone, respawn system
+/// wedged). Deriving from the same constant keeps the two from drifting
+/// into overlap, where every ordinary fall would double-report (#672).
+const FALL_BELOW_GROUND_M: f32 = crate::config::rover::FALL_BELOW_GROUND + 5.0;
 
 struct PlayerFellThroughTerrain;
 const PLAYER_FELL: RuleHeader = RuleHeader {
@@ -77,7 +83,7 @@ const PLAYER_FELL: RuleHeader = RuleHeader {
     subsystem: Subsystem::Runtime,
     severity: Severity::Error,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "local player dropped well below the terrain surface",
+    description: "local player dropped well below the terrain surface (respawn net missed)",
     when_state: Some(AppState::InGame),
 };
 impl Rule for PlayerFellThroughTerrain {

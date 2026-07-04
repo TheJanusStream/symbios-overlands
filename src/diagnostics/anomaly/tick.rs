@@ -41,6 +41,36 @@ impl LoadingClock {
     }
 }
 
+/// Window over which [`RecentRespawns`] counts fall-respawns for the
+/// `runtime.respawn_thrashing` rule. Long enough that a genuine thrash loop
+/// (respawn → fall through again → respawn) accumulates across several
+/// cycles; short enough that two unlucky falls minutes apart don't read as
+/// thrashing.
+const RESPAWN_WINDOW_SECS: f64 = 30.0;
+
+/// Rolling timestamps of recent fall-respawns, pushed by
+/// `player::respawn_if_fallen` and windowed into `LiveCtx::respawns_recent`
+/// by the 1 Hz tick (#672). A monotonic counter can't express "recent", so
+/// the raw stamps are kept and pruned against [`RESPAWN_WINDOW_SECS`].
+#[derive(Resource, Default)]
+pub struct RecentRespawns {
+    stamps: Vec<f64>,
+}
+
+impl RecentRespawns {
+    /// Record a respawn at session-relative `now`.
+    pub fn note(&mut self, now: f64) {
+        self.stamps.push(now);
+    }
+
+    /// Respawns within the window ending at `now`, pruning older stamps in
+    /// the same pass so the vec stays bounded by the window.
+    pub fn count_recent(&mut self, now: f64) -> u32 {
+        self.stamps.retain(|&t| now - t <= RESPAWN_WINDOW_SECS);
+        self.stamps.len() as u32
+    }
+}
+
 /// Evaluate every applicable rule against `cx`, debounce, and route fires into
 /// `log` + the registry ledger. Pure over its inputs (no `World` access), so
 /// tests drive it directly. Returns the number of rules that actually fired.
@@ -107,8 +137,17 @@ fn diagnostic_tick(
     time: Res<Time>,
     state: Res<State<AppState>>,
     loading_clock: Res<LoadingClock>,
+    mut recent_respawns: ResMut<RecentRespawns>,
+    hm_res: Option<Res<crate::terrain::FinishedHeightMap>>,
     player_q: Query<&Transform, With<LocalPlayer>>,
     bodies_q: Query<&Transform, With<avian3d::prelude::RigidBody>>,
+    orphans_q: Query<
+        (),
+        (
+            With<crate::world_builder::AvatarVisualPrim>,
+            Without<ChildOf>,
+        ),
+    >,
 ) {
     let now = time.elapsed_secs_f64();
     let cur_state = state.get().clone();
@@ -116,7 +155,22 @@ fn diagnostic_tick(
     let loading_elapsed_secs = (cur_state == AppState::Loading)
         .then(|| loading_clock.entered_at.map(|t| now - t))
         .flatten();
-    let player_y = player_q.iter().next().map(|t| t.translation.y);
+    let player_pos = player_q.iter().next().map(|t| t.translation);
+    let player_y = player_pos.map(|p| p.y);
+    // Terrain height under the player, for the fell-through-terrain rule —
+    // the same clamped heightmap sample `respawn_if_fallen` reads (#672).
+    let ground_y = match (player_pos, hm_res.as_ref()) {
+        (Some(p), Some(hm_res)) => {
+            let hm = &hm_res.0;
+            let extent = (hm.width() - 1) as f32 * hm.scale();
+            let half = extent * 0.5;
+            Some(hm.get_height_at(
+                (p.x + half).clamp(0.0, extent),
+                (p.z + half).clamp(0.0, extent),
+            ))
+        }
+        _ => None,
+    };
     // Bound cost: this is a 1 Hz scan of physics-body transforms only.
     let nan_body_count = bodies_q
         .iter()
@@ -124,6 +178,11 @@ fn diagnostic_tick(
             !t.translation.is_finite() || !t.rotation.to_array().iter().all(|c| c.is_finite())
         })
         .count();
+    // Avatar visuals with no parent link back to any chassis. NB: the editor
+    // gizmo deliberately detaches a visual for the duration of a drag, so a
+    // long drag can light the (Info-severity) orphan badge until release —
+    // the hot-swap sweep reclaims real orphans on the next rebuild.
+    let orphan_avatar_count = orphans_q.iter().count();
 
     let cx = LiveCtx {
         now_secs: now,
@@ -131,13 +190,10 @@ fn diagnostic_tick(
         metrics: &metrics,
         loading_elapsed_secs,
         player_y,
-        // ground_y / orphan_avatar_count / respawns_recent are wired when their
-        // sources land (heightmap sampling, avatar-visual marker query, respawn
-        // counter via E-4); until then those rules stay dormant.
-        ground_y: None,
+        ground_y,
         nan_body_count,
-        orphan_avatar_count: 0,
-        respawns_recent: 0,
+        orphan_avatar_count,
+        respawns_recent: recent_respawns.count_recent(now),
     };
 
     run_rules(&mut invariants, &cx, &mut log);
@@ -187,6 +243,7 @@ impl Plugin for AnomalyPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(default_registry())
             .init_resource::<LoadingClock>()
+            .init_resource::<RecentRespawns>()
             .add_systems(OnEnter(AppState::Loading), loading_clock_enter)
             .add_systems(OnExit(AppState::Loading), loading_clock_exit)
             .add_systems(
@@ -338,4 +395,17 @@ mod tests {
 
     // Pin the expected subsystem so a rename is caught by the test above.
     const TERRAIN_SUBSYSTEM: Subsystem = Subsystem::Runtime;
+
+    #[test]
+    fn recent_respawns_counts_only_inside_the_window() {
+        let mut r = RecentRespawns::default();
+        r.note(0.0);
+        r.note(5.0);
+        r.note(29.0);
+        // At t=30, the t=0 stamp sits exactly on the window edge (kept: <=).
+        assert_eq!(r.count_recent(30.0), 3);
+        // At t=40, the t=0 and t=5 stamps have aged out — and were pruned.
+        assert_eq!(r.count_recent(40.0), 1);
+        assert_eq!(r.stamps.len(), 1, "pruning bounds the vec");
+    }
 }
