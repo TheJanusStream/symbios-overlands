@@ -107,6 +107,11 @@ pub(super) struct ActiveJob {
     /// monolithic pass's per-pass cap).
     pub(super) entities_spawned: u32,
     pub(super) budget_warned: bool,
+    /// The room's water level at plan time, for `start_unit`'s dry-land
+    /// walk. Cached on the job so the execute slices don't re-scan every
+    /// generator each frame (#673); a replan recomputes it, and the record
+    /// cannot change between plans without triggering one.
+    pub(super) room_water_y: Option<f32>,
     // --- telemetry (#351) ---
     pub(super) work: Duration,
     pub(super) frames: u32,
@@ -114,7 +119,7 @@ pub(super) struct ActiveJob {
 }
 
 impl ActiveJob {
-    pub(super) fn new(queue: VecDeque<QueuedUnit>, full: bool) -> Self {
+    pub(super) fn new(queue: VecDeque<QueuedUnit>, full: bool, room_water_y: Option<f32>) -> Self {
         Self {
             queue,
             cursor: None,
@@ -122,6 +127,7 @@ impl ActiveJob {
             touched: TouchSets::default(),
             entities_spawned: 0,
             budget_warned: false,
+            room_water_y,
             work: Duration::ZERO,
             frames: 0,
             units_built: 0,
@@ -195,11 +201,41 @@ pub(super) fn placement_generator_ref(placement: &Placement) -> Option<&str> {
 ///   full rebuild, which heightmap edits and placement-count changes
 ///   both force).
 ///
+/// Once-per-planning-pass fingerprint inputs that are pure functions of
+/// the whole record: the room water level and the terrain config, both
+/// serialised up front. Before this existed, every `unit_fingerprint`
+/// call re-scanned all generators (`room_water_level` +
+/// `find_terrain_config`) — O(placements × generators) per pass in the
+/// editing loop (#673). Scoped to a single pass ONLY: the fingerprint is
+/// the planner's change-detection source of truth, so caching these
+/// across passes would be a correctness trap.
+///
+/// A `None` field means its serialisation failed; the consuming
+/// fingerprint arm then returns `None` ("always rebuild"), matching the
+/// previous per-call behaviour.
+pub(super) struct FingerprintPass {
+    water_level: Option<serde_json::Value>,
+    terrain: Option<serde_json::Value>,
+}
+
+impl FingerprintPass {
+    pub(super) fn new(record: &RoomRecord, room_water_y: Option<f32>) -> Self {
+        Self {
+            water_level: serde_json::to_value(room_water_y).ok(),
+            terrain: serde_json::to_value(crate::pds::find_terrain_config(record)).ok(),
+        }
+    }
+}
+
 /// Routed through `serde_json::to_value` so any `HashMap`-backed field
 /// serialises key-sorted (`Value::Object` is BTreeMap-backed; the
 /// `preserve_order` feature is off). `None` on serialisation failure —
 /// the planner treats that as "always rebuild".
-pub(super) fn unit_fingerprint(record: &RoomRecord, placement: &Placement) -> Option<String> {
+pub(super) fn unit_fingerprint(
+    record: &RoomRecord,
+    placement: &Placement,
+    pass: &FingerprintPass,
+) -> Option<String> {
     let generator_ref = placement_generator_ref(placement);
     let generator = generator_ref.and_then(|r| record.generators.get(r));
     let traits_entry = generator_ref.and_then(|r| record.traits.get(r));
@@ -209,20 +245,11 @@ pub(super) fn unit_fingerprint(record: &RoomRecord, placement: &Placement) -> Op
         Placement::Absolute {
             avoid_water: true, ..
         } => {
-            extras.insert(
-                "water_level".into(),
-                serde_json::to_value(super::room_water_level(record)).ok()?,
-            );
+            extras.insert("water_level".into(), pass.water_level.clone()?);
         }
         Placement::Scatter { biome_filter, .. } if !biome_filter.is_noop() => {
-            extras.insert(
-                "water_level".into(),
-                serde_json::to_value(super::room_water_level(record)).ok()?,
-            );
-            extras.insert(
-                "terrain".into(),
-                serde_json::to_value(crate::pds::find_terrain_config(record)).ok()?,
-            );
+            extras.insert("water_level".into(), pass.water_level.clone()?);
+            extras.insert("terrain".into(), pass.terrain.clone()?);
         }
         _ => {}
     }
@@ -241,14 +268,16 @@ mod tests {
     //! The fingerprint is the planner's entire decision input, so it
     //! carries the unit coverage; the executor's ECS flow is exercised
     //! by the existing integration suite plus manual smoke tests.
-    use super::unit_fingerprint;
+    use super::{FingerprintPass, unit_fingerprint};
     use crate::pds::{Fp, RoomRecord};
 
     fn fingerprints(record: &RoomRecord) -> Vec<Option<String>> {
+        // Same once-per-pass construction the planner uses.
+        let pass = FingerprintPass::new(record, super::super::water::room_water_level(record));
         record
             .placements
             .iter()
-            .map(|p| unit_fingerprint(record, p))
+            .map(|p| unit_fingerprint(record, p, &pass))
             .collect()
     }
 

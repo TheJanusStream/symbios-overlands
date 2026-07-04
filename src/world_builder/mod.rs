@@ -64,6 +64,7 @@ pub mod audio_resolver;
 pub mod avatar_spawn;
 pub(crate) mod blob_fetch;
 pub(crate) mod compile;
+mod generator_cache;
 pub mod image_cache;
 mod lsystem;
 mod material;

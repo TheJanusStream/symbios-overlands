@@ -3,7 +3,6 @@
 //! `spawn_lsystem_entity` dispatcher used by the room compiler.
 
 use std::collections::HashMap;
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
 use bevy::prelude::*;
@@ -11,53 +10,31 @@ use bevy_symbios::LSystemMeshBuilder;
 use symbios::System;
 use symbios_turtle_3d::{SkeletonProp, TurtleConfig, TurtleInterpreter};
 
-use crate::pds::{Fp, Fp3, GeneratorKind, PropMeshType, SovereignMaterialSettings};
+use crate::pds::{Fp, Fp3, GeneratorKind, PropMeshType};
 
 use super::RoomEntity;
 use super::compile::{SpawnCtx, budget_exceeded};
+use super::generator_cache::{GeneratorCache, GeometryHasher, settings_fingerprint};
 use super::material::spawn_procedural_material;
-
-/// One cached L-system slot material: the content hash of the settings that
-/// built it, plus the resulting PBR handle.
-pub(super) struct CachedLSystemMaterial {
-    pub settings_hash: u64,
-    pub handle: Handle<StandardMaterial>,
-}
 
 /// Persistent cross-compile cache for L-system `StandardMaterial` handles.
 ///
 /// Without this, every `RoomRecord` change rebuilds every generator's
 /// material — enqueuing fresh foliage texture tasks for configs that haven't
-/// moved. Keyed by `(generator_ref, slot_id)` and invalidated by hashing the
-/// canonical (fixed-point) serialisation of `SovereignMaterialSettings`, so
-/// a record edit that touches *only* (say) the scatter count re-uses last
-/// pass's baked textures instead of re-baking them.
-///
-/// Entries for `(generator_ref, slot)` pairs not touched during a compile
-/// pass are dropped at the end of that pass so stale generators stop
-/// pinning their handles in `Assets<StandardMaterial>`.
-#[derive(Resource, Default)]
-pub struct LSystemMaterialCache {
-    pub(super) entries: HashMap<(String, u16), CachedLSystemMaterial>,
-}
+/// moved. Keyed by `(generator_ref, slot_id)` and invalidated by
+/// [`settings_fingerprint`], so a record edit that touches *only* (say) the
+/// scatter count re-uses last pass's baked textures instead of re-baking
+/// them. GC + logout semantics come with [`GeneratorCache`].
+pub type LSystemMaterialCache = GeneratorCache<(String, u16), Handle<StandardMaterial>>;
 
-impl LSystemMaterialCache {
-    /// Drop every cached material handle. Called on logout so one session's
-    /// L-system materials don't outlive it (#625).
-    pub fn clear(&mut self) {
-        self.entries.clear();
-    }
-}
-
-/// Cached geometry for a single L-system generator: the fingerprint of the
-/// geometry-affecting settings that produced it, the shared per-material mesh
-/// handles, and the skeleton's prop list. Props are stored raw because the
-/// prop→mesh mapping and prop scale are resolved per-spawn against the
-/// current generator settings.
-pub(super) struct CachedLSystemGeometry {
-    pub geometry_hash: u64,
-    // Shared via `Arc` so a cache HIT is an O(1) refcount bump per scatter
-    // sample / grid cell instead of deep-cloning both Vecs (#636).
+/// Cached geometry build for a single L-system generator: the shared
+/// per-material mesh handles and the skeleton's prop list. Props are stored
+/// raw because the prop→mesh mapping and prop scale are resolved per-spawn
+/// against the current generator settings. Both halves are `Arc`s so a
+/// cache HIT is an O(1) refcount bump per scatter sample / grid cell
+/// instead of deep-cloning both Vecs (#636).
+#[derive(Clone)]
+pub struct LSystemGeometry {
     pub mesh_buckets: Arc<[(u16, Handle<Mesh>)]>,
     pub props: Arc<[SkeletonProp]>,
 }
@@ -72,43 +49,11 @@ pub(super) struct CachedLSystemGeometry {
 /// we derive, interpret and mesh **once** per `(generator_ref, geometry_hash)`
 /// pair and reuse the resulting `Handle<Mesh>` across every spawn.
 ///
-/// Keyed by `generator_ref` and invalidated by hashing the geometry-relevant
-/// fields (source, finalization, iterations, seed, angle/step/width/
-/// elasticity, tropism, mesh resolution) in their fixed-point wire form.
+/// Keyed by `generator_ref` and invalidated by
+/// [`lsystem_geometry_fingerprint`] over the geometry-relevant fields.
 /// Material settings are orthogonal — those live in `LSystemMaterialCache`
 /// so a pure colour edit re-uses the cached mesh handles as-is.
-///
-/// Entries for `generator_ref`s not touched during a compile pass are dropped
-/// at the end of that pass so stale meshes don't keep pinning `Assets<Mesh>`.
-#[derive(Resource, Default)]
-pub struct LSystemMeshCache {
-    pub(super) entries: HashMap<String, CachedLSystemGeometry>,
-}
-
-impl LSystemMeshCache {
-    /// Drop every cached geometry entry (and its `Handle<Mesh>`s). Called on
-    /// logout so the last room's L-system meshes stop pinning `Assets<Mesh>`
-    /// into the next session (#625).
-    pub fn clear(&mut self) {
-        self.entries.clear();
-    }
-}
-
-pub(super) fn settings_fingerprint(settings: &SovereignMaterialSettings) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    match serde_json::to_vec(settings) {
-        Ok(bytes) => bytes.hash(&mut hasher),
-        // Serialisation of a plain struct of scalars cannot fail in
-        // practice; if it somehow does, fall back to a distinct sentinel
-        // so the match arm below treats every lookup as a miss (forcing a
-        // rebuild) rather than collapsing all failures onto the same key.
-        Err(_) => {
-            0xDEAD_BEEF_u64.hash(&mut hasher);
-            (settings as *const SovereignMaterialSettings as usize).hash(&mut hasher);
-        }
-    }
-    hasher.finish()
-}
+pub type LSystemMeshCache = GeneratorCache<String, LSystemGeometry>;
 
 /// Stable content hash of the geometry-affecting fields of a `GeneratorKind::LSystem`.
 /// Material / prop-mapping settings are deliberately excluded because those
@@ -128,27 +73,25 @@ pub(super) fn lsystem_geometry_fingerprint(
     tropism: Option<Fp3>,
     mesh_resolution: u32,
 ) -> u64 {
-    const FP_SCALE: f32 = 10_000.0;
-    let fp = |v: f32| (v * FP_SCALE).round() as i32;
-    let mut h = DefaultHasher::new();
-    source_code.hash(&mut h);
-    finalization_code.hash(&mut h);
-    iterations.hash(&mut h);
-    seed.hash(&mut h);
-    fp(angle.0).hash(&mut h);
-    fp(step.0).hash(&mut h);
-    fp(width.0).hash(&mut h);
-    fp(elasticity.0).hash(&mut h);
+    let mut h = GeometryHasher::new();
+    h.field(source_code);
+    h.field(finalization_code);
+    h.field(iterations);
+    h.field(seed);
+    h.fp(angle.0);
+    h.fp(step.0);
+    h.fp(width.0);
+    h.fp(elasticity.0);
     match tropism {
         Some(t) => {
-            1u8.hash(&mut h);
-            fp(t.0[0]).hash(&mut h);
-            fp(t.0[1]).hash(&mut h);
-            fp(t.0[2]).hash(&mut h);
+            h.field(1u8);
+            h.fp(t.0[0]);
+            h.fp(t.0[1]);
+            h.fp(t.0[2]);
         }
-        None => 0u8.hash(&mut h),
+        None => h.field(0u8),
     }
-    mesh_resolution.hash(&mut h);
+    h.field(mesh_resolution);
     h.finish()
 }
 
@@ -345,14 +288,12 @@ pub(super) fn spawn_lsystem_entity(
         *tropism,
         *mesh_resolution,
     );
-    let geometry = match ctx.lsystem_mesh_cache.entries.get(generator_ref) {
-        Some(c) if c.geometry_hash == geometry_hash => {
-            Some((c.mesh_buckets.clone(), c.props.clone()))
-        }
-        _ => None,
-    };
+    let geometry = ctx.lsystem_mesh_cache.get_if(generator_ref, geometry_hash);
 
-    let (mesh_bucket_handles, props) = match geometry {
+    let LSystemGeometry {
+        mesh_buckets: mesh_bucket_handles,
+        props,
+    } = match geometry {
         Some(g) => g,
         None => {
             let Some((mesh_buckets_raw, skeleton_props)) = build_lsystem_geometry(
@@ -371,23 +312,19 @@ pub(super) fn spawn_lsystem_entity(
                 // Grammar rejected or empty state — evict any stale entry
                 // so a later edit that fixes the grammar triggers a rebuild
                 // instead of reusing invalid geometry.
-                ctx.lsystem_mesh_cache.entries.remove(generator_ref);
+                ctx.lsystem_mesh_cache.remove(generator_ref);
                 return None;
             };
-            let bucket_handles: Arc<[(u16, Handle<Mesh>)]> = mesh_buckets_raw
-                .into_iter()
-                .map(|(mat_id, mesh)| (mat_id, ctx.meshes.add(mesh)))
-                .collect();
-            let skeleton_props: Arc<[SkeletonProp]> = skeleton_props.into();
-            ctx.lsystem_mesh_cache.entries.insert(
-                generator_ref.to_string(),
-                CachedLSystemGeometry {
-                    geometry_hash,
-                    mesh_buckets: bucket_handles.clone(),
-                    props: skeleton_props.clone(),
-                },
-            );
-            (bucket_handles, skeleton_props)
+            let built = LSystemGeometry {
+                mesh_buckets: mesh_buckets_raw
+                    .into_iter()
+                    .map(|(mat_id, mesh)| (mat_id, ctx.meshes.add(mesh)))
+                    .collect(),
+                props: skeleton_props.into(),
+            };
+            ctx.lsystem_mesh_cache
+                .insert(generator_ref.to_string(), geometry_hash, built.clone());
+            built
         }
     };
 
@@ -424,17 +361,11 @@ pub(super) fn spawn_lsystem_entity(
             let key = (generator_ref.to_string(), slot);
             let hash = settings_fingerprint(settings);
             ctx.lsystem_cache_touched.insert(key.clone());
-            match ctx.lsystem_material_cache.entries.get(&key) {
-                Some(cached) if cached.settings_hash == hash => cached.handle.clone(),
-                _ => {
+            match ctx.lsystem_material_cache.get_if(&key, hash) {
+                Some(handle) => handle,
+                None => {
                     let handle = spawn_procedural_material(ctx, settings);
-                    ctx.lsystem_material_cache.entries.insert(
-                        key,
-                        CachedLSystemMaterial {
-                            settings_hash: hash,
-                            handle: handle.clone(),
-                        },
-                    );
+                    ctx.lsystem_material_cache.insert(key, hash, handle.clone());
                     handle
                 }
             }
@@ -466,17 +397,15 @@ pub(super) fn spawn_lsystem_entity(
         }
         let key = (generator_ref.to_string(), id);
         ctx.lsystem_cache_touched.insert(key.clone());
-        let handle = match ctx.lsystem_material_cache.entries.get(&key) {
-            Some(cached) if cached.settings_hash == FALLBACK_SENTINEL_HASH => cached.handle.clone(),
-            _ => {
+        let handle = match ctx
+            .lsystem_material_cache
+            .get_if(&key, FALLBACK_SENTINEL_HASH)
+        {
+            Some(handle) => handle,
+            None => {
                 let h = ctx.std_materials.add(StandardMaterial::default());
-                ctx.lsystem_material_cache.entries.insert(
-                    key,
-                    CachedLSystemMaterial {
-                        settings_hash: FALLBACK_SENTINEL_HASH,
-                        handle: h.clone(),
-                    },
-                );
+                ctx.lsystem_material_cache
+                    .insert(key, FALLBACK_SENTINEL_HASH, h.clone());
                 h
             }
         };

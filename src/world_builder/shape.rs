@@ -12,7 +12,6 @@
 //! instead of re-deriving the grammar 100 000 times on the main thread.
 
 use std::collections::HashMap;
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
 use bevy::prelude::*;
@@ -27,14 +26,8 @@ use crate::pds::{Fp3, GeneratorKind, SovereignMaterialSettings};
 
 use super::RoomEntity;
 use super::compile::{SpawnCtx, budget_exceeded};
+use super::generator_cache::{GeneratorCache, GeometryHasher, settings_fingerprint};
 use super::material::spawn_procedural_material;
-
-/// One cached shape-slot material: the content hash of the settings that
-/// built it, plus the resulting PBR handle.
-pub(super) struct CachedShapeMaterial {
-    pub settings_hash: u64,
-    pub handle: Handle<StandardMaterial>,
-}
 
 /// Persistent cross-compile cache for shape generator `StandardMaterial` handles.
 ///
@@ -42,50 +35,25 @@ pub(super) struct CachedShapeMaterial {
 /// with `count=100` over a Shape generator would otherwise allocate 100 fresh
 /// `StandardMaterial`s and enqueue 100 identical foliage texture tasks for
 /// each `Mat("...")` slot. The cache keys on `(generator_ref, slot_name)` and
-/// reuses the handle whenever the content hash of `SovereignMaterialSettings`
-/// is identical.
-///
-/// Entries for `(generator_ref, slot)` pairs not touched during a compile
-/// pass are dropped at the end of that pass so stale generators stop
-/// pinning their handles in `Assets<StandardMaterial>`.
-#[derive(Resource, Default)]
-pub struct ShapeMaterialCache {
-    pub(super) entries: HashMap<(String, String), CachedShapeMaterial>,
-}
-
-impl ShapeMaterialCache {
-    /// Drop every cached material handle. Called on logout so one session's
-    /// baked shape materials don't outlive it — during a session the per-pass
-    /// GC keeps this bounded, but nothing else clears it at logout (#625).
-    pub fn clear(&mut self) {
-        self.entries.clear();
-    }
-}
+/// reuses the handle whenever [`settings_fingerprint`] of the
+/// `SovereignMaterialSettings` is identical. GC + logout semantics come with
+/// [`GeneratorCache`].
+pub type ShapeMaterialCache = GeneratorCache<(String, String), Handle<StandardMaterial>>;
 
 /// One pre-baked terminal: the world-relative transform produced by
 /// `scope_to_transform`, the unit-sized procedural mesh handle (shared across
 /// all terminals with the same `(profile, size)` triple), and the optional
 /// material name emitted by `Mat("...")` in the grammar.
 #[derive(Clone)]
-pub(super) struct ShapeInstance {
+pub struct ShapeInstance {
     pub transform: Transform,
     pub mesh: Handle<Mesh>,
     pub material_id: Option<String>,
 }
 
-/// Cached geometry for a single shape generator: the fingerprint of the
-/// geometry-affecting settings that produced it, and the per-terminal spawn
-/// list. Materials are orthogonal — the per-instance `material_id` is
-/// resolved against [`ShapeMaterialCache`] at spawn time.
-pub(super) struct CachedShapeGeometry {
-    pub geometry_hash: u64,
-    /// Per-terminal spawn list, shared via `Arc` so a cache HIT hands out an
-    /// O(1) refcount bump instead of deep-cloning the `Vec` (+ its per-instance
-    /// `material_id` Strings) on every scatter sample / grid cell (#636).
-    pub instances: Arc<[ShapeInstance]>,
-}
-
-/// Persistent cross-compile cache for shape grammar geometry.
+/// Persistent cross-compile cache for shape grammar geometry — the
+/// per-terminal spawn list. Materials are orthogonal: the per-instance
+/// `material_id` is resolved against [`ShapeMaterialCache`] at spawn time.
 ///
 /// Without this, a scatter placement with `count = 1000` referencing a
 /// shape generator would re-parse every grammar line, re-seed the
@@ -95,22 +63,10 @@ pub(super) struct CachedShapeGeometry {
 /// identical model (only the parent transform varies), we derive,
 /// interpret, and bake meshes **once** per `(generator_ref, geometry_hash)`
 /// pair and reuse the resulting per-terminal handles across every spawn.
-///
-/// Entries for `generator_ref`s not touched during a compile pass are dropped
-/// at the end of that pass so stale meshes don't keep pinning `Assets<Mesh>`.
-#[derive(Resource, Default)]
-pub struct ShapeMeshCache {
-    pub(super) entries: HashMap<String, CachedShapeGeometry>,
-}
-
-impl ShapeMeshCache {
-    /// Drop every cached geometry entry (and its `Handle<Mesh>`s). Called on
-    /// logout so the last room's shape meshes stop pinning `Assets<Mesh>` into
-    /// the next session (#625).
-    pub fn clear(&mut self) {
-        self.entries.clear();
-    }
-}
+/// The list is an `Arc` so a cache HIT hands out an O(1) refcount bump
+/// instead of deep-cloning the `Vec` (+ its per-instance `material_id`
+/// Strings) on every scatter sample / grid cell (#636).
+pub type ShapeMeshCache = GeneratorCache<String, Arc<[ShapeInstance]>>;
 
 /// Stable content hash of the geometry-affecting fields of a
 /// `GeneratorKind::Shape`. Material settings are deliberately excluded
@@ -124,31 +80,14 @@ fn shape_geometry_fingerprint(
     footprint: Fp3,
     seed: u64,
 ) -> u64 {
-    const FP_SCALE: f32 = 10_000.0;
-    let fp = |v: f32| (v * FP_SCALE).round() as i32;
-    let mut h = DefaultHasher::new();
-    grammar_source.hash(&mut h);
-    root_rule.hash(&mut h);
-    seed.hash(&mut h);
-    fp(footprint.0[0]).hash(&mut h);
-    fp(footprint.0[1]).hash(&mut h);
-    fp(footprint.0[2]).hash(&mut h);
+    let mut h = GeometryHasher::new();
+    h.field(grammar_source);
+    h.field(root_rule);
+    h.field(seed);
+    h.fp(footprint.0[0]);
+    h.fp(footprint.0[1]);
+    h.fp(footprint.0[2]);
     h.finish()
-}
-
-/// Stable content hash of a `SovereignMaterialSettings` — bytes of its
-/// canonical JSON serialisation. Identical to the L-system fingerprint
-/// helper so the two caches can co-exist with the same eviction strategy.
-fn material_fingerprint(settings: &SovereignMaterialSettings) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    match serde_json::to_vec(settings) {
-        Ok(bytes) => bytes.hash(&mut hasher),
-        Err(_) => {
-            0xDEAD_BEEF_u64.hash(&mut hasher);
-            (settings as *const SovereignMaterialSettings as usize).hash(&mut hasher);
-        }
-    }
-    hasher.finish()
 }
 
 // Mesh dedup keys (`MeshCacheKey`, `ProfileKey`) and the cross-spawn
@@ -285,19 +224,13 @@ fn resolve_material_handle(
     match lookup {
         Some((name, settings)) => {
             let key = (generator_ref.to_string(), name);
-            let hash = material_fingerprint(settings);
+            let hash = settings_fingerprint(settings);
             ctx.shape_material_touched.insert(key.clone());
-            match ctx.shape_material_cache.entries.get(&key) {
-                Some(cached) if cached.settings_hash == hash => cached.handle.clone(),
-                _ => {
+            match ctx.shape_material_cache.get_if(&key, hash) {
+                Some(handle) => handle,
+                None => {
                     let handle = spawn_procedural_material(ctx, settings);
-                    ctx.shape_material_cache.entries.insert(
-                        key,
-                        CachedShapeMaterial {
-                            settings_hash: hash,
-                            handle: handle.clone(),
-                        },
-                    );
+                    ctx.shape_material_cache.insert(key, hash, handle.clone());
                     handle
                 }
             }
@@ -308,19 +241,15 @@ fn resolve_material_handle(
             // scatter allocates its own `StandardMaterial::default()`.
             let key = (generator_ref.to_string(), String::new());
             ctx.shape_material_touched.insert(key.clone());
-            match ctx.shape_material_cache.entries.get(&key) {
-                Some(cached) if cached.settings_hash == FALLBACK_SENTINEL_HASH => {
-                    cached.handle.clone()
-                }
-                _ => {
+            match ctx
+                .shape_material_cache
+                .get_if(&key, FALLBACK_SENTINEL_HASH)
+            {
+                Some(handle) => handle,
+                None => {
                     let h = ctx.std_materials.add(StandardMaterial::default());
-                    ctx.shape_material_cache.entries.insert(
-                        key,
-                        CachedShapeMaterial {
-                            settings_hash: FALLBACK_SENTINEL_HASH,
-                            handle: h.clone(),
-                        },
-                    );
+                    ctx.shape_material_cache
+                        .insert(key, FALLBACK_SENTINEL_HASH, h.clone());
                     h
                 }
             }
@@ -350,10 +279,7 @@ pub(super) fn spawn_shape_entity(
     // re-derive the grammar and re-bake every terminal mesh on every spawn.
     ctx.shape_mesh_touched.insert(generator_ref.to_string());
     let geometry_hash = shape_geometry_fingerprint(grammar_source, root_rule, *footprint, *seed);
-    let cached = match ctx.shape_mesh_cache.entries.get(generator_ref) {
-        Some(c) if c.geometry_hash == geometry_hash => Some(c.instances.clone()),
-        _ => None,
-    };
+    let cached = ctx.shape_mesh_cache.get_if(generator_ref, geometry_hash);
 
     let instances = match cached {
         Some(i) => i,
@@ -371,16 +297,14 @@ pub(super) fn spawn_shape_entity(
                 // evict any stale entry so a later edit that fixes the
                 // grammar triggers a rebuild instead of reusing a stale
                 // success result.
-                ctx.shape_mesh_cache.entries.remove(generator_ref);
+                ctx.shape_mesh_cache.remove(generator_ref);
                 return None;
             };
             let instances: Arc<[ShapeInstance]> = built.into();
-            ctx.shape_mesh_cache.entries.insert(
+            ctx.shape_mesh_cache.insert(
                 generator_ref.to_string(),
-                CachedShapeGeometry {
-                    geometry_hash,
-                    instances: instances.clone(),
-                },
+                geometry_hash,
+                instances.clone(),
             );
             instances
         }
