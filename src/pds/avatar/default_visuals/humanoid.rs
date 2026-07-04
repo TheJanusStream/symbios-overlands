@@ -6,10 +6,14 @@
 //! locomotion capsule) and the joint anchors each slot's part mounts to —
 //! legs hanging from the hips, torso above, arms at the shoulder line (with
 //! a slight outward + forward splay so they don't read as pinned to a tube),
-//! head atop the torso, an optional hat above the head. Every slot's
-//! geometry, colour, and finish comes from the part catalogue
-//! ([`crate::pds::avatar::parts`]); the part is built in its own local
-//! attachment frame and the assembler offsets it to the joint anchor.
+//! head atop the torso, an optional hat above the head. Every anchor comes
+//! from the seeded [`HumanoidBlueprint`](crate::seeded_defaults::HumanoidBlueprint) — the same proportion contract the
+//! parts and the locomotion capsule read — so canon landmarks (wrist at the
+//! crotch line, legs ~half the figure, tier-banded head size) hold by
+//! construction. Every slot's geometry, colour, and finish comes from the
+//! part catalogue ([`crate::pds::avatar::parts`]); the part is built in its
+//! own local attachment frame and the assembler offsets it to the joint
+//! anchor.
 //!
 //! The pfp identity panel is *not* a part (it's identity, not cosmetics):
 //! the assembler wears it as a small flush chest badge (front-facing) so a
@@ -33,49 +37,41 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
     // Reuse the outfit we just derived for the ctx's hat flag instead of letting
     // `PartCtx::for_seed` derive a second one (#638).
     let ctx = PartCtx::for_seed_with_hat(seed, outfit_has_hat(&outfit));
+    let bp = ctx.blueprint;
 
-    let w = ctx.body.shoulder_width_scale;
-    let limb = ctx.body.limb_thickness_scale;
     let primary = ctx.palette.primary_accent;
     // Trousers / pelvis share a darker shade of the primary so the lower body
     // reads as one outfit with the shirt (matches the leg part's trousers).
     let trousers = [primary[0] * 0.6, primary[1] * 0.6, primary[2] * 0.6];
 
     // ---- Skeleton anchors (hips at the origin) -----------------------------
-    // The default parts carry fixed segment lengths; these nominal anchors
-    // place them into a coherent figure (x scaled by build width). Styled
-    // kits author their parts to the same anchors.
+    // All from the blueprint; the styled kits author their parts to the same
+    // anchors via `ctx.blueprint`.
     //
-    // The seeded torso:leg ratio expresses itself as the *upper column's*
-    // share of the silhouette (#659): every anchor above the hips scales by
-    // `ratio / 0.5` (long-torsoed figures carry their head higher), while
-    // the legs stay authored-length so the feet keep meeting the locomotion
-    // capsule's bottom — the hips are pinned to the capsule centre, so leg
-    // stretch would float or bury the feet.
-    let upper = ctx.body.torso_leg_ratio / 0.5;
-    let torso_r = 0.155 * w;
-    let arm_r = 0.055 * limb;
-    let torso_y = 0.32 * upper;
-    // Head sits a clear neck-length above the shoulders so the neck reads.
-    let head_y = 0.90 * upper;
-    let shoulder_y = 0.55 * upper;
-    let shoulder_x = torso_r + arm_r + 0.02;
-    let hip_x = torso_r * 0.55;
-    // Slight outward (Z-roll) + forward (X-tilt) arm splay. The forward tilt
-    // is gentle now that the arm part bends at the elbow on its own.
+    // Slight outward (Z-roll) + forward (X-tilt) arm splay: enough negative
+    // space that the arms read in silhouette instead of merging into the
+    // trunk. The forward tilt is gentle — the arm part bends at the elbow on
+    // its own.
     let arm_splay = 0.14;
     let arm_forward = 0.05;
+    // Legacy part scale: hats and ornaments are authored against the old
+    // fixed head (r = 0.13) / chest (r = 0.155); scale them uniformly to
+    // this seed's head and chest so a Toy figure doesn't drown under an
+    // adult-sized top hat. (Uniform root scale is safe — it propagates to
+    // the part's children by design here.)
+    let hat_k = bp.head_r / 0.13;
+    let chest_k = (bp.chest_r / 0.155).clamp(0.6, 1.3);
 
     // ---- Pelvis (root) -----------------------------------------------------
     // A small hidden structural core at the origin: the assembler mounts every
     // other slot onto it, so the root must keep an identity transform (a root
     // scale would stretch + fling the mounted slots). The *visible* hip is a
-    // rounded ellipsoid child (which may scale), seated low and kept just wider
-    // than the trunk so the trousered legs emerge from a rounded pelvis rather
-    // than the boxy corners of a flared slab.
+    // rounded ellipsoid child (which may scale), seated low and kept flush
+    // with the trunk's waist so the trousered legs emerge from a rounded
+    // pelvis rather than a wider "diaper" bulge.
     let mut root = prim(
         cuboid(
-            [torso_r * 0.9, 0.13, torso_r * 0.8],
+            [bp.waist_r * 0.9, bp.waist_r * 0.8, bp.waist_r * 0.7],
             ctx.materials.body(trousers),
         ),
         [0.0, 0.0, 0.0],
@@ -84,10 +80,14 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
     root.transform = Default::default();
     let mut pelvis = prim(
         sphere(1.0, 3, ctx.materials.body(trousers)),
-        [0.0, -0.04, 0.0],
+        [0.0, -0.02, 0.0],
         id_quat(),
     );
-    pelvis.transform.scale = Fp3([torso_r * 1.05, 0.12, torso_r * 0.92]);
+    pelvis.transform.scale = Fp3([
+        bp.waist_r * 1.02,
+        bp.waist_r * 0.75,
+        bp.waist_r * 0.90 * bp.depth,
+    ]);
     root.children.push(pelvis);
 
     // ---- Mount each filled slot at its anchor ------------------------------
@@ -98,17 +98,17 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
         match choice.slot {
             PartSlot::Torso => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, torso_y, 0.0])),
+                .push(offset(part.build(&ctx), [0.0, bp.torso_y, 0.0])),
             PartSlot::Head => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, head_y, 0.0])),
+                .push(offset(part.build(&ctx), [0.0, bp.head_y, 0.0])),
             PartSlot::Arm => {
                 // One part, mirrored to both shoulders with an outward splay.
                 for side in [-1.0f32, 1.0] {
                     let rot = quat_xyzw(quat_mul(quat_z(side * arm_splay), quat_x(arm_forward)));
                     root.children.push(offset_rot(
                         part.build(&ctx),
-                        [side * shoulder_x, shoulder_y, 0.0],
+                        [side * bp.shoulder_x, bp.shoulder_y, 0.0],
                         rot,
                     ));
                 }
@@ -116,15 +116,30 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
             PartSlot::Leg => {
                 for side in [-1.0f32, 1.0] {
                     root.children
-                        .push(offset(part.build(&ctx), [side * hip_x, 0.0, 0.0]));
+                        .push(offset(part.build(&ctx), [side * bp.hip_x, 0.0, 0.0]));
                 }
             }
-            PartSlot::Hat => root
-                .children
-                .push(offset(part.build(&ctx), [0.0, head_y + 0.14, 0.0])),
-            PartSlot::Ornament => root
-                .children
-                .push(offset(part.build(&ctx), [0.0, torso_y, -torso_r])),
+            PartSlot::Hat => {
+                let mut hat = offset(part.build(&ctx), [0.0, bp.head_y + bp.head_r * 1.08, 0.0]);
+                hat.transform.scale = Fp3([hat_k, hat_k, hat_k]);
+                root.children.push(hat);
+            }
+            PartSlot::Ornament => {
+                // Seated proud of the trunk's *flattened* front face at chest
+                // height (the trunk V-tapers, so the surface there is wider
+                // than the waist).
+                let surf = bp.waist_r + (bp.chest_r - bp.waist_r) * 0.5;
+                let mut orn = offset(
+                    part.build(&ctx),
+                    [
+                        0.0,
+                        bp.torso_y - bp.trunk_len * 0.10,
+                        -(surf * bp.depth + 0.012),
+                    ],
+                );
+                orn.transform.scale = Fp3([chest_k, chest_k, chest_k]);
+                root.children.push(orn);
+            }
             // Slots that don't belong to a humanoid are never produced for
             // this chassis by the outfit deriver; ignore defensively.
             _ => {}
@@ -132,10 +147,11 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
     }
 
     // ---- pfp identity worn as a flush chest badge --------------------------
+    let badge_y = bp.torso_y + bp.trunk_len * 0.24;
     root.children.push(pfp_panel(
         did,
-        0.16,
-        [0.0, torso_y + 0.12, -(torso_r + 0.015)],
+        0.16 * chest_k,
+        [0.0, badge_y, -(bp.chest_r * bp.depth + 0.02)],
         pastel(primary),
         PfpFacing::Front,
     ));

@@ -84,10 +84,14 @@ fn fx_mount(family: ChassisFamily) -> [f32; 3] {
 /// than a short-stepped walker.
 fn humanoid_locomotion(seed: u64) -> LocomotionConfig {
     let body = AvatarBody::for_seed(seed);
+    let bp = crate::seeded_defaults::HumanoidBlueprint::from_body(&body);
     let gait = AvatarGait::for_seed(seed);
     let mut p = HumanoidParams::default();
-    let total_h = 1.70 * body.height_scale;
-    p.capsule_radius = Fp(0.28 * body.shoulder_width_scale);
+    // The capsule tracks the blueprint exactly: a Toy avatar is genuinely
+    // small in-world, a Heroic one genuinely tall. Radius hugs the figure's
+    // widest mass (shoulders + splayed arms).
+    let total_h = bp.total_h;
+    p.capsule_radius = Fp(((bp.shoulder_x + 2.0 * bp.arm_r) * 0.95).clamp(0.18, 0.34));
     p.capsule_length = Fp((total_h - 2.0 * p.capsule_radius.0).max(0.4));
     p.walk_speed = Fp(4.0 * (gait.step_cadence / 2.2));
     p.into_config()

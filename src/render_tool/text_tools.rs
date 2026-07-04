@@ -25,6 +25,19 @@ pub(super) fn print_family_seeds(fam: &str, count: usize) {
         .take(count)
         .collect();
     println!("{want:?} seeds: {seeds:?}");
+    // Humanoids also print their stylization tier + physical height so the
+    // overhaul loop can pick one exemplar per tier without trial renders.
+    if want == ChassisFamily::Humanoid {
+        for &s in &seeds {
+            let bp = crate::seeded_defaults::HumanoidBlueprint::for_seed(s);
+            println!(
+                "  seed {s}: {:?} ({:.2} m, {:.1} heads)",
+                bp.tier,
+                bp.total_h,
+                bp.total_h / bp.head_unit
+            );
+        }
+    }
 }
 
 /// Reproduce a room's heightmap + road config and print the road-graph

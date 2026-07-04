@@ -30,6 +30,7 @@
 //! family-agnostic and feed every part build; [`MaterialKit`] supplies the
 //! style/wear finish.
 
+pub mod blueprint;
 pub mod body;
 pub mod character;
 pub mod chassis;
@@ -39,7 +40,8 @@ pub mod materials;
 pub mod outfit;
 pub mod palette;
 
-pub use body::{AvatarBody, BodyArchetype};
+pub use blueprint::HumanoidBlueprint;
+pub use body::{AvatarBody, BodyArchetype, StylizationTier};
 pub use character::{
     AvatarCharacter, FinishRegister, OrnatenessBand, OrnatenessTier, WearBand, WearTier,
 };

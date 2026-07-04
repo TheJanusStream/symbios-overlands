@@ -235,23 +235,39 @@ fn bandolier(ctx: &PartCtx) -> Generator {
 // ---------------------------------------------------------------------------
 
 fn robe_torso(ctx: &PartCtx) -> Generator {
+    // Blueprint-sized so the robe fits every stylization tier: the trunk
+    // matches the default torso's chest, and the skirt cone falls from the
+    // waist to just short of the ground (it hides the legs by design).
+    let bp = &ctx.blueprint;
     let cloth = ctx.materials.cloth(ctx.palette.primary_accent);
-    let mut torso = prim(capsule(0.15, 0.40, cloth), [0.0, 0.0, 0.0], id_quat());
-    // Flared skirt cone, wide at the hem.
+    let mut torso = prim(
+        capsule(bp.chest_r * 0.92, bp.trunk_len * 0.8, cloth),
+        [0.0, 0.0, 0.0],
+        id_quat(),
+    );
+    // Flared skirt cone, wide at the hem. Torso-local: its top starts at the
+    // belt line and its base lands a touch above the ground plane.
+    let hem_y = -(bp.torso_y + bp.leg_total() * 0.92);
+    let top_y = -bp.trunk_len * 0.40;
+    let skirt_h = top_y - hem_y;
     torso.children.push(prim(
         cone(
-            0.30,
-            0.55,
+            bp.waist_r * 2.1,
+            skirt_h,
             14,
             ctx.materials.cloth(ctx.palette.secondary_accent),
         ),
-        [0.0, -0.42, 0.0],
+        [0.0, (top_y + hem_y) * 0.5, 0.0],
         id_quat(),
     ));
     // Belt at the waist.
     torso.children.push(prim(
-        torus(0.025, 0.16, ctx.materials.trim(ctx.palette.tertiary_accent)),
-        [0.0, -0.16, 0.0],
+        torus(
+            0.025,
+            bp.waist_r * 1.08,
+            ctx.materials.trim(ctx.palette.tertiary_accent),
+        ),
+        [0.0, top_y, 0.0],
         id_quat(),
     ));
     torso

@@ -36,8 +36,8 @@ pub(crate) mod vehicle;
 
 use crate::pds::generator::Generator;
 use crate::seeded_defaults::{
-    AvatarBody, AvatarOutfit, AvatarPalette, ChassisFamily, MaterialKit, OrnatenessBand,
-    OrnatenessTier, ThemeArchetype, WearBand, WearTier,
+    AvatarBody, AvatarOutfit, AvatarPalette, ChassisFamily, HumanoidBlueprint, MaterialKit,
+    OrnatenessBand, OrnatenessTier, ThemeArchetype, WearBand, WearTier,
 };
 
 /// One composable slot of an avatar. Flat across every chassis (a part
@@ -120,6 +120,10 @@ pub struct PartCtx {
     pub palette: AvatarPalette,
     pub materials: MaterialKit,
     pub body: AvatarBody,
+    /// Concrete humanoid skeleton dimensions derived from `body` — the
+    /// shared proportion contract between the humanoid parts and the
+    /// assembler. Vehicle parts ignore it.
+    pub blueprint: HumanoidBlueprint,
     /// The avatar seed — parts open their own sub-stream for stochastic
     /// detail without re-deriving the anchor.
     pub seed: u64,
@@ -140,10 +144,12 @@ impl PartCtx {
     /// iteration, so they pass its hat flag in here instead of forcing a second
     /// full `AvatarOutfit::for_seed` derivation per build (#638).
     pub fn for_seed_with_hat(seed: u64, has_hat: bool) -> Self {
+        let body = AvatarBody::for_seed(seed);
         Self {
             palette: AvatarPalette::for_seed(seed),
             materials: MaterialKit::for_seed(seed),
-            body: AvatarBody::for_seed(seed),
+            body,
+            blueprint: HumanoidBlueprint::from_body(&body),
             seed,
             has_hat,
         }
