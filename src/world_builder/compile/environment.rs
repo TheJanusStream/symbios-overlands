@@ -37,6 +37,7 @@ pub(crate) fn apply_environment_state(
     mut std_materials: ResMut<Assets<StandardMaterial>>,
     mut cloud_layer: Query<(&MeshMaterial3d<CloudMaterial>, &mut Transform), With<CloudLayer>>,
     mut cloud_materials: ResMut<Assets<CloudMaterial>>,
+    mut water_materials: ResMut<Assets<crate::water::WaterMaterial>>,
 ) {
     let Some(record) = record else {
         return;
@@ -132,5 +133,13 @@ pub(crate) fn apply_environment_state(
             // inspector) still shows a recognisable cloud colour.
             mat.base.base_color = Color::srgb(cloud_c[0], cloud_c[1], cloud_c[2]);
         }
+    }
+
+    // Water sun-glitter tracks the same runtime sun as the cloud deck
+    // (#662). Patched here rather than at water spawn only, because a
+    // sun-position slider drag retints the world without recompiling the
+    // water volumes — every live water material shares the one global sun.
+    for (_, mat) in water_materials.iter_mut() {
+        mat.extension.uniforms.sun_dir = Vec4::new(sun_dir.x, sun_dir.y, sun_dir.z, 0.0);
     }
 }

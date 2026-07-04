@@ -28,8 +28,8 @@ use bevy::prelude::*;
 use crate::pds::{EmitterShape, Fp, Fp3};
 use crate::world_builder::particles::{EmitterState, ParticleEmitter, spawn_particle_emitter};
 
-use super::contact::{AvatarContacts, SurfaceContact};
-use super::recipes::ContactRecipeRegistry;
+use super::contact::{AvatarContacts, SurfaceContact, dominant_layer};
+use super::recipes::{ContactRecipeRegistry, DUST_END_COLOR, DUST_START_COLOR};
 
 /// World-space drift acceleration (m/s² per unit of `flow_dir`) biasing
 /// water-contact bursts downstream. Gentle relative to gravity so a
@@ -38,6 +38,47 @@ const FLOW_DRIFT_ACCEL: f32 = 1.2;
 /// Cap on the total drift bias so a pathological flow tangent can't
 /// fling particles horizontally.
 const FLOW_DRIFT_ACCEL_MAX: f32 = 3.0;
+
+/// How far a terrain layer's albedo is lifted toward white before it
+/// becomes the dust tint. Kicked-up dust reads as a dry, powdered version
+/// of the surface — raw grass albedo (≈`[0.07, 0.12, 0.03]`) is near-black
+/// and would render as soot; the lift lands it on a green-grey haze while
+/// near-white snow stays white.
+const DUST_ALBEDO_LIFT: f32 = 0.4;
+/// End-of-life RGB as a fraction of the start tint — mirrors the default
+/// tan ramp's slight darkening as a particle fades out.
+const DUST_END_DARKEN: f32 = 0.9;
+
+/// A representative albedo for a terrain splat layer, for tinting the
+/// dust kicked off it. Only the procedural ground-family variants carry an
+/// obvious colour pair; anything else (`Referenced`, bricks, planks, …)
+/// returns `None` and the burst keeps its template colours.
+fn layer_albedo(layer: &crate::pds::SovereignTextureConfig) -> Option<Vec3> {
+    use crate::pds::SovereignTextureConfig;
+    // Midpoint of the variant's two authored colours — representative of
+    // the visible surface whichever of the pair dominates locally.
+    match layer {
+        SovereignTextureConfig::Ground(g) => {
+            Some((Vec3::from_array(g.color_dry.0) + Vec3::from_array(g.color_moist.0)) * 0.5)
+        }
+        SovereignTextureConfig::Rock(r) => {
+            Some((Vec3::from_array(r.color_light.0) + Vec3::from_array(r.color_dark.0)) * 0.5)
+        }
+        _ => None,
+    }
+}
+
+/// Dust colour ramp derived from a terrain layer albedo: RGB comes from
+/// the (white-lifted) albedo, the alpha ramp stays the default template's
+/// so authored fade behaviour is untouched.
+fn dust_colors_for_albedo(albedo: Vec3) -> (LinearRgba, LinearRgba) {
+    let start = albedo.lerp(Vec3::ONE, DUST_ALBEDO_LIFT);
+    let end = start * DUST_END_DARKEN;
+    (
+        LinearRgba::new(start.x, start.y, start.z, DUST_START_COLOR.alpha),
+        LinearRgba::new(end.x, end.y, end.z, DUST_END_COLOR.alpha),
+    )
+}
 
 /// Marks an emitter spawned by [`particle_dispatcher`] so
 /// [`retire_transient_emitters`] can reclaim it after its one-shot
@@ -89,11 +130,20 @@ pub fn particle_dispatcher(
     time: Res<Time>,
     contacts: Res<AvatarContacts>,
     registry: Res<ContactRecipeRegistry>,
+    room_record: Option<Res<crate::state::LiveRoomRecord>>,
     mut state: ResMut<ParticleDispatchState>,
     mut commands: Commands,
 ) {
     let now = time.elapsed_secs();
     let mut spawned_this_frame: u32 = 0;
+
+    // Terrain splat layers, for tinting ground dust by the material the
+    // avatar is running on. Resolved once per frame — `None` outside a
+    // loaded room, where no terrain contact can fire anyway.
+    let terrain_layers = room_record
+        .as_ref()
+        .and_then(|r| crate::pds::find_terrain_config(&r.0))
+        .map(|cfg| &cfg.material.layers);
 
     'samples: for sample in &contacts.samples {
         for (idx, recipe) in registry.recipes.iter().enumerate() {
@@ -143,6 +193,21 @@ pub fn particle_dispatcher(
             {
                 let drift = (flow_dir * FLOW_DRIFT_ACCEL).clamp_length_max(FLOW_DRIFT_ACCEL_MAX);
                 emitter.acceleration += Vec3::new(drift.x, 0.0, drift.y);
+            }
+            // Terrain bursts still carrying the default tan dust ramp get
+            // their RGB re-derived from the dominant splat layer's albedo
+            // (#661) — green-grey on grass, brown on dirt, grey on rock,
+            // white on snow. A record-authored custom colour differs from
+            // the sentinel and is left untouched; alpha ramps are kept
+            // either way. Pure CPU colour pick at spawn, so native and
+            // wasm behave identically.
+            if let SurfaceContact::Terrain { material_blend, .. } = sample.surface
+                && emitter.start_color == DUST_START_COLOR
+                && emitter.end_color == DUST_END_COLOR
+                && let Some(layers) = terrain_layers
+                && let Some(albedo) = layer_albedo(&layers[dominant_layer(material_blend)])
+            {
+                (emitter.start_color, emitter.end_color) = dust_colors_for_albedo(albedo);
             }
 
             // Determinism is not required for cosmetic particles (same
@@ -231,6 +296,40 @@ mod tests {
             scaled_shape(&EmitterShape::Point, 5.0),
             EmitterShape::Point
         ));
+    }
+
+    #[test]
+    fn layer_albedo_covers_ground_family_only() {
+        use crate::pds::{SovereignGroundConfig, SovereignRockConfig, SovereignTextureConfig};
+        // Ground / Rock average their colour pair.
+        let ground = SovereignGroundConfig {
+            color_dry: crate::pds::Fp3([1.0, 0.0, 0.0]),
+            color_moist: crate::pds::Fp3([0.0, 1.0, 0.0]),
+            ..Default::default()
+        };
+        let a = layer_albedo(&SovereignTextureConfig::Ground(ground)).expect("ground has albedo");
+        assert!((a - Vec3::new(0.5, 0.5, 0.0)).length() < 1e-6);
+        assert!(
+            layer_albedo(&SovereignTextureConfig::Rock(SovereignRockConfig::default())).is_some()
+        );
+        // Non-ground variants keep the template colours.
+        assert!(layer_albedo(&SovereignTextureConfig::None).is_none());
+    }
+
+    #[test]
+    fn dust_ramp_lifts_albedo_and_keeps_alpha() {
+        // Near-black grass albedo lands on a readable green-grey, not soot.
+        let (start, end) = dust_colors_for_albedo(Vec3::new(0.07, 0.12, 0.03));
+        assert!(
+            start.green > start.red && start.red > start.blue,
+            "hue order preserved"
+        );
+        assert!(start.green > 0.3, "lifted out of the near-black band");
+        // Alpha ramp is the default template's, untouched by the tint.
+        assert_eq!(start.alpha, DUST_START_COLOR.alpha);
+        assert_eq!(end.alpha, DUST_END_COLOR.alpha);
+        // Fade-out darkens slightly, mirroring the tan default.
+        assert!(end.red < start.red && end.green < start.green);
     }
 
     #[test]

@@ -33,6 +33,14 @@ fn build_water_uniforms(surface: &WaterSurface, env: &Environment) -> WaterUnifo
             env.water_scatter_color.0[2],
             0.0,
         ),
+        // Unit toward-sun for the glitter lobe. `sun_position` is the
+        // spot the directional light looks at the origin from, so its
+        // normalised form IS the toward-sun direction — the same value
+        // `apply_environment_state` re-derives from the live light
+        // transform on every later environment change.
+        sun_dir: Vec3::from_array(env.sun_position.0)
+            .normalize_or(Vec3::Y)
+            .extend(0.0),
         wave_direction: Vec2::from_array(surface.wave_direction.0),
         wave_scale: surface.wave_scale.0,
         wave_speed: surface.wave_speed.0,

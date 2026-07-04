@@ -45,6 +45,14 @@ pub struct WaterUniforms {
     pub deep_color: Vec4,
     /// Global: subsurface-scatter tint added to wave crests. (rgb used, a=0)
     pub scatter_color: Vec4,
+    /// Global: unit vector *toward* the sun (xyz used, w=0), for the
+    /// specular sun-glitter lobe. Initialised from the room's
+    /// `Environment::sun_position` at spawn and CPU-patched by
+    /// `world_builder::compile::apply_environment_state` on every
+    /// environment change — the same pattern as
+    /// [`crate::clouds::CloudUniforms::sun_dir`]. A zero vector makes the
+    /// shader fall back to its legacy up-biased approximation.
+    pub sun_dir: Vec4,
     /// Per-volume: prevailing wave direction in world XZ.
     pub wave_direction: Vec2,
     /// Per-volume: global amplitude multiplier on the Gerstner waves.

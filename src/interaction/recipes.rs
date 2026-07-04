@@ -346,6 +346,15 @@ fn water_droplet_template() -> ParticleEmitter {
     }
 }
 
+/// Default ground-dust colour ramp (dusty tan). Doubles as the sentinel
+/// [`super::particle_channel`] compares against at burst time: a template
+/// still carrying these exact values gets its RGB re-derived from the
+/// terrain's dominant splat layer, while an author-customised colour is
+/// left untouched (record-driven overrides win).
+pub(crate) const DUST_START_COLOR: LinearRgba = LinearRgba::new(0.55, 0.45, 0.32, 0.70);
+/// Default ground-dust fade-out colour — see [`DUST_START_COLOR`].
+pub(crate) const DUST_END_COLOR: LinearRgba = LinearRgba::new(0.50, 0.42, 0.30, 0.0);
+
 /// Dusty tan ground puff that hangs then settles — kicked up by a
 /// brisk run on terrain. Mirrors
 /// `crate::pds::contact_effects::ground_dust_record`'s `RecipeParticle`
@@ -364,8 +373,8 @@ fn ground_dust_template() -> ParticleEmitter {
         linear_drag: 0.6,
         start_size: 0.18,
         end_size: 0.05,
-        start_color: LinearRgba::new(0.55, 0.45, 0.32, 0.70),
-        end_color: LinearRgba::new(0.50, 0.42, 0.30, 0.0),
+        start_color: DUST_START_COLOR,
+        end_color: DUST_END_COLOR,
         procedural_texture,
         texture_atlas,
         ..transient_base()

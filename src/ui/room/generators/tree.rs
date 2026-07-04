@@ -33,14 +33,15 @@ enum PendingAction {
         parent: GenNodeId,
         kind_tag: &'static str,
     },
-    /// Append a *clone* of an inventory entry as a child of `parent`. The
-    /// clone happens at click time inside the context-menu closure (where
-    /// `&LiveInventoryRecord` is in scope), so the apply step doesn't need
-    /// to re-borrow inventory and never has to look the entry up by name.
-    /// The generator payload is boxed so the enum's stack footprint stays
-    /// small — `Generator` carries a deep tree and would otherwise dwarf
-    /// every other variant.
-    AddChildFromInventory {
+    /// Append a prebuilt generator (an inventory-entry *clone* or a fresh
+    /// catalogue stamp) as a child of `parent`. The payload is materialised
+    /// at click time inside the context-menu closure (where
+    /// `&LiveInventoryRecord` / the catalogue entry is in scope), so the
+    /// apply step doesn't need to re-borrow anything and never has to look
+    /// the entry up by name. The generator payload is boxed so the enum's
+    /// stack footprint stays small — `Generator` carries a deep tree and
+    /// would otherwise dwarf every other variant.
+    AddChildPrebuilt {
         parent: GenNodeId,
         generator: Box<Generator>,
     },
@@ -55,6 +56,43 @@ enum PendingAction {
         target: GenNodeId,
         position: DirPosition<GenNodeId>,
     },
+}
+
+/// Shared "+ From Catalogue" submenu body: entry buttons grouped under
+/// category headers (Buildings / Plants / Patterns, from
+/// [`crate::catalogue::CatalogueCategory::ALL`]; empty categories are
+/// skipped so the menu stays compact as new ones are added). A click hands
+/// `on_pick` the entry's slug plus a DID-less stamp — the submenu seeds the
+/// editor with a fresh blueprint, and personalisable entries (e.g.
+/// Teleporter) get their DID filled in at gift/drop time (editors can also
+/// type it into the `target_did` field by hand). Used by both the toolbar's
+/// add-root menu and the per-node context menu's add-child path.
+fn catalogue_menu_entries(ui: &mut egui::Ui, mut on_pick: impl FnMut(String, Generator)) {
+    for category in crate::catalogue::CatalogueCategory::ALL {
+        let entries_here: Vec<_> = crate::catalogue::ENTRIES
+            .iter()
+            .copied()
+            .filter(|e| e.category() == category)
+            .collect();
+        if entries_here.is_empty() {
+            continue;
+        }
+        ui.label(
+            egui::RichText::new(category.label())
+                .strong()
+                .color(egui::Color32::from_rgb(180, 180, 220)),
+        );
+        for entry in entries_here {
+            if ui
+                .button(entry.name())
+                .on_hover_text(entry.description())
+                .clicked()
+            {
+                on_pick(entry.slug().to_string(), entry.build(""));
+                ui.close();
+            }
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -121,46 +159,11 @@ pub(super) fn draw_tree_panel(
 
         // Catalogue submenu — the client-shipped sibling of Inventory.
         // Same shape as "+ From Inventory": click an entry to stamp a
-        // fresh copy into the tree as a new root. Category headers
-        // (Buildings / Plants / Patterns) come from
-        // [`crate::catalogue::CatalogueCategory::ALL`] and are skipped
-        // when empty so the menu stays compact as new categories are
-        // added.
+        // fresh copy into the tree as a new root.
         if !crate::catalogue::ENTRIES.is_empty() {
             ui.menu_button("+ From Catalogue", |ui| {
                 let mut picked: Option<(String, Generator)> = None;
-                for category in crate::catalogue::CatalogueCategory::ALL {
-                    let entries_here: Vec<_> = crate::catalogue::ENTRIES
-                        .iter()
-                        .copied()
-                        .filter(|e| e.category() == category)
-                        .collect();
-                    if entries_here.is_empty() {
-                        continue;
-                    }
-                    ui.label(
-                        bevy_egui::egui::RichText::new(category.label())
-                            .strong()
-                            .color(bevy_egui::egui::Color32::from_rgb(180, 180, 220)),
-                    );
-                    for entry in entries_here {
-                        if ui
-                            .button(entry.name())
-                            .on_hover_text(entry.description())
-                            .clicked()
-                        {
-                            // Stamp without the local DID here — this
-                            // submenu seeds the editor with a fresh
-                            // blueprint, and personalisable entries
-                            // (e.g. Teleporter) get their DID filled
-                            // in at gift/drop time. Editors can also
-                            // type it into the target_did field by
-                            // hand.
-                            picked = Some((entry.slug().to_string(), entry.build("")));
-                            ui.close();
-                        }
-                    }
-                }
+                catalogue_menu_entries(ui, |slug, g| picked = Some((slug, g)));
                 if let Some((slug, g)) = picked
                     && let Some(new_name) = source.add_root(&slug, g)
                 {
@@ -330,7 +333,7 @@ fn apply_pending(
                 *dirty = true;
             }
         }
-        PendingAction::AddChildFromInventory { parent, generator } => {
+        PendingAction::AddChildPrebuilt { parent, generator } => {
             if let Some(node) = find_node_mut(source, &parent)
                 && allows_children(&node.kind)
             {
@@ -740,13 +743,25 @@ fn build_tree_node(
                     if ui.button(inv_name).clicked()
                         && let Some(g) = inv.0.generators.get(inv_name)
                     {
-                        *pending.borrow_mut() = Some(PendingAction::AddChildFromInventory {
+                        *pending.borrow_mut() = Some(PendingAction::AddChildPrebuilt {
                             parent: menu_id.clone(),
                             generator: Box::new(g.clone()),
                         });
                         ui.close();
                     }
                 }
+            });
+        }
+        // Catalogue stamps parent to the clicked node exactly like an
+        // inventory clone — same buffered insert path, fresh blueprint.
+        if menu_allows_children && !crate::catalogue::ENTRIES.is_empty() {
+            ui.menu_button("+ From Catalogue", |ui| {
+                catalogue_menu_entries(ui, |_slug, g| {
+                    *pending.borrow_mut() = Some(PendingAction::AddChildPrebuilt {
+                        parent: menu_id.clone(),
+                        generator: Box::new(g),
+                    });
+                });
             });
         }
         // Rename rewrites the source's root key plus every Placement /

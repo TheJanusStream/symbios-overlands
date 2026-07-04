@@ -446,13 +446,7 @@ pub fn play_terrain_impacts(
         };
 
         // Dominant material layer — argmax over the four splat weights.
-        let dominant = material_blend
-            .iter()
-            .enumerate()
-            .fold((0_usize, f32::NEG_INFINITY), |acc, (i, &w)| {
-                if w > acc.1 { (i, w) } else { acc }
-            })
-            .0;
+        let dominant = crate::interaction::contact::dominant_layer(material_blend);
         let texture = &terrain.material.layers[dominant];
 
         // Volume scales with the sample's normalised intensity. Below

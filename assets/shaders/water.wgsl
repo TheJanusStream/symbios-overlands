@@ -55,6 +55,7 @@ struct WaterUniforms {
     shallow_color: vec4<f32>,
     deep_color: vec4<f32>,
     scatter_color: vec4<f32>,  // rgb used, a unused
+    sun_dir: vec4<f32>,        // unit toward-sun, CPU-patched; xyz used
     wave_direction: vec2<f32>,
     wave_scale: f32,
     wave_speed: f32,
@@ -780,19 +781,23 @@ fn fragment(
     out.color = apply_pbr_lighting(pbr_input);
 
     // Sun-glitter specular — a sharp highlight layered on top of the PBR
-    // result. The directional light uniform's direction is available via
-    // `lights.directional_lights[0]` but reading that across the #ifdef
-    // matrix for this example adds complexity; instead, approximate the
-    // sun as "where the sun would roughly be" via a fixed up-biased vector
-    // and let the Environment sun-glitter slider tune intensity.
+    // result. The sun direction comes from the `sun_dir` uniform, which the
+    // CPU patches from the real directional light on every environment
+    // change (same pattern as the cloud deck's `sun_dir`), so the glitter
+    // tracks the day/night cycle and matches cloud lighting. A degenerate
+    // (zero) uniform falls back to the legacy up-biased approximation.
     //
     // The exponent is kept moderate (~160) and the contribution fades with
     // distance — a sharper lobe alongside aliased normals was the single
     // biggest contributor to the diagonal-grid artifact on the previous
     // iteration, since tiny normal errors became order-of-magnitude BRDF
     // spikes.
-    let sun_approx = normalize(vec3<f32>(0.4, 1.0, 0.3));
-    let half_vec = normalize(sun_approx + v);
+    var sun_vec = vec3<f32>(0.4, 1.0, 0.3);
+    if (dot(water_uniforms.sun_dir.xyz, water_uniforms.sun_dir.xyz) > 1e-6) {
+        sun_vec = water_uniforms.sun_dir.xyz;
+    }
+    let sun_dir = normalize(sun_vec);
+    let half_vec = normalize(sun_dir + v);
     let n_dot_h = max(dot(n, half_vec), 0.0);
     let glitter_fade = clamp(1.0 - smoothstep(60.0, 260.0, dist), 0.0, 1.0);
     let glitter = pow(n_dot_h, 160.0) * water_uniforms.sun_glitter * fresnel * glitter_fade;

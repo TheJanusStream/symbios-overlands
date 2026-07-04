@@ -21,13 +21,16 @@ pub(super) fn draw_placements_tab(
     // rationale; logic mirrors it with index-based selection.
     let selected_exists = selected.is_some_and(|i| i < record.placements.len());
 
-    let all_names: Vec<String> = record.generators.keys().cloned().collect();
+    // Sorted: `record.generators` is a HashMap, so unsorted keys would put
+    // the combos in nondeterministic hash order (varying between sessions).
+    let mut all_names: Vec<String> = record.generators.keys().cloned().collect();
+    all_names.sort();
     // Targets valid for Scatter/Grid: any root generator that is neither
     // a Terrain (unique by design — duplicating it would spawn
     // conflicting heightfield colliders) nor a Water (water is
     // child-only, so it can never legally be a root). Absolute is
     // unrestricted.
-    let eligible_names: Vec<String> = record
+    let mut eligible_names: Vec<String> = record
         .generators
         .iter()
         .filter(|(_, g)| {
@@ -38,6 +41,7 @@ pub(super) fn draw_placements_tab(
         })
         .map(|(name, _)| name.clone())
         .collect();
+    eligible_names.sort();
 
     if selected_exists {
         let idx = selected.expect("selected_exists implies Some");

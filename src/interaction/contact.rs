@@ -106,6 +106,19 @@ impl SurfaceContact {
     }
 }
 
+/// Dominant splat layer — argmax over the four `material_blend` weights.
+/// Shared by the footstep-audio impact picker and the ground-dust tint so
+/// both consumers agree on which ground material the avatar is standing on.
+pub fn dominant_layer(material_blend: [f32; 4]) -> usize {
+    material_blend
+        .iter()
+        .enumerate()
+        .fold((0_usize, f32::NEG_INFINITY), |acc, (i, &w)| {
+            if w > acc.1 { (i, w) } else { acc }
+        })
+        .0
+}
+
 /// One avatar's contact reading for one frame. Multiple samples per
 /// avatar per frame are possible (e.g. an `Exit` and an `Enter`
 /// straddling a surface change).
