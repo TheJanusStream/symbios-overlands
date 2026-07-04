@@ -161,16 +161,16 @@ impl AvatarBody {
         let (h, heads, crotch, span, waist, ltaper, hand, foot, neck, depth) = match tier {
             StylizationTier::Realistic =>
                 ((1.70, 1.80), (6.5, 7.0), (0.49, 0.51), (2.00, 2.20), (0.62, 0.72),
-                 (0.68, 0.76), (0.72, 0.80), (0.85, 0.95), (0.26, 0.30), 0.78),
+                 (0.68, 0.76), (0.72, 0.80), (0.85, 0.95), (0.28, 0.33), 0.78),
             StylizationTier::Heroic =>
                 ((1.80, 1.95), (7.0, 7.5), (0.51, 0.53), (2.25, 2.50), (0.55, 0.65),
                  (0.62, 0.70), (0.78, 0.85), (0.95, 1.05), (0.28, 0.34), 0.76),
             StylizationTier::Stylized =>
                 ((1.50, 1.70), (5.0, 6.0), (0.46, 0.50), (1.85, 2.20), (0.60, 0.75),
-                 (0.70, 0.80), (0.82, 0.95), (0.75, 0.95), (0.16, 0.24), 0.80),
+                 (0.70, 0.80), (0.82, 0.95), (0.75, 0.95), (0.20, 0.28), 0.80),
             StylizationTier::Toy =>
                 ((1.00, 1.25), (3.2, 4.0), (0.42, 0.47), (1.30, 1.60), (0.78, 0.95),
-                 (0.88, 1.00), (0.62, 0.78), (0.55, 0.75), (0.04, 0.08), 0.92),
+                 (0.88, 1.00), (0.62, 0.78), (0.55, 0.75), (0.06, 0.10), 0.92),
         };
         // Stocky bodies keep more waist (boxier trunk), slim ones a
         // touch less — applied as a shift so it stays inside sane range.
@@ -245,7 +245,7 @@ mod tests {
                 StylizationTier::Toy => {
                     assert!(b.heads_tall <= 4.0, "seed {s}: toy heads {}", b.heads_tall);
                     assert!(b.total_height_m <= 1.25);
-                    assert!(b.neck_frac <= 0.08);
+                    assert!(b.neck_frac <= 0.10);
                 }
                 StylizationTier::Heroic => {
                     assert!(b.heads_tall >= 7.0);

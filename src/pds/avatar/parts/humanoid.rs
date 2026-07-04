@@ -49,74 +49,112 @@ fn darken(c: [f32; 3]) -> [f32; 3] {
 // Hats  (mounted just above the head crown)
 // ---------------------------------------------------------------------------
 
+/// Hat scale: every hat was authored against the old fixed r = 0.13 head;
+/// builders multiply *all* dimensions AND translations by this so a hat
+/// fits its seed's head. (The assembler's old root-scale trick scaled the
+/// children but not the root's own offset, which stranded brow-level hats
+/// mid-face.)
+fn hat_k(ctx: &PartCtx) -> f32 {
+    ctx.blueprint.head_r / 0.13
+}
+
 fn wizard_cone(ctx: &PartCtx) -> Generator {
+    let k = hat_k(ctx);
     let cloth = ctx.materials.cloth(ctx.palette.tertiary_accent);
     // A tall cone with a slight forward bend in the tip.
     let mut hat = prim(
-        with_torture(cone(0.15, 0.44, 12, cloth), 0.0, 0.0, [0.05, 0.0, 0.0]),
-        [0.0, 0.20, 0.0],
+        with_torture(
+            cone(0.15 * k, 0.44 * k, 12, cloth),
+            0.0,
+            0.0,
+            [0.05 * k, 0.0, 0.0],
+        ),
+        [0.0, 0.20 * k, 0.0],
         id_quat(),
     );
     hat.children.push(prim(
         torus(
-            0.022,
-            0.16,
+            (0.022 * k).max(0.011),
+            0.16 * k,
             ctx.materials.trim(ctx.palette.secondary_accent),
         ),
-        [0.0, -0.20, 0.0],
+        [0.0, -0.20 * k, 0.0],
         id_quat(),
     ));
     hat.children.push(prim(
-        sphere(0.03, 2, ctx.materials.accent(ctx.palette.primary_accent)),
-        [0.10, 0.22, 0.0],
+        sphere(
+            (0.03 * k).max(0.011),
+            2,
+            ctx.materials.accent(ctx.palette.primary_accent),
+        ),
+        [0.10 * k, 0.22 * k, 0.0],
         id_quat(),
     ));
     hat
 }
 
 fn top_hat(ctx: &PartCtx) -> Generator {
+    let k = hat_k(ctx);
     let felt = ctx.materials.cloth(darken(ctx.palette.tertiary_accent));
+    // Seated a touch lower than the shared crown mount so the brim rests
+    // on the hair instead of hovering on bald crowns.
     let mut hat = prim(
-        cylinder(0.12, 0.26, 16, felt.clone()),
-        [0.0, 0.13, 0.0],
+        cylinder(0.12 * k, 0.26 * k, 16, felt.clone()),
+        [0.0, 0.11 * k, 0.0],
         id_quat(),
     );
     hat.children.push(prim(
-        cylinder(0.18, 0.02, 16, felt),
-        [0.0, -0.13, 0.0],
+        cylinder(0.18 * k, (0.02 * k).max(0.011), 16, felt),
+        [0.0, -0.13 * k, 0.0],
         id_quat(),
     ));
     hat.children.push(prim(
         torus(
-            0.014,
-            0.122,
+            (0.014 * k).max(0.011),
+            0.122 * k,
             ctx.materials.trim(ctx.palette.secondary_accent),
         ),
-        [0.0, -0.07, 0.0],
+        [0.0, -0.07 * k, 0.0],
         id_quat(),
     ));
     hat
 }
 
 fn war_helm(ctx: &PartCtx) -> Generator {
+    let k = hat_k(ctx);
     let metal = ctx.materials.metal(ctx.palette.tertiary_accent);
-    let mut helm = prim(sphere(0.15, 3, metal.clone()), [0.0, 0.02, 0.0], id_quat());
-    helm.transform.scale = Fp3([1.0, 0.9, 1.05]);
+    // Root stays scale-free (children would inherit it); the dome's slight
+    // squash rides on a leaf child instead.
+    let mut helm = prim(
+        sphere(0.145 * k, 3, metal.clone()),
+        [0.0, 0.02 * k, 0.0],
+        id_quat(),
+    );
+    let mut dome = prim(
+        sphere(0.15 * k, 3, metal.clone()),
+        [0.0, 0.0, 0.0],
+        id_quat(),
+    );
+    dome.transform.scale = Fp3([1.0, 0.9, 1.05]);
+    helm.children.push(dome);
     // Nasal guard down the front face (-Z).
     helm.children.push(prim(
-        cuboid([0.03, 0.13, 0.02], metal),
-        [0.0, -0.06, -0.15],
+        cuboid(
+            [(0.03 * k).max(0.011), 0.13 * k, (0.02 * k).max(0.011)],
+            metal,
+        ),
+        [0.0, -0.06 * k, -0.15 * k],
         id_quat(),
     ));
     // Crest spike.
     helm.children.push(prim(
         cone(
-            0.03,
-            0.18,
+            (0.03 * k).max(0.011),
+            0.18 * k,
             8,
             ctx.materials.trim(ctx.palette.secondary_accent),
         ),
-        [0.0, 0.18, 0.0],
+        [0.0, 0.18 * k, 0.0],
         id_quat(),
     ));
     helm
@@ -126,39 +164,47 @@ fn circlet(ctx: &PartCtx) -> Generator {
     // A circlet rings the head at the brow rather than topping it, so it hangs
     // well below the shared Hat mount (which suits crown-toppers) to sit around
     // the hair like a headband. Ring slightly wider than the head+hair.
+    let k = hat_k(ctx);
     let mut c = prim(
         torus(
-            0.014,
-            0.15,
+            (0.014 * k).max(0.011),
+            0.15 * k,
             ctx.materials.trim(ctx.palette.secondary_accent),
         ),
-        [0.0, -0.10, 0.0],
+        [0.0, -0.10 * k, 0.0],
         id_quat(),
     );
+    // Brow gem, tucked against the ring (it used to hang scaled while the
+    // ring hung unscaled, stranding it at nose height).
     c.children.push(prim(
-        sphere(0.028, 2, ctx.materials.accent(ctx.palette.primary_accent)),
-        [0.0, -0.07, -0.15],
+        sphere(
+            (0.028 * k).max(0.011),
+            2,
+            ctx.materials.accent(ctx.palette.primary_accent),
+        ),
+        [0.0, 0.0, -0.15 * k],
         id_quat(),
     ));
     c
 }
 
 fn visor(ctx: &PartCtx) -> Generator {
+    let k = hat_k(ctx);
     let frame = ctx.materials.metal(ctx.palette.tertiary_accent);
     // Like the circlet, the visor wraps the face at brow level, so it hangs
     // below the crown-topper Hat mount.
     let mut v = prim(
-        cuboid([0.30, 0.07, 0.04], frame),
-        [0.0, -0.11, -0.1],
+        cuboid([0.30 * k, 0.07 * k, (0.04 * k).max(0.011)], frame),
+        [0.0, -0.11 * k, -0.1 * k],
         id_quat(),
     );
     // Glowing lens band across the front.
     v.children.push(prim(
         cuboid(
-            [0.26, 0.03, 0.02],
+            [0.26 * k, (0.03 * k).max(0.011), (0.02 * k).max(0.011)],
             ctx.materials.glow(ctx.palette.primary_accent),
         ),
-        [0.0, 0.0, -0.03],
+        [0.0, 0.0, -0.03 * k],
         id_quat(),
     ));
     v
@@ -240,19 +286,31 @@ fn robe_torso(ctx: &PartCtx) -> Generator {
     // waist to just short of the ground (it hides the legs by design).
     let bp = &ctx.blueprint;
     let cloth = ctx.materials.cloth(ctx.palette.primary_accent);
+    let chest_r = bp.chest_r * 0.94;
     let mut torso = prim(
-        capsule(bp.chest_r * 0.92, bp.trunk_len * 0.8, cloth),
+        capsule(chest_r * 0.96, bp.trunk_len * 0.8, cloth.clone()),
         [0.0, 0.0, 0.0],
         id_quat(),
     );
+    torso.transform.scale = Fp3([1.0, 1.0, bp.depth]);
+    // Shoulder yoke, as the shirt/coat trunks — without it the arms hang
+    // beside the robe with a visible gap (the reported disconnect).
+    let yoke_y = bp.shoulder_y - bp.torso_y;
+    let mut yoke = prim(sphere(1.0, 3, cloth.clone()), [0.0, yoke_y, 0.0], id_quat());
+    yoke.transform.scale = Fp3([
+        bp.shoulder_x + bp.arm_r * 0.7,
+        chest_r * 0.45,
+        chest_r * 0.92,
+    ]);
+    torso.children.push(yoke);
     // Flared skirt cone, wide at the hem. Torso-local: its top starts at the
     // belt line and its base lands a touch above the ground plane.
     let hem_y = -(bp.torso_y + bp.leg_total() * 0.92);
-    let top_y = -bp.trunk_len * 0.40;
+    let top_y = -bp.trunk_len * 0.12;
     let skirt_h = top_y - hem_y;
     torso.children.push(prim(
         cone(
-            bp.waist_r * 2.1,
+            bp.waist_r * 2.2,
             skirt_h,
             14,
             ctx.materials.cloth(ctx.palette.secondary_accent),

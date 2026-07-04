@@ -54,12 +54,8 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
     // its own.
     let arm_splay = 0.14;
     let arm_forward = 0.05;
-    // Legacy part scale: hats and ornaments are authored against the old
-    // fixed head (r = 0.13) / chest (r = 0.155); scale them uniformly to
-    // this seed's head and chest so a Toy figure doesn't drown under an
-    // adult-sized top hat. (Uniform root scale is safe — it propagates to
-    // the part's children by design here.)
-    let hat_k = bp.head_r / 0.13;
+    // Ornaments are authored against the old fixed chest (r = 0.155);
+    // scale them to this seed's chest. Hats self-scale in their builders.
     let chest_k = (bp.chest_r / 0.155).clamp(0.6, 1.15);
 
     // ---- Pelvis (root) -----------------------------------------------------
@@ -119,24 +115,17 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
                         .push(offset(part.build(&ctx), [side * bp.hip_x, 0.0, 0.0]));
                 }
             }
-            PartSlot::Hat => {
-                let mut hat = offset(part.build(&ctx), [0.0, bp.head_y + bp.head_r * 1.08, 0.0]);
-                hat.transform.scale = Fp3([hat_k, hat_k, hat_k]);
-                root.children.push(hat);
-            }
+            PartSlot::Hat => root.children.push(offset(
+                part.build(&ctx),
+                [0.0, bp.head_y + bp.head_r * 1.08, 0.0],
+            )),
             PartSlot::Ornament => {
-                // Seated proud of the trunk's *flattened* front face at chest
-                // height (the trunk V-tapers, so the surface there is wider
-                // than the waist).
-                let surf = bp.waist_r + (bp.chest_r - bp.waist_r) * 0.5;
-                let mut orn = offset(
-                    part.build(&ctx),
-                    [
-                        0.0,
-                        bp.torso_y - bp.trunk_len * 0.04,
-                        -(surf * bp.depth + 0.012),
-                    ],
-                );
+                // Seated proud of the trunk's *flattened* front surface at
+                // its own height (the trunk V-tapers — the old top-radius
+                // seat floated in profile).
+                let orn_y = bp.torso_y - bp.trunk_len * 0.04;
+                let surf = bp.trunk_radius_at(orn_y).max(bp.chest_r * 0.92);
+                let mut orn = offset(part.build(&ctx), [0.0, orn_y, -(surf * bp.depth + 0.012)]);
                 orn.transform.scale = Fp3([chest_k, chest_k, chest_k]);
                 root.children.push(orn);
             }
@@ -147,14 +136,27 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
     }
 
     // ---- pfp identity worn as a flush chest badge --------------------------
+    // Seated on the torso's chest mass (front ≈ chest_r·1.02 over the upper
+    // trunk) with a slight downward tilt so the lower edge hugs the
+    // receding surface instead of floating in profile.
     let badge_y = bp.torso_y + bp.trunk_len * 0.24;
-    root.children.push(pfp_panel(
+    let mut badge = pfp_panel(
         did,
         0.16 * chest_k,
-        [0.0, badge_y, -(bp.chest_r * bp.depth + 0.02)],
+        [0.0, badge_y, -(bp.chest_r * 1.02 * bp.depth + 0.012)],
         pastel(primary),
         PfpFacing::Front,
+    );
+    badge.transform.rotation = quat_xyzw(quat_mul(
+        quat_x(-0.10),
+        [
+            badge.transform.rotation.0[0],
+            badge.transform.rotation.0[1],
+            badge.transform.rotation.0[2],
+            badge.transform.rotation.0[3],
+        ],
     ));
+    root.children.push(badge);
 
     root
 }

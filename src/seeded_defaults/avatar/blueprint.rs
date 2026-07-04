@@ -118,16 +118,20 @@ impl HumanoidBlueprint {
         let chest_r = (shoulder_x - 0.55 * arm_r).max(0.055);
         let waist_r = b.waist_taper * chest_r;
         // Trunk cylinder spans from just above the pelvis to a little
-        // under the shoulder line (the yoke fills the last stretch).
+        // under the shoulder line (the yoke fills the last stretch). Its
+        // top hemisphere peaks a waist-radius above the cylinder, so cap
+        // it below the chin — on short-necked, low-taper builds the dome
+        // was swallowing the jaw.
         let trunk_bottom = 0.02_f32;
-        let trunk_top = shoulder_y - 0.35 * chest_r;
+        let trunk_top = (shoulder_y - 0.35 * chest_r).min(chin - waist_r - 0.02);
         let trunk_len = (trunk_top - trunk_bottom).max(0.08);
         let torso_y = 0.5 * (trunk_top + trunk_bottom);
 
         // Arms: the hanging wrist lands at the crotch line (y ≈ 0),
         // upper ~1.2× the forearm; splay/bend eat a few percent of the
-        // straight-line reach.
-        let arm_total = 0.96 * shoulder_y;
+        // straight-line reach, and the upper arm sinks ~0.3 r into the
+        // shoulder joint (the anti-poke seat), which this factor repays.
+        let arm_total = 0.93 * shoulder_y;
         let upper_arm = 0.545 * arm_total;
         let forearm = 0.455 * arm_total;
         let hand_len = b.hand_frac * h;
@@ -169,6 +173,16 @@ impl HumanoidBlueprint {
     /// Ground→hips distance (feet sit at `-leg_total()` in part space).
     pub fn leg_total(&self) -> f32 {
         self.thigh + self.shin + (0.03 + 0.09 * self.head_unit)
+    }
+
+    /// Trunk surface radius at a world height — linear waist→chest along
+    /// the cylinder (the capsule flare is linear in the vertex pass), so
+    /// chest decals can seat on the actual surface instead of floating at
+    /// the top radius.
+    pub fn trunk_radius_at(&self, y: f32) -> f32 {
+        let bottom = self.torso_y - 0.5 * self.trunk_len;
+        let t = ((y - bottom) / self.trunk_len).clamp(0.0, 1.0);
+        self.waist_r + (self.chest_r - self.waist_r) * t
     }
 }
 

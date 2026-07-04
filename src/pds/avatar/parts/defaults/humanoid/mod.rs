@@ -76,23 +76,53 @@ pub(super) fn torso(ctx: &PartCtx) -> Generator {
         chest_r * 0.92,
     ]);
     torso.children.push(yoke);
+    // Chest + upper-back masses: the trunk capsule alone is a straight
+    // sausage in profile — these two ellipsoids give it a chest-out /
+    // shoulder-blade curve (children of the depth-squashed root, so they
+    // follow the flattening).
+    let mut chest = prim(
+        sphere(1.0, 3, shirt.clone()),
+        [0.0, yoke_y * 0.42, -chest_r * 0.45],
+        id_quat(),
+    );
+    chest.transform.scale = Fp3([chest_r * 0.86, len * 0.34, chest_r * 0.62]);
+    torso.children.push(chest);
+    let mut back = prim(
+        sphere(1.0, 3, shirt.clone()),
+        [0.0, yoke_y * 0.62, chest_r * 0.5],
+        id_quat(),
+    );
+    back.transform.scale = Fp3([chest_r * 0.86, len * 0.26, chest_r * 0.42]);
+    torso.children.push(back);
     // Collar ring at the neckline.
     torso.children.push(prim(
         torus(0.02, bp.neck_r * 1.35, collar.clone()),
         [0.0, yoke_y + chest_r * 0.30, 0.0],
         id_quat(),
     ));
-    // Centre placket down the chest — a narrow front seam (reads as a button
-    // line, not a panel), seated just clear of and below the pfp badge.
+    // Centre placket — a short front seam on the *chest mass* (its front
+    // is near-vertical, so the strip stays flush where the tapering trunk
+    // would let it float).
     torso.children.push(prim(
-        cuboid([chest_r * 0.14, len * 0.44, 0.015], collar),
-        [0.0, -len * 0.04, -(chest_r + 0.006)],
+        cuboid([chest_r * 0.13, len * 0.30, 0.015], collar),
+        [0.0, yoke_y * 0.30, -(chest_r * 1.02 + 0.006)],
         id_quat(),
     ));
     // Belt at the waist — gives the trunk a waistline instead of a smooth tube.
     torso.children.push(prim(
         torus(0.02, waist_r * 1.02, belt),
         [0.0, -len * 0.42, 0.0],
+        id_quat(),
+    ));
+    // Shirt hem — a soft flare ring at the trunk bottom breaking the
+    // torso-into-trousers column.
+    torso.children.push(prim(
+        torus(
+            0.025,
+            waist_r * 1.0,
+            ctx.materials.body(shade(ctx.palette.primary_accent, 0.82)),
+        ),
+        [0.0, -len * 0.5, 0.0],
         id_quat(),
     ));
     torso
@@ -122,12 +152,28 @@ pub(super) fn coat(ctx: &PartCtx) -> Generator {
         chest_r * 0.95,
     ]);
     torso.children.push(yoke);
-    // Lapel V — two lining-colour strips angled outward at the throat, meeting
-    // low on the chest, so the coat reads as open-collared over a shirt.
+    // Chest / upper-back masses (see [`torso`]) — the coat wears them a
+    // touch fuller.
+    let mut chest = prim(
+        sphere(1.0, 3, shell.clone()),
+        [0.0, yoke_y * 0.42, -chest_r * 0.45],
+        id_quat(),
+    );
+    chest.transform.scale = Fp3([chest_r * 0.9, len * 0.36, chest_r * 0.64]);
+    torso.children.push(chest);
+    let mut back = prim(
+        sphere(1.0, 3, shell.clone()),
+        [0.0, yoke_y * 0.62, chest_r * 0.5],
+        id_quat(),
+    );
+    back.transform.scale = Fp3([chest_r * 0.9, len * 0.28, chest_r * 0.44]);
+    torso.children.push(back);
+    // Lapel V — two lining-colour strips angled outward at the throat,
+    // seated on the chest mass so they stay flush on tapered trunks.
     for s in [-1.0f32, 1.0] {
         torso.children.push(prim(
-            cuboid([0.03, len * 0.65, 0.02], lining.clone()),
-            [s * chest_r * 0.30, len * 0.06, -(chest_r + 0.005)],
+            cuboid([0.03, len * 0.55, 0.02], lining.clone()),
+            [s * chest_r * 0.30, len * 0.14, -(chest_r * 1.02 + 0.005)],
             quat_xyzw(quat_z(s * 0.35)),
         ));
     }
@@ -139,9 +185,14 @@ pub(super) fn coat(ctx: &PartCtx) -> Generator {
     ));
     // Button row down the centre.
     for i in 0..3 {
+        let by = len * (0.20 - 0.24 * i as f32);
         torso.children.push(prim(
             sphere(0.014, 2, btn.clone()),
-            [0.0, len * (0.20 - 0.24 * i as f32), -(chest_r + 0.012)],
+            [
+                0.0,
+                by,
+                -(bp.trunk_radius_at(bp.torso_y + by).max(chest_r * 0.9) + 0.014),
+            ],
             id_quat(),
         ));
     }
@@ -186,11 +237,11 @@ pub(super) fn arm(ctx: &PartCtx) -> Generator {
         id_quat(),
     );
     let mut cap = prim(
-        sphere(r * 0.95, 3, sleeve.clone()),
-        [0.0, 0.0, 0.0],
+        sphere(r * 1.05, 3, sleeve.clone()),
+        [0.0, -r * 0.05, 0.0],
         id_quat(),
     );
-    cap.transform.scale = Fp3([0.92, 0.55, 0.82]);
+    cap.transform.scale = Fp3([0.95, 0.62, 0.88]);
     shoulder.children.push(cap);
 
     // Upper arm (shoulder → elbow): bare-skin capsule centred at -l1/2, a
@@ -202,7 +253,7 @@ pub(super) fn arm(ctx: &PartCtx) -> Generator {
             -(r / elbow_r - 1.0),
             [0.0, 0.0, 0.0],
         ),
-        [0.0, -l1 * 0.5, 0.0],
+        [0.0, -l1 * 0.5 - r * 0.30, 0.0],
         id_quat(),
     );
     // Short sleeve cap over the top of the upper arm (child, in upper-local).
