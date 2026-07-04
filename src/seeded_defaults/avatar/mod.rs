@@ -34,6 +34,7 @@ pub mod blueprint;
 pub mod body;
 pub mod character;
 pub mod chassis;
+pub mod face;
 pub mod fx;
 pub mod gait;
 pub mod materials;
@@ -46,6 +47,7 @@ pub use character::{
     AvatarCharacter, FinishRegister, OrnatenessBand, OrnatenessTier, WearBand, WearTier,
 };
 pub use chassis::ChassisFamily;
+pub use face::{Disposition, FaceParams, FaceShape, FacialHair, HairStyle, NoseKind};
 pub use fx::{AvatarFx, AvatarVoice, ParticleAura};
 pub use gait::AvatarGait;
 pub use materials::MaterialKit;

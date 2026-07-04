@@ -60,7 +60,7 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
     // adult-sized top hat. (Uniform root scale is safe — it propagates to
     // the part's children by design here.)
     let hat_k = bp.head_r / 0.13;
-    let chest_k = (bp.chest_r / 0.155).clamp(0.6, 1.3);
+    let chest_k = (bp.chest_r / 0.155).clamp(0.6, 1.15);
 
     // ---- Pelvis (root) -----------------------------------------------------
     // A small hidden structural core at the origin: the assembler mounts every
@@ -133,7 +133,7 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
                     part.build(&ctx),
                     [
                         0.0,
-                        bp.torso_y - bp.trunk_len * 0.10,
+                        bp.torso_y - bp.trunk_len * 0.04,
                         -(surf * bp.depth + 0.012),
                     ],
                 );

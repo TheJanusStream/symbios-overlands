@@ -36,8 +36,8 @@ pub(crate) mod vehicle;
 
 use crate::pds::generator::Generator;
 use crate::seeded_defaults::{
-    AvatarBody, AvatarOutfit, AvatarPalette, ChassisFamily, HumanoidBlueprint, MaterialKit,
-    OrnatenessBand, OrnatenessTier, ThemeArchetype, WearBand, WearTier,
+    AvatarBody, AvatarOutfit, AvatarPalette, ChassisFamily, FaceParams, HumanoidBlueprint,
+    MaterialKit, OrnatenessBand, OrnatenessTier, ThemeArchetype, WearBand, WearTier,
 };
 
 /// One composable slot of an avatar. Flat across every chassis (a part
@@ -124,6 +124,9 @@ pub struct PartCtx {
     /// shared proportion contract between the humanoid parts and the
     /// assembler. Vehicle parts ignore it.
     pub blueprint: HumanoidBlueprint,
+    /// Seeded face identity (head shape / expression / hair) — humanoid
+    /// head builder input; tier-locked to `body.tier`.
+    pub face: FaceParams,
     /// The avatar seed — parts open their own sub-stream for stochastic
     /// detail without re-deriving the anchor.
     pub seed: u64,
@@ -150,6 +153,7 @@ impl PartCtx {
             materials: MaterialKit::for_seed(seed),
             body,
             blueprint: HumanoidBlueprint::from_body(&body),
+            face: FaceParams::for_seed(seed, body.tier),
             seed,
             has_hat,
         }

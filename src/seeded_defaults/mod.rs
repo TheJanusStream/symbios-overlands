@@ -50,8 +50,9 @@ pub mod scene;
 
 pub use avatar::{
     AvatarBody, AvatarCharacter, AvatarFx, AvatarGait, AvatarOutfit, AvatarPalette, AvatarVoice,
-    BodyArchetype, ChassisFamily, FinishRegister, HumanoidBlueprint, MaterialKit, OrnatenessBand,
-    OrnatenessTier, OutfitPart, ParticleAura, StylizationTier, WearBand, WearTier,
+    BodyArchetype, ChassisFamily, Disposition, FaceParams, FaceShape, FacialHair, FinishRegister,
+    HairStyle, HumanoidBlueprint, MaterialKit, NoseKind, OrnatenessBand, OrnatenessTier,
+    OutfitPart, ParticleAura, StylizationTier, WearBand, WearTier,
 };
 pub use hash::fnv1a_64;
 pub use room::{
