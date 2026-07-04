@@ -162,7 +162,15 @@ pub fn avatar_ui(
     // the room editor's tab bar already does.
     let prev_visuals_selected = editor.has_visuals_selection();
 
-    let window_visible_with_body = {
+    // `.open()` only hides the window *body* — without this gate the
+    // whole-record `before` clone below (and the egui Window bookkeeping)
+    // ran every in-game frame with the panel closed (#674). The tail logic
+    // after this block still runs: collapse-deselect sees `false` here, and
+    // a debounce flush pending from just before the panel closed still
+    // drains and broadcasts.
+    let window_visible_with_body = if !panels.avatar {
+        false
+    } else {
         let live_mut = live.bypass_change_detection();
         let before = live_mut.0.clone();
 

@@ -48,7 +48,7 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 use crate::pds::{self, Placement, RoomRecord};
 use crate::state::{
     CurrentRoomDid, LiveInventoryRecord, LiveRoomRecord, PublishFeedback, PublishStatus,
-    RoomRecordRecovery, StoredRoomRecord, records_differ,
+    RoomRecordRecovery, StoredRoomRecord,
 };
 use crate::ui::avatar::AvatarEditorState;
 use crate::ui::editable::{
@@ -156,8 +156,19 @@ pub struct RoomEditorState {
     /// `RoomRecord::default_for_did` runs the whole procedural pipeline (9
     /// derivers, catalogue builds, a mini-settlement, an ambient-audio recipe),
     /// so build it once per room instead of every frame the editor is open;
-    /// invalidated when the keyed DID changes (portal / logout).
-    default_cache: Option<(String, pds::RoomRecord)>,
+    /// invalidated when the keyed DID changes (portal / logout). The third
+    /// element is the record's serialized form, pre-baked for the per-frame
+    /// `can_reset` comparison (#674).
+    default_cache: Option<(String, pds::RoomRecord, Option<serde_json::Value>)>,
+    /// Serialized form of [`StoredRoomRecord`] for the per-frame dirty check
+    /// (#674). Recomputed only when the stored resource changes (fresh fetch,
+    /// publish success, room transition), so an open panel serializes just
+    /// the LIVE record each frame instead of live×2 + stored + default.
+    /// Keyed by the resource's `last_changed` tick rather than `is_changed()`
+    /// — the change flag is consumed even on frames where this system
+    /// early-returns (visiting another room, mid-Loading), which would
+    /// otherwise leave a stale baseline after a room transition.
+    stored_baseline: Option<(bevy::ecs::change_detection::Tick, Option<serde_json::Value>)>,
 }
 
 impl RoomEditorState {
@@ -245,6 +256,7 @@ pub fn room_admin_ui(
         audio_editor,
         seed_row_state,
         default_cache,
+        stored_baseline,
         ..
     } = &mut *editor;
 
@@ -535,15 +547,37 @@ pub fn room_admin_ui(
                 // Rebuild the seeded default only when the room DID changes,
                 // not every frame (#637) — it's a full procedural build.
                 let did = &room_did.0;
-                if default_cache.as_ref().is_none_or(|(d, _)| d != did) {
-                    *default_cache = Some((did.clone(), pds::RoomRecord::default_for_did(did)));
+                if default_cache.as_ref().is_none_or(|(d, _, _)| d != did) {
+                    let default_record = pds::RoomRecord::default_for_did(did);
+                    let default_value = serde_json::to_value(&default_record).ok();
+                    *default_cache = Some((did.clone(), default_record, default_value));
                 }
-                let default_record = &default_cache.as_ref().expect("just populated").1;
-                let dirty = stored
-                    .as_ref()
-                    .map(|s| records_differ(&s.0, &*record_mut))
-                    .unwrap_or(true);
-                let can_reset = records_differ(default_record, &*record_mut);
+                let (_, default_record, default_value) =
+                    default_cache.as_ref().expect("just populated");
+                // Both comparison baselines are cached (#674): the stored
+                // side re-serializes only when the resource changes and the
+                // default side only per DID, so an open panel pays for ONE
+                // live-record serialization per frame. The comparisons are
+                // value-identical to `records_differ` (Option<Value> both
+                // sides, `.ok()` semantics preserved).
+                match stored.as_ref() {
+                    Some(s)
+                        if stored_baseline
+                            .as_ref()
+                            .is_none_or(|(tick, _)| *tick != s.last_changed()) =>
+                    {
+                        *stored_baseline =
+                            Some((s.last_changed(), serde_json::to_value(&s.0).ok()));
+                    }
+                    None => *stored_baseline = None,
+                    _ => {}
+                }
+                let live_value = serde_json::to_value(&*record_mut).ok();
+                let dirty = match stored_baseline.as_ref() {
+                    Some((_, baseline)) => *baseline != live_value,
+                    None => true,
+                };
+                let can_reset = *default_value != live_value;
                 // `session` + `refresh_ctx` are guaranteed present (the
                 // early return at the top bails otherwise), so the PDS
                 // write can always be attempted while dirty.
