@@ -19,9 +19,9 @@ use bevy_symbios_audio::{
 };
 use rand_chacha::ChaCha8Rng;
 
-use super::LOOP_BEATS;
 use super::bed::AmbientParams;
-use crate::seeded_defaults::scene::{EscalationTier, SceneCharacter, range_f32};
+use super::loop_synced_rate;
+use crate::seeded_defaults::scene::{EscalationTier, SceneCharacter};
 
 /// Stable instrument id for the conflict tension siren.
 pub(super) const TENSION_INSTRUMENT_ID: &str = "tension_siren";
@@ -101,13 +101,6 @@ fn build_patch(root_hz: f32, lfo_rate_hz: f32, params: &AmbientParams, seed: u64
             output: REVERB_ID,
         },
     }
-}
-
-/// Uniform pick of `lo..=hi` whole LFO cycles per loop region, as a rate in
-/// Hz — whole cycles keep the swell phase continuous across the loop seam.
-fn loop_synced_rate(rng: &mut ChaCha8Rng, lo: u32, hi: u32) -> f32 {
-    let cycles = lo + (range_f32(rng, 0.0, (hi - lo + 1) as f32) as u32).min(hi - lo);
-    cycles as f32 / LOOP_BEATS
 }
 
 /// Build the conflict tension layer, or `None` for any non-conflict room.

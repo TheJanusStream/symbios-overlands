@@ -16,7 +16,7 @@ use bevy_symbios_audio::{
 };
 use rand_chacha::ChaCha8Rng;
 
-use super::{LOOP_BEATS, sustained};
+use super::{loop_synced_rate, sustained};
 use crate::seeded_defaults::scene::{BiomeArchetype, LandformArchetype, SceneCharacter, range_f32};
 
 /// Stable instrument id for the sustained noise bed.
@@ -270,15 +270,6 @@ fn build_patch(params: &AmbientParams, seed: u64) -> AudioPatch {
             output: REVERB_ID,
         },
     }
-}
-
-/// Uniform pick of `lo..=hi` whole LFO cycles per loop region,
-/// returned as a rate in Hz. Whole-cycle rates make the modulation
-/// phase continuous across the loop seam.
-fn loop_synced_rate(rng: &mut ChaCha8Rng, lo: u32, hi: u32) -> f32 {
-    let cycles = lo + (range_f32(rng, 0.0, (hi - lo + 1) as f32) as u32).min(hi - lo);
-    let loop_secs = LOOP_BEATS; // 60 BPM: one beat = one second.
-    cycles as f32 / loop_secs
 }
 
 // ---------------------------------------------------------------------------

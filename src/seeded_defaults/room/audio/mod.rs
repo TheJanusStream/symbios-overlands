@@ -50,6 +50,19 @@ pub(super) const WARMUP_BEATS: f32 = 2.0;
 /// fills it with A/B phrase variation + rests and a low pad layer, and
 /// every LFO rate stays whole-cycles-per-loop by construction.
 pub(super) const LOOP_BEATS: f32 = 32.0;
+
+/// Uniform pick of `lo..=hi` whole LFO cycles per loop region, returned
+/// as a rate in Hz. Whole-cycle rates make the modulation phase identical
+/// at the loop start and loop end, so the seam never jumps mid-sweep.
+/// Shared by the bed and tension layers (#655 — was a literal duplicate).
+pub(super) fn loop_synced_rate(rng: &mut rand_chacha::ChaCha8Rng, lo: u32, hi: u32) -> f32 {
+    let cycles = lo
+        + (crate::seeded_defaults::scene::range_f32(rng, 0.0, (hi - lo + 1) as f32) as u32)
+            .min(hi - lo);
+    // 60 BPM: one beat = one second, so the loop region is LOOP_BEATS seconds.
+    cycles as f32 / LOOP_BEATS
+}
+
 /// Tail-crossfade window blending the timeline end into the loop start.
 pub(super) const CROSSFADE_BEATS: f32 = 2.0;
 
