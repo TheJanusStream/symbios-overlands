@@ -33,6 +33,7 @@ use crate::state::AppState;
 use crate::world_builder::blob_fetch;
 
 use super::contact::AvatarContacts;
+use super::cooldown::CooldownTable;
 use super::plugin::ContactProducerSet;
 use super::recipes::ContactRecipeRegistry;
 
@@ -115,17 +116,25 @@ pub struct AudioClipTask {
     task: Task<Option<Vec<u8>>>,
 }
 
-/// Per-`(avatar, audio-recipe index)` time of last cue, for the
-/// per-recipe cooldown (mirrors the particle / decal channels; keyed by
-/// recipe *index* so renaming a recipe never resets a live cooldown).
-#[derive(Resource, Default)]
+/// Per-`(avatar, audio-recipe index)` cooldown state — a shared
+/// [`CooldownTable`] behind this channel's own `Resource` type (mirrors
+/// the particle / decal channels).
+#[derive(Resource)]
 pub struct AudioCueState {
-    last_play: HashMap<(Entity, usize), f32>,
+    cooldowns: CooldownTable,
 }
 
 /// Drop cooldown entries older than this (s) — far longer than any sane
 /// per-recipe cooldown, so pruning never resets a live throttle.
 const COOLDOWN_ENTRY_TTL: f32 = 30.0;
+
+impl Default for AudioCueState {
+    fn default() -> Self {
+        Self {
+            cooldowns: CooldownTable::new(COOLDOWN_ENTRY_TTL),
+        }
+    }
+}
 
 /// Marks a spawned cue entity so the global voice cap can count live
 /// voices and room-exit can stop them. Never added to any other audio.
@@ -207,13 +216,12 @@ pub fn play_contact_audio(
                 continue;
             }
             // Per-(avatar, recipe) cooldown.
-            if recipe.cooldown > 0.0 {
-                let key = (sample.avatar, idx);
-                if let Some(&last) = state.last_play.get(&key)
-                    && now - last < recipe.cooldown
-                {
-                    continue;
-                }
+            if recipe.cooldown > 0.0
+                && state
+                    .cooldowns
+                    .active((sample.avatar, idx), now, recipe.cooldown)
+            {
+                continue;
             }
             let Some(clip_key) = AudioClipKey::from_source(&recipe.params.source) else {
                 continue; // Unknown / empty source — nothing to play.
@@ -262,15 +270,13 @@ pub fn play_contact_audio(
             voices += 1;
 
             if recipe.cooldown > 0.0 {
-                state.last_play.insert((sample.avatar, idx), now);
+                state.cooldowns.mark((sample.avatar, idx), now);
             }
         }
     }
 
     // Prune stale cooldown entries (despawned avatars, long-idle).
-    state
-        .last_play
-        .retain(|_, &mut t| now - t < COOLDOWN_ENTRY_TTL);
+    state.cooldowns.prune(now);
 }
 
 /// Drain finished clip fetches: wrap the bytes in an [`AudioSource`]

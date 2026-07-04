@@ -255,6 +255,190 @@ impl TortureParams {
     }
 }
 
+/// Full parameter set of a [`GeneratorKind::ParticleSystem`] emitter (#648).
+///
+/// Lives behind a `Box` on the variant so the enum's stack size doesn't
+/// carry all ~30 fields (the same shape as `LocomotionConfig`'s boxed
+/// `*Params`). Wire compat: an internally-tagged (`$type`) enum serialises
+/// a newtype variant's struct fields inline beside the tag — byte-identical
+/// to the old struct-variant form, so existing records round-trip
+/// unchanged (guarded by the `particle_params_wire_format_*` tests).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ParticleParams {
+    pub emitter_shape: EmitterShape,
+
+    /// Continuous emit rate in particles per second.
+    pub rate_per_second: Fp,
+    /// Per-cycle burst count. `0` disables bursts; `>0` emits that
+    /// many particles at the start of each loop iteration (or at
+    /// emitter activation for non-looping emitters).
+    pub burst_count: u32,
+    /// Hard cap on simultaneously-alive particles. Exhausting this
+    /// budget causes new spawns to be skipped rather than evicting
+    /// the oldest particle, which keeps the visual style stable
+    /// under load.
+    pub max_particles: u32,
+    /// `true` re-emits forever; `false` stops emitting after
+    /// `duration` seconds (existing particles continue to age out).
+    pub looping: bool,
+    /// Active-emit duration in seconds. For looping emitters this is
+    /// the burst-cadence period.
+    pub duration: Fp,
+
+    /// Per-particle lifetime range in seconds. Sampled uniformly
+    /// per spawn.
+    pub lifetime_min: Fp,
+    pub lifetime_max: Fp,
+    /// Per-particle initial-speed range in metres / second. Sampled
+    /// uniformly per spawn and scales the direction vector
+    /// produced by `emitter_shape`.
+    pub speed_min: Fp,
+    pub speed_max: Fp,
+
+    /// Multiplier on world gravity applied each frame. `1.0` =
+    /// terrestrial, `0.0` = floats, `-1.0` = anti-gravity (smoke
+    /// rising effect without a custom force).
+    pub gravity_multiplier: Fp,
+    /// Constant per-particle acceleration in world space (m/s²).
+    /// Stacks with `gravity_multiplier * world_gravity`.
+    pub acceleration: Fp3,
+    /// Exponential linear damping per second. `0.0` = no drag,
+    /// higher values brake the particle quadratically over its
+    /// lifetime.
+    pub linear_drag: Fp,
+
+    /// Quad size at the start and end of the particle's lifetime;
+    /// linearly interpolated each frame.
+    pub start_size: Fp,
+    pub end_size: Fp,
+    /// RGBA at the start and end of lifetime; linearly
+    /// interpolated each frame.
+    pub start_color: Fp4,
+    pub end_color: Fp4,
+    pub blend_mode: ParticleBlendMode,
+    /// `true` orients the quad to always face the camera (classic
+    /// billboard); `false` aligns the quad along the velocity
+    /// vector (streak / spark look).
+    pub billboard: bool,
+
+    pub simulation_space: SimulationSpace,
+    /// Fraction of the emitter's world velocity added to each
+    /// particle's initial velocity at spawn. `0.0` = ignore
+    /// (sparks fly purely along their own emit direction), `1.0` =
+    /// match emitter (running-dust effect), `>1.0` = exhaust
+    /// (jets ahead). Sanitised to `[0, 2]`.
+    pub inherit_velocity: Fp,
+
+    /// Toggle particle collisions against the room's terrain
+    /// heightfield. `false` = visual-only (cheaper).
+    pub collide_terrain: bool,
+    /// Toggle collisions against finite water surfaces.
+    pub collide_water: bool,
+    /// Toggle collisions against arbitrary avian3d colliders
+    /// (placed primitives, walls, …).
+    pub collide_colliders: bool,
+    /// Restitution applied on collision: `0.0` = stick, `1.0` =
+    /// perfect bounce.
+    pub bounce: Fp,
+    /// Friction applied to the tangential velocity on collision:
+    /// `0.0` = frictionless slide, `1.0` = stick.
+    pub friction: Fp,
+
+    /// Deterministic emission seed. Same seed + same dt path on
+    /// every peer produces the same particle stream.
+    #[serde(with = "u64_as_string")]
+    pub seed: u64,
+
+    /// Optional per-particle texture. Resolves through the same
+    /// [`SignSource`] union Sign uses, so a "leaf falling" emitter
+    /// and a Sign signpost pointing at the same atlas image share
+    /// one HTTPS round trip via [`super::super::world_builder::image_cache::BlobImageCache`].
+    /// `None` keeps v1 behaviour: solid coloured quads tinted by
+    /// `start_color` / `end_color`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub texture: Option<SignSource>,
+    /// Treat the loaded texture as a sprite-sheet atlas of
+    /// `rows × cols` cells. `None` uses the whole image as a single
+    /// frame (the default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub texture_atlas: Option<TextureAtlas>,
+    /// How a particle picks its current atlas frame. `Still` keeps
+    /// frame 0 forever; `RandomFrame` picks once at spawn (per-RNG-
+    /// stream draw) so different particles show different sprites
+    /// from the same atlas; `OverLifetime { fps }` cycles through
+    /// the frame array at the configured rate.
+    #[serde(default)]
+    pub frame_mode: AnimationFrameMode,
+    /// Sampler filter applied to the loaded image. `Linear` is the
+    /// natural smooth filtering for soft sprites; `Nearest` for
+    /// pixel-art / retro looks. The cache keys on filter so a
+    /// Linear and a Nearest request for the same source produce
+    /// two distinct GPU images, neither stomping the other.
+    #[serde(default)]
+    pub texture_filter: TextureFilter,
+    /// Procedurally-baked particle sprite, generated locally instead of
+    /// fetched. When this is set (non-`None`) and `texture` is `None`,
+    /// the emitter bakes this generator at
+    /// [`crate::config::textures::PARTICLE_CELL`] per atlas cell and
+    /// uses the result as the particle albedo. The sprite generators
+    /// (SoftDisc, Snowflake, Flame, …) carry `variant_rows × variant_cols`,
+    /// which auto-derives the `texture_atlas` so a `RandomFrame` emitter
+    /// draws a different variant per particle from one bake. The legacy
+    /// `texture` reference wins when both are set, so already-published
+    /// records are unaffected.
+    #[serde(default)]
+    pub procedural_texture: super::texture::SovereignTextureConfig,
+}
+
+impl Default for ParticleParams {
+    /// Canonical default emitter — a small upward-spraying cone with
+    /// 32 particles/s, 2 s lifetime, white→fade-out alpha-blended
+    /// particles on a soft-disc sprite (#367, so a freshly-added emitter
+    /// reads as soft motes rather than hard squares), no inheritance, no
+    /// collisions. See [`GeneratorKind::default_particles`].
+    fn default() -> Self {
+        Self {
+            emitter_shape: EmitterShape::Cone {
+                half_angle: Fp(0.4),
+                height: Fp(0.5),
+            },
+            rate_per_second: Fp(32.0),
+            burst_count: 0,
+            max_particles: 128,
+            looping: true,
+            duration: Fp(1.0),
+            lifetime_min: Fp(1.0),
+            lifetime_max: Fp(2.0),
+            speed_min: Fp(1.0),
+            speed_max: Fp(2.0),
+            gravity_multiplier: Fp(0.0),
+            acceleration: Fp3([0.0, 0.0, 0.0]),
+            linear_drag: Fp(0.5),
+            start_size: Fp(0.1),
+            end_size: Fp(0.0),
+            start_color: Fp4([1.0, 1.0, 1.0, 1.0]),
+            end_color: Fp4([1.0, 1.0, 1.0, 0.0]),
+            blend_mode: ParticleBlendMode::Alpha,
+            billboard: true,
+            simulation_space: SimulationSpace::World,
+            inherit_velocity: Fp(0.0),
+            collide_terrain: false,
+            collide_water: false,
+            collide_colliders: false,
+            bounce: Fp(0.3),
+            friction: Fp(0.5),
+            seed: 0xC0FFEE,
+            texture: None,
+            texture_atlas: None,
+            frame_mode: AnimationFrameMode::Still,
+            texture_filter: TextureFilter::Linear,
+            procedural_texture: super::texture::SovereignTextureConfig::SoftDisc(
+                super::texture::SovereignSoftDiscConfig::default(),
+            ),
+        }
+    }
+}
+
 /// Variant-specific payload for a [`Generator`]. Open union: unrecognised
 /// `$type` tags deserialise to `Unknown` instead of failing the whole record.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -510,131 +694,7 @@ pub enum GeneratorKind {
     /// Determinism: every emitter carries a `seed`. Networked peers
     /// stepping the same dt path produce the same particle stream.
     #[serde(rename = "network.symbios.gen.particles")]
-    ParticleSystem {
-        emitter_shape: EmitterShape,
-
-        /// Continuous emit rate in particles per second.
-        rate_per_second: Fp,
-        /// Per-cycle burst count. `0` disables bursts; `>0` emits that
-        /// many particles at the start of each loop iteration (or at
-        /// emitter activation for non-looping emitters).
-        burst_count: u32,
-        /// Hard cap on simultaneously-alive particles. Exhausting this
-        /// budget causes new spawns to be skipped rather than evicting
-        /// the oldest particle, which keeps the visual style stable
-        /// under load.
-        max_particles: u32,
-        /// `true` re-emits forever; `false` stops emitting after
-        /// `duration` seconds (existing particles continue to age out).
-        looping: bool,
-        /// Active-emit duration in seconds. For looping emitters this is
-        /// the burst-cadence period.
-        duration: Fp,
-
-        /// Per-particle lifetime range in seconds. Sampled uniformly
-        /// per spawn.
-        lifetime_min: Fp,
-        lifetime_max: Fp,
-        /// Per-particle initial-speed range in metres / second. Sampled
-        /// uniformly per spawn and scales the direction vector
-        /// produced by `emitter_shape`.
-        speed_min: Fp,
-        speed_max: Fp,
-
-        /// Multiplier on world gravity applied each frame. `1.0` =
-        /// terrestrial, `0.0` = floats, `-1.0` = anti-gravity (smoke
-        /// rising effect without a custom force).
-        gravity_multiplier: Fp,
-        /// Constant per-particle acceleration in world space (m/s²).
-        /// Stacks with `gravity_multiplier * world_gravity`.
-        acceleration: Fp3,
-        /// Exponential linear damping per second. `0.0` = no drag,
-        /// higher values brake the particle quadratically over its
-        /// lifetime.
-        linear_drag: Fp,
-
-        /// Quad size at the start and end of the particle's lifetime;
-        /// linearly interpolated each frame.
-        start_size: Fp,
-        end_size: Fp,
-        /// RGBA at the start and end of lifetime; linearly
-        /// interpolated each frame.
-        start_color: Fp4,
-        end_color: Fp4,
-        blend_mode: ParticleBlendMode,
-        /// `true` orients the quad to always face the camera (classic
-        /// billboard); `false` aligns the quad along the velocity
-        /// vector (streak / spark look).
-        billboard: bool,
-
-        simulation_space: SimulationSpace,
-        /// Fraction of the emitter's world velocity added to each
-        /// particle's initial velocity at spawn. `0.0` = ignore
-        /// (sparks fly purely along their own emit direction), `1.0` =
-        /// match emitter (running-dust effect), `>1.0` = exhaust
-        /// (jets ahead). Sanitised to `[0, 2]`.
-        inherit_velocity: Fp,
-
-        /// Toggle particle collisions against the room's terrain
-        /// heightfield. `false` = visual-only (cheaper).
-        collide_terrain: bool,
-        /// Toggle collisions against finite water surfaces.
-        collide_water: bool,
-        /// Toggle collisions against arbitrary avian3d colliders
-        /// (placed primitives, walls, …).
-        collide_colliders: bool,
-        /// Restitution applied on collision: `0.0` = stick, `1.0` =
-        /// perfect bounce.
-        bounce: Fp,
-        /// Friction applied to the tangential velocity on collision:
-        /// `0.0` = frictionless slide, `1.0` = stick.
-        friction: Fp,
-
-        /// Deterministic emission seed. Same seed + same dt path on
-        /// every peer produces the same particle stream.
-        #[serde(with = "u64_as_string")]
-        seed: u64,
-
-        /// Optional per-particle texture. Resolves through the same
-        /// [`SignSource`] union Sign uses, so a "leaf falling" emitter
-        /// and a Sign signpost pointing at the same atlas image share
-        /// one HTTPS round trip via [`super::super::world_builder::image_cache::BlobImageCache`].
-        /// `None` keeps v1 behaviour: solid coloured quads tinted by
-        /// `start_color` / `end_color`.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        texture: Option<SignSource>,
-        /// Treat the loaded texture as a sprite-sheet atlas of
-        /// `rows × cols` cells. `None` uses the whole image as a single
-        /// frame (the default).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        texture_atlas: Option<TextureAtlas>,
-        /// How a particle picks its current atlas frame. `Still` keeps
-        /// frame 0 forever; `RandomFrame` picks once at spawn (per-RNG-
-        /// stream draw) so different particles show different sprites
-        /// from the same atlas; `OverLifetime { fps }` cycles through
-        /// the frame array at the configured rate.
-        #[serde(default)]
-        frame_mode: AnimationFrameMode,
-        /// Sampler filter applied to the loaded image. `Linear` is the
-        /// natural smooth filtering for soft sprites; `Nearest` for
-        /// pixel-art / retro looks. The cache keys on filter so a
-        /// Linear and a Nearest request for the same source produce
-        /// two distinct GPU images, neither stomping the other.
-        #[serde(default)]
-        texture_filter: TextureFilter,
-        /// Procedurally-baked particle sprite, generated locally instead of
-        /// fetched. When this is set (non-`None`) and `texture` is `None`,
-        /// the emitter bakes this generator at
-        /// [`crate::config::textures::PARTICLE_CELL`] per atlas cell and
-        /// uses the result as the particle albedo. The sprite generators
-        /// (SoftDisc, Snowflake, Flame, …) carry `variant_rows × variant_cols`,
-        /// which auto-derives the `texture_atlas` so a `RandomFrame` emitter
-        /// draws a different variant per particle from one bake. The legacy
-        /// `texture` reference wins when both are set, so already-published
-        /// records are unaffected.
-        #[serde(default)]
-        procedural_texture: super::texture::SovereignTextureConfig,
-    },
+    ParticleSystem(Box<ParticleParams>),
 
     /// Image-bearing panel — a flat plane textured with a fetched image
     /// from one of three [`SignSource`] variants. Subsumes the standalone
@@ -944,7 +1004,7 @@ impl GeneratorKind {
             GeneratorKind::Wedge { .. } => "Wedge",
             GeneratorKind::Helix { .. } => "Helix",
             GeneratorKind::Sign { .. } => "Sign",
-            GeneratorKind::ParticleSystem { .. } => "ParticleSystem",
+            GeneratorKind::ParticleSystem(..) => "ParticleSystem",
             GeneratorKind::Unknown => "Unknown",
         }
     }
@@ -1077,45 +1137,7 @@ impl GeneratorKind {
     /// "+ ParticleSystem" entry; the editor surfaces every parameter —
     /// including the sprite picker — for tuning afterwards.
     pub fn default_particles() -> Self {
-        GeneratorKind::ParticleSystem {
-            emitter_shape: EmitterShape::Cone {
-                half_angle: Fp(0.4),
-                height: Fp(0.5),
-            },
-            rate_per_second: Fp(32.0),
-            burst_count: 0,
-            max_particles: 128,
-            looping: true,
-            duration: Fp(1.0),
-            lifetime_min: Fp(1.0),
-            lifetime_max: Fp(2.0),
-            speed_min: Fp(1.0),
-            speed_max: Fp(2.0),
-            gravity_multiplier: Fp(0.0),
-            acceleration: Fp3([0.0, 0.0, 0.0]),
-            linear_drag: Fp(0.5),
-            start_size: Fp(0.1),
-            end_size: Fp(0.0),
-            start_color: Fp4([1.0, 1.0, 1.0, 1.0]),
-            end_color: Fp4([1.0, 1.0, 1.0, 0.0]),
-            blend_mode: ParticleBlendMode::Alpha,
-            billboard: true,
-            simulation_space: SimulationSpace::World,
-            inherit_velocity: Fp(0.0),
-            collide_terrain: false,
-            collide_water: false,
-            collide_colliders: false,
-            bounce: Fp(0.3),
-            friction: Fp(0.5),
-            seed: 0xC0FFEE,
-            texture: None,
-            texture_atlas: None,
-            frame_mode: AnimationFrameMode::Still,
-            texture_filter: TextureFilter::Linear,
-            procedural_texture: super::texture::SovereignTextureConfig::SoftDisc(
-                super::texture::SovereignSoftDiscConfig::default(),
-            ),
-        }
+        GeneratorKind::ParticleSystem(Box::default())
     }
 }
 
@@ -1262,4 +1284,86 @@ pub enum Placement {
 
     #[serde(other)]
     Unknown,
+}
+
+#[cfg(test)]
+mod particle_params_tests {
+    //! Wire-format guards for the #648 `ParticleSystem` boxed-params
+    //! refactor: the internally-tagged enum must keep serialising the
+    //! params inline beside `$type`, exactly like the old struct variant,
+    //! so already-published records round-trip unchanged.
+    use super::*;
+
+    #[test]
+    fn particle_params_wire_format_is_inline() {
+        let kind = GeneratorKind::default_particles();
+        let v = serde_json::to_value(&kind).expect("serialises");
+        let obj = v.as_object().expect("one flat JSON object");
+        // Tag + fields side by side — no nested params wrapper key.
+        assert_eq!(
+            obj.get("$type").and_then(|t| t.as_str()),
+            Some("network.symbios.gen.particles")
+        );
+        assert!(obj.contains_key("emitter_shape"), "fields stay inline");
+        assert!(obj.contains_key("rate_per_second"));
+        assert!(
+            obj.get("seed").is_some_and(|s| s.is_string()),
+            "seed keeps its string encoding"
+        );
+        assert!(
+            !obj.values().any(|x| {
+                x.as_object()
+                    .is_some_and(|inner| inner.contains_key("rate_per_second"))
+            }),
+            "no boxed-struct wrapper object appeared"
+        );
+    }
+
+    #[test]
+    fn particle_params_old_format_record_round_trips() {
+        // A pre-#648 record fragment: struct-variant inline fields, no
+        // optional texture keys (their serde defaults must fill in).
+        let old = serde_json::json!({
+            "$type": "network.symbios.gen.particles",
+            "emitter_shape": serde_json::to_value(EmitterShape::Point).unwrap(),
+            "rate_per_second": serde_json::to_value(Fp(8.0)).unwrap(),
+            "burst_count": 3,
+            "max_particles": 64,
+            "looping": true,
+            "duration": serde_json::to_value(Fp(2.0)).unwrap(),
+            "lifetime_min": serde_json::to_value(Fp(0.5)).unwrap(),
+            "lifetime_max": serde_json::to_value(Fp(1.5)).unwrap(),
+            "speed_min": serde_json::to_value(Fp(1.0)).unwrap(),
+            "speed_max": serde_json::to_value(Fp(2.0)).unwrap(),
+            "gravity_multiplier": serde_json::to_value(Fp(0.0)).unwrap(),
+            "acceleration": serde_json::to_value(Fp3([0.0, 0.0, 0.0])).unwrap(),
+            "linear_drag": serde_json::to_value(Fp(0.1)).unwrap(),
+            "start_size": serde_json::to_value(Fp(0.2)).unwrap(),
+            "end_size": serde_json::to_value(Fp(0.0)).unwrap(),
+            "start_color": serde_json::to_value(Fp4([1.0, 1.0, 1.0, 1.0])).unwrap(),
+            "end_color": serde_json::to_value(Fp4([1.0, 1.0, 1.0, 0.0])).unwrap(),
+            "blend_mode": serde_json::to_value(ParticleBlendMode::Alpha).unwrap(),
+            "billboard": true,
+            "simulation_space": serde_json::to_value(SimulationSpace::World).unwrap(),
+            "inherit_velocity": serde_json::to_value(Fp(0.0)).unwrap(),
+            "collide_terrain": false,
+            "collide_water": false,
+            "collide_colliders": false,
+            "bounce": serde_json::to_value(Fp(0.3)).unwrap(),
+            "friction": serde_json::to_value(Fp(0.5)).unwrap(),
+            "seed": "42",
+        });
+        let kind: GeneratorKind = serde_json::from_value(old).expect("old record parses");
+        let GeneratorKind::ParticleSystem(p) = &kind else {
+            panic!("wrong variant");
+        };
+        assert_eq!(p.seed, 42);
+        assert_eq!(p.burst_count, 3);
+        assert!(p.texture.is_none(), "missing optional fields default");
+
+        // Round trip: serialise + reparse lands on the same value.
+        let re: GeneratorKind =
+            serde_json::from_value(serde_json::to_value(&kind).unwrap()).unwrap();
+        assert_eq!(re, kind);
+    }
 }

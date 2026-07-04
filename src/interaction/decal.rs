@@ -21,14 +21,13 @@
 //! lot (and their one-off materials) on room exit so logout never
 //! leaks.
 
-use std::collections::HashMap;
-
 use bevy::prelude::*;
 
 use crate::config::interaction::decal as dcfg;
 use crate::state::AppState;
 
 use super::contact::{AvatarContacts, SurfaceContact};
+use super::cooldown::CooldownTable;
 use super::recipes::{ContactRecipeRegistry, DecalRuntimeParams};
 
 /// Shared 1 m × 1 m XZ quad (normal +Y) every decal instances. Created
@@ -38,19 +37,25 @@ pub struct DecalAssets {
     quad: Handle<Mesh>,
 }
 
-/// Per-`(avatar, decal-recipe index)` time of last stamp, for the
-/// per-recipe cooldown throttle (mirrors
-/// [`super::particle_channel::ParticleDispatchState`]; keyed by recipe
-/// *index* so renaming a recipe never resets a live cooldown). Pruned
-/// on a TTL far longer than any cooldown.
-#[derive(Resource, Default)]
+/// Per-`(avatar, decal-recipe index)` cooldown state — a shared
+/// [`CooldownTable`] behind this channel's own `Resource` type (mirrors
+/// [`super::particle_channel::ParticleDispatchState`]).
+#[derive(Resource)]
 pub struct DecalStampState {
-    last_stamp: HashMap<(Entity, usize), f32>,
+    cooldowns: CooldownTable,
 }
 
 /// Drop cooldown entries older than this (s) — far longer than any sane
 /// per-recipe cooldown, so pruning never resets a live throttle.
 const COOLDOWN_ENTRY_TTL: f32 = 30.0;
+
+impl Default for DecalStampState {
+    fn default() -> Self {
+        Self {
+            cooldowns: CooldownTable::new(COOLDOWN_ENTRY_TTL),
+        }
+    }
+}
 
 /// A live contact decal: a flat quad that grows + fades over [`Self::ttl`]
 /// then is GC'd. Carries its own one-off [`StandardMaterial`] handle so
@@ -130,13 +135,12 @@ pub fn stamp_decals(
                 continue;
             }
             // Per-(avatar, recipe) cooldown.
-            if recipe.cooldown > 0.0 {
-                let key = (sample.avatar, idx);
-                if let Some(&last) = state.last_stamp.get(&key)
-                    && now - last < recipe.cooldown
-                {
-                    continue;
-                }
+            if recipe.cooldown > 0.0
+                && state
+                    .cooldowns
+                    .active((sample.avatar, idx), now, recipe.cooldown)
+            {
+                continue;
             }
 
             // Anchor: terrain contacts get the exact ground point +
@@ -177,15 +181,13 @@ pub fn stamp_decals(
             ));
 
             if recipe.cooldown > 0.0 {
-                state.last_stamp.insert((sample.avatar, idx), now);
+                state.cooldowns.mark((sample.avatar, idx), now);
             }
         }
     }
 
     // Prune stale cooldown entries (despawned avatars, long-idle).
-    state
-        .last_stamp
-        .retain(|_, &mut t| now - t < COOLDOWN_ENTRY_TTL);
+    state.cooldowns.prune(now);
 }
 
 /// Age every decal (grow + fade via its own material), GC the expired,

@@ -2,7 +2,8 @@
 //! locomotion presets when the owner edits their PDS avatar record, and
 //! paints matching visuals on remote peers.
 //!
-//! Avatars are now uniform: the `visuals` half of [`AvatarRecord`] is a
+//! Avatars are now uniform: the `visuals` half of
+//! [`AvatarRecord`](crate::pds::AvatarRecord) is a
 //! generator tree spawned by [`visuals::spawn_avatar_visuals`] (no
 //! colliders, no per-prim markers — pure cosmetics), and the
 //! `locomotion` half selects one of five physics presets:
@@ -20,7 +21,8 @@
 //! - **Car** — cuboid chassis, four-corner raycast suspension, ground
 //!   drive + steering + handbrake, no buoyancy.
 //!
-//! All five read their tuning from the live [`LiveAvatarRecord`], so UI
+//! All five read their tuning from the live
+//! [`LiveAvatarRecord`](crate::state::LiveAvatarRecord), so UI
 //! edits take effect the same frame the slider moves. Changing the
 //! locomotion *variant* triggers the hot-swap system, which tears down
 //! all preset-specific components (collider, markers, locked axes) and
@@ -29,6 +31,14 @@
 //!
 //! ## Sub-module map
 //!
+//! * [`spawn`] — `OnEnter(InGame)` local-avatar spawn + the chassis root
+//!   bundle (#670 easing guard).
+//! * [`preset`] — per-preset physics components: the `PresetComponents`
+//!   trait (one impl per locomotion `*Params`), preset markers, and the
+//!   build/strip pair.
+//! * [`hotswap`] — locomotion-variant rebuild, visuals repaint,
+//!   remote-peer mirroring, and the terrain-hot-load lift.
+//! * [`respawn`] — fall-through recovery.
 //! * [`visuals`] — generator-tree visual spawner (`spawn_avatar_visuals`).
 //! * [`gait`] — cosmetic bounce / sway / look-around animation on the
 //!   humanoid visual root, driven by the seeded `AvatarGait`.
@@ -49,32 +59,28 @@ mod airplane;
 mod car;
 mod gait;
 mod helicopter;
+mod hotswap;
 mod hover_boat;
 mod humanoid;
 mod portal;
+mod preset;
+mod respawn;
+mod spawn;
 pub mod visuals;
 
 pub use portal::PortalCooldown;
 pub(crate) use portal::begin_portal_travel;
+pub use preset::{
+    AirplanePreset, CarPreset, HelicopterPreset, HoverBoatPreset, HumanoidPreset, VehicleChassis,
+};
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy_egui::input::egui_wants_any_keyboard_input;
 
-use crate::boot_params::TargetPos;
 use crate::config::rover as cfg;
-use crate::pds::{AvatarRecord, LocomotionConfig};
-use crate::state::{AppState, LiveAvatarRecord, LocalPlayer, PendingSpawnPlacement, RemotePeer};
+use crate::state::{AppState, LocalPlayer};
 use crate::ui::avatar::AvatarEditorState;
-use crate::world_builder::AvatarVisualPrim;
-
-/// Snapshot of the last `AvatarRecord` whose visuals have been painted onto
-/// a remote peer. `detect_remote_change` listens to the broad
-/// `Changed<RemotePeer>` signal (which also fires on mute/handle/DID edits)
-/// and compares against this snapshot so an unrelated field flip doesn't
-/// re-enter the expensive visual rebuild path.
-#[derive(Component)]
-struct AppliedAvatar(AvatarRecord);
 
 // Corner offsets in local space for the four suspension rays. The
 // hover-boat and car presets share the same four-corner pattern; their
@@ -110,54 +116,19 @@ pub(super) fn random_spawn_xz() -> (f32, f32) {
     ((u - 0.5) * side, (v - 0.5) * side)
 }
 
-/// Marks the local or remote player as currently using the HoverBoat
-/// preset. Inserted by [`build_preset_components`]; stripped by the
-/// hot-swap system when the owner picks a different preset.
-#[derive(Component)]
-pub struct HoverBoatPreset;
-
-/// Marks the player as using the Humanoid preset.
-#[derive(Component)]
-pub struct HumanoidPreset;
-
-/// Marks the player as using the Airplane preset.
-#[derive(Component)]
-pub struct AirplanePreset;
-
-/// Marks the player as using the Helicopter preset.
-#[derive(Component)]
-pub struct HelicopterPreset;
-
-/// Marks the player as using the Car preset.
-#[derive(Component)]
-pub struct CarPreset;
-
-/// Aggregate marker query target for camera follow / vehicle-yaw
-/// inheritance. Covers every preset whose physics body rotates around Y
-/// — i.e. anything except the upright-locked Humanoid.
-#[derive(Component)]
-pub struct VehicleChassis;
-
-/// Request flag set when the local player's locomotion needs to be
-/// rebuilt on the main thread. This exists because Avian components
-/// cannot be added/removed from `Query`-held mutable borrows — we have
-/// to defer the surgery to a commands-only system.
-#[derive(Component)]
-struct NeedsLocomotionRebuild;
-
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(AppState::InGame), spawn_local_player)
+        app.add_systems(OnEnter(AppState::InGame), spawn::spawn_local_player)
             .add_systems(
                 Update,
                 (
-                    detect_local_locomotion_change,
-                    apply_local_locomotion_rebuild,
-                    detect_remote_change,
-                    rebuild_local_visuals,
-                    lift_player_above_new_ground,
+                    hotswap::detect_local_locomotion_change,
+                    hotswap::apply_local_locomotion_rebuild,
+                    hotswap::detect_remote_change,
+                    hotswap::rebuild_local_visuals,
+                    hotswap::lift_player_above_new_ground,
                     gait::attach_gait_animation,
                     gait::animate_humanoid_gait,
                     portal::handle_portal_interaction,
@@ -196,7 +167,7 @@ impl Plugin for PlayerPlugin {
                     car::apply_car_drive
                         .run_if(not(egui_wants_any_keyboard_input))
                         .run_if(not(avatar_visuals_row_selected)),
-                    respawn_if_fallen,
+                    respawn::respawn_if_fallen,
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame)),
@@ -249,499 +220,4 @@ fn freeze_local_avatar_on_visuals_select(
         }
     }
     *last_selected = now_selected;
-}
-
-#[allow(clippy::too_many_arguments)]
-fn spawn_local_player(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut images: ResMut<Assets<Image>>,
-    hm_res: Res<crate::terrain::FinishedHeightMap>,
-    live: Res<LiveAvatarRecord>,
-    placement: Option<Res<PendingSpawnPlacement>>,
-    mut avatar_deps: visuals::AvatarSpawnDeps,
-) {
-    let hm = &hm_res.0;
-    let extent = (hm.width() - 1) as f32 * hm.scale();
-    let half = extent * 0.5;
-    let centre = half;
-
-    // Pick (rx, rz) from the URL/CLI placement when supplied, falling back to
-    // the random spawn-scatter. World coordinates are centred on (0, 0); the
-    // heightmap sample uses (centre + x, centre + z).
-    let (rx, rz) = match placement.as_deref().and_then(|p| p.pos) {
-        Some(TargetPos { x, z, .. }) => (x.clamp(-half, half), z.clamp(-half, half)),
-        None => random_spawn_xz(),
-    };
-    let hm_x = (centre + rx).clamp(0.0, extent);
-    let hm_z = (centre + rz).clamp(0.0, extent);
-    let ground_y = hm.get_height_at(hm_x, hm_z);
-    let surface_normal = hm.get_normal_at(hm_x, hm_z);
-    let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
-    // Apply yaw on top of the surface tilt so a landmark "facing N" lands the
-    // chassis aimed at -Z while still resting flush on the slope.
-    let yaw = placement
-        .as_deref()
-        .and_then(|p| p.yaw_deg)
-        .map(|deg| Quat::from_rotation_y(deg.to_radians()))
-        .unwrap_or(Quat::IDENTITY);
-    let rotation = tilt * yaw;
-    // y override (`pos=x,y,z`) bypasses the heightmap sample; the drop-pin
-    // form (`pos=x,z`) keeps the heightmap-resolved height.
-    let oy = match placement.as_deref().and_then(|p| p.pos).and_then(|p| p.y) {
-        Some(y) => y,
-        None => ground_y + cfg::SPAWN_HEIGHT_OFFSET,
-    };
-    let (ox, oz) = (rx, rz);
-
-    let entity = commands
-        .spawn(chassis_root_bundle(
-            Transform::from_xyz(ox, oy, oz).with_rotation(rotation),
-        ))
-        .id();
-
-    // One-shot: remove the resource so a portal travel or fall-respawn
-    // later in the session does not retroactively reapply this placement.
-    if placement.is_some() {
-        commands.remove_resource::<PendingSpawnPlacement>();
-    }
-
-    build_preset_components(&mut commands, entity, &live.0.locomotion);
-    visuals::spawn_avatar_visuals(
-        &mut commands,
-        entity,
-        &live.0.visuals,
-        None,
-        &mut meshes,
-        &mut materials,
-        &mut images,
-        &mut avatar_deps,
-        true,
-    );
-}
-
-/// Preset-independent components of the local chassis root, shared by the
-/// live spawn path and the #670 regression test so the two can't drift.
-///
-/// `TransformInterpolation` is load-bearing: Avian steps physics (and the
-/// `Position` → `Transform` writeback) entirely inside `FixedPostUpdate`
-/// at the 64 Hz fixed timestep, so without easing the chassis `Transform`
-/// holds still on tick-less render frames and the own avatar judders at
-/// the fixed-vs-refresh beat (~4 Hz on a 60 Hz display) — remote avatars
-/// don't, because the network smoother repositions them every render
-/// frame (#670). The easing writes the smoothed pose in
-/// `RunFixedMainLoop`, before `Update`, so per-frame readers such as the
-/// camera follow see it, while `FixedUpdate` systems (drive controllers,
-/// transform broadcast) still read true tick poses. Transform writes
-/// outside the fixed schedules — portal teleports, the terrain-hot-load
-/// lift — are detected as teleports and snap for that timestep, which is
-/// the wanted shape.
-fn chassis_root_bundle(transform: Transform) -> impl Bundle {
-    (
-        transform,
-        Visibility::default(),
-        RigidBody::Dynamic,
-        TransformInterpolation,
-        CollidingEntities::default(),
-        LocalPlayer,
-    )
-}
-
-/// Insert the physics components appropriate to the avatar's locomotion
-/// preset. The caller is responsible for having stripped any prior
-/// preset's components first (or for this being a fresh entity).
-pub(super) fn build_preset_components(
-    commands: &mut Commands,
-    entity: Entity,
-    locomotion: &LocomotionConfig,
-) {
-    match locomotion {
-        LocomotionConfig::HoverBoat(p) => {
-            let half = p.chassis_half_extents.0;
-            commands.entity(entity).insert((
-                Collider::cuboid(half[0] * 2.0, half[1] * 2.0, half[2] * 2.0),
-                Mass(p.mass.0),
-                LinearDamping(p.linear_damping.0),
-                AngularDamping(p.angular_damping.0),
-                HoverBoatPreset,
-                VehicleChassis,
-            ));
-        }
-        LocomotionConfig::Humanoid(p) => {
-            commands.entity(entity).insert((
-                Collider::capsule(p.capsule_radius.0.max(0.05), p.capsule_length.0.max(0.1)),
-                Mass(p.mass.0),
-                LinearDamping(p.linear_damping.0),
-                AngularDamping(cfg::ANGULAR_DAMPING),
-                // Traditional character controller: lock all three rotation
-                // axes so the physics capsule slides without spinning. The
-                // walk controller rotates the chassis transform itself to
-                // face the movement direction.
-                LockedAxes::new()
-                    .lock_rotation_x()
-                    .lock_rotation_y()
-                    .lock_rotation_z(),
-                HumanoidPreset,
-            ));
-        }
-        LocomotionConfig::Airplane(p) => {
-            let half = p.chassis_half_extents.0;
-            commands.entity(entity).insert((
-                Collider::cuboid(half[0] * 2.0, half[1] * 2.0, half[2] * 2.0),
-                Mass(p.mass.0),
-                LinearDamping(p.linear_damping.0),
-                AngularDamping(p.angular_damping.0),
-                AirplanePreset,
-                VehicleChassis,
-            ));
-        }
-        LocomotionConfig::Helicopter(p) => {
-            let half = p.chassis_half_extents.0;
-            commands.entity(entity).insert((
-                Collider::cuboid(half[0] * 2.0, half[1] * 2.0, half[2] * 2.0),
-                Mass(p.mass.0),
-                LinearDamping(p.linear_damping.0),
-                AngularDamping(p.angular_damping.0),
-                HelicopterPreset,
-                VehicleChassis,
-            ));
-        }
-        LocomotionConfig::Car(p) => {
-            let half = p.chassis_half_extents.0;
-            commands.entity(entity).insert((
-                Collider::cuboid(half[0] * 2.0, half[1] * 2.0, half[2] * 2.0),
-                Mass(p.mass.0),
-                LinearDamping(p.linear_damping.0),
-                AngularDamping(p.angular_damping.0),
-                CarPreset,
-                VehicleChassis,
-            ));
-        }
-        LocomotionConfig::Unknown => {
-            // Forward-compat shipping a record whose preset we don't model:
-            // give the entity a minimal collider so the simulation does not
-            // explode. The owner's editor flags the unrecognised variant.
-            commands
-                .entity(entity)
-                .insert((Collider::cuboid(0.5, 0.5, 0.5), Mass(40.0)));
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Hot-swap — local player
-// ---------------------------------------------------------------------------
-
-/// Watch the live avatar record and flag the local player for rebuild
-/// whenever the locomotion *variant* changes (intra-variant tuning edits
-/// are handled by the per-frame sync systems). A
-/// `Local<Option<&'static str>>` memoises the last-seen kind so we don't
-/// rebuild on every frame the resource is `Changed` — the kinematics
-/// sliders fire `Changed` constantly and would otherwise drop a dozen
-/// rebuilds per second.
-fn detect_local_locomotion_change(
-    mut commands: Commands,
-    live: Res<LiveAvatarRecord>,
-    player: Query<Entity, With<LocalPlayer>>,
-    mut last_kind: Local<Option<&'static str>>,
-) {
-    let kind = live.0.locomotion.kind_tag();
-    if Some(kind) == *last_kind {
-        return;
-    }
-    *last_kind = Some(kind);
-    if let Ok(entity) = player.single() {
-        commands.entity(entity).insert(NeedsLocomotionRebuild);
-    }
-}
-
-/// Apply a queued locomotion rebuild to the local player: strip the old
-/// preset's components and visual children, then install the new preset's
-/// components and visuals. Runs in `Update` on the main schedule so Avian
-/// sees the removed/inserted components on the next physics step without
-/// a race.
-#[allow(clippy::type_complexity, clippy::too_many_arguments)]
-fn apply_local_locomotion_rebuild(
-    mut commands: Commands,
-    players: Query<(Entity, Option<&Children>), (With<LocalPlayer>, With<NeedsLocomotionRebuild>)>,
-    orphan_visuals: Query<Entity, (With<AvatarVisualPrim>, Without<ChildOf>)>,
-    live: Res<LiveAvatarRecord>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut images: ResMut<Assets<Image>>,
-    mut avatar_deps: visuals::AvatarSpawnDeps,
-) {
-    for (entity, children) in players.iter() {
-        strip_preset_components(&mut commands, entity);
-        build_preset_components(&mut commands, entity, &live.0.locomotion);
-        despawn_orphan_avatar_visuals(&mut commands, &orphan_visuals);
-        visuals::spawn_avatar_visuals(
-            &mut commands,
-            entity,
-            &live.0.visuals,
-            children,
-            &mut meshes,
-            &mut materials,
-            &mut images,
-            &mut avatar_deps,
-            true,
-        );
-        commands.entity(entity).remove::<NeedsLocomotionRebuild>();
-    }
-}
-
-/// Despawn any avatar-visual entity that has been orphaned from the
-/// chassis hierarchy — typically the entity the editor gizmo detached
-/// (and stamped with a world-space `Transform`) so it could render at
-/// the actual world pose during a drag. The chassis-children iteration
-/// in `spawn_avatar_visuals` cleans up the live tree, but a detached
-/// entity has no `ChildOf` link back to anything reachable from the
-/// chassis, so it survives the despawn cascade and lingers as a phantom
-/// mesh until a tag-based sweep like this finds it.
-///
-/// Selecting orphans by `Without<ChildOf>` keeps the sweep narrow —
-/// every node spawned by the avatar pipeline is parented to either the
-/// chassis or another visuals node, so a missing parent uniquely
-/// identifies the gizmo-detached case (and any future error path that
-/// leaves an avatar visual orphaned).
-fn despawn_orphan_avatar_visuals(
-    commands: &mut Commands,
-    orphan_visuals: &Query<Entity, (With<AvatarVisualPrim>, Without<ChildOf>)>,
-) {
-    for orphan in orphan_visuals.iter() {
-        commands.entity(orphan).despawn();
-    }
-}
-
-/// Remove every preset-specific component + marker from `entity`.
-/// Safe to call even if the entity currently carries only a subset — Bevy's
-/// `remove` no-ops when the component is absent.
-fn strip_preset_components(commands: &mut Commands, entity: Entity) {
-    commands.entity(entity).remove::<(
-        Collider,
-        Mass,
-        LinearDamping,
-        AngularDamping,
-        LockedAxes,
-        HoverBoatPreset,
-        HumanoidPreset,
-        AirplanePreset,
-        HelicopterPreset,
-        CarPreset,
-        VehicleChassis,
-        gait::GaitAnimation,
-    )>();
-}
-
-/// Non-variant changes (slider tweaks inside the *same* preset, or
-/// visuals-tree edits) only need new visual children — rigid-body
-/// identity stays intact.
-#[allow(clippy::type_complexity, clippy::too_many_arguments)]
-fn rebuild_local_visuals(
-    mut commands: Commands,
-    live: Res<LiveAvatarRecord>,
-    players: Query<
-        (Entity, Option<&Children>),
-        (With<LocalPlayer>, Without<NeedsLocomotionRebuild>),
-    >,
-    orphan_visuals: Query<Entity, (With<AvatarVisualPrim>, Without<ChildOf>)>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut images: ResMut<Assets<Image>>,
-    mut avatar_deps: visuals::AvatarSpawnDeps,
-) {
-    if !live.is_changed() {
-        return;
-    }
-    despawn_orphan_avatar_visuals(&mut commands, &orphan_visuals);
-    for (entity, children) in players.iter() {
-        visuals::spawn_avatar_visuals(
-            &mut commands,
-            entity,
-            &live.0.visuals,
-            children,
-            &mut meshes,
-            &mut materials,
-            &mut images,
-            &mut avatar_deps,
-            true,
-        );
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Hot-swap — remote peers
-// ---------------------------------------------------------------------------
-
-/// Rebuild a remote peer's visual children whenever their avatar record
-/// actually changes (initial fetch, live-preview broadcast, or visuals
-/// edit). Remote peers are pure kinematic visual transforms — they never
-/// carry a `RigidBody`, so installing a `Collider` / `Mass` / `LockedAxes`
-/// here would register them as Static, and every per-frame `Transform`
-/// update from `smooth_remote_transforms` would thrash the broadphase
-/// spatial trees. We therefore only rebuild visuals and leave physics
-/// alone. The `AppliedAvatar` snapshot gates this path so that muting or
-/// relabelling a peer (both of which also trigger `Changed<RemotePeer>`)
-/// doesn't redundantly despawn and rebuild every mesh — that expensive
-/// path is reserved for genuine avatar-record changes.
-#[allow(clippy::type_complexity, clippy::too_many_arguments)]
-fn detect_remote_change(
-    mut commands: Commands,
-    peers: Query<
-        (
-            Entity,
-            &RemotePeer,
-            Option<&AppliedAvatar>,
-            Option<&Children>,
-        ),
-        Changed<RemotePeer>,
-    >,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut images: ResMut<Assets<Image>>,
-    mut avatar_deps: visuals::AvatarSpawnDeps,
-) {
-    for (entity, peer, applied, children) in peers.iter() {
-        let Some(record) = peer.avatar.as_ref() else {
-            continue;
-        };
-        if applied.is_some_and(|a| &a.0 == record) {
-            continue;
-        }
-        visuals::spawn_avatar_visuals(
-            &mut commands,
-            entity,
-            &record.visuals,
-            children,
-            &mut meshes,
-            &mut materials,
-            &mut images,
-            &mut avatar_deps,
-            false,
-        );
-        commands
-            .entity(entity)
-            .insert(AppliedAvatar(record.clone()));
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Spawn pose recovery — used after terrain hot-load and fall-through
-// ---------------------------------------------------------------------------
-
-fn lift_player_above_new_ground(
-    hm_res: Option<Res<crate::terrain::FinishedHeightMap>>,
-    mut query: Query<(&mut Position, &mut LinearVelocity, &mut AngularVelocity), With<LocalPlayer>>,
-) {
-    let Some(hm_res) = hm_res else {
-        return;
-    };
-    if !hm_res.is_added() {
-        return;
-    }
-    let Ok((mut pos, mut lin_vel, mut ang_vel)) = query.single_mut() else {
-        return;
-    };
-    let hm = &hm_res.0;
-    let extent = (hm.width() - 1) as f32 * hm.scale();
-    let half = extent * 0.5;
-    let hm_x = (pos.x + half).clamp(0.0, extent);
-    let hm_z = (pos.z + half).clamp(0.0, extent);
-    let ground_y = hm.get_height_at(hm_x, hm_z);
-    let min_y = ground_y + cfg::SPAWN_HEIGHT_OFFSET;
-    if pos.y < min_y {
-        pos.y = min_y;
-        lin_vel.0 = Vec3::ZERO;
-        ang_vel.0 = Vec3::ZERO;
-    }
-}
-
-#[allow(clippy::type_complexity)]
-fn respawn_if_fallen(
-    mut query: Query<
-        (
-            &mut Position,
-            &mut Rotation,
-            &mut LinearVelocity,
-            &mut AngularVelocity,
-        ),
-        With<LocalPlayer>,
-    >,
-    hm_res: Option<Res<crate::terrain::FinishedHeightMap>>,
-    time: Res<Time>,
-    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
-    mut session_log: ResMut<crate::diagnostics::SessionLog>,
-) {
-    let Ok((mut pos, mut rot, mut lin_vel, mut ang_vel)) = query.single_mut() else {
-        return;
-    };
-    let Some(hm_res) = hm_res else {
-        return;
-    };
-    let hm = &hm_res.0;
-    let extent = (hm.width() - 1) as f32 * hm.scale();
-    let half = extent * 0.5;
-    let hm_x = (pos.x + half).clamp(0.0, extent);
-    let hm_z = (pos.z + half).clamp(0.0, extent);
-    let local_ground = hm.get_height_at(hm_x, hm_z);
-    if pos.y > local_ground - cfg::FALL_BELOW_GROUND {
-        return;
-    }
-    // Depth the player fell to, before the respawn overwrites their position.
-    let fell_to_y = pos.y;
-    let centre = extent * 0.5;
-    let (ox, oz) = random_spawn_xz();
-    let hm_x = (centre + ox).clamp(0.0, extent);
-    let hm_z = (centre + oz).clamp(0.0, extent);
-    let ground_y = hm.get_height_at(hm_x, hm_z);
-    let surface_normal = hm.get_normal_at(hm_x, hm_z);
-    let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
-    pos.0 = Vec3::new(ox, ground_y + cfg::SPAWN_HEIGHT_OFFSET, oz);
-    rot.0 = tilt;
-    lin_vel.0 = Vec3::ZERO;
-    ang_vel.0 = Vec3::ZERO;
-    let now = time.elapsed_secs_f64();
-    crate::diagnostics::samplers::player_respawned(&mut metrics);
-    // Typed event (#635d) — the metric counts respawns, this records each one's
-    // fall depth vs. the terrain height it dropped through, for the timeline.
-    session_log.warn(
-        now,
-        crate::diagnostics::event::EventPayload::RespawnTriggered {
-            fell_to_y,
-            ground_y: local_ground,
-        },
-    );
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The #670 guard: the chassis root must opt into transform easing.
-    /// Avian writes `Transform` only on 64 Hz fixed ticks, so a chassis
-    /// without `TransformInterpolation` visibly steps against the render
-    /// rate. `#[require]` on the component chains in the per-axis easing
-    /// components, so spawning the bundle in a bare `World` (no plugins)
-    /// proves the whole easing state machinery lands on the entity — a
-    /// regression that drops the component from `chassis_root_bundle`
-    /// (the exact bundle `spawn_local_player` uses) fails here.
-    #[test]
-    fn chassis_root_opts_into_transform_easing() {
-        let mut world = World::new();
-        let entity = world.spawn(chassis_root_bundle(Transform::IDENTITY)).id();
-        let e = world.entity(entity);
-        assert!(
-            e.contains::<TransformInterpolation>(),
-            "chassis root must carry TransformInterpolation (#670)"
-        );
-        assert!(
-            e.contains::<TranslationInterpolation>() && e.contains::<RotationInterpolation>(),
-            "easing per-axis components must be required in by TransformInterpolation"
-        );
-        assert!(
-            e.contains::<RigidBody>() && e.contains::<LocalPlayer>(),
-            "bundle must still assemble the physics chassis root"
-        );
-    }
 }

@@ -228,7 +228,7 @@ mod tests {
         use crate::pds::generator::GeneratorKind;
         use crate::seeded_defaults::{AvatarFx, AvatarVoice, ParticleAura};
         fn has_particles(g: &Generator) -> bool {
-            matches!(g.kind, GeneratorKind::ParticleSystem { .. })
+            matches!(g.kind, GeneratorKind::ParticleSystem(..))
                 || g.children.iter().any(has_particles)
         }
 

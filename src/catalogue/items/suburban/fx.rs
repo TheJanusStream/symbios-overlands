@@ -13,8 +13,8 @@ use bevy_symbios_audio::{
 use crate::catalogue::items::fx::node;
 use crate::pds::{
     AnimationFrameMode, EmitterShape, Fp, Fp3, Fp4, Generator, GeneratorKind, ParticleBlendMode,
-    SimulationSpace, SovereignAudioConfig, SovereignSoftDiscConfig, SovereignTextureConfig,
-    TextureFilter, TransformData,
+    ParticleParams, SimulationSpace, SovereignAudioConfig, SovereignSoftDiscConfig,
+    SovereignTextureConfig, TextureFilter, TransformData,
 };
 
 // ---------------------------------------------------------------------------
@@ -24,7 +24,7 @@ use crate::pds::{
 /// A fine fan of sprinkler mist drifting up off the lawn and settling.
 pub(super) fn sprinkler_mist(pos: [f32; 3], seed: u64) -> Generator {
     Generator {
-        kind: GeneratorKind::ParticleSystem {
+        kind: GeneratorKind::ParticleSystem(Box::new(ParticleParams {
             emitter_shape: EmitterShape::Cone {
                 half_angle: Fp(0.7),
                 height: Fp(0.2),
@@ -65,7 +65,7 @@ pub(super) fn sprinkler_mist(pos: [f32; 3], seed: u64) -> Generator {
                 color_halo: Fp3([0.7, 0.82, 0.95]),
                 ..Default::default()
             }),
-        },
+        })),
         transform: TransformData {
             translation: Fp3(pos),
             rotation: Fp4([0.0, 0.0, 0.0, 1.0]),

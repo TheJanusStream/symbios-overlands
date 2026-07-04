@@ -103,7 +103,7 @@ pub(crate) fn node_materials_mut(kind: &mut GeneratorKind) -> Vec<&mut Sovereign
         | GeneratorKind::Water { .. }
         | GeneratorKind::RoadNetwork(_)
         | GeneratorKind::Portal { .. }
-        | GeneratorKind::ParticleSystem { .. }
+        | GeneratorKind::ParticleSystem(..)
         | GeneratorKind::Unknown => Vec::new(),
     }
 }

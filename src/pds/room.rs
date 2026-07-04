@@ -5,7 +5,9 @@
 
 use super::COLLECTION;
 use super::contact_effects::ContactEffects;
-use super::generator::{Generator, GeneratorKind, Placement, RoadConfig, WaterSurface};
+use super::generator::{
+    Generator, GeneratorKind, ParticleParams, Placement, RoadConfig, WaterSurface,
+};
 use super::sanitize::{Sanitize, limits, sanitize_generator};
 use super::terrain::SovereignTerrainConfig;
 use super::types::{Fp, Fp2, Fp3, Fp4, Fp64, TransformData};
@@ -498,49 +500,50 @@ impl RoomRecord {
         // snow / embers / dust / mist) centred on spawn. Spec numbers
         // are pre-clamped to the particle sanitiser budget.
         let p = &ambient_particles;
-        let particle_gen = Generator::from_kind(GeneratorKind::ParticleSystem {
-            emitter_shape: EmitterShape::Box {
-                half_extents: Fp3(p.emitter_half_extents),
-            },
-            rate_per_second: Fp(p.rate_per_second),
-            burst_count: 0,
-            max_particles: p.max_particles,
-            looping: true,
-            duration: Fp(10.0),
-            lifetime_min: Fp(p.lifetime.0),
-            lifetime_max: Fp(p.lifetime.1),
-            speed_min: Fp(p.speed.0),
-            speed_max: Fp(p.speed.1),
-            gravity_multiplier: Fp(p.gravity_multiplier),
-            acceleration: Fp3(p.acceleration),
-            linear_drag: Fp(p.linear_drag),
-            start_size: Fp(p.start_size),
-            end_size: Fp(p.end_size),
-            start_color: Fp4(p.start_color),
-            end_color: Fp4(p.end_color),
-            blend_mode: if p.additive {
-                ParticleBlendMode::Additive
-            } else {
-                ParticleBlendMode::Alpha
-            },
-            billboard: true,
-            simulation_space: SimulationSpace::World,
-            inherit_velocity: Fp(0.0),
-            collide_terrain: false,
-            collide_water: false,
-            collide_colliders: false,
-            bounce: Fp(0.0),
-            friction: Fp(0.0),
-            seed: p.seed,
-            texture: None,
-            // Atlas dims are derived at compile time from the sprite's
-            // variant grid, so the record leaves this `None`.
-            texture_atlas: None,
-            // Every mood sprite bakes a variant atlas; draw one per particle.
-            frame_mode: AnimationFrameMode::RandomFrame,
-            texture_filter: TextureFilter::default(),
-            procedural_texture: p.sprite_texture(),
-        });
+        let particle_gen =
+            Generator::from_kind(GeneratorKind::ParticleSystem(Box::new(ParticleParams {
+                emitter_shape: EmitterShape::Box {
+                    half_extents: Fp3(p.emitter_half_extents),
+                },
+                rate_per_second: Fp(p.rate_per_second),
+                burst_count: 0,
+                max_particles: p.max_particles,
+                looping: true,
+                duration: Fp(10.0),
+                lifetime_min: Fp(p.lifetime.0),
+                lifetime_max: Fp(p.lifetime.1),
+                speed_min: Fp(p.speed.0),
+                speed_max: Fp(p.speed.1),
+                gravity_multiplier: Fp(p.gravity_multiplier),
+                acceleration: Fp3(p.acceleration),
+                linear_drag: Fp(p.linear_drag),
+                start_size: Fp(p.start_size),
+                end_size: Fp(p.end_size),
+                start_color: Fp4(p.start_color),
+                end_color: Fp4(p.end_color),
+                blend_mode: if p.additive {
+                    ParticleBlendMode::Additive
+                } else {
+                    ParticleBlendMode::Alpha
+                },
+                billboard: true,
+                simulation_space: SimulationSpace::World,
+                inherit_velocity: Fp(0.0),
+                collide_terrain: false,
+                collide_water: false,
+                collide_colliders: false,
+                bounce: Fp(0.0),
+                friction: Fp(0.0),
+                seed: p.seed,
+                texture: None,
+                // Atlas dims are derived at compile time from the sprite's
+                // variant grid, so the record leaves this `None`.
+                texture_atlas: None,
+                // Every mood sprite bakes a variant atlas; draw one per particle.
+                frame_mode: AnimationFrameMode::RandomFrame,
+                texture_filter: TextureFilter::default(),
+                procedural_texture: p.sprite_texture(),
+            })));
         generators.insert("ambient_particles".to_string(), particle_gen);
         placements.push(Placement::Absolute {
             generator_ref: "ambient_particles".to_string(),

@@ -9,8 +9,8 @@
 
 use symbios_overlands::pds::{
     AnimationFrameMode, EmitterShape, Fp, Fp3, Fp4, Generator, GeneratorKind, ParticleBlendMode,
-    SignSource, SimulationSpace, SovereignTextureConfig, TextureAtlas, TextureFilter, limits,
-    sanitize_generator,
+    ParticleParams, SignSource, SimulationSpace, SovereignTextureConfig, TextureAtlas,
+    TextureFilter, limits, sanitize_generator,
 };
 
 /// Helper: build a ParticleSystem generator with the supplied
@@ -21,7 +21,7 @@ fn sample_particles(
     blend: ParticleBlendMode,
     space: SimulationSpace,
 ) -> Generator {
-    Generator::from_kind(GeneratorKind::ParticleSystem {
+    Generator::from_kind(GeneratorKind::ParticleSystem(Box::new(ParticleParams {
         emitter_shape: shape,
         rate_per_second: Fp(20.0),
         burst_count: 4,
@@ -54,7 +54,7 @@ fn sample_particles(
         frame_mode: AnimationFrameMode::Still,
         texture_filter: TextureFilter::Linear,
         procedural_texture: SovereignTextureConfig::None,
-    })
+    })))
 }
 
 /// Build a textured-particle Generator — used by the new round-trip
@@ -70,18 +70,11 @@ fn sample_textured_particles(
         ParticleBlendMode::Alpha,
         SimulationSpace::World,
     );
-    if let GeneratorKind::ParticleSystem {
-        texture: t,
-        texture_atlas: a,
-        frame_mode: f,
-        texture_filter: tf,
-        ..
-    } = &mut g.kind
-    {
-        *t = Some(texture);
-        *a = atlas;
-        *f = frame_mode;
-        *tf = filter;
+    if let GeneratorKind::ParticleSystem(p) = &mut g.kind {
+        p.texture = Some(texture);
+        p.texture_atlas = atlas;
+        p.frame_mode = frame_mode;
+        p.texture_filter = filter;
     }
     g
 }
@@ -167,8 +160,8 @@ fn unknown_emitter_shape_decodes_to_unknown() {
     let kind: GeneratorKind =
         serde_json::from_str(&json).expect("unknown shape must not crash decode");
     match kind {
-        GeneratorKind::ParticleSystem { emitter_shape, .. } => {
-            assert!(matches!(emitter_shape, EmitterShape::Unknown))
+        GeneratorKind::ParticleSystem(p) => {
+            assert!(matches!(p.emitter_shape, EmitterShape::Unknown))
         }
         other => panic!("expected ParticleSystem, got {other:?}"),
     }
@@ -181,8 +174,8 @@ fn unknown_blend_mode_decodes_to_unknown() {
         ParticleBlendMode::Alpha,
         SimulationSpace::World,
     );
-    if let GeneratorKind::ParticleSystem { blend_mode, .. } = &mut g.kind {
-        *blend_mode = ParticleBlendMode::Unknown;
+    if let GeneratorKind::ParticleSystem(p) = &mut g.kind {
+        p.blend_mode = ParticleBlendMode::Unknown;
     }
     // Round-trip via JSON literal carrying an unknown blend tag.
     let json =
@@ -190,8 +183,8 @@ fn unknown_blend_mode_decodes_to_unknown() {
     let kind: GeneratorKind =
         serde_json::from_str(&json).expect("unknown blend must not crash decode");
     match kind {
-        GeneratorKind::ParticleSystem { blend_mode, .. } => {
-            assert!(matches!(blend_mode, ParticleBlendMode::Unknown))
+        GeneratorKind::ParticleSystem(p) => {
+            assert!(matches!(p.blend_mode, ParticleBlendMode::Unknown))
         }
         other => panic!("expected ParticleSystem, got {other:?}"),
     }
@@ -205,9 +198,9 @@ fn unknown_simulation_space_decodes_to_unknown() {
     let kind: GeneratorKind =
         serde_json::from_str(&json).expect("unknown space must not crash decode");
     match kind {
-        GeneratorKind::ParticleSystem {
-            simulation_space, ..
-        } => assert!(matches!(simulation_space, SimulationSpace::Unknown)),
+        GeneratorKind::ParticleSystem(p) => {
+            assert!(matches!(p.simulation_space, SimulationSpace::Unknown))
+        }
         other => panic!("expected ParticleSystem, got {other:?}"),
     }
 }
@@ -223,28 +216,16 @@ fn sanitiser_clamps_max_particles_and_rate() {
         ParticleBlendMode::Alpha,
         SimulationSpace::World,
     );
-    if let GeneratorKind::ParticleSystem {
-        max_particles,
-        rate_per_second,
-        burst_count,
-        ..
-    } = &mut g.kind
-    {
-        *max_particles = u32::MAX;
-        *rate_per_second = Fp(1_000_000.0);
-        *burst_count = u32::MAX;
+    if let GeneratorKind::ParticleSystem(p) = &mut g.kind {
+        p.max_particles = u32::MAX;
+        p.rate_per_second = Fp(1_000_000.0);
+        p.burst_count = u32::MAX;
     }
     sanitize_generator(&mut g);
-    if let GeneratorKind::ParticleSystem {
-        max_particles,
-        rate_per_second,
-        burst_count,
-        ..
-    } = &g.kind
-    {
-        assert!(*max_particles <= limits::MAX_PARTICLES);
-        assert!(rate_per_second.0 <= limits::MAX_PARTICLE_RATE);
-        assert!(*burst_count <= limits::MAX_PARTICLE_BURST);
+    if let GeneratorKind::ParticleSystem(p) = &g.kind {
+        assert!(p.max_particles <= limits::MAX_PARTICLES);
+        assert!(p.rate_per_second.0 <= limits::MAX_PARTICLE_RATE);
+        assert!(p.burst_count <= limits::MAX_PARTICLE_BURST);
     } else {
         panic!("expected ParticleSystem after sanitise");
     }
@@ -259,30 +240,16 @@ fn sanitiser_enforces_min_le_max_on_lifetime_and_speed() {
         ParticleBlendMode::Alpha,
         SimulationSpace::World,
     );
-    if let GeneratorKind::ParticleSystem {
-        lifetime_min,
-        lifetime_max,
-        speed_min,
-        speed_max,
-        ..
-    } = &mut g.kind
-    {
-        *lifetime_min = Fp(5.0);
-        *lifetime_max = Fp(1.0);
-        *speed_min = Fp(10.0);
-        *speed_max = Fp(2.0);
+    if let GeneratorKind::ParticleSystem(p) = &mut g.kind {
+        p.lifetime_min = Fp(5.0);
+        p.lifetime_max = Fp(1.0);
+        p.speed_min = Fp(10.0);
+        p.speed_max = Fp(2.0);
     }
     sanitize_generator(&mut g);
-    if let GeneratorKind::ParticleSystem {
-        lifetime_min,
-        lifetime_max,
-        speed_min,
-        speed_max,
-        ..
-    } = &g.kind
-    {
-        assert!(lifetime_max.0 >= lifetime_min.0, "lifetime min ≤ max");
-        assert!(speed_max.0 >= speed_min.0, "speed min ≤ max");
+    if let GeneratorKind::ParticleSystem(p) = &g.kind {
+        assert!(p.lifetime_max.0 >= p.lifetime_min.0, "lifetime min ≤ max");
+        assert!(p.speed_max.0 >= p.speed_min.0, "speed min ≤ max");
     } else {
         panic!("expected ParticleSystem after sanitise");
     }
@@ -295,12 +262,12 @@ fn sanitiser_clamps_acceleration_per_axis() {
         ParticleBlendMode::Alpha,
         SimulationSpace::World,
     );
-    if let GeneratorKind::ParticleSystem { acceleration, .. } = &mut g.kind {
-        *acceleration = Fp3([f32::INFINITY, -1_000_000.0, f32::NAN]);
+    if let GeneratorKind::ParticleSystem(p) = &mut g.kind {
+        p.acceleration = Fp3([f32::INFINITY, -1_000_000.0, f32::NAN]);
     }
     sanitize_generator(&mut g);
-    if let GeneratorKind::ParticleSystem { acceleration, .. } = &g.kind {
-        for a in &acceleration.0 {
+    if let GeneratorKind::ParticleSystem(p) = &g.kind {
+        for a in &p.acceleration.0 {
             assert!(a.is_finite());
             assert!(a.abs() <= limits::MAX_PARTICLE_ACCEL);
         }
@@ -316,29 +283,17 @@ fn sanitiser_clamps_inherit_velocity_bounce_friction() {
         ParticleBlendMode::Alpha,
         SimulationSpace::World,
     );
-    if let GeneratorKind::ParticleSystem {
-        inherit_velocity,
-        bounce,
-        friction,
-        ..
-    } = &mut g.kind
-    {
-        *inherit_velocity = Fp(99.0);
-        *bounce = Fp(2.5);
-        *friction = Fp(-10.0);
+    if let GeneratorKind::ParticleSystem(p) = &mut g.kind {
+        p.inherit_velocity = Fp(99.0);
+        p.bounce = Fp(2.5);
+        p.friction = Fp(-10.0);
     }
     sanitize_generator(&mut g);
-    if let GeneratorKind::ParticleSystem {
-        inherit_velocity,
-        bounce,
-        friction,
-        ..
-    } = &g.kind
-    {
-        assert!(inherit_velocity.0 <= limits::MAX_PARTICLE_INHERIT_VELOCITY);
-        assert!(inherit_velocity.0 >= 0.0);
-        assert!(bounce.0 >= 0.0 && bounce.0 <= 1.0);
-        assert!(friction.0 >= 0.0 && friction.0 <= 1.0);
+    if let GeneratorKind::ParticleSystem(p) = &g.kind {
+        assert!(p.inherit_velocity.0 <= limits::MAX_PARTICLE_INHERIT_VELOCITY);
+        assert!(p.inherit_velocity.0 >= 0.0);
+        assert!(p.bounce.0 >= 0.0 && p.bounce.0 <= 1.0);
+        assert!(p.friction.0 >= 0.0 && p.friction.0 <= 1.0);
     } else {
         panic!("expected ParticleSystem after sanitise");
     }
@@ -363,8 +318,8 @@ fn sanitiser_clamps_emitter_shape_extents() {
     ] {
         let mut g = sample_particles(shape, ParticleBlendMode::Alpha, SimulationSpace::World);
         sanitize_generator(&mut g);
-        if let GeneratorKind::ParticleSystem { emitter_shape, .. } = &g.kind {
-            match emitter_shape {
+        if let GeneratorKind::ParticleSystem(p) = &g.kind {
+            match &p.emitter_shape {
                 EmitterShape::Sphere { radius } => {
                     assert!(radius.0 <= limits::MAX_PARTICLE_SHAPE_RADIUS)
                 }
@@ -532,8 +487,8 @@ fn unknown_frame_mode_decodes_to_unknown() {
     let kind: GeneratorKind =
         serde_json::from_str(&json).expect("unknown frame_mode must not crash decode");
     match kind {
-        GeneratorKind::ParticleSystem { frame_mode, .. } => {
-            assert!(matches!(frame_mode, AnimationFrameMode::Unknown))
+        GeneratorKind::ParticleSystem(p) => {
+            assert!(matches!(p.frame_mode, AnimationFrameMode::Unknown))
         }
         other => panic!("expected ParticleSystem, got {other:?}"),
     }
@@ -547,8 +502,8 @@ fn unknown_texture_filter_decodes_to_unknown() {
     let kind: GeneratorKind =
         serde_json::from_str(&json).expect("unknown filter must not crash decode");
     match kind {
-        GeneratorKind::ParticleSystem { texture_filter, .. } => {
-            assert!(matches!(texture_filter, TextureFilter::Unknown))
+        GeneratorKind::ParticleSystem(p) => {
+            assert!(matches!(p.texture_filter, TextureFilter::Unknown))
         }
         other => panic!("expected ParticleSystem, got {other:?}"),
     }
@@ -562,17 +517,11 @@ fn missing_texture_fields_decode_to_defaults() {
     let json = base_particles_json(DEFAULT_SHAPE, DEFAULT_BLEND, DEFAULT_SPACE);
     let kind: GeneratorKind = serde_json::from_str(&json).expect("legacy decode");
     match kind {
-        GeneratorKind::ParticleSystem {
-            texture,
-            texture_atlas,
-            frame_mode,
-            texture_filter,
-            ..
-        } => {
-            assert!(texture.is_none());
-            assert!(texture_atlas.is_none());
-            assert!(matches!(frame_mode, AnimationFrameMode::Still));
-            assert!(matches!(texture_filter, TextureFilter::Linear));
+        GeneratorKind::ParticleSystem(p) => {
+            assert!(p.texture.is_none());
+            assert!(p.texture_atlas.is_none());
+            assert!(matches!(p.frame_mode, AnimationFrameMode::Still));
+            assert!(matches!(p.texture_filter, TextureFilter::Linear));
         }
         other => panic!("expected ParticleSystem, got {other:?}"),
     }
@@ -596,8 +545,8 @@ fn sanitiser_clamps_atlas_dims() {
         TextureFilter::Linear,
     );
     sanitize_generator(&mut g);
-    if let GeneratorKind::ParticleSystem { texture_atlas, .. } = &g.kind {
-        let atlas = texture_atlas.as_ref().expect("atlas survived");
+    if let GeneratorKind::ParticleSystem(p) = &g.kind {
+        let atlas = p.texture_atlas.as_ref().expect("atlas survived");
         assert!(atlas.rows >= 1 && atlas.rows <= limits::MAX_PARTICLE_ATLAS_DIM);
         assert!(atlas.cols >= 1 && atlas.cols <= limits::MAX_PARTICLE_ATLAS_DIM);
     } else {
@@ -618,12 +567,12 @@ fn sanitiser_clamps_over_lifetime_fps() {
         TextureFilter::Linear,
     );
     sanitize_generator(&mut g);
-    if let GeneratorKind::ParticleSystem { frame_mode, .. } = &g.kind {
-        if let AnimationFrameMode::OverLifetime { fps } = frame_mode {
+    if let GeneratorKind::ParticleSystem(p) = &g.kind {
+        if let AnimationFrameMode::OverLifetime { fps } = &p.frame_mode {
             assert!(fps.0.is_finite());
             assert!(fps.0 >= 0.0 && fps.0 <= limits::MAX_PARTICLE_FRAME_FPS);
         } else {
-            panic!("expected OverLifetime, got {frame_mode:?}");
+            panic!("expected OverLifetime, got {:?}", p.frame_mode);
         }
     } else {
         panic!("expected ParticleSystem after sanitise");
@@ -645,11 +594,11 @@ fn sanitiser_truncates_textured_url() {
         TextureFilter::Linear,
     );
     sanitize_generator(&mut g);
-    if let GeneratorKind::ParticleSystem { texture, .. } = &g.kind {
-        if let Some(SignSource::Url { url }) = texture {
+    if let GeneratorKind::ParticleSystem(p) = &g.kind {
+        if let Some(SignSource::Url { url }) = &p.texture {
             assert!(url.len() <= limits::MAX_SIGN_URL_BYTES);
         } else {
-            panic!("expected Url texture, got {texture:?}");
+            panic!("expected Url texture, got {:?}", p.texture);
         }
     } else {
         panic!("expected ParticleSystem after sanitise");

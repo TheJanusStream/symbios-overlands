@@ -21,14 +21,13 @@
 //! cooldown that throttles continuous `Dwell` recipes to a trickle
 //! instead of an every-frame emitter storm.
 
-use std::collections::HashMap;
-
 use bevy::prelude::*;
 
 use crate::pds::{EmitterShape, Fp, Fp3};
 use crate::world_builder::particles::{EmitterState, ParticleEmitter, spawn_particle_emitter};
 
 use super::contact::{AvatarContacts, SurfaceContact, dominant_layer};
+use super::cooldown::CooldownTable;
 use super::recipes::{ContactRecipeRegistry, DUST_END_COLOR, DUST_START_COLOR};
 
 /// World-space drift acceleration (m/s² per unit of `flow_dir`) biasing
@@ -87,19 +86,25 @@ fn dust_colors_for_albedo(albedo: Vec3) -> (LinearRgba, LinearRgba) {
 #[derive(Component, Debug)]
 pub struct TransientEmitter;
 
-/// Per-(avatar, recipe-index) time of last emission, for the cooldown
-/// throttle on continuous (`Dwell`) recipes. Keyed by the recipe's
-/// index in the registry (stable for the registry's lifetime; a room
-/// recompile rebuilds both, and stale entries are TTL-pruned anyway),
-/// so renaming a recipe in the editor never resets a live cooldown.
-#[derive(Resource, Default)]
+/// Per-`(avatar, recipe index)` cooldown state — a shared
+/// [`CooldownTable`] behind this channel's own `Resource` type (mirrors
+/// the audio / decal channels).
+#[derive(Resource)]
 pub struct ParticleDispatchState {
-    last_emit: HashMap<(Entity, usize), f32>,
+    cooldowns: CooldownTable,
 }
 
 /// Drop cooldown entries older than this (s) — far longer than any
 /// recipe cooldown, so pruning never resets a live throttle.
 const COOLDOWN_ENTRY_TTL: f32 = 5.0;
+
+impl Default for ParticleDispatchState {
+    fn default() -> Self {
+        Self {
+            cooldowns: CooldownTable::new(COOLDOWN_ENTRY_TTL),
+        }
+    }
+}
 
 /// Scale an emitter's spawn shape so its extent tracks the avatar's
 /// footprint (issue #244: "footprint radius from sample drives the
@@ -152,13 +157,12 @@ pub fn particle_dispatcher(
             }
 
             // Cooldown throttle (continuous Dwell recipes).
-            if recipe.spawn.cooldown > 0.0 {
-                let key = (sample.avatar, idx);
-                if let Some(&last) = state.last_emit.get(&key)
-                    && now - last < recipe.spawn.cooldown
-                {
-                    continue;
-                }
+            if recipe.spawn.cooldown > 0.0
+                && state
+                    .cooldowns
+                    .active((sample.avatar, idx), now, recipe.spawn.cooldown)
+            {
+                continue;
             }
 
             let want = recipe.spawn.count.eval(sample);
@@ -238,15 +242,13 @@ pub fn particle_dispatcher(
 
             spawned_this_frame += count;
             if recipe.spawn.cooldown > 0.0 {
-                state.last_emit.insert((sample.avatar, idx), now);
+                state.cooldowns.mark((sample.avatar, idx), now);
             }
         }
     }
 
     // Prune stale cooldown entries (despawned avatars, long-idle).
-    state
-        .last_emit
-        .retain(|_, &mut last| now - last < COOLDOWN_ENTRY_TTL);
+    state.cooldowns.prune(now);
 }
 
 /// Reclaim transient dispatcher emitters once their one-shot burst has

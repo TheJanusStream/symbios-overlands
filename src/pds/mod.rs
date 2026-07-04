@@ -122,8 +122,8 @@ pub use contact_effects::{
 };
 pub use generator::{
     AlphaModeKind, AnimationFrameMode, EmitterShape, Generator, GeneratorKind, ParticleBlendMode,
-    Placement, SignSource, SimulationSpace, TextureAtlas, TextureFilter, TortureParams,
-    WaterSurface,
+    ParticleParams, Placement, SignSource, SimulationSpace, TextureAtlas, TextureFilter,
+    TortureParams, WaterSurface,
 };
 pub use inventory::{InventoryRecord, fetch_inventory_record, publish_inventory_record};
 pub use prim::PropMeshType;

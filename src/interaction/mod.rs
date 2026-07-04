@@ -54,6 +54,7 @@
 pub mod audio;
 pub mod classifier;
 pub mod contact;
+pub mod cooldown;
 pub mod decal;
 pub mod locomotion;
 pub mod particle_channel;

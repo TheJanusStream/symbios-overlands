@@ -27,6 +27,12 @@ use crate::pds::{
 /// preset; consumers don't second-guess.
 pub trait LocomotionFootprint {
     fn footprint_radius(&self) -> f32;
+
+    /// World-space vertical extent of the avatar — used to normalise
+    /// water depth into the intensity scalar on a contact sample (and to
+    /// derive body-bottom as `origin.y − total_height/2`). Clamped
+    /// positive per impl so downstream divisions never see zero.
+    fn total_height(&self) -> f32;
 }
 
 impl LocomotionFootprint for HumanoidParams {
@@ -36,6 +42,12 @@ impl LocomotionFootprint for HumanoidParams {
         // already clamped ≥ 0.05 m by the PDS sanitiser, so the result
         // is always positive.
         self.capsule_radius.0 * 1.5
+    }
+
+    fn total_height(&self) -> f32 {
+        // Delegates to the preset's own (inherent, PDS-side) method so
+        // the collider and the contact classifier agree on one number.
+        HumanoidParams::total_height(self)
     }
 }
 
@@ -47,9 +59,18 @@ fn cuboid_footprint(half_extents: [f32; 3]) -> f32 {
     half_extents[0].max(half_extents[2]).max(0.0)
 }
 
+/// Vertical extent of a chassis-cuboid vehicle. Floored so a degenerate
+/// authored chassis can't zero the intensity denominator.
+fn cuboid_height(half_extents: [f32; 3]) -> f32 {
+    (half_extents[1] * 2.0).max(0.01)
+}
+
 impl LocomotionFootprint for HoverBoatParams {
     fn footprint_radius(&self) -> f32 {
         cuboid_footprint(self.chassis_half_extents.0)
+    }
+    fn total_height(&self) -> f32 {
+        cuboid_height(self.chassis_half_extents.0)
     }
 }
 
@@ -57,11 +78,17 @@ impl LocomotionFootprint for CarParams {
     fn footprint_radius(&self) -> f32 {
         cuboid_footprint(self.chassis_half_extents.0)
     }
+    fn total_height(&self) -> f32 {
+        cuboid_height(self.chassis_half_extents.0)
+    }
 }
 
 impl LocomotionFootprint for HelicopterParams {
     fn footprint_radius(&self) -> f32 {
         cuboid_footprint(self.chassis_half_extents.0)
+    }
+    fn total_height(&self) -> f32 {
+        cuboid_height(self.chassis_half_extents.0)
     }
 }
 
@@ -69,12 +96,20 @@ impl LocomotionFootprint for AirplaneParams {
     fn footprint_radius(&self) -> f32 {
         cuboid_footprint(self.chassis_half_extents.0)
     }
+    fn total_height(&self) -> f32 {
+        cuboid_height(self.chassis_half_extents.0)
+    }
 }
 
 /// Fallback for [`LocomotionConfig::Unknown`] (older record, new
 /// client). Small enough to look "near point-source" but non-zero so
 /// downstream divisions don't have to guard against it.
 pub const UNKNOWN_FOOTPRINT: f32 = 0.5;
+
+/// Vertical-extent fallback for [`LocomotionConfig::Unknown`] — a
+/// roughly person-sized guess, non-zero for the same reason as
+/// [`UNKNOWN_FOOTPRINT`].
+pub const UNKNOWN_TOTAL_HEIGHT: f32 = 1.0;
 
 /// Single-call accessor used by the contact classifier. Pulls the
 /// footprint radius out of any locomotion config variant, returning
@@ -93,15 +128,16 @@ pub fn locomotion_footprint(cfg: &LocomotionConfig) -> f32 {
 
 /// Avatar "vertical extent" used to normalise water depth into the
 /// intensity scalar on a contact sample. Matches the same per-preset
-/// dispatch pattern as [`locomotion_footprint`].
+/// dispatch pattern as [`locomotion_footprint`], pulling
+/// [`LocomotionFootprint::total_height`] out of any config variant.
 pub fn locomotion_total_height(cfg: &LocomotionConfig) -> f32 {
     match cfg {
-        LocomotionConfig::Humanoid(p) => p.total_height(),
-        LocomotionConfig::HoverBoat(p) => (p.chassis_half_extents.0[1] * 2.0).max(0.01),
-        LocomotionConfig::Car(p) => (p.chassis_half_extents.0[1] * 2.0).max(0.01),
-        LocomotionConfig::Helicopter(p) => (p.chassis_half_extents.0[1] * 2.0).max(0.01),
-        LocomotionConfig::Airplane(p) => (p.chassis_half_extents.0[1] * 2.0).max(0.01),
-        LocomotionConfig::Unknown => 1.0,
+        LocomotionConfig::Humanoid(p) => LocomotionFootprint::total_height(p.as_ref()),
+        LocomotionConfig::HoverBoat(p) => p.total_height(),
+        LocomotionConfig::Car(p) => p.total_height(),
+        LocomotionConfig::Helicopter(p) => p.total_height(),
+        LocomotionConfig::Airplane(p) => p.total_height(),
+        LocomotionConfig::Unknown => UNKNOWN_TOTAL_HEIGHT,
     }
 }
 

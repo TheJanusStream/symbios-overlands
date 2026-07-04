@@ -5,8 +5,8 @@
 use bevy_egui::egui;
 
 use crate::pds::{
-    AnimationFrameMode, EmitterShape, Fp, Fp3, Fp4, ParticleBlendMode, SignSource, SimulationSpace,
-    SovereignTextureConfig, TextureAtlas, TextureFilter,
+    AnimationFrameMode, EmitterShape, Fp, Fp3, ParticleBlendMode, ParticleParams, SignSource,
+    SimulationSpace, SovereignTextureConfig, TextureAtlas, TextureFilter,
 };
 
 use super::super::material::draw_texture_bridge_opts;
@@ -18,44 +18,49 @@ use super::sign::draw_sign_source;
 /// browseable without scrolling: Emitter shape, Spawn, Lifetime / Speed,
 /// Dynamics, Visuals, Texture, Inheritance, Collisions. Every parameter is
 /// surfaced; the sanitiser owns the bounds.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_generator_particles(
     ui: &mut egui::Ui,
-    emitter_shape: &mut EmitterShape,
-    rate_per_second: &mut Fp,
-    burst_count: &mut u32,
-    max_particles: &mut u32,
-    looping: &mut bool,
-    duration: &mut Fp,
-    lifetime_min: &mut Fp,
-    lifetime_max: &mut Fp,
-    speed_min: &mut Fp,
-    speed_max: &mut Fp,
-    gravity_multiplier: &mut Fp,
-    acceleration: &mut Fp3,
-    linear_drag: &mut Fp,
-    start_size: &mut Fp,
-    end_size: &mut Fp,
-    start_color: &mut Fp4,
-    end_color: &mut Fp4,
-    blend_mode: &mut ParticleBlendMode,
-    billboard: &mut bool,
-    simulation_space: &mut SimulationSpace,
-    inherit_velocity: &mut Fp,
-    collide_terrain: &mut bool,
-    collide_water: &mut bool,
-    collide_colliders: &mut bool,
-    bounce: &mut Fp,
-    friction: &mut Fp,
-    seed: &mut u64,
-    texture: &mut Option<SignSource>,
-    texture_atlas: &mut Option<TextureAtlas>,
-    frame_mode: &mut AnimationFrameMode,
-    texture_filter: &mut TextureFilter,
-    procedural_texture: &mut SovereignTextureConfig,
+    p: &mut ParticleParams,
     salt: &str,
     dirty: &mut bool,
 ) {
+    // Destructured once so the section closures below borrow fields
+    // disjointly (a bare `p.x` in every closure would fight the borrow
+    // checker across the nested `show` calls).
+    let ParticleParams {
+        emitter_shape,
+        rate_per_second,
+        burst_count,
+        max_particles,
+        looping,
+        duration,
+        lifetime_min,
+        lifetime_max,
+        speed_min,
+        speed_max,
+        gravity_multiplier,
+        acceleration,
+        linear_drag,
+        start_size,
+        end_size,
+        start_color,
+        end_color,
+        blend_mode,
+        billboard,
+        simulation_space,
+        inherit_velocity,
+        collide_terrain,
+        collide_water,
+        collide_colliders,
+        bounce,
+        friction,
+        seed,
+        texture,
+        texture_atlas,
+        frame_mode,
+        texture_filter,
+        procedural_texture,
+    } = p;
     egui::CollapsingHeader::new("Emitter shape")
         .id_salt(format!("{}_pe_shape", salt))
         .default_open(true)

@@ -21,7 +21,8 @@ use bevy_symbios_audio::{AudioPatch, GraphNode, NodeGraph, NodeId, NodeKind};
 
 use crate::pds::{
     AnimationFrameMode, EmitterShape, Fp, Fp3, Fp4, Generator, GeneratorKind, ParticleBlendMode,
-    SimulationSpace, SovereignAudioConfig, SovereignTextureConfig, TextureFilter, TransformData,
+    ParticleParams, SimulationSpace, SovereignAudioConfig, SovereignTextureConfig, TextureFilter,
+    TransformData,
 };
 
 /// The varying parameters of a small ambient emitter; the rest are filled
@@ -51,7 +52,7 @@ impl Emitter {
     /// determinism.
     pub(crate) fn at(self, pos: [f32; 3], seed: u64) -> Generator {
         Generator {
-            kind: GeneratorKind::ParticleSystem {
+            kind: GeneratorKind::ParticleSystem(Box::new(ParticleParams {
                 emitter_shape: self.shape,
                 rate_per_second: Fp(self.rate),
                 burst_count: self.burst,
@@ -84,7 +85,7 @@ impl Emitter {
                 frame_mode: AnimationFrameMode::RandomFrame,
                 texture_filter: TextureFilter::Linear,
                 procedural_texture: self.sprite,
-            },
+            })),
             transform: TransformData {
                 translation: Fp3(pos),
                 rotation: Fp4([0.0, 0.0, 0.0, 1.0]),

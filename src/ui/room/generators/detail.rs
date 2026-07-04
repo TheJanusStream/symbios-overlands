@@ -21,8 +21,9 @@ use super::primitive::{
     draw_primitive_cylinder, draw_primitive_helix, draw_primitive_plane, draw_primitive_sphere,
     draw_primitive_tetrahedron, draw_primitive_torus, draw_primitive_tube,
 };
+use super::reparent::{current_id, find_node, find_node_mut};
 use super::sign::draw_generator_sign;
-use super::tree::{current_id, find_node, find_node_mut, node_salt, path_string};
+use super::tree::{node_salt, path_string};
 use super::water::draw_water_editor;
 
 /// Renders only the *content* of the selected node — kind picker,
@@ -209,9 +210,37 @@ fn draw_road_editor(
     row(&mut config.skirt_depth.0, 1.0, 15.0, "Skirt depth (m)");
 }
 
-/// Per-kind variant detail editor. Dispatches into the per-variant forges
-/// for Terrain / LSystem / Shape, owns the inline Water / Portal / RoadNetwork
-/// widgets, and uses a shared primitive editor for every parametric shape.
+/// Inline editor for a [`GeneratorKind::Portal`]: the destination room's
+/// DID plus the world-space exit position in that room.
+fn draw_portal_editor(
+    ui: &mut egui::Ui,
+    target_did: &mut String,
+    target_pos: &mut crate::pds::Fp3,
+    dirty: &mut bool,
+) {
+    ui.label("Target DID (destination room)");
+    if ui
+        .add(egui::TextEdit::singleline(target_did).hint_text("did:plc:…"))
+        .changed()
+    {
+        *dirty = true;
+    }
+    ui.add_space(4.0);
+    ui.label("Exit position (world space in the target room)");
+    ui.horizontal(|ui| {
+        for (label, axis) in ["X", "Y", "Z"].iter().zip(target_pos.0.iter_mut()) {
+            ui.label(*label);
+            if ui.add(egui::DragValue::new(axis).speed(0.1)).changed() {
+                *dirty = true;
+            }
+        }
+    });
+}
+
+/// Per-kind variant detail editor — a thin dispatch: every arm is a
+/// single delegation into a per-kind editor fn (the Terrain / LSystem /
+/// Shape forges, the shared primitive editors, or the inline-widget
+/// helpers above).
 /// Does NOT render the local transform — that's drawn separately in the detail
 /// panel header.
 ///
@@ -280,40 +309,7 @@ fn draw_generator_detail(
         GeneratorKind::Portal {
             target_did,
             target_pos,
-        } => {
-            ui.label("Target DID (destination room)");
-            if ui
-                .add(egui::TextEdit::singleline(target_did).hint_text("did:plc:…"))
-                .changed()
-            {
-                *dirty = true;
-            }
-            ui.add_space(4.0);
-            ui.label("Exit position (world space in the target room)");
-            ui.horizontal(|ui| {
-                ui.label("X");
-                if ui
-                    .add(egui::DragValue::new(&mut target_pos.0[0]).speed(0.1))
-                    .changed()
-                {
-                    *dirty = true;
-                }
-                ui.label("Y");
-                if ui
-                    .add(egui::DragValue::new(&mut target_pos.0[1]).speed(0.1))
-                    .changed()
-                {
-                    *dirty = true;
-                }
-                ui.label("Z");
-                if ui
-                    .add(egui::DragValue::new(&mut target_pos.0[2]).speed(0.1))
-                    .changed()
-                {
-                    *dirty = true;
-                }
-            });
-        }
+        } => draw_portal_editor(ui, target_did, target_pos, dirty),
         GeneratorKind::Cuboid {
             size,
             solid,
@@ -492,76 +488,7 @@ fn draw_generator_detail(
             salt,
             dirty,
         ),
-        GeneratorKind::ParticleSystem {
-            emitter_shape,
-            rate_per_second,
-            burst_count,
-            max_particles,
-            looping,
-            duration,
-            lifetime_min,
-            lifetime_max,
-            speed_min,
-            speed_max,
-            gravity_multiplier,
-            acceleration,
-            linear_drag,
-            start_size,
-            end_size,
-            start_color,
-            end_color,
-            blend_mode,
-            billboard,
-            simulation_space,
-            inherit_velocity,
-            collide_terrain,
-            collide_water,
-            collide_colliders,
-            bounce,
-            friction,
-            seed,
-            texture,
-            texture_atlas,
-            frame_mode,
-            texture_filter,
-            procedural_texture,
-        } => draw_generator_particles(
-            ui,
-            emitter_shape,
-            rate_per_second,
-            burst_count,
-            max_particles,
-            looping,
-            duration,
-            lifetime_min,
-            lifetime_max,
-            speed_min,
-            speed_max,
-            gravity_multiplier,
-            acceleration,
-            linear_drag,
-            start_size,
-            end_size,
-            start_color,
-            end_color,
-            blend_mode,
-            billboard,
-            simulation_space,
-            inherit_velocity,
-            collide_terrain,
-            collide_water,
-            collide_colliders,
-            bounce,
-            friction,
-            seed,
-            texture,
-            texture_atlas,
-            frame_mode,
-            texture_filter,
-            procedural_texture,
-            salt,
-            dirty,
-        ),
+        GeneratorKind::ParticleSystem(params) => draw_generator_particles(ui, params, salt, dirty),
         GeneratorKind::Unknown => {
             ui.colored_label(
                 egui::Color32::from_rgb(220, 160, 80),

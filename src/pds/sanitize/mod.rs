@@ -37,7 +37,6 @@ mod water;
 use crate::pds::generator::{Generator, GeneratorKind};
 use crate::pds::types::truncate_on_char_boundary;
 
-use particles::sanitize_particles;
 use primitive::sanitize_primitive;
 use sign::sanitize_sign;
 use water::sanitize_water;
@@ -213,56 +212,7 @@ pub fn sanitize_kind(kind: &mut GeneratorKind) {
             alpha_mode,
             ..
         } => sanitize_sign(source, size, uv_repeat, uv_offset, material, alpha_mode),
-        GeneratorKind::ParticleSystem {
-            emitter_shape,
-            rate_per_second,
-            burst_count,
-            max_particles,
-            duration,
-            lifetime_min,
-            lifetime_max,
-            speed_min,
-            speed_max,
-            gravity_multiplier,
-            acceleration,
-            linear_drag,
-            start_size,
-            end_size,
-            start_color,
-            end_color,
-            inherit_velocity,
-            bounce,
-            friction,
-            texture,
-            texture_atlas,
-            frame_mode,
-            procedural_texture,
-            ..
-        } => sanitize_particles(
-            emitter_shape,
-            rate_per_second,
-            burst_count,
-            max_particles,
-            duration,
-            lifetime_min,
-            lifetime_max,
-            speed_min,
-            speed_max,
-            gravity_multiplier,
-            acceleration,
-            linear_drag,
-            start_size,
-            end_size,
-            start_color,
-            end_color,
-            inherit_velocity,
-            bounce,
-            friction,
-            texture,
-            texture_atlas,
-            frame_mode,
-            procedural_texture,
-        ),
+        GeneratorKind::ParticleSystem(params) => params.sanitize(),
         GeneratorKind::Unknown => {}
     }
 }

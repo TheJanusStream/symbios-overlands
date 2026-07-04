@@ -6,8 +6,8 @@ use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
 
 use crate::pds::{
-    AnimationFrameMode, EmitterShape, Fp3, Fp4, ParticleBlendMode, SignSource, SimulationSpace,
-    SovereignTextureConfig, TextureAtlas, TextureFilter,
+    AnimationFrameMode, EmitterShape, ParticleParams, SimulationSpace, SovereignTextureConfig,
+    TextureAtlas,
 };
 
 use super::super::compile::SpawnCtx;
@@ -91,47 +91,14 @@ pub fn spawn_particle_emitter(
 /// Translate a [`crate::pds::GeneratorKind::ParticleSystem`] payload
 /// into a [`ParticleEmitter`] snapshot. Pulled out so the spawn arm in
 /// `compile::spawn_generator` stays a one-liner.
-#[allow(clippy::too_many_arguments)]
-pub(in super::super) fn snapshot_from_record(
-    emitter_shape: &EmitterShape,
-    rate_per_second: f32,
-    burst_count: u32,
-    max_particles: u32,
-    looping: bool,
-    duration: f32,
-    lifetime_min: f32,
-    lifetime_max: f32,
-    speed_min: f32,
-    speed_max: f32,
-    gravity_multiplier: f32,
-    acceleration: &Fp3,
-    linear_drag: f32,
-    start_size: f32,
-    end_size: f32,
-    start_color: &Fp4,
-    end_color: &Fp4,
-    blend_mode: &ParticleBlendMode,
-    billboard: bool,
-    simulation_space: &SimulationSpace,
-    inherit_velocity: f32,
-    collide_terrain: bool,
-    collide_water: bool,
-    collide_colliders: bool,
-    bounce: f32,
-    friction: f32,
-    texture: Option<SignSource>,
-    texture_atlas: Option<TextureAtlas>,
-    frame_mode: AnimationFrameMode,
-    texture_filter: TextureFilter,
-    procedural_texture: &SovereignTextureConfig,
-) -> ParticleEmitter {
+pub(in super::super) fn snapshot_from_record(p: &ParticleParams) -> ParticleEmitter {
     // A procedural sprite bakes locally; it applies only when no legacy
     // fetched `texture` reference is set (that one wins for wire compat).
     // `Referenced` is an asset pointer, not a generator, so it never bakes
     // here. When a sprite drives the texture, its `variant_rows × cols`
     // override the atlas so `RandomFrame` shows one variant per particle.
-    let procedural_native = if texture.is_none() {
-        match procedural_texture {
+    let procedural_native = if p.texture.is_none() {
+        match &p.procedural_texture {
             SovereignTextureConfig::None
             | SovereignTextureConfig::Unknown
             | SovereignTextureConfig::Referenced { .. } => None,
@@ -141,54 +108,54 @@ pub(in super::super) fn snapshot_from_record(
         None
     };
     let texture_atlas = if procedural_native.is_some() {
-        procedural_texture
+        p.procedural_texture
             .sprite_atlas_dims()
             .map(|(rows, cols)| TextureAtlas { rows, cols })
     } else {
-        texture_atlas
+        p.texture_atlas.clone()
     };
 
     ParticleEmitter {
-        shape: emitter_shape.clone(),
-        rate_per_second,
-        burst_count,
-        max_particles,
-        looping,
-        duration,
-        lifetime_min,
-        lifetime_max,
-        speed_min,
-        speed_max,
-        gravity_multiplier,
-        acceleration: Vec3::from_array(acceleration.0),
-        linear_drag,
-        start_size,
-        end_size,
+        shape: p.emitter_shape.clone(),
+        rate_per_second: p.rate_per_second.0,
+        burst_count: p.burst_count,
+        max_particles: p.max_particles,
+        looping: p.looping,
+        duration: p.duration.0,
+        lifetime_min: p.lifetime_min.0,
+        lifetime_max: p.lifetime_max.0,
+        speed_min: p.speed_min.0,
+        speed_max: p.speed_max.0,
+        gravity_multiplier: p.gravity_multiplier.0,
+        acceleration: Vec3::from_array(p.acceleration.0),
+        linear_drag: p.linear_drag.0,
+        start_size: p.start_size.0,
+        end_size: p.end_size.0,
         start_color: LinearRgba::new(
-            start_color.0[0],
-            start_color.0[1],
-            start_color.0[2],
-            start_color.0[3],
+            p.start_color.0[0],
+            p.start_color.0[1],
+            p.start_color.0[2],
+            p.start_color.0[3],
         ),
         end_color: LinearRgba::new(
-            end_color.0[0],
-            end_color.0[1],
-            end_color.0[2],
-            end_color.0[3],
+            p.end_color.0[0],
+            p.end_color.0[1],
+            p.end_color.0[2],
+            p.end_color.0[3],
         ),
-        blend_mode: blend_mode.clone(),
-        billboard,
-        simulation_space: simulation_space.clone(),
-        inherit_velocity,
-        collide_terrain,
-        collide_water,
-        collide_colliders,
-        bounce,
-        friction,
-        texture,
+        blend_mode: p.blend_mode.clone(),
+        billboard: p.billboard,
+        simulation_space: p.simulation_space.clone(),
+        inherit_velocity: p.inherit_velocity.0,
+        collide_terrain: p.collide_terrain,
+        collide_water: p.collide_water,
+        collide_colliders: p.collide_colliders,
+        bounce: p.bounce.0,
+        friction: p.friction.0,
+        texture: p.texture.clone(),
         texture_atlas,
-        frame_mode,
-        texture_filter,
+        frame_mode: p.frame_mode.clone(),
+        texture_filter: p.texture_filter.clone(),
         procedural_texture: procedural_native,
     }
 }
