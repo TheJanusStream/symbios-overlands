@@ -28,7 +28,7 @@ pub struct AmbientHandle(pub Option<Handle<bevy::audio::AudioSource>>);
 /// produced by the audio crate's [`bake_sequence`](bevy_symbios_audio::bake_sequence)
 /// / [`bake`](bevy_symbios_audio::bake()) +
 /// `samples_to_wav_bytes_pcm16`
-/// pipeline. The poll system wraps these as `AudioSource` and
+/// pipeline. [`poll_ambient_task`] wraps these as `AudioSource` and
 /// writes [`AmbientHandle`].
 #[derive(Component)]
 pub(crate) struct AmbientBakeTask(
@@ -47,6 +47,62 @@ pub(crate) struct AmbientRebakeTask(
     /// Session-relative seconds at dispatch, for the E-4 completion latency.
     f64,
 );
+
+/// Which half of the ambient pipeline a task belongs to. Drives the small
+/// behavioral splits inside the shared dispatch/poll cores; everything else
+/// (pipeline routing, fallback warns, latency metrics, completion events)
+/// is identical on both sides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AmbientBakeSide {
+    /// One-shot bake dispatched by the loading gate (`AppState::Loading`).
+    LoadingGate,
+    /// Debounced re-bake driven by in-game record edits (`AppState::InGame`).
+    Rebake,
+}
+
+/// The task-component side of an ambient bake, letting
+/// [`dispatch_ambient_config`] and [`poll_ambient_task`] serve both the
+/// loading gate ([`AmbientBakeTask`]) and the in-game re-bake
+/// ([`AmbientRebakeTask`]) from one core each.
+pub(crate) trait AmbientTask:
+    Component<Mutability = bevy::ecs::component::Mutable> + Sized
+{
+    /// Which pipeline half this task type serves.
+    const SIDE: AmbientBakeSide;
+
+    fn new(task: bevy::tasks::Task<crate::offload::GenResult>, dispatched_at: f64) -> Self;
+    fn task_mut(&mut self) -> &mut bevy::tasks::Task<crate::offload::GenResult>;
+    /// Session-relative seconds at dispatch, for the E-4 completion latency.
+    fn dispatched_at(&self) -> f64;
+}
+
+impl AmbientTask for AmbientBakeTask {
+    const SIDE: AmbientBakeSide = AmbientBakeSide::LoadingGate;
+
+    fn new(task: bevy::tasks::Task<crate::offload::GenResult>, dispatched_at: f64) -> Self {
+        Self(task, dispatched_at)
+    }
+    fn task_mut(&mut self) -> &mut bevy::tasks::Task<crate::offload::GenResult> {
+        &mut self.0
+    }
+    fn dispatched_at(&self) -> f64 {
+        self.1
+    }
+}
+
+impl AmbientTask for AmbientRebakeTask {
+    const SIDE: AmbientBakeSide = AmbientBakeSide::Rebake;
+
+    fn new(task: bevy::tasks::Task<crate::offload::GenResult>, dispatched_at: f64) -> Self {
+        Self(task, dispatched_at)
+    }
+    fn task_mut(&mut self) -> &mut bevy::tasks::Task<crate::offload::GenResult> {
+        &mut self.0
+    }
+    fn dispatched_at(&self) -> f64 {
+        self.1
+    }
+}
 
 /// Wrap freshly-baked WAV bytes into an [`AudioSource`]
 /// handle, or `None` for the no-audio variants. Shared by the loading-gate
@@ -151,11 +207,87 @@ fn bake_ambient_wav_bytes(audio: &crate::pds::SovereignAudioConfig) -> Option<Ve
     }
 }
 
+/// Shared dispatch core for [`start_ambient_bake`] and
+/// [`rebake_ambient_on_record_change`]: route an ambient config down the
+/// right pipeline and spawn a `T` task for the procedural variants.
+///
+/// * `None` / `Unknown`: no-audio fast path — insert [`AmbientHandle`]
+///   directly so the loading gate unblocks (or the swap system despawns
+///   the player) without spinning up a task that would just return None.
+/// * `Referenced`: hand the reference to the audio resolver, which fetches
+///   the bytes and writes `AmbientHandle(Some(_))` on success or
+///   `AmbientHandle(None)` on failure.
+/// * `Patch` / `Sequence`: synth off the render frame via the offload seam
+///   (native: AsyncComputeTaskPool; wasm: Web Worker). Malformed configs
+///   log an [`AmbientBakeFallback`](crate::diagnostics::event::EventPayload::AmbientBakeFallback)
+///   warn and fall back to silence so a corrupt record never blocks room
+///   load or wedges the live bed.
+fn dispatch_ambient_config<T: AmbientTask>(
+    commands: &mut Commands,
+    audio_cache: &mut crate::world_builder::audio_resolver::BlobAudioCache,
+    audio: &crate::pds::SovereignAudioConfig,
+    time: &Time,
+    session_log: &mut crate::diagnostics::SessionLog,
+) {
+    match audio {
+        crate::pds::SovereignAudioConfig::None | crate::pds::SovereignAudioConfig::Unknown => {
+            commands.insert_resource(AmbientHandle(None));
+        }
+        crate::pds::SovereignAudioConfig::Referenced { source } => {
+            crate::world_builder::audio_resolver::request_blob_audio(
+                commands,
+                audio_cache,
+                source,
+                crate::world_builder::audio_resolver::AudioReferenceTarget::AmbientHandle,
+            );
+        }
+        crate::pds::SovereignAudioConfig::Patch { .. }
+        | crate::pds::SovereignAudioConfig::Sequence { .. } => match ambient_bake_job(audio) {
+            Some(job) => {
+                // Start marker for the B-2 timeline + the AmbientBakeStall replay
+                // rule's start→end pairing — loading gate only. A superseded
+                // re-bake is despawned mid-flight by its dispatcher, so a paired
+                // Started with no Completed could read as a false stall (#631).
+                // (The `EventPayload` variant is distinct from the same-named
+                // `AmbientBakeStarted` marker resource the gate inserts.)
+                if T::SIDE == AmbientBakeSide::LoadingGate {
+                    let variant = if matches!(audio, crate::pds::SovereignAudioConfig::Patch { .. })
+                    {
+                        "patch"
+                    } else {
+                        "sequence"
+                    };
+                    session_log.info(
+                        time.elapsed_secs_f64(),
+                        crate::diagnostics::event::EventPayload::AmbientBakeStarted {
+                            variant: variant.to_string(),
+                        },
+                    );
+                }
+                commands.spawn(T::new(
+                    crate::offload::offload(crate::offload::GenJob::AudioBake(job)),
+                    time.elapsed_secs_f64(),
+                ));
+            }
+            // Malformed Patch/Sequence JSON → treat as "no audio".
+            None => {
+                session_log.warn(
+                    time.elapsed_secs_f64(),
+                    crate::diagnostics::event::EventPayload::AmbientBakeFallback {
+                        reason: "malformed Patch/Sequence config".to_string(),
+                    },
+                );
+                commands.insert_resource(AmbientHandle(None));
+            }
+        },
+    }
+}
+
 /// Dispatch the ambient bake the frame `LiveRoomRecord` lands. Reads
-/// the room's `environment.ambient_audio`, picks the right baker, and
-/// spawns a single task entity. Subsequent frames are no-ops because
-/// [`AmbientHandle`] either gets inserted directly (no-audio variants)
-/// or the [`AmbientBakeTask`] component is in flight.
+/// the room's `environment.ambient_audio`, hands it to
+/// [`dispatch_ambient_config`], and flips the latch. Subsequent frames are
+/// no-ops because [`AmbientHandle`] either gets inserted directly
+/// (no-audio variants) or the [`AmbientBakeTask`] component is in flight.
 pub(crate) fn start_ambient_bake(
     mut commands: Commands,
     room_record: Option<Res<LiveRoomRecord>>,
@@ -181,63 +313,13 @@ pub(crate) fn start_ambient_bake(
     // triggers a live re-bake.
     live_cfg.0 = Some(audio.clone());
 
-    match &audio {
-        // No-audio fast path — insert the handle directly so the
-        // loading gate unblocks without spinning up a task that would
-        // just return None.
-        crate::pds::SovereignAudioConfig::None | crate::pds::SovereignAudioConfig::Unknown => {
-            commands.insert_resource(AmbientHandle(None));
-        }
-        // External-asset path — hand the reference to the audio
-        // resolver, which fetches the bytes and writes
-        // AmbientHandle(Some(_)) on success or AmbientHandle(None)
-        // on failure. The loading gate sees the handle either way.
-        crate::pds::SovereignAudioConfig::Referenced { source } => {
-            crate::world_builder::audio_resolver::request_blob_audio(
-                &mut commands,
-                &mut audio_cache,
-                source,
-                crate::world_builder::audio_resolver::AudioReferenceTarget::AmbientHandle,
-            );
-        }
-        // Procedural path — synth off the render frame via the offload seam
-        // (native: AsyncComputeTaskPool; wasm: Web Worker).
-        crate::pds::SovereignAudioConfig::Patch { .. }
-        | crate::pds::SovereignAudioConfig::Sequence { .. } => match ambient_bake_job(&audio) {
-            Some(job) => {
-                // Start marker for the B-2 timeline + the AmbientBakeStall replay
-                // rule's start→end pairing. (The `EventPayload` variant is
-                // distinct from the same-named `AmbientBakeStarted` marker
-                // resource inserted below.)
-                let variant = if matches!(audio, crate::pds::SovereignAudioConfig::Patch { .. }) {
-                    "patch"
-                } else {
-                    "sequence"
-                };
-                session_log.info(
-                    time.elapsed_secs_f64(),
-                    crate::diagnostics::event::EventPayload::AmbientBakeStarted {
-                        variant: variant.to_string(),
-                    },
-                );
-                commands.spawn(AmbientBakeTask(
-                    crate::offload::offload(crate::offload::GenJob::AudioBake(job)),
-                    time.elapsed_secs_f64(),
-                ));
-            }
-            // Malformed Patch/Sequence JSON → treat as "no audio" so a corrupt
-            // record never blocks room load.
-            None => {
-                session_log.warn(
-                    time.elapsed_secs_f64(),
-                    crate::diagnostics::event::EventPayload::AmbientBakeFallback {
-                        reason: "malformed Patch/Sequence config".to_string(),
-                    },
-                );
-                commands.insert_resource(AmbientHandle(None));
-            }
-        },
-    }
+    dispatch_ambient_config::<AmbientBakeTask>(
+        &mut commands,
+        &mut audio_cache,
+        &audio,
+        &time,
+        &mut session_log,
+    );
     commands.insert_resource(AmbientBakeStarted);
 }
 
@@ -358,9 +440,9 @@ pub(crate) fn tick_ambient_settle(
 #[derive(Resource, Default)]
 pub(crate) struct AmbientRebakePending(Option<crate::pds::SovereignAudioConfig>);
 
-/// Mirrors [`start_ambient_bake`]'s pipeline split (None/Referenced/
-/// procedural) but is driven by `LiveRoomRecord`'s change tick instead of
-/// the one-shot loading gate, so a manual re-roll, a "Reset to default",
+/// Routes through the same [`dispatch_ambient_config`] core as
+/// [`start_ambient_bake`] but is driven by `LiveRoomRecord`'s change tick
+/// instead of the one-shot loading gate, so a manual re-roll, a "Reset to default",
 /// or a direct audio edit all restart the looping bed. Edits that leave
 /// `ambient_audio` untouched (terrain, colours, scatters) compare equal
 /// against [`LiveAmbientConfig`] and are skipped, so the music doesn't
@@ -382,6 +464,7 @@ pub(crate) fn rebake_ambient_on_record_change(
     mut audio_cache: ResMut<crate::world_builder::audio_resolver::BlobAudioCache>,
     in_flight: Query<Entity, With<AmbientRebakeTask>>,
     time: Res<Time>,
+    mut session_log: ResMut<crate::diagnostics::SessionLog>,
 ) {
     let Some(record) = room_record else {
         return;
@@ -412,33 +495,13 @@ pub(crate) fn rebake_ambient_on_record_change(
         commands.entity(entity).despawn();
     }
 
-    match &audio {
-        crate::pds::SovereignAudioConfig::None | crate::pds::SovereignAudioConfig::Unknown => {
-            // Silence: publish the absence; the swap system despawns the
-            // player.
-            commands.insert_resource(AmbientHandle(None));
-        }
-        crate::pds::SovereignAudioConfig::Referenced { source } => {
-            crate::world_builder::audio_resolver::request_blob_audio(
-                &mut commands,
-                &mut audio_cache,
-                source,
-                crate::world_builder::audio_resolver::AudioReferenceTarget::AmbientHandle,
-            );
-        }
-        crate::pds::SovereignAudioConfig::Patch { .. }
-        | crate::pds::SovereignAudioConfig::Sequence { .. } => match ambient_bake_job(&audio) {
-            Some(job) => {
-                commands.spawn(AmbientRebakeTask(
-                    crate::offload::offload(crate::offload::GenJob::AudioBake(job)),
-                    time.elapsed_secs_f64(),
-                ));
-            }
-            None => {
-                commands.insert_resource(AmbientHandle(None));
-            }
-        },
-    }
+    dispatch_ambient_config::<AmbientRebakeTask>(
+        &mut commands,
+        &mut audio_cache,
+        &audio,
+        &time,
+        &mut session_log,
+    );
 }
 
 /// Bring the looping [`AmbientPlayer`] into agreement with
@@ -497,11 +560,14 @@ pub(crate) fn swap_ambient_player_to_handle(
     }
 }
 
-/// Drain a finished ambient-bake task: wrap the WAV bytes in
-/// `AudioSource` and insert [`AmbientHandle`].
-pub(crate) fn poll_ambient_bake_task(
+/// Drain a finished ambient bake task `T`: wrap the WAV bytes in
+/// `AudioSource` and insert [`AmbientHandle`]. Serves both sides —
+/// registered once per task type ([`AmbientBakeTask`] under the loading
+/// gate, [`AmbientRebakeTask`] in-game, where
+/// [`swap_ambient_player_to_handle`] then swaps the looping player).
+pub(crate) fn poll_ambient_task<T: AmbientTask>(
     mut commands: Commands,
-    mut tasks: Query<(Entity, &mut AmbientBakeTask)>,
+    mut tasks: Query<(Entity, &mut T)>,
     mut audio_sources: ResMut<Assets<bevy::audio::AudioSource>>,
     time: Res<Time>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
@@ -509,18 +575,19 @@ pub(crate) fn poll_ambient_bake_task(
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
-            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.0))
+            futures_lite::future::block_on(futures_lite::future::poll_once(task.task_mut()))
         else {
             continue;
         };
         let now = time.elapsed_secs_f64();
-        let spawned_at = task.1;
+        let spawned_at = task.dispatched_at();
         commands.entity(entity).despawn();
 
         let wav = match result {
             // Success only: record the bake latency (E-4) + a typed completion
             // (B-2 timeline / ambient stage distro + the AmbientBakeStall replay
-            // rule's end marker).
+            // rule's end marker). On the re-bake side only the Completed half is
+            // emitted (dispatch skips Started — see `dispatch_ambient_config`).
             crate::offload::GenResult::Audio(bytes) => {
                 crate::diagnostics::samplers::ambient_bake_latency_secs(
                     &mut metrics,
@@ -550,61 +617,11 @@ pub(crate) fn poll_ambient_bake_task(
             }
         };
         let handle = wrap_baked_handle(wav, &mut audio_sources);
-        if handle.is_some() {
+        if handle.is_some() && T::SIDE == AmbientBakeSide::LoadingGate {
+            // The re-bake side stays quiet here; the player swap logs instead.
             info!("Ambient audio baked");
         }
         commands.insert_resource(AmbientHandle(handle));
-    }
-}
-
-/// Drain a finished in-game re-bake ([`AmbientRebakeTask`]) and publish the
-/// handle into [`AmbientHandle`]; [`swap_ambient_player_to_handle`] then
-/// swaps the looping player. The loading-gate counterpart is
-/// [`poll_ambient_bake_task`].
-pub(crate) fn poll_ambient_rebake_task(
-    mut commands: Commands,
-    mut tasks: Query<(Entity, &mut AmbientRebakeTask)>,
-    mut audio_sources: ResMut<Assets<bevy::audio::AudioSource>>,
-    time: Res<Time>,
-    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
-    mut session_log: ResMut<crate::diagnostics::SessionLog>,
-) {
-    for (entity, mut task) in tasks.iter_mut() {
-        let Some(result) =
-            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.0))
-        else {
-            continue;
-        };
-        let now = time.elapsed_secs_f64();
-        let spawned_at = task.1;
-        commands.entity(entity).despawn();
-        let wav = match result {
-            // Success only: record the bake latency (E-4).
-            crate::offload::GenResult::Audio(bytes) => {
-                crate::diagnostics::samplers::ambient_bake_latency_secs(
-                    &mut metrics,
-                    now - spawned_at,
-                );
-                // Surface the in-game re-bake in the timeline (#627) — matches
-                // the loading-gate bake's `poll_ambient_bake_task`. Only the
-                // Completed side is emitted (not Started): a superseded re-bake
-                // is despawned by the dispatcher, so a paired Started could
-                // read as a false ambient-bake stall.
-                session_log.info(
-                    now,
-                    crate::diagnostics::event::EventPayload::AmbientBakeCompleted {
-                        bytes: bytes.len() as u64,
-                        duration_secs: now - spawned_at,
-                    },
-                );
-                Some(bytes)
-            }
-            _ => {
-                crate::diagnostics::samplers::offload_job_error(&mut metrics);
-                None
-            }
-        };
-        commands.insert_resource(AmbientHandle(wrap_baked_handle(wav, &mut audio_sources)));
     }
 }
 

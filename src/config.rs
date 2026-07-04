@@ -511,7 +511,7 @@ pub mod textures {
     pub const SPLAT: u32 = 512;
     /// General surface- and card-material resolution (pixels per side) for
     /// every procedural material baked through
-    /// [`crate::world_builder::build_procedural_material`] — catalogue
+    /// `crate::world_builder::material::build_procedural_material` — catalogue
     /// constructs, primitives, foliage cards, avatars. Halved from the old
     /// 512 to cut bake time and memory; close-up architecture is the main
     /// place the drop is visible, and the per-class split lets that be

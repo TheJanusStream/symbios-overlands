@@ -275,7 +275,7 @@ pub fn run() {
                 // it arrives — without `.chain()` the starter would
                 // miss the rising edge and stall the gate.
                 loading::start_ambient_bake,
-                loading::poll_ambient_bake_task,
+                loading::poll_ambient_task::<loading::AmbientBakeTask>,
                 loading::check_loading_complete,
             )
                 .chain()
@@ -291,7 +291,7 @@ pub fn run() {
             (
                 loading::tick_ambient_settle,
                 loading::rebake_ambient_on_record_change,
-                loading::poll_ambient_rebake_task,
+                loading::poll_ambient_task::<loading::AmbientRebakeTask>,
                 loading::swap_ambient_player_to_handle,
             )
                 .chain()

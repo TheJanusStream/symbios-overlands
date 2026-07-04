@@ -8,7 +8,8 @@ use bevy::prelude::*;
 
 /// Re-wind every triangle so its face winding agrees with the supplied vertex
 /// normals (front faces stay visible under back-face culling). Lets the
-/// hand-built [`build_tube_mesh`] / [`build_bevel_mesh`] emit correct normals
+/// hand-built [`build_tube_mesh`](super::prisms::build_tube_mesh) /
+/// [`build_bevel_mesh`](super::prisms::build_bevel_mesh) emit correct normals
 /// without also hand-proving every triangle's index order.
 pub(super) fn orient_to_normals(pos: &[[f32; 3]], nor: &[[f32; 3]], idx: &mut [u32]) {
     for tri in idx.chunks_exact_mut(3) {
