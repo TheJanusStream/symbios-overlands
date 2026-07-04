@@ -314,6 +314,34 @@ mod tests {
     }
 
     #[test]
+    fn punctuation_onsets_span_the_full_loop() {
+        // #663: the onset window derives from LOOP_BEATS — a hardcoded
+        // 12-beat window used to cluster punctuation in the loop's first
+        // ~40% and leave the tail silent. Across seeds, some onsets must
+        // land past the old ceiling, and none past the loop region.
+        let old_ceiling = WARMUP_BEATS + 12.0;
+        let mut reaches_past_old_window = false;
+        for s in 0u64..24 {
+            let scene = SceneCharacter::for_seed(s);
+            let recipe = AmbientRecipe::from_scene(&scene, s).recipe;
+            for e in &recipe.tracks[2].events {
+                assert!(e.time_beats >= WARMUP_BEATS);
+                assert!(
+                    e.time_beats <= WARMUP_BEATS + LOOP_BEATS,
+                    "onset outside the loop region"
+                );
+                if e.time_beats > old_ceiling {
+                    reaches_past_old_window = true;
+                }
+            }
+        }
+        assert!(
+            reaches_past_old_window,
+            "some seed's punctuation should land past the old 12-beat window"
+        );
+    }
+
+    #[test]
     fn punctuation_differs_in_kind_per_biome() {
         use BiomeArchetype::*;
         // The punctuation patch must be structurally different across

@@ -83,6 +83,27 @@ pub enum BakeAttachmentMode {
 pub struct SpatialAudioBakeTask {
     pub key: String,
     pub task: Task<crate::offload::GenResult>,
+    /// Short stable job name for the offload diagnostics pairing (#671) —
+    /// a hash of `key`, because the key itself is a full serialized audio
+    /// config and would bloat the NDJSON.
+    job_name: String,
+    /// Session-relative time the poll logged `OffloadJobStarted`; `None`
+    /// until the first poll sees the task. Dispatch sites deliberately
+    /// don't log it themselves — they'd each need `Time` + `SessionLog`
+    /// threaded through the (hot) contact-audio path, while the poll runs
+    /// within a frame of dispatch anyway.
+    started_logged_at: Option<f64>,
+}
+
+/// Short stable diagnostics name for a bake keyed by the full serialized
+/// config: `audio_bake_{hash}`. Stable across sessions for the same
+/// config, so `--analyze-session` and `--diff-sessions` pair and compare
+/// the same sound's bakes.
+fn bake_job_name(key: &str) -> String {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    key.hash(&mut h);
+    format!("audio_bake_{:08x}", h.finish())
 }
 
 /// Hard cap on retained baked buffers. Keys are full serialised audio
@@ -215,7 +236,13 @@ fn request_baked_audio(
             bake_cache.evict_to_cap();
 
             let task = crate::offload::offload(crate::offload::GenJob::AudioBake(job));
-            commands.spawn(SpatialAudioBakeTask { key, task });
+            let job_name = bake_job_name(&key);
+            commands.spawn(SpatialAudioBakeTask {
+                key,
+                task,
+                job_name,
+                started_logged_at: None,
+            });
         }
     }
 }
@@ -327,13 +354,37 @@ pub fn dispatch_one_shot_audio(
 /// Targets despawned between dispatch and completion (room transition,
 /// recompile) make the insert a queued-and-dropped no-op — rapid room
 /// rebuilds during editing make orphan waiters common, so no warn-log.
+///
+/// Also owns the offload diagnostics for this job family (#671):
+/// `OffloadJobStarted` on first sight of a task (≤ 1 frame after
+/// dispatch, always before its Completed), `OffloadJobCompleted` /
+/// `OffloadJobFailed` at drain — one pair per *bake*, never per cache
+/// hit, so the hot contact-audio path stays emission-free.
 pub fn poll_spatial_audio_tasks(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut SpatialAudioBakeTask)>,
     mut audio_sources: ResMut<Assets<AudioSource>>,
     mut bake_cache: ResMut<BakedAudioCache>,
+    time: Res<Time>,
+    mut session_log: ResMut<crate::diagnostics::SessionLog>,
 ) {
+    let now = time.elapsed_secs_f64();
     for (task_entity, mut bake) in tasks.iter_mut() {
+        // Start marker for the B-2 timeline + the task_never_resolves
+        // replay rule's pairing.
+        let started_at = match bake.started_logged_at {
+            Some(t) => t,
+            None => {
+                session_log.info(
+                    now,
+                    crate::diagnostics::event::EventPayload::OffloadJobStarted {
+                        job: bake.job_name.clone(),
+                    },
+                );
+                bake.started_logged_at = Some(now);
+                now
+            }
+        };
         let Some(result) =
             futures_lite::future::block_on(futures_lite::future::poll_once(&mut bake.task))
         else {
@@ -358,9 +409,23 @@ pub fn poll_spatial_audio_tasks(
         let crate::offload::GenResult::Audio(bytes) = result else {
             // Unreachable: an AudioBake job yields Audio. Stay graceful — drop
             // the entry so a corrected config can re-bake.
+            session_log.warn(
+                now,
+                crate::diagnostics::event::EventPayload::OffloadJobFailed {
+                    job: bake.job_name.clone(),
+                    reason: "bake produced no audio".to_string(),
+                },
+            );
             bake_cache.order.retain(|k| k != &bake.key);
             continue;
         };
+        session_log.info(
+            now,
+            crate::diagnostics::event::EventPayload::OffloadJobCompleted {
+                job: bake.job_name.clone(),
+                duration_secs: now - started_at,
+            },
+        );
         let handle = audio_sources.add(AudioSource {
             bytes: bytes.into(),
         });
@@ -485,6 +550,18 @@ mod tests {
 
     fn ready_entry() -> BakedAudioEntry {
         BakedAudioEntry::Ready(Handle::default())
+    }
+
+    /// The offload-diagnostics job name (#671) must be deterministic for a
+    /// given config (Started/Completed pair up, and `--diff-sessions`
+    /// compares the same sound across runs) and distinct across configs
+    /// (two concurrent bakes must not alias in `task_never_resolves`).
+    #[test]
+    fn bake_job_names_are_stable_and_distinct() {
+        let a = bake_job_name("config-a");
+        assert_eq!(a, bake_job_name("config-a"), "stable per config");
+        assert_ne!(a, bake_job_name("config-b"), "distinct across configs");
+        assert!(a.starts_with("audio_bake_"), "family-prefixed: {a}");
     }
 
     #[test]

@@ -340,14 +340,23 @@ fn build_punctuation_patch(
     }
 }
 
+/// Beats reserved at the loop end so a late onset's gate + release tail
+/// stays inside the loop-region overhang — same discipline as the theme
+/// voices' `ONSET_TAIL_BEATS` (punctuation gates/releases are shorter
+/// than the drone voices', so the theme value is safely conservative).
+const ONSET_TAIL_BEATS: f32 = 4.0;
+
 /// Scatter the punctuation events across the loop region with mild
 /// per-event pitch variation so repeated chirps / tings don't machine-
 /// gun the same note. Same half-beat quantise + sort discipline as the
-/// chime track.
+/// chime track. The onset window derives from [`LOOP_BEATS`] (#663) —
+/// a hardcoded 12-beat window previously clustered every event in the
+/// first ~40% of the 32-beat loop and left the tail silent.
 fn punctuation_track_events(punct: &PunctuationParams, rng: &mut ChaCha8Rng) -> Vec<Event> {
+    let span = (LOOP_BEATS - ONSET_TAIL_BEATS).max(4.0);
     let mut events = Vec::with_capacity(punct.event_count as usize);
     for _ in 0..punct.event_count {
-        let time_beats = WARMUP_BEATS + (range_f32(rng, 0.0, 12.0) * 2.0).floor() * 0.5;
+        let time_beats = WARMUP_BEATS + (range_f32(rng, 0.0, span) * 2.0).floor() * 0.5;
         let pitch = match punct.mood {
             PunctuationMood::BirdChirps => range_f32(rng, 0.85, 1.35),
             PunctuationMood::IceTing => range_f32(rng, 0.8, 1.6),

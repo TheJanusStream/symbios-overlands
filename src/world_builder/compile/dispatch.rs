@@ -217,6 +217,7 @@ pub fn spawn_generator(
             double_sided,
             alpha_mode,
             unlit,
+            texture_filter,
         } => Some(spawn_sign_entity(
             ctx,
             source,
@@ -227,6 +228,7 @@ pub fn spawn_generator(
             *double_sided,
             alpha_mode,
             *unlit,
+            texture_filter,
             transform,
         )),
         GeneratorKind::ParticleSystem(params) => {

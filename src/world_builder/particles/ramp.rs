@@ -29,7 +29,7 @@ use bevy_symbios_texture::{TextureCache, TextureCacheKey, TextureConfig, map_to_
 use super::super::image_cache::{BlobImageCache, SamplerFilter, request_blob_image_filtered};
 use super::ParticleEmitter;
 use crate::config::textures::PARTICLE_CELL;
-use crate::pds::{ParticleBlendMode, TextureFilter};
+use crate::pds::ParticleBlendMode;
 
 /// Number of colour buckets a fading emitter bakes. 16 steps along a
 /// typically low-contrast, fast-moving gradient is visually
@@ -59,16 +59,6 @@ impl EmitterMaterialRamp {
     /// panic.
     pub(super) fn handle(&self, idx: usize) -> &Handle<StandardMaterial> {
         &self.handles[idx.min(self.handles.len().saturating_sub(1))]
-    }
-}
-
-/// Resolve the per-emitter [`SamplerFilter`] from a record's
-/// [`TextureFilter`]. Unknown forward-compat values fall back to
-/// Linear so a forward-compat record renders smooth-filtered.
-fn sampler_filter_for(filter: &TextureFilter) -> SamplerFilter {
-    match filter {
-        TextureFilter::Nearest => SamplerFilter::Nearest,
-        TextureFilter::Linear | TextureFilter::Unknown => SamplerFilter::Linear,
     }
 }
 
@@ -167,7 +157,7 @@ pub(super) fn build_emitter_ramp(
                 materials,
                 &handle,
                 source,
-                sampler_filter_for(&emitter.texture_filter),
+                SamplerFilter::from_record(&emitter.texture_filter),
             );
         } else if let Some(albedo) = &procedural_albedo {
             // Procedural sprite: the albedo is already baked and uploaded, so

@@ -80,9 +80,10 @@ struct Args {
     /// `--avatar`); the no-render modes still run first.
     #[arg(long)]
     generator: Option<String>,
-    /// With `--catalogue <slug>` or `--avatar <seed|did>`: print that subject's
-    /// built [`Generator`] as pretty JSON to stdout and exit (a valid seed file
-    /// for `--generator`, enabling a no-recompile geometry-iteration loop).
+    /// With `--catalogue <slug>`, `--prim <tag>` (overrides applied), or
+    /// `--avatar <seed|did>`: print that subject's built [`Generator`] as
+    /// pretty JSON to stdout and exit (a valid seed file for `--generator`,
+    /// enabling a no-recompile geometry-iteration loop).
     #[arg(long, default_value_t = false)]
     dump: bool,
     /// Primitive subject: a kind tag (`cuboid`, `sphere`, `tube`, `bevel`, …).
@@ -223,20 +224,31 @@ pub fn run() {
 
     // `--dump`: serialize the subject's generator to stdout (a valid
     // `--generator` seed) and exit before standing up the render app. Supports
-    // a catalogue slug or an avatar seed/DID so either can drive the fast
-    // no-recompile geometry loop.
+    // a catalogue slug, a primitive tag (with the `--cut`/`--hollow`/…
+    // overrides applied, #663), or an avatar seed/DID so any of them can
+    // drive the fast no-recompile geometry loop.
     if args.dump {
         let g = if let Some(slug) = args.catalogue.as_deref() {
             crate::catalogue::by_slug(slug)
                 .unwrap_or_else(|| panic!("unknown catalogue slug {slug:?}"))
                 .build("did:render:tool")
+        } else if let Some(tag) = args.prim.as_deref() {
+            // Same construction as resolve_subject's --prim arm, so the
+            // dumped JSON is exactly what a render of the same flags spawns.
+            let mut kind =
+                primitive_for_tag(tag).unwrap_or_else(|| panic!("unknown primitive tag {tag:?}"));
+            apply_prim_overrides(&mut kind, &args);
+            Generator::from_kind(kind)
         } else if let Some(avatar) = args.avatar.as_deref() {
             match avatar.parse::<u64>() {
                 Ok(seed) => build_for_seed(seed, &format!("did:render:{seed}")).0,
                 Err(_) => build_for_did(avatar).0,
             }
         } else {
-            panic!("--dump requires --catalogue <slug> or --avatar <seed|did>");
+            panic!(
+                "--dump requires --catalogue <slug>, --prim <tag>, or --avatar <seed|did> \
+                 (--room/--generator subjects are file/derived records — dump not supported)"
+            );
         };
         println!(
             "{}",

@@ -73,6 +73,18 @@ pub enum SamplerFilter {
 }
 
 impl SamplerFilter {
+    /// Resolve a record-layer [`crate::pds::TextureFilter`] to the
+    /// engine-side sampler filter. Unknown forward-compat values fall
+    /// back to Linear so a forward-compat record renders smooth-filtered.
+    pub fn from_record(filter: &crate::pds::TextureFilter) -> Self {
+        match filter {
+            crate::pds::TextureFilter::Nearest => SamplerFilter::Nearest,
+            crate::pds::TextureFilter::Linear | crate::pds::TextureFilter::Unknown => {
+                SamplerFilter::Linear
+            }
+        }
+    }
+
     fn as_image_filter(self) -> ImageFilterMode {
         match self {
             SamplerFilter::Linear => ImageFilterMode::Linear,

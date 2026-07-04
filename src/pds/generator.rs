@@ -730,6 +730,12 @@ pub enum GeneratorKind {
         /// `true` skips PBR lighting, painting the texture flat regardless
         /// of sun angle. Critical for legibility on profile pics / signs.
         unlit: bool,
+        /// Sampler filter for the fetched image. `Linear` (the default,
+        /// and the behaviour of every pre-#663 record) smooths photos;
+        /// `Nearest` keeps pixel-art signage crisp. Serde-defaulted so
+        /// existing records deserialize unchanged.
+        #[serde(default)]
+        texture_filter: TextureFilter,
     },
 
     #[serde(other)]
@@ -1126,6 +1132,7 @@ impl GeneratorKind {
             double_sided: false,
             alpha_mode: AlphaModeKind::Opaque,
             unlit: true,
+            texture_filter: TextureFilter::Linear,
         }
     }
 

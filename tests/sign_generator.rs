@@ -6,7 +6,7 @@
 
 use symbios_overlands::pds::{
     AlphaModeKind, Fp, Fp2, Generator, GeneratorKind, SignSource, SovereignMaterialSettings,
-    limits, sanitize_generator,
+    TextureFilter, limits, sanitize_generator,
 };
 
 fn sample_sign(source: SignSource, alpha_mode: AlphaModeKind) -> Generator {
@@ -19,7 +19,32 @@ fn sample_sign(source: SignSource, alpha_mode: AlphaModeKind) -> Generator {
         double_sided: false,
         alpha_mode,
         unlit: true,
+        texture_filter: TextureFilter::Linear,
     })
+}
+
+/// #663 record compat: a pre-filter Sign record (no `texture_filter`
+/// key) must deserialize with the Linear default.
+#[test]
+fn sign_without_filter_field_defaults_to_linear() {
+    let json = r#"{
+        "$type": "network.symbios.gen.sign",
+        "source": { "$type": "network.symbios.sign.url", "url": "https://example.org/a.png" },
+        "size": [20000, 15000],
+        "uv_repeat": [10000, 10000],
+        "uv_offset": [0, 0],
+        "material": {},
+        "double_sided": false,
+        "alpha_mode": { "$type": "network.symbios.alpha.opaque" },
+        "unlit": true
+    }"#;
+    let kind: GeneratorKind = serde_json::from_str(json).expect("legacy sign decodes");
+    match kind {
+        GeneratorKind::Sign { texture_filter, .. } => {
+            assert!(matches!(texture_filter, TextureFilter::Linear));
+        }
+        other => panic!("expected Sign, got {other:?}"),
+    }
 }
 
 // ---------------------------------------------------------------------------

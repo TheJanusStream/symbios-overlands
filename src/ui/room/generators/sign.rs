@@ -23,10 +23,14 @@ pub(super) fn draw_generator_sign(
     double_sided: &mut bool,
     alpha_mode: &mut AlphaModeKind,
     unlit: &mut bool,
+    texture_filter: &mut crate::pds::TextureFilter,
     salt: &str,
     dirty: &mut bool,
 ) {
     draw_sign_source(ui, source, salt, dirty);
+    // Sampler filter for the fetched image (#663): Nearest keeps
+    // pixel-art signage crisp; Linear (default) smooths photos.
+    super::particles::draw_texture_filter(ui, texture_filter, salt, dirty);
     ui.add_space(4.0);
 
     ui.horizontal(|ui| {

@@ -302,6 +302,7 @@ pub(crate) fn pfp_panel(
             double_sided: true,
             alpha_mode: AlphaModeKind::Opaque,
             unlit: true,
+            texture_filter: crate::pds::TextureFilter::Linear,
         },
         translation,
         quat_xyzw(rotation),

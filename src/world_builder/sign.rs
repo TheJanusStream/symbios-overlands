@@ -6,7 +6,7 @@
 //!
 //! The image fetch is decoupled from the spawn: the material starts with
 //! its tint colour and `base_color_texture = None`, then
-//! [`request_blob_image`] either paints synchronously (cache hit) or
+//! [`request_blob_image_filtered`] either paints synchronously (cache hit) or
 //! enqueues onto the in-flight task list (cache miss / pending). The
 //! poll system in `image_cache` drains completions and patches the
 //! material asset directly.
@@ -18,7 +18,7 @@ use bevy::prelude::*;
 use crate::pds::{AlphaModeKind, Fp2, SignSource, SovereignMaterialSettings};
 
 use super::compile::SpawnCtx;
-use super::image_cache::request_blob_image;
+use super::image_cache::{SamplerFilter, request_blob_image_filtered};
 
 /// Spawn a Sign entity: a textured plane with the StandardMaterial
 /// toggles surfaced by the [`GeneratorKind::Sign`](crate::pds::GeneratorKind::Sign) variant. Returns the
@@ -39,6 +39,7 @@ pub(super) fn spawn_sign_entity(
     double_sided: bool,
     alpha_mode: &AlphaModeKind,
     unlit: bool,
+    texture_filter: &crate::pds::TextureFilter,
     transform: Transform,
 ) -> Entity {
     let mesh = build_sign_mesh(size, uv_repeat, uv_offset);
@@ -47,16 +48,18 @@ pub(super) fn spawn_sign_entity(
     let material = build_sign_material(material_settings, double_sided, alpha_mode, unlit);
     let material_handle = ctx.std_materials.add(material);
 
-    // Kick off (or reuse) the texture fetch. `request_blob_image` is a
-    // no-op for `SignSource::Unknown` and for sources with empty
-    // required fields, so a freshly-defaulted Sign with no URL set yet
-    // simply renders flat-coloured until the user fills in a source.
-    request_blob_image(
+    // Kick off (or reuse) the texture fetch with the record's sampler
+    // filter (#663 — pixel-art signage stays crisp under Nearest). The
+    // request is a no-op for `SignSource::Unknown` and for sources with
+    // empty required fields, so a freshly-defaulted Sign with no URL set
+    // yet simply renders flat-coloured until the user fills in a source.
+    request_blob_image_filtered(
         ctx.commands,
         ctx.blob_image_cache,
         ctx.std_materials,
         &material_handle,
         source,
+        SamplerFilter::from_record(texture_filter),
     );
 
     let mut cmd = ctx.commands.spawn((
@@ -114,7 +117,7 @@ fn build_sign_mesh(size: &Fp2, uv_repeat: &Fp2, uv_offset: &Fp2) -> Mesh {
 /// over the texture; emission and roughness/metallic carry through; the
 /// procedural texture slot (`material.texture`) is intentionally
 /// ignored — the Sign's image is the texture, painted asynchronously
-/// by [`request_blob_image`] into `base_color_texture`.
+/// by [`request_blob_image_filtered`] into `base_color_texture`.
 fn build_sign_material(
     settings: &SovereignMaterialSettings,
     double_sided: bool,

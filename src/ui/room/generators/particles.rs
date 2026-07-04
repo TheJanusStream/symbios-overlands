@@ -332,8 +332,8 @@ fn draw_frame_mode(ui: &mut egui::Ui, mode: &mut AnimationFrameMode, salt: &str,
     }
 }
 
-/// Texture-filter combo for the loaded atlas image.
-fn draw_texture_filter(
+/// Texture-filter combo for a loaded image (particle atlas, Sign panel).
+pub(super) fn draw_texture_filter(
     ui: &mut egui::Ui,
     filter: &mut TextureFilter,
     salt: &str,

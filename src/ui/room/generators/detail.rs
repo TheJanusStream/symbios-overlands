@@ -475,6 +475,7 @@ fn draw_generator_detail(
             double_sided,
             alpha_mode,
             unlit,
+            texture_filter,
         } => draw_generator_sign(
             ui,
             source,
@@ -485,6 +486,7 @@ fn draw_generator_detail(
             double_sided,
             alpha_mode,
             unlit,
+            texture_filter,
             salt,
             dirty,
         ),
