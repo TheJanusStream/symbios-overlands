@@ -151,7 +151,12 @@ mod imp {
             // to the process-global shadow being touched by other tests: only
             // this test emits the `r633-` markers, and a `snap` marker can reach
             // `last_snapshot` but never `lines`.
-            arm(std::path::PathBuf::from("."));
+            //
+            // Arm into the temp dir, NOT ".": the shadow (incl. its dump dir)
+            // is process-global, so arming CWD here made any later
+            // intentionally-panicking test in the same run drop a
+            // `session-panic-*.jsonl` into the repo root (#676).
+            arm(std::env::temp_dir());
             shadow_push("r633-real-1");
             shadow_push_snapshot("r633-snap-1");
             shadow_push("r633-real-2");

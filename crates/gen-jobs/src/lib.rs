@@ -21,13 +21,60 @@ use symbios_ground::{
 };
 use symbios_texture::generator::{TextureGenerator, TextureMap};
 
-/// Base terrain algorithm. Mirrors the app's `SovereignGeneratorKind` (kept
-/// independent so this crate stays free of the app and Bevy).
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum GeneratorKind {
-    FbmNoise,
-    DiamondSquare,
-    VoronoiTerracing,
+/// One table drives both the [`GeneratorKind`] enum and the per-kind base
+/// dispatch inside [`GenJob::run`]'s heightmap path (#657) — the texture
+/// path in this file is already table-generated (`define_texture_bake!`),
+/// and this closes the same hand-sync gap on the terrain side: adding a
+/// generator is one entry here (plus the app's `SovereignGeneratorKind`
+/// mirror), and the enum and its dispatch can no longer drift apart.
+macro_rules! define_heightmap_generators {
+    ($( $variant:ident => |$p:ident, $hm:ident| $body:block ),* $(,)?) => {
+        /// Base terrain algorithm. Mirrors the app's `SovereignGeneratorKind`
+        /// (kept independent so this crate stays free of the app and Bevy).
+        #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+        pub enum GeneratorKind {
+            $( $variant, )*
+        }
+
+        /// Apply the selected base generator — generated from the same
+        /// table as the enum, so the two stay in lock-step.
+        fn apply_base_generator(params: &HeightmapParams, heightmap: &mut HeightMap) {
+            match params.generator_kind {
+                $( GeneratorKind::$variant => {
+                    let $p = params;
+                    let $hm = &mut *heightmap;
+                    $body
+                } )*
+            }
+        }
+    };
+}
+
+define_heightmap_generators! {
+    FbmNoise => |p, hm| {
+        FbmNoise {
+            seed: p.seed,
+            octaves: p.octaves.clamp(1, 32),
+            persistence: p.persistence,
+            lacunarity: p.lacunarity,
+            base_frequency: p.base_frequency,
+        }
+        .generate(hm);
+        hm.normalize();
+    },
+    DiamondSquare => |p, hm| {
+        DiamondSquare::new(p.seed, p.ds_roughness).generate(hm);
+        hm.normalize();
+    },
+    VoronoiTerracing => |p, hm| {
+        VoronoiTerracing::new(
+            p.seed,
+            p.voronoi_num_seeds.max(1) as usize,
+            p.voronoi_num_terraces.max(1) as usize,
+        )
+        .generate(hm);
+        // Voronoi already emits bounded [0, 1] output.
+    },
 }
 
 /// Plain, serialisable inputs for a heightmap generation job — the distilled
@@ -287,32 +334,7 @@ fn run_heightmap(p: HeightmapParams) -> HeightmapData {
     let grid = (p.grid_size as usize).max(2);
     let mut hm = HeightMap::new(grid, grid, p.cell_scale.max(0.01));
 
-    match p.generator_kind {
-        GeneratorKind::FbmNoise => {
-            FbmNoise {
-                seed: p.seed,
-                octaves: p.octaves.clamp(1, 32),
-                persistence: p.persistence,
-                lacunarity: p.lacunarity,
-                base_frequency: p.base_frequency,
-            }
-            .generate(&mut hm);
-            hm.normalize();
-        }
-        GeneratorKind::DiamondSquare => {
-            DiamondSquare::new(p.seed, p.ds_roughness).generate(&mut hm);
-            hm.normalize();
-        }
-        GeneratorKind::VoronoiTerracing => {
-            VoronoiTerracing::new(
-                p.seed,
-                p.voronoi_num_seeds.max(1) as usize,
-                p.voronoi_num_terraces.max(1) as usize,
-            )
-            .generate(&mut hm);
-            // Voronoi already emits bounded [0, 1] output.
-        }
-    }
+    apply_base_generator(&p, &mut hm);
 
     for v in hm.data_mut() {
         *v *= p.height_scale;

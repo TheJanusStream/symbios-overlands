@@ -26,16 +26,14 @@ use bevy_symbios_multiuser::prelude::*;
 use crate::avatar::{BskyProfileCache, draw_avatar_icon};
 use crate::diagnostics::SessionLog;
 use crate::diagnostics::event::EventPayload;
-use crate::pds::{InventoryRecord, publish_inventory_record};
+use crate::pds::InventoryRecord;
 use crate::protocol::OverlandsMessage;
 use crate::state::{
     IncomingOfferDialog, LiveInventoryRecord, PublishFeedback, PublishStatus, RemotePeer,
     SocialResonance,
 };
 use crate::ui::chat::AVATAR_ICON_PX;
-use crate::ui::inventory::{
-    PeerDropTarget, PendingGeneratorDrop, PublishInventoryTask, choose_inventory_gift_key,
-};
+use crate::ui::inventory::{PeerDropTarget, PendingGeneratorDrop, choose_inventory_gift_key};
 
 /// Log a `PeerMuteToggled` event (#635b). Shared by the three mute controls
 /// (this roster panel, the diagnostics-panel roster, and the offer dialog) so
@@ -349,10 +347,10 @@ pub fn incoming_offer_ui(
             // on completion, so we only kick off the I/O here.
             if let (Some(sess), Some(refresh)) = (session.as_deref(), refresh_ctx.as_deref()) {
                 inventory_feedback.status = PublishStatus::Publishing;
-                spawn_inventory_publish_task(
+                crate::ui::inventory::spawn_publish_inventory_task(
                     &mut commands,
-                    sess.clone(),
-                    refresh.clone(),
+                    sess,
+                    refresh,
                     live.0.clone(),
                     time.elapsed_secs_f64(),
                 );
@@ -404,36 +402,4 @@ enum OfferAction {
     Accept,
     Decline,
     MuteAndDecline,
-}
-
-fn spawn_inventory_publish_task(
-    commands: &mut Commands,
-    session: AtprotoSession,
-    refresh: crate::oauth::OauthRefreshCtx,
-    record: InventoryRecord,
-    now: f64,
-) {
-    // Gift-acceptance writes the local user's own inventory → the write DID is
-    // the session DID. Captured before `session` moves into the task.
-    let did = session.did.clone();
-    let pool = bevy::tasks::IoTaskPool::get();
-    let task = pool.spawn(async move {
-        let fut = async {
-            let client = crate::config::http::default_client();
-            publish_inventory_record(&client, &session, &refresh, &record).await
-        };
-        #[cfg(target_arch = "wasm32")]
-        {
-            fut.await
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::config::http::block_on(fut)
-        }
-    });
-    commands.spawn(PublishInventoryTask {
-        task,
-        did,
-        spawned_at: now,
-    });
 }

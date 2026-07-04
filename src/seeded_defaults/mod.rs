@@ -42,6 +42,7 @@
 //! rooms keep their stored overrides.
 
 pub mod avatar;
+pub mod band;
 pub mod hash;
 pub mod oklch;
 pub mod room;

@@ -306,90 +306,29 @@ impl EscalationTier {
 
 /// Inclusive prosperity-tier affinity band a catalogue entry advertises:
 /// the contiguous span of [`ProsperityTier`]s a room may have for the
-/// entry to be eligible. [`Self::ANY`] (the default) spans every tier, so
+/// entry to be eligible. `ANY` (the default) spans every tier, so
 /// untagged entries are always eligible. Relies on [`ProsperityTier`]'s
-/// poorest-first [`Ord`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ProsperityBand {
-    lo: ProsperityTier,
-    hi: ProsperityTier,
-}
+/// poorest-first [`Ord`]. One instantiation of the shared
+/// [`Band`](crate::seeded_defaults::band::Band) (#654).
+pub type ProsperityBand = crate::seeded_defaults::band::Band<ProsperityTier>;
 
-impl ProsperityBand {
-    /// Every tier — an untagged, always-eligible entry.
-    pub const ANY: Self = Self {
-        lo: ProsperityTier::Poor,
-        hi: ProsperityTier::Rich,
-    };
-
-    /// Eligible only at exactly `tier`.
-    pub const fn only(tier: ProsperityTier) -> Self {
-        Self { lo: tier, hi: tier }
-    }
-
-    /// Eligible across the inclusive `lo..=hi` span (caller passes them in
-    /// ascending order).
-    pub const fn range(lo: ProsperityTier, hi: ProsperityTier) -> Self {
-        Self { lo, hi }
-    }
-
-    /// Whether a room at `tier` may place an entry advertising this band.
-    pub fn accepts(self, tier: ProsperityTier) -> bool {
-        self.lo <= tier && tier <= self.hi
-    }
-
-    /// Human-readable span — `"Any"`, a single tier, or `"lo–hi"`.
-    pub fn label(self) -> String {
-        if self == Self::ANY {
-            "Any".to_string()
-        } else if self.lo == self.hi {
-            self.lo.label().to_string()
-        } else {
-            format!("{}–{}", self.lo.label(), self.hi.label())
-        }
+impl crate::seeded_defaults::band::BandTier for ProsperityTier {
+    const MIN: Self = ProsperityTier::Poor;
+    const MAX: Self = ProsperityTier::Rich;
+    fn label(self) -> &'static str {
+        ProsperityTier::label(self)
     }
 }
 
 /// Inclusive escalation-tier affinity band — the [`EscalationTier`]
-/// analogue of [`ProsperityBand`]. [`Self::ANY`] is the default.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct EscalationBand {
-    lo: EscalationTier,
-    hi: EscalationTier,
-}
+/// analogue of [`ProsperityBand`]. `ANY` is the default.
+pub type EscalationBand = crate::seeded_defaults::band::Band<EscalationTier>;
 
-impl EscalationBand {
-    /// Every tier — an untagged, always-eligible entry.
-    pub const ANY: Self = Self {
-        lo: EscalationTier::Calm,
-        hi: EscalationTier::Conflict,
-    };
-
-    /// Eligible only at exactly `tier`.
-    pub const fn only(tier: EscalationTier) -> Self {
-        Self { lo: tier, hi: tier }
-    }
-
-    /// Eligible across the inclusive `lo..=hi` span (caller passes them in
-    /// ascending order).
-    pub const fn range(lo: EscalationTier, hi: EscalationTier) -> Self {
-        Self { lo, hi }
-    }
-
-    /// Whether a room at `tier` may place an entry advertising this band.
-    pub fn accepts(self, tier: EscalationTier) -> bool {
-        self.lo <= tier && tier <= self.hi
-    }
-
-    /// Human-readable span — `"Any"`, a single tier, or `"lo–hi"`.
-    pub fn label(self) -> String {
-        if self == Self::ANY {
-            "Any".to_string()
-        } else if self.lo == self.hi {
-            self.lo.label().to_string()
-        } else {
-            format!("{}–{}", self.lo.label(), self.hi.label())
-        }
+impl crate::seeded_defaults::band::BandTier for EscalationTier {
+    const MIN: Self = EscalationTier::Calm;
+    const MAX: Self = EscalationTier::Conflict;
+    fn label(self) -> &'static str {
+        EscalationTier::label(self)
     }
 }
 

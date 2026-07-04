@@ -43,6 +43,7 @@ mod discovery;
 #[cfg(not(target_arch = "wasm32"))]
 mod native_server;
 mod refresh;
+mod util;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
 

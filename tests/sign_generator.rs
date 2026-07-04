@@ -27,18 +27,21 @@ fn sample_sign(source: SignSource, alpha_mode: AlphaModeKind) -> Generator {
 /// key) must deserialize with the Linear default.
 #[test]
 fn sign_without_filter_field_defaults_to_linear() {
-    let json = r#"{
-        "$type": "network.symbios.gen.sign",
-        "source": { "$type": "network.symbios.sign.url", "url": "https://example.org/a.png" },
-        "size": [20000, 15000],
-        "uv_repeat": [10000, 10000],
-        "uv_offset": [0, 0],
-        "material": {},
-        "double_sided": false,
-        "alpha_mode": { "$type": "network.symbios.alpha.opaque" },
-        "unlit": true
-    }"#;
-    let kind: GeneratorKind = serde_json::from_str(json).expect("legacy sign decodes");
+    // Build the wire form of a pre-#663 record: serialize a current Sign
+    // and strip the new key — everything else (including the full
+    // `material` object every legacy record carries) stays authentic.
+    let g = sample_sign(
+        SignSource::Url {
+            url: "https://example.org/a.png".into(),
+        },
+        AlphaModeKind::Opaque,
+    );
+    let mut v = serde_json::to_value(&g.kind).expect("serialize");
+    v.as_object_mut()
+        .expect("sign serialises to an object")
+        .remove("texture_filter")
+        .expect("current records carry the filter key");
+    let kind: GeneratorKind = serde_json::from_value(v).expect("legacy sign decodes");
     match kind {
         GeneratorKind::Sign { texture_filter, .. } => {
             assert!(matches!(texture_filter, TextureFilter::Linear));

@@ -13,6 +13,8 @@
 
 use bevy::prelude::*;
 
+use super::util::percent_decode;
+
 /// Channel carrying the `code` / `state` pair from the loopback callback
 /// server back to the Bevy polling system.
 #[derive(Resource)]
@@ -173,46 +175,4 @@ pub fn parse_callback_query(url: &str) -> (Option<String>, Option<String>) {
         }
     }
     (code, state)
-}
-
-fn percent_decode(s: &str) -> String {
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'+' => {
-                out.push(b' ');
-                i += 1;
-            }
-            b'%' if i + 2 < bytes.len() => {
-                let h = hex(bytes[i + 1]);
-                let l = hex(bytes[i + 2]);
-                match (h, l) {
-                    (Some(h), Some(l)) => {
-                        out.push((h << 4) | l);
-                        i += 3;
-                    }
-                    _ => {
-                        out.push(bytes[i]);
-                        i += 1;
-                    }
-                }
-            }
-            b => {
-                out.push(b);
-                i += 1;
-            }
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-fn hex(b: u8) -> Option<u8> {
-    match b {
-        b'0'..=b'9' => Some(b - b'0'),
-        b'a'..=b'f' => Some(b - b'a' + 10),
-        b'A'..=b'F' => Some(b - b'A' + 10),
-        _ => None,
-    }
 }

@@ -126,91 +126,30 @@ pub enum FinishRegister {
 
 /// Inclusive ornateness-tier affinity band a body part advertises: the
 /// contiguous span of [`OrnatenessTier`]s an avatar may have for the part
-/// to be eligible. [`Self::ANY`] (the default) spans every tier, so
-/// untagged parts are always eligible. Relies on [`OrnatenessTier`]'s
-/// plainest-first [`Ord`]. The avatar analogue of
-/// [`crate::seeded_defaults::scene::ProsperityBand`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct OrnatenessBand {
-    lo: OrnatenessTier,
-    hi: OrnatenessTier,
-}
+/// to be eligible. `ANY` (the default) spans every tier, so untagged
+/// parts are always eligible. Relies on [`OrnatenessTier`]'s
+/// plainest-first [`Ord`]. One instantiation of the shared
+/// [`Band`](crate::seeded_defaults::band::Band) (#654), like the scene
+/// axes' `ProsperityBand`.
+pub type OrnatenessBand = crate::seeded_defaults::band::Band<OrnatenessTier>;
 
-impl OrnatenessBand {
-    /// Every tier — an untagged, always-eligible part.
-    pub const ANY: Self = Self {
-        lo: OrnatenessTier::Plain,
-        hi: OrnatenessTier::Ornate,
-    };
-
-    /// Eligible only at exactly `tier`.
-    pub const fn only(tier: OrnatenessTier) -> Self {
-        Self { lo: tier, hi: tier }
-    }
-
-    /// Eligible across the inclusive `lo..=hi` span (caller passes them in
-    /// ascending order).
-    pub const fn range(lo: OrnatenessTier, hi: OrnatenessTier) -> Self {
-        Self { lo, hi }
-    }
-
-    /// Whether an avatar at `tier` may use a part advertising this band.
-    pub fn accepts(self, tier: OrnatenessTier) -> bool {
-        self.lo <= tier && tier <= self.hi
-    }
-
-    /// Human-readable span — `"Any"`, a single tier, or `"lo–hi"`.
-    pub fn label(self) -> String {
-        if self == Self::ANY {
-            "Any".to_string()
-        } else if self.lo == self.hi {
-            self.lo.label().to_string()
-        } else {
-            format!("{}–{}", self.lo.label(), self.hi.label())
-        }
+impl crate::seeded_defaults::band::BandTier for OrnatenessTier {
+    const MIN: Self = OrnatenessTier::Plain;
+    const MAX: Self = OrnatenessTier::Ornate;
+    fn label(self) -> &'static str {
+        OrnatenessTier::label(self)
     }
 }
 
 /// Inclusive wear-tier affinity band — the [`WearTier`] analogue of
-/// [`OrnatenessBand`]. [`Self::ANY`] is the default.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct WearBand {
-    lo: WearTier,
-    hi: WearTier,
-}
+/// [`OrnatenessBand`]. `ANY` is the default.
+pub type WearBand = crate::seeded_defaults::band::Band<WearTier>;
 
-impl WearBand {
-    /// Every tier — an untagged, always-eligible part.
-    pub const ANY: Self = Self {
-        lo: WearTier::Pristine,
-        hi: WearTier::Battered,
-    };
-
-    /// Eligible only at exactly `tier`.
-    pub const fn only(tier: WearTier) -> Self {
-        Self { lo: tier, hi: tier }
-    }
-
-    /// Eligible across the inclusive `lo..=hi` span (caller passes them in
-    /// ascending order).
-    pub const fn range(lo: WearTier, hi: WearTier) -> Self {
-        Self { lo, hi }
-    }
-
-    /// Whether an avatar at `tier` may use a part advertising this band.
-    pub fn accepts(self, tier: WearTier) -> bool {
-        self.lo <= tier && tier <= self.hi
-    }
-
-    /// Human-readable span — `"Any"`, a single tier, or `"lo–hi"`.
-    pub fn label(self) -> String {
-        if self == Self::ANY {
-            "Any".to_string()
-        } else if self.lo == self.hi {
-            self.lo.label().to_string()
-        } else {
-            format!("{}–{}", self.lo.label(), self.hi.label())
-        }
+impl crate::seeded_defaults::band::BandTier for WearTier {
+    const MIN: Self = WearTier::Pristine;
+    const MAX: Self = WearTier::Battered;
+    fn label(self) -> &'static str {
+        WearTier::label(self)
     }
 }
 
