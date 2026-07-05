@@ -148,6 +148,155 @@ mod tests {
         assert!(bytes > 0);
     }
 
+    /// Diagnostic breakdown of where a seeded default room record's bytes
+    /// live — top-level sections plus per-generator weights. Run with
+    /// `cargo test record_size -- --nocapture` when planning size work
+    /// (Stage 1+ of the single-record-boundary plan). Asserts nothing
+    /// beyond serializability so it never goes stale.
+    #[test]
+    fn default_room_record_section_breakdown() {
+        let room = crate::pds::RoomRecord::default_for_did("did:plc:sizebudgetcanary");
+        let value = serde_json::to_value(&room).unwrap();
+        let obj = value.as_object().unwrap();
+        eprintln!(
+            "default room total: {}",
+            human_bytes(serde_json::to_vec(&room).unwrap().len())
+        );
+        for (key, section) in obj {
+            let bytes = serde_json::to_vec(section).unwrap().len();
+            eprintln!("  {key}: {}", human_bytes(bytes));
+            if key == "generators"
+                && let Some(map) = section.as_object()
+            {
+                for (name, generator) in map {
+                    let g = serde_json::to_vec(generator).unwrap().len();
+                    eprintln!("    {name}: {}", human_bytes(g));
+                }
+            }
+            if key == "environment"
+                && let Some(audio) = section.get("ambient_audio")
+            {
+                let a = serde_json::to_vec(audio).unwrap().len();
+                eprintln!("    ambient_audio: {}", human_bytes(a));
+            }
+        }
+    }
+
+    /// Print the paths where two JSON trees differ — failure diagnostics
+    /// for the round-trip test below, where a bare `assert_eq!` would dump
+    /// two multi-kilobyte documents.
+    fn assert_json_eq(label: &str, actual: &serde_json::Value, expected: &serde_json::Value) {
+        fn diff(path: &str, a: &serde_json::Value, b: &serde_json::Value) {
+            use serde_json::Value;
+            match (a, b) {
+                (Value::Object(x), Value::Object(y)) => {
+                    for k in x.keys().chain(y.keys()) {
+                        let (xa, yb) = (x.get(k), y.get(k));
+                        if xa != yb {
+                            match (xa, yb) {
+                                (Some(va), Some(vb)) => diff(&format!("{path}.{k}"), va, vb),
+                                _ => eprintln!("DIFF {path}.{k}: {xa:?} vs {yb:?}"),
+                            }
+                        }
+                    }
+                }
+                (Value::Array(x), Value::Array(y)) => {
+                    for (i, (va, vb)) in x.iter().zip(y).enumerate() {
+                        if va != vb {
+                            diff(&format!("{path}[{i}]"), va, vb);
+                        }
+                    }
+                    if x.len() != y.len() {
+                        eprintln!("DIFF {path}: len {} vs {}", x.len(), y.len());
+                    }
+                }
+                _ => eprintln!("DIFF {path}: {a} vs {b}"),
+            }
+        }
+        if actual != expected {
+            diff(label, actual, expected);
+            panic!("{label}: JSON trees differ (see DIFF lines above)");
+        }
+    }
+
+    /// Round-trip exactness of the default-eliding wire format (#695): for a
+    /// spread of seeds, serialize → deserialize → serialize again must be
+    /// byte-identical. A mismatch means some struct's skip predicate compares
+    /// against a different default than its deserializer fills in — exactly
+    /// the bug class elision can introduce (it caught the
+    /// `procedural_texture` legacy-default divergence during development).
+    ///
+    /// The sanitize leg asserts *fixpoint* stability rather than strict
+    /// neutrality: `sanitize()` re-normalizes fixed-point quaternions, so a
+    /// first pass may nudge a rotation's last digit (pre-existing
+    /// quantization behaviour, unrelated to elision) — but sanitizing the
+    /// already-sanitized wire form must change nothing, or every fetch →
+    /// republish cycle would keep drifting the record.
+    #[test]
+    fn eliding_serialization_round_trips_seeded_records() {
+        for seed in [0u64, 1, 42, 0xDEAD_BEEF, u64::MAX] {
+            let did = format!("did:plc:roundtrip{seed}");
+            let room = crate::pds::RoomRecord::default_for_seed(seed, &did);
+            let wire = serde_json::to_value(&room).unwrap();
+            let mut decoded: crate::pds::RoomRecord = serde_json::from_value(wire.clone()).unwrap();
+            assert_json_eq(
+                &format!("room[seed {seed}] reserialized"),
+                &serde_json::to_value(&decoded).unwrap(),
+                &wire,
+            );
+            decoded.sanitize();
+            let once = serde_json::to_value(&decoded).unwrap();
+            let mut again: crate::pds::RoomRecord = serde_json::from_value(once.clone()).unwrap();
+            again.sanitize();
+            assert_json_eq(
+                &format!("room[seed {seed}] sanitize fixpoint"),
+                &serde_json::to_value(&again).unwrap(),
+                &once,
+            );
+
+            let avatar = crate::pds::AvatarRecord::default_for_seed(seed, &did);
+            let wire = serde_json::to_value(&avatar).unwrap();
+            let mut decoded: crate::pds::AvatarRecord =
+                serde_json::from_value(wire.clone()).unwrap();
+            assert_json_eq(
+                &format!("avatar[seed {seed}] reserialized"),
+                &serde_json::to_value(&decoded).unwrap(),
+                &wire,
+            );
+            decoded.sanitize();
+            let once = serde_json::to_value(&decoded).unwrap();
+            let mut again: crate::pds::AvatarRecord = serde_json::from_value(once.clone()).unwrap();
+            again.sanitize();
+            assert_json_eq(
+                &format!("avatar[seed {seed}] sanitize fixpoint"),
+                &serde_json::to_value(&again).unwrap(),
+                &once,
+            );
+        }
+    }
+
+    /// Legacy compatibility: a fully-explicit (pre-elision) record must
+    /// decode to the same value an elided one does. Serializes the default
+    /// room via the OLD all-fields shape (reconstructed by merging the
+    /// elided output over each struct's serialized defaults is impractical
+    /// here, so this exercises the core primitive instead: an explicit
+    /// default-valued field decodes identically to an absent one).
+    #[test]
+    fn explicit_default_fields_decode_like_absent_ones() {
+        use crate::pds::TortureParams;
+        let absent: TortureParams = serde_json::from_str("{}").unwrap();
+        let explicit: TortureParams = serde_json::from_str(
+            r#"{"twist":0,"taper":[0,0],"taper_bottom":[0,0],"bend":[0,0,0],
+                "s_bend":[0,0],"shear":[0,0],"bulge":[0,0],
+                "path_cut":[0,10000],"profile_cut":[0,10000],"hollow":0}"#,
+        )
+        .unwrap();
+        assert_eq!(absent, explicit);
+        assert!(absent.is_default());
+        // And the elided output of a default really is empty.
+        assert_eq!(serde_json::to_string(&absent).unwrap(), "{}");
+    }
+
     /// Canary: the DID-seeded default records must sit comfortably under the
     /// soft budget. If a seeded-defaults change trips this, the budget is
     /// being spent before the owner has authored anything — revisit either

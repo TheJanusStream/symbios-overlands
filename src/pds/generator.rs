@@ -19,8 +19,8 @@ use super::prim::PropMeshType;
 use super::terrain::SovereignTerrainConfig;
 use super::texture::SovereignMaterialSettings;
 use super::types::{
-    BiomeFilter, Fp, Fp2, Fp3, Fp4, ScatterBounds, TransformData, default_true, map_u16_as_string,
-    u64_as_string,
+    BiomeFilter, Fp, Fp2, Fp3, Fp4, ScatterBounds, TransformData, default_true, is_false, is_true,
+    map_u16_as_string, u64_as_string,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -36,7 +36,7 @@ use std::collections::HashMap;
 /// `#[serde(default)]` at both struct and field level means a record that only
 /// carries `level_offset` (the pre-overhaul schema) round-trips cleanly with
 /// every appearance field filled in from [`WaterSurface::default`].
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct WaterSurface {
     /// sRGBA tint seen looking straight down (low alpha = transparent).
@@ -121,12 +121,37 @@ impl Default for WaterSurface {
     }
 }
 
+// Default-eliding wire format (#695); the container `#[serde(default)]`
+// above is the matching read-side contract.
+crate::pds::serde_util::impl_default_eliding_serialize!(WaterSurface {
+    shallow_color,
+    deep_color,
+    roughness,
+    metallic,
+    reflectance,
+    wave_scale,
+    wave_speed,
+    wave_direction,
+    wave_choppiness,
+    foam_amount,
+    flow_strength,
+    flow_amount,
+    wake_strength,
+    wake_ripple_wavelength,
+    wake_decay_radius,
+});
+
 /// Authored parameters for a [`GeneratorKind::RoadNetwork`] — a tensor-field
 /// street grid that drapes over the parent terrain (see [`crate::urban`]). The
 /// *config* is serialized / editable / seeded; the road *geometry* is recomputed
 /// at load from this plus the heightmap, never stored. Like Water, a road
 /// network is only valid as a child of a Terrain generator.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+///
+/// Default-eliding wire format (#695): fields matching
+/// [`RoadConfig::default`] are omitted on write; the container
+/// `#[serde(default)]` restores them on read.
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
 pub struct RoadConfig {
     /// Master toggle — a disabled network grows no roads (the editor "off").
     pub enabled: bool,
@@ -164,6 +189,21 @@ fn default_populate_lots() -> bool {
     true
 }
 
+crate::pds::serde_util::impl_default_eliding_serialize!(RoadConfig {
+    enabled,
+    seed via u64_as_string(u64),
+    district_half_extent,
+    major_spacing,
+    minor_spacing,
+    major_half_width,
+    minor_half_width,
+    curb_height,
+    curb_top_width,
+    chamfer_width,
+    skirt_depth,
+    populate_lots,
+});
+
 impl Default for RoadConfig {
     fn default() -> Self {
         Self {
@@ -188,7 +228,7 @@ impl Default for RoadConfig {
 /// new torture knob is a single field add — `#[serde(default)]` fills it on
 /// records that predate it — instead of an edit to every variant and every
 /// construction site. Applied CPU-side in `world_builder::prim`.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(default)]
 pub struct TortureParams {
     /// Radians of rotation around Y, linear in normalised height.
@@ -263,7 +303,31 @@ impl Default for TortureParams {
     }
 }
 
+// Default-eliding wire format (#695): an identity TortureParams — the
+// overwhelmingly common case across catalogue prims — serializes as `{}`,
+// and any prim whose torture IS identity omits the field entirely via
+// `skip_serializing_if` at the variant field. The container
+// `#[serde(default)]` above is the matching read-side contract.
+crate::pds::serde_util::impl_default_eliding_serialize!(TortureParams {
+    twist,
+    taper,
+    taper_bottom,
+    bend,
+    s_bend,
+    shear,
+    bulge,
+    path_cut,
+    profile_cut,
+    hollow,
+});
+
 impl TortureParams {
+    /// `true` when the whole struct equals its default — the wire-format
+    /// skip predicate for prim `torture` fields (#695).
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
     /// `true` when no vertex deform is active (twist / taper / bulge / bend /
     /// S-bend / shear all zero). Meshers use this to skip the vertical
     /// subdivisions that only exist to give the deform pass mid-height
@@ -372,7 +436,12 @@ pub struct LathePoint {
 /// a newtype variant's struct fields inline beside the tag — byte-identical
 /// to the old struct-variant form, so existing records round-trip
 /// unchanged (guarded by the `particle_params_wire_format_*` tests).
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+///
+/// Default-eliding wire format (#695): fields matching
+/// [`ParticleParams::default`] are omitted on write; the container
+/// `#[serde(default)]` restores them on read.
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
 pub struct ParticleParams {
     pub emitter_shape: EmitterShape,
 
@@ -464,26 +533,22 @@ pub struct ParticleParams {
     /// one HTTPS round trip via [`super::super::world_builder::image_cache::BlobImageCache`].
     /// `None` keeps v1 behaviour: solid coloured quads tinted by
     /// `start_color` / `end_color`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub texture: Option<SignSource>,
     /// Treat the loaded texture as a sprite-sheet atlas of
     /// `rows × cols` cells. `None` uses the whole image as a single
     /// frame (the default).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub texture_atlas: Option<TextureAtlas>,
     /// How a particle picks its current atlas frame. `Still` keeps
     /// frame 0 forever; `RandomFrame` picks once at spawn (per-RNG-
     /// stream draw) so different particles show different sprites
     /// from the same atlas; `OverLifetime { fps }` cycles through
     /// the frame array at the configured rate.
-    #[serde(default)]
     pub frame_mode: AnimationFrameMode,
     /// Sampler filter applied to the loaded image. `Linear` is the
     /// natural smooth filtering for soft sprites; `Nearest` for
     /// pixel-art / retro looks. The cache keys on filter so a
     /// Linear and a Nearest request for the same source produce
     /// two distinct GPU images, neither stomping the other.
-    #[serde(default)]
     pub texture_filter: TextureFilter,
     /// Procedurally-baked particle sprite, generated locally instead of
     /// fetched. When this is set (non-`None`) and `texture` is `None`,
@@ -495,9 +560,51 @@ pub struct ParticleParams {
     /// draws a different variant per particle from one bake. The legacy
     /// `texture` reference wins when both are set, so already-published
     /// records are unaffected.
+    ///
+    /// Wire-format note (#695): an ABSENT key legally means "pre-sprite
+    /// legacy record → plain `None` quads" (this field-level default),
+    /// which differs from the struct default (`SoftDisc`, #367). The field
+    /// is therefore marked `(always)` in the eliding-serialize invocation
+    /// below — it is written unconditionally so elision can never rewrite
+    /// the legacy meaning.
     #[serde(default)]
     pub procedural_texture: super::texture::SovereignTextureConfig,
 }
+
+crate::pds::serde_util::impl_default_eliding_serialize!(ParticleParams {
+    emitter_shape,
+    rate_per_second,
+    burst_count,
+    max_particles,
+    looping,
+    duration,
+    lifetime_min,
+    lifetime_max,
+    speed_min,
+    speed_max,
+    gravity_multiplier,
+    acceleration,
+    linear_drag,
+    start_size,
+    end_size,
+    start_color,
+    end_color,
+    blend_mode,
+    billboard,
+    simulation_space,
+    inherit_velocity,
+    collide_terrain,
+    collide_water,
+    collide_colliders,
+    bounce,
+    friction,
+    seed via u64_as_string(u64),
+    texture,
+    texture_atlas,
+    frame_mode,
+    texture_filter,
+    procedural_texture(always),
+});
 
 impl Default for ParticleParams {
     /// Canonical default emitter — a small upward-spraying cone with
@@ -635,8 +742,9 @@ pub enum GeneratorKind {
     Cuboid {
         size: Fp3,
         solid: bool,
+        #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
 
@@ -645,8 +753,9 @@ pub enum GeneratorKind {
         radius: Fp,
         resolution: u32,
         solid: bool,
+        #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
 
@@ -656,8 +765,9 @@ pub enum GeneratorKind {
         height: Fp,
         resolution: u32,
         solid: bool,
+        #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
 
@@ -668,8 +778,9 @@ pub enum GeneratorKind {
         latitudes: u32,
         longitudes: u32,
         solid: bool,
+        #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
 
@@ -679,8 +790,9 @@ pub enum GeneratorKind {
         height: Fp,
         resolution: u32,
         solid: bool,
+        #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
 
@@ -691,8 +803,9 @@ pub enum GeneratorKind {
         minor_resolution: u32,
         major_resolution: u32,
         solid: bool,
+        #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
 
@@ -701,8 +814,9 @@ pub enum GeneratorKind {
         size: Fp2,
         subdivisions: u32,
         solid: bool,
+        #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
 
@@ -710,8 +824,9 @@ pub enum GeneratorKind {
     Tetrahedron {
         size: Fp,
         solid: bool,
+        #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
 
@@ -726,8 +841,9 @@ pub enum GeneratorKind {
         height: Fp,
         resolution: u32,
         solid: bool,
+        #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
 
@@ -741,8 +857,9 @@ pub enum GeneratorKind {
         bevel: Fp,
         bevel_segments: u32,
         solid: bool,
+        #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
 
@@ -753,8 +870,9 @@ pub enum GeneratorKind {
     Wedge {
         size: Fp3,
         solid: bool,
+        #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
 
@@ -770,8 +888,9 @@ pub enum GeneratorKind {
         turns: Fp,
         resolution: u32,
         solid: bool,
+        #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
 
@@ -790,8 +909,9 @@ pub enum GeneratorKind {
         latitudes: u32,
         longitudes: u32,
         solid: bool,
+        #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
 
@@ -812,8 +932,9 @@ pub enum GeneratorKind {
         /// Path samples per spline segment (between consecutive points).
         samples_per_segment: u32,
         solid: bool,
+        #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
 
@@ -833,8 +954,9 @@ pub enum GeneratorKind {
         /// Spline (`true`) vs straight-segment (`false`) profile.
         smooth: bool,
         solid: bool,
+        #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
 
@@ -853,8 +975,9 @@ pub enum GeneratorKind {
         elements: Vec<BlobElement>,
         resolution: u32,
         solid: bool,
+        #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
 
@@ -909,6 +1032,7 @@ pub enum GeneratorKind {
         /// Tint + emissive + PBR knobs. The texture overrides the
         /// procedural slot — set `texture` to `None` so the loaded image
         /// is the only colour source.
+        #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
         /// `true` renders both faces of the plane (and disables backface
         /// culling). Useful for free-standing signs viewable from either
@@ -1455,9 +1579,12 @@ impl GeneratorKind {
 pub struct Generator {
     #[serde(flatten)]
     pub kind: GeneratorKind,
-    #[serde(default)]
+    // The three non-kind fields elide their common case on the wire (#695):
+    // an identity transform, no children, silent audio. Each already
+    // decodes missing → default, so elision is round-trip-exact.
+    #[serde(default, skip_serializing_if = "TransformData::is_identity")]
     pub transform: TransformData,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<Generator>,
     /// Optional emissive audio source attached to this node — spatially
     /// played at the node's world position by Bevy's spatial audio
@@ -1467,7 +1594,10 @@ pub struct Generator {
     /// (silent). Set non-None by
     /// catalogue entries that want a construct to hum / chime / drone
     /// at its location (e.g. the teleporter's portal core).
-    #[serde(default)]
+    #[serde(
+        default,
+        skip_serializing_if = "super::audio::SovereignAudioConfig::is_none"
+    )]
     pub audio: super::audio::SovereignAudioConfig,
 }
 
@@ -1521,8 +1651,9 @@ pub enum Placement {
     #[serde(rename = "network.symbios.place.absolute")]
     Absolute {
         generator_ref: String,
+        #[serde(default, skip_serializing_if = "TransformData::is_identity")]
         transform: TransformData,
-        #[serde(default = "default_true")]
+        #[serde(default = "default_true", skip_serializing_if = "is_true")]
         snap_to_terrain: bool,
         /// When terrain-snapped, refuse submerged ground: the compiler
         /// walks the anchor along its bearing through the origin
@@ -1530,7 +1661,7 @@ pub enum Placement {
         /// above the room's water line. Used by the seeded landmark so
         /// a coastal villa doesn't spawn waist-deep in the sea.
         /// `#[serde(default)]` keeps older records decoding unchanged.
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "is_false")]
         avoid_water: bool,
         /// Dry-land clearance radius (m) for [`Self::Absolute::avoid_water`]:
         /// the walk requires the centre *and* a ring of samples at this
@@ -1549,15 +1680,16 @@ pub enum Placement {
         #[serde(with = "u64_as_string")]
         local_seed: u64,
         /// Combined biome allow-list + water-surface relation. A default
-        /// `BiomeFilter` accepts every sample.
-        #[serde(default)]
+        /// `BiomeFilter` accepts every sample (and is elided on the wire —
+        /// `is_noop` is exactly the default state).
+        #[serde(default, skip_serializing_if = "BiomeFilter::is_noop")]
         biome_filter: BiomeFilter,
-        #[serde(default = "default_true")]
+        #[serde(default = "default_true", skip_serializing_if = "is_true")]
         snap_to_terrain: bool,
         /// Apply a deterministic random yaw (per `local_seed`) to every
         /// scattered instance. Defaults to `true` for backward compatibility
         /// with records written before this field existed.
-        #[serde(default = "default_true")]
+        #[serde(default = "default_true", skip_serializing_if = "is_true")]
         random_yaw: bool,
         /// Reject scatter points that fall inside the room's road-network
         /// district — a circle of radius `RoadConfig::district_half_extent`
@@ -1566,21 +1698,22 @@ pub enum Placement {
         /// without needing an annulus bounds shape. Resolved at compile
         /// against [`crate::pds::room::find_road_config`]; a no-op in a room
         /// with no enabled road network. Defaults `false`.
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "is_false")]
         avoid_urban: bool,
     },
 
     #[serde(rename = "network.symbios.place.grid")]
     Grid {
         generator_ref: String,
+        #[serde(default, skip_serializing_if = "TransformData::is_identity")]
         transform: TransformData,
         counts: [u32; 3],
         gaps: Fp3,
-        #[serde(default = "default_true")]
+        #[serde(default = "default_true", skip_serializing_if = "is_true")]
         snap_to_terrain: bool,
         /// Apply a per-cell deterministic random yaw. Defaults to `false`
         /// — grids are typically axis-aligned.
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "is_false")]
         random_yaw: bool,
     },
 
@@ -1597,17 +1730,23 @@ mod prim_wire_tests {
 
     #[test]
     fn torture_params_predating_new_knobs_default_to_identity() {
-        // A pre-#688 torture block: today's wire encoding minus the new
-        // keys — exactly what an already-published record carries.
+        // A pre-#688 torture block carries no `taper_bottom` / `bulge` keys —
+        // and since #695 the eliding wire format omits every identity knob
+        // anyway, so serializing a twist+taper-only value produces exactly
+        // the shape an already-published record carries.
         let current = TortureParams {
             twist: Fp(0.5),
             taper: Fp2([0.2, 0.2]),
             ..Default::default()
         };
-        let mut old = serde_json::to_value(current).expect("serialises");
-        let obj = old.as_object_mut().expect("one flat JSON object");
-        assert!(obj.remove("taper_bottom").is_some(), "field name drifted");
-        assert!(obj.remove("bulge").is_some(), "field name drifted");
+        let old = serde_json::to_value(current).expect("serialises");
+        let obj = old.as_object().expect("one flat JSON object");
+        assert!(obj.contains_key("twist"), "authored knobs stay on the wire");
+        assert!(obj.contains_key("taper"), "authored knobs stay on the wire");
+        assert!(
+            !obj.contains_key("taper_bottom") && !obj.contains_key("bulge"),
+            "identity knobs are elided (#695)"
+        );
 
         let t: TortureParams = serde_json::from_value(old).expect("old torture block parses");
         assert_eq!(t.taper_bottom, Fp2([0.0, 0.0]));
@@ -1698,7 +1837,15 @@ mod particle_params_tests {
 
     #[test]
     fn particle_params_wire_format_is_inline() {
-        let kind = GeneratorKind::default_particles();
+        // Author a few non-default fields so they must appear on the wire —
+        // since #695 default-valued params are elided, so the all-defaults
+        // emitter serializes as just its `$type` tag.
+        let kind = GeneratorKind::ParticleSystem(Box::new(ParticleParams {
+            rate_per_second: Fp(64.0),
+            burst_count: 3,
+            seed: 7,
+            ..Default::default()
+        }));
         let v = serde_json::to_value(&kind).expect("serialises");
         let obj = v.as_object().expect("one flat JSON object");
         // Tag + fields side by side — no nested params wrapper key.
@@ -1706,11 +1853,15 @@ mod particle_params_tests {
             obj.get("$type").and_then(|t| t.as_str()),
             Some("network.symbios.gen.particles")
         );
-        assert!(obj.contains_key("emitter_shape"), "fields stay inline");
-        assert!(obj.contains_key("rate_per_second"));
+        assert!(obj.contains_key("rate_per_second"), "fields stay inline");
+        assert!(obj.contains_key("burst_count"));
         assert!(
             obj.get("seed").is_some_and(|s| s.is_string()),
             "seed keeps its string encoding"
+        );
+        assert!(
+            !obj.contains_key("emitter_shape"),
+            "default-valued params are elided (#695)"
         );
         assert!(
             !obj.values().any(|x| {
@@ -1719,6 +1870,9 @@ mod particle_params_tests {
             }),
             "no boxed-struct wrapper object appeared"
         );
+        // And the elided form round-trips to the authored value.
+        let re: GeneratorKind = serde_json::from_value(v).expect("reparses");
+        assert_eq!(re, kind);
     }
 
     #[test]

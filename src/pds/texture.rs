@@ -13,7 +13,10 @@ use serde::{Deserialize, Serialize};
 
 /// Procedural "ground" texture parameters (grass / dirt / snow layers).
 /// Mirrors `bevy_symbios_texture::ground::GroundConfig` with fixed-point wrappers.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+///
+/// Default-eliding wire format (#695), like the macro-generated mirrors.
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
 pub struct SovereignGroundConfig {
     pub seed: u32,
     pub macro_scale: Fp64,
@@ -26,9 +29,24 @@ pub struct SovereignGroundConfig {
     pub normal_strength: Fp,
 }
 
+crate::pds::serde_util::impl_default_eliding_serialize!(SovereignGroundConfig {
+    seed,
+    macro_scale,
+    macro_octaves,
+    micro_scale,
+    micro_octaves,
+    micro_weight,
+    color_dry,
+    color_moist,
+    normal_strength,
+});
+
 /// Procedural "rock" texture parameters. Mirrors
 /// `bevy_symbios_texture::rock::RockConfig`.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+///
+/// Default-eliding wire format (#695), like the macro-generated mirrors.
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
 pub struct SovereignRockConfig {
     pub seed: u32,
     pub scale: Fp64,
@@ -38,6 +56,16 @@ pub struct SovereignRockConfig {
     pub color_dark: Fp3,
     pub normal_strength: Fp,
 }
+
+crate::pds::serde_util::impl_default_eliding_serialize!(SovereignRockConfig {
+    seed,
+    scale,
+    octaves,
+    attenuation,
+    color_light,
+    color_dark,
+    normal_strength,
+});
 
 impl Default for SovereignGroundConfig {
     fn default() -> Self {
@@ -138,10 +166,19 @@ macro_rules! define_sovereign_texture_cfg {
             $( $kind:ident $( ( $sub:ty ) )? : $field:ident = $default:expr ),+ $(,)?
         }
     ) => {
-        #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+        // Default-eliding wire format (#695): only fields differing from
+        // the declared defaults are written; the container
+        // `#[serde(default)]` restores them on read. A default-valued
+        // texture config collapses to `{}` on the wire.
+        #[derive(Deserialize, Clone, Debug, PartialEq)]
+        #[serde(default)]
         pub struct $sov {
             $( pub $field: define_sovereign_texture_cfg!(@ty $kind $(($sub))?), )+
         }
+
+        crate::pds::serde_util::impl_default_eliding_serialize!($sov {
+            $( $field ),+
+        });
 
         impl Default for $sov {
             fn default() -> Self {
@@ -922,7 +959,12 @@ impl SovereignTextureConfig {
 /// `bevy_symbios::materials::MaterialSettings` with DAG-CBOR-safe numeric
 /// fields. The embedded [`SovereignTextureConfig`] carries the full config
 /// for whichever `bevy_symbios_texture` generator drives this slot (if any).
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+/// Default-eliding wire format (#695): fields matching
+/// [`SovereignMaterialSettings::default`] are omitted on write (the
+/// `texture: None` slot alone was ~20 bytes on every one of a prop's dozens
+/// of prims) and restored by the container `#[serde(default)]`.
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
 pub struct SovereignMaterialSettings {
     pub base_color: Fp3,
     pub emission_color: Fp3,
@@ -931,9 +973,18 @@ pub struct SovereignMaterialSettings {
     pub metallic: Fp,
     #[serde(default = "default_uv_scale")]
     pub uv_scale: Fp,
-    #[serde(default)]
     pub texture: SovereignTextureConfig,
 }
+
+crate::pds::serde_util::impl_default_eliding_serialize!(SovereignMaterialSettings {
+    base_color,
+    emission_color,
+    emission_strength,
+    roughness,
+    metallic,
+    uv_scale,
+    texture,
+});
 
 fn default_uv_scale() -> Fp {
     Fp(1.0)
@@ -954,6 +1005,12 @@ impl Default for SovereignMaterialSettings {
 }
 
 impl SovereignMaterialSettings {
+    /// `true` when the whole struct equals its default — the wire-format
+    /// skip predicate for prim `material` fields (#695).
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
     /// Convert to the upstream PBR settings struct
     /// [`bevy_symbios_texture::MaterialSettings`] consumed by
     /// [`bevy_symbios_texture::build_procedural_material_async`]. The

@@ -103,6 +103,7 @@ pub mod record_size;
 pub mod room;
 pub mod ruin;
 pub mod sanitize;
+pub(crate) mod serde_util;
 pub mod terrain;
 pub mod texture;
 pub mod types;

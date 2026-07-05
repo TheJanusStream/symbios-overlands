@@ -25,7 +25,7 @@ use std::collections::HashMap;
 /// `sun_color`) round-trip: any missing field falls back to the canonical
 /// constant via `Environment::default()` rather than failing the whole
 /// decode and stranding the owner on the recovery banner.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct Environment {
     pub sun_color: Fp3,
@@ -99,6 +99,39 @@ pub struct Environment {
     /// [`SequenceRecipe`]: bevy_symbios_audio::SequenceRecipe
     pub ambient_audio: crate::pds::audio::SovereignAudioConfig,
 }
+
+// Default-eliding wire format (#695): a freshly-seeded room overrides only
+// the palette-driven subset of these knobs, so the untouched remainder
+// (fog shape, water detail tiling, cloud geometry) drops off the wire. The
+// container `#[serde(default)]` above is the matching read-side contract.
+crate::pds::serde_util::impl_default_eliding_serialize!(Environment {
+    sun_color,
+    sun_illuminance,
+    ambient_brightness,
+    sky_color,
+    sun_position,
+    fog_color,
+    fog_visibility,
+    fog_extinction,
+    fog_inscattering,
+    fog_sun_color,
+    fog_sun_exponent,
+    water_normal_scale_near,
+    water_normal_scale_far,
+    water_sun_glitter,
+    water_scatter_color,
+    water_shore_foam_width,
+    cloud_cover,
+    cloud_density,
+    cloud_softness,
+    cloud_speed,
+    cloud_scale,
+    cloud_height,
+    cloud_wind_dir,
+    cloud_color,
+    cloud_shadow_color,
+    ambient_audio,
+});
 
 impl Default for Environment {
     fn default() -> Self {
@@ -280,8 +313,10 @@ pub struct RoomRecord {
     /// so pre-Phase-4 records (which lack the key) deserialize with the
     /// canonical defaults and behave exactly as the old hardcoded
     /// registry; `RoomRecord` carries no `deny_unknown_fields`, so older
-    /// clients reading a newer record simply ignore the extra key.
-    #[serde(default)]
+    /// clients reading a newer record simply ignore the extra key. The
+    /// skip on write is the same fact in reverse (#695): an uncustomised
+    /// set is omitted rather than re-stating the canonical recipes.
+    #[serde(default, skip_serializing_if = "ContactEffects::is_default")]
     pub contact_effects: ContactEffects,
 }
 

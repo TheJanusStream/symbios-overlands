@@ -184,12 +184,33 @@ impl<'de> Deserialize<'de> for Fp64 {
 }
 
 /// Rigid-body transform encoded as fixed-point arrays on the wire.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+///
+/// Default-eliding wire format (#695): identity components (zero
+/// translation, unit rotation, unit scale) are omitted on write and filled
+/// back in by the container `#[serde(default)]`, so the identity transform
+/// every child prim starts from serializes as `{}` — and callers holding a
+/// fully-identity transform skip the field via [`TransformData::is_identity`].
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
 pub struct TransformData {
     pub translation: Fp3,
     /// Quaternion in `[x, y, z, w]` order.
     pub rotation: Fp4,
     pub scale: Fp3,
+}
+
+crate::pds::serde_util::impl_default_eliding_serialize!(TransformData {
+    translation,
+    rotation,
+    scale,
+});
+
+impl TransformData {
+    /// `true` when the whole transform equals the identity default — the
+    /// wire-format skip predicate for `transform` fields (#695).
+    pub fn is_identity(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 impl Default for TransformData {
@@ -214,6 +235,18 @@ impl From<Transform> for TransformData {
 
 pub(crate) fn default_true() -> bool {
     true
+}
+
+/// Wire-format skip predicate for `#[serde(default = "default_true")]`
+/// bool fields (#695): a still-true value is elided and restored on read.
+pub(crate) fn is_true(b: &bool) -> bool {
+    *b
+}
+
+/// Wire-format skip predicate for plain `#[serde(default)]` bool fields
+/// (#695): a still-false value is elided and restored on read.
+pub(crate) fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// Whether a sampled point should be accepted above, below, or regardless of

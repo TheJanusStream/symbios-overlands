@@ -19,7 +19,12 @@ pub enum SovereignGeneratorKind {
 /// Full terrain configuration stored inside a `Generator::Terrain` variant.
 /// This is a serialisable mirror of `ground-lab::TerrainConfig` — all `f32`
 /// fields are wrapped in [`Fp`] so the record stays DAG-CBOR compliant.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+///
+/// Default-eliding wire format (#695): fields matching
+/// [`SovereignTerrainConfig::default`] are omitted on write; the container
+/// `#[serde(default)]` restores them on read.
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
 pub struct SovereignTerrainConfig {
     // Grid / world
     pub grid_size: u32,
@@ -61,6 +66,32 @@ pub struct SovereignTerrainConfig {
     // Material (splat) config
     pub material: SovereignMaterialConfig,
 }
+
+crate::pds::serde_util::impl_default_eliding_serialize!(SovereignTerrainConfig {
+    grid_size,
+    cell_scale,
+    height_scale,
+    generator_kind,
+    seed via u64_as_string(u64),
+    octaves,
+    persistence,
+    lacunarity,
+    base_frequency,
+    ds_roughness,
+    voronoi_num_seeds,
+    voronoi_num_terraces,
+    erosion_enabled,
+    erosion_drops,
+    inertia,
+    erosion_rate,
+    deposition_rate,
+    evaporation_rate,
+    capacity_factor,
+    thermal_enabled,
+    thermal_iterations,
+    thermal_talus_angle,
+    material,
+});
 
 impl Default for SovereignTerrainConfig {
     fn default() -> Self {
@@ -118,7 +149,12 @@ pub struct SovereignSplatRule {
 /// [`SovereignTextureConfig`] variant may appear in any slot — the canonical
 /// defaults are Grass / Dirt / Rock / Snow (Ground / Ground / Rock / Ground),
 /// but a room can swap any layer for e.g. `Brick`, `Cobblestone`, `Thatch`.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+///
+/// Default-eliding wire format (#695): fields matching
+/// [`SovereignMaterialConfig::default`] are omitted on write; the container
+/// `#[serde(default)]` restores them on read.
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
 pub struct SovereignMaterialConfig {
     pub texture_size: u32,
     pub tile_scale: Fp,
@@ -127,6 +163,13 @@ pub struct SovereignMaterialConfig {
     /// Procedural texture configs for channels R, G, B, A.
     pub layers: [SovereignTextureConfig; 4],
 }
+
+crate::pds::serde_util::impl_default_eliding_serialize!(SovereignMaterialConfig {
+    texture_size,
+    tile_scale,
+    rules,
+    layers,
+});
 
 impl Default for SovereignMaterialConfig {
     fn default() -> Self {

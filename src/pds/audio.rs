@@ -70,6 +70,12 @@ pub enum SovereignAudioConfig {
 }
 
 impl SovereignAudioConfig {
+    /// `true` for the silent [`Self::None`] slot — the wire-format skip
+    /// predicate for generator `audio` fields (#695).
+    pub fn is_none(&self) -> bool {
+        matches!(self, Self::None)
+    }
+
     /// Human-readable variant name for UI combo boxes.
     pub fn label(&self) -> &'static str {
         match self {

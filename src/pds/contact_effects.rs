@@ -436,6 +436,16 @@ impl Default for ContactEffects {
     }
 }
 
+impl ContactEffects {
+    /// `true` when the set equals the canonical default registry — the
+    /// wire-format skip predicate for `RoomRecord::contact_effects` (#695):
+    /// a room that never customised its contact effects doesn't spend
+    /// ~2.6 KiB re-stating the built-in recipes.
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 /// White→blue droplet, fading alpha to 0 — the shared look of both
 /// hardcoded water effects (matches the old `transient_base` colours).
 fn droplet_colours() -> (Fp4, Fp4) {

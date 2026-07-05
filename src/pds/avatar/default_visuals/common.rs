@@ -205,7 +205,11 @@ pub(crate) fn blob_capsule(
         shape: BlobShape::Capsule,
         position: Fp3(position),
         rotation,
-        radii: Fp3([radius, half_len, 0.0]),
+        // The Z radius is unused by the capsule SDF but must sit at the
+        // sanitizer's `c_dim` floor (0.01), not 0.0 — otherwise every
+        // fetched avatar gets clamped and re-serializes differently from
+        // what its owner published (caught by the #695 round-trip test).
+        radii: Fp3([radius, half_len, 0.01]),
         subtract: false,
         blend: Fp(blend),
     }
