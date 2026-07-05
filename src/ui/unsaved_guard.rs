@@ -369,6 +369,11 @@ pub fn unsaved_guard_ui(
                             session,
                             refresh_ctx,
                             live.0.clone(),
+                            records
+                                .stored_inventory
+                                .as_deref()
+                                .map(|s| s.0.clone())
+                                .unwrap_or_default(),
                             time.elapsed_secs_f64(),
                         );
                     }

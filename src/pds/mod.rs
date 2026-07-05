@@ -5,7 +5,13 @@
 //! | ------------------ | ---------------------------------------- | ------ |
 //! | [`RoomRecord`]     | `network.symbios.overlands.room`         | `self` |
 //! | [`AvatarRecord`]   | `network.symbios.overlands.avatar`       | `self` |
-//! | [`InventoryRecord`] | `network.symbios.overlands.inventory`   | `self` |
+//! | [`inventory::InventoryItemRecord`] | `network.symbios.overlands.inventory.item` | `hex(fnv1a_64(name))` |
+//!
+//! The inventory is one record **per item** (#696) — the collection is the
+//! stash, read via `listRecords` and written as an atomic `applyWrites`
+//! diff. [`InventoryRecord`] survives as the in-memory model, and its old
+//! `network.symbios.overlands.inventory / self` monolith is still read as a
+//! migration fallback (deleted by the first per-item save).
 //!
 //! A `RoomRecord` is composed of three top-level collections:
 //!
@@ -89,7 +95,11 @@
 
 pub(crate) const COLLECTION: &str = "network.symbios.overlands.room";
 pub(crate) const AVATAR_COLLECTION: &str = "network.symbios.overlands.avatar";
+/// Pre-#696 single-record stash collection — still read as the migration
+/// fallback and deleted by the first per-item save.
 pub const INVENTORY_COLLECTION: &str = "network.symbios.overlands.inventory";
+/// One record per stash entry (#696); the collection is the stash.
+pub const INVENTORY_ITEM_COLLECTION: &str = "network.symbios.overlands.inventory.item";
 
 pub mod asset_reference;
 pub mod audio;
@@ -130,7 +140,9 @@ pub use generator::{
     ParticleParams, Placement, SignSource, SimulationSpace, TextureAtlas, TextureFilter,
     TortureParams, WaterSurface,
 };
-pub use inventory::{InventoryRecord, fetch_inventory_record, publish_inventory_record};
+pub use inventory::{
+    InventoryItemRecord, InventoryRecord, fetch_inventory_record, publish_inventory_record,
+};
 pub use prim::PropMeshType;
 pub use room::{
     Environment, RoomRecord, delete_room_record, fetch_room_record, find_road_config,

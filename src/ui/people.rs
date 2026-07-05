@@ -224,6 +224,7 @@ pub fn incoming_offer_ui(
     mut contexts: EguiContexts,
     dialog: Option<Res<IncomingOfferDialog>>,
     mut live_inventory: Option<ResMut<LiveInventoryRecord>>,
+    stored_inventory: Option<Res<crate::state::StoredInventoryRecord>>,
     session: Option<Res<AtprotoSession>>,
     refresh_ctx: Option<Res<crate::oauth::OauthRefreshCtx>>,
     mut peers: Query<&mut RemotePeer>,
@@ -352,6 +353,10 @@ pub fn incoming_offer_ui(
                     sess,
                     refresh,
                     live.0.clone(),
+                    stored_inventory
+                        .as_deref()
+                        .map(|s| s.0.clone())
+                        .unwrap_or_default(),
                     time.elapsed_secs_f64(),
                 );
             }

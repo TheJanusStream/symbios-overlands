@@ -90,7 +90,9 @@ pub const LOADING_GATE_TOTAL_SECS: &str = "loading.gate.total_secs";
 pub const RECORD_SIZE_ROOM_BYTES: &str = "record.size.room_bytes";
 /// Avatar record bytes at the last publish attempt.
 pub const RECORD_SIZE_AVATAR_BYTES: &str = "record.size.avatar_bytes";
-/// Inventory record bytes at the last publish attempt.
+/// Largest single inventory-item record at the last publish attempt — the
+/// stash is one record per item (#696), so the per-record budget applies
+/// to the biggest item rather than the whole stash.
 pub const RECORD_SIZE_INVENTORY_BYTES: &str = "record.size.inventory_bytes";
 
 // ---- async / offload ------------------------------------------------------

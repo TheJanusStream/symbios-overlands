@@ -671,6 +671,19 @@ pub mod state {
     /// login, and consulted by the item-offer accept path so a peer
     /// cannot gift you over the cap.
     pub const MAX_INVENTORY_ITEMS: usize = 50;
+
+    /// Maximum `com.atproto.repo.listRecords` pages (100 records each) the
+    /// inventory-item fetch walks before stopping (#696). Two pages scan
+    /// four times the [`MAX_INVENTORY_ITEMS`] cap — ample for any legitimate
+    /// stash — while a hostile PDS handing out endless cursors cannot keep
+    /// the client paging forever.
+    pub const MAX_INVENTORY_LIST_PAGES: usize = 2;
+
+    /// Maximum characters in an inventory item's display name. Items whose
+    /// fetched name exceeds this are dropped by `InventoryRecord::sanitize`
+    /// (deterministically, before the count cap) so a hostile PDS cannot
+    /// smuggle megabyte strings through 50 item names.
+    pub const MAX_INVENTORY_NAME_CHARS: usize = 256;
 }
 
 // ---------------------------------------------------------------------------

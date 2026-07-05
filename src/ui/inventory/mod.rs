@@ -284,11 +284,20 @@ pub fn inventory_ui(
             // `session` + `refresh_ctx` are guaranteed present (the early
             // return above bails otherwise), so a publish is always
             // attemptable while dirty.
-            let record_bytes = crate::ui::editable::refresh_size_readout(
-                &mut *feedback,
-                &live.0,
-                time.elapsed_secs_f64(),
-            );
+            //
+            // Size readout: the stash is one record PER ITEM (#696), so
+            // the per-record budget applies to the largest single item —
+            // not the whole stash. Same throttled cache as the other
+            // editors, custom measurement.
+            let now = time.elapsed_secs_f64();
+            if feedback
+                .live_bytes_at
+                .is_none_or(|at| now - at >= crate::config::ui::editor::SIZE_READOUT_REFRESH_SECS)
+            {
+                feedback.live_bytes = crate::pds::inventory::max_item_bytes(&live.0);
+                feedback.live_bytes_at = Some(now);
+            }
+            let record_bytes = feedback.live_bytes;
             match save_load_reset_row(ui, dirty, true, can_reset, record_bytes) {
                 RecordAction::None => {}
                 RecordAction::Publish => {
@@ -298,6 +307,7 @@ pub fn inventory_ui(
                         &session,
                         &refresh_ctx,
                         live.0.clone(),
+                        stored.0.clone(),
                         time.elapsed_secs_f64(),
                     );
                 }
@@ -313,15 +323,19 @@ pub fn inventory_ui(
         });
 }
 
-/// Spawn the async inventory-record publish. `pub(crate)` because the
-/// unsaved-edits guard ([`crate::ui::unsaved_guard`]) drives the same
-/// pipeline for its "Publish & log out" path — the shared
+/// Spawn the async inventory publish. Since #696 this commits the
+/// live-vs-`stored` diff as per-item records in ONE atomic `applyWrites`
+/// batch (see [`crate::pds::inventory`]), so the caller must pass the
+/// stored snapshot the diff is computed against. `pub(crate)` because the
+/// unsaved-edits guard ([`crate::ui::unsaved_guard`]) and the offer-accept
+/// path ([`crate::ui::people`]) drive the same pipeline — the shared
 /// [`poll_publish_inventory_tasks`] system lands the result either way.
 pub(crate) fn spawn_publish_inventory_task(
     commands: &mut Commands,
     session: &AtprotoSession,
     refresh: &crate::oauth::OauthRefreshCtx,
     record: InventoryRecord,
+    stored: InventoryRecord,
     now: f64,
 ) {
     // The inventory record is the local user's own, saved to their PDS → the
@@ -329,13 +343,21 @@ pub(crate) fn spawn_publish_inventory_task(
     let did = session.did.clone();
     let session_clone = session.clone();
     let refresh_clone = refresh.clone();
-    let record_bytes = crate::pds::record_size::serialized_record_bytes(&record);
+    // Per-item wire format → the budget gauge tracks the largest single
+    // item record, not the whole stash (#694/#696).
+    let record_bytes = crate::pds::inventory::max_item_bytes(&record);
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
             let client = crate::config::http::default_client();
-            crate::pds::publish_inventory_record(&client, &session_clone, &refresh_clone, &record)
-                .await
+            crate::pds::publish_inventory_record(
+                &client,
+                &session_clone,
+                &refresh_clone,
+                &record,
+                &stored,
+            )
+            .await
         };
         #[cfg(target_arch = "wasm32")]
         {

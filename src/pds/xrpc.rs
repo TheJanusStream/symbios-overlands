@@ -203,3 +203,58 @@ pub(crate) enum PutOutcome {
     ClientError(String),
     Transport(String),
 }
+
+/// Hard cap the reference PDS puts on one `com.atproto.repo.applyWrites`
+/// batch. [`apply_writes`] refuses larger batches locally so the caller
+/// hears "split the batch" instead of a server 400.
+pub(crate) const MAX_APPLY_WRITES: usize = 200;
+
+/// One write of a `com.atproto.repo.applyWrites` batch. The `$type` tags
+/// are the lexicon's union refs, so a `Vec<RepoWrite>` serializes directly
+/// as the request's `writes` array.
+#[derive(serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(tag = "$type")]
+pub(crate) enum RepoWrite {
+    #[serde(rename = "com.atproto.repo.applyWrites#create")]
+    Create {
+        collection: String,
+        rkey: String,
+        value: serde_json::Value,
+    },
+    #[serde(rename = "com.atproto.repo.applyWrites#update")]
+    Update {
+        collection: String,
+        rkey: String,
+        value: serde_json::Value,
+    },
+    #[serde(rename = "com.atproto.repo.applyWrites#delete")]
+    Delete { collection: String, rkey: String },
+}
+
+/// Commit a batch of record writes to the authenticated user's repo in ONE
+/// atomic commit via `com.atproto.repo.applyWrites` — either every write
+/// lands or none do, so multi-record layouts (inventory items, later the
+/// room manifest + children of Stage 3) can never be observed torn by a
+/// crash or a mid-batch rejection.
+pub(crate) async fn apply_writes(
+    pds: &str,
+    session: &bevy_symbios_multiuser::auth::AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
+    writes: Vec<RepoWrite>,
+) -> Result<(), String> {
+    if writes.len() > MAX_APPLY_WRITES {
+        return Err(format!(
+            "applyWrites batch of {} exceeds the {MAX_APPLY_WRITES}-write commit cap — split the batch",
+            writes.len()
+        ));
+    }
+    let url = format!("{}/xrpc/com.atproto.repo.applyWrites", pds);
+    let body = serde_json::json!({ "repo": session.did, "writes": writes });
+    let (status, body) =
+        crate::oauth::oauth_post_with_refresh(&session.session, refresh, &url, &body).await?;
+    if status.is_success() {
+        Ok(())
+    } else {
+        Err(format!("applyWrites failed: {} — {}", status, body))
+    }
+}

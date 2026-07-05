@@ -112,9 +112,11 @@ pub fn save_load_reset_row(
             };
             ui.label(egui::RichText::new(text).color(color).small())
                 .on_hover_text(format!(
-                    "Serialized record size. Soft budget {} (warns), hard ceiling {} \
+                    "Serialized size of the largest record this editor publishes \
+                     (the whole record for Room/Avatar; the biggest single item \
+                     for Inventory). Soft budget {} (warns), hard ceiling {} \
                      (blocks saving — an ATProto record is a single ~1 MiB-max repo \
-                     block). Remove generators or placements to shrink the record.",
+                     block). Remove or shrink content to fit.",
                     human_bytes(SOFT_RECORD_BUDGET_BYTES),
                     human_bytes(HARD_RECORD_CEILING_BYTES),
                 ));
