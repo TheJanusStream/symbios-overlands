@@ -137,6 +137,11 @@ pub const MAX_TORTURE_TWIST: f32 = 4.0 * std::f32::consts::PI;
 /// single point — we'd lose vertices and the collider builder would
 /// start returning zero-volume hulls.
 pub const MAX_TORTURE_TAPER: f32 = 0.99;
+/// Maximum control-point / profile-station count on a Spine or Lathe
+/// primitive. 16 points is generous for any hand-authored silhouette while
+/// bounding the spline resample (a hostile record with a million points
+/// would otherwise dominate the mesh build).
+pub const MAX_SWEEP_POINTS: usize = 16;
 /// Maximum magnitude of the per-axis `bulge` factor (additive mid-height
 /// scale, `sin(π t)` profile). `+2.0` triples the mid-profile — already a
 /// cartoonish swell; the negative bound is the same magnitude because the

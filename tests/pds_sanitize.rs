@@ -630,6 +630,66 @@ fn generator_node_transform_rejects_non_finite_fields() {
 }
 
 #[test]
+fn spine_and_lathe_point_lists_clamped() {
+    use symbios_overlands::pds::generator::SpinePoint;
+    // A hostile spine: far too many points, NaN coordinates, zero radius.
+    let mut spine = Generator::from_kind(GeneratorKind::Spine {
+        points: (0..200)
+            .map(|_| SpinePoint {
+                position: Fp3([f32::NAN, 1_000.0, f32::NEG_INFINITY]),
+                radius: Fp(-5.0),
+            })
+            .collect(),
+        resolution: 10_000,
+        samples_per_segment: 10_000,
+        solid: true,
+        material: Default::default(),
+        torture: TortureParams::default(),
+    });
+    sanitize_generator(&mut spine);
+    let GeneratorKind::Spine {
+        points,
+        resolution,
+        samples_per_segment,
+        ..
+    } = &spine.kind
+    else {
+        panic!("sanitize mutated Spine into another variant");
+    };
+    assert!(points.len() <= limits::MAX_SWEEP_POINTS);
+    for p in points {
+        assert!(
+            p.position
+                .0
+                .iter()
+                .all(|c| c.is_finite() && c.abs() <= 100.0)
+        );
+        assert!(p.radius.0 >= 0.01 && p.radius.0 <= 100.0);
+    }
+    assert!(*resolution <= 64 && *samples_per_segment <= 32);
+
+    // A starved lathe: empty point list must be padded, never panic or
+    // produce a vertex-less mesh downstream.
+    let mut lathe = Generator::from_kind(GeneratorKind::Lathe {
+        points: vec![],
+        resolution: 0,
+        smooth: true,
+        solid: true,
+        material: Default::default(),
+        torture: TortureParams::default(),
+    });
+    sanitize_generator(&mut lathe);
+    let GeneratorKind::Lathe {
+        points, resolution, ..
+    } = &lathe.kind
+    else {
+        panic!("sanitize mutated Lathe into another variant");
+    };
+    assert!(points.len() >= 2, "starved lathe not padded");
+    assert!(*resolution >= 3);
+}
+
+#[test]
 fn primitive_torture_clamped() {
     // NaN/infinity/out-of-range torture parameters on a top-level
     // primitive must be driven back into the finite envelope so the

@@ -97,6 +97,8 @@ pub(crate) fn node_materials_mut(kind: &mut GeneratorKind) -> Vec<&mut Sovereign
         | GeneratorKind::Wedge { material, .. }
         | GeneratorKind::Helix { material, .. }
         | GeneratorKind::Superellipsoid { material, .. }
+        | GeneratorKind::Spine { material, .. }
+        | GeneratorKind::Lathe { material, .. }
         | GeneratorKind::Sign { material, .. } => vec![material],
         GeneratorKind::Shape { materials, .. } => materials.values_mut().collect(),
         GeneratorKind::LSystem { materials, .. } => materials.values_mut().collect(),

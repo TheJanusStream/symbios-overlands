@@ -286,6 +286,25 @@ impl TortureParams {
     }
 }
 
+/// One control point of a [`GeneratorKind::Spine`]: a local-space position
+/// the tube's centreline passes through, and the tube radius there. Both are
+/// interpolated with the same Catmull-Rom spline, so the radius flows as
+/// smoothly along the tube as the path does.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct SpinePoint {
+    pub position: Fp3,
+    pub radius: Fp,
+}
+
+/// One station of a [`GeneratorKind::Lathe`] profile: radial distance from
+/// the Y axis at a given local height. Stations are meshed bottom-to-top in
+/// list order; a zero radius pinches the surface onto the axis (a pole).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct LathePoint {
+    pub radius: Fp,
+    pub height: Fp,
+}
+
 /// Full parameter set of a [`GeneratorKind::ParticleSystem`] emitter (#648).
 ///
 /// Lives behind a `Box` on the variant so the enum's stack size doesn't
@@ -717,6 +736,47 @@ pub enum GeneratorKind {
         torture: TortureParams,
     },
 
+    /// Circular-profile tube swept along a user-editable Catmull-Rom spine
+    /// with a per-point radius — the one-prim replacement for the tapered-
+    /// capsule chains that limbs / tails / horns / tentacles / vines used to
+    /// take. The spline passes through every control point (2..16); radius
+    /// interpolates along the same spline, and both ends are capped with
+    /// flat discs. Vertex torture composes on top; topology cuts don't apply
+    /// (the path itself is the shape).
+    #[serde(rename = "network.symbios.gen.spine")]
+    Spine {
+        points: Vec<SpinePoint>,
+        /// Ring segments around the tube's circular cross-section.
+        resolution: u32,
+        /// Path samples per spline segment (between consecutive points).
+        samples_per_segment: u32,
+        solid: bool,
+        material: SovereignMaterialSettings,
+        #[serde(default)]
+        torture: TortureParams,
+    },
+
+    /// Profile revolved around local Y — the SL-"rokuro" vase / bell / hoof /
+    /// chess-piece prim. `points` is the silhouette from bottom to top
+    /// (2..16 stations of radius-at-height); `smooth` interpolates it with a
+    /// Catmull-Rom spline (organic curves from few points) or keeps straight
+    /// polyline segments (sharp ridges). `path_cut` (angular wedge) and
+    /// `hollow` (proportional inner shell) compose exactly like the other
+    /// swept prims; `profile_cut` is ignored — the profile is already fully
+    /// user-authored.
+    #[serde(rename = "network.symbios.gen.lathe")]
+    Lathe {
+        points: Vec<LathePoint>,
+        /// Revolve segments around the Y axis.
+        resolution: u32,
+        /// Spline (`true`) vs straight-segment (`false`) profile.
+        smooth: bool,
+        solid: bool,
+        material: SovereignMaterialSettings,
+        #[serde(default)]
+        torture: TortureParams,
+    },
+
     /// Hand-rolled CPU + ECS particle emitter. Spawns billboarded /
     /// velocity-aligned quads from a parametric shape (point / sphere /
     /// box / cone), integrates them with gravity / drag / constant
@@ -992,7 +1052,9 @@ impl GeneratorKind {
             | GeneratorKind::Bevel { torture, .. }
             | GeneratorKind::Wedge { torture, .. }
             | GeneratorKind::Helix { torture, .. }
-            | GeneratorKind::Superellipsoid { torture, .. } => Some(torture),
+            | GeneratorKind::Superellipsoid { torture, .. }
+            | GeneratorKind::Spine { torture, .. }
+            | GeneratorKind::Lathe { torture, .. } => Some(torture),
             _ => None,
         }
     }
@@ -1013,7 +1075,9 @@ impl GeneratorKind {
             | GeneratorKind::Bevel { torture, .. }
             | GeneratorKind::Wedge { torture, .. }
             | GeneratorKind::Helix { torture, .. }
-            | GeneratorKind::Superellipsoid { torture, .. } => Some(torture),
+            | GeneratorKind::Superellipsoid { torture, .. }
+            | GeneratorKind::Spine { torture, .. }
+            | GeneratorKind::Lathe { torture, .. } => Some(torture),
             _ => None,
         }
     }
@@ -1037,6 +1101,8 @@ impl GeneratorKind {
                 | GeneratorKind::Wedge { .. }
                 | GeneratorKind::Helix { .. }
                 | GeneratorKind::Superellipsoid { .. }
+                | GeneratorKind::Spine { .. }
+                | GeneratorKind::Lathe { .. }
         )
     }
 
@@ -1064,6 +1130,8 @@ impl GeneratorKind {
             GeneratorKind::Wedge { .. } => "Wedge",
             GeneratorKind::Helix { .. } => "Helix",
             GeneratorKind::Superellipsoid { .. } => "Superellipsoid",
+            GeneratorKind::Spine { .. } => "Spine",
+            GeneratorKind::Lathe { .. } => "Lathe",
             GeneratorKind::Sign { .. } => "Sign",
             GeneratorKind::ParticleSystem(..) => "ParticleSystem",
             GeneratorKind::Unknown => "Unknown",
@@ -1179,6 +1247,59 @@ impl GeneratorKind {
                 exponent_ew: Fp(0.5),
                 latitudes: 16,
                 longitudes: 24,
+                solid: true,
+                material: mat,
+                torture: TortureParams::default(),
+            },
+            // A gentle forward-arcing taper so a freshly-added spine reads
+            // as a limb / tail rather than a straight pipe.
+            "Spine" => GeneratorKind::Spine {
+                points: vec![
+                    SpinePoint {
+                        position: Fp3([0.0, -0.5, 0.0]),
+                        radius: Fp(0.2),
+                    },
+                    SpinePoint {
+                        position: Fp3([0.12, 0.0, 0.08]),
+                        radius: Fp(0.15),
+                    },
+                    SpinePoint {
+                        position: Fp3([0.0, 0.5, 0.0]),
+                        radius: Fp(0.09),
+                    },
+                ],
+                resolution: 12,
+                samples_per_segment: 8,
+                solid: true,
+                material: mat,
+                torture: TortureParams::default(),
+            },
+            // A bellied vase silhouette — the canonical lathe demo shape.
+            "Lathe" => GeneratorKind::Lathe {
+                points: vec![
+                    LathePoint {
+                        radius: Fp(0.18),
+                        height: Fp(-0.5),
+                    },
+                    LathePoint {
+                        radius: Fp(0.32),
+                        height: Fp(-0.25),
+                    },
+                    LathePoint {
+                        radius: Fp(0.2),
+                        height: Fp(0.1),
+                    },
+                    LathePoint {
+                        radius: Fp(0.1),
+                        height: Fp(0.3),
+                    },
+                    LathePoint {
+                        radius: Fp(0.16),
+                        height: Fp(0.5),
+                    },
+                ],
+                resolution: 24,
+                smooth: true,
                 solid: true,
                 material: mat,
                 torture: TortureParams::default(),
@@ -1391,6 +1512,25 @@ mod prim_wire_tests {
         // Round trip lands on the same value.
         let re: TortureParams = serde_json::from_value(serde_json::to_value(t).unwrap()).unwrap();
         assert_eq!(re, t);
+    }
+
+    #[test]
+    fn spine_and_lathe_wire_format_round_trips() {
+        for (tag, wire) in [
+            ("Spine", "network.symbios.gen.spine"),
+            ("Lathe", "network.symbios.gen.lathe"),
+        ] {
+            let kind = GeneratorKind::default_primitive_for_tag(tag).unwrap();
+            let v = serde_json::to_value(&kind).expect("serialises");
+            let obj = v.as_object().expect("one flat JSON object");
+            assert_eq!(obj.get("$type").and_then(|t| t.as_str()), Some(wire));
+            assert!(
+                obj.get("points").is_some_and(|p| p.is_array()),
+                "{tag} points stay an inline array"
+            );
+            let re: GeneratorKind = serde_json::from_value(v).expect("reparses");
+            assert_eq!(re, kind);
+        }
     }
 
     #[test]

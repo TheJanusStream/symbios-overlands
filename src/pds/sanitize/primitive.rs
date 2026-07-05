@@ -1,6 +1,7 @@
 //! Sanitiser for the parametric primitive variants of [`GeneratorKind`]
 //! (Cuboid / Sphere / Cylinder / Capsule / Cone / Torus / Plane /
-//! Tetrahedron / Tube / Bevel / Wedge / Helix / Superellipsoid). Mirrors the
+//! Tetrahedron / Tube / Bevel / Wedge / Helix / Superellipsoid / Spine /
+//! Lathe). Mirrors the
 //! bounds the World Editor UI exposes so a
 //! hand-crafted record can't push mesh/collider builders into NaN / OOM
 //! territory.
@@ -8,7 +9,7 @@
 use super::Sanitize;
 use super::common::{clamp_finite, sanitize_torture};
 use crate::pds::generator::GeneratorKind;
-use crate::pds::types::{Fp, Fp2};
+use crate::pds::types::{Fp, Fp2, Fp3};
 
 pub(super) fn sanitize_primitive(kind: &mut GeneratorKind) {
     let c_dim = |v: f32| clamp_finite(v, 0.01, 100.0, 1.0);
@@ -193,6 +194,60 @@ pub(super) fn sanitize_primitive(kind: &mut GeneratorKind) {
             }
             *latitudes = (*latitudes).clamp(4, 64);
             *longitudes = (*longitudes).clamp(4, 128);
+            material.sanitize();
+            sanitize_torture(torture);
+        }
+        GeneratorKind::Spine {
+            points,
+            resolution,
+            samples_per_segment,
+            material,
+            torture,
+            ..
+        } => {
+            points.truncate(super::limits::MAX_SWEEP_POINTS);
+            // A spline needs two ends; a starved list becomes a default
+            // vertical rod rather than an invisible / panicking prim.
+            while points.len() < 2 {
+                let i = points.len();
+                points.push(crate::pds::generator::SpinePoint {
+                    position: Fp3([0.0, i as f32 - 0.5, 0.0]),
+                    radius: Fp(0.15),
+                });
+            }
+            for p in points.iter_mut() {
+                for c in p.position.0.iter_mut() {
+                    *c = clamp_finite(*c, -100.0, 100.0, 0.0);
+                }
+                p.radius = Fp(c_dim(p.radius.0));
+            }
+            *resolution = (*resolution).clamp(3, 64);
+            *samples_per_segment = (*samples_per_segment).clamp(2, 32);
+            material.sanitize();
+            sanitize_torture(torture);
+        }
+        GeneratorKind::Lathe {
+            points,
+            resolution,
+            material,
+            torture,
+            ..
+        } => {
+            points.truncate(super::limits::MAX_SWEEP_POINTS);
+            while points.len() < 2 {
+                let i = points.len();
+                points.push(crate::pds::generator::LathePoint {
+                    radius: Fp(0.2),
+                    height: Fp(i as f32 - 0.5),
+                });
+            }
+            for p in points.iter_mut() {
+                // Radius may be exactly 0 (a pole pinch); height is a local
+                // offset like any position component.
+                p.radius = Fp(clamp_finite(p.radius.0, 0.0, 100.0, 0.1));
+                p.height = Fp(clamp_finite(p.height.0, -100.0, 100.0, 0.0));
+            }
+            *resolution = (*resolution).clamp(3, 128);
             material.sanitize();
             sanitize_torture(torture);
         }

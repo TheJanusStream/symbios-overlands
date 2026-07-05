@@ -2,7 +2,7 @@
 //!
 //! Every parametric primitive `GeneratorKind` variant (Cuboid / Sphere /
 //! Cylinder / Capsule / Cone / Torus / Plane / Tetrahedron / Tube / Bevel /
-//! Wedge / Helix / Superellipsoid) routes through [`build_primitive_mesh`] to
+//! Wedge / Helix / Superellipsoid / Spine / Lathe) routes through [`build_primitive_mesh`] to
 //! produce a Bevy `Mesh`. When the variant's
 //! [`TortureParams`](crate::pds::TortureParams) are non-identity,
 //! [`apply_vertex_torture`] mutates the mesh's `ATTRIBUTE_POSITION` buffer
@@ -24,6 +24,7 @@ mod cuts;
 mod prisms;
 mod shapes;
 mod superellipsoid;
+mod sweeps;
 mod torture;
 
 use avian3d::prelude::*;
@@ -340,6 +341,108 @@ mod tests {
     }
 
     #[test]
+    fn spine_passes_through_control_points_with_per_point_radius() {
+        use crate::pds::generator::SpinePoint;
+        // An L-bend with a fat base and thin tip: the tube must reach both
+        // endpoints and the surface radius near each end must match its
+        // control radius (Catmull-Rom passes through every point).
+        let kind = GeneratorKind::Spine {
+            points: vec![
+                SpinePoint {
+                    position: Fp3([0.0, -0.5, 0.0]),
+                    radius: Fp(0.2),
+                },
+                SpinePoint {
+                    position: Fp3([0.0, 0.3, 0.0]),
+                    radius: Fp(0.12),
+                },
+                SpinePoint {
+                    position: Fp3([0.5, 0.5, 0.0]),
+                    radius: Fp(0.05),
+                },
+            ],
+            resolution: 16,
+            samples_per_segment: 8,
+            solid: true,
+            material: SovereignMaterialSettings::default(),
+            torture: TortureParams::default(),
+        };
+        let mesh = build_primitive_mesh(&kind);
+        let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("no positions");
+        };
+        for p in pos {
+            assert!(p.iter().all(|c| c.is_finite()), "non-finite vertex {p:?}");
+        }
+        // Base ring: vertices near y=-0.5 sit ~0.2 from the start point.
+        let base_r = pos
+            .iter()
+            .filter(|p| p[1] < -0.45)
+            .map(|p| (p[0] * p[0] + p[2] * p[2]).sqrt())
+            .fold(0.0_f32, f32::max);
+        assert!((base_r - 0.2).abs() < 0.05, "base radius {base_r} != 0.2");
+        // The tube reaches the bent tip at (0.5, 0.5, 0).
+        assert!(
+            pos.iter()
+                .any(|p| (p[0] - 0.5).abs() < 0.1 && (p[1] - 0.5).abs() < 0.1),
+            "spine never reached its final control point"
+        );
+        for n in normals(&mesh) {
+            assert!(n.iter().all(|c| c.is_finite()), "non-finite normal {n:?}");
+            assert!((len(n) - 1.0).abs() < 1e-2, "non-unit normal {n:?}");
+        }
+    }
+
+    #[test]
+    fn lathe_profile_hits_its_stations_and_smooth_interpolates() {
+        use crate::pds::generator::LathePoint;
+        let lathe = |smooth: bool| GeneratorKind::Lathe {
+            points: vec![
+                LathePoint {
+                    radius: Fp(0.1),
+                    height: Fp(-0.5),
+                },
+                LathePoint {
+                    radius: Fp(0.4),
+                    height: Fp(0.0),
+                },
+                LathePoint {
+                    radius: Fp(0.1),
+                    height: Fp(0.5),
+                },
+            ],
+            resolution: 24,
+            smooth,
+            solid: true,
+            material: SovereignMaterialSettings::default(),
+            torture: TortureParams::default(),
+        };
+        for smooth in [false, true] {
+            let mesh = build_primitive_mesh(&lathe(smooth));
+            let Some(VertexAttributeValues::Float32x3(pos)) =
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("no positions");
+            };
+            // The belly station (r 0.4 at y 0) is on the surface either way —
+            // the spline passes through every control point.
+            let belly = pos
+                .iter()
+                .filter(|p| p[1].abs() < 0.05)
+                .map(|p| (p[0] * p[0] + p[2] * p[2]).sqrt())
+                .fold(0.0_f32, f32::max);
+            assert!(
+                (belly - 0.4).abs() < 0.05,
+                "belly radius {belly} != 0.4 (smooth={smooth})"
+            );
+            for n in normals(&mesh) {
+                assert!((len(n) - 1.0).abs() < 1e-2, "non-unit normal {n:?}");
+            }
+        }
+    }
+
+    #[test]
     fn tube_mesh_is_finite_unit_and_bounded() {
         // Default tube: outer 0.5, height 1.0.
         let kind = GeneratorKind::default_primitive_for_tag("Tube").unwrap();
@@ -399,20 +502,25 @@ mod tests {
             GeneratorKind::default_primitive_for_tag("Wedge").unwrap(),
             GeneratorKind::default_primitive_for_tag("Helix").unwrap(),
             GeneratorKind::default_primitive_for_tag("Superellipsoid").unwrap(),
+            GeneratorKind::default_primitive_for_tag("Spine").unwrap(),
+            GeneratorKind::default_primitive_for_tag("Lathe").unwrap(),
+            with_cut("Lathe", [0.0, 0.5], [0.0, 1.0], 0.0), // half-vase
+            with_cut("Lathe", [0.0, 1.0], [0.0, 1.0], 0.5), // hollow vase shell
+            with_cut("Lathe", [0.1, 0.9], [0.0, 1.0], 0.6), // cut hollow vase
             with_cut("Cylinder", [0.0, 0.5], [0.0, 1.0], 0.0), // half-cylinder
             with_cut("Cylinder", [0.0, 1.0], [0.0, 1.0], 0.5), // pipe
             with_cut("Cylinder", [0.0, 0.5], [0.0, 1.0], 0.6), // gutter
-            with_cut("Sphere", [0.0, 1.0], [0.5, 1.0], 0.0),   // dome
-            with_cut("Sphere", [0.0, 1.0], [0.0, 0.55], 0.7),  // bowl
-            with_cut("Sphere", [0.0, 0.5], [0.0, 1.0], 0.0),   // half-sphere
-            with_cut("Torus", [0.0, 0.5], [0.0, 1.0], 0.0),    // arch
-            with_cut("Torus", [0.0, 1.0], [0.0, 0.5], 0.0),    // C-channel
-            with_cut("Cone", [0.0, 0.5], [0.0, 1.0], 0.0),     // half-cone
-            with_cut("Cone", [0.0, 1.0], [0.0, 1.0], 0.5),     // funnel shell
-            with_cut("Cone", [0.25, 0.75], [0.0, 1.0], 0.4),   // cut funnel
-            with_cut("Capsule", [0.0, 1.0], [0.5, 1.0], 0.0),  // pill top half
-            with_cut("Capsule", [0.0, 0.5], [0.0, 1.0], 0.0),  // capsule wedge
-            with_cut("Capsule", [0.0, 1.0], [0.2, 0.8], 0.5),  // hollow sleeve
+            with_cut("Sphere", [0.0, 1.0], [0.5, 1.0], 0.0), // dome
+            with_cut("Sphere", [0.0, 1.0], [0.0, 0.55], 0.7), // bowl
+            with_cut("Sphere", [0.0, 0.5], [0.0, 1.0], 0.0), // half-sphere
+            with_cut("Torus", [0.0, 0.5], [0.0, 1.0], 0.0), // arch
+            with_cut("Torus", [0.0, 1.0], [0.0, 0.5], 0.0), // C-channel
+            with_cut("Cone", [0.0, 0.5], [0.0, 1.0], 0.0),  // half-cone
+            with_cut("Cone", [0.0, 1.0], [0.0, 1.0], 0.5),  // funnel shell
+            with_cut("Cone", [0.25, 0.75], [0.0, 1.0], 0.4), // cut funnel
+            with_cut("Capsule", [0.0, 1.0], [0.5, 1.0], 0.0), // pill top half
+            with_cut("Capsule", [0.0, 0.5], [0.0, 1.0], 0.0), // capsule wedge
+            with_cut("Capsule", [0.0, 1.0], [0.2, 0.8], 0.5), // hollow sleeve
             with_cut("Capsule", [0.0, 0.75], [0.1, 1.0], 0.3), // everything at once
         ];
         for k in &kinds {

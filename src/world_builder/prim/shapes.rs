@@ -17,6 +17,7 @@ use super::cuts::{
 };
 use super::prisms::{build_bevel_mesh, build_helix_mesh, build_tube_mesh, build_wedge_mesh};
 use super::superellipsoid::{build_superellipsoid, superellipsoid_hull_points};
+use super::sweeps::{build_lathe_mesh, build_spine_mesh, lathe_hull_points, spine_hull_points};
 
 /// Vertical wall subdivisions used when a vertex deform is active: the
 /// nonlinear deforms (bulge / bend / S-bend / twist) need mid-height
@@ -34,7 +35,7 @@ pub(in crate::world_builder) trait PrimitiveShape {
 
 /// A primitive variant split into the pieces every consumer needs: the
 /// shape behavior plus the `solid` / `material` fields shared by all
-/// thirteen variants. `None` for non-primitive kinds — the router's
+/// fifteen variants. `None` for non-primitive kinds — the router's
 /// primitive test.
 pub(in crate::world_builder) struct PrimParts<'a> {
     pub shape: Box<dyn PrimitiveShape + 'a>,
@@ -248,6 +249,42 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
                 exponent_ew: exponent_ew.0,
                 latitudes: *latitudes,
                 longitudes: *longitudes,
+            }),
+            solid,
+            material,
+        ),
+        GeneratorKind::Spine {
+            points,
+            resolution,
+            samples_per_segment,
+            solid,
+            material,
+            ..
+        } => parts(
+            Box::new(SpineShape {
+                points: points
+                    .iter()
+                    .map(|p| (Vec3::from_array(p.position.0), p.radius.0))
+                    .collect(),
+                resolution: *resolution,
+                samples_per_segment: *samples_per_segment,
+            }),
+            solid,
+            material,
+        ),
+        GeneratorKind::Lathe {
+            points,
+            resolution,
+            smooth,
+            torture,
+            solid,
+            material,
+        } => parts(
+            Box::new(LatheShape {
+                points: points.iter().map(|p| (p.radius.0, p.height.0)).collect(),
+                resolution: *resolution,
+                smooth: *smooth,
+                torture,
             }),
             solid,
             material,
@@ -629,6 +666,55 @@ impl PrimitiveShape for SuperellipsoidShape {
                     .max(self.half_extents[2]),
             )
         }))
+    }
+}
+
+struct SpineShape {
+    points: Vec<(Vec3, f32)>,
+    resolution: u32,
+    samples_per_segment: u32,
+}
+
+impl PrimitiveShape for SpineShape {
+    fn base_mesh(&self) -> Mesh {
+        build_spine_mesh(&self.points, self.resolution, self.samples_per_segment)
+    }
+    fn analytical_collider(&self) -> Option<Collider> {
+        // Hull of a coarse resample of the same stations the mesh uses; the
+        // concave side of a bend hull-fills (standoff-over-fidelity, like
+        // every tortured prim).
+        let points = spine_hull_points(&self.points);
+        Some(Collider::convex_hull(points).unwrap_or_else(|| Collider::sphere(0.5)))
+    }
+}
+
+struct LatheShape<'a> {
+    points: Vec<(f32, f32)>,
+    resolution: u32,
+    smooth: bool,
+    torture: &'a TortureParams,
+}
+
+impl PrimitiveShape for LatheShape<'_> {
+    fn base_mesh(&self) -> Mesh {
+        use std::f32::consts::TAU;
+        let (a0, a1) = if self.torture.cuts_are_identity() {
+            (0.0, TAU)
+        } else {
+            path_cut_angles(self.torture)
+        };
+        build_lathe_mesh(
+            &self.points,
+            self.resolution,
+            self.smooth,
+            self.torture.hollow.0,
+            a0,
+            a1,
+        )
+    }
+    fn analytical_collider(&self) -> Option<Collider> {
+        let points = lathe_hull_points(&self.points, self.smooth);
+        Some(Collider::convex_hull(points).unwrap_or_else(|| Collider::sphere(0.5)))
     }
 }
 

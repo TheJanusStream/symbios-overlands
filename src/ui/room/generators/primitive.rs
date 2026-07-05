@@ -4,6 +4,8 @@
 
 use bevy_egui::egui;
 
+use crate::pds::generator::{LathePoint, SpinePoint};
+use crate::pds::sanitize::limits::MAX_SWEEP_POINTS;
 use crate::pds::{Fp, Fp2, Fp3, SovereignMaterialSettings, TortureParams};
 
 use super::super::construct::{draw_torture, draw_universal_material};
@@ -305,6 +307,141 @@ pub(super) fn draw_primitive_superellipsoid(
     ui.horizontal(|ui| {
         drag_u32(ui, "Lats", latitudes, 4, 64, dirty);
         drag_u32(ui, "Lons", longitudes, 4, 128, dirty);
+    });
+    draw_common_primitive(ui, solid, material, torture, salt, dirty);
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn draw_primitive_spine(
+    ui: &mut egui::Ui,
+    points: &mut Vec<SpinePoint>,
+    resolution: &mut u32,
+    samples_per_segment: &mut u32,
+    solid: &mut bool,
+    material: &mut SovereignMaterialSettings,
+    torture: &mut TortureParams,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    ui.label("Spine points (X/Y/Z, radius):");
+    let mut remove: Option<usize> = None;
+    for (i, p) in points.iter_mut().enumerate() {
+        ui.horizontal(|ui| {
+            ui.label(format!("{i}"));
+            let mut v = p.position.0;
+            let mut changed = false;
+            for axis in v.iter_mut() {
+                changed |= ui
+                    .add(egui::DragValue::new(axis).speed(0.05).range(-100.0..=100.0))
+                    .changed();
+            }
+            if changed {
+                p.position = Fp3(v);
+                *dirty = true;
+            }
+            let mut r = p.radius.0;
+            if ui
+                .add(egui::DragValue::new(&mut r).speed(0.01).range(0.01..=100.0))
+                .changed()
+            {
+                p.radius = Fp(r);
+                *dirty = true;
+            }
+            if ui.button("−").on_hover_text("Remove point").clicked() {
+                remove = Some(i);
+            }
+        });
+    }
+    if let Some(i) = remove
+        && points.len() > 2
+    {
+        points.remove(i);
+        *dirty = true;
+    }
+    if points.len() < MAX_SWEEP_POINTS && ui.button("+ point").clicked() {
+        // Extend past the current end, continuing the last segment's
+        // direction so the new point doesn't fold the spline back.
+        let last = points[points.len() - 1];
+        let prev = points[points.len() - 2];
+        let step = [
+            last.position.0[0] * 2.0 - prev.position.0[0],
+            last.position.0[1] * 2.0 - prev.position.0[1],
+            last.position.0[2] * 2.0 - prev.position.0[2],
+        ];
+        points.push(SpinePoint {
+            position: Fp3(step),
+            radius: last.radius,
+        });
+        *dirty = true;
+    }
+    ui.horizontal(|ui| {
+        drag_u32(ui, "Ring segs", resolution, 3, 64, dirty);
+        drag_u32(ui, "Samples/seg", samples_per_segment, 2, 32, dirty);
+    });
+    draw_common_primitive(ui, solid, material, torture, salt, dirty);
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn draw_primitive_lathe(
+    ui: &mut egui::Ui,
+    points: &mut Vec<LathePoint>,
+    resolution: &mut u32,
+    smooth: &mut bool,
+    solid: &mut bool,
+    material: &mut SovereignMaterialSettings,
+    torture: &mut TortureParams,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    ui.label("Profile (radius, height — bottom to top):");
+    let mut remove: Option<usize> = None;
+    for (i, p) in points.iter_mut().enumerate() {
+        ui.horizontal(|ui| {
+            ui.label(format!("{i}"));
+            let mut r = p.radius.0;
+            if ui
+                .add(egui::DragValue::new(&mut r).speed(0.01).range(0.0..=100.0))
+                .changed()
+            {
+                p.radius = Fp(r);
+                *dirty = true;
+            }
+            let mut h = p.height.0;
+            if ui
+                .add(
+                    egui::DragValue::new(&mut h)
+                        .speed(0.05)
+                        .range(-100.0..=100.0),
+                )
+                .changed()
+            {
+                p.height = Fp(h);
+                *dirty = true;
+            }
+            if ui.button("−").on_hover_text("Remove station").clicked() {
+                remove = Some(i);
+            }
+        });
+    }
+    if let Some(i) = remove
+        && points.len() > 2
+    {
+        points.remove(i);
+        *dirty = true;
+    }
+    if points.len() < MAX_SWEEP_POINTS && ui.button("+ station").clicked() {
+        let last = points[points.len() - 1];
+        points.push(LathePoint {
+            radius: last.radius,
+            height: Fp(last.height.0 + 0.25),
+        });
+        *dirty = true;
+    }
+    ui.horizontal(|ui| {
+        drag_u32(ui, "Revolve segs", resolution, 3, 128, dirty);
+        if ui.checkbox(smooth, "Smooth (spline)").changed() {
+            *dirty = true;
+        }
     });
     draw_common_primitive(ui, solid, material, torture, salt, dirty);
 }

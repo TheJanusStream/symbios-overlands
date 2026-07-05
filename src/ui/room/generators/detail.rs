@@ -18,9 +18,9 @@ use super::GeneratorTreeSource;
 use super::particles::draw_generator_particles;
 use super::primitive::{
     draw_primitive_bevel, draw_primitive_capsule, draw_primitive_cone, draw_primitive_cuboid,
-    draw_primitive_cylinder, draw_primitive_helix, draw_primitive_plane, draw_primitive_sphere,
-    draw_primitive_superellipsoid, draw_primitive_tetrahedron, draw_primitive_torus,
-    draw_primitive_tube,
+    draw_primitive_cylinder, draw_primitive_helix, draw_primitive_lathe, draw_primitive_plane,
+    draw_primitive_sphere, draw_primitive_spine, draw_primitive_superellipsoid,
+    draw_primitive_tetrahedron, draw_primitive_torus, draw_primitive_tube,
 };
 use super::reparent::{current_id, find_node, find_node_mut};
 use super::sign::draw_generator_sign;
@@ -488,6 +488,34 @@ fn draw_generator_detail(
             torture,
             salt,
             dirty,
+        ),
+        GeneratorKind::Spine {
+            points,
+            resolution,
+            samples_per_segment,
+            solid,
+            material,
+            torture,
+        } => draw_primitive_spine(
+            ui,
+            points,
+            resolution,
+            samples_per_segment,
+            solid,
+            material,
+            torture,
+            salt,
+            dirty,
+        ),
+        GeneratorKind::Lathe {
+            points,
+            resolution,
+            smooth,
+            solid,
+            material,
+            torture,
+        } => draw_primitive_lathe(
+            ui, points, resolution, smooth, solid, material, torture, salt, dirty,
         ),
         GeneratorKind::Sign {
             source,
