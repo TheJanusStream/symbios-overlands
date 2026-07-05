@@ -11,8 +11,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::pds::avatar::default_visuals::common::{
-    capsule, cuboid, cylinder, id_quat, prim, quat_x, quat_xyzw, quat_z, sphere, torus, with_shape,
-    with_torture,
+    blob_ellipsoid, blob_group, capsule, cuboid, cylinder, id_quat, prim, quat_x, quat_xyzw,
+    quat_z, sphere, spine, torus, with_shape,
 };
 use crate::pds::generator::Generator;
 use crate::pds::texture::SovereignMaterialSettings;
@@ -26,29 +26,77 @@ mod head;
 
 pub(super) use head::head;
 
-/// Trunk shaping shared by [`torso`] and [`coat`]: a capsule authored at the
-/// waist radius whose torture-flare widens the top to the chest radius (the
-/// athletic V), plus the whole part flattened front-to-back (`bp.depth`) so
-/// the body is wider than deep instead of a barrel. Children authored on the
-/// trunk surface inherit the root's Z-squash and stay flush.
-fn trunk(ctx: &PartCtx, chest_r: f32, shell: SovereignMaterialSettings) -> Generator {
+/// Trunk shaping shared by [`torso`] and [`coat`] (#690): one BlobGroup
+/// whose blended elements are the waist column, chest-out and upper-back
+/// masses, and the shoulder yoke — a single seamless skin where the old
+/// capsule + bolted-ellipsoid stack showed intersection seams ("the trunk
+/// capsule alone is a straight sausage in profile"). The front-to-back
+/// flattening (`bp.depth`) is baked into every element's Z semi-axis, so
+/// the root carries NO scale — surface children no longer inherit a
+/// Z-squash (multiply authored Z offsets by `bp.depth` instead), and the
+/// old root-scale squash trap is gone. `fullness` bulks the coat trunk.
+fn trunk(
+    ctx: &PartCtx,
+    chest_r: f32,
+    fullness: f32,
+    shell: SovereignMaterialSettings,
+) -> Generator {
     let bp = &ctx.blueprint;
     // Same waist:chest ratio whatever chest the caller passes (the coat
     // trunk is a touch bulkier than the shirt's).
     let waist_r = chest_r * (bp.waist_r / bp.chest_r);
-    let flare = -(chest_r / waist_r - 1.0);
-    let mut t = prim(
-        with_torture(
-            capsule(waist_r, bp.trunk_len, shell),
-            0.0,
-            flare,
-            [0.0, 0.0, 0.0],
+    let len = bp.trunk_len;
+    let d = bp.depth;
+    let yoke_y = bp.shoulder_y - bp.torso_y;
+    let blend = chest_r * 0.45;
+    let mid_r = (waist_r + chest_r) * 0.5;
+    let elements = vec![
+        // Waist / hip column.
+        blob_ellipsoid(
+            [0.0, -len * 0.30, 0.0],
+            [waist_r, len * 0.32, waist_r * d],
+            id_quat(),
+            blend,
         ),
-        [0.0, 0.0, 0.0],
-        id_quat(),
-    );
-    t.transform.scale = Fp3([1.0, 1.0, bp.depth]);
-    t
+        // Mid column keeping the waist→chest V continuous.
+        blob_ellipsoid(
+            [0.0, len * 0.02, 0.0],
+            [mid_r * 0.96, len * 0.30, mid_r * 0.85 * d],
+            id_quat(),
+            blend,
+        ),
+        // Chest-out mass — positioned to reproduce the old bolted
+        // ellipsoid's front surface exactly (assembler-mounted chest
+        // accessories seat against it).
+        // The Y semi-axis reaches down past the assembler's ornament line
+        // (torso_y - 0.04·len), where mounted pins expect a front surface
+        // of at least 0.92·chest_r — the blob must keep that contract.
+        blob_ellipsoid(
+            [0.0, yoke_y * 0.42, -chest_r * 0.45 * d],
+            [chest_r * 0.92 * fullness, len * 0.42, chest_r * 0.62 * d],
+            id_quat(),
+            blend,
+        ),
+        // Upper-back / shoulder-blade mass (same back-surface contract).
+        blob_ellipsoid(
+            [0.0, yoke_y * 0.62, chest_r * 0.50 * d],
+            [chest_r * 0.88 * fullness, len * 0.30, chest_r * 0.42 * d],
+            id_quat(),
+            blend,
+        ),
+        // Shoulder yoke sloping down to the arm mounts.
+        blob_ellipsoid(
+            [0.0, yoke_y, 0.0],
+            [
+                bp.shoulder_x + bp.arm_r * 0.7 * fullness,
+                chest_r * 0.46,
+                chest_r * 0.90 * d,
+            ],
+            id_quat(),
+            blend * 0.8,
+        ),
+    ];
+    prim(blob_group(elements, 40, shell), [0.0, 0.0, 0.0], id_quat())
 }
 
 pub(super) fn torso(ctx: &PartCtx) -> Generator {
@@ -60,63 +108,41 @@ pub(super) fn torso(ctx: &PartCtx) -> Generator {
     let collar = ctx.materials.trim(ctx.palette.secondary_accent);
     let belt = ctx.materials.trim(ctx.palette.tertiary_accent);
 
-    // V-tapered trunk, flattened front-to-back (see [`trunk`]).
-    let mut torso = trunk(ctx, chest_r, shirt.clone());
-
-    // Shoulder yoke — a wide flattened ellipsoid laid across the top of the
-    // trunk, sloping down to the arm mounts (real shoulders; the arm parts
-    // carry only a small deltoid cap). Sized so its tips reach past the arm
-    // mounts and its slope stays *above* the deltoid caps — the old smaller
-    // yoke left the caps cresting the trunk line as back-view "horns".
+    // One blended trunk skin: waist column + chest/back masses + shoulder
+    // yoke as BlobGroup elements (see [`trunk`]). The root carries no
+    // scale, so surface children bake `bp.depth` into their Z offsets and
+    // squash themselves with leaf scale where they wrap the trunk.
+    let mut torso = trunk(ctx, chest_r, 1.0, shirt);
     let yoke_y = bp.shoulder_y - bp.torso_y;
-    let mut yoke = prim(sphere(1.0, 3, shirt.clone()), [0.0, yoke_y, 0.0], id_quat());
-    yoke.transform.scale = Fp3([
-        bp.shoulder_x + bp.arm_r * 0.7,
-        chest_r * 0.45,
-        chest_r * 0.92,
-    ]);
-    torso.children.push(yoke);
-    // Chest + upper-back masses: the trunk capsule alone is a straight
-    // sausage in profile — these two ellipsoids give it a chest-out /
-    // shoulder-blade curve (children of the depth-squashed root, so they
-    // follow the flattening).
-    let mut chest = prim(
-        sphere(1.0, 3, shirt.clone()),
-        [0.0, yoke_y * 0.42, -chest_r * 0.45],
-        id_quat(),
-    );
-    chest.transform.scale = Fp3([chest_r * 0.86, len * 0.34, chest_r * 0.62]);
-    torso.children.push(chest);
-    let mut back = prim(
-        sphere(1.0, 3, shirt.clone()),
-        [0.0, yoke_y * 0.62, chest_r * 0.5],
-        id_quat(),
-    );
-    back.transform.scale = Fp3([chest_r * 0.86, len * 0.26, chest_r * 0.42]);
-    torso.children.push(back);
-    // Collar ring at the neckline.
-    torso.children.push(prim(
+    let d = bp.depth;
+
+    // Collar ring at the neckline, squashed to the trunk's oval section.
+    let mut ring = prim(
         torus(0.02, bp.neck_r * 1.35, collar.clone()),
         [0.0, yoke_y + chest_r * 0.30, 0.0],
         id_quat(),
-    ));
-    // Centre placket — a short front seam on the *chest mass* (its front
+    );
+    ring.transform.scale = Fp3([1.0, 1.0, d]);
+    torso.children.push(ring);
+    // Centre placket — a short front seam on the chest mass (its front
     // is near-vertical, so the strip stays flush where the tapering trunk
     // would let it float).
     torso.children.push(prim(
         cuboid([chest_r * 0.13, len * 0.30, 0.015], collar),
-        [0.0, yoke_y * 0.30, -(chest_r * 1.02 + 0.006)],
+        [0.0, yoke_y * 0.30, -(chest_r * 1.02 * d + 0.006)],
         id_quat(),
     ));
     // Belt at the waist — gives the trunk a waistline instead of a smooth tube.
-    torso.children.push(prim(
+    let mut belt_ring = prim(
         torus(0.02, waist_r * 1.02, belt),
         [0.0, -len * 0.42, 0.0],
         id_quat(),
-    ));
+    );
+    belt_ring.transform.scale = Fp3([1.0, 1.0, d]);
+    torso.children.push(belt_ring);
     // Shirt hem — a soft flare ring at the trunk bottom breaking the
     // torso-into-trousers column.
-    torso.children.push(prim(
+    let mut hem = prim(
         torus(
             0.025,
             waist_r * 1.0,
@@ -124,7 +150,9 @@ pub(super) fn torso(ctx: &PartCtx) -> Generator {
         ),
         [0.0, -len * 0.5, 0.0],
         id_quat(),
-    ));
+    );
+    hem.transform.scale = Fp3([1.0, 1.0, d]);
+    torso.children.push(hem);
     torso
 }
 
@@ -142,47 +170,33 @@ pub(super) fn coat(ctx: &PartCtx) -> Generator {
     let collar = ctx.materials.trim(ctx.palette.secondary_accent);
     let btn = ctx.materials.trim(ctx.palette.tertiary_accent);
 
-    let mut torso = trunk(ctx, chest_r, shell.clone());
-    // Shoulder yoke (as the shirt) — a touch broader for the coat's bulk.
+    // Fuller blended trunk than the shirt's (see [`trunk`]); the root is
+    // unscaled, so authored Z offsets bake in `bp.depth`.
+    let mut torso = trunk(ctx, chest_r, 1.06, shell);
     let yoke_y = bp.shoulder_y - bp.torso_y;
-    let mut yoke = prim(sphere(1.0, 3, shell.clone()), [0.0, yoke_y, 0.0], id_quat());
-    yoke.transform.scale = Fp3([
-        bp.shoulder_x + bp.arm_r * 0.8,
-        chest_r * 0.47,
-        chest_r * 0.95,
-    ]);
-    torso.children.push(yoke);
-    // Chest / upper-back masses (see [`torso`]) — the coat wears them a
-    // touch fuller.
-    let mut chest = prim(
-        sphere(1.0, 3, shell.clone()),
-        [0.0, yoke_y * 0.42, -chest_r * 0.45],
-        id_quat(),
-    );
-    chest.transform.scale = Fp3([chest_r * 0.9, len * 0.36, chest_r * 0.64]);
-    torso.children.push(chest);
-    let mut back = prim(
-        sphere(1.0, 3, shell.clone()),
-        [0.0, yoke_y * 0.62, chest_r * 0.5],
-        id_quat(),
-    );
-    back.transform.scale = Fp3([chest_r * 0.9, len * 0.28, chest_r * 0.44]);
-    torso.children.push(back);
+    let d = bp.depth;
     // Lapel V — two lining-colour strips angled outward at the throat,
     // seated on the chest mass so they stay flush on tapered trunks.
     for s in [-1.0f32, 1.0] {
         torso.children.push(prim(
             cuboid([0.03, len * 0.55, 0.02], lining.clone()),
-            [s * chest_r * 0.30, len * 0.14, -(chest_r * 1.02 + 0.005)],
+            [
+                s * chest_r * 0.30,
+                len * 0.14,
+                -(chest_r * 1.02 * d + 0.005),
+            ],
             quat_xyzw(quat_z(s * 0.35)),
         ));
     }
-    // Stand collar — a short ring standing at the neckline.
-    torso.children.push(prim(
+    // Stand collar — a short ring standing at the neckline, squashed to
+    // the trunk's oval section.
+    let mut stand = prim(
         cylinder(bp.neck_r * 1.5, 0.09, 12, collar),
         [0.0, yoke_y + chest_r * 0.30, 0.0],
         id_quat(),
-    ));
+    );
+    stand.transform.scale = Fp3([1.0, 1.0, d]);
+    torso.children.push(stand);
     // Button row down the centre.
     for i in 0..3 {
         let by = len * (0.20 - 0.24 * i as f32);
@@ -191,17 +205,19 @@ pub(super) fn coat(ctx: &PartCtx) -> Generator {
             [
                 0.0,
                 by,
-                -(bp.trunk_radius_at(bp.torso_y + by).max(chest_r * 0.9) + 0.014),
+                -(bp.trunk_radius_at(bp.torso_y + by).max(chest_r * 0.9) * d + 0.014),
             ],
             id_quat(),
         ));
     }
-    // Belt at the waist.
-    torso.children.push(prim(
+    // Belt at the waist, squashed to the trunk's oval section.
+    let mut belt = prim(
         torus(0.022, bp.waist_r * 1.06, btn),
         [0.0, -len * 0.42, 0.0],
         id_quat(),
-    ));
+    );
+    belt.transform.scale = Fp3([1.0, 1.0, d]);
+    torso.children.push(belt);
     torso
 }
 
@@ -218,11 +234,16 @@ pub(super) fn arm(ctx: &PartCtx) -> Generator {
     let sleeve = ctx.materials.body(ctx.palette.primary_accent);
     let cuff = ctx.materials.trim(ctx.palette.secondary_accent);
 
-    // A true kinematic chain: shoulder → upper arm → elbow → forearm → hand,
-    // each segment a *child* of the one above and pinned to its parent's far
-    // end, so a joint rotation propagates down the chain (the assembler's
-    // shoulder splay swings the whole arm; the elbow bend swings forearm +
-    // hand together) and each segment is authored in its own local frame.
+    // One Spine prim replaces the old shoulder→upper→elbow→forearm capsule
+    // chain (#690): the elbow bend is baked into the spline path, the
+    // shoulder→elbow→wrist taper into the per-point radii, and the joint
+    // flows smoothly instead of showing a sphere-joint seam. The assembler
+    // still rotates the shoulder root for splay; hand / cuff children sit
+    // at the *computed* bent-frame positions the chain used to produce.
+    let (st, ct) = theta.sin_cos();
+    let elbow_y = -(l1 + r * 0.30);
+    // A point `v` below the elbow along the bent forearm axis (front is -Z).
+    let bent = |v: f32| [0.0, elbow_y - v * ct, -v * st];
 
     // Shoulder root = the pivot the assembler rotates the whole arm about.
     // It must carry NO scale — node scale propagates down the Bevy child
@@ -244,49 +265,30 @@ pub(super) fn arm(ctx: &PartCtx) -> Generator {
     cap.transform.scale = Fp3([0.95, 0.62, 0.88]);
     shoulder.children.push(cap);
 
-    // Upper arm (shoulder → elbow): bare-skin capsule centred at -l1/2, a
-    // direct child of the shoulder, tapering down to the elbow.
-    let mut upper = prim(
-        with_torture(
-            capsule(elbow_r, l1, skin.clone()),
-            0.0,
-            -(r / elbow_r - 1.0),
-            [0.0, 0.0, 0.0],
-        ),
-        [0.0, -l1 * 0.5 - r * 0.30, 0.0],
+    // The whole bare arm: shoulder → elbow → wrist through one spline, a
+    // slight mid-upper station keeping the biceps line full.
+    let arm_pts = [
+        ([0.0, -r * 0.15, 0.0], r * 0.98),
+        ([0.0, elbow_y * 0.55, 0.0], r * 0.96),
+        ([0.0, elbow_y, 0.0], elbow_r),
+        (bent(l2), wrist_r),
+    ];
+    let mut limb = prim(
+        spine(&arm_pts, 12, skin.clone()),
+        [0.0, 0.0, 0.0],
         id_quat(),
     );
-    // Short sleeve cap over the top of the upper arm (child, in upper-local).
-    upper.children.push(prim(
+    // Short sleeve cap over the top of the upper arm.
+    limb.children.push(prim(
         capsule(r * 1.08, l1 * 0.5, sleeve),
-        [0.0, l1 * 0.22, 0.0],
+        [0.0, -r * 0.30 - l1 * 0.28, 0.0],
         id_quat(),
     ));
-
-    // Elbow node: child of the upper arm, seated at its far end (upper-local
-    // -l1/2) and carrying the forward bend. Everything below pivots here.
-    let mut elbow = prim(
-        sphere(elbow_r, 2, skin.clone()),
-        [0.0, -l1 * 0.5, 0.0],
-        quat_xyzw(quat_x(theta)),
-    );
-    // Forearm (elbow → wrist): child of the elbow, centred at -l2/2 in the
-    // (already bent) elbow frame, tapering to the wrist.
-    let mut forearm = prim(
-        with_torture(
-            capsule(wrist_r, l2, skin.clone()),
-            0.0,
-            -(elbow_r / wrist_r - 1.0),
-            [0.0, 0.0, 0.0],
-        ),
-        [0.0, -l2 * 0.5, 0.0],
-        id_quat(),
-    );
-    // Wrist cuff at the forearm's far end.
-    forearm.children.push(prim(
+    // Wrist cuff, aligned with the bent forearm axis.
+    limb.children.push(prim(
         cylinder(wrist_r * 1.12, 0.03, 8, cuff),
-        [0.0, -l2 * 0.5, 0.0],
-        id_quat(),
+        bent(l2),
+        quat_xyzw(quat_x(theta)),
     ));
     // Hand: palm + a cupped finger block just past the wrist, sized from the
     // blueprint's hand length (canon: hand ≈ face; small hands read doll-
@@ -301,8 +303,8 @@ pub(super) fn arm(ctx: &PartCtx) -> Generator {
     let hand_d = (wrist_r * 1.6).min(hand_w * 0.7);
     let mut palm = prim(
         cuboid([hand_w, hand * 0.52, hand_d], skin.clone()),
-        [0.0, -l2 * 0.5 - hand * 0.26, 0.0],
-        id_quat(),
+        bent(l2 + hand * 0.26),
+        quat_xyzw(quat_x(theta)),
     );
     // Finger block tapers toward the tips (a mitten, not a box). The block
     // hangs -Y, so the taper runs on the *flipped* prim: author it upside
@@ -319,10 +321,8 @@ pub(super) fn arm(ctx: &PartCtx) -> Generator {
     );
     fingers.transform.scale = Fp3([1.0, 1.0, 1.0]);
     palm.children.push(fingers);
-    forearm.children.push(palm);
-    elbow.children.push(forearm);
-    upper.children.push(elbow);
-    shoulder.children.push(upper);
+    limb.children.push(palm);
+    shoulder.children.push(limb);
     shoulder
 }
 
@@ -341,9 +341,13 @@ pub(super) fn leg(ctx: &PartCtx) -> Generator {
     let trousers = ctx.materials.body(shade(ctx.palette.primary_accent, 0.6));
     let shoe = ctx.materials.body(ctx.palette.secondary_accent);
 
-    // Kinematic chain mirroring the arm: hip → thigh → knee → shin → foot,
-    // each segment a child pinned to its parent's far end, so the knee bend
-    // carries the shin + foot together.
+    // One Spine prim replaces the old hip→thigh→knee→shin chain (#690):
+    // the knee bend is baked into the path, the hip→knee→ankle taper into
+    // the per-point radii, and a calf station keeps the shin from reading
+    // as a straight taper. The hip root stays the assembler's pivot.
+    let (st, ct) = theta.sin_cos();
+    // A point `v` below the knee along the bent shin axis (front is -Z).
+    let bent = |v: f32| [0.0, -l1 - v * ct, -v * st];
 
     // Hip root = hip joint at the origin (the assembler's hip pivot). Kept
     // barely wider than the thigh so it doesn't bulge through the pelvis.
@@ -352,40 +356,22 @@ pub(super) fn leg(ctx: &PartCtx) -> Generator {
         [0.0, 0.0, 0.0],
         id_quat(),
     );
-    // Thigh (hip → knee), flaring up toward the hip.
-    let mut thigh = prim(
-        with_torture(
-            capsule(r, l1, trousers.clone()),
-            0.0,
-            -(hip_r / r - 1.0),
-            [0.0, 0.0, 0.0],
-        ),
-        [0.0, -l1 * 0.5, 0.0],
+    let leg_pts = [
+        ([0.0, -hip_r * 0.2, 0.0], hip_r),
+        ([0.0, -l1, 0.0], r),
+        (bent(l2 * 0.35), r * 0.92),
+        (bent(l2), ankle_r),
+    ];
+    let mut limb = prim(
+        spine(&leg_pts, 12, trousers.clone()),
+        [0.0, 0.0, 0.0],
         id_quat(),
     );
-    // Knee node: child of the thigh, at its far end, carrying the forward bend.
-    let mut knee = prim(
-        sphere(r * 0.98, 2, trousers.clone()),
-        [0.0, -l1 * 0.5, 0.0],
-        quat_xyzw(quat_x(theta)),
-    );
-    // Shin (knee → ankle): child of the knee, centred at -l2/2 in the bent
-    // frame, tapering to the ankle.
-    let mut shin = prim(
-        with_torture(
-            capsule(ankle_r, l2, trousers.clone()),
-            0.0,
-            -(r * 0.95 / ankle_r - 1.0),
-            [0.0, 0.0, 0.0],
-        ),
-        [0.0, -l2 * 0.5, 0.0],
-        id_quat(),
-    );
-    // Trouser cuff at the ankle.
-    shin.children.push(prim(
+    // Trouser cuff at the ankle, aligned with the bent shin axis.
+    limb.children.push(prim(
         cylinder(ankle_r * 1.14, 0.04, 8, trousers),
-        [0.0, -l2 * 0.5 + 0.02, 0.0],
-        id_quat(),
+        bent(l2 - 0.02),
+        quat_xyzw(quat_x(theta)),
     ));
     // Shoe — a forward-pointing shoe at the ankle (-Z is the front), sized
     // from the blueprint's foot length so the figure reads planted: a thin
@@ -400,8 +386,11 @@ pub(super) fn leg(ctx: &PartCtx) -> Generator {
         .metal(shade(ctx.palette.secondary_accent, 0.45));
     let mut foot = prim(
         cuboid([ankle_r * 2.1, 0.03, foot_l], sole),
-        [0.0, -l2 * 0.5 - sole_drop, -foot_l * 0.37],
-        id_quat(),
+        {
+            let a = bent(l2 + sole_drop);
+            [a[0], a[1], a[2] - foot_l * 0.37]
+        },
+        quat_xyzw(quat_x(theta)),
     );
     // Rounded upper laid horizontally along the foot (capsule axis Y → Z),
     // seated low so it swallows the thin sole rather than perching on it.
@@ -420,9 +409,7 @@ pub(super) fn leg(ctx: &PartCtx) -> Generator {
     );
     toe.transform.scale = Fp3([1.25, 0.85, 1.0]);
     foot.children.push(toe);
-    shin.children.push(foot);
-    knee.children.push(shin);
-    thigh.children.push(knee);
-    hip.children.push(thigh);
+    limb.children.push(foot);
+    hip.children.push(limb);
     hip
 }

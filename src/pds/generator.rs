@@ -286,6 +286,60 @@ impl TortureParams {
     }
 }
 
+/// Primitive shape of one [`BlobElement`]. Open union so future shapes
+/// (torus? cone?) degrade gracefully on older clients — an `Unknown`
+/// element evaluates as a sphere rather than failing the record.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+#[serde(tag = "$type")]
+pub enum BlobShape {
+    #[serde(rename = "network.symbios.blob.sphere")]
+    #[default]
+    Sphere,
+    /// Capsule along the element's local +Y axis.
+    #[serde(rename = "network.symbios.blob.capsule")]
+    Capsule,
+    #[serde(rename = "network.symbios.blob.ellipsoid")]
+    Ellipsoid,
+    #[serde(other)]
+    Unknown,
+}
+
+/// One stamp in a [`GeneratorKind::BlobGroup`]'s ordered edit list — the
+/// Dreams model: elements evaluate in list order, each smoothly added to
+/// (or carved out of) everything before it.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct BlobElement {
+    pub shape: BlobShape,
+    /// Element centre in the prim's local space.
+    pub position: Fp3,
+    /// Element orientation (unit quaternion) — orients a capsule's axis or
+    /// an ellipsoid's semi-axes; irrelevant for a sphere.
+    pub rotation: Fp4,
+    /// Per-shape size: Sphere uses `radii[0]`; Ellipsoid reads all three as
+    /// semi-axes; Capsule reads `radii[0]` = tube radius and `radii[1]` =
+    /// half-length of the core segment.
+    pub radii: Fp3,
+    /// `true` carves this element out of the accumulated shape (smooth
+    /// subtraction — eye sockets, nostrils, creases) instead of adding it.
+    pub subtract: bool,
+    /// Smooth-blend distance (metres): how far from contact this element
+    /// starts merging with the accumulated surface. `0` = hard union.
+    pub blend: Fp,
+}
+
+impl Default for BlobElement {
+    fn default() -> Self {
+        Self {
+            shape: BlobShape::Sphere,
+            position: Fp3([0.0, 0.0, 0.0]),
+            rotation: Fp4([0.0, 0.0, 0.0, 1.0]),
+            radii: Fp3([0.25, 0.25, 0.25]),
+            subtract: false,
+            blend: Fp(0.1),
+        }
+    }
+}
+
 /// One control point of a [`GeneratorKind::Spine`]: a local-space position
 /// the tube's centreline passes through, and the tube radius there. Both are
 /// interpolated with the same Catmull-Rom spline, so the radius flows as
@@ -777,6 +831,26 @@ pub enum GeneratorKind {
         torture: TortureParams,
     },
 
+    /// Smooth-blend SDF group — an ordered list of add/subtract elements
+    /// (spheres / capsules / ellipsoids) evaluated as one signed distance
+    /// field with per-element polynomial smooth-min, then meshed once on
+    /// spawn with surface nets. The Spore / Dreams organic primitive: a
+    /// pile of overlapping ellipsoids becomes one seamless muscle mass, a
+    /// subtracted sphere carves an eye socket, and the result is watertight
+    /// by construction (a broken mesh is unrepresentable). `resolution` is
+    /// the sample-grid cell count along the group's longest axis — the
+    /// quality/cost dial, clamped hard in sanitize because grid cost is
+    /// cubic.
+    #[serde(rename = "network.symbios.gen.blob_group")]
+    BlobGroup {
+        elements: Vec<BlobElement>,
+        resolution: u32,
+        solid: bool,
+        material: SovereignMaterialSettings,
+        #[serde(default)]
+        torture: TortureParams,
+    },
+
     /// Hand-rolled CPU + ECS particle emitter. Spawns billboarded /
     /// velocity-aligned quads from a parametric shape (point / sphere /
     /// box / cone), integrates them with gravity / drag / constant
@@ -1054,7 +1128,8 @@ impl GeneratorKind {
             | GeneratorKind::Helix { torture, .. }
             | GeneratorKind::Superellipsoid { torture, .. }
             | GeneratorKind::Spine { torture, .. }
-            | GeneratorKind::Lathe { torture, .. } => Some(torture),
+            | GeneratorKind::Lathe { torture, .. }
+            | GeneratorKind::BlobGroup { torture, .. } => Some(torture),
             _ => None,
         }
     }
@@ -1077,7 +1152,8 @@ impl GeneratorKind {
             | GeneratorKind::Helix { torture, .. }
             | GeneratorKind::Superellipsoid { torture, .. }
             | GeneratorKind::Spine { torture, .. }
-            | GeneratorKind::Lathe { torture, .. } => Some(torture),
+            | GeneratorKind::Lathe { torture, .. }
+            | GeneratorKind::BlobGroup { torture, .. } => Some(torture),
             _ => None,
         }
     }
@@ -1103,6 +1179,7 @@ impl GeneratorKind {
                 | GeneratorKind::Superellipsoid { .. }
                 | GeneratorKind::Spine { .. }
                 | GeneratorKind::Lathe { .. }
+                | GeneratorKind::BlobGroup { .. }
         )
     }
 
@@ -1132,6 +1209,7 @@ impl GeneratorKind {
             GeneratorKind::Superellipsoid { .. } => "Superellipsoid",
             GeneratorKind::Spine { .. } => "Spine",
             GeneratorKind::Lathe { .. } => "Lathe",
+            GeneratorKind::BlobGroup { .. } => "BlobGroup",
             GeneratorKind::Sign { .. } => "Sign",
             GeneratorKind::ParticleSystem(..) => "ParticleSystem",
             GeneratorKind::Unknown => "Unknown",
@@ -1300,6 +1378,27 @@ impl GeneratorKind {
                 ],
                 resolution: 24,
                 smooth: true,
+                solid: true,
+                material: mat,
+                torture: TortureParams::default(),
+            },
+            // Two generously-blended spheres — the smallest recipe that
+            // shows what the prim is for (they merge into one peanut mass).
+            "BlobGroup" => GeneratorKind::BlobGroup {
+                elements: vec![
+                    BlobElement {
+                        position: Fp3([0.0, -0.15, 0.0]),
+                        radii: Fp3([0.3, 0.3, 0.3]),
+                        ..Default::default()
+                    },
+                    BlobElement {
+                        position: Fp3([0.0, 0.22, 0.0]),
+                        radii: Fp3([0.2, 0.2, 0.2]),
+                        blend: Fp(0.15),
+                        ..Default::default()
+                    },
+                ],
+                resolution: 32,
                 solid: true,
                 material: mat,
                 torture: TortureParams::default(),
@@ -1531,6 +1630,38 @@ mod prim_wire_tests {
             let re: GeneratorKind = serde_json::from_value(v).expect("reparses");
             assert_eq!(re, kind);
         }
+    }
+
+    #[test]
+    fn blob_group_wire_format_round_trips() {
+        let kind = GeneratorKind::default_primitive_for_tag("BlobGroup").unwrap();
+        let v = serde_json::to_value(&kind).expect("serialises");
+        let obj = v.as_object().expect("one flat JSON object");
+        assert_eq!(
+            obj.get("$type").and_then(|t| t.as_str()),
+            Some("network.symbios.gen.blob_group")
+        );
+        let elements = obj.get("elements").and_then(|e| e.as_array()).unwrap();
+        assert_eq!(
+            elements[0]
+                .get("shape")
+                .and_then(|s| s.get("$type"))
+                .and_then(|t| t.as_str()),
+            Some("network.symbios.blob.sphere"),
+            "element shape is its own open union"
+        );
+        let re: GeneratorKind = serde_json::from_value(v).expect("reparses");
+        assert_eq!(re, kind);
+
+        // Forward compat: an unknown element shape degrades to Unknown, not
+        // a parse failure.
+        let mut v2 = serde_json::to_value(&kind).unwrap();
+        v2["elements"][0]["shape"]["$type"] = serde_json::json!("network.symbios.blob.torus");
+        let re2: GeneratorKind = serde_json::from_value(v2).expect("future shape still parses");
+        let GeneratorKind::BlobGroup { elements, .. } = &re2 else {
+            panic!("wrong variant");
+        };
+        assert_eq!(elements[0].shape, BlobShape::Unknown);
     }
 
     #[test]

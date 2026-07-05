@@ -142,6 +142,18 @@ pub const MAX_TORTURE_TAPER: f32 = 0.99;
 /// bounding the spline resample (a hostile record with a million points
 /// would otherwise dominate the mesh build).
 pub const MAX_SWEEP_POINTS: usize = 16;
+/// Maximum element count in a BlobGroup. SDF evaluation is
+/// elements x grid-samples, so this and the resolution clamp jointly bound
+/// the mesh-bake cost of one hostile record.
+pub const MAX_BLOB_ELEMENTS: usize = 16;
+/// BlobGroup sample-grid resolution bounds (cells along the longest axis).
+/// Grid cost is cubic: 48 is ~110k samples after padding — a few
+/// milliseconds native, still fine on wasm as a bake-on-spawn cost.
+pub const MAX_BLOB_RESOLUTION: u32 = 48;
+/// Maximum per-element smooth-blend distance (metres). Blend only needs to
+/// be on the order of the elements it merges; 10 m of blend around a 100 m
+/// element is already glue-everything territory.
+pub const MAX_BLOB_BLEND: f32 = 10.0;
 /// Maximum magnitude of the per-axis `bulge` factor (additive mid-height
 /// scale, `sin(π t)` profile). `+2.0` triples the mid-profile — already a
 /// cartoonish swell; the negative bound is the same magnitude because the

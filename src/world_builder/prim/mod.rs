@@ -2,7 +2,8 @@
 //!
 //! Every parametric primitive `GeneratorKind` variant (Cuboid / Sphere /
 //! Cylinder / Capsule / Cone / Torus / Plane / Tetrahedron / Tube / Bevel /
-//! Wedge / Helix / Superellipsoid / Spine / Lathe) routes through [`build_primitive_mesh`] to
+//! Wedge / Helix / Superellipsoid / Spine / Lathe / BlobGroup) routes through
+//! [`build_primitive_mesh`] to
 //! produce a Bevy `Mesh`. When the variant's
 //! [`TortureParams`](crate::pds::TortureParams) are non-identity,
 //! [`apply_vertex_torture`] mutates the mesh's `ATTRIBUTE_POSITION` buffer
@@ -19,6 +20,7 @@
 //! trait would panic the physics step otherwise.
 
 mod base;
+mod blob;
 mod colliders;
 mod cuts;
 mod prisms;
@@ -443,6 +445,92 @@ mod tests {
     }
 
     #[test]
+    fn blob_group_blends_carves_and_survives_empt_field() {
+        use crate::pds::generator::{BlobElement, BlobShape};
+        use crate::pds::types::Fp4;
+        let blob = |elements: Vec<BlobElement>| GeneratorKind::BlobGroup {
+            elements,
+            resolution: 32,
+            solid: true,
+            material: SovereignMaterialSettings::default(),
+            torture: TortureParams::default(),
+        };
+        let positions = |kind: &GeneratorKind| -> Vec<[f32; 3]> {
+            let mesh = build_primitive_mesh(kind);
+            match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+                Some(VertexAttributeValues::Float32x3(p)) => p.clone(),
+                _ => panic!("no positions"),
+            }
+        };
+
+        // Two spheres with generous blend: one connected peanut — there is
+        // material at the midpoint between them (the blend neck), which a
+        // hard union of these disjoint spheres would NOT have.
+        let a = BlobElement {
+            position: Fp3([0.0, -0.25, 0.0]),
+            radii: Fp3([0.2, 0.2, 0.2]),
+            blend: Fp(0.3),
+            ..Default::default()
+        };
+        let b = BlobElement {
+            position: Fp3([0.0, 0.25, 0.0]),
+            blend: Fp(0.3),
+            radii: Fp3([0.2, 0.2, 0.2]),
+            ..Default::default()
+        };
+        let peanut = positions(&blob(vec![a, b]));
+        assert!(peanut.len() > 50, "peanut too sparse: {}", peanut.len());
+        let waist = peanut
+            .iter()
+            .filter(|p| p[1].abs() < 0.05)
+            .map(|p| (p[0] * p[0] + p[2] * p[2]).sqrt())
+            .fold(0.0_f32, f32::max);
+        assert!(waist > 0.05, "blend neck missing at the waist: {waist}");
+        for p in &peanut {
+            assert!(p.iter().all(|c| c.is_finite()), "non-finite vertex {p:?}");
+        }
+
+        // A carve element removes material: subtracting a sphere from the
+        // top lobe pulls the mesh's top below the uncarved height.
+        let carve = BlobElement {
+            position: Fp3([0.0, 0.45, 0.0]),
+            radii: Fp3([0.15, 0.15, 0.15]),
+            subtract: true,
+            blend: Fp(0.05),
+            ..Default::default()
+        };
+        let carved = positions(&blob(vec![a, b, carve]));
+        let top = |pts: &[[f32; 3]]| pts.iter().map(|p| p[1]).fold(f32::NEG_INFINITY, f32::max);
+        assert!(
+            top(&carved) < top(&peanut) - 0.02,
+            "carve did not remove the top: {} vs {}",
+            top(&carved),
+            top(&peanut)
+        );
+
+        // All-subtract group: no surface — must fall back to the marker
+        // mesh, never panic or emit an empty mesh.
+        let empty = positions(&blob(vec![BlobElement {
+            subtract: true,
+            ..Default::default()
+        }]));
+        assert!(!empty.is_empty(), "all-subtract blob lost its marker mesh");
+
+        // A rotated capsule element meshes finite with unit normals.
+        let tilted = blob(vec![BlobElement {
+            shape: BlobShape::Capsule,
+            rotation: Fp4(bevy::math::Quat::from_rotation_z(0.7).to_array()),
+            radii: Fp3([0.12, 0.3, 0.0]),
+            ..Default::default()
+        }]);
+        let mesh = build_primitive_mesh(&tilted);
+        for n in normals(&mesh) {
+            assert!(n.iter().all(|c| c.is_finite()), "non-finite normal {n:?}");
+            assert!((len(n) - 1.0).abs() < 1e-2, "non-unit normal {n:?}");
+        }
+    }
+
+    #[test]
     fn tube_mesh_is_finite_unit_and_bounded() {
         // Default tube: outer 0.5, height 1.0.
         let kind = GeneratorKind::default_primitive_for_tag("Tube").unwrap();
@@ -504,6 +592,7 @@ mod tests {
             GeneratorKind::default_primitive_for_tag("Superellipsoid").unwrap(),
             GeneratorKind::default_primitive_for_tag("Spine").unwrap(),
             GeneratorKind::default_primitive_for_tag("Lathe").unwrap(),
+            GeneratorKind::default_primitive_for_tag("BlobGroup").unwrap(),
             with_cut("Lathe", [0.0, 0.5], [0.0, 1.0], 0.0), // half-vase
             with_cut("Lathe", [0.0, 1.0], [0.0, 1.0], 0.5), // hollow vase shell
             with_cut("Lathe", [0.1, 0.9], [0.0, 1.0], 0.6), // cut hollow vase

@@ -12,6 +12,7 @@ use bevy::prelude::*;
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::{GeneratorKind, TortureParams};
 
+use super::blob::{blob_hull_points, build_blob_mesh};
 use super::cuts::{
     build_swept_capsule, build_swept_frustum, build_torus, build_uv_sphere, path_cut_angles,
 };
@@ -35,7 +36,7 @@ pub(in crate::world_builder) trait PrimitiveShape {
 
 /// A primitive variant split into the pieces every consumer needs: the
 /// shape behavior plus the `solid` / `material` fields shared by all
-/// fifteen variants. `None` for non-primitive kinds — the router's
+/// sixteen variants. `None` for non-primitive kinds — the router's
 /// primitive test.
 pub(in crate::world_builder) struct PrimParts<'a> {
     pub shape: Box<dyn PrimitiveShape + 'a>,
@@ -285,6 +286,20 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
                 resolution: *resolution,
                 smooth: *smooth,
                 torture,
+            }),
+            solid,
+            material,
+        ),
+        GeneratorKind::BlobGroup {
+            elements,
+            resolution,
+            solid,
+            material,
+            ..
+        } => parts(
+            Box::new(BlobGroupShape {
+                elements,
+                resolution: *resolution,
             }),
             solid,
             material,
@@ -715,6 +730,26 @@ impl PrimitiveShape for LatheShape<'_> {
     fn analytical_collider(&self) -> Option<Collider> {
         let points = lathe_hull_points(&self.points, self.smooth);
         Some(Collider::convex_hull(points).unwrap_or_else(|| Collider::sphere(0.5)))
+    }
+}
+
+struct BlobGroupShape<'a> {
+    elements: &'a [crate::pds::generator::BlobElement],
+    resolution: u32,
+}
+
+impl PrimitiveShape for BlobGroupShape<'_> {
+    fn base_mesh(&self) -> Mesh {
+        build_blob_mesh(self.elements, self.resolution)
+    }
+    fn analytical_collider(&self) -> Option<Collider> {
+        // Hull of the additive elements' support samples — carves are
+        // interior detail a standoff hull rightly ignores.
+        let points = blob_hull_points(self.elements);
+        if points.is_empty() {
+            return None;
+        }
+        Some(Collider::convex_hull(points).unwrap_or_else(|| Collider::sphere(0.25)))
     }
 }
 

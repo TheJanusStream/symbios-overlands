@@ -20,8 +20,8 @@
 use std::f32::consts::{FRAC_PI_2, PI};
 
 use crate::pds::avatar::default_visuals::common::{
-    capsule, cone, cuboid, cylinder, id_quat, prim, quat_x, quat_xyzw, quat_z, sphere, torus,
-    with_cut, with_shape, with_torture,
+    blob_capsule, blob_ellipsoid, blob_group, blob_sphere, capsule, cone, cuboid, cylinder,
+    id_quat, prim, quat_x, quat_xyzw, quat_z, sphere, torus, with_cut, with_shape, with_torture,
 };
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
@@ -96,11 +96,15 @@ pub(in super::super) fn head(ctx: &PartCtx) -> Generator {
     // Landmark helper: fraction-from-crown → head-local y.
     let land = |f: f32| r * (1.15 - 2.35 * f);
 
-    // ---- Cranial shell ------------------------------------------------
-    // The part root is a hidden core sphere (NO scale — node scale
-    // propagates to children, the arm-squash lesson); the visible cranium
-    // is a scaled leaf shell around it.
-    let mut head = prim(sphere(r * 0.8, 3, skin.clone()), [0.0, 0.0, 0.0], id_quat());
+    // ---- Cranial mass (#690) -------------------------------------------
+    // The whole skull is one BlobGroup: the cranium ellipsoid plus the
+    // face-shape jaw / cheek masses smoothly blended into a single skin
+    // where the old scaled-sphere shell + tapered-cuboid jaw showed
+    // intersection seams. The cranium element's semi-axes are exactly the
+    // old shell's (r·sx, r·sy, r·sz), so the `z_surf` feature-seating curve
+    // is unchanged; blends are kept small so the blend bulge never pushes
+    // the surface past the features seated on it. The root carries NO scale
+    // (node scale propagates to children — the arm-squash lesson).
     let (mut sx, mut sy, sz) = match tier {
         StylizationTier::Toy => (1.0, 1.0, 0.94),
         StylizationTier::Stylized => (0.94, 1.0, 0.97),
@@ -113,10 +117,14 @@ pub(in super::super) fn head(ctx: &PartCtx) -> Generator {
         FaceShape::Round => sx *= 1.04,
         _ => {}
     }
-    let mut shell = prim(sphere(r, 4, skin.clone()), [0.0, 0.0, 0.0], id_quat());
-    shell.transform.scale = Fp3([sx, sy, sz]);
-    head.children.push(shell);
-    // Front surface of the shell at a given height — features must seat ON
+    let blend = r * 0.12;
+    let mut elements = vec![blob_ellipsoid(
+        [0.0, 0.0, 0.0],
+        [r * sx, r * sy, r * sz],
+        id_quat(),
+        blend,
+    )];
+    // Front surface of the cranium at a given height — features must seat ON
     // this curve (a fixed z buries eyes in the brow and floats mouths off
     // the receding chin).
     let z_surf =
@@ -124,7 +132,7 @@ pub(in super::super) fn head(ctx: &PartCtx) -> Generator {
 
     // ---- Jaw mass per face shape --------------------------------------
     // Toy keeps the single ball (its "jaw" is at most a cheek overlay);
-    // other tiers hang a tapered jaw block whose recipe is the face shape.
+    // other tiers blend in a tapered jaw whose recipe is the face shape.
     let jaw_k: f32 = match tier {
         StylizationTier::Toy => 0.0,
         StylizationTier::Stylized => 0.8,
@@ -133,17 +141,16 @@ pub(in super::super) fn head(ctx: &PartCtx) -> Generator {
     };
     let has_cheeks = face.shape == FaceShape::Round || tier == StylizationTier::Toy;
     if has_cheeks {
-        // Full-cheek overlay widening the lower face; chin stays soft.
-        let mut cheeks = prim(
-            sphere(r * 0.55, 3, skin.clone()),
+        // Full-cheek mass widening the lower face; chin stays soft.
+        elements.push(blob_ellipsoid(
             [0.0, -r * 0.48, -r * 0.22],
+            [r * 0.55 * 1.5 * sx, r * 0.55 * 0.85, r * 0.55 * 1.1],
             id_quat(),
-        );
-        cheeks.transform.scale = Fp3([1.5 * sx, 0.85, 1.1]);
-        head.children.push(cheeks);
+            blend,
+        ));
     }
     if jaw_k > 0.0 && face.shape != FaceShape::Round {
-        let (w_top, chin_frac) = match face.shape {
+        let (w_top, chin_frac): (f32, f32) = match face.shape {
             FaceShape::Oval => (1.30, 0.60),
             FaceShape::Square => (1.42, 0.85),
             FaceShape::Oblong => (1.28, 0.64),
@@ -151,42 +158,49 @@ pub(in super::super) fn head(ctx: &PartCtx) -> Generator {
             FaceShape::Diamond => (1.36, 0.46),
             FaceShape::Round => unreachable!(),
         };
-        // Author the taper upside-down and flip about Z so the narrow end
-        // is the chin (the torture taper only shrinks a prim's top).
-        let mut jaw = prim(
-            with_shape(
-                cuboid(
-                    [r * w_top * jaw_k.min(1.0) * sx, r * 1.1, r * 1.05 * sz],
-                    skin.clone(),
-                ),
-                [1.0 - chin_frac, 0.12],
-                [0.0, 0.0, 0.0],
-                [0.0, 0.0],
-            ),
-            [0.0, -r * 0.62, -r * 0.16],
-            quat_xyzw(quat_z(PI)),
-        );
-        jaw.transform.scale = Fp3([1.0, 1.0, 1.0]);
-        head.children.push(jaw);
+        // The old tapered jaw block, as two blended masses: a wide hinge
+        // ellipsoid up at the ears and a chin ellipsoid narrowed by the
+        // face shape's `chin_frac` — the blend produces the taper the
+        // cuboid needed upside-down torture for.
+        let jaw_w = r * w_top * jaw_k.min(1.0) * sx * 0.5;
+        elements.push(blob_ellipsoid(
+            [0.0, -r * 0.37, -r * 0.16],
+            [jaw_w * 0.95, r * 0.35, r * 0.47 * sz],
+            id_quat(),
+            blend,
+        ));
+        elements.push(blob_ellipsoid(
+            [0.0, -r * 0.95, -r * 0.22],
+            [jaw_w * chin_frac.max(0.3), r * 0.24, r * 0.32 * sz],
+            id_quat(),
+            r * 0.18,
+        ));
         if face.shape == FaceShape::Square || tier == StylizationTier::Heroic {
             // A widened chin bar for the square/heroic jaw.
-            head.children.push(prim(
-                capsule(r * 0.13, r * 0.55 * jaw_k, skin.clone()),
+            elements.push(blob_capsule(
                 [0.0, -r * 1.0, -r * 0.34],
+                r * 0.13,
+                r * 0.275 * jaw_k,
                 quat_xyzw(quat_z(FRAC_PI_2)),
+                blend,
             ));
         }
         if face.shape == FaceShape::Diamond {
             // Cheekbone accents — the widest point of the diamond.
             for s in [-1.0f32, 1.0] {
-                head.children.push(prim(
-                    sphere(r * 0.2, 2, skin.clone()),
+                elements.push(blob_sphere(
                     [s * r * 0.78 * sx, land(face.eye_line) - r * 0.3, -r * 0.35],
-                    id_quat(),
+                    r * 0.2,
+                    r * 0.08,
                 ));
             }
         }
     }
+    let mut head = prim(
+        blob_group(elements, 40, skin.clone()),
+        [0.0, 0.0, 0.0],
+        id_quat(),
+    );
 
     // ---- Neck (unchanged from phase 1: short, thick, trapezius flare) --
     let neck_l = bp.neck_len + 0.10;

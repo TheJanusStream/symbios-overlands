@@ -1,7 +1,7 @@
 //! Sanitiser for the parametric primitive variants of [`GeneratorKind`]
 //! (Cuboid / Sphere / Cylinder / Capsule / Cone / Torus / Plane /
 //! Tetrahedron / Tube / Bevel / Wedge / Helix / Superellipsoid / Spine /
-//! Lathe). Mirrors the
+//! Lathe / BlobGroup). Mirrors the
 //! bounds the World Editor UI exposes so a
 //! hand-crafted record can't push mesh/collider builders into NaN / OOM
 //! territory.
@@ -194,6 +194,44 @@ pub(super) fn sanitize_primitive(kind: &mut GeneratorKind) {
             }
             *latitudes = (*latitudes).clamp(4, 64);
             *longitudes = (*longitudes).clamp(4, 128);
+            material.sanitize();
+            sanitize_torture(torture);
+        }
+        GeneratorKind::BlobGroup {
+            elements,
+            resolution,
+            material,
+            torture,
+            ..
+        } => {
+            elements.truncate(super::limits::MAX_BLOB_ELEMENTS);
+            if elements.is_empty() {
+                elements.push(crate::pds::generator::BlobElement::default());
+            }
+            for e in elements.iter_mut() {
+                for c in e.position.0.iter_mut() {
+                    *c = clamp_finite(*c, -100.0, 100.0, 0.0);
+                }
+                for r in e.radii.0.iter_mut() {
+                    *r = c_dim(*r);
+                }
+                e.blend = Fp(clamp_finite(
+                    e.blend.0,
+                    0.0,
+                    super::limits::MAX_BLOB_BLEND,
+                    0.1,
+                ));
+                // Unit quaternion or identity — the mesher inverts it.
+                let q = e.rotation.0.map(|v| clamp_finite(v, -1.0, 1.0, 0.0));
+                let len_sq: f32 = q.iter().map(|v| v * v).sum();
+                e.rotation = if len_sq > 1e-6 {
+                    let inv = len_sq.sqrt().recip();
+                    crate::pds::types::Fp4(q.map(|v| v * inv))
+                } else {
+                    crate::pds::types::Fp4([0.0, 0.0, 0.0, 1.0])
+                };
+            }
+            *resolution = (*resolution).clamp(8, super::limits::MAX_BLOB_RESOLUTION);
             material.sanitize();
             sanitize_torture(torture);
         }

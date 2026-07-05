@@ -10,7 +10,10 @@
 
 use std::f32::consts::FRAC_PI_2;
 
-use crate::pds::generator::{AlphaModeKind, Generator, GeneratorKind, SignSource, TortureParams};
+use crate::pds::generator::{
+    AlphaModeKind, BlobElement, BlobShape, Generator, GeneratorKind, LathePoint, SignSource,
+    SpinePoint, TortureParams,
+};
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::types::{Fp, Fp2, Fp3, Fp4, TransformData};
 
@@ -135,6 +138,129 @@ pub(crate) fn capsule(
         length: Fp(length),
         latitudes: 8,
         longitudes: 16,
+        solid: false,
+        material,
+        torture: TortureParams::default(),
+    }
+}
+
+/// Smooth-blend SDF group (#690): `elements` built with [`blob_sphere`] /
+/// [`blob_ellipsoid`] / [`blob_capsule`] / [`blob_carve`]. The organic-mass
+/// workhorse — overlapping elements merge into one seamless skin, so the
+/// old bolted-ellipsoid idiom (and its intersection seams) is obsolete.
+pub(crate) fn blob_group(
+    elements: Vec<BlobElement>,
+    resolution: u32,
+    material: SovereignMaterialSettings,
+) -> GeneratorKind {
+    GeneratorKind::BlobGroup {
+        elements,
+        resolution,
+        solid: false,
+        material,
+        torture: TortureParams::default(),
+    }
+}
+
+/// Additive blob sphere at `position` with uniform `radius`.
+pub(crate) fn blob_sphere(position: [f32; 3], radius: f32, blend: f32) -> BlobElement {
+    BlobElement {
+        shape: BlobShape::Sphere,
+        position: Fp3(position),
+        rotation: Fp4([0.0, 0.0, 0.0, 1.0]),
+        radii: Fp3([radius, radius, radius]),
+        subtract: false,
+        blend: Fp(blend),
+    }
+}
+
+/// Additive blob ellipsoid: `semi_axes` are the X/Y/Z half-extents in the
+/// group's local frame (pass a rotation for a tilted mass).
+pub(crate) fn blob_ellipsoid(
+    position: [f32; 3],
+    semi_axes: [f32; 3],
+    rotation: Fp4,
+    blend: f32,
+) -> BlobElement {
+    BlobElement {
+        shape: BlobShape::Ellipsoid,
+        position: Fp3(position),
+        rotation,
+        radii: Fp3(semi_axes),
+        subtract: false,
+        blend: Fp(blend),
+    }
+}
+
+/// Additive blob capsule along its local +Y (rotate to aim): `radius` tube,
+/// `half_len` core-segment half-length.
+pub(crate) fn blob_capsule(
+    position: [f32; 3],
+    radius: f32,
+    half_len: f32,
+    rotation: Fp4,
+    blend: f32,
+) -> BlobElement {
+    BlobElement {
+        shape: BlobShape::Capsule,
+        position: Fp3(position),
+        rotation,
+        radii: Fp3([radius, half_len, 0.0]),
+        subtract: false,
+        blend: Fp(blend),
+    }
+}
+
+/// Flip any blob element to carve (smooth subtraction) instead of add.
+/// (Catalogue-facing, like [`lathe`]: sockets / creases / nostrils.)
+#[allow(dead_code)]
+pub(crate) fn blob_carve(mut e: BlobElement) -> BlobElement {
+    e.subtract = true;
+    e
+}
+
+/// Spline-swept tube (#689): the one-prim limb / tail / horn. `points` are
+/// `(position, radius)` stations the Catmull-Rom centreline passes through.
+pub(crate) fn spine(
+    points: &[([f32; 3], f32)],
+    resolution: u32,
+    material: SovereignMaterialSettings,
+) -> GeneratorKind {
+    GeneratorKind::Spine {
+        points: points
+            .iter()
+            .map(|(p, r)| SpinePoint {
+                position: Fp3(*p),
+                radius: Fp(*r),
+            })
+            .collect(),
+        resolution,
+        samples_per_segment: 8,
+        solid: false,
+        material,
+        torture: TortureParams::default(),
+    }
+}
+
+/// Profile-revolve prim (#689): `points` are `(radius, height)` silhouette
+/// stations bottom-to-top; `smooth` splines them.
+#[allow(dead_code)]
+pub(crate) fn lathe(
+    points: &[(f32, f32)],
+    resolution: u32,
+    smooth: bool,
+    material: SovereignMaterialSettings,
+) -> GeneratorKind {
+    GeneratorKind::Lathe {
+        points: points
+            .iter()
+            .map(|(r, h)| LathePoint {
+                radius: Fp(*r),
+                height: Fp(*h),
+            })
+            .collect(),
+        resolution,
+        smooth,
         solid: false,
         material,
         torture: TortureParams::default(),

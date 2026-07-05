@@ -208,7 +208,8 @@ pub fn spawn_generator(
         | GeneratorKind::Helix { .. }
         | GeneratorKind::Superellipsoid { .. }
         | GeneratorKind::Spine { .. }
-        | GeneratorKind::Lathe { .. } => {
+        | GeneratorKind::Lathe { .. }
+        | GeneratorKind::BlobGroup { .. } => {
             Some(spawn_primitive_entity(ctx, &generator.kind, transform))
         }
         GeneratorKind::Sign {

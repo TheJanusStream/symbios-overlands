@@ -203,7 +203,8 @@ pub fn sanitize_kind(kind: &mut GeneratorKind) {
         | GeneratorKind::Helix { .. }
         | GeneratorKind::Superellipsoid { .. }
         | GeneratorKind::Spine { .. }
-        | GeneratorKind::Lathe { .. } => sanitize_primitive(kind),
+        | GeneratorKind::Lathe { .. }
+        | GeneratorKind::BlobGroup { .. } => sanitize_primitive(kind),
         GeneratorKind::Water { surface } => sanitize_water(surface),
         GeneratorKind::RoadNetwork(config) => sanitize_road(config),
         GeneratorKind::Sign {

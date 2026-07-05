@@ -139,6 +139,16 @@ pub(super) fn build_spine_mesh(
     let stations = spine_stations(points, samples_per_segment);
     let n_rings = stations.len() as u32;
 
+    // V follows arc length scaled so a texel stays square against the
+    // tube's mean circumference — a plain 0..1 V would compress a long
+    // thin tube's texture into fine hoops (the trouser-stripe bug).
+    let mut arc = vec![0.0f32; stations.len()];
+    for i in 1..stations.len() {
+        arc[i] = arc[i - 1] + (stations[i].pos - stations[i - 1].pos).length();
+    }
+    let mean_r = (stations.iter().map(|s| s.radius).sum::<f32>() / stations.len() as f32).max(1e-3);
+    let v_of = |i: usize| arc[i] / (TAU * mean_r);
+
     let mut pos: Vec<[f32; 3]> = Vec::new();
     let mut nor: Vec<[f32; 3]> = Vec::new();
     let mut uv: Vec<[f32; 2]> = Vec::new();
@@ -155,10 +165,7 @@ pub(super) fn build_spine_mesh(
             let n = (dir - st.tangent * st.slope).normalize_or_zero();
             pos.push(p.to_array());
             nor.push(n.to_array());
-            uv.push([
-                j as f32 / res as f32,
-                1.0 - ri as f32 / (n_rings - 1) as f32,
-            ]);
+            uv.push([j as f32 / res as f32, v_of(ri)]);
         }
     }
     let row = res + 1;
