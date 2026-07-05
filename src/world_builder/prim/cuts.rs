@@ -22,7 +22,9 @@ pub(super) fn path_cut_angles(t: &crate::pds::TortureParams) -> (f32, f32) {
 /// cuts; taper / twist / bend / shear ride on top via the vertex-torture
 /// post-pass — pass `rows > 1` when a deform is active so the walls carry
 /// the mid-height vertices the nonlinear deforms (bulge / bend / twist)
-/// need. Winding is reconciled to the supplied normals by
+/// need. `t0..t1` is the profile-cut **vertical slice** (SL's "slice"): the
+/// kept height band, with radii interpolated so slicing a cone yields the
+/// matching frustum. Winding is reconciled to the supplied normals by
 /// [`mesh_from_parts`].
 #[allow(clippy::too_many_arguments)]
 pub(super) fn build_swept_frustum(
@@ -34,14 +36,26 @@ pub(super) fn build_swept_frustum(
     inner_frac: f32,
     a0: f32,
     a1: f32,
+    t0: f32,
+    t1: f32,
 ) -> Mesh {
     use std::f32::consts::TAU;
     let segs = resolution.max(3);
     let rows = rows.max(1);
+    // Vertical slice: interpolate the end radii to the band edges before
+    // anything else — every wall / cap / cut-face below then just works.
+    let (t0, t1) = (t0.clamp(0.0, 1.0), t1.clamp(0.0, 1.0).max(t0 + 1e-3));
+    let full_h = height;
+    let (r_bottom, r_top) = (
+        r_bottom + (r_top - r_bottom) * t0,
+        r_bottom + (r_top - r_bottom) * t1,
+    );
+    let (yb_s, yt_s) = (-0.5 * full_h + t0 * full_h, -0.5 * full_h + t1 * full_h);
+    let height = yt_s - yb_s;
     let full = (a1 - a0).abs() >= TAU - 1e-3;
     let k = inner_frac.clamp(0.0, 0.999);
     let hollow = k * r_bottom.max(r_top) > 1e-4;
-    let (yb, yt) = (-0.5 * height, 0.5 * height);
+    let (yb, yt) = (yb_s, yt_s);
     let n = segs + 1;
     let ang = |i: u32| a0 + (a1 - a0) * (i as f32 / segs as f32);
     // Wall-slope normal in the (radial, Y) plane, shared by both shells (the
@@ -616,6 +630,300 @@ pub(super) fn build_torus(
             }
             for i in 0..nmaj {
                 let b = base + i * 2;
+                idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
+            }
+        }
+    }
+
+    mesh_from_parts(pos, nor, uv, idx)
+}
+
+/// One vertex of a swept XZ profile polygon: position + outward normal.
+/// Corners of flat-faced profiles (the rectangle) appear twice with the two
+/// face normals so shading stays crisp.
+#[derive(Clone, Copy)]
+pub(super) struct ProfilePoint {
+    pub x: f32,
+    pub z: f32,
+    pub nx: f32,
+    pub nz: f32,
+}
+
+impl ProfilePoint {
+    fn theta(&self) -> f32 {
+        self.z.atan2(self.x)
+    }
+}
+
+/// Rectangle profile (a Cuboid footprint), CCW, corners duplicated per face.
+pub(super) fn rect_profile(hx: f32, hz: f32) -> Vec<ProfilePoint> {
+    let p = |x: f32, z: f32, nx: f32, nz: f32| ProfilePoint { x, z, nx, nz };
+    vec![
+        // +X face, then +Z, −X, −Z — CCW when viewed from +Y.
+        p(hx, -hz, 1.0, 0.0),
+        p(hx, hz, 1.0, 0.0),
+        p(hx, hz, 0.0, 1.0),
+        p(-hx, hz, 0.0, 1.0),
+        p(-hx, hz, -1.0, 0.0),
+        p(-hx, -hz, -1.0, 0.0),
+        p(-hx, -hz, 0.0, -1.0),
+        p(hx, -hz, 0.0, -1.0),
+    ]
+}
+
+/// Rounded-rectangle profile (the Bevel footprint) — the same four corner
+/// arcs as `build_bevel_mesh`, with smooth arc normals.
+pub(super) fn rounded_rect_profile(
+    hx: f32,
+    hz: f32,
+    bevel: f32,
+    segments: u32,
+) -> Vec<ProfilePoint> {
+    use std::f32::consts::{FRAC_PI_2, PI};
+    let b = bevel.clamp(0.0, (hx.min(hz) - 1e-3).max(0.0));
+    let seg = segments.max(1);
+    let centers = [
+        (hx - b, hz - b, 0.0f32),
+        (-(hx - b), hz - b, FRAC_PI_2),
+        (-(hx - b), -(hz - b), PI),
+        (hx - b, -(hz - b), 3.0 * FRAC_PI_2),
+    ];
+    let mut profile = Vec::new();
+    for (cx, cz, a0) in centers {
+        for k in 0..=seg {
+            let a = a0 + (k as f32 / seg as f32) * FRAC_PI_2;
+            let (sn, cs) = a.sin_cos();
+            profile.push(ProfilePoint {
+                x: cx + b * cs,
+                z: cz + b * sn,
+                nx: cs,
+                nz: sn,
+            });
+        }
+    }
+    profile
+}
+
+/// Cast a ray from the origin at angle `a` against the closed profile
+/// polygon; returns the hit point with the hit segment's (interpolated)
+/// normal. Profiles are star-shaped about the origin, so exactly one
+/// positive hit exists.
+fn profile_raycast(profile: &[ProfilePoint], a: f32) -> ProfilePoint {
+    let (sa, ca) = a.sin_cos();
+    let n = profile.len();
+    let mut best: Option<(f32, ProfilePoint)> = None;
+    for i in 0..n {
+        let p0 = profile[i];
+        let p1 = profile[(i + 1) % n];
+        let (ex, ez) = (p1.x - p0.x, p1.z - p0.z);
+        // Solve p0 + u*e = r*(ca, sa).
+        let det = ex * sa - ez * ca;
+        if det.abs() < 1e-9 {
+            continue;
+        }
+        let u = (p0.z * ca - p0.x * sa) / det;
+        if !(-1e-4..=1.0 + 1e-4).contains(&u) {
+            continue;
+        }
+        let hx = p0.x + u * ex;
+        let hz = p0.z + u * ez;
+        let r = hx * ca + hz * sa;
+        if r <= 1e-6 {
+            continue;
+        }
+        if best.map(|(br, _)| r < br).unwrap_or(true) {
+            let u = u.clamp(0.0, 1.0);
+            let (mut nx, mut nz) = (p0.nx + (p1.nx - p0.nx) * u, p0.nz + (p1.nz - p0.nz) * u);
+            let len = (nx * nx + nz * nz).sqrt().max(1e-6);
+            nx /= len;
+            nz /= len;
+            best = Some((
+                r,
+                ProfilePoint {
+                    x: hx,
+                    z: hz,
+                    nx,
+                    nz,
+                },
+            ));
+        }
+    }
+    best.map(|(_, p)| p).unwrap_or(ProfilePoint {
+        x: ca * 0.01,
+        z: sa * 0.01,
+        nx: ca,
+        nz: sa,
+    })
+}
+
+/// Unified prism sweep for polygonal / rounded profiles — the SL box-cut
+/// mesher (#691) backing Cuboid + Bevel. `a0..a1` is the kept **angular
+/// wedge** (a pie cut through the footprint, closed by two radial cut
+/// faces), `inner_frac > 0` bores a matching scaled hole through the prism
+/// (SL's square-hollow-in-a-box), `t0..t1` keeps a **vertical band**
+/// (profile-cut slice), and `rows > 1` subdivides the walls for the
+/// nonlinear vertex deforms. Winding is reconciled by [`mesh_from_parts`].
+#[allow(clippy::too_many_arguments)]
+pub(super) fn build_profile_sweep(
+    profile: &[ProfilePoint],
+    height: f32,
+    rows: u32,
+    inner_frac: f32,
+    a0: f32,
+    a1: f32,
+    t0: f32,
+    t1: f32,
+) -> Mesh {
+    use std::f32::consts::TAU;
+    let rows = rows.max(1);
+    let k = inner_frac.clamp(0.0, 0.99);
+    let hollow = k > 1e-4;
+    let full = (a1 - a0).abs() >= TAU - 1e-3;
+    let (t0, t1) = (t0.clamp(0.0, 1.0), t1.clamp(0.0, 1.0).max(t0 + 1e-3));
+    let (yb, yt) = (-0.5 * height + t0 * height, -0.5 * height + t1 * height);
+
+    // Resolve the kept ring: the whole polygon (with the seam vertex
+    // repeated) when full, else the profile vertices inside the wedge plus
+    // ray-cast endpoints exactly at the cut angles. Vertices sort by their
+    // angle offset from `a0`; corner duplicates share an angle and keep
+    // their CCW face order (stable sort).
+    let span = if full {
+        TAU
+    } else {
+        (a1 - a0).rem_euclid(TAU).max(1e-3)
+    };
+    let ring: Vec<ProfilePoint> = if full {
+        let mut r = profile.to_vec();
+        r.push(profile[0]);
+        r
+    } else {
+        let mut kept: Vec<(f32, usize, ProfilePoint)> = profile
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| {
+                let off = (p.theta() - a0).rem_euclid(TAU);
+                (off > 1e-4 && off < span - 1e-4).then_some((off, i, *p))
+            })
+            .collect();
+        kept.sort_by(|a, b| {
+            a.0.partial_cmp(&b.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.1.cmp(&b.1))
+        });
+        let mut r = Vec::with_capacity(kept.len() + 2);
+        r.push(profile_raycast(profile, a0));
+        r.extend(kept.into_iter().map(|(_, _, p)| p));
+        r.push(profile_raycast(profile, a1));
+        r
+    };
+    let n_ring = ring.len();
+    // Perimeter-fraction U.
+    let mut perim = vec![0.0f32; n_ring];
+    for i in 1..n_ring {
+        let (dx, dz) = (ring[i].x - ring[i - 1].x, ring[i].z - ring[i - 1].z);
+        perim[i] = perim[i - 1] + (dx * dx + dz * dz).sqrt();
+    }
+    let total_perim = perim.last().copied().unwrap_or(1.0).max(1e-6);
+
+    let mut pos: Vec<[f32; 3]> = Vec::new();
+    let mut nor: Vec<[f32; 3]> = Vec::new();
+    let mut uv: Vec<[f32; 2]> = Vec::new();
+    let mut idx: Vec<u32> = Vec::new();
+
+    // Outer wall (+ scaled inner bore wall when hollow).
+    let mut shells = vec![(1.0f32, false)];
+    if hollow {
+        shells.push((k, true));
+    }
+    for (scale, inward) in shells {
+        let base = pos.len() as u32;
+        let sgn = if inward { -1.0 } else { 1.0 };
+        for r in 0..=rows {
+            let v = r as f32 / rows as f32;
+            let y = yb + (yt - yb) * v;
+            for (i, p) in ring.iter().enumerate() {
+                pos.push([p.x * scale, y, p.z * scale]);
+                nor.push([sgn * p.nx, 0.0, sgn * p.nz]);
+                uv.push([perim[i] / total_perim, 1.0 - v]);
+            }
+        }
+        let row_stride = n_ring as u32;
+        for r in 0..rows {
+            for i in 0..n_ring as u32 - 1 {
+                let a = base + r * row_stride + i;
+                idx.extend_from_slice(&[
+                    a,
+                    a + row_stride,
+                    a + row_stride + 1,
+                    a,
+                    a + row_stride + 1,
+                    a + 1,
+                ]);
+            }
+        }
+    }
+
+    // Caps: a fan from the axis when solid (the profile is star-shaped, and
+    // for a wedge the axis lies on the cut boundary — the fan is the pie),
+    // an outer→inner strip when hollow.
+    let inv_ext = 1.0
+        / ring
+            .iter()
+            .map(|p| p.x.abs().max(p.z.abs()))
+            .fold(0.0f32, f32::max)
+            .max(1e-6);
+    for (y, ny) in [(yt, 1.0f32), (yb, -1.0f32)] {
+        let nrm = [0.0, ny, 0.0];
+        let base = pos.len() as u32;
+        if hollow {
+            for p in &ring {
+                pos.push([p.x, y, p.z]);
+                nor.push(nrm);
+                uv.push([0.5 + 0.5 * p.x * inv_ext, 0.5 + 0.5 * p.z * inv_ext]);
+                pos.push([p.x * k, y, p.z * k]);
+                nor.push(nrm);
+                uv.push([0.5 + 0.5 * p.x * k * inv_ext, 0.5 + 0.5 * p.z * k * inv_ext]);
+            }
+            for i in 0..n_ring as u32 - 1 {
+                let b = base + i * 2;
+                idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
+            }
+        } else {
+            pos.push([0.0, y, 0.0]);
+            nor.push(nrm);
+            uv.push([0.5, 0.5]);
+            for p in &ring {
+                pos.push([p.x, y, p.z]);
+                nor.push(nrm);
+                uv.push([0.5 + 0.5 * p.x * inv_ext, 0.5 + 0.5 * p.z * inv_ext]);
+            }
+            for i in 0..n_ring as u32 - 1 {
+                idx.extend_from_slice(&[base, base + 1 + i, base + 2 + i]);
+            }
+        }
+    }
+
+    // Radial cut faces closing an open wedge, subdivided to the wall rows.
+    if !full {
+        for (end, sgn) in [(0usize, -1.0f32), (n_ring - 1, 1.0f32)] {
+            let p = ring[end];
+            let a = p.z.atan2(p.x);
+            let (sn, cs) = a.sin_cos();
+            let nrm = [-sgn * sn, 0.0, sgn * cs];
+            let inner = if hollow { k } else { 0.0 };
+            let base = pos.len() as u32;
+            for r in 0..=rows {
+                let v = r as f32 / rows as f32;
+                let y = yb + (yt - yb) * v;
+                pos.push([p.x * inner, y, p.z * inner]);
+                nor.push(nrm);
+                uv.push([0.0, 1.0 - v]);
+                pos.push([p.x, y, p.z]);
+                nor.push(nrm);
+                uv.push([1.0, 1.0 - v]);
+            }
+            for r in 0..rows {
+                let b = base + r * 2;
                 idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
             }
         }

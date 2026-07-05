@@ -287,8 +287,9 @@ pub(super) fn draw_torture(ui: &mut egui::Ui, torture: &mut TortureParams, dirty
     });
     torture.shear = Fp2(sh);
 
-    // --- Topology cuts (swept prims: Sphere / Cylinder / Cone / Torus / Tube) ---
-    ui.label("Cuts (swept prims)");
+    // --- Topology cuts (every prim except Plane / BlobGroup; Lathe ignores
+    // profile-cut) ---
+    ui.label("Cuts");
     // Path-cut (begin/end, kept angular fraction of the sweep).
     let mut pc = torture.path_cut.0;
     ui.horizontal(|ui| {

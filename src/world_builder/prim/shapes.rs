@@ -12,9 +12,11 @@ use bevy::prelude::*;
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::{GeneratorKind, TortureParams};
 
+use super::base::subdivide_flat;
 use super::blob::{blob_hull_points, build_blob_mesh};
 use super::cuts::{
-    build_swept_capsule, build_swept_frustum, build_torus, build_uv_sphere, path_cut_angles,
+    build_profile_sweep, build_swept_capsule, build_swept_frustum, build_torus, build_uv_sphere,
+    path_cut_angles, rect_profile, rounded_rect_profile,
 };
 use super::prisms::{build_bevel_mesh, build_helix_mesh, build_tube_mesh, build_wedge_mesh};
 use super::superellipsoid::{build_superellipsoid, superellipsoid_hull_points};
@@ -25,6 +27,11 @@ use super::sweeps::{build_lathe_mesh, build_spine_mesh, lathe_hull_points, spine
 /// vertices to move — a 2-ring wall renders a `sin(π t)` bulge as nothing.
 /// Deform-free prims keep their old minimal layouts.
 const DEFORM_ROWS: u32 = 16;
+
+/// Flat-subdivision levels applied to the faceted low-poly prims (Wedge /
+/// Tetrahedron) when a deform is active: 4 halvings ≈ the same edge density
+/// as [`DEFORM_ROWS`] gives the swept walls.
+const DEFORM_SUBDIV_LEVELS: u32 = 4;
 
 /// One parametric primitive's shape behavior: its base mesh (pre-torture)
 /// and the cheap analytical collider matching the *untortured* shape
@@ -62,10 +69,17 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
     match kind {
         GeneratorKind::Cuboid {
             size,
+            torture,
             solid,
             material,
-            ..
-        } => parts(Box::new(CuboidShape { size: size.0 }), solid, material),
+        } => parts(
+            Box::new(CuboidShape {
+                size: size.0,
+                torture,
+            }),
+            solid,
+            material,
+        ),
         GeneratorKind::Sphere {
             radius,
             resolution,
@@ -169,10 +183,17 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
         ),
         GeneratorKind::Tetrahedron {
             size,
+            torture,
             solid,
             material,
-            ..
-        } => parts(Box::new(TetrahedronShape { size: size.0 }), solid, material),
+        } => parts(
+            Box::new(TetrahedronShape {
+                size: size.0,
+                torture,
+            }),
+            solid,
+            material,
+        ),
         GeneratorKind::Tube {
             radius,
             inner_radius,
@@ -196,33 +217,41 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             size,
             bevel,
             bevel_segments,
+            torture,
             solid,
             material,
-            ..
         } => parts(
             Box::new(BevelShape {
                 size: size.0,
                 bevel: bevel.0,
                 bevel_segments: *bevel_segments,
+                torture,
             }),
             solid,
             material,
         ),
         GeneratorKind::Wedge {
             size,
+            torture,
             solid,
             material,
-            ..
-        } => parts(Box::new(WedgeShape { size: size.0 }), solid, material),
+        } => parts(
+            Box::new(WedgeShape {
+                size: size.0,
+                torture,
+            }),
+            solid,
+            material,
+        ),
         GeneratorKind::Helix {
             radius,
             tube_radius,
             pitch,
             turns,
             resolution,
+            torture,
             solid,
             material,
-            ..
         } => parts(
             Box::new(HelixShape {
                 radius: radius.0,
@@ -230,6 +259,7 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
                 pitch: pitch.0,
                 turns: turns.0,
                 resolution: *resolution,
+                torture,
             }),
             solid,
             material,
@@ -240,9 +270,9 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             exponent_ew,
             latitudes,
             longitudes,
+            torture,
             solid,
             material,
-            ..
         } => parts(
             Box::new(SuperellipsoidShape {
                 half_extents: half_extents.0,
@@ -250,6 +280,7 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
                 exponent_ew: exponent_ew.0,
                 latitudes: *latitudes,
                 longitudes: *longitudes,
+                torture,
             }),
             solid,
             material,
@@ -258,9 +289,9 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             points,
             resolution,
             samples_per_segment,
+            torture,
             solid,
             material,
-            ..
         } => parts(
             Box::new(SpineShape {
                 points: points
@@ -269,6 +300,7 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
                     .collect(),
                 resolution: *resolution,
                 samples_per_segment: *samples_per_segment,
+                torture,
             }),
             solid,
             material,
@@ -308,15 +340,42 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
     }
 }
 
-struct CuboidShape {
+struct CuboidShape<'a> {
     size: [f32; 3],
+    torture: &'a TortureParams,
 }
 
-impl PrimitiveShape for CuboidShape {
+impl PrimitiveShape for CuboidShape<'_> {
     fn base_mesh(&self) -> Mesh {
-        Cuboid::new(self.size[0], self.size[1], self.size[2])
-            .mesh()
-            .build()
+        use std::f32::consts::TAU;
+        if self.torture.cuts_are_identity() && self.torture.deforms_are_identity() {
+            return Cuboid::new(self.size[0], self.size[1], self.size[2])
+                .mesh()
+                .build();
+        }
+        // SL box cuts (#691): the cuboid becomes a swept rectangular
+        // profile — pie path-cut, matching rectangular bore, vertical
+        // slice — with wall rows for the nonlinear deforms.
+        let (a0, a1) = if self.torture.cuts_are_identity() {
+            (0.0, TAU)
+        } else {
+            path_cut_angles(self.torture)
+        };
+        let rows = if self.torture.deforms_are_identity() {
+            1
+        } else {
+            DEFORM_ROWS
+        };
+        build_profile_sweep(
+            &rect_profile(self.size[0] * 0.5, self.size[2] * 0.5),
+            self.size[1],
+            rows,
+            self.torture.hollow.0,
+            a0,
+            a1,
+            self.torture.profile_cut.0[0],
+            self.torture.profile_cut.0[1],
+        )
     }
     fn analytical_collider(&self) -> Option<Collider> {
         Some(Collider::cuboid(self.size[0], self.size[1], self.size[2]))
@@ -385,6 +444,8 @@ impl PrimitiveShape for CylinderShape<'_> {
                 self.torture.hollow.0,
                 a0,
                 a1,
+                self.torture.profile_cut.0[0],
+                self.torture.profile_cut.0[1],
             )
         }
     }
@@ -460,6 +521,8 @@ impl PrimitiveShape for ConeShape<'_> {
                 self.torture.hollow.0,
                 a0,
                 a1,
+                self.torture.profile_cut.0[0],
+                self.torture.profile_cut.0[1],
             )
         }
     }
@@ -543,11 +606,12 @@ impl PrimitiveShape for PlaneShape {
     }
 }
 
-struct TetrahedronShape {
+struct TetrahedronShape<'a> {
     size: f32,
+    torture: &'a TortureParams,
 }
 
-impl TetrahedronShape {
+impl TetrahedronShape<'_> {
     /// Apex + the three base corners, shared by mesh and collider.
     fn corners(&self) -> [Vec3; 4] {
         let s = self.size;
@@ -560,10 +624,16 @@ impl TetrahedronShape {
     }
 }
 
-impl PrimitiveShape for TetrahedronShape {
+impl PrimitiveShape for TetrahedronShape<'_> {
     fn base_mesh(&self) -> Mesh {
         let [p0, p1, p2, p3] = self.corners();
-        Tetrahedron::new(p0, p1, p2, p3).mesh().build()
+        let mut mesh = Tetrahedron::new(p0, p1, p2, p3).mesh().build();
+        // Four flat faces have no interior vertices — subdivide so the
+        // nonlinear deforms (twist / bend / bulge) have something to move.
+        if !self.torture.deforms_are_identity() {
+            subdivide_flat(&mut mesh, DEFORM_SUBDIV_LEVELS);
+        }
+        mesh
     }
     fn analytical_collider(&self) -> Option<Collider> {
         Some(
@@ -597,6 +667,8 @@ impl PrimitiveShape for TubeShape<'_> {
                 inner_frac,
                 a0,
                 a1,
+                self.torture.profile_cut.0[0],
+                self.torture.profile_cut.0[1],
             )
         }
     }
@@ -607,15 +679,45 @@ impl PrimitiveShape for TubeShape<'_> {
     }
 }
 
-struct BevelShape {
+struct BevelShape<'a> {
     size: [f32; 3],
     bevel: f32,
     bevel_segments: u32,
+    torture: &'a TortureParams,
 }
 
-impl PrimitiveShape for BevelShape {
+impl PrimitiveShape for BevelShape<'_> {
     fn base_mesh(&self) -> Mesh {
-        build_bevel_mesh(self.size, self.bevel, self.bevel_segments)
+        use std::f32::consts::TAU;
+        if self.torture.cuts_are_identity() && self.torture.deforms_are_identity() {
+            return build_bevel_mesh(self.size, self.bevel, self.bevel_segments);
+        }
+        // Same SL box cuts as the Cuboid, on the rounded-rect footprint.
+        let (a0, a1) = if self.torture.cuts_are_identity() {
+            (0.0, TAU)
+        } else {
+            path_cut_angles(self.torture)
+        };
+        let rows = if self.torture.deforms_are_identity() {
+            1
+        } else {
+            DEFORM_ROWS
+        };
+        build_profile_sweep(
+            &rounded_rect_profile(
+                self.size[0] * 0.5,
+                self.size[2] * 0.5,
+                self.bevel,
+                self.bevel_segments,
+            ),
+            self.size[1],
+            rows,
+            self.torture.hollow.0,
+            a0,
+            a1,
+            self.torture.profile_cut.0[0],
+            self.torture.profile_cut.0[1],
+        )
     }
     fn analytical_collider(&self) -> Option<Collider> {
         // The bevel's footprint is within its size box; the box is a tight
@@ -624,13 +726,18 @@ impl PrimitiveShape for BevelShape {
     }
 }
 
-struct WedgeShape {
+struct WedgeShape<'a> {
     size: [f32; 3],
+    torture: &'a TortureParams,
 }
 
-impl PrimitiveShape for WedgeShape {
+impl PrimitiveShape for WedgeShape<'_> {
     fn base_mesh(&self) -> Mesh {
-        build_wedge_mesh(self.size)
+        let mut mesh = build_wedge_mesh(self.size);
+        if !self.torture.deforms_are_identity() {
+            subdivide_flat(&mut mesh, DEFORM_SUBDIV_LEVELS);
+        }
+        mesh
     }
     fn analytical_collider(&self) -> Option<Collider> {
         let (w, h, d) = (self.size[0] * 0.5, self.size[1] * 0.5, self.size[2] * 0.5);
@@ -649,22 +756,34 @@ impl PrimitiveShape for WedgeShape {
     }
 }
 
-struct SuperellipsoidShape {
+struct SuperellipsoidShape<'a> {
     half_extents: [f32; 3],
     exponent_ns: f32,
     exponent_ew: f32,
     latitudes: u32,
     longitudes: u32,
+    torture: &'a TortureParams,
 }
 
-impl PrimitiveShape for SuperellipsoidShape {
+impl PrimitiveShape for SuperellipsoidShape<'_> {
     fn base_mesh(&self) -> Mesh {
+        use std::f32::consts::TAU;
+        let (lon0, lon1) = if self.torture.cuts_are_identity() {
+            (0.0, TAU)
+        } else {
+            path_cut_angles(self.torture)
+        };
         build_superellipsoid(
             self.half_extents,
             self.exponent_ns,
             self.exponent_ew,
             self.latitudes,
             self.longitudes,
+            lon0,
+            lon1,
+            self.torture.profile_cut.0[0],
+            self.torture.profile_cut.0[1],
+            self.torture.hollow.0,
         )
     }
     fn analytical_collider(&self) -> Option<Collider> {
@@ -684,15 +803,31 @@ impl PrimitiveShape for SuperellipsoidShape {
     }
 }
 
-struct SpineShape {
+struct SpineShape<'a> {
     points: Vec<(Vec3, f32)>,
     resolution: u32,
     samples_per_segment: u32,
+    torture: &'a TortureParams,
 }
 
-impl PrimitiveShape for SpineShape {
+impl PrimitiveShape for SpineShape<'_> {
     fn base_mesh(&self) -> Mesh {
-        build_spine_mesh(&self.points, self.resolution, self.samples_per_segment)
+        use std::f32::consts::TAU;
+        let (a0, a1) = if self.torture.cuts_are_identity() {
+            (0.0, TAU)
+        } else {
+            path_cut_angles(self.torture)
+        };
+        build_spine_mesh(
+            &self.points,
+            self.resolution,
+            self.samples_per_segment,
+            a0,
+            a1,
+            self.torture.profile_cut.0[0],
+            self.torture.profile_cut.0[1],
+            self.torture.hollow.0,
+        )
     }
     fn analytical_collider(&self) -> Option<Collider> {
         // Hull of a coarse resample of the same stations the mesh uses; the
@@ -753,22 +888,35 @@ impl PrimitiveShape for BlobGroupShape<'_> {
     }
 }
 
-struct HelixShape {
+struct HelixShape<'a> {
     radius: f32,
     tube_radius: f32,
     pitch: f32,
     turns: f32,
     resolution: u32,
+    torture: &'a TortureParams,
 }
 
-impl PrimitiveShape for HelixShape {
+impl PrimitiveShape for HelixShape<'_> {
     fn base_mesh(&self) -> Mesh {
+        use std::f32::consts::{FRAC_PI_2, TAU};
+        // Minor-arc profile-cut shares the torus convention: the band's 0/1
+        // endpoints sit on the tube's frame-up pole (the +FRAC_PI_2 phase).
+        let (min0, min1) = (
+            self.torture.profile_cut.0[0] * TAU + FRAC_PI_2,
+            self.torture.profile_cut.0[1] * TAU + FRAC_PI_2,
+        );
         build_helix_mesh(
             self.radius,
             self.tube_radius,
             self.pitch,
             self.turns,
             self.resolution,
+            self.torture.path_cut.0[0],
+            self.torture.path_cut.0[1],
+            min0,
+            min1,
+            self.torture.hollow.0,
         )
     }
     fn analytical_collider(&self) -> Option<Collider> {

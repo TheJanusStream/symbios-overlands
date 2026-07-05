@@ -221,9 +221,14 @@ pub struct TortureParams {
     /// combined per-axis scale is floored just above zero in the deform pass
     /// so a hard pinch collapses to the axis instead of inverting the surface.
     pub bulge: Fp2,
-    // --- Topology cuts (SL-style; honoured during mesh *generation* by the
-    // unified sweep mesher, not the vertex post-pass; effective only on the
-    // swept prims Sphere / Cylinder / Capsule / Cone / Torus / Tube). Default
+    // --- Topology cuts (SL-style; honoured during mesh *generation*, not
+    // the vertex post-pass). As of #691 every prim honours them except
+    // Plane (no revolve axis) and BlobGroup (its element list + carve mode
+    // is the richer cut language); Lathe ignores `profile_cut` only (its
+    // profile is already user-authored). Semantics per family: revolved
+    // prims cut angularly / by band / by bore; box prims (Cuboid / Bevel)
+    // take a pie wedge / vertical slice / matching bore; tubes (Helix /
+    // Spine) open into channels / trim their path / become shells. Default
     // = identity (full sweep, full profile, solid). ---
     /// Kept angular fraction of the main sweep, `[begin, end]` in turns (0..1).
     /// `[0, 1]` = full revolution (no cut); `[0, 0.5]` keeps a half (half-
@@ -795,8 +800,10 @@ pub enum GeneratorKind {
     /// capsule chains that limbs / tails / horns / tentacles / vines used to
     /// take. The spline passes through every control point (2..16); radius
     /// interpolates along the same spline, and both ends are capped with
-    /// flat discs. Vertex torture composes on top; topology cuts don't apply
-    /// (the path itself is the shape).
+    /// flat discs. Vertex torture composes on top, and the topology cuts
+    /// map tube-wise (#691): `path_cut` keeps an angular range of the ring
+    /// (an open gutter / half-pipe along the curve), `profile_cut` trims
+    /// the kept stretch of the path, and `hollow` makes the tube a shell.
     #[serde(rename = "network.symbios.gen.spine")]
     Spine {
         points: Vec<SpinePoint>,

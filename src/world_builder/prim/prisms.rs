@@ -165,22 +165,35 @@ pub(super) fn build_wedge_mesh(size: [f32; 3]) -> Mesh {
 
 /// Helical tube (spring / screw / spiral rail): a circular cross-section swept
 /// along a helix. `pitch` is the rise per turn, `turns` the revolution count,
-/// `resolution` the path segments per turn. End caps close the tube.
+/// `resolution` the path segments per turn. SL-style cuts (#691): `p0..p1`
+/// keeps a sub-range of the sweep (end caps move with it), `min0..min1` an
+/// arc of the tube cross-section (a C-channel coiled along the helix, closed
+/// by two edge lips), and `inner_frac > 0` hollows the tube into a shell.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn build_helix_mesh(
     radius: f32,
     tube_radius: f32,
     pitch: f32,
     turns: f32,
     resolution: u32,
+    p0: f32,
+    p1: f32,
+    min0: f32,
+    min1: f32,
+    inner_frac: f32,
 ) -> Mesh {
     use std::f32::consts::TAU;
     let res = resolution.max(3);
     let turns = turns.abs().max(0.05);
-    let path_segs = ((turns * res as f32).ceil() as u32).max(2);
+    let (p0, p1) = (p0.clamp(0.0, 1.0), p1.clamp(0.0, 1.0).max(p0 + 1e-3));
+    let min_full = (min1 - min0).abs() >= TAU - 1e-3;
+    let k = inner_frac.clamp(0.0, 0.99);
+    let hollow = k > 1e-4;
+    let path_segs = ((turns * (p1 - p0) * res as f32).ceil() as u32).max(2);
     let tube_segs = 10u32;
     let total_h = turns * pitch;
     let path = |i: u32| -> (Vec3, Vec3) {
-        let th = turns * TAU * (i as f32 / path_segs as f32);
+        let th = turns * TAU * (p0 + (p1 - p0) * (i as f32 / path_segs as f32));
         let (st, ct) = th.sin_cos();
         let c = Vec3::new(radius * ct, (th / TAU) * pitch - total_h * 0.5, radius * st);
         let mut t = Vec3::new(-radius * st, pitch / TAU, radius * ct).normalize_or_zero();
@@ -194,42 +207,96 @@ pub(super) fn build_helix_mesh(
         let n = refv.cross(t).normalize_or_zero();
         (n, t.cross(n))
     };
+    let phi_of = |j: u32| min0 + (min1 - min0) * (j as f32 / tube_segs as f32);
 
     let mut pos = Vec::new();
     let mut nor = Vec::new();
     let mut uv = Vec::new();
     let mut idx: Vec<u32> = Vec::new();
-    for i in 0..=path_segs {
-        let (c, t) = path(i);
-        let (n, b) = frame(t);
-        for j in 0..=tube_segs {
-            let phi = TAU * (j as f32 / tube_segs as f32);
-            let (sp, cp) = phi.sin_cos();
-            let dir = n * cp + b * sp;
-            pos.push((c + dir * tube_radius).to_array());
-            nor.push(dir.to_array());
-            uv.push([i as f32 / path_segs as f32, j as f32 / tube_segs as f32]);
+    // Outer tube (+ inner shell when hollow).
+    let mut shells = vec![(tube_radius, false)];
+    if hollow {
+        shells.push((tube_radius * k, true));
+    }
+    for (rad, inward) in shells {
+        let base = pos.len() as u32;
+        let sgn = if inward { -1.0 } else { 1.0 };
+        for i in 0..=path_segs {
+            let (c, t) = path(i);
+            let (n, b) = frame(t);
+            for j in 0..=tube_segs {
+                let (sp, cp) = phi_of(j).sin_cos();
+                let dir = n * cp + b * sp;
+                pos.push((c + dir * rad).to_array());
+                nor.push((dir * sgn).to_array());
+                uv.push([i as f32 / path_segs as f32, j as f32 / tube_segs as f32]);
+            }
+        }
+        let row = tube_segs + 1;
+        for i in 0..path_segs {
+            for j in 0..tube_segs {
+                let a = base + i * row + j;
+                idx.extend_from_slice(&[a, a + row, a + row + 1, a, a + row + 1, a + 1]);
+            }
         }
     }
-    let row = tube_segs + 1;
-    for i in 0..path_segs {
-        for j in 0..tube_segs {
-            let a = i * row + j;
-            idx.extend_from_slice(&[a, a + row, a + row + 1, a, a + row + 1, a + 1]);
+    // Edge lips closing an open cross-section arc (profile-cut), running the
+    // whole path.
+    if !min_full {
+        for (j_edge, sgn) in [(0u32, -1.0f32), (tube_segs, 1.0f32)] {
+            let (sp, cp) = phi_of(j_edge).sin_cos();
+            let base = pos.len() as u32;
+            for i in 0..=path_segs {
+                let (c, t) = path(i);
+                let (n, b) = frame(t);
+                let dir = n * cp + b * sp;
+                let lip_n = ((n * -sp + b * cp) * sgn).normalize_or_zero();
+                pos.push((c + dir * tube_radius).to_array());
+                nor.push(lip_n.to_array());
+                uv.push([i as f32 / path_segs as f32, 0.0]);
+                if hollow {
+                    pos.push((c + dir * (tube_radius * k)).to_array());
+                } else {
+                    pos.push(c.to_array());
+                }
+                nor.push(lip_n.to_array());
+                uv.push([i as f32 / path_segs as f32, 1.0]);
+            }
+            for i in 0..path_segs {
+                let b = base + i * 2;
+                idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
+            }
         }
     }
-    // End caps (a disc at each helix end).
+    // End caps: a fan over the kept arc when solid, an annular band when
+    // hollow.
     for (i_edge, sgn) in [(0u32, -1.0f32), (path_segs, 1.0f32)] {
         let (c, t) = path(i_edge);
         let (n, b) = frame(t);
         let ncap = (t * sgn).to_array();
         let basec = pos.len() as u32;
+        if hollow {
+            for j in 0..=tube_segs {
+                let (sp, cp) = phi_of(j).sin_cos();
+                let dir = n * cp + b * sp;
+                pos.push((c + dir * tube_radius).to_array());
+                nor.push(ncap);
+                uv.push([0.5 + 0.5 * cp, 0.5 + 0.5 * sp]);
+                pos.push((c + dir * (tube_radius * k)).to_array());
+                nor.push(ncap);
+                uv.push([0.5 + 0.5 * k * cp, 0.5 + 0.5 * k * sp]);
+            }
+            for j in 0..tube_segs {
+                let b2 = basec + j * 2;
+                idx.extend_from_slice(&[b2, b2 + 1, b2 + 3, b2, b2 + 3, b2 + 2]);
+            }
+            continue;
+        }
         pos.push(c.to_array());
         nor.push(ncap);
         uv.push([0.5, 0.5]);
         for j in 0..=tube_segs {
-            let phi = TAU * (j as f32 / tube_segs as f32);
-            let (sp, cp) = phi.sin_cos();
+            let (sp, cp) = phi_of(j).sin_cos();
             let dir = n * cp + b * sp;
             pos.push((c + dir * tube_radius).to_array());
             nor.push(ncap);

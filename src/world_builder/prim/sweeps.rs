@@ -127,16 +127,49 @@ pub(super) fn spine_stations(
 }
 
 /// Build the Spine tube mesh: a circular profile of `resolution` segments
-/// stitched over the [`spine_stations`] rings, closed by flat disc caps at
-/// both ends. Vertex torture rides on top via the shared post-pass.
+/// stitched over the [`spine_stations`] rings. SL-style cuts (#691):
+/// `a0..a1` is the kept **angular range** of the ring (an open gutter /
+/// half-pipe along the curve, closed by two edge strips), `t0..t1` trims
+/// the kept **path range** (end caps move to the trimmed ends), and
+/// `inner_frac > 0` hollows the tube into a shell (caps become annular).
+/// Vertex torture rides on top via the shared post-pass.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn build_spine_mesh(
     points: &[(Vec3, f32)],
     resolution: u32,
     samples_per_segment: u32,
+    a0: f32,
+    a1: f32,
+    t0: f32,
+    t1: f32,
+    inner_frac: f32,
 ) -> Mesh {
     use std::f32::consts::TAU;
     let res = resolution.clamp(3, 64);
-    let stations = spine_stations(points, samples_per_segment);
+    let full = (a1 - a0).abs() >= TAU - 1e-3;
+    let k = inner_frac.clamp(0.0, 0.99);
+    let hollow = k > 1e-4;
+    let all = spine_stations(points, samples_per_segment);
+
+    // Path trim: keep the stations inside the [t0, t1] arc-length band
+    // (stations are dense — 2..64 per segment — so snapping to the nearest
+    // station is visually exact).
+    let mut full_arc = vec![0.0f32; all.len()];
+    for i in 1..all.len() {
+        full_arc[i] = full_arc[i - 1] + (all[i].pos - all[i - 1].pos).length();
+    }
+    let total = full_arc.last().copied().unwrap_or(0.0).max(1e-5);
+    let (t0, t1) = (t0.clamp(0.0, 1.0), t1.clamp(0.0, 1.0).max(t0 + 1e-3));
+    let i0 = full_arc.partition_point(|a| *a < t0 * total - 1e-6);
+    let i1 = full_arc
+        .partition_point(|a| *a <= t1 * total + 1e-6)
+        .saturating_sub(1);
+    let (i0, i1) = if i1 > i0 {
+        (i0, i1)
+    } else {
+        (i0.min(all.len() - 2), i0.min(all.len() - 2) + 1)
+    };
+    let stations = &all[i0..=i1];
     let n_rings = stations.len() as u32;
 
     // V follows arc length scaled so a texel stays square against the
@@ -148,54 +181,111 @@ pub(super) fn build_spine_mesh(
     }
     let mean_r = (stations.iter().map(|s| s.radius).sum::<f32>() / stations.len() as f32).max(1e-3);
     let v_of = |i: usize| arc[i] / (TAU * mean_r);
+    let ang = |j: u32| a0 + (a1 - a0) * (j as f32 / res as f32);
 
     let mut pos: Vec<[f32; 3]> = Vec::new();
     let mut nor: Vec<[f32; 3]> = Vec::new();
     let mut uv: Vec<[f32; 2]> = Vec::new();
     let mut idx: Vec<u32> = Vec::new();
 
-    // Tube surface grid. The surface normal of a tapering tube tilts along
-    // the tangent by the radius slope (`dr/ds`), same as a cone's wall.
-    for (ri, st) in stations.iter().enumerate() {
-        for j in 0..=res {
-            let a = j as f32 / res as f32 * TAU;
-            let (s, c) = a.sin_cos();
-            let dir = st.normal * c + st.binormal * s;
-            let p = st.pos + dir * st.radius;
-            let n = (dir - st.tangent * st.slope).normalize_or_zero();
-            pos.push(p.to_array());
-            nor.push(n.to_array());
-            uv.push([j as f32 / res as f32, v_of(ri)]);
-        }
+    // Tube surface grid — outer, plus an inner shell when hollow. The
+    // surface normal of a tapering tube tilts along the tangent by the
+    // radius slope (`dr/ds`), same as a cone's wall.
+    let mut shells = vec![(1.0f32, false)];
+    if hollow {
+        shells.push((k, true));
     }
-    let row = res + 1;
-    for ri in 0..n_rings - 1 {
-        for j in 0..res {
-            let a = ri * row + j;
-            idx.extend_from_slice(&[a, a + row, a + row + 1, a, a + row + 1, a + 1]);
+    for (scale, inward) in shells {
+        let base = pos.len() as u32;
+        let sgn = if inward { -1.0 } else { 1.0 };
+        for (ri, st) in stations.iter().enumerate() {
+            for j in 0..=res {
+                let (sn, cs) = ang(j).sin_cos();
+                let dir = st.normal * cs + st.binormal * sn;
+                let p = st.pos + dir * (st.radius * scale);
+                let n = (dir - st.tangent * (st.slope * scale)).normalize_or_zero() * sgn;
+                pos.push(p.to_array());
+                nor.push(n.to_array());
+                uv.push([j as f32 / res as f32, v_of(ri)]);
+            }
+        }
+        let row = res + 1;
+        for ri in 0..n_rings - 1 {
+            for j in 0..res {
+                let a = base + ri * row + j;
+                idx.extend_from_slice(&[a, a + row, a + row + 1, a, a + row + 1, a + 1]);
+            }
         }
     }
 
-    // Flat disc caps, normal along ∓tangent.
+    // End caps, normal along ∓tangent: a disc fan over the kept arc when
+    // solid (a pie for an open ring — the centre lies on the cut plane), an
+    // annular band outer → inner when hollow.
     for (st, sgn) in [
         (&stations[0], -1.0f32),
         (stations.last().expect("stations non-empty"), 1.0f32),
     ] {
         let nrm = (st.tangent * sgn).to_array();
         let base = pos.len() as u32;
-        pos.push(st.pos.to_array());
-        nor.push(nrm);
-        uv.push([0.5, 0.5]);
-        for j in 0..=res {
-            let a = j as f32 / res as f32 * TAU;
-            let (s, c) = a.sin_cos();
-            let dir = st.normal * c + st.binormal * s;
-            pos.push((st.pos + dir * st.radius).to_array());
+        if hollow {
+            for j in 0..=res {
+                let (sn, cs) = ang(j).sin_cos();
+                let dir = st.normal * cs + st.binormal * sn;
+                pos.push((st.pos + dir * st.radius).to_array());
+                nor.push(nrm);
+                uv.push([0.5 + 0.5 * cs, 0.5 + 0.5 * sn]);
+                pos.push((st.pos + dir * (st.radius * k)).to_array());
+                nor.push(nrm);
+                uv.push([0.5 + 0.5 * k * cs, 0.5 + 0.5 * k * sn]);
+            }
+            for j in 0..res {
+                let b = base + j * 2;
+                idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
+            }
+        } else {
+            pos.push(st.pos.to_array());
             nor.push(nrm);
-            uv.push([0.5 + 0.5 * c, 0.5 + 0.5 * s]);
+            uv.push([0.5, 0.5]);
+            for j in 0..=res {
+                let (sn, cs) = ang(j).sin_cos();
+                let dir = st.normal * cs + st.binormal * sn;
+                pos.push((st.pos + dir * st.radius).to_array());
+                nor.push(nrm);
+                uv.push([0.5 + 0.5 * cs, 0.5 + 0.5 * sn]);
+            }
+            for j in 0..res {
+                idx.extend_from_slice(&[base, base + 1 + j, base + 2 + j]);
+            }
         }
-        for j in 0..res {
-            idx.extend_from_slice(&[base, base + 1 + j, base + 2 + j]);
+    }
+
+    // Edge strips closing an open angular ring (path-cut): one strip per
+    // cut angle, running the whole path from the outer surface to the axis
+    // (solid) or the inner shell (hollow). The face normal is the ring
+    // tangent at the cut angle.
+    if !full {
+        for (j_edge, sgn) in [(0u32, -1.0f32), (res, 1.0f32)] {
+            let a = ang(j_edge);
+            let (sn, cs) = a.sin_cos();
+            let base = pos.len() as u32;
+            for (ri, st) in stations.iter().enumerate() {
+                let dir = st.normal * cs + st.binormal * sn;
+                let edge_n = ((st.normal * -sn + st.binormal * cs) * sgn).normalize_or_zero();
+                pos.push((st.pos + dir * st.radius).to_array());
+                nor.push(edge_n.to_array());
+                uv.push([0.0, v_of(ri)]);
+                if hollow {
+                    pos.push((st.pos + dir * (st.radius * k)).to_array());
+                } else {
+                    pos.push(st.pos.to_array());
+                }
+                nor.push(edge_n.to_array());
+                uv.push([1.0, v_of(ri)]);
+            }
+            for ri in 0..n_rings - 1 {
+                let b = base + ri * 2;
+                idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
+            }
         }
     }
 

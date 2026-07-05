@@ -531,6 +531,104 @@ mod tests {
     }
 
     #[test]
+    fn cone_slice_yields_a_frustum_and_cylinder_slice_shortens() {
+        // profile_cut on the frustum family is SL's vertical slice: the
+        // kept band, with radii interpolated (a sliced cone gains a flat
+        // top of the interpolated radius).
+        let mut cone = GeneratorKind::default_primitive_for_tag("Cone").unwrap();
+        if let Some(t) = cone.torture_mut() {
+            t.profile_cut = Fp2([0.0, 0.5]);
+        }
+        let mesh = build_primitive_mesh(&cone);
+        let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("no positions");
+        };
+        // Default cone: r 0.5, h 1.0 → slice [0, 0.5] keeps y ∈ [-0.5, 0],
+        // top radius = lerp(0.5, 0, 0.5) = 0.25.
+        let y_max = pos.iter().map(|p| p[1]).fold(f32::NEG_INFINITY, f32::max);
+        assert!((y_max - 0.0).abs() < 1e-3, "slice top at {y_max}");
+        let top_r = pos
+            .iter()
+            .filter(|p| p[1] > -0.01)
+            .map(|p| (p[0] * p[0] + p[2] * p[2]).sqrt())
+            .fold(0.0_f32, f32::max);
+        assert!((top_r - 0.25).abs() < 0.02, "frustum top radius {top_r}");
+    }
+
+    #[test]
+    fn box_pie_cut_and_hollow_carve_the_footprint() {
+        // Pie path-cut [0, 0.25]: kept quarter is the +X/+Z quadrant-ish
+        // sweep — vertices with strongly negative x AND z must be gone.
+        let mut cuboid = GeneratorKind::default_primitive_for_tag("Cuboid").unwrap();
+        if let Some(t) = cuboid.torture_mut() {
+            t.path_cut = Fp2([0.0, 0.25]);
+        }
+        let mesh = build_primitive_mesh(&cuboid);
+        let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("no positions");
+        };
+        assert!(
+            !pos.iter().any(|p| p[0] < -0.1 && p[2] < -0.1),
+            "pie cut kept the opposite quadrant"
+        );
+        // Hollow box: a matching inner wall must exist (vertices strictly
+        // inside the outer footprint).
+        let mut hollow = GeneratorKind::default_primitive_for_tag("Cuboid").unwrap();
+        if let Some(t) = hollow.torture_mut() {
+            t.hollow = Fp(0.5);
+        }
+        let mesh = build_primitive_mesh(&hollow);
+        let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("no positions");
+        };
+        // A hollow box has no cap-centre vertex (annular caps), so any
+        // vertex strictly inside the outer footprint is bore wall.
+        assert!(
+            pos.iter().any(|p| p[0].abs().max(p[2].abs()) < 0.3),
+            "hollow box grew no bore wall"
+        );
+    }
+
+    #[test]
+    fn wedge_and_tetra_gain_deform_vertices() {
+        // Nonlinear deforms need interior vertices; the flat subdivision
+        // pass provides them only when a deform is active.
+        for tag in ["Wedge", "Tetrahedron"] {
+            let plain = GeneratorKind::default_primitive_for_tag(tag).unwrap();
+            let mut bent = GeneratorKind::default_primitive_for_tag(tag).unwrap();
+            if let Some(t) = bent.torture_mut() {
+                t.bend = Fp3([0.5, 0.0, 0.0]);
+            }
+            let count = |k: &GeneratorKind| {
+                let mesh = build_primitive_mesh(k);
+                match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+                    Some(VertexAttributeValues::Float32x3(p)) => p.len(),
+                    _ => 0,
+                }
+            };
+            assert!(
+                count(&bent) > count(&plain) * 16,
+                "{tag} not subdivided for deforms"
+            );
+            // And the bend actually curves: some mid-height vertex is
+            // displaced off the linear corner interpolation.
+            let mesh = build_primitive_mesh(&bent);
+            let Some(VertexAttributeValues::Float32x3(pos)) =
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("no positions");
+            };
+            assert!(
+                pos.iter().any(|p| p[1].abs() < 0.2),
+                "{tag} has no mid-height vertices"
+            );
+        }
+    }
+
+    #[test]
     fn tube_mesh_is_finite_unit_and_bounded() {
         // Default tube: outer 0.5, height 1.0.
         let kind = GeneratorKind::default_primitive_for_tag("Tube").unwrap();
@@ -611,6 +709,18 @@ mod tests {
             with_cut("Capsule", [0.0, 0.5], [0.0, 1.0], 0.0), // capsule wedge
             with_cut("Capsule", [0.0, 1.0], [0.2, 0.8], 0.5), // hollow sleeve
             with_cut("Capsule", [0.0, 0.75], [0.1, 1.0], 0.3), // everything at once
+            with_cut("Cuboid", [0.0, 0.75], [0.0, 1.0], 0.0), // pie-cut box
+            with_cut("Cuboid", [0.0, 1.0], [0.0, 1.0], 0.5), // hollow box
+            with_cut("Cuboid", [0.1, 0.6], [0.2, 0.9], 0.4), // box everything
+            with_cut("Bevel", [0.0, 0.6], [0.0, 1.0], 0.5), // cut rounded box
+            with_cut("Superellipsoid", [0.0, 0.5], [0.0, 1.0], 0.0), // pillow half
+            with_cut("Superellipsoid", [0.0, 1.0], [0.4, 1.0], 0.6), // hollow dome
+            with_cut("Spine", [0.0, 0.5], [0.0, 1.0], 0.0), // curved gutter
+            with_cut("Spine", [0.0, 1.0], [0.2, 0.8], 0.5), // trimmed shell
+            with_cut("Helix", [0.0, 1.0], [0.0, 0.5], 0.0), // coiled C-channel
+            with_cut("Helix", [0.2, 0.8], [0.0, 1.0], 0.6), // hollow part-coil
+            with_cut("Cylinder", [0.0, 1.0], [0.25, 0.75], 0.0), // vertical slice
+            with_cut("Cone", [0.0, 1.0], [0.0, 0.6], 0.0),  // cone slice = frustum
         ];
         for k in &kinds {
             let tag = k.kind_tag();
