@@ -122,6 +122,11 @@ pub async fn publish_inventory_record(
     refresh: &crate::oauth::OauthRefreshCtx,
     record: &InventoryRecord,
 ) -> Result<(), String> {
+    // Pre-flight size guard BEFORE any network I/O (shared record-size
+    // budget — see `super::record_size`). Inventory has no delete-then-put
+    // fallback, but the PDS would reject the write anyway; refusing locally
+    // gives the owner an actionable message instead of a raw 4xx.
+    super::record_size::preflight(record, "inventory")?;
     let pds = resolve_pds(client, &session.did)
         .await
         .ok_or_else(|| "Failed to resolve PDS".to_string())?;

@@ -56,6 +56,9 @@ pub struct PublishAvatarTask {
     pub task: bevy::tasks::Task<Result<(), String>>,
     pub did: String,
     pub spawned_at: f64,
+    /// Serialized size of the record being written, measured at dispatch so
+    /// the poll system can gauge + log it (#694).
+    pub record_bytes: Option<usize>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -318,7 +321,12 @@ pub fn avatar_ui(
                 let default_record = default_cache.as_ref().map(|(_, r)| r);
                 let can_reset = default_record.is_some_and(|d| records_differ(d, &live_mut.0));
 
-                match save_load_reset_row(ui, dirty, can_publish, can_reset) {
+                let record_bytes = crate::ui::editable::refresh_size_readout(
+                    &mut *feedback,
+                    &live_mut.0,
+                    time.elapsed_secs_f64(),
+                );
+                match save_load_reset_row(ui, dirty, can_publish, can_reset, record_bytes) {
                     RecordAction::None => {}
                     RecordAction::Publish => {
                         if let (Some(session), Some(refresh)) =
@@ -441,6 +449,7 @@ pub(crate) fn spawn_publish_avatar_task(
     let did = session.did.clone();
     let session_clone = session.clone();
     let refresh_clone = refresh.clone();
+    let record_bytes = pds::record_size::serialized_record_bytes(&record);
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
@@ -460,12 +469,14 @@ pub(crate) fn spawn_publish_avatar_task(
         task,
         did,
         spawned_at: now,
+        record_bytes,
     });
 }
 
 /// Poll outstanding avatar publish tasks. On success, sync `LiveAvatarRecord`
 /// into `StoredAvatarRecord` so the "Load from PDS" button is disabled until the
 /// next edit.
+#[allow(clippy::too_many_arguments)]
 pub fn poll_publish_avatar_tasks(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut PublishAvatarTask)>,
@@ -473,6 +484,7 @@ pub fn poll_publish_avatar_tasks(
     mut stored: Option<ResMut<StoredAvatarRecord>>,
     mut feedback: ResMut<PublishFeedback<AvatarRecord>>,
     mut session_log: ResMut<SessionLog>,
+    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
     time: Res<Time>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
@@ -485,6 +497,13 @@ pub fn poll_publish_avatar_tasks(
         let now = time.elapsed_secs_f64();
         let did = task.did.clone();
         let duration_secs = now - task.spawned_at;
+        crate::ui::editable::log_record_size(
+            &mut session_log,
+            &mut metrics,
+            now,
+            RecordKind::Avatar,
+            task.record_bytes,
+        );
         match result {
             Ok(()) => {
                 info!("Avatar record saved to PDS");

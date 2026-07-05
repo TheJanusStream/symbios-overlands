@@ -57,6 +57,9 @@ pub struct PublishInventoryTask {
     pub task: bevy::tasks::Task<Result<(), String>>,
     pub did: String,
     pub spawned_at: f64,
+    /// Serialized size of the record being written, measured at dispatch so
+    /// the poll system can gauge + log it (#694).
+    pub record_bytes: Option<usize>,
 }
 
 /// Origin of a drag-to-place operation. The raycast + placement path
@@ -281,7 +284,12 @@ pub fn inventory_ui(
             // `session` + `refresh_ctx` are guaranteed present (the early
             // return above bails otherwise), so a publish is always
             // attemptable while dirty.
-            match save_load_reset_row(ui, dirty, true, can_reset) {
+            let record_bytes = crate::ui::editable::refresh_size_readout(
+                &mut *feedback,
+                &live.0,
+                time.elapsed_secs_f64(),
+            );
+            match save_load_reset_row(ui, dirty, true, can_reset, record_bytes) {
                 RecordAction::None => {}
                 RecordAction::Publish => {
                     feedback.status = PublishStatus::Publishing;
@@ -321,6 +329,7 @@ pub(crate) fn spawn_publish_inventory_task(
     let did = session.did.clone();
     let session_clone = session.clone();
     let refresh_clone = refresh.clone();
+    let record_bytes = crate::pds::record_size::serialized_record_bytes(&record);
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
@@ -341,9 +350,11 @@ pub(crate) fn spawn_publish_inventory_task(
         task,
         did,
         spawned_at: now,
+        record_bytes,
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn poll_publish_inventory_tasks(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut PublishInventoryTask)>,
@@ -351,6 +362,7 @@ pub fn poll_publish_inventory_tasks(
     mut stored: Option<ResMut<StoredInventoryRecord>>,
     mut feedback: ResMut<PublishFeedback<InventoryRecord>>,
     mut session_log: ResMut<SessionLog>,
+    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
     time: Res<Time>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
@@ -364,6 +376,13 @@ pub fn poll_publish_inventory_tasks(
         let now = time.elapsed_secs_f64();
         let did = task.did.clone();
         let duration_secs = now - task.spawned_at;
+        crate::ui::editable::log_record_size(
+            &mut session_log,
+            &mut metrics,
+            now,
+            RecordKind::Inventory,
+            task.record_bytes,
+        );
         match result {
             Ok(()) => {
                 info!("Inventory record saved to PDS");

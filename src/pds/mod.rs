@@ -70,6 +70,8 @@
 //! * [`sanitize`] — clamp helpers + [`sanitize::limits`] for every numeric
 //!   field on the wire.
 //! * [`xrpc`] — DID resolution, [`FetchError`], and the common XRPC plumbing.
+//! * [`record_size`] — serialized-size budgets shared by every record
+//!   publish path (soft warn budget, hard pre-flight ceiling).
 //! * [`avatar`] — avatar phenotype / kinematics / body + fetch/publish.
 //! * [`room`] — [`Environment`], [`RoomRecord`], [`find_terrain_config`], and
 //!   room-record XRPC wrappers.
@@ -97,6 +99,7 @@ pub mod generator;
 pub mod inventory;
 pub mod material_finish;
 pub mod prim;
+pub mod record_size;
 pub mod room;
 pub mod ruin;
 pub mod sanitize;

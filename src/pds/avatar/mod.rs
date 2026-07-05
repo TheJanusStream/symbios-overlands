@@ -244,6 +244,10 @@ pub async fn publish_avatar_record(
     refresh: &crate::oauth::OauthRefreshCtx,
     record: &AvatarRecord,
 ) -> Result<(), String> {
+    // Pre-flight size guard BEFORE any network I/O — the 5xx fallback below
+    // deletes the stored record, so an oversized record must be refused
+    // before it can trigger that delete-without-replace sequence.
+    crate::pds::record_size::preflight(record, "avatar")?;
     let pds = resolve_pds(client, &session.did)
         .await
         .ok_or_else(|| "Failed to resolve PDS".to_string())?;

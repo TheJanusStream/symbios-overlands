@@ -581,7 +581,12 @@ pub fn room_admin_ui(
                 // `session` + `refresh_ctx` are guaranteed present (the
                 // early return at the top bails otherwise), so the PDS
                 // write can always be attempted while dirty.
-                match save_load_reset_row(ui, dirty, true, can_reset) {
+                let record_bytes = crate::ui::editable::refresh_size_readout(
+                    &mut *publish_feedback,
+                    &*record_mut,
+                    time.elapsed_secs_f64(),
+                );
+                match save_load_reset_row(ui, dirty, true, can_reset, record_bytes) {
                     RecordAction::None => {}
                     RecordAction::Publish => {
                         publish_feedback.status = PublishStatus::Publishing;

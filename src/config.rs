@@ -878,5 +878,11 @@ pub mod ui {
         /// consecutive widget changes here drops the churn from ~60 Hz to
         /// ~4 Hz while staying imperceptible to the editor.
         pub const MENU_DEBOUNCE_SECS: f32 = 0.25;
+
+        /// Seconds between refreshes of the record-size readout in the
+        /// shared Save/Load/Reset row (#694). Each refresh serializes the
+        /// full live record to count its bytes — cheap enough at 2 Hz even
+        /// for a large room record, wasteful at 60 Hz.
+        pub const SIZE_READOUT_REFRESH_SECS: f64 = 0.5;
     }
 }

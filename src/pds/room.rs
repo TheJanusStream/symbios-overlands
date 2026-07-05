@@ -1368,6 +1368,10 @@ pub async fn publish_room_record(
     refresh: &crate::oauth::OauthRefreshCtx,
     record: &RoomRecord,
 ) -> Result<(), String> {
+    // Pre-flight size guard BEFORE any network I/O: an oversized record must
+    // never reach the delete-then-put fallback below, which would delete the
+    // stored record and then fail to replace it.
+    super::record_size::preflight(record, "room")?;
     let pds = resolve_pds(client, &session.did)
         .await
         .ok_or_else(|| "Failed to resolve PDS".to_string())?;
@@ -1445,6 +1449,10 @@ pub async fn reset_room_record(
     refresh: &crate::oauth::OauthRefreshCtx,
     record: &RoomRecord,
 ) -> Result<(), String> {
+    // Size-guard BEFORE the delete: this path removes the stored record
+    // first, so an oversized replacement refused only at publish time would
+    // already have destroyed the owner's saved room.
+    super::record_size::preflight(record, "room")?;
     delete_room_record(client, session, refresh).await?;
     publish_room_record(client, session, refresh, record).await
 }

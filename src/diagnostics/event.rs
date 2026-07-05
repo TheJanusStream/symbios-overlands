@@ -200,6 +200,16 @@ pub enum EventPayload {
         did: String,
         reason: String,
     },
+    /// Serialized `putRecord` payload size measured at a publish attempt —
+    /// the single-record-boundary watch (#694). Severity encodes the budget
+    /// classification: info under the soft budget, warn past it, error past
+    /// the hard ceiling (where the publish was refused pre-flight).
+    RecordSizeMeasured {
+        record: RecordKind,
+        bytes: u64,
+        soft_budget_bytes: u64,
+        hard_ceiling_bytes: u64,
+    },
     /// The room record could not be decoded; the recovery banner was raised.
     RoomRecoveryBannerRaised {
         reason: String,
@@ -446,6 +456,7 @@ impl EventPayload {
             | RecordFetchCompleted { .. }
             | RecordWriteCompleted { .. }
             | RecordWriteFailed { .. }
+            | RecordSizeMeasured { .. }
             | RoomRecoveryBannerRaised { .. }
             | HeightmapGenStarted { .. }
             | HeightmapGenCompleted { .. }
@@ -528,6 +539,7 @@ impl EventPayload {
             | RecordFetchCompleted { .. }
             | RecordWriteCompleted { .. }
             | RecordWriteFailed { .. }
+            | RecordSizeMeasured { .. }
             | RoomRecoveryBannerRaised { .. }
             | LoginFeedFetchInitiated
             | LoginFeedFetchCompleted { .. } => Category::Fetch,
@@ -647,6 +659,17 @@ impl EventPayload {
             }
             RecordWriteFailed { record, reason, .. } => {
                 format!("{record:?} save FAILED ({reason})")
+            }
+            RecordSizeMeasured {
+                record,
+                bytes,
+                soft_budget_bytes,
+                hard_ceiling_bytes,
+            } => {
+                format!(
+                    "{record:?} record size {bytes} B (soft budget {soft_budget_bytes} B, \
+                     hard ceiling {hard_ceiling_bytes} B)"
+                )
             }
             RoomRecoveryBannerRaised { reason } => format!("room recovery banner ({reason})"),
             HeightmapGenStarted { seed } => format!("heightmap gen started (seed {seed})"),
@@ -901,6 +924,12 @@ mod tests {
                 record: RecordKind::Room,
                 did: "did:plc:me".into(),
                 duration_secs: 0.4,
+            },
+            EventPayload::RecordSizeMeasured {
+                record: RecordKind::Room,
+                bytes: 123_456,
+                soft_budget_bytes: 102_400,
+                hard_ceiling_bytes: 921_600,
             },
             EventPayload::AvatarReseeded { seed: 42 },
             EventPayload::PeerIdentitySpoofRejected {

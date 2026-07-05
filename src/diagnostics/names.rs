@@ -3,7 +3,8 @@
 //! written under one name is read under the same name everywhere (no drift).
 //!
 //! Naming scheme: `<subsystem>.<noun>.<unit>` in dotted lower_snake, with
-//! subsystem prefixes `runtime` | `net` | `loading` | `offload`. The unit
+//! subsystem prefixes `runtime` | `net` | `loading` | `offload` | `record`.
+//! The unit
 //! suffix hints the value type by convention (`.ms`/`.secs`/`.bytes`/`.pct`
 //! are gauges or histograms; `.count` is a counter), but the authoritative
 //! shape is the [`MetricKind`] recorded alongside each name in [`ALL`].
@@ -80,6 +81,18 @@ pub const LOADING_RECORD_FETCH_RETRY_COUNT: &str = "loading.record_fetch.retry_c
 /// Total wall time (secs) spent in the loading gate for the last room enter.
 pub const LOADING_GATE_TOTAL_SECS: &str = "loading.gate.total_secs";
 
+// ---- PDS record sizes -------------------------------------------------------
+// Serialized `putRecord` payload size at the most recent publish attempt —
+// the single-record-boundary watch (#694): budgets live in
+// `crate::pds::record_size` (100 KiB soft / 900 KiB hard pre-flight ceiling).
+
+/// Room record bytes at the last publish attempt.
+pub const RECORD_SIZE_ROOM_BYTES: &str = "record.size.room_bytes";
+/// Avatar record bytes at the last publish attempt.
+pub const RECORD_SIZE_AVATAR_BYTES: &str = "record.size.avatar_bytes";
+/// Inventory record bytes at the last publish attempt.
+pub const RECORD_SIZE_INVENTORY_BYTES: &str = "record.size.inventory_bytes";
+
 // ---- async / offload ------------------------------------------------------
 /// Heightmap generation latency (ms).
 pub const OFFLOAD_HEIGHTMAP_LATENCY_MS: &str = "offload.heightmap.latency_ms";
@@ -125,6 +138,10 @@ pub const ALL: &[(&str, MetricKind)] = &[
     (LOADING_RECORD_FETCH_LATENCY_MS, MetricKind::Histogram),
     (LOADING_RECORD_FETCH_RETRY_COUNT, MetricKind::Counter),
     (LOADING_GATE_TOTAL_SECS, MetricKind::Gauge),
+    // record sizes
+    (RECORD_SIZE_ROOM_BYTES, MetricKind::Gauge),
+    (RECORD_SIZE_AVATAR_BYTES, MetricKind::Gauge),
+    (RECORD_SIZE_INVENTORY_BYTES, MetricKind::Gauge),
     // offload
     (OFFLOAD_HEIGHTMAP_LATENCY_MS, MetricKind::Histogram),
     (OFFLOAD_AMBIENT_BAKE_LATENCY_MS, MetricKind::Histogram),
@@ -149,7 +166,10 @@ mod tests {
                 "name {name} must be at least <subsystem>.<noun>"
             );
             assert!(
-                matches!(segs[0], "runtime" | "net" | "loading" | "offload"),
+                matches!(
+                    segs[0],
+                    "runtime" | "net" | "loading" | "offload" | "record"
+                ),
                 "name {name} has unknown subsystem prefix"
             );
         }

@@ -7,8 +7,8 @@
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
-use crate::diagnostics::SessionLog;
 use crate::diagnostics::event::{EventPayload, RecordKind};
+use crate::diagnostics::{MetricsRegistry, SessionLog};
 use crate::pds::{self, RoomRecord};
 use crate::state::{LiveRoomRecord, PublishFeedback, PublishStatus, StoredRoomRecord};
 
@@ -20,6 +20,10 @@ pub struct PublishRoomTask {
     pub task: bevy::tasks::Task<Result<(), String>>,
     pub did: String,
     pub spawned_at: f64,
+    /// Serialized size of the record being written, measured at dispatch so
+    /// the poll system can gauge + log it (#694). `None` only on a
+    /// serialization failure, which the publish itself will also report.
+    pub record_bytes: Option<usize>,
 }
 
 /// Async task for the hard-reset publish path (delete-then-put). Separate
@@ -30,6 +34,8 @@ pub struct ResetRoomTask {
     pub task: bevy::tasks::Task<Result<(), String>>,
     pub did: String,
     pub spawned_at: f64,
+    /// See [`PublishRoomTask::record_bytes`].
+    pub record_bytes: Option<usize>,
 }
 
 /// Spawn the async room-record publish. `pub(crate)` because the
@@ -46,6 +52,7 @@ pub(crate) fn spawn_room_publish_task(
 ) {
     let session_clone = session.clone();
     let refresh_clone = refresh.clone();
+    let record_bytes = pds::record_size::serialized_record_bytes(&record);
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
@@ -65,6 +72,7 @@ pub(crate) fn spawn_room_publish_task(
         task,
         did,
         spawned_at: now,
+        record_bytes,
     });
 }
 
@@ -82,6 +90,7 @@ pub(super) fn spawn_reset_task(
 ) {
     let session_clone = session.clone();
     let refresh_clone = refresh.clone();
+    let record_bytes = pds::record_size::serialized_record_bytes(&record);
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
@@ -101,6 +110,7 @@ pub(super) fn spawn_reset_task(
         task,
         did,
         spawned_at: now,
+        record_bytes,
     });
 }
 
@@ -117,6 +127,7 @@ pub fn poll_publish_tasks(
     mut stored: Option<ResMut<StoredRoomRecord>>,
     mut publish_feedback: ResMut<PublishFeedback<RoomRecord>>,
     mut session_log: ResMut<SessionLog>,
+    mut metrics: ResMut<MetricsRegistry>,
     time: Res<Time>,
 ) {
     for (entity, mut task) in publish_tasks.iter_mut() {
@@ -130,6 +141,13 @@ pub fn poll_publish_tasks(
         let now = time.elapsed_secs_f64();
         let did = task.did.clone();
         let duration_secs = now - task.spawned_at;
+        crate::ui::editable::log_record_size(
+            &mut session_log,
+            &mut metrics,
+            now,
+            RecordKind::Room,
+            task.record_bytes,
+        );
         match result {
             Ok(()) => {
                 info!("Room record saved to PDS");
@@ -174,6 +192,13 @@ pub fn poll_publish_tasks(
         let now = time.elapsed_secs_f64();
         let did = task.did.clone();
         let duration_secs = now - task.spawned_at;
+        crate::ui::editable::log_record_size(
+            &mut session_log,
+            &mut metrics,
+            now,
+            RecordKind::Room,
+            task.record_bytes,
+        );
         match result {
             Ok(()) => {
                 info!("Room record reset on PDS (delete + put)");

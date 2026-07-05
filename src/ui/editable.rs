@@ -21,6 +21,11 @@
 
 use bevy_egui::egui;
 
+use crate::diagnostics::event::{EventPayload, RecordKind};
+use crate::diagnostics::{MetricsRegistry, SessionLog, names};
+use crate::pds::record_size::{
+    self, HARD_RECORD_CEILING_BYTES, SOFT_RECORD_BUDGET_BYTES, SizeClass, human_bytes,
+};
 use crate::state::PublishStatus;
 
 /// Which Save/Load/Reset button the owner clicked this frame. The
@@ -42,20 +47,32 @@ pub enum RecordAction {
 ///
 /// Enable rules, identical for all three records:
 /// * **Publish** — `dirty && can_publish` (a session + refresh context
-///   must exist to write to the PDS). Tinted green while dirty, grey
-///   when clean, so "there is something to save" is glanceable. Never
-///   cleared optimistically: the derived `dirty` only drops once the
-///   poll system pins `stored = live` on a *successful* round-trip, so
-///   a failed publish stays dirty and retryable.
+///   must exist to write to the PDS), and the live record must be under
+///   the hard size ceiling (`record_bytes`, see below). Tinted green
+///   while dirty, grey when clean, so "there is something to save" is
+///   glanceable. Never cleared optimistically: the derived `dirty` only
+///   drops once the poll system pins `stored = live` on a *successful*
+///   round-trip, so a failed publish stays dirty and retryable.
 /// * **Load from PDS** — `dirty` (nothing to revert when clean).
 /// * **Reset to default** — `can_reset` (the live record already
 ///   differs from the canonical default).
+///
+/// `record_bytes` is the live record's serialized size (the throttled
+/// cache in [`crate::state::PublishFeedback`], `None` while never
+/// measured). The row appends a size readout — neutral under the
+/// [`SOFT_RECORD_BUDGET_BYTES`] soft budget, amber past it, red past the
+/// [`HARD_RECORD_CEILING_BYTES`] hard ceiling — and past the ceiling the
+/// Publish button is disabled outright, mirroring the pre-flight guard
+/// in `crate::pds::record_size::preflight` (#694).
 pub fn save_load_reset_row(
     ui: &mut egui::Ui,
     dirty: bool,
     can_publish: bool,
     can_reset: bool,
+    record_bytes: Option<usize>,
 ) -> RecordAction {
+    let size_class = record_bytes.map(record_size::classify);
+    let over_hard = size_class == Some(SizeClass::OverHardCeiling);
     let mut action = RecordAction::None;
     ui.horizontal(|ui| {
         let publish = egui::Button::new(egui::RichText::new("Save to PDS").color(if dirty {
@@ -63,7 +80,10 @@ pub fn save_load_reset_row(
         } else {
             egui::Color32::GRAY
         }));
-        if ui.add_enabled(dirty && can_publish, publish).clicked() {
+        if ui
+            .add_enabled(dirty && can_publish && !over_hard, publish)
+            .clicked()
+        {
             action = RecordAction::Publish;
         }
         if ui
@@ -78,8 +98,86 @@ pub fn save_load_reset_row(
         {
             action = RecordAction::Reset;
         }
+        if let (Some(bytes), Some(class)) = (record_bytes, size_class) {
+            let (text, color) = match class {
+                SizeClass::WithinBudget => (human_bytes(bytes), egui::Color32::GRAY),
+                SizeClass::OverSoftBudget => (
+                    format!("⚠ {}", human_bytes(bytes)),
+                    egui::Color32::from_rgb(220, 200, 80),
+                ),
+                SizeClass::OverHardCeiling => (
+                    format!("✗ {} — too large to save", human_bytes(bytes)),
+                    egui::Color32::from_rgb(220, 90, 90),
+                ),
+            };
+            ui.label(egui::RichText::new(text).color(color).small())
+                .on_hover_text(format!(
+                    "Serialized record size. Soft budget {} (warns), hard ceiling {} \
+                     (blocks saving — an ATProto record is a single ~1 MiB-max repo \
+                     block). Remove generators or placements to shrink the record.",
+                    human_bytes(SOFT_RECORD_BUDGET_BYTES),
+                    human_bytes(HARD_RECORD_CEILING_BYTES),
+                ));
+        }
     });
     action
+}
+
+/// Throttled refresh of the live record's serialized-size cache in
+/// [`PublishFeedback`](crate::state::PublishFeedback), returning the current
+/// reading for [`save_load_reset_row`]. Serializing the full record every
+/// frame would be wasted work, so the cache refreshes at
+/// [`SIZE_READOUT_REFRESH_SECS`](crate::config::ui::editor::SIZE_READOUT_REFRESH_SECS)
+/// cadence — at worst the readout (and its publish hard-block) lags an edit
+/// by half a second, and the pre-flight guard in
+/// `crate::pds::record_size::preflight` backstops that window.
+pub fn refresh_size_readout<R: Send + Sync + 'static, T: serde::Serialize>(
+    feedback: &mut crate::state::PublishFeedback<R>,
+    live: &T,
+    now: f64,
+) -> Option<usize> {
+    if feedback
+        .live_bytes_at
+        .is_none_or(|at| now - at >= crate::config::ui::editor::SIZE_READOUT_REFRESH_SECS)
+    {
+        feedback.live_bytes = record_size::serialized_record_bytes(live);
+        feedback.live_bytes_at = Some(now);
+    }
+    feedback.live_bytes
+}
+
+/// Record a publish attempt's serialized size into the metrics registry and
+/// session log (#694). Shared by the three publish-poll systems so the
+/// gauge and event emission stays identical per record kind. Severity
+/// encodes the budget classification (info / warn / error past the hard
+/// ceiling — where the pre-flight guard refused the write). `bytes` is
+/// `None` only when the record failed to serialize, which the guard
+/// reports separately.
+pub fn log_record_size(
+    session_log: &mut SessionLog,
+    metrics: &mut MetricsRegistry,
+    now: f64,
+    record: RecordKind,
+    bytes: Option<usize>,
+) {
+    let Some(bytes) = bytes else { return };
+    let gauge = match record {
+        RecordKind::Room => names::RECORD_SIZE_ROOM_BYTES,
+        RecordKind::Avatar => names::RECORD_SIZE_AVATAR_BYTES,
+        RecordKind::Inventory => names::RECORD_SIZE_INVENTORY_BYTES,
+    };
+    metrics.observe_gauge(gauge, bytes as f64);
+    let payload = EventPayload::RecordSizeMeasured {
+        record,
+        bytes: bytes as u64,
+        soft_budget_bytes: SOFT_RECORD_BUDGET_BYTES as u64,
+        hard_ceiling_bytes: HARD_RECORD_CEILING_BYTES as u64,
+    };
+    match record_size::classify(bytes) {
+        SizeClass::WithinBudget => session_log.info(now, payload),
+        SizeClass::OverSoftBudget => session_log.warn(now, payload),
+        SizeClass::OverHardCeiling => session_log.error(now, payload),
+    };
 }
 
 /// Render the uniform publish status line. `Idle` draws nothing; every

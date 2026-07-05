@@ -145,6 +145,14 @@ pub enum PublishStatus {
 /// `<InventoryRecord>`).
 pub struct PublishFeedback<R: Send + Sync + 'static> {
     pub status: PublishStatus,
+    /// Throttled cache of the live record's serialized size, feeding the
+    /// shared row's budget readout (#694). Refreshed by each editor at
+    /// [`crate::config::ui::editor::SIZE_READOUT_REFRESH_SECS`] cadence
+    /// while its window is open — a full serialize per frame would be
+    /// wasted work. `None` until first measured (window never opened).
+    pub live_bytes: Option<usize>,
+    /// When `live_bytes` was last refreshed (`Time::elapsed_secs_f64`).
+    pub live_bytes_at: Option<f64>,
     _record: PhantomData<fn() -> R>,
 }
 
@@ -157,6 +165,8 @@ impl<R: Send + Sync + 'static> Default for PublishFeedback<R> {
     fn default() -> Self {
         Self {
             status: PublishStatus::Idle,
+            live_bytes: None,
+            live_bytes_at: None,
             _record: PhantomData,
         }
     }
