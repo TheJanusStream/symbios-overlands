@@ -20,6 +20,11 @@
 //! dragged generator into the room's `generators` map on first use. The
 //! same handler also services drags started from the World Editor's
 //! Generators tab — see [`DropSource`].
+//!
+//! Drag-to-gift: releasing the same drag over a peer row in the People
+//! window routes it into an `ItemOffer` instead. Gifting works in ANY room
+//! (#699) — only the ground-placement branch is owner-gated, and the drop
+//! handler enforces that, not the drag source.
 
 mod drop;
 
@@ -128,11 +133,15 @@ pub fn inventory_ui(
     else {
         return;
     };
-    // Drag-to-place is only valid in rooms the signed-in user owns. In other
-    // rooms the rows still render (the owner may just be browsing their stash)
-    // but we skip the drag affordance so a release over the viewport can't
-    // mutate a `RoomRecord` that doesn't belong to us.
-    let can_drag_place = room_did
+    // Rows are draggable everywhere: releasing over a peer row in the People
+    // window offers the item as a gift, which is a personal transaction and
+    // valid in ANY room (#699 — gating the drag on room ownership locked
+    // visitors out of gifting entirely). Ground placement is the drop
+    // handler's job to police: [`drop::handle_generator_drop`] only mutates
+    // the `RoomRecord` when `session.did == room_did`, so a viewport release
+    // in someone else's room is a no-op. Ownership here only tunes the drag
+    // tooltip so a visitor isn't promised a placement that can't happen.
+    let owns_room = room_did
         .as_ref()
         .map(|r| r.0 == session.did)
         .unwrap_or(false);
@@ -216,7 +225,7 @@ pub fn inventory_ui(
                                 .get(&name)
                                 .map(is_drop_placeable)
                                 .unwrap_or(false);
-                            if can_drag_place && is_placeable {
+                            if is_placeable {
                                 let label =
                                     egui::Label::new(&name).sense(egui::Sense::click_and_drag());
                                 let resp = ui.add(label);
@@ -228,10 +237,11 @@ pub fn inventory_ui(
                                     && pending_drop.generator_name.as_deref() == Some(name.as_str())
                                 {
                                     // Follow-the-cursor tooltip keeps the
-                                    // owner oriented while they hunt for a
-                                    // ground spot — without it, the drag is
+                                    // dragger oriented while they hunt for a
+                                    // target — without it, the drag is
                                     // invisible once the pointer leaves the
-                                    // row.
+                                    // row. Visitors can only gift (ground
+                                    // placement is owner-only), so say so.
                                     egui::Tooltip::always_open(
                                         ui.ctx().clone(),
                                         ui.layer_id(),
@@ -239,7 +249,15 @@ pub fn inventory_ui(
                                         egui::PopupAnchor::Pointer,
                                     )
                                     .show(|ui| {
-                                        ui.label(format!("Place “{name}”"));
+                                        if owns_room {
+                                            ui.label(format!(
+                                                "Place “{name}” — or drop on a peer to offer it"
+                                            ));
+                                        } else {
+                                            ui.label(format!(
+                                                "Offer “{name}” — drop on a peer in the People list"
+                                            ));
+                                        }
                                     });
                                 }
                             } else {
