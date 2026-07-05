@@ -684,6 +684,13 @@ pub mod state {
     /// (deterministically, before the count cap) so a hostile PDS cannot
     /// smuggle megabyte strings through 50 item names.
     pub const MAX_INVENTORY_NAME_CHARS: usize = 256;
+
+    /// Maximum `com.atproto.repo.listRecords` pages (100 records each) the
+    /// room child-generator walk reads (#697). Four pages cover the
+    /// `sanitize::limits::MAX_GENERATORS = 256` room cap with headroom,
+    /// while a hostile PDS handing out endless cursors cannot keep the
+    /// client paging forever.
+    pub const MAX_ROOM_GENERATOR_PAGES: usize = 4;
 }
 
 // ---------------------------------------------------------------------------

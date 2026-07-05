@@ -581,11 +581,18 @@ pub fn room_admin_ui(
                 // `session` + `refresh_ctx` are guaranteed present (the
                 // early return at the top bails otherwise), so the PDS
                 // write can always be attempted while dirty.
-                let record_bytes = crate::ui::editable::refresh_size_readout(
-                    &mut *publish_feedback,
-                    &*record_mut,
-                    time.elapsed_secs_f64(),
-                );
+                // Size readout: the room publishes as a manifest + child
+                // generator records (#697), so the per-record budget
+                // applies to the largest single record — not the in-memory
+                // monolith. Same throttled cache as the other editors.
+                let now = time.elapsed_secs_f64();
+                if publish_feedback.live_bytes_at.is_none_or(|at| {
+                    now - at >= crate::config::ui::editor::SIZE_READOUT_REFRESH_SECS
+                }) {
+                    publish_feedback.live_bytes = pds::room::max_publish_record_bytes(&*record_mut);
+                    publish_feedback.live_bytes_at = Some(now);
+                }
+                let record_bytes = publish_feedback.live_bytes;
                 match save_load_reset_row(ui, dirty, true, can_reset, record_bytes) {
                     RecordAction::None => {}
                     RecordAction::Publish => {

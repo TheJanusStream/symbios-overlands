@@ -162,6 +162,14 @@ mod tests {
             "default room total: {}",
             human_bytes(serde_json::to_vec(&room).unwrap().len())
         );
+        // Since #697 the room publishes as manifest + children; this is the
+        // largest single record a save would actually write.
+        if let Some(max) = crate::pds::room::max_publish_record_bytes(&room) {
+            eprintln!(
+                "  largest published record (manifest/child): {}",
+                human_bytes(max)
+            );
+        }
         for (key, section) in obj {
             let bytes = serde_json::to_vec(section).unwrap().len();
             eprintln!("  {key}: {}", human_bytes(bytes));

@@ -52,7 +52,10 @@ pub(crate) fn spawn_room_publish_task(
 ) {
     let session_clone = session.clone();
     let refresh_clone = refresh.clone();
-    let record_bytes = pds::record_size::serialized_record_bytes(&record);
+    // Split wire format (#697): the budget gauge tracks the largest single
+    // record the publish writes (manifest or biggest child), not the
+    // in-memory monolith.
+    let record_bytes = pds::room::max_publish_record_bytes(&record);
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
@@ -90,7 +93,10 @@ pub(super) fn spawn_reset_task(
 ) {
     let session_clone = session.clone();
     let refresh_clone = refresh.clone();
-    let record_bytes = pds::record_size::serialized_record_bytes(&record);
+    // Split wire format (#697): the budget gauge tracks the largest single
+    // record the publish writes (manifest or biggest child), not the
+    // in-memory monolith.
+    let record_bytes = pds::room::max_publish_record_bytes(&record);
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {

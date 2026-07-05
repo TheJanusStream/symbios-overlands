@@ -3,7 +3,8 @@
 //!
 //! | Record             | Collection NSID                          | rkey   |
 //! | ------------------ | ---------------------------------------- | ------ |
-//! | [`RoomRecord`]     | `network.symbios.overlands.room`         | `self` |
+//! | [`RoomRecord`] (manifest) | `network.symbios.overlands.room`  | `self` |
+//! | [`room::RoomGeneratorRecord`] | `network.symbios.overlands.room.generator` | `hex(fnv1a_64(child json))` |
 //! | [`AvatarRecord`]   | `network.symbios.overlands.avatar`       | `self` |
 //! | [`inventory::InventoryItemRecord`] | `network.symbios.overlands.inventory.item` | `hex(fnv1a_64(name))` |
 //!
@@ -12,6 +13,12 @@
 //! diff. [`InventoryRecord`] survives as the in-memory model, and its old
 //! `network.symbios.overlands.inventory / self` monolith is still read as a
 //! migration fallback (deleted by the first per-item save).
+//!
+//! The room publishes as a slim **manifest** at `room/self` (environment,
+//! placements, traits, `generator_refs` name → rkey) plus one
+//! content-addressed child record per generator (#697); pre-#697 monoliths
+//! with inline `generators` still decode (version by shape). Writes commit
+//! via `applyWrites` in read-safe order: children → manifest → orphan GC.
 //!
 //! A `RoomRecord` is composed of three top-level collections:
 //!
@@ -100,6 +107,10 @@ pub(crate) const AVATAR_COLLECTION: &str = "network.symbios.overlands.avatar";
 pub const INVENTORY_COLLECTION: &str = "network.symbios.overlands.inventory";
 /// One record per stash entry (#696); the collection is the stash.
 pub const INVENTORY_ITEM_COLLECTION: &str = "network.symbios.overlands.inventory.item";
+/// Content-addressed child generators of the room manifest (#697):
+/// `rkey = hex(fnv1a_64(child record json))`, referenced by name from the
+/// manifest's `generator_refs`.
+pub const ROOM_GENERATOR_COLLECTION: &str = "network.symbios.overlands.room.generator";
 
 pub mod asset_reference;
 pub mod audio;
