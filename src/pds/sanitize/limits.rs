@@ -137,6 +137,12 @@ pub const MAX_TORTURE_TWIST: f32 = 4.0 * std::f32::consts::PI;
 /// single point — we'd lose vertices and the collider builder would
 /// start returning zero-volume hulls.
 pub const MAX_TORTURE_TAPER: f32 = 0.99;
+/// Maximum magnitude of the per-axis `bulge` factor (additive mid-height
+/// scale, `sin(π t)` profile). `+2.0` triples the mid-profile — already a
+/// cartoonish swell; the negative bound is the same magnitude because the
+/// deform pass floors the combined scale just above zero, so a hard pinch
+/// collapses cleanly to the axis rather than inverting the surface.
+pub const MAX_TORTURE_BULGE: f32 = 2.0;
 /// Maximum magnitude of any component of the `bend` vector (world-units
 /// of vertex displacement at the shape's top). 10 m is already a
 /// dramatic curl on a 1 m primitive; beyond that the vertex torture pass

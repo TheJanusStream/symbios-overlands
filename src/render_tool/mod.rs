@@ -135,14 +135,19 @@ struct Args {
     #[arg(long)]
     until: Option<f64>,
     /// Torture/cut overrides for a `--prim` subject (for testing the prim
-    /// system). `--shear x,z` · `--twist rad` · `--taper x,z` · `--pathcut a,b`
-    /// · `--profilecut a,b` · `--hollow h`.
+    /// system). `--shear x,z` · `--twist rad` · `--taper x,z` ·
+    /// `--taperbottom x,z` · `--bulge x,z` · `--pathcut a,b` ·
+    /// `--profilecut a,b` · `--hollow h`.
     #[arg(long)]
     shear: Option<String>,
     #[arg(long)]
     twist: Option<f32>,
     #[arg(long)]
     taper: Option<String>,
+    #[arg(long)]
+    taperbottom: Option<String>,
+    #[arg(long)]
+    bulge: Option<String>,
     #[arg(long)]
     pathcut: Option<String>,
     #[arg(long)]
@@ -324,6 +329,12 @@ fn apply_prim_overrides(kind: &mut GeneratorKind, args: &Args) {
     }
     if let Some(s) = &args.taper {
         t.taper = Fp2(parse2(s));
+    }
+    if let Some(s) = &args.taperbottom {
+        t.taper_bottom = Fp2(parse2(s));
+    }
+    if let Some(s) = &args.bulge {
+        t.bulge = Fp2(parse2(s));
     }
     if let Some(s) = &args.pathcut {
         t.path_cut = Fp2(parse2(s));

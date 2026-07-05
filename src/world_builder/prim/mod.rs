@@ -1,7 +1,8 @@
 //! Parametric primitive meshing and CPU-side vertex torture.
 //!
-//! Every `GeneratorKind::{Cuboid, Sphere, Cylinder, Capsule, Cone, Torus,
-//! Plane, Tetrahedron}` variant routes through [`build_primitive_mesh`] to
+//! Every parametric primitive `GeneratorKind` variant (Cuboid / Sphere /
+//! Cylinder / Capsule / Cone / Torus / Plane / Tetrahedron / Tube / Bevel /
+//! Wedge / Helix / Superellipsoid) routes through [`build_primitive_mesh`] to
 //! produce a Bevy `Mesh`. When the variant's
 //! [`TortureParams`](crate::pds::TortureParams) are non-identity,
 //! [`apply_vertex_torture`] mutates the mesh's `ATTRIBUTE_POSITION` buffer
@@ -22,6 +23,7 @@ mod colliders;
 mod cuts;
 mod prisms;
 mod shapes;
+mod superellipsoid;
 mod torture;
 
 use avian3d::prelude::*;
@@ -215,6 +217,129 @@ mod tests {
     }
 
     #[test]
+    fn taper_bottom_narrows_the_base_without_flipping() {
+        // The #688 two-ended taper: bottom narrows, top keeps full width —
+        // the shape the old top-only taper needed upside-down authoring for.
+        let kind = GeneratorKind::Cuboid {
+            size: Fp3([1.0, 1.0, 1.0]),
+            solid: true,
+            material: SovereignMaterialSettings::default(),
+            torture: TortureParams {
+                taper_bottom: Fp2([0.6, 0.6]),
+                ..Default::default()
+            },
+        };
+        let mesh = build_primitive_mesh(&kind);
+        let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("no positions");
+        };
+        let width_at = |sel: fn(&&[f32; 3]) -> bool| {
+            pos.iter()
+                .filter(sel)
+                .map(|p| p[0].abs())
+                .fold(0.0_f32, f32::max)
+        };
+        let bot_x = width_at(|p| p[1] < -0.49);
+        let top_x = width_at(|p| p[1] > 0.49);
+        assert!(
+            bot_x < top_x - 0.1,
+            "base not tapered: bot {bot_x} top {top_x}"
+        );
+        assert!((top_x - 0.5).abs() < 1e-3, "top width changed: {top_x}");
+    }
+
+    #[test]
+    fn bulge_swells_the_middle_and_pinch_floors_above_zero() {
+        let with_bulge = |b: f32| GeneratorKind::Cylinder {
+            radius: Fp(0.5),
+            height: Fp(2.0),
+            resolution: 24,
+            solid: true,
+            material: SovereignMaterialSettings::default(),
+            torture: TortureParams {
+                bulge: Fp2([b, b]),
+                ..Default::default()
+            },
+        };
+        let mid_radius = |kind: &GeneratorKind| {
+            let mesh = build_primitive_mesh(kind);
+            let Some(VertexAttributeValues::Float32x3(pos)) =
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("no positions");
+            };
+            pos.iter()
+                .filter(|p| p[1].abs() < 0.2)
+                .map(|p| (p[0] * p[0] + p[2] * p[2]).sqrt())
+                .fold(0.0_f32, f32::max)
+        };
+        // Positive bulge swells the waist past the end radius.
+        assert!(mid_radius(&with_bulge(0.5)) > 0.6, "no mid swell");
+        // A hard pinch collapses toward the axis but never inverts: every
+        // mid-height radius stays non-negative (the 1e-3 scale floor).
+        let pinched = build_primitive_mesh(&with_bulge(-2.0));
+        let Some(VertexAttributeValues::Float32x3(pos)) =
+            pinched.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("no positions");
+        };
+        for p in pos {
+            assert!(p.iter().all(|c| c.is_finite()), "non-finite vertex {p:?}");
+        }
+        assert!(
+            mid_radius(&with_bulge(-2.0)) < 0.05,
+            "pinch did not collapse the waist"
+        );
+    }
+
+    #[test]
+    fn superellipsoid_stays_inside_extents_and_morphs() {
+        let se = |e1: f32, e2: f32| GeneratorKind::Superellipsoid {
+            half_extents: Fp3([0.5, 0.5, 0.5]),
+            exponent_ns: Fp(e1),
+            exponent_ew: Fp(e2),
+            latitudes: 16,
+            longitudes: 24,
+            solid: true,
+            material: SovereignMaterialSettings::default(),
+            torture: TortureParams::default(),
+        };
+        let corner_reach = |kind: &GeneratorKind| {
+            let mesh = build_primitive_mesh(kind);
+            let Some(VertexAttributeValues::Float32x3(pos)) =
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("no positions");
+            };
+            let mut max_reach = 0.0f32;
+            for p in pos {
+                for c in p {
+                    assert!(c.is_finite(), "non-finite vertex {p:?}");
+                    assert!(c.abs() <= 0.5 + 1e-3, "vertex outside extents {p:?}");
+                }
+                max_reach = max_reach.max((p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt());
+            }
+            max_reach
+        };
+        // Low exponents fill toward the box corner (√3·0.5 ≈ 0.866); high
+        // exponents pull the corners in toward the octahedral form.
+        assert!(corner_reach(&se(0.2, 0.2)) > 0.75, "boxy end not boxy");
+        assert!(
+            corner_reach(&se(2.0, 2.0)) < 0.55,
+            "pinched end not pinched"
+        );
+        // Normals stay unit across the family, including the sphere middle.
+        for kind in [se(0.2, 0.2), se(1.0, 1.0), se(2.5, 2.5), se(0.3, 2.0)] {
+            let mesh = build_primitive_mesh(&kind);
+            for n in normals(&mesh) {
+                assert!(n.iter().all(|c| c.is_finite()), "non-finite normal {n:?}");
+                assert!((len(n) - 1.0).abs() < 1e-2, "non-unit normal {n:?}");
+            }
+        }
+    }
+
+    #[test]
     fn tube_mesh_is_finite_unit_and_bounded() {
         // Default tube: outer 0.5, height 1.0.
         let kind = GeneratorKind::default_primitive_for_tag("Tube").unwrap();
@@ -273,6 +398,7 @@ mod tests {
         let kinds = [
             GeneratorKind::default_primitive_for_tag("Wedge").unwrap(),
             GeneratorKind::default_primitive_for_tag("Helix").unwrap(),
+            GeneratorKind::default_primitive_for_tag("Superellipsoid").unwrap(),
             with_cut("Cylinder", [0.0, 0.5], [0.0, 1.0], 0.0), // half-cylinder
             with_cut("Cylinder", [0.0, 1.0], [0.0, 1.0], 0.5), // pipe
             with_cut("Cylinder", [0.0, 0.5], [0.0, 1.0], 0.6), // gutter
@@ -281,6 +407,13 @@ mod tests {
             with_cut("Sphere", [0.0, 0.5], [0.0, 1.0], 0.0),   // half-sphere
             with_cut("Torus", [0.0, 0.5], [0.0, 1.0], 0.0),    // arch
             with_cut("Torus", [0.0, 1.0], [0.0, 0.5], 0.0),    // C-channel
+            with_cut("Cone", [0.0, 0.5], [0.0, 1.0], 0.0),     // half-cone
+            with_cut("Cone", [0.0, 1.0], [0.0, 1.0], 0.5),     // funnel shell
+            with_cut("Cone", [0.25, 0.75], [0.0, 1.0], 0.4),   // cut funnel
+            with_cut("Capsule", [0.0, 1.0], [0.5, 1.0], 0.0),  // pill top half
+            with_cut("Capsule", [0.0, 0.5], [0.0, 1.0], 0.0),  // capsule wedge
+            with_cut("Capsule", [0.0, 1.0], [0.2, 0.8], 0.5),  // hollow sleeve
+            with_cut("Capsule", [0.0, 0.75], [0.1, 1.0], 0.3), // everything at once
         ];
         for k in &kinds {
             let tag = k.kind_tag();

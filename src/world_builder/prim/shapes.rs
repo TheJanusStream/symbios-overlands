@@ -12,8 +12,17 @@ use bevy::prelude::*;
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::{GeneratorKind, TortureParams};
 
-use super::cuts::{build_swept_cylinder, build_torus, build_uv_sphere, path_cut_angles};
+use super::cuts::{
+    build_swept_capsule, build_swept_frustum, build_torus, build_uv_sphere, path_cut_angles,
+};
 use super::prisms::{build_bevel_mesh, build_helix_mesh, build_tube_mesh, build_wedge_mesh};
+use super::superellipsoid::{build_superellipsoid, superellipsoid_hull_points};
+
+/// Vertical wall subdivisions used when a vertex deform is active: the
+/// nonlinear deforms (bulge / bend / S-bend / twist) need mid-height
+/// vertices to move — a 2-ring wall renders a `sin(π t)` bulge as nothing.
+/// Deform-free prims keep their old minimal layouts.
+const DEFORM_ROWS: u32 = 16;
 
 /// One parametric primitive's shape behavior: its base mesh (pre-torture)
 /// and the cheap analytical collider matching the *untortured* shape
@@ -25,7 +34,7 @@ pub(in crate::world_builder) trait PrimitiveShape {
 
 /// A primitive variant split into the pieces every consumer needs: the
 /// shape behavior plus the `solid` / `material` fields shared by all
-/// twelve variants. `None` for non-primitive kinds — the router's
+/// thirteen variants. `None` for non-primitive kinds — the router's
 /// primitive test.
 pub(in crate::world_builder) struct PrimParts<'a> {
     pub shape: Box<dyn PrimitiveShape + 'a>,
@@ -92,15 +101,16 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             length,
             latitudes,
             longitudes,
+            torture,
             solid,
             material,
-            ..
         } => parts(
             Box::new(CapsuleShape {
                 radius: radius.0,
                 length: length.0,
                 latitudes: *latitudes,
                 longitudes: *longitudes,
+                torture,
             }),
             solid,
             material,
@@ -109,14 +119,15 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             radius,
             height,
             resolution,
+            torture,
             solid,
             material,
-            ..
         } => parts(
             Box::new(ConeShape {
                 radius: radius.0,
                 height: height.0,
                 resolution: *resolution,
+                torture,
             }),
             solid,
             material,
@@ -221,6 +232,26 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             solid,
             material,
         ),
+        GeneratorKind::Superellipsoid {
+            half_extents,
+            exponent_ns,
+            exponent_ew,
+            latitudes,
+            longitudes,
+            solid,
+            material,
+            ..
+        } => parts(
+            Box::new(SuperellipsoidShape {
+                half_extents: half_extents.0,
+                exponent_ns: exponent_ns.0,
+                exponent_ew: exponent_ew.0,
+                latitudes: *latitudes,
+                longitudes: *longitudes,
+            }),
+            solid,
+            material,
+        ),
         _ => None,
     }
 }
@@ -280,17 +311,25 @@ struct CylinderShape<'a> {
 
 impl PrimitiveShape for CylinderShape<'_> {
     fn base_mesh(&self) -> Mesh {
+        let rows = if self.torture.deforms_are_identity() {
+            1
+        } else {
+            DEFORM_ROWS
+        };
         if self.torture.cuts_are_identity() {
             Cylinder::new(self.radius, self.height)
                 .mesh()
                 .resolution(self.resolution)
+                .segments(rows)
                 .build()
         } else {
             let (a0, a1) = path_cut_angles(self.torture);
-            build_swept_cylinder(
+            build_swept_frustum(
+                self.radius,
                 self.radius,
                 self.height,
                 self.resolution,
+                rows,
                 self.torture.hollow.0,
                 a0,
                 a1,
@@ -302,38 +341,75 @@ impl PrimitiveShape for CylinderShape<'_> {
     }
 }
 
-struct CapsuleShape {
+struct CapsuleShape<'a> {
     radius: f32,
     length: f32,
     latitudes: u32,
     longitudes: u32,
+    torture: &'a TortureParams,
 }
 
-impl PrimitiveShape for CapsuleShape {
+impl PrimitiveShape for CapsuleShape<'_> {
     fn base_mesh(&self) -> Mesh {
-        Capsule3d::new(self.radius, self.length)
-            .mesh()
-            .latitudes(self.latitudes)
-            .longitudes(self.longitudes)
-            .build()
+        if self.torture.cuts_are_identity() {
+            let rings = if self.torture.deforms_are_identity() {
+                0
+            } else {
+                DEFORM_ROWS
+            };
+            Capsule3d::new(self.radius, self.length)
+                .mesh()
+                .latitudes(self.latitudes)
+                .longitudes(self.longitudes)
+                .rings(rings)
+                .build()
+        } else {
+            let (lon0, lon1) = path_cut_angles(self.torture);
+            build_swept_capsule(
+                self.radius,
+                self.length,
+                self.latitudes,
+                self.longitudes,
+                lon0,
+                lon1,
+                self.torture.profile_cut.0[0],
+                self.torture.profile_cut.0[1],
+                self.torture.hollow.0,
+            )
+        }
     }
     fn analytical_collider(&self) -> Option<Collider> {
         Some(Collider::capsule(self.radius, self.length))
     }
 }
 
-struct ConeShape {
+struct ConeShape<'a> {
     radius: f32,
     height: f32,
     resolution: u32,
+    torture: &'a TortureParams,
 }
 
-impl PrimitiveShape for ConeShape {
+impl PrimitiveShape for ConeShape<'_> {
     fn base_mesh(&self) -> Mesh {
-        Cone::new(self.radius, self.height)
-            .mesh()
-            .resolution(self.resolution)
-            .build()
+        if self.torture.cuts_are_identity() && self.torture.deforms_are_identity() {
+            Cone::new(self.radius, self.height)
+                .mesh()
+                .resolution(self.resolution)
+                .build()
+        } else {
+            let (a0, a1) = path_cut_angles(self.torture);
+            build_swept_frustum(
+                self.radius,
+                0.0,
+                self.height,
+                self.resolution,
+                DEFORM_ROWS,
+                self.torture.hollow.0,
+                a0,
+                a1,
+            )
+        }
     }
     fn analytical_collider(&self) -> Option<Collider> {
         Some(Collider::cone(self.radius, self.height))
@@ -455,15 +531,17 @@ struct TubeShape<'a> {
 
 impl PrimitiveShape for TubeShape<'_> {
     fn base_mesh(&self) -> Mesh {
-        if self.torture.cuts_are_identity() {
+        if self.torture.cuts_are_identity() && self.torture.deforms_are_identity() {
             build_tube_mesh(self.radius, self.inner_radius, self.height, self.resolution)
         } else {
             let (a0, a1) = path_cut_angles(self.torture);
             let inner_frac = (self.inner_radius / self.radius.max(1e-4)).clamp(0.0, 0.999);
-            build_swept_cylinder(
+            build_swept_frustum(
+                self.radius,
                 self.radius,
                 self.height,
                 self.resolution,
+                DEFORM_ROWS,
                 inner_frac,
                 a0,
                 a1,
@@ -516,6 +594,41 @@ impl PrimitiveShape for WedgeShape {
             Collider::convex_hull(corners)
                 .unwrap_or_else(|| Collider::cuboid(self.size[0], self.size[1], self.size[2])),
         )
+    }
+}
+
+struct SuperellipsoidShape {
+    half_extents: [f32; 3],
+    exponent_ns: f32,
+    exponent_ew: f32,
+    latitudes: u32,
+    longitudes: u32,
+}
+
+impl PrimitiveShape for SuperellipsoidShape {
+    fn base_mesh(&self) -> Mesh {
+        build_superellipsoid(
+            self.half_extents,
+            self.exponent_ns,
+            self.exponent_ew,
+            self.latitudes,
+            self.longitudes,
+        )
+    }
+    fn analytical_collider(&self) -> Option<Collider> {
+        // Convex for exponents ≤ 2 (the sanitiser tops out at 2.5, where the
+        // hull mildly over-covers the pinch — the usual standoff trade). A
+        // coarse analytic sampling keeps this cheap; degenerate extents fall
+        // back to a bounding sphere.
+        let points =
+            superellipsoid_hull_points(self.half_extents, self.exponent_ns, self.exponent_ew);
+        Some(Collider::convex_hull(points).unwrap_or_else(|| {
+            Collider::sphere(
+                self.half_extents[0]
+                    .max(self.half_extents[1])
+                    .max(self.half_extents[2]),
+            )
+        }))
     }
 }
 

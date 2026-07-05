@@ -25,8 +25,12 @@ pub(super) fn sanitize_torture(t: &mut TortureParams) {
     let tp = limits::MAX_TORTURE_TAPER;
     let b = limits::MAX_TORTURE_BEND;
     t.twist.0 = clamp_finite(t.twist.0, -tw, tw, 0.0);
-    for v in t.taper.0.iter_mut() {
+    for v in t.taper.0.iter_mut().chain(t.taper_bottom.0.iter_mut()) {
         *v = clamp_finite(*v, -tp, tp, 0.0);
+    }
+    let bu = limits::MAX_TORTURE_BULGE;
+    for v in t.bulge.0.iter_mut() {
+        *v = clamp_finite(*v, -bu, bu, 0.0);
     }
     for v in t.bend.0.iter_mut() {
         *v = clamp_finite(*v, -b, b, 0.0);

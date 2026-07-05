@@ -67,6 +67,7 @@ pub(super) const ROOM_ROOT_KINDS: &[&str] = &[
     "Bevel",
     "Wedge",
     "Helix",
+    "Superellipsoid",
     "Sign",
     "ParticleSystem",
     "LSystem",
@@ -93,6 +94,7 @@ pub(super) const ROOM_CHILD_KINDS: &[&str] = &[
     "Bevel",
     "Wedge",
     "Helix",
+    "Superellipsoid",
     "Sign",
     "ParticleSystem",
     "LSystem",
@@ -120,6 +122,7 @@ pub(crate) const AVATAR_KINDS: &[&str] = &[
     "Bevel",
     "Wedge",
     "Helix",
+    "Superellipsoid",
     "Sign",
     "ParticleSystem",
     "LSystem",
@@ -191,7 +194,7 @@ pub(super) fn draw_torture(ui: &mut egui::Ui, torture: &mut TortureParams, dirty
     // Per-axis taper (X / Z): equal = cone/frustum, unequal = wedge/fin.
     let mut tp = torture.taper.0;
     ui.horizontal(|ui| {
-        ui.label("Taper (X/Z)");
+        ui.label("Taper top (X/Z)");
         for v in tp.iter_mut() {
             if ui
                 .add(egui::DragValue::new(v).speed(0.02).range(-0.99..=0.99))
@@ -202,6 +205,36 @@ pub(super) fn draw_torture(ui: &mut egui::Ui, torture: &mut TortureParams, dirty
         }
     });
     torture.taper = Fp2(tp);
+    // Mirrored bottom taper: composes with the top taper so a prim can narrow
+    // at both ends (lens / spearhead) without upside-down authoring.
+    let mut tb = torture.taper_bottom.0;
+    ui.horizontal(|ui| {
+        ui.label("Taper bottom (X/Z)");
+        for v in tb.iter_mut() {
+            if ui
+                .add(egui::DragValue::new(v).speed(0.02).range(-0.99..=0.99))
+                .changed()
+            {
+                *dirty = true;
+            }
+        }
+    });
+    torture.taper_bottom = Fp2(tb);
+    // Mid-profile bulge (+) / pinch (−): a sin(π·height) swell that peaks at
+    // mid-height — muscle / belly / waist in one slider pair.
+    let mut bu = torture.bulge.0;
+    ui.horizontal(|ui| {
+        ui.label("Bulge (X/Z)");
+        for v in bu.iter_mut() {
+            if ui
+                .add(egui::DragValue::new(v).speed(0.02).range(-2.0..=2.0))
+                .changed()
+            {
+                *dirty = true;
+            }
+        }
+    });
+    torture.bulge = Fp2(bu);
     // Three-axis bend (the Y component lengthens / shortens the top).
     let mut b = torture.bend.0;
     ui.horizontal(|ui| {

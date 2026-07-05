@@ -12,8 +12,9 @@
 //! * `generators`  — name → [`Generator`] map. Each entry is a hierarchical
 //!   node carrying a [`GeneratorKind`] (Terrain / Water / RoadNetwork /
 //!   Portal / LSystem / Shape / `Sign` / `ParticleSystem` / one of the
-//!   twelve parametric primitives — Cuboid / Sphere / Cylinder / Capsule /
-//!   Cone / Torus / Plane / Tetrahedron / Tube / Bevel / Wedge / Helix), a
+//!   thirteen parametric primitives — Cuboid / Sphere / Cylinder / Capsule /
+//!   Cone / Torus / Plane / Tetrahedron / Tube / Bevel / Wedge / Helix /
+//!   Superellipsoid), a
 //!   local [`TransformData`], and a `Vec<Generator>` of
 //!   children — so a single named entry can describe an entire fractal
 //!   blueprint.

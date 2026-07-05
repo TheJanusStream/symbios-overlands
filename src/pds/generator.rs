@@ -197,6 +197,12 @@ pub struct TortureParams {
     /// top. Equal components give a uniform taper (a cone / frustum); unequal
     /// ones give a wedge / fin.
     pub taper: Fp2,
+    /// Per-axis **bottom** taper: X and Z each scale by
+    /// `1 - taper_bottom[axis] * (1 - t)` toward the base, composing with
+    /// `taper` so one prim can narrow at both ends (a lens / spearhead) —
+    /// without the old author-it-upside-down-and-flip-π workaround that
+    /// top-only taper forced on every downward-narrowing form.
+    pub taper_bottom: Fp2,
     /// Quadratic top displacement `(x, y, z) * t²` — a single arc that pins
     /// the base and swings the top.
     pub bend: Fp3,
@@ -208,10 +214,17 @@ pub struct TortureParams {
     /// tower / slanted roof). Unlike `bend` (quadratic, tangent at the base)
     /// the offset grows uniformly, so vertical edges stay straight but tilted.
     pub shear: Fp2,
+    /// Per-axis mid-profile bulge (+) / pinch (−): X and Z scale gain
+    /// `bulge[axis] * sin(π t)` — zero at both ends, peaking at mid-height.
+    /// One positive slider turns a straight capsule into a muscle / belly /
+    /// tree-trunk swell; a negative one gives a waist / hourglass. The
+    /// combined per-axis scale is floored just above zero in the deform pass
+    /// so a hard pinch collapses to the axis instead of inverting the surface.
+    pub bulge: Fp2,
     // --- Topology cuts (SL-style; honoured during mesh *generation* by the
     // unified sweep mesher, not the vertex post-pass; effective only on the
-    // swept prims Sphere / Cylinder / Cone / Torus / Tube). Default = identity
-    // (full sweep, full profile, solid). ---
+    // swept prims Sphere / Cylinder / Capsule / Cone / Torus / Tube). Default
+    // = identity (full sweep, full profile, solid). ---
     /// Kept angular fraction of the main sweep, `[begin, end]` in turns (0..1).
     /// `[0, 1]` = full revolution (no cut); `[0, 0.5]` keeps a half (half-
     /// cylinder trough, half-dome, half-torus archway). The opening gains two
@@ -233,9 +246,11 @@ impl Default for TortureParams {
         Self {
             twist: Fp(0.0),
             taper: Fp2([0.0, 0.0]),
+            taper_bottom: Fp2([0.0, 0.0]),
             bend: Fp3([0.0, 0.0, 0.0]),
             s_bend: Fp2([0.0, 0.0]),
             shear: Fp2([0.0, 0.0]),
+            bulge: Fp2([0.0, 0.0]),
             path_cut: Fp2([0.0, 1.0]),
             profile_cut: Fp2([0.0, 1.0]),
             hollow: Fp(0.0),
@@ -244,6 +259,22 @@ impl Default for TortureParams {
 }
 
 impl TortureParams {
+    /// `true` when no vertex deform is active (twist / taper / bulge / bend /
+    /// S-bend / shear all zero). Meshers use this to skip the vertical
+    /// subdivisions that only exist to give the deform pass mid-height
+    /// vertices to move — a 2-ring wall renders a `sin(π t)` bulge as
+    /// nothing at all.
+    pub fn deforms_are_identity(&self) -> bool {
+        let flat2 = |v: &Fp2| v.0[0].abs() < 1e-6 && v.0[1].abs() < 1e-6;
+        self.twist.0.abs() < 1e-6
+            && flat2(&self.taper)
+            && flat2(&self.taper_bottom)
+            && flat2(&self.bulge)
+            && self.bend.0.iter().all(|c| c.abs() < 1e-6)
+            && flat2(&self.s_bend)
+            && flat2(&self.shear)
+    }
+
     /// `true` when no topology cut is active (full sweep, full profile, solid),
     /// so the mesher can take the cheap closed-surface path.
     pub fn cuts_are_identity(&self) -> bool {
@@ -666,6 +697,26 @@ pub enum GeneratorKind {
         torture: TortureParams,
     },
 
+    /// Barr superellipsoid — one prim that morphs continuously from box
+    /// (small exponents) through pillow / sphere (`1.0`) toward a pinched
+    /// octahedral form (large exponents). `exponent_ns` shapes the
+    /// north–south (latitude) profile, `exponent_ew` the east–west
+    /// cross-section; `half_extents` scale the three axes. The organic
+    /// workhorse for skulls, torsos, pebbles, cushions — the rounded masses
+    /// that previously took a scaled sphere or a bevel-box compromise.
+    #[serde(rename = "network.symbios.gen.superellipsoid")]
+    Superellipsoid {
+        half_extents: Fp3,
+        exponent_ns: Fp,
+        exponent_ew: Fp,
+        latitudes: u32,
+        longitudes: u32,
+        solid: bool,
+        material: SovereignMaterialSettings,
+        #[serde(default)]
+        torture: TortureParams,
+    },
+
     /// Hand-rolled CPU + ECS particle emitter. Spawns billboarded /
     /// velocity-aligned quads from a parametric shape (point / sphere /
     /// box / cone), integrates them with gravity / drag / constant
@@ -940,7 +991,8 @@ impl GeneratorKind {
             | GeneratorKind::Tube { torture, .. }
             | GeneratorKind::Bevel { torture, .. }
             | GeneratorKind::Wedge { torture, .. }
-            | GeneratorKind::Helix { torture, .. } => Some(torture),
+            | GeneratorKind::Helix { torture, .. }
+            | GeneratorKind::Superellipsoid { torture, .. } => Some(torture),
             _ => None,
         }
     }
@@ -960,7 +1012,8 @@ impl GeneratorKind {
             | GeneratorKind::Tube { torture, .. }
             | GeneratorKind::Bevel { torture, .. }
             | GeneratorKind::Wedge { torture, .. }
-            | GeneratorKind::Helix { torture, .. } => Some(torture),
+            | GeneratorKind::Helix { torture, .. }
+            | GeneratorKind::Superellipsoid { torture, .. } => Some(torture),
             _ => None,
         }
     }
@@ -983,6 +1036,7 @@ impl GeneratorKind {
                 | GeneratorKind::Bevel { .. }
                 | GeneratorKind::Wedge { .. }
                 | GeneratorKind::Helix { .. }
+                | GeneratorKind::Superellipsoid { .. }
         )
     }
 
@@ -1009,6 +1063,7 @@ impl GeneratorKind {
             GeneratorKind::Bevel { .. } => "Bevel",
             GeneratorKind::Wedge { .. } => "Wedge",
             GeneratorKind::Helix { .. } => "Helix",
+            GeneratorKind::Superellipsoid { .. } => "Superellipsoid",
             GeneratorKind::Sign { .. } => "Sign",
             GeneratorKind::ParticleSystem(..) => "ParticleSystem",
             GeneratorKind::Unknown => "Unknown",
@@ -1111,6 +1166,19 @@ impl GeneratorKind {
                 pitch: Fp(0.4),
                 turns: Fp(3.0),
                 resolution: 24,
+                solid: true,
+                material: mat,
+                torture: TortureParams::default(),
+            },
+            // Exponents at 0.5 default to the pillow / rounded-box middle of
+            // the family — visually distinct from both Cuboid and Sphere, so
+            // a freshly-added prim reads as its own thing.
+            "Superellipsoid" => GeneratorKind::Superellipsoid {
+                half_extents: Fp3([0.5, 0.5, 0.5]),
+                exponent_ns: Fp(0.5),
+                exponent_ew: Fp(0.5),
+                latitudes: 16,
+                longitudes: 24,
                 solid: true,
                 material: mat,
                 torture: TortureParams::default(),
@@ -1291,6 +1359,55 @@ pub enum Placement {
 
     #[serde(other)]
     Unknown,
+}
+
+#[cfg(test)]
+mod prim_wire_tests {
+    //! Wire-format guards for the organic-prim additions (#688): the new
+    //! `TortureParams` knobs must default cleanly on records that predate
+    //! them, and the Superellipsoid variant must round-trip with its tag.
+    use super::*;
+
+    #[test]
+    fn torture_params_predating_new_knobs_default_to_identity() {
+        // A pre-#688 torture block: today's wire encoding minus the new
+        // keys — exactly what an already-published record carries.
+        let current = TortureParams {
+            twist: Fp(0.5),
+            taper: Fp2([0.2, 0.2]),
+            ..Default::default()
+        };
+        let mut old = serde_json::to_value(current).expect("serialises");
+        let obj = old.as_object_mut().expect("one flat JSON object");
+        assert!(obj.remove("taper_bottom").is_some(), "field name drifted");
+        assert!(obj.remove("bulge").is_some(), "field name drifted");
+
+        let t: TortureParams = serde_json::from_value(old).expect("old torture block parses");
+        assert_eq!(t.taper_bottom, Fp2([0.0, 0.0]));
+        assert_eq!(t.bulge, Fp2([0.0, 0.0]));
+        assert_eq!(t.taper, Fp2([0.2, 0.2]), "existing knobs still decode");
+        assert!(!t.deforms_are_identity() && t.cuts_are_identity());
+
+        // Round trip lands on the same value.
+        let re: TortureParams = serde_json::from_value(serde_json::to_value(t).unwrap()).unwrap();
+        assert_eq!(re, t);
+    }
+
+    #[test]
+    fn superellipsoid_wire_format_round_trips() {
+        let kind = GeneratorKind::default_primitive_for_tag("Superellipsoid").unwrap();
+        let v = serde_json::to_value(&kind).expect("serialises");
+        let obj = v.as_object().expect("one flat JSON object");
+        assert_eq!(
+            obj.get("$type").and_then(|t| t.as_str()),
+            Some("network.symbios.gen.superellipsoid")
+        );
+        assert!(obj.contains_key("half_extents"), "fields stay inline");
+        assert!(obj.contains_key("exponent_ns"));
+
+        let re: GeneratorKind = serde_json::from_value(v).expect("reparses");
+        assert_eq!(re, kind);
+    }
 }
 
 #[cfg(test)]

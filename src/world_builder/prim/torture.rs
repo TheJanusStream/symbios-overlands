@@ -17,6 +17,13 @@ use crate::pds::GeneratorKind;
 /// * `taper` — per-axis scale `1 - taper[axis] * t` (`.x` → X, `.y` → Z).
 ///   Equal components taper uniformly (cone / frustum); unequal ones give a
 ///   wedge / fin.
+/// * `taper_bottom` — the mirrored per-axis scale `1 - taper_bottom[axis] *
+///   (1 - t)` toward the base, composing with `taper` so a prim can narrow at
+///   both ends without being authored upside-down and flipped.
+/// * `bulge` — per-axis mid-profile swell `+ bulge[axis] * sin(π t)`: zero at
+///   both ends, peaking at mid-height (muscle / belly with `+`, waist with
+///   `−`). The combined scale is floored just above zero so a hard pinch
+///   collapses to the axis instead of inverting the surface.
 /// * `bend` — quadratic top displacement `bend * t²` on all three axes (the
 ///   `.y` component now lengthens / shortens the shape's top).
 /// * `s_bend` — a `sin(2π t)` lateral wave of amplitude `(x, z)` layered on
@@ -28,6 +35,8 @@ use crate::pds::GeneratorKind;
 pub(super) struct Torture {
     pub twist: f32,
     pub taper: Vec2,
+    pub taper_bottom: Vec2,
+    pub bulge: Vec2,
     pub bend: Vec3,
     pub s_bend: Vec2,
     pub shear: Vec2,
@@ -37,6 +46,8 @@ impl Torture {
     pub fn is_identity(&self) -> bool {
         self.twist.abs() < 1e-6
             && self.taper.length_squared() < 1e-12
+            && self.taper_bottom.length_squared() < 1e-12
+            && self.bulge.length_squared() < 1e-12
             && self.bend.length_squared() < 1e-12
             && self.s_bend.length_squared() < 1e-12
             && self.shear.length_squared() < 1e-12
@@ -48,6 +59,8 @@ pub(super) fn torture_of(kind: &GeneratorKind) -> Torture {
         Some(t) => Torture {
             twist: t.twist.0,
             taper: Vec2::from_array(t.taper.0),
+            taper_bottom: Vec2::from_array(t.taper_bottom.0),
+            bulge: Vec2::from_array(t.bulge.0),
             bend: Vec3::from_array(t.bend.0),
             s_bend: Vec2::from_array(t.s_bend.0),
             shear: Vec2::from_array(t.shear.0),
@@ -55,6 +68,8 @@ pub(super) fn torture_of(kind: &GeneratorKind) -> Torture {
         None => Torture {
             twist: 0.0,
             taper: Vec2::ZERO,
+            taper_bottom: Vec2::ZERO,
+            bulge: Vec2::ZERO,
             bend: Vec3::ZERO,
             s_bend: Vec2::ZERO,
             shear: Vec2::ZERO,
@@ -74,12 +89,18 @@ pub(super) fn torture_of(kind: &GeneratorKind) -> Torture {
 pub(super) fn deform_vertex(p: Vec3, y_min: f32, y_range: f32, torture: Torture) -> Vec3 {
     let t = ((p.y - y_min) / y_range).clamp(0.0, 1.0);
 
-    // Per-axis taper: scale X/Z independently around the central axis.
-    // Bounded away from zero by the sanitizer (|taper| ≤ 0.99) so a face never
-    // collapses to a point. Equal components = uniform taper (cone/frustum);
-    // unequal = wedge / fin.
-    let mut x = p.x * (1.0 - torture.taper.x * t);
-    let mut z = p.z * (1.0 - torture.taper.y * t);
+    // Per-axis radial scale: top taper × bottom taper × mid-height bulge.
+    // Each taper factor is bounded away from zero by the sanitizer (|taper| ≤
+    // 0.99) so an end face never collapses to a point on its own; the bulge
+    // term (`sin(π t)`, zero at both ends) can drive the *mid* profile
+    // negative on a hard pinch, so the combined scale is floored just above
+    // zero — the waist collapses to the axis instead of inverting.
+    let wave_pi = (std::f32::consts::PI * t).sin();
+    let scale = |taper_top: f32, taper_bot: f32, bulge: f32| -> f32 {
+        ((1.0 - taper_top * t) * (1.0 - taper_bot * (1.0 - t)) + bulge * wave_pi).max(1e-3)
+    };
+    let mut x = p.x * scale(torture.taper.x, torture.taper_bottom.x, torture.bulge.x);
+    let mut z = p.z * scale(torture.taper.y, torture.taper_bottom.y, torture.bulge.y);
 
     // Twist: rotate around Y by an angle linear in normalised height.
     if torture.twist.abs() > 1e-6 {

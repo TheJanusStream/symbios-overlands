@@ -641,6 +641,8 @@ fn primitive_torture_clamped() {
         torture: TortureParams {
             twist: Fp(f32::INFINITY),
             taper: Fp2([f32::NAN, 1_000.0]),
+            taper_bottom: Fp2([f32::INFINITY, -1_000.0]),
+            bulge: Fp2([f32::NAN, f32::NEG_INFINITY]),
             bend: Fp3([f32::INFINITY, f32::NAN, 1_000.0]),
             s_bend: Fp2([f32::NAN, f32::INFINITY]),
             shear: Fp2([f32::NAN, 1_000.0]),
@@ -653,9 +655,13 @@ fn primitive_torture_clamped() {
     if let GeneratorKind::Cuboid { torture, .. } = &prim.kind {
         assert!(torture.twist.0.is_finite());
         assert!(torture.twist.0.abs() <= limits::MAX_TORTURE_TWIST + 1e-3);
-        for &v in torture.taper.0.iter() {
+        for &v in torture.taper.0.iter().chain(torture.taper_bottom.0.iter()) {
             assert!(v.is_finite());
             assert!(v.abs() <= limits::MAX_TORTURE_TAPER + 1e-3);
+        }
+        for &v in torture.bulge.0.iter() {
+            assert!(v.is_finite());
+            assert!(v.abs() <= limits::MAX_TORTURE_BULGE + 1e-3);
         }
         for &v in torture.bend.0.iter() {
             assert!(v.is_finite());

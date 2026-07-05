@@ -268,6 +268,47 @@ pub(super) fn draw_primitive_helix(
     draw_common_primitive(ui, solid, material, torture, salt, dirty);
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(super) fn draw_primitive_superellipsoid(
+    ui: &mut egui::Ui,
+    half_extents: &mut Fp3,
+    exponent_ns: &mut Fp,
+    exponent_ew: &mut Fp,
+    latitudes: &mut u32,
+    longitudes: &mut u32,
+    solid: &mut bool,
+    material: &mut SovereignMaterialSettings,
+    torture: &mut TortureParams,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    ui.horizontal(|ui| {
+        ui.label("Half-extents X/Y/Z:");
+        let mut v = half_extents.0;
+        let mut changed = false;
+        for axis in v.iter_mut() {
+            changed |= ui
+                .add(egui::DragValue::new(axis).speed(0.1).range(0.01..=100.0))
+                .changed();
+        }
+        if changed {
+            *half_extents = Fp3(v);
+            *dirty = true;
+        }
+    });
+    // The two exponents are the shape: ~0.2 = box, 0.5 = pillow, 1.0 =
+    // sphere/ellipsoid, 2.0 = octahedral, 2.5 = pinched star.
+    ui.horizontal(|ui| {
+        fp_slider(ui, "Exp N-S", exponent_ns, 0.2, 2.5, dirty);
+        fp_slider(ui, "Exp E-W", exponent_ew, 0.2, 2.5, dirty);
+    });
+    ui.horizontal(|ui| {
+        drag_u32(ui, "Lats", latitudes, 4, 64, dirty);
+        drag_u32(ui, "Lons", longitudes, 4, 128, dirty);
+    });
+    draw_common_primitive(ui, solid, material, torture, salt, dirty);
+}
+
 /// Shared tail for every primitive editor: solid checkbox, torture triple,
 /// collapsible material panel. Factored out so each per-primitive editor
 /// only owns its shape-specific parameter widgets.

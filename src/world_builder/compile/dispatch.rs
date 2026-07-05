@@ -205,7 +205,8 @@ pub fn spawn_generator(
         | GeneratorKind::Tube { .. }
         | GeneratorKind::Bevel { .. }
         | GeneratorKind::Wedge { .. }
-        | GeneratorKind::Helix { .. } => {
+        | GeneratorKind::Helix { .. }
+        | GeneratorKind::Superellipsoid { .. } => {
             Some(spawn_primitive_entity(ctx, &generator.kind, transform))
         }
         GeneratorKind::Sign {

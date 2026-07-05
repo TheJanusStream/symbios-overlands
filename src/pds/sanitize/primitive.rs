@@ -1,7 +1,7 @@
 //! Sanitiser for the parametric primitive variants of [`GeneratorKind`]
 //! (Cuboid / Sphere / Cylinder / Capsule / Cone / Torus / Plane /
-//! Tetrahedron / Tube / Bevel / Wedge / Helix). Mirrors the bounds the
-//! World Editor UI exposes so a
+//! Tetrahedron / Tube / Bevel / Wedge / Helix / Superellipsoid). Mirrors the
+//! bounds the World Editor UI exposes so a
 //! hand-crafted record can't push mesh/collider builders into NaN / OOM
 //! territory.
 
@@ -166,6 +166,33 @@ pub(super) fn sanitize_primitive(kind: &mut GeneratorKind) {
             ..
         } => {
             size.0 = [c_dim(size.0[0]), c_dim(size.0[1]), c_dim(size.0[2])];
+            material.sanitize();
+            sanitize_torture(torture);
+        }
+        GeneratorKind::Superellipsoid {
+            half_extents,
+            exponent_ns,
+            exponent_ew,
+            latitudes,
+            longitudes,
+            material,
+            torture,
+            ..
+        } => {
+            half_extents.0 = [
+                c_dim(half_extents.0[0]),
+                c_dim(half_extents.0[1]),
+                c_dim(half_extents.0[2]),
+            ];
+            // The signed-power parametrisation misbehaves outside this band:
+            // exponents → 0 spike the analytic normals along the creases, and
+            // past ~2.5 the pinched form thins into degenerate spans that the
+            // convex-hull collider can't follow anyway.
+            for e in [exponent_ns, exponent_ew] {
+                *e = Fp(clamp_finite(e.0, 0.2, 2.5, 1.0));
+            }
+            *latitudes = (*latitudes).clamp(4, 64);
+            *longitudes = (*longitudes).clamp(4, 128);
             material.sanitize();
             sanitize_torture(torture);
         }

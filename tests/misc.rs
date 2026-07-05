@@ -87,6 +87,8 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             torture: TortureParams {
                 twist: Fp(f32::NAN),
                 taper: Fp2([f32::INFINITY, f32::NAN]),
+                taper_bottom: Fp2([f32::NAN, -10_000.0]),
+                bulge: Fp2([f32::NEG_INFINITY, 10_000.0]),
                 bend: Fp3([f32::NAN, f32::NEG_INFINITY, 10_000.0]),
                 s_bend: Fp2([f32::NAN, f32::INFINITY]),
                 shear: Fp2([f32::INFINITY, 10_000.0]),

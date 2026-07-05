@@ -1,6 +1,7 @@
-//! SL-style cut meshers: the swept (path-cut / hollow) cylinder family, the
-//! banded UV sphere, and the doubly-cut torus — everything a non-identity
-//! `path_cut` / `profile_cut` / `hollow` routes to instead of a Bevy built-in.
+//! SL-style cut meshers: the swept (path-cut / hollow) frustum family
+//! (cylinder / tube / cone), the banded UV sphere, the revolved stadium
+//! capsule, and the doubly-cut torus — everything a non-identity `path_cut` /
+//! `profile_cut` / `hollow` routes to instead of a Bevy built-in.
 
 use bevy::prelude::*;
 
@@ -12,28 +13,41 @@ pub(super) fn path_cut_angles(t: &crate::pds::TortureParams) -> (f32, f32) {
     (t.path_cut.0[0] * TAU, t.path_cut.0[1] * TAU)
 }
 
-/// Unified swept-ring mesher — a straight cylinder that may be **hollow**
-/// (`inner_frac > 0` → pipe / tube) and/or **angularly path-cut** (`a0..a1` <
-/// full turn → trough / half-pipe / pie wedge, closed by two radial cut faces).
-/// One generator backs `Cylinder` + `Tube` and all their SL-style cuts; taper /
-/// twist / bend / shear ride on top via the vertex-torture post-pass. Winding is
-/// reconciled to the supplied normals by [`mesh_from_parts`].
-pub(super) fn build_swept_cylinder(
-    r: f32,
+/// Unified swept-ring mesher — a conical frustum (`r_bottom` at the base,
+/// `r_top` at the top; equal radii = a straight cylinder, `r_top = 0` = a
+/// cone) that may be **hollow** (`inner_frac > 0` → pipe / funnel; the bore
+/// follows the same slope) and/or **angularly path-cut** (`a0..a1` < full
+/// turn → trough / half-pipe / pie wedge, closed by two radial cut faces).
+/// One generator backs `Cylinder` + `Tube` + `Cone` and all their SL-style
+/// cuts; taper / twist / bend / shear ride on top via the vertex-torture
+/// post-pass — pass `rows > 1` when a deform is active so the walls carry
+/// the mid-height vertices the nonlinear deforms (bulge / bend / twist)
+/// need. Winding is reconciled to the supplied normals by
+/// [`mesh_from_parts`].
+#[allow(clippy::too_many_arguments)]
+pub(super) fn build_swept_frustum(
+    r_bottom: f32,
+    r_top: f32,
     height: f32,
     resolution: u32,
+    rows: u32,
     inner_frac: f32,
     a0: f32,
     a1: f32,
 ) -> Mesh {
     use std::f32::consts::TAU;
     let segs = resolution.max(3);
+    let rows = rows.max(1);
     let full = (a1 - a0).abs() >= TAU - 1e-3;
-    let ri = (r * inner_frac).clamp(0.0, r * 0.999);
-    let hollow = ri > 1e-4;
+    let k = inner_frac.clamp(0.0, 0.999);
+    let hollow = k * r_bottom.max(r_top) > 1e-4;
     let (yb, yt) = (-0.5 * height, 0.5 * height);
     let n = segs + 1;
     let ang = |i: u32| a0 + (a1 - a0) * (i as f32 / segs as f32);
+    // Wall-slope normal in the (radial, Y) plane, shared by both shells (the
+    // bore scales the radii uniformly, so its slope is the same).
+    let slope_len = (height * height + (r_bottom - r_top) * (r_bottom - r_top)).sqrt();
+    let (n_rad, n_y) = (height / slope_len, (r_bottom - r_top) / slope_len);
 
     let mut pos: Vec<[f32; 3]> = Vec::new();
     let mut nor: Vec<[f32; 3]> = Vec::new();
@@ -41,42 +55,48 @@ pub(super) fn build_swept_cylinder(
     let mut idx: Vec<u32> = Vec::new();
 
     // Outer wall, plus an inner wall when hollow (inward-facing normals).
-    let mut walls = vec![(r, false)];
+    // `rows` vertical subdivisions give the vertex-torture pass mid-height
+    // vertices; the ring radius interpolates linearly bottom → top.
+    let mut walls = vec![(r_bottom, r_top, false)];
     if hollow {
-        walls.push((ri, true));
+        walls.push((r_bottom * k, r_top * k, true));
     }
-    for (radius, inward) in walls {
+    for (rb, rt, inward) in walls {
         let base = pos.len() as u32;
         let sgn = if inward { -1.0 } else { 1.0 };
-        for i in 0..n {
-            let a = ang(i);
-            let (s, c) = a.sin_cos();
-            let nrm = [sgn * c, 0.0, sgn * s];
-            let u = i as f32 / segs as f32;
-            pos.push([radius * c, yb, radius * s]);
-            nor.push(nrm);
-            uv.push([u, 1.0]);
-            pos.push([radius * c, yt, radius * s]);
-            nor.push(nrm);
-            uv.push([u, 0.0]);
-        }
-        for i in 0..segs {
-            let b = base + i * 2;
-            idx.extend_from_slice(&[b, b + 2, b + 3, b, b + 3, b + 1]);
-        }
-    }
-
-    // Top + bottom caps: annular when hollow, a triangle fan to the centre when
-    // solid.
-    for (y, ny) in [(yt, 1.0f32), (yb, -1.0f32)] {
-        let nrm = [0.0, ny, 0.0];
-        if hollow {
-            let base = pos.len() as u32;
-            let k = ri / r;
+        for j in 0..=rows {
+            let v = j as f32 / rows as f32;
+            let (rj, yj) = (rb + (rt - rb) * v, yb + (yt - yb) * v);
             for i in 0..n {
                 let a = ang(i);
                 let (s, c) = a.sin_cos();
-                pos.push([r * c, y, r * s]);
+                pos.push([rj * c, yj, rj * s]);
+                nor.push([sgn * n_rad * c, sgn * n_y, sgn * n_rad * s]);
+                uv.push([i as f32 / segs as f32, 1.0 - v]);
+            }
+        }
+        for j in 0..rows {
+            for i in 0..segs {
+                let b = base + j * n + i;
+                idx.extend_from_slice(&[b, b + n, b + n + 1, b, b + n + 1, b + 1]);
+            }
+        }
+    }
+
+    // Top + bottom caps: annular when hollow, a triangle fan to the centre
+    // when solid. A zero-radius end (a cone's apex) needs no cap.
+    for (y, ny, rr) in [(yt, 1.0f32, r_top), (yb, -1.0f32, r_bottom)] {
+        if rr <= 1e-4 {
+            continue;
+        }
+        let nrm = [0.0, ny, 0.0];
+        if hollow {
+            let base = pos.len() as u32;
+            let ri = rr * k;
+            for i in 0..n {
+                let a = ang(i);
+                let (s, c) = a.sin_cos();
+                pos.push([rr * c, y, rr * s]);
                 nor.push(nrm);
                 uv.push([0.5 + 0.5 * c, 0.5 + 0.5 * s]);
                 pos.push([ri * c, y, ri * s]);
@@ -95,7 +115,7 @@ pub(super) fn build_swept_cylinder(
             for i in 0..n {
                 let a = ang(i);
                 let (s, c) = a.sin_cos();
-                pos.push([r * c, y, r * s]);
+                pos.push([rr * c, y, rr * s]);
                 nor.push(nrm);
                 uv.push([0.5 + 0.5 * c, 0.5 + 0.5 * s]);
             }
@@ -105,23 +125,211 @@ pub(super) fn build_swept_cylinder(
         }
     }
 
-    // Radial cut faces close the wedge opening (only when path-cut).
+    // Radial cut faces close the wedge opening (only when path-cut),
+    // subdivided to the same `rows` as the walls so a deform bends them in
+    // step. With a zero top radius the strip's top edge collapses to the
+    // apex — its last triangles degenerate, which the winding pass tolerates.
     if !full {
         for (i, sgn) in [(0u32, -1.0f32), (segs, 1.0f32)] {
             let a = ang(i);
             let (s, c) = a.sin_cos();
             let nrm = [-sgn * s, 0.0, sgn * c];
-            let rin = if hollow { ri } else { 0.0 };
             let base = pos.len() as u32;
-            pos.push([rin * c, yb, rin * s]);
-            pos.push([r * c, yb, r * s]);
-            pos.push([r * c, yt, r * s]);
-            pos.push([rin * c, yt, rin * s]);
-            for _ in 0..4 {
+            for j in 0..=rows {
+                let v = j as f32 / rows as f32;
+                let (rj, yj) = (r_bottom + (r_top - r_bottom) * v, yb + (yt - yb) * v);
+                let rin = if hollow { rj * k } else { 0.0 };
+                pos.push([rin * c, yj, rin * s]);
                 nor.push(nrm);
+                uv.push([0.0, 1.0 - v]);
+                pos.push([rj * c, yj, rj * s]);
+                nor.push(nrm);
+                uv.push([1.0, 1.0 - v]);
             }
-            uv.extend_from_slice(&[[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]]);
-            idx.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+            for j in 0..rows {
+                let b = base + j * 2;
+                idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
+            }
+        }
+    }
+
+    mesh_from_parts(pos, nor, uv, idx)
+}
+
+/// Unified revolved-capsule mesher — a stadium profile (bottom hemisphere →
+/// straight wall → top hemisphere, parametrised by arc length `t ∈ 0..1` from
+/// bottom pole to top pole) revolved around Y over a **profile band**
+/// (`t0..t1` → pill halves / domed sleeves / open cups via profile-cut) and a
+/// **longitude band** (`lon0..lon1` → wedges via path-cut), optionally
+/// **hollow** (`inner_frac > 0` → a shell whose bore is the same capsule
+/// uniformly scaled toward the centre). Open profile ends are closed by
+/// horizontal discs (solid) or meridional rim bands (hollow); an open
+/// longitude wedge by two flat cut faces. Used for the cut Capsule; the plain
+/// capsule stays on Bevy. Winding is reconciled by [`mesh_from_parts`].
+#[allow(clippy::too_many_arguments)]
+pub(super) fn build_swept_capsule(
+    radius: f32,
+    length: f32,
+    latitudes: u32,
+    longitudes: u32,
+    lon0: f32,
+    lon1: f32,
+    t0: f32,
+    t1: f32,
+    inner_frac: f32,
+) -> Mesh {
+    use std::f32::consts::{FRAC_PI_2, TAU};
+    let nlon = longitudes.max(4);
+    let lon_full = (lon1 - lon0).abs() >= TAU - 1e-3;
+    let k = inner_frac.clamp(0.0, 0.99);
+    let hollow = k > 1e-4;
+    let hl = 0.5 * length;
+
+    // Arc-length split of the stadium profile: cap arc / wall / cap arc.
+    let l_cap = FRAC_PI_2 * radius;
+    let l_total = 2.0 * l_cap + length;
+    let (tb, tw) = (l_cap / l_total, (l_cap + length) / l_total);
+    // Profile station at `t`: radial distance, height, and the outward 2D
+    // normal in the (radial, Y) plane.
+    let profile = |t: f32| -> (f32, f32, f32, f32) {
+        if t < tb {
+            let phi = -FRAC_PI_2 + (t / tb) * FRAC_PI_2;
+            let (sp, cp) = phi.sin_cos();
+            (radius * cp, -hl + radius * sp, cp, sp)
+        } else if t <= tw {
+            let y = -hl + (t - tb) / (tw - tb) * length;
+            (radius, y, 1.0, 0.0)
+        } else {
+            let phi = ((t - tw) / (1.0 - tw)) * FRAC_PI_2;
+            let (sp, cp) = phi.sin_cos();
+            (radius * cp, hl + radius * sp, cp, sp)
+        }
+    };
+
+    // Uniform stations over the kept band, plus the exact cap/wall boundary
+    // stations so the tangent break in the profile lands on a vertex ring
+    // (uniform-only sampling would shade a soft kink across it).
+    let nprof = (2 * latitudes.max(2)).max(6);
+    let mut stations: Vec<f32> = (0..=nprof)
+        .map(|j| t0 + (t1 - t0) * (j as f32 / nprof as f32))
+        .collect();
+    for brk in [tb, tw] {
+        if brk > t0 + 1e-4 && brk < t1 - 1e-4 {
+            stations.push(brk);
+        }
+    }
+    stations.sort_by(|a, b| a.partial_cmp(b).expect("profile stations are finite"));
+    stations.dedup_by(|a, b| (*a - *b).abs() < 1e-5);
+    let nrings = stations.len() as u32;
+    let bottom_pole = t0 <= 1e-4;
+    let top_pole = t1 >= 1.0 - 1e-4;
+    let lonf = |i: u32| lon0 + (lon1 - lon0) * (i as f32 / nlon as f32);
+
+    let mut pos: Vec<[f32; 3]> = Vec::new();
+    let mut nor: Vec<[f32; 3]> = Vec::new();
+    let mut uv: Vec<[f32; 2]> = Vec::new();
+    let mut idx: Vec<u32> = Vec::new();
+
+    // Outer (+ inner, when hollow) revolved surface grid. A uniform scale
+    // leaves surface normals unchanged, so the bore reuses the outer profile
+    // normal, flipped inward.
+    let mut shells = vec![(1.0f32, false)];
+    if hollow {
+        shells.push((k, true));
+    }
+    for (scale, inward) in shells {
+        let base = pos.len() as u32;
+        let sgn = if inward { -1.0 } else { 1.0 };
+        for (j, t) in stations.iter().enumerate() {
+            let (rho, y, nr, ny) = profile(*t);
+            for i in 0..=nlon {
+                let l = lonf(i);
+                let (sl, cl) = l.sin_cos();
+                pos.push([scale * rho * cl, scale * y, scale * rho * sl]);
+                nor.push([sgn * nr * cl, sgn * ny, sgn * nr * sl]);
+                uv.push([i as f32 / nlon as f32, 1.0 - j as f32 / (nrings - 1) as f32]);
+            }
+        }
+        let row = nlon + 1;
+        for j in 0..nrings - 1 {
+            for i in 0..nlon {
+                let a = base + j * row + i;
+                idx.extend_from_slice(&[a, a + row, a + row + 1, a, a + row + 1, a + 1]);
+            }
+        }
+    }
+
+    // Profile end caps at any open, non-pole edge: a horizontal disc when
+    // solid, a rim band joining the outer edge to the inner (scaled) edge
+    // when hollow — the same closure scheme as the banded sphere.
+    for (t, ny_dir, pole) in [(t0, -1.0f32, bottom_pole), (t1, 1.0f32, top_pole)] {
+        if pole {
+            continue;
+        }
+        let (rho, y, pnr, pny) = profile(t);
+        if hollow {
+            // Meridional tangent (the 2D profile normal rotated +90°), signed
+            // to face out of the kept band.
+            let (tr, ty) = (-pny * ny_dir, pnr * ny_dir);
+            let base = pos.len() as u32;
+            for i in 0..=nlon {
+                let l = lonf(i);
+                let (sl, cl) = l.sin_cos();
+                let tang = [tr * cl, ty, tr * sl];
+                pos.push([rho * cl, y, rho * sl]);
+                nor.push(tang);
+                uv.push([0.5 + 0.5 * cl, 0.5 + 0.5 * sl]);
+                pos.push([k * rho * cl, k * y, k * rho * sl]);
+                nor.push(tang);
+                uv.push([0.5 + 0.5 * k * cl, 0.5 + 0.5 * k * sl]);
+            }
+            for i in 0..nlon {
+                let b = base + i * 2;
+                idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
+            }
+        } else {
+            let nrm = [0.0, ny_dir, 0.0];
+            let base = pos.len() as u32;
+            pos.push([0.0, y, 0.0]);
+            nor.push(nrm);
+            uv.push([0.5, 0.5]);
+            for i in 0..=nlon {
+                let l = lonf(i);
+                let (sl, cl) = l.sin_cos();
+                pos.push([rho * cl, y, rho * sl]);
+                nor.push(nrm);
+                uv.push([0.5 + 0.5 * cl, 0.5 + 0.5 * sl]);
+            }
+            for i in 0..nlon {
+                idx.extend_from_slice(&[base, base + 1 + i, base + 2 + i]);
+            }
+        }
+    }
+
+    // Meridional cut faces when the longitude sweep is open (path-cut).
+    if !lon_full {
+        for (i_edge, sgn) in [(0u32, -1.0f32), (nlon, 1.0f32)] {
+            let l = lonf(i_edge);
+            let (sl, cl) = l.sin_cos();
+            let nrm = [sgn * -sl, 0.0, sgn * cl];
+            let base = pos.len() as u32;
+            for (j, t) in stations.iter().enumerate() {
+                let (rho, y, _, _) = profile(*t);
+                pos.push([rho * cl, y, rho * sl]);
+                nor.push(nrm);
+                uv.push([0.0, j as f32 / (nrings - 1) as f32]);
+                if hollow {
+                    pos.push([k * rho * cl, k * y, k * rho * sl]);
+                } else {
+                    pos.push([0.0, y, 0.0]);
+                }
+                nor.push(nrm);
+                uv.push([1.0, j as f32 / (nrings - 1) as f32]);
+            }
+            for j in 0..nrings - 1 {
+                let b = base + j * 2;
+                idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
+            }
         }
     }
 
