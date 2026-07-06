@@ -432,16 +432,10 @@ fn draw_placement_visualizers(
     };
 
     let get_y = |x: f32, z: f32| -> f32 {
-        if let Some(hm_res) = heightmap.as_deref() {
-            let hm = &hm_res.0;
-            let extent = (hm.width() - 1) as f32 * hm.scale();
-            let half = extent * 0.5;
-            let hm_x = (x + half).clamp(0.0, extent);
-            let hm_z = (z + half).clamp(0.0, extent);
-            hm.get_height_at(hm_x, hm_z)
-        } else {
-            0.0
-        }
+        heightmap
+            .as_deref()
+            .map(|hm| hm.world_height_at(x, z))
+            .unwrap_or(0.0)
     };
 
     let color = Color::srgb(0.0, 1.0, 0.5);
@@ -454,7 +448,11 @@ fn draw_placement_visualizers(
         } => {
             let mut pos = Vec3::from_array(transform.translation.0);
             if *snap_to_terrain {
-                pos.y = get_y(pos.x, pos.z);
+                // Match the compile executor's Absolute semantics: the
+                // authored Y is an OFFSET from the terrain height, not
+                // replaced by it — a preview that drops the offset shows
+                // the gizmo at the wrong altitude (#700).
+                pos.y += get_y(pos.x, pos.z);
             }
             gizmos.sphere(pos, 1.0, color);
         }

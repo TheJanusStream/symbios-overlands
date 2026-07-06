@@ -208,13 +208,18 @@ pub fn room_admin_ui(
     mut inventory: Option<ResMut<LiveInventoryRecord>>,
     // Grouped into one tuple param to stay under Bevy's 16-parameter
     // `IntoSystem` ceiling (tuples of SystemParams are SystemParams).
-    audio: (
+    // The heightmap rides along for the Placements tab's snap-toggle
+    // compensation (#700): flipping "Snap to Terrain" rewrites
+    // translation.y against the terrain height so the object stays where
+    // it renders.
+    extras: (
         Res<bevy_symbios_audio::ui::AudioMonitor>,
         MessageWriter<bevy_symbios_audio::ui::MonitorRequest>,
+        Option<Res<crate::terrain::FinishedHeightMap>>,
     ),
     time: Res<Time>,
 ) {
-    let (audio_monitor, mut audio_requests) = audio;
+    let (audio_monitor, mut audio_requests, heightmap) = extras;
     let (Some(session), Some(refresh_ctx), Some(room_did), Some(record)) =
         (session, refresh_ctx, room_did, room_record.as_mut())
     else {
@@ -487,6 +492,7 @@ pub fn room_admin_ui(
                                         ui,
                                         record_mut,
                                         selected_placement,
+                                        heightmap.as_deref(),
                                         &mut widget_change,
                                     );
                                 }

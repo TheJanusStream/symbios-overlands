@@ -82,6 +82,22 @@ pub struct WaterVolume;
 #[derive(Resource)]
 pub struct FinishedHeightMap(pub HeightMap);
 
+impl FinishedHeightMap {
+    /// Terrain height at **world** coordinates: the heightmap's own frame
+    /// starts at `(0, 0)` in its corner, while the world centres the
+    /// terrain on the origin — this does the half-extent shift + clamp
+    /// every sampler needs. Single-sourced so the placement executor, the
+    /// placement gizmo, and the editor's snap-toggle compensation all
+    /// agree on the sample (#700) — a disagreement shows up as objects
+    /// jumping between preview and compile.
+    pub fn world_height_at(&self, x: f32, z: f32) -> f32 {
+        let hm = &self.0;
+        let extent = (hm.width() - 1) as f32 * hm.scale();
+        let half = extent * 0.5;
+        hm.get_height_at((x + half).clamp(0.0, extent), (z + half).clamp(0.0, extent))
+    }
+}
+
 /// The in-flight terrain generation, dispatched through [`crate::offload`]
 /// (native: `AsyncComputeTaskPool`; wasm: its task pool / Web Worker). Carries
 /// the platform-agnostic [`crate::offload::GenResult`] which `poll_terrain_task`
@@ -246,5 +262,33 @@ impl Plugin for TerrainPlugin {
                     .run_if(not(in_state(AppState::Login))),
             )
             .add_systems(OnExit(AppState::InGame), lifecycle::cleanup_terrain);
+    }
+}
+
+#[cfg(test)]
+mod world_height_tests {
+    use super::*;
+
+    /// The world→heightmap frame shift (#700): world coordinates centre the
+    /// terrain on the origin, so `world_height_at(-half, -half)` must read
+    /// the map's `(0, 0)` corner, `(+half, +half)` the far corner, and
+    /// out-of-range coordinates clamp instead of wrapping or panicking.
+    #[test]
+    fn world_height_at_shifts_and_clamps() {
+        // 3×3 grid, 2 m cells → extent 4 m, world spans -2..+2 on each axis.
+        let mut hm = HeightMap::new(3, 3, 2.0);
+        // Height = x-index, constant along z: corners read 0.0 / 2.0.
+        for z in 0..3 {
+            for x in 0..3 {
+                hm.data_mut()[z * 3 + x] = x as f32;
+            }
+        }
+        let finished = FinishedHeightMap(hm);
+        assert_eq!(finished.world_height_at(-2.0, -2.0), 0.0);
+        assert_eq!(finished.world_height_at(2.0, -2.0), 2.0);
+        assert_eq!(finished.world_height_at(0.0, 0.0), 1.0);
+        // Clamped, not wrapped: far outside reads the nearest edge.
+        assert_eq!(finished.world_height_at(-1000.0, 0.0), 0.0);
+        assert_eq!(finished.world_height_at(1000.0, 0.0), 2.0);
     }
 }

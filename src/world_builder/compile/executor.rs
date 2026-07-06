@@ -629,16 +629,10 @@ fn step_unit(
                     let world_pos = cursor
                         .anchor_world_tf
                         .transform_point(Vec3::new(local_x, 0.0, local_z));
-                    let world_y = if let Some(hm_res) = ctx.heightmap {
-                        let hm = &hm_res.0;
-                        let extent = (hm.width() - 1) as f32 * hm.scale();
-                        let half = extent * 0.5;
-                        let hm_x = (world_pos.x + half).clamp(0.0, extent);
-                        let hm_z = (world_pos.z + half).clamp(0.0, extent);
-                        hm.get_height_at(hm_x, hm_z)
-                    } else {
-                        0.0
-                    };
+                    let world_y = ctx
+                        .heightmap
+                        .map(|hm| hm.world_height_at(world_pos.x, world_pos.z))
+                        .unwrap_or(0.0);
                     let local_snapped = cursor
                         .anchor_world_tf
                         .compute_affine()
@@ -715,12 +709,7 @@ fn step_unit(
                 }
 
                 let (world_y, keep) = if let Some(hm_res) = ctx.heightmap {
-                    let hm = &hm_res.0;
-                    let extent = (hm.width() - 1) as f32 * hm.scale();
-                    let half = extent * 0.5;
-                    let hm_x = (world_x + half).clamp(0.0, extent);
-                    let hm_z = (world_z + half).clamp(0.0, extent);
-                    let y = hm.get_height_at(hm_x, hm_z);
+                    let y = hm_res.world_height_at(world_x, world_z);
                     let keep = if biome_filter.is_noop() {
                         true
                     } else {
@@ -731,7 +720,16 @@ fn step_unit(
                         // don't silently pass through. The water clause
                         // still evaluates.
                         let biome = if let Some(tcfg) = terrain_cfg {
-                            let normal = hm.get_normal_at(hm_x, hm_z);
+                            // Normal sampling reads the raw heightmap
+                            // frame; mirror the world→map shift that
+                            // `world_height_at` applies to the height.
+                            let hm = &hm_res.0;
+                            let extent = (hm.width() - 1) as f32 * hm.scale();
+                            let half = extent * 0.5;
+                            let normal = hm.get_normal_at(
+                                (world_x + half).clamp(0.0, extent),
+                                (world_z + half).clamp(0.0, extent),
+                            );
                             let slope = (1.0 - normal[1]).max(0.0);
                             dominant_biome(tcfg, y, slope)
                         } else {

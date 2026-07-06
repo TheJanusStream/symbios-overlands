@@ -15,6 +15,7 @@ pub(super) fn draw_placements_tab(
     ui: &mut egui::Ui,
     record: &mut RoomRecord,
     selected: &mut Option<usize>,
+    heightmap: Option<&crate::terrain::FinishedHeightMap>,
     dirty: &mut bool,
 ) {
     // Single-column master/detail — see `draw_generators_tab` for the
@@ -53,7 +54,7 @@ pub(super) fn draw_placements_tab(
         });
         ui.add_space(4.0);
         if let Some(p) = record.placements.get_mut(idx) {
-            draw_placement_detail(ui, p, &all_names, &eligible_names, dirty);
+            draw_placement_detail(ui, p, &all_names, &eligible_names, heightmap, dirty);
         }
         return;
     }
@@ -165,6 +166,7 @@ fn draw_placement_detail(
     placement: &mut Placement,
     all_names: &[String],
     eligible_names: &[String],
+    heightmap: Option<&crate::terrain::FinishedHeightMap>,
     dirty: &mut bool,
 ) {
     match placement {
@@ -176,7 +178,29 @@ fn draw_placement_detail(
             avoid_water_clearance,
         } => {
             generator_combo(ui, "Generator", generator_ref, all_names, dirty);
-            if ui.checkbox(snap_to_terrain, "Snap to Terrain").changed() {
+            if ui
+                .checkbox(snap_to_terrain, "Snap to Terrain")
+                .on_hover_text(
+                    "Snapped: Y is an offset from the terrain height under the \
+                     anchor. Unsnapped: Y is absolute. Toggling rewrites Y so \
+                     the object stays where it is.",
+                )
+                .changed()
+            {
+                // Compensate the toggle so the object stays put (#700).
+                // Compile semantics for Absolute: snapped world Y =
+                // terrain(x, z) + authored Y; unsnapped world Y =
+                // authored Y. Converting between the two frames is a
+                // ±terrain-height rebase.
+                if let Some(hm) = heightmap {
+                    let ground =
+                        hm.world_height_at(transform.translation.0[0], transform.translation.0[2]);
+                    if *snap_to_terrain {
+                        transform.translation.0[1] -= ground;
+                    } else {
+                        transform.translation.0[1] += ground;
+                    }
+                }
                 *dirty = true;
             }
             if ui
@@ -247,7 +271,25 @@ fn draw_placement_detail(
             random_yaw,
         } => {
             generator_combo(ui, "Generator", generator_ref, eligible_names, dirty);
-            if ui.checkbox(snap_to_terrain, "Snap to Terrain").changed() {
+            if ui
+                .checkbox(snap_to_terrain, "Snap to Terrain")
+                .on_hover_text(
+                    "Snapped: the grid anchor sits at the terrain height under \
+                     it (its Y is ignored). Toggling writes that height into Y \
+                     so the grid stays where it is.",
+                )
+                .changed()
+            {
+                // Compile semantics for Grid REPLACE the anchor Y with the
+                // terrain height while snapped, so the stay-in-place rebase
+                // is the same in both directions: store the ground height
+                // (#700). Turning snap OFF then keeps the grid exactly
+                // where it rendered; turning it ON makes the record agree
+                // with what the compiler will do anyway.
+                if let Some(hm) = heightmap {
+                    transform.translation.0[1] =
+                        hm.world_height_at(transform.translation.0[0], transform.translation.0[2]);
+                }
                 *dirty = true;
             }
             if ui.checkbox(random_yaw, "Random Yaw").changed() {
