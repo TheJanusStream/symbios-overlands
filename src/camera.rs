@@ -12,7 +12,7 @@ use bevy::audio::SpatialListener;
 use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::{post_process::bloom::Bloom, prelude::*};
-use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
+use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin, PanOrbitCameraSystemSet};
 use transform_gizmo_bevy::GizmoCamera;
 
 use crate::config::camera as cfg;
@@ -29,7 +29,42 @@ impl Plugin for CameraPlugin {
             .add_systems(
                 Update,
                 follow_local_player.run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(
+                PostUpdate,
+                gate_camera_on_gui.before(PanOrbitCameraSystemSet),
             );
+    }
+}
+
+/// Our replacement for `bevy_panorbit_camera`'s `bevy_egui` feature (which
+/// is deliberately disabled — see Cargo.toml): block camera input while the
+/// GUI wants the pointer/keyboard, EXCEPT that a held right button always
+/// controls the camera (#702) — orbiting must never die because the drag
+/// started over (or crossed) an editor window.
+///
+/// Mirrors the crate's own two-frame trick: `wants_pointer_input()` flips
+/// true one frame late on a click into a window, so both the previous and
+/// current frame must be GUI-free before camera input is allowed.
+fn gate_camera_on_gui(
+    mut contexts: Query<&mut bevy_egui::EguiContext>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    mut cameras: Query<&mut PanOrbitCamera>,
+    mut prev_gui_wants: Local<bool>,
+) {
+    let mut gui_wants = false;
+    for mut ctx in contexts.iter_mut() {
+        let ctx = ctx.get_mut();
+        gui_wants |= ctx.wants_pointer_input() || ctx.wants_keyboard_input();
+    }
+    let enable = mouse.pressed(MouseButton::Right) || (!gui_wants && !*prev_gui_wants);
+    *prev_gui_wants = gui_wants;
+    for mut cam in cameras.iter_mut() {
+        // Manual change-detect: writing every frame would dirty the
+        // component and defeat the crate's own change tracking.
+        if cam.enabled != enable {
+            cam.enabled = enable;
+        }
     }
 }
 

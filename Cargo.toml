@@ -13,7 +13,10 @@ members = ["crates/gen-jobs", "crates/gen-worker"]
 bevy = "0.18"
 bevy_egui = "0.39"
 egui_ltreeview = "0.6"
-bevy_panorbit_camera = { version = "0.34", features = ["bevy_egui"] }
+# No "bevy_egui" feature: its focus gate is all-or-nothing and privately
+# scheduled, which made right-drag dead over GUI windows. `camera.rs` owns
+# the equivalent gate with a right-button override instead (#702).
+bevy_panorbit_camera = "0.34"
 bevy_symbios = "0.4"
 bevy_symbios_ground = { version = "0.3", features = ["physics"] }
 bevy_symbios_multiuser = "0.5"

@@ -29,6 +29,7 @@ use super::{ActiveTarget, GizmoDetachedPrim, GizmoFramePref, determine_active_ta
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn sync_gizmo_selection(
     mut commands: Commands,
+    panels: Res<crate::ui::toolbar::UiPanels>,
     room_state: Res<RoomEditorState>,
     avatar_state: Res<AvatarEditorState>,
     frame_pref: Res<GizmoFramePref>,
@@ -73,7 +74,15 @@ pub(super) fn sync_gizmo_selection(
     // `transform-gizmo-bevy`.
     gizmo_options.gizmo_orientation = frame_pref.0;
 
-    let active = determine_active_target(&room_state, &avatar_state);
+    let mut active = determine_active_target(&room_state, &avatar_state);
+    // The room gizmo exists only while the World-editor window is open
+    // (#702) — a selection may survive the window closing (so reopening
+    // restores it), but the gizmo itself detaches. The tab gates below
+    // (Region Assets → prims, Placements → placements) already restrict
+    // WHICH room selection can carry it.
+    if active == ActiveTarget::Room && !panels.world_editor {
+        active = ActiveTarget::None;
+    }
 
     // Idle fast path (#640): nothing selected AND nothing still carrying gizmo
     // state means every loop below is a full no-op pass over the room's

@@ -60,14 +60,18 @@ mod commit;
 mod drag;
 mod sync;
 
+use bevy::ecs::hierarchy::ChildOf;
+use bevy::picking::mesh_picking::ray_cast::{MeshRayCast, MeshRayCastSettings};
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
+use bevy::window::PrimaryWindow;
 use bevy_egui::{EguiContexts, egui};
 use transform_gizmo_bevy::{GizmoOrientation, GizmoTarget};
 
 use crate::state::AppState;
 use crate::ui::avatar::AvatarEditorState;
-use crate::ui::room::RoomEditorState;
+use crate::ui::room::{EditorTab, RoomEditorState};
+use crate::world_builder::{PlacementMarker, PrimMarker};
 
 /// Owner-facing toggle for how the gizmo's drag axes are oriented.
 ///
@@ -174,36 +178,54 @@ impl Plugin for EditorGizmoPlugin {
                 .chain()
                 .run_if(in_state(AppState::InGame)),
         )
-        // A left-click into the open 3D scene clears whichever editor row is
-        // selected, which lets the next `sync` pass detach the gizmo. Runs
-        // in `Update` (the egui-pointer guard reads the same frame's context,
-        // exactly as `ui::inventory::drop` does) and is gated so a click that
-        // lands on a gizmo handle never deselects mid-drag.
+        // A left-click into the open 3D scene either PICKS the object under
+        // the cursor (#702 — Region Assets / Placements tab, world editor
+        // open) or clears the selection when nothing selectable was hit.
+        // Runs in `Update` (the egui-pointer guard reads the same frame's
+        // context, exactly as `ui::inventory::drop` does) and is gated so a
+        // click that lands on a gizmo handle never repicks mid-drag.
         .add_systems(
             Update,
-            deselect_on_scene_click.run_if(in_state(AppState::InGame)),
+            pick_on_scene_click.run_if(in_state(AppState::InGame)),
         );
     }
 }
 
-/// Clear the active editor selection when the owner left-clicks into the
-/// open 3D viewport (not over egui, not on the gizmo).
+/// Scene click-select (#702): while the World-editor window is open on the
+/// Region Assets or Placements tab (and the signed-in user owns the room),
+/// a left-click into the 3D viewport raycasts the scene's meshes and
+/// selects what it hits — the exact sub-part of an asset on Region Assets,
+/// the owning placement on Placements — exactly as if the matching GUI row
+/// had been clicked. Hitting nothing selectable (sky, terrain, water,
+/// avatars) clears the selection, which makes the gizmo vanish via [`sync`].
+/// On any other tab, or with the editor closed, a scene click just clears —
+/// the pre-#702 behaviour.
 ///
-/// The gizmo is purely derived from selection state by [`sync`], so
-/// dropping the selection is all it takes to make the gizmo vanish and
-/// the detached prim reparent on the next `PostUpdate` pass.
+/// Mesh raycast, not physics: most catalogue props carry no collider, so
+/// `SpatialQuery` would see through them; `MeshRayCast` hits anything
+/// rendered.
 ///
-/// **Drag safety.** The deselect is suppressed whenever any
-/// [`GizmoTarget`] reports `is_focused()` (pointer hovering a handle) or
-/// `is_active()` (a drag in progress). `transform-gizmo-bevy` writes both
-/// flags in its `Last`-schedule update, so on the mouse-down frame they
-/// already reflect the prior frame's hover — and the owner always hovers
-/// a handle before pressing — so a click that *starts* a drag is caught
-/// here and leaves the selection (and the drag) untouched.
-fn deselect_on_scene_click(
+/// **Drag safety.** Picking is suppressed whenever any [`GizmoTarget`]
+/// reports `is_focused()` (pointer hovering a handle) or `is_active()` (a
+/// drag in progress). `transform-gizmo-bevy` writes both flags in its
+/// `Last`-schedule update, so on the mouse-down frame they already reflect
+/// the prior frame's hover — and the owner always hovers a handle before
+/// pressing — so a click that *starts* a drag is caught here and leaves
+/// the selection (and the drag) untouched.
+#[allow(clippy::too_many_arguments)]
+fn pick_on_scene_click(
     mut contexts: EguiContexts,
     mouse: Res<ButtonInput<MouseButton>>,
     gizmo_targets: Query<&GizmoTarget>,
+    panels: Res<crate::ui::toolbar::UiPanels>,
+    session: Option<Res<bevy_symbios_multiuser::auth::AtprotoSession>>,
+    room_did: Option<Res<crate::state::CurrentRoomDid>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    mut raycast: MeshRayCast,
+    prim_markers: Query<&PrimMarker>,
+    placement_markers: Query<&PlacementMarker>,
+    parents: Query<&ChildOf>,
     mut room_state: ResMut<RoomEditorState>,
     mut avatar_state: ResMut<AvatarEditorState>,
 ) {
@@ -229,11 +251,95 @@ fn deselect_on_scene_click(
         return;
     }
 
-    if room_state.has_selection() {
-        room_state.clear_selection();
-    }
+    // A scene click always takes the avatar editor's selection away —
+    // same cross-editor mutex direction as before #702.
     if avatar_state.has_visuals_selection() {
         avatar_state.clear_visuals_selection();
+    }
+
+    // Picking needs the editor open on a pickable tab, in a room the user
+    // owns (the same gate the editor window itself renders under). In
+    // every other situation, keep the old clear-on-click behaviour.
+    let owns_room = matches!(
+        (session.as_deref(), room_did.as_deref()),
+        (Some(s), Some(r)) if s.did == r.0
+    );
+    let pickable_tab = matches!(
+        room_state.selected_tab,
+        EditorTab::Generators | EditorTab::Placements
+    );
+    if !(panels.world_editor && owns_room && pickable_tab) {
+        if room_state.has_selection() {
+            room_state.clear_selection();
+        }
+        return;
+    }
+
+    // Cursor → world ray → nearest rendered mesh.
+    let hit_entity = windows
+        .single()
+        .ok()
+        .and_then(|w| w.cursor_position())
+        .and_then(|cursor| {
+            let (camera, cam_tf) = cameras.single().ok()?;
+            camera.viewport_to_world(cam_tf, cursor).ok()
+        })
+        .and_then(|ray| {
+            raycast
+                .cast_ray(ray, &MeshRayCastSettings::default())
+                .first()
+                .map(|(entity, _hit)| *entity)
+        });
+
+    // Walk from the hit mesh up the hierarchy: the FIRST `PrimMarker` is
+    // the exact (deepest) sub-part under the cursor; the `PlacementMarker`
+    // sits on the anchor above it. Non-selectable scenery (terrain, water,
+    // sky, avatars) carries neither and falls through to a clear.
+    let mut picked_prim: Option<PrimMarker> = None;
+    let mut picked_placement: Option<usize> = None;
+    let mut cursor_entity = hit_entity;
+    while let Some(entity) = cursor_entity {
+        if picked_prim.is_none()
+            && let Ok(marker) = prim_markers.get(entity)
+        {
+            picked_prim = Some(marker.clone());
+        }
+        if let Ok(marker) = placement_markers.get(entity) {
+            picked_placement = Some(marker.0);
+            break; // The anchor is the top of a placement's subtree.
+        }
+        cursor_entity = parents.get(entity).ok().map(ChildOf::parent);
+    }
+
+    match room_state.selected_tab {
+        EditorTab::Generators => {
+            if let Some(marker) = picked_prim {
+                room_state.selected_placement = None;
+                room_state.selected_generator = Some(marker.generator_ref.clone());
+                room_state.selected_prim_path = Some(marker.path.clone());
+                // Mirror a tree-row click so the GUI highlights the node.
+                room_state
+                    .tree_view_state
+                    .set_selected(vec![crate::ui::room::GenNodeId::child(
+                        marker.generator_ref,
+                        marker.path,
+                    )]);
+            } else {
+                room_state.clear_selection();
+            }
+        }
+        EditorTab::Placements => {
+            if let Some(index) = picked_placement {
+                room_state.selected_generator = None;
+                room_state.selected_prim_path = None;
+                room_state.tree_view_state.set_selected(Vec::new());
+                room_state.selected_placement = Some(index);
+            } else {
+                room_state.clear_selection();
+            }
+        }
+        // Unreachable: `pickable_tab` gated above.
+        _ => {}
     }
 }
 
