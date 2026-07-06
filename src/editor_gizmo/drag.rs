@@ -215,6 +215,7 @@ pub(super) fn manage_gizmo_drag(
                 &mut record.0,
                 &mut room_editor,
                 heightmap.as_deref(),
+                state.original_world_tf,
             ) {
                 info!("Gizmo drag committed (room). Rebuilding world.");
                 // No dirty flag to set: the World Editor derives "dirty"
