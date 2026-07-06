@@ -58,6 +58,7 @@ pub(super) fn sync_gizmo_selection(
         Entity,
         &BlobElementProxy,
         &GlobalTransform,
+        &Transform,
         Has<GizmoTarget>,
         Has<GizmoDetachedPrim>,
         Option<&ChildOf>,
@@ -270,15 +271,31 @@ pub(super) fn sync_gizmo_selection(
     // The proxy is a child of the blob prim entity, so the detach trick
     // bakes its world pose exactly like a nested prim's; release restores
     // it under the blob for the reconcile pass to keep in sync.
-    for (entity, _proxy, gt, has_gizmo, is_detached, child_of) in proxy_query.iter() {
+    for (entity, _proxy, gt, local, has_gizmo, is_detached, child_of) in proxy_query.iter() {
         let is_target = target_proxy.map(|(e, _)| e) == Some(entity);
+        // Proxies are spawned by `reconcile_blob_proxies` in `PostUpdate`
+        // *after* `TransformSystems::Propagate`, so a freshly (re)spawned
+        // proxy — as happens when a drag-commit rebuilds the blob and the
+        // still-selected element re-targets it the same frame — carries an
+        // identity `GlobalTransform` this pass. Baking that would teleport
+        // the proxy to the world origin (#706). Recompose the true world
+        // pose from the blob parent's already-propagated `GlobalTransform`
+        // and the proxy's local transform instead; for an already-detached
+        // proxy (mid-drag, no `ChildOf`) its own GT is authoritative.
+        let effective_gt = match child_of {
+            Some(co) => global_tf
+                .get(co.parent())
+                .map(|parent_gt| parent_gt.mul_transform(*local))
+                .unwrap_or(*gt),
+            None => *gt,
+        };
         attach_or_release_prim(
             &mut commands,
             entity,
             is_target,
             has_gizmo,
             is_detached,
-            gt,
+            &effective_gt,
             child_of,
             &detached_query,
             &global_tf,
@@ -386,5 +403,267 @@ fn attach_or_release_prim(
         } else if has_gizmo {
             commands.entity(entity).try_remove::<GizmoTarget>();
         }
+    }
+}
+
+#[cfg(test)]
+mod repro_tests {
+    use super::*;
+    use crate::editor_gizmo::blob::proxy::{BlobEditAssets, reconcile_blob_proxies};
+    use crate::editor_gizmo::blob::{ActiveBlobEdit, BlobEditContext, BlobEditKey};
+    use crate::pds::generator::{BlobElement, GeneratorKind};
+    use crate::pds::types::{Fp, Fp3, Fp4};
+    use bevy::MinimalPlugins;
+    use bevy::asset::AssetPlugin;
+    use bevy::transform::TransformPlugin;
+
+    fn sphere_kind(pos: [f32; 3]) -> GeneratorKind {
+        let mut kind = GeneratorKind::default_primitive_for_tag("BlobGroup").unwrap();
+        if let GeneratorKind::BlobGroup { elements, .. } = &mut kind {
+            *elements = vec![BlobElement {
+                shape: BlobShape::Sphere,
+                position: Fp3(pos),
+                rotation: Fp4([0.0, 0.0, 0.0, 1.0]),
+                radii: Fp3([0.3, 0.3, 0.3]),
+                subtract: false,
+                blend: Fp(0.1),
+            }];
+        }
+        kind
+    }
+
+    fn panels() -> crate::ui::toolbar::UiPanels {
+        crate::ui::toolbar::UiPanels {
+            chat: false,
+            people: false,
+            avatar: true,
+            world_editor: true,
+            inventory: false,
+            catalogue: false,
+            diagnostics: false,
+            controls: false,
+        }
+    }
+
+    /// The regression this whole issue is about (#706): dragging a blob
+    /// element and releasing must land it exactly where the gizmo left it,
+    /// even when the blob node lives deep under a translated/rotated
+    /// hierarchy. Runs the real `reconcile` + `sync` systems with real
+    /// transform propagation, then reproduces the drag-release commit math
+    /// and asserts the element's new local position round-trips back to the
+    /// dragged world pose through the parent chain.
+    #[test]
+    fn element_drag_release_round_trips_under_a_transform_hierarchy() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default(), TransformPlugin))
+            .init_asset::<Mesh>()
+            .init_asset::<StandardMaterial>()
+            .init_resource::<GizmoOptions>()
+            .init_resource::<GizmoFramePref>()
+            .init_resource::<RoomEditorState>()
+            .init_resource::<BlobEditContext>()
+            .init_resource::<BlobEditAssets>()
+            .insert_resource(panels());
+        // Avatar selection so `determine_active_target` == Avatar and the
+        // idle fast-path doesn't bail before the proxy loop runs.
+        let mut avatar_state = AvatarEditorState::default();
+        avatar_state.selected_prim_path = Some(vec![]);
+        app.insert_resource(avatar_state);
+
+        app.add_systems(Update, reconcile_blob_proxies);
+        app.add_systems(
+            PostUpdate,
+            sync_gizmo_selection.after(bevy::transform::TransformSystems::Propagate),
+        );
+
+        // Hierarchy: anchor (translate + yaw) -> blob node (its own offset).
+        let anchor = app
+            .world_mut()
+            .spawn(Transform::from_xyz(10.0, 5.0, 20.0).with_rotation(Quat::from_rotation_y(0.9)))
+            .id();
+        let blob = app
+            .world_mut()
+            .spawn((
+                Transform::from_xyz(0.0, 2.0, 0.0),
+                ChildOf(anchor),
+                AvatarVisualPrim { path: vec![] },
+            ))
+            .id();
+
+        let element_local = [1.0f32, 0.0, 0.0];
+        {
+            let mut ctx = app.world_mut().resource_mut::<BlobEditContext>();
+            ctx.active = Some(ActiveBlobEdit {
+                key: BlobEditKey {
+                    target: ActiveTarget::Avatar,
+                    generator_ref: None,
+                    path: vec![],
+                },
+                kind: sphere_kind(element_local),
+                blob_entity: blob,
+            });
+        }
+
+        // Frame 1: reconcile spawns the proxy (selected_element = None so it
+        // isn't the target yet). Frame 2: propagate its GlobalTransform.
+        app.update();
+        app.update();
+
+        // The proxy exists, is a child of the blob, and sits at the element's
+        // world position through the whole chain.
+        let proxy = app
+            .world_mut()
+            .query_filtered::<Entity, With<BlobElementProxy>>()
+            .single(app.world())
+            .expect("proxy spawned");
+        let blob_gt = *app.world().get::<GlobalTransform>(blob).unwrap();
+        let proxy_world_at_rest = blob_gt * Vec3::from_array(element_local);
+        let proxy_gt = app.world().get::<GlobalTransform>(proxy).unwrap();
+        assert!(
+            proxy_gt.translation().distance(proxy_world_at_rest) < 1e-4,
+            "proxy not placed at element world pos: {:?} vs {:?}",
+            proxy_gt.translation(),
+            proxy_world_at_rest
+        );
+
+        // Select the element → sync attaches the gizmo (detach). Frame to run
+        // sync, frame to apply its commands + re-propagate.
+        app.world_mut()
+            .resource_mut::<BlobEditContext>()
+            .selected_element = Some(0);
+        app.update();
+        app.update();
+
+        // THE CRUX: the attached proxy must be detached WITH the blob entity
+        // recorded as its original parent. If this is missing, the commit
+        // treats the proxy's world transform as a blob-local one and the
+        // element jumps by the parent offset — the reported bug.
+        let detached = app
+            .world()
+            .get::<GizmoDetachedPrim>(proxy)
+            .expect("proxy must carry GizmoDetachedPrim after attach");
+        assert_eq!(
+            detached.original_parent, blob,
+            "original_parent must be the blob entity"
+        );
+        assert!(
+            app.world().get::<ChildOf>(proxy).is_none(),
+            "detached proxy must have no ChildOf"
+        );
+
+        // Simulate a drag: move the proxy in WORLD space (it's a detached
+        // root now, so its Transform is world).
+        let dragged_world = proxy_world_at_rest + Vec3::new(0.0, 0.0, 3.0);
+        app.world_mut()
+            .get_mut::<Transform>(proxy)
+            .unwrap()
+            .translation = dragged_world;
+        app.update(); // propagate the dragged world pose
+
+        // Reproduce the drag-release commit math (mirrors `drag.rs`'s
+        // `resolve_committed_local` → `apply_local_to_element`).
+        let proxy_tf = *app.world().get::<Transform>(proxy).unwrap();
+        let blob_gt_now = *app.world().get::<GlobalTransform>(blob).unwrap();
+        let committed_local = GlobalTransform::from(proxy_tf).reparented_to(&blob_gt_now);
+
+        // The element's committed local position, rendered back through the
+        // blob's world transform, must land exactly at the dragged world pose.
+        let rebuilt_world = blob_gt_now * committed_local.translation;
+        assert!(
+            rebuilt_world.distance(dragged_world) < 1e-3,
+            "element jumped on release: committed local {:?} rebuilds to {:?}, expected {:?}",
+            committed_local.translation,
+            rebuilt_world,
+            dragged_world
+        );
+    }
+
+    /// The real bug (#706): a proxy spawned by `reconcile_blob_proxies`
+    /// (which runs in `PostUpdate` AFTER `TransformSystems::Propagate`) and
+    /// targeted the SAME frame — exactly what happens when a drag-commit
+    /// rebuilds the blob and respawns the proxy — is baked by `sync` while
+    /// its `GlobalTransform` is still the spawn-time identity, teleporting
+    /// it to the world origin instead of the element's real world pose.
+    ///
+    /// This mirrors the real plugin schedule (reconcile → sync, both after
+    /// Propagate). The fix must make the attach bake the proxy against the
+    /// blob's world transform, independent of when the proxy itself was
+    /// last propagated.
+    #[test]
+    fn fresh_proxy_targeted_same_frame_bakes_at_real_world_not_origin() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default(), TransformPlugin))
+            .init_asset::<Mesh>()
+            .init_asset::<StandardMaterial>()
+            .init_resource::<GizmoOptions>()
+            .init_resource::<GizmoFramePref>()
+            .init_resource::<RoomEditorState>()
+            .init_resource::<BlobEditContext>()
+            .init_resource::<BlobEditAssets>()
+            .insert_resource(panels());
+        let mut avatar_state = AvatarEditorState::default();
+        avatar_state.selected_prim_path = Some(vec![]);
+        app.insert_resource(avatar_state);
+
+        // Real plugin ordering: reconcile then sync, both AFTER Propagate.
+        app.add_systems(
+            PostUpdate,
+            (reconcile_blob_proxies, sync_gizmo_selection)
+                .chain()
+                .after(bevy::transform::TransformSystems::Propagate),
+        );
+
+        let anchor = app
+            .world_mut()
+            .spawn(Transform::from_xyz(10.0, 5.0, 20.0))
+            .id();
+        let blob = app
+            .world_mut()
+            .spawn((
+                Transform::from_xyz(0.0, 2.0, 0.0),
+                ChildOf(anchor),
+                AvatarVisualPrim { path: vec![] },
+            ))
+            .id();
+        app.update(); // propagate the blob's own GlobalTransform
+
+        let element_local = [1.0f32, 0.0, 0.0];
+        {
+            let mut ctx = app.world_mut().resource_mut::<BlobEditContext>();
+            ctx.active = Some(ActiveBlobEdit {
+                key: BlobEditKey {
+                    target: ActiveTarget::Avatar,
+                    generator_ref: None,
+                    path: vec![],
+                },
+                kind: sphere_kind(element_local),
+                blob_entity: blob,
+            });
+            // Element already selected: the proxy is spawned AND targeted in
+            // the same PostUpdate — the post-commit-rebuild scenario.
+            ctx.selected_element = Some(0);
+        }
+
+        app.update(); // reconcile spawns proxy; sync attaches it same frame
+        app.update(); // propagate whatever pose the attach baked
+
+        let proxy = app
+            .world_mut()
+            .query_filtered::<Entity, With<BlobElementProxy>>()
+            .single(app.world())
+            .expect("proxy spawned");
+        let blob_gt = *app.world().get::<GlobalTransform>(blob).unwrap();
+        let expected_world = blob_gt * Vec3::from_array(element_local);
+        let proxy_world = app
+            .world()
+            .get::<GlobalTransform>(proxy)
+            .unwrap()
+            .translation();
+        assert!(
+            proxy_world.distance(expected_world) < 1e-3,
+            "fresh proxy baked at {:?}, expected {:?} (origin bake = the #706 jump)",
+            proxy_world,
+            expected_world
+        );
     }
 }
