@@ -78,6 +78,8 @@ pub(super) fn manage_gizmo_drag(
     global_tf: Query<&GlobalTransform>,
     room_record: Option<ResMut<LiveRoomRecord>>,
     avatar_record: Option<ResMut<LiveAvatarRecord>>,
+    // For the snapped-placement Y rebase at commit time (#701).
+    heightmap: Option<Res<crate::terrain::FinishedHeightMap>>,
 ) {
     // Find the entity (if any) whose gizmo reports active this frame, and
     // record which target type it belongs to so the falling edge can
@@ -212,6 +214,7 @@ pub(super) fn manage_gizmo_drag(
                 &global_tf,
                 &mut record.0,
                 &mut room_editor,
+                heightmap.as_deref(),
             ) {
                 info!("Gizmo drag committed (room). Rebuilding world.");
                 // No dirty flag to set: the World Editor derives "dirty"

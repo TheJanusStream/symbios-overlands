@@ -19,7 +19,7 @@ use super::GizmoDetachedPrim;
 /// the record was actually mutated — the caller is responsible for
 /// flagging the resource as changed (`set_changed()` is on `ResMut`,
 /// not on the inner type, so it has to live at the system boundary).
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn commit_room_drag(
     active_entity: Entity,
     is_copy: bool,
@@ -40,6 +40,7 @@ pub(super) fn commit_room_drag(
     global_tf: &Query<&GlobalTransform>,
     record: &mut RoomRecord,
     editor: &mut RoomEditorState,
+    heightmap: Option<&crate::terrain::FinishedHeightMap>,
 ) -> bool {
     if let Ok((_e, transform, marker, _t)) = placement_query.get(active_entity) {
         let transform = *transform;
@@ -47,7 +48,7 @@ pub(super) fn commit_room_drag(
         if is_copy {
             if let Some(original) = record.placements.get(marker_idx).cloned() {
                 let mut new_placement = original;
-                if write_transform_into_placement(&mut new_placement, &transform) {
+                if write_transform_into_placement(&mut new_placement, &transform, heightmap) {
                     record.placements.push(new_placement);
                     editor.selected_placement = Some(record.placements.len() - 1);
                     return true;
@@ -56,7 +57,7 @@ pub(super) fn commit_room_drag(
             return false;
         }
         if let Some(placement) = record.placements.get_mut(marker_idx)
-            && write_transform_into_placement(placement, &transform)
+            && write_transform_into_placement(placement, &transform, heightmap)
         {
             return true;
         }
@@ -204,19 +205,52 @@ fn append_sibling_at_path(
 /// generator's construct tree owns shape), and the placement gizmo
 /// modes don't expose a scale handle. Returns `false` for
 /// `Placement::Unknown` (no schema to write into).
-fn write_transform_into_placement(placement: &mut Placement, transform: &Transform) -> bool {
+///
+/// `transform` is the anchor's WORLD pose, but a snapped placement's
+/// record Y lives in a terrain-relative frame — writing world Y verbatim
+/// made every drag of a snapped placement leap by the terrain height on
+/// the next recompile (#701). The Y rebase below keeps the two frames
+/// straight: sideways drags preserve the surface offset (the object
+/// sticks to the terrain), vertical drags adjust it.
+fn write_transform_into_placement(
+    placement: &mut Placement,
+    transform: &Transform,
+    heightmap: Option<&crate::terrain::FinishedHeightMap>,
+) -> bool {
     match placement {
         Placement::Absolute {
-            transform: rec_tf, ..
+            transform: rec_tf,
+            snap_to_terrain,
+            ..
         } => {
-            rec_tf.translation = Fp3(transform.translation.to_array());
+            let mut translation = transform.translation.to_array();
+            if *snap_to_terrain && let Some(hm) = heightmap {
+                // The anchor sat at terrain(old x/z) + old offset when the
+                // drag started, so subtracting terrain at the OLD x/z
+                // (still in the record here) turns the dragged world Y
+                // back into "offset + vertical drag delta": pure sideways
+                // drags keep the offset, vertical drags change it.
+                translation[1] -=
+                    hm.world_height_at(rec_tf.translation.0[0], rec_tf.translation.0[2]);
+            }
+            rec_tf.translation = Fp3(translation);
             rec_tf.rotation = Fp4(transform.rotation.to_array());
             true
         }
         Placement::Grid {
-            transform: rec_tf, ..
+            transform: rec_tf,
+            snap_to_terrain,
+            ..
         } => {
-            rec_tf.translation = Fp3(transform.translation.to_array());
+            let mut translation = transform.translation.to_array();
+            if *snap_to_terrain && let Some(hm) = heightmap {
+                // Grid compile REPLACES Y with the terrain height; store
+                // that height at the NEW spot so the record mirrors what
+                // the recompile will render (same rule as the snap
+                // toggle, #700).
+                translation[1] = hm.world_height_at(translation[0], translation[2]);
+            }
+            rec_tf.translation = Fp3(translation);
             rec_tf.rotation = Fp4(transform.rotation.to_array());
             true
         }

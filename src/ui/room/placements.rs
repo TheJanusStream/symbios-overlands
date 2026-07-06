@@ -181,25 +181,25 @@ fn draw_placement_detail(
             if ui
                 .checkbox(snap_to_terrain, "Snap to Terrain")
                 .on_hover_text(
-                    "Snapped: Y is an offset from the terrain height under the \
-                     anchor. Unsnapped: Y is absolute. Toggling rewrites Y so \
-                     the object stays where it is.",
+                    "Snapped: the anchor sits ON the terrain, and Y is an \
+                     offset from that surface (drag the gizmo vertically or \
+                     edit Y to float/sink it). Turning snap ON drops the \
+                     object onto the surface; turning it OFF keeps it where \
+                     it is (Y becomes absolute).",
                 )
                 .changed()
             {
-                // Compensate the toggle so the object stays put (#700).
                 // Compile semantics for Absolute: snapped world Y =
                 // terrain(x, z) + authored Y; unsnapped world Y =
-                // authored Y. Converting between the two frames is a
-                // ±terrain-height rebase.
-                if let Some(hm) = heightmap {
-                    let ground =
+                // authored Y.
+                if *snap_to_terrain {
+                    // ON: drop onto the surface — zero the offset (#701).
+                    transform.translation.0[1] = 0.0;
+                } else if let Some(hm) = heightmap {
+                    // OFF: stay in place — bake the terrain height into
+                    // the now-absolute Y (#700).
+                    transform.translation.0[1] +=
                         hm.world_height_at(transform.translation.0[0], transform.translation.0[2]);
-                    if *snap_to_terrain {
-                        transform.translation.0[1] -= ground;
-                    } else {
-                        transform.translation.0[1] += ground;
-                    }
                 }
                 *dirty = true;
             }
