@@ -29,9 +29,10 @@
 //!    despawns any stale [`LoginFeedFetchTask`], and spawns a fresh one.
 //! 3. [`poll_login_feed_fetch`] drains finished tasks each frame and
 //!    writes their result back into [`LoginPostFeed`].
-//! 4. [`render_login_feed_panel`] paints the egui section inside the
-//!    existing login window, returning a [`LoginFeedAction`] so the
-//!    parent UI system can act on Retry / Open clicks.
+//! 4. [`render_login_feed_panel`] paints the feed body into its own egui
+//!    window (titled by [`feed_panel_title`], pinned beside the login
+//!    form), returning a [`LoginFeedAction`] so the parent UI system can
+//!    act on Retry / Open clicks.
 
 use bevy::prelude::*;
 use bevy::tasks::{IoTaskPool, Task};
@@ -64,6 +65,15 @@ fn feed_handle() -> &'static str {
 
 fn feed_hashtag() -> &'static str {
     option_env!("OVERLANDS_LOGIN_FEED_HASHTAG").unwrap_or(DEFAULT_HASHTAG)
+}
+
+/// Title for the standalone feed window, e.g. `Latest #Overlands from
+/// @codewright.bsky.social`. Lives here (next to the env-driven handle /
+/// hashtag) so the window title and the body stay single-sourced; the
+/// login UI uses it as the [`egui::Window`] title now that the feed is no
+/// longer a section inside the login window.
+pub fn feed_panel_title() -> String {
+    format!("Latest {} from @{}", feed_hashtag(), feed_handle())
 }
 
 /// One displayed post — strictly the fields the UI actually renders.
@@ -290,19 +300,13 @@ fn rkey_from_uri(uri: &str) -> Option<String> {
 // Render
 // ---------------------------------------------------------------------------
 
-/// Render the post panel inside the parent egui container and report the
-/// user's chosen action back to the caller. Stateless; the parent UI
-/// system owns the [`LoginPostFeed`] resource and the [`Commands`] needed
-/// to act on the returned action.
+/// Render the post-feed body into its window and report the user's chosen
+/// action back to the caller. Stateless; the parent UI system owns the
+/// [`LoginPostFeed`] resource and the [`Commands`] needed to act on the
+/// returned action. The window title ([`feed_panel_title`]) carries the
+/// "Latest … from @…" header, so this paints only the status/list body.
 pub fn render_login_feed_panel(ui: &mut egui::Ui, feed: &LoginPostFeed) -> LoginFeedAction {
     let mut action = LoginFeedAction::None;
-
-    ui.add_space(8.0);
-    ui.separator();
-    ui.label(
-        egui::RichText::new(format!("Latest {} from @{}", feed_hashtag(), feed_handle())).strong(),
-    );
-    ui.add_space(4.0);
 
     match &feed.status {
         FetchStatus::Idle | FetchStatus::Loading => {

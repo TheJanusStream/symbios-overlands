@@ -169,10 +169,17 @@ pub fn login_ui(
         }
         latch.prefilled = true;
     }
+    // egui `Context` is Arc-backed, so cloning it is cheap and lets us
+    // paint two independent windows from this one system without holding
+    // a `&mut EguiContexts` borrow across both `.show()` calls.
+    let ctx = contexts.ctx_mut().unwrap().clone();
+
     egui::Window::new("Symbios Overlands — Login")
         .collapsible(false)
         .resizable(false)
-        .show(contexts.ctx_mut().unwrap(), |ui| {
+        .default_pos(crate::config::ui::login::WINDOW_POS)
+        .show(&ctx, |ui| {
+            ui.set_min_width(crate::config::ui::login::WINDOW_MIN_WIDTH);
             ui.label("Authenticate via your ATProto PDS (OAuth 2.0) to enter the overlands.");
             ui.add_space(8.0);
 
@@ -297,10 +304,18 @@ pub fn login_ui(
             if let Some(err) = &login_error.0 {
                 ui.colored_label(egui::Color32::RED, err);
             }
+        });
 
-            // Latest #Overlands posts from the configured Bluesky handle.
-            // The render helper is action-driven so the parent system
-            // owns the side-effects (browser open, fetch retry).
+    // Latest #Overlands posts from the configured Bluesky handle, in their
+    // own window pinned just to the right of the login form. The render
+    // helper is action-driven so this system owns the side-effects
+    // (browser open, fetch retry).
+    egui::Window::new(posts::feed_panel_title())
+        .collapsible(false)
+        .resizable(false)
+        .default_pos(crate::config::ui::login::FEED_WINDOW_POS)
+        .show(&ctx, |ui| {
+            ui.set_min_width(crate::config::ui::login::FEED_WINDOW_MIN_WIDTH);
             match posts::render_login_feed_panel(ui, &feed) {
                 posts::LoginFeedAction::None => {}
                 posts::LoginFeedAction::Retry => {

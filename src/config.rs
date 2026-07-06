@@ -877,6 +877,20 @@ pub mod ui {
         /// Button label text size (px) — larger than body text to
         /// match the enlarged hit area.
         pub const ENTER_BUTTON_TEXT_SIZE: f32 = 18.0;
+
+        /// Login form window: initial top-left position (px) and minimum
+        /// content width. The `#Overlands` post feed renders in its *own*
+        /// window pinned just to the right (see [`FEED_WINDOW_POS`]); the
+        /// fixed width keeps the two from overlapping on the first paint,
+        /// before the user has had a chance to drag either one.
+        pub const WINDOW_POS: [f32; 2] = [40.0, 60.0];
+        pub const WINDOW_MIN_WIDTH: f32 = 400.0;
+        /// Feed window initial top-left. Sits at the login window's right
+        /// edge (`WINDOW_POS.x + WINDOW_MIN_WIDTH`) plus a ~20 px gutter,
+        /// with the same top so the two read as a side-by-side pair.
+        pub const FEED_WINDOW_POS: [f32; 2] = [460.0, 60.0];
+        /// Minimum content width of the feed window.
+        pub const FEED_WINDOW_MIN_WIDTH: f32 = 360.0;
     }
 
     pub mod airship {
