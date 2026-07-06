@@ -41,6 +41,8 @@ pub(super) fn draw_detail_panel(
     selected_prim_path: &mut Option<Vec<usize>>,
     audio_editor: &mut super::super::audio::AudioEditorState,
     dirty: &mut bool,
+    // In-scene blob element selection (#705); see `draw_primitive_blob_group`.
+    blob_selected_element: &mut Option<usize>,
 ) {
     let Some(id) = current_id(selected_generator, selected_prim_path) else {
         ui.vertical_centered(|ui| {
@@ -113,7 +115,7 @@ pub(super) fn draw_detail_panel(
             .id_salt(("gen_detail_scroll", &salt))
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                draw_generator_detail(ui, &salt, &mut node.kind, dirty);
+                draw_generator_detail(ui, &salt, &mut node.kind, dirty, blob_selected_element);
 
                 // Per-construct audio slot (#314). The bridge writes back
                 // any committed pop-out edit and offers the variant picker
@@ -254,6 +256,7 @@ fn draw_generator_detail(
     salt: &str,
     kind: &mut GeneratorKind,
     dirty: &mut bool,
+    blob_selected_element: &mut Option<usize>,
 ) {
     match kind {
         GeneratorKind::Terrain(cfg) => draw_terrain_forge(ui, cfg, dirty),
@@ -525,7 +528,15 @@ fn draw_generator_detail(
             material,
             torture,
         } => draw_primitive_blob_group(
-            ui, elements, resolution, solid, material, torture, salt, dirty,
+            ui,
+            elements,
+            resolution,
+            solid,
+            material,
+            torture,
+            salt,
+            dirty,
+            blob_selected_element,
         ),
         GeneratorKind::Sign {
             source,

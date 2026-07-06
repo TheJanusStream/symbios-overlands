@@ -219,6 +219,9 @@ pub(crate) fn draw_generators_tab(
     inventory: Option<&mut LiveInventoryRecord>,
     audio_editor: &mut super::audio::AudioEditorState,
     dirty: &mut bool,
+    // In-scene blob element selection (#705), threaded to the BlobGroup
+    // detail editor so its rows mirror the scene proxies' gizmo state.
+    blob_selected_element: &mut Option<usize>,
 ) {
     // Inventory now flows only into the tree panel (for the root-level
     // "+ From Inventory" toolbar, the per-row "+ From Inventory" submenu,
@@ -250,6 +253,7 @@ pub(crate) fn draw_generators_tab(
             selected_prim_path,
             audio_editor,
             dirty,
+            blob_selected_element,
         );
     });
 }

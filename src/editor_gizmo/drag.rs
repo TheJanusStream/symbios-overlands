@@ -12,7 +12,10 @@ use crate::state::{LiveAvatarRecord, LiveRoomRecord};
 use crate::ui::room::RoomEditorState;
 use crate::world_builder::{AvatarVisualPrim, PlacementMarker, PrimMarker};
 
-use super::commit::{commit_avatar_drag, commit_room_drag};
+use super::blob::BlobEditContext;
+use super::blob::proxy::BlobElementProxy;
+use super::blob::write::{BlobDragInfo, commit_blob_element_drag};
+use super::commit::{commit_avatar_drag, commit_room_drag, resolve_committed_local};
 use super::{ActiveTarget, DragState, GizmoDetachedPrim};
 
 /// Drive the full drag session: detect the rising edge (Shift at drag
@@ -51,9 +54,14 @@ pub(super) fn manage_gizmo_drag(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut gizmos: Gizmos,
     mut room_editor: ResMut<RoomEditorState>,
+    mut blob_ctx: ResMut<BlobEditContext>,
     mut placement_query: Query<
         (Entity, &mut Transform, &PlacementMarker, &GizmoTarget),
-        (Without<PrimMarker>, Without<AvatarVisualPrim>),
+        (
+            Without<PrimMarker>,
+            Without<AvatarVisualPrim>,
+            Without<BlobElementProxy>,
+        ),
     >,
     mut prim_query: Query<
         (
@@ -63,7 +71,7 @@ pub(super) fn manage_gizmo_drag(
             &GizmoTarget,
             Option<&GizmoDetachedPrim>,
         ),
-        Without<AvatarVisualPrim>,
+        (Without<AvatarVisualPrim>, Without<BlobElementProxy>),
     >,
     mut avatar_prim_query: Query<
         (
@@ -73,7 +81,21 @@ pub(super) fn manage_gizmo_drag(
             &GizmoTarget,
             Option<&GizmoDetachedPrim>,
         ),
-        Without<PrimMarker>,
+        (Without<PrimMarker>, Without<BlobElementProxy>),
+    >,
+    mut proxy_query: Query<
+        (
+            Entity,
+            &mut Transform,
+            &BlobElementProxy,
+            &GizmoTarget,
+            Option<&GizmoDetachedPrim>,
+        ),
+        (
+            Without<PlacementMarker>,
+            Without<PrimMarker>,
+            Without<AvatarVisualPrim>,
+        ),
     >,
     global_tf: Query<&GlobalTransform>,
     room_record: Option<ResMut<LiveRoomRecord>>,
@@ -107,6 +129,23 @@ pub(super) fn manage_gizmo_drag(
             }
         }
     }
+    if active_target.is_none() {
+        for (entity, _tf, _p, target, _d) in proxy_query.iter() {
+            if target.is_active() {
+                // The proxy belongs to whichever editor owns the blob-edit
+                // session; the authoritative routing is the session info
+                // captured at the rising edge, this tag is only used to
+                // pick the drag's editor at that moment.
+                let kind = blob_ctx
+                    .active
+                    .as_ref()
+                    .map(|a| a.key.target)
+                    .unwrap_or(ActiveTarget::None);
+                active_target = Some((entity, kind));
+                break;
+            }
+        }
+    }
 
     // Rising edge — a new drag just started.
     if state.active_entity.is_none() {
@@ -120,17 +159,35 @@ pub(super) fn manage_gizmo_drag(
                 (*tf, marker.path.is_empty())
             } else if let Ok((_e, tf, marker, _t, _d)) = avatar_prim_query.get(entity) {
                 (*tf, marker.path.is_empty())
+            } else if let Ok((_e, tf, _p, _t, _d)) = proxy_query.get(entity) {
+                (*tf, false)
             } else {
                 return;
             };
-        let mut is_copy =
-            keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+        let shift = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+        // A blob element drag snapshots its routing at the rising edge so
+        // a mid-drag GUI selection change can't reroute the writeback.
+        // Shift means "duplicate this element" here (the record-local
+        // analogue of copy-on-drag — valid for avatar blobs too, unlike
+        // prim copy which needs the placements vocabulary).
+        state.blob = proxy_query
+            .get(entity)
+            .ok()
+            .and_then(|(_e, _tf, proxy, _t, _d)| {
+                blob_ctx.active.as_ref().map(|a| BlobDragInfo {
+                    key: a.key.clone(),
+                    index: proxy.index,
+                    duplicate: shift,
+                })
+            });
+        let mut is_copy = shift;
         // A blueprint root has no parent to receive a sibling clone — a
         // "copy of the root" only makes sense at the Placement level.
         // Avatar prims also disable copy: there's no avatar-side
         // equivalent of placements, and the visuals tree is single-
-        // rooted per local player.
-        if is_prim_root || target_kind == ActiveTarget::Avatar {
+        // rooted per local player. Blob elements route Shift through the
+        // session info above, not the placement/prim copy path.
+        if is_prim_root || target_kind == ActiveTarget::Avatar || state.blob.is_some() {
             is_copy = false;
         }
         state.active_entity = Some(entity);
@@ -159,6 +216,8 @@ pub(super) fn manage_gizmo_drag(
             } else if let Ok((_e, mut tf, _m, _t, _d)) = prim_query.get_mut(active_entity) {
                 *tf = state.original_world_tf;
             } else if let Ok((_e, mut tf, _m, _t, _d)) = avatar_prim_query.get_mut(active_entity) {
+                *tf = state.original_world_tf;
+            } else if let Ok((_e, mut tf, _p, _t, _d)) = proxy_query.get_mut(active_entity) {
                 *tf = state.original_world_tf;
             }
             return;
@@ -193,11 +252,59 @@ pub(super) fn manage_gizmo_drag(
     let was_aborted = state.aborted;
     let is_copy = state.is_copy;
     let drag_target = state.target;
+    let blob_info = state.blob.take();
     state.active_entity = None;
     state.aborted = false;
     state.target = ActiveTarget::None;
 
     if was_aborted {
+        if blob_info.is_some() {
+            // The in-drag preview may have painted speculative edge lines;
+            // repaint from the (unchanged) record.
+            blob_ctx.wireframe_dirty = true;
+        }
+        return;
+    }
+
+    // Blob element drags route through the session info, not the
+    // placement/prim writeback.
+    if let Some(info) = blob_info {
+        let committed_local =
+            proxy_query
+                .get(active_entity)
+                .ok()
+                .and_then(|(_e, tf, _p, _t, detached)| {
+                    resolve_committed_local(tf, detached, &global_tf)
+                });
+        let Some(local) = committed_local else {
+            blob_ctx.wireframe_dirty = true;
+            return;
+        };
+        let landed = match info.key.target {
+            ActiveTarget::Room => room_record.map(|mut record| {
+                let landed = commit_blob_element_drag(&info, &local, Some(&mut record.0), None);
+                if landed.is_some() {
+                    info!("Blob element drag committed (room). Rebuilding world.");
+                    record.set_changed();
+                }
+                landed
+            }),
+            ActiveTarget::Avatar => avatar_record.map(|mut record| {
+                let landed = commit_blob_element_drag(&info, &local, None, Some(&mut record));
+                if landed.is_some() {
+                    info!("Blob element drag committed (avatar). Rebuilding visuals.");
+                    record.set_changed();
+                }
+                landed
+            }),
+            ActiveTarget::None => None,
+        };
+        match landed.flatten() {
+            // Keep the gizmo on the element the edit landed at — for a
+            // Shift-duplicate that's the freshly inserted copy.
+            Some(index) => blob_ctx.selected_element = Some(index),
+            None => blob_ctx.wireframe_dirty = true,
+        }
         return;
     }
 

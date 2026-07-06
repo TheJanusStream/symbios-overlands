@@ -457,14 +457,33 @@ pub(super) fn draw_primitive_blob_group(
     torture: &mut TortureParams,
     salt: &str,
     dirty: &mut bool,
+    // In-scene edit selection (#705): which element carries the 3D gizmo.
+    // Mirrors `editor_gizmo::BlobEditContext::selected_element` — a row
+    // click here and a proxy click in the scene land in the same slot.
+    selected_element: &mut Option<usize>,
 ) {
     ui.label("Blob elements (evaluated top to bottom):");
+    ui.label(
+        egui::RichText::new(
+            "Click an element's number (or its red/green ghost in the scene) \
+             to sculpt it with the gizmo. Esc returns to the whole prim.",
+        )
+        .small()
+        .color(egui::Color32::GRAY),
+    );
     let mut remove: Option<usize> = None;
     let mut duplicate: Option<usize> = None;
     for (i, e) in elements.iter_mut().enumerate() {
         ui.push_id((salt, "blob_el", i), |ui| {
             ui.horizontal(|ui| {
-                ui.label(format!("{i}"));
+                let is_selected = *selected_element == Some(i);
+                if ui
+                    .selectable_label(is_selected, format!("{i}"))
+                    .on_hover_text("Select for in-scene gizmo editing")
+                    .clicked()
+                {
+                    *selected_element = if is_selected { None } else { Some(i) };
+                }
                 let shapes = [
                     (BlobShape::Sphere, "Sphere"),
                     (BlobShape::Capsule, "Capsule"),
@@ -560,6 +579,13 @@ pub(super) fn draw_primitive_blob_group(
         && elements.len() > 1
     {
         elements.remove(i);
+        // Keep the in-scene selection pointing at the same element as
+        // the list shifts (or drop it if it was the removed row).
+        match selected_element {
+            Some(s) if *s == i => *selected_element = None,
+            Some(s) if *s > i => *s -= 1,
+            _ => {}
+        }
         *dirty = true;
     }
     if let Some(i) = duplicate
@@ -567,6 +593,11 @@ pub(super) fn draw_primitive_blob_group(
     {
         let copy = elements[i];
         elements.insert(i + 1, copy);
+        if let Some(s) = selected_element
+            && *s > i
+        {
+            *s += 1;
+        }
         *dirty = true;
     }
     if elements.len() < MAX_BLOB_ELEMENTS && ui.button("+ element").clicked() {

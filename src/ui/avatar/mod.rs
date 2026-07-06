@@ -124,7 +124,7 @@ impl AvatarEditorState {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn avatar_ui(
     mut contexts: EguiContexts,
     mut panels: ResMut<crate::ui::toolbar::UiPanels>,
@@ -141,11 +141,12 @@ pub fn avatar_ui(
     mut gizmo_frame_pref: ResMut<crate::editor_gizmo::GizmoFramePref>,
     // Grouped into one tuple param so `session_log` fits under Bevy's 16-param
     // `IntoSystem` ceiling (needed to record an avatar re-seed, #627).
-    (audio_monitor, mut audio_requests, time, mut session_log): (
+    (audio_monitor, mut audio_requests, time, mut session_log, mut blob_ctx): (
         Res<bevy_symbios_audio::ui::AudioMonitor>,
         MessageWriter<bevy_symbios_audio::ui::MonitorRequest>,
         Res<Time>,
         ResMut<SessionLog>,
+        ResMut<crate::editor_gizmo::BlobEditContext>,
     ),
 ) {
     use crate::config::ui::airship as cfg;
@@ -237,6 +238,7 @@ pub fn avatar_ui(
                                 inventory.as_deref_mut(),
                                 audio_editor,
                                 &mut widget_changed,
+                                &mut blob_ctx.selected_element,
                             );
                         });
                     }

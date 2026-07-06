@@ -10,10 +10,12 @@ use bevy::ecs::hierarchy::ChildOf;
 use bevy::prelude::*;
 use transform_gizmo_bevy::{EnumSet, GizmoMode, GizmoOptions, GizmoTarget};
 
+use crate::pds::generator::BlobShape;
 use crate::ui::avatar::AvatarEditorState;
 use crate::ui::room::{EditorTab, RoomEditorState};
 use crate::world_builder::{AvatarVisualPrim, PlacementMarker, PrimMarker};
 
+use super::blob::{BlobEditContext, proxy::BlobElementProxy};
 use super::{ActiveTarget, GizmoDetachedPrim, GizmoFramePref, determine_active_target};
 
 /// Keep the `GizmoTarget` component in sync with whichever editor has a
@@ -32,6 +34,7 @@ pub(super) fn sync_gizmo_selection(
     panels: Res<crate::ui::toolbar::UiPanels>,
     room_state: Res<RoomEditorState>,
     avatar_state: Res<AvatarEditorState>,
+    blob_ctx: Res<BlobEditContext>,
     frame_pref: Res<GizmoFramePref>,
     mut gizmo_options: ResMut<GizmoOptions>,
     placement_query: Query<(Entity, &PlacementMarker, Has<GizmoTarget>)>,
@@ -46,6 +49,14 @@ pub(super) fn sync_gizmo_selection(
     avatar_prim_query: Query<(
         Entity,
         &AvatarVisualPrim,
+        &GlobalTransform,
+        Has<GizmoTarget>,
+        Has<GizmoDetachedPrim>,
+        Option<&ChildOf>,
+    )>,
+    proxy_query: Query<(
+        Entity,
+        &BlobElementProxy,
         &GlobalTransform,
         Has<GizmoTarget>,
         Has<GizmoDetachedPrim>,
@@ -100,41 +111,62 @@ pub(super) fn sync_gizmo_selection(
         .map(|t| t.translation())
         .unwrap_or(Vec3::ZERO);
 
+    // --- Blob element proxy (#705) -------------------------------------------
+    // A selected BlobGroup element steals the gizmo from the node itself:
+    // the whole-prim targets below are suppressed and the proxy entity
+    // (spawned by `blob::proxy::reconcile_blob_proxies` earlier this
+    // frame) becomes the sole target. Shape rides along to pick the mode
+    // set — rotating a sphere is meaningless, so spheres only expose
+    // translate + uniform scale.
+    let target_proxy: Option<(Entity, BlobShape)> =
+        match (blob_ctx.active.as_ref(), blob_ctx.selected_element) {
+            (Some(edit), Some(sel)) => edit.elements().get(sel).and_then(|element| {
+                proxy_query.iter().find_map(|(entity, proxy, ..)| {
+                    (proxy.blob_entity == edit.blob_entity && proxy.index == sel)
+                        .then_some((entity, element.shape))
+                })
+            }),
+            _ => None,
+        };
+
     // --- Resolve which prim entity (if any) should carry the gizmo ----------
     // Room prim: closest live instance of the UI-selected (generator_ref,
     // path) pair to the camera, only when the Room editor is active and
     // the Generators tab is showing.
-    let target_room_prim =
-        if active == ActiveTarget::Room && room_state.selected_tab == EditorTab::Generators {
-            match (
-                room_state.selected_generator.as_ref(),
-                room_state.selected_prim_path.as_ref(),
-            ) {
-                (Some(generator_ref), Some(path)) => {
-                    let mut best_entity = None;
-                    let mut best_dist_sq = f32::MAX;
-                    for (entity, marker, tf, _, _, _) in prim_query.iter() {
-                        if marker.generator_ref == *generator_ref && marker.path == *path {
-                            let dist_sq = tf.translation().distance_squared(cam_pos);
-                            if dist_sq < best_dist_sq {
-                                best_dist_sq = dist_sq;
-                                best_entity = Some(entity);
-                            }
+    let target_room_prim = if target_proxy.is_some() {
+        None
+    } else if active == ActiveTarget::Room && room_state.selected_tab == EditorTab::Generators {
+        match (
+            room_state.selected_generator.as_ref(),
+            room_state.selected_prim_path.as_ref(),
+        ) {
+            (Some(generator_ref), Some(path)) => {
+                let mut best_entity = None;
+                let mut best_dist_sq = f32::MAX;
+                for (entity, marker, tf, _, _, _) in prim_query.iter() {
+                    if marker.generator_ref == *generator_ref && marker.path == *path {
+                        let dist_sq = tf.translation().distance_squared(cam_pos);
+                        if dist_sq < best_dist_sq {
+                            best_dist_sq = dist_sq;
+                            best_entity = Some(entity);
                         }
                     }
-                    best_entity
                 }
-                _ => None,
+                best_entity
             }
-        } else {
-            None
-        };
+            _ => None,
+        }
+    } else {
+        None
+    };
 
     // Avatar prim: the unique entity matching the selected path. The
     // `AvatarVisualPrim` component is only attached to local-player
     // visuals (see `world_builder::compile::spawn_generator`), so a
     // single match is the local avatar's own node — no proximity scan.
-    let target_avatar_prim = if active == ActiveTarget::Avatar {
+    let target_avatar_prim = if target_proxy.is_some() {
+        None
+    } else if active == ActiveTarget::Avatar {
         match avatar_state.selected_prim_path.as_ref() {
             Some(path) => avatar_prim_query
                 .iter()
@@ -177,8 +209,11 @@ pub(super) fn sync_gizmo_selection(
     // are locked to rotate + scale — translating the root would just
     // shift the whole subtree relative to its own origin. Avatar
     // visuals follow the same root rule; their root translation lives in
-    // the chassis (anchored by locomotion physics).
-    if placement_selected {
+    // the chassis (anchored by locomotion physics). Blob elements get a
+    // shape-specific set (see `element_modes`).
+    if let Some((_, shape)) = target_proxy {
+        gizmo_options.gizmo_modes = element_modes(shape);
+    } else if placement_selected {
         let mut modes = EnumSet::new();
         modes.insert_all(GizmoMode::all_translate());
         modes.insert_all(GizmoMode::all_rotate());
@@ -230,6 +265,25 @@ pub(super) fn sync_gizmo_selection(
             &global_tf,
         );
     }
+
+    // --- Blob element proxies (#705, same machinery again) -----------------
+    // The proxy is a child of the blob prim entity, so the detach trick
+    // bakes its world pose exactly like a nested prim's; release restores
+    // it under the blob for the reconcile pass to keep in sync.
+    for (entity, _proxy, gt, has_gizmo, is_detached, child_of) in proxy_query.iter() {
+        let is_target = target_proxy.map(|(e, _)| e) == Some(entity);
+        attach_or_release_prim(
+            &mut commands,
+            entity,
+            is_target,
+            has_gizmo,
+            is_detached,
+            gt,
+            child_of,
+            &detached_query,
+            &global_tf,
+        );
+    }
 }
 
 /// Mode set for a prim selection — root prims (path == []) are locked to
@@ -241,6 +295,25 @@ fn prim_modes(is_root: bool) -> EnumSet<GizmoMode> {
     }
     modes.insert_all(GizmoMode::all_rotate());
     modes.insert_all(GizmoMode::all_scale());
+    modes
+}
+
+/// Mode set for a blob element (#705). Every shape translates; spheres
+/// expose only uniform scale (per-axis would silently collapse to the
+/// mean at commit) and no rotation (a sphere's orientation is
+/// meaningless to the SDF). Capsules and ellipsoids get the full triad.
+fn element_modes(shape: BlobShape) -> EnumSet<GizmoMode> {
+    let mut modes = EnumSet::new();
+    modes.insert_all(GizmoMode::all_translate());
+    match shape {
+        BlobShape::Sphere | BlobShape::Unknown => {
+            modes.insert(GizmoMode::ScaleUniform);
+        }
+        BlobShape::Capsule | BlobShape::Ellipsoid => {
+            modes.insert_all(GizmoMode::all_rotate());
+            modes.insert_all(GizmoMode::all_scale());
+        }
+    }
     modes
 }
 

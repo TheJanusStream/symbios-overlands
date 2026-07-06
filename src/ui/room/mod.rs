@@ -216,10 +216,11 @@ pub fn room_admin_ui(
         Res<bevy_symbios_audio::ui::AudioMonitor>,
         MessageWriter<bevy_symbios_audio::ui::MonitorRequest>,
         Option<Res<crate::terrain::FinishedHeightMap>>,
+        ResMut<crate::editor_gizmo::BlobEditContext>,
     ),
     time: Res<Time>,
 ) {
-    let (audio_monitor, mut audio_requests, heightmap) = extras;
+    let (audio_monitor, mut audio_requests, heightmap, mut blob_ctx) = extras;
     let (Some(session), Some(refresh_ctx), Some(room_did), Some(record)) =
         (session, refresh_ctx, room_did, room_record.as_mut())
     else {
@@ -471,6 +472,7 @@ pub fn room_admin_ui(
                                 inventory.as_deref_mut(),
                                 audio_editor,
                                 &mut widget_change,
+                                &mut blob_ctx.selected_element,
                             );
                         });
                     }

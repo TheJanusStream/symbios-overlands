@@ -184,7 +184,11 @@ generation cores shared with the wasm Web Worker.
   pattern / tool), functionally analogous to a user inventory but always
   present; the same entries the seeded settlement deriver draws from.
 - [`src/editor_gizmo/`](../src/editor_gizmo/) — bridge between the editor
-  selection and the in-world 3D transform gizmo.
+  selection and the in-world 3D transform gizmo. Includes
+  [`blob/`](../src/editor_gizmo/blob/) — in-scene BlobGroup element
+  editing: the evaluated surface renders as an edge-line wireframe and
+  each element gets a red (carve) / green (add) proxy the gizmo can drag,
+  with the SDF re-meshing live under the drag.
 - [`src/diagnostics/`](../src/diagnostics/) — the diagnostic suite: a typed
   append-only session-event stream with a native NDJSON sink, a shared metrics
   registry scraped at 1 Hz, an anomaly/invariant rule engine that runs live and

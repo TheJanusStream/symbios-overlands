@@ -13,6 +13,7 @@ use crate::ui::room::RoomEditorState;
 use crate::world_builder::{AvatarVisualPrim, PlacementMarker, PrimMarker};
 
 use super::GizmoDetachedPrim;
+use super::blob::proxy::BlobElementProxy;
 
 /// Commit a finished drag against the room record. Handles the placement
 /// vs prim split and the copy-on-drag clone path. Returns `true` when
@@ -25,7 +26,11 @@ pub(super) fn commit_room_drag(
     is_copy: bool,
     placement_query: &Query<
         (Entity, &mut Transform, &PlacementMarker, &GizmoTarget),
-        (Without<PrimMarker>, Without<AvatarVisualPrim>),
+        (
+            Without<PrimMarker>,
+            Without<AvatarVisualPrim>,
+            Without<BlobElementProxy>,
+        ),
     >,
     prim_query: &Query<
         (
@@ -35,7 +40,7 @@ pub(super) fn commit_room_drag(
             &GizmoTarget,
             Option<&GizmoDetachedPrim>,
         ),
-        Without<AvatarVisualPrim>,
+        (Without<AvatarVisualPrim>, Without<BlobElementProxy>),
     >,
     global_tf: &Query<&GlobalTransform>,
     record: &mut RoomRecord,
@@ -119,7 +124,7 @@ pub(super) fn commit_avatar_drag(
             &GizmoTarget,
             Option<&GizmoDetachedPrim>,
         ),
-        Without<PrimMarker>,
+        (Without<PrimMarker>, Without<BlobElementProxy>),
     >,
     global_tf: &Query<&GlobalTransform>,
     record: &mut LiveAvatarRecord,
@@ -179,8 +184,9 @@ fn root_transform_with_drag_delta(
 /// parent has despawned mid-drag (a peer state update or background
 /// recompile lands while the user is dragging) — committing in that
 /// case would write a world pose into a local-transform field and
-/// irreversibly corrupt the recipe.
-fn resolve_committed_local(
+/// irreversibly corrupt the recipe. Shared with the blob-element commit
+/// in `drag.rs` (#705), whose proxies detach the same way.
+pub(super) fn resolve_committed_local(
     transform: &Transform,
     detached: Option<&GizmoDetachedPrim>,
     global_tf: &Query<&GlobalTransform>,

@@ -919,4 +919,34 @@ pub mod ui {
         /// for a large room record, wasteful at 60 Hz.
         pub const SIZE_READOUT_REFRESH_SECS: f64 = 0.5;
     }
+
+    /// In-scene BlobGroup element editing (#705): wireframe surface +
+    /// gizmo-draggable per-element proxies (`crate::editor_gizmo::blob`).
+    pub mod blob_edit {
+        /// Additive-element proxy tint [R, G, B, A] (linear-ish sRGB floats).
+        /// Green — "this element adds material". Alpha keeps the evaluated
+        /// wireframe surface readable through the proxy.
+        pub const PROXY_ADD_COLOR: [f32; 4] = [0.15, 0.85, 0.30, 0.28];
+        /// Carve-element proxy tint. Red — "this element removes material".
+        /// Slightly more opaque than [`PROXY_ADD_COLOR`]: carves sit inside
+        /// the accumulated surface, so they need the extra presence to read
+        /// through the wireframe shell.
+        pub const PROXY_CARVE_COLOR: [f32; 4] = [0.90, 0.15, 0.15, 0.34];
+        /// Alpha override applied to whichever element is selected for
+        /// gizmo editing — same hue as its band, unmistakably brighter.
+        pub const PROXY_SELECTED_ALPHA: f32 = 0.55;
+        /// Wireframe line colour [R, G, B] of the swapped-in edge mesh. A
+        /// cool pale blue-grey: visible against terrain, sky and the
+        /// red/green proxies without reading as part of the model.
+        pub const WIREFRAME_COLOR: [f32; 3] = [0.72, 0.82, 0.95];
+        /// Minimum seconds between live re-mesh dispatches while an element
+        /// drag is in progress. The SDF re-polygonization is CPU work (on
+        /// WASM it shares the main thread), so the preview is throttled
+        /// rather than per-frame.
+        pub const PREVIEW_INTERVAL_SECS: f32 = 0.15;
+        /// Grid-resolution cap for in-drag preview re-meshes. The committed
+        /// mesh uses the authored resolution (≤48); the preview trades
+        /// surface fidelity for a rebuild cheap enough to run mid-drag.
+        pub const PREVIEW_MAX_RESOLUTION: u32 = 24;
+    }
 }

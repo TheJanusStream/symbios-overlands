@@ -55,10 +55,16 @@
 //! * [`commit`] — drag-end writeback into [`crate::pds::RoomRecord`] /
 //!   [`crate::state::LiveAvatarRecord`] (placement vs prim split,
 //!   copy-on-drag clone, path-walked transform overwrite).
+//! * [`blob`] — in-scene BlobGroup element editing (#705): wireframe
+//!   surface swap, red/green per-element proxies, per-element gizmo
+//!   targeting and the element writeback.
 
+mod blob;
 mod commit;
 mod drag;
 mod sync;
+
+pub use blob::BlobEditContext;
 
 use bevy::ecs::hierarchy::ChildOf;
 use bevy::picking::mesh_picking::ray_cast::{MeshRayCast, MeshRayCastSettings};
@@ -169,25 +175,35 @@ impl Plugin for EditorGizmoPlugin {
         //    Keeping the two together lets us order them explicitly
         //    (`sync` before `drag`) so a freshly-attached gizmo is
         //    visible to the drag system on the very same frame.
-        app.add_systems(
-            PostUpdate,
-            (
-                sync::sync_gizmo_selection.after(TransformSystems::Propagate),
-                drag::manage_gizmo_drag,
+        app.init_resource::<blob::BlobEditContext>()
+            .init_resource::<blob::proxy::BlobEditAssets>()
+            .add_systems(
+                PostUpdate,
+                (
+                    // Blob-edit context first: sync reads it to suppress the
+                    // whole-prim gizmo while an element is selected, and the
+                    // proxies must exist before sync can target one.
+                    blob::resolve_blob_edit.after(TransformSystems::Propagate),
+                    blob::proxy::reconcile_blob_proxies,
+                    sync::sync_gizmo_selection,
+                    drag::manage_gizmo_drag,
+                    blob::wireframe::swap_blob_wireframe,
+                    blob::preview::blob_drag_preview,
+                )
+                    .chain()
+                    .run_if(in_state(AppState::InGame)),
             )
-                .chain()
-                .run_if(in_state(AppState::InGame)),
-        )
-        // A left-click into the open 3D scene either PICKS the object under
-        // the cursor (#702 — Region Assets / Placements tab, world editor
-        // open) or clears the selection when nothing selectable was hit.
-        // Runs in `Update` (the egui-pointer guard reads the same frame's
-        // context, exactly as `ui::inventory::drop` does) and is gated so a
-        // click that lands on a gizmo handle never repicks mid-drag.
-        .add_systems(
-            Update,
-            pick_on_scene_click.run_if(in_state(AppState::InGame)),
-        );
+            // A left-click into the open 3D scene either PICKS the object under
+            // the cursor (#702 — Region Assets / Placements tab, world editor
+            // open) or clears the selection when nothing selectable was hit.
+            // Runs in `Update` (the egui-pointer guard reads the same frame's
+            // context, exactly as `ui::inventory::drop` does) and is gated so a
+            // click that lands on a gizmo handle never repicks mid-drag.
+            .add_systems(
+                Update,
+                pick_on_scene_click.run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(OnExit(AppState::InGame), blob::cleanup_blob_edit);
     }
 }
 
@@ -228,6 +244,10 @@ fn pick_on_scene_click(
     parents: Query<&ChildOf>,
     mut room_state: ResMut<RoomEditorState>,
     mut avatar_state: ResMut<AvatarEditorState>,
+    (mut blob_ctx, blob_proxies): (
+        ResMut<blob::BlobEditContext>,
+        Query<&blob::proxy::BlobElementProxy>,
+    ),
 ) {
     // Left button only — the orbit/pan camera owns Right/Middle, so this
     // can never fight a camera gesture.
@@ -248,6 +268,20 @@ fn pick_on_scene_click(
         .iter()
         .any(|t| t.is_focused() || t.is_active())
     {
+        return;
+    }
+
+    // Blob element proxies take pick precedence (#705): while a BlobGroup
+    // is under edit, clicking one of its red/green proxy meshes selects
+    // that element for the gizmo — in whichever editor owns the session,
+    // so this runs before the avatar-clear and the room-editor gates. The
+    // proxy carries its own mesh, so the raycast hit *is* the proxy
+    // entity (no ancestor walk needed).
+    if blob_ctx.active.is_some()
+        && let Some(hit) = scene_hit_under_cursor(&windows, &cameras, &mut raycast)
+        && let Ok(proxy) = blob_proxies.get(hit)
+    {
+        blob_ctx.selected_element = Some(proxy.index);
         return;
     }
 
@@ -276,20 +310,7 @@ fn pick_on_scene_click(
     }
 
     // Cursor → world ray → nearest rendered mesh.
-    let hit_entity = windows
-        .single()
-        .ok()
-        .and_then(|w| w.cursor_position())
-        .and_then(|cursor| {
-            let (camera, cam_tf) = cameras.single().ok()?;
-            camera.viewport_to_world(cam_tf, cursor).ok()
-        })
-        .and_then(|ray| {
-            raycast
-                .cast_ray(ray, &MeshRayCastSettings::default())
-                .first()
-                .map(|(entity, _hit)| *entity)
-        });
+    let hit_entity = scene_hit_under_cursor(&windows, &cameras, &mut raycast);
 
     // Walk from the hit mesh up the hierarchy: the FIRST `PrimMarker` is
     // the exact (deepest) sub-part under the cursor; the `PlacementMarker`
@@ -343,6 +364,24 @@ fn pick_on_scene_click(
     }
 }
 
+/// Cursor position → world ray → nearest rendered mesh under it. Shared
+/// by the proxy-precedence branch and the ordinary pick path of
+/// [`pick_on_scene_click`] (the two run in sequence, so a blob-edit miss
+/// costs one extra raycast per click — clicks, not frames).
+fn scene_hit_under_cursor(
+    windows: &Query<&Window, With<PrimaryWindow>>,
+    cameras: &Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    raycast: &mut MeshRayCast,
+) -> Option<Entity> {
+    let cursor = windows.single().ok()?.cursor_position()?;
+    let (camera, cam_tf) = cameras.single().ok()?;
+    let ray = camera.viewport_to_world(cam_tf, cursor).ok()?;
+    raycast
+        .cast_ray(ray, &MeshRayCastSettings::default())
+        .first()
+        .map(|(entity, _hit)| *entity)
+}
+
 /// Drag session state spanning all the frames between mouse-down and
 /// mouse-release on the gizmo. Holds the identity of the entity being
 /// dragged, the world-space pose it started at (so `Escape` can snap it
@@ -356,4 +395,8 @@ pub(crate) struct DragState {
     pub(crate) is_copy: bool,
     pub(crate) aborted: bool,
     pub(crate) target: ActiveTarget,
+    /// `Some` while the dragged entity is a blob element proxy (#705):
+    /// the routing snapshot for the element writeback. Captured at the
+    /// rising edge so mid-drag selection changes can't reroute it.
+    pub(crate) blob: Option<blob::write::BlobDragInfo>,
 }
