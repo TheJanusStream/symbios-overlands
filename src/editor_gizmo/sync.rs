@@ -8,7 +8,7 @@
 
 use bevy::ecs::hierarchy::ChildOf;
 use bevy::prelude::*;
-use transform_gizmo_bevy::{EnumSet, GizmoMode, GizmoOptions, GizmoTarget};
+use transform_gizmo_bevy::{EnumSet, GizmoMode, GizmoOptions, GizmoOrientation, GizmoTarget};
 
 use crate::pds::generator::BlobShape;
 use crate::ui::avatar::AvatarEditorState;
@@ -129,6 +129,27 @@ pub(super) fn sync_gizmo_selection(
             }),
             _ => None,
         };
+
+    // Element editing always drives the gizmo in the element's LOCAL frame,
+    // overriding the World/Local toggle (#708). The toggle governs the
+    // whole-prim and placement gizmos; for a per-element edit, local is both
+    // correct and the useful behaviour:
+    //
+    // * SCALE — `transform-gizmo`'s Global-orientation scale is lossy for a
+    //   rotated target: it derives the new size from the column lengths of
+    //   `diag(world_scale) · (R · diag(scale))` — a sheared matrix — and
+    //   keeps the old rotation, so a world-axis stretch of a rotated
+    //   ellipsoid comes out wrong (a 45°-rotated sphere stretched on world-X
+    //   collapses to a symmetric disc). The Local path is a clean per-axis
+    //   multiply along the element's own axes, which is exactly what
+    //   sculpting an element's proportions wants. (A true world-axis stretch
+    //   would have to re-orient the element — rarely the intent.)
+    // * TRANSLATE / ROTATE — local is coherent for positioning/orienting a
+    //   mass inside its blob, and for an *unrotated* element local ≡ world,
+    //   so nothing changes in the common case.
+    if target_proxy.is_some() {
+        gizmo_options.gizmo_orientation = GizmoOrientation::Local;
+    }
 
     // --- Resolve which prim entity (if any) should carry the gizmo ----------
     // Room prim: closest live instance of the UI-selected (generator_ref,
@@ -671,6 +692,80 @@ mod repro_tests {
             "fresh proxy baked at {:?}, expected {:?} (origin bake = the #706 jump)",
             proxy_world,
             expected_world
+        );
+    }
+
+    /// #708: element editing must force the gizmo into the element's LOCAL
+    /// frame regardless of the World/Local toggle (the gizmo's Global-frame
+    /// scale is lossy for a rotated element). Selecting an element flips the
+    /// orientation to Local even when the user picked World; deselecting
+    /// restores their preference for the whole-prim gizmo.
+    #[test]
+    fn element_editing_forces_local_gizmo_orientation() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default(), TransformPlugin))
+            .init_asset::<Mesh>()
+            .init_asset::<StandardMaterial>()
+            .init_resource::<GizmoOptions>()
+            .init_resource::<GizmoFramePref>()
+            .init_resource::<RoomEditorState>()
+            .init_resource::<BlobEditContext>()
+            .init_resource::<BlobEditAssets>()
+            .insert_resource(panels());
+        let mut avatar_state = AvatarEditorState::default();
+        avatar_state.selected_prim_path = Some(vec![]);
+        app.insert_resource(avatar_state);
+        // The user has the World (Global) frame selected.
+        app.world_mut().resource_mut::<GizmoFramePref>().0 = GizmoOrientation::Global;
+
+        app.add_systems(Update, reconcile_blob_proxies);
+        app.add_systems(
+            PostUpdate,
+            sync_gizmo_selection.after(bevy::transform::TransformSystems::Propagate),
+        );
+
+        let blob = app
+            .world_mut()
+            .spawn((
+                Transform::from_xyz(0.0, 1.0, 0.0).with_rotation(Quat::from_rotation_y(0.9)),
+                AvatarVisualPrim { path: vec![] },
+            ))
+            .id();
+        {
+            let mut ctx = app.world_mut().resource_mut::<BlobEditContext>();
+            ctx.active = Some(ActiveBlobEdit {
+                key: BlobEditKey {
+                    target: ActiveTarget::Avatar,
+                    generator_ref: None,
+                    path: vec![],
+                },
+                kind: sphere_kind([0.5, 0.0, 0.0]),
+                blob_entity: blob,
+            });
+        }
+        // Spawn + propagate the proxy, then select the element.
+        app.update();
+        app.update();
+        app.world_mut()
+            .resource_mut::<BlobEditContext>()
+            .selected_element = Some(0);
+        app.update();
+        assert_eq!(
+            app.world().resource::<GizmoOptions>().gizmo_orientation,
+            GizmoOrientation::Local,
+            "element scaling must be forced to the local frame",
+        );
+
+        // Deselect the element → the whole-prim gizmo takes over and the
+        // user's World preference is honoured again.
+        app.world_mut()
+            .resource_mut::<BlobEditContext>()
+            .selected_element = None;
+        app.update();
+        assert_eq!(
+            app.world().resource::<GizmoOptions>().gizmo_orientation,
+            GizmoOrientation::Global,
+            "the World/Local toggle must still govern the whole-prim gizmo",
         );
     }
 }

@@ -100,9 +100,33 @@ pub struct GizmoFramePref(pub GizmoOrientation);
 /// between World and Local gizmo orientation. Lives next to each
 /// editor's tab strip so the owner can flip it without leaving the
 /// panel they're editing in.
-pub fn draw_gizmo_frame_toggle(ui: &mut egui::Ui, pref: &mut GizmoFramePref) {
-    let is_global = pref.0 == GizmoOrientation::Global;
+///
+/// `element_editing` reflects whether a BlobGroup element is currently
+/// selected for in-scene sculpting (#708): that path is pinned to the
+/// element's LOCAL frame regardless of this preference (the gizmo's
+/// world-frame scale is lossy for a rotated element), so the toggle is
+/// shown disabled-at-Local with an explanatory hover rather than letting
+/// it appear to do nothing.
+pub fn draw_gizmo_frame_toggle(
+    ui: &mut egui::Ui,
+    pref: &mut GizmoFramePref,
+    element_editing: bool,
+) {
     ui.label("Gizmo:");
+    if element_editing {
+        ui.add_enabled_ui(false, |ui| {
+            let _ = ui.selectable_label(false, "World");
+            let _ = ui.selectable_label(true, "Local");
+        })
+        .response
+        .on_hover_text(
+            "Element sculpting is pinned to the element's local axes — \
+             world-axis scaling of a rotated element is imprecise. The \
+             World/Local toggle applies to the whole-object gizmo.",
+        );
+        return;
+    }
+    let is_global = pref.0 == GizmoOrientation::Global;
     if ui.selectable_label(is_global, "World").clicked() {
         pref.0 = GizmoOrientation::Global;
     }

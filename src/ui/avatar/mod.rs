@@ -200,7 +200,11 @@ pub fn avatar_ui(
                         }
                     }
                     ui.separator();
-                    crate::editor_gizmo::draw_gizmo_frame_toggle(ui, &mut gizmo_frame_pref);
+                    crate::editor_gizmo::draw_gizmo_frame_toggle(
+                        ui,
+                        &mut gizmo_frame_pref,
+                        blob_ctx.selected_element.is_some(),
+                    );
                 });
                 ui.separator();
 

@@ -295,6 +295,52 @@ mod tests {
     }
 
     #[test]
+    fn ellipsoid_rotation_round_trips_and_preserves_radii_under_rotated_parent() {
+        // #708 (rotation): rotating an element with the gizmo — world OR local
+        // frame, both of which compose the delta onto the proxy rotation
+        // cleanly (no lossy extraction, unlike scale) — must (a) leave the
+        // radii untouched and (b) reproduce the dragged world orientation
+        // after the world→local reparent that the commit performs.
+        let blob_gt = GlobalTransform::from(
+            Transform::from_xyz(4.0, 0.5, -3.0).with_rotation(Quat::from_rotation_y(0.7)),
+        );
+        let mut e = sphere_at([1.0, 0.5, -0.5], 1.0);
+        e.shape = BlobShape::Ellipsoid;
+        e.radii = Fp3([0.5, 1.2, 0.4]);
+        e.rotation = Fp4(Quat::from_rotation_z(0.3).to_array());
+
+        // Proxy at rest, in world.
+        let rest = blob_gt
+            .mul_transform(proxy_local_transform(&e))
+            .compute_transform();
+        // A world-frame rotation drag: the gizmo pre-multiplies a world-axis
+        // delta onto the proxy's rotation, pivoting in place (scale/pos held).
+        let delta_world = Quat::from_rotation_x(0.5);
+        let dragged = Transform {
+            rotation: (delta_world * rest.rotation).normalize(),
+            ..rest
+        };
+        let committed = GlobalTransform::from(dragged).reparented_to(&blob_gt);
+
+        let mut out = e;
+        apply_local_to_element(&mut out, &committed);
+
+        // (a) A pure rotation leaves the semi-axes untouched.
+        assert!((out.radii.0[0] - 0.5).abs() < 1e-4, "rx {:?}", out.radii.0);
+        assert!((out.radii.0[1] - 1.2).abs() < 1e-4, "ry {:?}", out.radii.0);
+        assert!((out.radii.0[2] - 0.4).abs() < 1e-4, "rz {:?}", out.radii.0);
+
+        // (b) Rebuilt world orientation == the dragged world orientation.
+        let rebuilt_world =
+            (blob_gt.compute_transform().rotation * Quat::from_array(out.rotation.0)).normalize();
+        let expected_world = (delta_world * rest.rotation).normalize();
+        assert!(
+            rebuilt_world.angle_between(expected_world) < 1e-3,
+            "orientation drift: {rebuilt_world:?} vs {expected_world:?}"
+        );
+    }
+
+    #[test]
     fn ellipsoid_per_axis_size_survives_a_rotated_parent() {
         // The gizmo path detaches the proxy to world and reparents against
         // the blob's `GlobalTransform` at commit. When the blob sits under a
