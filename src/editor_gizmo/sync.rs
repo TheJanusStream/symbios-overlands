@@ -315,16 +315,23 @@ fn prim_modes(is_root: bool) -> EnumSet<GizmoMode> {
     modes
 }
 
-/// Mode set for a blob element (#705). Every shape translates; spheres
-/// expose only uniform scale (per-axis would silently collapse to the
-/// mean at commit) and no rotation (a sphere's orientation is
-/// meaningless to the SDF). Capsules and ellipsoids get the full triad.
+/// Mode set for a blob element (#705). Every shape translates. A sphere
+/// gets the full scale triad (uniform *and* per-axis): dragging one axis
+/// stretches it, and the commit promotes it to an ellipsoid so per-axis
+/// size works (#707). It still gets no rotation — a sphere's orientation is
+/// meaningless to the SDF, and once promoted the ellipsoid picks up rotate
+/// on its next selection. `Unknown` (forward-compat) stays uniform-only so
+/// a gizmo drag can't reshape a construct an older client authored.
+/// Capsules and ellipsoids get the full triad.
 fn element_modes(shape: BlobShape) -> EnumSet<GizmoMode> {
     let mut modes = EnumSet::new();
     modes.insert_all(GizmoMode::all_translate());
     match shape {
-        BlobShape::Sphere | BlobShape::Unknown => {
+        BlobShape::Unknown => {
             modes.insert(GizmoMode::ScaleUniform);
+        }
+        BlobShape::Sphere => {
+            modes.insert_all(GizmoMode::all_scale());
         }
         BlobShape::Capsule | BlobShape::Ellipsoid => {
             modes.insert_all(GizmoMode::all_rotate());

@@ -65,6 +65,14 @@ fn safe_unit(q: Quat) -> Quat {
     }
 }
 
+/// Relative spread in a dragged scale above which a Sphere is treated as
+/// being stretched *per-axis* and promoted to an Ellipsoid (#707). A sphere
+/// SDF only reads `radii[0]`, so a non-uniform size is unrepresentable until
+/// it becomes an ellipsoid. Below this threshold the residual float noise
+/// from the world→local reparent (and a plain uniform scale) is ignored and
+/// the element stays a uniform sphere.
+const SPHERE_NONUNIFORM_EPS: f32 = 1e-3;
+
 /// The local `Transform` (blob mesh space) a proxy is spawned/updated at.
 pub(crate) fn proxy_local_transform(e: &BlobElement) -> Transform {
     let scale = match e.shape {
@@ -94,7 +102,19 @@ pub(crate) fn apply_local_to_element(e: &mut BlobElement, tf: &Transform) {
     let s = tf.scale.abs();
     match e.shape {
         BlobShape::Sphere | BlobShape::Unknown => {
-            e.radii.0[0] = clamp_dim((s.x + s.y + s.z) / 3.0);
+            // A sphere is uniform by construction. A non-uniform drag means
+            // the user is stretching it on some axis — which only an
+            // ellipsoid can represent — so promote it in place (#707).
+            // `Unknown` is a forward-compat placeholder and never promotes.
+            let spread = s.max_element() - s.min_element();
+            if e.shape == BlobShape::Sphere
+                && spread > SPHERE_NONUNIFORM_EPS * s.max_element().max(1.0)
+            {
+                e.shape = BlobShape::Ellipsoid;
+                e.radii = Fp3([clamp_dim(s.x), clamp_dim(s.y), clamp_dim(s.z)]);
+            } else {
+                e.radii.0[0] = clamp_dim((s.x + s.y + s.z) / 3.0);
+            }
         }
         BlobShape::Ellipsoid => {
             e.radii = Fp3([clamp_dim(s.x), clamp_dim(s.y), clamp_dim(s.z)]);
@@ -205,6 +225,64 @@ mod tests {
     }
 
     #[test]
+    fn sphere_stays_uniform_under_uniform_scale() {
+        // A uniform (proportional) resize must keep it a sphere (#707). The
+        // sphere proxy's scale *is* its radius, so a final scale of 0.8 is a
+        // 0.8-radius sphere.
+        let mut e = sphere_at([0.0; 3], 0.4);
+        let tf = Transform {
+            scale: Vec3::splat(0.8),
+            ..proxy_local_transform(&e)
+        };
+        apply_local_to_element(&mut e, &tf);
+        assert_eq!(e.shape, BlobShape::Sphere);
+        assert!((e.radii.0[0] - 0.8).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sphere_promotes_to_ellipsoid_on_per_axis_scale() {
+        // Stretching one axis of a sphere must promote it to an ellipsoid
+        // carrying the per-axis radii — the whole point of #707.
+        let mut e = sphere_at([1.0, -2.0, 3.0], 0.4);
+        let tf = Transform {
+            scale: Vec3::new(0.4, 0.9, 0.4), // Y stretched
+            ..proxy_local_transform(&e)
+        };
+        apply_local_to_element(&mut e, &tf);
+        assert_eq!(e.shape, BlobShape::Ellipsoid);
+        assert_eq!(e.radii.0, [0.4, 0.9, 0.4]);
+        // Position/rotation are unaffected by the promotion.
+        assert_eq!(e.position.0, [1.0, -2.0, 3.0]);
+    }
+
+    #[test]
+    fn sphere_ignores_reparent_float_noise() {
+        // A near-uniform scale (float noise from the world→local reparent
+        // under a rotated parent) must NOT spuriously promote a sphere.
+        let mut e = sphere_at([0.0; 3], 0.5);
+        let tf = Transform {
+            scale: Vec3::new(0.5, 0.5 + 2e-4, 0.5 - 1e-4),
+            ..proxy_local_transform(&e)
+        };
+        apply_local_to_element(&mut e, &tf);
+        assert_eq!(e.shape, BlobShape::Sphere);
+    }
+
+    #[test]
+    fn unknown_shape_never_promotes() {
+        // Forward-compat `Unknown` stays uniform even under a non-uniform
+        // drag, so a gizmo can't reshape a construct an older client wrote.
+        let mut e = sphere_at([0.0; 3], 0.5);
+        e.shape = BlobShape::Unknown;
+        let tf = Transform {
+            scale: Vec3::new(0.5, 2.0, 0.5),
+            ..proxy_local_transform(&e)
+        };
+        apply_local_to_element(&mut e, &tf);
+        assert_eq!(e.shape, BlobShape::Unknown);
+    }
+
+    #[test]
     fn ellipsoid_scale_maps_to_per_axis_radii() {
         let mut e = sphere_at([0.0; 3], 1.0);
         e.shape = BlobShape::Ellipsoid;
@@ -214,6 +292,33 @@ mod tests {
         tf.scale = Vec3::new(0.25, 1.5, 2.0);
         apply_local_to_element(&mut e, &tf);
         assert_eq!(e.radii.0, [0.25, 1.5, 2.0]);
+    }
+
+    #[test]
+    fn ellipsoid_per_axis_size_survives_a_rotated_parent() {
+        // The gizmo path detaches the proxy to world and reparents against
+        // the blob's `GlobalTransform` at commit. When the blob sits under a
+        // rotated parent (e.g. an avatar facing a direction), that reparent
+        // must not shear the per-axis radii away — a `rotation ∘ scale`
+        // local transform decomposes cleanly, so the semi-axes round-trip.
+        let blob_gt = GlobalTransform::from(
+            Transform::from_xyz(3.0, 1.0, -2.0).with_rotation(Quat::from_rotation_y(0.9)),
+        );
+        let mut e = sphere_at([0.5, 0.0, -0.5], 1.0);
+        e.shape = BlobShape::Ellipsoid;
+        e.radii = Fp3([0.5, 1.5, 0.4]); // per-axis, distinct
+        // Proxy world pose for this element, then the commit's reparent.
+        let proxy_world = blob_gt.mul_transform(proxy_local_transform(&e));
+        let committed = proxy_world.reparented_to(&blob_gt);
+
+        let mut out = sphere_at([0.0; 3], 1.0);
+        out.shape = BlobShape::Ellipsoid;
+        apply_local_to_element(&mut out, &committed);
+        assert!((out.radii.0[0] - 0.5).abs() < 1e-4, "rx: {:?}", out.radii.0);
+        assert!((out.radii.0[1] - 1.5).abs() < 1e-4, "ry: {:?}", out.radii.0);
+        assert!((out.radii.0[2] - 0.4).abs() < 1e-4, "rz: {:?}", out.radii.0);
+        assert!((out.position.0[0] - 0.5).abs() < 1e-4);
+        assert!((out.position.0[2] + 0.5).abs() < 1e-4);
     }
 
     #[test]

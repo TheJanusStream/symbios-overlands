@@ -538,17 +538,46 @@ pub(super) fn draw_primitive_blob_group(
                 }
                 // Sphere: radii[0]. Ellipsoid: semi-axes. Capsule: radius +
                 // half-length.
-                ui.label("Size");
-                let mut r = e.radii.0;
-                let mut changed = false;
-                for c in r.iter_mut() {
-                    changed |= ui
-                        .add(egui::DragValue::new(c).speed(0.02).range(0.01..=100.0))
-                        .changed();
-                }
-                if changed {
-                    e.radii = Fp3(r);
-                    *dirty = true;
+                //
+                // A sphere's SDF only reads radii[0], so its three boxes all
+                // show that one radius: editing the first resizes it
+                // uniformly (stays a sphere), while editing the Y or Z box
+                // stretches one axis and promotes it to an ellipsoid so
+                // per-axis size works from the GUI too (#707).
+                if e.shape == BlobShape::Sphere {
+                    ui.label("Radius").on_hover_text(
+                        "Edit X to resize the sphere; edit Y or Z to stretch it into an ellipsoid.",
+                    );
+                    let r0 = e.radii.0[0];
+                    let (mut rx, mut ry, mut rz) = (r0, r0, r0);
+                    let size = |ui: &mut egui::Ui, v: &mut f32| {
+                        ui.add(egui::DragValue::new(v).speed(0.02).range(0.01..=100.0))
+                            .changed()
+                    };
+                    let cx = size(ui, &mut rx);
+                    let cy = size(ui, &mut ry);
+                    let cz = size(ui, &mut rz);
+                    if cy || cz {
+                        e.shape = BlobShape::Ellipsoid;
+                        e.radii = Fp3([rx, ry, rz]);
+                        *dirty = true;
+                    } else if cx {
+                        e.radii = Fp3([rx, rx, rx]);
+                        *dirty = true;
+                    }
+                } else {
+                    ui.label("Size");
+                    let mut r = e.radii.0;
+                    let mut changed = false;
+                    for c in r.iter_mut() {
+                        changed |= ui
+                            .add(egui::DragValue::new(c).speed(0.02).range(0.01..=100.0))
+                            .changed();
+                    }
+                    if changed {
+                        e.radii = Fp3(r);
+                        *dirty = true;
+                    }
                 }
             });
             // Orientation as yaw/pitch/roll drags, stored as a quaternion.
