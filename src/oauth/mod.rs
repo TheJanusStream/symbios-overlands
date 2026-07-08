@@ -43,6 +43,7 @@ mod discovery;
 #[cfg(not(target_arch = "wasm32"))]
 mod native_server;
 mod refresh;
+mod service_token;
 mod util;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
@@ -54,6 +55,7 @@ use proto_blue_oauth::{AuthState, OAuthClient, OAuthServerMetadata};
 use serde::{Deserialize, Serialize};
 
 pub use auth_flow::{CompletedAuth, begin_authorization, complete_authorization};
+pub use service_token::{poll_service_token_refresh, schedule_service_token_refresh};
 #[cfg(target_arch = "wasm32")]
 pub use discovery::{CLIENT_METADATA_URL, WASM_REDIRECT_URI};
 #[cfg(not(target_arch = "wasm32"))]

@@ -658,6 +658,17 @@ pub mod network {
     /// in low-double-digit peers) while bounding worst-case memory.
     pub const MAX_PEER_AVATAR_CACHE_ENTRIES: usize = 256;
 
+    /// How often (seconds) to re-issue the relay **service-auth** token that
+    /// the WebRTC signaller presents on every (re)connect. `getServiceAuth`
+    /// mints a short-lived JWT (~60 s on bsky) and the app fetches it once at
+    /// login; without periodic renewal, any reconnect (portal hop, dead-socket
+    /// respawn, network flap) more than a token-lifetime later re-handshakes
+    /// with an expired token and the relay rejects it HTTP 401 (its `exp`
+    /// hardening), so peers silently fail to (re)join the room (#714). Chosen
+    /// well inside the relay's own 60 s `exp` leeway so the token the signaller
+    /// reads at reconnect time is always valid regardless of the exact PDS TTL.
+    pub const SERVICE_TOKEN_REFRESH_SECS: f64 = 45.0;
+
     // --- WebRTC ICE (NAT traversal) -----------------------------------------
     /// Public STUN servers used for WebRTC ICE server-reflexive candidate
     /// discovery. Without at least one STUN server the client gathers only

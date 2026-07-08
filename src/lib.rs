@@ -247,6 +247,20 @@ pub fn run() {
             )
                 .run_if(in_state(AppState::Login)),
         )
+        // Keep the relay service-auth token fresh for the whole logged-in
+        // session so every WebRTC (re)connect — portal hop, dead-socket
+        // respawn, network flap — presents a valid, unexpired token to the
+        // relay instead of a stale one it rejects HTTP 401 (#714). Runs across
+        // all post-login states (a portal hop passes through `Loading`), gated
+        // on the session resource so it is inert before login / after logout.
+        .add_systems(
+            Update,
+            (
+                oauth::schedule_service_token_refresh,
+                oauth::poll_service_token_refresh,
+            )
+                .run_if(resource_exists::<bevy_symbios_multiuser::auth::AtprotoSession>),
+        )
         .add_systems(
             OnEnter(AppState::Loading),
             (

@@ -10,7 +10,9 @@ use crate::config;
 use crate::diagnostics::SessionLog;
 use crate::diagnostics::event::EventPayload;
 use crate::protocol::OverlandsMessage;
-use crate::state::{IncomingOfferDialog, PendingOutgoingOffers, RemotePeer};
+use crate::state::{
+    CurrentRoomDid, IncomingOfferDialog, LiveRoomRecord, PendingOutgoingOffers, RemotePeer,
+};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn handle_peer_connections(
@@ -20,6 +22,8 @@ pub(super) fn handle_peer_connections(
     peers: Query<(Entity, &RemotePeer)>,
     time: Res<Time>,
     session: Option<Res<AtprotoSession>>,
+    room_record: Option<Res<LiveRoomRecord>>,
+    room_did: Option<Res<CurrentRoomDid>>,
     mut sender: SendMessage<OverlandsMessage>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
 ) {
@@ -65,6 +69,29 @@ pub(super) fn handle_peer_connections(
                         },
                         ChannelKind::Reliable,
                     );
+
+                    // If we own this room, push our current (possibly unsaved)
+                    // room state to the newcomer so live edits made before they
+                    // connected are visible immediately. Without this they only
+                    // ever see the PDS-saved version loaded on entry, so a
+                    // portal (or any generator) the owner added while the guest
+                    // was away — or during a dropped connection — stays hidden
+                    // until the owner saves *and* the guest reloads (#713).
+                    // Targeted (not broadcast): existing peers already mirror
+                    // it. Ordered after the `Identity` above on the reliable
+                    // channel (`transmit_messages` runs before
+                    // `transmit_directed_messages`), so the newcomer records our
+                    // DID before it authenticates this update against the room
+                    // owner — the exact reason the identity announce precedes it.
+                    if let (Some(record), Some(rd)) = (&room_record, &room_did)
+                        && sess.did == rd.0
+                    {
+                        sender.to(
+                            event.peer,
+                            OverlandsMessage::room_state_update(&record.0),
+                            ChannelKind::Reliable,
+                        );
+                    }
                 }
             }
             PeerConnectionState::Disconnected => {
