@@ -26,6 +26,7 @@ pub(super) fn handle_peer_connections(
     room_did: Option<Res<CurrentRoomDid>>,
     mut sender: SendMessage<OverlandsMessage>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
+    mut seq: ResMut<super::chunk::OutboundChunkSeq>,
 ) {
     let elapsed = time.elapsed_secs_f64();
     for event in peer_events.drain() {
@@ -86,10 +87,21 @@ pub(super) fn handle_peer_connections(
                     if let (Some(record), Some(rd)) = (&room_record, &room_did)
                         && sess.did == rd.0
                     {
-                        sender.to(
-                            event.peer,
+                        // Chunked (#718): a large room's `room_state_update`
+                        // exceeds the 64 KiB WebRTC message ceiling, and this
+                        // directed push previously failed silently
+                        // (`ErrOutboundPacketTooLarge`) — so a guest joining a
+                        // large room never received it and saw only the stale
+                        // PDS version (or nothing). Fragmenting it here is what
+                        // makes the join actually deliver the live room.
+                        super::chunk::send_chunked(
+                            &mut sender,
+                            &mut seq,
+                            &mut metrics,
+                            &mut session_log,
+                            super::chunk::ChunkDest::To(event.peer),
+                            elapsed,
                             OverlandsMessage::room_state_update(&record.0),
-                            ChannelKind::Reliable,
                         );
                     }
                 }
