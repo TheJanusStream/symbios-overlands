@@ -89,6 +89,22 @@ pub enum OverlandsMessage {
         target_did: String,
         accepted: bool,
     },
+    /// One fragment of a larger reliable message that exceeded the 64 KiB
+    /// WebRTC data-channel ceiling and was split by the network chunk layer
+    /// (#716). The `data` bytes are a slice of the bincode serialization of
+    /// the *original* [`OverlandsMessage`] (see [`Self::to_chunk_bytes`]); the
+    /// receiver buffers fragments by `(sender, msg_id)` and, once all `total`
+    /// are in, concatenates them in `seq` order and decodes the result back
+    /// into an `OverlandsMessage` that is then dispatched as if it had
+    /// arrived whole. Always sent on the ordered Reliable channel so `seq`
+    /// order is preserved and no fragment is lost. `msg_id` is unique per
+    /// sender only — a monotonic counter — so it need not be globally unique.
+    ChunkedPayload {
+        msg_id: u64,
+        seq: u16,
+        total: u16,
+        data: Vec<u8>,
+    },
 }
 
 impl OverlandsMessage {
@@ -166,6 +182,38 @@ impl OverlandsMessage {
             Ok(g) => Some(g),
             Err(e) => {
                 bevy::log::warn!("Generator decode error: {}", e);
+                None
+            }
+        }
+    }
+
+    /// Serialize a whole message to the byte form the chunker splits and the
+    /// receiver reassembles ([`Self::ChunkedPayload`]). Uses `bincode` — the
+    /// same compact codec the multiuser data channel uses on the wire — rather
+    /// than JSON, because `serde_json` encodes the `record_json` /
+    /// `generator_json` `Vec<u8>` payloads as a number array (~3.5× bloat),
+    /// which would over-fragment every message and inflate the measured size
+    /// far past the true transmitted size. `OverlandsMessage` is externally
+    /// tagged, so bincode encodes it cleanly (unlike the internally-tagged
+    /// `RoomRecord` inside `record_json`, which is why *that* stays JSON).
+    pub fn to_chunk_bytes(&self) -> Result<Vec<u8>, bincode::Error> {
+        use bincode::Options;
+        bincode::DefaultOptions::new().serialize(self)
+    }
+
+    /// Decode a reassembled [`OverlandsMessage`] from concatenated
+    /// [`Self::ChunkedPayload`] fragments. Bounded by
+    /// [`crate::config::network::MAX_RELIABLE_PAYLOAD_BYTES`] so a hostile peer
+    /// cannot craft a length prefix that provokes a huge allocation. `None` on
+    /// malformed bytes — the caller logs and drops rather than crashing.
+    pub fn from_chunk_bytes(bytes: &[u8]) -> Option<Self> {
+        use bincode::Options;
+        let opts = bincode::DefaultOptions::new()
+            .with_limit(crate::config::network::MAX_RELIABLE_PAYLOAD_BYTES as u64);
+        match opts.deserialize(bytes) {
+            Ok(m) => Some(m),
+            Err(e) => {
+                bevy::log::warn!("Reassembled ChunkedPayload decode error: {}", e);
                 None
             }
         }

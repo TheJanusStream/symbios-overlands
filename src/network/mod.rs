@@ -43,6 +43,7 @@
 //! * [`smoother`] — jitter-buffered playout (cubic Hermite spline).
 
 mod broadcast;
+mod chunk;
 mod inbound;
 mod lifecycle;
 mod peer_cache;
@@ -127,6 +128,10 @@ impl Plugin for NetworkPlugin {
 
         app.add_plugins(SymbiosMultiuserPlugin::<OverlandsMessage>::deferred())
             .init_resource::<PeerAvatarCache>()
+            // #716: buffer for reassembling chunked reliable payloads, and the
+            // monotonic counter that stamps outbound chunk `msg_id`s.
+            .init_resource::<chunk::ChunkReassembly>()
+            .init_resource::<chunk::OutboundChunkSeq>()
             .insert_resource(SmootherConfigRes::from_fixed_timestep(fixed_timestep_secs))
             .add_systems(
                 Update,

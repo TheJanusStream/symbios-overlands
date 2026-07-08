@@ -417,6 +417,17 @@ pub enum EventPayload {
         peer: String,
         error: String,
     },
+    /// A reliable broadcast was refused before send because its serialized
+    /// size exceeded [`crate::config::network::MAX_RELIABLE_PAYLOAD_BYTES`]
+    /// (#716). `kind` names the message variant (e.g. `"RoomStateUpdate"`).
+    /// This is the visible replacement for the fire-and-forget SCTP
+    /// `ErrOutboundPacketTooLarge` the app cannot otherwise observe — the
+    /// guest did NOT receive this update.
+    OutboundMessageOversize {
+        message_kind: String,
+        bytes: u64,
+        ceiling_bytes: u64,
+    },
 
     // ---- Async / offload ---------------------------------------------------
     OffloadJobStarted {
@@ -525,7 +536,8 @@ impl EventPayload {
             | PendingOfferTimedOut { .. }
             | PeerMuteToggled { .. }
             | SocialResonanceCompleted { .. }
-            | SocialResonanceFailed { .. } => Subsystem::Network,
+            | SocialResonanceFailed { .. }
+            | OutboundMessageOversize { .. } => Subsystem::Network,
 
             OffloadJobStarted { .. }
             | OffloadJobCompleted { .. }
@@ -593,7 +605,8 @@ impl EventPayload {
             TransformSampleRejected { .. }
             | RoomStateRejected { .. }
             | RoomStateDecodeFailed { .. }
-            | RoomStateApplied => Category::Transport,
+            | RoomStateApplied
+            | OutboundMessageOversize { .. } => Category::Transport,
 
             ChatReceived { .. } | ChatDroppedMuted { .. } => Category::Chat,
 
@@ -693,6 +706,16 @@ impl EventPayload {
                 format!(
                     "{record:?} record size {bytes} B (soft budget {soft_budget_bytes} B, \
                      hard ceiling {hard_ceiling_bytes} B)"
+                )
+            }
+            OutboundMessageOversize {
+                message_kind,
+                bytes,
+                ceiling_bytes,
+            } => {
+                format!(
+                    "⚠ {message_kind} broadcast dropped: {bytes} B over the {ceiling_bytes} B \
+                     reliable-payload ceiling (guest did not receive it)"
                 )
             }
             RoomRecoveryBannerRaised { reason } => format!("room recovery banner ({reason})"),
@@ -996,6 +1019,11 @@ mod tests {
             EventPayload::PortalTravelFailed {
                 target_did: "did:plc:elsewhere".into(),
                 reason: "PDS timeout".into(),
+            },
+            EventPayload::OutboundMessageOversize {
+                message_kind: "RoomStateUpdate".into(),
+                bytes: 950_272,
+                ceiling_bytes: 921_600,
             },
         ];
         payloads

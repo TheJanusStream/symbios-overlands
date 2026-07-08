@@ -628,6 +628,59 @@ pub mod network {
     /// `FixedUpdate` tick this yields ~2 Hz (64 / 30 ≈ 2.1).
     pub const STATIONARY_BROADCAST_DIVISOR: u32 = 30;
 
+    // --- Reliable-message chunking (#716) -----------------------------------
+    // A WebRTC data-channel message has a hard whole-message ceiling of
+    // 65536 bytes (64 KiB): `webrtc-sctp` rejects anything larger with
+    // `ErrOutboundPacketTooLarge` *before* fragmentation, and neither
+    // `matchbox_socket` 0.14 nor `bevy_symbios_multiuser` 0.6 raises,
+    // negotiates, or chunks around it (native advertises no
+    // `a=max-message-size`, so browser peers cap browser→native at the same
+    // 64 KiB RFC-8841 default). The send is fire-and-forget — the app never
+    // sees the failure — so a full `RoomStateUpdate` for a heavily-authored
+    // room silently stops reaching guests. We therefore split large reliable
+    // payloads into sub-ceiling chunks at the application layer and reassemble
+    // them on the far side.
+
+    /// Serialized-byte budget for one chunk's `data` field. Kept well under
+    /// the 64 KiB SCTP whole-message ceiling so the bincode envelope
+    /// `bevy_symbios_multiuser` wraps each `ChunkedPayload` in (enum tag +
+    /// `msg_id`/`seq`/`total` + the `Vec` length prefix, ~20 bytes) never
+    /// pushes the wire message over the wall. Also the direct-send threshold:
+    /// a payload that serializes to `<=` this rides one message unchunked.
+    pub const RELIABLE_CHUNK_DATA_BYTES: usize = 48 * 1024;
+
+    /// Absolute ceiling on a single reliable payload's serialized size. Past
+    /// this the broadcast is refused (logged + counted) rather than chunked —
+    /// mirrors [`crate::pds::record_size::HARD_RECORD_CEILING_BYTES`] (a record
+    /// this large cannot be published anyway) and stays under the multiuser
+    /// crate's private 1 MiB bincode limit that would otherwise reject the
+    /// reassembled message on decode.
+    pub const MAX_RELIABLE_PAYLOAD_BYTES: usize = 900 * 1024;
+
+    /// Total bytes the inbound chunk-reassembly buffer may hold across all
+    /// in-flight partial messages before the oldest partials are evicted. A
+    /// DoS bound: a peer streaming half-finished chunk sets cannot grow a
+    /// guest's resident set without limit. Sized for a couple of concurrent
+    /// max-size (900 KiB) reassemblies with headroom.
+    pub const MAX_REASSEMBLY_BUFFER_BYTES: usize = 4 * 1024 * 1024;
+
+    /// Maximum age (seconds) a partial reassembly is kept before it is
+    /// discarded. Chunks of one message ride the ordered Reliable channel and
+    /// complete in well under a second on any live link; a partial older than
+    /// this means the sender vanished mid-message, so the fragments are dead
+    /// weight.
+    pub const MAX_REASSEMBLY_AGE_SECS: f64 = 10.0;
+
+    /// Minimum spacing (seconds) between successive `RoomStateUpdate`
+    /// broadcasts. The owner's editor rewrites `LiveRoomRecord` every frame a
+    /// slider moves; without this debounce a drag would re-broadcast (and,
+    /// for a large room, re-chunk) the whole record ~60×/s, flooding the
+    /// ordered Reliable channel and stalling every other reliable message
+    /// behind head-of-line blocking. The final drag state is always flushed,
+    /// so guests still converge on the released value — just ~7 Hz instead of
+    /// per-frame.
+    pub const ROOM_BROADCAST_MIN_INTERVAL_SECS: f64 = 0.15;
+
     /// Maximum age (seconds) an `IncomingOfferDialog` is allowed to sit on
     /// screen before it is auto-declined and evicted. Without this, an
     /// ignored garbage offer would hold the busy-gate forever and lock the

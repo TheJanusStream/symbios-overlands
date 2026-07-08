@@ -98,6 +98,16 @@ pub const NET_SIGNAL_AWAITING_PEERS: &str = "net.signal.awaiting_peers";
 /// handshake this leaves no peer_list/offer/answer trail; the
 /// `RelayConnectionRejected` invariant fires off it.
 pub const NET_SIGNAL_AUTH_REJECTIONS: &str = "net.signal.auth_rejections";
+/// Serialized size (bytes) of the most recent reliable broadcast that went
+/// through the chunking path (room/avatar state). The outbound analogue of the
+/// `record.size.*` publish gauges — reveals how close a live edit is to the
+/// 64 KiB WebRTC message ceiling / the 900 KiB refuse-to-send ceiling (#716).
+pub const NET_BROADCAST_PAYLOAD_BYTES: &str = "net.broadcast.payload_bytes";
+/// Reliable broadcasts refused because their serialized size exceeded
+/// [`crate::config::network::MAX_RELIABLE_PAYLOAD_BYTES`]. A non-zero value
+/// means a live edit was dropped before send (the guest never saw it) — the
+/// visible signal for what used to be an invisible fire-and-forget SCTP error.
+pub const NET_BROADCAST_OVERSIZE_DROPPED_COUNT: &str = "net.broadcast.oversize_dropped_count";
 
 // ---- loading / state machine ----------------------------------------------
 /// PDS record-fetch latency (ms), spawn → resolve.
@@ -170,6 +180,8 @@ pub const ALL: &[(&str, MetricKind)] = &[
     (NET_SIGNAL_ANSWERS_RECEIVED, MetricKind::Gauge),
     (NET_SIGNAL_AWAITING_PEERS, MetricKind::Gauge),
     (NET_SIGNAL_AUTH_REJECTIONS, MetricKind::Gauge),
+    (NET_BROADCAST_PAYLOAD_BYTES, MetricKind::Gauge),
+    (NET_BROADCAST_OVERSIZE_DROPPED_COUNT, MetricKind::Counter),
     // loading
     (LOADING_RECORD_FETCH_LATENCY_MS, MetricKind::Histogram),
     (LOADING_RECORD_FETCH_RETRY_COUNT, MetricKind::Counter),

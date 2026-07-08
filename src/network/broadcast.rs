@@ -66,16 +66,28 @@ pub(super) fn broadcast_local_state(
 /// to Publish. Runs in `Update` so that UI mutations observed this frame
 /// propagate the same frame, bypassing the fixed-timestep throttle used for
 /// continuous transforms.
+///
+/// Routed through [`super::chunk::broadcast_chunked`] (#716): a maxed-out
+/// avatar record can serialize past the 64 KiB WebRTC message ceiling, which
+/// would otherwise fail silently and leave peers on a stale avatar.
 pub(super) fn broadcast_avatar_state(
     live: Res<LiveAvatarRecord>,
     mut sender: SendMessage<OverlandsMessage>,
+    mut seq: ResMut<super::chunk::OutboundChunkSeq>,
+    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
+    mut session_log: ResMut<crate::diagnostics::SessionLog>,
+    time: Res<Time>,
 ) {
     if !live.is_changed() {
         return;
     }
-    sender.broadcast(
+    super::chunk::broadcast_chunked(
+        &mut sender,
+        &mut seq,
+        &mut metrics,
+        &mut session_log,
+        time.elapsed_secs_f64(),
         OverlandsMessage::avatar_state_update(&live.0),
-        ChannelKind::Reliable,
     );
 }
 
@@ -84,11 +96,29 @@ pub(super) fn broadcast_avatar_state(
 /// slider moves. The `session.did == room_did.0` gate ensures guests
 /// (whose `RoomRecord` is also rewritten by inbound `RoomStateUpdate`
 /// handling) do not echo the owner's broadcast back to the relay.
+///
+/// The whole record is re-serialized per broadcast, so this is **debounced**
+/// to at most one send per [`crate::config::network::ROOM_BROADCAST_MIN_INTERVAL_SECS`]
+/// (#716): a slider drag rewrites `LiveRoomRecord` every frame, and without
+/// the throttle a large room would re-chunk and re-send the full record
+/// ~60×/s, saturating the ordered Reliable channel and stalling every other
+/// reliable message behind it. `dirty` remembers a change seen mid-interval
+/// so the *final* drag state is always flushed once the interval elapses.
+/// The send itself goes through [`super::chunk::broadcast_chunked`], which
+/// splits the record across sub-ceiling fragments or refuses it if it is past
+/// the hard payload ceiling.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn broadcast_room_state(
     record: Option<Res<LiveRoomRecord>>,
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
     mut sender: SendMessage<OverlandsMessage>,
+    mut seq: ResMut<super::chunk::OutboundChunkSeq>,
+    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
+    mut session_log: ResMut<crate::diagnostics::SessionLog>,
+    time: Res<Time>,
+    mut dirty: Local<bool>,
+    mut last_sent: Local<Option<f64>>,
 ) {
     let (Some(record), Some(session), Some(room_did)) = (record, session, room_did) else {
         return;
@@ -96,11 +126,28 @@ pub(super) fn broadcast_room_state(
     if session.did != room_did.0 {
         return;
     }
-    if !record.is_changed() {
+    if record.is_changed() {
+        *dirty = true;
+    }
+    if !*dirty {
         return;
     }
-    sender.broadcast(
+    let now = time.elapsed_secs_f64();
+    let due = match *last_sent {
+        None => true,
+        Some(prev) => now - prev >= config::network::ROOM_BROADCAST_MIN_INTERVAL_SECS,
+    };
+    if !due {
+        return;
+    }
+    *dirty = false;
+    *last_sent = Some(now);
+    super::chunk::broadcast_chunked(
+        &mut sender,
+        &mut seq,
+        &mut metrics,
+        &mut session_log,
+        now,
         OverlandsMessage::room_state_update(&record.0),
-        ChannelKind::Reliable,
     );
 }

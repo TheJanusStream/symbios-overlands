@@ -11,6 +11,7 @@
 //! function would just push 12+ parameters around without improving
 //! readability. Kept as a single-file dispatcher.
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
@@ -58,6 +59,30 @@ fn coalesce_key(msg: &OverlandsMessage) -> Option<CoalesceKey> {
     }
 }
 
+/// A drained message decoupled from the multiuser `NetworkReceived` wrapper so
+/// the dispatch loop can process both directly-received messages *and*
+/// messages reassembled from [`OverlandsMessage::ChunkedPayload`] fragments
+/// (#716) uniformly — a reassembled message carries its originating peer's
+/// `sender` so every downstream authority check still applies. Field names
+/// mirror `NetworkReceived`, so the dispatch body reads `msg.sender` /
+/// `msg.payload` unchanged.
+struct Incoming {
+    sender: PeerId,
+    payload: OverlandsMessage,
+}
+
+/// Inbound transport state consulted while draining the P2P queue: the
+/// jitter-buffer [`SmootherConfigRes`] applied to each remote `Transform`, and
+/// the [`super::chunk::ChunkReassembly`] buffer that stitches
+/// [`OverlandsMessage::ChunkedPayload`] fragments back into whole messages.
+/// Grouped into one [`SystemParam`] so [`handle_incoming_messages`] stays
+/// within Bevy's 16-parameter-per-system ceiling.
+#[derive(SystemParam)]
+pub(super) struct InboundBuffers<'w> {
+    smoother_cfg: Res<'w, SmootherConfigRes>,
+    reassembly: ResMut<'w, super::chunk::ChunkReassembly>,
+}
+
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn handle_incoming_messages(
     mut commands: Commands,
@@ -79,8 +104,8 @@ pub(super) fn handle_incoming_messages(
     mut pending_offers: ResMut<PendingOutgoingOffers>,
     mut sender: SendMessage<OverlandsMessage>,
     mut avatar_cache: ResMut<PeerAvatarCache>,
-    smoother_cfg: Res<SmootherConfigRes>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
+    mut bufs: InboundBuffers,
 ) {
     let now = time.elapsed_secs_f64();
     // Drain the whole queue into a buffer so we can coalesce per
@@ -89,7 +114,37 @@ pub(super) fn handle_incoming_messages(
     // fetches / run the heavy decode+sanitize pass N times, letting a
     // flooding peer pin the main thread. Only the last of each kind per
     // sender survives — see [`CoalesceKey`].
-    let messages: Vec<_> = messages_received.drain().collect();
+    // Pre-pass (#716): peel `ChunkedPayload` fragments off into the
+    // reassembly buffer and splice any completed message back into the work
+    // list as a normal `Incoming`. A fragment that does not complete its
+    // message contributes nothing this drain; the buffer carries it forward.
+    let raw: Vec<_> = messages_received.drain().collect();
+    let mut messages: Vec<Incoming> = Vec::with_capacity(raw.len());
+    for m in raw {
+        match m.payload {
+            OverlandsMessage::ChunkedPayload {
+                msg_id,
+                seq,
+                total,
+                data,
+            } => {
+                if let Some(reassembled) = bufs
+                    .reassembly
+                    .ingest(m.sender, msg_id, seq, total, data, now)
+                {
+                    messages.push(Incoming {
+                        sender: m.sender,
+                        payload: reassembled,
+                    });
+                }
+            }
+            payload => messages.push(Incoming {
+                sender: m.sender,
+                payload,
+            }),
+        }
+    }
+
     let mut last_coalesced_idx: std::collections::HashMap<(PeerId, CoalesceKey), usize> =
         std::collections::HashMap::new();
     for (i, msg) in messages.iter().enumerate() {
@@ -125,7 +180,7 @@ pub(super) fn handle_incoming_messages(
                             Vec3::from_array(position),
                             Quat::from_array(rotation),
                             now,
-                            &smoother_cfg.0,
+                            &bufs.smoother_cfg.0,
                         );
                         // A rejected sample (NaN/Inf or out-of-bounds) is silently
                         // discarded by the smoother; count it (E-4).
@@ -325,6 +380,16 @@ pub(super) fn handle_incoming_messages(
                     record.0 = new_record;
                     info!("Room state updated from owner broadcast");
                 }
+            }
+            OverlandsMessage::ChunkedPayload { .. } => {
+                // Fragments are consumed by the reassembly pre-pass above and
+                // never reach dispatch. One arriving here means a peer nested
+                // a `ChunkedPayload` inside a reassembled message (malformed or
+                // hostile) — ignore it rather than recurse.
+                debug!(
+                    "Ignoring nested/unexpected ChunkedPayload from {:?}",
+                    msg.sender
+                );
             }
             OverlandsMessage::Chat { text } => {
                 // Ignore messages from muted peers.

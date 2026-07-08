@@ -79,6 +79,17 @@ pub fn offer_auto_declined_busy(m: &mut MetricsRegistry) {
     m.incr(names::NET_OFFER_AUTO_DECLINED_BUSY_COUNT);
 }
 
+/// Record the serialized size (bytes) of a reliable broadcast that went
+/// through the chunking path (#716).
+pub fn broadcast_payload_bytes(m: &mut MetricsRegistry, bytes: usize) {
+    m.observe_gauge(names::NET_BROADCAST_PAYLOAD_BYTES, bytes as f64);
+}
+
+/// A reliable broadcast was refused for exceeding the max-payload ceiling.
+pub fn broadcast_oversize_dropped(m: &mut MetricsRegistry) {
+    m.incr(names::NET_BROADCAST_OVERSIZE_DROPPED_COUNT);
+}
+
 // ---- loading / state machine ----------------------------------------------
 
 /// A PDS record fetch resolved; `secs` is its spawn→resolve latency.
