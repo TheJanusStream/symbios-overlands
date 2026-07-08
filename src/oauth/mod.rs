@@ -55,7 +55,6 @@ use proto_blue_oauth::{AuthState, OAuthClient, OAuthServerMetadata};
 use serde::{Deserialize, Serialize};
 
 pub use auth_flow::{CompletedAuth, begin_authorization, complete_authorization};
-pub use service_token::{poll_service_token_refresh, schedule_service_token_refresh};
 #[cfg(target_arch = "wasm32")]
 pub use discovery::{CLIENT_METADATA_URL, WASM_REDIRECT_URI};
 #[cfg(not(target_arch = "wasm32"))]
@@ -70,6 +69,7 @@ pub use refresh::{
     fetch_session_identity, oauth_get_with_nonce_retry, oauth_post_with_nonce_retry,
     oauth_post_with_refresh, refresh_session,
 };
+pub use service_token::{poll_service_token_refresh, schedule_service_token_refresh};
 
 /// In-flight OAuth authorization state persisted between the `authorize()`
 /// call and the callback. On WASM this is serialized into

@@ -292,6 +292,16 @@ pub enum EventPayload {
     SocketPeerListReceived {
         count: u64,
     },
+    /// The relay refused our WebSocket handshake and the signaller gave up: an
+    /// HTTP 4xx (`status`, chiefly `401` from an expired/invalid service-auth
+    /// token) or a wasm blind-retry exhaustion (`status == 0`, unknown). The
+    /// socket never opens, so this is the *only* trace of an auth-reject —
+    /// there is no `peer_list`/`PeerJoined` to follow. `total` is the
+    /// session-cumulative rejection count.
+    RelayAuthRejected {
+        status: u64,
+        total: u64,
+    },
     PeerJoined {
         peer: String,
     },
@@ -487,6 +497,7 @@ impl EventPayload {
             | AmbientSettleCompleted { .. } => Subsystem::Loading,
 
             SocketPeerListReceived { .. }
+            | RelayAuthRejected { .. }
             | PeerJoined { .. }
             | PeerLeft { .. }
             | PeerIdentityVerified { .. }
@@ -568,6 +579,7 @@ impl EventPayload {
             | AmbientBakeFallback { .. } => Category::Audio,
 
             SocketPeerListReceived { .. }
+            | RelayAuthRejected { .. }
             | PeerJoined { .. }
             | PeerLeft { .. }
             | PeerIdentityVerified { .. }
@@ -747,6 +759,14 @@ impl EventPayload {
 
             SocketPeerListReceived { count } => {
                 format!("relay peer_list: {count} peer(s) already in room")
+            }
+            RelayAuthRejected { status, total } => {
+                let code = if *status == 0 {
+                    "auth, status unknown".to_string()
+                } else {
+                    format!("HTTP {status}")
+                };
+                format!("relay rejected connection ({code}); {total} this session")
             }
             PeerJoined { peer } => format!("peer joined: {peer}"),
             PeerLeft { peer, label } => format!("peer left: {label} ({peer})"),

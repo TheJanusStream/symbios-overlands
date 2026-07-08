@@ -24,6 +24,7 @@ pub fn register_builtins(reg: &mut InvariantRegistry) {
     reg.register(IdentitySpoofBurst);
     reg.register(SilentDecodeFailure);
     reg.register(GlareSuspected);
+    reg.register(RelayConnectionRejected);
     // D-3 ECS-state (live-only) rules.
     super::rules_ecs::register_ecs_rules(reg);
 }
@@ -468,6 +469,53 @@ impl Rule for GlareSuspected {
     }
 }
 
+// --- RelayConnectionRejected ------------------------------------------------
+struct RelayConnectionRejected;
+const RELAY_CONNECTION_REJECTED: RuleHeader = RuleHeader {
+    id: "net.relay_connection_rejected",
+    subsystem: Subsystem::Network,
+    severity: Severity::Error,
+    debounce: DebouncePolicy::OncePerCondition,
+    description: "the relay refused our WebSocket handshake (auth 401 / HTTP 4xx) — \
+                  most often a stale/expired service-auth token",
+    when_state: None,
+};
+impl Rule for RelayConnectionRejected {
+    fn header(&self) -> &RuleHeader {
+        &RELAY_CONNECTION_REJECTED
+    }
+    fn is_replayable(&self) -> bool {
+        true
+    }
+    /// Live: the cumulative `net.signal.auth_rejections` gauge is non-zero — the
+    /// relay refused at least one (re)connect this session. Unlike a stalled
+    /// handshake this leaves no peer_list, so `GlareSuspected` cannot see it.
+    fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
+        let n = cx.metrics.gauge(names::NET_SIGNAL_AUTH_REJECTIONS)?.last();
+        Some(if n >= 1.0 {
+            Verdict::violated(format!("{n:.0} relay handshake rejection(s) this session"))
+        } else {
+            Verdict::Clear
+        })
+    }
+    /// Replay: one verdict per logged rejection.
+    fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
+        events
+            .iter()
+            .filter_map(|e| match &e.payload {
+                EventPayload::RelayAuthRejected { status, .. } => {
+                    Some(Verdict::violated(if *status == 0 {
+                        "relay refused handshake (auth)".to_string()
+                    } else {
+                        format!("relay refused handshake (HTTP {status})")
+                    }))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -649,5 +697,57 @@ mod tests {
             ev(20.0, EventPayload::RoomStateApplied),
         ];
         assert!(GlareSuspected.replay(&alone).is_empty());
+    }
+
+    #[test]
+    fn relay_connection_rejected_fires_live_and_replay() {
+        use crate::diagnostics::MetricsRegistry;
+        // Replay: one verdict per logged rejection.
+        let events = vec![
+            ev(
+                1.0,
+                EventPayload::RelayAuthRejected {
+                    status: 401,
+                    total: 1,
+                },
+            ),
+            ev(
+                2.0,
+                EventPayload::RelayAuthRejected {
+                    status: 0,
+                    total: 2,
+                },
+            ),
+        ];
+        assert_eq!(RelayConnectionRejected.replay(&events).len(), 2);
+        assert!(RelayConnectionRejected.replay(&[]).is_empty());
+
+        // Live: fires once the cumulative rejection gauge is non-zero.
+        fn ctx(metrics: &MetricsRegistry) -> LiveCtx<'_> {
+            LiveCtx {
+                now_secs: 1.0,
+                state: AppState::InGame,
+                metrics,
+                loading_elapsed_secs: None,
+                player_y: None,
+                ground_y: None,
+                nan_body_count: 0,
+                orphan_avatar_count: 0,
+                respawns_recent: 0,
+            }
+        }
+        let mut metrics = MetricsRegistry::default();
+        metrics.observe_gauge(names::NET_SIGNAL_AUTH_REJECTIONS, 0.0);
+        assert_eq!(
+            RelayConnectionRejected.eval(&ctx(&metrics)),
+            Some(Verdict::Clear)
+        );
+        metrics.observe_gauge(names::NET_SIGNAL_AUTH_REJECTIONS, 2.0);
+        assert!(
+            RelayConnectionRejected
+                .eval(&ctx(&metrics))
+                .unwrap()
+                .is_violated()
+        );
     }
 }

@@ -148,6 +148,7 @@ fn scrape_signal_diagnostics(
     time: Res<Time>,
     mut last_peer_lists_seen: Local<u64>,
     mut connected_since_peer_list: Local<bool>,
+    mut last_auth_rejections: Local<u64>,
 ) {
     use std::sync::atomic::Ordering::Relaxed;
     let Some(diag) = diag else {
@@ -157,6 +158,7 @@ fn scrape_signal_diagnostics(
 
     let peer_list_len = d.last_peer_list_len.load(Relaxed);
     let peer_lists_received = d.peer_lists_received.load(Relaxed);
+    let auth_rejections = d.auth_rejections.load(Relaxed);
     reg.observe_gauge(names::NET_SIGNAL_PEER_LIST_LEN, peer_list_len as f64);
     reg.observe_gauge(
         names::NET_SIGNAL_OFFERS_INITIATED,
@@ -178,6 +180,21 @@ fn scrape_signal_diagnostics(
         names::NET_SIGNAL_ANSWERS_RECEIVED,
         d.answers_received.load(Relaxed) as f64,
     );
+    reg.observe_gauge(names::NET_SIGNAL_AUTH_REJECTIONS, auth_rejections as f64);
+
+    // A relay handshake rejection (chiefly an expired-token 401) leaves no other
+    // trace — the socket never opens. Emit one event per new rejection so it
+    // shows up in the session log / analyzer instead of only the console.
+    if auth_rejections > *last_auth_rejections {
+        *last_auth_rejections = auth_rejections;
+        log.warn(
+            time.elapsed_secs_f64(),
+            crate::diagnostics::event::EventPayload::RelayAuthRejected {
+                status: d.last_reject_status.load(Relaxed),
+                total: auth_rejections,
+            },
+        );
+    }
 
     let connected = remote_peers.iter().count();
 

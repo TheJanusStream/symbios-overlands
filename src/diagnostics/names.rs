@@ -92,6 +92,12 @@ pub const NET_SIGNAL_ANSWERS_RECEIVED: &str = "net.signal.answers_received";
 /// WebRTC handshake yet (and we have not connected since that peer_list). The
 /// `GlareSuspected` invariant fires when this stays `1` over a sustained window.
 pub const NET_SIGNAL_AWAITING_PEERS: &str = "net.signal.awaiting_peers";
+/// Cumulative relay handshake rejections the signaller gave up on — an HTTP 4xx
+/// on the WebSocket upgrade (chiefly an expired-token `401`) or a wasm
+/// blind-retry exhaustion. The socket never opens, so unlike a stalled
+/// handshake this leaves no peer_list/offer/answer trail; the
+/// `RelayConnectionRejected` invariant fires off it.
+pub const NET_SIGNAL_AUTH_REJECTIONS: &str = "net.signal.auth_rejections";
 
 // ---- loading / state machine ----------------------------------------------
 /// PDS record-fetch latency (ms), spawn → resolve.
@@ -163,6 +169,7 @@ pub const ALL: &[(&str, MetricKind)] = &[
     (NET_SIGNAL_ANSWERS_SENT, MetricKind::Gauge),
     (NET_SIGNAL_ANSWERS_RECEIVED, MetricKind::Gauge),
     (NET_SIGNAL_AWAITING_PEERS, MetricKind::Gauge),
+    (NET_SIGNAL_AUTH_REJECTIONS, MetricKind::Gauge),
     // loading
     (LOADING_RECORD_FETCH_LATENCY_MS, MetricKind::Histogram),
     (LOADING_RECORD_FETCH_RETRY_COUNT, MetricKind::Counter),
