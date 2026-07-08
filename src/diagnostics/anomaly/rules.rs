@@ -23,6 +23,7 @@ pub fn register_builtins(reg: &mut InvariantRegistry) {
     reg.register(OfferAcceptanceAnomaly);
     reg.register(IdentitySpoofBurst);
     reg.register(SilentDecodeFailure);
+    reg.register(GlareSuspected);
     // D-3 ECS-state (live-only) rules.
     super::rules_ecs::register_ecs_rules(reg);
 }
@@ -397,6 +398,76 @@ impl Rule for SilentDecodeFailure {
     }
 }
 
+// --- GlareSuspected ---------------------------------------------------------
+/// Sustained window (at the 1 Hz metric scrape, so ≈ samples == seconds) that
+/// the `awaiting_peers` flag must stay raised before a stalled handshake is
+/// flagged. A healthy WebRTC handshake completes in ~1–2 s, so this is well
+/// clear of a normal connect while still catching a permanent stall promptly.
+const GLARE_STALL_SAMPLES: usize = 10;
+/// Replay budget (seconds) between a non-empty `peer_list` and the first
+/// `PeerJoined`; kept equal to [`GLARE_STALL_SAMPLES`] so the offline verdict
+/// matches the live one.
+const GLARE_STALL_SECS: f64 = GLARE_STALL_SAMPLES as f64;
+
+struct GlareSuspected;
+const GLARE_SUSPECTED: RuleHeader = RuleHeader {
+    id: "net.signal_glare_suspected",
+    subsystem: Subsystem::Network,
+    severity: Severity::Error,
+    debounce: DebouncePolicy::OncePerCondition,
+    description: "relay reported peers in the room but no WebRTC data channel opened \
+                  (offer glare or ICE/NAT failure)",
+    when_state: Some(AppState::InGame),
+};
+impl Rule for GlareSuspected {
+    fn header(&self) -> &RuleHeader {
+        &GLARE_SUSPECTED
+    }
+    fn is_replayable(&self) -> bool {
+        true
+    }
+    /// Live: the `net.signal.awaiting_peers` gauge (set by the 1 Hz signal
+    /// scrape) has stayed raised across the whole recent window — the relay
+    /// reported peers yet none reached `Connected`.
+    fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
+        let samples: Vec<f64> = cx
+            .metrics
+            .gauge(names::NET_SIGNAL_AWAITING_PEERS)?
+            .iter()
+            .collect();
+        if samples.len() < GLARE_STALL_SAMPLES {
+            return Some(Verdict::Clear);
+        }
+        let recent = &samples[samples.len() - GLARE_STALL_SAMPLES..];
+        Some(if recent.iter().all(|&v| v >= 0.5) {
+            Verdict::violated(format!(
+                "relay reported peers but no WebRTC data channel opened for ~{GLARE_STALL_SAMPLES}s \
+                 (offer glare or ICE/NAT failure)"
+            ))
+        } else {
+            Verdict::Clear
+        })
+    }
+    /// Replay: a non-empty `SocketPeerListReceived` with no `PeerJoined` within
+    /// the budget (or none before the log ends) — the offline mirror of the
+    /// live flag.
+    fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
+        stall_durations(
+            events,
+            |p| matches!(p, EventPayload::SocketPeerListReceived { count } if *count >= 1),
+            |p| matches!(p, EventPayload::PeerJoined { .. }),
+            GLARE_STALL_SECS,
+        )
+        .into_iter()
+        .map(|d| {
+            Verdict::violated(format!(
+                "relay peer_list had peers but none connected within {d:.0}s"
+            ))
+        })
+        .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -517,5 +588,66 @@ mod tests {
             },
         )];
         assert_eq!(SilentDecodeFailure.replay(&decode).len(), 1);
+    }
+
+    #[test]
+    fn glare_suspected_live_fires_on_sustained_awaiting() {
+        use crate::diagnostics::MetricsRegistry;
+
+        // Rebuild the context per call so we never hold a borrow across a mutate.
+        fn ctx(metrics: &MetricsRegistry) -> LiveCtx<'_> {
+            LiveCtx {
+                now_secs: 20.0,
+                state: AppState::InGame,
+                metrics,
+                loading_elapsed_secs: None,
+                player_y: None,
+                ground_y: None,
+                nan_body_count: 0,
+                orphan_avatar_count: 0,
+                respawns_recent: 0,
+            }
+        }
+
+        let mut metrics = MetricsRegistry::default();
+        // The relay reported peers but none connected, sustained for the window.
+        for _ in 0..GLARE_STALL_SAMPLES {
+            metrics.observe_gauge(names::NET_SIGNAL_AWAITING_PEERS, 1.0);
+        }
+        assert!(GlareSuspected.eval(&ctx(&metrics)).unwrap().is_violated());
+
+        // A subsequent connect drops the flag → the newest sample clears it.
+        metrics.observe_gauge(names::NET_SIGNAL_AWAITING_PEERS, 0.0);
+        assert_eq!(GlareSuspected.eval(&ctx(&metrics)), Some(Verdict::Clear));
+
+        // Too little history yet → not enough evidence to fire.
+        let mut fresh = MetricsRegistry::default();
+        fresh.observe_gauge(names::NET_SIGNAL_AWAITING_PEERS, 1.0);
+        assert_eq!(GlareSuspected.eval(&ctx(&fresh)), Some(Verdict::Clear));
+    }
+
+    #[test]
+    fn glare_suspected_replay_flags_peer_list_with_no_join() {
+        // A peer_list named a peer, but no PeerJoined ever arrived and the log
+        // ran well past the budget → stall.
+        let stalled = vec![
+            ev(0.0, EventPayload::SocketPeerListReceived { count: 1 }),
+            ev(20.0, EventPayload::RoomStateApplied),
+        ];
+        assert_eq!(GlareSuspected.replay(&stalled).len(), 1);
+
+        // A join within budget → healthy, no verdict.
+        let ok = vec![
+            ev(0.0, EventPayload::SocketPeerListReceived { count: 1 }),
+            ev(2.0, EventPayload::PeerJoined { peer: "p".into() }),
+        ];
+        assert!(GlareSuspected.replay(&ok).is_empty());
+
+        // An empty peer_list is never a glare candidate.
+        let alone = vec![
+            ev(0.0, EventPayload::SocketPeerListReceived { count: 0 }),
+            ev(20.0, EventPayload::RoomStateApplied),
+        ];
+        assert!(GlareSuspected.replay(&alone).is_empty());
     }
 }

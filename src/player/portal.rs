@@ -268,7 +268,7 @@ pub(super) fn poll_portal_travel_tasks(
                 crate::protocol::OverlandsMessage,
             > {
                 room_url: format!("wss://{}/overlands/{}", host.0, travel_data.target_did),
-                ice_servers: None,
+                ice_servers: crate::config::network::ice_servers(),
                 _marker: std::marker::PhantomData,
             });
         }

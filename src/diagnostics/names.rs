@@ -72,6 +72,26 @@ pub const NET_OFFER_ACCEPTED_COUNT: &str = "net.offer.accepted_count";
 pub const NET_OFFER_DECLINED_COUNT: &str = "net.offer.declined_count";
 /// Incoming offers auto-declined because a dialog was already open (busy-gate).
 pub const NET_OFFER_AUTO_DECLINED_BUSY_COUNT: &str = "net.offer.auto_declined_busy_count";
+/// Size of the most recent relay `peer_list` — how many peers were already in
+/// the room when we joined. Mirrored from the multiuser signaller's
+/// `SignalDiagnostics` (which matchbox otherwise hides). The load-bearing glare
+/// signal: a value ≥ 1 while zero peers ever reach `Connected` means the WebRTC
+/// handshake stalled.
+pub const NET_SIGNAL_PEER_LIST_LEN: &str = "net.signal.peer_list_len";
+/// Cumulative SDP offers this client initiated (it is the designated Offerer).
+pub const NET_SIGNAL_OFFERS_INITIATED: &str = "net.signal.offers_initiated";
+/// Cumulative SDP offers this client sent over the signalling channel.
+pub const NET_SIGNAL_OFFERS_SENT: &str = "net.signal.offers_sent";
+/// Cumulative SDP offers this client received (it answers these).
+pub const NET_SIGNAL_OFFERS_RECEIVED: &str = "net.signal.offers_received";
+/// Cumulative SDP answers this client sent.
+pub const NET_SIGNAL_ANSWERS_SENT: &str = "net.signal.answers_sent";
+/// Cumulative SDP answers this client received (completes an offer it made).
+pub const NET_SIGNAL_ANSWERS_RECEIVED: &str = "net.signal.answers_received";
+/// 0/1 flag: the relay reported peers in the room but none have completed the
+/// WebRTC handshake yet (and we have not connected since that peer_list). The
+/// `GlareSuspected` invariant fires when this stays `1` over a sustained window.
+pub const NET_SIGNAL_AWAITING_PEERS: &str = "net.signal.awaiting_peers";
 
 // ---- loading / state machine ----------------------------------------------
 /// PDS record-fetch latency (ms), spawn → resolve.
@@ -136,6 +156,13 @@ pub const ALL: &[(&str, MetricKind)] = &[
     (NET_OFFER_ACCEPTED_COUNT, MetricKind::Counter),
     (NET_OFFER_DECLINED_COUNT, MetricKind::Counter),
     (NET_OFFER_AUTO_DECLINED_BUSY_COUNT, MetricKind::Counter),
+    (NET_SIGNAL_PEER_LIST_LEN, MetricKind::Gauge),
+    (NET_SIGNAL_OFFERS_INITIATED, MetricKind::Gauge),
+    (NET_SIGNAL_OFFERS_SENT, MetricKind::Gauge),
+    (NET_SIGNAL_OFFERS_RECEIVED, MetricKind::Gauge),
+    (NET_SIGNAL_ANSWERS_SENT, MetricKind::Gauge),
+    (NET_SIGNAL_ANSWERS_RECEIVED, MetricKind::Gauge),
+    (NET_SIGNAL_AWAITING_PEERS, MetricKind::Gauge),
     // loading
     (LOADING_RECORD_FETCH_LATENCY_MS, MetricKind::Histogram),
     (LOADING_RECORD_FETCH_RETRY_COUNT, MetricKind::Counter),

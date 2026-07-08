@@ -41,7 +41,11 @@ impl Plugin for MetricsPlugin {
 
         app.add_systems(
             Update,
-            (scrape_bevy_diagnostics, emit_metric_snapshot)
+            (
+                scrape_bevy_diagnostics,
+                scrape_signal_diagnostics,
+                emit_metric_snapshot,
+            )
                 .chain()
                 .run_if(on_timer(Duration::from_secs(1))),
         );
@@ -121,6 +125,90 @@ fn scrape_bevy_diagnostics(
     reg.observe_gauge(
         names::RUNTIME_TEXTURE_BIND_SLOTS,
         crate::splat::SPLAT_TEXTURE_BIND_SLOTS as f64,
+    );
+}
+
+/// Mirror the multiuser signaller's `SignalDiagnostics` counters into the
+/// registry (1 Hz, chained with the other scrapes), derive the `awaiting_peers`
+/// stall flag from live [`RemotePeer`](crate::state::RemotePeer) presence, and
+/// emit a `SocketPeerListReceived` event the first time each new non-empty
+/// `peer_list` is observed.
+///
+/// This is the app's only window into the WebRTC *signalling* layer: matchbox
+/// surfaces just `Connected`/`Disconnected` to the plugin, so without this a
+/// glared or ICE-failed handshake (relay reported peers, no data channel ever
+/// opens) is indistinguishable from being genuinely alone. See the
+/// `net.signal_glare_suspected` invariant, which fires off `awaiting_peers`.
+#[allow(clippy::too_many_arguments)]
+fn scrape_signal_diagnostics(
+    diag: Option<Res<bevy_symbios_multiuser::prelude::SignalDiagnosticsRes>>,
+    remote_peers: Query<(), With<crate::state::RemotePeer>>,
+    mut reg: ResMut<MetricsRegistry>,
+    mut log: ResMut<crate::diagnostics::SessionLog>,
+    time: Res<Time>,
+    mut last_peer_lists_seen: Local<u64>,
+    mut connected_since_peer_list: Local<bool>,
+) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let Some(diag) = diag else {
+        return;
+    };
+    let d = &diag.0;
+
+    let peer_list_len = d.last_peer_list_len.load(Relaxed);
+    let peer_lists_received = d.peer_lists_received.load(Relaxed);
+    reg.observe_gauge(names::NET_SIGNAL_PEER_LIST_LEN, peer_list_len as f64);
+    reg.observe_gauge(
+        names::NET_SIGNAL_OFFERS_INITIATED,
+        d.offers_initiated.load(Relaxed) as f64,
+    );
+    reg.observe_gauge(
+        names::NET_SIGNAL_OFFERS_SENT,
+        d.offers_sent.load(Relaxed) as f64,
+    );
+    reg.observe_gauge(
+        names::NET_SIGNAL_OFFERS_RECEIVED,
+        d.offers_received.load(Relaxed) as f64,
+    );
+    reg.observe_gauge(
+        names::NET_SIGNAL_ANSWERS_SENT,
+        d.answers_sent.load(Relaxed) as f64,
+    );
+    reg.observe_gauge(
+        names::NET_SIGNAL_ANSWERS_RECEIVED,
+        d.answers_received.load(Relaxed) as f64,
+    );
+
+    let connected = remote_peers.iter().count();
+
+    // A newly-received peer_list resets the "connected since?" latch and (when
+    // non-empty) logs a one-shot event so a post-mortem can separate "joined a
+    // populated room" from "alone". `peer_lists_received` is cumulative and
+    // monotonic, so a strict increase is the rising edge of a fresh handshake.
+    if peer_lists_received > *last_peer_lists_seen {
+        *last_peer_lists_seen = peer_lists_received;
+        *connected_since_peer_list = false;
+        if peer_list_len >= 1 {
+            log.info(
+                time.elapsed_secs_f64(),
+                crate::diagnostics::event::EventPayload::SocketPeerListReceived {
+                    count: peer_list_len,
+                },
+            );
+        }
+    }
+    if connected >= 1 {
+        *connected_since_peer_list = true;
+    }
+
+    // `awaiting_peers`: the relay reported peers at join, none have connected,
+    // and none have connected since that peer_list — so a peer that connected
+    // then later left does not re-raise the flag. The `GlareSuspected`
+    // invariant fires when this stays `1` over a sustained window.
+    let awaiting = peer_list_len >= 1 && connected == 0 && !*connected_since_peer_list;
+    reg.observe_gauge(
+        names::NET_SIGNAL_AWAITING_PEERS,
+        if awaiting { 1.0 } else { 0.0 },
     );
 }
 

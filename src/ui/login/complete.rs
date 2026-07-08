@@ -80,7 +80,7 @@ pub(super) fn install_completed_session(
     let host = relay_host.map(|r| r.0.as_str()).unwrap_or("");
     commands.insert_resource(SymbiosMultiuserConfig::<OverlandsMessage> {
         room_url: format!("wss://{}/overlands/{}", host, room_did),
-        ice_servers: None,
+        ice_servers: crate::config::network::ice_servers(),
         _marker: PhantomData,
     });
 

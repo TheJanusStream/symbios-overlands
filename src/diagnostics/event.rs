@@ -282,6 +282,16 @@ pub enum EventPayload {
     },
 
     // ---- Network / multiuser ----------------------------------------------
+    /// The relay's `peer_list` welcome named `count` peers already present in
+    /// the room when we joined. Emitted once per (re)connect that finds a
+    /// non-empty room, BEFORE any WebRTC data channel opens — so a session log
+    /// can tell "joined a populated room" apart from "genuinely alone". A
+    /// `SocketPeerListReceived { count >= 1 }` with no following `PeerJoined` is
+    /// the fingerprint of a stalled / glared handshake (the app only logs
+    /// `PeerJoined` on a *completed* connection, which glare never reaches).
+    SocketPeerListReceived {
+        count: u64,
+    },
     PeerJoined {
         peer: String,
     },
@@ -476,7 +486,8 @@ impl EventPayload {
             | LoginFeedFetchCompleted { .. }
             | AmbientSettleCompleted { .. } => Subsystem::Loading,
 
-            PeerJoined { .. }
+            SocketPeerListReceived { .. }
+            | PeerJoined { .. }
             | PeerLeft { .. }
             | PeerIdentityVerified { .. }
             | PeerIdentitySpoofRejected { .. }
@@ -556,7 +567,8 @@ impl EventPayload {
             | AmbientBakeCompleted { .. }
             | AmbientBakeFallback { .. } => Category::Audio,
 
-            PeerJoined { .. }
+            SocketPeerListReceived { .. }
+            | PeerJoined { .. }
             | PeerLeft { .. }
             | PeerIdentityVerified { .. }
             | PeerIdentitySpoofRejected { .. }
@@ -733,6 +745,9 @@ impl EventPayload {
                 format!("ambient settled ({settled_at_secs:.1}s)")
             }
 
+            SocketPeerListReceived { count } => {
+                format!("relay peer_list: {count} peer(s) already in room")
+            }
             PeerJoined { peer } => format!("peer joined: {peer}"),
             PeerLeft { peer, label } => format!("peer left: {label} ({peer})"),
             PeerIdentityVerified { did, handle, .. } => format!("identity: @{handle} {did}"),

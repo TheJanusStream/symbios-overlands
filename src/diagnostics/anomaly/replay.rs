@@ -317,6 +317,7 @@ mod tests {
                 "net.identity_spoof_burst",
                 "net.offer_acceptance_anomaly",
                 "net.peer_churn_spike",
+                "net.signal_glare_suspected",
                 "net.silent_decode_failure",
                 "offload.ambient_bake_stall",
                 "offload.task_never_resolves",

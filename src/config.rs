@@ -657,6 +657,69 @@ pub mod network {
     /// the vast majority of real rooms (a portal-cluster hop brings
     /// in low-double-digit peers) while bounding worst-case memory.
     pub const MAX_PEER_AVATAR_CACHE_ENTRIES: usize = 256;
+
+    // --- WebRTC ICE (NAT traversal) -----------------------------------------
+    /// Public STUN servers used for WebRTC ICE server-reflexive candidate
+    /// discovery. Without at least one STUN server the client gathers only
+    /// host (and mDNS `.local`) candidates, so two peers on different networks
+    /// can complete relay signalling yet never form a peer-to-peer data
+    /// channel — each then sees an empty region. STUN covers full-cone and
+    /// (port-)restricted-cone NATs; symmetric NAT additionally needs a TURN
+    /// relay (see [`TURN`]). Peers on the same LAN connect via host candidates
+    /// regardless, which is why the missing ICE config went unnoticed in
+    /// same-network testing.
+    pub const STUN_URLS: &[&str] = &[
+        "stun:stun.l.google.com:19302",
+        "stun:stun1.l.google.com:19302",
+        "stun:stun.cloudflare.com:3478",
+    ];
+
+    /// Static TURN configuration. TURN relays media through an operator-run
+    /// server and therefore needs provisioned credentials, so it is unset by
+    /// default: fill in a deployed TURN endpoint + long-term credentials (or
+    /// later wire them from runtime config) to reach peers that STUN alone
+    /// cannot — chiefly those behind symmetric NAT or UDP-blocking firewalls.
+    /// An empty `url` runs STUN-only. `matchbox_socket` 0.14 exposes a single
+    /// [`bevy_symbios_multiuser::prelude::RtcIceServerConfig`], so the TURN url
+    /// shares the entry's credential with the STUN urls; browsers apply the
+    /// credential only to `turn:`/`turns:` urls and ignore it for `stun:`, so
+    /// listing both in one entry is safe.
+    pub struct TurnConfig {
+        pub url: &'static str,
+        pub username: &'static str,
+        pub credential: &'static str,
+    }
+
+    /// The active TURN relay. `url: ""` disables TURN (STUN-only).
+    pub const TURN: TurnConfig = TurnConfig {
+        url: "",
+        username: "",
+        credential: "",
+    };
+
+    /// Build the ICE server configuration for the multiuser socket
+    /// ([`bevy_symbios_multiuser::prelude::SymbiosMultiuserConfig`]'s
+    /// `ice_servers` field). Returns `None` only when neither STUN nor TURN is
+    /// configured, which reverts to host-candidate-only (LAN-only) P2P.
+    pub fn ice_servers() -> Option<bevy_symbios_multiuser::prelude::RtcIceServerConfig> {
+        use bevy_symbios_multiuser::prelude::RtcIceServerConfig;
+        let mut urls: Vec<String> = STUN_URLS.iter().map(|s| s.to_string()).collect();
+        let mut username = None;
+        let mut credential = None;
+        if !TURN.url.is_empty() {
+            urls.push(TURN.url.to_string());
+            username = Some(TURN.username.to_string());
+            credential = Some(TURN.credential.to_string());
+        }
+        if urls.is_empty() {
+            return None;
+        }
+        Some(RtcIceServerConfig {
+            urls,
+            username,
+            credential,
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------
