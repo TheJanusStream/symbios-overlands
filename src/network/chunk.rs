@@ -11,7 +11,7 @@
 //!
 //! This module splits a large reliable [`OverlandsMessage`] into
 //! [`OverlandsMessage::ChunkedPayload`] fragments on the send side
-//! ([`broadcast_chunked`]) and reassembles them on the receive side
+//! ([`ChunkSend::broadcast`]) and reassembles them on the receive side
 //! ([`ChunkReassembly::ingest`]). Fragments ride the ordered Reliable
 //! channel, so they arrive in `seq` order and none is dropped; the receiver
 //! buffers by `(sender, msg_id)` until all `total` fragments are in, then
@@ -25,6 +25,7 @@
 
 use std::collections::HashMap;
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_symbios_multiuser::prelude::*;
 
@@ -192,79 +193,90 @@ impl ChunkReassembly {
     }
 }
 
-/// Broadcast `msg` over the Reliable channel, splitting it into
-/// sub-ceiling [`OverlandsMessage::ChunkedPayload`] fragments if its
-/// serialized form is too large to ride one WebRTC message.
-///
-/// * Under [`config::network::RELIABLE_CHUNK_DATA_BYTES`] → sent whole (no
-///   fragmentation overhead for the common case).
-/// * Over [`config::network::MAX_RELIABLE_PAYLOAD_BYTES`] → refused, counted
-///   ([`samplers::broadcast_oversize_dropped`]) and logged as an
-///   [`EventPayload::OutboundMessageOversize`] error rather than handed to a
-///   send that would silently fail. The guest does not receive it — but the
-///   drop is now visible instead of an unobservable SCTP error.
-/// * In between → split into `ceil(len / chunk)` fragments, all sharing a
-///   fresh `msg_id`.
-pub fn broadcast_chunked(
-    sender: &mut SendMessage<OverlandsMessage>,
-    seq: &mut OutboundChunkSeq,
-    metrics: &mut MetricsRegistry,
-    session_log: &mut SessionLog,
-    now: f64,
-    msg: OverlandsMessage,
-) {
-    let bytes = match msg.to_chunk_bytes() {
-        Ok(b) => b,
-        Err(e) => {
+/// Bundles the outbound chunk counter and the metrics registry so any system
+/// can chunk-broadcast a reliable message through one [`SystemParam`]. Beyond
+/// tidiness, this keeps param-heavy senders (the drag-drop gift handler, the
+/// room broadcaster) under Bevy's 16-parameter-per-system ceiling.
+#[derive(SystemParam)]
+pub struct ChunkSend<'w> {
+    seq: ResMut<'w, OutboundChunkSeq>,
+    metrics: ResMut<'w, MetricsRegistry>,
+}
+
+impl ChunkSend<'_> {
+    /// Broadcast `msg` over the Reliable channel, splitting it into
+    /// sub-ceiling [`OverlandsMessage::ChunkedPayload`] fragments if its
+    /// serialized form is too large to ride one WebRTC message.
+    ///
+    /// * Under [`config::network::RELIABLE_CHUNK_DATA_BYTES`] → sent whole (no
+    ///   fragmentation overhead for the common case).
+    /// * Over [`config::network::MAX_RELIABLE_PAYLOAD_BYTES`] → refused,
+    ///   counted ([`samplers::broadcast_oversize_dropped`]) and logged as an
+    ///   [`EventPayload::OutboundMessageOversize`] error rather than handed to
+    ///   a send that would silently fail. The recipient does not receive it —
+    ///   but the drop is now visible instead of an unobservable SCTP error.
+    /// * In between → split into `ceil(len / chunk)` fragments, all sharing a
+    ///   fresh `msg_id`.
+    pub(crate) fn broadcast(
+        &mut self,
+        sender: &mut SendMessage<OverlandsMessage>,
+        session_log: &mut SessionLog,
+        now: f64,
+        msg: OverlandsMessage,
+    ) {
+        let bytes = match msg.to_chunk_bytes() {
+            Ok(b) => b,
+            Err(e) => {
+                error!(
+                    "Failed to serialize {} for chunked broadcast: {e}",
+                    variant_label(&msg)
+                );
+                return;
+            }
+        };
+        let len = bytes.len();
+        samplers::broadcast_payload_bytes(&mut self.metrics, len);
+
+        if len > config::network::MAX_RELIABLE_PAYLOAD_BYTES {
+            samplers::broadcast_oversize_dropped(&mut self.metrics);
+            session_log.error(
+                now,
+                EventPayload::OutboundMessageOversize {
+                    message_kind: variant_label(&msg).to_string(),
+                    bytes: len as u64,
+                    ceiling_bytes: config::network::MAX_RELIABLE_PAYLOAD_BYTES as u64,
+                },
+            );
             error!(
-                "Failed to serialize {} for chunked broadcast: {e}",
-                variant_label(&msg)
+                "Refusing to broadcast {} — {} exceeds the {} reliable-payload ceiling; \
+                 the recipient will not receive it. Reduce the amount of authored content.",
+                variant_label(&msg),
+                human_bytes(len),
+                human_bytes(config::network::MAX_RELIABLE_PAYLOAD_BYTES),
             );
             return;
         }
-    };
-    let len = bytes.len();
-    samplers::broadcast_payload_bytes(metrics, len);
 
-    if len > config::network::MAX_RELIABLE_PAYLOAD_BYTES {
-        samplers::broadcast_oversize_dropped(metrics);
-        session_log.error(
-            now,
-            EventPayload::OutboundMessageOversize {
-                message_kind: variant_label(&msg).to_string(),
-                bytes: len as u64,
-                ceiling_bytes: config::network::MAX_RELIABLE_PAYLOAD_BYTES as u64,
-            },
-        );
-        error!(
-            "Refusing to broadcast {} — {} exceeds the {} reliable-payload ceiling; \
-             guests will not receive it. Reduce the amount of authored content.",
-            variant_label(&msg),
-            human_bytes(len),
-            human_bytes(config::network::MAX_RELIABLE_PAYLOAD_BYTES),
-        );
-        return;
-    }
+        if len <= config::network::RELIABLE_CHUNK_DATA_BYTES {
+            sender.broadcast(msg, ChannelKind::Reliable);
+            return;
+        }
 
-    if len <= config::network::RELIABLE_CHUNK_DATA_BYTES {
-        sender.broadcast(msg, ChannelKind::Reliable);
-        return;
-    }
-
-    let chunk_size = config::network::RELIABLE_CHUNK_DATA_BYTES;
-    let total = len.div_ceil(chunk_size) as u16;
-    let msg_id = seq.0;
-    seq.0 = seq.0.wrapping_add(1);
-    for (i, chunk) in bytes.chunks(chunk_size).enumerate() {
-        sender.broadcast(
-            OverlandsMessage::ChunkedPayload {
-                msg_id,
-                seq: i as u16,
-                total,
-                data: chunk.to_vec(),
-            },
-            ChannelKind::Reliable,
-        );
+        let chunk_size = config::network::RELIABLE_CHUNK_DATA_BYTES;
+        let total = len.div_ceil(chunk_size) as u16;
+        let msg_id = self.seq.0;
+        self.seq.0 = self.seq.0.wrapping_add(1);
+        for (i, chunk) in bytes.chunks(chunk_size).enumerate() {
+            sender.broadcast(
+                OverlandsMessage::ChunkedPayload {
+                    msg_id,
+                    seq: i as u16,
+                    total,
+                    data: chunk.to_vec(),
+                },
+                ChannelKind::Reliable,
+            );
+        }
     }
 }
 
@@ -304,7 +316,7 @@ mod tests {
         }
     }
 
-    /// Split a message exactly as [`broadcast_chunked`] does, so a round-trip
+    /// Split a message exactly as [`ChunkSend::broadcast`] does, so a round-trip
     /// test can drive [`ChunkReassembly::ingest`] with real fragments. Yields
     /// `(seq, total, data)` triples.
     fn fragments(msg: &OverlandsMessage) -> Vec<(u16, u16, Vec<u8>)> {

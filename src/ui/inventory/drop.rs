@@ -61,7 +61,8 @@ pub fn handle_generator_drop(
     mut room: Option<ResMut<LiveRoomRecord>>,
     mut pending_offers: ResMut<PendingOutgoingOffers>,
     mut session_log: ResMut<SessionLog>,
-    mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
+    mut sender: SendMessage<OverlandsMessage>,
+    mut chunk: crate::network::chunk::ChunkSend,
     time: Res<Time>,
 ) {
     let Some(name) = pending.generator_name.clone() else {
@@ -127,15 +128,16 @@ pub fn handle_generator_drop(
         let now = time.elapsed_secs_f64();
         let offer_id =
             pending_offers.register(target.did.clone(), target.handle.clone(), name.clone(), now);
-        writer.write(Broadcast {
-            payload: OverlandsMessage::item_offer(
-                offer_id,
-                target.did.clone(),
-                name.clone(),
-                &generator,
-            ),
-            channel: ChannelKind::Reliable,
-        });
+        // Route through the chunker (#717): a gifted `Generator` can be a
+        // large Shape-grammar / L-system blueprint whose `generator_json`
+        // pushes the offer past the 64 KiB WebRTC message ceiling, which would
+        // otherwise fail silently and leave the recipient without the gift.
+        chunk.broadcast(
+            &mut sender,
+            &mut session_log,
+            now,
+            OverlandsMessage::item_offer(offer_id, target.did.clone(), name.clone(), &generator),
+        );
         session_log.info(
             now,
             EventPayload::ItemOfferSent {

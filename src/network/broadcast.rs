@@ -67,24 +67,21 @@ pub(super) fn broadcast_local_state(
 /// propagate the same frame, bypassing the fixed-timestep throttle used for
 /// continuous transforms.
 ///
-/// Routed through [`super::chunk::broadcast_chunked`] (#716): a maxed-out
+/// Routed through [`super::chunk::ChunkSend::broadcast`] (#716): a maxed-out
 /// avatar record can serialize past the 64 KiB WebRTC message ceiling, which
 /// would otherwise fail silently and leave peers on a stale avatar.
 pub(super) fn broadcast_avatar_state(
     live: Res<LiveAvatarRecord>,
     mut sender: SendMessage<OverlandsMessage>,
-    mut seq: ResMut<super::chunk::OutboundChunkSeq>,
-    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
+    mut chunk: super::chunk::ChunkSend,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
     time: Res<Time>,
 ) {
     if !live.is_changed() {
         return;
     }
-    super::chunk::broadcast_chunked(
+    chunk.broadcast(
         &mut sender,
-        &mut seq,
-        &mut metrics,
         &mut session_log,
         time.elapsed_secs_f64(),
         OverlandsMessage::avatar_state_update(&live.0),
@@ -104,7 +101,7 @@ pub(super) fn broadcast_avatar_state(
 /// ~60×/s, saturating the ordered Reliable channel and stalling every other
 /// reliable message behind it. `dirty` remembers a change seen mid-interval
 /// so the *final* drag state is always flushed once the interval elapses.
-/// The send itself goes through [`super::chunk::broadcast_chunked`], which
+/// The send itself goes through [`super::chunk::ChunkSend::broadcast`], which
 /// splits the record across sub-ceiling fragments or refuses it if it is past
 /// the hard payload ceiling.
 #[allow(clippy::too_many_arguments)]
@@ -113,8 +110,7 @@ pub(super) fn broadcast_room_state(
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
     mut sender: SendMessage<OverlandsMessage>,
-    mut seq: ResMut<super::chunk::OutboundChunkSeq>,
-    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
+    mut chunk: super::chunk::ChunkSend,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
     time: Res<Time>,
     mut dirty: Local<bool>,
@@ -142,10 +138,8 @@ pub(super) fn broadcast_room_state(
     }
     *dirty = false;
     *last_sent = Some(now);
-    super::chunk::broadcast_chunked(
+    chunk.broadcast(
         &mut sender,
-        &mut seq,
-        &mut metrics,
         &mut session_log,
         now,
         OverlandsMessage::room_state_update(&record.0),

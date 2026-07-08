@@ -43,7 +43,7 @@
 //! * [`smoother`] — jitter-buffered playout (cubic Hermite spline).
 
 mod broadcast;
-mod chunk;
+pub mod chunk;
 mod inbound;
 mod lifecycle;
 mod peer_cache;
