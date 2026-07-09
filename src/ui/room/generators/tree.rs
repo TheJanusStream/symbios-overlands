@@ -13,46 +13,9 @@ use crate::pds::Generator;
 use crate::state::LiveInventoryRecord;
 use crate::ui::inventory::is_drop_placeable;
 
-use super::super::construct::{allows_children, make_default_for_kind};
+use super::super::construct::{allows_children, catalogue_menu_entries, make_default_for_kind};
 use super::reparent::{PendingAction, apply_pending, find_node};
 use super::{GenNodeId, GeneratorTreeSource, TreeViewState};
-
-/// Shared "+ From Catalogue" submenu body: entry buttons grouped under
-/// category headers (Buildings / Plants / Patterns, from
-/// [`crate::catalogue::CatalogueCategory::ALL`]; empty categories are
-/// skipped so the menu stays compact as new ones are added). A click hands
-/// `on_pick` the entry's slug plus a DID-less stamp — the submenu seeds the
-/// editor with a fresh blueprint, and personalisable entries (e.g.
-/// Teleporter) get their DID filled in at gift/drop time (editors can also
-/// type it into the `target_did` field by hand). Used by both the toolbar's
-/// add-root menu and the per-node context menu's add-child path.
-fn catalogue_menu_entries(ui: &mut egui::Ui, mut on_pick: impl FnMut(String, Generator)) {
-    for category in crate::catalogue::CatalogueCategory::ALL {
-        let entries_here: Vec<_> = crate::catalogue::ENTRIES
-            .iter()
-            .copied()
-            .filter(|e| e.category() == category)
-            .collect();
-        if entries_here.is_empty() {
-            continue;
-        }
-        ui.label(
-            egui::RichText::new(category.label())
-                .strong()
-                .color(egui::Color32::from_rgb(180, 180, 220)),
-        );
-        for entry in entries_here {
-            if ui
-                .button(entry.name())
-                .on_hover_text(entry.description())
-                .clicked()
-            {
-                on_pick(entry.slug().to_string(), entry.build(""));
-                ui.close();
-            }
-        }
-    }
-}
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_tree_panel(
@@ -128,7 +91,7 @@ pub(super) fn draw_tree_panel(
         if !crate::catalogue::ENTRIES.is_empty() {
             ui.menu_button("+ From Catalogue", |ui| {
                 let mut picked: Option<(String, Generator)> = None;
-                catalogue_menu_entries(ui, |slug, g| picked = Some((slug, g)));
+                catalogue_menu_entries(ui, "", |slug, g| picked = Some((slug, g)));
                 if let Some((slug, g)) = picked
                     && let Some(new_name) = source.add_root(&slug, g)
                 {
@@ -375,7 +338,7 @@ fn build_tree_node(
         // inventory clone — same buffered insert path, fresh blueprint.
         if menu_allows_children && !crate::catalogue::ENTRIES.is_empty() {
             ui.menu_button("+ From Catalogue", |ui| {
-                catalogue_menu_entries(ui, |_slug, g| {
+                catalogue_menu_entries(ui, "", |_slug, g| {
                     *pending.borrow_mut() = Some(PendingAction::AddChildPrebuilt {
                         parent: menu_id.clone(),
                         generator: Box::new(g),

@@ -2,10 +2,10 @@
 //!
 //! [`get_service_auth`] mints a short-lived (~60 s on bsky) JWT that the WebRTC
 //! signaller presents to the relay on every (re)connect. It is fetched once at
-//! login (see [`crate::ui::login::complete`]) and, without this module, never
-//! renewed — so any reconnect (portal hop, dead-socket respawn, network flap)
-//! more than a token-lifetime after login re-handshakes with an **expired**
-//! token, and the relay rejects it with HTTP 401 (its `validate_exp`
+//! login (see [`crate::ui::login::poll_complete_auth_task`]) and, without this
+//! module, never renewed — so any reconnect (portal hop, dead-socket respawn,
+//! network flap) more than a token-lifetime after login re-handshakes with an
+//! **expired** token, and the relay rejects it with HTTP 401 (its `validate_exp`
 //! hardening). On native the signaller fast-fails 4xx and backs off, reusing
 //! the same dead token forever; on wasm the browser hides the status and the
 //! blind-retry budget is exhausted. Either way the peer cannot (re)join the

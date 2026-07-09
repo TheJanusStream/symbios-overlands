@@ -61,6 +61,7 @@
 
 mod blob;
 mod commit;
+mod context_menu;
 mod drag;
 mod sync;
 
@@ -71,7 +72,7 @@ use bevy::picking::mesh_picking::ray_cast::{MeshRayCast, MeshRayCastSettings};
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use bevy::window::PrimaryWindow;
-use bevy_egui::{EguiContexts, egui};
+use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use transform_gizmo_bevy::{GizmoOrientation, GizmoTarget};
 
 use crate::state::AppState;
@@ -227,7 +228,30 @@ impl Plugin for EditorGizmoPlugin {
                 Update,
                 pick_on_scene_click.run_if(in_state(AppState::InGame)),
             )
-            .add_systems(OnExit(AppState::InGame), blob::cleanup_blob_edit);
+            // Right-click scene context menu (#720): a create-and-position
+            // workflow for the room owner. The detector runs in `Update`
+            // (click-vs-drag tracking so it never fights the right-button orbit
+            // gesture); the renderer runs in the egui pass *before*
+            // `room_admin_ui` so a chosen selection/creation lands in the same
+            // frame's editor draw (and the one-shot tree focus is consumed).
+            .init_resource::<context_menu::SceneContextMenu>()
+            .add_systems(
+                Update,
+                context_menu::detect_scene_right_click.run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(
+                EguiPrimaryContextPass,
+                context_menu::scene_context_menu_ui
+                    .before(crate::ui::room::room_admin_ui)
+                    .run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(
+                OnExit(AppState::InGame),
+                (
+                    blob::cleanup_blob_edit,
+                    context_menu::close_scene_context_menu,
+                ),
+            );
     }
 }
 

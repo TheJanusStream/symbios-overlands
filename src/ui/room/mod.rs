@@ -28,7 +28,7 @@
 //! ternary-tree L-system preset used when adding a new generator.
 
 pub mod audio;
-mod construct;
+pub(crate) mod construct;
 mod contact_effects;
 mod environment;
 pub(crate) mod generators;
