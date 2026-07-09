@@ -362,13 +362,33 @@ fn pick_on_scene_click(
                 room_state.selected_placement = None;
                 room_state.selected_generator = Some(marker.generator_ref.clone());
                 room_state.selected_prim_path = Some(marker.path.clone());
-                // Mirror a tree-row click so the GUI highlights the node.
+                // Reveal the picked row: the tree collapses by default
+                // (#719), so open every ancestor along the path or the
+                // selected row stays hidden inside a collapsed parent.
+                // `set_openness(true)` records an explicit open-state that
+                // overrides the collapsed default for each ancestor (root at
+                // depth 0 through the immediate parent at depth len-1).
+                for depth in 0..marker.path.len() {
+                    room_state.tree_view_state.set_openness(
+                        crate::ui::room::GenNodeId::child(
+                            marker.generator_ref.clone(),
+                            marker.path[..depth].to_vec(),
+                        ),
+                        true,
+                    );
+                }
+                // Mirror a tree-row click so the GUI highlights the node,
+                // and flag the tree to grab focus on its next draw so the
+                // row gets the bright *focused* highlight rather than the
+                // dim unfocused one (a world-pick bypasses the tree's own
+                // click-to-focus path).
                 room_state
                     .tree_view_state
                     .set_selected(vec![crate::ui::room::GenNodeId::child(
                         marker.generator_ref,
                         marker.path,
                     )]);
+                room_state.pending_tree_focus = true;
             } else {
                 room_state.clear_selection();
             }

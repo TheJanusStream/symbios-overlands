@@ -63,6 +63,12 @@ pub(super) fn draw_tree_panel(
     tree_view_state: &mut TreeViewState,
     renaming_generator: &mut Option<(String, String)>,
     inventory: Option<&mut LiveInventoryRecord>,
+    // Set for one frame after an in-world pick selected a node (#719): the
+    // tree grabs keyboard focus so the row renders with the same bright
+    // highlight a direct click gives it. A world-pick bypasses the tree's
+    // own click-to-focus path, so without this the picked row shows the dim
+    // *unfocused* highlight instead.
+    request_focus: bool,
     dirty: &mut bool,
 ) {
     ui.heading("Generators");
@@ -167,7 +173,8 @@ pub(super) fn draw_tree_panel(
             // `get_root`, and pending-action mutations are buffered into
             // the `RefCell` for application after the closure returns.
             let source_ref: &dyn GeneratorTreeSource = &*source;
-            let (_resp, actions) = TreeView::new(ui.make_persistent_id("generators_tree_view"))
+            let tree_id = ui.make_persistent_id("generators_tree_view");
+            let (_resp, actions) = TreeView::new(tree_id)
                 .allow_drag_and_drop(true)
                 .allow_multi_selection(false)
                 .show_state(ui, tree_view_state, |builder| {
@@ -187,6 +194,17 @@ pub(super) fn draw_tree_panel(
                         }
                     }
                 });
+
+            // Grant the tree keyboard focus after an in-world pick (#719).
+            // The widget only paints the bright `selection.bg_fill` while it
+            // holds focus; an unfocused tree paints a dim `weak_bg_fill`, so
+            // a programmatic selection would otherwise look different from a
+            // direct click. Requesting focus here — inside the same egui
+            // frame the tree is built — overrides the focus-clear that the
+            // world click (on empty, non-egui space) would otherwise apply.
+            if request_focus {
+                ui.memory_mut(|m| m.request_focus(tree_id));
+            }
 
             // Drain a Move (drag-commit) into the pending channel. We
             // only honour the first move event per frame and skip if a
@@ -384,11 +402,18 @@ fn build_tree_node(
         }
     };
 
-    if allows_children(&node.kind) {
+    let is_container = allows_children(&node.kind);
+    // Render the expand/collapse marker only for nodes that *have* children
+    // (#719): a container-capable kind with an empty `children` list is a
+    // directory in principle but shows no triangle, matching how a file
+    // browser draws an empty folder as a plain row. Trees start collapsed
+    // (`default_open(false)`); the in-world pick path re-opens a picked
+    // node's ancestors so its row stays visible.
+    if is_container && !node.children.is_empty() {
         builder.node(
             NodeBuilder::dir(id)
                 .label(label)
-                .default_open(is_root)
+                .default_open(false)
                 .context_menu(context_menu),
         );
         for (i, child) in node.children.iter().enumerate() {
@@ -408,14 +433,17 @@ fn build_tree_node(
         }
         builder.close_dir();
     } else {
-        // No-children kinds (Water, Unknown) reject every drop INTO
-        // them — `apply_reparent` enforces the same invariant defensively
-        // but `drop_allowed(false)` keeps the drop marker from rendering
-        // in the first place, so the user sees a hard "no" at hover.
+        // Leaf row (no triangle). Two cases collapse here: no-children kinds
+        // (Water, Unknown), which reject every drop INTO them, and an *empty*
+        // container, which still accepts drops so it can be populated by
+        // dragging (its context menu keeps "+ Add child" too). `drop_allowed`
+        // also governs the drop marker, so a leaf kind shows a hard "no" at
+        // hover while an empty container shows the drop affordance.
+        // `apply_reparent` re-checks `allows_children` defensively regardless.
         builder.node(
             NodeBuilder::leaf(id)
                 .label(label)
-                .drop_allowed(false)
+                .drop_allowed(is_container)
                 .context_menu(context_menu),
         );
     }

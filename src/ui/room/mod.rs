@@ -129,6 +129,12 @@ pub struct RoomEditorState {
     /// tab's left sidebar. Holds expansion + selection across frames so
     /// resizing / scrolling doesn't reset what the owner had open.
     pub tree_view_state: egui_ltreeview::TreeViewState<GenNodeId>,
+    /// Set for one frame by the in-world pick (#719) when a scene click
+    /// selects a generator node. On the next Generators-tab draw the tree
+    /// grabs keyboard focus so the picked row highlights like a direct
+    /// click, then this clears. A world-pick bypasses the tree's own
+    /// click-to-focus path, which is what normally focuses it.
+    pub pending_tree_focus: bool,
     raw_text: String,
     raw_text_initialised: bool,
     raw_error: Option<String>,
@@ -255,6 +261,7 @@ pub fn room_admin_ui(
         selected_placement,
         selected_prim_path,
         tree_view_state,
+        pending_tree_focus,
         raw_text,
         raw_error,
         pending_flush_secs,
@@ -464,6 +471,11 @@ pub fn room_admin_ui(
                 // sidebar's height to zero.
                 match *selected_tab {
                     EditorTab::Generators => {
+                        // Consume the one-shot focus request set by the
+                        // in-world pick (#719): read + clear it here so the
+                        // tree focuses on exactly the draw that follows a
+                        // scene click and never re-focuses on later frames.
+                        let request_focus = std::mem::take(pending_tree_focus);
                         ui.allocate_ui(egui::vec2(ui.available_width(), body_height), |ui| {
                             let mut tree_source = generators::RoomTreeSource::new(record_mut);
                             generators::draw_generators_tab(
@@ -472,6 +484,7 @@ pub fn room_admin_ui(
                                 selected_generator,
                                 selected_prim_path,
                                 tree_view_state,
+                                request_focus,
                                 renaming_generator,
                                 inventory.as_deref_mut(),
                                 audio_editor,

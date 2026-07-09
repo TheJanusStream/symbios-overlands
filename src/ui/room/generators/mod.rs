@@ -215,6 +215,10 @@ pub(crate) fn draw_generators_tab(
     selected_generator: &mut Option<String>,
     selected_prim_path: &mut Option<Vec<usize>>,
     tree_view_state: &mut TreeViewState,
+    // One-shot request to focus the tree after an in-world pick (#719), so
+    // the picked row highlights like a direct click. Always `false` for the
+    // avatar editor, which has no in-world node picking.
+    request_focus: bool,
     renaming_generator: &mut Option<(String, String)>,
     inventory: Option<&mut LiveInventoryRecord>,
     audio_editor: &mut super::audio::AudioEditorState,
@@ -241,6 +245,7 @@ pub(crate) fn draw_generators_tab(
                 tree_view_state,
                 renaming_generator,
                 inventory,
+                request_focus,
                 dirty,
             );
         });

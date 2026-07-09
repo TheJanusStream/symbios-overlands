@@ -238,6 +238,9 @@ pub fn avatar_ui(
                                 selected_generator,
                                 selected_prim_path,
                                 tree_view_state,
+                                // No in-world node picking for avatar visuals,
+                                // so the tree never needs a programmatic focus.
+                                false,
                                 renaming_unused,
                                 inventory.as_deref_mut(),
                                 audio_editor,
