@@ -113,11 +113,17 @@ pub(super) fn apply_hover_boat_drive(
     if keyboard.pressed(KeyCode::KeyS) || keyboard.pressed(KeyCode::ArrowDown) {
         forces.apply_force(-flat_forward * p.drive_force.0);
     }
+    // Invert the steer response when reversing (#724), same as the car (#723):
+    // holding the rudder one way sends the heading the opposite way backing up.
+    // Keyed on longitudinal (not raw) velocity so a sideways drift doesn't flip
+    // it.
+    let forward_speed = flat_forward.dot(lin_vel);
+    let steer = local_up * p.turn_torque.0 * super::reverse_steer_sign(forward_speed);
     if keyboard.pressed(KeyCode::KeyA) || keyboard.pressed(KeyCode::ArrowLeft) {
-        forces.apply_torque(local_up * p.turn_torque.0);
+        forces.apply_torque(steer);
     }
     if keyboard.pressed(KeyCode::KeyD) || keyboard.pressed(KeyCode::ArrowRight) {
-        forces.apply_torque(-local_up * p.turn_torque.0);
+        forces.apply_torque(-steer);
     }
 
     let lateral_vel = right.dot(lin_vel);

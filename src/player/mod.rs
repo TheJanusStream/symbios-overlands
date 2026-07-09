@@ -100,6 +100,21 @@ pub(super) fn chassis_corners(half_extents: Vec3) -> [Vec3; 4] {
     CORNER_OFFSETS_RAW.map(|raw| Vec3::new(raw[0], raw[1], raw[2]) * half_extents)
 }
 
+/// Steering-direction multiplier from a vehicle's signed longitudinal speed:
+/// `-1` while genuinely reversing (below `-REVERSE_STEER_SPEED`), else `+1`.
+/// Both [`car`] and [`hover_boat`] multiply their A/D yaw torque by it so the
+/// heading response inverts in reverse — with the wheels/rudder held one way a
+/// real vehicle turns the opposite way backing up — while the deadband keeps
+/// the forward sign (and so turn-in-place) around a standstill, so the sign
+/// doesn't flip on sub-m/s creep.
+pub(super) fn reverse_steer_sign(forward_speed: f32) -> f32 {
+    if forward_speed < -cfg::REVERSE_STEER_SPEED {
+        -1.0
+    } else {
+        1.0
+    }
+}
+
 /// Draw an (x, z) pair uniformly distributed inside a square of
 /// `SPAWN_SCATTER_SIZE` metres per side, centred on the origin.
 pub(super) fn random_spawn_xz() -> (f32, f32) {
@@ -220,4 +235,27 @@ fn freeze_local_avatar_on_visuals_select(
         }
     }
     *last_selected = now_selected;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The steer-sign shared by the car (#723) and hover-boat (#724) drives:
+    /// forward sign held through a standstill (turn-in-place), inverted only
+    /// once clearly reversing past the deadband.
+    #[test]
+    fn steer_sign_holds_forward_and_flips_only_when_clearly_reversing() {
+        // Driving forward — normal steering.
+        assert_eq!(reverse_steer_sign(5.0), 1.0);
+        // Clearly reversing — inverted.
+        assert_eq!(reverse_steer_sign(-5.0), -1.0);
+        // Stopped — forward sign, so turn-in-place is preserved.
+        assert_eq!(reverse_steer_sign(0.0), 1.0);
+        // Within the reverse deadband (creep) — still forward sign.
+        let deadband = cfg::REVERSE_STEER_SPEED;
+        assert_eq!(reverse_steer_sign(-deadband * 0.5), 1.0);
+        // Just past the deadband — inverted.
+        assert_eq!(reverse_steer_sign(-deadband - 0.1), -1.0);
+    }
 }

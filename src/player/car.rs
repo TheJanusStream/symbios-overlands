@@ -96,11 +96,18 @@ pub(super) fn apply_car_drive(
             forces.apply_force(-flat_forward * p.drive_force.0);
         }
     }
+    // Invert the steer response when actually reversing (#723): with the
+    // wheels held one way, a real car's heading rotates the opposite way in
+    // reverse vs. forward, so a raw key→yaw mapping steers backwards while
+    // backing up. Keyed on longitudinal (not raw) velocity so a sideways
+    // slide doesn't flip it.
+    let forward_speed = flat_forward.dot(lin_vel);
+    let steer = local_up * p.turn_torque.0 * super::reverse_steer_sign(forward_speed);
     if keyboard.pressed(KeyCode::KeyA) || keyboard.pressed(KeyCode::ArrowLeft) {
-        forces.apply_torque(local_up * p.turn_torque.0);
+        forces.apply_torque(steer);
     }
     if keyboard.pressed(KeyCode::KeyD) || keyboard.pressed(KeyCode::ArrowRight) {
-        forces.apply_torque(-local_up * p.turn_torque.0);
+        forces.apply_torque(-steer);
     }
 
     // Lateral grip — strong by default to keep the car planted; reduced

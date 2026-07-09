@@ -82,6 +82,13 @@ pub mod rover {
     // --- Drive ---------------------------------------------------------------
     pub const DRIVE_FORCE: f32 = 1_800.0;
     pub const TURN_TORQUE: f32 = 400.0;
+    /// Longitudinal speed (m/s) past which — while reversing — the steer
+    /// response inverts. A real car's heading turns the opposite way for a
+    /// fixed wheel angle in reverse vs. forward; this deadband keeps
+    /// turn-in-place and the forward sign around a standstill so the sign
+    /// doesn't flip on the sub-metre-per-second creep of a car nominally at
+    /// rest (e.g. rolling back a touch on a slope).
+    pub const REVERSE_STEER_SPEED: f32 = 0.5;
     pub const LATERAL_GRIP: f32 = 6_000.0;
     pub const JUMP_FORCE: f32 = 2_500.0;
     /// Torque strength nudging the chassis back to upright.
