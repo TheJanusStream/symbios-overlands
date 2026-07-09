@@ -7,9 +7,7 @@
 
 use bevy_egui::egui;
 
-use crate::pds::{
-    Fp2, Fp3, Generator, GeneratorKind, SovereignMaterialSettings, TortureParams, WaterSurface,
-};
+use crate::pds::{Fp2, Fp3, GeneratorKind, SovereignMaterialSettings, TortureParams, WaterSurface};
 
 use super::material::draw_texture_bridge;
 use super::widgets::{color_picker, fp_slider};
@@ -159,50 +157,6 @@ pub(crate) fn make_default_for_kind(kind: &str) -> GeneratorKind {
         "Sign" => GeneratorKind::default_sign(),
         "ParticleSystem" => GeneratorKind::default_particles(),
         _ => GeneratorKind::default_cuboid(),
-    }
-}
-
-/// Shared "+ From Catalogue" submenu body: entry buttons grouped under
-/// category headers (Buildings / Plants / Patterns, from
-/// [`crate::catalogue::CatalogueCategory::ALL`]; empty categories are skipped
-/// so the menu stays compact as new ones are added). A click hands `on_pick`
-/// the entry's slug plus the built generator.
-///
-/// `did` is stamped into each entry's build: pass `""` when seeding a fresh
-/// blueprint into the editor (personalisable entries like the Teleporter get
-/// their DID filled in at gift/drop time), or the owner's DID when placing a
-/// working copy directly into the world (the scene right-click, #720) so a
-/// placed teleporter is immediately live. Used by the tree's add-root and
-/// add-child menus and the in-scene context menu.
-pub(crate) fn catalogue_menu_entries(
-    ui: &mut egui::Ui,
-    did: &str,
-    mut on_pick: impl FnMut(String, Generator),
-) {
-    for category in crate::catalogue::CatalogueCategory::ALL {
-        let entries_here: Vec<_> = crate::catalogue::ENTRIES
-            .iter()
-            .copied()
-            .filter(|e| e.category() == category)
-            .collect();
-        if entries_here.is_empty() {
-            continue;
-        }
-        ui.label(
-            egui::RichText::new(category.label())
-                .strong()
-                .color(egui::Color32::from_rgb(180, 180, 220)),
-        );
-        for entry in entries_here {
-            if ui
-                .button(entry.name())
-                .on_hover_text(entry.description())
-                .clicked()
-            {
-                on_pick(entry.slug().to_string(), entry.build(did));
-                ui.close();
-            }
-        }
     }
 }
 

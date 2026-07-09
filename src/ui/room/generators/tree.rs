@@ -11,9 +11,10 @@ use egui_ltreeview::{Action, NodeBuilder, TreeView};
 
 use crate::pds::Generator;
 use crate::state::LiveInventoryRecord;
+use crate::ui::catalogue::catalogue_menu;
 use crate::ui::inventory::is_drop_placeable;
 
-use super::super::construct::{allows_children, catalogue_menu_entries, make_default_for_kind};
+use super::super::construct::{allows_children, make_default_for_kind};
 use super::reparent::{PendingAction, apply_pending, find_node};
 use super::{GenNodeId, GeneratorTreeSource, TreeViewState};
 
@@ -91,7 +92,7 @@ pub(super) fn draw_tree_panel(
         if !crate::catalogue::ENTRIES.is_empty() {
             ui.menu_button("+ From Catalogue", |ui| {
                 let mut picked: Option<(String, Generator)> = None;
-                catalogue_menu_entries(ui, "", |slug, g| picked = Some((slug, g)));
+                catalogue_menu(ui, "", |slug, g| picked = Some((slug, g)));
                 if let Some((slug, g)) = picked
                     && let Some(new_name) = source.add_root(&slug, g)
                 {
@@ -338,7 +339,7 @@ fn build_tree_node(
         // inventory clone — same buffered insert path, fresh blueprint.
         if menu_allows_children && !crate::catalogue::ENTRIES.is_empty() {
             ui.menu_button("+ From Catalogue", |ui| {
-                catalogue_menu_entries(ui, "", |_slug, g| {
+                catalogue_menu(ui, "", |_slug, g| {
                     *pending.borrow_mut() = Some(PendingAction::AddChildPrebuilt {
                         parent: menu_id.clone(),
                         generator: Box::new(g),

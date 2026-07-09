@@ -19,6 +19,7 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 use egui_ltreeview::{Action, TreeView};
 
 use crate::catalogue::{CatalogueCategory, CatalogueEntry, ENTRIES, StructureRole, by_slug};
+use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 use crate::state::CurrentRoomDid;
 use crate::ui::inventory::{DropSource, PendingGeneratorDrop, is_drop_placeable};
@@ -458,6 +459,64 @@ pub(crate) fn catalogue_ui(
             });
         });
     panels.catalogue = open;
+}
+
+/// Hierarchical "+ From Catalogue" menu shared by every add-catalogue call
+/// site (the generator tree's root and per-node add menus, and the in-scene
+/// right-click "Create new…"). Mirrors the browser's default [`BrowseMode::Hierarchy`]
+/// tree — Category → (Buildings) Theme → Role → item, other categories listing
+/// items directly — so the menu and the browser never drift apart.
+///
+/// Each [`CatNode::Dir`] becomes a nested submenu (labelled with the same
+/// `name  (count)` the browser shows); clicking a leaf hands `on_pick` the
+/// entry's slug plus a freshly-built [`Generator`]. `did` is stamped into the
+/// build: pass `""` to seed a blank blueprint (personalisable entries like the
+/// Teleporter get their DID filled in at gift/drop time) or the owner's DID to
+/// place a live working copy directly (the scene right-click, #720/#722).
+pub(crate) fn catalogue_menu(
+    ui: &mut egui::Ui,
+    did: &str,
+    mut on_pick: impl FnMut(String, Generator),
+) {
+    let nodes = build_nodes(BrowseMode::Hierarchy, "");
+    render_menu_nodes(ui, &nodes, did, &mut on_pick);
+}
+
+/// Recursive body of [`catalogue_menu`]: `Dir`s open submenus, `Leaf`s are
+/// buttons. `on_pick` is a `&mut dyn` so the sibling submenu closures in a loop
+/// can each reborrow it (a generic `&mut impl` would be moved by the first).
+fn render_menu_nodes(
+    ui: &mut egui::Ui,
+    nodes: &[CatNode],
+    did: &str,
+    on_pick: &mut dyn FnMut(String, Generator),
+) {
+    for node in nodes {
+        match node {
+            CatNode::Dir {
+                label,
+                count,
+                children,
+                ..
+            } => {
+                ui.menu_button(format!("{label}  ({count})"), |ui| {
+                    render_menu_nodes(ui, children, did, on_pick);
+                });
+            }
+            CatNode::Leaf { id, name } => {
+                if let Some(slug) = leaf_slug(id)
+                    && let Some(entry) = by_slug(slug)
+                    && ui
+                        .button(*name)
+                        .on_hover_text(entry.description())
+                        .clicked()
+                {
+                    on_pick(slug.to_string(), entry.build(did));
+                    ui.close();
+                }
+            }
+        }
+    }
 }
 
 /// Recursively emit the [`CatNode`] tree into the tree-view builder.

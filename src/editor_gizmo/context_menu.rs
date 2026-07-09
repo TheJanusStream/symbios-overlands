@@ -39,7 +39,8 @@ use transform_gizmo_bevy::GizmoTarget;
 use crate::pds::{Fp, Fp3, Fp4, Generator, Placement, RoomRecord, TransformData};
 use crate::state::{CurrentRoomDid, LiveInventoryRecord, LiveRoomRecord};
 use crate::terrain::TerrainMesh;
-use crate::ui::room::construct::{ROOM_ROOT_KINDS, catalogue_menu_entries, make_default_for_kind};
+use crate::ui::catalogue::catalogue_menu;
+use crate::ui::room::construct::{ROOM_ROOT_KINDS, make_default_for_kind};
 use crate::ui::room::generators::{GeneratorTreeSource, RoomTreeSource};
 use crate::ui::room::{EditorTab, GenNodeId, RoomEditorState};
 use crate::ui::toolbar::UiPanels;
@@ -310,7 +311,7 @@ pub(super) fn scene_context_menu_ui(
             if !crate::catalogue::ENTRIES.is_empty() {
                 ui.separator();
                 ui.menu_button("From Catalogue", |ui| {
-                    catalogue_menu_entries(ui, &did, |slug, g| {
+                    catalogue_menu(ui, &did, |slug, g| {
                         *chosen.borrow_mut() = Some(MenuChoice::Create {
                             prefix: slug,
                             generator: Box::new(g),
