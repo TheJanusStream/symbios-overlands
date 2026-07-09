@@ -262,14 +262,14 @@ pub struct TortureParams {
     /// so a hard pinch collapses to the axis instead of inverting the surface.
     pub bulge: Fp2,
     // --- Topology cuts (SL-style; honoured during mesh *generation*, not
-    // the vertex post-pass). As of #691 every prim honours them except
-    // Plane (no revolve axis) and BlobGroup (its element list + carve mode
-    // is the richer cut language); Lathe ignores `profile_cut` only (its
-    // profile is already user-authored). Semantics per family: revolved
-    // prims cut angularly / by band / by bore; box prims (Cuboid / Bevel)
-    // take a pie wedge / vertical slice / matching bore; tubes (Helix /
-    // Spine) open into channels / trim their path / become shells. Default
-    // = identity (full sweep, full profile, solid). ---
+    // the vertex post-pass). As of #725 every prim honours them except
+    // Plane (no revolve axis). Semantics per family: revolved prims cut
+    // angularly / by band / by bore; box prims (Cuboid / Bevel) take a pie
+    // wedge / vertical slice / matching bore; tubes (Helix / Spine) open
+    // into channels / trim their path / become shells; Lathe trims the
+    // kept arc-length band of its silhouette; BlobGroup applies them as
+    // hard CSG on its distance field (Y-slab slice / pie wedge / inner
+    // shell). Default = identity (full sweep, full profile, solid). ---
     /// Kept angular fraction of the main sweep, `[begin, end]` in turns (0..1).
     /// `[0, 1]` = full revolution (no cut); `[0, 0.5]` keeps a half (half-
     /// cylinder trough, half-dome, half-torus archway). The opening gains two
@@ -356,8 +356,8 @@ impl TortureParams {
 }
 
 /// Primitive shape of one [`BlobElement`]. Open union so future shapes
-/// (torus? cone?) degrade gracefully on older clients — an `Unknown`
-/// element evaluates as a sphere rather than failing the record.
+/// degrade gracefully on older clients — an `Unknown` element evaluates as
+/// a sphere rather than failing the record.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
 #[serde(tag = "$type")]
 pub enum BlobShape {
@@ -369,6 +369,19 @@ pub enum BlobShape {
     Capsule,
     #[serde(rename = "network.symbios.blob.ellipsoid")]
     Ellipsoid,
+    /// Axis-aligned box (pre-rotation) — flat faces and hard masses inside
+    /// smooth blends: pedestals, slabs, jaws.
+    #[serde(rename = "network.symbios.blob.box")]
+    Box,
+    /// Capped cylinder along the element's local +Y axis.
+    #[serde(rename = "network.symbios.blob.cylinder")]
+    Cylinder,
+    /// Torus lying in the element's local XZ plane (axis +Y).
+    #[serde(rename = "network.symbios.blob.torus")]
+    Torus,
+    /// Capped cone: base at local −Y, apex at +Y.
+    #[serde(rename = "network.symbios.blob.cone")]
+    Cone,
     #[serde(other)]
     Unknown,
 }
@@ -384,9 +397,11 @@ pub struct BlobElement {
     /// Element orientation (unit quaternion) — orients a capsule's axis or
     /// an ellipsoid's semi-axes; irrelevant for a sphere.
     pub rotation: Fp4,
-    /// Per-shape size: Sphere uses `radii[0]`; Ellipsoid reads all three as
-    /// semi-axes; Capsule reads `radii[0]` = tube radius and `radii[1]` =
-    /// half-length of the core segment.
+    /// Per-shape size: Sphere uses `radii[0]`; Ellipsoid and Box read all
+    /// three (semi-axes / half-extents); Capsule, Cylinder and Cone read
+    /// `radii[0]` = radius and `radii[1]` = half-length / half-height;
+    /// Torus reads `radii[0]` = ring (major) radius and `radii[1]` = tube
+    /// (minor) radius.
     pub radii: Fp3,
     /// `true` carves this element out of the accumulated shape (smooth
     /// subtraction — eye sockets, nostrils, creases) instead of adding it.
@@ -944,8 +959,9 @@ pub enum GeneratorKind {
     /// Catmull-Rom spline (organic curves from few points) or keeps straight
     /// polyline segments (sharp ridges). `path_cut` (angular wedge) and
     /// `hollow` (proportional inner shell) compose exactly like the other
-    /// swept prims; `profile_cut` is ignored — the profile is already fully
-    /// user-authored.
+    /// swept prims; `profile_cut` keeps an arc-length band of the silhouette
+    /// (slice a vase's top off without re-authoring its stations), with the
+    /// trimmed ends capped.
     #[serde(rename = "network.symbios.gen.lathe")]
     Lathe {
         points: Vec<LathePoint>,
@@ -961,15 +977,21 @@ pub enum GeneratorKind {
     },
 
     /// Smooth-blend SDF group — an ordered list of add/subtract elements
-    /// (spheres / capsules / ellipsoids) evaluated as one signed distance
-    /// field with per-element polynomial smooth-min, then meshed once on
-    /// spawn with surface nets. The Spore / Dreams organic primitive: a
-    /// pile of overlapping ellipsoids becomes one seamless muscle mass, a
-    /// subtracted sphere carves an eye socket, and the result is watertight
-    /// by construction (a broken mesh is unrepresentable). `resolution` is
-    /// the sample-grid cell count along the group's longest axis — the
-    /// quality/cost dial, clamped hard in sanitize because grid cost is
-    /// cubic.
+    /// (spheres / capsules / ellipsoids / boxes / cylinders / tori / cones)
+    /// evaluated as one signed distance field with per-element polynomial
+    /// smooth-min, then meshed once on spawn with surface nets. The Spore /
+    /// Dreams organic primitive: a pile of overlapping ellipsoids becomes
+    /// one seamless muscle mass, a subtracted sphere carves an eye socket,
+    /// and the result is watertight by construction (a broken mesh is
+    /// unrepresentable). `resolution` is the sample-grid cell count along
+    /// the group's longest axis — the quality/cost dial, clamped hard in
+    /// sanitize because grid cost is cubic. Topology cuts apply as hard CSG
+    /// on the final field: `profile_cut` keeps a Y-band of the group's
+    /// bounds (flat slices — a blob that sits flush on the ground),
+    /// `path_cut` keeps a pie wedge around the prim-local Y axis, and
+    /// `hollow` erodes an inner shell whose wall is `(1 - hollow)` of the
+    /// group's thinnest half-extent (visible wherever a carve or cut opens
+    /// the surface).
     #[serde(rename = "network.symbios.gen.blob_group")]
     BlobGroup {
         elements: Vec<BlobElement>,
@@ -1799,10 +1821,27 @@ mod prim_wire_tests {
         let re: GeneratorKind = serde_json::from_value(v).expect("reparses");
         assert_eq!(re, kind);
 
+        // Every known shape round-trips through its own tag (#725 grew the
+        // union past the original sphere/capsule/ellipsoid trio).
+        for (shape, wire) in [
+            (BlobShape::Sphere, "network.symbios.blob.sphere"),
+            (BlobShape::Capsule, "network.symbios.blob.capsule"),
+            (BlobShape::Ellipsoid, "network.symbios.blob.ellipsoid"),
+            (BlobShape::Box, "network.symbios.blob.box"),
+            (BlobShape::Cylinder, "network.symbios.blob.cylinder"),
+            (BlobShape::Torus, "network.symbios.blob.torus"),
+            (BlobShape::Cone, "network.symbios.blob.cone"),
+        ] {
+            let sv = serde_json::to_value(shape).expect("shape serialises");
+            assert_eq!(sv.get("$type").and_then(|t| t.as_str()), Some(wire));
+            let rs: BlobShape = serde_json::from_value(sv).expect("shape reparses");
+            assert_eq!(rs, shape);
+        }
+
         // Forward compat: an unknown element shape degrades to Unknown, not
         // a parse failure.
         let mut v2 = serde_json::to_value(&kind).unwrap();
-        v2["elements"][0]["shape"]["$type"] = serde_json::json!("network.symbios.blob.torus");
+        v2["elements"][0]["shape"]["$type"] = serde_json::json!("network.symbios.blob.hyperboloid");
         let re2: GeneratorKind = serde_json::from_value(v2).expect("future shape still parses");
         let GeneratorKind::BlobGroup { elements, .. } = &re2 else {
             panic!("wrong variant");

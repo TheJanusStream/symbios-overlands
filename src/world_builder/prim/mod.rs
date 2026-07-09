@@ -531,6 +531,221 @@ mod tests {
     }
 
     #[test]
+    fn lathe_profile_cut_trims_the_silhouette() {
+        use crate::pds::generator::LathePoint;
+        // Straight-walled drum, radius 0.3, y ∈ [-0.5, 0.5]: the profile's
+        // arc length is its height, so the kept band maps linearly to y.
+        let mut kind = GeneratorKind::Lathe {
+            points: vec![
+                LathePoint {
+                    radius: Fp(0.3),
+                    height: Fp(-0.5),
+                },
+                LathePoint {
+                    radius: Fp(0.3),
+                    height: Fp(0.5),
+                },
+            ],
+            resolution: 24,
+            smooth: false,
+            solid: true,
+            material: SovereignMaterialSettings::default(),
+            torture: TortureParams::default(),
+        };
+        if let Some(t) = kind.torture_mut() {
+            t.profile_cut = Fp2([0.25, 0.75]);
+        }
+        let mesh = build_primitive_mesh(&kind);
+        let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("no positions");
+        };
+        let y_min = pos.iter().map(|p| p[1]).fold(f32::INFINITY, f32::min);
+        let y_max = pos.iter().map(|p| p[1]).fold(f32::NEG_INFINITY, f32::max);
+        assert!((y_min + 0.25).abs() < 1e-3, "trim bottom at {y_min}");
+        assert!((y_max - 0.25).abs() < 1e-3, "trim top at {y_max}");
+        // The trimmed ends are open rings of radius 0.3 — both must be
+        // capped (fan centre vertices on the axis).
+        for y in [-0.25f32, 0.25] {
+            assert!(
+                pos.iter()
+                    .any(|p| (p[1] - y).abs() < 1e-3 && p[0].abs() < 1e-3 && p[2].abs() < 1e-3),
+                "no cap centre at y={y}"
+            );
+        }
+    }
+
+    #[test]
+    fn blob_cuts_slice_wedge_and_hollow() {
+        use crate::pds::generator::{BlobElement, BlobShape};
+        let blob = |pc: [f32; 2], prc: [f32; 2], hollow: f32| {
+            let mut kind = GeneratorKind::BlobGroup {
+                elements: vec![BlobElement {
+                    shape: BlobShape::Sphere,
+                    radii: Fp3([0.4, 0.4, 0.4]),
+                    blend: Fp(0.1),
+                    ..Default::default()
+                }],
+                resolution: 32,
+                solid: true,
+                material: SovereignMaterialSettings::default(),
+                torture: TortureParams::default(),
+            };
+            if let Some(t) = kind.torture_mut() {
+                t.path_cut = Fp2(pc);
+                t.profile_cut = Fp2(prc);
+                t.hollow = Fp(hollow);
+            }
+            kind
+        };
+        let positions = |kind: &GeneratorKind| -> Vec<[f32; 3]> {
+            let mesh = build_primitive_mesh(kind);
+            match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+                Some(VertexAttributeValues::Float32x3(p)) => p.clone(),
+                _ => panic!("no positions"),
+            }
+        };
+
+        // Slab (profile-cut [0, 0.5]): keeps the lower half of the tight
+        // element bounds (y ≤ 0), with grid-cell slop.
+        let sliced = positions(&blob([0.0, 1.0], [0.0, 0.5], 0.0));
+        let y_max = sliced
+            .iter()
+            .map(|p| p[1])
+            .fold(f32::NEG_INFINITY, f32::max);
+        let y_min = sliced.iter().map(|p| p[1]).fold(f32::INFINITY, f32::min);
+        assert!(y_max < 0.06, "slab kept material above the cut: {y_max}");
+        assert!(y_min < -0.3, "slab lost the kept lobe: {y_min}");
+
+        // Wedge (path-cut [0, 0.5]): keeps angles 0..π (from +X toward +Z),
+        // i.e. the z ≥ 0 half.
+        let wedged = positions(&blob([0.0, 0.5], [0.0, 1.0], 0.0));
+        assert!(
+            !wedged.iter().any(|p| p[2] < -0.06),
+            "wedge kept the removed half"
+        );
+        assert!(
+            wedged.iter().any(|p| p[2] > 0.1),
+            "wedge lost the kept half"
+        );
+
+        // Hollow + slab: the kept hemisphere is a shell. Wall = (1 - 0.8) ×
+        // half the tight extent = 0.08, so the inner surface sits at ~0.32 —
+        // nothing may survive near the centre, while the solid slab above
+        // fills its cut face all the way in.
+        let shelled = positions(&blob([0.0, 1.0], [0.0, 0.5], 0.8));
+        let r = |p: &[f32; 3]| (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt();
+        assert!(
+            !shelled.iter().any(|p| r(p) < 0.25),
+            "hollow left material in the void"
+        );
+        assert!(
+            shelled.iter().any(|p| r(p) < 0.36),
+            "hollow grew no inner wall"
+        );
+        assert!(
+            sliced.iter().any(|p| r(p) < 0.25),
+            "solid slab unexpectedly hollow (cut face should span inward)"
+        );
+    }
+
+    #[test]
+    fn blob_new_shapes_mesh_true_to_form() {
+        use crate::pds::generator::{BlobElement, BlobShape};
+        let one = |shape: BlobShape, radii: [f32; 3]| GeneratorKind::BlobGroup {
+            elements: vec![BlobElement {
+                shape,
+                radii: Fp3(radii),
+                blend: Fp(0.0),
+                ..Default::default()
+            }],
+            resolution: 32,
+            solid: true,
+            material: SovereignMaterialSettings::default(),
+            torture: TortureParams::default(),
+        };
+        let positions = |kind: &GeneratorKind| -> Vec<[f32; 3]> {
+            let mesh = build_primitive_mesh(kind);
+            for n in normals(&mesh) {
+                assert!(n.iter().all(|c| c.is_finite()), "non-finite normal {n:?}");
+                assert!((len(n) - 1.0).abs() < 1e-2, "non-unit normal {n:?}");
+            }
+            match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+                Some(VertexAttributeValues::Float32x3(p)) => p.clone(),
+                _ => panic!("no positions"),
+            }
+        };
+        const SLOP: f32 = 0.06;
+
+        // Box: bounded by its half-extents per axis, and actually boxy —
+        // the +Y face is flat at full footprint width, which a sphere or
+        // ellipsoid of the same bounds could never fill.
+        let box_pts = positions(&one(BlobShape::Box, [0.3, 0.2, 0.1]));
+        for p in &box_pts {
+            assert!(
+                p[0].abs() < 0.3 + SLOP && p[1].abs() < 0.2 + SLOP && p[2].abs() < 0.1 + SLOP,
+                "box vertex outside extents {p:?}"
+            );
+        }
+        assert!(
+            box_pts
+                .iter()
+                .any(|p| p[1] > 0.2 - SLOP && p[0].abs() > 0.2),
+            "box top face is not flat/full-width"
+        );
+
+        // Cylinder: radial bound + a top rim at full radius.
+        let cyl_pts = positions(&one(BlobShape::Cylinder, [0.25, 0.4, 0.0]));
+        for p in &cyl_pts {
+            let r = (p[0] * p[0] + p[2] * p[2]).sqrt();
+            assert!(r < 0.25 + SLOP, "cylinder vertex outside radius {p:?}");
+            assert!(
+                p[1].abs() < 0.4 + SLOP,
+                "cylinder vertex outside height {p:?}"
+            );
+        }
+        assert!(
+            cyl_pts.iter().any(|p| {
+                let r = (p[0] * p[0] + p[2] * p[2]).sqrt();
+                p[1] > 0.4 - SLOP && r > 0.25 - SLOP
+            }),
+            "cylinder lost its top rim"
+        );
+
+        // Torus: tube stays in the minor-radius band around the ring, and
+        // the hole is open.
+        let tor_pts = positions(&one(BlobShape::Torus, [0.3, 0.1, 0.0]));
+        for p in &tor_pts {
+            let ring = ((p[0] * p[0] + p[2] * p[2]).sqrt() - 0.3).abs();
+            let tube = (ring * ring + p[1] * p[1]).sqrt();
+            assert!(tube < 0.1 + SLOP, "torus vertex off the tube {p:?}");
+        }
+        assert!(
+            !tor_pts
+                .iter()
+                .any(|p| (p[0] * p[0] + p[2] * p[2]).sqrt() < 0.1),
+            "torus hole is filled"
+        );
+
+        // Cone: wide base, pinched apex.
+        let cone_pts = positions(&one(BlobShape::Cone, [0.3, 0.35, 0.0]));
+        let r_at = |band: fn(&&[f32; 3]) -> bool| {
+            cone_pts
+                .iter()
+                .filter(band)
+                .map(|p| (p[0] * p[0] + p[2] * p[2]).sqrt())
+                .fold(0.0f32, f32::max)
+        };
+        let base_r = r_at(|p| p[1] < -0.3);
+        let tip_r = r_at(|p| p[1] > 0.25);
+        assert!(base_r > 0.2, "cone base too narrow: {base_r}");
+        assert!(
+            tip_r < base_r * 0.5,
+            "cone apex not pinched: {tip_r} vs {base_r}"
+        );
+    }
+
+    #[test]
     fn cone_slice_yields_a_frustum_and_cylinder_slice_shortens() {
         // profile_cut on the frustum family is SL's vertical slice: the
         // kept band, with radii interpolated (a sliced cone gains a flat
@@ -694,6 +909,11 @@ mod tests {
             with_cut("Lathe", [0.0, 0.5], [0.0, 1.0], 0.0), // half-vase
             with_cut("Lathe", [0.0, 1.0], [0.0, 1.0], 0.5), // hollow vase shell
             with_cut("Lathe", [0.1, 0.9], [0.0, 1.0], 0.6), // cut hollow vase
+            with_cut("Lathe", [0.0, 1.0], [0.2, 0.8], 0.0), // profile-trimmed band
+            with_cut("Lathe", [0.1, 0.9], [0.3, 1.0], 0.5), // everything at once
+            with_cut("BlobGroup", [0.0, 0.5], [0.0, 1.0], 0.0), // blob wedge
+            with_cut("BlobGroup", [0.0, 1.0], [0.0, 0.5], 0.0), // blob slice
+            with_cut("BlobGroup", [0.0, 0.75], [0.1, 0.9], 0.6), // blob everything
             with_cut("Cylinder", [0.0, 0.5], [0.0, 1.0], 0.0), // half-cylinder
             with_cut("Cylinder", [0.0, 1.0], [0.0, 1.0], 0.5), // pipe
             with_cut("Cylinder", [0.0, 0.5], [0.0, 1.0], 0.6), // gutter

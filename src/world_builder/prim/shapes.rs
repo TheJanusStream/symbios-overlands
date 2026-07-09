@@ -325,13 +325,14 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
         GeneratorKind::BlobGroup {
             elements,
             resolution,
+            torture,
             solid,
             material,
-            ..
         } => parts(
             Box::new(BlobGroupShape {
                 elements,
                 resolution: *resolution,
+                torture,
             }),
             solid,
             material,
@@ -860,6 +861,8 @@ impl PrimitiveShape for LatheShape<'_> {
             self.torture.hollow.0,
             a0,
             a1,
+            self.torture.profile_cut.0[0],
+            self.torture.profile_cut.0[1],
         )
     }
     fn analytical_collider(&self) -> Option<Collider> {
@@ -871,11 +874,26 @@ impl PrimitiveShape for LatheShape<'_> {
 struct BlobGroupShape<'a> {
     elements: &'a [crate::pds::generator::BlobElement],
     resolution: u32,
+    torture: &'a TortureParams,
 }
 
 impl PrimitiveShape for BlobGroupShape<'_> {
     fn base_mesh(&self) -> Mesh {
-        build_blob_mesh(self.elements, self.resolution)
+        use std::f32::consts::TAU;
+        let (a0, a1) = if self.torture.cuts_are_identity() {
+            (0.0, TAU)
+        } else {
+            path_cut_angles(self.torture)
+        };
+        build_blob_mesh(
+            self.elements,
+            self.resolution,
+            a0,
+            a1,
+            self.torture.profile_cut.0[0],
+            self.torture.profile_cut.0[1],
+            self.torture.hollow.0,
+        )
     }
     fn analytical_collider(&self) -> Option<Collider> {
         // Hull of the additive elements' support samples — carves are

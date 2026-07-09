@@ -8,12 +8,17 @@
 //!   commit reads the mean scale component back into `radii[0]` (the gizmo
 //!   is restricted to uniform scale for spheres, so the mean is exact
 //!   there and merely robust against a non-uniform parent frame).
-//! * **Ellipsoid** — unit sphere, `scale = radii`; commit reads per-axis.
-//! * **Capsule** — the proxy mesh is built at the element's real
-//!   `(radius, half-length)` with `scale = ONE`, because non-uniformly
-//!   scaling a capsule mesh would distort its caps. The drag's scale is
-//!   therefore a *multiplier*: commit folds `(x+z)/2` into the tube
-//!   radius and `y` into the half-length.
+//! * **Ellipsoid** / **Box** — unit sphere / unit cube, `scale = radii`;
+//!   commit reads per-axis.
+//! * **Cylinder** / **Cone** — unit meshes (radius 1, half-height 1),
+//!   `scale = (radii[0], radii[1], radii[0])`; commit folds `(x+z)/2` into
+//!   the radius and `y` into the half-height (flat caps and straight walls
+//!   scale cleanly, unlike a capsule's).
+//! * **Capsule** / **Torus** — the proxy mesh is baked at the element's
+//!   real radii with `scale = ONE`, because non-uniform scale would
+//!   distort a capsule's caps or a torus' tube. The drag's scale is
+//!   therefore a *multiplier*: commit folds `(x+z)/2` into the tube/ring
+//!   radius and `y` into the half-length / tube radius.
 //!
 //! All writes clamp with the same bounds as
 //! `pds::sanitize::primitive`'s BlobGroup arm, so a gizmo commit can never
@@ -77,9 +82,12 @@ const SPHERE_NONUNIFORM_EPS: f32 = 1e-3;
 pub(crate) fn proxy_local_transform(e: &BlobElement) -> Transform {
     let scale = match e.shape {
         BlobShape::Sphere | BlobShape::Unknown => Vec3::splat(e.radii.0[0]),
-        BlobShape::Ellipsoid => Vec3::from_array(e.radii.0),
-        // Radii are baked into the capsule proxy's mesh; see module docs.
-        BlobShape::Capsule => Vec3::ONE,
+        BlobShape::Ellipsoid | BlobShape::Box => Vec3::from_array(e.radii.0),
+        BlobShape::Cylinder | BlobShape::Cone => {
+            Vec3::new(e.radii.0[0], e.radii.0[1], e.radii.0[0])
+        }
+        // Radii are baked into these proxies' meshes; see module docs.
+        BlobShape::Capsule | BlobShape::Torus => Vec3::ONE,
     };
     Transform {
         translation: Vec3::from_array(e.position.0),
@@ -116,10 +124,16 @@ pub(crate) fn apply_local_to_element(e: &mut BlobElement, tf: &Transform) {
                 e.radii.0[0] = clamp_dim((s.x + s.y + s.z) / 3.0);
             }
         }
-        BlobShape::Ellipsoid => {
+        BlobShape::Ellipsoid | BlobShape::Box => {
             e.radii = Fp3([clamp_dim(s.x), clamp_dim(s.y), clamp_dim(s.z)]);
         }
-        BlobShape::Capsule => {
+        // Unit meshes: the drag's scale IS the size.
+        BlobShape::Cylinder | BlobShape::Cone => {
+            e.radii.0[0] = clamp_dim((s.x + s.z) / 2.0);
+            e.radii.0[1] = clamp_dim(s.y);
+        }
+        // Baked meshes: the drag's scale is a multiplier on the real radii.
+        BlobShape::Capsule | BlobShape::Torus => {
             e.radii.0[0] = clamp_dim(e.radii.0[0] * (s.x + s.z) / 2.0);
             e.radii.0[1] = clamp_dim(e.radii.0[1] * s.y);
         }

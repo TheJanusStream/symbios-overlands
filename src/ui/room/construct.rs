@@ -188,9 +188,16 @@ pub(crate) fn draw_universal_material(
 
 /// Vertex-torture editor for the [`TortureParams`] every primitive carries:
 /// twist, per-axis taper (X/Z), a three-axis bend, the S-bend wave, and
-/// top-shear; plus the SL-style topology cuts (path-cut / profile-cut / hollow)
-/// honoured by the swept prims. Ranges mirror `pds::sanitize::limits::*`.
-pub(super) fn draw_torture(ui: &mut egui::Ui, torture: &mut TortureParams, dirty: &mut bool) {
+/// top-shear; plus the SL-style topology cuts (path-cut / profile-cut /
+/// hollow). Ranges mirror `pds::sanitize::limits::*`. `show_cuts` hides the
+/// cuts block for the one kind whose mesher ignores it (Plane — no revolve
+/// axis), so the GUI never offers dead sliders.
+pub(super) fn draw_torture(
+    ui: &mut egui::Ui,
+    torture: &mut TortureParams,
+    show_cuts: bool,
+    dirty: &mut bool,
+) {
     ui.label("Vertex torture");
     fp_slider(
         ui,
@@ -287,8 +294,11 @@ pub(super) fn draw_torture(ui: &mut egui::Ui, torture: &mut TortureParams, dirty
     });
     torture.shear = Fp2(sh);
 
-    // --- Topology cuts (every prim except Plane / BlobGroup; Lathe ignores
-    // profile-cut) ---
+    // --- Topology cuts (every prim except Plane, which is gated off via
+    // `show_cuts`) ---
+    if !show_cuts {
+        return;
+    }
     ui.label("Cuts");
     // Path-cut (begin/end, kept angular fraction of the sweep).
     let mut pc = torture.path_cut.0;

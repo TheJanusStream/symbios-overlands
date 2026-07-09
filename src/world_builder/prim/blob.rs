@@ -1,9 +1,12 @@
 //! BlobGroup mesher (#690): evaluate the element list as one signed
 //! distance field (polynomial smooth-min in list order, Dreams-style) and
-//! polygonize it once with surface nets. The SDF layer is hand-rolled — the
-//! ecosystem crates for this (sdfu, saft) are unmaintained, and the whole
-//! layer is smaller than their integration glue. Formulas follow Inigo
-//! Quilez's distance-function reference.
+//! polygonize it once with surface nets. The SL-style topology cuts (#725)
+//! apply as hard CSG on the final field just before meshing: `profile_cut`
+//! keeps a Y-band of the element bounds, `path_cut` keeps a pie wedge
+//! around the prim-local Y axis, and `hollow` erodes an inner shell. The
+//! SDF layer is hand-rolled — the ecosystem crates for this (sdfu, saft)
+//! are unmaintained, and the whole layer is smaller than their integration
+//! glue. Formulas follow Inigo Quilez's distance-function reference.
 
 use bevy::prelude::*;
 use fast_surface_nets::ndshape::{RuntimeShape, Shape};
@@ -29,6 +32,11 @@ fn bound_radius(e: &ResolvedElement) -> f32 {
     match e.shape {
         BlobShape::Ellipsoid => e.radii.x.max(e.radii.y).max(e.radii.z),
         BlobShape::Capsule => e.radii.x + e.radii.y,
+        BlobShape::Box => e.radii.length(),
+        // Radius + half-height corner for the capped shapes; ring + tube
+        // for the torus.
+        BlobShape::Cylinder | BlobShape::Cone => Vec2::new(e.radii.x, e.radii.y).length(),
+        BlobShape::Torus => e.radii.x + e.radii.y,
         // Sphere and forward-compat Unknown both read radii[0].
         BlobShape::Sphere | BlobShape::Unknown => e.radii.x,
     }
@@ -68,6 +76,36 @@ fn element_sdf(e: &ResolvedElement, p: Vec3) -> f32 {
             } else {
                 k0 * (k0 - 1.0) / k1
             }
+        }
+        BlobShape::Box => {
+            let d = q.abs() - e.radii;
+            d.max(Vec3::ZERO).length() + d.max_element().min(0.0)
+        }
+        BlobShape::Cylinder => {
+            let d = Vec2::new(
+                (q.x * q.x + q.z * q.z).sqrt() - e.radii.x,
+                q.y.abs() - e.radii.y,
+            );
+            d.x.max(d.y).min(0.0) + d.max(Vec2::ZERO).length()
+        }
+        BlobShape::Torus => {
+            let ring = Vec2::new((q.x * q.x + q.z * q.z).sqrt() - e.radii.x, q.y);
+            ring.length() - e.radii.y
+        }
+        BlobShape::Cone => {
+            // IQ's exact capped cone with the top radius pinched to a tip:
+            // base radius `radii.x` at −radii.y, apex at +radii.y.
+            let (r1, h) = (e.radii.x, e.radii.y);
+            let w = Vec2::new((q.x * q.x + q.z * q.z).sqrt(), q.y);
+            let k1 = Vec2::new(0.0, h);
+            let k2 = Vec2::new(-r1, 2.0 * h);
+            let ca = Vec2::new(
+                w.x - w.x.min(if w.y < 0.0 { r1 } else { 0.0 }),
+                w.y.abs() - h,
+            );
+            let cb = w - k1 + k2 * ((k1 - w).dot(k2) / k2.length_squared()).clamp(0.0, 1.0);
+            let s = if cb.x < 0.0 && ca.y < 0.0 { -1.0 } else { 1.0 };
+            s * ca.length_squared().min(cb.length_squared()).sqrt()
         }
     }
 }
@@ -123,25 +161,63 @@ const MAX_GRID_DIM: u32 = 56;
 /// nets needs the isosurface strictly inside the sampled volume.
 const GRID_PAD: u32 = 2;
 
-/// Build the BlobGroup mesh: sample the group SDF over an auto-sized grid
-/// and run surface nets. A group whose SDF never crosses zero (e.g. every
-/// element subtracts) meshes as a small marker sphere so the prim stays
-/// selectable in the editor instead of silently vanishing.
-pub(super) fn build_blob_mesh(elements: &[BlobElement], resolution: u32) -> Mesh {
+/// Signed distance (in the XZ plane, infinite along Y) of the **kept**
+/// angular sector `[mid − half, mid + half]` around the prim-local Y axis —
+/// the blob analogue of the swept prims' path-cut. Negative inside the
+/// wedge; the two flat faces land exactly on the cut angles, and the axis
+/// itself is on the boundary (distance `r` when the nearest rim is behind
+/// the apex).
+fn wedge_sdf(p: Vec3, mid: f32, half: f32) -> f32 {
+    use std::f32::consts::{FRAC_PI_2, PI, TAU};
+    let r = (p.x * p.x + p.z * p.z).sqrt();
+    let mut ang = (p.z.atan2(p.x) - mid).rem_euclid(TAU);
+    if ang > PI {
+        ang -= TAU;
+    }
+    // Angular offset past the nearer rim: negative inside the kept sector.
+    let beta = ang.abs() - half;
+    let rim = |b: f32| if b >= FRAC_PI_2 { r } else { r * b.sin() };
+    if beta <= 0.0 { -rim(-beta) } else { rim(beta) }
+}
+
+/// Build the BlobGroup mesh: sample the group SDF over an auto-sized grid,
+/// apply the SL-style topology cuts as hard CSG on the field (`t0..t1`
+/// keeps a Y-band of the element bounds, `a0..a1` keeps a pie wedge around
+/// local Y, `hollow_frac` erodes an inner shell), and run surface nets. A
+/// group whose field never crosses zero (e.g. every element subtracts, or
+/// the cuts removed everything) meshes as a small marker sphere so the prim
+/// stays selectable in the editor instead of silently vanishing.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn build_blob_mesh(
+    elements: &[BlobElement],
+    resolution: u32,
+    a0: f32,
+    a1: f32,
+    t0: f32,
+    t1: f32,
+    hollow_frac: f32,
+) -> Mesh {
+    use std::f32::consts::TAU;
     let resolved = resolve(elements);
     if resolved.is_empty() {
         return marker_mesh();
     }
 
+    // Tight element AABB (no blend pad): the reference frame for the cut
+    // semantics, so the slab band tracks the authored mass rather than the
+    // blend head-room.
+    let mut tight_lo = Vec3::splat(f32::INFINITY);
+    let mut tight_hi = Vec3::splat(f32::NEG_INFINITY);
+    for e in &resolved {
+        let r = bound_radius(e);
+        tight_lo = tight_lo.min(e.position - Vec3::splat(r));
+        tight_hi = tight_hi.max(e.position + Vec3::splat(r));
+    }
+
     // Conservative world AABB: element bounds + the largest blend bulge.
     let max_blend = resolved.iter().map(|e| e.blend).fold(0.0f32, f32::max);
-    let mut lo = Vec3::splat(f32::INFINITY);
-    let mut hi = Vec3::splat(f32::NEG_INFINITY);
-    for e in &resolved {
-        let r = bound_radius(e) + max_blend;
-        lo = lo.min(e.position - Vec3::splat(r));
-        hi = hi.max(e.position + Vec3::splat(r));
-    }
+    let lo = tight_lo - Vec3::splat(max_blend);
+    let hi = tight_hi + Vec3::splat(max_blend);
     let size = (hi - lo).max(Vec3::splat(0.01));
     let res = resolution.clamp(8, 48);
     let cell = size.max_element() / res as f32;
@@ -153,13 +229,42 @@ pub(super) fn build_blob_mesh(elements: &[BlobElement], resolution: u32) -> Mesh
     .min(UVec3::splat(MAX_GRID_DIM));
     let origin = lo - Vec3::splat(GRID_PAD as f32 * cell);
 
-    // Sample the field. RuntimeShape linearizes in x-fastest order.
+    // Resolve the cuts (identity fast-paths keep the common case free).
+    let full_sweep = (a1 - a0).abs() >= TAU - 1e-3;
+    let (mid, half) = ((a0 + a1) * 0.5, (a1 - a0).abs() * 0.5);
+    let (t0, t1) = (t0.clamp(0.0, 1.0), t1.clamp(0.0, 1.0));
+    let slab = t0 > 1e-4 || t1 < 1.0 - 1e-4;
+    let (y0, y1) = (
+        tight_lo.y + (tight_hi.y - tight_lo.y) * t0,
+        tight_lo.y + (tight_hi.y - tight_lo.y) * t1.max(t0 + 1e-3),
+    );
+    let k = hollow_frac.clamp(0.0, 0.95);
+    // Shell wall: the un-bored fraction of the thinnest half-extent, floored
+    // so surface nets can still resolve both faces at this grid's cell size.
+    let wall = ((1.0 - k) * 0.5 * (tight_hi - tight_lo).min_element()).max(cell * 1.5);
+    let hollow = k > 1e-4;
+
+    // Sample the field. RuntimeShape linearizes in x-fastest order. The
+    // shell erodes the *pre-cut* field so the slab / wedge faces slice
+    // through it and expose the wall, rather than growing walls of their
+    // own along the cut planes.
     let shape = RuntimeShape::<u32, 3>::new([dims.x, dims.y, dims.z]);
     let mut samples = vec![1.0f32; shape.size() as usize];
     for i in 0..shape.size() {
         let [x, y, z] = shape.delinearize(i);
         let p = origin + Vec3::new(x as f32, y as f32, z as f32) * cell;
-        samples[i as usize] = group_sdf(&resolved, p);
+        let d = group_sdf(&resolved, p);
+        let mut v = d;
+        if hollow {
+            v = v.max(-(d + wall));
+        }
+        if slab {
+            v = v.max((y0 - p.y).max(p.y - y1));
+        }
+        if !full_sweep {
+            v = v.max(wedge_sdf(p, mid, half));
+        }
+        samples[i as usize] = v;
     }
 
     let mut buffer = SurfaceNetsBuffer::default();
@@ -235,6 +340,12 @@ pub(super) fn blob_hull_points(elements: &[BlobElement]) -> Vec<Vec3> {
         [-0.577, -0.577, 0.577],
         [-0.577, -0.577, -0.577],
     ];
+    use std::f32::consts::TAU;
+    const HULL_RING: u32 = 8;
+    let ring = |j: u32| {
+        let (s, c) = (j as f32 / HULL_RING as f32 * TAU).sin_cos();
+        (c, s)
+    };
     let resolved = resolve(elements);
     let mut out = Vec::new();
     for e in resolved.iter().filter(|e| !e.subtract) {
@@ -256,6 +367,43 @@ pub(super) fn blob_hull_points(elements: &[BlobElement]) -> Vec<Vec3> {
                     for d in DIRS {
                         out.push(c + Vec3::from_array(d) * e.radii.x);
                     }
+                }
+            }
+            // The box's corners ARE its hull.
+            BlobShape::Box => {
+                for d in DIRS[6..].iter() {
+                    out.push(e.position + rot * (Vec3::from_array(*d).signum() * e.radii));
+                }
+            }
+            BlobShape::Cylinder => {
+                for end in [-1.0f32, 1.0] {
+                    for j in 0..HULL_RING {
+                        let (c, s) = ring(j);
+                        out.push(
+                            e.position
+                                + rot * Vec3::new(c * e.radii.x, end * e.radii.y, s * e.radii.x),
+                        );
+                    }
+                }
+            }
+            BlobShape::Cone => {
+                out.push(e.position + rot * Vec3::new(0.0, e.radii.y, 0.0));
+                for j in 0..HULL_RING {
+                    let (c, s) = ring(j);
+                    out.push(
+                        e.position + rot * Vec3::new(c * e.radii.x, -e.radii.y, s * e.radii.x),
+                    );
+                }
+            }
+            // Outer equator + tube top/bottom rings bound the solid of
+            // revolution's hull.
+            BlobShape::Torus => {
+                let (rr, tr) = (e.radii.x, e.radii.y);
+                for j in 0..HULL_RING {
+                    let (c, s) = ring(j);
+                    out.push(e.position + rot * Vec3::new(c * (rr + tr), 0.0, s * (rr + tr)));
+                    out.push(e.position + rot * Vec3::new(c * rr, tr, s * rr));
+                    out.push(e.position + rot * Vec3::new(c * rr, -tr, s * rr));
                 }
             }
         }

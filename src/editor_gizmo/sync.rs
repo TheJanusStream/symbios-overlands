@@ -354,7 +354,12 @@ fn element_modes(shape: BlobShape) -> EnumSet<GizmoMode> {
         BlobShape::Sphere => {
             modes.insert_all(GizmoMode::all_scale());
         }
-        BlobShape::Capsule | BlobShape::Ellipsoid => {
+        BlobShape::Capsule
+        | BlobShape::Ellipsoid
+        | BlobShape::Box
+        | BlobShape::Cylinder
+        | BlobShape::Torus
+        | BlobShape::Cone => {
             modes.insert_all(GizmoMode::all_rotate());
             modes.insert_all(GizmoMode::all_scale());
         }

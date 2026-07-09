@@ -311,6 +311,42 @@ pub(super) fn spine_hull_points(points: &[(Vec3, f32)]) -> Vec<Vec3> {
     out
 }
 
+/// Trim `stations` to the `[t0, t1]` arc-length band of the profile
+/// polyline (the Lathe's **profile-cut**): exact endpoint stations are
+/// interpolated in, so the cut lands where the slider says instead of
+/// snapping to the nearest authored station. The identity band returns the
+/// stations untouched.
+fn trim_profile_stations(stations: Vec<Vec2>, t0: f32, t1: f32) -> Vec<Vec2> {
+    let (t0, t1) = (t0.clamp(0.0, 1.0), t1.clamp(0.0, 1.0));
+    if t0 <= 1e-4 && t1 >= 1.0 - 1e-4 {
+        return stations;
+    }
+    let t1 = t1.max(t0 + 1e-3);
+    let mut arc = vec![0.0f32; stations.len()];
+    for i in 1..stations.len() {
+        arc[i] = arc[i - 1] + (stations[i] - stations[i - 1]).length();
+    }
+    let total = arc.last().copied().unwrap_or(0.0);
+    if total <= 1e-6 {
+        return stations;
+    }
+    let sample = |s: f32| -> Vec2 {
+        let s = s.clamp(0.0, total);
+        let i = arc.partition_point(|a| *a < s).clamp(1, stations.len() - 1);
+        let span = (arc[i] - arc[i - 1]).max(1e-6);
+        stations[i - 1].lerp(stations[i], ((s - arc[i - 1]) / span).clamp(0.0, 1.0))
+    };
+    let (s0, s1) = (t0 * total, t1 * total);
+    let mut out = vec![sample(s0)];
+    for (i, st) in stations.iter().enumerate() {
+        if arc[i] > s0 + 1e-6 && arc[i] < s1 - 1e-6 {
+            out.push(*st);
+        }
+    }
+    out.push(sample(s1));
+    out
+}
+
 /// Resolve a lathe's profile points into meshing stations: the raw polyline
 /// when `smooth` is off, or a Catmull-Rom resample through every station
 /// when it's on. Radii are floored at zero (a spline overshoot below the
@@ -346,9 +382,12 @@ pub(super) fn lathe_stations(points: &[(f32, f32)], smooth: bool) -> Vec<Vec2> {
 
 /// Build the Lathe mesh: the profile stations revolved around Y over the
 /// `a0..a1` angular range (path-cut), optionally **hollow** (`inner_frac >
-/// 0` → a proportional inner shell). Open ends with a non-zero radius are
-/// closed by disc / annulus caps; an open angular wedge by two flat cut
-/// faces spanning profile → bore (or axis).
+/// 0` → a proportional inner shell), with `t0..t1` the kept arc-length band
+/// of the silhouette (profile-cut — slice a vase's top off without
+/// re-authoring its stations). Open ends with a non-zero radius are closed
+/// by disc / annulus caps; an open angular wedge by two flat cut faces
+/// spanning profile → bore (or axis).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn build_lathe_mesh(
     points: &[(f32, f32)],
     resolution: u32,
@@ -356,13 +395,15 @@ pub(super) fn build_lathe_mesh(
     inner_frac: f32,
     a0: f32,
     a1: f32,
+    t0: f32,
+    t1: f32,
 ) -> Mesh {
     use std::f32::consts::TAU;
     let segs = resolution.clamp(3, 128);
     let full = (a1 - a0).abs() >= TAU - 1e-3;
     let k = inner_frac.clamp(0.0, 0.99);
     let hollow = k > 1e-4;
-    let stations = lathe_stations(points, smooth);
+    let stations = trim_profile_stations(lathe_stations(points, smooth), t0, t1);
     let n_st = stations.len() as u32;
     let ang = |i: u32| a0 + (a1 - a0) * (i as f32 / segs as f32);
 

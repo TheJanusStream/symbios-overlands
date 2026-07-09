@@ -12,9 +12,11 @@
 //! [`reconcile_blob_proxies`] diffs the live proxy set against the
 //! record every frame: GUI edits mutate the record immediately (only the
 //! change *tick* is debounced), so proxies track slider drags live without
-//! waiting for a rebuild. Asset churn is avoided by sharing one unit
-//! sphere across all sphere/ellipsoid proxies (radii ride the `Transform`
-//! scale) and regenerating a capsule's mesh only when its radii change.
+//! waiting for a rebuild. Asset churn is avoided by sharing one unit mesh
+//! per scale-clean shape family (sphere/ellipsoid, box, cylinder, cone —
+//! radii ride the `Transform` scale) and regenerating a capsule's / torus'
+//! mesh only when its radii change (their curved sections would distort
+//! under non-uniform scale).
 
 use bevy::ecs::hierarchy::ChildOf;
 use bevy::light::NotShadowCaster;
@@ -50,6 +52,11 @@ pub(crate) struct BlobElementProxy {
 #[derive(Resource)]
 pub(crate) struct BlobEditAssets {
     unit_sphere: Handle<Mesh>,
+    /// Half-extent-1 cube; box radii ride the transform scale.
+    unit_cube: Handle<Mesh>,
+    /// Radius-1, half-height-1 shapes; `(r, h, r)` rides the scale.
+    unit_cylinder: Handle<Mesh>,
+    unit_cone: Handle<Mesh>,
     add_mat: Handle<StandardMaterial>,
     add_mat_selected: Handle<StandardMaterial>,
     carve_mat: Handle<StandardMaterial>,
@@ -62,13 +69,18 @@ pub(crate) struct BlobEditAssets {
 
 impl FromWorld for BlobEditAssets {
     fn from_world(world: &mut World) -> Self {
-        let unit_sphere = {
+        let (unit_sphere, unit_cube, unit_cylinder, unit_cone) = {
             let mut meshes = world.resource_mut::<Assets<Mesh>>();
-            meshes.add(
-                Sphere::new(1.0)
-                    .mesh()
-                    .ico(3)
-                    .unwrap_or_else(|_| Sphere::new(1.0).mesh().build()),
+            (
+                meshes.add(
+                    Sphere::new(1.0)
+                        .mesh()
+                        .ico(3)
+                        .unwrap_or_else(|_| Sphere::new(1.0).mesh().build()),
+                ),
+                meshes.add(Mesh::from(Cuboid::new(2.0, 2.0, 2.0))),
+                meshes.add(Mesh::from(Cylinder::new(1.0, 2.0))),
+                meshes.add(Mesh::from(Cone::new(1.0, 2.0))),
             )
         };
         let mut materials = world.resource_mut::<Assets<StandardMaterial>>();
@@ -88,6 +100,9 @@ impl FromWorld for BlobEditAssets {
         let [wr, wg, wb] = cfg::WIREFRAME_COLOR;
         Self {
             unit_sphere,
+            unit_cube,
+            unit_cylinder,
+            unit_cone,
             add_mat: materials.add(proxy_material(cfg::PROXY_ADD_COLOR, None)),
             add_mat_selected: materials.add(proxy_material(
                 cfg::PROXY_ADD_COLOR,
@@ -118,9 +133,9 @@ impl BlobEditAssets {
     }
 }
 
-/// Proxy mesh for one element. Sphere/ellipsoid share the unit sphere
-/// (radii live on the transform); a capsule bakes its radii into the mesh
-/// because non-uniform scale would distort its hemispherical caps.
+/// Proxy mesh for one element. Scale-clean shapes share a unit mesh (radii
+/// live on the transform); a capsule / torus bakes its radii into the mesh
+/// because non-uniform scale would distort its curved sections.
 fn element_mesh(
     assets: &BlobEditAssets,
     meshes: &mut Assets<Mesh>,
@@ -131,8 +146,22 @@ fn element_mesh(
             e.radii.0[0].max(0.005),
             (e.radii.0[1] * 2.0).max(0.001),
         ))),
+        BlobShape::Torus => meshes.add(Mesh::from(Torus {
+            minor_radius: e.radii.0[1].max(0.005),
+            major_radius: e.radii.0[0].max(0.005),
+        })),
+        BlobShape::Box => assets.unit_cube.clone(),
+        BlobShape::Cylinder => assets.unit_cylinder.clone(),
+        BlobShape::Cone => assets.unit_cone.clone(),
         _ => assets.unit_sphere.clone(),
     }
+}
+
+/// `true` for the shapes whose proxy mesh bakes the element radii (and so
+/// must be regenerated when they change) instead of riding the transform
+/// scale.
+fn is_baked_mesh(shape: BlobShape) -> bool {
+    matches!(shape, BlobShape::Capsule | BlobShape::Torus)
 }
 
 /// Keep the proxy set matching the record: despawn stale proxies, spawn
@@ -179,9 +208,9 @@ pub(in crate::editor_gizmo) fn reconcile_blob_proxies(
         let e = &elements[proxy.index];
         let selected = ctx.selected_element == Some(proxy.index);
 
-        let capsule_radii_changed = e.shape == BlobShape::Capsule
+        let baked_radii_changed = is_baked_mesh(e.shape)
             && (proxy.radii[0] != e.radii.0[0] || proxy.radii[1] != e.radii.0[1]);
-        if proxy.shape != e.shape || capsule_radii_changed {
+        if proxy.shape != e.shape || baked_radii_changed {
             mesh.0 = element_mesh(&assets, &mut meshes, e);
         }
         if proxy.subtract != e.subtract || proxy.selected != selected {

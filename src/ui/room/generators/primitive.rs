@@ -36,7 +36,7 @@ pub(super) fn draw_primitive_cuboid(
             *dirty = true;
         }
     });
-    draw_common_primitive(ui, solid, material, torture, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -54,7 +54,7 @@ pub(super) fn draw_primitive_sphere(
         fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
         drag_u32(ui, "Ico Res", resolution, 0, 6, dirty);
     });
-    draw_common_primitive(ui, solid, material, torture, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -74,7 +74,7 @@ pub(super) fn draw_primitive_cylinder(
         fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
         drag_u32(ui, "Res", resolution, 3, 128, dirty);
     });
-    draw_common_primitive(ui, solid, material, torture, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -98,7 +98,7 @@ pub(super) fn draw_primitive_capsule(
         drag_u32(ui, "Lats", latitudes, 2, 64, dirty);
         drag_u32(ui, "Lons", longitudes, 4, 128, dirty);
     });
-    draw_common_primitive(ui, solid, material, torture, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -118,7 +118,7 @@ pub(super) fn draw_primitive_cone(
         fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
         drag_u32(ui, "Res", resolution, 3, 128, dirty);
     });
-    draw_common_primitive(ui, solid, material, torture, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -142,7 +142,7 @@ pub(super) fn draw_primitive_torus(
         drag_u32(ui, "Minor Res", minor_resolution, 3, 64, dirty);
         drag_u32(ui, "Major Res", major_resolution, 3, 128, dirty);
     });
-    draw_common_primitive(ui, solid, material, torture, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -171,7 +171,9 @@ pub(super) fn draw_primitive_plane(
         }
         drag_u32(ui, "Subdivs", subdivisions, 0, 32, dirty);
     });
-    draw_common_primitive(ui, solid, material, torture, salt, dirty);
+    // The Plane has no revolve axis — its mesher ignores the topology cuts,
+    // so don't offer them.
+    draw_common_primitive(ui, solid, material, torture, salt, false, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -185,7 +187,7 @@ pub(super) fn draw_primitive_tetrahedron(
     dirty: &mut bool,
 ) {
     fp_slider(ui, "Size", size, 0.01, 100.0, dirty);
-    draw_common_primitive(ui, solid, material, torture, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -209,7 +211,7 @@ pub(super) fn draw_primitive_tube(
         fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
         drag_u32(ui, "Res", resolution, 3, 128, dirty);
     });
-    draw_common_primitive(ui, solid, material, torture, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -242,7 +244,7 @@ pub(super) fn draw_primitive_bevel(
         fp_slider(ui, "Bevel", bevel, 0.0, 50.0, dirty);
         drag_u32(ui, "Segments", bevel_segments, 1, 16, dirty);
     });
-    draw_common_primitive(ui, solid, material, torture, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -268,7 +270,7 @@ pub(super) fn draw_primitive_helix(
         fp_slider(ui, "Turns", turns, 0.05, 16.0, dirty);
         drag_u32(ui, "Res/turn", resolution, 3, 128, dirty);
     });
-    draw_common_primitive(ui, solid, material, torture, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -309,7 +311,7 @@ pub(super) fn draw_primitive_superellipsoid(
         drag_u32(ui, "Lats", latitudes, 4, 64, dirty);
         drag_u32(ui, "Lons", longitudes, 4, 128, dirty);
     });
-    draw_common_primitive(ui, solid, material, torture, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -379,7 +381,7 @@ pub(super) fn draw_primitive_spine(
         drag_u32(ui, "Ring segs", resolution, 3, 64, dirty);
         drag_u32(ui, "Samples/seg", samples_per_segment, 2, 32, dirty);
     });
-    draw_common_primitive(ui, solid, material, torture, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -444,7 +446,7 @@ pub(super) fn draw_primitive_lathe(
             *dirty = true;
         }
     });
-    draw_common_primitive(ui, solid, material, torture, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -488,6 +490,10 @@ pub(super) fn draw_primitive_blob_group(
                     (BlobShape::Sphere, "Sphere"),
                     (BlobShape::Capsule, "Capsule"),
                     (BlobShape::Ellipsoid, "Ellipsoid"),
+                    (BlobShape::Box, "Box"),
+                    (BlobShape::Cylinder, "Cylinder"),
+                    (BlobShape::Torus, "Torus"),
+                    (BlobShape::Cone, "Cone"),
                 ];
                 let current = shapes
                     .iter()
@@ -566,7 +572,19 @@ pub(super) fn draw_primitive_blob_group(
                         *dirty = true;
                     }
                 } else {
-                    ui.label("Size");
+                    // The three boxes mean different things per shape; the
+                    // hover hint keeps the row compact without a per-shape
+                    // widget fork.
+                    let hint = match e.shape {
+                        BlobShape::Ellipsoid => "Semi-axes X / Y / Z.",
+                        BlobShape::Capsule => "Tube radius / half-length / (unused).",
+                        BlobShape::Box => "Half-extents X / Y / Z.",
+                        BlobShape::Cylinder => "Radius / half-height / (unused).",
+                        BlobShape::Cone => "Base radius / half-height / (unused).",
+                        BlobShape::Torus => "Ring radius / tube radius / (unused).",
+                        BlobShape::Sphere | BlobShape::Unknown => "Radius / (unused) / (unused).",
+                    };
+                    ui.label("Size").on_hover_text(hint);
                     let mut r = e.radii.0;
                     let mut changed = false;
                     for c in r.iter_mut() {
@@ -634,12 +652,13 @@ pub(super) fn draw_primitive_blob_group(
         *dirty = true;
     }
     drag_u32(ui, "Grid res", resolution, 8, 48, dirty);
-    draw_common_primitive(ui, solid, material, torture, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
 }
 
 /// Shared tail for every primitive editor: solid checkbox, torture triple,
 /// collapsible material panel. Factored out so each per-primitive editor
-/// only owns its shape-specific parameter widgets.
+/// only owns its shape-specific parameter widgets. `show_cuts` gates the
+/// topology-cut widgets for kinds whose mesher ignores them (Plane).
 #[allow(clippy::too_many_arguments)]
 fn draw_common_primitive(
     ui: &mut egui::Ui,
@@ -647,13 +666,14 @@ fn draw_common_primitive(
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
     salt: &str,
+    show_cuts: bool,
     dirty: &mut bool,
 ) {
     if ui.checkbox(solid, "Solid (collider)").changed() {
         *dirty = true;
     }
     ui.add_space(2.0);
-    draw_torture(ui, torture, dirty);
+    draw_torture(ui, torture, show_cuts, dirty);
     ui.add_space(2.0);
     egui::CollapsingHeader::new("Material")
         .id_salt(format!("{}_mat", salt))
