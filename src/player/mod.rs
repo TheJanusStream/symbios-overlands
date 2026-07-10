@@ -203,10 +203,12 @@ impl Plugin for PlayerPlugin {
 ///
 /// The actual full-body freeze lives in
 /// [`freeze_local_avatar_on_visuals_select`], which parks the chassis
-/// with `RigidBodyDisabled` for the duration of the selection. The input
-/// gates here are still worth keeping: the drive systems have
-/// non-physics side effects (gait state, jump triggers) that shouldn't
-/// respond while an edit is in progress.
+/// with `RigidBodyDisabled` for the duration of the selection, and in
+/// [`gait::animate_humanoid_gait`], which holds the local humanoid's
+/// cosmetic sway at its rest pose (#737). The input gates here are still
+/// worth keeping: the drive systems have non-physics side effects (gait
+/// state, jump triggers) that shouldn't respond while an edit is in
+/// progress.
 fn avatar_visuals_row_selected(avatar_editor: Option<Res<AvatarEditorState>>) -> bool {
     avatar_editor
         .map(|e| e.has_visuals_selection())

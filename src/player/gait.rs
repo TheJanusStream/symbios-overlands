@@ -18,6 +18,11 @@
 //! root) and preset hot-swaps stay drift-free. Amplitudes derive from the
 //! owner DID via [`AvatarGait::for_did`] — the same derivation the seeded
 //! locomotion defaults use.
+//!
+//! The local player's gait pauses (root held at the rest pose) while the
+//! avatar editor has a visuals row selected, joining the chassis freeze in
+//! [`super`] — see [`animate_humanoid_gait`] for why. Remote peers are
+//! unaffected.
 
 use avian3d::prelude::LinearVelocity;
 use bevy::prelude::*;
@@ -125,10 +130,21 @@ pub(super) fn attach_gait_animation(
 /// avatar's visual root. Removes [`GaitAnimation`] from avatars that are
 /// no longer humanoid (remote record hot-swap) — their fresh visual root
 /// spawns unanimated, so no offset lingers.
+///
+/// While the local player has an avatar-editor visuals row selected, its
+/// gait pauses and the visual root is held at the authored rest pose
+/// (#737). Sway is time-based, so it would keep oscillating right through
+/// the physics freeze — moving every part of the avatar *except* the
+/// gizmo-detached prim being edited, and drifting the parent transforms
+/// the drag commit's world→local conversion reads. Snapping to the base
+/// pose (rather than holding the mid-sway offset) means the owner edits
+/// the avatar in its neutral stance. Per-entity rather than a `run_if` so
+/// remote peers keep swaying while the owner edits.
 #[allow(clippy::type_complexity)]
 pub(super) fn animate_humanoid_gait(
     time: Res<Time>,
     mut commands: Commands,
+    avatar_editor: Option<Res<crate::ui::avatar::AvatarEditorState>>,
     mut avatars: Query<(
         Entity,
         &Children,
@@ -136,14 +152,18 @@ pub(super) fn animate_humanoid_gait(
         Option<&LinearVelocity>,
         Option<&RemotePeer>,
         Has<HumanoidPreset>,
+        Has<LocalPlayer>,
         &mut GaitAnimation,
     )>,
     mut roots: Query<(&AvatarVisualRoot, &mut Transform), Without<GaitAnimation>>,
 ) {
     let dt = time.delta_secs();
     let t = time.elapsed_secs();
+    let editing_visuals = avatar_editor
+        .map(|e| e.has_visuals_selection())
+        .unwrap_or(false);
 
-    for (entity, children, chassis_tf, velocity, peer, has_humanoid_preset, mut anim) in
+    for (entity, children, chassis_tf, velocity, peer, has_humanoid_preset, is_local, mut anim) in
         &mut avatars
     {
         // Local avatars are gated by the preset marker, remote ones by
@@ -152,6 +172,23 @@ pub(super) fn animate_humanoid_gait(
         let still_humanoid = has_humanoid_preset || peer.map(peer_is_humanoid).unwrap_or(false);
         if !still_humanoid {
             commands.entity(entity).remove::<GaitAnimation>();
+            continue;
+        }
+
+        // Editing freeze: hold the local avatar at its rest pose. Written
+        // every frame (not edge-triggered) so a visuals rebuild mid-edit
+        // re-neutralizes the freshly-spawned root — same state-synced
+        // shape as the chassis freeze in `player::mod`. When the *root*
+        // node itself is gizmo-detached it is no longer in `children`,
+        // so this can't fight the gizmo for its transform.
+        if is_local && editing_visuals {
+            for child in children.iter() {
+                if let Ok((root, mut tf)) = roots.get_mut(child) {
+                    tf.translation = root.base_translation;
+                    tf.rotation = root.base_rotation;
+                    break;
+                }
+            }
             continue;
         }
 
