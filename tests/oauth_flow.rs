@@ -27,15 +27,46 @@ fn client_metadata_redirect_matches_target() {
 }
 
 #[test]
-fn client_metadata_scope_includes_transition_generic() {
-    // Until bsky.social's AS adds the granular Permission-Sets vocabulary
-    // to `scopes_supported`, `transition:generic` is the only scope that
-    // covers `com.atproto.server.getServiceAuth` against any relay.
-    // Regression guard against an over-eager scope reduction silently
-    // breaking service-auth (and therefore the entire signaller path).
+fn client_metadata_scope_is_granular() {
+    // #736: the broad `transition:generic` grant is replaced by granular
+    // permissions — write access to exactly the five Overlands collections
+    // plus a concrete-lxm/wildcard-aud rpc grant for relay service auth.
+    // The rpc shape matters: `rpc:*?aud=*` is spec-invalid, and pinning
+    // `aud` instead of `lxm` would bake one relay's DID into the static
+    // hosted metadata (the #170 hack this replaces).
     let scope = oauth::client_metadata().scope.expect("scope must be set");
-    assert!(scope.contains("atproto"), "{scope}");
-    assert!(scope.contains("transition:generic"), "{scope}");
+    assert!(scope.starts_with("atproto "), "{scope}");
+    assert!(!scope.contains("transition:generic"), "{scope}");
+    for collection in [
+        "network.symbios.overlands.room",
+        "network.symbios.overlands.room.generator",
+        "network.symbios.overlands.avatar",
+        "network.symbios.overlands.inventory",
+        "network.symbios.overlands.inventory.item",
+    ] {
+        assert!(
+            scope.split(' ').any(|s| s == format!("repo:{collection}")),
+            "missing repo grant for {collection} in {scope}"
+        );
+    }
+    let rpc = format!("rpc:{}?aud=*", oauth::RELAY_SERVICE_LXM);
+    assert!(scope.split(' ').any(|s| s == rpc), "{scope}");
+}
+
+#[test]
+fn client_metadata_scope_matches_hosted_document() {
+    // The WASM build's `client_id` is the hosted metadata URL, so the
+    // authorization server reads the scope from
+    // `assets/client-metadata.json` — if that file drifts from the scope
+    // the code sends in the PAR request, login breaks only in production.
+    let hosted: serde_json::Value =
+        serde_json::from_str(include_str!("../assets/client-metadata.json"))
+            .expect("client-metadata.json must parse");
+    assert_eq!(
+        hosted["scope"].as_str().expect("hosted scope must be set"),
+        oauth::client_metadata().scope.expect("scope must be set"),
+        "assets/client-metadata.json scope drifted from oauth::granular_scope()"
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]

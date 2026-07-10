@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use bevy::prelude::*;
-use bevy_symbios_multiuser::auth::{AtprotoSession, get_service_auth};
+use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
 use bevy_symbios_multiuser::signaller::{TokenSource, TokenSourceRes};
 use proto_blue_oauth::OAuthClient;
@@ -151,10 +151,9 @@ pub(super) fn spawn_complete_task(
                 }
             }
 
-            let service_did = format!("did:web:{}", pending.relay_host);
-            let service_token = get_service_auth(&session, &service_did)
+            let service_token = crate::oauth::get_relay_service_auth(&session, &pending.relay_host)
                 .await
-                .map_err(|e| format!("get_service_auth: {e}"))?;
+                .map_err(|e| format!("get_relay_service_auth: {e}"))?;
             let room_did = if pending.target_did.is_empty() {
                 session.did.clone()
             } else {

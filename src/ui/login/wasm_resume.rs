@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use bevy::prelude::*;
-use bevy_symbios_multiuser::auth::{AtprotoSession, get_service_auth};
+use bevy_symbios_multiuser::auth::AtprotoSession;
 use proto_blue_oauth::OAuthClient;
 
 use crate::boot_params::BootParams;
@@ -137,10 +137,9 @@ fn spawn_resume_task(
             pds_url: blob.pds_url.clone(),
             session: oauth_session,
         };
-        let service_did = format!("did:web:{}", blob.relay_host);
-        let service_token = get_service_auth(&session, &service_did)
+        let service_token = crate::oauth::get_relay_service_auth(&session, &blob.relay_host)
             .await
-            .map_err(|e| format!("resume get_service_auth: {e}"))?;
+            .map_err(|e| format!("resume get_relay_service_auth: {e}"))?;
         let room_did = if blob.target_did.is_empty() {
             session.did.clone()
         } else {

@@ -1,6 +1,6 @@
 //! Periodic refresh of the relay **service-auth** token (#714).
 //!
-//! [`get_service_auth`] mints a short-lived (~60 s on bsky) JWT that the WebRTC
+//! [`get_relay_service_auth`] mints a short-lived (~60 s on bsky) JWT that the WebRTC
 //! signaller presents to the relay on every (re)connect. It is fetched once at
 //! login (see [`crate::ui::login::poll_complete_auth_task`]) and, without this
 //! module, never renewed — so any reconnect (portal hop, dead-socket respawn,
@@ -21,7 +21,7 @@
 
 use bevy::prelude::*;
 use bevy::tasks::{IoTaskPool, Task};
-use bevy_symbios_multiuser::auth::{AtprotoSession, get_service_auth};
+use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::signaller::TokenSourceRes;
 
 use crate::config;
@@ -32,6 +32,50 @@ use crate::state::RelayHost;
 /// or an error to log (the next cadence tick retries).
 #[derive(Component)]
 pub struct ServiceTokenRefreshTask(Task<Result<String, String>>);
+
+/// Response body of `com.atproto.server.getServiceAuth`.
+#[derive(serde::Deserialize)]
+struct GetServiceAuthResponse {
+    token: String,
+}
+
+/// Mint a relay service-auth JWT: `com.atproto.server.getServiceAuth` with
+/// `aud = did:web:<relay_host>` and `lxm =`
+/// [`RELAY_SERVICE_LXM`](super::RELAY_SERVICE_LXM).
+///
+/// Replaces `bevy_symbios_multiuser::auth::get_service_auth` for all relay
+/// token mints (#736): that helper sends no `lxm`, which the PDS treats as
+/// a wildcard-method request — only grantable under the retired
+/// `transition:generic` scope or an audience-pinned `rpc:*?aud=…` grant.
+/// Passing the concrete `lxm` here is what lets the client's scope use a
+/// wildcard *audience* instead, so one static client metadata document
+/// serves every relay host. The relay itself ignores the token's `lxm`
+/// claim; it validates `iss`/`exp`/`nbf`/`aud` only.
+pub async fn get_relay_service_auth(
+    session: &AtprotoSession,
+    relay_host: &str,
+) -> Result<String, String> {
+    let mut url = url::Url::parse(&session.xrpc_url("com.atproto.server.getServiceAuth"))
+        .map_err(|e| format!("getServiceAuth url: {e}"))?;
+    url.query_pairs_mut()
+        .append_pair("aud", &format!("did:web:{relay_host}"))
+        .append_pair("lxm", super::RELAY_SERVICE_LXM);
+    let resp = session
+        .session
+        .get(url.as_str())
+        .await
+        .map_err(|e| format!("getServiceAuth: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("getServiceAuth returned {status}: {body}"));
+    }
+    let parsed: GetServiceAuthResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("getServiceAuth decode: {e}"))?;
+    Ok(parsed.token)
+}
 
 /// Spawn a service-token refresh on a fixed cadence while a session is active,
 /// unless one is already in flight. The freshly-minted token is installed by
@@ -74,7 +118,7 @@ pub fn schedule_service_token_refresh(
 
     let session = session.clone();
     let refresh_ctx = refresh_ctx.clone();
-    let service_did = format!("did:web:{}", relay_host.0);
+    let relay_host = relay_host.0.clone();
 
     let pool = IoTaskPool::get();
     let task = pool.spawn(async move {
@@ -85,9 +129,7 @@ pub fn schedule_service_token_refresh(
             if session.session.is_expired_jittered() {
                 super::refresh::refresh_session(&session.session, &refresh_ctx).await?;
             }
-            get_service_auth(&session, &service_did)
-                .await
-                .map_err(|e| e.to_string())
+            get_relay_service_auth(&session, &relay_host).await
         };
         #[cfg(target_arch = "wasm32")]
         {

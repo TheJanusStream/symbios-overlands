@@ -1,9 +1,9 @@
 //! OAuth 2.0 + DPoP authentication for Symbios Overlands.
 //!
 //! This module drives the full authorization-code flow against the user's
-//! PDS, producing an authenticated `AtprotoSession` that
-//! [`bevy_symbios_multiuser`] can use to fetch a service token for the
-//! relay. It is target-specific:
+//! PDS, producing an authenticated `AtprotoSession` plus the relay
+//! service-auth token minted by [`get_relay_service_auth`]. It is
+//! target-specific:
 //!
 //! - **WASM** — redirect-based: the page navigates away to the auth server,
 //!   state is parked in `sessionStorage`, and the callback lands back on
@@ -59,6 +59,7 @@ pub use auth_flow::{CompletedAuth, begin_authorization, complete_authorization};
 pub use discovery::{CLIENT_METADATA_URL, WASM_REDIRECT_URI};
 #[cfg(not(target_arch = "wasm32"))]
 pub use discovery::{NATIVE_CALLBACK_PORT, native_redirect_uri};
+pub use discovery::{RELAY_SERVICE_LXM, granular_scope};
 pub use discovery::{client_metadata, discover_auth_server};
 #[cfg(not(target_arch = "wasm32"))]
 pub use native_server::{
@@ -69,7 +70,9 @@ pub use refresh::{
     fetch_session_identity, oauth_get_with_nonce_retry, oauth_post_with_nonce_retry,
     oauth_post_with_refresh, refresh_session,
 };
-pub use service_token::{poll_service_token_refresh, schedule_service_token_refresh};
+pub use service_token::{
+    get_relay_service_auth, poll_service_token_refresh, schedule_service_token_refresh,
+};
 
 /// In-flight OAuth authorization state persisted between the `authorize()`
 /// call and the callback. On WASM this is serialized into

@@ -44,6 +44,44 @@ pub fn native_redirect_uri() -> String {
     format!("http://127.0.0.1:{NATIVE_CALLBACK_PORT}/callback")
 }
 
+/// Lexicon method (`lxm`) the relay service-auth token is minted for.
+///
+/// Not a published lexicon — the relay never dispatches on it (its JWT
+/// validation reads `iss`/`exp`/`nbf`/`aud` only). It exists so the
+/// `rpc:` scope below can name a *concrete* method with a wildcard
+/// audience: the permissions spec forbids `rpc:*?aud=*`, and pinning the
+/// audience instead would bake one relay's DID into the static hosted
+/// client metadata (the #170 per-session-client hack), breaking
+/// non-default relays on WASM. Every `getServiceAuth` call must pass
+/// this as `lxm` — the PDS treats an omitted `lxm` as `*`, which the
+/// wildcard-audience grant does not cover.
+pub const RELAY_SERVICE_LXM: &str = "network.symbios.overlands.signal";
+
+/// The granular OAuth scope requested at login (#736, supersedes
+/// `transition:generic`): write access to exactly the five Overlands
+/// record collections, plus the ability to mint relay service-auth
+/// tokens ([`RELAY_SERVICE_LXM`]) for any audience. Everything else the
+/// app touches is unauthenticated (public AppView reads, `sync.getBlob`)
+/// or covered by the base `atproto` scope (`getSession`). Repo *reads*
+/// need no scope — the permission model's `action` vocabulary is
+/// create/update/delete only.
+///
+/// Kept as a runtime builder (not a literal) so the collection NSIDs
+/// can't drift from the constants the write paths actually use. The
+/// hosted copy in `assets/client-metadata.json` must stay in sync — see
+/// the `client_metadata_scope_matches_hosted_document` integration test.
+pub fn granular_scope() -> String {
+    use crate::pds::{
+        AVATAR_COLLECTION, COLLECTION, INVENTORY_COLLECTION, INVENTORY_ITEM_COLLECTION,
+        ROOM_GENERATOR_COLLECTION,
+    };
+    format!(
+        "atproto repo:{COLLECTION} repo:{ROOM_GENERATOR_COLLECTION} repo:{AVATAR_COLLECTION} \
+         repo:{INVENTORY_COLLECTION} repo:{INVENTORY_ITEM_COLLECTION} \
+         rpc:{RELAY_SERVICE_LXM}?aud=*"
+    )
+}
+
 /// Build the client metadata we hand to proto-blue-oauth.
 ///
 /// Two different `client_id` strategies are used depending on target:
@@ -57,16 +95,7 @@ pub fn native_redirect_uri() -> String {
 ///   `http://localhost?redirect_uri=…&scope=…` and the AS derives the
 ///   metadata directly from those query parameters.
 pub fn client_metadata() -> OAuthClientMetadata {
-    // `transition:generic` is the legacy scope that grants "ability to
-    // generate service auth tokens for the specific API endpoints the
-    // client has access to" — the documented path for clients (like us)
-    // that need `com.atproto.server.getServiceAuth` against a relay. The
-    // breadth (App-Password-equivalent: full repo + blob + rpc) matches
-    // what bsky.social's AS advertises today; granular Permission-Sets
-    // scopes are silently dropped at grant time, so requesting them
-    // would yield a token whose granted scope is just `"atproto"` and
-    // the PDS would 403 service-auth calls with `ScopeMissingError`.
-    let scope = "atproto transition:generic";
+    let scope = granular_scope();
     #[cfg(target_arch = "wasm32")]
     {
         OAuthClientMetadata {
@@ -74,7 +103,7 @@ pub fn client_metadata() -> OAuthClientMetadata {
             redirect_uris: vec![WASM_REDIRECT_URI.into()],
             response_types: Some(vec!["code".into()]),
             grant_types: Some(vec!["authorization_code".into(), "refresh_token".into()]),
-            scope: Some(scope.into()),
+            scope: Some(scope),
             token_endpoint_auth_method: Some("none".into()),
             token_endpoint_auth_signing_alg: None,
             application_type: Some("web".into()),
@@ -90,14 +119,14 @@ pub fn client_metadata() -> OAuthClientMetadata {
         let client_id = format!(
             "http://localhost?redirect_uri={}&scope={}",
             urlencode_query_value(&redirect),
-            urlencode_query_value(scope),
+            urlencode_query_value(&scope),
         );
         OAuthClientMetadata {
             client_id,
             redirect_uris: vec![redirect],
             response_types: Some(vec!["code".into()]),
             grant_types: Some(vec!["authorization_code".into(), "refresh_token".into()]),
-            scope: Some(scope.into()),
+            scope: Some(scope),
             token_endpoint_auth_method: Some("none".into()),
             token_endpoint_auth_signing_alg: None,
             application_type: Some("native".into()),
