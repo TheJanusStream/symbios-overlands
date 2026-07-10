@@ -379,7 +379,10 @@ pub enum BlobShape {
     /// Torus lying in the element's local XZ plane (axis +Y).
     #[serde(rename = "network.symbios.blob.torus")]
     Torus,
-    /// Capped cone: base at local −Y, apex at +Y.
+    /// Capped cone: base radius `radii[0]` at local −Y, tip radius
+    /// `radii[2]` at +Y (the sanitiser's 0.01 floor ≈ a point, so plain
+    /// cones need no extra field; a real tip radius makes the
+    /// truncated-cone limb segment).
     #[serde(rename = "network.symbios.blob.cone")]
     Cone,
     #[serde(other)]
@@ -398,10 +401,11 @@ pub struct BlobElement {
     /// an ellipsoid's semi-axes; irrelevant for a sphere.
     pub rotation: Fp4,
     /// Per-shape size: Sphere uses `radii[0]`; Ellipsoid and Box read all
-    /// three (semi-axes / half-extents); Capsule, Cylinder and Cone read
+    /// three (semi-axes / half-extents); Capsule and Cylinder read
     /// `radii[0]` = radius and `radii[1]` = half-length / half-height;
-    /// Torus reads `radii[0]` = ring (major) radius and `radii[1]` = tube
-    /// (minor) radius.
+    /// Cone reads `radii[0]` = base radius, `radii[1]` = half-height and
+    /// `radii[2]` = tip radius; Torus reads `radii[0]` = ring (major)
+    /// radius and `radii[1]` = tube (minor) radius.
     pub radii: Fp3,
     /// `true` carves this element out of the accumulated shape (smooth
     /// subtraction — eye sockets, nostrils, creases) instead of adding it.

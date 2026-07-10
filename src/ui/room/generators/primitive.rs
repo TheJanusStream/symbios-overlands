@@ -580,7 +580,7 @@ pub(super) fn draw_primitive_blob_group(
                         BlobShape::Capsule => "Tube radius / half-length / (unused).",
                         BlobShape::Box => "Half-extents X / Y / Z.",
                         BlobShape::Cylinder => "Radius / half-height / (unused).",
-                        BlobShape::Cone => "Base radius / half-height / (unused).",
+                        BlobShape::Cone => "Base radius / half-height / tip radius.",
                         BlobShape::Torus => "Ring radius / tube radius / (unused).",
                         BlobShape::Sphere | BlobShape::Unknown => "Radius / (unused) / (unused).",
                     };

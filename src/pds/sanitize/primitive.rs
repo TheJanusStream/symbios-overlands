@@ -222,14 +222,8 @@ pub(super) fn sanitize_primitive(kind: &mut GeneratorKind) {
                     0.1,
                 ));
                 // Unit quaternion or identity — the mesher inverts it.
-                let q = e.rotation.0.map(|v| clamp_finite(v, -1.0, 1.0, 0.0));
-                let len_sq: f32 = q.iter().map(|v| v * v).sum();
-                e.rotation = if len_sq > 1e-6 {
-                    let inv = len_sq.sqrt().recip();
-                    crate::pds::types::Fp4(q.map(|v| v * inv))
-                } else {
-                    crate::pds::types::Fp4([0.0, 0.0, 0.0, 1.0])
-                };
+                e.rotation =
+                    crate::pds::types::Fp4(super::common::sanitize_unit_quat(e.rotation.0));
             }
             *resolution = (*resolution).clamp(8, super::limits::MAX_BLOB_RESOLUTION);
             material.sanitize();

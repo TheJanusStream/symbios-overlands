@@ -37,6 +37,9 @@ mod water;
 use crate::pds::generator::{Generator, GeneratorKind};
 use crate::pds::types::truncate_on_char_boundary;
 
+/// Authored-rotation fixpoint for the avatar part builders (see
+/// `common::unit_quat_fixpoint`).
+pub(crate) use common::unit_quat_fixpoint;
 use primitive::sanitize_primitive;
 use sign::sanitize_sign;
 use water::sanitize_water;

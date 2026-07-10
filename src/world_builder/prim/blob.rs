@@ -34,8 +34,9 @@ fn bound_radius(e: &ResolvedElement) -> f32 {
         BlobShape::Capsule => e.radii.x + e.radii.y,
         BlobShape::Box => e.radii.length(),
         // Radius + half-height corner for the capped shapes; ring + tube
-        // for the torus.
-        BlobShape::Cylinder | BlobShape::Cone => Vec2::new(e.radii.x, e.radii.y).length(),
+        // for the torus. The cone bounds on the wider of base and tip.
+        BlobShape::Cylinder => Vec2::new(e.radii.x, e.radii.y).length(),
+        BlobShape::Cone => Vec2::new(e.radii.x.max(e.radii.z), e.radii.y).length(),
         BlobShape::Torus => e.radii.x + e.radii.y,
         // Sphere and forward-compat Unknown both read radii[0].
         BlobShape::Sphere | BlobShape::Unknown => e.radii.x,
@@ -93,14 +94,18 @@ fn element_sdf(e: &ResolvedElement, p: Vec3) -> f32 {
             ring.length() - e.radii.y
         }
         BlobShape::Cone => {
-            // IQ's exact capped cone with the top radius pinched to a tip:
-            // base radius `radii.x` at −radii.y, apex at +radii.y.
-            let (r1, h) = (e.radii.x, e.radii.y);
+            // IQ's exact capped cone: base radius `radii.x` at −radii.y,
+            // tip radius `radii.z` at +radii.y. The sanitiser floors the
+            // tip at 0.01 — visually a point — so plain cones need no
+            // extra field, while a real tip radius turns the element into
+            // the truncated-cone limb segment (#726: a point-tipped cone
+            // reads as a teardrop and disconnects at joints).
+            let (r1, h, r2) = (e.radii.x, e.radii.y, e.radii.z);
             let w = Vec2::new((q.x * q.x + q.z * q.z).sqrt(), q.y);
-            let k1 = Vec2::new(0.0, h);
-            let k2 = Vec2::new(-r1, 2.0 * h);
+            let k1 = Vec2::new(r2, h);
+            let k2 = Vec2::new(r2 - r1, 2.0 * h);
             let ca = Vec2::new(
-                w.x - w.x.min(if w.y < 0.0 { r1 } else { 0.0 }),
+                w.x - w.x.min(if w.y < 0.0 { r1 } else { r2 }),
                 w.y.abs() - h,
             );
             let cb = w - k1 + k2 * ((k1 - w).dot(k2) / k2.length_squared()).clamp(0.0, 1.0);
@@ -387,12 +392,12 @@ pub(super) fn blob_hull_points(elements: &[BlobElement]) -> Vec<Vec3> {
                 }
             }
             BlobShape::Cone => {
-                out.push(e.position + rot * Vec3::new(0.0, e.radii.y, 0.0));
                 for j in 0..HULL_RING {
                     let (c, s) = ring(j);
                     out.push(
                         e.position + rot * Vec3::new(c * e.radii.x, -e.radii.y, s * e.radii.x),
                     );
+                    out.push(e.position + rot * Vec3::new(c * e.radii.z, e.radii.y, s * e.radii.z));
                 }
             }
             // Outer equator + tube top/bottom rings bound the solid of

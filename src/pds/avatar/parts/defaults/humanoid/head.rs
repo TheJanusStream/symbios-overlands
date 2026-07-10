@@ -202,7 +202,10 @@ pub(in super::super) fn head(ctx: &PartCtx) -> Generator {
         id_quat(),
     );
 
-    // ---- Neck (unchanged from phase 1: short, thick, trapezius flare) --
+    // ---- Neck: short, thick, trapezius flare — tilted a few degrees
+    // forward (#726) so the throat meets the jaw underside and the nape
+    // rises higher up the skull, instead of a vertical peg under the chin.
+    // The base sinks into the torso's neck-root column.
     let neck_l = bp.neck_len + 0.10;
     head.children.push(prim(
         with_torture(
@@ -212,7 +215,7 @@ pub(in super::super) fn head(ctx: &PartCtx) -> Generator {
             [0.0, 0.0, 0.0],
         ),
         [0.0, -(r * 1.12 - 0.05 + neck_l * 0.5), 0.0],
-        id_quat(),
+        quat_xyzw(quat_x(-0.12)),
     ));
 
     // The lower-face seat plane: features must sit proud of whichever mass

@@ -404,6 +404,88 @@ mod tests {
     }
 
     #[test]
+    fn humanoid_blob_masses_are_single_connected_skins() {
+        // Union-find over each BlobGroup mesh's triangle graph: a blended
+        // trunk / limb / pelvis / shoe must polygonise as ONE component.
+        // This is the mechanical guard for the #726 round-2 regression —
+        // needle-tipped limb segments visually separating at the joints
+        // ("exploded marionette") — and for any future element retune that
+        // drifts masses out of blend range. Seeds span the four
+        // stylization tiers via the user-supplied humanoid seed list.
+        use crate::pds::generator::GeneratorKind;
+        use crate::world_builder::build_primitive_mesh;
+        use bevy::mesh::VertexAttributeValues;
+
+        fn find(parent: &mut [usize], mut a: usize) -> usize {
+            while parent[a] != a {
+                parent[a] = parent[parent[a]];
+                a = parent[a];
+            }
+            a
+        }
+        fn components(kind: &GeneratorKind) -> usize {
+            let mesh = build_primitive_mesh(kind);
+            let n = match mesh.attribute(bevy::prelude::Mesh::ATTRIBUTE_POSITION) {
+                Some(VertexAttributeValues::Float32x3(p)) => p.len(),
+                _ => return 0,
+            };
+            let Some(indices) = mesh.indices() else {
+                return 0;
+            };
+            let mut parent: Vec<usize> = (0..n).collect();
+            let mut touched = vec![false; n];
+            let idx: Vec<usize> = indices.iter().collect();
+            for tri in idx.chunks(3) {
+                for &(a, b) in &[(tri[0], tri[1]), (tri[0], tri[2])] {
+                    touched[a] = true;
+                    touched[b] = true;
+                    let (ra, rb) = (find(&mut parent, a), find(&mut parent, b));
+                    parent[ra] = rb;
+                }
+            }
+            (0..n)
+                .filter(|&v| touched[v] && find(&mut parent, v) == v)
+                .count()
+        }
+        fn walk(g: &Generator, out: &mut Vec<GeneratorKind>) {
+            if matches!(g.kind, GeneratorKind::BlobGroup { .. }) {
+                out.push(g.kind.clone());
+            }
+            for c in &g.children {
+                walk(c, out);
+            }
+        }
+
+        // All verified humanoid-producing seeds (a vehicle seed would have
+        // no blob masses and trip the non-empty assert below).
+        for seed in [
+            6300350204994988827u64,
+            16829956693767402793,
+            18102493806418102393,
+            5227756743208462829,
+            15252705949980194106,
+            184810340591539844,
+            14887495512784657594,
+        ] {
+            let (avatar, _) =
+                crate::pds::avatar::default_visuals::build_for_seed(seed, "did:test:blob");
+            let mut kinds = Vec::new();
+            walk(&avatar, &mut kinds);
+            assert!(
+                !kinds.is_empty(),
+                "seed {seed}: humanoid avatar lost its blob masses"
+            );
+            for (i, k) in kinds.iter().enumerate() {
+                assert_eq!(
+                    components(k),
+                    1,
+                    "seed {seed}: blob mass #{i} meshes as a disconnected skin"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn parts_serve_only_their_declared_chassis_and_build_deterministically() {
         let ctx = PartCtx::for_seed(42);
         for part in entries() {

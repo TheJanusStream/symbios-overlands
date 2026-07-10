@@ -14,6 +14,36 @@ pub(super) fn clamp_finite(v: f32, lo: f32, hi: f32, default: f32) -> f32 {
     }
 }
 
+/// The blob-element quaternion sanitiser: clamp components finite, then
+/// renormalise — but ONLY when the length is meaningfully off unit. The
+/// tolerance gate makes the function idempotent: an exact-arithmetic
+/// renormalisation of an ulp-off unit quaternion oscillates between a
+/// slightly-short and slightly-long neighbour (a 2-cycle with NO
+/// bit-stable fixpoint), which broke the parts' survive-sanitise-unchanged
+/// round-trip contract. Within the gate the mesher's own
+/// `Quat::normalize()` absorbs the residual error.
+pub(crate) fn sanitize_unit_quat(q: [f32; 4]) -> [f32; 4] {
+    let q = q.map(|v| clamp_finite(v, -1.0, 1.0, 0.0));
+    let len_sq: f32 = q.iter().map(|v| v * v).sum();
+    if len_sq <= 1e-6 {
+        return [0.0, 0.0, 0.0, 1.0];
+    }
+    if (len_sq - 1.0).abs() <= 1e-5 {
+        return q;
+    }
+    let inv = len_sq.sqrt().recip();
+    q.map(|v| v * inv)
+}
+
+/// [`sanitize_unit_quat`] as the avatar part builders' authoring guard: a
+/// `sin`/`cos`-built quaternion passes through the same clamp + tolerance
+/// gate the record sanitiser applies, so the authored value is a sanitise
+/// fixpoint by construction (one renormalisation lands within the
+/// idempotency tolerance, after which the sanitiser keeps it bit-for-bit).
+pub(crate) fn unit_quat_fixpoint(q: [f32; 4]) -> [f32; 4] {
+    sanitize_unit_quat(q)
+}
+
 /// Clamp the [`TortureParams`] attached to every primitive. Values drive the
 /// CPU-side vertex mutation pass in
 /// `world_builder::prim::apply_vertex_torture`; out-of-range inputs produce
