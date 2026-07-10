@@ -60,39 +60,42 @@ fn trunk(
     let back_tilt = quat_xyzw(quat_x(0.07));
     let fwd_tilt = quat_xyzw(quat_x(-0.10));
     let mut elements = vec![
-        // Ribcage egg — the upper-trunk primary mass.
+        // Ribcage egg — the upper-trunk primary mass. Width and depth
+        // pulled in ~8 % (user: the trunk read bulky next to the slimmed
+        // limbs; round-3 verification measured barely-reduced chest depth).
         blob_ellipsoid(
             [0.0, yoke_y * 0.40, chest_r * 0.02 * d],
-            [chest_r * 0.94 * fullness, len * 0.40, chest_r * 0.74 * d],
+            [chest_r * 0.87 * fullness, len * 0.40, chest_r * 0.68 * d],
             back_tilt,
             blend,
         ),
-        // Pectoral / chest-front plane (ornament + badge seat contract).
+        // Pectoral / chest-front plane (ornament + badge seat contract:
+        // front surface now peaks at ≈ 0.98 · chest_r).
         blob_ellipsoid(
-            [0.0, yoke_y * 0.42, -chest_r * 0.44 * d],
-            [chest_r * 0.92 * fullness, len * 0.42, chest_r * 0.60 * d],
+            [0.0, yoke_y * 0.42, -chest_r * 0.42 * d],
+            [chest_r * 0.86 * fullness, len * 0.42, chest_r * 0.56 * d],
             id_quat(),
             blend,
         ),
         // Upper-back / shoulder-blade mass — kept shallower than the chest
         // (back convexity ≤ ~0.8× chest) so the profile doesn't hump.
         blob_ellipsoid(
-            [0.0, yoke_y * 0.60, chest_r * 0.40 * d],
-            [chest_r * 0.88 * fullness, len * 0.30, chest_r * 0.38 * d],
+            [0.0, yoke_y * 0.60, chest_r * 0.34 * d],
+            [chest_r * 0.82 * fullness, len * 0.30, chest_r * 0.34 * d],
             back_tilt,
             blend,
         ),
         // Waist connector — visibly narrower than both trunk masses.
         blob_ellipsoid(
             [0.0, -len * 0.16, 0.0],
-            [waist_r * 0.92, len * 0.24, waist_r * 0.82 * d],
+            [waist_r * 0.90, len * 0.24, waist_r * 0.80 * d],
             id_quat(),
             blend * 0.9,
         ),
         // Abdomen / lower trunk: belly curve forward, lumbar hollow behind.
         blob_ellipsoid(
             [0.0, -len * 0.36, -waist_r * 0.03 * d],
-            [waist_r * 1.0, len * 0.30, waist_r * 0.88 * d],
+            [waist_r * 0.96, len * 0.30, waist_r * 0.84 * d],
             fwd_tilt,
             blend,
         ),
@@ -118,9 +121,9 @@ fn trunk(
                 yoke_y + chest_r * 0.10,
                 chest_r * 0.06 * d,
             ],
-            chest_r * 0.34,
+            chest_r * 0.30,
             bp.shoulder_x * 0.44,
-            chest_r * 0.12,
+            chest_r * 0.11,
             quat_xyzw(quat_z(s * 1.10)),
             blend * 0.8,
         ));
@@ -132,18 +135,24 @@ fn trunk(
         [0.0, yoke_y * 0.96, 0.0],
         [
             (bp.shoulder_x - bp.arm_r * 0.15) * fullness.min(1.0),
-            chest_r * 0.34,
-            chest_r * 0.78 * d,
+            chest_r * 0.30,
+            chest_r * 0.70 * d,
         ],
         id_quat(),
         blend * 0.7,
     ));
     // Neck root — a short column the head part's neck sinks into, so the
-    // junction is trunk-swallows-neck rather than head-on-a-shelf.
+    // junction is trunk-swallows-neck rather than head-on-a-shelf. Sits a
+    // touch behind the axis (the chest-forward masses made the neck read
+    // as emerging from a hollow), and its upward reach is capped by the
+    // blueprint's actual chin gap — on toy-tier bodies the huge chest made
+    // the old fixed chest-relative column swallow the chin.
+    let nr_reach = (bp.neck_len + bp.neck_r * 0.4).min(chest_r * 0.52);
+    let nr_half = (chest_r * 0.22).min(nr_reach * 0.5);
     elements.push(blob_capsule(
-        [0.0, yoke_y + chest_r * 0.30, 0.0],
+        [0.0, yoke_y + nr_reach - nr_half, chest_r * 0.05 * d],
         bp.neck_r * 1.25,
-        chest_r * 0.22,
+        nr_half,
         id_quat(),
         blend * 0.6,
     ));
@@ -169,10 +178,12 @@ pub(super) fn torso(ctx: &PartCtx) -> Generator {
 
     // Collar ring at the neckline — major radius tucked into the trunk's
     // neck-root column so the ring reads as a worn collar, not a floating
-    // hoop (#726 conformal-attachment pass).
+    // hoop (#726 conformal-attachment pass). Height tracks the trunk's
+    // capped neck-root so toy-tier collars don't ride up over the chin.
+    let neck_line = yoke_y + ((bp.neck_len + bp.neck_r * 0.4).min(chest_r * 0.52)) * 0.72;
     let mut ring = prim(
         torus(0.02, bp.neck_r * 1.28, collar.clone()),
-        [0.0, yoke_y + chest_r * 0.30, 0.0],
+        [0.0, neck_line, chest_r * 0.05 * d],
         id_quat(),
     );
     ring.transform.scale = Fp3([1.0, 1.0, d]);
@@ -182,7 +193,7 @@ pub(super) fn torso(ctx: &PartCtx) -> Generator {
     // would let it float).
     torso.children.push(prim(
         cuboid([chest_r * 0.13, len * 0.30, 0.015], collar),
-        [0.0, yoke_y * 0.30, -(chest_r * 1.02 * d + 0.006)],
+        [0.0, yoke_y * 0.30, -(chest_r * 0.96 * d + 0.006)],
         id_quat(),
     ));
     // Belt at the waist — major radius matched to the abdomen mass's
@@ -239,16 +250,18 @@ pub(super) fn coat(ctx: &PartCtx) -> Generator {
             [
                 s * chest_r * 0.30,
                 len * 0.14,
-                -(chest_r * 1.02 * d + 0.005),
+                -(chest_r * 0.96 * d + 0.005),
             ],
             quat_xyzw(quat_z(s * 0.35)),
         ));
     }
     // Stand collar — a short ring standing at the neckline, squashed to
-    // the trunk's oval section.
+    // the trunk's oval section; height tracks the trunk's capped neck-root
+    // (toy-tier chests are huge relative to their chin gap).
+    let neck_line = yoke_y + ((bp.neck_len + bp.neck_r * 0.4).min(chest_r * 0.52)) * 0.72;
     let mut stand = prim(
         cylinder(bp.neck_r * 1.5, 0.09, 12, collar),
-        [0.0, yoke_y + chest_r * 0.30, 0.0],
+        [0.0, neck_line, chest_r * 0.05 * d],
         id_quat(),
     );
     stand.transform.scale = Fp3([1.0, 1.0, d]);
@@ -522,33 +535,26 @@ pub(super) fn leg(ctx: &PartCtx) -> Generator {
     ));
 
     // ---- Foot: built from the GROUND UP (#726) -------------------------
-    // The sole bottom is computed to land exactly at the blueprint's
-    // ground line, so every seed's feet are planted by construction, and
-    // the ankle axis enters ~70 % along the foot: a real heel projects
-    // behind the leg while the toe reaches forward.
+    // The shoe loaf's lowest point (the heel ball's underside) is computed
+    // to land exactly at the blueprint's ground line, so every seed's feet
+    // are planted by construction, and the ankle axis enters ~70 % along
+    // the foot: a real heel projects behind the leg while the toe reaches
+    // forward. No separate sole slab — the flat plate read as a detached
+    // platform under the rounded loaf (#731); the loaf grounds itself.
     let ankle = bent(l2);
     let ankle_z = ankle[2];
     let foot_l = bp.foot_len;
-    let sole_th = 0.03_f32;
     let ground_y = -bp.leg_total();
-    let base_y = ground_y + sole_th;
-    // Sole: a thin dark slab; the shoe loaf overlaps its top face so it
-    // reads as the shoe's bottom, never a detached platform.
-    limb.children.push(prim(
-        cuboid(
-            [ankle_r * 2.3, sole_th, foot_l * 1.02],
-            ctx.materials
-                .metal(shade(ctx.palette.secondary_accent, 0.45)),
-        ),
-        [0.0, ground_y + sole_th * 0.5, ankle_z - foot_l * 0.20],
-        id_quat(),
-    ));
+    // Heel-ball bottom sits 0.20·ankle_r under `base_y`; lift the loaf by
+    // exactly that so the heel kisses the ground line.
+    let base_y = ground_y + ankle_r * 0.20;
     // One-loaf upper: ankle collar + heel ball + instep block + toe cap
     // blended into a single wedge — higher at the heel/ankle, tapering to
     // the toe, wide enough (≥1.2× the ankle) to read from the back view.
     // The collar wraps the shin's entry point so the leg visually sinks
     // INTO the boot (round 2: shins ended mid-air above a saddle between
-    // heel and instep).
+    // heel and instep). Instep and toe bottoms sit a hair above the ground
+    // line — a slight natural toe spring instead of a full flat slab.
     let kf = ankle_r * 0.6;
     let loaf = vec![
         blob_sphere([0.0, base_y + ankle_r * 1.05, ankle_z], ankle_r * 1.18, kf),
@@ -558,13 +564,13 @@ pub(super) fn leg(ctx: &PartCtx) -> Generator {
             kf,
         ),
         blob_box(
-            [0.0, base_y + ankle_r * 0.55, ankle_z - foot_l * 0.18],
+            [0.0, base_y + ankle_r * 0.42, ankle_z - foot_l * 0.18],
             [ankle_r * 1.25, ankle_r * 0.60, foot_l * 0.30],
             id_quat(),
             kf,
         ),
         blob_ellipsoid(
-            [0.0, base_y + ankle_r * 0.40, ankle_z - foot_l * 0.52],
+            [0.0, base_y + ankle_r * 0.26, ankle_z - foot_l * 0.52],
             [ankle_r * 1.10, ankle_r * 0.42, foot_l * 0.20],
             id_quat(),
             kf,

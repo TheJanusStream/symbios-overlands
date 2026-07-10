@@ -15,8 +15,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::pds::avatar::default_visuals::common::{
-    capsule, cone, cuboid, id_quat, prim, quat_mul, quat_x, quat_xyzw, quat_z, sphere, torus,
-    with_cut, with_shape,
+    blob_ellipsoid, blob_group, capsule, cone, cuboid, id_quat, prim, quat_mul, quat_x, quat_xyzw,
+    quat_z, sphere, torus, with_cut, with_shape,
 };
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
@@ -58,27 +58,44 @@ pub(super) fn masses(
         d.transform.scale = Fp3([sx * 1.02, 1.0, sz * 1.04]);
         d
     };
-    // Temple corners — small blocks at the front rim sides; the cut-back
-    // corner that makes a hairline read as one.
+    // Temple corners — soft pads at the front rim sides; the cut-back
+    // corner that makes a hairline read as one (#732: the old literal
+    // blocks read as boxes glued to the temples).
     let temples = |out: &mut Vec<Generator>| {
         for s in [-1.0f32, 1.0] {
-            out.push(prim(
-                cuboid([r * 0.2, r * 0.42, r * 0.5], hair.clone()),
-                [s * r * 0.86 * sx, hairline_y - r * 0.34, -r * 0.28 * sz],
-                id_quat(),
-            ));
+            let mut pad = prim(
+                sphere(r * 0.30, 3, hair.clone()),
+                [s * r * 0.84 * sx, hairline_y - r * 0.30, -r * 0.26 * sz],
+                quat_xyzw(quat_z(-s * 0.18)),
+            );
+            pad.transform.scale = Fp3([0.55, 1.15, 0.85]);
+            out.push(pad);
         }
     };
-    // Nape mass bridging the dome down the back of the skull.
+    // Nape — two blended lobes hugging the back of the skull down past the
+    // occiput (#732): the old tapered slab left the classic bathing-cap
+    // gap between dome rim and neck; the lower lobe now closes it.
     let nape = |out: &mut Vec<Generator>, depth: f32| {
         out.push(prim(
-            with_shape(
-                cuboid([r * 1.25 * sx, r * 0.55, r * depth], hair.clone()),
-                [0.25, -0.2],
-                [0.0, 0.0, 0.0],
-                [0.0, 0.0],
+            blob_group(
+                vec![
+                    blob_ellipsoid(
+                        [0.0, r * 0.14, r * 0.60 * sz],
+                        [r * 0.86 * sx, r * 0.55, r * (0.28 + depth * 0.5) * sz],
+                        id_quat(),
+                        r * 0.18,
+                    ),
+                    blob_ellipsoid(
+                        [0.0, -r * 0.40, r * 0.64 * sz],
+                        [r * 0.60 * sx, r * 0.44, r * (0.20 + depth * 0.4) * sz],
+                        id_quat(),
+                        r * 0.18,
+                    ),
+                ],
+                28,
+                hair.clone(),
             ),
-            [0.0, -r * 0.02, r * 0.72 * sz],
+            [0.0, 0.0, 0.0],
             id_quat(),
         ));
     };
@@ -113,18 +130,16 @@ pub(super) fn masses(
         }
         HairStyle::Bob => {
             out.push(dome(1.11, 0.40, 0.40, r * 0.24, r * 0.03));
-            // Side slabs to the jaw — one continuous rim front-to-back.
+            // Side curtains to the jaw — rounded (#732: the old flat slabs
+            // read as boards glued to the head sides).
             for s in [-1.0f32, 1.0] {
-                out.push(prim(
-                    with_shape(
-                        cuboid([r * 0.24, r * 1.0, r * 0.85 * sz], hair.clone()),
-                        [-0.15, -0.1],
-                        [0.0, 0.0, 0.0],
-                        [0.0, 0.0],
-                    ),
-                    [s * r * 0.98 * sx, -r * 0.18, r * 0.12],
+                let mut curtain = prim(
+                    capsule(r * 0.26, r * 0.62, hair.clone()),
+                    [s * r * 0.94 * sx, -r * 0.16, r * 0.10],
                     id_quat(),
-                ));
+                );
+                curtain.transform.scale = Fp3([0.55, 1.0, 1.55 * sz]);
+                out.push(curtain);
             }
             nape(&mut out, 0.42);
         }
@@ -285,14 +300,35 @@ pub(super) fn masses(
                     id_quat(),
                 ));
             }
+            // Back sheet as three blended lobes widening toward the tips —
+            // an organic falling sheet with a bottom flare instead of the
+            // old tapered plank (#732).
             out.push(prim(
-                with_shape(
-                    cuboid([r * 1.3 * sx, r * 1.7, r * 0.32], hair.clone()),
-                    [-0.18, 0.0],
-                    [0.0, 0.0, 0.0],
-                    [0.0, 0.0],
+                blob_group(
+                    vec![
+                        blob_ellipsoid(
+                            [0.0, -r * 0.05, r * 0.68 * sz],
+                            [r * 0.92 * sx, r * 0.55, r * 0.30],
+                            id_quat(),
+                            r * 0.25,
+                        ),
+                        blob_ellipsoid(
+                            [0.0, -r * 0.70, r * 0.80 * sz],
+                            [r * 1.02 * sx, r * 0.60, r * 0.26],
+                            id_quat(),
+                            r * 0.25,
+                        ),
+                        blob_ellipsoid(
+                            [0.0, -r * 1.15, r * 0.86 * sz],
+                            [r * 1.16 * sx, r * 0.50, r * 0.22],
+                            id_quat(),
+                            r * 0.25,
+                        ),
+                    ],
+                    30,
+                    hair.clone(),
                 ),
-                [0.0, -r * 0.55, r * 0.78 * sz],
+                [0.0, 0.0, 0.0],
                 id_quat(),
             ));
         }

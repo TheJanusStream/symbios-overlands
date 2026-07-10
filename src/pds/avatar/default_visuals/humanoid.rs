@@ -157,8 +157,13 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
                 // Seated proud of the trunk's *flattened* front surface at
                 // its own height (the trunk V-tapers — the old top-radius
                 // seat floated in profile).
+                // Floor tracks the slimmed trunk's ≈0.98·chest_r front:
+                // 0.96 keeps the ornament's core embedded with its face
+                // proud — 0.92 buried thin pieces under the placket, 0.99
+                // floated them off the profile silhouette (a scalar can't
+                // do better; truly conformal seating is #727).
                 let orn_y = bp.torso_y - bp.trunk_len * 0.04;
-                let surf = bp.trunk_radius_at(orn_y).max(bp.chest_r * 0.92);
+                let surf = bp.trunk_radius_at(orn_y).max(bp.chest_r * 0.96);
                 let mut orn = offset(part.build(&ctx), [0.0, orn_y, -(surf * bp.depth + 0.006)]);
                 orn.transform.scale = Fp3([chest_k, chest_k, chest_k]);
                 root.children.push(orn);
@@ -175,14 +180,13 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
     // offset sits just inside the pectoral surface so the chest curvature
     // swallows its edges, with a slight downward tilt for the lower edge.
     // A scalar recess can't perfectly fit every chest convexity (a truly
-    // conformal badge is follow-up work): 1.01 sits between the old proud
-    // 1.02 + 0.012 (edge slivers in profile) and the round-3 0.99 (one
-    // bulgy-chested seed poked mesh through the plate).
+    // conformal badge is #727): keep ~0.03·chest_r of recess against the
+    // slimmed trunk's ≈0.98·chest_r front surface.
     let badge_y = bp.torso_y + bp.trunk_len * 0.24;
     let mut badge = pfp_panel(
         did,
         0.14 * chest_k,
-        [0.0, badge_y, -(bp.chest_r * 1.01 * bp.depth + 0.008)],
+        [0.0, badge_y, -(bp.chest_r * 0.95 * bp.depth + 0.008)],
         pastel(primary),
         PfpFacing::Front,
     );

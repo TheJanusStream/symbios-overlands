@@ -11,7 +11,7 @@
 //! attachment frame (see the module docstring on [`super`]).
 
 use crate::pds::avatar::default_visuals::common::{
-    capsule, cone, cuboid, cylinder, id_quat, prim, sphere, torus, with_torture,
+    capsule, cone, cuboid, cylinder, id_quat, prim, sphere, torus, with_cut, with_torture,
 };
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
@@ -61,13 +61,23 @@ fn hat_k(ctx: &PartCtx) -> f32 {
 fn wizard_cone(ctx: &PartCtx) -> Generator {
     let k = hat_k(ctx);
     let cloth = ctx.materials.cloth(ctx.palette.tertiary_accent);
-    // A tall cone with a slight forward bend in the tip.
+    // A tall cone with a slight forward bend, TRUNCATED at 88 % height by a
+    // profile-cut: a full point-tip rasterises sub-pixel over its last
+    // stretch at contact-sheet scale, so any tip ornament read as floating
+    // above the visible taper (the round-5 "star gap" — the star was at
+    // the true apex all along). The flat stub always rasterises and the
+    // star caps it.
     let mut hat = prim(
-        with_torture(
-            cone(0.15 * k, 0.44 * k, 12, cloth),
+        with_cut(
+            with_torture(
+                cone(0.15 * k, 0.44 * k, 12, cloth),
+                0.0,
+                0.0,
+                [0.05 * k, 0.0, 0.0],
+            ),
+            [0.0, 1.0],
+            [0.0, 0.88],
             0.0,
-            0.0,
-            [0.05 * k, 0.0, 0.0],
         ),
         [0.0, 0.20 * k, 0.0],
         id_quat(),
@@ -81,13 +91,17 @@ fn wizard_cone(ctx: &PartCtx) -> Generator {
         [0.0, -0.20 * k, 0.0],
         id_quat(),
     ));
+    // Tip star — a CHILD of the cone node, so its offset is cone-LOCAL:
+    // the stub top sits at −0.22k + 0.88·0.44k ≈ +0.167k, displaced the
+    // full +0.05k bend (t renormalises over the truncated mesh, so t = 1
+    // at the stub). The star swallows the ~0.018k-radius flat top.
     hat.children.push(prim(
         sphere(
-            (0.03 * k).max(0.011),
+            (0.035 * k).max(0.011),
             2,
             ctx.materials.accent(ctx.palette.primary_accent),
         ),
-        [0.10 * k, 0.22 * k, 0.0],
+        [0.05 * k, 0.167 * k, 0.0],
         id_quat(),
     ));
     hat

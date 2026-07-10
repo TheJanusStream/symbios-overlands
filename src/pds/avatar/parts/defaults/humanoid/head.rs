@@ -118,12 +118,19 @@ pub(in super::super) fn head(ctx: &PartCtx) -> Generator {
         _ => {}
     }
     let blend = r * 0.12;
-    let mut elements = vec![blob_ellipsoid(
-        [0.0, 0.0, 0.0],
-        [r * sx, r * sy, r * sz],
-        id_quat(),
-        blend,
-    )];
+    let mut elements = vec![
+        blob_ellipsoid([0.0, 0.0, 0.0], [r * sx, r * sy, r * sz], id_quat(), blend),
+        // Occiput — a low back-of-skull fullness (#732): bare/buzz heads
+        // read flat-backed without it, and the hair nape lobes need a mass
+        // to drape over. Rear reach ~1.04·r·sz, safely under the 1.05+
+        // hair shells; the front feature-seating curve is untouched.
+        blob_ellipsoid(
+            [0.0, -r * 0.12, r * 0.52 * sz],
+            [r * 0.66 * sx, r * 0.58, r * 0.52 * sz],
+            id_quat(),
+            blend,
+        ),
+    ];
     // Front surface of the cranium at a given height — features must seat ON
     // this curve (a fixed z buries eyes in the brow and floats mouths off
     // the receding chin).
@@ -490,12 +497,16 @@ pub(in super::super) fn head(ctx: &PartCtx) -> Generator {
     }
 
     // ---- Ears -------------------------------------------------------------
+    // Flattened discs tucked against the skull sides (#732): the old round
+    // ball ears chipped off the profile silhouette as floating bumps.
     for s in [-1.0f32, 1.0] {
-        head.children.push(prim(
-            sphere((r * 0.16).max(0.011), 2, skin.clone()),
-            [s * r * 0.97 * sx, (y_eye + y_nose) * 0.5, r * 0.02],
+        let mut ear = prim(
+            sphere((r * 0.17).max(0.011), 2, skin.clone()),
+            [s * r * 0.94 * sx, (y_eye + y_nose) * 0.5, r * 0.02],
             id_quat(),
-        ));
+        );
+        ear.transform.scale = Fp3([0.55, 1.0, 0.8]);
+        head.children.push(ear);
     }
 
     // ---- Facial hair -------------------------------------------------------
