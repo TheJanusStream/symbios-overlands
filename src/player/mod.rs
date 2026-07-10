@@ -195,46 +195,70 @@ impl Plugin for PlayerPlugin {
 }
 
 /// Run condition: true when the avatar editor has a visuals row
-/// selected. The five locomotion drive systems gate on
-/// `not(this)` so the avatar stays still while the owner is editing
-/// its visuals — both for ergonomics (the gizmo can't track a moving
-/// chassis precisely) and for correctness (the drag commit's
-/// world→local conversion uses the parent chassis's `GlobalTransform`,
-/// which is unstable while physics is integrating).
+/// selected — any node in the visuals tree, root or descendant. The five
+/// locomotion drive systems gate on `not(this)` so WASD input does
+/// nothing while the owner is editing visuals, and the hover-boat's
+/// uprighting torque is gated so a gizmo-rotated chassis stays where the
+/// user put it.
 ///
-/// The uprighting torque on the hover-boat is also gated so the avatar
-/// doesn't slowly tip itself back upright during a long edit; the user
-/// can rotate the chassis with the gizmo and it stays where they put
-/// it. Suspension and gravity-style passive systems remain on so a
-/// floating avatar doesn't levitate during the edit.
+/// The actual full-body freeze lives in
+/// [`freeze_local_avatar_on_visuals_select`], which parks the chassis
+/// with `RigidBodyDisabled` for the duration of the selection. The input
+/// gates here are still worth keeping: the drive systems have
+/// non-physics side effects (gait state, jump triggers) that shouldn't
+/// respond while an edit is in progress.
 fn avatar_visuals_row_selected(avatar_editor: Option<Res<AvatarEditorState>>) -> bool {
     avatar_editor
         .map(|e| e.has_visuals_selection())
         .unwrap_or(false)
 }
 
-/// On the rising edge of "avatar visuals row selected", zero the local
-/// player's linear and angular velocity. Without this, residual momentum
-/// from the moment of click drifts the chassis (and the gizmo target)
-/// for a few seconds after the freeze gate engages. The locomotion
-/// drive systems are already gated off, so they won't push velocity
-/// back up — we just need the one-shot to clear what was there.
+/// Hold the local player's chassis fully frozen while any avatar visuals
+/// row is selected: zero its momentum at the moment the freeze engages
+/// and keep [`RigidBodyDisabled`] on the body until the selection clears.
+/// Freezing the chassis (rather than just gating the drive systems)
+/// stops the passive movers too — suspension, buoyancy, gravity, slope
+/// creep — so the avatar holds its exact pose during the edit, even
+/// mid-air. That matters for correctness as well as ergonomics: the drag
+/// commit's world→local conversion reads the parent chassis's
+/// `GlobalTransform`, which must be stable while the gizmo is attached,
+/// and previously only a *root* selection appeared frozen (the gizmo
+/// detaches the whole visuals root from the chassis) while child
+/// selections left the rest of the avatar drifting on live physics.
+///
+/// State-synced rather than edge-triggered so a chassis respawn mid-edit
+/// (locomotion hot-swap from a record Load/Reset) re-freezes the fresh
+/// entity on the next frame. Forces the still-running passive systems
+/// apply to the disabled body are discarded by avian's unconditional
+/// end-of-step clear, so nothing accumulates toward a burst on release.
+#[allow(clippy::type_complexity)]
 fn freeze_local_avatar_on_visuals_select(
+    mut commands: Commands,
     avatar_editor: Option<Res<AvatarEditorState>>,
-    mut last_selected: Local<bool>,
-    mut q: Query<(&mut LinearVelocity, &mut AngularVelocity), With<LocalPlayer>>,
+    mut q: Query<
+        (
+            Entity,
+            &mut LinearVelocity,
+            &mut AngularVelocity,
+            Has<RigidBodyDisabled>,
+        ),
+        (With<LocalPlayer>, With<RigidBody>),
+    >,
 ) {
-    let now_selected = avatar_editor
-        .as_ref()
+    let selected = avatar_editor
         .map(|e| e.has_visuals_selection())
         .unwrap_or(false);
-    if now_selected && !*last_selected {
-        for (mut lin, mut ang) in q.iter_mut() {
+    for (entity, mut lin, mut ang, disabled) in q.iter_mut() {
+        if selected && !disabled {
+            // Clear residual momentum from the moment of click so the
+            // body doesn't resume with stale velocity on release.
             lin.0 = Vec3::ZERO;
             ang.0 = Vec3::ZERO;
+            commands.entity(entity).try_insert(RigidBodyDisabled);
+        } else if !selected && disabled {
+            commands.entity(entity).try_remove::<RigidBodyDisabled>();
         }
     }
-    *last_selected = now_selected;
 }
 
 #[cfg(test)]
