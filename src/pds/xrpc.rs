@@ -155,10 +155,9 @@ fn did_web_document_url(rest: &str) -> String {
 pub async fn resolve_pds(client: &reqwest::Client, did: &str) -> Option<String> {
     let url = if did.starts_with("did:plc:") {
         format!("https://plc.directory/{}", did)
-    } else if let Some(rest) = did.strip_prefix("did:web:") {
-        did_web_document_url(rest)
     } else {
-        return None;
+        let rest = did.strip_prefix("did:web:")?;
+        did_web_document_url(rest)
     };
     let doc: DidDocument = fetch_did_json(client, &url).await?;
     doc.service

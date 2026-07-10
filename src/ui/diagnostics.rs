@@ -262,7 +262,7 @@ fn sparkline(ui: &mut egui::Ui, samples: &[f64], height: f32) {
         .collect();
     painter.add(egui::Shape::line(
         pts,
-        egui::Stroke::new(1.5, egui::Color32::from_rgb(120, 200, 140)),
+        egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(120, 200, 140)),
     ));
 }
 

@@ -351,9 +351,9 @@ fn apply_prim_overrides(kind: &mut GeneratorKind, args: &Args) {
 /// [`GeneratorKind::default_primitive_for_tag`], which is title-cased.
 fn primitive_for_tag(tag: &str) -> Option<GeneratorKind> {
     let mut chars = tag.chars();
-    let titled: String = match chars.next() {
-        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-        None => return None,
+    let titled: String = {
+        let first = chars.next()?;
+        first.to_uppercase().collect::<String>() + chars.as_str()
     };
     GeneratorKind::default_primitive_for_tag(&titled)
 }
