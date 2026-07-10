@@ -8,11 +8,8 @@
 //! ([`crate::pds::avatar::parts`]) build from this bin so geometry plumbing
 //! lives in exactly one place.
 
-use std::f32::consts::FRAC_PI_2;
-
 use crate::pds::generator::{
-    AlphaModeKind, BlobElement, BlobShape, Generator, GeneratorKind, LathePoint, SignSource,
-    SpinePoint, TortureParams,
+    BlobElement, BlobShape, Generator, GeneratorKind, LathePoint, SpinePoint, TortureParams,
 };
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::types::{Fp, Fp2, Fp3, Fp4, TransformData};
@@ -419,80 +416,6 @@ pub(crate) fn with_cut(
         t.hollow = Fp(hollow);
     }
     kind
-}
-
-// ---------------------------------------------------------------------------
-// Pfp banner
-// ---------------------------------------------------------------------------
-
-/// Pastel of an accent colour — 65 % white. Used as the pfp banner's base
-/// tint so the panel reads as a heraldic flag while the image is still
-/// loading (or the account has no avatar) instead of a stark white
-/// rectangle. The Sign material *multiplies* its texture by `base_color`, so
-/// the mix is kept light: a loaded pfp picks up only a mild dye.
-pub(crate) fn pastel(color: [f32; 3]) -> [f32; 3] {
-    [
-        0.65 + 0.35 * color[0],
-        0.65 + 0.35 * color[1],
-        0.65 + 0.35 * color[2],
-    ]
-}
-
-/// Which way an integrated pfp panel faces. [`PfpFacing::Side`] keeps the
-/// heraldic ±X normal (a hull / envelope / sail decal seen from the flank);
-/// [`PfpFacing::Front`] yaws it 90° so its normal lies on ±Z (a chest badge or
-/// prow crest read head-on). Both are double-sided, so the sign of the axis
-/// doesn't matter — only the plane.
-#[derive(Clone, Copy)]
-pub(crate) enum PfpFacing {
-    Side,
-    Front,
-}
-
-/// Square Sign panel showing the owner's pfp, integrated flush as a worn
-/// detail (chest badge / hull decal / sail crest) rather than flown on a pole.
-///
-/// The Sign mesh is a plane in local XZ (normal +Y). The base rolls
-/// `quat_z(FRAC_PI_2) ∘ quat_y(-FRAC_PI_2)` stand it vertical with the image
-/// upright and its normal on ±X ([`PfpFacing::Side`]); [`PfpFacing::Front`]
-/// adds a 90° yaw so the normal lands on ±Z. The image stays upright either
-/// way (a yaw about the vertical never tilts it).
-pub(crate) fn pfp_panel(
-    did: &str,
-    size: f32,
-    translation: [f32; 3],
-    tint: [f32; 3],
-    facing: PfpFacing,
-) -> Generator {
-    // The proven upright side-banner orientation (normal ±X).
-    let side = quat_mul(quat_z(FRAC_PI_2), quat_y(-FRAC_PI_2));
-    let rotation = match facing {
-        PfpFacing::Side => side,
-        // Yaw the upright panel 90° about world Y → normal lands on ±Z.
-        PfpFacing::Front => quat_mul(quat_y(FRAC_PI_2), side),
-    };
-    prim(
-        GeneratorKind::Sign {
-            source: SignSource::DidPfp {
-                did: did.to_owned(),
-            },
-            size: Fp2([size, size]),
-            uv_repeat: Fp2([1.0, 1.0]),
-            uv_offset: Fp2([0.0, 0.0]),
-            material: SovereignMaterialSettings {
-                base_color: Fp3(tint),
-                roughness: Fp(0.6),
-                metallic: Fp(0.0),
-                ..Default::default()
-            },
-            double_sided: true,
-            alpha_mode: AlphaModeKind::Opaque,
-            unlit: true,
-            texture_filter: crate::pds::TextureFilter::Linear,
-        },
-        translation,
-        quat_xyzw(rotation),
-    )
 }
 
 // ---------------------------------------------------------------------------

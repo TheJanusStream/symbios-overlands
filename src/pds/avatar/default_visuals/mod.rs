@@ -33,24 +33,21 @@ use super::locomotion::{
 /// Build the full seeded default avatar (visuals + locomotion) for a
 /// DID. Deterministic: every peer derives the identical record.
 pub fn build_for_did(did: &str) -> (Generator, LocomotionConfig) {
-    build_for_seed(fnv1a_64(did), did)
+    build_for_seed(fnv1a_64(did))
 }
 
 /// Build from a pre-computed seed — the manual re-roll path. `seed`
-/// chooses the chassis family and drives every derived value; `did` is
-/// threaded through only for identity references (the pfp banner) that
-/// must survive a re-roll. `build_for_did(did)` is exactly
-/// `build_for_seed(fnv1a_64(did), did)`.
-pub fn build_for_seed(seed: u64, did: &str) -> (Generator, LocomotionConfig) {
+/// chooses the chassis family and drives every derived value.
+/// `build_for_did(did)` is exactly `build_for_seed(fnv1a_64(did))`.
+/// (Avatars no longer wear a pfp identity sign — #733 removed the
+/// chest-badge / hull-decal / bow-crest panels from every chassis.)
+pub fn build_for_seed(seed: u64) -> (Generator, LocomotionConfig) {
     let family = ChassisFamily::for_seed(seed);
     let (mut visuals, loco) = match family {
-        ChassisFamily::Boat => (boat::build(seed, did), HoverBoatParams::default_config()),
-        ChassisFamily::Airship => (
-            airship::build(seed, did),
-            HelicopterParams::default_config(),
-        ),
-        ChassisFamily::Humanoid => (humanoid::build(seed, did), humanoid_locomotion(seed)),
-        ChassisFamily::Skiff => (skiff::build(seed, did), CarParams::default_config()),
+        ChassisFamily::Boat => (boat::build(seed), HoverBoatParams::default_config()),
+        ChassisFamily::Airship => (airship::build(seed), HelicopterParams::default_config()),
+        ChassisFamily::Humanoid => (humanoid::build(seed), humanoid_locomotion(seed)),
+        ChassisFamily::Skiff => (skiff::build(seed), CarParams::default_config()),
     };
     // Seeded FX: hang the style's signature particle aura + body voice on the
     // built root. The mount is a coarse per-family body centre; the part
@@ -185,14 +182,17 @@ mod tests {
     }
 
     #[test]
-    fn every_family_carries_a_pfp_banner() {
+    fn no_family_carries_a_pfp_sign() {
+        // #733 removed the identity signs (chest badge / hull decal / bow
+        // crest) from every chassis — pin the removal so a future part
+        // can't quietly reintroduce one.
         use crate::pds::generator::GeneratorKind;
         fn has_sign(g: &Generator) -> bool {
             matches!(g.kind, GeneratorKind::Sign { .. }) || g.children.iter().any(has_sign)
         }
         for (fam, did) in family_dids() {
             let (built, _) = build_for_did(&did);
-            assert!(has_sign(&built), "{fam:?} avatar lost its pfp banner");
+            assert!(!has_sign(&built), "{fam:?} avatar still carries a sign");
         }
     }
 
@@ -203,7 +203,7 @@ mod tests {
     fn build_for_did_equals_build_for_seed_of_hashed_did() {
         for (_, did) in family_dids() {
             let (va, la) = build_for_did(&did);
-            let (vb, lb) = build_for_seed(fnv1a_64(&did), &did);
+            let (vb, lb) = build_for_seed(fnv1a_64(&did));
             assert_eq!(
                 va, vb,
                 "visuals diverged from the hashed-DID seed for {did}"
@@ -217,8 +217,8 @@ mod tests {
 
     #[test]
     fn build_for_seed_is_deterministic() {
-        let (a, la) = build_for_seed(0xC0FF_EE12_3456_789A, "did:plc:reroll");
-        let (b, lb) = build_for_seed(0xC0FF_EE12_3456_789A, "did:plc:reroll");
+        let (a, la) = build_for_seed(0xC0FF_EE12_3456_789A);
+        let (b, lb) = build_for_seed(0xC0FF_EE12_3456_789A);
         assert_eq!(a, b);
         assert_eq!(la, lb);
     }
@@ -254,13 +254,13 @@ mod tests {
         let aura_seed = aura_seed.expect("no seed rolled a particle aura");
         let voice_seed = voice_seed.expect("no seed rolled a voice");
 
-        let (built, _) = build_for_seed(aura_seed, "did:plc:fx");
+        let (built, _) = build_for_seed(aura_seed);
         assert!(
             has_particles(&built),
             "aura seed {aura_seed} grew no ParticleSystem"
         );
 
-        let (built, _) = build_for_seed(voice_seed, "did:plc:fx");
+        let (built, _) = build_for_seed(voice_seed);
         assert!(
             !matches!(built.audio, crate::pds::SovereignAudioConfig::None),
             "voice seed {voice_seed} set no body audio"
@@ -269,36 +269,9 @@ mod tests {
 
     #[test]
     fn distinct_seeds_yield_distinct_avatars() {
-        // A re-roll must actually change the look (same DID, new seed).
-        let (a, _) = build_for_seed(1, "did:plc:reroll");
-        let (b, _) = build_for_seed(2, "did:plc:reroll");
+        // A re-roll must actually change the look.
+        let (a, _) = build_for_seed(1);
+        let (b, _) = build_for_seed(2);
         assert_ne!(a, b, "re-roll produced an identical avatar for two seeds");
-    }
-
-    /// Re-rolling changes the look but not *whose* avatar it is: the pfp
-    /// banner's DID is threaded straight through and must be independent
-    /// of the seed.
-    #[test]
-    fn pfp_banner_did_is_seed_independent() {
-        use crate::pds::generator::{GeneratorKind, SignSource};
-        fn find_pfp_did(g: &Generator) -> Option<&str> {
-            if let GeneratorKind::Sign {
-                source: SignSource::DidPfp { did },
-                ..
-            } = &g.kind
-            {
-                return Some(did);
-            }
-            g.children.iter().find_map(find_pfp_did)
-        }
-        let did = "did:plc:identity";
-        for seed in [1u64, 7, 999_999, u64::MAX] {
-            let (built, _) = build_for_seed(seed, did);
-            assert_eq!(
-                find_pfp_did(&built),
-                Some(did),
-                "pfp banner lost the owner DID at seed {seed}"
-            );
-        }
     }
 }

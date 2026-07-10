@@ -304,7 +304,7 @@ pub fn avatar_ui(
                         time.elapsed_secs_f64(),
                     );
                     if let SeedAction::Reroll(seed) = reroll {
-                        live_mut.0 = AvatarRecord::default_for_seed(seed, &s.did);
+                        live_mut.0 = AvatarRecord::default_for_seed(seed);
                         session_log.info(
                             time.elapsed_secs_f64(),
                             EventPayload::AvatarReseeded { seed },

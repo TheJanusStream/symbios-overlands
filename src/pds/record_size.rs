@@ -262,7 +262,7 @@ mod tests {
                 &once,
             );
 
-            let avatar = crate::pds::AvatarRecord::default_for_seed(seed, &did);
+            let avatar = crate::pds::AvatarRecord::default_for_seed(seed);
             let wire = serde_json::to_value(&avatar).unwrap();
             let mut decoded: crate::pds::AvatarRecord =
                 serde_json::from_value(wire.clone()).unwrap();

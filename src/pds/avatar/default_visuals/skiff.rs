@@ -17,9 +17,9 @@ use crate::pds::types::Fp3;
 use crate::seeded_defaults::AvatarOutfit;
 
 use super::assemble::base_root;
-use super::common::{PfpFacing, offset, offset_rot, pastel, pfp_panel, quat_xyzw, quat_y, quat_z};
+use super::common::{offset, offset_rot, quat_xyzw, quat_y, quat_z};
 
-pub(super) fn build(seed: u64, did: &str) -> Generator {
+pub(super) fn build(seed: u64) -> Generator {
     let outfit = AvatarOutfit::for_seed(seed);
     // Reuse the derived outfit for the ctx's hat flag (#638).
     let ctx = PartCtx::for_seed_with_hat(seed, outfit_has_hat(&outfit));
@@ -63,19 +63,6 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
             _ => {}
         }
     }
-
-    // pfp identity worn as a front-facing badge on the hood nose (above the
-    // grille, between the headlights), where a racing number / marque emblem
-    // sits — far more visible than the old flank door-decal. Authored at +Z
-    // (the front), so the 180° yaw below lands it facing the camera's front
-    // tile.
-    root.children.push(pfp_panel(
-        did,
-        0.18,
-        [0.0, 0.11, 0.78],
-        pastel(ctx.palette.primary_accent),
-        PfpFacing::Front,
-    ));
 
     // Vehicles travel toward local -Z (`Transform::forward`), but the parts
     // are authored front-+Z, so yaw the whole visual 180°. Drop it so the

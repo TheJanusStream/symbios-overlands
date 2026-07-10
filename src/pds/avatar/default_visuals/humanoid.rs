@@ -26,13 +26,12 @@ use crate::pds::types::Fp3;
 use crate::seeded_defaults::AvatarOutfit;
 
 use super::common::{
-    PfpFacing, blob_box, blob_carve, blob_ellipsoid, blob_group, blob_sphere, cuboid, id_quat,
-    offset, offset_rot, pastel, pfp_panel, prim, quat_mul, quat_x, quat_xyzw, quat_y, quat_z,
+    blob_box, blob_carve, blob_ellipsoid, blob_group, blob_sphere, cuboid, id_quat, offset,
+    offset_rot, prim, quat_mul, quat_x, quat_xyzw, quat_y, quat_z,
 };
 
-/// `seed` drives the derived look (re-roll re-seeds this); `did` is kept
-/// only for identity references the seed must not touch — the pfp badge.
-pub(super) fn build(seed: u64, did: &str) -> Generator {
+/// `seed` drives the derived look (re-roll re-seeds this).
+pub(super) fn build(seed: u64) -> Generator {
     let outfit = AvatarOutfit::for_seed(seed);
     // Reuse the outfit we just derived for the ctx's hat flag instead of letting
     // `PartCtx::for_seed` derive a second one (#638).
@@ -173,33 +172,6 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
             _ => {}
         }
     }
-
-    // ---- pfp identity worn as a flush chest badge --------------------------
-    // Recessed INTO the chest mass (round 2: any proud flat plate shows
-    // edge-on slivers past the silhouette in profile): the panel's normal
-    // offset sits just inside the pectoral surface so the chest curvature
-    // swallows its edges, with a slight downward tilt for the lower edge.
-    // A scalar recess can't perfectly fit every chest convexity (a truly
-    // conformal badge is #727): keep ~0.03·chest_r of recess against the
-    // slimmed trunk's ≈0.98·chest_r front surface.
-    let badge_y = bp.torso_y + bp.trunk_len * 0.24;
-    let mut badge = pfp_panel(
-        did,
-        0.14 * chest_k,
-        [0.0, badge_y, -(bp.chest_r * 0.95 * bp.depth + 0.008)],
-        pastel(primary),
-        PfpFacing::Front,
-    );
-    badge.transform.rotation = quat_xyzw(quat_mul(
-        quat_x(-0.10),
-        [
-            badge.transform.rotation.0[0],
-            badge.transform.rotation.0[1],
-            badge.transform.rotation.0[2],
-            badge.transform.rotation.0[3],
-        ],
-    ));
-    root.children.push(badge);
 
     root
 }

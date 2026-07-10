@@ -214,7 +214,7 @@ pub fn run() {
             Generator::from_kind(kind)
         } else if let Some(avatar) = args.avatar.as_deref() {
             match avatar.parse::<u64>() {
-                Ok(seed) => build_for_seed(seed, &format!("did:render:{seed}")).0,
+                Ok(seed) => build_for_seed(seed).0,
                 Err(_) => build_for_did(avatar).0,
             }
         } else {
@@ -301,10 +301,7 @@ fn resolve_subject(args: &Args) -> (Subject, String) {
     }
     let avatar = args.avatar.clone().unwrap_or_else(|| "7".to_string());
     let (generator, label) = match avatar.parse::<u64>() {
-        Ok(seed) => (
-            build_for_seed(seed, &format!("did:render:{seed}")).0,
-            format!("seed-{seed}"),
-        ),
+        Ok(seed) => (build_for_seed(seed).0, format!("seed-{seed}")),
         Err(_) => (build_for_did(&avatar).0, avatar.replace([':', '/'], "_")),
     };
     (Subject::Single(Box::new(generator)), label)

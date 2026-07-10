@@ -18,11 +18,10 @@ use crate::seeded_defaults::AvatarOutfit;
 
 use super::assemble::base_root;
 use super::common::{
-    PfpFacing, cylinder, id_quat, offset, offset_rot, pastel, pfp_panel, prim, quat_x, quat_xyzw,
-    quat_y, quat_z,
+    cylinder, id_quat, offset, offset_rot, prim, quat_x, quat_xyzw, quat_y, quat_z,
 };
 
-pub(super) fn build(seed: u64, did: &str) -> Generator {
+pub(super) fn build(seed: u64) -> Generator {
     let outfit = AvatarOutfit::for_seed(seed);
     // Reuse the derived outfit for the ctx's hat flag (#638).
     let ctx = PartCtx::for_seed_with_hat(seed, outfit_has_hat(&outfit));
@@ -78,17 +77,6 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
             ));
         }
     }
-
-    // pfp identity worn FRONT-FACING (normal ±Z) on the bow of the gondola, so
-    // it reads head-on as the craft flies toward you. Mounted on the gondola
-    // (consistent across every envelope form) rather than the envelope flank.
-    root.children.push(pfp_panel(
-        did,
-        0.24,
-        [0.0, gondola_y + 0.05, 0.52],
-        pastel(ctx.palette.primary_accent),
-        PfpFacing::Front,
-    ));
 
     // Travel is toward local -Z; the envelope nose is authored at +Z, so yaw
     // the craft 180° to fly nose-first. No vertical drop — a helicopter hovers.

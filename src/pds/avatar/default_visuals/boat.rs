@@ -18,9 +18,9 @@ use crate::pds::types::Fp3;
 use crate::seeded_defaults::AvatarOutfit;
 
 use super::assemble::base_root;
-use super::common::{PfpFacing, offset, pastel, pfp_panel, quat_xyzw, quat_y};
+use super::common::{offset, quat_xyzw, quat_y};
 
-pub(super) fn build(seed: u64, did: &str) -> Generator {
+pub(super) fn build(seed: u64) -> Generator {
     let outfit = AvatarOutfit::for_seed(seed);
     // Reuse the derived outfit for the ctx's hat flag (#638).
     let ctx = PartCtx::for_seed_with_hat(seed, outfit_has_hat(&outfit));
@@ -54,16 +54,6 @@ pub(super) fn build(seed: u64, did: &str) -> Generator {
             _ => {}
         }
     }
-
-    // pfp identity worn as a livery decal on the hull flank (normal ±X), since
-    // the boat carries no large sail to fly a crest from.
-    root.children.push(pfp_panel(
-        did,
-        0.2,
-        [0.27, 0.06, 0.0],
-        pastel(ctx.palette.primary_accent),
-        PfpFacing::Side,
-    ));
 
     // Travel is toward local -Z; parts are authored front-+Z, so yaw 180°.
     // Drop to a low hover above the hover-boat's suspension ground line (the

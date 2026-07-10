@@ -81,16 +81,15 @@ impl AvatarRecord {
     /// (boat → HoverBoat, airship → Helicopter, humanoid → Humanoid, skiff →
     /// Car) so the chassis drives like it looks.
     pub fn default_for_did(did: &str) -> Self {
-        Self::default_for_seed(crate::seeded_defaults::fnv1a_64(did), did)
+        Self::default_for_seed(crate::seeded_defaults::fnv1a_64(did))
     }
 
     /// Build the seeded default avatar from a pre-computed seed — the
     /// manual re-roll path. `seed` chooses the chassis family and drives
-    /// every derived value; `did` is kept only for identity references
-    /// (the pfp banner) that must survive a re-roll. `default_for_did`
-    /// is exactly `default_for_seed(fnv1a_64(did), did)`.
-    pub fn default_for_seed(seed: u64, did: &str) -> Self {
-        let (visuals, locomotion) = default_visuals::build_for_seed(seed, did);
+    /// every derived value (avatars carry no identity sign since #733).
+    /// `default_for_did` is exactly `default_for_seed(fnv1a_64(did))`.
+    pub fn default_for_seed(seed: u64) -> Self {
+        let (visuals, locomotion) = default_visuals::build_for_seed(seed);
         Self {
             lex_type: AVATAR_COLLECTION.into(),
             visuals,

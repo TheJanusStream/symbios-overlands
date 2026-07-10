@@ -467,8 +467,7 @@ mod tests {
             184810340591539844,
             14887495512784657594,
         ] {
-            let (avatar, _) =
-                crate::pds::avatar::default_visuals::build_for_seed(seed, "did:test:blob");
+            let (avatar, _) = crate::pds::avatar::default_visuals::build_for_seed(seed);
             let mut kinds = Vec::new();
             walk(&avatar, &mut kinds);
             assert!(
