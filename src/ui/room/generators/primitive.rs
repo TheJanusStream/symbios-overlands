@@ -656,23 +656,23 @@ pub(super) fn draw_primitive_blob_group(
     ui.horizontal(|ui| {
         ui.label("UV mapping").on_hover_text(
             "How the texture is projected onto the meshed surface. \
-             Spherical is the original mapping; Box fixes the \
-             stretch/squish on elongated or lumpy groups.",
+             Box (the default) keeps texel density uniform on any shape; \
+             Spherical is the original wrap-once mapping.",
         );
         let modes = [
+            (
+                UvMapping::Box,
+                "Box (tri-planar)",
+                "Projects each face along its dominant axis at uniform \
+                 density — the default. Strong patterns show faint seams \
+                 where the projection axis changes.",
+            ),
             (
                 UvMapping::Spherical,
                 "Spherical",
                 "Wraps once around the mass from its centre. Reads well on \
                  roundish blobs; stretches on elongated ones and repeats \
                  the texture on concave regions.",
-            ),
-            (
-                UvMapping::Box,
-                "Box (tri-planar)",
-                "Projects each face along its dominant axis at uniform \
-                 density — the all-round distortion fix. Strong patterns \
-                 show faint seams where the projection axis changes.",
             ),
             (
                 UvMapping::Cylindrical,

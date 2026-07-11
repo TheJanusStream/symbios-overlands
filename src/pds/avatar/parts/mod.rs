@@ -425,16 +425,34 @@ mod tests {
         }
         fn components(kind: &GeneratorKind) -> usize {
             let mesh = build_primitive_mesh(kind);
-            let n = match mesh.attribute(bevy::prelude::Mesh::ATTRIBUTE_POSITION) {
-                Some(VertexAttributeValues::Float32x3(p)) => p.len(),
+            let pos = match mesh.attribute(bevy::prelude::Mesh::ATTRIBUTE_POSITION) {
+                Some(VertexAttributeValues::Float32x3(p)) => p.clone(),
                 _ => return 0,
             };
             let Some(indices) = mesh.indices() else {
                 return 0;
             };
+            // Weld coincident vertices before the union-find: the UV seam
+            // splits (#739's Box/Cylindrical modes duplicate a vertex per
+            // projection region — and Box is the default since #742) are
+            // texture-atlas topology, not geometry, and this guard cares
+            // about *geometric* connectivity. Bit-exact keys suffice
+            // because the seam duplicates are verbatim copies.
+            let mut weld: std::collections::HashMap<[u32; 3], usize> =
+                std::collections::HashMap::with_capacity(pos.len());
+            let rep: Vec<usize> = pos
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    *weld
+                        .entry([p[0].to_bits(), p[1].to_bits(), p[2].to_bits()])
+                        .or_insert(i)
+                })
+                .collect();
+            let n = pos.len();
             let mut parent: Vec<usize> = (0..n).collect();
             let mut touched = vec![false; n];
-            let idx: Vec<usize> = indices.iter().collect();
+            let idx: Vec<usize> = indices.iter().map(|i| rep[i]).collect();
             for tri in idx.chunks(3) {
                 for &(a, b) in &[(tri[0], tri[1]), (tri[0], tri[2])] {
                     touched[a] = true;

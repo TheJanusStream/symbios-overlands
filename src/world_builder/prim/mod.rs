@@ -784,7 +784,7 @@ mod tests {
             UvMapping::PlanarX,
             UvMapping::PlanarY,
             UvMapping::PlanarZ,
-            // A future client's mode must still mesh (as Spherical).
+            // A future client's mode must still mesh (as the default, Box).
             UvMapping::Unknown,
         ] {
             let mesh = build_primitive_mesh(&group(mode));
@@ -813,7 +813,13 @@ mod tests {
                 "{mode:?}: index out of range"
             );
             match mode {
-                UvMapping::Box | UvMapping::PlanarX | UvMapping::PlanarY | UvMapping::PlanarZ => {
+                // Unknown meshes as the default (Box since #742), so it
+                // shares Box's bounded-image invariant.
+                UvMapping::Box
+                | UvMapping::Unknown
+                | UvMapping::PlanarX
+                | UvMapping::PlanarY
+                | UvMapping::PlanarZ => {
                     assert!(
                         uv.iter().flatten().all(|c| (-0.01..=1.01).contains(c)),
                         "{mode:?}: uv left the unit square"

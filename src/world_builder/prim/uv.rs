@@ -22,9 +22,9 @@ use crate::pds::generator::UvMapping;
 /// Compute per-vertex UVs for `mapping`, splitting shared vertices where
 /// the projection is discontinuous (`pos` / `nor` grow together, `idx` is
 /// re-pointed; counts are unchanged for the continuous modes). `Unknown`
-/// (a mode from a newer client) meshes as the default, mirroring how an
-/// unknown [`BlobShape`](crate::pds::generator::BlobShape) meshes as a
-/// sphere.
+/// (a mode from a newer client) meshes as the default — Box since #742 —
+/// mirroring how an unknown
+/// [`BlobShape`](crate::pds::generator::BlobShape) meshes as a sphere.
 pub(super) fn project_uvs(
     mapping: UvMapping,
     pos: &mut Vec<[f32; 3]>,
@@ -32,8 +32,8 @@ pub(super) fn project_uvs(
     idx: &mut [u32],
 ) -> Vec<[f32; 2]> {
     match mapping {
-        UvMapping::Spherical | UvMapping::Unknown => spherical(pos),
-        UvMapping::Box => box_mapped(pos, nor, idx),
+        UvMapping::Spherical => spherical(pos),
+        UvMapping::Box | UvMapping::Unknown => box_mapped(pos, nor, idx),
         UvMapping::Cylindrical => cylindrical(pos, nor, idx),
         UvMapping::PlanarX | UvMapping::PlanarY | UvMapping::PlanarZ => planar(pos, mapping),
     }
@@ -51,9 +51,9 @@ fn bounds(pos: &[[f32; 3]]) -> (Vec3, Vec3) {
     (lo, hi)
 }
 
-/// The original mapping, kept formula-identical to the pre-#739 inline
-/// code: equirectangular projection of each vertex's direction from the
-/// surface centroid.
+/// The original mapping (the default until #742), kept formula-identical
+/// to the pre-#739 inline code: equirectangular projection of each
+/// vertex's direction from the surface centroid.
 fn spherical(pos: &[[f32; 3]]) -> Vec<[f32; 2]> {
     use std::f32::consts::{PI, TAU};
     let centroid = pos

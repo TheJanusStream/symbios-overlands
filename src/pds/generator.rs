@@ -394,23 +394,26 @@ pub enum BlobShape {
 /// come from projecting each vertex — and which projection reads well is
 /// shape-dependent, so it's an authorable knob rather than a constant.
 /// Open union so future modes degrade gracefully on older clients — an
-/// `Unknown` mode meshes as `Spherical`.
+/// `Unknown` mode meshes as the default.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
 #[serde(tag = "$type")]
 pub enum UvMapping {
     /// Equirectangular projection of each vertex's direction from the
-    /// surface centroid — the original mapping and the wire default. Reads
-    /// well on roundish masses; elongated or multi-lobed groups stretch
-    /// (direction ignores distance) and concave regions repeat the texture
-    /// where two surface points share a direction.
+    /// surface centroid — the original #739 mapping, and the wire default
+    /// until #742. Reads well on roundish masses; elongated or multi-lobed
+    /// groups stretch (direction ignores distance) and concave regions
+    /// repeat the texture where two surface points share a direction.
     #[serde(rename = "network.symbios.uv.spherical")]
-    #[default]
     Spherical,
     /// Baked tri-planar box projection: each triangle projects along the
     /// axis its normal leans into most, at one uniform scale, so texel
-    /// density is even everywhere. The all-round distortion fix; strongly
-    /// patterned textures show seams where the projection axis changes.
+    /// density is even everywhere. The all-round distortion fix and the
+    /// wire default since #742 (a field-less record renders Box — chosen
+    /// over Spherical because it reads better on almost every real group,
+    /// humanoid avatar masses especially); strongly patterned textures
+    /// show seams where the projection axis changes.
     #[serde(rename = "network.symbios.uv.box")]
+    #[default]
     Box,
     /// Wrap around the prim-local Y axis (the same reference axis the
     /// topology cuts use): U is azimuth, V climbs with height scaled so a
@@ -433,9 +436,11 @@ pub enum UvMapping {
 }
 
 impl UvMapping {
-    /// Wire-format skip predicate: the default mode stays off the wire, so
-    /// pre-#739 records re-serialise byte-identically (#695 elision
-    /// discipline).
+    /// Wire-format skip predicate: the default mode stays off the wire
+    /// (#695 elision discipline). A field-less record therefore tracks
+    /// whatever the engine's current default is — that's how #742 flipped
+    /// every untouched blob to Box without a migration — while an explicit
+    /// non-default choice (now including Spherical) serialises its tag.
     pub fn is_default(&self) -> bool {
         *self == Self::default()
     }
@@ -1914,8 +1919,14 @@ mod prim_wire_tests {
     /// mode tag degrades to `Unknown` instead of failing the record.
     #[test]
     fn blob_group_uv_mapping_wire_format() {
-        // Default mode stays off the wire — pre-#739 records re-serialise
-        // byte-identically.
+        // The default mode (Box since #742) stays off the wire — a
+        // field-less record and a freshly-built default serialise
+        // identically.
+        assert_eq!(
+            UvMapping::default(),
+            UvMapping::Box,
+            "#742 flipped the blob UV default to Box"
+        );
         let kind = GeneratorKind::default_primitive_for_tag("BlobGroup").unwrap();
         let v = serde_json::to_value(&kind).unwrap();
         assert!(
@@ -1937,7 +1948,9 @@ mod prim_wire_tests {
             assert_eq!(rm, mode);
         }
 
-        // A non-default mode survives a full generator round trip.
+        // A non-default mode survives a full generator round trip — since
+        // #742 that includes Spherical, which must now serialise its tag
+        // explicitly to keep rendering spherically.
         let GeneratorKind::BlobGroup {
             elements,
             resolution,
@@ -1953,14 +1966,14 @@ mod prim_wire_tests {
             elements,
             resolution,
             solid,
-            uv_mapping: UvMapping::Box,
+            uv_mapping: UvMapping::Spherical,
             material,
             torture,
         };
         let v = serde_json::to_value(&kind).unwrap();
         assert_eq!(
             v["uv_mapping"]["$type"].as_str(),
-            Some("network.symbios.uv.box")
+            Some("network.symbios.uv.spherical")
         );
         let re: GeneratorKind = serde_json::from_value(v.clone()).expect("reparses");
         assert_eq!(re, kind);
