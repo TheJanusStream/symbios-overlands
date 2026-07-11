@@ -73,23 +73,26 @@ pub(super) fn masses(
         }
     };
     // Nape — two blended lobes hugging the back of the skull down past the
-    // occiput (#732): the old tapered slab left the classic bathing-cap
-    // gap between dome rim and neck; the lower lobe now closes it.
+    // occiput. The upper lobe now originates higher (0.14→0.22·r) so it
+    // OVERLAPS the dome rim instead of abutting it (no bathing-cap seam),
+    // and the lower lobe drops further (−0.40→−0.60·r) and grows to reach
+    // the neckline — closing the bare-nape gap that read as a swim cap and
+    // formed the back-of-head "second face" on ~8 seeds (#730-H1/H2).
     let nape = |out: &mut Vec<Generator>, depth: f32| {
         out.push(prim(
             blob_group(
                 vec![
                     blob_ellipsoid(
-                        [0.0, r * 0.14, r * 0.60 * sz],
-                        [r * 0.86 * sx, r * 0.55, r * (0.28 + depth * 0.5) * sz],
+                        [0.0, r * 0.22, r * 0.58 * sz],
+                        [r * 0.88 * sx, r * 0.58, r * (0.30 + depth * 0.5) * sz],
                         id_quat(),
-                        r * 0.18,
+                        r * 0.20,
                     ),
                     blob_ellipsoid(
-                        [0.0, -r * 0.40, r * 0.64 * sz],
-                        [r * 0.60 * sx, r * 0.44, r * (0.20 + depth * 0.4) * sz],
+                        [0.0, -r * 0.60, r * 0.60 * sz],
+                        [r * 0.66 * sx, r * 0.52, r * (0.22 + depth * 0.4) * sz],
                         id_quat(),
-                        r * 0.18,
+                        r * 0.20,
                     ),
                 ],
                 28,
@@ -236,9 +239,14 @@ pub(super) fn masses(
             }
         }
         HairStyle::Spikes => {
-            out.push(dome(1.04, 0.48, 0.30, r * 0.24, r * 0.02));
+            // Dome deepened (1.04→1.08, cut 0.48→0.42) so it covers the sides
+            // the spikes rise from — the spikes then read as emerging from
+            // hair, not bolted to a bare skull (#730-H5).
+            out.push(dome(1.08, 0.42, 0.30, r * 0.26, r * 0.02));
             temples(&mut out);
-            // Odd count, irregular tilts — even rings read as a crown.
+            // Odd count, irregular tilts — even rings read as a crown. Each
+            // spike base is pulled 12 % toward the skull centre (·0.88) so it
+            // sinks INTO the dome rather than floating off it (#730-H5).
             const SPIKES: [(f32, f32, f32, f32, f32); 5] = [
                 // (x, y, z, tilt_x, tilt_z)
                 (0.0, 1.0, -0.15, -0.25, 0.0),
@@ -250,23 +258,29 @@ pub(super) fn masses(
             for (x, y, z, tx, tz) in SPIKES {
                 out.push(prim(
                     cone(r * 0.15, r * 0.5, 6, hair.clone()),
-                    [x * r * sx, y * r, z * r * sz],
+                    [x * r * sx * 0.88, y * r * 0.88, z * r * sz * 0.88],
                     quat_xyzw(quat_mul(quat_x(tx), quat_z(tz))),
                 ));
             }
         }
         HairStyle::Afro => {
-            // One big sphere, up-back so the face emerges from its lower
-            // front; the crisp face arc is the hairline.
+            // One big sphere, up-AND-back so the face emerges from its lower
+            // front. Shrunk 1.42→1.30·r and pushed back 0.12→0.46·r·sz +
+            // up 0.42→0.50·r so its front rim clears the face plane — at the
+            // old placement the sphere front sat forward of the features and
+            // engulfed the whole face into a featureless ball (#730-H4, the
+            // sev3 defect on seed 184810340591539844).
             out.push(prim(
-                sphere(r * 1.42, 4, hair.clone()),
-                [0.0, r * 0.42, r * 0.12 * sz],
+                sphere(r * 1.30, 4, hair.clone()),
+                [0.0, r * 0.50, r * 0.46 * sz],
                 id_quat(),
             ));
         }
         HairStyle::Curls => {
             out.push(dome(1.09, 0.43, 0.42, r * 0.26, r * 0.03));
-            // Lumpy rim — the silhouette is the curl read.
+            // Lumpy rim — the silhouette is the curl read. Each curl origin
+            // pulled 10 % toward the skull (·0.90) so the clumps sink into
+            // the dome instead of reading as detached balls (#730-H5).
             const CURLS: [(f32, f32, f32); 6] = [
                 (0.0, 0.55, -0.85),
                 (0.72, 0.5, -0.55),
@@ -278,7 +292,7 @@ pub(super) fn masses(
             for (x, y, z) in CURLS {
                 out.push(prim(
                     sphere(r * 0.26, 3, hair.clone()),
-                    [x * r * sx, y * r, z * r * sz],
+                    [x * r * sx * 0.90, y * r * 0.90, z * r * sz * 0.90],
                     id_quat(),
                 ));
             }

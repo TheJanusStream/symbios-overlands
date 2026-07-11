@@ -1,7 +1,7 @@
 //! Humanoid defaults: head / torso / coat / arm / leg. Built in each slot's local attachment frame — see the module
 //! docstring on [`super::super`] (`parts`).
 //!
-//! Every dimension comes from the seeded [`HumanoidBlueprint`](crate::seeded_defaults::HumanoidBlueprint)
+//! Every dimension comes from the seeded [`HumanoidBlueprint`]
 //! (`ctx.blueprint`) so the parts, the assembler's anchors, and the
 //! locomotion capsule share one proportion contract: canon landmark ratios
 //! (wrist at the crotch line, legs ~half the figure, shoulder span in
@@ -15,6 +15,7 @@ use crate::pds::avatar::default_visuals::common::{
 use crate::pds::generator::Generator;
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::types::Fp3;
+use crate::seeded_defaults::HumanoidBlueprint;
 
 use super::super::PartCtx;
 use super::common::shade;
@@ -36,9 +37,11 @@ pub(super) use head::head;
 /// surface children bake `bp.depth` into their Z offsets instead.
 /// `fullness` bulks the coat trunk.
 ///
-/// Contract: the chest-front mass keeps its surface at ≥ `0.92 chest_r`
-/// around the assembler's ornament line (`torso_y - 0.04 len`) and the
-/// badge line (`torso_y + 0.24 len`) — chest accessories seat against it.
+/// Contract: chest accessories no longer seat against a fixed radius —
+/// [`HumanoidBlueprint::trunk_front_z`] samples these masses' actual front
+/// surface so a decal tracks the pectoral bulge on every seed (#727). Any
+/// change to the pectoral / abdomen / waist masses here must be mirrored in
+/// that method.
 fn trunk(
     ctx: &PartCtx,
     chest_r: f32,
@@ -60,35 +63,43 @@ fn trunk(
     let back_tilt = quat_xyzw(quat_x(0.07));
     let fwd_tilt = quat_xyzw(quat_x(-0.10));
     let mut elements = vec![
-        // Ribcage egg — the upper-trunk primary mass. Width and depth
-        // pulled in ~8 % (user: the trunk read bulky next to the slimmed
-        // limbs; round-3 verification measured barely-reduced chest depth).
+        // Ribcage egg — the upper-trunk primary mass. Depth pulled in from
+        // 0.68→0.58 (#728-A: barrel/pigeon chest on ~10/14 seeds — the
+        // thorax projected too far in Z) and the +Z bias dropped to 0 so it
+        // no longer bulges behind (#728 sev3 cobra-hood on 6300350204994988827).
         blob_ellipsoid(
-            [0.0, yoke_y * 0.40, chest_r * 0.02 * d],
-            [chest_r * 0.87 * fullness, len * 0.40, chest_r * 0.68 * d],
+            [0.0, yoke_y * 0.40, 0.0],
+            [chest_r * 0.87 * fullness, len * 0.40, chest_r * 0.58 * d],
             back_tilt,
             blend,
         ),
-        // Pectoral / chest-front plane (ornament + badge seat contract:
-        // front surface now peaks at ≈ 0.98 · chest_r).
+        // Pectoral / chest-front plane. Forward projection cut ~14 %
+        // (offset 0.42→0.36, semi 0.56→0.48 → front peak ≈ 0.84·chest_r·d,
+        // was 0.98) so the chest reads flatter in profile (#728-A). Chest
+        // accessories seat on the *sampled* front via `trunk_front_z`, so
+        // this reduction flows through to their depth automatically (#727).
         blob_ellipsoid(
-            [0.0, yoke_y * 0.42, -chest_r * 0.42 * d],
-            [chest_r * 0.86 * fullness, len * 0.42, chest_r * 0.56 * d],
+            [0.0, yoke_y * 0.42, -chest_r * 0.36 * d],
+            [chest_r * 0.86 * fullness, len * 0.42, chest_r * 0.48 * d],
             id_quat(),
             blend,
         ),
-        // Upper-back / shoulder-blade mass — kept shallower than the chest
-        // (back convexity ≤ ~0.8× chest) so the profile doesn't hump.
+        // Upper-back / shoulder-blade mass — flattened (offset 0.34→0.26,
+        // semi 0.34→0.28 → back reach ≈ 0.54·chest_r·d, was 0.68) to kill
+        // the kyphotic yoke hump (#728-E, seen on 3 seeds).
         blob_ellipsoid(
-            [0.0, yoke_y * 0.60, chest_r * 0.34 * d],
-            [chest_r * 0.82 * fullness, len * 0.30, chest_r * 0.34 * d],
+            [0.0, yoke_y * 0.60, chest_r * 0.26 * d],
+            [chest_r * 0.82 * fullness, len * 0.30, chest_r * 0.28 * d],
             back_tilt,
             blend,
         ),
-        // Waist connector — visibly narrower than both trunk masses.
+        // Waist connector — narrower than the trunk masses, but widened
+        // 0.90→0.94 (X) / 0.80→0.86 (Z) so the chest→waist→hip loft is
+        // continuous instead of tucking to a hard shelf above the belt
+        // (#728-B, ~9 seeds).
         blob_ellipsoid(
             [0.0, -len * 0.16, 0.0],
-            [waist_r * 0.90, len * 0.24, waist_r * 0.80 * d],
+            [waist_r * 0.94, len * 0.24, waist_r * 0.86 * d],
             id_quat(),
             blend * 0.9,
         ),
@@ -103,13 +114,15 @@ fn trunk(
     // Flank pinch — carve a shallow scoop from each side at waist height so
     // the front silhouette waists without thinning the belly/lumbar depth.
     // Carves sit right after the trunk masses so the traps / yoke added
-    // below are never eaten by them (elements evaluate in list order).
+    // below are never eaten by them (elements evaluate in list order). Bite
+    // softened (moved out 1.58→1.66, blend 0.5→0.6) so the waist tuck reads
+    // as a curve, not the abrupt shelf reviewers flagged (#728-B).
     for s in [-1.0f32, 1.0] {
         elements.push(blob_carve(blob_ellipsoid(
-            [s * waist_r * 1.58, -len * 0.16, 0.0],
-            [waist_r * 0.50, len * 0.22, waist_r * 1.10 * d],
+            [s * waist_r * 1.66, -len * 0.16, 0.0],
+            [waist_r * 0.48, len * 0.22, waist_r * 1.10 * d],
             id_quat(),
-            blend * 0.5,
+            blend * 0.6,
         )));
     }
     // Trapezius cones: neck base sloping down-and-out to each arm mount —
@@ -136,7 +149,9 @@ fn trunk(
         [
             (bp.shoulder_x - bp.arm_r * 0.15) * fullness.min(1.0),
             chest_r * 0.30,
-            chest_r * 0.70 * d,
+            // Depth pulled 0.70→0.60·d to match the flattened ribcage /
+            // upper-back so the yoke doesn't reintroduce a back hump (#728-E).
+            chest_r * 0.60 * d,
         ],
         id_quat(),
         blend * 0.7,
@@ -147,16 +162,53 @@ fn trunk(
     // as emerging from a hollow), and its upward reach is capped by the
     // blueprint's actual chin gap — on toy-tier bodies the huge chest made
     // the old fixed chest-relative column swallow the chin.
+    // Radius widened 1.25→1.35 and pushed back 0.05→0.07·d so the column
+    // fully clothes the back of the neck: flattening the upper back (#728-E)
+    // pulled the rear shell in enough to expose a skin speck at the
+    // nape-to-collar junction on one seed (final-verify collateral). Narrow
+    // and high, so it doesn't reintroduce the upper-back hump.
     let nr_reach = (bp.neck_len + bp.neck_r * 0.4).min(chest_r * 0.52);
     let nr_half = (chest_r * 0.22).min(nr_reach * 0.5);
     elements.push(blob_capsule(
-        [0.0, yoke_y + nr_reach - nr_half, chest_r * 0.05 * d],
-        bp.neck_r * 1.25,
+        [0.0, yoke_y + nr_reach - nr_half, chest_r * 0.07 * d],
+        bp.neck_r * 1.35,
         nr_half,
         id_quat(),
         blend * 0.6,
     ));
     prim(blob_group(elements, 40, shell), [0.0, 0.0, 0.0], id_quat())
+}
+
+/// The trunk's *rendered* front surface Z at torso-local `y`: the raw
+/// ellipsoid envelope [`HumanoidBlueprint::trunk_front_z`] pushed forward by
+/// `margin_frac · chest_r · depth`, because the BlobGroup's smooth-union
+/// skin bulges ahead of the raw ellipsoids. The margin is per-decal: a tiny
+/// button needs a large fraction (~0.12) to read proud, but a large ornament
+/// — which extends forward on its own geometry — needs only a small one
+/// (~0.03), or its whole body floats off the chest in profile (the round-2
+/// regression, #727). More-negative = further forward.
+fn seat_surface_z(bp: &HumanoidBlueprint, chest_r: f32, y: f32, margin_frac: f32) -> f32 {
+    bp.trunk_front_z(chest_r, y) - margin_frac * chest_r * bp.depth
+}
+
+/// Frontmost [`seat_surface_z`] across a decal's vertical span — where a
+/// thin card seats so it reads flush at the sternum and only barely proud
+/// at the ends. Round 1's variable-depth strip made a thick proud slab
+/// instead (#727); a thin card at the frontmost sample is the lesser evil
+/// for a flat decal on a convex chest.
+fn seat_front_z(
+    bp: &HumanoidBlueprint,
+    chest_r: f32,
+    y_center: f32,
+    y_half: f32,
+    margin_frac: f32,
+) -> f32 {
+    let mut z_front = f32::INFINITY;
+    for i in 0..=4 {
+        let y = y_center + y_half * (i as f32 / 2.0 - 1.0);
+        z_front = z_front.min(seat_surface_z(bp, chest_r, y, margin_frac));
+    }
+    z_front
 }
 
 pub(super) fn torso(ctx: &PartCtx) -> Generator {
@@ -180,27 +232,35 @@ pub(super) fn torso(ctx: &PartCtx) -> Generator {
     // neck-root column so the ring reads as a worn collar, not a floating
     // hoop (#726 conformal-attachment pass). Height tracks the trunk's
     // capped neck-root so toy-tier collars don't ride up over the chin.
-    let neck_line = yoke_y + ((bp.neck_len + bp.neck_r * 0.4).min(chest_r * 0.52)) * 0.72;
+    // Hugs tighter (major 1.28→1.20·neck_r) so the ring reads as a worn
+    // collar seam rather than a hoop standing off the neck (#727-C). Height
+    // kept near the original (0.72→0.70, not 0.66 — dropping it further
+    // exposed bare neck/chest on 14912211707486551165).
+    let neck_line = yoke_y + ((bp.neck_len + bp.neck_r * 0.4).min(chest_r * 0.52)) * 0.70;
     let mut ring = prim(
-        torus(0.02, bp.neck_r * 1.28, collar.clone()),
+        torus(0.02, bp.neck_r * 1.20, collar.clone()),
         [0.0, neck_line, chest_r * 0.05 * d],
         id_quat(),
     );
     ring.transform.scale = Fp3([1.0, 1.0, d]);
     torso.children.push(ring);
-    // Centre placket — a short front seam on the chest mass (its front
-    // is near-vertical, so the strip stays flush where the tapering trunk
-    // would let it float).
+    // Centre placket — a thin front seam seated at the blend-compensated
+    // chest surface so it reads flush at the sternum. Kept THIN (0.02): a
+    // variable-depth card read as a thick proud slab in round 1 (#727).
     torso.children.push(prim(
-        cuboid([chest_r * 0.13, len * 0.30, 0.015], collar),
-        [0.0, yoke_y * 0.30, -(chest_r * 0.96 * d + 0.006)],
+        cuboid([chest_r * 0.13, len * 0.28, 0.02], collar),
+        [
+            0.0,
+            yoke_y * 0.30,
+            seat_front_z(bp, chest_r, yoke_y * 0.30, len * 0.14, 0.03),
+        ],
         id_quat(),
     ));
     // Belt at the waist — major radius matched to the abdomen mass's
     // cross-section at this height so the band hugs the trunk (the old
     // fixed 1.02·waist ring stood proud of the pinched-in waist).
     let mut belt_ring = prim(
-        torus(0.02, waist_r * 0.97, belt),
+        torus(0.02, waist_r * 0.94, belt),
         [0.0, -len * 0.42, 0.0],
         id_quat(),
     );
@@ -242,16 +302,14 @@ pub(super) fn coat(ctx: &PartCtx) -> Generator {
     let mut torso = trunk(ctx, chest_r, 1.06, shell);
     let yoke_y = bp.shoulder_y - bp.torso_y;
     let d = bp.depth;
-    // Lapel V — two lining-colour strips angled outward at the throat,
-    // seated on the chest mass so they stay flush on tapered trunks.
+    // Lapel V — two thin lining-colour strips angled outward at the throat,
+    // seated at the blend-compensated chest surface (kept thin so they read
+    // as seams, not proud slabs — the round-1 regression, #727).
+    let lz = seat_front_z(bp, chest_r, len * 0.14, len * 0.24, 0.05);
     for s in [-1.0f32, 1.0] {
         torso.children.push(prim(
-            cuboid([0.03, len * 0.55, 0.02], lining.clone()),
-            [
-                s * chest_r * 0.30,
-                len * 0.14,
-                -(chest_r * 0.96 * d + 0.005),
-            ],
+            cuboid([0.03, len * 0.52, 0.02], lining.clone()),
+            [s * chest_r * 0.30, len * 0.14, lz],
             quat_xyzw(quat_z(s * 0.35)),
         ));
     }
@@ -266,23 +324,22 @@ pub(super) fn coat(ctx: &PartCtx) -> Generator {
     );
     stand.transform.scale = Fp3([1.0, 1.0, d]);
     torso.children.push(stand);
-    // Button row down the centre.
+    // Button row down the centre — each button centred on the
+    // blend-compensated chest surface at its own height, so its full radius
+    // reads proud. Round 1 seated them on the RAW envelope (behind the
+    // blend-bulged skin) and they sank to invisibility (#727 min-standoff).
     for i in 0..3 {
         let by = len * (0.20 - 0.24 * i as f32);
         torso.children.push(prim(
             sphere(0.014, 2, btn.clone()),
-            [
-                0.0,
-                by,
-                -(bp.trunk_radius_at(bp.torso_y + by).max(chest_r * 0.9) * d + 0.014),
-            ],
+            [0.0, by, seat_surface_z(bp, chest_r, by, 0.12)],
             id_quat(),
         ));
     }
     // Belt at the waist, squashed to the trunk's oval section and matched
     // to the coat trunk's abdomen cross-section so it hugs the surface.
     let mut belt = prim(
-        torus(0.022, bp.waist_r * 1.0, btn),
+        torus(0.022, bp.waist_r * 0.96, btn),
         [0.0, -len * 0.42, 0.0],
         id_quat(),
     );
@@ -299,7 +356,11 @@ pub(super) fn arm(ctx: &PartCtx) -> Generator {
     // Canon thick-to-thin rhythm with a real *wrist minimum*: the joint
     // pinches to ~half the forearm peak, then the palm flares back out
     // (pinch-then-flare is what separates a hand from a tube end).
-    let elbow_r = r * 0.80;
+    // Arm thickened (#728-C top-heavy, ~10/12 seeds): the elbow / upper-arm
+    // / forearm radii bumped so the limb no longer reads as a thin cylinder
+    // under a bulbous shoulder. The wrist minimum is left alone — the taper
+    // to the wrist is what reads as an arm, not a tube.
+    let elbow_r = r * 0.86;
     let wrist_r = r * bp.limb_taper * 0.72;
     let theta = 0.22_f32; // elbow rest bend forward (front is -Z)
     let skin = ctx.materials.skin(ctx.palette.skin_tone);
@@ -342,7 +403,7 @@ pub(super) fn arm(ctx: &PartCtx) -> Generator {
         // overlapping the elbow ball (cone flipped apex-down via π).
         blob_cone(
             [0.0, elbow_y * 0.50, 0.0],
-            r * 0.88,
+            r * 0.95,
             -elbow_y * 0.55,
             elbow_r * 0.85,
             quat_xyzw(quat_x(PI)),
@@ -361,7 +422,7 @@ pub(super) fn arm(ctx: &PartCtx) -> Generator {
         // radius, along the bent axis (π + θ maps the cone's +Y onto it).
         blob_cone(
             bent(l2 * 0.45),
-            r * 0.82,
+            r * 0.90,
             l2 * 0.55,
             wrist_r * 0.95,
             quat_xyzw(quat_x(PI + theta)),
@@ -404,15 +465,19 @@ pub(super) fn arm(ctx: &PartCtx) -> Generator {
     // skin-coloured deltoid poked through the cloth on almost every seed),
     // over a shirt capsule whose hem line reads via the colour change to
     // skin — no floating cuff ring.
+    // Deltoid cap shrunk 1.12→1.08·r and the sleeve tube thickened
+    // 1.06→1.14·r (#728-C): narrows the shoulder-to-arm diameter ratio that
+    // made the figure top-heavy. Round 1 shrank the cap to 1.05, which let
+    // shoulder skin poke through on one seed — 1.08 keeps cloth over skin.
     let mut delt = prim(
-        sphere(r * 1.12, 3, sleeve.clone()),
+        sphere(r * 1.08, 3, sleeve.clone()),
         [0.0, -r * 0.05, 0.0],
         id_quat(),
     );
     delt.transform.scale = Fp3([1.0, 0.85, 0.95]);
     limb.children.push(delt);
     limb.children.push(prim(
-        capsule(r * 1.06, l1 * 0.5, sleeve),
+        capsule(r * 1.14, l1 * 0.5, sleeve),
         [0.0, -r * 0.25 - l1 * 0.26, 0.0],
         id_quat(),
     ));
@@ -465,7 +530,8 @@ pub(super) fn leg(ctx: &PartCtx) -> Generator {
     // places both legs from this one build.
     let kb = r * 0.5;
     let elements = vec![
-        // Hip / thigh-root mass.
+        // Hip / thigh-root mass. (Reverted to baseline with the rest of the
+        // #729 seat rework — see the note in the assembler's pelvis build.)
         blob_ellipsoid(
             [0.0, -hip_r * 0.25, 0.0],
             [hip_r * 1.0, hip_r * 0.95, hip_r * 1.0],

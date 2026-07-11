@@ -184,6 +184,59 @@ impl HumanoidBlueprint {
         let t = ((y - bottom) / self.trunk_len).clamp(0.0, 1.0);
         self.waist_r + (self.chest_r - self.waist_r) * t
     }
+
+    /// Frontmost trunk surface Z (already flattened by [`Self::depth`]) at a
+    /// **torso-local** height `y`, sampled from the pectoral / abdomen /
+    /// waist ellipsoids the humanoid `trunk` part builds. Chest decals and
+    /// mounted ornaments seat against this instead of [`Self::trunk_radius_at`]:
+    /// the linear cylinder ignores the pectoral bulge, so it over- or
+    /// under-shoots the real surface and floats accessories in profile on
+    /// many seeds (#727). Front is −Z, so the return is NEGATIVE and
+    /// more-negative = further forward.
+    ///
+    /// Pass the `chest_r` the torso variant used (the coat's is 1.04× the
+    /// blueprint's). The magic factors mirror the mass layout in
+    /// `pds::avatar::parts::defaults::humanoid::trunk`; that function's
+    /// docstring flags the mirroring requirement. Blends round the real skin
+    /// a hair proud of the raw ellipsoid, so callers still add a small proud
+    /// offset of their own.
+    pub fn trunk_front_z(&self, chest_r: f32, y: f32) -> f32 {
+        let len = self.trunk_len;
+        let d = self.depth;
+        let waist_r = chest_r * (self.waist_r / self.chest_r);
+        let yoke_y = self.shoulder_y - self.torso_y;
+        // Front surface of an axis-aligned ellipsoid at height `y`:
+        // center_z − semi_z·√(1 − ((y−cy)/semi_y)²); ∞ when `y` is off it.
+        let front = |cy: f32, cz: f32, semi_y: f32, semi_z: f32| -> f32 {
+            let t = (y - cy) / semi_y;
+            if t.abs() >= 1.0 {
+                f32::INFINITY
+            } else {
+                cz - semi_z * (1.0 - t * t).sqrt()
+            }
+        };
+        let pect = front(
+            yoke_y * 0.42,
+            -chest_r * 0.36 * d,
+            len * 0.42,
+            chest_r * 0.48 * d,
+        );
+        let abdo = front(
+            -len * 0.36,
+            -waist_r * 0.03 * d,
+            len * 0.30,
+            waist_r * 0.84 * d,
+        );
+        let waist = front(-len * 0.16, 0.0, len * 0.24, waist_r * 0.86 * d);
+        let z = pect.min(abdo).min(waist);
+        // Fallback for a height off every mass (e.g. right at the hem): the
+        // linear cylinder, so a caller never seats at z = 0 / the axis.
+        if z.is_finite() {
+            z
+        } else {
+            -self.trunk_radius_at(self.torso_y + y) * d
+        }
+    }
 }
 
 #[cfg(test)]

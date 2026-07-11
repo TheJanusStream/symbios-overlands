@@ -123,6 +123,17 @@ impl MaterialKit {
         let base = m.base_color.0;
         m.uv_scale = Fp(1.5);
         m.texture = self.body_texture(base);
+        // Knit / woven bodies (the Matte / Organic families that get a
+        // fabric texture) must read close to matte: a specular highlight on
+        // a shirt sparkles along the silhouette and visually inflates the
+        // torso's barrel read (#730-M1, seen on 4 seeds — it amplifies the
+        // #728 chest depth). Cap metallic and floor roughness, but leave
+        // enough range that the Bold register still reads glossier than
+        // Naturalistic. Metal / Clean families keep their brushed-panel gloss.
+        if matches!(self.family, FinishFamily::Matte | FinishFamily::Organic) {
+            m.metallic = Fp(m.metallic.0.min(0.06));
+            m.roughness = Fp(m.roughness.0.max(0.78));
+        }
         m
     }
 
@@ -255,9 +266,13 @@ fn metal_panel_tex(base: [f32; 3], wear: f32) -> SovereignTextureConfig {
 fn fabric_tex(base: [f32; 3], wear: f32) -> SovereignTextureConfig {
     SovereignTextureConfig::Fabric(SovereignFabricConfig {
         color_warp: Fp3(base),
-        color_weft: Fp3(shade01(base, 0.76)),
+        // Weft contrast softened 0.76→0.84 and fuzz cut 0.4→0.22 base so the
+        // weave calms at silhouette edges without going so flat the knit
+        // reads as bare skin — fuzz 0.15 erased the ribbing on one seed in
+        // round 2 (#730-M). Wear still coarsens it toward the battered end.
+        color_weft: Fp3(shade01(base, 0.84)),
         thread_count: Fp64(22.0),
-        fuzz: Fp64((0.4 + 0.3 * wear as f64).min(1.0)),
+        fuzz: Fp64((0.22 + 0.25 * wear as f64).min(0.9)),
         ..Default::default()
     })
 }

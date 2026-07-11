@@ -84,10 +84,19 @@ pub(super) fn build(seed: u64) -> Generator {
         quat_xyzw(quat_x(-0.16)),
         wr * 0.5,
     )];
+    // NOTE (#729): four render-driven rounds of seat reshaping (paired-glute
+    // trims, a single wide seat mass, a sub-gluteal fill, crotch-carve and
+    // thigh-root retunes) each regressed the buttock→thigh read below this
+    // baseline — softening the side undercut always exposed a back-view
+    // double-lobe + central cleft on the majority of seeds. Reverted to the
+    // baseline geometry; #729 (the mild undercut step) stays OPEN for a fresh
+    // approach (e.g. blending the pelvis and leg into one skin, not two
+    // diameter-matched groups). The #728 waist-shelf improvement is
+    // independent and retained.
     for s in [-1.0f32, 1.0] {
         // Glute pair — seat projection behind the back plane, blended
         // generously into the iliac block so it never reads as a bolted-on
-        // ball (round 2 on two seeds).
+        // ball.
         pelvis_elements.push(blob_sphere(
             [s * wr * 0.40, -wr * 0.40, wr * 0.42 * d],
             wr * 0.46,
@@ -122,9 +131,14 @@ pub(super) fn build(seed: u64) -> Generator {
             PartSlot::Torso => root
                 .children
                 .push(offset(part.build(&ctx), [0.0, bp.torso_y, 0.0])),
-            PartSlot::Head => root
-                .children
-                .push(offset(part.build(&ctx), [0.0, bp.head_y, 0.0])),
+            PartSlot::Head => root.children.push(offset(
+                part.build(&ctx),
+                // Set back a touch onto the trunk axis so the head reads
+                // centred over the (now flatter) chest rather than thrust
+                // forward — the #728-D forward-head read. Gentle (0.03·d):
+                // 0.05 over-cranked the neck on one seed.
+                [0.0, bp.head_y, bp.chest_r * 0.03 * bp.depth],
+            )),
             PartSlot::Arm => {
                 // One part, mirrored to both shoulders with an outward splay.
                 for side in [-1.0f32, 1.0] {
@@ -150,20 +164,27 @@ pub(super) fn build(seed: u64) -> Generator {
             }
             PartSlot::Hat => root.children.push(offset(
                 part.build(&ctx),
-                [0.0, bp.head_y + bp.head_r * 1.08, 0.0],
+                // Lowered 1.08→1.04·head_r so the brim rests on the crown
+                // instead of hovering above a bare/short-hair scalp (#730-H6).
+                [0.0, bp.head_y + bp.head_r * 1.04, 0.0],
             )),
             PartSlot::Ornament => {
-                // Seated proud of the trunk's *flattened* front surface at
-                // its own height (the trunk V-tapers — the old top-radius
-                // seat floated in profile).
-                // Floor tracks the slimmed trunk's ≈0.98·chest_r front:
-                // 0.96 keeps the ornament's core embedded with its face
-                // proud — 0.92 buried thin pieces under the placket, 0.99
-                // floated them off the profile silhouette (a scalar can't
-                // do better; truly conformal seating is #727).
+                // Seated on the trunk's ACTUAL sampled front surface via
+                // `trunk_front_z` (the pectoral-aware envelope), not the
+                // linear `trunk_radius_at` cylinder that floated ornaments
+                // on a stalk when it overshot the real surface — the #727
+                // pattern-A failure on 5/12 seeds. The ornament's origin
+                // sits at the surface so its core embeds and its face reads
+                // proud. `chest_r` (shirt baseline) is close enough for the
+                // coat's 1.04× trunk given the embed margin.
                 let orn_y = bp.torso_y - bp.trunk_len * 0.04;
-                let surf = bp.trunk_radius_at(orn_y).max(bp.chest_r * 0.96);
-                let mut orn = offset(part.build(&ctx), [0.0, orn_y, -(surf * bp.depth + 0.006)]);
+                let y_local = orn_y - bp.torso_y;
+                // Seat the ornament's ORIGIN just proud of the raw envelope.
+                // The margin is small (0.03) because an ornament carries its
+                // own forward depth — the round-2 button-sized 0.12 margin
+                // floated the whole ornament off the chest in profile (#727).
+                let surf = bp.trunk_front_z(bp.chest_r, y_local) - bp.chest_r * 0.03 * bp.depth;
+                let mut orn = offset(part.build(&ctx), [0.0, orn_y, surf]);
                 orn.transform.scale = Fp3([chest_k, chest_k, chest_k]);
                 root.children.push(orn);
             }
