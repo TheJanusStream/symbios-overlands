@@ -106,6 +106,13 @@ pub struct AvatarEditorState {
     /// so build it once per session rather than every frame the editor is open;
     /// invalidated when the session DID changes.
     default_cache: Option<(String, AvatarRecord)>,
+    /// Mirror of this frame's "Avatar window is open and un-collapsed"
+    /// state, written by [`avatar_ui`] so non-UI systems can read it
+    /// without reaching into egui. The gait pause keys on this (#741):
+    /// the whole editing session should show the avatar at rest, not just
+    /// the moments a row is selected. Collapsing the window deliberately
+    /// counts as closed — tuck the panel away to preview the live sway.
+    window_visible: bool,
 }
 
 impl AvatarEditorState {
@@ -113,6 +120,12 @@ impl AvatarEditorState {
     /// freeze gate and the gizmo dispatch read this.
     pub fn has_visuals_selection(&self) -> bool {
         self.selected_prim_path.is_some()
+    }
+
+    /// True while the Avatar window is open with its body visible (as of
+    /// the last [`avatar_ui`] run). The local gait pause reads this.
+    pub fn window_visible(&self) -> bool {
+        self.window_visible
     }
 
     /// Drop the visuals selection — used when switching tabs, collapsing
@@ -379,6 +392,10 @@ pub fn avatar_ui(
         // mutex against the room editor should release.
         response.as_ref().is_some_and(|r| r.inner.is_some())
     };
+    // Publish the window state for non-UI readers (the gait pause, #741)
+    // every frame this system runs — including the `!panels.avatar` arm,
+    // so closing the window un-pauses without a stale frame.
+    editor.window_visible = window_visible_with_body;
 
     // Pop-out audio editor for the per-construct slot on avatar visuals
     // generators — a top-level Window sibling to the Avatar window.

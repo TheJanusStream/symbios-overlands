@@ -20,9 +20,8 @@
 //! locomotion defaults use.
 //!
 //! The local player's gait pauses (root held at the rest pose) while the
-//! avatar editor has a visuals row selected, joining the chassis freeze in
-//! [`super`] — see [`animate_humanoid_gait`] for why. Remote peers are
-//! unaffected.
+//! Avatar editor window is open (#741) — see [`animate_humanoid_gait`]
+//! for why. Remote peers are unaffected.
 
 use avian3d::prelude::LinearVelocity;
 use bevy::prelude::*;
@@ -131,15 +130,23 @@ pub(super) fn attach_gait_animation(
 /// no longer humanoid (remote record hot-swap) — their fresh visual root
 /// spawns unanimated, so no offset lingers.
 ///
-/// While the local player has an avatar-editor visuals row selected, its
-/// gait pauses and the visual root is held at the authored rest pose
-/// (#737). Sway is time-based, so it would keep oscillating right through
-/// the physics freeze — moving every part of the avatar *except* the
-/// gizmo-detached prim being edited, and drifting the parent transforms
-/// the drag commit's world→local conversion reads. Snapping to the base
-/// pose (rather than holding the mid-sway offset) means the owner edits
-/// the avatar in its neutral stance. Per-entity rather than a `run_if` so
-/// remote peers keep swaying while the owner edits.
+/// While the local player's Avatar editor window is open (or, belt and
+/// braces, a visuals row is still selected during the close-frame gap),
+/// its gait pauses and the visual root is held at the authored rest pose
+/// (#737, widened to the whole window by #741). Sway is time-based, so it
+/// would keep oscillating right through the physics freeze — moving every
+/// part of the avatar *except* the gizmo-detached prim being edited, and
+/// drifting the parent transforms the drag commit's world→local
+/// conversion reads. Selection-scoped pausing wasn't enough (#741): the
+/// sway ran again the moment a row was deselected or the selection moved
+/// between rows, so the rendered pose shifted under the editor between
+/// edits while the record's transforms stayed put — rest pose now holds
+/// for the whole editing session, walking bounce included. Snapping to
+/// the base pose (rather than holding the mid-sway offset) means the
+/// owner edits the avatar in its neutral stance; collapsing the window
+/// (not just closing it) resumes the live animation for previewing.
+/// Per-entity rather than a `run_if` so remote peers keep swaying while
+/// the owner edits.
 #[allow(clippy::type_complexity)]
 pub(super) fn animate_humanoid_gait(
     time: Res<Time>,
@@ -159,8 +166,8 @@ pub(super) fn animate_humanoid_gait(
 ) {
     let dt = time.delta_secs();
     let t = time.elapsed_secs();
-    let editing_visuals = avatar_editor
-        .map(|e| e.has_visuals_selection())
+    let hold_rest_pose = avatar_editor
+        .map(|e| e.window_visible() || e.has_visuals_selection())
         .unwrap_or(false);
 
     for (entity, children, chassis_tf, velocity, peer, has_humanoid_preset, is_local, mut anim) in
@@ -181,7 +188,7 @@ pub(super) fn animate_humanoid_gait(
         // shape as the chassis freeze in `player::mod`. When the *root*
         // node itself is gizmo-detached it is no longer in `children`,
         // so this can't fight the gizmo for its transform.
-        if is_local && editing_visuals {
+        if is_local && hold_rest_pose {
             for child in children.iter() {
                 if let Ok((root, mut tf)) = roots.get_mut(child) {
                     tf.translation = root.base_translation;
