@@ -7,7 +7,7 @@ use bevy::prelude::*;
 
 use crate::boot_params::TargetPos;
 use crate::config::rover as cfg;
-use crate::state::{LiveAvatarRecord, LocalPlayer, PendingSpawnPlacement};
+use crate::state::{LiveAvatarRecord, LiveRoomRecord, LocalPlayer, PendingSpawnPlacement};
 
 use super::preset::build_preset_components;
 use super::{random_spawn_xz, visuals};
@@ -21,6 +21,7 @@ pub(super) fn spawn_local_player(
     hm_res: Res<crate::terrain::FinishedHeightMap>,
     live: Res<LiveAvatarRecord>,
     placement: Option<Res<PendingSpawnPlacement>>,
+    room: Option<Res<LiveRoomRecord>>,
     mut avatar_deps: visuals::AvatarSpawnDeps,
 ) {
     let hm = &hm_res.0;
@@ -28,10 +29,30 @@ pub(super) fn spawn_local_player(
     let half = extent * 0.5;
     let centre = half;
 
-    // Pick (rx, rz) from the URL/CLI placement when supplied, falling back to
+    // Spawn-pose precedence (#745): an explicit URL/CLI placement wins
+    // wholesale; otherwise the room record's owner-configured default
+    // landing; otherwise the legacy random scatter. The landing converts to
+    // the same `TargetPos` shape the placement path uses (optional y =
+    // drop-pin, height from the heightmap) so the two sources can't drift.
+    let (pose_pos, pose_yaw_deg) = match placement.as_deref() {
+        Some(p) => (p.pos, p.yaw_deg),
+        None => match room.as_deref().and_then(|r| r.0.default_landing) {
+            Some(landing) => (
+                Some(TargetPos {
+                    x: landing.pos.0[0],
+                    y: landing.y.map(|y| y.0),
+                    z: landing.pos.0[1],
+                }),
+                Some(landing.yaw_deg.0),
+            ),
+            None => (None, None),
+        },
+    };
+
+    // Pick (rx, rz) from the resolved pose when supplied, falling back to
     // the random spawn-scatter. World coordinates are centred on (0, 0); the
     // heightmap sample uses (centre + x, centre + z).
-    let (rx, rz) = match placement.as_deref().and_then(|p| p.pos) {
+    let (rx, rz) = match pose_pos {
         Some(TargetPos { x, z, .. }) => (x.clamp(-half, half), z.clamp(-half, half)),
         None => random_spawn_xz(),
     };
@@ -42,15 +63,13 @@ pub(super) fn spawn_local_player(
     let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
     // Apply yaw on top of the surface tilt so a landmark "facing N" lands the
     // chassis aimed at -Z while still resting flush on the slope.
-    let yaw = placement
-        .as_deref()
-        .and_then(|p| p.yaw_deg)
+    let yaw = pose_yaw_deg
         .map(|deg| Quat::from_rotation_y(deg.to_radians()))
         .unwrap_or(Quat::IDENTITY);
     let rotation = tilt * yaw;
     // y override (`pos=x,y,z`) bypasses the heightmap sample; the drop-pin
     // form (`pos=x,z`) keeps the heightmap-resolved height.
-    let oy = match placement.as_deref().and_then(|p| p.pos).and_then(|p| p.y) {
+    let oy = match pose_pos.and_then(|p| p.y) {
         Some(y) => y,
         None => ground_y + cfg::SPAWN_HEIGHT_OFFSET,
     };

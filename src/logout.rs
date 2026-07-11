@@ -158,6 +158,11 @@ fn cleanup_on_logout(
     // but if anything else ever drives the InGame→Login edge while a
     // dialog is open, a stale guard must not greet the next login.
     commands.remove_resource::<crate::ui::unsaved_guard::UnsavedGuard>();
+    // Same for the gateway picker pair (#748): logging out while standing
+    // in a gateway zone must not leave the picker (or its dismissal
+    // latch) armed for the next session.
+    commands.remove_resource::<crate::ui::gateway::GatewayPicker>();
+    commands.remove_resource::<crate::ui::gateway::GatewayDismissed>();
     // The world this session compiled is being despawned just below, so
     // the next login's loading gate must wait for a fresh compile pass —
     // and the per-unit fingerprints must not short-circuit it into

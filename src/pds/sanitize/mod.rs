@@ -192,6 +192,11 @@ pub fn sanitize_kind(kind: &mut GeneratorKind) {
             target_pos.0[1] = target_pos.0[1].clamp(-1_000.0, 10_000.0);
             target_pos.0[2] = target_pos.0[2].clamp(-10_000.0, 10_000.0);
         }
+        GeneratorKind::Gateway { size } => {
+            for axis in size.0.iter_mut() {
+                *axis = common::clamp_finite(*axis, 0.25, 50.0, 2.5);
+            }
+        }
         GeneratorKind::Cuboid { .. }
         | GeneratorKind::Sphere { .. }
         | GeneratorKind::Cylinder { .. }
@@ -275,9 +280,14 @@ pub fn sanitize_avatar_visuals(generator: &mut Generator) {
 }
 
 fn enforce_avatar_kinds(node: &mut Generator) {
+    // Gateway shares Portal's exclusion rationale: an avatar carrying a
+    // travel zone into someone else's space is the same abuse shape.
     if matches!(
         &node.kind,
-        GeneratorKind::Terrain(_) | GeneratorKind::Water { .. } | GeneratorKind::Portal { .. }
+        GeneratorKind::Terrain(_)
+            | GeneratorKind::Water { .. }
+            | GeneratorKind::Portal { .. }
+            | GeneratorKind::Gateway { .. }
     ) {
         node.kind = GeneratorKind::default_cuboid();
     }

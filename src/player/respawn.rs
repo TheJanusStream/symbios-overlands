@@ -6,7 +6,7 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 
 use crate::config::rover as cfg;
-use crate::state::LocalPlayer;
+use crate::state::{LiveRoomRecord, LocalPlayer};
 
 use super::random_spawn_xz;
 
@@ -22,6 +22,7 @@ pub(super) fn respawn_if_fallen(
         With<LocalPlayer>,
     >,
     hm_res: Option<Res<crate::terrain::FinishedHeightMap>>,
+    room: Option<Res<LiveRoomRecord>>,
     time: Res<Time>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
@@ -45,14 +46,38 @@ pub(super) fn respawn_if_fallen(
     // Depth the player fell to, before the respawn overwrites their position.
     let fell_to_y = pos.y;
     let centre = extent * 0.5;
-    let (ox, oz) = random_spawn_xz();
+    // Recovery pose (#745): the room's default landing when configured,
+    // otherwise the legacy random scatter. The (x, z) is clamped into the
+    // terrain extent so a landing aimed outside the heightmap (possible in
+    // a hand-edited record — sanitize only bounds magnitude) can't strand
+    // the player on an endless fall-respawn-fall loop over the void.
+    let landing = room.as_deref().and_then(|r| r.0.default_landing);
+    let (ox, oz, explicit_y, yaw_deg) = match landing {
+        Some(l) => (
+            l.pos.0[0].clamp(-half, half),
+            l.pos.0[1].clamp(-half, half),
+            l.y.map(|y| y.0),
+            Some(l.yaw_deg.0),
+        ),
+        None => {
+            let (x, z) = random_spawn_xz();
+            (x, z, None, None)
+        }
+    };
     let hm_x = (centre + ox).clamp(0.0, extent);
     let hm_z = (centre + oz).clamp(0.0, extent);
     let ground_y = hm.get_height_at(hm_x, hm_z);
     let surface_normal = hm.get_normal_at(hm_x, hm_z);
     let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
-    pos.0 = Vec3::new(ox, ground_y + cfg::SPAWN_HEIGHT_OFFSET, oz);
-    rot.0 = tilt;
+    let yaw = yaw_deg
+        .map(|deg| Quat::from_rotation_y(deg.to_radians()))
+        .unwrap_or(Quat::IDENTITY);
+    // An explicit landing height is honoured (sky-platform landings) but
+    // floored at ground level here — respawning *below* the terrain would
+    // re-trigger this system every frame.
+    let floor_y = ground_y + cfg::SPAWN_HEIGHT_OFFSET;
+    pos.0 = Vec3::new(ox, explicit_y.map_or(floor_y, |y| y.max(floor_y)), oz);
+    rot.0 = tilt * yaw;
     lin_vel.0 = Vec3::ZERO;
     ang_vel.0 = Vec3::ZERO;
     let now = time.elapsed_secs_f64();

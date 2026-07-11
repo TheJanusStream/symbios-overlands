@@ -106,6 +106,7 @@ pub(super) const ROOM_CHILD_KINDS: &[&str] = &[
     "LSystem",
     "Shape",
     "Portal",
+    "Gateway",
     "Water",
     "RoadNetwork",
 ];
@@ -148,6 +149,9 @@ pub(crate) fn make_default_for_kind(kind: &str) -> GeneratorKind {
         "Portal" => GeneratorKind::Portal {
             target_did: String::new(),
             target_pos: Fp3([0.0, 0.0, 0.0]),
+        },
+        "Gateway" => GeneratorKind::Gateway {
+            size: Fp3([2.5, 3.0, 2.5]),
         },
         "Terrain" => GeneratorKind::Terrain(Default::default()),
         "Water" => GeneratorKind::Water {

@@ -465,6 +465,7 @@ mod tests {
             placements: Vec::new(),
             traits: HashMap::new(),
             contact_effects: Default::default(),
+            default_landing: None,
         }
     }
 

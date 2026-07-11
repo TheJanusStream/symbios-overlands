@@ -194,6 +194,9 @@ pub fn spawn_generator(
             target_did,
             target_pos,
         } => Some(spawn_portal_entity(ctx, target_did, target_pos, transform)),
+        GeneratorKind::Gateway { size } => Some(
+            crate::world_builder::gateway::spawn_gateway_entity(ctx, size, transform),
+        ),
         GeneratorKind::Cuboid { .. }
         | GeneratorKind::Sphere { .. }
         | GeneratorKind::Cylinder { .. }

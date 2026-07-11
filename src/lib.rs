@@ -343,6 +343,19 @@ pub fn run() {
                 .run_if(in_state(AppState::InGame))
                 .run_if(resource_exists::<ui::unsaved_guard::UnsavedGuard>),
         )
+        // Gateway destination picker (#748): the zone watcher opens/closes
+        // the picker from the player's sensor overlap, the window renders
+        // only while the picker resource is present.
+        .add_systems(
+            Update,
+            ui::gateway::watch_gateway_zone.run_if(in_state(AppState::InGame)),
+        )
+        .add_systems(
+            EguiPrimaryContextPass,
+            ui::gateway::gateway_picker_ui
+                .run_if(in_state(AppState::InGame))
+                .run_if(resource_exists::<ui::gateway::GatewayPicker>),
+        )
         .add_systems(
             Update,
             (

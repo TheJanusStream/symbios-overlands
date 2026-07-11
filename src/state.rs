@@ -102,7 +102,11 @@ pub struct CurrentRoomDid(pub String);
 #[derive(Resource, Clone)]
 pub struct TravelingTo {
     pub target_did: String,
-    pub target_pos: Vec3,
+    /// Arrival position. `Some` for a classic portal with a baked target;
+    /// `None` (#745, gateway travel) defers to the destination record's
+    /// `default_landing` — resolved when the fetched record lands, falling
+    /// back to the legacy origin scatter when the destination has none.
+    pub target_pos: Option<Vec3>,
 }
 
 /// Spawn-pose handoff from the login pipeline (fresh login or resume) into

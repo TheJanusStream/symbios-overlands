@@ -731,6 +731,12 @@ impl Default for ParticleParams {
     }
 }
 
+/// Serde default for [`GeneratorKind::Gateway`]'s interaction zone —
+/// arch-sized: roomy enough to walk into without hugging a pillar.
+fn default_gateway_size() -> Fp3 {
+    Fp3([2.5, 3.0, 2.5])
+}
+
 /// Variant-specific payload for a [`Generator`]. Open union: unrecognised
 /// `$type` tags deserialise to `Unknown` instead of failing the whole record.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -765,6 +771,20 @@ pub enum GeneratorKind {
 
     #[serde(rename = "network.symbios.gen.portal")]
     Portal { target_did: String, target_pos: Fp3 },
+
+    /// Social gateway (#747): a walk-in zone that opens the destination
+    /// picker listing the room owner's mutual follows. Unlike
+    /// [`GeneratorKind::Portal`] it carries no destination — the list is
+    /// resolved at interaction time from the live social graph, never
+    /// baked into the record. Clients predating this variant decode it as
+    /// [`GeneratorKind::Unknown`] (open union) and simply render no gate.
+    #[serde(rename = "network.symbios.gen.gateway")]
+    Gateway {
+        /// Interaction-zone extents in metres — the sensor volume the
+        /// themed structure is built around.
+        #[serde(default = "default_gateway_size")]
+        size: Fp3,
+    },
 
     #[serde(rename = "network.symbios.gen.lsystem")]
     LSystem {
@@ -1409,6 +1429,7 @@ impl GeneratorKind {
             GeneratorKind::Water { .. } => "Water",
             GeneratorKind::RoadNetwork(_) => "RoadNetwork",
             GeneratorKind::Portal { .. } => "Portal",
+            GeneratorKind::Gateway { .. } => "Gateway",
             GeneratorKind::LSystem { .. } => "LSystem",
             GeneratorKind::Shape { .. } => "Shape",
             GeneratorKind::Cuboid { .. } => "Cuboid",

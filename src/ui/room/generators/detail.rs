@@ -241,6 +241,24 @@ fn draw_portal_editor(
     });
 }
 
+/// Inline editor for a [`GeneratorKind::Gateway`]: only the interaction
+/// zone's extents — the destination list is social-graph data resolved at
+/// interaction time, so there is nothing else to author.
+fn draw_gateway_editor(ui: &mut egui::Ui, size: &mut crate::pds::Fp3, dirty: &mut bool) {
+    ui.label("Zone size (m) — the walk-in volume that opens the destination picker");
+    ui.horizontal(|ui| {
+        for (label, axis) in ["X", "Y", "Z"].iter().zip(size.0.iter_mut()) {
+            ui.label(*label);
+            if ui
+                .add(egui::DragValue::new(axis).speed(0.1).range(0.25..=50.0))
+                .changed()
+            {
+                *dirty = true;
+            }
+        }
+    });
+}
+
 /// Per-kind variant detail editor — a thin dispatch: every arm is a
 /// single delegation into a per-kind editor fn (the Terrain / LSystem /
 /// Shape forges, the shared primitive editors, or the inline-widget
@@ -315,6 +333,7 @@ fn draw_generator_detail(
             target_did,
             target_pos,
         } => draw_portal_editor(ui, target_did, target_pos, dirty),
+        GeneratorKind::Gateway { size } => draw_gateway_editor(ui, size, dirty),
         GeneratorKind::Cuboid {
             size,
             solid,

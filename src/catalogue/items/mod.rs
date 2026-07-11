@@ -408,6 +408,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &patterns::lsys_sierpinski::SierpinskiGasket,
     // Tools — utility items personalised at build time.
     &tools::my_teleporter::MyTeleporter,
+    // Gateways — the theme-agnostic placeholder every seeded room falls
+    // back to until per-theme bespoke gateways land (#749-#772).
+    &tools::social_gateway::SocialGateway,
 ];
 
 /// Resolve a slug to its entry. Returns `None` if the slug doesn't

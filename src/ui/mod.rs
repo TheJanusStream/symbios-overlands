@@ -38,6 +38,7 @@ pub mod catalogue;
 pub mod chat;
 pub mod diagnostics;
 pub mod editable;
+pub mod gateway;
 pub mod inventory;
 pub mod loading;
 pub mod login;

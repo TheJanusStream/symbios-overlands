@@ -7,8 +7,8 @@
 //! `pds::limits` envelope afterwards.
 
 use symbios_overlands::pds::{
-    Fp, Fp2, Fp3, Generator, GeneratorKind, InventoryRecord, RoomRecord, TortureParams, limits,
-    sanitize_generator,
+    DefaultLanding, Fp, Fp2, Fp3, Generator, GeneratorKind, InventoryRecord, RoomRecord,
+    TortureParams, limits, sanitize_generator,
 };
 
 const TEST_DID: &str = "did:plc:sanitise";
@@ -759,6 +759,43 @@ fn generator_map_over_cap_is_trimmed() {
     }
     r.sanitize();
     assert!(r.generators.len() <= limits::MAX_GENERATORS);
+}
+
+// ---------------------------------------------------------------------------
+// Default-landing pose (#745)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn default_landing_clamped_and_definanned() {
+    let mut r = RoomRecord::default_for_did(TEST_DID);
+    r.default_landing = Some(DefaultLanding {
+        pos: Fp2([f32::NAN, 1.0e9]),
+        y: Some(Fp(f32::NEG_INFINITY)),
+        yaw_deg: Fp(-90.0),
+    });
+    r.sanitize();
+    let landing = r.default_landing.expect("landing survives sanitise");
+    assert_eq!(landing.pos.0[0], 0.0, "NaN position zeroed");
+    assert_eq!(landing.pos.0[1], 10_000.0, "oversized position clamped");
+    assert_eq!(
+        landing.y,
+        Some(Fp(0.0)),
+        "non-finite height zeroed (every non-finite input maps to 0)"
+    );
+    assert_eq!(
+        landing.yaw_deg,
+        Fp(270.0),
+        "yaw normalised into [0, 360) via rem_euclid"
+    );
+
+    // Non-finite yaw zeroes rather than propagating.
+    r.default_landing = Some(DefaultLanding {
+        pos: Fp2([0.0, 0.0]),
+        y: None,
+        yaw_deg: Fp(f32::INFINITY),
+    });
+    r.sanitize();
+    assert_eq!(r.default_landing.unwrap().yaw_deg, Fp(0.0));
 }
 
 // ---------------------------------------------------------------------------

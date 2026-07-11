@@ -116,7 +116,7 @@ pub(super) fn handle_portal_interaction(
             av.0 = Vec3::ZERO;
             commands.insert_resource(UnsavedGuard::new(GuardedAction::PortalTravel {
                 target_did: portal.target_did.clone(),
-                target_pos: portal.target_pos,
+                target_pos: Some(portal.target_pos),
             }));
         }
         break;
@@ -127,7 +127,13 @@ pub(super) fn handle_portal_interaction(
 /// further portal interaction until the swap completes or fails) and
 /// dispatch the async destination room-record fetch. Called by the
 /// unsaved-edits guard once any dirty-record question is settled.
-pub(crate) fn begin_portal_travel(commands: &mut Commands, target_did: String, target_pos: Vec3) {
+/// `target_pos: None` (#745) arrives at the destination record's
+/// `default_landing` — see [`TravelingTo`].
+pub(crate) fn begin_portal_travel(
+    commands: &mut Commands,
+    target_did: String,
+    target_pos: Option<Vec3>,
+) {
     commands.insert_resource(TravelingTo {
         target_did: target_did.clone(),
         target_pos,
@@ -247,6 +253,10 @@ pub(super) fn poll_portal_travel_tasks(
             }
         };
         new_record.sanitize();
+        // Captured before the record moves into the resources below: a
+        // travel with no baked target (gateway, #745) arrives at the
+        // destination owner's configured landing pose.
+        let destination_landing = new_record.default_landing;
 
         // 2. Hot-swap the ECS Resources (Triggers `world_builder` automatically!)
         if let Some(rec) = room_record.as_mut() {
@@ -287,9 +297,39 @@ pub(super) fn poll_portal_travel_tasks(
             commands.entity(peer_entity).try_despawn();
         }
 
-        // 4. Teleport player and clear momentum
+        // 4. Teleport player and clear momentum. A baked portal target is
+        // used verbatim (classic portals, translation only — facing is
+        // left alone, as ever). Without one, the destination's
+        // `default_landing` supplies position *and* facing; without that,
+        // the legacy origin scatter. Landing heights are provisional when
+        // the pose is drop-pin (`y: None`) — the destination heightmap
+        // doesn't exist yet at this point (the record swap above only
+        // *queued* the terrain rebuild), so we park at y = 0 and let
+        // `lift_player_above_new_ground` snap the chassis onto the new
+        // ground the frame the heightmap lands, exactly as it already does
+        // for re-seeds and stale baked targets.
         if let Ok((mut tf, mut lv, mut av)) = players.single_mut() {
-            tf.translation = travel_data.target_pos;
+            let (arrival, yaw_deg) = match travel_data.target_pos {
+                Some(pos) => (pos, None),
+                None => match destination_landing {
+                    Some(landing) => (
+                        Vec3::new(
+                            landing.pos.0[0],
+                            landing.y.map(|y| y.0).unwrap_or(0.0),
+                            landing.pos.0[1],
+                        ),
+                        Some(landing.yaw_deg.0),
+                    ),
+                    None => {
+                        let (x, z) = super::random_spawn_xz();
+                        (Vec3::new(x, 0.0, z), None)
+                    }
+                },
+            };
+            tf.translation = arrival;
+            if let Some(deg) = yaw_deg {
+                tf.rotation = Quat::from_rotation_y(deg.to_radians());
+            }
             lv.0 = Vec3::ZERO;
             av.0 = Vec3::ZERO;
         }

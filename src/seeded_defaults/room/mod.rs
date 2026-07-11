@@ -11,6 +11,7 @@
 pub mod accent;
 pub mod atmosphere;
 pub mod audio;
+pub mod gateway;
 pub mod palette;
 pub mod particles;
 pub mod rocks;
@@ -22,6 +23,7 @@ pub mod textures;
 pub use accent::{ThemeAccent, theme_luminosity};
 pub use atmosphere::{Atmosphere, WaterDynamics};
 pub use audio::AmbientRecipe;
+pub use gateway::GatewaySpot;
 pub use palette::RoomPalette;
 pub use particles::{AmbientParticles, ParticleMood};
 pub use rocks::{RockScatter, RockScatters};

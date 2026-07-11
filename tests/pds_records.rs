@@ -5,7 +5,8 @@
 //! a string, and the default recipe deserialises back into itself.
 
 use symbios_overlands::pds::{
-    BiomeFilter, Fp, Fp2, Fp3, GeneratorKind, Placement, RoomRecord, ScatterBounds, WaterRelation,
+    BiomeFilter, DefaultLanding, Fp, Fp2, Fp3, GeneratorKind, Placement, RoomRecord, ScatterBounds,
+    WaterRelation,
 };
 
 const TEST_DID: &str = "did:plc:z5yhcebtrvzblrojezn6pjgi";
@@ -99,6 +100,88 @@ fn default_record_round_trips_through_json() {
     assert_eq!(
         original_v, back_v,
         "default record must round-trip without drift"
+    );
+}
+
+/// The #745 default-landing pose: `None` is elided from the wire (so
+/// pre-#745 records and readers are byte-identical), a configured pose
+/// round-trips through the fixed-point encoding in both the drop-pin
+/// (`y: None`) and explicit-height forms, and — because it rides the same
+/// no-floats contract as every other field — the serialized form must not
+/// introduce a JSON float.
+#[test]
+fn default_landing_elides_none_and_round_trips() {
+    let mut record = RoomRecord::default_for_did(TEST_DID);
+    // Owners can clear the pose; a cleared pose must vanish from the wire
+    // so pre-#745 readers see a byte-identical record.
+    record.default_landing = None;
+    let json = serde_json::to_string(&record).expect("serialise");
+    assert!(
+        !json.contains("default_landing"),
+        "None landing must be elided from the wire"
+    );
+
+    for landing in [
+        DefaultLanding {
+            pos: Fp2([12.5, -30.0]),
+            y: None,
+            yaw_deg: Fp(135.0),
+        },
+        DefaultLanding {
+            pos: Fp2([-4.25, 8.75]),
+            y: Some(Fp(42.5)),
+            yaw_deg: Fp(0.0),
+        },
+    ] {
+        record.default_landing = Some(landing);
+        let json = serde_json::to_string(&record).expect("serialise");
+        let back: RoomRecord = serde_json::from_str(&json).expect("deserialise");
+        assert_eq!(
+            back.default_landing,
+            Some(landing),
+            "landing must round-trip exactly (values chosen on the 1/10_000 grid)"
+        );
+        assert_no_floats(&record);
+    }
+
+    // Legacy record without the key decodes to None.
+    let mut value: serde_json::Value = serde_json::to_value(&record).unwrap();
+    value.as_object_mut().unwrap().remove("default_landing");
+    let back: RoomRecord = serde_json::from_value(value).expect("legacy record must decode");
+    assert!(back.default_landing.is_none());
+}
+
+/// Every seeded room carries a social gateway (#747) — a placed
+/// `social_gateway` generator whose tree contains exactly one Gateway
+/// zone — and a drop-pin default landing aimed at its forecourt.
+#[test]
+fn default_record_carries_social_gateway_and_landing() {
+    let r = RoomRecord::default_for_did(TEST_DID);
+    let gate = r
+        .generators
+        .get("social_gateway")
+        .expect("seeded rooms place a social gateway");
+    fn count_zones(node: &symbios_overlands::pds::Generator) -> usize {
+        let own = matches!(node.kind, GeneratorKind::Gateway { .. }) as usize;
+        own + node.children.iter().map(count_zones).sum::<usize>()
+    }
+    assert_eq!(count_zones(gate), 1, "exactly one walk-in zone");
+    assert!(
+        r.placements.iter().any(|p| matches!(
+            p,
+            Placement::Absolute { generator_ref, .. } if generator_ref == "social_gateway"
+        )),
+        "gateway generator must be placed"
+    );
+    let landing = r.default_landing.expect("seeded landing configured");
+    assert!(
+        landing.y.is_none(),
+        "seeded landing is drop-pin (height from heightmap)"
+    );
+    let dist = (landing.pos.0[0].powi(2) + landing.pos.0[1].powi(2)).sqrt();
+    assert!(
+        dist > 5.0 && dist < 20.0,
+        "landing outside spawn scatter but near spawn, got {dist}m"
     );
 }
 

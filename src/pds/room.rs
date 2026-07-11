@@ -297,6 +297,28 @@ impl Environment {
     }
 }
 
+/// Owner-configurable visitor arrival pose (#745). Applied to anyone who
+/// enters the room *without* an explicit target pose: a plain login/home
+/// spawn, gateway travel, and the fall-through respawn. An explicit pose —
+/// a landmark link's `pos=`/`rot=` or a portal's baked `target_pos` —
+/// always wins over this default.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
+pub struct DefaultLanding {
+    /// Ground-plane landing position `(x, z)`, world-centred like every
+    /// placement translation.
+    pub pos: Fp2,
+    /// Explicit landing height. `None` (the wire default) resolves the
+    /// height from the terrain heightmap at `(x, z)` — the drop-pin form
+    /// landmark links use — so the common case survives terrain edits
+    /// without the owner re-aiming the pose.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<Fp>,
+    /// Facing, in degrees (0 faces −Z, 90 faces +X — the landmark-link
+    /// `rot=` convention). Seeded rooms aim this at the gateway landmark.
+    #[serde(default)]
+    pub yaw_deg: Fp,
+}
+
 /// The full recipe: environment + generators + placements + traits. Acts as
 /// a Bevy `Resource` so the [`crate::world_builder`] module can compile it
 /// into ECS entities.
@@ -320,6 +342,12 @@ pub struct RoomRecord {
     /// set is omitted rather than re-stating the canonical recipes.
     #[serde(default, skip_serializing_if = "ContactEffects::is_default")]
     pub contact_effects: ContactEffects,
+    /// Where visitors without an explicit target pose come to rest (#745).
+    /// Same field-vs-container split as `contact_effects`: `None` (elided
+    /// on the wire) keeps the legacy behaviour — a random scatter around
+    /// the world origin — so pre-#745 records round-trip unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_landing: Option<DefaultLanding>,
 }
 
 impl RoomRecord {
@@ -648,6 +676,53 @@ impl RoomRecord {
             }
         }
 
+        // Social gateway (#747): every seeded room — road-growing themes
+        // included, unlike the settlement — gets one gate a short walk
+        // from spawn, facing it. A bespoke per-theme gateway entry wins
+        // when the theme has one; the neutral `social_gateway` placeholder
+        // covers the rest until the themed passes land (#749-#772). The
+        // record's default landing is aimed at the gate's forecourt so
+        // visitors arriving without an explicit target step out facing
+        // the gate they conceptually came through. (Caveat: the placement
+        // is water-avoiding, so on a soaked bearing the compiled gate can
+        // walk off the recorded landing — the landing still resolves its
+        // height from the heightmap and stays functional.)
+        let mut default_landing = None;
+        let gateway_entry =
+            crate::catalogue::entries_for(scene.theme, crate::catalogue::StructureRole::Gateway)
+                .next()
+                .or_else(|| crate::catalogue::by_slug("social_gateway"));
+        if let Some(entry) = gateway_entry {
+            let spot = crate::seeded_defaults::GatewaySpot::from_seed(did_seed);
+            let mut gate = entry.build(did);
+            // Socio finish for material coherence — but no ruin pass: a
+            // collapsed gate that still teleports reads as a bug, not
+            // flavour.
+            crate::pds::material_finish::apply_socio_finish(
+                &mut gate,
+                scene.prosperity,
+                scene.escalation,
+            );
+            generators.insert("social_gateway".to_string(), gate);
+            let half_yaw = spot.yaw_rad * 0.5;
+            placements.push(Placement::Absolute {
+                generator_ref: "social_gateway".to_string(),
+                transform: TransformData {
+                    translation: Fp3([spot.offset[0], -0.35, spot.offset[1]]),
+                    rotation: Fp4([0.0, half_yaw.sin(), 0.0, half_yaw.cos()]),
+                    scale: Fp3([1.0, 1.0, 1.0]),
+                },
+                snap_to_terrain: true,
+                avoid_water: true,
+                avoid_water_clearance: Fp(entry.footprint().clearance),
+            });
+            default_landing = Some(DefaultLanding {
+                pos: Fp2(spot.landing),
+                y: None,
+                yaw_deg: Fp(spot.landing_yaw_deg),
+            });
+        }
+
         let mut traits = HashMap::new();
         traits.insert(
             "base_terrain".to_string(),
@@ -701,6 +776,7 @@ impl RoomRecord {
             placements,
             traits,
             contact_effects: ContactEffects::default(),
+            default_landing,
         }
     }
 
@@ -717,6 +793,24 @@ impl RoomRecord {
         // Authored contact-effect recipes: clamp every numeric, bound
         // the recipe list deterministically (#246).
         self.contact_effects.sanitize();
+        // Default-landing pose (#745): same positional bounds as a portal
+        // `target_pos`. The finite guard matters even though the fixed-point
+        // wire form can only decode to finite values — in-process mutation
+        // (a future editor widget) feeds this too, and `f32::clamp`
+        // propagates NaN.
+        if let Some(landing) = &mut self.default_landing {
+            let cf = |v: f32, lo: f32, hi: f32| if v.is_finite() { v.clamp(lo, hi) } else { 0.0 };
+            landing.pos.0[0] = cf(landing.pos.0[0], -10_000.0, 10_000.0);
+            landing.pos.0[1] = cf(landing.pos.0[1], -10_000.0, 10_000.0);
+            if let Some(y) = &mut landing.y {
+                y.0 = cf(y.0, -1_000.0, 10_000.0);
+            }
+            landing.yaw_deg.0 = if landing.yaw_deg.0.is_finite() {
+                landing.yaw_deg.0.rem_euclid(360.0)
+            } else {
+                0.0
+            };
+        }
         // Bound the total number of generators before touching any of them.
         // Drop entries in lexicographic key order so the survivor set is
         // deterministic across peers — otherwise a record with 1000
@@ -1345,6 +1439,7 @@ struct RoomSelfWire {
     placements: Vec<Placement>,
     traits: HashMap<String, Vec<String>>,
     contact_effects: ContactEffects,
+    default_landing: Option<DefaultLanding>,
 }
 
 /// The manifest written to `room/self` since #697: the full record minus
@@ -1360,6 +1455,8 @@ struct RoomManifestOut {
     traits: HashMap<String, Vec<String>>,
     #[serde(skip_serializing_if = "ContactEffects::is_default")]
     contact_effects: ContactEffects,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    default_landing: Option<DefaultLanding>,
 }
 
 impl RoomManifestOut {
@@ -1375,6 +1472,7 @@ impl RoomManifestOut {
             placements: record.placements.clone(),
             traits: record.traits.clone(),
             contact_effects: record.contact_effects.clone(),
+            default_landing: record.default_landing,
         }
     }
 }
@@ -1393,6 +1491,7 @@ fn assemble_room(wire: RoomSelfWire, children: &HashMap<String, Generator>) -> R
         placements,
         traits,
         contact_effects,
+        default_landing,
     } = wire;
     for (name, rkey) in generator_refs {
         match children.get(&rkey) {
@@ -1411,6 +1510,7 @@ fn assemble_room(wire: RoomSelfWire, children: &HashMap<String, Generator>) -> R
         placements,
         traits,
         contact_effects,
+        default_landing,
     }
 }
 

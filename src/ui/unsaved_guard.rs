@@ -58,10 +58,11 @@ const DECLINE_COOLDOWN_SECS: f64 = 3.0;
 #[derive(Clone, Debug)]
 pub enum GuardedAction {
     /// Begin the async room-record fetch that carries the player to
-    /// another overland (see `player::begin_portal_travel`).
+    /// another overland (see `player::begin_portal_travel`). `target_pos:
+    /// None` arrives at the destination record's `default_landing` (#745).
     PortalTravel {
         target_did: String,
-        target_pos: Vec3,
+        target_pos: Option<Vec3>,
     },
     /// Transition back to `AppState::Login`; `logout::cleanup_on_logout`
     /// does the actual teardown on the state edge.
@@ -436,7 +437,7 @@ mod tests {
     fn travel() -> GuardedAction {
         GuardedAction::PortalTravel {
             target_did: "did:plc:example".into(),
-            target_pos: Vec3::ZERO,
+            target_pos: Some(Vec3::ZERO),
         }
     }
 

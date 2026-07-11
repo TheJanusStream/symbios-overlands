@@ -65,6 +65,7 @@ pub mod audio_resolver;
 pub mod avatar_spawn;
 pub(crate) mod blob_fetch;
 pub(crate) mod compile;
+mod gateway;
 mod generator_cache;
 pub mod image_cache;
 mod lsystem;
@@ -161,6 +162,13 @@ pub struct PortalMarker {
     pub target_did: String,
     pub target_pos: Vec3,
 }
+
+/// Marks a gateway interaction zone (#747). Carries no destination — the
+/// player-side interaction system opens the destination picker, which
+/// lists the *current room owner's* mutual follows at interaction time
+/// (see [`crate::social::MutualsCache`]).
+#[derive(Component, Clone, Copy)]
+pub struct GatewayMarker;
 
 /// Marker attached to every entity spawned from the active `RoomRecord`.
 /// Despawning all of these is how the compiler applies a record update

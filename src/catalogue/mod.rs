@@ -78,6 +78,12 @@ pub enum StructureRole {
     Pattern,
     /// Utility item personalised at build time (portals, etc.).
     Tool,
+    /// Social gateway (#747) — the themed gate every seeded room places
+    /// near spawn. Selected by the seeded wiring via `entries_for(theme,
+    /// Gateway)` with the theme-agnostic `social_gateway` placeholder as
+    /// fallback; never part of the settlement Landmark/Secondary/Prop
+    /// pools.
+    Gateway,
 }
 
 impl StructureRole {
@@ -90,6 +96,7 @@ impl StructureRole {
             Self::Plant => "Plant",
             Self::Pattern => "Pattern",
             Self::Tool => "Tool",
+            Self::Gateway => "Gateway",
         }
     }
 
@@ -97,7 +104,9 @@ impl StructureRole {
     /// a derived view of [`StructureRole`] so there's one taxonomy.
     pub fn category(self) -> CatalogueCategory {
         match self {
-            Self::Landmark | Self::Secondary | Self::Prop => CatalogueCategory::Buildings,
+            Self::Landmark | Self::Secondary | Self::Prop | Self::Gateway => {
+                CatalogueCategory::Buildings
+            }
             Self::Plant => CatalogueCategory::Plants,
             Self::Pattern => CatalogueCategory::Patterns,
             Self::Tool => CatalogueCategory::Tools,
@@ -244,6 +253,7 @@ mod tests {
         assert_eq!(Plant.category(), Plants);
         assert_eq!(Pattern.category(), Patterns);
         assert_eq!(Tool.category(), Tools);
+        assert_eq!(Gateway.category(), Buildings);
     }
 
     #[test]

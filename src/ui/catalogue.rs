@@ -204,10 +204,11 @@ fn hierarchy(entries: &[&'static dyn CatalogueEntry]) -> Vec<CatNode> {
 /// the Buildings category, plus a leading "Cross-theme" group for the
 /// all-theme civic props.
 fn building_theme_dirs(in_cat: &[&'static dyn CatalogueEntry], cat_id: &str) -> Vec<CatNode> {
-    const ROLES: [StructureRole; 3] = [
+    const ROLES: [StructureRole; 4] = [
         StructureRole::Landmark,
         StructureRole::Secondary,
         StructureRole::Prop,
+        StructureRole::Gateway,
     ];
     let role_dirs = |scope: &[&'static dyn CatalogueEntry], parent: &str| -> Vec<CatNode> {
         ROLES
@@ -226,11 +227,13 @@ fn building_theme_dirs(in_cat: &[&'static dyn CatalogueEntry], cat_id: &str) -> 
     };
 
     let mut dirs = Vec::new();
-    // Cross-theme props first.
+    // Cross-theme props first. Themeless Buildings entries (the
+    // social-gateway placeholder) belong here too — serving every theme
+    // as a fallback is exactly what cross-theme means.
     let cross: Vec<&'static dyn CatalogueEntry> = in_cat
         .iter()
         .copied()
-        .filter(|e| is_cross_theme(*e))
+        .filter(|e| is_cross_theme(*e) || e.themes().is_empty())
         .collect();
     if !cross.is_empty() {
         let id = format!("{cat_id}/Cross-theme");
@@ -294,10 +297,11 @@ fn by_theme(entries: &[&'static dyn CatalogueEntry]) -> Vec<CatNode> {
 }
 
 fn by_role(entries: &[&'static dyn CatalogueEntry]) -> Vec<CatNode> {
-    const ROLES: [StructureRole; 6] = [
+    const ROLES: [StructureRole; 7] = [
         StructureRole::Landmark,
         StructureRole::Secondary,
         StructureRole::Prop,
+        StructureRole::Gateway,
         StructureRole::Plant,
         StructureRole::Pattern,
         StructureRole::Tool,
