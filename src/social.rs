@@ -437,7 +437,7 @@ fn intersect_mutuals(follows: Vec<ProfileView>, followers: &[ProfileView]) -> Ve
             display_name: p.display_name.filter(|n| !n.trim().is_empty()),
         })
         .collect();
-    mutuals.sort_by(|a, b| a.handle.to_lowercase().cmp(&b.handle.to_lowercase()));
+    mutuals.sort_by_key(|a| a.handle.to_lowercase());
     mutuals
 }
 
