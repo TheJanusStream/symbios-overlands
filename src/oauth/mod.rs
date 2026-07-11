@@ -31,8 +31,13 @@
 //! * [`refresh`] — DPoP-nonce retry (`oauth_*_with_nonce_retry`),
 //!   refresh-on-expiry retry (`oauth_*_with_refresh`), and the shared
 //!   `refresh_session` helper.
+//! * [`service_token`] — periodic re-mint of the short-lived relay
+//!   service-auth token (#714) so every WebRTC (re)connect presents a
+//!   valid token instead of the login-time one.
 //! * [`auth_flow`] — `begin_authorization` and `complete_authorization`
 //!   plus the `CompletedAuth` bundle.
+//! * [`util`] — shared callback plumbing (the percent-decoder both the
+//!   wasm query parser and the native listener use).
 //! * `wasm` — browser-side `sessionStorage` / `localStorage` plumbing
 //!   (compiled only on `wasm32`).
 //! * [`native_server`] — the `tiny_http` loopback callback listener

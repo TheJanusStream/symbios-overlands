@@ -23,6 +23,9 @@
 //! * [`room`]         — owner-only tabbed World Editor (Environment /
 //!   Region Assets / Placements / Effects / Raw JSON), gated on
 //!   `session.did == room.did`.
+//! * [`editable`]     — shared Save / Load / Reset commit row, publish
+//!   status line, and seed-row widgets used by the Room / Avatar /
+//!   Inventory editors.
 //! * [`unsaved_guard`] — confirm dialog that gates portal travel and
 //!   logout while any editable record has unpublished edits.
 //! * [`loading`]      — per-task progress panel for the

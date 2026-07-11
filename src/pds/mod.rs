@@ -1,4 +1,4 @@
-//! ATProto PDS integration: DID resolution, XRPC plumbing, and the three
+//! ATProto PDS integration: DID resolution, XRPC plumbing, and the
 //! sovereign record lexicons the engine publishes to a player's own PDS.
 //!
 //! | Record             | Collection NSID                          | rkey   |
@@ -25,9 +25,9 @@
 //! * `generators`  — name → [`Generator`] map. Each entry is a hierarchical
 //!   node carrying a [`GeneratorKind`] (Terrain / Water / RoadNetwork /
 //!   Portal / LSystem / Shape / `Sign` / `ParticleSystem` / one of the
-//!   fifteen parametric primitives — Cuboid / Sphere / Cylinder / Capsule /
+//!   sixteen parametric primitives — Cuboid / Sphere / Cylinder / Capsule /
 //!   Cone / Torus / Plane / Tetrahedron / Tube / Bevel / Wedge / Helix /
-//!   Superellipsoid / Spine / Lathe), a
+//!   Superellipsoid / Spine / Lathe / BlobGroup), a
 //!   local [`TransformData`], and a `Vec<Generator>` of
 //!   children — so a single named entry can describe an entire fractal
 //!   blueprint.

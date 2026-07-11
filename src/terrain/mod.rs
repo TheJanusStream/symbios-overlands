@@ -14,8 +14,8 @@
 //! flipped from placeholder flat-colour mode to triplanar PBR splat blending.
 //!
 //! Water is spawned by the [`crate::world_builder`] module from the `Water`
-//! generator in the active `RoomRecord` — this plugin only produces the
-//! terrain mesh and heightfield collider.
+//! generator in the active `RoomRecord` — this plugin produces the terrain
+//! mesh and heightfield collider, plus the road layer draped over them.
 //!
 //! ## Sub-module map
 //!
@@ -32,6 +32,11 @@
 //! * [`referenced`] — the `SovereignTextureConfig::Referenced` splat-layer
 //!   path: URL / ATProto-blob fetch, decode + resize, and the per-layer
 //!   override of the procedural placeholder.
+//! * [`roads`] — reactive road-network rebuild: re-meshes the
+//!   [`crate::urban`] ribbon from the existing heightmap whenever the
+//!   record's `RoadNetwork` config changes, as a terrain child.
+//! * [`lots`] — populates themed catalogue buildings onto the road
+//!   network's enclosed lots at load time.
 //! * [`lifecycle`] — logout cleanup and the in-place regenerate trigger
 //!   that watches the live record's terrain config fingerprint.
 //!

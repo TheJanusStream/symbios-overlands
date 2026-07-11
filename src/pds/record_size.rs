@@ -1,6 +1,7 @@
 //! Record-size budget (Stage 0 of the single-record-boundary plan): measure
-//! every record's serialized `putRecord` payload, warn past a soft budget,
-//! and refuse to publish past a hard ceiling.
+//! every record's serialized wire payload (for split-format rooms, the
+//! largest single record the publish writes), warn past a soft budget, and
+//! refuse to publish past a hard ceiling.
 //!
 //! ATProto records are single DAG-CBOR blocks in the owner's repo; the
 //! relay/sync layer rejects blocks around 1 MiB, and PDS implementations
@@ -9,10 +10,10 @@
 //! record should stay under so we never get near either limit; the hard
 //! ceiling refuses a publish outright *before any network I/O*. The
 //! pre-flight refusal matters beyond UX: the 5xx recovery path in
-//! [`super::publish_room_record`] / [`super::publish_avatar_record`] deletes
-//! the stored record and re-puts it — an oversized record that failed the
-//! re-put would leave the owner with *no* record at all. Refusing up front
-//! makes that data-loss sequence unreachable.
+//! [`super::publish_avatar_record`] deletes the stored record and re-puts
+//! it — an oversized record that failed the re-put would leave the owner
+//! with *no* record at all. Refusing up front makes that data-loss sequence
+//! unreachable.
 //!
 //! Sizes are measured over the serialized `record` field alone; the
 //! surrounding `{repo, collection, rkey}` envelope adds ~100 bytes, which the

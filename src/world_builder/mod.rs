@@ -29,9 +29,10 @@
 //! * [`lsystem`] — L-system geometry + material caches and the spawn path.
 //! * [`shape`] — CGA shape-grammar geometry + material caches and the
 //!   per-terminal spawn path; the architectural sibling of [`lsystem`].
-//! * [`prim`] — Primitive-generator spawners (Cuboid / Sphere / Cylinder /
-//!   Capsule / Cone / Torus / Plane / Tetrahedron) and the parametric
-//!   mesh/collider builders shared by their spawn arm.
+//! * [`prim`] — Primitive-generator spawners (the sixteen parametric kinds,
+//!   Cuboid through Superellipsoid / Spine / Lathe / BlobGroup — see
+//!   [`prim`]'s own module docs) and the parametric mesh/collider builders
+//!   shared by their spawn arm.
 //! * [`portal`] — portal cube spawning. The top-face profile picture is
 //!   delegated to [`image_cache::BlobImageCache`] via a `SignSource::DidPfp`
 //!   request so portals coalesce with Sign generators against the same

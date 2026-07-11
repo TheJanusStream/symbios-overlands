@@ -9,7 +9,7 @@
 //!
 //! One file per family, mirroring the
 //! [`crate::seeded_defaults::avatar`] deriver layout; shared
-//! primitive/material/banner vocabulary lives in [`common`].
+//! primitive/material vocabulary lives in [`common`].
 
 mod airship;
 mod assemble;

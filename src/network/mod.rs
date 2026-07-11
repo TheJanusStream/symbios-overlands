@@ -40,6 +40,8 @@
 //! * [`inbound`] — [`inbound::handle_incoming_messages`] dispatcher.
 //! * [`broadcast`] — outbound `Transform` / `Identity` /
 //!   `AvatarStateUpdate` / `RoomStateUpdate` writers.
+//! * [`chunk`] — app-layer fragmentation/reassembly that carries reliable
+//!   messages past WebRTC's 64 KiB SCTP message ceiling (#716).
 //! * [`smoother`] — jitter-buffered playout (cubic Hermite spline).
 
 mod broadcast;

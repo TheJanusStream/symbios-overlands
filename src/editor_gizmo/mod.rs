@@ -58,6 +58,8 @@
 //! * [`blob`] — in-scene BlobGroup element editing (#705): wireframe
 //!   surface swap, red/green per-element proxies, per-element gizmo
 //!   targeting and the element writeback.
+//! * [`context_menu`] — the right-click scene menu (#720): select item /
+//!   select placement / create new at the hit point.
 
 mod blob;
 mod commit;

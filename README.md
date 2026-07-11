@@ -10,12 +10,12 @@
 
 Sign in with your ATProto identity, walk into a 3D world that belongs to you.
 Edit the terrain, scatter buildings, dress your avatar, then step through a
-portal into someone else's overland — all without ever hitting a loading
-screen. There are no central game servers hosting the worlds; only a small
+portal into someone else's overland — no loading screen between worlds.
+There are no central game servers hosting the worlds; only a small
 broker for the WebRTC handshake. Once peers connect, every transform, edit and
 chat message flows directly between them.
 
-Built in Rust on the [Bevy](https://bevyengine.org/) engine. The same binary
+Built in Rust on the [Bevy](https://bevyengine.org/) engine. The same codebase
 runs natively or in any modern browser via WASM.
 
 ## Core ideas
@@ -26,8 +26,8 @@ brand-new user already has a unique homeworld before they touch the editor:
 its own landform, biome and settlement theme, its own colour palette, even its
 own soundtrack.
 
-**Worlds are recipes, not assets.** A room is a small record on your own PDS
-carrying a tree of generators — terrain, water, portals, road networks,
+**Worlds are recipes, not assets.** A room is a small set of records on your
+own PDS carrying a tree of generators — terrain, water, portals, road networks,
 parametric primitives, L-system plants, building grammars, image-bearing signs,
 particle emitters. Every widget in the owner-only World Editor mutates the live
 recipe in place: the world recompiles around you, and remote peers mirror each
@@ -88,3 +88,7 @@ landmark-link CLI flags, and the developer tooling.
   tests, and the headless render/analysis tooling.
 - [docs/diagnostics.md](docs/diagnostics.md) — the session log, the in-game
   diagnostics panel, and the offline analyzer.
+
+## License
+
+[Apache-2.0](LICENSE).

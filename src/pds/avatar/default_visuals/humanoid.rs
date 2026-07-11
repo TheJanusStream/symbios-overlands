@@ -15,10 +15,8 @@
 //! own local attachment frame and the assembler offsets it to the joint
 //! anchor.
 //!
-//! The pfp identity panel is *not* a part (it's identity, not cosmetics):
-//! the assembler wears it as a small flush chest badge (front-facing) so a
-//! re-roll never disturbs it. The seeded FX aura + voice are attached
-//! centrally by [`super::build_for_seed`].
+//! The seeded FX aura + voice are attached centrally by
+//! [`super::build_for_seed`].
 
 use crate::pds::avatar::parts::{PartCtx, PartSlot, by_slug, outfit_has_hat};
 use crate::pds::generator::Generator;

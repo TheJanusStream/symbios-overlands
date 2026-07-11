@@ -17,6 +17,8 @@
 //!     → fx         (style-gated particle aura + spatial-audio voice)
 //!     → outfit     (slot → part choice, querying the part catalogue)
 //!     → body/gait  (proportions + locomotion tuning)
+//!     → blueprint  (humanoid canon: joint anchors + capsule dimensions)
+//!     → face       (head shape, feature layout, resting expression)
 //! ```
 //!
 //! The top-level discrete pick is [`ChassisFamily`] (boat / airship /

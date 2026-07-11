@@ -6,9 +6,8 @@
 //! inside it, the masted sail rises from the deck, and the optional bow
 //! ornament / stern stack mount fore and aft. All geometry, colour, and
 //! finish come from the part catalogue ([`crate::pds::avatar::parts`]); the
-//! assembler owns only the layout anchors and the assembler-owned pfp
-//! identity crest. Seeded FX are attached centrally by
-//! [`super::build_for_seed`].
+//! assembler owns only the layout anchors. Seeded FX are attached centrally
+//! by [`super::build_for_seed`].
 
 use std::f32::consts::PI;
 

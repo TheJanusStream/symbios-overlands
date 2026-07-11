@@ -24,8 +24,10 @@
 //!   application, the drag-and-drop reparent state machine, node-walk
 //!   helpers, and their unit tests.
 //! * [`detail`] — right-hand detail panel + per-kind dispatcher.
-//! * [`primitive`] — Cuboid / Sphere / Cylinder / Capsule / Cone / Torus
-//!   / Plane / Tetrahedron detail editors + shared torture+material tail.
+//! * [`primitive`] — detail editors covering all sixteen parametric
+//!   primitives, Cuboid through Tube / Bevel / Helix / Superellipsoid /
+//!   Spine / Lathe / BlobGroup (Wedge reuses the cuboid editor), + shared
+//!   torture+material tail.
 //! * [`sign`] — Sign-generator panel (source picker, UV, alpha mode).
 //! * [`particles`] — ParticleSystem panel (emitter shape, dynamics, atlas).
 //! * [`water`] — Water volume editor.

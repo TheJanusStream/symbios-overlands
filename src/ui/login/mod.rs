@@ -25,6 +25,8 @@
 //!   channel and triggers the code exchange.
 //! * `wasm_resume` (wasm only) — `?code=&state=` URL parser + persisted-
 //!   session resume task + its drainer.
+//! * [`posts`] — the login-screen Bluesky feed: recent `#Overlands` posts
+//!   fetched unauthenticated via `app.bsky.feed.getAuthorFeed`.
 
 mod begin;
 mod complete;

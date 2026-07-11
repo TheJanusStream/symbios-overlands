@@ -184,8 +184,8 @@ impl SessionLog {
     /// ring so the GUI tail view starts blank and no prior-session events leak
     /// into the next user's HUD. `seq` keeps advancing across the boundary.
     /// The native sink (A-3) appends the marker to the durable file *before*
-    /// this clear, and (A-7) rolls to a new per-session file, so on-disk
-    /// history is preserved.
+    /// this clear — the process keeps writing the same per-run file, with
+    /// segments delimited by these markers, so on-disk history is preserved.
     pub fn reset_segment(&mut self, t_mono_secs: f64, reason: impl Into<String>) {
         self.record(
             t_mono_secs,

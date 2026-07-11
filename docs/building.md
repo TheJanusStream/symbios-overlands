@@ -5,7 +5,7 @@ the developer tooling. For what the project *is*, see the [README](../README.md)
 for how it's put together, see [architecture.md](architecture.md).
 
 To meet other players the client connects to a `bevy_symbios_multiuser` relay;
-the login UI defaults to a public instance if one is available.
+the login UI pre-fills a default public instance (editable in the login form).
 
 ## Native
 
@@ -33,6 +33,8 @@ cargo run --release --bin symbios-overlands -- \
 
 ```bash
 rustup target add wasm32-unknown-unknown
+# Keep the CLI version aligned with the `wasm-bindgen` crate in Cargo.lock —
+# a version skew can break the generated JS glue.
 cargo install wasm-bindgen-cli
 
 # `--workspace` builds the app *and* the off-thread generation Web Worker
@@ -41,9 +43,11 @@ cargo build --workspace --release --target wasm32-unknown-unknown
 
 # Two wasm-bindgen passes: the app, then the worker the app spawns as
 # `./gen-worker.js` (both land beside each other in ./dist).
-wasm-bindgen --out-dir ./dist --target web --out-name symbios-overlands \
+wasm-bindgen --out-dir ./dist --target web --no-typescript \
+    --out-name symbios-overlands \
     target/wasm32-unknown-unknown/release/symbios-overlands.wasm
-wasm-bindgen --out-dir ./dist --target web --out-name gen-worker \
+wasm-bindgen --out-dir ./dist --target web --no-typescript \
+    --out-name gen-worker \
     target/wasm32-unknown-unknown/release/gen-worker.wasm
 
 # index.html imports ./symbios-overlands.js relative to itself, so
@@ -54,6 +58,11 @@ cp assets/client-metadata.json dist/   # OAuth client metadata sits at the site 
 ```
 
 Serve `./dist` with any static web server (e.g. `python -m http.server -d dist`).
+
+Note that OAuth sign-in can't complete from a locally served bundle: the OAuth
+client metadata pins the redirect URI to the public deployment
+(`https://thejanusstream.github.io/symbios-overlands`), so the login
+round-trip lands there rather than back on `localhost`.
 
 ## Tests and quality gates
 
@@ -79,9 +88,14 @@ geometry and materials can be validated without in-game screenshots:
 cargo run --bin render -- --catalogue medieval_castle
 cargo run --bin render -- --avatar did:plc:example
 cargo run --bin render -- --prim cuboid
+cargo run --bin render -- --room 3      # whole seeded room, by seed or DID
 ```
 
-The same binary hosts the offline, no-render diagnostics modes:
+Sheets land in `/tmp/avatar-render/<label>.png`; override the directory with
+`--out` and the tile size with `--size`. `--prim` also accepts the cut/deform
+overrides (`--hollow`, `--twist`, `--pathcut`, …) listed by `--help`.
+
+The same binary hosts the offline, no-render text modes:
 
 ```bash
 # Post-mortem of a session log (see docs/diagnostics.md):

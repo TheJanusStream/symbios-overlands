@@ -30,6 +30,8 @@
 //!         · avatar::fx       (style-gated particle aura + audio voice)
 //!         · avatar::outfit   (slot → part choice from the part catalogue)
 //!         · avatar::body     (proportions)
+//!         · avatar::blueprint (humanoid canon: joint anchors + capsule dims)
+//!         · avatar::face     (head shape, features, resting expression)
 //!         · avatar::gait     (cadence/bounce/sway)
 //! ```
 //!

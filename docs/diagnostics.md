@@ -23,8 +23,8 @@ The sink appends one JSON line per event to a directory (default `diagnostics/`,
 | File | Purpose |
 | --- | --- |
 | `diagnostics/session-latest.jsonl` | **Stable path — always the newest run.** Refreshed (copied) on every flush. Point an agent here. |
-| `diagnostics/session-<start>[-<did>].jsonl` | Timestamped per-session file; the DID slug is included once the session authenticates. |
-| `diagnostics/session-panic-<pid>-<millis>.jsonl` | Written by the panic hook if the process crashes: the recent event tail plus a synthetic crash marker (`seq: 18446744073709551615`, i.e. `u64::MAX`), so the tail survives an unflushed `BufWriter`. |
+| `diagnostics/session-<start>.jsonl` | Timestamped per-run file (one per process launch); log-outs append as segments rather than rolling a new file. The run's identity lives *inside* the log — the DID arrives with the `Session`-phase `StartupSnapshot` on login. |
+| `diagnostics/session-panic-<pid>-<millis>.jsonl` | Written by the panic hook if the process crashes: the recent event tail, the most recent 1 Hz metric snapshot (last-known vitals), and a synthetic crash marker (`seq: 18446744073709551615`, i.e. `u64::MAX`), so the tail survives an unflushed `BufWriter`. |
 
 The `diagnostics/` directory is **git-ignored** ([`.gitignore`](../.gitignore))
 and, unlike `target/`, survives `cargo clean` — a post-mortem file is not wiped
@@ -83,13 +83,14 @@ rather than fatal, so a crashed-mid-write tail still analyzes.
   telemetry and are filtered out of the in-game Event Log.
 
 The full set of `kind` values (several dozen — `LoadingGate*`, `RecordFetch*`,
-`ItemOffer*`, `AvatarFetch*`, `Portal*`, `InvariantViolation`, …) is the
+`ItemOffer*`, `AvatarFetch*`, `Portal*`, `OutboundMessageOversize`,
+`RelayAuthRejected`, `InvariantViolation`, …) is the
 `EventPayload` enum in [`src/diagnostics/event.rs`](../src/diagnostics/event.rs);
 that file is the authoritative schema.
 
 ## Reading a log (the analyzer)
 
-The offline analyzer ([Pillar B](../src/diagnostics/analyze.rs)) turns a captured
+The offline analyzer ([Pillar B](../src/diagnostics/analyze/)) turns a captured
 NDJSON log into an agent-facing post-mortem. It is a no-render subcommand of the
 `render` bin, so it needs no GPU and reads the native file or the WASM download
 interchangeably. A torn/truncated log is analyzed best-effort (unparseable lines

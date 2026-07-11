@@ -1,8 +1,8 @@
 //! Shared primitive vocabulary for the avatar assemblers and parts.
 //!
 //! Pure geometry plumbing: axis-rotation quaternion helpers, primitive-kind
-//! constructors (torture triple zeroed), the DID-pfp banner, and the
-//! assembler placement helpers ([`offset`] / [`offset_rot`]). Material
+//! constructors (torture triple zeroed), and the assembler placement
+//! helpers ([`offset`] / [`offset_rot`]). Material
 //! *finish* lives in [`crate::seeded_defaults::MaterialKit`]; both the
 //! assemblers ([`super`]) and the part catalogue
 //! ([`crate::pds::avatar::parts`]) build from this bin so geometry plumbing
@@ -25,23 +25,23 @@ pub(crate) fn quat_x(angle_rad: f32) -> [f32; 4] {
     [half.sin(), 0.0, 0.0, half.cos()]
 }
 
-/// Rotation around Y as a normalised `[x, y, z, w]` quaternion — rolls a Sign
-/// panel about its own normal so its textured image sits upright.
+/// Rotation around Y as a normalised `[x, y, z, w]` quaternion — yaws a part
+/// in plan view, e.g. the root flip that turns a chassis to face −Z.
 pub(crate) fn quat_y(angle_rad: f32) -> [f32; 4] {
     let half = angle_rad * 0.5;
     [0.0, half.sin(), 0.0, half.cos()]
 }
 
-/// Rotation around Z — stands the pfp Sign plane up in YZ and lays wheel
-/// cylinders onto their axle.
+/// Rotation around Z — lays wheel cylinders onto their axle and rolls hair
+/// tufts / stabiliser fins off vertical.
 pub(crate) fn quat_z(angle_rad: f32) -> [f32; 4] {
     let half = angle_rad * 0.5;
     [0.0, 0.0, half.sin(), half.cos()]
 }
 
 /// Hamilton product of two `[x, y, z, w]` quaternions: the rotation that
-/// applies `b` first and then `a`. Used to compose the pfp banner's
-/// stand-up and image-upright rolls into one transform.
+/// applies `b` first and then `a`. Used to compose two axis rotations into
+/// one transform, e.g. laying a wheel ring flat on its axle.
 pub(crate) fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
     let [ax, ay, az, aw] = a;
     let [bx, by, bz, bw] = b;

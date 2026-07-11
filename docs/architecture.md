@@ -5,7 +5,8 @@ Technical overview of Symbios Overlands. For the newcomer pitch see the
 for the session-log/diagnostics suite see [diagnostics.md](diagnostics.md).
 
 The project is **"thin client, heavy world"**: no central game servers host the
-worlds. Every world is a small recipe record on its owner's ATProto PDS; every
+worlds. Every world is a small recipe — a slim manifest record plus
+content-addressed child generator records — on its owner's ATProto PDS; every
 client deterministically expands that recipe into geometry, materials, audio and
 physics locally, and peers exchange only transforms, edits and chat over a
 direct WebRTC mesh.
@@ -109,16 +110,21 @@ The app is a library crate with a thin `main.rs` shim so integration tests in
 Cargo workspace — the [`crates/`](../crates/) members are the Bevy-free
 generation cores shared with the wasm Web Worker.
 
-- [`src/pds/`](../src/pds/) — record schemas (`RoomRecord`, `AvatarRecord`,
-  `InventoryRecord` — lexicons `network.symbios.overlands.*`), the `Generator` /
-  `Placement` / `LocomotionConfig` open unions, fixed-point wrappers,
-  per-variant sanitisers, the DAG-CBOR-safe audio/texture/contact-effect
-  mirrors, and the shared XRPC plumbing.
+- [`src/pds/`](../src/pds/) — the record schemas and their PDS mapping:
+  `RoomRecord` publishes as a slim manifest plus one content-addressed child
+  record per generator (lexicons `network.symbios.overlands.room` /
+  `room.generator`, committed atomically via `applyWrites`), `AvatarRecord` as
+  `…overlands.avatar`, and the inventory as one record per stashed item
+  (`…overlands.inventory.item`); plus the `Generator` / `Placement` /
+  `LocomotionConfig` open unions, fixed-point wrappers, per-variant
+  sanitisers, the DAG-CBOR-safe audio/texture/contact-effect mirrors, and the
+  shared XRPC plumbing.
 - [`src/world_builder/`](../src/world_builder/) — the recipe → ECS compiler.
   The incremental, time-sliced executor ([`compile/`](../src/world_builder/compile/)),
   per-generator spawn arms (terrain, water, portal, sign, particles, L-system,
-  shape grammar, primitives), the cross-compile geometry / material caches, and
-  the source-keyed [image cache](../src/world_builder/image_cache.rs) shared by
+  shape grammar, primitives including SDF blob groups), the cross-compile
+  geometry / material caches, and the source-keyed
+  [image cache](../src/world_builder/image_cache.rs) shared by
   signs / portals / particles.
 - [`src/terrain/`](../src/terrain/), [`src/urban/`](../src/urban/),
   [`src/splat.rs`](../src/splat.rs), [`src/water.rs`](../src/water.rs),
@@ -127,7 +133,8 @@ generation cores shared with the wasm Web Worker.
   cloud-deck shader, and the urban-theme road layer: [`src/urban/`](../src/urban/)
   meshes a `symbios-tensor` road topology into a ribbon draped over the terrain
   (graph sanitation → chain extraction → junction truncation → network
-  levelling → ribbon/hub/fillet extrusion → end caps), wired in as a terrain
+  levelling → ribbon extrusion with dead-end caps → junction hubs with
+  curb-return fillets), wired in as a terrain
   child that rebuilds reactively ([`roads.rs`](../src/terrain/roads.rs)) with
   themed buildings populated onto its enclosed lots at load time
   ([`lots.rs`](../src/terrain/lots.rs)).
@@ -152,7 +159,9 @@ generation cores shared with the wasm Web Worker.
   six tasks).
 - [`src/network/`](../src/network/), [`src/protocol.rs`](../src/protocol.rs) —
   peer wire format, jitter-buffered transform smoothing, identity
-  authentication, live preview broadcast, item-offer arbitration.
+  authentication, live preview broadcast, item-offer arbitration, and
+  app-layer chunking of oversized reliable messages under WebRTC's 64 KiB
+  SCTP message ceiling.
 - [`src/camera.rs`](../src/camera.rs), [`src/avatar.rs`](../src/avatar.rs),
   [`src/social.rs`](../src/social.rs) — the third-person orbit camera + distance
   fog, the peer profile-picture cache that backs the chat / People panel icons,
@@ -167,7 +176,9 @@ generation cores shared with the wasm Web Worker.
   [audio editor](../src/ui/room/audio.rs) hosting the node-graph + sequence
   canvas).
 - [`src/oauth/`](../src/oauth/) — ATProto OAuth 2.0 + DPoP (WASM redirect /
-  native loopback) and token refresh.
+  native loopback) with granular scopes, token refresh, and the
+  periodically-refreshed relay service-auth token that underwrites the
+  relay-signed session map.
 - [`src/seeded_defaults/`](../src/seeded_defaults/) — DID-seeded deterministic
   defaults, derived along two orthogonal axes: a natural *biome* and an
   artificial *theme*, plus continuous prosperity/escalation dials. Room side:
@@ -211,6 +222,7 @@ generation cores shared with the wasm Web Worker.
   worker crate that runs them off the main thread on the web.
 - [`src/render_tool/`](../src/render_tool/) +
   [`src/bin/render.rs`](../src/bin/render.rs) — a native-only headless tool:
-  contact-sheet renders through the real spawn path, plus the offline
-  diagnostics modes (`--analyze-session`, `--diff-sessions`, `--road-dump`,
-  `--family-seeds`, `--dump`). See [building.md](building.md#developer-tooling).
+  contact-sheet renders through the real spawn path, plus the no-render text
+  modes — offline diagnostics (`--analyze-session`, `--diff-sessions`,
+  `--road-dump`) and the survey/dump tools (`--family-seeds`, `--dump`).
+  See [building.md](building.md#developer-tooling).

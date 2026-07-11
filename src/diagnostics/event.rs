@@ -186,7 +186,8 @@ pub enum EventPayload {
         duration_secs: f64,
     },
     /// A PDS record *write* succeeded — e.g. saving the edited room to the
-    /// owner's PDS (`com.atproto.repo.putRecord`). The write counterpart of
+    /// owner's PDS (`putRecord`, or an `applyWrites` batch for the
+    /// split-format room / per-item inventory). The write counterpart of
     /// [`RecordFetchCompleted`](EventPayload::RecordFetchCompleted); makes an
     /// in-game save visible in the analyzer timeline.
     RecordWriteCompleted {
@@ -194,13 +195,15 @@ pub enum EventPayload {
         did: String,
         duration_secs: f64,
     },
-    /// A PDS record write failed (a `putRecord` / delete error).
+    /// A PDS record write failed (a `putRecord` / `applyWrites` / delete
+    /// error).
     RecordWriteFailed {
         record: RecordKind,
         did: String,
         reason: String,
     },
-    /// Serialized `putRecord` payload size measured at a publish attempt —
+    /// Serialized record payload size measured at a publish attempt (for
+    /// split-format rooms, the largest single record the publish writes) —
     /// the single-record-boundary watch (#694). Severity encodes the budget
     /// classification: info under the soft budget, warn past it, error past
     /// the hard ceiling (where the publish was refused pre-flight).

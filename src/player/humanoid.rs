@@ -1,8 +1,8 @@
 //! Humanoid preset — capsule rigid body with `LockedAxes` keeping it
 //! upright, walk/wading/swim controller, jump impulse. Visual mesh comes
-//! from the avatar's `visuals` generator tree (no procedural limb gait
-//! animation in v1 — see the avatar-unification chainlink issue for the
-//! intentional drop).
+//! from the avatar's `visuals` generator tree; cosmetic root-level gait
+//! animation (bounce / sway / head-turn) lives in [`super::gait`], while
+//! per-limb articulation remains intentionally out of scope.
 
 use avian3d::prelude::*;
 use bevy::prelude::*;

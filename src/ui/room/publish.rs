@@ -26,7 +26,7 @@ pub struct PublishRoomTask {
     pub record_bytes: Option<usize>,
 }
 
-/// Async task for the hard-reset publish path (delete-then-put). Separate
+/// Async task for the hard-reset publish path (wipe-then-republish). Separate
 /// from `PublishRoomTask` only for logging clarity — the two share the same
 /// result type and poll system.
 #[derive(Component)]
@@ -79,10 +79,10 @@ pub(crate) fn spawn_room_publish_task(
     });
 }
 
-/// Spawn the hard-reset publish task — delete the stored record first, then
-/// create a fresh one. Used by the recovery banner's "Reset PDS to default"
-/// button, which has to work around PDS implementations that return 500 on
-/// `putRecord` when the prior blob is schema-incompatible.
+/// Spawn the hard-reset publish task — wipe the stored manifest + child
+/// records first, then republish fresh (all via `applyWrites`). Used by the
+/// recovery banner's "Reset PDS to default" button, which must work even
+/// when the stored record is schema-incompatible and cannot be decoded.
 pub(super) fn spawn_reset_task(
     commands: &mut Commands,
     session: &AtprotoSession,
