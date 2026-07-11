@@ -153,7 +153,9 @@ fn default_landing_elides_none_and_round_trips() {
 
 /// Every seeded room carries a social gateway (#747) — a placed
 /// `social_gateway` generator whose tree contains exactly one Gateway
-/// zone — and a drop-pin default landing aimed at its forecourt.
+/// zone — and a drop-pin default landing on the gate's forecourt (#774):
+/// clear of the spawn scatter, in front of the gate (closer to origin),
+/// on the same bearing.
 #[test]
 fn default_record_carries_social_gateway_and_landing() {
     let r = RoomRecord::default_for_did(TEST_DID);
@@ -166,23 +168,76 @@ fn default_record_carries_social_gateway_and_landing() {
         own + node.children.iter().map(count_zones).sum::<usize>()
     }
     assert_eq!(count_zones(gate), 1, "exactly one walk-in zone");
-    assert!(
-        r.placements.iter().any(|p| matches!(
-            p,
-            Placement::Absolute { generator_ref, .. } if generator_ref == "social_gateway"
-        )),
-        "gateway generator must be placed"
-    );
+
+    let gate_xz = r
+        .placements
+        .iter()
+        .find_map(|p| match p {
+            Placement::Absolute {
+                generator_ref,
+                transform,
+                ..
+            } if generator_ref == "social_gateway" => {
+                Some([transform.translation.0[0], transform.translation.0[2]])
+            }
+            _ => None,
+        })
+        .expect("gateway generator must be placed");
+
     let landing = r.default_landing.expect("seeded landing configured");
     assert!(
         landing.y.is_none(),
         "seeded landing is drop-pin (height from heightmap)"
     );
-    let dist = (landing.pos.0[0].powi(2) + landing.pos.0[1].powi(2)).sqrt();
+    let landing_xz = landing.pos.0;
+    let landing_dist = (landing_xz[0].powi(2) + landing_xz[1].powi(2)).sqrt();
+    let gate_dist = (gate_xz[0].powi(2) + gate_xz[1].powi(2)).sqrt();
+
+    // Clears the ±5 m spawn-scatter square.
     assert!(
-        dist > 5.0 && dist < 20.0,
-        "landing outside spawn scatter but near spawn, got {dist}m"
+        landing_dist > 5.0,
+        "landing inside spawn scatter: {landing_dist}m"
     );
+    // In front of the gate (closer to the origin) — visitors step out and
+    // walk toward the gate and the settlement beyond it.
+    assert!(
+        gate_dist > landing_dist,
+        "landing not in front of the gate ({landing_dist}m vs {gate_dist}m)"
+    );
+    // On the same bearing from the origin (the forecourt axis).
+    let cross = (landing_xz[0] * gate_xz[1] - landing_xz[1] * gate_xz[0]).abs();
+    let sin_angle = cross / (landing_dist * gate_dist).max(1e-6);
+    assert!(
+        sin_angle < 0.02,
+        "landing off the gate bearing (sin {sin_angle})"
+    );
+
+    // Settlement themes anchor the gate to the landmark's approach: the
+    // gate is a gatehouse on the origin→landmark ray, closer to origin
+    // than the landmark (#774). (Road-growing themes have no `landmark`
+    // placement and use the central fallback — this arm is then skipped.)
+    if let Some(landmark_xz) = r.placements.iter().find_map(|p| match p {
+        Placement::Absolute {
+            generator_ref,
+            transform,
+            ..
+        } if generator_ref == "landmark" => {
+            Some([transform.translation.0[0], transform.translation.0[2]])
+        }
+        _ => None,
+    }) {
+        let landmark_dist = (landmark_xz[0].powi(2) + landmark_xz[1].powi(2)).sqrt();
+        assert!(
+            gate_dist < landmark_dist,
+            "gate not in front of the landmark ({gate_dist}m vs {landmark_dist}m)"
+        );
+        let cross = (gate_xz[0] * landmark_xz[1] - gate_xz[1] * landmark_xz[0]).abs();
+        let sin_angle = cross / (gate_dist * landmark_dist).max(1e-6);
+        assert!(
+            sin_angle < 0.02,
+            "gate off the landmark bearing (sin {sin_angle})"
+        );
+    }
 }
 
 /// Two different DIDs produce different default recipes — the DID-keyed

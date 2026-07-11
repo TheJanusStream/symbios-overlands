@@ -634,8 +634,13 @@ impl RoomRecord {
         // terrain plugin's populate-lots system (see [`crate::terrain`]). Baking
         // a concentric cluster here would double up with — and ignore — those
         // streets, so we skip it and let the lot layer own urban buildings.
-        if !theme_grows_roads(scene.theme) {
-            let settlement = Settlement::from_scene(&scene, did_seed);
+        // Built once here and reused by the gateway wiring below, which
+        // anchors the gate to the landmark. Road-growing themes get `None`
+        // (their buildings live on road lots) and the gateway falls back
+        // to a central placement.
+        let settlement =
+            (!theme_grows_roads(scene.theme)).then(|| Settlement::from_scene(&scene, did_seed));
+        if let Some(settlement) = settlement.as_ref() {
             let (prosperity, escalation) = (scene.prosperity, scene.escalation);
             wire_settlement_member(
                 &settlement.landmark,
@@ -676,24 +681,34 @@ impl RoomRecord {
             }
         }
 
-        // Social gateway (#747): every seeded room — road-growing themes
-        // included, unlike the settlement — gets one gate a short walk
-        // from spawn, facing it. A bespoke per-theme gateway entry wins
-        // when the theme has one; the neutral `social_gateway` placeholder
-        // covers the rest until the themed passes land (#749-#772). The
-        // record's default landing is aimed at the gate's forecourt so
-        // visitors arriving without an explicit target step out facing
-        // the gate they conceptually came through. (Caveat: the placement
-        // is water-avoiding, so on a soaked bearing the compiled gate can
-        // walk off the recorded landing — the landing still resolves its
-        // height from the heightmap and stays functional.)
+        // Social gateway (#747, relocated #774): every seeded room — road-
+        // growing themes included, unlike the settlement — gets one gate. A
+        // bespoke per-theme gateway entry wins when the theme has one; the
+        // neutral `social_gateway` placeholder covers the rest until the
+        // themed passes land (#749-#772). For settlement themes the gate is
+        // a gatehouse on the origin→landmark approach and the default
+        // landing sits just in front of it facing the settlement, so
+        // visitors (and the owner on login) arrive at the settlement
+        // frontage rather than the empty region centre; road themes fall
+        // back to a central placement near spawn. (Caveat: the placement is
+        // water-avoiding, so on a soaked bearing the compiled gate can walk
+        // off the recorded landing — the landing still resolves its height
+        // from the heightmap and stays functional.)
         let mut default_landing = None;
         let gateway_entry =
             crate::catalogue::entries_for(scene.theme, crate::catalogue::StructureRole::Gateway)
                 .next()
                 .or_else(|| crate::catalogue::by_slug("social_gateway"));
         if let Some(entry) = gateway_entry {
-            let spot = crate::seeded_defaults::GatewaySpot::from_seed(did_seed);
+            let gate_clearance = entry.footprint().clearance;
+            let spot = match settlement.as_ref() {
+                Some(s) => crate::seeded_defaults::GatewaySpot::for_landmark(
+                    s.landmark.offset,
+                    s.landmark.clearance,
+                    gate_clearance,
+                ),
+                None => crate::seeded_defaults::GatewaySpot::central(did_seed),
+            };
             let mut gate = entry.build(did);
             // Socio finish for material coherence — but no ruin pass: a
             // collapsed gate that still teleports reads as a bug, not
@@ -714,7 +729,7 @@ impl RoomRecord {
                 },
                 snap_to_terrain: true,
                 avoid_water: true,
-                avoid_water_clearance: Fp(entry.footprint().clearance),
+                avoid_water_clearance: Fp(gate_clearance),
             });
             default_landing = Some(DefaultLanding {
                 pos: Fp2(spot.landing),
