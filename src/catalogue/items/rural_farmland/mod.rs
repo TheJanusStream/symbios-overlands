@@ -17,6 +17,7 @@
 
 pub mod barn;
 pub mod farmhouse;
+pub mod gateway;
 pub mod grain_silo;
 pub mod greenhouse;
 pub mod hay_bales;

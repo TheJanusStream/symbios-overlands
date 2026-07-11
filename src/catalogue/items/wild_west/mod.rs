@@ -16,6 +16,7 @@
 
 pub mod church;
 pub mod frontier_fence;
+pub mod gateway;
 pub mod general_store;
 pub mod hitching_post;
 pub mod jail;

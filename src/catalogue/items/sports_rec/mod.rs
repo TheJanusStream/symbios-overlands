@@ -19,6 +19,7 @@
 pub mod bleachers;
 pub mod clubhouse;
 pub mod floodlight_mast;
+pub mod gateway;
 pub mod goalpost;
 pub mod gym;
 pub mod players_bench;

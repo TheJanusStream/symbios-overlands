@@ -21,6 +21,8 @@
 
 pub mod medieval_castle;
 pub mod watchtower;
+// The theme's bespoke social gateway (#760) — the walk-through Town Gate.
+pub mod gateway;
 // Established (town) secondaries + props — primitive-built.
 pub mod banner_pole;
 pub mod barrel_stack;

@@ -19,6 +19,7 @@
 
 pub mod boathouse;
 pub mod drying_rack;
+pub mod gateway;
 pub mod longship;
 pub mod mead_hall;
 pub mod rune_stones;

@@ -17,6 +17,7 @@
 pub mod cooling_tower;
 pub mod factory;
 pub mod floodlight;
+pub mod gateway;
 pub mod loading_dock;
 pub mod pallet_stack;
 pub mod pipe_run;

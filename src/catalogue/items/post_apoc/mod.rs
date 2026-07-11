@@ -16,6 +16,7 @@
 pub mod fortified_ruin;
 pub mod fuel_barrels;
 pub mod fuel_depot;
+pub mod gateway;
 pub mod radio_mast;
 pub mod salvage_shack;
 pub mod scrap_wall;

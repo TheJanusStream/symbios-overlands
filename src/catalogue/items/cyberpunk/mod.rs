@@ -31,6 +31,7 @@ pub mod arcade_block;
 pub mod cable_arch;
 pub mod data_spire;
 pub mod drone_perch;
+pub mod gateway;
 pub mod holo_billboard;
 pub mod neon_kiosk;
 pub mod neon_megatower;

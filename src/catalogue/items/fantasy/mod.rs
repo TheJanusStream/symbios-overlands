@@ -19,6 +19,7 @@ pub mod crystal_cluster;
 pub mod crystal_shrine;
 pub mod enchanted_library;
 pub mod fae_ring;
+pub mod gateway;
 pub mod glow_mushroom;
 pub mod mana_font;
 pub mod runestone;

@@ -18,6 +18,7 @@ pub mod chitinous_hive;
 pub mod creep_patch;
 pub mod egg_sac;
 pub mod fleshy_spire;
+pub mod gateway;
 pub mod membrane_wall;
 pub mod pod_cluster;
 pub mod spore_vent;

@@ -16,6 +16,7 @@
 pub mod black_monolith;
 pub mod energy_node;
 pub mod floating_cube;
+pub mod gateway;
 pub mod glyph_arch;
 pub mod glyph_stone;
 pub mod levitating_platform;

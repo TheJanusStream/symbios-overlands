@@ -80,8 +80,9 @@ pub enum StructureRole {
     Tool,
     /// Social gateway (#747) — the themed gate every seeded room places
     /// near spawn. Selected by the seeded wiring via `entries_for(theme,
-    /// Gateway)` with the theme-agnostic `social_gateway` placeholder as
-    /// fallback; never part of the settlement Landmark/Secondary/Prop
+    /// Gateway)`; each `ThemeArchetype` has a bespoke gateway (#749-772),
+    /// with the theme-agnostic `civic_gateway` as the cross-theme
+    /// fallback. Never part of the settlement Landmark/Secondary/Prop
     /// pools.
     Gateway,
 }
@@ -254,6 +255,34 @@ mod tests {
         assert_eq!(Pattern.category(), Patterns);
         assert_eq!(Tool.category(), Tools);
         assert_eq!(Gateway.category(), Buildings);
+    }
+
+    /// Every `ThemeArchetype` a seeded room can be must resolve to exactly
+    /// one bespoke gateway via `entries_for(theme, Gateway)` (#749-772), so
+    /// the seeded wiring never has to fall through to the cross-theme
+    /// `civic_gateway`. Two gates matching one theme would make the picked
+    /// gate registry-order-dependent; zero would strand that theme on the
+    /// fallback. Adding a theme without a gateway trips this.
+    #[test]
+    fn every_theme_resolves_to_exactly_one_gateway() {
+        for theme in ThemeArchetype::ALL {
+            let gates: Vec<&str> = entries_for(theme, StructureRole::Gateway)
+                .map(|e| e.slug())
+                .collect();
+            assert_eq!(
+                gates.len(),
+                1,
+                "{theme:?} must have exactly one bespoke gateway, got {gates:?}"
+            );
+        }
+        // The cross-theme fallback exists, is themeless (so it never enters
+        // the per-theme query above), and is Gateway-role.
+        let fallback = by_slug("civic_gateway").expect("civic_gateway fallback registered");
+        assert_eq!(fallback.role(), StructureRole::Gateway);
+        assert!(
+            fallback.themes().is_empty(),
+            "the fallback must be themeless so it stays out of entries_for"
+        );
     }
 
     #[test]

@@ -18,6 +18,7 @@
 pub mod ball_court;
 pub mod calendar_stone;
 pub mod fire_bowl;
+pub mod gateway;
 pub mod idol;
 pub mod shrine;
 pub mod skull_rack;

@@ -16,6 +16,7 @@
 
 pub mod community_center;
 pub mod detached_garage;
+pub mod gateway;
 pub mod mailbox;
 pub mod mini_mart;
 pub mod minivan;

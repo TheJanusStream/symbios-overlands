@@ -23,6 +23,7 @@ pub mod boardwalk_shops;
 pub mod buoy;
 pub mod deck_chair;
 pub mod dinghy;
+pub mod gateway;
 pub mod grand_hotel;
 pub mod lifeguard_tower;
 pub mod resort_pier;

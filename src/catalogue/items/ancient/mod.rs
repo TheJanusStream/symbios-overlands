@@ -36,6 +36,9 @@ pub mod urn;
 pub mod mudbrick_hut;
 pub mod ruined_wall;
 
+// Bespoke social gateway (#751) — the theme's walk-through travel gate.
+pub mod gateway;
+
 pub mod fx;
 
 use bevy_symbios_texture::metal::MetalStyle;

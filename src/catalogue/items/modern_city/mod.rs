@@ -15,6 +15,7 @@
 //! [`crate::seeded_defaults::room::accent`].
 
 pub mod dumpster;
+pub mod gateway;
 pub mod glass_skyscraper;
 pub mod office_block;
 pub mod parked_car;

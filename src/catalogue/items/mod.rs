@@ -408,9 +408,35 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &patterns::lsys_sierpinski::SierpinskiGasket,
     // Tools — utility items personalised at build time.
     &tools::my_teleporter::MyTeleporter,
-    // Gateways — the theme-agnostic placeholder every seeded room falls
-    // back to until per-theme bespoke gateways land (#749-#772).
-    &tools::social_gateway::SocialGateway,
+    // Gateways — one bespoke per-theme social gateway (#749-772). Each is
+    // tagged with its `ThemeArchetype`, so the seeded wiring's
+    // `entries_for(theme, Gateway)` picks the matching gate; `civic_gateway`
+    // carries no theme and is the cross-theme fallback (`by_slug`),
+    // replacing the retired neutral placeholder.
+    &alien_monolithic::gateway::AlienMonolithicGateway,
+    &alien_organic::gateway::AlienOrganicGateway,
+    &ancient::gateway::AncientGateway,
+    &civic::gateway::CivicGateway,
+    &civic_campus::gateway::CivicCampusGateway,
+    &coastal_resort::gateway::CoastalResortGateway,
+    &cyberpunk::gateway::CyberpunkGateway,
+    &fantasy::gateway::FantasyGateway,
+    &feudal_japan::gateway::FeudalJapanGateway,
+    &gothic_horror::gateway::GothicHorrorGateway,
+    &industrial_park::gateway::IndustrialParkGateway,
+    &medieval::gateway::MedievalGateway,
+    &mesoamerican::gateway::MesoamericanGateway,
+    &modern_city::gateway::ModernCityGateway,
+    &nordic::gateway::NordicGateway,
+    &post_apoc::gateway::PostApocGateway,
+    &roadside::gateway::RoadsideGateway,
+    &rural_farmland::gateway::RuralFarmlandGateway,
+    &solarpunk::gateway::SolarpunkGateway,
+    &space_outpost::gateway::SpaceOutpostGateway,
+    &sports_rec::gateway::SportsRecGateway,
+    &steampunk::gateway::SteampunkGateway,
+    &suburban::gateway::SuburbanGateway,
+    &wild_west::gateway::WildWestGateway,
 ];
 
 /// Resolve a slug to its entry. Returns `None` if the slug doesn't

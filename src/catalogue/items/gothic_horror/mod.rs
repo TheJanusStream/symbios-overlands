@@ -19,6 +19,7 @@ pub mod cathedral;
 pub mod cemetery;
 pub mod dead_tree;
 pub mod gargoyle;
+pub mod gateway;
 pub mod gravestone;
 pub mod iron_fence;
 pub mod mausoleum;

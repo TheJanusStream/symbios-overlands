@@ -681,14 +681,15 @@ impl RoomRecord {
             }
         }
 
-        // Social gateway (#747, relocated #774): every seeded room — road-
-        // growing themes included, unlike the settlement — gets one gate. A
-        // bespoke per-theme gateway entry wins when the theme has one; the
-        // neutral `social_gateway` placeholder covers the rest until the
-        // themed passes land (#749-#772). For settlement themes the gate is
-        // a gatehouse on the origin→landmark approach and the default
-        // landing sits just in front of it facing the settlement, so
-        // visitors (and the owner on login) arrive at the settlement
+        // Social gateway (#747, relocated #774, per-theme #749-772): every
+        // seeded room — road-growing themes included, unlike the settlement
+        // — gets one gate. The theme's bespoke gateway wins via
+        // `entries_for(theme, Gateway)`; every `ThemeArchetype` has one, so
+        // the `civic_gateway` cross-theme fallback below is only reached if
+        // a future theme ships without a gate. For settlement themes the
+        // gate is a gatehouse on the origin→landmark approach and the
+        // default landing sits just in front of it facing the settlement,
+        // so visitors (and the owner on login) arrive at the settlement
         // frontage rather than the empty region centre; road themes fall
         // back to a central placement near spawn. (Caveat: the placement is
         // water-avoiding, so on a soaked bearing the compiled gate can walk
@@ -698,7 +699,7 @@ impl RoomRecord {
         let gateway_entry =
             crate::catalogue::entries_for(scene.theme, crate::catalogue::StructureRole::Gateway)
                 .next()
-                .or_else(|| crate::catalogue::by_slug("social_gateway"));
+                .or_else(|| crate::catalogue::by_slug("civic_gateway"));
         if let Some(entry) = gateway_entry {
             let gate_clearance = entry.footprint().clearance;
             let spot = match settlement.as_ref() {

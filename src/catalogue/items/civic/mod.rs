@@ -24,6 +24,8 @@
 //! small-footprint so the settlement deriver can append several without
 //! crowding the themed structures.
 
+// Cross-theme fallback gateway (a Gateway, not a socio-political prop).
+pub mod gateway;
 // Prosperity Poor.
 pub mod barrel_fire;
 pub mod laundry_line;

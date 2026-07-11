@@ -20,6 +20,7 @@
 pub mod bamboo_fence;
 pub mod bonsai;
 pub mod dojo;
+pub mod gateway;
 pub mod koi_pond;
 pub mod pagoda;
 pub mod stone_lantern;

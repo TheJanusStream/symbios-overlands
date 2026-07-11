@@ -19,6 +19,7 @@ pub mod airlock;
 pub mod beacon;
 pub mod cargo_crate;
 pub mod comms_dish;
+pub mod gateway;
 pub mod habitat_dome;
 pub mod hydroponics;
 pub mod landing_pad;
