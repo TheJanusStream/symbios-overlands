@@ -203,7 +203,7 @@ impl Plugin for PlayerPlugin {
 ///
 /// The actual full-body freeze lives in
 /// [`freeze_local_avatar_on_visuals_select`], which parks the chassis
-/// with `RigidBodyDisabled` for the duration of the selection, and in
+/// with a full axis lock for the duration of the selection, and in
 /// [`gait::animate_humanoid_gait`], which holds the local humanoid's
 /// cosmetic sway at its rest pose (#737). The input gates here are still
 /// worth keeping: the drive systems have non-physics side effects (gait
@@ -215,24 +215,50 @@ fn avatar_visuals_row_selected(avatar_editor: Option<Res<AvatarEditorState>>) ->
         .unwrap_or(false)
 }
 
+/// Marker carried by the chassis while the visuals-edit freeze is
+/// engaged, remembering the [`LockedAxes`] to restore on release (the
+/// humanoid preset locks rotation; the vehicle presets carry none).
+#[derive(Component)]
+struct VisualsEditFreeze {
+    prior_locked_axes: Option<LockedAxes>,
+}
+
 /// Hold the local player's chassis fully frozen while any avatar visuals
-/// row is selected: zero its momentum at the moment the freeze engages
-/// and keep [`RigidBodyDisabled`] on the body until the selection clears.
-/// Freezing the chassis (rather than just gating the drive systems)
-/// stops the passive movers too — suspension, buoyancy, gravity, slope
-/// creep — so the avatar holds its exact pose during the edit, even
-/// mid-air. That matters for correctness as well as ergonomics: the drag
-/// commit's world→local conversion reads the parent chassis's
-/// `GlobalTransform`, which must be stable while the gizmo is attached,
-/// and previously only a *root* selection appeared frozen (the gizmo
-/// detaches the whole visuals root from the chassis) while child
-/// selections left the rest of the avatar drifting on live physics.
+/// row is selected: lock every axis, zero gravity, and re-zero momentum
+/// each frame until the selection clears. Freezing the chassis (rather
+/// than just gating the drive systems) stops the passive movers too —
+/// suspension, buoyancy, gravity, slope creep — so the avatar holds its
+/// exact pose during the edit, even mid-air. That matters for
+/// correctness as well as ergonomics: the drag commit's world→local
+/// conversion reads the parent chassis's `GlobalTransform`, which must
+/// be stable while the gizmo is attached, and previously only a *root*
+/// selection appeared frozen (the gizmo detaches the whole visuals root
+/// from the chassis) while child selections left the rest of the avatar
+/// drifting on live physics.
 ///
-/// State-synced rather than edge-triggered so a chassis respawn mid-edit
-/// (locomotion hot-swap from a record Load/Reset) re-freezes the fresh
-/// entity on the next frame. Forces the still-running passive systems
-/// apply to the disabled body are discarded by avian's unconditional
-/// end-of-step clear, so nothing accumulates toward a burst on release.
+/// Deliberately NOT `RigidBodyDisabled` (#740): in avian 0.6 an
+/// insert/remove cycle of `RigidBodyDisabled` on a body with touching
+/// contacts corrupts the physics-island bookkeeping — the contact edge
+/// keeps its island link across the disable, the re-enable island-links
+/// it a second time, and the constraint graph is left holding manifold
+/// handles past the pair's manifold list. In release builds that
+/// surfaces as the solver's `manifolds[manifold_index]` index-out-of-
+/// bounds panic on the next edit (the #739 UV-dropdown crash was this).
+/// `tests/freeze_rigid_body.rs` carries the ignored upstream repro; the
+/// axis-lock freeze below never changes the body's simulation
+/// membership, so islands and the constraint graph stay untouched.
+/// Revisit when the engine moves to Bevy 0.19 / avian 0.7+.
+///
+/// State-synced rather than edge-triggered, so both recovery paths heal
+/// on the next frame: a fresh chassis entity (room travel respawn) has
+/// no marker and re-engages from scratch, while a locomotion hot-swap
+/// mid-edit (record Load/Reset strips + rebuilds preset components on
+/// the same entity) re-inserts the new preset's `LockedAxes` over the
+/// full lock — the re-assert arm below locks it again and re-captures
+/// the *new* preset's axes as the restore target. The per-frame
+/// velocity re-zero (not just at engage) discards anything the
+/// still-running solver injects — penetration recovery, restitution
+/// residue — so nothing accumulates toward a burst on release.
 #[allow(clippy::type_complexity)]
 fn freeze_local_avatar_on_visuals_select(
     mut commands: Commands,
@@ -242,7 +268,8 @@ fn freeze_local_avatar_on_visuals_select(
             Entity,
             &mut LinearVelocity,
             &mut AngularVelocity,
-            Has<RigidBodyDisabled>,
+            Option<&LockedAxes>,
+            Option<&mut VisualsEditFreeze>,
         ),
         (With<LocalPlayer>, With<RigidBody>),
     >,
@@ -250,15 +277,44 @@ fn freeze_local_avatar_on_visuals_select(
     let selected = avatar_editor
         .map(|e| e.has_visuals_selection())
         .unwrap_or(false);
-    for (entity, mut lin, mut ang, disabled) in q.iter_mut() {
-        if selected && !disabled {
-            // Clear residual momentum from the moment of click so the
-            // body doesn't resume with stale velocity on release.
+    for (entity, mut lin, mut ang, locked_axes, freeze) in q.iter_mut() {
+        if selected {
             lin.0 = Vec3::ZERO;
             ang.0 = Vec3::ZERO;
-            commands.entity(entity).try_insert(RigidBodyDisabled);
-        } else if !selected && disabled {
-            commands.entity(entity).try_remove::<RigidBodyDisabled>();
+            match freeze {
+                None => {
+                    commands.entity(entity).try_insert((
+                        VisualsEditFreeze {
+                            prior_locked_axes: locked_axes.copied(),
+                        },
+                        LockedAxes::ALL_LOCKED,
+                        GravityScale(0.0),
+                    ));
+                }
+                // `LockedAxes` has no `PartialEq`; compare the bit masks.
+                Some(mut freeze)
+                    if locked_axes.map(LockedAxes::to_bits)
+                        != Some(LockedAxes::ALL_LOCKED.to_bits()) =>
+                {
+                    // A mid-edit locomotion hot-swap replaced the lock
+                    // with the new preset's axes: those are now what
+                    // release must restore; lock everything again.
+                    freeze.prior_locked_axes = locked_axes.copied();
+                    commands.entity(entity).try_insert(LockedAxes::ALL_LOCKED);
+                }
+                Some(_) => {}
+            }
+        } else if let Some(freeze) = freeze {
+            let mut entity_commands = commands.entity(entity);
+            match freeze.prior_locked_axes {
+                Some(prior) => {
+                    entity_commands.try_insert(prior);
+                }
+                None => {
+                    entity_commands.try_remove::<LockedAxes>();
+                }
+            }
+            entity_commands.try_remove::<(GravityScale, VisualsEditFreeze)>();
         }
     }
 }
