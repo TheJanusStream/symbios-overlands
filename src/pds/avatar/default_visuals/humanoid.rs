@@ -84,15 +84,23 @@ pub(super) fn build(seed: u64) -> Generator {
         quat_xyzw(quat_x(-0.16)),
         wr * 0.5,
     )];
-    // NOTE (#729): four render-driven rounds of seat reshaping (paired-glute
-    // trims, a single wide seat mass, a sub-gluteal fill, crotch-carve and
-    // thigh-root retunes) each regressed the buttock→thigh read below this
-    // baseline — softening the side undercut always exposed a back-view
-    // double-lobe + central cleft on the majority of seeds. Reverted to the
-    // baseline geometry; #729 (the mild undercut step) stays OPEN for a fresh
-    // approach (e.g. blending the pelvis and leg into one skin, not two
-    // diameter-matched groups). The #728 waist-shelf improvement is
-    // independent and retained.
+    // NOTE (#729): four render-driven rounds of PELVIS-side seat reshaping
+    // (paired-glute trims, a single wide seat mass, a sub-gluteal fill,
+    // crotch-carve and thigh-root retunes) each regressed the buttock→thigh
+    // read below this baseline — a pelvis L/R mass pair is separated by the
+    // midline gap, so softening the side undercut always exposed a back-view
+    // double-lobe + central cleft. A 5th, cleft-immune approach (a fill in
+    // the mirrored LEG group, not the pelvis) was then render-tested and
+    // also reverted (see the leg builder's #729 note): the seat overhangs a
+    // void ≈2·leg_r deep behind the thigh while the thigh's own back surface
+    // sits at ≈0.83·leg_r, so a leg-group fill either projects a saddlebag
+    // proud of the thigh or is invisible — there is no sweet spot, and the
+    // glute is laterally offset from the leg mount (oppositely per tier) so
+    // an X-symmetric leg can't align with it anyway. The mild sev2 undercut
+    // is therefore accepted as within-tolerance for a stylized figure; a
+    // real fix needs the pelvis+thigh unified into ONE blob group (a larger
+    // restructure of the leg mounting, with its own cleft risks). The #728
+    // waist-shelf improvement is independent and retained.
     for s in [-1.0f32, 1.0] {
         // Glute pair — seat projection behind the back plane, blended
         // generously into the iliac block so it never reads as a bolted-on

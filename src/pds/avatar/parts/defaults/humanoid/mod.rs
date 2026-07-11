@@ -556,6 +556,22 @@ pub(super) fn leg(ctx: &PartCtx) -> Generator {
             id_quat(),
             kb,
         ),
+        // NOTE (#729): a 5th glute→thigh attempt — a leg-group posterior
+        // sub-gluteal fill — was render-tested here (2 variants, all tiers)
+        // and REVERTED. Unlike the 4 pelvis-side attempts (which cleft-
+        // regressed), a leg-group mass is cleft-immune, but it cannot fix
+        // the undercut either: the seat overhangs a void ≈2·leg_r deep
+        // behind the thigh, while the thigh's own back surface sits at
+        // ≈0.83·leg_r, so any fill big enough to reach under the glute
+        // projects ≈1.2·leg_r PROUD of the thigh (a saddlebag), and any
+        // fill shallow enough to stay tucked is invisible (confirmed: both
+        // 0.86·r and 1.08·r back-reach variants read identical to baseline).
+        // The glute is also laterally offset from the leg mount, oppositely
+        // per tier, so an X-symmetric single-leg fill can't even align with
+        // it. There is no sweet spot; the mild sev2 undercut is the best
+        // available read short of unifying the pelvis+thigh into one group
+        // (a larger restructure with its own cleft risks). See the pelvis
+        // build's #729 note in default_visuals/humanoid.rs.
         // Knee ball — both segments sink into it.
         blob_sphere([0.0, -l1, 0.0], r * 0.82, kb * 0.75),
         // Shin: knee → ankle along the bent-back axis (π − θ maps the

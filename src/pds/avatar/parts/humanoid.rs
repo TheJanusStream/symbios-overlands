@@ -212,10 +212,13 @@ fn visor(ctx: &PartCtx) -> Generator {
         [0.0, -0.11 * k, -0.1 * k],
         id_quat(),
     );
-    // Glowing lens band across the front.
+    // Glowing lens band across the front. Kept narrower than the frame's
+    // 0.30 half-width so the metal frame caps the glow at the temples
+    // instead of the emissive wrapping onto the ear (#738-3: an isolated
+    // over-bright lens fleck read at the ear on the magenta NEON palette).
     v.children.push(prim(
         cuboid(
-            [0.26 * k, (0.03 * k).max(0.011), (0.02 * k).max(0.011)],
+            [0.21 * k, (0.03 * k).max(0.011), (0.02 * k).max(0.011)],
             ctx.materials.glow(ctx.palette.primary_accent),
         ),
         [0.0, 0.0, -0.03 * k],
