@@ -154,6 +154,7 @@ pub(crate) fn blob_group(
         elements,
         resolution,
         solid: false,
+        uv_mapping: crate::pds::generator::UvMapping::default(),
         material,
         torture: TortureParams::default(),
     }

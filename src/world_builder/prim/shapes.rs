@@ -325,6 +325,7 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
         GeneratorKind::BlobGroup {
             elements,
             resolution,
+            uv_mapping,
             torture,
             solid,
             material,
@@ -332,6 +333,7 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             Box::new(BlobGroupShape {
                 elements,
                 resolution: *resolution,
+                uv_mapping: *uv_mapping,
                 torture,
             }),
             solid,
@@ -874,6 +876,7 @@ impl PrimitiveShape for LatheShape<'_> {
 struct BlobGroupShape<'a> {
     elements: &'a [crate::pds::generator::BlobElement],
     resolution: u32,
+    uv_mapping: crate::pds::generator::UvMapping,
     torture: &'a TortureParams,
 }
 
@@ -893,6 +896,7 @@ impl PrimitiveShape for BlobGroupShape<'_> {
             self.torture.profile_cut.0[0],
             self.torture.profile_cut.0[1],
             self.torture.hollow.0,
+            self.uv_mapping,
         )
     }
     fn analytical_collider(&self) -> Option<Collider> {

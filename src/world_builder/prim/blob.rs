@@ -12,9 +12,10 @@ use bevy::prelude::*;
 use fast_surface_nets::ndshape::{RuntimeShape, Shape};
 use fast_surface_nets::{SurfaceNetsBuffer, surface_nets};
 
-use crate::pds::generator::{BlobElement, BlobShape};
+use crate::pds::generator::{BlobElement, BlobShape, UvMapping};
 
 use super::base::mesh_from_parts;
+use super::uv::project_uvs;
 
 /// One element resolved from wire types into compute-friendly form.
 struct ResolvedElement {
@@ -188,8 +189,9 @@ fn wedge_sdf(p: Vec3, mid: f32, half: f32) -> f32 {
 /// Build the BlobGroup mesh: sample the group SDF over an auto-sized grid,
 /// apply the SL-style topology cuts as hard CSG on the field (`t0..t1`
 /// keeps a Y-band of the element bounds, `a0..a1` keeps a pie wedge around
-/// local Y, `hollow_frac` erodes an inner shell), and run surface nets. A
-/// group whose field never crosses zero (e.g. every element subtracts, or
+/// local Y, `hollow_frac` erodes an inner shell), and run surface nets;
+/// `uv_mapping` picks the texture projection baked onto the result (#739).
+/// A group whose field never crosses zero (e.g. every element subtracts, or
 /// the cuts removed everything) meshes as a small marker sphere so the prim
 /// stays selectable in the editor instead of silently vanishing.
 #[allow(clippy::too_many_arguments)]
@@ -201,6 +203,7 @@ pub(super) fn build_blob_mesh(
     t0: f32,
     t1: f32,
     hollow_frac: f32,
+    uv_mapping: UvMapping,
 ) -> Mesh {
     use std::f32::consts::TAU;
     let resolved = resolve(elements);
@@ -284,9 +287,11 @@ pub(super) fn build_blob_mesh(
         return marker_mesh();
     }
 
-    // Grid space → world space; normals from the buffer's SDF gradient;
-    // spherical UVs around the surface centroid (good enough for the
-    // procedural-texture pipeline on a blobby mass).
+    // Grid space → prim-local space; normals from the buffer's SDF
+    // gradient (zero-gradient stragglers fall back to the direction from
+    // the surface centroid); UVs from the selected projection — grid→local
+    // is uniform scale + translation, so projecting the local positions
+    // matches the pre-#739 grid-space spherical result.
     let centroid = buffer
         .positions
         .iter()
@@ -294,10 +299,9 @@ pub(super) fn build_blob_mesh(
         / buffer.positions.len() as f32;
     let mut pos: Vec<[f32; 3]> = Vec::with_capacity(buffer.positions.len());
     let mut nor: Vec<[f32; 3]> = Vec::with_capacity(buffer.positions.len());
-    let mut uv: Vec<[f32; 2]> = Vec::with_capacity(buffer.positions.len());
     for (gp, gn) in buffer.positions.iter().zip(buffer.normals.iter()) {
-        let world = origin + Vec3::from_array(*gp) * cell;
-        pos.push(world.to_array());
+        let local = origin + Vec3::from_array(*gp) * cell;
+        pos.push(local.to_array());
         let n = Vec3::from_array(*gn).normalize_or_zero();
         let n = if n == Vec3::ZERO {
             (Vec3::from_array(*gp) - centroid).normalize_or_zero()
@@ -305,14 +309,11 @@ pub(super) fn build_blob_mesh(
             n
         };
         nor.push(n.to_array());
-        let d = (Vec3::from_array(*gp) - centroid).normalize_or_zero();
-        uv.push([
-            0.5 + d.z.atan2(d.x) / std::f32::consts::TAU,
-            0.5 - d.y.clamp(-1.0, 1.0).asin() / std::f32::consts::PI,
-        ]);
     }
+    let mut idx = buffer.indices;
+    let uv = project_uvs(uv_mapping, &mut pos, &mut nor, &mut idx);
 
-    mesh_from_parts(pos, nor, uv, buffer.indices)
+    mesh_from_parts(pos, nor, uv, idx)
 }
 
 /// Tiny visible stand-in for a group with no surface (all-subtract or

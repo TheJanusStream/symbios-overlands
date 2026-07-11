@@ -4,7 +4,7 @@
 
 use bevy_egui::egui;
 
-use crate::pds::generator::{BlobElement, BlobShape, LathePoint, SpinePoint};
+use crate::pds::generator::{BlobElement, BlobShape, LathePoint, SpinePoint, UvMapping};
 use crate::pds::sanitize::limits::{MAX_BLOB_ELEMENTS, MAX_SWEEP_POINTS};
 use crate::pds::types::Fp4;
 use crate::pds::{Fp, Fp2, Fp3, SovereignMaterialSettings, TortureParams};
@@ -455,6 +455,7 @@ pub(super) fn draw_primitive_blob_group(
     elements: &mut Vec<BlobElement>,
     resolution: &mut u32,
     solid: &mut bool,
+    uv_mapping: &mut UvMapping,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
     salt: &str,
@@ -652,6 +653,72 @@ pub(super) fn draw_primitive_blob_group(
         *dirty = true;
     }
     drag_u32(ui, "Grid res", resolution, 8, 48, dirty);
+    ui.horizontal(|ui| {
+        ui.label("UV mapping").on_hover_text(
+            "How the texture is projected onto the meshed surface. \
+             Spherical is the original mapping; Box fixes the \
+             stretch/squish on elongated or lumpy groups.",
+        );
+        let modes = [
+            (
+                UvMapping::Spherical,
+                "Spherical",
+                "Wraps once around the mass from its centre. Reads well on \
+                 roundish blobs; stretches on elongated ones and repeats \
+                 the texture on concave regions.",
+            ),
+            (
+                UvMapping::Box,
+                "Box (tri-planar)",
+                "Projects each face along its dominant axis at uniform \
+                 density — the all-round distortion fix. Strong patterns \
+                 show faint seams where the projection axis changes.",
+            ),
+            (
+                UvMapping::Cylindrical,
+                "Cylindrical (Y)",
+                "Wraps around the prim's local Y axis (the cut axis); V is \
+                 scaled for square texels like the swept prims. Suits \
+                 limbs, trunks and columns; up/down-facing surface swirls.",
+            ),
+            (
+                UvMapping::PlanarX,
+                "Planar X",
+                "Flat projection along local X. Back side mirrors.",
+            ),
+            (
+                UvMapping::PlanarY,
+                "Planar Y",
+                "Flat top-down projection — slabs and ground masses. \
+                 Underside mirrors.",
+            ),
+            (
+                UvMapping::PlanarZ,
+                "Planar Z",
+                "Flat projection along local Z. Back side mirrors.",
+            ),
+        ];
+        let current = modes
+            .iter()
+            .find(|(v, _, _)| v == uv_mapping)
+            .map(|(_, n, _)| *n)
+            .unwrap_or("Unknown");
+        egui::ComboBox::from_id_salt((salt, "blob_uv_mapping"))
+            .selected_text(current)
+            .show_ui(ui, |ui| {
+                for (v, n, hint) in modes {
+                    if ui
+                        .selectable_label(*uv_mapping == v, n)
+                        .on_hover_text(hint)
+                        .clicked()
+                        && *uv_mapping != v
+                    {
+                        *uv_mapping = v;
+                        *dirty = true;
+                    }
+                }
+            });
+    });
     draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
 }
 

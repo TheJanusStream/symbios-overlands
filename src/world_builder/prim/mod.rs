@@ -28,6 +28,7 @@ mod shapes;
 mod superellipsoid;
 mod sweeps;
 mod torture;
+mod uv;
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -452,6 +453,7 @@ mod tests {
             elements,
             resolution: 32,
             solid: true,
+            uv_mapping: crate::pds::generator::UvMapping::default(),
             material: SovereignMaterialSettings::default(),
             torture: TortureParams::default(),
         };
@@ -588,6 +590,7 @@ mod tests {
                 }],
                 resolution: 32,
                 solid: true,
+                uv_mapping: crate::pds::generator::UvMapping::default(),
                 material: SovereignMaterialSettings::default(),
                 torture: TortureParams::default(),
             };
@@ -661,6 +664,7 @@ mod tests {
             }],
             resolution: 32,
             solid: true,
+            uv_mapping: crate::pds::generator::UvMapping::default(),
             material: SovereignMaterialSettings::default(),
             torture: TortureParams::default(),
         };
@@ -743,6 +747,117 @@ mod tests {
             tip_r < base_r * 0.5,
             "cone apex not pinched: {tip_r} vs {base_r}"
         );
+    }
+
+    /// Every UV mode (#739) meshes the same two-lobe group with agreeing
+    /// attribute lengths, valid indices and finite UVs; the bounded-image
+    /// modes stay in the unit square, and the discontinuous modes leave no
+    /// triangle interpolating across their seam.
+    #[test]
+    fn blob_uv_modes_produce_sane_uvs() {
+        use crate::pds::generator::{BlobElement, UvMapping};
+        let group = |uv_mapping: UvMapping| GeneratorKind::BlobGroup {
+            elements: vec![
+                BlobElement {
+                    position: Fp3([0.0, -0.3, 0.0]),
+                    radii: Fp3([0.3, 0.3, 0.3]),
+                    blend: Fp(0.2),
+                    ..Default::default()
+                },
+                BlobElement {
+                    position: Fp3([0.0, 0.35, 0.1]),
+                    radii: Fp3([0.22, 0.22, 0.22]),
+                    blend: Fp(0.2),
+                    ..Default::default()
+                },
+            ],
+            resolution: 32,
+            solid: true,
+            uv_mapping,
+            material: SovereignMaterialSettings::default(),
+            torture: TortureParams::default(),
+        };
+        for mode in [
+            UvMapping::Spherical,
+            UvMapping::Box,
+            UvMapping::Cylindrical,
+            UvMapping::PlanarX,
+            UvMapping::PlanarY,
+            UvMapping::PlanarZ,
+            // A future client's mode must still mesh (as Spherical).
+            UvMapping::Unknown,
+        ] {
+            let mesh = build_primitive_mesh(&group(mode));
+            let pos = match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+                Some(VertexAttributeValues::Float32x3(p)) => p.clone(),
+                _ => panic!("{mode:?}: no positions"),
+            };
+            let uv = match mesh.attribute(Mesh::ATTRIBUTE_UV_0) {
+                Some(VertexAttributeValues::Float32x2(u)) => u.clone(),
+                _ => panic!("{mode:?}: no UVs"),
+            };
+            assert_eq!(uv.len(), pos.len(), "{mode:?}: uv/pos length mismatch");
+            assert!(
+                uv.iter().flatten().all(|c| c.is_finite()),
+                "{mode:?}: non-finite uv"
+            );
+            let idx: Vec<u32> = mesh
+                .indices()
+                .expect("indices")
+                .iter()
+                .map(|i| i as u32)
+                .collect();
+            assert_eq!(idx.len() % 3, 0, "{mode:?}: ragged index buffer");
+            assert!(
+                idx.iter().all(|&i| (i as usize) < pos.len()),
+                "{mode:?}: index out of range"
+            );
+            match mode {
+                UvMapping::Box | UvMapping::PlanarX | UvMapping::PlanarY | UvMapping::PlanarZ => {
+                    assert!(
+                        uv.iter().flatten().all(|c| (-0.01..=1.01).contains(c)),
+                        "{mode:?}: uv left the unit square"
+                    );
+                }
+                UvMapping::Cylindrical => {
+                    // The wrap seam must be split wherever azimuth is
+                    // well-defined. Triangles hugging the axis (the caps)
+                    // legitimately swirl — azimuth is degenerate there and
+                    // no split can help — so only off-axis triangles are
+                    // held to the no-seam invariant.
+                    let (mut lo, mut hi) = ([f32::INFINITY; 2], [f32::NEG_INFINITY; 2]);
+                    for p in &pos {
+                        for (a, c) in [(0, p[0]), (1, p[2])] {
+                            lo[a] = lo[a].min(c);
+                            hi[a] = hi[a].max(c);
+                        }
+                    }
+                    let c = [(lo[0] + hi[0]) * 0.5, (lo[1] + hi[1]) * 0.5];
+                    let radial = |i: u32| {
+                        let p = pos[i as usize];
+                        ((p[0] - c[0]).powi(2) + (p[2] - c[1]).powi(2)).sqrt()
+                    };
+                    let max_r = idx.iter().map(|&i| radial(i)).fold(0.0f32, f32::max);
+                    let mut checked = 0;
+                    for tri in idx.chunks_exact(3) {
+                        if tri.iter().any(|&i| radial(i) < 0.25 * max_r) {
+                            continue;
+                        }
+                        checked += 1;
+                        let us = tri.iter().map(|&i| uv[i as usize][0]);
+                        let hi = us.clone().fold(f32::NEG_INFINITY, f32::max);
+                        let lo = us.fold(f32::INFINITY, f32::min);
+                        assert!(
+                            hi - lo < 0.5,
+                            "cylindrical seam not split (ΔU = {})",
+                            hi - lo
+                        );
+                    }
+                    assert!(checked > 0, "off-axis filter left nothing to check");
+                }
+                _ => {}
+            }
+        }
     }
 
     #[test]

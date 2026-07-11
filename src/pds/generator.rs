@@ -389,6 +389,58 @@ pub enum BlobShape {
     Unknown,
 }
 
+/// UV projection a [`GeneratorKind::BlobGroup`] bakes into its mesh (#739).
+/// Surface nets has no analytic parameterisation, so texture coordinates
+/// come from projecting each vertex — and which projection reads well is
+/// shape-dependent, so it's an authorable knob rather than a constant.
+/// Open union so future modes degrade gracefully on older clients — an
+/// `Unknown` mode meshes as `Spherical`.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+#[serde(tag = "$type")]
+pub enum UvMapping {
+    /// Equirectangular projection of each vertex's direction from the
+    /// surface centroid — the original mapping and the wire default. Reads
+    /// well on roundish masses; elongated or multi-lobed groups stretch
+    /// (direction ignores distance) and concave regions repeat the texture
+    /// where two surface points share a direction.
+    #[serde(rename = "network.symbios.uv.spherical")]
+    #[default]
+    Spherical,
+    /// Baked tri-planar box projection: each triangle projects along the
+    /// axis its normal leans into most, at one uniform scale, so texel
+    /// density is even everywhere. The all-round distortion fix; strongly
+    /// patterned textures show seams where the projection axis changes.
+    #[serde(rename = "network.symbios.uv.box")]
+    Box,
+    /// Wrap around the prim-local Y axis (the same reference axis the
+    /// topology cuts use): U is azimuth, V climbs with height scaled so a
+    /// texel stays square against the group's mean circumference (the
+    /// swept prims' convention). Suits limbs, trunks and columns; surface
+    /// facing straight up or down swirls.
+    #[serde(rename = "network.symbios.uv.cylindrical")]
+    Cylindrical,
+    /// Flat projection along local X (texture lies on the YZ plane).
+    #[serde(rename = "network.symbios.uv.planar_x")]
+    PlanarX,
+    /// Flat projection along local Y — top-down, for slab-like masses.
+    #[serde(rename = "network.symbios.uv.planar_y")]
+    PlanarY,
+    /// Flat projection along local Z (texture lies on the XY plane).
+    #[serde(rename = "network.symbios.uv.planar_z")]
+    PlanarZ,
+    #[serde(other)]
+    Unknown,
+}
+
+impl UvMapping {
+    /// Wire-format skip predicate: the default mode stays off the wire, so
+    /// pre-#739 records re-serialise byte-identically (#695 elision
+    /// discipline).
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 /// One stamp in a [`GeneratorKind::BlobGroup`]'s ordered edit list — the
 /// Dreams model: elements evaluate in list order, each smoothly added to
 /// (or carved out of) everything before it.
@@ -995,12 +1047,15 @@ pub enum GeneratorKind {
     /// `path_cut` keeps a pie wedge around the prim-local Y axis, and
     /// `hollow` erodes an inner shell whose wall is `(1 - hollow)` of the
     /// group's thinnest half-extent (visible wherever a carve or cut opens
-    /// the surface).
+    /// the surface). `uv_mapping` picks the texture projection baked into
+    /// the meshed surface — see [`UvMapping`] for the trade-offs per mode.
     #[serde(rename = "network.symbios.gen.blob_group")]
     BlobGroup {
         elements: Vec<BlobElement>,
         resolution: u32,
         solid: bool,
+        #[serde(default, skip_serializing_if = "UvMapping::is_default")]
+        uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
@@ -1557,6 +1612,7 @@ impl GeneratorKind {
                 ],
                 resolution: 32,
                 solid: true,
+                uv_mapping: UvMapping::default(),
                 material: mat,
                 torture: TortureParams::default(),
             },
@@ -1851,6 +1907,72 @@ mod prim_wire_tests {
             panic!("wrong variant");
         };
         assert_eq!(elements[0].shape, BlobShape::Unknown);
+    }
+
+    /// The `uv_mapping` knob (#739) is default-elided on the wire, every
+    /// known mode round-trips through its own tag, and an unrecognised
+    /// mode tag degrades to `Unknown` instead of failing the record.
+    #[test]
+    fn blob_group_uv_mapping_wire_format() {
+        // Default mode stays off the wire — pre-#739 records re-serialise
+        // byte-identically.
+        let kind = GeneratorKind::default_primitive_for_tag("BlobGroup").unwrap();
+        let v = serde_json::to_value(&kind).unwrap();
+        assert!(
+            v.get("uv_mapping").is_none(),
+            "default uv_mapping must be elided"
+        );
+
+        for (mode, wire) in [
+            (UvMapping::Spherical, "network.symbios.uv.spherical"),
+            (UvMapping::Box, "network.symbios.uv.box"),
+            (UvMapping::Cylindrical, "network.symbios.uv.cylindrical"),
+            (UvMapping::PlanarX, "network.symbios.uv.planar_x"),
+            (UvMapping::PlanarY, "network.symbios.uv.planar_y"),
+            (UvMapping::PlanarZ, "network.symbios.uv.planar_z"),
+        ] {
+            let sv = serde_json::to_value(mode).expect("mode serialises");
+            assert_eq!(sv.get("$type").and_then(|t| t.as_str()), Some(wire));
+            let rm: UvMapping = serde_json::from_value(sv).expect("mode reparses");
+            assert_eq!(rm, mode);
+        }
+
+        // A non-default mode survives a full generator round trip.
+        let GeneratorKind::BlobGroup {
+            elements,
+            resolution,
+            solid,
+            material,
+            torture,
+            ..
+        } = kind
+        else {
+            panic!("wrong variant");
+        };
+        let kind = GeneratorKind::BlobGroup {
+            elements,
+            resolution,
+            solid,
+            uv_mapping: UvMapping::Box,
+            material,
+            torture,
+        };
+        let v = serde_json::to_value(&kind).unwrap();
+        assert_eq!(
+            v["uv_mapping"]["$type"].as_str(),
+            Some("network.symbios.uv.box")
+        );
+        let re: GeneratorKind = serde_json::from_value(v.clone()).expect("reparses");
+        assert_eq!(re, kind);
+
+        // Forward compat: a future mode tag degrades to Unknown.
+        let mut v3 = v;
+        v3["uv_mapping"]["$type"] = serde_json::json!("network.symbios.uv.conformal");
+        let re3: GeneratorKind = serde_json::from_value(v3).expect("future mode still parses");
+        let GeneratorKind::BlobGroup { uv_mapping, .. } = re3 else {
+            panic!("wrong variant");
+        };
+        assert_eq!(uv_mapping, UvMapping::Unknown);
     }
 
     #[test]

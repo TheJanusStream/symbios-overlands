@@ -525,6 +525,7 @@ fn draw_generator_detail(
             elements,
             resolution,
             solid,
+            uv_mapping,
             material,
             torture,
         } => draw_primitive_blob_group(
@@ -532,6 +533,7 @@ fn draw_generator_detail(
             elements,
             resolution,
             solid,
+            uv_mapping,
             material,
             torture,
             salt,
