@@ -42,14 +42,15 @@ mod shape;
 mod terrain;
 mod widgets;
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
 use crate::pds::{self, Placement, RoomRecord};
 use crate::state::{
-    CurrentRoomDid, LiveInventoryRecord, LiveRoomRecord, PublishFeedback, PublishStatus,
-    RoomRecordRecovery, StoredRoomRecord,
+    CurrentRoomDid, LiveInventoryRecord, LiveRoomRecord, LocalPlayer, PublishFeedback,
+    PublishStatus, RoomRecordRecovery, StoredRoomRecord,
 };
 use crate::ui::avatar::AvatarEditorState;
 use crate::ui::editable::{
@@ -197,6 +198,22 @@ impl RoomEditorState {
     }
 }
 
+/// Extra system params for [`room_admin_ui`], grouped into one
+/// `SystemParam` so the system stays under Bevy's 16-parameter ceiling.
+/// The heightmap rides along for the Placements tab's snap-toggle
+/// compensation (#700): flipping "Snap to Terrain" rewrites translation.y
+/// against the terrain height so the object stays where it renders. The
+/// player pose feeds the Environment tab's arrival-point "set to my
+/// position & facing" button (#773).
+#[derive(SystemParam)]
+pub struct RoomEditorExtras<'w, 's> {
+    audio_monitor: Res<'w, bevy_symbios_audio::ui::AudioMonitor>,
+    audio_requests: MessageWriter<'w, bevy_symbios_audio::ui::MonitorRequest>,
+    heightmap: Option<Res<'w, crate::terrain::FinishedHeightMap>>,
+    blob_ctx: ResMut<'w, crate::editor_gizmo::BlobEditContext>,
+    players: Query<'w, 's, &'static Transform, With<LocalPlayer>>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn room_admin_ui(
     mut contexts: EguiContexts,
@@ -213,21 +230,16 @@ pub fn room_admin_ui(
     mut gizmo_frame_pref: ResMut<crate::editor_gizmo::GizmoFramePref>,
     mut publish_feedback: ResMut<PublishFeedback<RoomRecord>>,
     mut inventory: Option<ResMut<LiveInventoryRecord>>,
-    // Grouped into one tuple param to stay under Bevy's 16-parameter
-    // `IntoSystem` ceiling (tuples of SystemParams are SystemParams).
-    // The heightmap rides along for the Placements tab's snap-toggle
-    // compensation (#700): flipping "Snap to Terrain" rewrites
-    // translation.y against the terrain height so the object stays where
-    // it renders.
-    extras: (
-        Res<bevy_symbios_audio::ui::AudioMonitor>,
-        MessageWriter<bevy_symbios_audio::ui::MonitorRequest>,
-        Option<Res<crate::terrain::FinishedHeightMap>>,
-        ResMut<crate::editor_gizmo::BlobEditContext>,
-    ),
+    extras: RoomEditorExtras,
     time: Res<Time>,
 ) {
-    let (audio_monitor, mut audio_requests, heightmap, mut blob_ctx) = extras;
+    let RoomEditorExtras {
+        audio_monitor,
+        mut audio_requests,
+        heightmap,
+        mut blob_ctx,
+        players,
+    } = extras;
     let (Some(session), Some(refresh_ctx), Some(room_did), Some(record)) =
         (session, refresh_ctx, room_did, room_record.as_mut())
     else {
@@ -238,6 +250,14 @@ pub fn room_admin_ui(
     if session.did != room_did.0 {
         return;
     }
+
+    // Snapshot the owner's current pose for the arrival-point "set to my
+    // position" button (#773). Copy-typed, so it threads straight into the
+    // egui closure without holding the query borrow.
+    let player_pose = players
+        .iter()
+        .next()
+        .map(environment::PlayerPose::from_transform);
 
     if !editor.raw_text_initialised {
         editor.raw_text = serde_json::to_string_pretty(&record.0)
@@ -503,6 +523,8 @@ pub fn room_admin_ui(
                                     environment::draw_environment_tab(
                                         ui,
                                         &mut record_mut.environment,
+                                        &mut record_mut.default_landing,
+                                        player_pose,
                                         &mut widget_change,
                                         audio_editor,
                                     );
