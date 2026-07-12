@@ -4,11 +4,11 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::pds::avatar::default_visuals::common::{
-    cone, cuboid, cylinder, id_quat, prim, quat_x, quat_xyzw, sphere, with_torture,
+    blob_cone, blob_ellipsoid, blob_group, cuboid, cylinder, id_quat, prim, quat_x, quat_xyzw,
+    sphere, with_torture,
 };
 use crate::pds::generator::Generator;
 use crate::pds::texture::SovereignMaterialSettings;
-use crate::pds::types::Fp3;
 
 use super::super::PartCtx;
 use super::common::shade;
@@ -38,70 +38,68 @@ pub(super) struct HullSpec {
     freeboard: f32,
 }
 
-/// Build one boat hull into `parent` at the spec's lateral offset: an
-/// above-waterline topsides box, a pointed cone prow at the bow (+Z) flattened
-/// to the hull's section, a dark below-waterline belly, and a waterline boot
-/// stripe. Shared by the monohull, the catamaran's two pontoons, and the
-/// trimaran's hulls so every form reads as the same vessel, just arranged
-/// differently.
-pub(super) fn boat_hull_body(
-    parent: &mut Generator,
-    body: &SovereignMaterialSettings,
-    below: &SovereignMaterialSettings,
-    stripe: &SovereignMaterialSettings,
-    spec: HullSpec,
-) {
+/// Sample-grid resolution for a hull BlobGroup (cells along its longest axis —
+/// the hull length). Smooth enough for a clean sheer without faceting; near the
+/// sanitiser's 48 ceiling but a trimaran's three hulls still bake in a few ms.
+const HULL_BLOB_RES: u32 = 44;
+
+/// Build one swept boat hull into `parent` at the spec's lateral offset: a
+/// single smooth BlobGroup — a full amidships mass pulled to a fine point at
+/// the bow (+Z) and rounded to a transom aft — plus a thin waterline boot
+/// stripe. Replaces the old topsides-box + squashed-cone-prow idiom (which
+/// read as a flat-walled APC head-on, its round cone base unable to cap the
+/// square section); the blob is watertight by construction and reads pointed
+/// from every angle. Shared by the monohull, the catamaran's two pontoons, and
+/// the trimaran's hulls so every form is the same vessel, just arranged
+/// differently. The dark below-waterline two-tone rides the materials pass
+/// (#786); this pass owns the shape.
+pub(super) fn boat_hull_body(parent: &mut Generator, ctx: &PartCtx, spec: HullSpec) {
     let HullSpec {
         x,
         beam,
         length,
         freeboard,
     } = spec;
-    // A short aft topsides box leaves the forward ~40 % of the hull to the prow,
-    // so the pointed bow — not a flat full-beam box wall — is what's seen
-    // head-on. A gentle flare (negative taper) keeps the deck off a plain slab.
-    let box_len = length * 0.58;
-    let z_off = -length * 0.12;
-    parent.children.push(prim(
-        with_torture(
-            cuboid([beam, freeboard, box_len], body.clone()),
-            0.0,
-            -0.1,
-            [0.0, 0.0, 0.0],
-        ),
-        [x, freeboard * 0.15, z_off],
-        id_quat(),
-    ));
-    // Pointed cone prow (apex +Z) forming the forward hull: its base meets the
-    // box front (a touch wider, so it caps the box rather than leaving a flat
-    // wall) and it tapers to the bow tip, so the craft reads pointed from
-    // head-on. quat_x(+90°) sends the cone apex (+Y) to +Z; the node Z-scale
-    // squashes the round section to the hull's freeboard.
-    let mut prow = prim(
-        cone(beam * 0.52, length * 0.52, 14, body.clone()),
-        [x, freeboard * 0.22, length * 0.43],
-        quat_xyzw(quat_x(FRAC_PI_2)),
+    // A smooth matte painted skin — the blob's curvature carries the form, so
+    // the busy brushed/woven `body` normal-map (which read as scaly bumps on
+    // the round hull) is dropped here; a proper hull material + wrap-mapped
+    // texture is the materials pass's job (#786).
+    let skin = ctx.materials.cloth(ctx.palette.primary_accent);
+    let stripe = ctx.materials.accent(ctx.palette.secondary_accent);
+    let hull = blob_group(
+        vec![
+            // Amidships mass: beam wide, freeboard tall (its top sits at the
+            // deck line ≈ freeboard·0.48 so the cockpit seats on it), biased a
+            // touch aft so the fullest section is behind midships.
+            blob_ellipsoid(
+                [0.0, -freeboard * 0.26, -length * 0.05],
+                [beam * 0.5, freeboard * 0.74, length * 0.40],
+                id_quat(),
+                freeboard * 0.5,
+            ),
+            // Bow: a cone blended forward from inside the mass to a fine point
+            // at ≈ +0.54·length, raised toward the deck line so the stem lifts
+            // out of the water like a real sheer. quat_x(+90°) aims the cone's
+            // +Y axis along +Z (the authored bow direction); the tighter blend
+            // keeps the point crisp rather than bulbous.
+            blob_cone(
+                [0.0, -freeboard * 0.10, length * 0.34],
+                beam * 0.44,
+                length * 0.20,
+                0.025,
+                quat_xyzw(quat_x(FRAC_PI_2)),
+                freeboard * 0.40,
+            ),
+        ],
+        HULL_BLOB_RES,
+        skin,
     );
-    prow.transform.scale = Fp3([0.96, 1.0, freeboard / (beam * 1.04)]);
-    parent.children.push(prow);
-    // Dark below-waterline belly — a shallow V-keel (negative taper flares the
-    // waterline + narrows the keel) so the underbody reads as a hull bottom,
-    // not a flat skid plate.
-    parent.children.push(prim(
-        with_torture(
-            cuboid([beam * 0.8, freeboard * 0.78, box_len], below.clone()),
-            0.0,
-            -0.35,
-            [0.0, 0.0, 0.0],
-        ),
-        [x, -freeboard * 0.42, z_off],
-        id_quat(),
-    ));
-    // Waterline boot stripe down each flank.
+    parent.children.push(prim(hull, [x, 0.0, 0.0], id_quat()));
+    // Waterline boot stripe down each flank (hugs the hull side at y≈0).
     for s in [-1.0f32, 1.0] {
         parent.children.push(prim(
-            cuboid([0.016, freeboard * 0.18, box_len * 0.85], stripe.clone()),
-            [x + s * beam * 0.5, -freeboard * 0.05, z_off],
+            cuboid([0.016, freeboard * 0.16, length * 0.6], stripe.clone()),
+            [x + s * beam * 0.45, -freeboard * 0.02, -length * 0.05],
             id_quat(),
         ));
     }
@@ -117,19 +115,16 @@ fn hull_dims(ctx: &PartCtx) -> (f32, f32, f32) {
 }
 
 pub(super) fn hull(ctx: &PartCtx) -> Generator {
-    // Monohull — a single sleek launch hull with gunwale rails.
+    // Monohull — a single sleek smooth launch hull. Deck-edge trim (gunwales,
+    // rubbing strake) rides the deck-furniture pass (#785); the box-hull's
+    // straight gunwale rails don't sit on a rounded sheer.
     let body = ctx.materials.body(ctx.palette.primary_accent);
-    let below = ctx.materials.metal(shade(ctx.palette.primary_accent, 0.4));
-    let stripe = ctx.materials.accent(ctx.palette.secondary_accent);
-    let rail = ctx.materials.metal(ctx.palette.tertiary_accent);
     let (beam, length, freeboard) = hull_dims(ctx);
 
     let mut root = boat_root(&body);
     boat_hull_body(
         &mut root,
-        &body,
-        &below,
-        &stripe,
+        ctx,
         HullSpec {
             x: 0.0,
             beam,
@@ -137,22 +132,12 @@ pub(super) fn hull(ctx: &PartCtx) -> Generator {
             freeboard,
         },
     );
-    // Gunwale rails along each deck edge (tracking the seeded beam / length).
-    for s in [-1.0f32, 1.0] {
-        root.children.push(prim(
-            cuboid([0.03, 0.035, length * 0.74], rail.clone()),
-            [s * beam * 0.48, freeboard * 0.65, -0.06],
-            id_quat(),
-        ));
-    }
     root
 }
 
 pub(super) fn hull_catamaran(ctx: &PartCtx) -> Generator {
     // Catamaran — two slim pontoon hulls under a connecting deck bridge.
     let body = ctx.materials.body(ctx.palette.primary_accent);
-    let below = ctx.materials.metal(shade(ctx.palette.primary_accent, 0.4));
-    let stripe = ctx.materials.accent(ctx.palette.secondary_accent);
     let bridge = ctx.materials.body(shade(ctx.palette.primary_accent, 0.8));
 
     let (beam, length, freeboard) = hull_dims(ctx);
@@ -164,9 +149,7 @@ pub(super) fn hull_catamaran(ctx: &PartCtx) -> Generator {
     for s in [-1.0f32, 1.0] {
         boat_hull_body(
             &mut root,
-            &body,
-            &below,
-            &stripe,
+            ctx,
             HullSpec {
                 x: s * spread,
                 beam: beam * 0.48,
@@ -198,8 +181,6 @@ pub(super) fn hull_trimaran(ctx: &PartCtx) -> Generator {
     // Trimaran — a central main hull flanked by two small outrigger amas on
     // cross-beams.
     let body = ctx.materials.body(ctx.palette.primary_accent);
-    let below = ctx.materials.metal(shade(ctx.palette.primary_accent, 0.4));
-    let stripe = ctx.materials.accent(ctx.palette.secondary_accent);
     let beam_mat = ctx.materials.metal(ctx.palette.tertiary_accent);
 
     let (beam, length, freeboard) = hull_dims(ctx);
@@ -207,9 +188,7 @@ pub(super) fn hull_trimaran(ctx: &PartCtx) -> Generator {
     let mut root = boat_root(&body);
     boat_hull_body(
         &mut root,
-        &body,
-        &below,
-        &stripe,
+        ctx,
         HullSpec {
             x: 0.0,
             beam: beam * 0.84,
@@ -220,9 +199,7 @@ pub(super) fn hull_trimaran(ctx: &PartCtx) -> Generator {
     for s in [-1.0f32, 1.0] {
         boat_hull_body(
             &mut root,
-            &body,
-            &below,
-            &stripe,
+            ctx,
             HullSpec {
                 x: s * ama_x,
                 beam: beam * 0.28,
