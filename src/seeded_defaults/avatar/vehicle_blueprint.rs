@@ -78,6 +78,18 @@ impl VehicleStance {
         }
     }
 
+    /// `(length, radius)` multipliers the stance applies to the Lathe envelope
+    /// profile (#791): a Sleek ship is long and slim, a Heavy one short and
+    /// fat, a Compact one stubby. Centred so the population average stays near
+    /// each form's hand-tuned nominal.
+    fn airship_env_factors(self) -> (f32, f32) {
+        match self {
+            Self::Compact => (0.92, 1.02),
+            Self::Sleek => (1.13, 0.9),
+            Self::Heavy => (0.93, 1.14),
+        }
+    }
+
     /// `(length, width)` body multipliers — a Sleek skiff is a long low racer,
     /// a Heavy one a wide hauler, a Compact one a short runabout.
     fn skiff_factors(self) -> (f32, f32) {
@@ -151,14 +163,15 @@ impl BoatBlueprint {
     }
 }
 
-/// Airship proportions. An airship's mount *landmarks* (belly line, tail
-/// station, fin ring radius) depend on the chosen envelope **form**, so the
-/// assembler resolves them per-slug (see the vehicle assembler's
-/// `airship_mounts`) — a fat blimp and a slim zeppelin each seat their slung
-/// gondola and cruciform fins on *their own* body, not a one-size constant
-/// (the envelope-invariant-anchor bug that floated the twin's rigging clear of
-/// its belly). Envelope *size* variety rides with the Lathe envelope rebuild
-/// (#791); this blueprint carries the parts that vary today.
+/// Airship proportions. Each envelope **form** is a seeded Lathe body of
+/// revolution whose length + girth the `len_mult` / `radius_mult` here perturb
+/// (#791); its mount *landmarks* (belly line, tail station, fin ring radius,
+/// pod line) are read straight off that same profile by the assembler (see the
+/// vehicle assembler's `airship_mounts` + `airship_profile`) — so a fat blimp
+/// and a slim zeppelin each seat their slung gondola / cruciform fins / engine
+/// pods on *their own* body, and they stay seated as the profile stretches (the
+/// envelope-invariant-anchor bug that floated the twin's rigging clear of its
+/// belly is gone by construction).
 #[derive(Clone, Copy, Debug)]
 pub struct AirshipBlueprint {
     /// Overall build register — read by the locomotion tuning (#794); today it
@@ -166,18 +179,32 @@ pub struct AirshipBlueprint {
     pub stance: VehicleStance,
     /// Gondola size multiplier.
     pub gondola_scale: f32,
+    /// Lathe-envelope length multiplier (#791) — scales each form's profile
+    /// length so the population spans a continuum of silhouettes, not a few
+    /// fixed sizes. The assembler scales the belly / tail / fin / pod mounts by
+    /// the same factors so the slung parts stay seated.
+    pub len_mult: f32,
+    /// Lathe-envelope girth (max-radius) multiplier (#791).
+    pub radius_mult: f32,
 }
 
 impl AirshipBlueprint {
     fn derive(body: &AvatarBody, rng: &mut ChaCha8Rng) -> Self {
-        // Envelope-size jitter arrives with the Lathe envelope rebuild (#791);
-        // today only the stance + gondola scale vary.
         let stance = VehicleStance::sample(rng);
         let gondola_scale = (body.height_scale * body.head_scale * stance.airship_gondola_factor())
             .clamp(0.85, 1.2);
+        // Envelope size rides the body height (length) + shoulder-width (girth)
+        // knobs and the stance, with a small per-seed jitter — the #791
+        // continuum. Clamped so a Lathe profile never degenerates.
+        let (len_f, rad_f) = stance.airship_env_factors();
+        let len_mult = (body.height_scale * len_f * range_f32(rng, 0.95, 1.06)).clamp(0.85, 1.28);
+        let radius_mult =
+            (body.shoulder_width_scale * rad_f * range_f32(rng, 0.95, 1.05)).clamp(0.85, 1.2);
         Self {
             stance,
             gondola_scale,
+            len_mult,
+            radius_mult,
         }
     }
 }

@@ -7,7 +7,7 @@ use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
 use crate::pds::avatar::default_visuals::common::{
-    cone, cuboid, cylinder, id_quat, prim, quat_x, quat_xyzw, quat_z, sphere, spine, torus,
+    cone, cuboid, cylinder, id_quat, lathe, prim, quat_x, quat_xyzw, quat_z, sphere, spine, torus,
     with_cut, with_shape, with_torture,
 };
 use crate::pds::generator::Generator;
@@ -130,60 +130,193 @@ pub(crate) fn window_material(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Lay `n` longitudinal gore-seam battens over a scaled-ellipsoid gas bag
-/// (`center` + `half`-extents), plus — when `stripe` is `Some` — a wider
-/// registry band down each flank. Each batten is a thin [`spine`] tube tracing
-/// one meridian of the ellipsoid from shoulder to shoulder, so the seams run
-/// the length of the bag like the gores of a real fabric envelope: the surface
-/// interest that stops the largest surface in the avatar set reading as a flat
-/// monochrome blob (#789). The polar arc is inset from the poles so the battens
-/// stop short of the nose/tail cones + finials instead of converging on them.
-/// The gore ring is offset half a step so no batten lands on a flank — the
-/// registry stripe owns the flanks (θ = 0, π).
-pub(crate) fn push_gore_seams(
-    parent: &mut Generator,
-    center: [f32; 3],
-    half: [f32; 3],
+// ---------------------------------------------------------------------------
+// Lathe envelope continuum (#791)
+// ---------------------------------------------------------------------------
+//
+// The envelopes were scaled spheres with bolted-on nose/tail cones — the sphere
+// ↔ cone junction left a visible crease, and the handful of hardcoded
+// `(half-extents, cone)` tuples gave the population only ~5 fixed silhouettes.
+// Each form is now a single smooth Lathe body of revolution whose profile
+// radius `r(t)` is a seeded function: the four templates (zeppelin / blimp /
+// lobed / twin) set the shape knobs, the blueprint's `len_mult` / `radius_mult`
+// perturb them per seed, and the rings, gore battens, and mount landmarks all
+// derive from `r(t)` instead of a table — a continuum, watertight by
+// construction.
+
+/// A seeded airship-envelope silhouette: the radius profile `r(t)` for a single
+/// Lathe body of revolution, `t ∈ [0, 1]` running tail (0) → nose (1). The
+/// power knobs shape the ends (`> 1` pointed, `< 1` blunt/rounded); the ripple
+/// pinches the profile into lobes (the caterpillar); `length` / `max_r` are
+/// already blueprint-scaled.
+#[derive(Clone, Copy)]
+pub(crate) struct EnvProfile {
+    pub(crate) length: f32,
+    pub(crate) max_r: f32,
+    nose_p: f32,
+    tail_p: f32,
+    waist: f32,
+    ripple_freq: f32,
+    ripple_amp: f32,
+}
+
+impl EnvProfile {
+    /// Surface radius at station `t ∈ [0, 1]` (0 = tail, 1 = nose).
+    pub(crate) fn radius(&self, t: f32) -> f32 {
+        let t = t.clamp(0.0, 1.0);
+        let w = self.waist.clamp(0.05, 0.95);
+        let base = if t <= w {
+            self.max_r * (t / w).powf(self.tail_p)
+        } else {
+            self.max_r * ((1.0 - t) / (1.0 - w)).powf(self.nose_p)
+        };
+        if self.ripple_freq > 0.5 {
+            // Pinch the profile into lobes: dips to `1 − amp` at the waists
+            // between beads, full radius at the beads.
+            base * (1.0 - self.ripple_amp * (0.5 - 0.5 * (TAU * self.ripple_freq * t).cos()))
+        } else {
+            base
+        }
+    }
+    /// Z station (envelope centred at the origin) for `t`.
+    pub(crate) fn height(&self, t: f32) -> f32 {
+        (t - 0.5) * self.length
+    }
+    pub(crate) fn nose_z(&self) -> f32 {
+        0.5 * self.length
+    }
+}
+
+/// The seeded profile for an envelope `slug`, its length + girth scaled by the
+/// blueprint multipliers. The single source of truth shared by the envelope
+/// *part* (which laths it) and the *assembler* (which seats the gondola / fins /
+/// pods on landmarks derived from it) — see [`crate::pds::avatar::default_visuals`].
+pub(crate) fn airship_profile(slug: &str, len_mult: f32, radius_mult: f32) -> EnvProfile {
+    // `(length, max_r, nose_power, tail_power, waist, ripple_freq, ripple_amp)`
+    // per form. Zeppelin: long + slender, sharpish nose. Blimp: short + fat,
+    // blunt rounded ends. Lobed: a rippled profile that pinches into beads.
+    // Twin: a slim single-hull profile the part laths twice. Teardrop: a sharp
+    // nose over a full rounded tail, waist biased forward.
+    // Power knobs are < 1 so the body stays full across the middle and only
+    // rounds off near the ends (a power of ~1 gives a pointed diamond, not a
+    // gas bag); a smaller power = blunter/fuller, larger = sharper.
+    let (l, r, np, tp, w, rf, ra) = match slug {
+        "default_envelope_blimp" => (2.4, 0.9, 0.42, 0.44, 0.5, 0.0, 0.0),
+        "default_envelope_lobed" => (2.9, 0.64, 0.5, 0.52, 0.5, 2.0, 0.3),
+        "default_envelope_twin" => (2.5, 0.44, 0.55, 0.55, 0.5, 0.0, 0.0),
+        "airship_envelope_teardrop" => (3.0, 0.72, 0.9, 0.38, 0.6, 0.0, 0.0),
+        _ => (3.15, 0.62, 0.62, 0.55, 0.5, 0.0, 0.0),
+    };
+    let length = l * len_mult;
+    // Floor the length:diameter aspect so the shortest+fattest clamp corner
+    // (len_mult 0.85 × radius_mult 1.2) can't render a wider-than-long balloon —
+    // only the already-fat blimp base ever approaches 1:1; the slimmer forms
+    // stay well clear, so the cap never touches them (#791 review).
+    const MIN_ASPECT: f32 = 1.18;
+    let max_r = (r * radius_mult).min(length / (2.0 * MIN_ASPECT));
+    EnvProfile {
+        length,
+        max_r,
+        nose_p: np,
+        tail_p: tp,
+        waist: w,
+        ripple_freq: rf,
+        ripple_amp: ra,
+    }
+}
+
+/// The envelope profile for the seed being built (blueprint mults, or the
+/// nominal `1.0` when a non-airship ctx exercises the part — the sanitiser
+/// round-trip test).
+pub(crate) fn ctx_profile(ctx: &PartCtx, slug: &str) -> EnvProfile {
+    let (lm, rm) = ctx
+        .airship()
+        .map_or((1.0, 1.0), |bp| (bp.len_mult, bp.radius_mult));
+    airship_profile(slug, lm, rm)
+}
+
+/// Number of profile stations sampled for the Lathe (a smooth spline needs
+/// only a handful; must stay ≤ the sanitiser's `MAX_SWEEP_POINTS` = 16 or the
+/// profile would round-trip truncated).
+const ENV_STATIONS: usize = 13;
+
+/// Build a single smooth Lathe gas-bag from a profile, laid along Z (nose +Z)
+/// via `quat_x(90°)` — the pole radii pinch to a point so there are no cone
+/// junctions. `x` offsets it from the centreline (the twin's two hulls).
+pub(crate) fn lathe_spindle(
+    p: &EnvProfile,
+    x: f32,
+    material: SovereignMaterialSettings,
+) -> Generator {
+    let pts: Vec<(f32, f32)> = (0..ENV_STATIONS)
+        .map(|i| {
+            let t = i as f32 / (ENV_STATIONS - 1) as f32;
+            (p.radius(t), p.height(t))
+        })
+        .collect();
+    prim(
+        lathe(&pts, 22, true, material),
+        [x, 0.0, 0.0],
+        quat_xyzw(quat_x(FRAC_PI_2)),
+    )
+}
+
+/// Segment rings seated proud of the Lathe surface at `n` interior stations,
+/// their radius read from the profile (a flush band at every girth, not a
+/// hardcoded `(z, r)` table). `x` matches the hull offset.
+pub(crate) fn push_env_rings(
+    env: &mut Generator,
+    p: &EnvProfile,
+    x: f32,
+    n: u32,
+    material: &SovereignMaterialSettings,
+) {
+    for i in 1..=n {
+        let t = i as f32 / (n + 1) as f32;
+        let r = p.radius(t);
+        if r < 0.06 {
+            continue;
+        }
+        let mut ring = env_ring(material, p.height(t), r);
+        ring.transform.translation.0[0] += x;
+        env.children.push(ring);
+    }
+}
+
+/// Longitudinal gore battens tracing the Lathe profile (`n` meridians) + an
+/// optional registry band down each flank. Seated a full standoff proud of the
+/// skin (`tube + PROUD`) and kept inboard of the pinching poles (`T_LO..T_HI`),
+/// so the thin batten never runs *along* the receding silhouette where it
+/// z-fights into a dashed stipple (#791 review; the same class #789 fixed for
+/// the fatter rings). `x` matches the hull offset.
+pub(crate) fn push_env_gores(
+    env: &mut Generator,
+    p: &EnvProfile,
+    x: f32,
     n: u32,
     seam: &SovereignMaterialSettings,
     stripe: Option<&SovereignMaterialSettings>,
 ) {
-    const SAMPLES: u32 = 9;
-    const PHI_LO: f32 = 0.17; // inset from the +Z pole (fraction of PI)
-    const PHI_HI: f32 = 0.83; // inset from the -Z pole
-    // Trace each batten one tube-radius PROUD of the surface (inflate the
-    // half-extents by `r`) so the whole tube sits *outside* the skin and never
-    // goes coplanar/tangent with it at the silhouette — a straddling tube
-    // z-fights there into a dashed stipple (#789 review). Reads as a raised
-    // batten, not a floating hoop, since the offset is one thin tube radius.
-    let meridian = |theta: f32, r: f32| -> Vec<([f32; 3], f32)> {
+    const SAMPLES: u32 = 11;
+    const T_LO: f32 = 0.13;
+    const T_HI: f32 = 0.87;
+    const PROUD: f32 = 0.02;
+    let meridian = |theta: f32, tube: f32| -> Vec<([f32; 3], f32)> {
         let (ct, st) = (theta.cos(), theta.sin());
-        let h = [half[0] + r, half[1] + r, half[2] + r];
         (0..=SAMPLES)
             .map(|k| {
-                let phi = PI * (PHI_LO + (PHI_HI - PHI_LO) * (k as f32 / SAMPLES as f32));
-                let (sp, cp) = phi.sin_cos();
-                (
-                    [
-                        center[0] + h[0] * sp * ct,
-                        center[1] + h[1] * sp * st,
-                        center[2] + h[2] * cp,
-                    ],
-                    r,
-                )
+                let t = T_LO + (T_HI - T_LO) * (k as f32 / SAMPLES as f32);
+                let r = p.radius(t) + tube + PROUD;
+                ([x + r * ct, r * st, p.height(t)], tube)
             })
             .collect()
     };
     for i in 0..n {
         let theta = TAU * (i as f32 + 0.5) / n as f32;
-        // When a registry stripe owns the flanks (θ = 0, π), skip a batten that
-        // lands on one — happens for odd `n` (e.g. n = 7), and its thin tube
-        // would just bury inside the wider stripe tube (invariant hole caught
-        // by the #789 review). `sin θ ≈ 0` only at the flanks here.
         if stripe.is_some() && theta.sin().abs() < 1e-3 {
             continue;
         }
-        parent.children.push(prim(
+        env.children.push(prim(
             spine(&meridian(theta, 0.02), 5, seam.clone()),
             [0.0, 0.0, 0.0],
             id_quat(),
@@ -191,27 +324,13 @@ pub(crate) fn push_gore_seams(
     }
     if let Some(stripe) = stripe {
         for theta in [0.0f32, PI] {
-            parent.children.push(prim(
+            env.children.push(prim(
                 spine(&meridian(theta, 0.035), 6, stripe.clone()),
                 [0.0, 0.0, 0.0],
                 id_quat(),
             ));
         }
     }
-}
-
-/// A scaled-ellipsoid gas bag (a unit sphere scaled to `half`-extents) — the
-/// building block of every airship envelope form. The envelope root carries no
-/// scale (the assembler mounts gondola / fins to it and a root scale would
-/// stretch + fling them), so every bag is a scaled child of a hidden core.
-pub(crate) fn gas_bag(
-    material: &SovereignMaterialSettings,
-    center: [f32; 3],
-    half: [f32; 3],
-) -> Generator {
-    let mut bag = prim(sphere(1.0, 4, material.clone()), center, id_quat());
-    bag.transform.scale = Fp3(half);
-    bag
 }
 
 /// A structural frame ring (torus in the plane ⟂ Z) at `z`, major radius `r`.
@@ -227,8 +346,10 @@ pub(crate) fn env_ring(material: &SovereignMaterialSettings, z: f32, r: f32) -> 
     )
 }
 
-/// Hidden structural core for an airship envelope at the origin.
-pub(super) fn env_core(body: &SovereignMaterialSettings) -> Generator {
+/// Hidden structural core for an airship envelope at the origin — the unscaled
+/// root the assembler mounts the gondola / fins / pods to (a root scale would
+/// stretch and fling them), with the visible Lathe spindle as its child.
+pub(crate) fn env_core(body: &SovereignMaterialSettings) -> Generator {
     prim(
         cuboid([0.3, 0.3, 1.3], body.clone()),
         [0.0, 0.0, 0.0],
@@ -237,73 +358,50 @@ pub(super) fn env_core(body: &SovereignMaterialSettings) -> Generator {
 }
 
 pub(super) fn envelope(ctx: &PartCtx) -> Generator {
-    // Zeppelin — a long, rigid dirigible: a sleek matte gas bag with tapered
-    // nose + tail cones, prominent segment rings, and full-length gore seams.
+    // Zeppelin — a long, slender rigid dirigible: a single smooth Lathe spindle
+    // (no sphere↔cone junction crease) with a sharpish nose, prominent segment
+    // rings, and full-length gore seams.
     let c = airship_colors(ctx);
     let skin = envelope_material(c.envelope);
     let frame = ctx.materials.metal(c.frame);
     let stripe = ctx.materials.trim(c.stripe);
+    let p = ctx_profile(ctx, "default_envelope");
 
     let mut env = env_core(&skin);
-    // Slim + long (clearly slimmer than the fat blimp).
-    let (center, half) = ([0.0, 0.0, 0.0], [0.66, 0.68, 1.55]);
-    env.children.push(gas_bag(&skin, center, half));
-    // Tapered nose cone (apex +Z) and tail cone (apex -Z) for the rigid points.
+    env.children.push(lathe_spindle(&p, 0.0, skin));
+    // Longitudinal gore battens + a registry band down each flank, then the
+    // rigid segment rings — all seated from the profile radius.
+    push_env_gores(&mut env, &p, 0.0, 8, &frame, Some(&stripe));
+    push_env_rings(&mut env, &p, 0.0, 5, &frame);
+    // Pointed nose finial just past the profile nose.
     env.children.push(prim(
-        cone(0.4, 0.5, 12, skin.clone()),
-        [0.0, 0.0, 1.42],
-        quat_xyzw(quat_x(FRAC_PI_2)),
+        sphere(0.1, 3, stripe),
+        [0.0, 0.0, p.nose_z() + 0.06],
+        id_quat(),
     ));
-    env.children.push(prim(
-        cone(0.44, 0.55, 12, skin.clone()),
-        [0.0, 0.0, -1.4],
-        quat_xyzw(quat_x(-FRAC_PI_2)),
-    ));
-    // Longitudinal gore battens over the bag + a registry band down each flank.
-    push_gore_seams(&mut env, center, half, 8, &frame, Some(&stripe));
-    // Segment rings (rigid frame) seated at the bag radius so the band
-    // straddles the surface — flush, not a hoop floating proud.
-    for (z, r) in [
-        (-0.92f32, 0.53),
-        (-0.46, 0.63),
-        (0.0, 0.66),
-        (0.46, 0.63),
-        (0.92, 0.53),
-    ] {
-        env.children.push(env_ring(&frame, z, r));
-    }
-    // Pointed nose finial.
-    env.children
-        .push(prim(sphere(0.1, 3, stripe), [0.0, 0.0, 1.7], id_quat()));
     env
 }
 
 pub(super) fn envelope_blimp(ctx: &PartCtx) -> Generator {
-    // Blimp — a short, fat, soft non-rigid envelope: rounded ends, only a
-    // couple of soft bands, a stubbier silhouette than the zeppelin.
+    // Blimp — a short, fat, soft non-rigid envelope: a full Lathe spindle with
+    // blunt rounded ends, only a couple of soft bands (fewer gores than the
+    // rigid zeppelin), a stubbier silhouette.
     let c = airship_colors(ctx);
     let skin = envelope_material(c.envelope);
     let band = ctx.materials.metal(c.frame);
     let stripe = ctx.materials.trim(c.stripe);
+    let p = ctx_profile(ctx, "default_envelope_blimp");
 
     let mut env = env_core(&skin);
-    let (center, half) = ([0.0, 0.0, 0.0], [0.92, 0.88, 1.24]);
-    env.children.push(gas_bag(&skin, center, half));
-    // A short rounded tail bulb so the fins at z=-1.0 have a body to grip.
-    env.children
-        .push(gas_bag(&skin, [0.0, 0.0, -1.0], [0.5, 0.5, 0.5]));
-    // Longitudinal gore battens + a registry band down each flank (fewer gores
-    // than the zeppelin — a soft blimp is smoother, not a panelled rigid hull).
-    push_gore_seams(&mut env, center, half, 6, &band, Some(&stripe));
-    // Two soft bands. The bag's cross-section at z=±0.45 runs ≈0.82 (Y) to
-    // ≈0.86 (X); seat the circular band near the larger radius so it straddles
-    // the surface instead of sinking to a top-crescent (#781).
-    for z in [-0.45f32, 0.45] {
-        env.children.push(env_ring(&band, z, 0.85));
-    }
+    env.children.push(lathe_spindle(&p, 0.0, skin));
+    push_env_gores(&mut env, &p, 0.0, 6, &band, Some(&stripe));
+    push_env_rings(&mut env, &p, 0.0, 2, &band);
     // Rounded nose finial.
-    env.children
-        .push(prim(sphere(0.14, 3, stripe), [0.0, 0.0, 1.2], id_quat()));
+    env.children.push(prim(
+        sphere(0.14, 3, stripe),
+        [0.0, 0.0, p.nose_z() + 0.04],
+        id_quat(),
+    ));
     env
 }
 
@@ -315,125 +413,92 @@ pub(super) fn envelope_lobed(ctx: &PartCtx) -> Generator {
     let ring = ctx.materials.metal(c.frame);
     let stripe = ctx.materials.trim(c.stripe);
 
-    // Three distinct round beads (decreasing toward the tail) set far enough
-    // apart that the silhouette PINCHES to a narrow waist between them, joined
-    // by thin neck cylinders — a true string-of-beads caterpillar rather than a
-    // smooth ovoid with wrap-bands. The lobing reads from the profile outline.
+    // A single Lathe spindle whose profile RIPPLE pinches it into a string of
+    // beads (the caterpillar) — one watertight surface instead of three bolted
+    // spheres joined by neck cylinders. The lobing reads from the profile
+    // outline; rings cinch the pinched waists.
+    let p = ctx_profile(ctx, "default_envelope_lobed");
     let mut env = env_core(&skin);
-    env.children
-        .push(gas_bag(&skin, [0.0, 0.0, 0.92], [0.5, 0.52, 0.46]));
-    let (mid_c, mid_h) = ([0.0, 0.0, 0.0], [0.62, 0.64, 0.5]);
-    env.children.push(gas_bag(&skin, mid_c, mid_h));
-    env.children
-        .push(gas_bag(&skin, [0.0, 0.0, -0.92], [0.48, 0.5, 0.46]));
-    // Gore battens over the fat centre bead — the caterpillar's lobing carries
-    // the fore/aft cells, so this just keeps the largest one from reading flat.
-    push_gore_seams(&mut env, mid_c, mid_h, 6, &ring, None);
-    // Thin necks bridging the pinched waists (laid along Z).
-    for z in [0.46f32, -0.46] {
-        env.children.push(prim(
-            cylinder(0.32, 0.5, 10, skin.clone()),
-            [0.0, 0.0, z],
-            quat_xyzw(quat_x(FRAC_PI_2)),
-        ));
-        // A ring cinching each neck.
-        env.children.push(env_ring(&ring, z, 0.33));
+    env.children.push(lathe_spindle(&p, 0.0, skin));
+    push_env_gores(&mut env, &p, 0.0, 6, &ring, None);
+    // Rings cinching the pinched waists (the ripple dips at t = 0.25, 0.75).
+    for t in [0.25f32, 0.75] {
+        env.children.push(env_ring(&ring, p.height(t), p.radius(t)));
     }
-    // Tail cone (apex -Z) past the tail bead so the cruciform fins at z=-1.0
-    // sit on a pointed tail.
-    env.children.push(prim(
-        cone(0.4, 0.5, 12, skin.clone()),
-        [0.0, 0.0, -1.32],
-        quat_xyzw(quat_x(-FRAC_PI_2)),
-    ));
     // Pointed nose finial.
-    env.children
-        .push(prim(sphere(0.12, 3, stripe), [0.0, 0.0, 1.32], id_quat()));
+    env.children.push(prim(
+        sphere(0.12, 3, stripe),
+        [0.0, 0.0, p.nose_z() + 0.04],
+        id_quat(),
+    ));
     env
 }
 
 pub(super) fn envelope_twin(ctx: &PartCtx) -> Generator {
-    // Twin — a catamaran dirigible: two parallel gas bags joined by a braced
-    // centre truss that carries the cruciform tail. Its defining feature is the
-    // pair of side-by-side hulls seen head-on.
+    // Twin — a catamaran dirigible: two parallel Lathe spindles joined by a
+    // braced centre truss that carries the cruciform tail. Its defining feature
+    // is the pair of side-by-side hulls seen head-on.
     let c = airship_colors(ctx);
     let skin = envelope_material(c.envelope);
     let frame = ctx.materials.metal(c.frame);
     let stripe = ctx.materials.trim(c.stripe);
+    let strut = ctx.materials.metal(c.accent);
+    let p = ctx_profile(ctx, "default_envelope_twin");
+    // Hulls set a hair apart so the twin tunnel reads (scales with girth).
+    let hull_x = p.max_r + 0.02;
 
     let mut env = env_core(&skin);
     for s in [-1.0f32, 1.0] {
-        let hull = [s * 0.46, 0.04, 0.0];
-        env.children.push(gas_bag(&skin, hull, [0.4, 0.46, 1.22]));
-        // Per-bag nose + tail cones.
-        env.children.push(prim(
-            cone(0.26, 0.4, 10, skin.clone()),
-            [s * 0.46, 0.04, 1.1],
-            quat_xyzw(quat_x(FRAC_PI_2)),
-        ));
-        env.children.push(prim(
-            cone(0.28, 0.42, 10, skin.clone()),
-            [s * 0.46, 0.04, -1.08],
-            quat_xyzw(quat_x(-FRAC_PI_2)),
-        ));
+        let x = s * hull_x;
+        env.children.push(lathe_spindle(&p, x, skin.clone()));
         env.children.push(prim(
             sphere(0.07, 3, stripe.clone()),
-            [s * 0.46, 0.04, 1.32],
+            [x, 0.0, p.nose_z() + 0.03],
             id_quat(),
         ));
-        // A few gore battens per hull so the twin's bags read as taut fabric
-        // like the other forms (no flank stripe — the inner flanks face the
-        // narrow tunnel between the hulls where a band would just be hidden).
-        push_gore_seams(&mut env, hull, [0.4, 0.46, 1.22], 4, &frame, None);
+        // A few gore battens per hull (no flank stripe — the inner flanks face
+        // the narrow tunnel where a band would just be hidden).
+        push_env_gores(&mut env, &p, x, 4, &frame, None);
     }
-    // Centre truss (#789): the bare connecting slabs become an exposed airframe.
-    // The two hulls nearly touch at the centreline (a ~0.12 tunnel between
-    // ±0.46 hulls of 0.4 half-width), so a truss spanning at hull-centre height
-    // buries ~85 % of itself inside the hulls and — in the dark `frame` tone —
-    // vanished into their shadow (#789 review). The fix drops the truss LOW so
-    // its crossings dip below the hull bottoms (y = −0.42) into open air where
-    // they read, and wears the brighter `accent` metal so the bracing pops
-    // against the shadowed inner hulls instead of merging with them.
-    let strut = ctx.materials.metal(c.accent);
-    // Longitudinal keel beam slung under the tunnel — the member the gondola
-    // cables meet and the fins seat behind.
+    // Fin station: the tail-inboard point the cruciform fins + empennage share
+    // with `airship_mounts` (both use −0.4·length).
+    let tail = -0.4 * p.length;
+    // Centre truss (#789): an exposed airframe — the two hulls nearly touch at
+    // the centreline, so a truss at hull-centre height buries itself in their
+    // shadow. It drops LOW so its crossings dip below the hull bottoms into
+    // clear air, in the brighter `accent` metal so the bracing reads.
     env.children.push(prim(
-        cuboid([0.07, 0.09, 1.2], strut.clone()),
+        cuboid([0.07, 0.09, p.length * 0.92], strut.clone()),
         [0.0, -0.36, 0.0],
         id_quat(),
     ));
-    // X cross-struts at three stations: each is a pair of diagonals whose
-    // crossing sits in the exposed tunnel slot and whose lower arms splay down
-    // past the hull bottoms into clear air (rake ≈ 0.42 rad over a ±0.45 × ±0.19
-    // diagonal), so the bracing reads as an X rather than a buried blob.
-    for z in [0.6f32, 0.0, -0.6] {
+    // X cross-struts at three stations, spanning the hull centres (±hull_x),
+    // raked so the crossings sit in the exposed tunnel slot.
+    for z in [0.24 * p.length, 0.0, -0.24 * p.length] {
         for sign in [1.0f32, -1.0] {
             env.children.push(prim(
-                cuboid([0.9, 0.055, 0.06], strut.clone()),
+                cuboid([2.0 * hull_x, 0.055, 0.06], strut.clone()),
                 [0.0, -0.32, z],
                 quat_xyzw(quat_z(sign * 0.42)),
             ));
         }
     }
-    // Central empennage at the cruciform-fin mount (z = -1.0), so the dorsal /
-    // ventral fins have a body to grip at the centreline between the two hulls.
-    // The vertical stabiliser is tapered + raked aft (not a flat slab) so the
-    // tail reads as a shaped fin rather than the bare rectangle a plain cuboid
-    // showed broadside (#781); the horizontal spar stays a thin plate (it never
-    // read as a slab) but is trimmed shallower so the swept fins overhang it.
+    // Central empennage at the fin station, so the dorsal / ventral fins grip a
+    // body at the centreline between the hulls. Tapered + aft-raked vertical
+    // stabiliser (not a flat slab, #781) + a thin horizontal spar.
     env.children.push(prim(
         with_shape(
             cuboid([0.12, 1.1, 0.46], skin.clone()),
-            [0.3, 0.7], // draw the top in — full chord at the root, thin aloft
+            [0.3, 0.7],
             [0.0, 0.0, 0.0],
-            [0.0, -0.12], // rake the tip aft
+            [0.0, -0.12],
         ),
-        [0.0, 0.0, -1.0],
+        [0.0, 0.0, tail],
         id_quat(),
     ));
     env.children.push(prim(
-        cuboid([1.0, 0.12, 0.34], skin),
-        [0.0, 0.0, -1.0],
+        cuboid([2.0 * hull_x + 0.1, 0.12, 0.34], skin),
+        [0.0, 0.0, tail],
         id_quat(),
     ));
     env

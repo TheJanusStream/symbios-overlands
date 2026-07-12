@@ -12,7 +12,7 @@
 
 use std::f32::consts::{FRAC_PI_2, PI};
 
-use crate::pds::avatar::parts::defaults::airship::airship_colors;
+use crate::pds::avatar::parts::defaults::airship::{EnvProfile, airship_colors, airship_profile};
 use crate::pds::avatar::parts::{PartCtx, PartSlot, by_slug, outfit_has_hat};
 use crate::pds::generator::Generator;
 use crate::pds::types::{Fp3, Fp4};
@@ -39,7 +39,13 @@ pub(super) fn build(seed: u64) -> Generator {
         .iter()
         .find(|p| p.slot == PartSlot::Envelope)
         .map_or("default_envelope", |p| p.slug);
-    let mounts = airship_mounts(env_slug);
+    // Landmarks derive from the *same* seeded Lathe profile the envelope part
+    // laths, so the gondola / fins / pods stay seated as the blueprint stretches
+    // the envelope's length + girth (#791).
+    let (len_mult, radius_mult) = ctx
+        .airship()
+        .map_or((1.0, 1.0), |a| (a.len_mult, a.radius_mult));
+    let mounts = airship_mounts(env_slug, &airship_profile(env_slug, len_mult, radius_mult));
     let gondola_scale = ctx.airship().map_or(1.0, |a| a.gondola_scale);
 
     // The gondola hangs a short gap below the belly; its roof is a cabin
@@ -136,26 +142,38 @@ struct AirshipMounts {
     pod_z: f32,
 }
 
-fn airship_mounts(slug: &str) -> AirshipMounts {
-    // `(belly_y, tail_z, fin_ring_r, pod_x, pod_y, pod_z)` per form. The twin's
-    // belly sits much higher (its hulls straddle the centreline), the blimp's
-    // fin ring is pushed out so the fins clear its fat tail bulb, and the pods
-    // hang under each form's lower flank (the twin mounts one under each hull).
-    let (belly_y, tail_z, fin_ring_r, pod_x, pod_y, pod_z) = match slug {
-        "default_envelope_blimp" => (-0.86, -1.0, 0.62, 0.64, -0.72, -0.1),
-        "default_envelope_twin" => (-0.42, -1.0, 0.55, 0.54, -0.52, -0.15),
-        "default_envelope_lobed" => (-0.62, -1.15, 0.44, 0.44, -0.5, -0.05),
-        "airship_envelope_teardrop" => (-0.72, -1.0, 0.5, 0.52, -0.62, -0.2),
-        // Zeppelin (default_envelope) + any future form.
-        _ => (-0.66, -1.15, 0.46, 0.52, -0.6, -0.15),
-    };
+fn airship_mounts(slug: &str, p: &EnvProfile) -> AirshipMounts {
+    // Landmarks are read off the seeded profile `p` so they track the
+    // blueprint's length + girth stretch (#791) — bar the twin's fin ring, which
+    // is fixed to its centreline empennage (see below). The twin is the one
+    // bespoke case: its two hulls straddle the centreline, so the gondola / pods
+    // hang from the tunnel, not a single belly.
+    if slug == "default_envelope_twin" {
+        let hull_x = p.max_r + 0.02;
+        return AirshipMounts {
+            belly_y: -p.max_r,
+            tail_z: -0.4 * p.length,
+            // Deliberately fixed: the twin's cruciform fins cluster on the
+            // fixed-size *central empennage* at the centreline (the vertical
+            // stabiliser is ±0.55 tall), not on either hull surface — so this
+            // ring tracks the empennage, not the hull girth like the others.
+            fin_ring_r: 0.5,
+            pod_x: hull_x,
+            pod_y: -p.max_r * 0.9,
+            pod_z: -0.06 * p.length,
+        };
+    }
+    // Single-hull forms: `fin_t` is the tail-inboard station where the profile
+    // still has girth for the cruciform fins to grip (matching the −0.4·length
+    // the twin empennage uses).
+    let fin_t = 0.1;
     AirshipMounts {
-        belly_y,
-        tail_z,
-        fin_ring_r,
-        pod_x,
-        pod_y,
-        pod_z,
+        belly_y: -p.max_r * 0.94,
+        tail_z: p.height(fin_t),
+        fin_ring_r: p.radius(fin_t) + 0.08,
+        pod_x: p.max_r * 0.8,
+        pod_y: -p.max_r * 0.95,
+        pod_z: -0.05 * p.length,
     }
 }
 

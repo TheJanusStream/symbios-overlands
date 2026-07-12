@@ -16,8 +16,8 @@ use crate::pds::avatar::default_visuals::common::{
     superellipsoid, torus, with_cut, with_shape,
 };
 use crate::pds::avatar::parts::defaults::airship::{
-    GondolaDims, airship_colors, dress_gondola, env_ring, envelope_material, gas_bag, pod_pylon,
-    push_gore_seams,
+    GondolaDims, airship_colors, ctx_profile, dress_gondola, env_core, envelope_material,
+    lathe_spindle, pod_pylon, push_env_gores, push_env_rings,
 };
 use crate::pds::avatar::parts::defaults::skiff::{
     push_wheel_fenders, skiff_colors, skiff_dims, skiff_wheel_anchors,
@@ -382,45 +382,27 @@ fn deck_bench(ctx: &PartCtx) -> Generator {
 // ---------------------------------------------------------------------------
 
 fn teardrop_envelope(ctx: &PartCtx) -> Generator {
-    // A *smooth* teardrop gas-bag: a single scaled-ellipsoid child of a hidden
-    // core (the root carries **no** scale — the assembler mounts the gondola /
-    // fins to it, which a root scale would stretch and fling), with a long
-    // pointed nose cone making the teardrop. Replaces the old lumpy lobes.
-    // Shares the airship two-hue material scheme + gore-seam surface pass (#789)
-    // so the steampunk teardrop reads as taut doped fabric, not a glossy blob.
+    // Steampunk teardrop — a single smooth Lathe spindle whose profile is a
+    // SHARP nose over a FULL rounded tail with the waist biased forward (the
+    // classic teardrop), no sphere↔cone junction (#791). Built as a child of a
+    // hidden unscaled core (the assembler mounts the gondola / fins to the root,
+    // which a root scale would fling). Shares the airship gore/ring/registry
+    // surface pass so it reads as taut doped fabric, not a glossy blob.
     let c = airship_colors(ctx);
     let skin = envelope_material(c.envelope);
     let frame = ctx.materials.metal(c.frame);
     let stripe = ctx.materials.trim(c.stripe);
-    let mut env = prim(
-        cuboid([0.3, 0.3, 1.5], skin.clone()),
-        [0.0, 0.0, 0.0],
-        id_quat(),
-    );
-    // The teardrop bag: a scaled ellipsoid via the shared `gas_bag` builder
-    // (half-extents = sphere(0.8) scaled [0.92,0.92,1.5]), so the "one gas-bag
-    // builder" contract isn't silently duplicated for the styled envelope.
-    let (center, half) = ([0.0, 0.0, -0.15], [0.736, 0.736, 1.2]);
-    env.children.push(gas_bag(&skin, center, half));
-    // Long pointed teardrop nose at the bow (+Z), apex forward, blending out of
-    // the bag.
+    let p = ctx_profile(ctx, "airship_envelope_teardrop");
+    let mut env = env_core(&skin);
+    env.children.push(lathe_spindle(&p, 0.0, skin));
+    push_env_gores(&mut env, &p, 0.0, 7, &frame, Some(&stripe));
+    push_env_rings(&mut env, &p, 0.0, 2, &frame);
+    // Pointed nose finial just past the sharp nose.
     env.children.push(prim(
-        cone(0.55, 0.95, 12, skin.clone()),
-        [0.0, 0.0, 0.7],
-        quat_xyzw(quat_x(FRAC_PI_2)),
-    ));
-    env.children.push(prim(
-        sphere(0.1, 3, stripe.clone()),
-        [0.0, 0.0, 1.18],
+        sphere(0.1, 3, stripe),
+        [0.0, 0.0, p.nose_z() + 0.04],
         id_quat(),
     ));
-    // Longitudinal gore battens + a registry band down each flank (even count so
-    // no batten collides with the flank stripe).
-    push_gore_seams(&mut env, center, half, 8, &frame, Some(&stripe));
-    // Frame rings encircling the bag (seated proud by `env_ring`).
-    for z in [-0.5f32, 0.05] {
-        env.children.push(env_ring(&frame, z, 0.72));
-    }
     env
 }
 
