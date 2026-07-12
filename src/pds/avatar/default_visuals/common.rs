@@ -150,11 +150,29 @@ pub(crate) fn blob_group(
     resolution: u32,
     material: SovereignMaterialSettings,
 ) -> GeneratorKind {
+    blob_group_uv(
+        elements,
+        resolution,
+        crate::pds::generator::UvMapping::default(),
+        material,
+    )
+}
+
+/// [`blob_group`] with an explicit [`UvMapping`](crate::pds::generator::UvMapping)
+/// instead of the `Box` default — e.g. `Cylindrical` so a wrap-mapped texture
+/// (planking / plating) flows *along* an elongated mass (a boat hull) rather
+/// than tri-planar-projecting with per-face seams.
+pub(crate) fn blob_group_uv(
+    elements: Vec<BlobElement>,
+    resolution: u32,
+    uv_mapping: crate::pds::generator::UvMapping,
+    material: SovereignMaterialSettings,
+) -> GeneratorKind {
     GeneratorKind::BlobGroup {
         elements,
         resolution,
         solid: false,
-        uv_mapping: crate::pds::generator::UvMapping::default(),
+        uv_mapping,
         material,
         torture: TortureParams::default(),
     }

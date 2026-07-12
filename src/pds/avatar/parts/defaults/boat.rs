@@ -4,14 +4,16 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::pds::avatar::default_visuals::common::{
-    blob_cone, blob_ellipsoid, blob_group, cuboid, cylinder, id_quat, prim, quat_x, quat_xyzw,
-    quat_z, spine, with_shape,
+    blob_box, blob_carve, blob_cone, blob_ellipsoid, blob_group, blob_group_uv, cuboid, cylinder,
+    id_quat, prim, quat_x, quat_xyzw, quat_z, sphere, spine, with_shape,
 };
-use crate::pds::generator::Generator;
-use crate::pds::texture::SovereignMaterialSettings;
+use crate::pds::generator::{Generator, UvMapping};
+use crate::pds::texture::{
+    SovereignMaterialSettings, SovereignPlankConfig, SovereignTextureConfig,
+};
+use crate::pds::types::{Fp, Fp3, Fp64};
 
 use super::super::PartCtx;
-use super::common::shade;
 
 /// A hidden structural core for a boat hull at the waterline origin. The boat
 /// assembler overwrites the root transform (travel yaw + hover drop) and mounts
@@ -23,6 +25,144 @@ pub(super) fn boat_root(body: &SovereignMaterialSettings) -> Generator {
         [0.0, 0.0, 0.0],
         id_quat(),
     )
+}
+
+// ---------------------------------------------------------------------------
+// Boat colour scheme (#786)
+// ---------------------------------------------------------------------------
+//
+// Boats read as dark monochrome blocks when every surface is a shade of the
+// primary accent. The scheme below spends the *whole* palette triad across the
+// hull (primary), deckhouse (secondary), and cove/trim (tertiary), then floors
+// and separates their *values* so a dark or low-contrast seed still keeps
+// readable part boundaries — since `base_hue_deg` is uniform-random per seed,
+// value structure + the per-seed secondary/tertiary hue jitters are what let
+// two close-hued boats still read apart.
+
+/// Perceptual-ish sRGB luma for value-contrast bookkeeping.
+fn luma(c: [f32; 3]) -> f32 {
+    0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+}
+
+/// Linear mix of `c` toward `target` by `t` (clamped to gamut).
+fn mix(c: [f32; 3], target: [f32; 3], t: f32) -> [f32; 3] {
+    let t = t.clamp(0.0, 1.0);
+    [
+        (c[0] * (1.0 - t) + target[0] * t).clamp(0.0, 1.0),
+        (c[1] * (1.0 - t) + target[1] * t).clamp(0.0, 1.0),
+        (c[2] * (1.0 - t) + target[2] * t).clamp(0.0, 1.0),
+    ]
+}
+
+/// Retint `c` to hit `target_l` luma by mixing toward white (to brighten) or
+/// black (to darken) — keeps the hue, moves only the value.
+fn to_value(c: [f32; 3], target_l: f32) -> [f32; 3] {
+    let l = luma(c);
+    if (l - target_l).abs() < 1e-3 {
+        return c;
+    }
+    if target_l > l {
+        mix(
+            c,
+            [1.0, 1.0, 1.0],
+            ((target_l - l) / (1.0 - l).max(1e-3)).clamp(0.0, 0.85),
+        )
+    } else {
+        mix(
+            c,
+            [0.0, 0.0, 0.0],
+            ((l - target_l) / l.max(1e-3)).clamp(0.0, 0.85),
+        )
+    }
+}
+
+/// Raise `c`'s value to at least `min_l` (a dark seed's hull never collapses to
+/// an unreadable near-black block).
+fn floor_value(c: [f32; 3], min_l: f32) -> [f32; 3] {
+    if luma(c) < min_l {
+        to_value(c, min_l)
+    } else {
+        c
+    }
+}
+
+/// Push `c`'s value away from `ref_l` until they differ by at least `min_delta`
+/// (staying on whichever side `c` already sits) — keeps two adjacent boat
+/// surfaces from merging into one mass on a low-contrast seed.
+fn ensure_delta(c: [f32; 3], ref_l: f32, min_delta: f32) -> [f32; 3] {
+    let l = luma(c);
+    if (l - ref_l).abs() >= min_delta {
+        return c;
+    }
+    if l >= ref_l {
+        to_value(c, (ref_l + min_delta).min(0.92))
+    } else {
+        to_value(c, (ref_l - min_delta).max(0.04))
+    }
+}
+
+/// Deepen + saturate a colour toward its dominant channel — a running-light
+/// glow wants to be a saturated jewel, not a pastel.
+fn saturate(c: [f32; 3]) -> [f32; 3] {
+    let l = luma(c);
+    [
+        (c[0] + (c[0] - l) * 0.6).clamp(0.0, 1.0),
+        (c[1] + (c[1] - l) * 0.6).clamp(0.0, 1.0),
+        (c[2] + (c[2] - l) * 0.6).clamp(0.0, 1.0),
+    ]
+}
+
+/// The seeded boat two-tone + trim scheme, value-floored and value-separated.
+#[derive(Clone, Copy)]
+pub(super) struct BoatColors {
+    /// Above-waterline topsides (primary accent, value-floored).
+    topsides: [f32; 3],
+    /// Below-waterline belly / antifouling (a distinctly darker topsides).
+    belly: [f32; 3],
+    /// Deckhouse / cabin — the secondary accent, value-separated from topsides.
+    deck: [f32; 3],
+    /// Waterline cove line — a bright tertiary pop.
+    cove: [f32; 3],
+    /// Deck-edge rub-strake — value-separated trim.
+    strake: [f32; 3],
+    /// Running-light beacon — a deep-saturated jewel.
+    beacon: [f32; 3],
+}
+
+pub(super) fn boat_colors(ctx: &PartCtx) -> BoatColors {
+    let p = &ctx.palette;
+    let topsides = floor_value(p.primary_accent, 0.22);
+    let tl = luma(topsides);
+    BoatColors {
+        topsides,
+        belly: to_value(topsides, (tl * 0.42).max(0.04)),
+        deck: ensure_delta(p.secondary_accent, tl, 0.14),
+        cove: floor_value(p.tertiary_accent, 0.52),
+        strake: ensure_delta(p.tertiary_accent, tl, 0.16),
+        beacon: saturate(p.tertiary_accent),
+    }
+}
+
+/// A lap-strake / planked hull skin: a matte painted plank texture toned to
+/// `color`. Unlike [`MaterialKit::body`](crate::seeded_defaults::MaterialKit),
+/// the plank grain is a base-colour pattern with no aggressive normal map, so
+/// it reads as planking (not scaly bumps) on the curved blob when wrap-mapped.
+fn hull_material(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.82),
+        metallic: Fp(0.0),
+        uv_scale: Fp(2.2),
+        texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
+            color_wood_light: Fp3(mix(color, [1.0, 1.0, 1.0], 0.14)),
+            color_wood_dark: Fp3(mix(color, [0.0, 0.0, 0.0], 0.22)),
+            plank_count: Fp64(7.0),
+            knot_density: Fp64(0.04),
+            grain_warp: Fp64(0.12),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
 }
 
 /// Placement + dimensions for one boat hull built by [`boat_hull_body`].
@@ -124,64 +264,101 @@ pub(super) fn boat_hull_body(parent: &mut Generator, ctx: &PartCtx, spec: HullSp
         freeboard,
         ..
     } = spec;
-    // A smooth matte painted skin — the blob's curvature carries the form, so
-    // the busy brushed/woven `body` normal-map (which read as scaly bumps on
-    // the round hull) is dropped here; a proper hull material + wrap-mapped
-    // texture is the materials pass's job (#786).
-    let skin = ctx.materials.cloth(ctx.palette.primary_accent);
-    let stripe = ctx.materials.accent(ctx.palette.secondary_accent);
-    let hull = blob_group(
-        vec![
-            // Amidships mass: beam wide, freeboard tall (its top sits at the
-            // deck line ≈ freeboard·0.48 so the cockpit seats on it), biased a
-            // touch aft so the fullest section is behind midships.
-            blob_ellipsoid(
-                [0.0, -freeboard * 0.26, -length * 0.05],
-                [beam * 0.5, freeboard * 0.74, length * 0.40],
-                id_quat(),
-                freeboard * 0.5,
-            ),
-            // Bow: a cone blended forward from inside the mass to a fine point
-            // at ≈ +0.54·length, raised toward the deck line so the stem lifts
-            // out of the water like a real sheer. quat_x(+90°) aims the cone's
-            // +Y axis along +Z (the authored bow direction); the tighter blend
-            // keeps the point crisp rather than bulbous.
-            blob_cone(
-                [0.0, -freeboard * 0.10, length * 0.34],
-                beam * 0.44,
-                length * 0.20,
-                0.025,
-                quat_xyzw(quat_x(FRAC_PI_2)),
-                freeboard * 0.40,
-            ),
-        ],
-        HULL_BLOB_RES,
-        skin,
+    let colors = boat_colors(ctx);
+    // Amidships mass: beam wide, freeboard tall (its top sits at the deck line
+    // ≈ freeboard·0.48 so the cockpit seats on it), biased a touch aft so the
+    // fullest section is behind midships.
+    let amidships = blob_ellipsoid(
+        [0.0, -freeboard * 0.26, -length * 0.05],
+        [beam * 0.5, freeboard * 0.74, length * 0.40],
+        id_quat(),
+        freeboard * 0.5,
     );
-    parent.children.push(prim(hull, [x, 0.0, 0.0], id_quat()));
+    // Bow: a cone blended forward from inside the mass to a fine point at
+    // ≈ +0.54·length, raised toward the deck line so the stem lifts out of the
+    // water like a real sheer. quat_x(+90°) aims the cone's +Y axis along +Z
+    // (the authored bow direction); the tighter blend keeps the point crisp.
+    let bow = blob_cone(
+        [0.0, -freeboard * 0.10, length * 0.34],
+        beam * 0.44,
+        length * 0.20,
+        0.025,
+        quat_xyzw(quat_x(FRAC_PI_2)),
+        freeboard * 0.40,
+    );
     if spec.rails {
-        // Deck-edge rub-strake just below the sheer + a waterline boot stripe,
-        // both swept so they hug the curved topsides instead of a straight
-        // cuboid poking past the narrowing ends (#785). The strake is a dark
-        // toe-rail; the boot stripe keeps the accent band (its two-tone /
-        // below-waterline refinement rides the materials pass, #786).
-        let strake = ctx.materials.trim(ctx.palette.tertiary_accent);
+        // Two-tone hull (#786): the SAME swept mass split at the waterline by a
+        // pair of complementary carve boxes into a lap-strake-textured, wrap-
+        // mapped topsides (Cylindrical UV so the plank grain flows round the
+        // girth instead of tri-planar-seaming) above, and a matte dark belly
+        // below. The waterline cove line rides the seam (hiding its coplanar
+        // edge); the rub-strake follows the sheer.
+        let wl = -freeboard * 0.03;
+        let ch = freeboard * 2.0;
+        let topsides = blob_group_uv(
+            vec![
+                amidships,
+                bow,
+                // Remove everything below the waterline (top face at wl).
+                blob_carve(blob_box(
+                    [0.0, wl - ch, 0.0],
+                    [beam, ch, length],
+                    id_quat(),
+                    0.03,
+                )),
+            ],
+            HULL_BLOB_RES,
+            UvMapping::Cylindrical,
+            hull_material(colors.topsides),
+        );
+        let belly = blob_group(
+            vec![
+                amidships,
+                bow,
+                // Remove everything above the waterline (bottom face at wl).
+                blob_carve(blob_box(
+                    [0.0, wl + ch, 0.0],
+                    [beam, ch, length],
+                    id_quat(),
+                    0.03,
+                )),
+            ],
+            HULL_BLOB_RES,
+            ctx.materials.cloth(colors.belly),
+        );
+        parent
+            .children
+            .push(prim(topsides, [x, 0.0, 0.0], id_quat()));
+        parent.children.push(prim(belly, [x, 0.0, 0.0], id_quat()));
+        // Bright cove line at the waterline + deck-edge rub-strake, both swept
+        // so they hug the curved topsides instead of poking past the narrowing
+        // ends (#785).
+        hull_rail(
+            parent,
+            spec,
+            wl,
+            0.012,
+            &BOOT_STATIONS,
+            ctx.materials.trim(colors.cove),
+        );
         hull_rail(
             parent,
             spec,
             freeboard * 0.32,
             0.011,
             &STRAKE_STATIONS,
-            strake,
+            ctx.materials.trim(colors.strake),
         );
-        hull_rail(
-            parent,
-            spec,
-            freeboard * 0.02,
-            0.012,
-            &BOOT_STATIONS,
-            stripe,
+    } else {
+        // A stub outrigger ama: one clean textured hull, no two-tone or rails
+        // (they only read as clutter at this scale).
+        let hull = blob_group_uv(
+            vec![amidships, bow],
+            HULL_BLOB_RES,
+            UvMapping::Cylindrical,
+            hull_material(colors.topsides),
         );
+        parent.children.push(prim(hull, [x, 0.0, 0.0], id_quat()));
     }
 }
 
@@ -218,8 +395,10 @@ pub(super) fn hull(ctx: &PartCtx) -> Generator {
 
 pub(super) fn hull_catamaran(ctx: &PartCtx) -> Generator {
     // Catamaran — two slim pontoon hulls under a connecting deck bridge.
-    let body = ctx.materials.body(ctx.palette.primary_accent);
-    let bridge = ctx.materials.body(shade(ctx.palette.primary_accent, 0.8));
+    let colors = boat_colors(ctx);
+    let body = ctx.materials.cloth(colors.topsides);
+    // The bridge deck wears the deckhouse colour (#786), tying it to the cabin.
+    let bridge = ctx.materials.body(colors.deck);
 
     let (beam, length, freeboard) = hull_dims(ctx);
     // Pontoon dims + spread as ratios of the monohull reference, so a
@@ -262,8 +441,9 @@ pub(super) fn hull_catamaran(ctx: &PartCtx) -> Generator {
 pub(super) fn hull_trimaran(ctx: &PartCtx) -> Generator {
     // Trimaran — a central main hull flanked by two small outrigger amas on
     // cross-beams.
-    let body = ctx.materials.body(ctx.palette.primary_accent);
-    let beam_mat = ctx.materials.metal(ctx.palette.tertiary_accent);
+    let colors = boat_colors(ctx);
+    let body = ctx.materials.cloth(colors.topsides);
+    let beam_mat = ctx.materials.metal(colors.strake);
 
     let (beam, length, freeboard) = hull_dims(ctx);
     let ama_x = beam * 0.88;
@@ -303,10 +483,14 @@ pub(super) fn hull_trimaran(ctx: &PartCtx) -> Generator {
 
 pub(super) fn hull_barge(ctx: &PartCtx) -> Generator {
     // Barge — a wide, flat, boxy hull with raked punt ends and gunwale walls.
-    let body = ctx.materials.body(ctx.palette.primary_accent);
-    let below = ctx.materials.metal(shade(ctx.palette.primary_accent, 0.4));
-    let wall = ctx.materials.body(shade(ctx.palette.primary_accent, 0.85));
-    let rail = ctx.materials.metal(ctx.palette.secondary_accent);
+    // Shares the coordinated two-tone scheme (#786): planked topsides box over a
+    // matte-dark bottom, a deck-coloured cap rail, and a bright cove rubbing
+    // strake.
+    let colors = boat_colors(ctx);
+    let body = hull_material(colors.topsides);
+    let below = ctx.materials.cloth(colors.belly);
+    let wall = ctx.materials.body(colors.deck);
+    let rail = ctx.materials.trim(colors.cove);
 
     // The barge is a custom box (no HullSpec); scale its dimensions by the
     // seeded reference so a barge varies with the same knobs as the other
@@ -366,9 +550,25 @@ pub(super) fn deck(ctx: &PartCtx) -> Generator {
     // (#785). The cabin is a tapered wedge with a raked wrap windscreen and
     // portholes; the open cockpit aft carries a bench inside a low coaming,
     // clear of the boom that sweeps over it.
-    let house = ctx.materials.body(shade(ctx.palette.primary_accent, 0.72));
-    let dark = ctx.materials.metal(shade(ctx.palette.primary_accent, 0.42));
-    let glass = ctx.materials.glass(ctx.palette.secondary_accent);
+    // The deckhouse wears the *secondary* accent (value-separated from the
+    // hull's primary), so hull and cabin read as two colours instead of one
+    // monochrome block (#786). Windows are the bright cove tint; the nav beacon
+    // is a deep-saturated LOW-strength running light (emissive discipline —
+    // scaled up from the old 0.03 masthead sphere but kept dim).
+    let colors = boat_colors(ctx);
+    let house = ctx.materials.body(colors.deck);
+    let dark = ctx
+        .materials
+        .metal(to_value(colors.deck, (luma(colors.deck) * 0.45).max(0.05)));
+    let glass = ctx.materials.glass(colors.cove);
+    let beacon = SovereignMaterialSettings {
+        base_color: Fp3(colors.beacon),
+        metallic: Fp(0.2),
+        roughness: Fp(0.4),
+        emission_color: Fp3(colors.beacon),
+        emission_strength: Fp(1.8),
+        ..Default::default()
+    };
     // Cockpit footprint tracks the seeded hull (a narrow sleek hull would
     // otherwise wear a fixed-width tub poking over its gunwales).
     let (beam, length, _) = hull_dims(ctx);
@@ -397,7 +597,7 @@ pub(super) fn deck(ctx: &PartCtx) -> Generator {
     // over the low trunk): tapered in and leaned back.
     deck.children.push(prim(
         with_shape(
-            cuboid([0.27 * dw, 0.085, 0.02], glass),
+            cuboid([0.27 * dw, 0.085, 0.02], glass.clone()),
             [0.22, 0.0],
             [0.0, 0.0, -0.07],
             [0.0, 0.0],
@@ -405,16 +605,28 @@ pub(super) fn deck(ctx: &PartCtx) -> Generator {
         [0.0, ch + 0.02, 0.05 * dl],
         id_quat(),
     ));
-    // Two portholes per side on the cabin trunk (short discs facing outboard).
+    // Two portholes per side on the cabin trunk: a dark rim ring around a
+    // bright glass lens, so they read as lit windows rather than dark dots.
     for s in [-1.0f32, 1.0] {
         for z in [0.16 * dl, 0.30 * dl] {
             deck.children.push(prim(
-                cylinder(0.026, 0.02, 10, dark.clone()),
+                cylinder(0.03, 0.018, 10, dark.clone()),
+                [s * 0.15 * dw, ch * 0.55, z],
+                quat_xyzw(quat_z(FRAC_PI_2)),
+            ));
+            deck.children.push(prim(
+                cylinder(0.022, 0.022, 10, glass.clone()),
                 [s * 0.15 * dw, ch * 0.55, z],
                 quat_xyzw(quat_z(FRAC_PI_2)),
             ));
         }
     }
+    // Nav beacon on the cabin roof — the single disciplined running light.
+    deck.children.push(prim(
+        sphere(0.024, 3, beacon),
+        [0.0, ch + 0.03, 0.14 * dl],
+        id_quat(),
+    ));
     // Low coaming down each side of the open cockpit (inboard of the sheer, so
     // it doesn't fight the curved hull edge).
     for s in [-1.0f32, 1.0] {
