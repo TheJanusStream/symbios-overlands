@@ -14,7 +14,7 @@ use std::f32::consts::{FRAC_PI_2, PI};
 
 use crate::pds::avatar::parts::{PartCtx, PartSlot, by_slug, outfit_has_hat};
 use crate::pds::generator::Generator;
-use crate::pds::types::Fp4;
+use crate::pds::types::{Fp3, Fp4};
 use crate::seeded_defaults::AvatarOutfit;
 
 use super::assemble::base_root;
@@ -28,7 +28,24 @@ pub(super) fn build(seed: u64) -> Generator {
     // The envelope is the structural root (centred at the origin, no scale).
     let mut root = base_root(&outfit, &ctx, PartSlot::Envelope);
 
-    let gondola_y = -1.05;
+    // Mount landmarks come from the *chosen envelope form*, not a one-size
+    // constant: the belly line the gondola slings from, the tail station and
+    // fin ring the cruciform fins seat on. This is what makes the rigging
+    // actually reach the hull (the twin's belly sits far higher than the
+    // zeppelin's) and keeps the fins from being swallowed by a fat blimp tail.
+    let env_slug = outfit
+        .parts
+        .iter()
+        .find(|p| p.slot == PartSlot::Envelope)
+        .map_or("default_envelope", |p| p.slug);
+    let mounts = airship_mounts(env_slug);
+    let gondola_scale = ctx.airship().map_or(1.0, |a| a.gondola_scale);
+
+    // The gondola hangs a short gap below the belly; its roof is a cabin
+    // half-height under its own centre.
+    let gondola_y = mounts.belly_y - 0.34;
+    let gondola_roof = gondola_y + 0.15 * gondola_scale;
+
     for choice in &outfit.parts {
         if choice.slot == PartSlot::Envelope {
             continue;
@@ -37,15 +54,19 @@ pub(super) fn build(seed: u64) -> Generator {
             continue;
         };
         match choice.slot {
-            PartSlot::Gondola => root
-                .children
-                .push(offset(part.build(&ctx), [0.0, gondola_y, 0.0])),
+            PartSlot::Gondola => {
+                let mut g = part.build(&ctx);
+                // The gondola is a leaf part, so a uniform root scale is safe
+                // (nothing is mounted onto it).
+                g.transform.scale = Fp3([gondola_scale, gondola_scale, gondola_scale]);
+                root.children.push(offset(g, [0.0, gondola_y, 0.0]));
+            }
             PartSlot::Fin => {
                 // One fin part placed as a cruciform tail: dorsal, ventral,
                 // and two horizontal stabilisers. The fin is centred on its
                 // mount, so each copy is rotated about its own centre and its
-                // inner edge buries in the tapering tail.
-                for (anchor, rot) in fin_placements(-1.0) {
+                // inner edge buries in the tail body.
+                for (anchor, rot) in fin_placements(mounts.tail_z, mounts.fin_ring_r) {
                     root.children
                         .push(offset_rot(part.build(&ctx), anchor, rot));
                 }
@@ -57,14 +78,17 @@ pub(super) fn build(seed: u64) -> Generator {
         }
     }
 
-    // Suspension rigging — four near-vertical cables bridging the envelope
-    // belly to the gondola so it reads as slung, not floating.
+    // Suspension rigging — four cables that actually bridge the envelope belly
+    // to the gondola roof: the length is computed from the belly→roof gap, so
+    // they never hang short of the hull (the twin bug) or bury into it.
     let cable = ctx.materials.metal(ctx.palette.tertiary_accent);
-    for x in [-0.22f32, 0.22] {
-        for z in [-0.32f32, 0.32] {
+    let cable_len = (mounts.belly_y - gondola_roof).max(0.05);
+    let cable_mid = (mounts.belly_y + gondola_roof) * 0.5;
+    for x in [-0.2f32, 0.2] {
+        for z in [-0.3f32, 0.3] {
             root.children.push(prim(
-                cylinder(0.012, 0.4, 6, cable.clone()),
-                [x, gondola_y + 0.35, z],
+                cylinder(0.012, cable_len, 6, cable.clone()),
+                [x, cable_mid, z],
                 id_quat(),
             ));
         }
@@ -77,18 +101,53 @@ pub(super) fn build(seed: u64) -> Generator {
     root
 }
 
+/// Per-envelope-form mount landmarks (metres, envelope centred at the origin).
+/// Each form's belly line, tail station and fin ring radius are hand-fit to
+/// that form's geometry so the slung gondola and cruciform fins seat on *its*
+/// body — the fix for the envelope-invariant anchors that floated the twin's
+/// rigging and swallowed the blimp's fins (#783, absorbing #781's fin item).
+struct AirshipMounts {
+    /// Envelope lowest point at the centreline — cable top + gondola hang line.
+    belly_y: f32,
+    /// Fin cluster station (−Z).
+    tail_z: f32,
+    /// Radial offset of the cruciform fins from the tail axis.
+    fin_ring_r: f32,
+}
+
+fn airship_mounts(slug: &str) -> AirshipMounts {
+    // `(belly_y, tail_z, fin_ring_r)` per form. The twin's belly sits much
+    // higher (its hulls straddle the centreline) and the blimp's fin ring is
+    // pushed out so the fins clear its fat tail bulb.
+    let (belly_y, tail_z, fin_ring_r) = match slug {
+        "default_envelope_blimp" => (-0.86, -1.0, 0.62),
+        "default_envelope_twin" => (-0.42, -1.0, 0.55),
+        "default_envelope_lobed" => (-0.62, -1.15, 0.44),
+        "airship_envelope_teardrop" => (-0.72, -1.0, 0.5),
+        // Zeppelin (default_envelope) + any future form.
+        _ => (-0.66, -1.15, 0.46),
+    };
+    AirshipMounts {
+        belly_y,
+        tail_z,
+        fin_ring_r,
+    }
+}
+
 /// The four cruciform-tail fin placements (anchor + rotation) at tail station
-/// `tail_z`. The fin part is authored upright with its aft edge at local −Z;
-/// each copy must keep that aft sweep pointing aft, so every rotation here
-/// preserves the local −Z axis (dorsal keeps it identity; the stabilisers spin
-/// about Z; the ventral mirrors about **Z**, not X — a `quat_x(PI)` would flip
-/// the sweep and glow edge to +Z, the forward-swept-ventral-fin bug, #779).
-fn fin_placements(tail_z: f32) -> [([f32; 3], Fp4); 4] {
+/// `tail_z`, offset `r` from the axis so each fin's inner edge buries in the
+/// envelope while its blade clears the hull. The fin part is authored upright
+/// with its aft edge at local −Z; each copy must keep that aft sweep pointing
+/// aft, so every rotation here preserves the local −Z axis (dorsal keeps it
+/// identity; the stabilisers spin about Z; the ventral mirrors about **Z**,
+/// not X — a `quat_x(PI)` would flip the sweep and glow edge to +Z, the
+/// forward-swept-ventral-fin bug, #779).
+fn fin_placements(tail_z: f32, r: f32) -> [([f32; 3], Fp4); 4] {
     [
-        ([0.0, 0.55, tail_z], id_quat()),                     // dorsal (up)
-        ([0.0, -0.55, tail_z], quat_xyzw(quat_z(PI))),        // ventral (down)
-        ([-0.55, 0.0, tail_z], quat_xyzw(quat_z(FRAC_PI_2))), // port stabiliser
-        ([0.55, 0.0, tail_z], quat_xyzw(quat_z(-FRAC_PI_2))), // starboard
+        ([0.0, r, tail_z], id_quat()),                     // dorsal (up)
+        ([0.0, -r, tail_z], quat_xyzw(quat_z(PI))),        // ventral (down)
+        ([-r, 0.0, tail_z], quat_xyzw(quat_z(FRAC_PI_2))), // port stabiliser
+        ([r, 0.0, tail_z], quat_xyzw(quat_z(-FRAC_PI_2))), // starboard
     ]
 }
 
@@ -111,7 +170,7 @@ mod tests {
         // The fin's aft-swept edge is local −Z; each cruciform placement must
         // keep it pointing aft (world −Z) so dorsal and ventral fins sweep the
         // same way. Regression guard for the quat_x(PI) ventral flip (#779).
-        for (i, (_, rot)) in fin_placements(-1.0).into_iter().enumerate() {
+        for (i, (_, rot)) in fin_placements(-1.0, 0.55).into_iter().enumerate() {
             let aft = rotate(rot.0, [0.0, 0.0, -1.0]);
             assert!(
                 aft[2] < -0.999,

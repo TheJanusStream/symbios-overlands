@@ -36,9 +36,9 @@ pub(crate) mod vehicle;
 
 use crate::pds::generator::Generator;
 use crate::seeded_defaults::{
-    AvatarBody, AvatarOutfit, AvatarPalette, BoatBlueprint, ChassisFamily, FaceParams,
-    HumanoidBlueprint, MaterialKit, OrnatenessBand, OrnatenessTier, ThemeArchetype,
-    VehicleBlueprint, WearBand, WearTier,
+    AirshipBlueprint, AvatarBody, AvatarOutfit, AvatarPalette, BoatBlueprint, ChassisFamily,
+    FaceParams, HumanoidBlueprint, MaterialKit, OrnatenessBand, OrnatenessTier, SkiffBlueprint,
+    ThemeArchetype, VehicleBlueprint, WearBand, WearTier,
 };
 
 /// One composable slot of an avatar. Flat across every chassis (a part
@@ -170,6 +170,18 @@ impl PartCtx {
     /// parts and the boat assembler both size from it.
     pub fn boat(&self) -> Option<&BoatBlueprint> {
         self.vehicle.as_ref().and_then(VehicleBlueprint::boat)
+    }
+
+    /// The airship proportion blueprint, if this avatar is an airship — the
+    /// envelope / gondola parts and the airship assembler both size from it.
+    pub fn airship(&self) -> Option<&AirshipBlueprint> {
+        self.vehicle.as_ref().and_then(VehicleBlueprint::airship)
+    }
+
+    /// The skiff proportion blueprint, if this avatar is a skiff — the chassis
+    /// / wheel parts and the skiff assembler share its wheel/fender landmarks.
+    pub fn skiff(&self) -> Option<&SkiffBlueprint> {
+        self.vehicle.as_ref().and_then(VehicleBlueprint::skiff)
     }
 }
 

@@ -56,4 +56,6 @@ pub use gait::AvatarGait;
 pub use materials::MaterialKit;
 pub use outfit::{AvatarOutfit, OutfitPart};
 pub use palette::AvatarPalette;
-pub use vehicle_blueprint::{BoatBlueprint, VehicleBlueprint, VehicleStance};
+pub use vehicle_blueprint::{
+    AirshipBlueprint, BoatBlueprint, SkiffBlueprint, VehicleBlueprint, VehicleStance,
+};

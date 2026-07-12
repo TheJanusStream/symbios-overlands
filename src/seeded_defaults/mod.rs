@@ -51,11 +51,11 @@ pub mod room;
 pub mod scene;
 
 pub use avatar::{
-    AvatarBody, AvatarCharacter, AvatarFx, AvatarGait, AvatarOutfit, AvatarPalette, AvatarVoice,
-    BoatBlueprint, BodyArchetype, ChassisFamily, Disposition, FaceParams, FaceShape, FacialHair,
-    FinishRegister, HairStyle, HumanoidBlueprint, MaterialKit, NoseKind, OrnatenessBand,
-    OrnatenessTier, OutfitPart, ParticleAura, StylizationTier, VehicleBlueprint, VehicleStance,
-    WearBand, WearTier,
+    AirshipBlueprint, AvatarBody, AvatarCharacter, AvatarFx, AvatarGait, AvatarOutfit,
+    AvatarPalette, AvatarVoice, BoatBlueprint, BodyArchetype, ChassisFamily, Disposition,
+    FaceParams, FaceShape, FacialHair, FinishRegister, HairStyle, HumanoidBlueprint, MaterialKit,
+    NoseKind, OrnatenessBand, OrnatenessTier, OutfitPart, ParticleAura, SkiffBlueprint,
+    StylizationTier, VehicleBlueprint, VehicleStance, WearBand, WearTier,
 };
 pub use hash::fnv1a_64;
 pub use room::{

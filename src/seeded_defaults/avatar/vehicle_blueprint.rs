@@ -67,6 +67,26 @@ impl VehicleStance {
             Self::Heavy => (0.98, 1.08, 1.16),
         }
     }
+
+    /// Gondola-size multiplier for this stance — a Heavy airship carries a
+    /// roomier car, a Sleek one a trimmer pod.
+    fn airship_gondola_factor(self) -> f32 {
+        match self {
+            Self::Compact => 0.95,
+            Self::Sleek => 0.92,
+            Self::Heavy => 1.10,
+        }
+    }
+
+    /// `(length, width)` body multipliers — a Sleek skiff is a long low racer,
+    /// a Heavy one a wide hauler, a Compact one a short runabout.
+    fn skiff_factors(self) -> (f32, f32) {
+        match self {
+            Self::Compact => (0.90, 0.96),
+            Self::Sleek => (1.12, 0.95),
+            Self::Heavy => (0.96, 1.15),
+        }
+    }
 }
 
 /// Concrete boat proportions + mount landmarks (metres, hull centred at the
@@ -126,12 +146,96 @@ impl BoatBlueprint {
     }
 }
 
+/// Airship proportions. An airship's mount *landmarks* (belly line, tail
+/// station, fin ring radius) depend on the chosen envelope **form**, so the
+/// assembler resolves them per-slug (see the vehicle assembler's
+/// `airship_mounts`) — a fat blimp and a slim zeppelin each seat their slung
+/// gondola and cruciform fins on *their own* body, not a one-size constant
+/// (the envelope-invariant-anchor bug that floated the twin's rigging clear of
+/// its belly). Envelope *size* variety rides with the Lathe envelope rebuild
+/// (#791); this blueprint carries the parts that vary today.
+#[derive(Clone, Copy, Debug)]
+pub struct AirshipBlueprint {
+    /// Overall build register — read by the locomotion tuning (#794); today it
+    /// biases the gondola size.
+    pub stance: VehicleStance,
+    /// Gondola size multiplier.
+    pub gondola_scale: f32,
+}
+
+impl AirshipBlueprint {
+    fn derive(body: &AvatarBody, rng: &mut ChaCha8Rng) -> Self {
+        // Envelope-size jitter arrives with the Lathe envelope rebuild (#791);
+        // today only the stance + gondola scale vary.
+        let stance = VehicleStance::sample(rng);
+        let gondola_scale = (body.height_scale * body.head_scale * stance.airship_gondola_factor())
+            .clamp(0.85, 1.2);
+        Self {
+            stance,
+            gondola_scale,
+        }
+    }
+}
+
+/// Concrete skiff proportions + the wheel/fender/anchor landmarks that three
+/// files used to encode as matching magic numbers (the fender tori baked into
+/// the chassis part, the wheel part's radius, and the assembler's wheel
+/// anchors). Deriving them once here is what lets the body vary per seed and
+/// unblocks wheel variants (#788): the chassis sizes its tub + fenders from
+/// this, the assembler places the four wheels from `track` / `wheelbase`, and
+/// the wheel part sizes from `wheel_r` — all guaranteed to agree.
+#[derive(Clone, Copy, Debug)]
+pub struct SkiffBlueprint {
+    pub stance: VehicleStance,
+    /// Body tub length (fore-aft).
+    pub body_len: f32,
+    /// Body tub width.
+    pub body_w: f32,
+    /// Wheel/fender lateral offset from the centreline (±X).
+    pub track: f32,
+    /// Wheel/fender fore & aft offset (±Z).
+    pub wheelbase: f32,
+    /// Wheel hub height (the wheels' axle line, below the body origin).
+    pub ride_y: f32,
+    /// Wheel outer radius (tyre tread). The fender radius tracks this.
+    pub wheel_r: f32,
+}
+
+impl SkiffBlueprint {
+    fn derive(body: &AvatarBody, rng: &mut ChaCha8Rng) -> Self {
+        let stance = VehicleStance::sample(rng);
+        let (len_f, width_f) = stance.skiff_factors();
+        let size = body.height_scale;
+        let body_len = 1.5 * size * len_f * range_f32(rng, 0.95, 1.05);
+        // Floor the width so the (still nominal-width) greenhouse canopy always
+        // fits the cabin until the body redesign scales it too (#787).
+        let body_w =
+            (0.76 * size * body.shoulder_width_scale.clamp(0.85, 1.15) * width_f).clamp(0.64, 1.12);
+        // Wheels "look good" as-is (user), so keep the radius near nominal — a
+        // gentle limb-thickness nudge only. The fender radius derives from it.
+        let wheel_r = (0.21 * body.limb_thickness_scale.clamp(0.9, 1.12)).clamp(0.17, 0.25);
+        Self {
+            stance,
+            body_len,
+            body_w,
+            // Track/wheelbase as fractions of the body so wheels sit at its
+            // corners regardless of the seeded size.
+            track: body_w * 0.59,
+            wheelbase: body_len * 0.367,
+            ride_y: -0.12 * size,
+            wheel_r,
+        }
+    }
+}
+
 /// Per-family vehicle proportion blueprint. One variant per chassis that has
 /// been wired to the shared-landmark system; [`VehicleBlueprint::from_seed`]
 /// yields `None` for a chassis without one yet (and for the humanoid).
 #[derive(Clone, Copy, Debug)]
 pub enum VehicleBlueprint {
     Boat(BoatBlueprint),
+    Airship(AirshipBlueprint),
+    Skiff(SkiffBlueprint),
 }
 
 impl VehicleBlueprint {
@@ -152,9 +256,10 @@ impl VehicleBlueprint {
         let mut rng = ChaCha8Rng::seed_from_u64(seed ^ VEHICLE_BLUEPRINT_SALT);
         match chassis {
             ChassisFamily::Boat => Some(Self::Boat(BoatBlueprint::derive(body, &mut rng))),
-            // Airship / skiff blueprints land with their redesigns; the
-            // humanoid uses HumanoidBlueprint.
-            _ => None,
+            ChassisFamily::Airship => Some(Self::Airship(AirshipBlueprint::derive(body, &mut rng))),
+            ChassisFamily::Skiff => Some(Self::Skiff(SkiffBlueprint::derive(body, &mut rng))),
+            // The humanoid uses HumanoidBlueprint.
+            ChassisFamily::Humanoid => None,
         }
     }
 
@@ -162,6 +267,23 @@ impl VehicleBlueprint {
     pub fn boat(&self) -> Option<&BoatBlueprint> {
         match self {
             Self::Boat(b) => Some(b),
+            _ => None,
+        }
+    }
+
+    /// The airship blueprint, if this is an airship.
+    pub fn airship(&self) -> Option<&AirshipBlueprint> {
+        match self {
+            Self::Airship(a) => Some(a),
+            _ => None,
+        }
+    }
+
+    /// The skiff blueprint, if this is a skiff.
+    pub fn skiff(&self) -> Option<&SkiffBlueprint> {
+        match self {
+            Self::Skiff(s) => Some(s),
+            _ => None,
         }
     }
 }
@@ -181,15 +303,31 @@ mod tests {
     }
 
     #[test]
-    fn only_boats_get_a_blueprint_so_far() {
+    fn every_vehicle_gets_its_family_blueprint_and_humanoids_do_not() {
         for s in 0u64..200 {
             let bp = VehicleBlueprint::from_seed(s);
             match ChassisFamily::for_seed(s) {
                 ChassisFamily::Boat => {
-                    assert!(bp.is_some(), "seed {s}: boat without a blueprint");
-                    assert!(bp.unwrap().boat().is_some());
+                    assert!(
+                        bp.and_then(|b| b.boat().copied()).is_some(),
+                        "seed {s} boat"
+                    );
                 }
-                _ => assert!(bp.is_none(), "seed {s}: non-boat got a blueprint"),
+                ChassisFamily::Airship => {
+                    assert!(
+                        bp.and_then(|b| b.airship().copied()).is_some(),
+                        "seed {s} airship"
+                    );
+                }
+                ChassisFamily::Skiff => {
+                    assert!(
+                        bp.and_then(|b| b.skiff().copied()).is_some(),
+                        "seed {s} skiff"
+                    );
+                }
+                ChassisFamily::Humanoid => {
+                    assert!(bp.is_none(), "seed {s}: humanoid got a blueprint")
+                }
             }
         }
     }
@@ -200,10 +338,9 @@ mod tests {
         // believable, sanitiser-safe size (no zero/exploded dimensions).
         let mut seen = 0;
         for s in 0u64..600 {
-            let Some(bp) = VehicleBlueprint::from_seed(s) else {
+            let Some(b) = VehicleBlueprint::from_seed(s).and_then(|bp| bp.boat().copied()) else {
                 continue;
             };
-            let b = bp.boat().unwrap();
             assert!(
                 (0.9..=1.9).contains(&b.hull_len),
                 "seed {s} len {}",

@@ -30,6 +30,15 @@ pub(super) fn build(seed: u64) -> Generator {
     // Wheels are laid on their axle (cylinder Y-axis → X-axis).
     let axle = quat_xyzw(quat_z(FRAC_PI_2));
 
+    // Wheel anchors + the fore/aft mount stations come from the SAME skiff
+    // blueprint the chassis fenders and the wheel part read, so the four wheels
+    // sit exactly in their guards regardless of the seeded body size (#783).
+    let sk = ctx.skiff();
+    let track = sk.map_or(0.45, |s| s.track);
+    let wheelbase = sk.map_or(0.55, |s| s.wheelbase);
+    let ride_y = sk.map_or(-0.12, |s| s.ride_y);
+    let dl = sk.map_or(1.0, |s| s.body_len / 1.5);
+
     for choice in &outfit.parts {
         if choice.slot == PartSlot::Chassis {
             continue;
@@ -38,36 +47,36 @@ pub(super) fn build(seed: u64) -> Generator {
             continue;
         };
         match choice.slot {
-            // Seat the canopy on the rear cabin.
+            // Seat the canopy on the rear cabin (tracks the cabin's station).
             PartSlot::Canopy => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.33, -0.12])),
+                .push(offset(part.build(&ctx), [0.0, 0.33, -0.12 * dl])),
             PartSlot::Wheel => {
                 // One wheel part repeated to the four corners.
                 for anchor in [
-                    [-0.45, -0.12, 0.55],
-                    [0.45, -0.12, 0.55],
-                    [-0.45, -0.12, -0.55],
-                    [0.45, -0.12, -0.55],
+                    [-track, ride_y, wheelbase],
+                    [track, ride_y, wheelbase],
+                    [-track, ride_y, -wheelbase],
+                    [track, ride_y, -wheelbase],
                 ] {
                     root.children
                         .push(offset_rot(part.build(&ctx), anchor, axle));
                 }
             }
             // Exhaust at the stern, seated into the rear bodywork (the tub
-            // ends at z≈−0.75) so the stacks emerge from the deck rather than
-            // hovering behind it (#780). A slug-aware / spine-swept exhaust is
-            // the skiff redesign's job (#788).
+            // ends at z≈−0.75·len) so the stacks emerge from the deck rather
+            // than hovering behind it (#780). A slug-aware / spine-swept
+            // exhaust is the skiff redesign's job (#788).
             PartSlot::Exhaust => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.05, -0.70])),
+                .push(offset(part.build(&ctx), [0.0, 0.05, -0.70 * dl])),
             // Ornament as a hood mascot on the bonnet nose (clear of every
             // canopy volume — a canopy-relative mount buried the neon strip
             // inside closed greenhouses and floated it over the open roadster
             // cockpit, #780). A slot-aware, per-canopy mount is #783's job.
             PartSlot::Ornament => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.17, 0.68])),
+                .push(offset(part.build(&ctx), [0.0, 0.17, 0.68 * dl])),
             _ => {}
         }
     }

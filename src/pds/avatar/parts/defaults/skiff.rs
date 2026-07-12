@@ -12,12 +12,35 @@ use crate::pds::generator::Generator;
 use super::super::PartCtx;
 use super::common::shade;
 
+/// The seeded skiff landmarks — body tub size + the wheel/fender/anchor
+/// contract — from the blueprint (nominal fallback if ever built without one).
+/// Returned as `(body_w, body_len, track, wheelbase, ride_y, wheel_r)`; the
+/// chassis fenders, the wheel part, and the assembler wheel anchors all read
+/// these so the three can never disagree (the magic-number coupling the
+/// blueprint dissolves, #783).
+fn skiff_dims(ctx: &PartCtx) -> (f32, f32, f32, f32, f32, f32) {
+    ctx.skiff()
+        .map_or((0.76, 1.5, 0.45, 0.55, -0.12, 0.21), |s| {
+            (
+                s.body_w,
+                s.body_len,
+                s.track,
+                s.wheelbase,
+                s.ride_y,
+                s.wheel_r,
+            )
+        })
+}
+
 pub(super) fn chassis(ctx: &PartCtx) -> Generator {
     let body = ctx.materials.body(ctx.palette.primary_accent);
     let lower = ctx.materials.metal(shade(ctx.palette.primary_accent, 0.45));
     let trim = ctx.materials.metal(ctx.palette.secondary_accent);
     let headlight = ctx.materials.glow([1.0, 0.95, 0.8]);
     let taillight = ctx.materials.glow([0.85, 0.12, 0.1]);
+    // Everything scales off the seeded tub: `dw` widths (X), `dl` lengths (Z).
+    let (body_w, body_len, track, wheelbase, ride_y, wheel_r) = skiff_dims(ctx);
+    let (dw, dl) = (body_w / 0.76, body_len / 1.5);
 
     // Body tub (structural root — no root *scale*; the shape comes from
     // baked-in torture, which deforms only this mesh, not the mounted
@@ -25,7 +48,7 @@ pub(super) fn chassis(ctx: &PartCtx) -> Generator {
     // slight forward top-shear de-blocks the slab into a leaning body.
     let mut c = prim(
         with_shape(
-            cuboid([0.76, 0.2, 1.5], body.clone()),
+            cuboid([body_w, 0.2, body_len], body.clone()),
             [0.16, 0.06],
             [0.0, 0.0, 0.0],
             [0.0, 0.04],
@@ -37,7 +60,7 @@ pub(super) fn chassis(ctx: &PartCtx) -> Generator {
     // base) so the body doesn't read as one flat-sided box down to the sills.
     c.children.push(prim(
         with_shape(
-            cuboid([0.8, 0.12, 1.42], lower.clone()),
+            cuboid([0.8 * dw, 0.12, 1.42 * dl], lower.clone()),
             [-0.1, 0.0],
             [0.0, 0.0, 0.0],
             [0.0, 0.0],
@@ -49,24 +72,24 @@ pub(super) fn chassis(ctx: &PartCtx) -> Generator {
     // (more fore-aft than across) and shears forward for a sloped bonnet.
     c.children.push(prim(
         with_shape(
-            cuboid([0.68, 0.1, 0.5], body.clone()),
+            cuboid([0.68 * dw, 0.1, 0.5 * dl], body.clone()),
             [0.16, 0.24],
             [0.0, 0.0, 0.0],
             [0.0, 0.05],
         ),
-        [0.0, 0.11, 0.5],
+        [0.0, 0.11, 0.5 * dl],
         id_quat(),
     ));
     // Cabin block toward the rear (the canopy seats on this). A clear roof
     // taper narrows it toward the greenhouse base — the most car-like de-block.
     c.children.push(prim(
         with_shape(
-            cuboid([0.64, 0.18, 0.66], body.clone()),
+            cuboid([0.64 * dw, 0.18, 0.66 * dl], body.clone()),
             [0.26, 0.2],
             [0.0, 0.0, 0.0],
             [0.0, 0.0],
         ),
-        [0.0, 0.15, -0.18],
+        [0.0, 0.15, -0.18 * dl],
         id_quat(),
     ));
     // Mudguard arching over each wheel — a hollow Torus channel laid on the
@@ -76,37 +99,38 @@ pub(super) fn chassis(ctx: &PartCtx) -> Generator {
     // `profile_cut [0.5, 1.0]` keeps only the **outer-radius** half of the tube
     // (the flat-pole cut convention — see `world_builder::prim`), so the open
     // channel faces inward over the tyre and the guard never dips into it;
-    // `hollow` thins it to a shell. Major radius (0.215) hugs just outside the
-    // tyre's outer tread (≈0.21) so the guard caps the crown closely; the minor
-    // radius is kept substantial (0.085) so the mudguard reads as solid mass
-    // from head-on, not a thin sliver. The roll
+    // `hollow` thins it to a shell. The major radius hugs just outside the
+    // tyre's outer tread (`wheel_r` + a hair) so the guard caps the crown
+    // closely — deriving it from the blueprint's wheel radius means a bigger
+    // wheel always gets a bigger guard. The minor radius stays substantial so
+    // the mudguard reads as solid mass head-on. The roll
     // `quat_x(-FRAC_PI_2)·quat_z(FRAC_PI_2)` lays the ring on the axle with its
     // kept arch centred over the top.
     for sx in [-1.0f32, 1.0] {
         for sz in [-1.0f32, 1.0] {
             let fender = with_cut(
-                torus(0.085, 0.215, lower.clone()),
+                torus(0.085, wheel_r + 0.005, lower.clone()),
                 [0.0, 0.5],
                 [0.5, 1.0],
                 0.5,
             );
             c.children.push(prim(
                 fender,
-                [sx * 0.45, -0.12, sz * 0.55],
+                [sx * track, ride_y, sz * wheelbase],
                 quat_xyzw(quat_mul(quat_x(-FRAC_PI_2), quat_z(FRAC_PI_2))),
             ));
         }
     }
     // Front grille bar + headlights.
     c.children.push(prim(
-        cuboid([0.5, 0.07, 0.04], trim.clone()),
-        [0.0, 0.04, 0.76],
+        cuboid([0.5 * dw, 0.07, 0.04], trim.clone()),
+        [0.0, 0.04, 0.51 * body_len],
         id_quat(),
     ));
     for sx in [-1.0f32, 1.0] {
         c.children.push(prim(
             cuboid([0.12, 0.07, 0.04], headlight.clone()),
-            [sx * 0.26, 0.08, 0.75],
+            [sx * 0.26 * dw, 0.08, 0.5 * body_len],
             id_quat(),
         ));
     }
@@ -114,26 +138,26 @@ pub(super) fn chassis(ctx: &PartCtx) -> Generator {
     for sx in [-1.0f32, 1.0] {
         c.children.push(prim(
             cuboid([0.1, 0.06, 0.04], taillight.clone()),
-            [sx * 0.26, 0.08, -0.74],
+            [sx * 0.26 * dw, 0.08, -0.49 * body_len],
             id_quat(),
         ));
     }
     // Side trim strake along each flank.
     for s in [-1.0f32, 1.0] {
         c.children.push(prim(
-            cuboid([0.02, 0.04, 1.1], trim.clone()),
-            [s * 0.385, 0.0, 0.0],
+            cuboid([0.02, 0.04, 1.1 * dl], trim.clone()),
+            [s * 0.507 * body_w, 0.0, 0.0],
             id_quat(),
         ));
     }
     // Running board: a flat step bridging each body sill out to the wheel line
     // between the front and rear fenders. Closes the gap that, head-on, made
     // the outboard wheels read as floating off the sides, and is iconic vintage
-    // styling in its own right.
+    // styling in its own right. Its outboard reach tracks the wheel line.
     for s in [-1.0f32, 1.0] {
         c.children.push(prim(
-            cuboid([0.18, 0.035, 0.62], lower.clone()),
-            [s * 0.41, -0.1, 0.0],
+            cuboid([0.18, 0.035, 0.62 * dl], lower.clone()),
+            [s * (track - 0.04), -0.1, 0.0],
             id_quat(),
         ));
     }
@@ -245,13 +269,19 @@ pub(super) fn wheel(ctx: &PartCtx) -> Generator {
     let tyre = ctx.materials.metal([0.07, 0.07, 0.08]);
     let rim = ctx.materials.metal(ctx.palette.secondary_accent);
     let hub = ctx.materials.trim(ctx.palette.tertiary_accent);
+    // Tyre outer radius = blueprint `wheel_r`; split into a tread minor radius
+    // (~0.29 of it) and the hub major radius so the same wheel scales with the
+    // seed and always matches its fender (both read `wheel_r`).
+    let (_, _, _, _, _, wheel_r) = skiff_dims(ctx);
+    let minor = wheel_r * 0.286;
+    let major = wheel_r - minor;
     // Tyre: a torus gives a rounded tread cross-section — a real tyre, not a
     // flat-sided disc (outer radius ≈ major + minor).
-    let mut w = prim(torus(0.06, 0.15, tyre), [0.0, 0.0, 0.0], id_quat());
+    let mut w = prim(torus(minor, major, tyre), [0.0, 0.0, 0.0], id_quat());
     // Rim plate filling the hub (shares the torus axis; the assembler lays the
     // whole wheel onto its axle).
     let mut rim_disc = prim(
-        cylinder(0.11, 0.12, 16, rim.clone()),
+        cylinder(major * 0.73, 0.12, 16, rim.clone()),
         [0.0, 0.0, 0.0],
         id_quat(),
     );
