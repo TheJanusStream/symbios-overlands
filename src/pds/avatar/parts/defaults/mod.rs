@@ -28,7 +28,11 @@
 //! of that root and a root scale would stretch + displace them. Elongated
 //! shapes (the airship envelope) are built from composed primitives instead.
 
-mod airship;
+// Crate-visible so the airship assembler (rigging-cable colour) + the styled
+// teardrop envelope (`super::vehicle`) can share its two-hue colour scheme,
+// matte envelope material, normalized window colour, and gore-seam helper
+// (#789).
+pub(crate) mod airship;
 mod boat;
 mod common;
 mod humanoid;

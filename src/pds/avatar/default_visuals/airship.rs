@@ -12,6 +12,7 @@
 
 use std::f32::consts::{FRAC_PI_2, PI};
 
+use crate::pds::avatar::parts::defaults::airship::airship_colors;
 use crate::pds::avatar::parts::{PartCtx, PartSlot, by_slug, outfit_has_hat};
 use crate::pds::generator::Generator;
 use crate::pds::types::{Fp3, Fp4};
@@ -80,8 +81,10 @@ pub(super) fn build(seed: u64) -> Generator {
 
     // Suspension rigging — four cables that actually bridge the envelope belly
     // to the gondola roof: the length is computed from the belly→roof gap, so
-    // they never hang short of the hull (the twin bug) or bury into it.
-    let cable = ctx.materials.metal(ctx.palette.tertiary_accent);
+    // they never hang short of the hull (the twin bug) or bury into it. The
+    // cables wear the ship's structural `frame` colour so the rigging reads as
+    // one system with the fins / keel, not a stray tertiary third draw (#789).
+    let cable = ctx.materials.metal(airship_colors(&ctx).frame);
     let cable_len = (mounts.belly_y - gondola_roof).max(0.05);
     let cable_mid = (mounts.belly_y + gondola_roof) * 0.5;
     for x in [-0.2f32, 0.2] {

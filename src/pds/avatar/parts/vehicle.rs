@@ -15,6 +15,9 @@ use crate::pds::avatar::default_visuals::common::{
     cone, cuboid, cylinder, id_quat, prim, quat_x, quat_xyzw, quat_y, quat_z, sphere,
     superellipsoid, torus, with_cut, with_shape,
 };
+use crate::pds::avatar::parts::defaults::airship::{
+    airship_colors, env_ring, envelope_material, gas_bag, push_gore_seams,
+};
 use crate::pds::avatar::parts::defaults::skiff::{
     push_wheel_fenders, skiff_colors, skiff_dims, skiff_wheel_anchors,
 };
@@ -382,33 +385,40 @@ fn teardrop_envelope(ctx: &PartCtx) -> Generator {
     // core (the root carries **no** scale — the assembler mounts the gondola /
     // fins to it, which a root scale would stretch and fling), with a long
     // pointed nose cone making the teardrop. Replaces the old lumpy lobes.
-    let body = ctx.materials.body(ctx.palette.primary_accent);
-    let nose = ctx.materials.trim(ctx.palette.tertiary_accent);
-    let ring = ctx.materials.metal(ctx.palette.secondary_accent);
+    // Shares the airship two-hue material scheme + gore-seam surface pass (#789)
+    // so the steampunk teardrop reads as taut doped fabric, not a glossy blob.
+    let c = airship_colors(ctx);
+    let skin = envelope_material(c.envelope);
+    let frame = ctx.materials.metal(c.frame);
+    let stripe = ctx.materials.trim(c.stripe);
     let mut env = prim(
-        cuboid([0.3, 0.3, 1.5], body.clone()),
+        cuboid([0.3, 0.3, 1.5], skin.clone()),
         [0.0, 0.0, 0.0],
         id_quat(),
     );
-    let mut bag = prim(sphere(0.8, 4, body.clone()), [0.0, 0.0, -0.15], id_quat());
-    bag.transform.scale = Fp3([0.92, 0.92, 1.5]);
-    env.children.push(bag);
+    // The teardrop bag: a scaled ellipsoid via the shared `gas_bag` builder
+    // (half-extents = sphere(0.8) scaled [0.92,0.92,1.5]), so the "one gas-bag
+    // builder" contract isn't silently duplicated for the styled envelope.
+    let (center, half) = ([0.0, 0.0, -0.15], [0.736, 0.736, 1.2]);
+    env.children.push(gas_bag(&skin, center, half));
     // Long pointed teardrop nose at the bow (+Z), apex forward, blending out of
     // the bag.
     env.children.push(prim(
-        cone(0.55, 0.95, 12, body.clone()),
+        cone(0.55, 0.95, 12, skin.clone()),
         [0.0, 0.0, 0.7],
         quat_xyzw(quat_x(FRAC_PI_2)),
     ));
-    env.children
-        .push(prim(sphere(0.1, 3, nose), [0.0, 0.0, 1.18], id_quat()));
-    // Frame rings encircling the bag.
+    env.children.push(prim(
+        sphere(0.1, 3, stripe.clone()),
+        [0.0, 0.0, 1.18],
+        id_quat(),
+    ));
+    // Longitudinal gore battens + a registry band down each flank (even count so
+    // no batten collides with the flank stripe).
+    push_gore_seams(&mut env, center, half, 8, &frame, Some(&stripe));
+    // Frame rings encircling the bag (seated proud by `env_ring`).
     for z in [-0.5f32, 0.05] {
-        env.children.push(prim(
-            torus(0.018, 0.76, ring.clone()),
-            [0.0, 0.0, z],
-            quat_xyzw(quat_x(FRAC_PI_2)),
-        ));
+        env.children.push(env_ring(&frame, z, 0.72));
     }
     env
 }
