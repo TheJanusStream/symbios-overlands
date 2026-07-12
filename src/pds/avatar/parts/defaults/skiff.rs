@@ -8,6 +8,7 @@ use crate::pds::avatar::default_visuals::common::{
     with_cut, with_shape,
 };
 use crate::pds::generator::Generator;
+use crate::pds::texture::SovereignMaterialSettings;
 
 use super::super::PartCtx;
 use super::common::{ensure_delta, floor_value, luma, to_value};
@@ -17,8 +18,9 @@ use super::common::{ensure_delta, floor_value, luma, to_value};
 /// Returned as `(body_w, body_len, track, wheelbase, ride_y, wheel_r)`; the
 /// chassis fenders, the wheel part, and the assembler wheel anchors all read
 /// these so the three can never disagree (the magic-number coupling the
-/// blueprint dissolves, #783).
-fn skiff_dims(ctx: &PartCtx) -> (f32, f32, f32, f32, f32, f32) {
+/// blueprint dissolves, #783). Shared with the styled chassis / wheel variants
+/// (#788), which need the same contract.
+pub(crate) fn skiff_dims(ctx: &PartCtx) -> (f32, f32, f32, f32, f32, f32) {
     ctx.skiff()
         .map_or((0.76, 1.5, 0.45, 0.55, -0.12, 0.21), |s| {
             (
@@ -32,22 +34,73 @@ fn skiff_dims(ctx: &PartCtx) -> (f32, f32, f32, f32, f32, f32) {
         })
 }
 
-/// The seeded skiff colour scheme, value-floored + value-separated (#787), so a
-/// dark seed's body / greenhouse / trim keep readable boundaries. Lamps stay
-/// fixed warm/red — a running light reads wrong in accent paint.
-struct SkiffColors {
-    /// Bodywork (primary accent, value-floored).
-    body: [f32; 3],
-    /// Lower rocker / skirt / fenders (a distinctly darker body).
-    lower: [f32; 3],
-    /// Brightwork trim (secondary accent, value-separated from the body).
-    trim: [f32; 3],
-    /// Greenhouse glazing — value-separated from the body by a wider delta so
-    /// the glass never washes into the paint (seed-3 brown-on-brown, #787).
-    glass: [f32; 3],
+/// The four (or, for a trike, three) wheel/fender anchors from the seeded
+/// dims. Both the chassis part (which draws a fender at each) and the assembler
+/// (which seats a wheel at each) call this, so a trike's single front wheel
+/// always lands under its single front guard (#788).
+pub(crate) fn skiff_wheel_anchors(
+    dims: (f32, f32, f32, f32, f32, f32),
+    trike: bool,
+) -> Vec<[f32; 3]> {
+    let (_, _, track, wheelbase, ride_y, _) = dims;
+    if trike {
+        vec![
+            [0.0, ride_y, wheelbase],
+            [-track, ride_y, -wheelbase],
+            [track, ride_y, -wheelbase],
+        ]
+    } else {
+        vec![
+            [-track, ride_y, wheelbase],
+            [track, ride_y, wheelbase],
+            [-track, ride_y, -wheelbase],
+            [track, ride_y, -wheelbase],
+        ]
+    }
 }
 
-fn skiff_colors(ctx: &PartCtx) -> SkiffColors {
+/// Push a mudguard over each wheel `anchor` into `parent` — the hollow-Torus
+/// channel arch (see [`chassis`]), sized to `wheel_r` and finished in
+/// `material`. Shared by every chassis variant so their guards always match the
+/// assembler's wheels.
+pub(crate) fn push_wheel_fenders(
+    parent: &mut Generator,
+    anchors: &[[f32; 3]],
+    wheel_r: f32,
+    material: &SovereignMaterialSettings,
+) {
+    for anchor in anchors {
+        let fender = with_cut(
+            torus(0.085, wheel_r + 0.005, material.clone()),
+            [0.0, 0.5],
+            [0.5, 1.0],
+            0.5,
+        );
+        parent.children.push(prim(
+            fender,
+            *anchor,
+            quat_xyzw(quat_mul(quat_x(-FRAC_PI_2), quat_z(FRAC_PI_2))),
+        ));
+    }
+}
+
+/// The seeded skiff colour scheme, value-floored + value-separated (#787), so a
+/// dark seed's body / greenhouse / trim keep readable boundaries. Lamps stay
+/// fixed warm/red — a running light reads wrong in accent paint. Shared with the
+/// styled chassis variants (#788).
+pub(crate) struct SkiffColors {
+    /// Bodywork (primary accent, value-floored).
+    pub(crate) body: [f32; 3],
+    /// Lower rocker / skirt / fenders (a distinctly darker body).
+    pub(crate) lower: [f32; 3],
+    /// Brightwork trim (secondary accent, value-separated from the body).
+    pub(crate) trim: [f32; 3],
+    /// Greenhouse glazing — value-separated from the body by a wider delta so
+    /// the glass never washes into the paint (seed-3 brown-on-brown, #787).
+    pub(crate) glass: [f32; 3],
+}
+
+pub(crate) fn skiff_colors(ctx: &PartCtx) -> SkiffColors {
     let p = &ctx.palette;
     let body = floor_value(p.primary_accent, 0.24);
     let bl = luma(body);
@@ -69,7 +122,8 @@ pub(super) fn chassis(ctx: &PartCtx) -> Generator {
     let headlight = ctx.materials.glow([1.0, 0.95, 0.8]);
     let taillight = ctx.materials.glow([0.85, 0.12, 0.1]);
     // Everything scales off the seeded tub: `dw` widths (X), `dl` lengths (Z).
-    let (body_w, body_len, track, wheelbase, ride_y, wheel_r) = skiff_dims(ctx);
+    let dims = skiff_dims(ctx);
+    let (body_w, body_len, track, _, _, wheel_r) = dims;
     let (dw, dl) = (body_w / 0.76, body_len / 1.5);
 
     // Body — a rounded Superellipsoid slab (a soft auto-body panel, not a
@@ -112,35 +166,11 @@ pub(super) fn chassis(ctx: &PartCtx) -> Generator {
         [0.0, 0.13, -0.16 * dl],
         id_quat(),
     ));
-    // Mudguard arching over each wheel — a hollow Torus channel laid on the
-    // axle (X), placed **concentric with its wheel** (same x/z anchor, hub-line
-    // y) so it actually wraps the tyre instead of floating beside it. The cuts:
-    // `path_cut [0.0, 0.5]` keeps the top 180° arch (back → over → front);
-    // `profile_cut [0.5, 1.0]` keeps only the **outer-radius** half of the tube
-    // (the flat-pole cut convention — see `world_builder::prim`), so the open
-    // channel faces inward over the tyre and the guard never dips into it;
-    // `hollow` thins it to a shell. The major radius hugs just outside the
-    // tyre's outer tread (`wheel_r` + a hair) so the guard caps the crown
-    // closely — deriving it from the blueprint's wheel radius means a bigger
-    // wheel always gets a bigger guard. The minor radius stays substantial so
-    // the mudguard reads as solid mass head-on. The roll
-    // `quat_x(-FRAC_PI_2)·quat_z(FRAC_PI_2)` lays the ring on the axle with its
-    // kept arch centred over the top. (Kept as-is — the fenders read well, #787.)
-    for sx in [-1.0f32, 1.0] {
-        for sz in [-1.0f32, 1.0] {
-            let fender = with_cut(
-                torus(0.085, wheel_r + 0.005, lower.clone()),
-                [0.0, 0.5],
-                [0.5, 1.0],
-                0.5,
-            );
-            c.children.push(prim(
-                fender,
-                [sx * track, ride_y, sz * wheelbase],
-                quat_xyzw(quat_mul(quat_x(-FRAC_PI_2), quat_z(FRAC_PI_2))),
-            ));
-        }
-    }
+    // A mudguard arches over each wheel — a hollow Torus channel laid on the
+    // axle, concentric with its tyre (see [`push_wheel_fenders`]). Kept as-is:
+    // the fenders read well (#787), and sharing the helper keeps every chassis
+    // variant's guards matched to the assembler's wheels (#788).
+    push_wheel_fenders(&mut c, &skiff_wheel_anchors(dims, false), wheel_r, &lower);
     // Front bumper / grille bar — a rounded 3D chrome bar across the nose
     // (a cylinder laid along X), not a flat slab.
     c.children.push(prim(

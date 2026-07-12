@@ -32,7 +32,10 @@ mod airship;
 mod boat;
 mod common;
 mod humanoid;
-mod skiff;
+// Crate-visible so the land-skiff assembler + the styled chassis / wheel
+// variants (`super::vehicle`) can share its blueprint-derived dims, colour
+// scheme, and wheel-anchor / fender contract (#788).
+pub(crate) mod skiff;
 
 use crate::seeded_defaults::ChassisFamily;
 

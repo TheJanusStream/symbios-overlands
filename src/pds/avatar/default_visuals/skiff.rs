@@ -11,6 +11,7 @@
 
 use std::f32::consts::{FRAC_PI_2, PI};
 
+use crate::pds::avatar::parts::defaults::skiff::{skiff_dims, skiff_wheel_anchors};
 use crate::pds::avatar::parts::{PartCtx, PartSlot, by_slug, outfit_has_hat};
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
@@ -31,13 +32,17 @@ pub(super) fn build(seed: u64) -> Generator {
     let axle = quat_xyzw(quat_z(FRAC_PI_2));
 
     // Wheel anchors + the fore/aft mount stations come from the SAME skiff
-    // blueprint the chassis fenders and the wheel part read, so the four wheels
-    // sit exactly in their guards regardless of the seeded body size (#783).
-    let sk = ctx.skiff();
-    let track = sk.map_or(0.45, |s| s.track);
-    let wheelbase = sk.map_or(0.55, |s| s.wheelbase);
-    let ride_y = sk.map_or(-0.12, |s| s.ride_y);
-    let dl = sk.map_or(1.0, |s| s.body_len / 1.5);
+    // blueprint the chassis fenders and the wheel part read, so the wheels sit
+    // exactly in their guards regardless of the seeded body size (#783). A trike
+    // chassis collapses the two front anchors to a single centreline wheel — the
+    // chassis draws the matching single front guard (#788).
+    let dims = skiff_dims(&ctx);
+    let dl = dims.1 / 1.5;
+    let is_trike = outfit
+        .parts
+        .iter()
+        .any(|p| p.slot == PartSlot::Chassis && p.slug == "skiff_chassis_trike");
+    let wheel_anchors = skiff_wheel_anchors(dims, is_trike);
 
     for choice in &outfit.parts {
         if choice.slot == PartSlot::Chassis {
@@ -52,15 +57,11 @@ pub(super) fn build(seed: u64) -> Generator {
                 .children
                 .push(offset(part.build(&ctx), [0.0, 0.33, -0.12 * dl])),
             PartSlot::Wheel => {
-                // One wheel part repeated to the four corners.
-                for anchor in [
-                    [-track, ride_y, wheelbase],
-                    [track, ride_y, wheelbase],
-                    [-track, ride_y, -wheelbase],
-                    [track, ride_y, -wheelbase],
-                ] {
+                // One wheel part repeated to each seeded anchor (four corners,
+                // or three for a trike).
+                for anchor in &wheel_anchors {
                     root.children
-                        .push(offset_rot(part.build(&ctx), anchor, axle));
+                        .push(offset_rot(part.build(&ctx), *anchor, axle));
                 }
             }
             // Exhaust at the stern, seated into the rear bodywork (the tub
