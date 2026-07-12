@@ -5,7 +5,7 @@ use std::f32::consts::FRAC_PI_2;
 
 use crate::pds::avatar::default_visuals::common::{
     blob_cone, blob_ellipsoid, blob_group, cuboid, cylinder, id_quat, prim, quat_x, quat_xyzw,
-    sphere, with_torture,
+    quat_z, spine, with_shape,
 };
 use crate::pds::generator::Generator;
 use crate::pds::texture::SovereignMaterialSettings;
@@ -36,12 +36,75 @@ pub(super) struct HullSpec {
     length: f32,
     /// Above-waterline height (freeboard).
     freeboard: f32,
+    /// Whether to sweep the deck-edge rub-strake + waterline boot rails down
+    /// this hull's flanks. Set on the visible main hull(s); the trimaran's tiny
+    /// amas skip them (a rail on a stub outrigger just reads as clutter).
+    rails: bool,
 }
 
 /// Sample-grid resolution for a hull BlobGroup (cells along its longest axis —
 /// the hull length). Smooth enough for a clean sheer without faceting; near the
 /// sanitiser's 48 ceiling but a trimaran's three hulls still bake in a few ms.
 const HULL_BLOB_RES: u32 = 44;
+
+/// Waterline boot-stripe stations as `(z_fraction, half_beam_fraction)`
+/// bow→stern. A rail swept through these hugs the hull's plan outline — fine at
+/// the bow, full at midships, tucked in at the transom — instead of a straight
+/// cuboid whose ends poke past the narrowing blob (the monohull's "unanchored
+/// side rod", #785). Near-full length + width, since the hull is fullest at the
+/// waterline.
+const BOOT_STATIONS: [(f32, f32); 7] = [
+    (0.50, 0.06),
+    (0.36, 0.26),
+    (0.20, 0.40),
+    (0.00, 0.45),
+    (-0.20, 0.42),
+    (-0.34, 0.31),
+    (-0.44, 0.18),
+];
+
+/// Deck-edge rub-strake stations. Shorter and narrower than [`BOOT_STATIONS`]:
+/// up at the sheer the hull is far slimmer than at the waterline, and a
+/// slender blob's iso-surface pulls *inboard* of its analytic ellipsoid, so a
+/// full-length sheer rail spikes past the fine bow/stern (worst on the
+/// catamaran's thin pontoons, #785). Confining it to the fuller midships keeps
+/// it on the topsides at every hull fullness.
+const STRAKE_STATIONS: [(f32, f32); 5] = [
+    (0.34, 0.20),
+    (0.17, 0.30),
+    (0.00, 0.33),
+    (-0.20, 0.29),
+    (-0.34, 0.18),
+];
+
+/// Sweep one rubbing rail down each flank of a hull at height `y`, tracing the
+/// plan outline in `stations` (scaled by the spec's beam/length) so the band
+/// follows the curved topsides. A thin [`spine`] tube (round section) reads as
+/// a toe-rail at the sheer or a boot stripe at the waterline. Offset by the
+/// hull's own `x` so a catamaran's two pontoons each carry their own.
+fn hull_rail(
+    parent: &mut Generator,
+    spec: HullSpec,
+    y: f32,
+    radius: f32,
+    stations: &[(f32, f32)],
+    material: SovereignMaterialSettings,
+) {
+    let HullSpec {
+        x, beam, length, ..
+    } = spec;
+    for s in [-1.0f32, 1.0] {
+        let pts: Vec<([f32; 3], f32)> = stations
+            .iter()
+            .map(|(zf, xf)| ([s * xf * beam, y, zf * length], radius))
+            .collect();
+        parent.children.push(prim(
+            spine(&pts, 6, material.clone()),
+            [x, 0.0, 0.0],
+            id_quat(),
+        ));
+    }
+}
 
 /// Build one swept boat hull into `parent` at the spec's lateral offset: a
 /// single smooth BlobGroup — a full amidships mass pulled to a fine point at
@@ -59,6 +122,7 @@ pub(super) fn boat_hull_body(parent: &mut Generator, ctx: &PartCtx, spec: HullSp
         beam,
         length,
         freeboard,
+        ..
     } = spec;
     // A smooth matte painted skin — the blob's curvature carries the form, so
     // the busy brushed/woven `body` normal-map (which read as scaly bumps on
@@ -95,13 +159,29 @@ pub(super) fn boat_hull_body(parent: &mut Generator, ctx: &PartCtx, spec: HullSp
         skin,
     );
     parent.children.push(prim(hull, [x, 0.0, 0.0], id_quat()));
-    // Waterline boot stripe down each flank (hugs the hull side at y≈0).
-    for s in [-1.0f32, 1.0] {
-        parent.children.push(prim(
-            cuboid([0.016, freeboard * 0.16, length * 0.6], stripe.clone()),
-            [x + s * beam * 0.45, -freeboard * 0.02, -length * 0.05],
-            id_quat(),
-        ));
+    if spec.rails {
+        // Deck-edge rub-strake just below the sheer + a waterline boot stripe,
+        // both swept so they hug the curved topsides instead of a straight
+        // cuboid poking past the narrowing ends (#785). The strake is a dark
+        // toe-rail; the boot stripe keeps the accent band (its two-tone /
+        // below-waterline refinement rides the materials pass, #786).
+        let strake = ctx.materials.trim(ctx.palette.tertiary_accent);
+        hull_rail(
+            parent,
+            spec,
+            freeboard * 0.32,
+            0.011,
+            &STRAKE_STATIONS,
+            strake,
+        );
+        hull_rail(
+            parent,
+            spec,
+            freeboard * 0.02,
+            0.012,
+            &BOOT_STATIONS,
+            stripe,
+        );
     }
 }
 
@@ -130,6 +210,7 @@ pub(super) fn hull(ctx: &PartCtx) -> Generator {
             beam,
             length,
             freeboard,
+            rails: true,
         },
     );
     root
@@ -155,6 +236,7 @@ pub(super) fn hull_catamaran(ctx: &PartCtx) -> Generator {
                 beam: beam * 0.48,
                 length: length * 0.94,
                 freeboard: freeboard * 0.77,
+                rails: true,
             },
         );
     }
@@ -194,6 +276,7 @@ pub(super) fn hull_trimaran(ctx: &PartCtx) -> Generator {
             beam: beam * 0.84,
             length,
             freeboard,
+            rails: true,
         },
     );
     for s in [-1.0f32, 1.0] {
@@ -205,6 +288,7 @@ pub(super) fn hull_trimaran(ctx: &PartCtx) -> Generator {
                 beam: beam * 0.28,
                 length: length * 0.62,
                 freeboard: freeboard * 0.5,
+                rails: false,
             },
         );
         // Cross-beam (aka) tying the ama to the main hull.
@@ -277,69 +361,130 @@ pub(super) fn hull_barge(ctx: &PartCtx) -> Generator {
 }
 
 pub(super) fn deck(ctx: &PartCtx) -> Generator {
-    let shell = ctx.materials.body(shade(ctx.palette.primary_accent, 0.75));
-    let dash = ctx.materials.metal(ctx.palette.secondary_accent);
+    // A low cockpit + a shaped cabin trunk that hunkers *down* on the smooth
+    // deck — the old tall boxy tub was the boxiest thing on the rounded hull
+    // (#785). The cabin is a tapered wedge with a raked wrap windscreen and
+    // portholes; the open cockpit aft carries a bench inside a low coaming,
+    // clear of the boom that sweeps over it.
+    let house = ctx.materials.body(shade(ctx.palette.primary_accent, 0.72));
+    let dark = ctx.materials.metal(shade(ctx.palette.primary_accent, 0.42));
     let glass = ctx.materials.glass(ctx.palette.secondary_accent);
     // Cockpit footprint tracks the seeded hull (a narrow sleek hull would
     // otherwise wear a fixed-width tub poking over its gunwales).
     let (beam, length, _) = hull_dims(ctx);
     let (dw, dl) = (beam / 0.5, length / 1.32);
 
-    // Cockpit tub recessed into the pod deck.
+    // Low cockpit sole — the flat deck the rest sits on.
     let mut deck = prim(
-        cuboid([0.38 * dw, 0.06, 0.66 * dl], shell.clone()),
-        [0.0, 0.0, 0.0],
+        cuboid([0.34 * dw, 0.045, 0.62 * dl], house.clone()),
+        [0.0, 0.0, -0.04 * dl],
         id_quat(),
     );
-    // Seat back toward the stern.
+    // Cabin trunk forward — a low shaped wedge (top drawn in across + fore-aft)
+    // rather than a slab, so it reads as a deckhouse, not a box.
+    let ch = 0.10;
     deck.children.push(prim(
-        cuboid([0.26 * dw, 0.16, 0.07], shell),
-        [0.0, 0.1, -0.22 * dl],
-        id_quat(),
-    ));
-    // Dashboard fairing at the front of the cockpit.
-    deck.children.push(prim(
-        cuboid([0.34 * dw, 0.08, 0.06], dash),
-        [0.0, 0.05, 0.24 * dl],
-        id_quat(),
-    ));
-    // Wraparound windscreen, raked back over the cockpit.
-    deck.children.push(prim(
-        with_torture(
-            cuboid([0.36 * dw, 0.16, 0.03], glass),
-            0.0,
-            0.25,
-            [0.0, 0.0, -0.12],
+        with_shape(
+            cuboid([0.30 * dw, ch, 0.36 * dl], house.clone()),
+            [0.20, 0.34],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0],
         ),
-        [0.0, 0.12, 0.24 * dl],
+        [0.0, ch * 0.5, 0.22 * dl],
+        id_quat(),
+    ));
+    // Raked wrap windscreen across the cabin's aft face (the helm looks forward
+    // over the low trunk): tapered in and leaned back.
+    deck.children.push(prim(
+        with_shape(
+            cuboid([0.27 * dw, 0.085, 0.02], glass),
+            [0.22, 0.0],
+            [0.0, 0.0, -0.07],
+            [0.0, 0.0],
+        ),
+        [0.0, ch + 0.02, 0.05 * dl],
+        id_quat(),
+    ));
+    // Two portholes per side on the cabin trunk (short discs facing outboard).
+    for s in [-1.0f32, 1.0] {
+        for z in [0.16 * dl, 0.30 * dl] {
+            deck.children.push(prim(
+                cylinder(0.026, 0.02, 10, dark.clone()),
+                [s * 0.15 * dw, ch * 0.55, z],
+                quat_xyzw(quat_z(FRAC_PI_2)),
+            ));
+        }
+    }
+    // Low coaming down each side of the open cockpit (inboard of the sheer, so
+    // it doesn't fight the curved hull edge).
+    for s in [-1.0f32, 1.0] {
+        deck.children.push(prim(
+            cuboid([0.02, 0.05, 0.34 * dl], dark.clone()),
+            [s * 0.16 * dw, 0.03, -0.14 * dl],
+            id_quat(),
+        ));
+    }
+    // Bench across the after end of the cockpit.
+    deck.children.push(prim(
+        cuboid([0.26 * dw, 0.07, 0.06], house),
+        [0.0, 0.035, -0.30 * dl],
         id_quat(),
     ));
     deck
 }
 
 pub(super) fn mast(ctx: &PartCtx) -> Generator {
-    // A short boat mast: a slightly aft-raked pole rising from the deck pivot
-    // (origin) with a spreader crossbar and a masthead nav light. Height comes
-    // from the blueprint so a tall-rigged and a stubby seed differ.
-    let pole = ctx.materials.metal(ctx.palette.secondary_accent);
-    let light = ctx.materials.glow(ctx.palette.tertiary_accent);
+    // A fore-and-aft sloop rig: a raked pole carrying a triangular mainsail
+    // slung from a boom, topped by a streaming pennant. The always-bright cloth
+    // sail (secondary accent) breaks the old bare-crossbar-plus-lollipop
+    // "crucifix" read — a fore-and-aft sail is edge-on from dead ahead, so the
+    // front tile now shows a clean pole, never a cross — and gives the
+    // near-monochrome hull its contrast element. Height comes from the
+    // blueprint so a tall-rigged and a stubby seed differ.
+    let spar = ctx.materials.metal(ctx.palette.secondary_accent);
+    let canvas = ctx.materials.cloth(ctx.palette.secondary_accent);
+    let flag = ctx.materials.accent(ctx.palette.tertiary_accent);
     let h = ctx.boat().map_or(0.42, |b| b.mast_h);
 
+    // Raked pole from the deck pivot (origin) to the masthead.
     let mut root = prim(
-        cylinder(0.018, h, 8, pole.clone()),
+        cylinder(0.016, h, 8, spar.clone()),
         [0.0, h * 0.5, 0.0],
-        quat_xyzw(quat_x(-0.05)),
+        quat_xyzw(quat_x(-0.06)),
     );
-    // Spreader crossbar near the top.
+    // The boom + sail hang in the pole's local frame (pole-local Y = 0 sits at
+    // mid-mast; the deck is at −h/2). The sail extends aft (−Z) over the
+    // cockpit; the mast is authored at the bow-forward +Z, so the boat's travel
+    // yaw carries the rig aft as expected.
+    let foot = h * 0.68; // sail foot / boom length aft of the mast
+    let boom_y = -h * 0.34; // just above the deck, in pole-local Y
+    // Boom laid along Z, from the mast (z = 0) reaching aft.
     root.children.push(prim(
-        cuboid([0.26, 0.02, 0.02], pole),
-        [0.0, h * 0.29, 0.0],
+        cylinder(0.012, foot, 6, spar.clone()),
+        [0.0, boom_y, -foot * 0.5],
+        quat_xyzw(quat_x(FRAC_PI_2)),
+    ));
+    // Triangular mainsail: luff up the mast (front, +Z), foot along the boom,
+    // head near the masthead. taper.y collapses the head to a point; shear.y
+    // pins the luff vertical at the mast so the leech slopes aft-and-down.
+    let sail_h = h * 0.74;
+    root.children.push(prim(
+        with_shape(
+            cuboid([0.012, sail_h, foot], canvas),
+            [0.0, 0.96],
+            [0.0, 0.0, 0.0],
+            [0.0, foot * 0.5],
+        ),
+        [0.0, boom_y + sail_h * 0.5, -foot * 0.5],
         id_quat(),
     ));
-    // Masthead nav light.
+    // Masthead pennant streaming aft — replaces the old lollipop nav sphere.
+    // (0.012 keeps the flag thin without dropping under the sanitiser's 0.01
+    // minimum cuboid dimension, which would rewrite it and break the parts'
+    // survive-sanitise-unchanged round-trip.)
     root.children.push(prim(
-        sphere(0.03, 2, light),
-        [0.0, h * 0.55, 0.0],
+        cuboid([0.012, 0.05, 0.14], flag),
+        [0.0, h * 0.44, -0.08],
         id_quat(),
     ));
     root

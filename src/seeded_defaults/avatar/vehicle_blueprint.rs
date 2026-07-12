@@ -138,8 +138,13 @@ impl BoatBlueprint {
             mast_h,
             // Stations as fractions of the hull length so the anchors track
             // the seeded hull instead of silently re-encoding its default
-            // length as a literal (the coupling #783 removes everywhere).
-            bow_z: hull_len * 0.59,
+            // length as a literal (the coupling #783 removes everywhere). The
+            // bow station sits *on* the stem (the hull's swept blob tips out at
+            // ≈0.5·len once the iso-surface pulls in from the analytic cone),
+            // not the old 0.59 that floated a figurehead clear ahead of the
+            // prow — the survey's "seed-28 unanchored bow sphere" (#785). A
+            // forward-projecting ram still overhangs via its own +Z offset.
+            bow_z: hull_len * 0.50,
             stack_z: -hull_len * 0.42,
             ornament_z: hull_len * 0.076,
         }

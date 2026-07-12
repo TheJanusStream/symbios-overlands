@@ -1,13 +1,14 @@
 //! Hover-boat family assembler — composes the vessel from the seeded
 //! [`AvatarOutfit`] parts.
 //!
-//! The hull part is the structural root (a shaped hull with a pointed prow
-//! and gunwale rails, centred at the waterline origin); the deck sits just
-//! inside it, the masted sail rises from the deck, and the optional bow
-//! ornament / stern stack mount fore and aft. All geometry, colour, and
-//! finish come from the part catalogue ([`crate::pds::avatar::parts`]); the
-//! assembler owns only the layout anchors. Seeded FX are attached centrally
-//! by [`super::build_for_seed`].
+//! The hull part is the structural root (a swept blob hull with a pointed prow
+//! and sheer-following rub-strakes, centred at the waterline origin); the low
+//! cabin deck sits just inside it, the rigged mast (a fore-and-aft mainsail, or
+//! a styled square/antenna/derrick variant) rises from the deck, and the
+//! optional bow ornament / stern stack mount fore and aft. All geometry,
+//! colour, and finish come from the part catalogue
+//! ([`crate::pds::avatar::parts`]); the assembler owns only the layout anchors.
+//! Seeded FX are attached centrally by [`super::build_for_seed`].
 
 use std::f32::consts::PI;
 
