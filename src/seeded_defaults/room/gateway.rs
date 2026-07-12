@@ -1,43 +1,22 @@
 //! Seeded gateway spot (#747, relocated #774) — where a room's social
 //! gateway stands and where its forecourt landing pose lies.
 //!
-//! Unlike the settlement (which road-growing themes skip), every seeded
-//! room gets exactly one gateway: it is the room's connective tissue, not
-//! settlement dressing.
+//! Every seeded room gets exactly one gateway: it is the room's
+//! connective tissue, not settlement dressing.
 //!
-//! Two placements:
-//!
-//! - [`GatewaySpot::for_landmark`] — the common case. The gate is a
-//!   gatehouse on the origin→landmark approach: it stands on that axis a
-//!   short way *in front of* the settlement landmark (clearing its
-//!   footprint), facing the origin, and the default landing sits just in
-//!   front of the gate facing back toward the gate and the settlement
-//!   beyond it. Visitors — and the owner logging in — arrive at the
-//!   settlement frontage rather than an empty field at the region centre.
-//! - [`GatewaySpot::central`] — the fallback for road-growing themes,
-//!   which have no concentric settlement to anchor to. A seeded bearing a
-//!   short walk from the origin, facing it, landing just in front.
+//! The gate ([`GatewaySpot::for_landmark`]) is a gatehouse on the
+//! origin→landmark approach: it stands on that axis a short way *in
+//! front of* the settlement landmark (clearing its footprint), facing
+//! the origin, and the default landing sits just in front of the gate
+//! facing back toward the gate and the settlement beyond it. Visitors —
+//! and the owner logging in — arrive at the settlement frontage rather
+//! than an empty field at the region centre.
 //!
 //! Facing convention: yaw follows the spawn path's
 //! `Quat::from_rotation_y(deg)`, whose forward vector is
 //! `(-sin, 0, -cos)` — so a pose facing world-direction `(dx, dz)` has
 //! `yaw = atan2(-dx, -dz)`. The World Editor's `PlayerPose::from_transform`
 //! (Environment tab) is the empirically-verified inverse.
-
-use rand_chacha::ChaCha8Rng;
-use rand_chacha::rand_core::SeedableRng;
-use std::f32::consts::TAU;
-
-use crate::seeded_defaults::scene::{range_f32, unit_f32};
-
-/// Sub-stream salt distinct from every sibling room deriver.
-const GATEWAY_STREAM_SALT: u64 = 0x6A7E_11A7_6A7E_11A7;
-
-/// Central-fallback distance band from the spawn origin (road themes).
-/// Clear of the ±5 m spawn scatter, close enough to read as "the room's
-/// gate" rather than a distant object.
-const CENTRAL_MIN_DIST: f32 = 12.0;
-const CENTRAL_MAX_DIST: f32 = 20.0;
 
 /// Extra gap between the landmark's footprint edge and the gate, on top of
 /// both clearances, so the gatehouse frames the approach without crowding
@@ -92,20 +71,6 @@ impl GatewaySpot {
         let offset = [bearing[0] * gate_dist, bearing[1] * gate_dist];
 
         let landing_dist = (gate_dist - LANDING_STANDOFF).max(MIN_LANDING_DIST);
-        let landing = [bearing[0] * landing_dist, bearing[1] * landing_dist];
-
-        Self::finish(offset, landing, bearing)
-    }
-
-    /// Road-theme fallback: a seeded bearing a short walk from the origin.
-    pub fn central(room_seed: u64) -> Self {
-        let mut rng = ChaCha8Rng::seed_from_u64(room_seed ^ GATEWAY_STREAM_SALT);
-        let angle = unit_f32(&mut rng) * TAU;
-        let dist = range_f32(&mut rng, CENTRAL_MIN_DIST, CENTRAL_MAX_DIST);
-        let bearing = [angle.sin(), angle.cos()];
-        let offset = [bearing[0] * dist, bearing[1] * dist];
-
-        let landing_dist = (dist - LANDING_STANDOFF).max(MIN_LANDING_DIST);
         let landing = [bearing[0] * landing_dist, bearing[1] * landing_dist];
 
         Self::finish(offset, landing, bearing)
@@ -185,21 +150,6 @@ mod tests {
     }
 
     #[test]
-    fn central_clears_spawn_and_faces_gate() {
-        for seed in 0..64u64 {
-            let spot = GatewaySpot::central(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15));
-            let d_g = (spot.offset[0].powi(2) + spot.offset[1].powi(2)).sqrt();
-            assert!(
-                (CENTRAL_MIN_DIST..=CENTRAL_MAX_DIST).contains(&d_g),
-                "seed {seed}: gate at {d_g} m outside the band"
-            );
-            let d_a = (spot.landing[0].powi(2) + spot.landing[1].powi(2)).sqrt();
-            assert!(d_a > 5.0, "seed {seed}: landing inside spawn scatter");
-            assert_landing_faces_gate(&spot, "central");
-        }
-    }
-
-    #[test]
     fn gate_faces_origin() {
         // The gate's own yaw must point its front (−Z rotated) at the
         // origin, matching the settlement landmark convention.
@@ -210,13 +160,5 @@ mod tests {
         let len = (to_origin[0].powi(2) + to_origin[1].powi(2)).sqrt();
         let dot = (forward[0] * to_origin[0] + forward[1] * to_origin[1]) / len;
         assert!(dot > 0.999, "gate does not face origin (dot {dot})");
-    }
-
-    #[test]
-    fn central_is_deterministic() {
-        let a = GatewaySpot::central(0xDEAD_BEEF);
-        let b = GatewaySpot::central(0xDEAD_BEEF);
-        assert_eq!(a.offset, b.offset);
-        assert_eq!(a.landing_yaw_deg, b.landing_yaw_deg);
     }
 }

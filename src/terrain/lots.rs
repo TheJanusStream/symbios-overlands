@@ -1,11 +1,13 @@
 //! Load-time lot-based building population.
 //!
-//! A road-growing room bakes **no** concentric near-spawn settlement at seed
-//! time (see [`crate::pds::room`]'s `default_for_seed`). Instead, once the
-//! heightmap exists, this system extracts the road network's enclosed building
-//! lots ([`crate::urban::extract_building_lots`]) and injects themed catalogue
-//! buildings onto them — straight into the live record, so they compile to
-//! entities like any authored placement and the author can save them.
+//! Seeded rooms grow no road network (too heavy for a good default room on
+//! wasm), so this layer only serves rooms whose author added a `RoadNetwork`
+//! generator in the editor (or saved one back when roads were seeded). Once
+//! the heightmap exists, this system extracts the road network's enclosed
+//! building lots ([`crate::urban::extract_building_lots`]) and injects themed
+//! catalogue buildings onto them — straight into the live record, so they
+//! compile to entities like any authored placement and the author can save
+//! them.
 //!
 //! Everything is deterministic in the room DID + the network's layout seed: the
 //! terrain (and thus the lots) reproduce on every peer, the building picks come
@@ -266,15 +268,10 @@ mod tests {
         }
     }
 
-    /// A road-growing DID so the catalogue pools are non-empty.
+    /// Any DID works: the injector falls back to [`FALLBACK_THEME`] when the
+    /// room's own theme has no landmark entry, so the pools are never empty.
     fn urban_did() -> String {
-        for s in 0u64..512 {
-            let did = format!("did:test:{s}");
-            if crate::pds::room::theme_grows_roads(SceneCharacter::for_seed(fnv1a_64(&did)).theme) {
-                return did;
-            }
-        }
-        panic!("no road-growing test DID found");
+        "did:test:0".to_string()
     }
 
     #[test]
@@ -287,10 +284,7 @@ mod tests {
             .collect();
 
         let n = inject_lot_buildings(&mut record, &lots, &did, 4242);
-        assert!(
-            n > 0,
-            "expected buildings injected for a road-growing theme"
-        );
+        assert!(n > 0, "expected buildings injected onto the lots");
         // One placement per lot...
         let placements = record
             .placements

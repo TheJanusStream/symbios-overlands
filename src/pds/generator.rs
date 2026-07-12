@@ -143,9 +143,11 @@ crate::pds::serde_util::impl_default_eliding_serialize!(WaterSurface {
 
 /// Authored parameters for a [`GeneratorKind::RoadNetwork`] — a tensor-field
 /// street grid that drapes over the parent terrain (see [`crate::urban`]). The
-/// *config* is serialized / editable / seeded; the road *geometry* is recomputed
+/// *config* is serialized / editable; the road *geometry* is recomputed
 /// at load from this plus the heightmap, never stored. Like Water, a road
-/// network is only valid as a child of a Terrain generator.
+/// network is only valid as a child of a Terrain generator. Seeded rooms grow
+/// no network (too heavy for a good default room on wasm) — this is
+/// editor-opt-in, though records saved when roads were seeded still carry one.
 ///
 /// Default-eliding wire format (#695): fields matching
 /// [`RoadConfig::default`] are omitted on write; the container
@@ -156,8 +158,7 @@ pub struct RoadConfig {
     /// Master toggle — a disabled network grows no roads (the editor "off").
     pub enabled: bool,
     /// Seed for the road layout *alone*, so an author can re-roll the streets
-    /// without disturbing terrain or settlement. Seeded derivers default it
-    /// from the room seed.
+    /// without disturbing terrain or settlement.
     #[serde(with = "u64_as_string")]
     pub seed: u64,
     /// Half-extent (m from spawn) of the district the network fills.

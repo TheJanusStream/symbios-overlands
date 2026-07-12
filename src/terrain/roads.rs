@@ -1,7 +1,7 @@
 //! Dedicated road-mesh rebuild system.
 //!
 //! Roads are a `RoadNetwork` child of the terrain generator in the record
-//! (authored / seeded / edited as config — see
+//! (authored / edited as config — see
 //! [`crate::pds::generator::RoadConfig`] and [`crate::urban`]). This system
 //! owns the road *mesh*: it watches the finished heightmap and the live
 //! record's road config and, on any change, re-meshes the draped road ribbon —

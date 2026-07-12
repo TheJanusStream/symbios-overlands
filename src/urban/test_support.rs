@@ -92,7 +92,9 @@ pub(crate) fn pilot_heightmap() -> HeightMap {
     hm
 }
 
-/// The pilot room's derived road seed (terrain seed ^ ROAD_SEED_SALT).
+/// The pilot room's road seed — frozen from the era when seeded urban rooms
+/// derived one (terrain seed ^ the then road-seed salt), so the fixture
+/// geometry these tests assert against stays byte-identical.
 pub(crate) const PILOT_ROAD_SEED: u64 = 4167901772298833237_u64 ^ 0xA0D5_EED5_A170_0001;
 
 /// #583 weld scenario helper: build a graph from XZ node positions and minor
