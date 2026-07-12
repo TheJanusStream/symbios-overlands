@@ -3,16 +3,24 @@
 
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
+use rand_chacha::ChaCha8Rng;
+use rand_chacha::rand_core::SeedableRng;
+
 use crate::pds::avatar::default_visuals::common::{
     cone, cuboid, cylinder, id_quat, prim, quat_x, quat_xyzw, quat_z, sphere, spine, torus,
-    with_shape, with_torture,
+    with_cut, with_shape, with_torture,
 };
 use crate::pds::generator::Generator;
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::types::{Fp, Fp3};
+use crate::seeded_defaults::{OrnatenessTier, unit_f32};
 
 use super::super::PartCtx;
 use super::common::{ensure_delta, floor_value, luma, saturate, shade, to_value};
+
+/// Salt for the gondola-dressing sub-stream (kept distinct from the palette /
+/// outfit streams so the ornamentation varies independently per ship).
+const GONDOLA_DRESS_SALT: u64 = 0x60_D0_1A_DE_55_00_00_01;
 
 // ---------------------------------------------------------------------------
 // Airship colour scheme (#789)
@@ -431,17 +439,191 @@ pub(super) fn envelope_twin(ctx: &PartCtx) -> Generator {
     env
 }
 
+/// A gondola car's cabin bounding box (half-extents) + underside line, so the
+/// shared dressing + glazing seat railings / lanterns / windows / an
+/// observation bubble relative to whatever archetype built the car (#790).
+#[derive(Clone, Copy)]
+pub(crate) struct GondolaDims {
+    pub(crate) hw: f32,
+    pub(crate) hh: f32,
+    pub(crate) hl: f32,
+    /// The car's lowest surface (keel bottom for the enclosed cabin, tub/deck
+    /// floor for the open archetypes) — where the observation bubble seats
+    /// flush. A fixed offset would dangle it below the shallow open cars (#790
+    /// review), so each archetype supplies its own underside.
+    pub(crate) keel_y: f32,
+}
+
+/// Open the gondola's per-part stochastic sub-stream (salted off the seed so
+/// the dressing varies per ship without disturbing the palette/outfit streams).
+/// `tweak` forks an independent stream for a second roll (glazing vs dressing).
+fn dress_rng(ctx: &PartCtx, tweak: u64) -> ChaCha8Rng {
+    ChaCha8Rng::seed_from_u64(ctx.seed ^ GONDOLA_DRESS_SALT ^ tweak)
+}
+
+/// Ornateness → hanging-lantern count: plain gondolas stay spare, ornate ones
+/// are festooned — so the tier finally reads on the geometry (#790).
+fn lantern_count(ctx: &PartCtx) -> usize {
+    match ctx.ornateness {
+        OrnatenessTier::Plain => 0,
+        OrnatenessTier::Adorned => 2,
+        OrnatenessTier::Ornate => 4,
+    }
+}
+
+/// Draw the gondola's lit glazing in one of two seeded styles — a continuous
+/// mullioned window band (the salon look) or a row of round portholes (dark rim
+/// + glowing lens) — both toned to the normalized interior-light colour (#789).
+pub(crate) fn gondola_windows(g: &mut Generator, ctx: &PartCtx, dims: GondolaDims) {
+    let c = airship_colors(ctx);
+    let frame = ctx.materials.metal(c.frame);
+    let window = window_material(c.window);
+    let GondolaDims { hw, hh, hl, .. } = dims;
+    let y = hh * 0.3;
+    let mut rng = dress_rng(ctx, 0x9E);
+    if unit_f32(&mut rng) < 0.5 {
+        // Round portholes: a dark rim ring around a bright glowing lens.
+        for s in [-1.0f32, 1.0] {
+            for zf in [-0.62f32, -0.21, 0.21, 0.62] {
+                let x = s * hw * 1.02;
+                g.children.push(prim(
+                    cylinder(0.05, 0.02, 10, frame.clone()),
+                    [x, y, zf * hl],
+                    quat_xyzw(quat_z(FRAC_PI_2)),
+                ));
+                g.children.push(prim(
+                    cylinder(0.036, 0.03, 10, window.clone()),
+                    [x, y, zf * hl],
+                    quat_xyzw(quat_z(FRAC_PI_2)),
+                ));
+            }
+        }
+    } else {
+        // Continuous lit window band broken into panes by mullions.
+        for s in [-1.0f32, 1.0] {
+            g.children.push(prim(
+                cuboid([0.02, 0.09, hl * 1.6], window.clone()),
+                [s * hw * 1.02, y, 0.0],
+                id_quat(),
+            ));
+            for zf in [-0.52f32, 0.0, 0.52] {
+                g.children.push(prim(
+                    cuboid([0.03, 0.11, 0.03], frame.clone()),
+                    [s * hw * 1.05, y, zf * hl],
+                    id_quat(),
+                ));
+            }
+        }
+    }
+}
+
+/// Dress a built gondola car with seeded ornamentation scaled by ornateness: a
+/// promenade railing round the roof, hanging lanterns at the keel corners, and
+/// an observation bubble (a profile-cut bottom half-dome view port) at the bow
+/// underside. Shared by every gondola archetype so the tier reads on all of
+/// them (#790).
+pub(crate) fn dress_gondola(g: &mut Generator, ctx: &PartCtx, dims: GondolaDims) {
+    let c = airship_colors(ctx);
+    let rail = ctx.materials.metal(c.frame);
+    let lantern = ctx.materials.glow(c.window);
+    let GondolaDims { hw, hh, hl, keel_y } = dims;
+    let mut rng = dress_rng(ctx, 0x00);
+
+    // Promenade railing round the roof: corner posts under a top rail. Every
+    // ornate ship, most adorned ones, the odd plain one.
+    let railed = match ctx.ornateness {
+        OrnatenessTier::Ornate => true,
+        OrnatenessTier::Adorned => unit_f32(&mut rng) < 0.7,
+        OrnatenessTier::Plain => unit_f32(&mut rng) < 0.25,
+    };
+    if railed {
+        let top = hh + 0.07;
+        for sx in [-1.0f32, 1.0] {
+            g.children.push(prim(
+                cuboid([0.014, 0.014, hl * 1.9], rail.clone()),
+                [sx * hw * 0.92, top, 0.0],
+                id_quat(),
+            ));
+            for zf in [-0.85f32, -0.28, 0.28, 0.85] {
+                g.children.push(prim(
+                    cuboid([0.014, 0.07, 0.014], rail.clone()),
+                    [sx * hw * 0.92, hh + 0.035, zf * hl],
+                    id_quat(),
+                ));
+            }
+        }
+        for sz in [-1.0f32, 1.0] {
+            g.children.push(prim(
+                cuboid([hw * 1.84, 0.014, 0.014], rail.clone()),
+                [0.0, top, sz * hl * 0.9],
+                id_quat(),
+            ));
+        }
+    }
+
+    // Hanging lanterns at the keel corners — a dark yoke + a glowing bulb.
+    let n = lantern_count(ctx);
+    for spot in [[-1.0f32, 0.72], [1.0, 0.72], [-1.0, -0.72], [1.0, -0.72]]
+        .iter()
+        .take(n)
+    {
+        let (x, z) = (spot[0] * hw * 0.8, spot[1] * hl);
+        g.children.push(prim(
+            cylinder(0.01, 0.05, 6, rail.clone()),
+            [x, -hh - 0.05, z],
+            id_quat(),
+        ));
+        g.children.push(prim(
+            sphere(0.028, 3, lantern.clone()),
+            [x, -hh - 0.11, z],
+            id_quat(),
+        ));
+    }
+
+    // Observation bubble: a profile-cut bottom half-dome at the bow underside —
+    // a downward view port. Ornate ships, or a lucky adorned one. Seated FLUSH
+    // at the car's own underside (`keel_y`), not a fixed cabin-depth offset that
+    // dangled it below the shallow open cars (#790 review). Glassy (not the
+    // lanterns' opaque glow) + a metal rim ring so it reads as a framed port,
+    // not another hanging light.
+    let bubble = ctx.ornateness == OrnatenessTier::Ornate
+        || (ctx.ornateness == OrnatenessTier::Adorned && unit_f32(&mut rng) < 0.5);
+    if bubble {
+        let z = hl * 0.55;
+        // profile_cut [0, 0.5] keeps the southern (bottom) hemisphere — a dome
+        // bulging downward; the flat cut face seats flush at the underside.
+        let dome = with_cut(
+            sphere(0.13, 4, ctx.materials.glass(c.window)),
+            [0.0, 1.0],
+            [0.0, 0.5],
+            0.0,
+        );
+        g.children.push(prim(dome, [0.0, keel_y, z], id_quat()));
+        // Rim ring framing the port where it meets the hull.
+        g.children.push(prim(
+            torus(0.014, 0.12, rail.clone()),
+            [0.0, keel_y, z],
+            quat_xyzw(quat_x(FRAC_PI_2)),
+        ));
+    }
+}
+
 pub(super) fn gondola(ctx: &PartCtx) -> Generator {
-    // The gondola wears the envelope's complement (`accent`), value-separated
-    // from the bag, so cabin and envelope read as two coordinated colours (not
-    // an independent third draw). Its lit window band uses the *normalized*
-    // interior-light colour + a disciplined emission (#789): every seed reads
-    // lit and warm, where the raw-tertiary glow used to be dead or blown out.
+    // Enclosed-cabin gondola. Wears the envelope's complement (`accent`),
+    // value-separated from the bag, so cabin and envelope read as two
+    // coordinated colours (#789). Glazing style + ornamentation are seeded from
+    // the gondola sub-stream, scaled by ornateness (#790).
     let c = airship_colors(ctx);
     let body = ctx.materials.body(c.accent);
     let keel = ctx.materials.body(shade(c.accent, 0.7));
     let frame = ctx.materials.metal(c.frame);
-    let window = window_material(c.window);
+    let dims = GondolaDims {
+        hw: 0.22,
+        hh: 0.14,
+        hl: 0.46,
+        // The rounded keel drops to ≈ −0.24; seat the view port at its bottom.
+        keel_y: -0.24,
+    };
     // Main cabin hull.
     let mut g = prim(
         cuboid([0.44, 0.28, 0.92], body.clone()),
@@ -458,22 +640,7 @@ pub(super) fn gondola(ctx: &PartCtx) -> Generator {
         cap.transform.scale = Fp3([0.95, 0.62, 0.55]);
         g.children.push(cap);
     }
-    // A continuous lit window band along each flank, broken into panes by
-    // mullions, instead of a sparse row of portholes.
-    for s in [-1.0f32, 1.0] {
-        g.children.push(prim(
-            cuboid([0.02, 0.09, 0.74], window.clone()),
-            [s * 0.225, 0.04, 0.0],
-            id_quat(),
-        ));
-        for z in [-0.24f32, 0.0, 0.24] {
-            g.children.push(prim(
-                cuboid([0.03, 0.11, 0.03], frame.clone()),
-                [s * 0.23, 0.04, z],
-                id_quat(),
-            ));
-        }
-    }
+    gondola_windows(&mut g, ctx, dims);
     // Rounded keel underneath.
     g.children.push(prim(
         cuboid([0.38, 0.12, 0.84], keel),
@@ -486,11 +653,12 @@ pub(super) fn gondola(ctx: &PartCtx) -> Generator {
         [0.0, 0.14, 0.4],
         id_quat(),
     ));
+    dress_gondola(&mut g, ctx, dims);
     g
 }
 
 // ---------------------------------------------------------------------------
-// Skiff
+// Fin + engine pod
 // ---------------------------------------------------------------------------
 
 pub(super) fn fin(ctx: &PartCtx) -> Generator {
@@ -520,4 +688,68 @@ pub(super) fn fin(ctx: &PartCtx) -> Generator {
         id_quat(),
     ));
     f
+}
+
+/// Push a vertical pylon strut into `pod` reaching up (+Y) from the nacelle
+/// into the envelope's lower flank, so the pod reads as slung under the hull
+/// rather than floating. Shared by every pod variant (the assembler mounts the
+/// pod X-symmetrically, so the strut stays on the centreline — no mirror flip).
+pub(crate) fn pod_pylon(pod: &mut Generator, material: &SovereignMaterialSettings) {
+    pod.children.push(prim(
+        cuboid([0.05, 0.5, 0.09], material.clone()),
+        [0.0, 0.33, 0.0],
+        id_quat(),
+    ));
+}
+
+pub(super) fn pod(ctx: &PartCtx) -> Generator {
+    // The default engine pod: a nacelle laid along the travel axis (+Z front)
+    // with a nose spinner, a torus prop-guard ring, a simple two-blade airscrew,
+    // and a tapered tail — the airship's visible propulsion (a flying family
+    // that had none). Wears the ship's `accent` metal so the pods read as one
+    // mechanical set with the gondola / fins; a glowing hub gives a running
+    // light. Authored X-symmetric (pylon up the centreline) so the assembler's
+    // mirrored pair needs no flip.
+    let c = airship_colors(ctx);
+    let body = ctx.materials.metal(c.accent);
+    let dark = ctx.materials.metal(c.frame);
+    let hub = ctx.materials.glow(c.window);
+
+    // Nacelle: a cylinder laid along Z (quat_x(90°) aims the barrel's +Y along
+    // +Z, the authored travel-forward direction).
+    let mut p = prim(
+        cylinder(0.13, 0.52, 12, body.clone()),
+        [0.0, 0.0, 0.0],
+        quat_xyzw(quat_x(FRAC_PI_2)),
+    );
+    // Nose spinner cone (apex +Z) + a glowing hub cap at its tip.
+    p.children.push(prim(
+        cone(0.12, 0.16, 12, dark.clone()),
+        [0.0, 0.0, 0.3],
+        quat_xyzw(quat_x(FRAC_PI_2)),
+    ));
+    p.children
+        .push(prim(sphere(0.045, 3, hub), [0.0, 0.0, 0.42], id_quat()));
+    // Two-blade airscrew at the front (a thin vertical pair, X-symmetric).
+    for sy in [-1.0f32, 1.0] {
+        p.children.push(prim(
+            cuboid([0.03, 0.2, 0.02], dark.clone()),
+            [0.0, sy * 0.13, 0.36],
+            id_quat(),
+        ));
+    }
+    // Prop-guard ring around the airscrew (torus in the plane ⟂ Z).
+    p.children.push(prim(
+        torus(0.02, 0.2, dark.clone()),
+        [0.0, 0.0, 0.34],
+        quat_xyzw(quat_x(FRAC_PI_2)),
+    ));
+    // Tapered tail cone (apex -Z).
+    p.children.push(prim(
+        cone(0.1, 0.14, 12, body),
+        [0.0, 0.0, -0.3],
+        quat_xyzw(quat_x(-FRAC_PI_2)),
+    ));
+    pod_pylon(&mut p, &dark);
+    p
 }

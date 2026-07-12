@@ -12,11 +12,12 @@
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, TAU};
 
 use crate::pds::avatar::default_visuals::common::{
-    cone, cuboid, cylinder, id_quat, prim, quat_x, quat_xyzw, quat_y, quat_z, sphere,
+    cone, cuboid, cylinder, helix, id_quat, prim, quat_x, quat_xyzw, quat_y, quat_z, sphere,
     superellipsoid, torus, with_cut, with_shape,
 };
 use crate::pds::avatar::parts::defaults::airship::{
-    airship_colors, env_ring, envelope_material, gas_bag, push_gore_seams,
+    GondolaDims, airship_colors, dress_gondola, env_ring, envelope_material, gas_bag, pod_pylon,
+    push_gore_seams,
 };
 use crate::pds::avatar::parts::defaults::skiff::{
     push_wheel_fenders, skiff_colors, skiff_dims, skiff_wheel_anchors,
@@ -421,6 +422,238 @@ fn teardrop_envelope(ctx: &PartCtx) -> Generator {
         env.children.push(env_ring(&frame, z, 0.72));
     }
     env
+}
+
+fn pod_ducted(ctx: &PartCtx) -> Generator {
+    // NEON engine pod: a ducted fan — a short fat nacelle behind a cowl ring
+    // that shrouds a glowing fan disc, so the tech airships read as fan-driven.
+    // Wears the ship's `accent` metal + a normalized glow so it sits in the
+    // two-hue scheme (#789) rather than drawing a fresh colour.
+    let c = airship_colors(ctx);
+    let body = ctx.materials.metal(c.accent);
+    let ring = ctx.materials.metal(c.frame);
+    let glow = ctx.materials.glow(c.window);
+
+    // Short fat nacelle laid along the travel axis (+Z front).
+    let mut p = prim(
+        cylinder(0.15, 0.36, 14, body),
+        [0.0, 0.0, 0.0],
+        quat_xyzw(quat_x(FRAC_PI_2)),
+    );
+    // A fat shroud ring (the duct cowl) proud of the intake — a closed hoop, so
+    // the pod reads as ducted, not an open airscrew like the default (#790
+    // review: it looked identical to the default open-prop).
+    p.children.push(prim(
+        torus(0.05, 0.19, ring.clone()),
+        [0.0, 0.0, 0.2],
+        quat_xyzw(quat_x(FRAC_PI_2)),
+    ));
+    // A bright face-on fan disc filling the duct (a flat glowing cylinder facing
+    // +Z), so the ducted read carries head-on where the pods are most visible.
+    p.children.push(prim(
+        cylinder(0.16, 0.02, 18, glow.clone()),
+        [0.0, 0.0, 0.2],
+        quat_xyzw(quat_x(FRAC_PI_2)),
+    ));
+    // A dark hub + spokes over the disc so it reads as a spinning fan, not a lamp.
+    p.children.push(prim(
+        sphere(0.045, 3, ring.clone()),
+        [0.0, 0.0, 0.23],
+        id_quat(),
+    ));
+    // (Spoke thickness stays ≥ the sanitiser's 0.01 min cuboid dim.)
+    for size in [[0.28, 0.02, 0.012], [0.02, 0.28, 0.012]] {
+        p.children.push(prim(
+            cuboid(size, ring.clone()),
+            [0.0, 0.0, 0.225],
+            id_quat(),
+        ));
+    }
+    // Tapered tail.
+    p.children.push(prim(
+        cone(0.1, 0.14, 12, ring.clone()),
+        [0.0, 0.0, -0.22],
+        quat_xyzw(quat_x(-FRAC_PI_2)),
+    ));
+    pod_pylon(&mut p, &ring);
+    p
+}
+
+fn pod_screw(ctx: &PartCtx) -> Generator {
+    // STEAM engine pod: a riveted nacelle driving a brass Archimedes screw
+    // (Helix prim, #527) — the steampunk airscrew. The screw + spinner wear the
+    // registry `stripe` (brass) pop; the boiler bands the `frame` metal.
+    let c = airship_colors(ctx);
+    let body = ctx.materials.metal(c.accent);
+    let dark = ctx.materials.metal(c.frame);
+    let brass = ctx.materials.trim(c.stripe);
+
+    let mut p = prim(
+        cylinder(0.13, 0.5, 12, body.clone()),
+        [0.0, 0.0, 0.0],
+        quat_xyzw(quat_x(FRAC_PI_2)),
+    );
+    // Brass screw at the front (Helix laid along Z via quat_x(90°)).
+    p.children.push(prim(
+        helix(0.11, 0.02, 0.11, 2.5, 16, brass.clone()),
+        [0.0, 0.0, 0.18],
+        quat_xyzw(quat_x(FRAC_PI_2)),
+    ));
+    // Spinner cone capping the screw shaft.
+    p.children.push(prim(
+        cone(0.07, 0.14, 10, brass),
+        [0.0, 0.0, 0.34],
+        quat_xyzw(quat_x(FRAC_PI_2)),
+    ));
+    // Two boiler bands round the barrel.
+    for z in [-0.14f32, 0.06] {
+        p.children.push(prim(
+            torus(0.018, 0.135, dark.clone()),
+            [0.0, 0.0, z],
+            quat_xyzw(quat_x(FRAC_PI_2)),
+        ));
+    }
+    // Tapered tail.
+    p.children.push(prim(
+        cone(0.1, 0.14, 12, body),
+        [0.0, 0.0, -0.3],
+        quat_xyzw(quat_x(-FRAC_PI_2)),
+    ));
+    pod_pylon(&mut p, &dark);
+    p
+}
+
+fn gondola_basket(ctx: &PartCtx) -> Generator {
+    // Open wicker basket (a balloon-style car): a floor + four low woven walls
+    // around an OPEN top, ringed by a bright rim — the HISTORIC alternative to
+    // the enclosed cabin. Built as explicit walls rather than a hollowed
+    // superellipsoid, which read as a solid shortened box from the side/front
+    // (#790 review); the open-topped box reads unmistakably as a tub. Hidden hub
+    // root at origin so the shared dressing seats correctly (the env_core
+    // pattern). No glazing (it's open); the dressing hangs lanterns + a view
+    // dome; the shallow floor is its underside.
+    let c = airship_colors(ctx);
+    let wicker = ctx.materials.cloth(c.accent);
+    let floor = ctx.materials.cloth(shade(c.accent, 0.8));
+    let rim = ctx.materials.trim(c.stripe);
+    let dims = GondolaDims {
+        hw: 0.24,
+        hh: 0.15,
+        hl: 0.42,
+        keel_y: -0.15,
+    };
+    let mut g = prim(
+        cuboid([0.03, 0.03, 0.03], wicker.clone()),
+        [0.0, 0.0, 0.0],
+        id_quat(),
+    );
+    // Floor pan.
+    g.children.push(prim(
+        cuboid([dims.hw * 2.0, 0.05, dims.hl * 2.0], floor),
+        [0.0, -dims.hh, 0.0],
+        id_quat(),
+    ));
+    // Four low woven walls, standing from the floor to a low open rim (~0.7 of
+    // full height), leaving the top open.
+    let wall_h = dims.hh * 1.5;
+    let wall_cy = -dims.hh + wall_h * 0.5;
+    for sx in [-1.0f32, 1.0] {
+        g.children.push(prim(
+            cuboid([0.03, wall_h, dims.hl * 2.0], wicker.clone()),
+            [sx * dims.hw, wall_cy, 0.0],
+            id_quat(),
+        ));
+    }
+    for sz in [-1.0f32, 1.0] {
+        g.children.push(prim(
+            cuboid([dims.hw * 2.0, wall_h, 0.03], wicker.clone()),
+            [0.0, wall_cy, sz * dims.hl],
+            id_quat(),
+        ));
+    }
+    // Bright rim rails capping the open top.
+    let top = -dims.hh + wall_h;
+    for sx in [-1.0f32, 1.0] {
+        g.children.push(prim(
+            cuboid([0.028, 0.028, dims.hl * 2.05], rim.clone()),
+            [sx * dims.hw, top, 0.0],
+            id_quat(),
+        ));
+    }
+    for sz in [-1.0f32, 1.0] {
+        g.children.push(prim(
+            cuboid([dims.hw * 2.05, 0.028, 0.028], rim.clone()),
+            [0.0, top, sz * dims.hl],
+            id_quat(),
+        ));
+    }
+    dress_gondola(&mut g, ctx, dims);
+    g
+}
+
+fn gondola_cargo(ctx: &PartCtx) -> Generator {
+    // Girder cargo frame: an open box frame of girders over a floor plate,
+    // holding a couple of lashed crates — the GRUBBY freight hauler. Built on a
+    // hidden hub at the car centre (origin) so the shared dressing seats
+    // correctly — the visible frame hangs off it (the env_core pattern; a
+    // floor-plate root would shift every dressing child down by its offset).
+    let c = airship_colors(ctx);
+    let girder = ctx.materials.metal(c.frame);
+    let plate = ctx.materials.body(shade(c.accent, 0.8));
+    let crate_mat = ctx.materials.body(c.accent);
+    let dims = GondolaDims {
+        hw: 0.24,
+        hh: 0.16,
+        hl: 0.46,
+        // The deck pan is the underside; seat the view port just below it.
+        keel_y: -0.18,
+    };
+    let mut g = prim(
+        cuboid([0.03, 0.03, 0.03], girder.clone()),
+        [0.0, 0.0, 0.0],
+        id_quat(),
+    );
+    // Floor plate.
+    g.children.push(prim(
+        cuboid([dims.hw * 2.0, 0.04, dims.hl * 2.0], plate),
+        [0.0, -dims.hh, 0.0],
+        id_quat(),
+    ));
+    // Four corner posts (spanning floor→roof) + a top perimeter frame.
+    for sx in [-1.0f32, 1.0] {
+        for sz in [-1.0f32, 1.0] {
+            g.children.push(prim(
+                cuboid([0.03, dims.hh * 2.0, 0.03], girder.clone()),
+                [sx * dims.hw * 0.94, 0.0, sz * dims.hl * 0.94],
+                id_quat(),
+            ));
+        }
+        g.children.push(prim(
+            cuboid([0.03, 0.03, dims.hl * 2.0], girder.clone()),
+            [sx * dims.hw * 0.94, dims.hh, 0.0],
+            id_quat(),
+        ));
+    }
+    for sz in [-1.0f32, 1.0] {
+        g.children.push(prim(
+            cuboid([dims.hw * 2.0, 0.03, 0.03], girder.clone()),
+            [0.0, dims.hh, sz * dims.hl * 0.94],
+            id_quat(),
+        ));
+    }
+    // A couple of lashed crates sitting on the deck.
+    g.children.push(prim(
+        cuboid([0.17, 0.15, 0.17], crate_mat.clone()),
+        [-0.06, -dims.hh + 0.095, 0.13],
+        id_quat(),
+    ));
+    g.children.push(prim(
+        cuboid([0.13, 0.12, 0.13], crate_mat),
+        [0.08, -dims.hh + 0.08, -0.15],
+        id_quat(),
+    ));
+    dress_gondola(&mut g, ctx, dims);
+    g
 }
 
 // ---------------------------------------------------------------------------
@@ -888,6 +1121,42 @@ static TEARDROP_ENVELOPE: PartDef = PartDef {
     wear: WearBand::ANY,
     build: teardrop_envelope,
 };
+static POD_DUCTED: PartDef = PartDef {
+    slug: "airship_pod_ducted",
+    slot: PartSlot::Pod,
+    chassis: AIRSHIP,
+    styles: NEON,
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
+    build: pod_ducted,
+};
+static POD_SCREW: PartDef = PartDef {
+    slug: "airship_pod_screw",
+    slot: PartSlot::Pod,
+    chassis: AIRSHIP,
+    styles: STEAM,
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
+    build: pod_screw,
+};
+static GONDOLA_BASKET: PartDef = PartDef {
+    slug: "airship_gondola_basket",
+    slot: PartSlot::Gondola,
+    chassis: AIRSHIP,
+    styles: HISTORIC,
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
+    build: gondola_basket,
+};
+static GONDOLA_CARGO: PartDef = PartDef {
+    slug: "airship_gondola_cargo",
+    slot: PartSlot::Gondola,
+    chassis: AIRSHIP,
+    styles: GRUBBY,
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
+    build: gondola_cargo,
+};
 static BUBBLE_CANOPY: PartDef = PartDef {
     slug: "skiff_canopy_bubble",
     slot: PartSlot::Canopy,
@@ -990,6 +1259,10 @@ pub(super) static ENTRIES: &[&dyn super::BodyPart] = &[
     &DECK_CARGO,
     &DECK_BENCH,
     &TEARDROP_ENVELOPE,
+    &POD_DUCTED,
+    &POD_SCREW,
+    &GONDOLA_BASKET,
+    &GONDOLA_CARGO,
     &BUBBLE_CANOPY,
     &TWIN_PIPES,
     &CHASSIS_DUNE,

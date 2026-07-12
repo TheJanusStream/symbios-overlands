@@ -157,6 +157,12 @@ static FIN: FnPart = FnPart {
     chassis: AIRSHIP,
     build: fin,
 };
+static POD: FnPart = FnPart {
+    slug: "default_pod",
+    slot: PartSlot::Pod,
+    chassis: AIRSHIP,
+    build: pod,
+};
 static CHASSIS: FnPart = FnPart {
     slug: "default_chassis",
     slot: PartSlot::Chassis,
@@ -207,6 +213,7 @@ pub(super) static ENTRIES: &[&dyn BodyPart] = &[
     &ENVELOPE_TWIN,
     &GONDOLA,
     &FIN,
+    &POD,
     &CHASSIS,
     &CANOPY,
     &CANOPY_ROADSTER,

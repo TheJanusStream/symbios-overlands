@@ -399,6 +399,30 @@ pub(crate) fn torus(
     }
 }
 
+/// A helical tube — spring / screw / spiral (`Helix` prim, #527). `radius` is
+/// the helix radius, `tube` the wire thickness, `pitch` the vertical rise per
+/// full turn, `turns` the revolution count. Laid along +Y; rotate to lay it
+/// along the travel axis for a screw propeller.
+pub(crate) fn helix(
+    radius: f32,
+    tube: f32,
+    pitch: f32,
+    turns: f32,
+    resolution: u32,
+    material: SovereignMaterialSettings,
+) -> GeneratorKind {
+    GeneratorKind::Helix {
+        radius: Fp(radius),
+        tube_radius: Fp(tube),
+        pitch: Fp(pitch),
+        turns: Fp(turns),
+        resolution,
+        solid: false,
+        material,
+        torture: TortureParams::default(),
+    }
+}
+
 /// Stamp a torture triple onto a parametric primitive kind for organic
 /// shaping. Semantics live in `crate::world_builder::prim`: `twist` is
 /// radians of Y-rotation across the height, `taper` scales X/Z toward the

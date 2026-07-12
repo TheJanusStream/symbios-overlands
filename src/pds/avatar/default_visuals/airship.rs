@@ -72,6 +72,17 @@ pub(super) fn build(seed: u64) -> Generator {
                         .push(offset_rot(part.build(&ctx), anchor, rot));
                 }
             }
+            PartSlot::Pod => {
+                // Underslung engine nacelles — one mirrored pair amidships. The
+                // pod is authored X-symmetric (a vertical pylon reaches up into
+                // the flank), so each side is the same part, no mirror flip.
+                for sx in [-1.0f32, 1.0] {
+                    root.children.push(offset(
+                        part.build(&ctx),
+                        [sx * mounts.pod_x, mounts.pod_y, mounts.pod_z],
+                    ));
+                }
+            }
             PartSlot::Ornament => root
                 .children
                 .push(offset(part.build(&ctx), [0.0, gondola_y + 0.25, 0.6])),
@@ -116,24 +127,35 @@ struct AirshipMounts {
     tail_z: f32,
     /// Radial offset of the cruciform fins from the tail axis.
     fin_ring_r: f32,
+    /// Lateral offset of the underslung engine pods (the assembler mirrors a
+    /// pair to ±`pod_x`); their pylons reach up into the envelope's lower flank.
+    pod_x: f32,
+    /// Vertical station of the pod nacelles (below the flank).
+    pod_y: f32,
+    /// Fore-aft station of the pods (amidships, biased a touch aft).
+    pod_z: f32,
 }
 
 fn airship_mounts(slug: &str) -> AirshipMounts {
-    // `(belly_y, tail_z, fin_ring_r)` per form. The twin's belly sits much
-    // higher (its hulls straddle the centreline) and the blimp's fin ring is
-    // pushed out so the fins clear its fat tail bulb.
-    let (belly_y, tail_z, fin_ring_r) = match slug {
-        "default_envelope_blimp" => (-0.86, -1.0, 0.62),
-        "default_envelope_twin" => (-0.42, -1.0, 0.55),
-        "default_envelope_lobed" => (-0.62, -1.15, 0.44),
-        "airship_envelope_teardrop" => (-0.72, -1.0, 0.5),
+    // `(belly_y, tail_z, fin_ring_r, pod_x, pod_y, pod_z)` per form. The twin's
+    // belly sits much higher (its hulls straddle the centreline), the blimp's
+    // fin ring is pushed out so the fins clear its fat tail bulb, and the pods
+    // hang under each form's lower flank (the twin mounts one under each hull).
+    let (belly_y, tail_z, fin_ring_r, pod_x, pod_y, pod_z) = match slug {
+        "default_envelope_blimp" => (-0.86, -1.0, 0.62, 0.64, -0.72, -0.1),
+        "default_envelope_twin" => (-0.42, -1.0, 0.55, 0.54, -0.52, -0.15),
+        "default_envelope_lobed" => (-0.62, -1.15, 0.44, 0.44, -0.5, -0.05),
+        "airship_envelope_teardrop" => (-0.72, -1.0, 0.5, 0.52, -0.62, -0.2),
         // Zeppelin (default_envelope) + any future form.
-        _ => (-0.66, -1.15, 0.46),
+        _ => (-0.66, -1.15, 0.46, 0.52, -0.6, -0.15),
     };
     AirshipMounts {
         belly_y,
         tail_z,
         fin_ring_r,
+        pod_x,
+        pod_y,
+        pod_z,
     }
 }
 

@@ -36,9 +36,9 @@ pub(crate) mod vehicle;
 
 use crate::pds::generator::Generator;
 use crate::seeded_defaults::{
-    AirshipBlueprint, AvatarBody, AvatarOutfit, AvatarPalette, BoatBlueprint, ChassisFamily,
-    FaceParams, HumanoidBlueprint, MaterialKit, OrnatenessBand, OrnatenessTier, SkiffBlueprint,
-    ThemeArchetype, VehicleBlueprint, WearBand, WearTier,
+    AirshipBlueprint, AvatarBody, AvatarCharacter, AvatarOutfit, AvatarPalette, BoatBlueprint,
+    ChassisFamily, FaceParams, HumanoidBlueprint, MaterialKit, OrnatenessBand, OrnatenessTier,
+    SkiffBlueprint, ThemeArchetype, VehicleBlueprint, WearBand, WearTier,
 };
 
 /// One composable slot of an avatar. Flat across every chassis (a part
@@ -76,6 +76,9 @@ pub enum PartSlot {
     Gondola,
     /// A stabiliser fin.
     Fin,
+    /// An engine nacelle / propulsion pod (the assembler mirrors it into an
+    /// amidships pair) — the airship's visible propulsion.
+    Pod,
     // --- Skiff ---
     /// The chassis slab.
     Chassis,
@@ -96,7 +99,7 @@ pub fn required_slots(chassis: ChassisFamily) -> &'static [PartSlot] {
     match chassis {
         ChassisFamily::Humanoid => &[Head, Torso, Arm, Leg],
         ChassisFamily::Boat => &[Hull, Deck, Mast],
-        ChassisFamily::Airship => &[Envelope, Gondola, Fin],
+        ChassisFamily::Airship => &[Envelope, Gondola, Fin, Pod],
         ChassisFamily::Skiff => &[Chassis, Canopy, Wheel],
     }
 }
@@ -136,6 +139,10 @@ pub struct PartCtx {
     /// The avatar seed — parts open their own sub-stream for stochastic
     /// detail without re-deriving the anchor.
     pub seed: u64,
+    /// Seeded ornateness tier — lets a part scale its *visible* detail density
+    /// (gondola dressing, engine-pod richness) so the tier finally reads on the
+    /// geometry, not just the optional-slot roll.
+    pub ornateness: OrnatenessTier,
     /// Whether this avatar's outfit fills the [`PartSlot::Hat`] slot. Parts
     /// that would clip headwear (the hair flourish) suppress themselves when a
     /// hat is worn.
@@ -162,6 +169,7 @@ impl PartCtx {
             vehicle: VehicleBlueprint::from_body(&body, ChassisFamily::for_seed(seed), seed),
             face: FaceParams::for_seed(seed, body.tier),
             seed,
+            ornateness: AvatarCharacter::for_seed(seed).ornateness_tier(),
             has_hat,
         }
     }
