@@ -49,7 +49,10 @@ fn darken(c: [f32; 3]) -> [f32; 3] {
 // ---------------------------------------------------------------------------
 
 fn bow_ram(ctx: &PartCtx) -> Generator {
-    // A forward-pointing ram cone (apex along +Z).
+    // A forward-pointing ram cone. quat_x(+90°) sends the cone apex (local +Y)
+    // to +Z — the authored bow direction (the assembler yaws the craft 180° so
+    // +Z reads as travel-forward), matching the sibling hull prow in
+    // `defaults::boat`. (A −90° here aimed the ram astern, base-first — #779.)
     prim(
         cone(
             0.12,
@@ -58,7 +61,7 @@ fn bow_ram(ctx: &PartCtx) -> Generator {
             ctx.materials.metal(ctx.palette.tertiary_accent),
         ),
         [0.0, 0.0, 0.2],
-        quat_xyzw(quat_x(-FRAC_PI_2)),
+        quat_xyzw(quat_x(FRAC_PI_2)),
     )
 }
 

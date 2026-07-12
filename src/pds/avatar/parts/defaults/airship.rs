@@ -4,7 +4,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::pds::avatar::default_visuals::common::{
-    cone, cuboid, cylinder, id_quat, prim, quat_x, quat_xyzw, sphere, torus, with_torture,
+    cone, cuboid, cylinder, id_quat, prim, quat_x, quat_xyzw, sphere, torus, with_shape,
+    with_torture,
 };
 use crate::pds::generator::Generator;
 use crate::pds::texture::SovereignMaterialSettings;
@@ -99,9 +100,11 @@ pub(super) fn envelope_blimp(ctx: &PartCtx) -> Generator {
     // A short rounded tail bulb so the fins at z=-1.0 have a body to grip.
     env.children
         .push(gas_bag(&body, [0.0, 0.0, -1.0], [0.5, 0.5, 0.5]));
-    // Two soft bands, seated flush on the bag.
+    // Two soft bands. The bag's cross-section at z=±0.45 runs ≈0.82 (Y) to
+    // ≈0.86 (X); seat the circular band near the larger radius so it straddles
+    // the surface instead of sinking to a top-crescent (#781).
     for z in [-0.45f32, 0.45] {
-        env.children.push(env_ring(&band, z, 0.82));
+        env.children.push(env_ring(&band, z, 0.85));
     }
     // Rounded nose finial.
     env.children
@@ -189,15 +192,24 @@ pub(super) fn envelope_twin(ctx: &PartCtx) -> Generator {
             id_quat(),
         ));
     }
-    // Central empennage spine: a vertical + horizontal tail fairing at the
-    // cruciform-fin mount (z = -1.0) so the dorsal / ventral fins have a body.
+    // Central empennage at the cruciform-fin mount (z = -1.0), so the dorsal /
+    // ventral fins have a body to grip at the centreline between the two hulls.
+    // The vertical stabiliser is tapered + raked aft (not a flat slab) so the
+    // tail reads as a shaped fin rather than the bare rectangle a plain cuboid
+    // showed broadside (#781); the horizontal spar stays a thin plate (it never
+    // read as a slab) but is trimmed shallower so the swept fins overhang it.
     env.children.push(prim(
-        cuboid([0.1, 1.1, 0.46], body.clone()),
+        with_shape(
+            cuboid([0.12, 1.1, 0.46], body.clone()),
+            [0.3, 0.7], // draw the top in — full chord at the root, thin aloft
+            [0.0, 0.0, 0.0],
+            [0.0, -0.12], // rake the tip aft
+        ),
         [0.0, 0.0, -1.0],
         id_quat(),
     ));
     env.children.push(prim(
-        cuboid([1.0, 0.1, 0.46], body),
+        cuboid([1.0, 0.12, 0.34], body),
         [0.0, 0.0, -1.0],
         id_quat(),
     ));

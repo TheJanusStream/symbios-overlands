@@ -40,6 +40,79 @@ pub(super) fn print_family_seeds(fam: &str, count: usize) {
     }
 }
 
+/// Resolve an avatar `subject` (a `u64` seed or a DID string) to its
+/// [`AvatarOutfit`](crate::seeded_defaults::AvatarOutfit) and character anchor,
+/// matching the derivation the built avatar uses.
+fn outfit_for(
+    subject: &str,
+) -> (
+    crate::seeded_defaults::AvatarCharacter,
+    crate::seeded_defaults::AvatarOutfit,
+) {
+    use crate::seeded_defaults::{AvatarCharacter, AvatarOutfit};
+    match subject.parse::<u64>() {
+        Ok(seed) => (
+            AvatarCharacter::for_seed(seed),
+            AvatarOutfit::for_seed(seed),
+        ),
+        Err(_) => (
+            AvatarCharacter::for_did(subject),
+            AvatarOutfit::for_did(subject),
+        ),
+    }
+}
+
+/// Print the resolved outfit for one avatar `subject` (a `u64` seed or a DID):
+/// chassis, style, socio tiers, and each filled slot → part slug. A no-render
+/// survey aid for the avatar overhaul — the built [`Generator`] carries only
+/// geometry (no slugs), so this is the way to see which optional parts an
+/// avatar rolled.
+///
+/// [`Generator`]: crate::pds::generator::Generator
+pub(super) fn print_outfit(subject: &str) {
+    let (character, outfit) = outfit_for(subject);
+    println!(
+        "outfit {subject:?}: {:?} / {:?} / ornateness {:?} / wear {:?}",
+        outfit.chassis,
+        character.style,
+        character.ornateness_tier(),
+        character.wear_tier(),
+    );
+    for part in &outfit.parts {
+        println!("  {:?} -> {}", part.slot, part.slug);
+    }
+}
+
+/// Scan seeds and print the first `count` whose outfit fills any slot with the
+/// part `slug`, each with its style + socio tiers — answers "which seed rolls
+/// this styled part?" for render-verification. Optional parts are rare (theme +
+/// ornateness gated), so the scan runs to a high seed ceiling before giving up.
+pub(super) fn find_part(slug: &str, count: usize) {
+    use crate::seeded_defaults::{AvatarCharacter, AvatarOutfit};
+    let mut hits = 0usize;
+    println!("seeds rolling part {slug:?}:");
+    for s in 0u64..2_000_000 {
+        let outfit = AvatarOutfit::for_seed(s);
+        if outfit.parts.iter().any(|p| p.slug == slug) {
+            let c = AvatarCharacter::for_seed(s);
+            println!(
+                "  seed {s}: {:?} / {:?} / ornateness {:?} / wear {:?}",
+                outfit.chassis,
+                c.style,
+                c.ornateness_tier(),
+                c.wear_tier()
+            );
+            hits += 1;
+            if hits >= count {
+                return;
+            }
+        }
+    }
+    if hits == 0 {
+        println!("  (none found below seed 2_000_000 — is the slug spelled right?)");
+    }
+}
+
 /// Reproduce a room's heightmap + road config and print the road-graph
 /// diagnostics (see [`crate::urban::road_graph_diagnostics`]) to stdout. The
 /// room is the seeded default for a `u64` seed or a DID string — the same

@@ -42,6 +42,7 @@ pub mod gait;
 pub mod materials;
 pub mod outfit;
 pub mod palette;
+pub mod vehicle_blueprint;
 
 pub use blueprint::HumanoidBlueprint;
 pub use body::{AvatarBody, BodyArchetype, StylizationTier};
@@ -55,3 +56,4 @@ pub use gait::AvatarGait;
 pub use materials::MaterialKit;
 pub use outfit::{AvatarOutfit, OutfitPart};
 pub use palette::AvatarPalette;
+pub use vehicle_blueprint::{BoatBlueprint, VehicleBlueprint, VehicleStance};

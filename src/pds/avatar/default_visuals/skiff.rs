@@ -54,12 +54,20 @@ pub(super) fn build(seed: u64) -> Generator {
                         .push(offset_rot(part.build(&ctx), anchor, axle));
                 }
             }
+            // Exhaust at the stern, seated into the rear bodywork (the tub
+            // ends at z≈−0.75) so the stacks emerge from the deck rather than
+            // hovering behind it (#780). A slug-aware / spine-swept exhaust is
+            // the skiff redesign's job (#788).
             PartSlot::Exhaust => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.05, -0.85])),
+                .push(offset(part.build(&ctx), [0.0, 0.05, -0.70])),
+            // Ornament as a hood mascot on the bonnet nose (clear of every
+            // canopy volume — a canopy-relative mount buried the neon strip
+            // inside closed greenhouses and floated it over the open roadster
+            // cockpit, #780). A slot-aware, per-canopy mount is #783's job.
             PartSlot::Ornament => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.35, 0.0])),
+                .push(offset(part.build(&ctx), [0.0, 0.17, 0.68])),
             _ => {}
         }
     }

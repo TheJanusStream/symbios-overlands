@@ -14,12 +14,11 @@ use std::f32::consts::{FRAC_PI_2, PI};
 
 use crate::pds::avatar::parts::{PartCtx, PartSlot, by_slug, outfit_has_hat};
 use crate::pds::generator::Generator;
+use crate::pds::types::Fp4;
 use crate::seeded_defaults::AvatarOutfit;
 
 use super::assemble::base_root;
-use super::common::{
-    cylinder, id_quat, offset, offset_rot, prim, quat_x, quat_xyzw, quat_y, quat_z,
-};
+use super::common::{cylinder, id_quat, offset, offset_rot, prim, quat_xyzw, quat_y, quat_z};
 
 pub(super) fn build(seed: u64) -> Generator {
     let outfit = AvatarOutfit::for_seed(seed);
@@ -46,14 +45,7 @@ pub(super) fn build(seed: u64) -> Generator {
                 // and two horizontal stabilisers. The fin is centred on its
                 // mount, so each copy is rotated about its own centre and its
                 // inner edge buries in the tapering tail.
-                let tail_z = -1.0;
-                let placements = [
-                    ([0.0, 0.55, tail_z], id_quat()),                     // dorsal (up)
-                    ([0.0, -0.55, tail_z], quat_xyzw(quat_x(PI))),        // ventral (down)
-                    ([-0.55, 0.0, tail_z], quat_xyzw(quat_z(FRAC_PI_2))), // port stabiliser
-                    ([0.55, 0.0, tail_z], quat_xyzw(quat_z(-FRAC_PI_2))), // starboard
-                ];
-                for (anchor, rot) in placements {
+                for (anchor, rot) in fin_placements(-1.0) {
                     root.children
                         .push(offset_rot(part.build(&ctx), anchor, rot));
                 }
@@ -83,4 +75,49 @@ pub(super) fn build(seed: u64) -> Generator {
     root.transform.rotation = quat_xyzw(quat_y(PI));
 
     root
+}
+
+/// The four cruciform-tail fin placements (anchor + rotation) at tail station
+/// `tail_z`. The fin part is authored upright with its aft edge at local −Z;
+/// each copy must keep that aft sweep pointing aft, so every rotation here
+/// preserves the local −Z axis (dorsal keeps it identity; the stabilisers spin
+/// about Z; the ventral mirrors about **Z**, not X — a `quat_x(PI)` would flip
+/// the sweep and glow edge to +Z, the forward-swept-ventral-fin bug, #779).
+fn fin_placements(tail_z: f32) -> [([f32; 3], Fp4); 4] {
+    [
+        ([0.0, 0.55, tail_z], id_quat()),                     // dorsal (up)
+        ([0.0, -0.55, tail_z], quat_xyzw(quat_z(PI))),        // ventral (down)
+        ([-0.55, 0.0, tail_z], quat_xyzw(quat_z(FRAC_PI_2))), // port stabiliser
+        ([0.55, 0.0, tail_z], quat_xyzw(quat_z(-FRAC_PI_2))), // starboard
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pds::avatar::default_visuals::common::quat_mul;
+
+    /// Rotate `v` by the `[x,y,z,w]` quaternion `q` (v' = q·v·q⁻¹).
+    fn rotate(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
+        let [qx, qy, qz, qw] = q;
+        let vq = [v[0], v[1], v[2], 0.0];
+        let qi = [-qx, -qy, -qz, qw];
+        let r = quat_mul(quat_mul(q, vq), qi);
+        [r[0], r[1], r[2]]
+    }
+
+    #[test]
+    fn every_fin_keeps_its_sweep_aft() {
+        // The fin's aft-swept edge is local −Z; each cruciform placement must
+        // keep it pointing aft (world −Z) so dorsal and ventral fins sweep the
+        // same way. Regression guard for the quat_x(PI) ventral flip (#779).
+        for (i, (_, rot)) in fin_placements(-1.0).into_iter().enumerate() {
+            let aft = rotate(rot.0, [0.0, 0.0, -1.0]);
+            assert!(
+                aft[2] < -0.999,
+                "fin {i} sweep points z={} (must stay aft, ≈−1)",
+                aft[2]
+            );
+        }
+    }
 }

@@ -38,7 +38,9 @@ mod headless;
 mod text_tools;
 
 use headless::{Capture, Frames, RenderJob, Subject, drive, setup};
-use text_tools::{analyze_session, diff_sessions, dump_road_graph, print_family_seeds};
+use text_tools::{
+    analyze_session, diff_sessions, dump_road_graph, find_part, print_family_seeds, print_outfit,
+};
 
 /// Camera yaw per tile (degrees), left→right: front, ¾, side, back. Avatars /
 /// vehicles face local -Z, so the camera sits on the -Z side (`cos 180 = -1`)
@@ -64,9 +66,21 @@ struct Args {
     /// with `--avatar <seed>`. Highest precedence (prints, never renders).
     #[arg(long)]
     family_seeds: Option<String>,
-    /// How many seeds `--family-seeds` prints.
+    /// How many seeds `--family-seeds` prints (also the cap for
+    /// `--find-part`).
     #[arg(long, default_value_t = 8)]
     family_count: usize,
+    /// Print one avatar's resolved outfit (chassis / style / socio tiers /
+    /// slot→slug) and exit — a `u64` seed or a DID. A no-render survey aid for
+    /// the avatar overhaul: the built geometry carries no slugs, so this is how
+    /// to see which optional parts an avatar rolled.
+    #[arg(long)]
+    outfit: Option<String>,
+    /// Scan seeds and print the first `--family-count` whose outfit rolls the
+    /// given part slug (e.g. `boat_bow_ram`), with each one's style + tiers,
+    /// then exit — finds render-verification seeds for a styled part.
+    #[arg(long)]
+    find_part: Option<String>,
     /// Catalogue subject: an entry slug (e.g. `villa`, `bench`, `wizard_tower`).
     #[arg(long)]
     catalogue: Option<String>,
@@ -170,6 +184,18 @@ pub fn run() {
     // family and exit — a survey aid, never renders.
     if let Some(fam) = &args.family_seeds {
         print_family_seeds(fam, args.family_count);
+        return;
+    }
+
+    // `--outfit <seed|did>`: print one avatar's resolved outfit and exit.
+    if let Some(subject) = &args.outfit {
+        print_outfit(subject);
+        return;
+    }
+
+    // `--find-part <slug>`: scan for seeds that roll a styled part and exit.
+    if let Some(slug) = &args.find_part {
+        find_part(slug, args.family_count);
         return;
     }
 

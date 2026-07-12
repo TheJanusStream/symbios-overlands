@@ -27,6 +27,17 @@ pub(super) fn build(seed: u64) -> Generator {
     // The hull is the structural root (at the waterline origin).
     let mut root = base_root(&outfit, &ctx, PartSlot::Hull);
 
+    // Mount landmarks come from the shared boat blueprint, so the deck / mast /
+    // bow / stack anchors track the seeded hull instead of re-encoding its
+    // default length + freeboard as constants (the coupling that floated the
+    // stack and bow off mis-sized hulls). The fore/aft stations are hull-length
+    // fractions on the blueprint; the small mount heights ride the deck line.
+    let bp = ctx.boat();
+    let deck_y = bp.map_or(0.13, |b| b.deck_y);
+    let bow_z = bp.map_or(0.78, |b| b.bow_z);
+    let stack_z = bp.map_or(-0.56, |b| b.stack_z);
+    let ornament_z = bp.map_or(0.1, |b| b.ornament_z);
+
     for choice in &outfit.parts {
         if choice.slot == PartSlot::Hull {
             continue;
@@ -37,19 +48,19 @@ pub(super) fn build(seed: u64) -> Generator {
         match choice.slot {
             PartSlot::Deck => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.13, 0.0])),
+                .push(offset(part.build(&ctx), [0.0, deck_y, 0.0])),
             PartSlot::Mast => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.13, -0.05])),
+                .push(offset(part.build(&ctx), [0.0, deck_y, -0.05])),
             PartSlot::Bow => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.1, 0.78])),
+                .push(offset(part.build(&ctx), [0.0, deck_y * 0.77, bow_z])),
             PartSlot::Stack => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.08, -0.56])),
+                .push(offset(part.build(&ctx), [0.0, deck_y * 0.62, stack_z])),
             PartSlot::Ornament => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.18, 0.1])),
+                .push(offset(part.build(&ctx), [0.0, deck_y * 1.38, ornament_z])),
             _ => {}
         }
     }

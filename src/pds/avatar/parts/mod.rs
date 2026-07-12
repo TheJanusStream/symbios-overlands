@@ -36,8 +36,9 @@ pub(crate) mod vehicle;
 
 use crate::pds::generator::Generator;
 use crate::seeded_defaults::{
-    AvatarBody, AvatarOutfit, AvatarPalette, ChassisFamily, FaceParams, HumanoidBlueprint,
-    MaterialKit, OrnatenessBand, OrnatenessTier, ThemeArchetype, WearBand, WearTier,
+    AvatarBody, AvatarOutfit, AvatarPalette, BoatBlueprint, ChassisFamily, FaceParams,
+    HumanoidBlueprint, MaterialKit, OrnatenessBand, OrnatenessTier, ThemeArchetype,
+    VehicleBlueprint, WearBand, WearTier,
 };
 
 /// One composable slot of an avatar. Flat across every chassis (a part
@@ -124,6 +125,11 @@ pub struct PartCtx {
     /// shared proportion contract between the humanoid parts and the
     /// assembler. Vehicle parts ignore it.
     pub blueprint: HumanoidBlueprint,
+    /// Concrete vehicle proportions + mount landmarks for the seed's chassis
+    /// — the shared contract between the vehicle parts and the assembler
+    /// (`None` for the humanoid, or a vehicle family not yet wired). Read
+    /// through the family accessors ([`Self::boat`]).
+    pub vehicle: Option<VehicleBlueprint>,
     /// Seeded face identity (head shape / expression / hair) — humanoid
     /// head builder input; tier-locked to `body.tier`.
     pub face: FaceParams,
@@ -153,10 +159,17 @@ impl PartCtx {
             materials: MaterialKit::for_seed(seed),
             body,
             blueprint: HumanoidBlueprint::from_body(&body),
+            vehicle: VehicleBlueprint::from_body(&body, ChassisFamily::for_seed(seed), seed),
             face: FaceParams::for_seed(seed, body.tier),
             seed,
             has_hat,
         }
+    }
+
+    /// The boat proportion blueprint, if this avatar is a boat — the boat
+    /// parts and the boat assembler both size from it.
+    pub fn boat(&self) -> Option<&BoatBlueprint> {
+        self.vehicle.as_ref().and_then(VehicleBlueprint::boat)
     }
 }
 
@@ -394,12 +407,19 @@ mod tests {
                 assert_tree_eq(ca, cb, slug);
             }
         }
-        let ctx = PartCtx::for_seed(11);
-        for part in entries() {
-            let built = part.build(&ctx);
-            let mut sanitized = built.clone();
-            sanitize_avatar_visuals(&mut sanitized);
-            assert_tree_eq(&built, &sanitized, part.slug());
+        // Span several seeds so every part builds against a range of contexts
+        // — crucially, the vehicle parts must survive sanitize at the extremes
+        // of their seeded blueprint dimensions, not just at the nominal
+        // fallback. Seeds chosen to cover boat / airship / skiff chassis so a
+        // family part meets a real blueprint of its own family.
+        for seed in [11u64, 13, 68, 2, 5, 0, 42] {
+            let ctx = PartCtx::for_seed(seed);
+            for part in entries() {
+                let built = part.build(&ctx);
+                let mut sanitized = built.clone();
+                sanitize_avatar_visuals(&mut sanitized);
+                assert_tree_eq(&built, &sanitized, part.slug());
+            }
         }
     }
 
