@@ -14,6 +14,7 @@ use crate::pds::texture::{
 use crate::pds::types::{Fp, Fp3, Fp64};
 
 use super::super::PartCtx;
+use super::common::{ensure_delta, floor_value, luma, mix, saturate, to_value};
 
 /// A hidden structural core for a boat hull at the waterline origin. The boat
 /// assembler overwrites the root transform (travel yaw + hover drop) and mounts
@@ -34,83 +35,11 @@ pub(super) fn boat_root(body: &SovereignMaterialSettings) -> Generator {
 // Boats read as dark monochrome blocks when every surface is a shade of the
 // primary accent. The scheme below spends the *whole* palette triad across the
 // hull (primary), deckhouse (secondary), and cove/trim (tertiary), then floors
-// and separates their *values* so a dark or low-contrast seed still keeps
-// readable part boundaries — since `base_hue_deg` is uniform-random per seed,
-// value structure + the per-seed secondary/tertiary hue jitters are what let
-// two close-hued boats still read apart.
-
-/// Perceptual-ish sRGB luma for value-contrast bookkeeping.
-fn luma(c: [f32; 3]) -> f32 {
-    0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
-}
-
-/// Linear mix of `c` toward `target` by `t` (clamped to gamut).
-fn mix(c: [f32; 3], target: [f32; 3], t: f32) -> [f32; 3] {
-    let t = t.clamp(0.0, 1.0);
-    [
-        (c[0] * (1.0 - t) + target[0] * t).clamp(0.0, 1.0),
-        (c[1] * (1.0 - t) + target[1] * t).clamp(0.0, 1.0),
-        (c[2] * (1.0 - t) + target[2] * t).clamp(0.0, 1.0),
-    ]
-}
-
-/// Retint `c` to hit `target_l` luma by mixing toward white (to brighten) or
-/// black (to darken) — keeps the hue, moves only the value.
-fn to_value(c: [f32; 3], target_l: f32) -> [f32; 3] {
-    let l = luma(c);
-    if (l - target_l).abs() < 1e-3 {
-        return c;
-    }
-    if target_l > l {
-        mix(
-            c,
-            [1.0, 1.0, 1.0],
-            ((target_l - l) / (1.0 - l).max(1e-3)).clamp(0.0, 0.85),
-        )
-    } else {
-        mix(
-            c,
-            [0.0, 0.0, 0.0],
-            ((l - target_l) / l.max(1e-3)).clamp(0.0, 0.85),
-        )
-    }
-}
-
-/// Raise `c`'s value to at least `min_l` (a dark seed's hull never collapses to
-/// an unreadable near-black block).
-fn floor_value(c: [f32; 3], min_l: f32) -> [f32; 3] {
-    if luma(c) < min_l {
-        to_value(c, min_l)
-    } else {
-        c
-    }
-}
-
-/// Push `c`'s value away from `ref_l` until they differ by at least `min_delta`
-/// (staying on whichever side `c` already sits) — keeps two adjacent boat
-/// surfaces from merging into one mass on a low-contrast seed.
-fn ensure_delta(c: [f32; 3], ref_l: f32, min_delta: f32) -> [f32; 3] {
-    let l = luma(c);
-    if (l - ref_l).abs() >= min_delta {
-        return c;
-    }
-    if l >= ref_l {
-        to_value(c, (ref_l + min_delta).min(0.92))
-    } else {
-        to_value(c, (ref_l - min_delta).max(0.04))
-    }
-}
-
-/// Deepen + saturate a colour toward its dominant channel — a running-light
-/// glow wants to be a saturated jewel, not a pastel.
-fn saturate(c: [f32; 3]) -> [f32; 3] {
-    let l = luma(c);
-    [
-        (c[0] + (c[0] - l) * 0.6).clamp(0.0, 1.0),
-        (c[1] + (c[1] - l) * 0.6).clamp(0.0, 1.0),
-        (c[2] + (c[2] - l) * 0.6).clamp(0.0, 1.0),
-    ]
-}
+// and separates their *values* (via the shared value-contrast helpers in
+// [`super::common`]) so a dark or low-contrast seed still keeps readable part
+// boundaries — since `base_hue_deg` is uniform-random per seed, value structure
+// + the per-seed secondary/tertiary hue jitters are what let two close-hued
+// boats still read apart.
 
 /// The seeded boat two-tone + trim scheme, value-floored and value-separated.
 #[derive(Clone, Copy)]

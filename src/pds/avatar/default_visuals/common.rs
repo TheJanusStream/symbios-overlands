@@ -359,6 +359,30 @@ pub(crate) fn cone(
     }
 }
 
+/// Barr superellipsoid (#687): a rounded box that morphs from a hard box
+/// (`exponent → 0.2`) through a soft pillow to a true ellipsoid (`1.0`) toward
+/// a pinched octahedron (`2.5`). `exponent_ns` shapes the vertical (latitude)
+/// profile, `exponent_ew` the horizontal (longitude) cross-section — so a car
+/// body panel wants ~0.5 (rounded edges, near-flat faces). The soft-surface
+/// counterpart of [`cuboid`] where a sheared box reads too hard.
+pub(crate) fn superellipsoid(
+    half_extents: [f32; 3],
+    exponent_ns: f32,
+    exponent_ew: f32,
+    material: SovereignMaterialSettings,
+) -> GeneratorKind {
+    GeneratorKind::Superellipsoid {
+        half_extents: Fp3(half_extents),
+        exponent_ns: Fp(exponent_ns),
+        exponent_ew: Fp(exponent_ew),
+        latitudes: 16,
+        longitudes: 24,
+        solid: false,
+        material,
+        torture: TortureParams::default(),
+    }
+}
+
 pub(crate) fn torus(
     minor_radius: f32,
     major_radius: f32,
