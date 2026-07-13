@@ -2,17 +2,25 @@
 //! airship / skiff families.
 //!
 //! Fills the previously-empty optional vehicle slots ([`PartSlot::Bow`] /
-//! [`PartSlot::Stack`] / [`PartSlot::Exhaust`]) and adds style-specific
-//! variants for the body slots, plus cross-family ornaments. Tagged by style
-//! and by ornateness / wear bands, so a steam funnel only appears on a
-//! steampunk / industrial craft, a neon strip on a cyberpunk one, and so on.
-//! Geometry uses the shared primitive vocabulary with torture shaping; finish
-//! comes from the seeded [`MaterialKit`](crate::seeded_defaults::MaterialKit).
+//! [`PartSlot::Stack`] / [`PartSlot::Exhaust`] / [`PartSlot::Ornament`]) and
+//! adds style-specific variants for the body slots, plus cross-family
+//! ornaments. Tagged by style and by ornateness / wear bands, so a steam funnel
+//! only appears on a steampunk / industrial craft, a neon strip on a cyberpunk
+//! one, and so on. Geometry uses the shared primitive vocabulary with torture
+//! shaping; finish comes from the seeded
+//! [`MaterialKit`](crate::seeded_defaults::MaterialKit).
+//!
+//! Every mood group (see the group consts) houses at least one of the 23
+//! [`ThemeArchetype`]s, and every optional slot ships a **style-universal**
+//! floor part (`boat_bow_bowsprit` / `boat_stack_vent` / `skiff_exhaust_tailpipe`
+//! / `veh_orn_finial`, all empty-styles) so no theme's optional slots are ever
+//! permanently bare — the styled and band-tagged parts then layer flavour on
+//! top of that floor (#792).
 
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, TAU};
 
 use crate::pds::avatar::default_visuals::common::{
-    cone, cuboid, cylinder, helix, id_quat, prim, quat_x, quat_xyzw, quat_y, quat_z, sphere,
+    cone, cuboid, cylinder, helix, id_quat, lathe, prim, quat_x, quat_xyzw, quat_y, quat_z, sphere,
     superellipsoid, torus, with_cut, with_shape,
 };
 use crate::pds::avatar::parts::defaults::airship::{
@@ -26,10 +34,12 @@ use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
 use crate::seeded_defaults::ChassisFamily;
 use crate::seeded_defaults::ThemeArchetype::{
-    self, AlienMonolithic, AncientClassical, CivicCampus, Cyberpunk, Fantasy, IndustrialPark,
-    Medieval, ModernCity, Nordic, PostApoc, Solarpunk, SpaceOutpost, Steampunk, WildWest,
+    self, AlienMonolithic, AlienOrganic, AncientClassical, CivicCampus, CoastalResort, Cyberpunk,
+    Fantasy, FeudalJapan, GothicHorror, IndustrialPark, Medieval, Mesoamerican, ModernCity, Nordic,
+    PostApoc, Roadside, RuralFarmland, Solarpunk, SpaceOutpost, SportsRec, Steampunk, Suburban,
+    WildWest,
 };
-use crate::seeded_defaults::{OrnatenessBand, WearBand};
+use crate::seeded_defaults::{OrnatenessBand, OrnatenessTier, WearBand, WearTier};
 
 use super::{PartCtx, PartDef, PartSlot};
 
@@ -42,11 +52,40 @@ const VEHICLES: &[ChassisFamily] = &[
     ChassisFamily::Skiff,
 ];
 
-const NEON: &[ThemeArchetype] = &[Cyberpunk, SpaceOutpost, AlienMonolithic, Solarpunk];
+// Mood groups — the vehicle-styling taxonomy. Each of the 23 `ThemeArchetype`s
+// belongs to at least one group so no population is a "desert" with zero styled
+// parts (#792). A theme may sit in several (a grimy neon craft is both NEON and
+// GRUBBY); a part draws the group whose read it wants. NEON/STEAM/MARTIAL/REGAL/
+// GRUBBY/HISTORIC are the originals, widened to fold the desert themes that fit
+// them: FeudalJapan / Mesoamerican / GothicHorror → HISTORIC (old-world / ritual);
+// AlienOrganic → NEON (bioluminescent); Roadside / RuralFarmland / Suburban →
+// GRUBBY (worn, workaday, off-road ground craft). COASTAL is a new home for the
+// seaside / sporting moods that fit none of the originals.
+const NEON: &[ThemeArchetype] = &[
+    Cyberpunk,
+    SpaceOutpost,
+    AlienMonolithic,
+    Solarpunk,
+    AlienOrganic,
+];
 const STEAM: &[ThemeArchetype] = &[Steampunk, IndustrialPark, ModernCity];
 const MARTIAL: &[ThemeArchetype] = &[Medieval, Nordic, WildWest, PostApoc];
 const REGAL: &[ThemeArchetype] = &[Fantasy, AncientClassical, CivicCampus];
-const GRUBBY: &[ThemeArchetype] = &[Steampunk, IndustrialPark, WildWest, PostApoc, Cyberpunk];
+// GRUBBY = grimy / worn / workaday ground craft: industrial soot, frontier
+// scrap, and the ordinary agrarian / roadside / suburban beaters (buggies,
+// knobby tyres, cargo decks). Widened past the original five so the farm /
+// roadside / suburban desert themes get bespoke parts without losing the
+// steampunk / industrial ones (a straight fold, no re-tag regression).
+const GRUBBY: &[ThemeArchetype] = &[
+    Steampunk,
+    IndustrialPark,
+    WildWest,
+    PostApoc,
+    Cyberpunk,
+    Roadside,
+    RuralFarmland,
+    Suburban,
+];
 const HISTORIC: &[ThemeArchetype] = &[
     Medieval,
     Nordic,
@@ -54,7 +93,29 @@ const HISTORIC: &[ThemeArchetype] = &[
     PostApoc,
     Fantasy,
     AncientClassical,
+    FeudalJapan,
+    Mesoamerican,
+    GothicHorror,
 ];
+/// Seaside / leisure / sporting moods — resort cruisers, sport skiffs. Homes
+/// CoastalResort / SportsRec, which fit none of the ground-craft groups.
+const COASTAL: &[ThemeArchetype] = &[CoastalResort, SportsRec, Solarpunk];
+/// Empty style list — a **style-universal** part, eligible for every theme (see
+/// the module docstring). Used for the per-slot floor parts that guarantee no
+/// optional vehicle slot is ever bare.
+const UNIVERSAL: &[ThemeArchetype] = &[];
+
+/// "Fancy" ornateness band (Adorned upward) — a figurehead, a pennant, a crest:
+/// a plain avatar never rolls one, so the ornateness tier finally reads on the
+/// optional-slot pick rather than every styled part being `ANY`/`ANY` (#792).
+const FANCY: OrnatenessBand =
+    OrnatenessBand::range(OrnatenessTier::Adorned, OrnatenessTier::Ornate);
+/// "Worn or worse" wear band — a battering ram, sooted exhaust pipes: gear that
+/// only reads on a used or beaten craft, never a factory-fresh one.
+const WORN_PLUS: WearBand = WearBand::range(WearTier::Worn, WearTier::Battered);
+/// Battered-only wear band — the beaten-up counterpart parts (a tattered
+/// banner), so the top wear tier reads distinctly from merely-worn.
+const BATTERED: WearBand = WearBand::only(WearTier::Battered);
 
 fn shade(c: [f32; 3], f: f32) -> [f32; 3] {
     [c[0] * f, c[1] * f, c[2] * f]
@@ -119,9 +180,80 @@ fn bow_figurehead(ctx: &PartCtx) -> Generator {
     f
 }
 
-fn funnel(ctx: &PartCtx) -> Generator {
-    // Twin hover-thruster pods at the stern (reinterpreted from a smokestack for
-    // the hover-skiff): a housing with two aft-facing glowing exhaust bells.
+fn bow_bowsprit(ctx: &PartCtx) -> Generator {
+    // The style-universal prow floor (empty styles): a forward-raked bowsprit
+    // spar off the stem with a cap fitting and a bee-block collar, so every boat
+    // carries *some* prow accent regardless of theme (the ram is martial, the
+    // figurehead ceremonial — this is the plain workaday fitting between them).
+    let spar = ctx.materials.metal(ctx.palette.secondary_accent);
+    let cap = ctx.materials.trim(ctx.palette.tertiary_accent);
+    // Hidden hub at the stem attachment; the visible raked spar hangs off it so
+    // its rake never tumbles the sibling fittings (the transform-inheritance
+    // gotcha the gondola / env-core roots dodge the same way).
+    let mut root = prim(
+        cuboid([0.03, 0.03, 0.03], cap.clone()),
+        [0.0, 0.0, 0.0],
+        id_quat(),
+    );
+    // Raked spar projecting forward (+Z, the authored bow direction), nose up.
+    root.children.push(prim(
+        cylinder(0.026, 0.42, 8, spar),
+        [0.0, 0.06, 0.2],
+        quat_xyzw(quat_x(FRAC_PI_2 - 0.12)),
+    ));
+    // Cap ball at the spar tip.
+    root.children.push(prim(
+        sphere(0.042, 3, cap.clone()),
+        [0.0, 0.085, 0.41],
+        id_quat(),
+    ));
+    // Bee-block collar where the spar meets the stem.
+    root.children.push(prim(
+        cuboid([0.08, 0.05, 0.06], cap),
+        [0.0, 0.0, 0.03],
+        id_quat(),
+    ));
+    root
+}
+
+fn smokestack(ctx: &PartCtx) -> Generator {
+    // The real steamship funnel (STEAM / industrial): a tapered Lathe body of
+    // revolution with a flared cap rim, a bright registry band, and a
+    // soot-darkened lip — an actual smokestack, where the old `boat_stack_funnel`
+    // was mislabelled glow-thruster pods (now split off as `stack_thrusters`,
+    // #792). Keeps the `boat_stack_funnel` slug so a steam boat still fits a
+    // funnel.
+    let steel = ctx.materials.metal(ctx.palette.secondary_accent);
+    let soot = ctx.materials.metal(darken(ctx.palette.secondary_accent));
+    let band = ctx.materials.trim(ctx.palette.tertiary_accent);
+    // Profile `(radius, height)` bottom→top: a fuller base, a gently tapering
+    // barrel, a flared cap rim, then a small inward lip — the classic funnel
+    // silhouette. Five stations, well under the sanitiser's 16-point ceiling.
+    let profile = [
+        (0.10, 0.0),
+        (0.086, 0.06),
+        (0.08, 0.40),
+        (0.10, 0.47),
+        (0.086, 0.50),
+    ];
+    let mut root = prim(lathe(&profile, 20, true, steel), [0.0, 0.0, 0.0], id_quat());
+    // Soot-darkened cap lip at the mouth (the barrel's Y axis → default torus).
+    root.children.push(prim(
+        torus(0.014, 0.094, soot),
+        [0.0, 0.485, 0.0],
+        id_quat(),
+    ));
+    // Bright registry band around the barrel.
+    root.children
+        .push(prim(torus(0.012, 0.084, band), [0.0, 0.30, 0.0], id_quat()));
+    root
+}
+
+fn stack_thrusters(ctx: &PartCtx) -> Generator {
+    // Twin glow-thruster pods at the stern (NEON): a housing with two aft-facing
+    // glowing exhaust bells — the hover-craft propulsion read that the old
+    // `funnel` build actually drew, now honestly tagged NEON with its own slug
+    // (`boat_stack_thrusters`) instead of masquerading as a steam funnel (#792).
     let housing = ctx.materials.metal(darken(ctx.palette.tertiary_accent));
     let glow = ctx.materials.glow(ctx.palette.tertiary_accent);
     let mut root = prim(
@@ -143,6 +275,41 @@ fn funnel(ctx: &PartCtx) -> Generator {
             quat_xyzw(quat_x(FRAC_PI_2)),
         ));
     }
+    root
+}
+
+fn stack_vent(ctx: &PartCtx) -> Generator {
+    // The style-universal stack floor (empty styles): a modest upright deck vent
+    // with a conical rain cap and a collar band, so every boat can carry a stack
+    // regardless of theme — the funnel is steam, the thrusters neon, this is the
+    // plain workaday vent between them.
+    let pipe = ctx.materials.metal(darken(ctx.palette.secondary_accent));
+    let cowl = ctx.materials.metal(ctx.palette.tertiary_accent);
+    // Hidden hub at the deck mount so the pipe / cap / collar all sit in one
+    // un-translated frame — a translated pipe-as-root would carry its +0.14
+    // offset into every child (the transform-inheritance gotcha), floating the
+    // rain cap above the mouth. The hub is buried inside the pipe base.
+    let mut root = prim(
+        cuboid([0.03, 0.03, 0.03], pipe.clone()),
+        [0.0, 0.0, 0.0],
+        id_quat(),
+    );
+    // Upright barrel rising from the deck (base at the mount, mouth at y=0.28).
+    root.children.push(prim(
+        cylinder(0.05, 0.28, 12, pipe.clone()),
+        [0.0, 0.14, 0.0],
+        id_quat(),
+    ));
+    // Conical rain cap seated on the mouth (apex up, wider than the pipe so it
+    // overhangs; its base overlaps the barrel top, no floating gap).
+    root.children.push(prim(
+        cone(0.085, 0.07, 12, cowl.clone()),
+        [0.0, 0.3, 0.0],
+        id_quat(),
+    ));
+    // Collar band partway up the barrel.
+    root.children
+        .push(prim(torus(0.012, 0.056, cowl), [0.0, 0.18, 0.0], id_quat()));
     root
 }
 
@@ -676,6 +843,29 @@ fn twin_pipes(ctx: &PartCtx) -> Generator {
     e
 }
 
+fn exhaust_tailpipe(ctx: &PartCtx) -> Generator {
+    // The style-universal exhaust floor (empty styles): a single chromed
+    // tailpipe running aft with a flared tip, so every skiff carries an exhaust
+    // regardless of theme (the twin pipes are grimy / worn; this is the plain
+    // fitting under every craft).
+    let chrome = ctx.materials.metal([0.6, 0.6, 0.64]);
+    // Pipe laid along Z (its local +Y → +Z), centred so most of it emerges aft
+    // (-Z) with the forward stub buried in the tail bodywork.
+    let mut root = prim(
+        cylinder(0.035, 0.34, 12, chrome.clone()),
+        [0.0, 0.06, -0.12],
+        quat_xyzw(quat_x(FRAC_PI_2)),
+    );
+    // Flared tip ring at the aft mouth: in the pipe-local frame the barrel axis
+    // is +Y, and pipe-local -Y is the aft end, so the default torus wraps it.
+    root.children.push(prim(
+        torus(0.016, 0.045, chrome),
+        [0.0, -0.17, 0.0],
+        id_quat(),
+    ));
+    root
+}
+
 // --- Skiff chassis variants (#788) -----------------------------------------
 //
 // The Chassis slot shipped exactly one part; the family docstring promises
@@ -1018,6 +1208,84 @@ fn neon_strip(ctx: &PartCtx) -> Generator {
     )
 }
 
+fn ornament_finial(ctx: &PartCtx) -> Generator {
+    // The style-universal ornament floor (empty styles, every family): a little
+    // turned finial — a pedestal topped by a banded orb. Being fully 3D it reads
+    // from every angle (unlike a flat badge) so it works as a boat masthead knob,
+    // a skiff hood mascot, or an airship nose crest, on any theme — the humble
+    // accent that keeps every population's Ornament slot fillable (#792).
+    let post = ctx.materials.metal(ctx.palette.secondary_accent);
+    let orb = ctx.materials.trim(ctx.palette.tertiary_accent);
+    let collar = ctx.materials.accent(ctx.palette.primary_accent);
+    // Hidden hub at the mount so the post and orb share one un-translated frame —
+    // a translated post-as-root would carry its +0.07 into the orb / collar (the
+    // transform-inheritance gotcha), floating the orb off the pedestal top.
+    let mut root = prim(
+        cuboid([0.03, 0.03, 0.03], post.clone()),
+        [0.0, 0.0, 0.0],
+        id_quat(),
+    );
+    // Turned pedestal rising from the mount (top at y=0.14).
+    root.children.push(prim(
+        cylinder(0.025, 0.14, 10, post),
+        [0.0, 0.07, 0.0],
+        id_quat(),
+    ));
+    // Banded orb seated on the pedestal top (its lower half overlaps the post).
+    root.children
+        .push(prim(sphere(0.06, 3, orb), [0.0, 0.17, 0.0], id_quat()));
+    // Collar ring at the orb waist (orb's Y axis → default torus).
+    root.children.push(prim(
+        torus(0.012, 0.062, collar),
+        [0.0, 0.17, 0.0],
+        id_quat(),
+    ));
+    root
+}
+
+fn ornament_tattered(ctx: &PartCtx) -> Generator {
+    // The battered-only ornament counterpart (empty styles, wear = Battered): a
+    // bent staff flying a ragged swallowtail banner, so a beaten-up craft flies a
+    // tattered colour where a pristine one wouldn't — the top wear tier reads on
+    // the ornament roll (#792). Cheap: the pennant staff, canted, with a torn
+    // (deeply forked) darker cloth.
+    let staff = ctx.materials.metal(darken(ctx.palette.secondary_accent));
+    let cloth = ctx.materials.cloth(shade(ctx.palette.primary_accent, 0.55));
+    // Hidden hub so the canted staff doesn't tumble the banner's placement.
+    let mut root = prim(
+        cuboid([0.02, 0.02, 0.02], staff.clone()),
+        [0.0, 0.0, 0.0],
+        id_quat(),
+    );
+    // Bent staff (canted aft a touch, as if weathered).
+    root.children.push(prim(
+        cylinder(0.01, 0.3, 6, staff),
+        [0.0, 0.15, 0.0],
+        quat_xyzw(quat_x(-0.14)),
+    ));
+    // Two ragged banner tongues of unequal length, both hung FLUSH at the staff
+    // (hoist edge at x=0, z≈0) so the frayed fly ends read as a torn / forked
+    // pennant, not scraps floating in front of the pole. The fork reads through
+    // the differing length + height, not a forward-Z gap (the #792-review bug);
+    // taper frays the fly to a torn point and only a gentle bend flutters the tip.
+    for (w, h, z, y) in [
+        (0.14f32, 0.075f32, 0.01f32, 0.19f32),
+        (0.1, 0.05, -0.01, 0.11),
+    ] {
+        root.children.push(prim(
+            with_shape(
+                cuboid([w, h, 0.012], cloth.clone()),
+                [0.5, 0.0],
+                [0.03, 0.0, 0.02],
+                [0.0, 0.0],
+            ),
+            [w * 0.5, y, z],
+            id_quat(),
+        ));
+    }
+    root
+}
+
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
@@ -1028,7 +1296,9 @@ static BOW_RAM: PartDef = PartDef {
     chassis: BOAT,
     styles: MARTIAL,
     ornateness: OrnatenessBand::ANY,
-    wear: WearBand::ANY,
+    // A battering ram is rough gear — it reads on a used or beaten craft, not a
+    // pristine parade boat (the wear tier now gates the pick).
+    wear: WORN_PLUS,
     build: bow_ram,
 };
 static BOW_FIGUREHEAD: PartDef = PartDef {
@@ -1036,24 +1306,55 @@ static BOW_FIGUREHEAD: PartDef = PartDef {
     slot: PartSlot::Bow,
     chassis: BOAT,
     styles: REGAL,
-    ornateness: OrnatenessBand::ANY,
+    // A carved figurehead is a fancy fitting — only an adorned/ornate craft.
+    ornateness: FANCY,
     wear: WearBand::ANY,
     build: bow_figurehead,
 };
-static FUNNEL: PartDef = PartDef {
+static BOW_BOWSPRIT: PartDef = PartDef {
+    slug: "boat_bow_bowsprit",
+    slot: PartSlot::Bow,
+    chassis: BOAT,
+    // Style-universal prow floor: every boat can carry a bowsprit.
+    styles: UNIVERSAL,
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
+    build: bow_bowsprit,
+};
+static SMOKESTACK: PartDef = PartDef {
     slug: "boat_stack_funnel",
     slot: PartSlot::Stack,
     chassis: BOAT,
     styles: STEAM,
     ornateness: OrnatenessBand::ANY,
     wear: WearBand::ANY,
-    build: funnel,
+    build: smokestack,
+};
+static STACK_THRUSTERS: PartDef = PartDef {
+    slug: "boat_stack_thrusters",
+    slot: PartSlot::Stack,
+    chassis: BOAT,
+    styles: NEON,
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
+    build: stack_thrusters,
+};
+static STACK_VENT: PartDef = PartDef {
+    slug: "boat_stack_vent",
+    slot: PartSlot::Stack,
+    chassis: BOAT,
+    // Style-universal stack floor: every boat can carry a vent.
+    styles: UNIVERSAL,
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
+    build: stack_vent,
 };
 static MAST_SQUARE_RIG: PartDef = PartDef {
     slug: "boat_mast_square_rig",
     slot: PartSlot::Mast,
     chassis: BOAT,
-    styles: MARTIAL,
+    // A square rig suits every historic tall-ship mood, not just the martial ones.
+    styles: HISTORIC,
     ornateness: OrnatenessBand::ANY,
     wear: WearBand::ANY,
     build: mast_square_rig,
@@ -1089,6 +1390,7 @@ static DECK_BENCH: PartDef = PartDef {
     slug: "boat_deck_bench",
     slot: PartSlot::Deck,
     chassis: BOAT,
+    // An open lounge deck is the genteel / civic-ferry read.
     styles: REGAL,
     ornateness: OrnatenessBand::ANY,
     wear: WearBand::ANY,
@@ -1143,7 +1445,9 @@ static BUBBLE_CANOPY: PartDef = PartDef {
     slug: "skiff_canopy_bubble",
     slot: PartSlot::Canopy,
     chassis: SKIFF,
-    styles: NEON,
+    // The sleek teardrop bubble is the sporty / seaside cockpit read (it homes
+    // the COASTAL group's skiffs; the tech craft keep the default greenhouse).
+    styles: COASTAL,
     ornateness: OrnatenessBand::ANY,
     wear: WearBand::ANY,
     build: bubble_canopy,
@@ -1154,13 +1458,27 @@ static TWIN_PIPES: PartDef = PartDef {
     chassis: SKIFF,
     styles: GRUBBY,
     ornateness: OrnatenessBand::ANY,
-    wear: WearBand::ANY,
+    // Sooted twin stacks read on a used / beaten skiff, not a fresh one.
+    wear: WORN_PLUS,
     build: twin_pipes,
+};
+static EXHAUST_TAILPIPE: PartDef = PartDef {
+    slug: "skiff_exhaust_tailpipe",
+    slot: PartSlot::Exhaust,
+    chassis: SKIFF,
+    // Style-universal exhaust floor: every skiff can carry a tailpipe.
+    styles: UNIVERSAL,
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
+    build: exhaust_tailpipe,
 };
 static CHASSIS_DUNE: PartDef = PartDef {
     slug: "skiff_chassis_dune",
     slot: PartSlot::Chassis,
     chassis: SKIFF,
+    // An open buggy is the workaday / off-road read — grimy industrial /
+    // frontier craft plus the agrarian / roadside / suburban beaters GRUBBY now
+    // folds in.
     styles: GRUBBY,
     ornateness: OrnatenessBand::ANY,
     wear: WearBand::ANY,
@@ -1197,6 +1515,7 @@ static WHEEL_KNOBBY: PartDef = PartDef {
     slug: "skiff_wheel_knobby",
     slot: PartSlot::Wheel,
     chassis: SKIFF,
+    // Fat off-road tyres are the grimy / frontier / farm / roadside read.
     styles: GRUBBY,
     ornateness: OrnatenessBand::ANY,
     wear: WearBand::ANY,
@@ -1216,7 +1535,8 @@ static PENNANT: PartDef = PartDef {
     slot: PartSlot::Ornament,
     chassis: VEHICLES,
     styles: REGAL,
-    ornateness: OrnatenessBand::ANY,
+    // A flown pennant is a fancy flourish — an adorned / ornate craft only.
+    ornateness: FANCY,
     wear: WearBand::ANY,
     build: pennant,
 };
@@ -1229,12 +1549,39 @@ static NEON_STRIP: PartDef = PartDef {
     wear: WearBand::ANY,
     build: neon_strip,
 };
+static ORNAMENT_FINIAL: PartDef = PartDef {
+    slug: "veh_orn_finial",
+    slot: PartSlot::Ornament,
+    chassis: VEHICLES,
+    // Style-universal ornament floor for every vehicle family: no population's
+    // Ornament slot is ever bare.
+    styles: UNIVERSAL,
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
+    build: ornament_finial,
+};
+static ORNAMENT_TATTERED: PartDef = PartDef {
+    slug: "veh_orn_tattered",
+    slot: PartSlot::Ornament,
+    chassis: VEHICLES,
+    styles: UNIVERSAL,
+    ornateness: OrnatenessBand::ANY,
+    // The beaten-up counterpart to the finial / pennant — battered craft only.
+    wear: BATTERED,
+    build: ornament_tattered,
+};
 
-/// Every styled vehicle part.
+/// Every styled vehicle part. The four style-universal floors (`bowsprit` /
+/// `smokestack`-slug's peer `vent` / `tailpipe` / `finial`) sit alongside the
+/// mood-tagged and band-tagged variants; the outfit deriver draws from the
+/// union, so every theme fills every optional slot from the floor up (#792).
 pub(super) static ENTRIES: &[&dyn super::BodyPart] = &[
     &BOW_RAM,
     &BOW_FIGUREHEAD,
-    &FUNNEL,
+    &BOW_BOWSPRIT,
+    &SMOKESTACK,
+    &STACK_THRUSTERS,
+    &STACK_VENT,
     &MAST_SQUARE_RIG,
     &MAST_ANTENNA,
     &MAST_DERRICK,
@@ -1247,6 +1594,7 @@ pub(super) static ENTRIES: &[&dyn super::BodyPart] = &[
     &GONDOLA_CARGO,
     &BUBBLE_CANOPY,
     &TWIN_PIPES,
+    &EXHAUST_TAILPIPE,
     &CHASSIS_DUNE,
     &CHASSIS_TRIKE,
     &CHASSIS_ARMORED,
@@ -1255,24 +1603,194 @@ pub(super) static ENTRIES: &[&dyn super::BodyPart] = &[
     &WHEEL_GLOW,
     &PENNANT,
     &NEON_STRIP,
+    &ORNAMENT_FINIAL,
+    &ORNAMENT_TATTERED,
 ];
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pds::avatar::parts::parts_for_avatar;
+    use crate::pds::avatar::parts::{optional_slots, parts_for, parts_for_avatar};
     use crate::seeded_defaults::{OrnatenessTier, WearTier};
 
+    /// The three vehicle families (the humanoid is a separate kit).
+    const FAMILIES: [ChassisFamily; 3] = [
+        ChassisFamily::Boat,
+        ChassisFamily::Airship,
+        ChassisFamily::Skiff,
+    ];
+
     #[test]
-    fn every_styled_part_builds_and_is_tagged() {
+    fn universal_floors_only_fill_optional_slots() {
         let ctx = PartCtx::for_seed(13);
         for part in ENTRIES {
-            assert!(!part.styles().is_empty(), "{} is untagged", part.slug());
             assert!(!part.chassis().is_empty(), "{} no chassis", part.slug());
             let a = part.build(&ctx);
             let b = part.build(&ctx);
             assert_eq!(a, b, "{} non-deterministic", part.slug());
+            if part.styles().is_empty() {
+                // A style-universal part is a per-slot floor; it must fill an
+                // OPTIONAL slot for every family it serves (a required slot
+                // already carries its universal default — an untagged body-slot
+                // variant would be an authoring slip, not an intentional floor).
+                for &fam in part.chassis() {
+                    assert!(
+                        optional_slots(fam).contains(&part.slot()),
+                        "{} is style-universal but fills required slot {:?} for {fam:?}",
+                        part.slug(),
+                        part.slot()
+                    );
+                }
+            }
         }
+    }
+
+    #[test]
+    fn every_theme_fills_every_optional_vehicle_slot() {
+        // The vehicle analogue of `every_required_slot_is_fillable_for_every_style`
+        // (#792): after folding the nine desert themes into mood groups and
+        // shipping a style-universal floor per optional slot, no
+        // (family, optional slot, theme) query is ever empty.
+        for chassis in FAMILIES {
+            for &slot in optional_slots(chassis) {
+                for style in ThemeArchetype::ALL {
+                    assert!(
+                        parts_for(chassis, slot, style).next().is_some(),
+                        "{chassis:?}/{slot:?}/{style:?} has no vehicle part"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn optional_slots_have_a_floor_at_every_tier() {
+        // Stronger than the style-level guarantee: the band-tagged variants
+        // layer on top of an `ANY`/`ANY` style-universal floor, so the
+        // band-gated pool an avatar actually draws from is non-empty at every
+        // ornateness/wear tier too — no roll hits an empty pool.
+        for chassis in FAMILIES {
+            for &slot in optional_slots(chassis) {
+                for style in ThemeArchetype::ALL {
+                    for o in OrnatenessTier::ALL {
+                        for w in WearTier::ALL {
+                            assert!(
+                                parts_for_avatar(chassis, slot, style, o, w)
+                                    .next()
+                                    .is_some(),
+                                "{chassis:?}/{slot:?}/{style:?} empty at {o:?}/{w:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_theme_belongs_to_a_mood_group() {
+        // Fold guarantee: every archetype sits in at least one styling group, so
+        // it draws at least one styled part *somewhere* (on some chassis / slot),
+        // not only the universal floors. It does NOT promise a styled BODY variant
+        // on every chassis — e.g. a COASTAL boat still draws the default hull + the
+        // universal floors, since COASTAL's only body part is the sporty skiff
+        // canopy; per-chassis body coverage is the bespoke-parts job (#793).
+        for style in ThemeArchetype::ALL {
+            let grouped = [NEON, STEAM, MARTIAL, REGAL, GRUBBY, HISTORIC, COASTAL]
+                .iter()
+                .any(|g| g.contains(&style));
+            assert!(grouped, "{style:?} belongs to no mood group");
+        }
+    }
+
+    #[test]
+    fn ornateness_and_wear_bands_gate_optional_vehicle_parts() {
+        // The tier axes are no longer inert (#792): fancy prow / pennant show
+        // only on adorned+ craft, the ram / twin pipes only on worn+ craft, and
+        // the tattered banner only on battered craft.
+        let has = |chassis, slot, style, o, w, slug: &str| {
+            parts_for_avatar(chassis, slot, style, o, w).any(|p| p.slug() == slug)
+        };
+        use ChassisFamily::{Boat, Skiff};
+        use OrnatenessTier::{Ornate, Plain};
+        use WearTier::{Battered, Pristine, Worn};
+        // Fancy figurehead — gated by ornateness (Adorned upward); Fantasy is REGAL.
+        assert!(!has(
+            Boat,
+            PartSlot::Bow,
+            Fantasy,
+            Plain,
+            Worn,
+            "boat_bow_figurehead"
+        ));
+        assert!(has(
+            Boat,
+            PartSlot::Bow,
+            Fantasy,
+            Ornate,
+            Worn,
+            "boat_bow_figurehead"
+        ));
+        // Battering ram — gated by wear (Worn upward).
+        assert!(!has(
+            Boat,
+            PartSlot::Bow,
+            Medieval,
+            Ornate,
+            Pristine,
+            "boat_bow_ram"
+        ));
+        assert!(has(
+            Boat,
+            PartSlot::Bow,
+            Medieval,
+            Ornate,
+            Worn,
+            "boat_bow_ram"
+        ));
+        // Sooted twin pipes — worn upward.
+        assert!(!has(
+            Skiff,
+            PartSlot::Exhaust,
+            Cyberpunk,
+            Ornate,
+            Pristine,
+            "skiff_exhaust_twin_pipes"
+        ));
+        assert!(has(
+            Skiff,
+            PartSlot::Exhaust,
+            Cyberpunk,
+            Ornate,
+            Battered,
+            "skiff_exhaust_twin_pipes"
+        ));
+        // Tattered banner — battered only.
+        assert!(!has(
+            Boat,
+            PartSlot::Ornament,
+            Medieval,
+            Ornate,
+            Worn,
+            "veh_orn_tattered"
+        ));
+        assert!(has(
+            Boat,
+            PartSlot::Ornament,
+            Medieval,
+            Ornate,
+            Battered,
+            "veh_orn_tattered"
+        ));
+        // The universal floor is always there regardless of tier.
+        assert!(has(
+            Boat,
+            PartSlot::Bow,
+            FeudalJapan,
+            Plain,
+            Pristine,
+            "boat_bow_bowsprit"
+        ));
     }
 
     #[test]
