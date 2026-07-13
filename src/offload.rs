@@ -8,10 +8,11 @@
 //!
 //! On **wasm** Bevy's task pools collapse to a single cooperative thread, so a
 //! job run inline would stall the render frame. Instead the wasm backend
-//! dispatches the job to a dedicated Web Worker (the `gen_worker` crate,
-//! spawned via `gloo-worker`), which runs it on a real worker thread — matching
-//! native's off-the-frame progressive loading. The worker links only the
-//! Bevy-free [`gen_jobs`] crate, so its `.wasm` is ~16 KB gzipped.
+//! dispatches the job to a **pooled** Web Worker (the `gen_worker` crate,
+//! spawned via `gloo-worker` and kept warm between jobs — see the `worker`
+//! submodule for the pool, #802), which runs it on a real worker thread —
+//! matching native's off-the-frame progressive loading. The worker links only
+//! the Bevy-free [`gen_jobs`] crate, so its `.wasm` is ~16 KB gzipped.
 //!
 //! The shared [`gen_jobs::GenJob::run`] guarantees native and worker execution
 //! are byte-identical — the determinism the terrain pipeline relies on across
