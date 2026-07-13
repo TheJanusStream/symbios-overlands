@@ -7,12 +7,49 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 
 use crate::config::rover as cfg;
+use crate::diagnostics::MetricsRegistry;
 use crate::pds::AvatarRecord;
+use crate::pds::generator::Generator;
 use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
 use crate::world_builder::AvatarVisualPrim;
 
 use super::preset::{build_preset_components, strip_preset_components};
 use super::visuals;
+
+/// [`visuals::spawn_avatar_visuals`] with its synchronous main-thread wall
+/// time recorded under `runtime.avatar_rebuild.ms` (#807): the histogram
+/// attributes the re-roll hitch — with texture bakes offloaded on wasm, what
+/// remains in here is dominated by part meshing. `metrics` is optional so a
+/// headless / test app without the diagnostics plugin never panics.
+#[allow(clippy::too_many_arguments)]
+fn timed_spawn_avatar_visuals(
+    metrics: &mut Option<ResMut<MetricsRegistry>>,
+    commands: &mut Commands,
+    chassis: Entity,
+    visual_tree: &Generator,
+    existing_children: Option<&Children>,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    images: &mut Assets<Image>,
+    deps: &mut visuals::AvatarSpawnDeps,
+    is_local: bool,
+) {
+    let start = bevy::platform::time::Instant::now();
+    visuals::spawn_avatar_visuals(
+        commands,
+        chassis,
+        visual_tree,
+        existing_children,
+        meshes,
+        materials,
+        images,
+        deps,
+        is_local,
+    );
+    if let Some(m) = metrics.as_deref_mut() {
+        crate::diagnostics::samplers::avatar_rebuild_secs(m, start.elapsed().as_secs_f64());
+    }
+}
 
 /// Snapshot of the last `AvatarRecord` whose visuals have been painted onto
 /// a remote peer. `detect_remote_change` listens to the broad
@@ -67,12 +104,14 @@ pub(super) fn apply_local_locomotion_rebuild(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut avatar_deps: visuals::AvatarSpawnDeps,
+    mut metrics: Option<ResMut<MetricsRegistry>>,
 ) {
     for (entity, children) in players.iter() {
         strip_preset_components(&mut commands, entity);
         build_preset_components(&mut commands, entity, &live.0.locomotion);
         despawn_orphan_avatar_visuals(&mut commands, &orphan_visuals);
-        visuals::spawn_avatar_visuals(
+        timed_spawn_avatar_visuals(
+            &mut metrics,
             &mut commands,
             entity,
             &live.0.visuals,
@@ -126,13 +165,15 @@ pub(super) fn rebuild_local_visuals(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut avatar_deps: visuals::AvatarSpawnDeps,
+    mut metrics: Option<ResMut<MetricsRegistry>>,
 ) {
     if !live.is_changed() {
         return;
     }
     despawn_orphan_avatar_visuals(&mut commands, &orphan_visuals);
     for (entity, children) in players.iter() {
-        visuals::spawn_avatar_visuals(
+        timed_spawn_avatar_visuals(
+            &mut metrics,
             &mut commands,
             entity,
             &live.0.visuals,
@@ -173,6 +214,7 @@ pub(super) fn detect_remote_change(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut avatar_deps: visuals::AvatarSpawnDeps,
+    mut metrics: Option<ResMut<MetricsRegistry>>,
 ) {
     for (entity, peer, applied, children) in peers.iter() {
         let Some(record) = peer.avatar.as_ref() else {
@@ -181,7 +223,8 @@ pub(super) fn detect_remote_change(
         if applied.is_some_and(|a| &a.0 == record) {
             continue;
         }
-        visuals::spawn_avatar_visuals(
+        timed_spawn_avatar_visuals(
+            &mut metrics,
             &mut commands,
             entity,
             &record.visuals,

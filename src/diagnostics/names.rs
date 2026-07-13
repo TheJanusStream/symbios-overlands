@@ -49,6 +49,11 @@ pub const RUNTIME_RESPAWN_COUNT: &str = "runtime.respawn.count";
 /// Terrain splat material's texture bind-slot footprint — the WebGL2 16-slot
 /// ceiling watch (one higher on native, which keeps the stains overlay).
 pub const RUNTIME_TEXTURE_BIND_SLOTS: &str = "runtime.texture_bind_slots";
+/// Synchronous main-thread wall time (ms) of one avatar visuals rebuild —
+/// the re-roll / hot-swap / remote-update spawn path (#807). With texture
+/// bakes offloaded on wasm, what remains here is dominated by part meshing;
+/// a high histogram tail attributes the residual re-roll hitch.
+pub const RUNTIME_AVATAR_REBUILD_MS: &str = "runtime.avatar_rebuild.ms";
 
 // ---- network / multiuser --------------------------------------------------
 /// Peer connections observed.
@@ -176,6 +181,7 @@ pub const ALL: &[(&str, MetricKind)] = &[
     (RUNTIME_CPU_USAGE_PCT, MetricKind::Gauge),
     (RUNTIME_TEXTURE_BIND_SLOTS, MetricKind::Gauge),
     (RUNTIME_RESPAWN_COUNT, MetricKind::Counter),
+    (RUNTIME_AVATAR_REBUILD_MS, MetricKind::Histogram),
     // net
     (NET_PEER_CONNECTED_COUNT, MetricKind::Counter),
     (NET_PEER_DISCONNECTED_COUNT, MetricKind::Counter),

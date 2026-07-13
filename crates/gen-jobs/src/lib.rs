@@ -21,6 +21,12 @@ use symbios_ground::{
 };
 use symbios_texture::generator::{TextureGenerator, TextureMap};
 
+/// Re-export of the texture core's registry macro so the app can generate its
+/// own per-generator tables (e.g. the `TextureConfig` → [`TextureBakeJob`]
+/// mapper) in lock-step with [`TextureBakeJob`] itself, without taking a
+/// direct `symbios-texture` dependency.
+pub use symbios_texture::for_each_generator;
+
 /// One table drives both the [`GeneratorKind`] enum and the per-kind base
 /// dispatch inside [`GenJob::run`]'s heightmap path (#657) — the texture
 /// path in this file is already table-generated (`define_texture_bake!`),
@@ -204,6 +210,12 @@ impl AudioBakeJob {
 /// [`TextureMap`] (which is not itself `Serialize`). RGBA8, row-major. `albedo`
 /// is the large payload transferred back from the worker; the app rebuilds
 /// Bevy `Image`s from these.
+///
+/// Buffers carry the **full mip chain** ([`TextureMap::with_mips`] runs inside
+/// the job, mirroring the upstream async path) so the app's upload is a pure
+/// buffer move rather than a main-thread box-filter pass —
+/// [`mip_level_count`](Self::mip_level_count) says how many levels each buffer
+/// holds (base level first).
 #[derive(Serialize, Deserialize, Clone)]
 pub struct TextureData {
     #[serde(with = "serde_bytes")]
@@ -216,6 +228,16 @@ pub struct TextureData {
     pub emissive: Option<Vec<u8>>,
     pub width: u32,
     pub height: u32,
+    /// Mip levels contained in each pixel buffer, including the base level.
+    /// Defaults to `1` (base only) so payloads from an older peer/worker that
+    /// predates in-job mip-chaining still decode — the upload path mip-chains
+    /// base-only data itself.
+    #[serde(default = "default_mip_level_count")]
+    pub mip_level_count: u32,
+}
+
+fn default_mip_level_count() -> u32 {
+    1
 }
 
 impl From<TextureMap> for TextureData {
@@ -227,6 +249,7 @@ impl From<TextureMap> for TextureData {
             emissive: m.emissive,
             width: m.width,
             height: m.height,
+            mip_level_count: m.mip_level_count,
         }
     }
 }
@@ -244,6 +267,7 @@ impl TextureData {
             emissive: None,
             width,
             height,
+            mip_level_count: 1,
         }
     }
 }
@@ -271,7 +295,12 @@ macro_rules! define_texture_bake {
                         }
                     )*
                 };
-                map.map(TextureData::from)
+                // Mip-chain inside the job (worker thread), mirroring the
+                // upstream async path's `f().map(TextureMap::with_mips)` —
+                // the app-side upload then moves buffers instead of running
+                // a box-filter pass on the main thread.
+                map.map(TextureMap::with_mips)
+                    .map(TextureData::from)
                     .unwrap_or_else(|_| TextureData::flat(width.max(1), height.max(1)))
             }
         }

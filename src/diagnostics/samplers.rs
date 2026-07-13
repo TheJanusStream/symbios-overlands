@@ -145,6 +145,12 @@ pub fn player_respawned(m: &mut MetricsRegistry) {
     m.incr(names::RUNTIME_RESPAWN_COUNT);
 }
 
+/// One avatar visuals rebuild (re-roll / hot-swap / remote update) ran for
+/// `secs` of synchronous main-thread time (#807).
+pub fn avatar_rebuild_secs(m: &mut MetricsRegistry, secs: f64) {
+    m.observe_hist(names::RUNTIME_AVATAR_REBUILD_MS, ms(secs));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

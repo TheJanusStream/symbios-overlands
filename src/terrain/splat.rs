@@ -178,10 +178,11 @@ fn texture_bake_job(layer: &SovereignTextureConfig) -> gen_jobs::TextureBakeJob 
 ///
 /// The bake ran the procedural generator off the schedule (native:
 /// `AsyncComputeTaskPool`; wasm: a Web Worker — see [`crate::offload`]),
-/// returning base-level RGBA buffers. [`map_to_images_with_usages`] mip-chains
-/// and stores them `MAIN_WORLD`-only (no GPU upload — these per-layer images
-/// are only read back on the CPU by [`build_texture_array`], never bound), so
-/// it can stack them unchanged before [`apply_splat_textures`] drops them.
+/// returning RGBA buffers mip-chained inside the job.
+/// [`map_to_images_with_usages`] stores them `MAIN_WORLD`-only (no GPU upload
+/// — these per-layer images are only read back on the CPU by
+/// [`build_texture_array`], never bound), so it can stack them unchanged
+/// before [`apply_splat_textures`] drops them.
 pub(super) fn collect_texture_results(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut SplatTexTask)>,
@@ -235,9 +236,12 @@ pub(super) fn collect_texture_results(
             normal: data.normal,
             roughness: data.roughness,
             emissive: data.emissive,
-            // Base level only crossed the worker boundary; the upload
-            // mip-chains it (same as the Referenced-layer path).
-            mip_level_count: 1,
+            // The worker mip-chains inside the job (gen-jobs runs
+            // `TextureMap::with_mips`), so the count must ride along — the
+            // upload treats `1` as "base only" and would box-filter a
+            // wrong-length buffer otherwise. Payloads from an older worker
+            // deserialise the field to `1` and still mip-chain here.
+            mip_level_count: data.mip_level_count,
             width: data.width,
             height: data.height,
         };

@@ -1,13 +1,16 @@
 //! Water volume spawning and procedural material building. Texture
-//! generation is dispatched through
-//! [`bevy_symbios_texture::build_procedural_material_async`], which spawns a
-//! [`bevy_symbios_texture::PatchMaterialTextures`] task entity and lets the
-//! upstream `patch_procedural_material_textures` system (registered by
-//! `SymbiosTexturePlugin`) write generated images into the material as soon
-//! as they're ready — no Overlands-side polling resource required.
+//! generation is dispatched per target: on **native** through the upstream
+//! [`bevy_symbios_texture::PatchMaterialTextures`] task entity (baked on the
+//! upstream's private rayon pool, patched by its
+//! `patch_procedural_material_textures` system); on **wasm** through the
+//! pooled gen-worker via [`super::surface_bake`] (#807), because Bevy's task
+//! pools collapse onto the main thread there and every bake would stall a
+//! frame. The material itself is built by [`surface_material_and_key`] on
+//! both targets so appearance can never fork per platform.
 
+use bevy::math::Affine2;
 use bevy::prelude::*;
-use bevy_symbios_texture::{TextureCache, build_procedural_material_async};
+use bevy_symbios_texture::{MaterialSettings, TextureCache, TextureCacheKey, TextureConfig};
 
 use crate::pds::{Environment, SovereignMaterialSettings, SovereignTextureConfig, WaterSurface};
 use crate::terrain::WaterVolume;
@@ -222,22 +225,207 @@ pub fn build_procedural_material(
     // Every procedural material — catalogue constructs, primitives, foliage
     // cards, avatars — bakes at the shared surface/card resolution
     // (`config::textures::SURFACE`); the ground-splat path is separate and
-    // stays at its own higher resolution. The upstream helper hands every
-    // variant the same dimensions so foliage cards and tiling surfaces share
-    // the cache layout. The `TextureCache` dedups by content fingerprint
-    // *across* generators — crucially it covers primitives, which have no
-    // generator-level material cache, so N identical boulders bake one
-    // texture set and an unchanged config re-bakes nothing on a rebuild. On
-    // wasm every cache miss bakes on the main thread, so each avoided task is
-    // a directly skipped frame stall.
+    // stays at its own higher resolution. Every variant gets the same
+    // dimensions so foliage cards and tiling surfaces share the cache layout.
+    // The `TextureCache` dedups by content fingerprint *across* generators —
+    // crucially it covers primitives, which have no generator-level material
+    // cache, so N identical boulders bake one texture set and an unchanged
+    // config re-bakes nothing on a rebuild.
     let size = crate::config::textures::SURFACE;
-    build_procedural_material_async(
-        commands,
-        std_materials,
-        images,
-        Some(texture_cache),
-        &native,
-        size,
-        size,
-    )
+
+    let (mut material, cache_key) = surface_material_and_key(&native, size);
+
+    // Cache hit: write handles into the material before we hand it to Bevy.
+    // Full lookup — disk-backed stores read their blob and upload it into
+    // `images` here, so a store hit short-circuits generation exactly like a
+    // memory hit (same contract as the upstream helper this mirrors).
+    if let Some(key) = cache_key.as_ref()
+        && let Some(handles) = texture_cache.get(key, images)
+    {
+        material.base_color_texture = Some(handles.albedo.clone());
+        material.normal_map_texture = Some(handles.normal.clone());
+        material.metallic_roughness_texture = Some(handles.roughness.clone());
+        super::surface_bake::apply_emissive_map(&mut material, handles.emissive.clone());
+        return std_materials.add(material);
+    }
+
+    let handle = std_materials.add(material);
+
+    // Cache miss: dispatch generation if a generator is selected.
+    //
+    // Native — the upstream path, byte-for-byte: `TextureConfig::spawn` bakes
+    // on the upstream's private rayon pool (deliberately NOT Bevy's
+    // `AsyncComputeTaskPool`, which its monolithic generate() loop would
+    // starve) and the upstream `patch_procedural_material_textures` system
+    // patches the slots + writes the cache.
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(pending) = native.texture.spawn(size, size) {
+        commands.spawn((
+            pending,
+            bevy_symbios_texture::PatchMaterialTextures {
+                target: handle.clone(),
+                cache_key,
+            },
+        ));
+    }
+
+    // Wasm — Bevy's task pools collapse onto the main thread, so the upstream
+    // path bakes every cache miss as a frame stall (#807: the avatar re-roll
+    // freeze). Route the bake through the pooled gen-worker instead; the
+    // dispatch runs as a queued command so it can reach the
+    // `PendingSurfaceBakes` resource without growing this signature.
+    #[cfg(target_arch = "wasm32")]
+    if let (Some(key), Some(job)) = (
+        cache_key,
+        super::surface_bake::surface_bake_job(&native.texture),
+    ) {
+        let target = handle.clone();
+        let is_card = native.texture.render_properties().is_card;
+        commands.queue(move |world: &mut World| {
+            super::surface_bake::dispatch_surface_bake(world, key, job, size, target, is_card);
+        });
+    }
+
+    handle
+}
+
+/// Build the [`StandardMaterial`] a [`MaterialSettings`] describes, plus its
+/// [`TextureCacheKey`] (`None` when no procedural texture is selected).
+///
+/// Field-for-field mirror of the material construction inside
+/// [`bevy_symbios_texture::build_procedural_material_async`] — kept local so
+/// the wasm path can fork *dispatch* without forking material *appearance*.
+/// The parity test below compares this against the upstream builder every
+/// native test run, so upstream drift breaks loudly at upgrade instead of
+/// rendering differently.
+fn surface_material_and_key(
+    native: &MaterialSettings,
+    size: u32,
+) -> (StandardMaterial, Option<TextureCacheKey>) {
+    let props = native.texture.render_properties();
+    let emissive =
+        Color::srgb_from_array(native.emission_color).to_linear() * native.emission_strength;
+
+    let material = StandardMaterial {
+        base_color: Color::srgb_from_array(native.base_color),
+        perceptual_roughness: native.roughness,
+        metallic: native.metallic,
+        emissive,
+        alpha_mode: props.alpha_mode,
+        double_sided: props.double_sided,
+        cull_mode: props.cull_mode,
+        uv_transform: Affine2::from_scale(Vec2::splat(native.uv_scale)),
+        ..Default::default()
+    };
+
+    let cache_key = if matches!(native.texture, TextureConfig::None) {
+        None
+    } else {
+        Some(TextureCacheKey {
+            kind: native.texture.label(),
+            fingerprint: native.texture.fingerprint(),
+            width: size,
+            height: size,
+        })
+    };
+
+    (material, cache_key)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::SystemState;
+    use bevy_symbios_texture::build_procedural_material_async;
+
+    /// Compare our mirror builder against the upstream one field-for-field.
+    /// Upstream is the reference: if a `bevy_symbios_texture` upgrade changes
+    /// how a `MaterialSettings` becomes a `StandardMaterial`, this fails and
+    /// the mirror in [`surface_material_and_key`] must be re-synced.
+    #[allow(clippy::type_complexity)]
+    fn assert_parity_with_upstream(native: &MaterialSettings) {
+        let mut world = World::new();
+        world.init_resource::<Assets<StandardMaterial>>();
+        world.init_resource::<Assets<Image>>();
+        let size = crate::config::textures::SURFACE;
+
+        let mut state: SystemState<(
+            Commands,
+            ResMut<Assets<StandardMaterial>>,
+            ResMut<Assets<Image>>,
+        )> = SystemState::new(&mut world);
+        let (mut commands, mut materials, mut images) = state.get_mut(&mut world);
+        let upstream_handle = build_procedural_material_async(
+            &mut commands,
+            &mut materials,
+            &mut images,
+            None,
+            native,
+            size,
+            size,
+        );
+        state.apply(&mut world);
+
+        let materials = world.resource::<Assets<StandardMaterial>>();
+        let upstream = materials
+            .get(&upstream_handle)
+            .expect("upstream builder adds the material synchronously");
+
+        let (mirror, _key) = surface_material_and_key(native, size);
+
+        assert_eq!(mirror.base_color, upstream.base_color);
+        assert_eq!(mirror.perceptual_roughness, upstream.perceptual_roughness);
+        assert_eq!(mirror.metallic, upstream.metallic);
+        assert_eq!(mirror.emissive, upstream.emissive);
+        assert_eq!(mirror.alpha_mode, upstream.alpha_mode);
+        assert_eq!(mirror.double_sided, upstream.double_sided);
+        assert_eq!(mirror.cull_mode, upstream.cull_mode);
+        assert_eq!(mirror.uv_transform, upstream.uv_transform);
+    }
+
+    #[test]
+    fn mirror_builder_matches_upstream_for_untextured_settings() {
+        let native = MaterialSettings {
+            base_color: [0.2, 0.6, 0.9],
+            emission_color: [0.9, 0.3, 0.1],
+            emission_strength: 2.5,
+            roughness: 0.35,
+            metallic: 0.8,
+            uv_scale: 3.0,
+            texture: TextureConfig::None,
+        };
+        assert_parity_with_upstream(&native);
+    }
+
+    #[test]
+    fn mirror_builder_matches_upstream_for_surface_and_card_textures() {
+        // A tiling surface (Opaque + back-face culling)…
+        let mut native = MaterialSettings {
+            texture: TextureConfig::Bark(bevy_symbios_texture::bark::BarkConfig::default()),
+            ..MaterialSettings::default()
+        };
+        assert_parity_with_upstream(&native);
+
+        // …and an alpha-masked card (Mask + double-sided + no culling).
+        native.texture = TextureConfig::Leaf(bevy_symbios_texture::leaf::LeafConfig::default());
+        assert_parity_with_upstream(&native);
+    }
+
+    /// The cache key must fingerprint the exact config the job will bake.
+    #[test]
+    fn cache_key_matches_config_identity() {
+        let bark = MaterialSettings {
+            texture: TextureConfig::Bark(bevy_symbios_texture::bark::BarkConfig::default()),
+            ..MaterialSettings::default()
+        };
+        let size = crate::config::textures::SURFACE;
+        let (_m, key) = surface_material_and_key(&bark, size);
+        let key = key.expect("textured settings carry a cache key");
+        assert_eq!(key.kind, bark.texture.label());
+        assert_eq!(key.fingerprint, bark.texture.fingerprint());
+        assert_eq!((key.width, key.height), (size, size));
+
+        let (_m, none_key) = surface_material_and_key(&MaterialSettings::default(), size);
+        assert!(none_key.is_none(), "TextureConfig::None has no cache key");
+    }
 }

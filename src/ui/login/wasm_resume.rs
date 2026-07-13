@@ -125,11 +125,11 @@ fn spawn_resume_task(
         // downstream call. A failure here is terminal — the refresh token
         // has been invalidated server-side and the user must re-auth — so
         // drop the persisted blob and surface the error to the login UI.
-        if oauth_session.is_expired_jittered() {
-            if let Err(e) = crate::oauth::refresh_session(&oauth_session, &refresh_ctx).await {
-                oauth::wasm::clear_persisted();
-                return Err(format!("resume refresh: {e}"));
-            }
+        if oauth_session.is_expired_jittered()
+            && let Err(e) = crate::oauth::refresh_session(&oauth_session, &refresh_ctx).await
+        {
+            oauth::wasm::clear_persisted();
+            return Err(format!("resume refresh: {e}"));
         }
         let session = AtprotoSession {
             did: blob.did.clone(),

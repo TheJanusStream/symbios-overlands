@@ -76,6 +76,7 @@ mod prim;
 mod shape;
 mod sign;
 pub mod spatial_audio;
+mod surface_bake;
 
 use std::collections::HashMap;
 
@@ -281,6 +282,9 @@ impl Plugin for WorldBuilderPlugin {
             // textures don't outlive their session (#625). See
             // [`TEXTURE_CACHE_CAPACITY`] for the sizing rationale.
             .insert_resource(fresh_texture_cache())
+            // In-flight offloaded surface bakes (#807) — wasm's replacement
+            // for the upstream texture task pool; empty on native.
+            .init_resource::<surface_bake::PendingSurfaceBakes>()
             .init_resource::<LSystemMaterialCache>()
             .init_resource::<LSystemMeshCache>()
             .init_resource::<ShapeMaterialCache>()
@@ -315,6 +319,10 @@ impl Plugin for WorldBuilderPlugin {
                     compile::apply_contact_recipes,
                     image_cache::poll_blob_image_tasks,
                     spatial_audio::poll_spatial_audio_tasks,
+                    // Offloaded surface bakes (#807) — populated only on wasm
+                    // (native dispatches through the upstream patch system);
+                    // an empty-map no-op everywhere else.
+                    surface_bake::poll_surface_bakes,
                     draw_placement_visualizers,
                 )
                     .run_if(not(in_state(AppState::Login))),
