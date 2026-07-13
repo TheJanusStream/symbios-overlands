@@ -12,6 +12,7 @@
 
 use std::time::Duration;
 
+use bevy::audio::{AudioPlayer, AudioSource, PlaybackMode, PlaybackSettings};
 use bevy::diagnostic::{
     DiagnosticPath, DiagnosticsStore, EntityCountDiagnosticsPlugin, FrameTimeDiagnosticsPlugin,
 };
@@ -44,6 +45,7 @@ impl Plugin for MetricsPlugin {
             (
                 scrape_bevy_diagnostics,
                 scrape_signal_diagnostics,
+                scrape_audio_diagnostics,
                 emit_metric_snapshot,
             )
                 .chain()
@@ -126,6 +128,31 @@ fn scrape_bevy_diagnostics(
         names::RUNTIME_TEXTURE_BIND_SLOTS,
         crate::splat::SPLAT_TEXTURE_BIND_SLOTS as f64,
     );
+}
+
+/// Scrape the spatial-audio load into the registry at 1 Hz (#802): the count
+/// of live *looping* voices (construct hums + avatar engine voices — the
+/// sustained-lag suspect, distinct from transient one-shot SFX) and the baked
+/// cache's retained entry count + byte footprint. `Option` params keep this
+/// inert on any app configured without the audio assets / bake cache (e.g. a
+/// minimal test app) rather than panicking on a missing resource.
+fn scrape_audio_diagnostics(
+    voices: Query<&PlaybackSettings, With<AudioPlayer>>,
+    bake_cache: Option<Res<crate::world_builder::spatial_audio::BakedAudioCache>>,
+    audio_sources: Option<Res<Assets<AudioSource>>>,
+    mut reg: ResMut<MetricsRegistry>,
+) {
+    let looping = voices
+        .iter()
+        .filter(|s| matches!(s.mode, PlaybackMode::Loop))
+        .count();
+    reg.observe_gauge(names::AUDIO_SPATIAL_ACTIVE_SINKS, looping as f64);
+
+    if let (Some(cache), Some(sources)) = (bake_cache, audio_sources) {
+        let (entries, bytes) = cache.retained_footprint(&sources);
+        reg.observe_gauge(names::AUDIO_BAKE_CACHE_ENTRIES, entries as f64);
+        reg.observe_gauge(names::AUDIO_BAKE_CACHE_BYTES, bytes as f64);
+    }
 }
 
 /// Mirror the multiuser signaller's `SignalDiagnostics` counters into the

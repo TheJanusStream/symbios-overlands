@@ -3,7 +3,8 @@
 //! written under one name is read under the same name everywhere (no drift).
 //!
 //! Naming scheme: `<subsystem>.<noun>.<unit>` in dotted lower_snake, with
-//! subsystem prefixes `runtime` | `net` | `loading` | `offload` | `record`.
+//! subsystem prefixes `runtime` | `net` | `loading` | `offload` | `record` |
+//! `audio`.
 //! The unit
 //! suffix hints the value type by convention (`.ms`/`.secs`/`.bytes`/`.pct`
 //! are gauges or histograms; `.count` is a counter), but the authoritative
@@ -141,6 +142,21 @@ pub const OFFLOAD_TEXTURE_BAKE_LATENCY_MS: &str = "offload.texture_bake.latency_
 /// Offloaded jobs that failed or timed out.
 pub const OFFLOAD_JOB_ERROR_COUNT: &str = "offload.job.error_count";
 
+// ---- spatial audio (#802) -------------------------------------------------
+/// Live looping spatial-audio voices — construct hums + avatar engine voices.
+/// Each is a per-frame rodio spatialise-and-mix, so this is the prime suspect
+/// for sustained vehicle-scene lag (as opposed to a one-off spawn hitch).
+pub const AUDIO_SPATIAL_ACTIVE_SINKS: &str = "audio.spatial.active_sinks";
+/// Retained baked-audio cache entries (distinct voice / construct patches).
+pub const AUDIO_BAKE_CACHE_ENTRIES: &str = "audio.bake.cache_entries";
+/// Total bytes of retained baked-audio buffers — the cache's memory footprint.
+pub const AUDIO_BAKE_CACHE_BYTES: &str = "audio.bake.cache_bytes";
+/// Per-bake latency for one construct / avatar-voice audio patch (ms) — the
+/// spawn-time hitch candidate.
+pub const AUDIO_VOICE_BAKE_LATENCY_MS: &str = "audio.voice_bake.latency_ms";
+/// Baked buffer size per construct / avatar-voice bake (bytes).
+pub const AUDIO_VOICE_BAKE_BYTES: &str = "audio.voice_bake.bytes";
+
 /// Every known metric with its value shape, so the registry can pre-seed empty
 /// entries (the GUI shows a named-but-empty metric rather than nothing) and the
 /// GUI can enumerate the full catalogue. Keep in sync with the consts above —
@@ -195,6 +211,12 @@ pub const ALL: &[(&str, MetricKind)] = &[
     (OFFLOAD_AMBIENT_BAKE_LATENCY_MS, MetricKind::Histogram),
     (OFFLOAD_TEXTURE_BAKE_LATENCY_MS, MetricKind::Histogram),
     (OFFLOAD_JOB_ERROR_COUNT, MetricKind::Counter),
+    // spatial audio (#802)
+    (AUDIO_SPATIAL_ACTIVE_SINKS, MetricKind::Gauge),
+    (AUDIO_BAKE_CACHE_ENTRIES, MetricKind::Gauge),
+    (AUDIO_BAKE_CACHE_BYTES, MetricKind::Gauge),
+    (AUDIO_VOICE_BAKE_LATENCY_MS, MetricKind::Histogram),
+    (AUDIO_VOICE_BAKE_BYTES, MetricKind::Histogram),
 ];
 
 #[cfg(test)]
@@ -216,7 +238,7 @@ mod tests {
             assert!(
                 matches!(
                     segs[0],
-                    "runtime" | "net" | "loading" | "offload" | "record"
+                    "runtime" | "net" | "loading" | "offload" | "record" | "audio"
                 ),
                 "name {name} has unknown subsystem prefix"
             );

@@ -47,9 +47,10 @@ pub(super) fn build(seed: u64) -> Generator {
             PartSlot::Mast => root
                 .children
                 .push(offset(part.build(&ctx), [0.0, deck_y, -0.05])),
-            PartSlot::Bow => root
-                .children
-                .push(offset(part.build(&ctx), [0.0, deck_y * 0.77, bow_z])),
+            PartSlot::Bow => root.children.push(offset(
+                part.build(&ctx),
+                [0.0, deck_y * 0.77, bow_z * BOW_HULL_EMBED],
+            )),
             PartSlot::Stack => root
                 .children
                 .push(offset(part.build(&ctx), stack_station(deck_y, stack_z))),
@@ -90,11 +91,28 @@ pub(super) fn build(seed: u64) -> Generator {
 /// from — the smokestack part's mouth sits ≈ this far above its base.
 pub(super) const FUNNEL_MOUTH_RISE: f32 = 0.5;
 
+/// Inboard-embed fractions for the Bow / Stack part bases (#806).
+///
+/// `bow_z` / `stack_z` (from [`BoatBlueprint`](crate::seeded_defaults)) are the
+/// *analytic* stem / stern stations, but the hull is a swept-blob iso-surface
+/// that pulls inboard of those analytic tips by a seed/torture-dependent margin
+/// — most at the fine prow, where a part seated on the tip floats ahead of the
+/// mesh (the reported detached bowsprit). Seating each base at this fraction of
+/// its analytic station pulls it *into* the hull, so it always embeds rather
+/// than undershooting into open air. Embedding is invisible — the hull is
+/// opaque and a bowsprit / funnel still projects clear via its own forward /
+/// upward offset — and per the overshoot-beats-undershoot rule an embedded base
+/// reads better than a floating one across every seed. The prow needs the
+/// stronger pull (its cone tapers to a fine point the iso-surface eats most).
+const BOW_HULL_EMBED: f32 = 0.80;
+const STACK_HULL_EMBED: f32 = 0.86;
+
 /// Stack (funnel) mount station (root-local, before the assembler's yaw) from
-/// the deck line + the blueprint's aft stack station — the single source the
-/// assembler seats the Stack part on and the FX steam anchor rises from by
-/// [`FUNNEL_MOUTH_RISE`], so the steam leaves the same funnel the part builds
-/// (#798).
+/// the deck line + the blueprint's aft stack station, pulled inboard by
+/// [`STACK_HULL_EMBED`] so the funnel base embeds in the hull. The single
+/// source the assembler seats the Stack part on and the FX steam anchor rises
+/// from by [`FUNNEL_MOUTH_RISE`], so the steam leaves the same funnel the part
+/// builds and stays anchored to the same seated base (#798, #806).
 pub(super) fn stack_station(deck_y: f32, stack_z: f32) -> [f32; 3] {
-    [0.0, deck_y * 0.62, stack_z]
+    [0.0, deck_y * 0.62, stack_z * STACK_HULL_EMBED]
 }

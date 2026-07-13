@@ -557,6 +557,42 @@ fn render_health_tab(
                     ),
                 ],
             );
+            // Spatial-audio load (#802): the sustained-lag suspect is the live
+            // looping-voice count (each is a per-frame spatialise-and-mix); the
+            // bake latency / size + cache footprint separate a spawn hitch and
+            // buffer weight from steady playback cost.
+            health_card(
+                ui,
+                invariants,
+                "Audio",
+                &[
+                    (
+                        "Looping voices",
+                        g(names::AUDIO_SPATIAL_ACTIVE_SINKS),
+                        names::AUDIO_SPATIAL_ACTIVE_SINKS,
+                    ),
+                    (
+                        "Voice bake (ms)",
+                        h(names::AUDIO_VOICE_BAKE_LATENCY_MS),
+                        names::AUDIO_VOICE_BAKE_LATENCY_MS,
+                    ),
+                    (
+                        "Bake size (bytes)",
+                        h(names::AUDIO_VOICE_BAKE_BYTES),
+                        names::AUDIO_VOICE_BAKE_BYTES,
+                    ),
+                    (
+                        "Cache entries",
+                        g(names::AUDIO_BAKE_CACHE_ENTRIES),
+                        names::AUDIO_BAKE_CACHE_ENTRIES,
+                    ),
+                    (
+                        "Cache bytes",
+                        g(names::AUDIO_BAKE_CACHE_BYTES),
+                        names::AUDIO_BAKE_CACHE_BYTES,
+                    ),
+                ],
+            );
             health_card(
                 ui,
                 invariants,

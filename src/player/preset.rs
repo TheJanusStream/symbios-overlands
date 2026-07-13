@@ -55,6 +55,10 @@ pub(super) trait PresetComponents {
 /// Shared cuboid-chassis insert for the four vehicle presets — they
 /// differ only in their marker component; the rig topology (collider from
 /// half-extents, mass, both dampings, [`VehicleChassis`]) is identical.
+///
+/// Presets that need extra components (e.g. the car's lowered
+/// [`CenterOfMass`], #804) insert them from their own [`PresetComponents`]
+/// impl after calling this.
 fn insert_vehicle_chassis<M: Component>(
     commands: &mut Commands,
     entity: Entity,
@@ -127,6 +131,16 @@ impl PresetComponents for CarParams {
             self.angular_damping.0,
             CarPreset,
         );
+        // A low centre of mass is the car's primary anti-rollover lever
+        // (#804): placed below the body origin at a fraction of the chassis
+        // half-height, it leaves the level ride height untouched (the four
+        // symmetric suspension corners still balance the weight with zero net
+        // torque when level) but makes gravity resist roll and an inverted
+        // rest unstable.
+        let com_y = cfg::CAR_CENTER_OF_MASS_Y_FRAC * self.chassis_half_extents.0[1];
+        commands
+            .entity(entity)
+            .insert(CenterOfMass(Vec3::new(0.0, com_y, 0.0)));
     }
 }
 
@@ -188,6 +202,7 @@ pub(super) fn strip_preset_components(commands: &mut Commands, entity: Entity) {
     commands.entity(entity).remove::<(
         Collider,
         Mass,
+        CenterOfMass,
         LinearDamping,
         AngularDamping,
         LockedAxes,

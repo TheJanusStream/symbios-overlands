@@ -23,6 +23,15 @@ use super::assemble::{
 };
 use super::common::{cylinder, id_quat, offset, offset_rot, prim, quat_xyzw, quat_z};
 
+/// Metres the suspension cables' upper ends are pushed up *into* the envelope
+/// past the centreline belly line, so they embed in the hull at their ±x/±z
+/// stations (where the surface sits above the centreline low point) rather than
+/// ending in open air below it (#805). Generous on purpose — the cables are
+/// thin and the envelope opaque, so the overshoot is invisible, and every
+/// seeded envelope radius (~0.4–0.9 m) comfortably swallows it without the
+/// cable breaching the crown.
+const CABLE_ENVELOPE_EMBED: f32 = 0.2;
+
 pub(super) fn build(seed: u64) -> Generator {
     // The envelope is the structural root (centred at the origin, no scale).
     let (outfit, ctx, mut root) = assemble_root(seed, PartSlot::Envelope);
@@ -38,10 +47,8 @@ pub(super) fn build(seed: u64) -> Generator {
     let mounts = resolve_mounts(&outfit, &ctx);
     let gondola_scale = ctx.airship().map_or(1.0, |a| a.gondola_scale);
 
-    // The gondola hangs a short gap below the belly; its roof is a cabin
-    // half-height under its own centre.
+    // The gondola hangs a short gap below the belly.
     let gondola_y = gondola_hang_y(&mounts);
-    let gondola_roof = gondola_y + 0.15 * gondola_scale;
 
     for choice in &outfit.parts {
         if choice.slot == PartSlot::Envelope {
@@ -94,19 +101,29 @@ pub(super) fn build(seed: u64) -> Generator {
         }
     }
 
-    // Suspension rigging — four cables that actually bridge the envelope belly
-    // to the gondola roof: the length is computed from the belly→roof gap, so
-    // they never hang short of the hull (the twin bug) or bury into it. The
-    // cables wear the ship's structural `frame` colour so the rigging reads as
-    // one system with the fins / keel, not a stray tertiary third draw (#789).
+    // Suspension rigging — four cables bridging the envelope belly to the
+    // gondola. Both ends deliberately OVERSHOOT into their bodies so a cable
+    // can never hang short at either (the #805 double-undershoot): the top is
+    // pushed UP into the envelope by `CABLE_ENVELOPE_EMBED`, because `belly_y`
+    // is the *centreline* low point but the cables stand out at ±x/±z where the
+    // hull curves up and away — topping out at `belly_y` left them ending in
+    // open air below the surface (worst on the twin's raised inter-lobe cleft).
+    // The foot drops to the gondola CENTRE (`gondola_y`, below the roof) so it
+    // embeds in the cabin instead of kissing an estimated roof line. The ±x/±z
+    // rectangle scales with `gondola_scale` so a small gondola's narrower roof
+    // still catches all four feet rather than them landing outboard of it.
+    // Cables are thin and both bodies opaque, so the overshoot is unseen. They
+    // wear the structural `frame` colour so the rigging reads as one system
+    // with the fins / keel, not a stray tertiary third draw (#789).
     let cable = ctx.materials.metal(airship_colors(&ctx).frame);
-    let cable_len = (mounts.belly_y - gondola_roof).max(0.05);
-    let cable_mid = (mounts.belly_y + gondola_roof) * 0.5;
+    let cable_top = mounts.belly_y + CABLE_ENVELOPE_EMBED;
+    let cable_len = (cable_top - gondola_y).max(0.05);
+    let cable_mid = (cable_top + gondola_y) * 0.5;
     for x in [-0.2f32, 0.2] {
         for z in [-0.3f32, 0.3] {
             root.children.push(prim(
                 cylinder(0.012, cable_len, 6, cable.clone()),
-                [x, cable_mid, z],
+                [x * gondola_scale, cable_mid, z * gondola_scale],
                 id_quat(),
             ));
         }

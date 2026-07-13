@@ -146,6 +146,24 @@ impl BakedAudioCache {
         self.order.clear();
     }
 
+    /// Diagnostics footprint (#802): the count of retained `Ready` buffers and
+    /// their total byte size (looking each handle up in `sources`). `Pending`
+    /// entries carry no buffer yet, so they count toward neither. Feeds the
+    /// `audio.bake.cache_*` gauges so the cache's memory weight is visible.
+    pub fn retained_footprint(&self, sources: &Assets<AudioSource>) -> (usize, usize) {
+        let mut count = 0;
+        let mut bytes = 0;
+        for entry in self.entries.values() {
+            if let BakedAudioEntry::Ready(handle) = entry {
+                count += 1;
+                if let Some(source) = sources.get(handle) {
+                    bytes += source.bytes.len();
+                }
+            }
+        }
+        (count, bytes)
+    }
+
     /// Evict oldest `Ready` entries until under the cap. `Pending`
     /// entries are never evicted — their waiter lists must survive
     /// until the bake lands.
@@ -367,6 +385,10 @@ pub fn poll_spatial_audio_tasks(
     mut bake_cache: ResMut<BakedAudioCache>,
     time: Res<Time>,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
+    // Diagnostics side-channel (#802): `Option` so a headless / test app that
+    // schedules the audio systems without the metrics plugin can't panic on a
+    // missing registry — audio playback must never depend on diagnostics.
+    mut metrics: Option<ResMut<crate::diagnostics::MetricsRegistry>>,
 ) {
     let now = time.elapsed_secs_f64();
     for (task_entity, mut bake) in tasks.iter_mut() {
@@ -426,6 +448,12 @@ pub fn poll_spatial_audio_tasks(
                 duration_secs: now - started_at,
             },
         );
+        // Per-bake latency + buffer size as queryable histograms (#802), so the
+        // spawn-hitch and buffer-weight hypotheses can be read off the metrics
+        // tab rather than reconstructed from timeline events.
+        if let Some(metrics) = metrics.as_deref_mut() {
+            crate::diagnostics::samplers::audio_voice_baked(metrics, now - started_at, bytes.len());
+        }
         let handle = audio_sources.add(AudioSource {
             bytes: bytes.into(),
         });
@@ -605,6 +633,33 @@ mod tests {
         assert!(cache.entries.contains_key("pending-0"));
         // The oldest READY entry was sacrificed instead.
         assert!(!cache.entries.contains_key("cfg-1"));
+    }
+
+    #[test]
+    fn retained_footprint_counts_ready_bytes_and_skips_pending() {
+        // A real Assets store so the byte-summing (not just the count) is
+        // exercised: one Ready buffer of a known size, plus a Pending entry
+        // (no buffer yet) that must not be counted.
+        let mut sources = Assets::<AudioSource>::default();
+        let handle = sources.add(AudioSource {
+            bytes: vec![0u8; 320].into(),
+        });
+
+        let mut cache = BakedAudioCache::default();
+        cache
+            .entries
+            .insert("ready".into(), BakedAudioEntry::Ready(handle));
+        cache.entries.insert(
+            "pending".into(),
+            BakedAudioEntry::Pending(vec![(
+                Entity::PLACEHOLDER,
+                BakeAttachmentMode::LoopingConstruct,
+            )]),
+        );
+
+        let (count, bytes) = cache.retained_footprint(&sources);
+        assert_eq!(count, 1, "only the Ready buffer is retained");
+        assert_eq!(bytes, 320, "sums the Ready buffer's byte length");
     }
 
     #[test]

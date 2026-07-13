@@ -129,6 +129,15 @@ pub fn offload_job_error(m: &mut MetricsRegistry) {
     m.incr(names::OFFLOAD_JOB_ERROR_COUNT);
 }
 
+// ---- spatial audio (#802) -------------------------------------------------
+
+/// A construct / avatar-voice audio patch finished baking: `secs` is its bake
+/// latency (the spawn-time hitch candidate) and `bytes` its baked buffer size.
+pub fn audio_voice_baked(m: &mut MetricsRegistry, secs: f64, bytes: usize) {
+    m.observe_hist(names::AUDIO_VOICE_BAKE_LATENCY_MS, ms(secs));
+    m.observe_hist(names::AUDIO_VOICE_BAKE_BYTES, bytes as f64);
+}
+
 // ---- runtime health -------------------------------------------------------
 
 /// The local player fell through the terrain and was respawned.

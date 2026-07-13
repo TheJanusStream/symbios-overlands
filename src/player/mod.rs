@@ -182,6 +182,7 @@ impl Plugin for PlayerPlugin {
                     car::apply_car_drive
                         .run_if(not(egui_wants_any_keyboard_input))
                         .run_if(not(avatar_visuals_row_selected)),
+                    car::apply_car_uprighting.run_if(not(avatar_visuals_row_selected)),
                     respawn::respawn_if_fallen,
                 )
                     .chain()
