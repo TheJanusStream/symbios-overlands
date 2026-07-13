@@ -356,19 +356,26 @@ mod tests {
     }
 
     #[test]
-    fn required_slots_fillable_across_every_tier() {
-        // The band-gated query must also stay non-empty for required slots at
-        // every ornateness/wear tier (universal defaults carry ANY bands).
+    fn required_slots_fillable_across_every_style_and_tier() {
+        // The band-gated query must stay non-empty for required slots at every
+        // style AND every ornateness/wear tier (the universal defaults carry ANY
+        // bands and so floor it). Iterating all styles — not just one — matters
+        // now that band-gated parts sit on required slots (deck_barrels = Worn+
+        // Deck, canopy_aero = Pristine-only Canopy, #793): a regression that
+        // band-gated or dropped a default would else slip through at the styles
+        // those bespoke parts target.
         for chassis in ChassisFamily::ALL {
             for &slot in required_slots(chassis) {
-                for o in OrnatenessTier::ALL {
-                    for w in WearTier::ALL {
-                        assert!(
-                            parts_for_avatar(chassis, slot, ThemeArchetype::AncientClassical, o, w)
-                                .next()
-                                .is_some(),
-                            "{chassis:?}/{slot:?} empty at {o:?}/{w:?}"
-                        );
+                for style in ThemeArchetype::ALL {
+                    for o in OrnatenessTier::ALL {
+                        for w in WearTier::ALL {
+                            assert!(
+                                parts_for_avatar(chassis, slot, style, o, w)
+                                    .next()
+                                    .is_some(),
+                                "{chassis:?}/{slot:?}/{style:?} empty at {o:?}/{w:?}"
+                            );
+                        }
                     }
                 }
             }
