@@ -1,5 +1,5 @@
 //! Hover-boat family assembler — composes the vessel from the seeded
-//! [`AvatarOutfit`] parts.
+//! [`AvatarOutfit`](crate::seeded_defaults::AvatarOutfit) parts.
 //!
 //! The hull part is the structural root (a swept blob hull with a pointed prow
 //! and sheer-following rub-strakes, centred at the waterline origin); the low
@@ -10,23 +10,17 @@
 //! ([`crate::pds::avatar::parts`]); the assembler owns only the layout anchors.
 //! Seeded FX are attached centrally by [`super::build_for_seed`].
 
-use std::f32::consts::PI;
-
-use crate::pds::avatar::parts::{PartCtx, PartSlot, by_slug, outfit_has_hat};
+use crate::pds::avatar::parts::{PartSlot, by_slug};
 use crate::pds::generator::Generator;
-use crate::pds::types::Fp3;
-use crate::seeded_defaults::AvatarOutfit;
 
-use super::assemble::base_root;
-use super::common::{offset, quat_xyzw, quat_y};
+use super::assemble::{
+    apply_travel_pose, assemble_root, debug_assert_slots_handled, ornament_count,
+};
+use super::common::offset;
 
 pub(super) fn build(seed: u64) -> Generator {
-    let outfit = AvatarOutfit::for_seed(seed);
-    // Reuse the derived outfit for the ctx's hat flag (#638).
-    let ctx = PartCtx::for_seed_with_hat(seed, outfit_has_hat(&outfit));
-
     // The hull is the structural root (at the waterline origin).
-    let mut root = base_root(&outfit, &ctx, PartSlot::Hull);
+    let (outfit, ctx, mut root) = assemble_root(seed, PartSlot::Hull);
 
     // Mount landmarks come from the shared boat blueprint, so the deck / mast /
     // bow / stack anchors track the seeded hull instead of re-encoding its
@@ -58,19 +52,49 @@ pub(super) fn build(seed: u64) -> Generator {
                 .push(offset(part.build(&ctx), [0.0, deck_y * 0.77, bow_z])),
             PartSlot::Stack => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, deck_y * 0.62, stack_z])),
-            PartSlot::Ornament => root
-                .children
-                .push(offset(part.build(&ctx), [0.0, deck_y * 1.38, ornament_z])),
+                .push(offset(part.build(&ctx), stack_station(deck_y, stack_z))),
+            PartSlot::Ornament => {
+                // An ornate boat lines the deck with trinkets: amidships, then
+                // a pair fore + aft on either side of it (#798).
+                let stations = [
+                    [0.0, deck_y * 1.38, ornament_z],
+                    [0.0, deck_y * 1.28, stack_z * 0.5],
+                    [0.0, deck_y * 1.28, bow_z * 0.5],
+                ];
+                for &station in stations.iter().take(ornament_count(&ctx)) {
+                    root.children.push(offset(part.build(&ctx), station));
+                }
+            }
             _ => {}
         }
     }
 
-    // Travel is toward local -Z; parts are authored front-+Z, so yaw 180°.
     // Drop to a low hover above the hover-boat's suspension ground line (the
     // chassis floats ≈0.97 m; a small gap keeps it reading as a hover-craft).
-    root.transform.rotation = quat_xyzw(quat_y(PI));
-    root.transform.translation = Fp3([0.0, -0.6, 0.0]);
-
+    apply_travel_pose(&mut root, 0.6);
+    debug_assert_slots_handled(
+        &outfit,
+        PartSlot::Hull,
+        &[
+            PartSlot::Deck,
+            PartSlot::Mast,
+            PartSlot::Bow,
+            PartSlot::Stack,
+            PartSlot::Ornament,
+        ],
+    );
     root
+}
+
+/// Rise (m) from the Stack mount up to the funnel mouth the FX steam issues
+/// from — the smokestack part's mouth sits ≈ this far above its base.
+pub(super) const FUNNEL_MOUTH_RISE: f32 = 0.5;
+
+/// Stack (funnel) mount station (root-local, before the assembler's yaw) from
+/// the deck line + the blueprint's aft stack station — the single source the
+/// assembler seats the Stack part on and the FX steam anchor rises from by
+/// [`FUNNEL_MOUTH_RISE`], so the steam leaves the same funnel the part builds
+/// (#798).
+pub(super) fn stack_station(deck_y: f32, stack_z: f32) -> [f32; 3] {
+    [0.0, deck_y * 0.62, stack_z]
 }

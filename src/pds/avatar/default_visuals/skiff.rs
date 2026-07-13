@@ -1,5 +1,5 @@
 //! Land-skiff family assembler — composes the ground vehicle from the
-//! seeded [`AvatarOutfit`] parts.
+//! seeded [`AvatarOutfit`](crate::seeded_defaults::AvatarOutfit) parts.
 //!
 //! The chassis (a shaped body with a lower skirt, rear cabin, and front
 //! hood) is the structural root (centred at the origin); the canopy seats on
@@ -9,24 +9,18 @@
 //! ([`crate::pds::avatar::parts`]); seeded FX are attached centrally by
 //! [`super::build_for_seed`].
 
-use std::f32::consts::{FRAC_PI_2, PI};
+use std::f32::consts::FRAC_PI_2;
 
 use crate::pds::avatar::parts::defaults::skiff::{skiff_dims, skiff_wheel_anchors};
-use crate::pds::avatar::parts::{PartCtx, PartSlot, by_slug, outfit_has_hat};
+use crate::pds::avatar::parts::{PartSlot, by_slug};
 use crate::pds::generator::Generator;
-use crate::pds::types::Fp3;
-use crate::seeded_defaults::AvatarOutfit;
 
-use super::assemble::base_root;
-use super::common::{offset, offset_rot, quat_xyzw, quat_y, quat_z};
+use super::assemble::{apply_travel_pose, assemble_root, debug_assert_slots_handled};
+use super::common::{offset, offset_rot, quat_xyzw, quat_z};
 
 pub(super) fn build(seed: u64) -> Generator {
-    let outfit = AvatarOutfit::for_seed(seed);
-    // Reuse the derived outfit for the ctx's hat flag (#638).
-    let ctx = PartCtx::for_seed_with_hat(seed, outfit_has_hat(&outfit));
-
     // The chassis is the structural root (centred at the origin).
-    let mut root = base_root(&outfit, &ctx, PartSlot::Chassis);
+    let (outfit, ctx, mut root) = assemble_root(seed, PartSlot::Chassis);
 
     // Wheels are laid on their axle (cylinder Y-axis → X-axis).
     let axle = quat_xyzw(quat_z(FRAC_PI_2));
@@ -70,11 +64,13 @@ pub(super) fn build(seed: u64) -> Generator {
             // exhaust is the skiff redesign's job (#788).
             PartSlot::Exhaust => root
                 .children
-                .push(offset(part.build(&ctx), [0.0, 0.05, -0.70 * dl])),
+                .push(offset(part.build(&ctx), exhaust_station(dims.1))),
             // Ornament as a hood mascot on the bonnet nose (clear of every
             // canopy volume — a canopy-relative mount buried the neon strip
             // inside closed greenhouses and floated it over the open roadster
-            // cockpit, #780). A slot-aware, per-canopy mount is #783's job.
+            // cockpit, #780). Single-mounted: every skiff ornament (mascot /
+            // bull bar / neon strip) is a front, directional piece, so unlike
+            // the boat's deck finials it doesn't line up in a tiered set (#798).
             PartSlot::Ornament => root
                 .children
                 .push(offset(part.build(&ctx), [0.0, 0.17, 0.68 * dl])),
@@ -82,13 +78,29 @@ pub(super) fn build(seed: u64) -> Generator {
         }
     }
 
-    // Vehicles travel toward local -Z (`Transform::forward`), but the parts
-    // are authored front-+Z, so yaw the whole visual 180°. Drop it so the
-    // wheels rest at the car's suspension ground line — the chassis origin
-    // floats ≈0.87 m (half-extent 0.4 + rest 0.6 − static compression ≈0.13)
-    // and the wheel bottoms sit ≈0.32 below the visual origin.
-    root.transform.rotation = quat_xyzw(quat_y(PI));
-    root.transform.translation = Fp3([0.0, -0.55, 0.0]);
-
+    // Drop the whole visual so the wheels rest at the car's suspension ground
+    // line — the chassis origin floats ≈0.87 m (half-extent 0.4 + rest 0.6 −
+    // static compression ≈0.13) and the wheel bottoms sit ≈0.32 below the
+    // visual origin.
+    apply_travel_pose(&mut root, 0.55);
+    debug_assert_slots_handled(
+        &outfit,
+        PartSlot::Chassis,
+        &[
+            PartSlot::Canopy,
+            PartSlot::Wheel,
+            PartSlot::Exhaust,
+            PartSlot::Ornament,
+        ],
+    );
     root
+}
+
+/// Aft exhaust-pipe station (root-local, before the assembler's yaw) from the
+/// seeded body length — the single source the assembler seats the Exhaust part
+/// at and the FX exhaust-wisp anchor issues from, so the wisp leaves the same
+/// pipe the part builds (#798). The tub ends at z ≈ −0.75·len, so the pipe sits
+/// just inboard of the stern.
+pub(super) fn exhaust_station(body_len: f32) -> [f32; 3] {
+    [0.0, 0.05, -0.70 * (body_len / 1.5)]
 }

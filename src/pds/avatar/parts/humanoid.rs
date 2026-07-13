@@ -13,6 +13,7 @@
 use crate::pds::avatar::default_visuals::common::{
     capsule, cone, cuboid, cylinder, id_quat, prim, sphere, torus, with_cut, with_torture,
 };
+use crate::pds::avatar::parts::defaults::common::darken;
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
 use crate::seeded_defaults::ChassisFamily;
@@ -39,10 +40,6 @@ const FRONTIER: &[ThemeArchetype] = &[WildWest, PostApoc, IndustrialPark];
 /// Adorned-or-more — the band most ornamental parts advertise.
 const fn fancy() -> OrnatenessBand {
     OrnatenessBand::range(OrnatenessTier::Adorned, OrnatenessTier::Ornate)
-}
-
-fn darken(c: [f32; 3]) -> [f32; 3] {
-    [c[0] * 0.4, c[1] * 0.4, c[2] * 0.4]
 }
 
 // ---------------------------------------------------------------------------

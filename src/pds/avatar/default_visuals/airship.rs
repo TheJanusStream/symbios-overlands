@@ -13,21 +13,19 @@
 use std::f32::consts::{FRAC_PI_2, PI};
 
 use crate::pds::avatar::parts::defaults::airship::{EnvProfile, airship_colors, airship_profile};
-use crate::pds::avatar::parts::{PartCtx, PartSlot, by_slug, outfit_has_hat};
+use crate::pds::avatar::parts::{PartCtx, PartSlot, by_slug};
 use crate::pds::generator::Generator;
 use crate::pds::types::{Fp3, Fp4};
 use crate::seeded_defaults::AvatarOutfit;
 
-use super::assemble::base_root;
-use super::common::{cylinder, id_quat, offset, offset_rot, prim, quat_xyzw, quat_y, quat_z};
+use super::assemble::{
+    apply_travel_pose, assemble_root, debug_assert_slots_handled, ornament_count, outfit_ctx,
+};
+use super::common::{cylinder, id_quat, offset, offset_rot, prim, quat_xyzw, quat_z};
 
 pub(super) fn build(seed: u64) -> Generator {
-    let outfit = AvatarOutfit::for_seed(seed);
-    // Reuse the derived outfit for the ctx's hat flag (#638).
-    let ctx = PartCtx::for_seed_with_hat(seed, outfit_has_hat(&outfit));
-
     // The envelope is the structural root (centred at the origin, no scale).
-    let mut root = base_root(&outfit, &ctx, PartSlot::Envelope);
+    let (outfit, ctx, mut root) = assemble_root(seed, PartSlot::Envelope);
 
     // Mount landmarks come from the *chosen envelope form*, not a one-size
     // constant: the belly line the gondola slings from, the tail station and
@@ -81,9 +79,17 @@ pub(super) fn build(seed: u64) -> Generator {
                     ));
                 }
             }
-            PartSlot::Ornament => root
-                .children
-                .push(offset(part.build(&ctx), [0.0, gondola_y + 0.25, 0.6])),
+            PartSlot::Ornament => {
+                // A prow finial by default; an ornate ship adds a stern one.
+                // These are the only two spots with headroom: an upward finial
+                // amidships would bury in the gasbag (the belly is lowest +
+                // fattest at the centreline), so the airship caps at two rather
+                // than lining a deck the way the boat does (#798).
+                let stations = [[0.0, gondola_y + 0.25, 0.6], [0.0, gondola_y + 0.25, -0.6]];
+                for &station in stations.iter().take(ornament_count(&ctx)) {
+                    root.children.push(offset(part.build(&ctx), station));
+                }
+            }
             _ => {}
         }
     }
@@ -106,10 +112,18 @@ pub(super) fn build(seed: u64) -> Generator {
         }
     }
 
-    // Travel is toward local -Z; the envelope nose is authored at +Z, so yaw
-    // the craft 180° to fly nose-first. No vertical drop — a helicopter hovers.
-    root.transform.rotation = quat_xyzw(quat_y(PI));
-
+    // No vertical drop — a helicopter hovers.
+    apply_travel_pose(&mut root, 0.0);
+    debug_assert_slots_handled(
+        &outfit,
+        PartSlot::Envelope,
+        &[
+            PartSlot::Gondola,
+            PartSlot::Fin,
+            PartSlot::Pod,
+            PartSlot::Ornament,
+        ],
+    );
     root
 }
 
@@ -159,8 +173,7 @@ fn gondola_hang_y(mounts: &AirshipMounts) -> f32 {
 /// *before* the assembler's yaw), tracking the seeded envelope so the vapour
 /// issues from under the actual gondola rather than a fixed point.
 pub(super) fn fx_belly_anchor(seed: u64) -> [f32; 3] {
-    let outfit = AvatarOutfit::for_seed(seed);
-    let ctx = PartCtx::for_seed_with_hat(seed, outfit_has_hat(&outfit));
+    let (outfit, ctx) = outfit_ctx(seed);
     let mounts = resolve_mounts(&outfit, &ctx);
     // Just below the gondola floor.
     [0.0, gondola_hang_y(&mounts) - 0.15, 0.0]

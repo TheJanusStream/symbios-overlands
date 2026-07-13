@@ -34,7 +34,9 @@
 // (#789).
 pub(crate) mod airship;
 mod boat;
-mod common;
+// Crate-visible so the styled vehicle kits (`super::vehicle`) can share the
+// `shade` colour helper instead of keeping their own copy (#798).
+pub(crate) mod common;
 mod humanoid;
 // Crate-visible so the land-skiff assembler + the styled chassis / wheel
 // variants (`super::vehicle`) can share its blueprint-derived dims, colour
@@ -42,11 +44,11 @@ mod humanoid;
 pub(crate) mod skiff;
 
 use crate::seeded_defaults::ChassisFamily;
+use crate::seeded_defaults::{OrnatenessBand, WearBand};
 
-use super::{BodyPart, PartSlot};
+use super::{BodyPart, PartDef, PartSlot};
 use airship::*;
 use boat::*;
-use common::FnPart;
 use humanoid::*;
 use skiff::*;
 
@@ -55,142 +57,211 @@ const BOAT: &[ChassisFamily] = &[ChassisFamily::Boat];
 const AIRSHIP: &[ChassisFamily] = &[ChassisFamily::Airship];
 const SKIFF: &[ChassisFamily] = &[ChassisFamily::Skiff];
 
-static HEAD: FnPart = FnPart {
+static HEAD: PartDef = PartDef {
     slug: "default_head",
     slot: PartSlot::Head,
     chassis: HUMANOID,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: head,
 };
-static TORSO: FnPart = FnPart {
+static TORSO: PartDef = PartDef {
     slug: "default_torso",
     slot: PartSlot::Torso,
     chassis: HUMANOID,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: torso,
 };
-static COAT: FnPart = FnPart {
+static COAT: PartDef = PartDef {
     slug: "default_torso_coat",
     slot: PartSlot::Torso,
     chassis: HUMANOID,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: coat,
 };
-static ARM: FnPart = FnPart {
+static ARM: PartDef = PartDef {
     slug: "default_arm",
     slot: PartSlot::Arm,
     chassis: HUMANOID,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: arm,
 };
-static LEG: FnPart = FnPart {
+static LEG: PartDef = PartDef {
     slug: "default_leg",
     slot: PartSlot::Leg,
     chassis: HUMANOID,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: leg,
 };
-static HULL: FnPart = FnPart {
+static HULL: PartDef = PartDef {
     slug: "default_hull",
     slot: PartSlot::Hull,
     chassis: BOAT,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: hull,
 };
-static HULL_CATAMARAN: FnPart = FnPart {
+static HULL_CATAMARAN: PartDef = PartDef {
     slug: "default_hull_catamaran",
     slot: PartSlot::Hull,
     chassis: BOAT,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: hull_catamaran,
 };
-static HULL_TRIMARAN: FnPart = FnPart {
+static HULL_TRIMARAN: PartDef = PartDef {
     slug: "default_hull_trimaran",
     slot: PartSlot::Hull,
     chassis: BOAT,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: hull_trimaran,
 };
-static HULL_BARGE: FnPart = FnPart {
+static HULL_BARGE: PartDef = PartDef {
     slug: "default_hull_barge",
     slot: PartSlot::Hull,
     chassis: BOAT,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: hull_barge,
 };
-static DECK: FnPart = FnPart {
+static DECK: PartDef = PartDef {
     slug: "default_deck",
     slot: PartSlot::Deck,
     chassis: BOAT,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: deck,
 };
-static MAST: FnPart = FnPart {
+static MAST: PartDef = PartDef {
     slug: "default_mast",
     slot: PartSlot::Mast,
     chassis: BOAT,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: mast,
 };
-static ENVELOPE: FnPart = FnPart {
+static ENVELOPE: PartDef = PartDef {
     slug: "default_envelope",
     slot: PartSlot::Envelope,
     chassis: AIRSHIP,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: envelope,
 };
-static ENVELOPE_BLIMP: FnPart = FnPart {
+static ENVELOPE_BLIMP: PartDef = PartDef {
     slug: "default_envelope_blimp",
     slot: PartSlot::Envelope,
     chassis: AIRSHIP,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: envelope_blimp,
 };
-static ENVELOPE_LOBED: FnPart = FnPart {
+static ENVELOPE_LOBED: PartDef = PartDef {
     slug: "default_envelope_lobed",
     slot: PartSlot::Envelope,
     chassis: AIRSHIP,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: envelope_lobed,
 };
-static ENVELOPE_TWIN: FnPart = FnPart {
+static ENVELOPE_TWIN: PartDef = PartDef {
     slug: "default_envelope_twin",
     slot: PartSlot::Envelope,
     chassis: AIRSHIP,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: envelope_twin,
 };
-static GONDOLA: FnPart = FnPart {
+static GONDOLA: PartDef = PartDef {
     slug: "default_gondola",
     slot: PartSlot::Gondola,
     chassis: AIRSHIP,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: gondola,
 };
-static FIN: FnPart = FnPart {
+static FIN: PartDef = PartDef {
     slug: "default_fin",
     slot: PartSlot::Fin,
     chassis: AIRSHIP,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: fin,
 };
-static POD: FnPart = FnPart {
+static POD: PartDef = PartDef {
     slug: "default_pod",
     slot: PartSlot::Pod,
     chassis: AIRSHIP,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: pod,
 };
-static CHASSIS: FnPart = FnPart {
+static CHASSIS: PartDef = PartDef {
     slug: "default_chassis",
     slot: PartSlot::Chassis,
     chassis: SKIFF,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: chassis,
 };
-static CANOPY: FnPart = FnPart {
+static CANOPY: PartDef = PartDef {
     slug: "default_canopy",
     slot: PartSlot::Canopy,
     chassis: SKIFF,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: canopy,
 };
-static CANOPY_ROADSTER: FnPart = FnPart {
+static CANOPY_ROADSTER: PartDef = PartDef {
     slug: "skiff_canopy_roadster",
     slot: PartSlot::Canopy,
     chassis: SKIFF,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: canopy_roadster,
 };
-static CANOPY_COUPE: FnPart = FnPart {
+static CANOPY_COUPE: PartDef = PartDef {
     slug: "skiff_canopy_coupe",
     slot: PartSlot::Canopy,
     chassis: SKIFF,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: canopy_coupe,
 };
-static WHEEL: FnPart = FnPart {
+static WHEEL: PartDef = PartDef {
     slug: "default_wheel",
     slot: PartSlot::Wheel,
     chassis: SKIFF,
+    styles: &[],
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
     build: wheel,
 };
 

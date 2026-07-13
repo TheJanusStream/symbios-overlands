@@ -767,6 +767,33 @@ pub(crate) fn pod_pylon(pod: &mut Generator, material: &SovereignMaterialSetting
     ));
 }
 
+/// The pod nacelle barrel — a cylinder laid along the travel axis (`quat_x(90°)`
+/// aims the barrel's +Y along +Z, the authored travel-forward direction).
+/// The shared root of every engine-pod variant (their spinners / cowls / screws
+/// mount as its children). `segs` lets a rounder variant ask for more sides.
+pub(crate) fn pod_nacelle(
+    radius: f32,
+    length: f32,
+    segs: u32,
+    material: SovereignMaterialSettings,
+) -> Generator {
+    prim(
+        cylinder(radius, length, segs, material),
+        [0.0, 0.0, 0.0],
+        quat_xyzw(quat_x(FRAC_PI_2)),
+    )
+}
+
+/// The pod's tapered tail cone (apex −Z) at fore-aft station `z`. Shared by
+/// every engine-pod variant so the tails read as one mechanical set.
+pub(crate) fn pod_tail(z: f32, material: SovereignMaterialSettings) -> Generator {
+    prim(
+        cone(0.1, 0.14, 12, material),
+        [0.0, 0.0, z],
+        quat_xyzw(quat_x(-FRAC_PI_2)),
+    )
+}
+
 pub(super) fn pod(ctx: &PartCtx) -> Generator {
     // The default engine pod: a nacelle laid along the travel axis (+Z front)
     // with a nose spinner, a torus prop-guard ring, a simple two-blade airscrew,
@@ -780,13 +807,7 @@ pub(super) fn pod(ctx: &PartCtx) -> Generator {
     let dark = ctx.materials.metal(c.frame);
     let hub = ctx.materials.glow(c.window);
 
-    // Nacelle: a cylinder laid along Z (quat_x(90°) aims the barrel's +Y along
-    // +Z, the authored travel-forward direction).
-    let mut p = prim(
-        cylinder(0.13, 0.52, 12, body.clone()),
-        [0.0, 0.0, 0.0],
-        quat_xyzw(quat_x(FRAC_PI_2)),
-    );
+    let mut p = pod_nacelle(0.13, 0.52, 12, body.clone());
     // Nose spinner cone (apex +Z) + a glowing hub cap at its tip.
     p.children.push(prim(
         cone(0.12, 0.16, 12, dark.clone()),
@@ -809,12 +830,7 @@ pub(super) fn pod(ctx: &PartCtx) -> Generator {
         [0.0, 0.0, 0.34],
         quat_xyzw(quat_x(FRAC_PI_2)),
     ));
-    // Tapered tail cone (apex -Z).
-    p.children.push(prim(
-        cone(0.1, 0.14, 12, body),
-        [0.0, 0.0, -0.3],
-        quat_xyzw(quat_x(-FRAC_PI_2)),
-    ));
+    p.children.push(pod_tail(-0.3, body));
     pod_pylon(&mut p, &dark);
     p
 }

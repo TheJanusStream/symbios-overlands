@@ -83,13 +83,16 @@ fn fx_mount(aura: ParticleAura, family: ChassisFamily, seed: u64) -> [f32; 3] {
         // A tight aura around the torso (chest height), not floating overhead.
         ChassisFamily::Humanoid => [0.0, 0.45, 0.0],
         ChassisFamily::Boat => match bp.as_ref().and_then(VehicleBlueprint::boat) {
-            // Steam vents from the funnel (the Stack station, up off the deck)
-            // — but only when a funnel was actually rolled: the Stack slot is
-            // optional (ornateness-gated), so a stackless steam boat would
-            // otherwise plume from empty air. Without a funnel it falls back to
-            // the low stern, reading as engine spray like the wake does.
+            // Steam vents from the funnel (the shared Stack station, raised to
+            // the funnel mouth) — but only when a funnel was actually rolled:
+            // the Stack slot is optional (ornateness-gated), so a stackless
+            // steam boat would otherwise plume from empty air. Without a funnel
+            // it falls back to the low stern, reading as engine spray like the
+            // wake does.
             Some(b) if aura == ParticleAura::Steam && boat_has_stack(seed) => {
-                [0.0, b.deck_y * 0.62 + 0.5, b.stack_z]
+                let mut m = boat::stack_station(b.deck_y, b.stack_z);
+                m[1] += boat::FUNNEL_MOUTH_RISE;
+                m
             }
             Some(b) if matches!(aura, ParticleAura::Steam | ParticleAura::Wake) => {
                 [0.0, 0.08, -b.hull_len * 0.5]
@@ -102,10 +105,10 @@ fn fx_mount(aura: ParticleAura, family: ChassisFamily, seed: u64) -> [f32; 3] {
         // gondola — the assembler's belly line, tracking the chosen envelope.
         ChassisFamily::Airship => airship::fx_belly_anchor(seed),
         ChassisFamily::Skiff => match bp.as_ref().and_then(VehicleBlueprint::skiff) {
-            // Exhaust / steam leave the tailpipe (the Exhaust station aft-low,
+            // Exhaust / steam leave the tailpipe (the shared Exhaust station,
             // matching the assembler); decorative motes hover over the body.
             Some(s) if matches!(aura, ParticleAura::Exhaust | ParticleAura::Steam) => {
-                [0.0, 0.05, -0.70 * (s.body_len / 1.5)]
+                skiff::exhaust_station(s.body_len)
             }
             Some(_) => [0.0, 0.3, 0.0],
             None => [0.0, 0.1, -0.85],

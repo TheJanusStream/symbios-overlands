@@ -25,8 +25,9 @@ use crate::pds::avatar::default_visuals::common::{
 };
 use crate::pds::avatar::parts::defaults::airship::{
     GondolaDims, airship_colors, ctx_profile, dress_gondola, env_core, envelope_material,
-    lathe_spindle, pod_pylon, push_env_gores, push_env_rings,
+    lathe_spindle, pod_nacelle, pod_pylon, pod_tail, push_env_gores, push_env_rings,
 };
+use crate::pds::avatar::parts::defaults::common::{darken, shade};
 use crate::pds::avatar::parts::defaults::skiff::{
     push_wheel_fenders, skiff_colors, skiff_dims, skiff_wheel_anchors,
 };
@@ -140,14 +141,6 @@ const SEPULCHRAL: &[ThemeArchetype] = &[GothicHorror, FeudalJapan, Medieval];
 /// (the #793 issue's "RUSTIC", folded into GRUBBY in #792 but kept as a narrow
 /// audience here so the buckboard doesn't land on a cyberpunk skiff).
 const AGRARIAN: &[ThemeArchetype] = &[RuralFarmland, Roadside, Suburban, WildWest];
-
-fn shade(c: [f32; 3], f: f32) -> [f32; 3] {
-    [c[0] * f, c[1] * f, c[2] * f]
-}
-
-fn darken(c: [f32; 3]) -> [f32; 3] {
-    shade(c, 0.4)
-}
 
 /// Blueprint mast height (deck → masthead), or the pre-blueprint nominal (a
 /// boat ctx always carries a blueprint; the fallback is defensive, and lets a
@@ -607,12 +600,8 @@ fn pod_ducted(ctx: &PartCtx) -> Generator {
     let ring = ctx.materials.metal(c.frame);
     let glow = ctx.materials.glow(c.window);
 
-    // Short fat nacelle laid along the travel axis (+Z front).
-    let mut p = prim(
-        cylinder(0.15, 0.36, 14, body),
-        [0.0, 0.0, 0.0],
-        quat_xyzw(quat_x(FRAC_PI_2)),
-    );
+    // Short fat nacelle.
+    let mut p = pod_nacelle(0.15, 0.36, 14, body);
     // A fat shroud ring (the duct cowl) proud of the intake — a closed hoop, so
     // the pod reads as ducted, not an open airscrew like the default (#790
     // review: it looked identical to the default open-prop).
@@ -642,12 +631,7 @@ fn pod_ducted(ctx: &PartCtx) -> Generator {
             id_quat(),
         ));
     }
-    // Tapered tail.
-    p.children.push(prim(
-        cone(0.1, 0.14, 12, ring.clone()),
-        [0.0, 0.0, -0.22],
-        quat_xyzw(quat_x(-FRAC_PI_2)),
-    ));
+    p.children.push(pod_tail(-0.22, ring.clone()));
     pod_pylon(&mut p, &ring);
     p
 }
@@ -661,11 +645,7 @@ fn pod_screw(ctx: &PartCtx) -> Generator {
     let dark = ctx.materials.metal(c.frame);
     let brass = ctx.materials.trim(c.stripe);
 
-    let mut p = prim(
-        cylinder(0.13, 0.5, 12, body.clone()),
-        [0.0, 0.0, 0.0],
-        quat_xyzw(quat_x(FRAC_PI_2)),
-    );
+    let mut p = pod_nacelle(0.13, 0.5, 12, body.clone());
     // Brass screw at the front (Helix laid along Z via quat_x(90°)).
     p.children.push(prim(
         helix(0.11, 0.02, 0.11, 2.5, 16, brass.clone()),
@@ -686,12 +666,7 @@ fn pod_screw(ctx: &PartCtx) -> Generator {
             quat_xyzw(quat_x(FRAC_PI_2)),
         ));
     }
-    // Tapered tail.
-    p.children.push(prim(
-        cone(0.1, 0.14, 12, body),
-        [0.0, 0.0, -0.3],
-        quat_xyzw(quat_x(-FRAC_PI_2)),
-    ));
+    p.children.push(pod_tail(-0.3, body));
     pod_pylon(&mut p, &dark);
     p
 }

@@ -1,14 +1,17 @@
 //! Avatar body proportions — overall scale, shoulder width, head
 //! size, limb thickness, body archetype.
 //!
-//! Designed for a humanoid surface (the proposed avatar shape) but
-//! the values map cleanly onto the current hover-boat default too:
-//! `height_scale` scales the whole vessel, `shoulder_width_scale`
-//! scales hull / pontoon X dimensions, `head_scale` scales the
-//! sphere finial, `limb_thickness_scale` scales pontoon radius and
-//! mast radius. The `torso_leg_ratio` field is unused for
-//! hover-boats; it's computed because the surface proposal includes
-//! it and a future humanoid will read it directly.
+//! These seeded knobs are the shared anchor every chassis family's
+//! blueprint reads: a humanoid derives its figure via
+//! [`HumanoidBlueprint`](crate::seeded_defaults::HumanoidBlueprint), and
+//! each vehicle its proportions via
+//! [`VehicleBlueprint`](crate::seeded_defaults::VehicleBlueprint) (a boat's
+//! hull length / beam / freeboard, an airship's envelope length / girth +
+//! gondola, a skiff's body + wheels). `height_scale` sets overall size,
+//! `shoulder_width_scale` the lateral spread (a figure's shoulders, a hull's
+//! beam), `head_scale` a crowning mass (a head, an airship gondola),
+//! `limb_thickness_scale` slender-vs-stout members (limbs, pontoons, wheels).
+//! `torso_leg_ratio` is humanoid-only — the vehicle blueprints ignore it.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;

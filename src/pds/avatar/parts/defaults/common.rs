@@ -1,17 +1,22 @@
-//! Shared glue for the universal default parts: the data-driven
-//! [`FnPart`] table row + its [`BodyPart`] impl, and the small colour /
-//! seeded-choice helpers every family file uses.
-
-use crate::pds::generator::Generator;
-use crate::seeded_defaults::ChassisFamily;
-
-use super::super::{BodyPart, PartCtx, PartSlot};
+//! Shared colour / seeded-choice helpers every default-part family file
+//! uses. The universal default parts are ordinary
+//! [`PartDef`](super::super::PartDef) table rows (with empty styles and
+//! `ANY` bands) alongside the styled kits — one table idiom for every part
+//! (#798).
 
 /// Multiply a colour toward black by `f` (`0` = black, `1` = unchanged) —
 /// the local "darker shade of the same hue" used for trousers / skirts /
 /// bumpers so a second large surface stays tonally related to the primary.
-pub(super) fn shade(c: [f32; 3], f: f32) -> [f32; 3] {
+/// Shared across the whole part catalogue (the styled vehicle kits darken
+/// with it too), hence visible to all of `parts`.
+pub(in crate::pds::avatar::parts) fn shade(c: [f32; 3], f: f32) -> [f32; 3] {
     [c[0] * f, c[1] * f, c[2] * f]
+}
+
+/// A hard darken to 40 % — the shorthand for a shadowed underside / lining /
+/// tyre / bumper that the humanoid and vehicle kits both reach for.
+pub(in crate::pds::avatar::parts) fn darken(c: [f32; 3]) -> [f32; 3] {
+    shade(c, 0.4)
 }
 
 // ---------------------------------------------------------------------------
@@ -94,32 +99,6 @@ pub(super) fn saturate(c: [f32; 3]) -> [f32; 3] {
         (c[1] + (c[1] - l) * 0.6).clamp(0.0, 1.0),
         (c[2] + (c[2] - l) * 0.6).clamp(0.0, 1.0),
     ]
-}
-
-/// A data-driven [`BodyPart`] — metadata plus a build function pointer.
-/// Universal default parts are plain enough to express as a table rather
-/// than a struct apiece; the richer styled kits may use either.
-pub(super) struct FnPart {
-    pub(super) slug: &'static str,
-    pub(super) slot: PartSlot,
-    pub(super) chassis: &'static [ChassisFamily],
-    pub(super) build: fn(&PartCtx) -> Generator,
-}
-
-impl BodyPart for FnPart {
-    fn slug(&self) -> &'static str {
-        self.slug
-    }
-    fn slot(&self) -> PartSlot {
-        self.slot
-    }
-    fn chassis(&self) -> &'static [ChassisFamily] {
-        self.chassis
-    }
-    fn build(&self, ctx: &PartCtx) -> Generator {
-        (self.build)(ctx)
-    }
-    // styles() empty (universal) + ornateness/wear bands ANY by default.
 }
 
 // ---------------------------------------------------------------------------
