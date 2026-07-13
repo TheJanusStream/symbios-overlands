@@ -13,12 +13,19 @@
 //! so steady-state jobs pay only the round-trip + compute.
 //!
 //! Concurrency is capped at [`MAX_WORKERS`]: once that many workers exist,
-//! further jobs wait FIFO for a bridge instead of spawning more (a re-rolled
+//! further jobs wait for a bridge instead of spawning more (a re-rolled
 //! avatar dispatches dozens of texture bakes at once — unbounded spawn-on-
 //! demand would flood the browser with worker instantiations, reintroducing
 //! the very cost the pool removes). Idle bridges beyond [`MAX_IDLE_WORKERS`]
 //! are dropped — the bridge `Drop` sends `Destroy`, terminating that worker
 //! exactly as the old spawn-per-job path did.
+//!
+//! Waiting is **two-lane**, not one FIFO: audio bakes and heightmaps are
+//! latency-sensitive (a region re-seed's ambient bed was measured waiting
+//! 5 s behind a 50-job surface-texture flood — silent world), while texture
+//! bakes are a bulk stream whose only cost is pop-in. [`release`] hands a
+//! freed bridge to the urgent lane first, so an audio bake waits at most one
+//! in-flight job even mid-flood.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -50,8 +57,12 @@ struct Pool {
     /// Live workers: running + idle. Spawning is allowed while `live <
     /// MAX_WORKERS`; a released bridge that is dropped (pool full) decrements.
     live: usize,
-    /// Jobs waiting for a bridge, served FIFO on each release.
-    waiters: VecDeque<futures_channel::oneshot::Sender<Bridge>>,
+    /// Latency-sensitive jobs (audio bakes, heightmaps) waiting for a bridge —
+    /// served FIFO, ahead of every bulk waiter.
+    urgent_waiters: VecDeque<futures_channel::oneshot::Sender<Bridge>>,
+    /// Bulk jobs (texture bakes) waiting for a bridge — served FIFO once the
+    /// urgent lane is empty.
+    bulk_waiters: VecDeque<futures_channel::oneshot::Sender<Bridge>>,
 }
 
 thread_local! {
@@ -59,9 +70,18 @@ thread_local! {
         RefCell::new(Pool {
             idle: Vec::new(),
             live: 0,
-            waiters: VecDeque::new(),
+            urgent_waiters: VecDeque::new(),
+            bulk_waiters: VecDeque::new(),
         })
     };
+}
+
+/// Latency-sensitive job kinds jump the bulk queue: an ambient / voice bake
+/// is the difference between a silent and a sounding world, and a heightmap
+/// gates terrain (and everything seated on it) after a region re-seed.
+/// Texture bakes only delay their own pop-in.
+fn is_urgent(job: &GenJob) -> bool {
+    matches!(job, GenJob::AudioBake(_) | GenJob::Heightmap(_))
 }
 
 /// Spawn a fresh gen-worker.
@@ -77,8 +97,9 @@ fn spawn_worker() -> Bridge {
         .spawn("./gen-worker.js")
 }
 
-/// Take a warm worker, spawn one (under the cap), or wait FIFO for a release.
-async fn acquire() -> Bridge {
+/// Take a warm worker, spawn one (under the cap), or wait in the lane for a
+/// release.
+async fn acquire(urgent: bool) -> Bridge {
     let (bridge, rx) = POOL.with(|pool| {
         let mut pool = pool.borrow_mut();
         if let Some(bridge) = pool.idle.pop() {
@@ -89,7 +110,11 @@ async fn acquire() -> Bridge {
             return (Some(spawn_worker()), None);
         }
         let (tx, rx) = futures_channel::oneshot::channel();
-        pool.waiters.push_back(tx);
+        if urgent {
+            pool.urgent_waiters.push_back(tx);
+        } else {
+            pool.bulk_waiters.push_back(tx);
+        }
         (None, Some(rx))
     });
     match (bridge, rx) {
@@ -102,14 +127,18 @@ async fn acquire() -> Bridge {
     }
 }
 
-/// Hand a finished worker to the next waiter, park it warm, or drop it
-/// (terminating the worker) once the idle pool is full.
+/// Hand a finished worker to the next waiter (urgent lane first), park it
+/// warm, or drop it (terminating the worker) once the idle pool is full.
 fn release(mut bridge: Bridge) {
     POOL.with(|pool| {
         let mut pool = pool.borrow_mut();
         // A waiter whose future was dropped (cancelled task) rejects the
-        // hand-off; skip to the next.
-        while let Some(tx) = pool.waiters.pop_front() {
+        // hand-off; skip to the next, draining urgent before bulk.
+        while let Some(tx) = pool
+            .urgent_waiters
+            .pop_front()
+            .or_else(|| pool.bulk_waiters.pop_front())
+        {
             match tx.send(bridge) {
                 Ok(()) => return,
                 Err(rejected) => bridge = rejected,
@@ -127,12 +156,13 @@ fn release(mut bridge: Bridge) {
 /// Run one job on a pooled gen-worker and await its result.
 ///
 /// A bridge is exclusively owned while its job runs — a concurrent job takes a
-/// different pooled bridge, spawns its own worker under the cap, or queues
-/// FIFO. If the run panics (worker error), the bridge is simply not released;
-/// the pool's live count stays consumed, which is moot because a worker-side
-/// panic aborts the wasm app anyway.
+/// different pooled bridge, spawns its own worker under the cap, or waits in
+/// its lane. If the run panics (worker error), the bridge is simply not
+/// released; the pool's live count stays consumed, which is moot because a
+/// worker-side panic aborts the wasm app anyway.
 pub async fn run_on_worker(job: GenJob) -> GenResult {
-    let mut bridge = acquire().await;
+    let urgent = is_urgent(&job);
+    let mut bridge = acquire(urgent).await;
     let result = bridge.run(job).await;
     release(bridge);
     result

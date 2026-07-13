@@ -40,6 +40,7 @@ mod text_tools;
 use headless::{Capture, Frames, RenderJob, Subject, drive, setup};
 use text_tools::{
     analyze_session, diff_sessions, dump_road_graph, find_part, print_family_seeds, print_outfit,
+    room_census,
 };
 
 /// Camera yaw per tile (degrees), left→right: front, ¾, side, back. Avatars /
@@ -111,6 +112,14 @@ struct Args {
     /// data filtering. Runs before any render app stands up.
     #[arg(long)]
     road_dump: Option<String>,
+    /// Analytic entity census over seeded rooms (#810): for seeds `0..N`, sum
+    /// every placement's instance count × generator-tree node count (the
+    /// record-level estimate of what the compile will spawn) and print each
+    /// seed's total + top contributors, then the worst seeds. Finds the
+    /// seeds/generators that drive a region toward the `MAX_ROOM_ENTITIES`
+    /// cap without a browser in the loop. A no-render mode.
+    #[arg(long)]
+    room_census: Option<u64>,
     /// Offline session-log post-mortem: read a captured session log
     /// (`diagnostics/session-latest.jsonl`, or the wasm "Download log" dump —
     /// same NDJSON format) and print an agent-facing report (header, `[Verdict]`,
@@ -203,6 +212,13 @@ pub fn run() {
     // exit — a no-render topology/geometry-risk dump for the road-filtering work.
     if let Some(room) = &args.road_dump {
         dump_road_graph(room);
+        return;
+    }
+
+    // `--room-census <n>`: print seeded rooms' analytic entity estimates and
+    // exit — the #810 density survey, never renders.
+    if let Some(n) = args.room_census {
+        room_census(n);
         return;
     }
 

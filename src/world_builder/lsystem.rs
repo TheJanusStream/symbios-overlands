@@ -106,7 +106,11 @@ type LSystemGeometryBuild = (Vec<(u16, Mesh)>, Vec<SkeletonProp>);
 /// Split out of `spawn_lsystem_entity` so `LSystemMeshCache` can invoke the
 /// expensive pipeline at most once per `(generator_ref, geometry_hash)` pair.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn build_lsystem_geometry(
+// `pub(crate)` (not `pub(super)`): the render tool's `--room-census` (#810)
+// expands seeded rooms' L-systems analytically to count the entities a
+// compile would spawn — this builder is pure (no ECS), so it doubles as that
+// counter's ground truth.
+pub(crate) fn build_lsystem_geometry(
     source_code: &str,
     finalization_code: &str,
     iterations: u32,

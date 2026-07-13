@@ -1,8 +1,9 @@
 //! Offline no-render text tools: the early-return CLI modes that print
 //! and exit before any render app stands up — family-seed survey,
-//! road-graph diagnostics, and the session-log analyzers.
+//! road-graph diagnostics, the seeded-room entity census, and the
+//! session-log analyzers.
 
-use crate::pds::RoomRecord;
+use crate::pds::{Generator, GeneratorKind, Placement, RoomRecord};
 
 use super::Args;
 
@@ -205,4 +206,116 @@ pub(super) fn diff_sessions(path_a: &str, path_b: &str) {
         "{}",
         crate::diagnostics::analyze::diff_report(path_a, &parsed_a, path_b, &parsed_b)
     );
+}
+
+/// Per-instance entity count of a generator tree, with L-systems **expanded**
+/// (the spawn path turns one L-system node into `1 root + material mesh
+/// buckets + one entity per prop` — leaves and fruit are where a "1-node"
+/// tree becomes thousands of entities, #810). Shape-grammar nodes also expand
+/// at spawn but are left at 1 and flagged via [`tree_has_shape`] — the census
+/// evidence shows L-systems dominate seeded-room counts by orders of
+/// magnitude.
+fn tree_entities(g: &Generator, generator_ref: &str) -> u64 {
+    let own = match &g.kind {
+        GeneratorKind::LSystem {
+            source_code,
+            finalization_code,
+            iterations,
+            seed,
+            angle,
+            step,
+            width,
+            elasticity,
+            tropism,
+            mesh_resolution,
+            ..
+        } => crate::world_builder::lsystem::build_lsystem_geometry(
+            source_code,
+            finalization_code,
+            *iterations,
+            *seed,
+            *angle,
+            *step,
+            *width,
+            *elasticity,
+            *tropism,
+            *mesh_resolution,
+            generator_ref,
+        )
+        .map_or(1, |(buckets, props)| {
+            1 + buckets.len() as u64 + props.len() as u64
+        }),
+        _ => 1,
+    };
+    own + g
+        .children
+        .iter()
+        .map(|c| tree_entities(c, generator_ref))
+        .sum::<u64>()
+}
+
+/// `true` if any node in the tree is a CGA shape grammar (spawn-time
+/// expansion the census does not model — flagged as an underestimate).
+fn tree_has_shape(g: &Generator) -> bool {
+    matches!(g.kind, GeneratorKind::Shape { .. }) || g.children.iter().any(tree_has_shape)
+}
+
+/// Analytic entity census over seeded rooms (#810): for each seed, sum every
+/// placement's instance count × generator-tree node count — the record-level
+/// estimate of what `compile_room_record` will spawn — and print the total
+/// plus the top contributors. Finds the seeds/generators that drive a region
+/// toward the `MAX_ROOM_ENTITIES` cap (500 k, unplayable on wasm) without a
+/// browser in the loop.
+pub(super) fn room_census(seeds: u64) {
+    let mut totals: Vec<(u64, u64)> = Vec::new();
+    for seed in 0..seeds {
+        let record = RoomRecord::default_for_seed(seed, "did:plc:census");
+        // (estimate, description) per placement, for the per-seed top list.
+        let mut rows: Vec<(u64, String)> = Vec::new();
+        for p in &record.placements {
+            let (generator_ref, instances) = match p {
+                Placement::Absolute { generator_ref, .. } => (generator_ref, 1u64),
+                Placement::Scatter {
+                    generator_ref,
+                    count,
+                    ..
+                } => (generator_ref, u64::from(*count)),
+                Placement::Grid {
+                    generator_ref,
+                    counts,
+                    ..
+                } => (
+                    generator_ref,
+                    counts.iter().map(|&c| u64::from(c)).product::<u64>(),
+                ),
+                Placement::Unknown => continue,
+            };
+            let Some(g) = record.generators.get(generator_ref) else {
+                continue;
+            };
+            let nodes = tree_entities(g, generator_ref);
+            let est = instances * nodes;
+            let shape = if tree_has_shape(g) {
+                "  [+shape-grammar expansion]"
+            } else {
+                ""
+            };
+            rows.push((
+                est,
+                format!("{generator_ref} ×{instances} × {nodes} entities = {est}{shape}"),
+            ));
+        }
+        let total: u64 = rows.iter().map(|(e, _)| e).sum();
+        totals.push((total, seed));
+        rows.sort_by(|a, b| b.0.cmp(&a.0));
+        println!("seed {seed}: ~{total} entities ({} placements)", rows.len());
+        for (_, desc) in rows.iter().take(3) {
+            println!("    {desc}");
+        }
+    }
+    totals.sort_by(|a, b| b.0.cmp(&a.0));
+    println!("\nworst seeds:");
+    for (total, seed) in totals.iter().take(10) {
+        println!("  seed {seed}: ~{total}");
+    }
 }
