@@ -19,7 +19,8 @@ use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
 use crate::diagnostics::anomaly::InvariantRegistry;
-use crate::state::CurrentRoomDid;
+use crate::player::{AirplanePreset, CarPreset, HelicopterPreset, HoverBoatPreset};
+use crate::state::{CurrentRoomDid, LocalPlayer};
 
 /// Open/closed state for every toolbar-managed window. Initialised at
 /// app startup and reset by `logout::cleanup_on_logout` so the next
@@ -114,17 +115,167 @@ pub fn toolbar_ui(
     });
 }
 
+/// The chassis the local player is currently piloting, resolved from the
+/// preset marker on the [`LocalPlayer`] entity. Drives which movement key rows
+/// the Controls cheat-sheet shows (#803).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum PilotedChassis {
+    OnFoot,
+    Boat,
+    Skiff,
+    Airship,
+    Airplane,
+}
+
+/// One key-binding row in the Controls cheat-sheet: the key glyphs and what
+/// they do on the current chassis.
+struct ControlRow {
+    keys: &'static str,
+    action: &'static str,
+}
+
+// Per-chassis movement rows. These mirror the live key handlers in
+// `player/{humanoid,hover_boat,car,helicopter,airplane}.rs`, so the sheet can
+// never drift from the actual controls again (#803) — change both together.
+const ON_FOOT_ROWS: &[ControlRow] = &[
+    ControlRow {
+        keys: "W A S D  or  Arrows",
+        action: "walk",
+    },
+    ControlRow {
+        keys: "Space",
+        action: "jump · climb · swim up",
+    },
+    ControlRow {
+        keys: "Shift / Ctrl",
+        action: "swim down",
+    },
+];
+const BOAT_ROWS: &[ControlRow] = &[
+    ControlRow {
+        keys: "W / S  or  ↑ / ↓",
+        action: "drive forward / reverse",
+    },
+    ControlRow {
+        keys: "A / D  or  ← / →",
+        action: "steer",
+    },
+    ControlRow {
+        keys: "Space",
+        action: "hop up",
+    },
+];
+const SKIFF_ROWS: &[ControlRow] = &[
+    ControlRow {
+        keys: "W / S  or  ↑ / ↓",
+        action: "throttle / reverse",
+    },
+    ControlRow {
+        keys: "A / D  or  ← / →",
+        action: "steer (on the ground)",
+    },
+    ControlRow {
+        keys: "Space",
+        action: "handbrake",
+    },
+];
+const AIRSHIP_ROWS: &[ControlRow] = &[
+    ControlRow {
+        keys: "W / S  or  ↑ / ↓",
+        action: "fly forward / back",
+    },
+    ControlRow {
+        keys: "A / D  or  ← / →",
+        action: "yaw (turn)",
+    },
+    ControlRow {
+        keys: "Q / E",
+        action: "strafe left / right",
+    },
+    ControlRow {
+        keys: "Space / Shift",
+        action: "climb / descend",
+    },
+];
+const AIRPLANE_ROWS: &[ControlRow] = &[
+    ControlRow {
+        keys: "W / S  or  ↑ / ↓",
+        action: "pitch down / up",
+    },
+    ControlRow {
+        keys: "A / D  or  ← / →",
+        action: "roll",
+    },
+    ControlRow {
+        keys: "Q / E",
+        action: "yaw (rudder)",
+    },
+    ControlRow {
+        keys: "Space / Shift",
+        action: "throttle up / down",
+    },
+];
+
+/// Movement key rows for the piloted chassis — the pure preset→rows mapping
+/// (#803, unit-tested below). The camera rows and portal hint are shared and
+/// rendered separately by [`controls_hint_ui`].
+fn movement_rows(chassis: PilotedChassis) -> &'static [ControlRow] {
+    match chassis {
+        PilotedChassis::OnFoot => ON_FOOT_ROWS,
+        PilotedChassis::Boat => BOAT_ROWS,
+        PilotedChassis::Skiff => SKIFF_ROWS,
+        PilotedChassis::Airship => AIRSHIP_ROWS,
+        PilotedChassis::Airplane => AIRPLANE_ROWS,
+    }
+}
+
+/// Resolve the piloted chassis from the `LocalPlayer`'s preset markers (only
+/// one is ever present — the hot-swap strips the old before inserting the new).
+/// Falls back to [`PilotedChassis::OnFoot`] when no vehicle marker is present:
+/// the humanoid preset, or the local player not yet spawned.
+fn piloted_chassis(boat: bool, skiff: bool, airship: bool, airplane: bool) -> PilotedChassis {
+    if boat {
+        PilotedChassis::Boat
+    } else if skiff {
+        PilotedChassis::Skiff
+    } else if airship {
+        PilotedChassis::Airship
+    } else if airplane {
+        PilotedChassis::Airplane
+    } else {
+        PilotedChassis::OnFoot
+    }
+}
+
 /// Movement / camera cheat-sheet. Open on first `InGame` entry (the
-/// [`UiPanels`] default) and from the toolbar afterwards. The key set
-/// is the union across the five locomotion presets, annotated where a
-/// key only means something for some chassis.
-pub fn controls_hint_ui(mut contexts: EguiContexts, mut panels: ResMut<UiPanels>) {
+/// [`UiPanels`] default) and from the toolbar afterwards. The movement rows are
+/// context-sensitive to the chassis the player is currently piloting (#803);
+/// the camera rows and portal hint are shared.
+#[allow(clippy::type_complexity)]
+pub fn controls_hint_ui(
+    mut contexts: EguiContexts,
+    mut panels: ResMut<UiPanels>,
+    local: Query<
+        (
+            Has<HoverBoatPreset>,
+            Has<CarPreset>,
+            Has<HelicopterPreset>,
+            Has<AirplanePreset>,
+        ),
+        With<LocalPlayer>,
+    >,
+) {
     if !panels.controls {
         return;
     }
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
+
+    let chassis = local.iter().next().map_or(
+        PilotedChassis::OnFoot,
+        |(boat, skiff, airship, airplane)| piloted_chassis(boat, skiff, airship, airplane),
+    );
 
     let mut open = true;
     egui::Window::new("Controls")
@@ -137,21 +288,12 @@ pub fn controls_hint_ui(mut contexts: EguiContexts, mut panels: ResMut<UiPanels>
                 .num_columns(2)
                 .spacing([24.0, 4.0])
                 .show(ui, |ui| {
-                    ui.monospace("W / S  or  ↑ / ↓");
-                    ui.label("move forward / back (pitch for aircraft)");
-                    ui.end_row();
-                    ui.monospace("A / D  or  ← / →");
-                    ui.label("turn / strafe (roll for aircraft)");
-                    ui.end_row();
-                    ui.monospace("Q / E");
-                    ui.label("yaw (airplane & helicopter)");
-                    ui.end_row();
-                    ui.monospace("Space");
-                    ui.label("jump · climb · swim up");
-                    ui.end_row();
-                    ui.monospace("Shift / Ctrl");
-                    ui.label("descend · swim down");
-                    ui.end_row();
+                    for row in movement_rows(chassis) {
+                        ui.monospace(row.keys);
+                        ui.label(row.action);
+                        ui.end_row();
+                    }
+                    // Camera controls are the same on every chassis.
                     ui.monospace("Right-drag");
                     ui.label("orbit camera");
                     ui.end_row();
@@ -173,5 +315,85 @@ pub fn controls_hint_ui(mut contexts: EguiContexts, mut panels: ResMut<UiPanels>
         });
     if !open {
         panels.controls = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn markers_resolve_to_the_matching_chassis() {
+        assert_eq!(
+            piloted_chassis(true, false, false, false),
+            PilotedChassis::Boat
+        );
+        assert_eq!(
+            piloted_chassis(false, true, false, false),
+            PilotedChassis::Skiff
+        );
+        assert_eq!(
+            piloted_chassis(false, false, true, false),
+            PilotedChassis::Airship
+        );
+        assert_eq!(
+            piloted_chassis(false, false, false, true),
+            PilotedChassis::Airplane
+        );
+    }
+
+    #[test]
+    fn no_vehicle_marker_falls_back_to_on_foot() {
+        // Humanoid preset (no vehicle marker) or the local player not yet spawned.
+        assert_eq!(
+            piloted_chassis(false, false, false, false),
+            PilotedChassis::OnFoot
+        );
+    }
+
+    #[test]
+    fn every_chassis_has_a_non_empty_movement_sheet() {
+        for chassis in [
+            PilotedChassis::OnFoot,
+            PilotedChassis::Boat,
+            PilotedChassis::Skiff,
+            PilotedChassis::Airship,
+            PilotedChassis::Airplane,
+        ] {
+            let rows = movement_rows(chassis);
+            assert!(!rows.is_empty(), "{chassis:?} has no movement rows");
+            for row in rows {
+                assert!(!row.keys.is_empty(), "{chassis:?} row has empty keys");
+                assert!(!row.action.is_empty(), "{chassis:?} row has empty action");
+            }
+        }
+    }
+
+    #[test]
+    fn ground_and_air_chassis_read_distinctly() {
+        // The whole point of #803: the sheet is no longer a stale union. A
+        // skiff shows a handbrake; an airship shows climb/descend + strafe;
+        // they must not share a row set.
+        assert_ne!(
+            movement_rows(PilotedChassis::Skiff).len(),
+            0,
+            "skiff sheet is empty"
+        );
+        let skiff_actions: Vec<&str> = movement_rows(PilotedChassis::Skiff)
+            .iter()
+            .map(|r| r.action)
+            .collect();
+        assert!(
+            skiff_actions.iter().any(|a| a.contains("handbrake")),
+            "skiff sheet lost its handbrake row"
+        );
+        let airship_actions: Vec<&str> = movement_rows(PilotedChassis::Airship)
+            .iter()
+            .map(|r| r.action)
+            .collect();
+        assert!(
+            airship_actions.iter().any(|a| a.contains("climb")),
+            "airship sheet lost its climb/descend row"
+        );
     }
 }
