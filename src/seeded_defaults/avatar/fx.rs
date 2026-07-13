@@ -21,8 +21,14 @@ use super::character::AvatarCharacter;
 use super::chassis::ChassisFamily;
 use crate::seeded_defaults::scene::ThemeArchetype;
 
-/// The signature particle aura an avatar trails. Most styles carry
+/// The signature particle aura an avatar trails. Most *styles* carry
 /// [`Self::None`]; the speculative / frontier styles each get a flavour.
+///
+/// The first six are the style-signature auras (picked by
+/// [`Self::for_style`]); the last three are the *chassis-signature* floors a
+/// vehicle falls back to when its style rolls [`Self::None`] — so no craft
+/// idles in dead-clean air (a boat always leaves a wake, an airship always
+/// vents, a skiff always trails exhaust). See [`AvatarFx::for_character`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParticleAura {
     /// No aura — the avatar reads clean.
@@ -37,6 +43,12 @@ pub enum ParticleAura {
     ArcaneMotes,
     /// Warm upward embers — post-apoc, wild-west braziers / scorched gear.
     Embers,
+    /// Boat chassis floor: a low whitewater wake-mist off the stern.
+    Wake,
+    /// Airship chassis floor: a soft vapour puff venting under the gondola.
+    Vent,
+    /// Skiff chassis floor: a thin exhaust wisp off the tailpipe.
+    Exhaust,
 }
 
 impl ParticleAura {
@@ -57,10 +69,43 @@ impl ParticleAura {
         }
     }
 
-    /// Whether this aura's density scales with wear (smoke/embers from
-    /// failing gear) rather than ornateness (decorative motes).
+    /// Whether this aura's density scales with wear (smoke/embers/spray from
+    /// working gear) rather than ornateness (decorative motes). The three
+    /// chassis floors are mechanical exhaust / churn, so they track wear too.
     fn driven_by_wear(self) -> bool {
-        matches!(self, Self::Steam | Self::Embers)
+        matches!(
+            self,
+            Self::Steam | Self::Embers | Self::Wake | Self::Vent | Self::Exhaust
+        )
+    }
+
+    /// The chassis-signature aura a vehicle falls back to when its *style*
+    /// rolls [`Self::None`] — the diegetic wake / vent / exhaust every craft
+    /// carries. Humanoids have no floor (they read clean).
+    fn family_floor(chassis: ChassisFamily) -> Self {
+        match chassis {
+            ChassisFamily::Boat => Self::Wake,
+            ChassisFamily::Airship => Self::Vent,
+            ChassisFamily::Skiff => Self::Exhaust,
+            ChassisFamily::Humanoid => Self::None,
+        }
+    }
+
+    /// The effective aura for a style + chassis: the style signature, floored
+    /// to the chassis signature when the style is clean, and with the
+    /// downward [`Self::Thruster`] jet reserved for airborne craft — a
+    /// surface boat / skiff rolling a thruster style would otherwise fire a
+    /// jet straight into the water or road, so it trails its wake / exhaust
+    /// instead.
+    fn effective(style_aura: Self, chassis: ChassisFamily) -> Self {
+        if chassis == ChassisFamily::Humanoid {
+            return style_aura;
+        }
+        match style_aura {
+            Self::None => Self::family_floor(chassis),
+            Self::Thruster if chassis != ChassisFamily::Airship => Self::family_floor(chassis),
+            other => other,
+        }
     }
 }
 
@@ -99,7 +144,10 @@ impl AvatarFx {
 
     /// Derive the FX spec from the shared avatar anchor.
     pub fn for_character(c: &AvatarCharacter) -> Self {
-        let aura = ParticleAura::for_style(c.style);
+        // The style picks the flavour; the chassis floors it so every vehicle
+        // trails a diegetic wake / vent / exhaust even under a clean style,
+        // and a surface craft never fires a downward thruster jet.
+        let aura = ParticleAura::effective(ParticleAura::for_style(c.style), c.chassis);
         let voice = voice_for(c.style, c.chassis);
         // Decorative auras (motes / neon / thruster) thicken with ornateness;
         // smoke / ember auras thicken with wear (a battered engine smokes).
@@ -157,6 +205,82 @@ mod tests {
         );
         assert_eq!(
             ParticleAura::for_style(ThemeArchetype::Medieval),
+            ParticleAura::None
+        );
+    }
+
+    #[test]
+    fn every_vehicle_family_and_style_carries_an_aura() {
+        // The chassis floor guarantees no vehicle idles in dead-clean air:
+        // for every non-humanoid family, every style resolves to a non-None
+        // aura (the style signature, or the family wake / vent / exhaust).
+        for chassis in [
+            ChassisFamily::Boat,
+            ChassisFamily::Airship,
+            ChassisFamily::Skiff,
+        ] {
+            for style in ThemeArchetype::ALL {
+                let aura = ParticleAura::effective(ParticleAura::for_style(style), chassis);
+                assert_ne!(
+                    aura,
+                    ParticleAura::None,
+                    "{chassis:?} + {style:?} left a vehicle with no aura"
+                );
+            }
+        }
+        // The floors are exactly the family signatures.
+        assert_eq!(
+            ParticleAura::effective(ParticleAura::None, ChassisFamily::Boat),
+            ParticleAura::Wake
+        );
+        assert_eq!(
+            ParticleAura::effective(ParticleAura::None, ChassisFamily::Airship),
+            ParticleAura::Vent
+        );
+        assert_eq!(
+            ParticleAura::effective(ParticleAura::None, ChassisFamily::Skiff),
+            ParticleAura::Exhaust
+        );
+    }
+
+    #[test]
+    fn downward_thruster_is_reserved_for_airborne_craft() {
+        // A Solarpunk / SpaceOutpost boat or skiff would fire a jet into the
+        // water / road — it trails its family wake / exhaust instead. An
+        // airship keeps the thruster wash, and a humanoid is unchanged.
+        assert_eq!(
+            ParticleAura::effective(ParticleAura::Thruster, ChassisFamily::Boat),
+            ParticleAura::Wake
+        );
+        assert_eq!(
+            ParticleAura::effective(ParticleAura::Thruster, ChassisFamily::Skiff),
+            ParticleAura::Exhaust
+        );
+        assert_eq!(
+            ParticleAura::effective(ParticleAura::Thruster, ChassisFamily::Airship),
+            ParticleAura::Thruster
+        );
+        assert_eq!(
+            ParticleAura::effective(ParticleAura::Thruster, ChassisFamily::Humanoid),
+            ParticleAura::Thruster
+        );
+    }
+
+    #[test]
+    fn a_styled_vehicle_keeps_its_style_aura() {
+        // The floor only fills a clean style — a themed aura is preserved
+        // (a steampunk boat still steams; it does not fall back to a wake).
+        assert_eq!(
+            ParticleAura::effective(ParticleAura::Steam, ChassisFamily::Boat),
+            ParticleAura::Steam
+        );
+        assert_eq!(
+            ParticleAura::effective(ParticleAura::NeonHaze, ChassisFamily::Skiff),
+            ParticleAura::NeonHaze
+        );
+        // A humanoid never floors — a clean style stays clean.
+        assert_eq!(
+            ParticleAura::effective(ParticleAura::None, ChassisFamily::Humanoid),
             ParticleAura::None
         );
     }

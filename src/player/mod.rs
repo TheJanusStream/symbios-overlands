@@ -145,7 +145,7 @@ impl Plugin for PlayerPlugin {
                     hotswap::rebuild_local_visuals,
                     hotswap::lift_player_above_new_ground,
                     gait::attach_gait_animation,
-                    gait::animate_humanoid_gait,
+                    gait::animate_avatar_gait,
                     portal::handle_portal_interaction,
                     portal::poll_portal_travel_tasks,
                 )
@@ -204,7 +204,7 @@ impl Plugin for PlayerPlugin {
 /// The actual full-body freeze lives in
 /// [`freeze_local_avatar_on_visuals_select`], which parks the chassis
 /// with a full axis lock for the duration of the selection, and in
-/// [`gait::animate_humanoid_gait`], which holds the local humanoid's
+/// [`gait::animate_avatar_gait`], which holds the local avatar's
 /// cosmetic sway at its rest pose whenever the Avatar editor window is
 /// open — a deliberately wider gate than this selection-scoped one
 /// (#737/#741). The input gates here are still worth keeping: the drive

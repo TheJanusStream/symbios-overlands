@@ -34,23 +34,15 @@ pub(super) fn build(seed: u64) -> Generator {
     // fin ring the cruciform fins seat on. This is what makes the rigging
     // actually reach the hull (the twin's belly sits far higher than the
     // zeppelin's) and keeps the fins from being swallowed by a fat blimp tail.
-    let env_slug = outfit
-        .parts
-        .iter()
-        .find(|p| p.slot == PartSlot::Envelope)
-        .map_or("default_envelope", |p| p.slug);
     // Landmarks derive from the *same* seeded Lathe profile the envelope part
     // laths, so the gondola / fins / pods stay seated as the blueprint stretches
     // the envelope's length + girth (#791).
-    let (len_mult, radius_mult) = ctx
-        .airship()
-        .map_or((1.0, 1.0), |a| (a.len_mult, a.radius_mult));
-    let mounts = airship_mounts(env_slug, &airship_profile(env_slug, len_mult, radius_mult));
+    let mounts = resolve_mounts(&outfit, &ctx);
     let gondola_scale = ctx.airship().map_or(1.0, |a| a.gondola_scale);
 
     // The gondola hangs a short gap below the belly; its roof is a cabin
     // half-height under its own centre.
-    let gondola_y = mounts.belly_y - 0.34;
+    let gondola_y = gondola_hang_y(&mounts);
     let gondola_roof = gondola_y + 0.15 * gondola_scale;
 
     for choice in &outfit.parts {
@@ -140,6 +132,38 @@ struct AirshipMounts {
     pod_y: f32,
     /// Fore-aft station of the pods (amidships, biased a touch aft).
     pod_z: f32,
+}
+
+/// Resolve the seeded envelope's mount landmarks — the single source both the
+/// assembler and the FX vent anchor read, so a gondola / vent that tracks the
+/// belly can't drift apart from the hull it hangs under.
+fn resolve_mounts(outfit: &AvatarOutfit, ctx: &PartCtx) -> AirshipMounts {
+    let env_slug = outfit
+        .parts
+        .iter()
+        .find(|p| p.slot == PartSlot::Envelope)
+        .map_or("default_envelope", |p| p.slug);
+    let (len_mult, radius_mult) = ctx
+        .airship()
+        .map_or((1.0, 1.0), |a| (a.len_mult, a.radius_mult));
+    airship_mounts(env_slug, &airship_profile(env_slug, len_mult, radius_mult))
+}
+
+/// The gondola hang line: a short gap below the envelope belly. Shared so the
+/// FX vent puff sits under the same floor the gondola actually hangs at.
+fn gondola_hang_y(mounts: &AirshipMounts) -> f32 {
+    mounts.belly_y - 0.34
+}
+
+/// The diegetic vent-puff FX station beneath the gondola (root-local frame,
+/// *before* the assembler's yaw), tracking the seeded envelope so the vapour
+/// issues from under the actual gondola rather than a fixed point.
+pub(super) fn fx_belly_anchor(seed: u64) -> [f32; 3] {
+    let outfit = AvatarOutfit::for_seed(seed);
+    let ctx = PartCtx::for_seed_with_hat(seed, outfit_has_hat(&outfit));
+    let mounts = resolve_mounts(&outfit, &ctx);
+    // Just below the gondola floor.
+    [0.0, gondola_hang_y(&mounts) - 0.15, 0.0]
 }
 
 fn airship_mounts(slug: &str, p: &EnvProfile) -> AirshipMounts {

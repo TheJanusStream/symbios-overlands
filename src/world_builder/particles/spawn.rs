@@ -17,6 +17,26 @@ use super::{
     EmitterMotionTracker, EmitterState, Particle, ParticleEmitter, ParticleEmitterMarker, lerp_unit,
 };
 
+/// Added emission per (m/s) of emitter speed for a motion-coupled emitter.
+const SPEED_RATE_GAIN: f32 = 0.18;
+/// Cap on the *added* rate multiple from speed, so a fast rig can't blow the
+/// particle budget — the effective rate tops out at `1 + SPEED_RATE_CAP` times
+/// the authored rate.
+const SPEED_RATE_CAP: f32 = 2.0;
+
+/// Effective emission rate for one frame: an emitter that inherits its rig's
+/// velocity (`inherit_velocity > 0` — a wake / exhaust / vent) thickens with
+/// speed up to [`SPEED_RATE_CAP`]; every other emitter keeps its authored
+/// rate exactly. Never dips below the authored rate, so the record-side
+/// population is a hard floor, not a target.
+fn speed_coupled_rate(base_rate: f32, inherit_velocity: f32, speed: f32) -> f32 {
+    if inherit_velocity <= 0.0 {
+        return base_rate;
+    }
+    let boost = (SPEED_RATE_GAIN * speed).clamp(0.0, SPEED_RATE_CAP);
+    base_rate * (1.0 + boost)
+}
+
 /// Spawn a ParticleSystem emitter entity. The entity carries the
 /// parameter snapshot, the deterministic RNG, and the motion tracker;
 /// its child particles are spawned per-frame by [`tick_emitter_spawn`].
@@ -163,7 +183,9 @@ pub(in super::super) fn snapshot_from_record(p: &ParticleParams) -> ParticleEmit
 /// Drive each emitter's particle spawning. Each frame:
 /// 1. age the emitter and the per-cycle clock; loop the cycle if
 ///    `looping`, otherwise stop emitting once `age >= duration`.
-/// 2. add `dt * rate_per_second` to the spawn accumulator and spawn
+/// 2. add `dt * rate` to the spawn accumulator (where `rate` is the authored
+///    `rate_per_second`, thickened with speed for a velocity-inheriting
+///    motion emitter — see [`speed_coupled_rate`]) and spawn
 ///    `floor(accumulator)` particles, decrementing.
 /// 3. on each cycle boundary fire `burst_count` particles at once.
 /// 4. cap at `max_particles` (skip emit when full so we never exceed).
@@ -226,8 +248,17 @@ pub fn tick_emitter_spawn(
             continue;
         }
 
-        // Continuous emission accumulator.
-        state.spawn_accumulator += dt * emitter.rate_per_second;
+        // Continuous emission accumulator. Motion-coupled emitters (those that
+        // inherit their rig's velocity — a vehicle wake / exhaust / vent)
+        // thicken with speed and thin toward their authored rate at rest, so a
+        // craft under way throws a fuller plume. Pure record-side rate is
+        // untouched (this is a local visual modulation, not a record change).
+        let rate = speed_coupled_rate(
+            emitter.rate_per_second,
+            emitter.inherit_velocity,
+            tracker.world_velocity.length(),
+        );
+        state.spawn_accumulator += dt * rate;
         let mut to_spawn = state.spawn_accumulator.floor() as u32;
         state.spawn_accumulator -= to_spawn as f32;
 
@@ -452,4 +483,32 @@ fn sample_unit_sphere(rng: &mut ChaCha8Rng) -> Vec3 {
         }
     }
     Vec3::new(0.5, 0.0, 0.0)
+}
+
+#[cfg(test)]
+mod speed_coupling_tests {
+    use super::{SPEED_RATE_CAP, speed_coupled_rate};
+
+    #[test]
+    fn static_emitter_is_never_speed_coupled() {
+        // inherit_velocity == 0 → the authored rate at any speed.
+        for speed in [0.0, 5.0, 50.0] {
+            assert_eq!(speed_coupled_rate(6.0, 0.0, speed), 6.0);
+        }
+    }
+
+    #[test]
+    fn motion_emitter_floors_at_rest_and_thickens_with_speed() {
+        // At rest the effective rate equals the authored rate (a hard floor);
+        // moving thickens it, monotonically, up to the cap.
+        let base = 6.0;
+        assert_eq!(speed_coupled_rate(base, 0.85, 0.0), base);
+        let slow = speed_coupled_rate(base, 0.85, 3.0);
+        let fast = speed_coupled_rate(base, 0.85, 9.0);
+        assert!(slow > base, "should thicken under way");
+        assert!(fast > slow, "should thicken monotonically with speed");
+        // Capped: even absurd speed can't exceed (1 + CAP)× the authored rate.
+        let capped = speed_coupled_rate(base, 0.85, 1_000.0);
+        assert!((capped - base * (1.0 + SPEED_RATE_CAP)).abs() < 1e-4);
+    }
 }
