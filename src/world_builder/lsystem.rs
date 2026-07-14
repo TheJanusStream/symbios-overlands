@@ -8,7 +8,7 @@ use std::sync::Arc;
 use bevy::prelude::*;
 use bevy_symbios::LSystemMeshBuilder;
 use symbios::System;
-use symbios_turtle_3d::{SkeletonProp, TurtleConfig, TurtleInterpreter};
+use symbios_turtle_3d::{Skeleton, SkeletonProp, TurtleConfig, TurtleInterpreter};
 
 use crate::pds::{Fp, Fp3, GeneratorKind, PropMeshType};
 
@@ -99,18 +99,14 @@ pub(super) fn lsystem_geometry_fingerprint(
 /// list — the cacheable output of an L-system build pass.
 type LSystemGeometryBuild = (Vec<(u16, Mesh)>, Vec<SkeletonProp>);
 
-/// Parse, derive, interpret and mesh an L-system generator. Returns the raw
-/// mesh buckets keyed by material id, plus the skeleton's prop list. `None`
-/// on grammar errors or empty state so the caller can skip the spawn.
-///
-/// Split out of `spawn_lsystem_entity` so `LSystemMeshCache` can invoke the
-/// expensive pipeline at most once per `(generator_ref, geometry_hash)` pair.
+/// Parse, derive and turtle-walk an L-system generator to its raw
+/// [`Skeleton`] — the pure expansion (no ECS, no meshes) shared by the
+/// mesher below and the seeded-room per-tree entity clamp
+/// ([`lsystem_entity_estimate`], consumed by `pds::room`'s tree-scatter
+/// derivation, #810). `None` on grammar errors or empty state so callers
+/// can skip the generator.
 #[allow(clippy::too_many_arguments)]
-// `pub(crate)` (not `pub(super)`): the render tool's `--room-census` (#810)
-// expands seeded rooms' L-systems analytically to count the entities a
-// compile would spawn — this builder is pure (no ECS), so it doubles as that
-// counter's ground truth.
-pub(crate) fn build_lsystem_geometry(
+pub(crate) fn expand_lsystem_skeleton(
     source_code: &str,
     finalization_code: &str,
     iterations: u32,
@@ -120,9 +116,8 @@ pub(crate) fn build_lsystem_geometry(
     width: Fp,
     elasticity: Fp,
     tropism: Option<Fp3>,
-    mesh_resolution: u32,
     generator_ref: &str,
-) -> Option<LSystemGeometryBuild> {
+) -> Option<Skeleton> {
     let mut sys = System::new();
     sys.set_seed(seed);
 
@@ -237,7 +232,45 @@ pub(crate) fn build_lsystem_geometry(
     };
     let mut interpreter = TurtleInterpreter::new(turtle_config);
     interpreter.populate_standard_symbols(&sys.interner);
-    let skeleton = interpreter.build_skeleton(&sys.state);
+    Some(interpreter.build_skeleton(&sys.state))
+}
+
+/// Parse, derive, interpret and mesh an L-system generator. Returns the raw
+/// mesh buckets keyed by material id, plus the skeleton's prop list. `None`
+/// on grammar errors or empty state so the caller can skip the spawn.
+///
+/// Split out of `spawn_lsystem_entity` so `LSystemMeshCache` can invoke the
+/// expensive pipeline at most once per `(generator_ref, geometry_hash)` pair.
+#[allow(clippy::too_many_arguments)]
+// `pub(crate)` (not `pub(super)`): the render tool's `--room-census` (#810)
+// expands seeded rooms' L-systems analytically to count the entities a
+// compile would spawn — this builder is pure (no ECS), so it doubles as that
+// counter's ground truth.
+pub(crate) fn build_lsystem_geometry(
+    source_code: &str,
+    finalization_code: &str,
+    iterations: u32,
+    seed: u64,
+    angle: Fp,
+    step: Fp,
+    width: Fp,
+    elasticity: Fp,
+    tropism: Option<Fp3>,
+    mesh_resolution: u32,
+    generator_ref: &str,
+) -> Option<LSystemGeometryBuild> {
+    let skeleton = expand_lsystem_skeleton(
+        source_code,
+        finalization_code,
+        iterations,
+        seed,
+        angle,
+        step,
+        width,
+        elasticity,
+        tropism,
+        generator_ref,
+    )?;
 
     // Each material ID produces a separate mesh bucket.
     let mesh_buckets: Vec<(u16, Mesh)> = LSystemMeshBuilder::new()
@@ -247,6 +280,50 @@ pub(crate) fn build_lsystem_geometry(
         .collect();
 
     Some((mesh_buckets, skeleton.props))
+}
+
+/// Entity count one spawned instance of this L-system produces: `1` root +
+/// one mesh-bucket entity per distinct material id + one entity per prop
+/// (leaves / flowers — the term that explodes, #810: field seeds ranged
+/// 111 → 10,242 entities per tree). The seeded-room deriver steps a tree's
+/// `iterations` down until this fits the per-tree budget, and scales scatter
+/// counts against the room budget. `None` mirrors
+/// [`expand_lsystem_skeleton`]'s grammar-error case (the spawn path skips
+/// those generators, so they cost nothing).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn lsystem_entity_estimate(
+    source_code: &str,
+    finalization_code: &str,
+    iterations: u32,
+    seed: u64,
+    angle: Fp,
+    step: Fp,
+    width: Fp,
+    elasticity: Fp,
+    tropism: Option<Fp3>,
+    generator_ref: &str,
+) -> Option<u64> {
+    let skeleton = expand_lsystem_skeleton(
+        source_code,
+        finalization_code,
+        iterations,
+        seed,
+        angle,
+        step,
+        width,
+        elasticity,
+        tropism,
+        generator_ref,
+    )?;
+    let mut materials: Vec<u8> = skeleton
+        .strands
+        .iter()
+        .flatten()
+        .map(|p| p.material_id)
+        .collect();
+    materials.sort_unstable();
+    materials.dedup();
+    Some(1 + materials.len() as u64 + skeleton.props.len() as u64)
 }
 
 pub(super) fn spawn_lsystem_entity(
@@ -494,4 +571,91 @@ pub(super) fn spawn_lsystem_entity(
     // attach traits (they belong to the Construct, not its internal nodes).
     let _ = ctx.heightmap;
     Some(parent)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A real seeded tree species' L-system fields, exactly as the room
+    /// deriver builds them.
+    fn ternary_props(
+        iterations_override: Option<u32>,
+    ) -> (String, String, u32, u64, Fp, Fp, Fp, Fp, Option<Fp3>) {
+        let entry =
+            crate::catalogue::by_slug("lsys_ternary_props").expect("seeded species in catalogue");
+        let generator = entry.build("did:test:estimate");
+        let GeneratorKind::LSystem {
+            source_code,
+            finalization_code,
+            iterations,
+            seed,
+            angle,
+            step,
+            width,
+            elasticity,
+            tropism,
+            ..
+        } = generator.kind
+        else {
+            panic!("lsys_ternary_props is an L-system");
+        };
+        (
+            source_code,
+            finalization_code,
+            iterations_override.unwrap_or(iterations),
+            seed,
+            angle,
+            step,
+            width,
+            elasticity,
+            tropism,
+        )
+    }
+
+    /// The estimator must count exactly what the geometry builder spawns:
+    /// one bucket entity per material mesh + one entity per prop (+1 root).
+    /// This is the parity that lets the seeded-room clamp (#810) and the
+    /// `--room-census` agree with the real compile.
+    #[test]
+    fn entity_estimate_matches_built_geometry() {
+        let (src, fin, iters, seed, angle, step, width, elasticity, tropism) = ternary_props(None);
+        let (buckets, props) = build_lsystem_geometry(
+            &src, &fin, iters, seed, angle, step, width, elasticity, tropism, 4, "test",
+        )
+        .expect("species grammar builds");
+        let estimate = lsystem_entity_estimate(
+            &src, &fin, iters, seed, angle, step, width, elasticity, tropism, "test",
+        )
+        .expect("species grammar estimates");
+        assert_eq!(estimate, 1 + buckets.len() as u64 + props.len() as u64);
+    }
+
+    /// Stepping iterations down must shrink the expansion — the invariant the
+    /// per-tree budget loop in `pds::room` relies on to terminate usefully.
+    #[test]
+    fn entity_estimate_shrinks_with_fewer_iterations() {
+        let (src, fin, iters, seed, angle, step, width, elasticity, tropism) = ternary_props(None);
+        let hi = lsystem_entity_estimate(
+            &src, &fin, iters, seed, angle, step, width, elasticity, tropism, "test",
+        )
+        .expect("estimates at shipped iterations");
+        let lo = lsystem_entity_estimate(
+            &src,
+            &fin,
+            iters.saturating_sub(2).max(2),
+            seed,
+            angle,
+            step,
+            width,
+            elasticity,
+            tropism,
+            "test",
+        )
+        .expect("estimates at reduced iterations");
+        assert!(
+            lo < hi,
+            "expansion should shrink with iterations (lo={lo}, hi={hi})"
+        );
+    }
 }

@@ -366,6 +366,22 @@ impl RoomRecord {
         Self::default_for_seed(crate::seeded_defaults::fnv1a_64(did), did)
     }
 
+    /// Per-instance entity ceiling for one seeded tree (#810). L-system
+    /// expansion is exponential in `iterations`, and the field census measured
+    /// 111 → 10,242 entities per tree across seeds — the deriver steps a
+    /// tree's iterations down until its measured expansion fits under this.
+    /// 1,600 keeps the lushest healthy species observed (~1,557/tree) intact
+    /// while amputating the order-of-magnitude outliers.
+    const TREE_ENTITY_BUDGET: u64 = 1_600;
+
+    /// Room-wide ceiling for seeded tree entities, Σ(scatter count ×
+    /// per-tree) (#810). ~8–10 % of seeds previously projected 300 k–978 k
+    /// (the `MAX_ROOM_ENTITIES` fail-stop is 500 k), which is a 1.4 fps
+    /// slideshow on wasm and the feed for the WebGL2 staging-pileup OOM
+    /// (#811). 120 k preserves the typical seeded region (~90 k trees)
+    /// verbatim and scales down only the outliers' scatter counts.
+    const ROOM_TREE_ENTITY_BUDGET: u64 = 120_000;
+
     /// Build the seeded default room from a pre-computed seed — the
     /// manual re-roll path. `seed` drives every derived value (terrain
     /// shape, palette, atmosphere, scatters, landmark, audio, …); `did`
@@ -464,7 +480,14 @@ impl RoomRecord {
         // referencing it with a grass-and-dirt-above-water biome
         // filter so trees land on walkable land, not rock faces or
         // the seabed.
-        for (idx, scatter) in tree_scatters.scatters.iter().enumerate() {
+        //
+        // Two passes (#810): first build every scatter's tree and measure its
+        // per-instance spawn cost (stepping iterations down under the
+        // per-tree budget), then scale the scatter counts against the room
+        // budget before any placement is pushed. The measurement is
+        // deterministic from the seed, so peers derive identical rooms.
+        let mut pending_tree_scatters = Vec::with_capacity(tree_scatters.scatters.len());
+        for scatter in tree_scatters.scatters.iter() {
             let Some(species_entry) = crate::catalogue::by_slug(scatter.species.slug()) else {
                 // Pool slugs are compile-time constants verified by the
                 // landmark/scatter tests; an unresolved slug means a
@@ -472,16 +495,76 @@ impl RoomRecord {
                 continue;
             };
             let mut tree_gen = species_entry.build(did);
-            if let GeneratorKind::LSystem { iterations, .. } = &mut tree_gen.kind {
-                // The deriver only ever emits delta ∈ {-1, 0, +1}, so
-                // the post-delta band stays within one step of each
-                // species' shipped iteration count (6–10 across the
-                // pool) — inside healthy LSystem expansion costs.
-                // Clamp to ≥ 2 as belt-and-braces against future
-                // catalogue tweaks.
-                let new_iters = (*iterations as i32 + scatter.iterations_delta).max(2) as u32;
-                *iterations = new_iters;
+            // Non-L-system fallback: a plain generator spawns its own node.
+            let mut per_tree_entities = 1u64;
+            if let GeneratorKind::LSystem {
+                source_code,
+                finalization_code,
+                iterations,
+                seed,
+                angle,
+                step,
+                width,
+                elasticity,
+                tropism,
+                ..
+            } = &mut tree_gen.kind
+            {
+                // The deriver only ever emits delta ∈ {-1, 0, +1}, but a
+                // single step is enough to blow the exponential expansion up
+                // an order of magnitude on lush species (#810 census:
+                // 111 → 10,242 entities/tree across seeds), so the budget is
+                // enforced by *measuring* the expansion below, not assumed
+                // from the band. Clamp to ≥ 2 as belt-and-braces against
+                // future catalogue tweaks.
+                *iterations = (*iterations as i32 + scatter.iterations_delta).max(2) as u32;
+                // #810 per-tree ceiling: step iterations down until the
+                // measured expansion fits. A grammar error (`None`) is left
+                // untouched — the spawn path skips those generators, so they
+                // cost nothing either way.
+                loop {
+                    match crate::world_builder::lsystem::lsystem_entity_estimate(
+                        source_code,
+                        finalization_code,
+                        *iterations,
+                        *seed,
+                        *angle,
+                        *step,
+                        *width,
+                        *elasticity,
+                        *tropism,
+                        scatter.species.slug(),
+                    ) {
+                        Some(e) if e > Self::TREE_ENTITY_BUDGET && *iterations > 2 => {
+                            *iterations -= 1;
+                        }
+                        Some(e) => {
+                            per_tree_entities = e;
+                            break;
+                        }
+                        None => break,
+                    }
+                }
             }
+            pending_tree_scatters.push((scatter, tree_gen, per_tree_entities));
+        }
+
+        // #810 room budget: if the measured projection still exceeds the
+        // room ceiling (dense biome × several lush scatters), scale every
+        // scatter's count proportionally — the forest thins uniformly
+        // instead of one scatter vanishing. `max(1)` keeps each stand
+        // present so the biome still reads.
+        let projected: u64 = pending_tree_scatters
+            .iter()
+            .map(|(s, _, per_tree)| u64::from(s.count) * per_tree)
+            .sum();
+        let scale = if projected > Self::ROOM_TREE_ENTITY_BUDGET {
+            Self::ROOM_TREE_ENTITY_BUDGET as f64 / projected as f64
+        } else {
+            1.0
+        };
+        for (idx, (scatter, tree_gen, _)) in pending_tree_scatters.into_iter().enumerate() {
+            let count = ((f64::from(scatter.count) * scale) as u32).max(1);
             let scatter_gen_name = format!("tree_scatter_{idx}");
             generators.insert(scatter_gen_name.clone(), tree_gen);
             placements.push(Placement::Scatter {
@@ -490,7 +573,7 @@ impl RoomRecord {
                     center: Fp2(scatter.center),
                     radius: Fp(scatter.radius),
                 },
-                count: scatter.count,
+                count,
                 local_seed: scatter.local_seed,
                 biome_filter: BiomeFilter {
                     // 0=Grass, 1=Dirt (walkable land layers).
@@ -2117,6 +2200,76 @@ mod tests {
         let a = RoomRecord::default_for_seed(0xABCD_1234, "did:test:reroll");
         let b = RoomRecord::default_for_seed(0xABCD_1234, "did:test:reroll");
         assert!(!crate::state::records_differ(&a, &b));
+    }
+
+    /// #810 acceptance: the seeded tree scatters respect both entity
+    /// budgets. Seeds 4 / 11 / 46 are the field-census worst offenders —
+    /// pre-clamp they projected ~607k / ~978k / ~346k tree entities (the
+    /// 500k `MAX_ROOM_ENTITIES` fail-stop territory, a 1.4 fps slideshow on
+    /// wasm and the feeder for the #811 staging-pileup OOM). The estimate
+    /// here re-derives each placed tree exactly as the compile will, so this
+    /// guards the whole clamp chain, not just the arithmetic.
+    #[test]
+    fn seeded_tree_scatters_respect_entity_budgets() {
+        use crate::pds::generator::Placement;
+        for room_seed in [4u64, 11, 46] {
+            let record = RoomRecord::default_for_seed(room_seed, "did:test:budget");
+            let mut projected = 0u64;
+            for placement in &record.placements {
+                let Placement::Scatter {
+                    generator_ref,
+                    count,
+                    ..
+                } = placement
+                else {
+                    continue;
+                };
+                if !generator_ref.starts_with("tree_scatter_") {
+                    continue;
+                }
+                let generator = record
+                    .generators
+                    .get(generator_ref)
+                    .expect("scatter references a derived generator");
+                let GeneratorKind::LSystem {
+                    source_code,
+                    finalization_code,
+                    iterations,
+                    seed,
+                    angle,
+                    step,
+                    width,
+                    elasticity,
+                    tropism,
+                    ..
+                } = &generator.kind
+                else {
+                    continue;
+                };
+                let per_tree = crate::world_builder::lsystem::lsystem_entity_estimate(
+                    source_code,
+                    finalization_code,
+                    *iterations,
+                    *seed,
+                    *angle,
+                    *step,
+                    *width,
+                    *elasticity,
+                    *tropism,
+                    generator_ref,
+                )
+                .expect("seeded species grammars are valid");
+                assert!(
+                    per_tree <= RoomRecord::TREE_ENTITY_BUDGET,
+                    "seed {room_seed}: {generator_ref} expands to {per_tree} entities/tree"
+                );
+                projected += per_tree * u64::from(*count);
+            }
+            assert!(
+                projected <= RoomRecord::ROOM_TREE_ENTITY_BUDGET,
+                "seed {room_seed}: {projected} projected tree entities"
+            );
+        }
     }
 
     #[test]
