@@ -52,10 +52,24 @@ impl Plugin for MetricsPlugin {
                 .run_if(on_timer(Duration::from_secs(1))),
         );
         #[cfg(target_arch = "wasm32")]
-        app.add_systems(
-            Update,
-            scrape_wasm_memory.run_if(on_timer(Duration::from_secs(1))),
-        );
+        {
+            app.add_systems(
+                Update,
+                scrape_wasm_memory.run_if(on_timer(Duration::from_secs(1))),
+            );
+            // Crash-surviving session-log tail (#811): recover the previous
+            // session's persisted tail at boot, then persist this session's
+            // tail every few seconds so an OOM trap can no longer take the
+            // evidence down with the tab.
+            app.add_systems(Startup, || {
+                crate::diagnostics::crash_log::recover_previous_session_log();
+            });
+            app.add_systems(
+                Update,
+                crate::diagnostics::crash_log::persist_session_tail
+                    .run_if(on_timer(Duration::from_secs(5))),
+            );
+        }
     }
 }
 

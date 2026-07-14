@@ -25,6 +25,8 @@ pub fn register_ecs_rules(reg: &mut InvariantRegistry) {
     reg.register(RespawnThrashing);
     reg.register(OrphanAvatarVisual);
     reg.register(FrameTimeSpike);
+    reg.register(WasmMemoryHigh);
+    reg.register(WasmMemoryCritical);
 }
 
 /// Growth of a gauge across its retained sparkline window (newest − oldest),
@@ -263,6 +265,73 @@ impl Rule for FrameTimeSpike {
     }
 }
 
+// --- WasmMemoryHigh / WasmMemoryCritical --------------------------------------
+// The wasm32 linear memory tops out at 4 GiB and NEVER SHRINKS (dlmalloc keeps
+// every grown page), so heap growth is a one-way trip: once allocation fails,
+// the panic machinery itself can't allocate its message and the client dies as
+// a bare `unreachable` trap — with the in-memory session log lost (#811, field
+// crash at ~4 GiB). These rules turn the existing `runtime.memory.wasm_bytes`
+// gauge into an escalating early warning while there is still headroom to
+// download the log, save, and reload the tab. Native has no such gauge, so
+// `eval` yields no verdict there and the rules stay dormant.
+
+/// Warn tier — plenty of headroom left, but the ratchet only goes up.
+const WASM_MEMORY_HIGH_BYTES: f64 = 2.5 * 1024.0 * 1024.0 * 1024.0;
+/// Critical tier — allocation failure is plausibly one big compile away.
+const WASM_MEMORY_CRITICAL_BYTES: f64 = 3.25 * 1024.0 * 1024.0 * 1024.0;
+
+struct WasmMemoryHigh;
+const WASM_MEMORY_HIGH: RuleHeader = RuleHeader {
+    id: "runtime.wasm_memory_high",
+    subsystem: Subsystem::Runtime,
+    severity: Severity::Warn,
+    debounce: DebouncePolicy::Interval(120.0),
+    description: "wasm heap past 2.5 GiB — it never shrinks; plan to save and reload the tab",
+    when_state: None,
+};
+impl Rule for WasmMemoryHigh {
+    fn header(&self) -> &RuleHeader {
+        &WASM_MEMORY_HIGH
+    }
+    fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
+        let bytes = gauge_last(cx, names::RUNTIME_MEMORY_WASM_BYTES)?;
+        Some(if bytes > WASM_MEMORY_HIGH_BYTES {
+            Verdict::violated(format!(
+                "wasm heap {:.2} GiB of the 4 GiB ceiling",
+                bytes / (1024.0 * 1024.0 * 1024.0)
+            ))
+        } else {
+            Verdict::Clear
+        })
+    }
+}
+
+struct WasmMemoryCritical;
+const WASM_MEMORY_CRITICAL: RuleHeader = RuleHeader {
+    id: "runtime.wasm_memory_critical",
+    subsystem: Subsystem::Runtime,
+    severity: Severity::Critical,
+    debounce: DebouncePolicy::Interval(30.0),
+    description: "wasm heap past 3.25 GiB — OOM abort imminent; download the log, save, reload NOW",
+    when_state: None,
+};
+impl Rule for WasmMemoryCritical {
+    fn header(&self) -> &RuleHeader {
+        &WASM_MEMORY_CRITICAL
+    }
+    fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
+        let bytes = gauge_last(cx, names::RUNTIME_MEMORY_WASM_BYTES)?;
+        Some(if bytes > WASM_MEMORY_CRITICAL_BYTES {
+            Verdict::violated(format!(
+                "wasm heap {:.2} GiB — the 4 GiB wall is next",
+                bytes / (1024.0 * 1024.0 * 1024.0)
+            ))
+        } else {
+            Verdict::Clear
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -315,6 +384,29 @@ mod tests {
 
         c.orphan_avatar_count = 1;
         assert!(OrphanAvatarVisual.eval(&c).unwrap().is_violated());
+    }
+
+    #[test]
+    fn wasm_memory_rules_escalate_with_the_heap() {
+        let mut m = MetricsRegistry::default();
+        // No gauge (native) → both rules dormant.
+        assert!(WasmMemoryHigh.eval(&ctx(&m)).is_none());
+        assert!(WasmMemoryCritical.eval(&ctx(&m)).is_none());
+
+        // Healthy heap → both clear.
+        m.observe_gauge(names::RUNTIME_MEMORY_WASM_BYTES, 1.0e9);
+        assert_eq!(WasmMemoryHigh.eval(&ctx(&m)), Some(Verdict::Clear));
+        assert_eq!(WasmMemoryCritical.eval(&ctx(&m)), Some(Verdict::Clear));
+
+        // Past the warn tier, under the critical tier.
+        m.observe_gauge(names::RUNTIME_MEMORY_WASM_BYTES, 2.8e9);
+        assert!(WasmMemoryHigh.eval(&ctx(&m)).unwrap().is_violated());
+        assert_eq!(WasmMemoryCritical.eval(&ctx(&m)), Some(Verdict::Clear));
+
+        // Near the wall → both fire.
+        m.observe_gauge(names::RUNTIME_MEMORY_WASM_BYTES, 3.6e9);
+        assert!(WasmMemoryHigh.eval(&ctx(&m)).unwrap().is_violated());
+        assert!(WasmMemoryCritical.eval(&ctx(&m)).unwrap().is_violated());
     }
 
     #[test]

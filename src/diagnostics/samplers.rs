@@ -151,6 +151,16 @@ pub fn avatar_rebuild_secs(m: &mut MetricsRegistry, secs: f64) {
     m.observe_hist(names::RUNTIME_AVATAR_REBUILD_MS, ms(secs));
 }
 
+/// A procedural material found its texture fingerprint already baked (#811).
+pub fn texture_cache_hit(m: &mut MetricsRegistry) {
+    m.incr(names::RUNTIME_TEXTURE_CACHE_HIT_COUNT);
+}
+
+/// A procedural material missed the texture cache and dispatched a bake (#811).
+pub fn texture_cache_miss(m: &mut MetricsRegistry) {
+    m.incr(names::RUNTIME_TEXTURE_CACHE_MISS_COUNT);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

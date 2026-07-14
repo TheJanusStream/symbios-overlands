@@ -38,6 +38,7 @@
 pub mod analyze;
 pub mod anomaly;
 pub mod bevy_bridge;
+pub mod crash_log;
 pub mod event;
 pub mod log;
 pub mod names;

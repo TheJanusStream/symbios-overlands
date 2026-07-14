@@ -705,6 +705,33 @@ fn render_log_export_controls(
         );
     }
 
+    // Crash-surviving tail of the *previous* session (#811) — present only
+    // when boot recovered one from localStorage; the payload survives even
+    // when that session died in an OOM trap before its log could be saved.
+    #[cfg(target_arch = "wasm32")]
+    if crate::diagnostics::crash_log::previous_session_log_bytes() > 0
+        && ui.button("Download previous session log").clicked()
+    {
+        *status = Some(
+            match crate::diagnostics::crash_log::previous_session_log() {
+                Some(ndjson) => {
+                    match crate::boot_params::download_text_file(
+                        "symbios-session-log-previous.jsonl",
+                        "application/x-ndjson",
+                        &ndjson,
+                    ) {
+                        Ok(()) => ("Downloaded previous session tail".to_string(), now),
+                        Err(e) => (format!("Download failed ({e})"), now),
+                    }
+                }
+                None => (
+                    "Previous session tail missing from storage".to_string(),
+                    now,
+                ),
+            },
+        );
+    }
+
     if let Some((msg, at)) = status.as_ref()
         && now - at < 6.0
     {

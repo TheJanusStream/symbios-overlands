@@ -54,6 +54,16 @@ pub const RUNTIME_TEXTURE_BIND_SLOTS: &str = "runtime.texture_bind_slots";
 /// bakes offloaded on wasm, what remains here is dominated by part meshing;
 /// a high histogram tail attributes the residual re-roll hitch.
 pub const RUNTIME_AVATAR_REBUILD_MS: &str = "runtime.avatar_rebuild.ms";
+/// Procedural-material texture-cache hits at material build time — a
+/// fingerprint already baked, no bake dispatched. Together with
+/// [`RUNTIME_TEXTURE_CACHE_MISS_COUNT`], the health check for the
+/// fingerprint/eviction scheme (#811 hypothesis): misses climbing during
+/// normal play (nothing spawning) would indict unstable fingerprints or
+/// premature FIFO eviction; healthy play shows both counters flat.
+pub const RUNTIME_TEXTURE_CACHE_HIT_COUNT: &str = "runtime.texture_cache.hit_count";
+/// Procedural-material texture-cache misses that dispatched a bake (config
+/// selected a generator and no cached fingerprint matched).
+pub const RUNTIME_TEXTURE_CACHE_MISS_COUNT: &str = "runtime.texture_cache.miss_count";
 
 // ---- network / multiuser --------------------------------------------------
 /// Peer connections observed.
@@ -182,6 +192,8 @@ pub const ALL: &[(&str, MetricKind)] = &[
     (RUNTIME_TEXTURE_BIND_SLOTS, MetricKind::Gauge),
     (RUNTIME_RESPAWN_COUNT, MetricKind::Counter),
     (RUNTIME_AVATAR_REBUILD_MS, MetricKind::Histogram),
+    (RUNTIME_TEXTURE_CACHE_HIT_COUNT, MetricKind::Counter),
+    (RUNTIME_TEXTURE_CACHE_MISS_COUNT, MetricKind::Counter),
     // net
     (NET_PEER_CONNECTED_COUNT, MetricKind::Counter),
     (NET_PEER_DISCONNECTED_COUNT, MetricKind::Counter),

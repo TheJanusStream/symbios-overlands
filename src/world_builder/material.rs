@@ -246,7 +246,11 @@ pub fn build_procedural_material(
         material.normal_map_texture = Some(handles.normal.clone());
         material.metallic_roughness_texture = Some(handles.roughness.clone());
         super::surface_bake::apply_emissive_map(&mut material, handles.emissive.clone());
+        bump_texture_cache_counter(commands, true);
         return std_materials.add(material);
+    }
+    if cache_key.is_some() {
+        bump_texture_cache_counter(commands, false);
     }
 
     let handle = std_materials.add(material);
@@ -287,6 +291,22 @@ pub fn build_procedural_material(
     }
 
     handle
+}
+
+/// Record a texture-cache hit or miss (#811 fingerprint/eviction health —
+/// see `names::RUNTIME_TEXTURE_CACHE_HIT_COUNT`) via a queued command, so
+/// [`build_procedural_material`]'s signature doesn't grow a registry
+/// parameter. A headless/test app without the metrics resource no-ops.
+fn bump_texture_cache_counter(commands: &mut Commands, hit: bool) {
+    commands.queue(move |world: &mut World| {
+        if let Some(mut m) = world.get_resource_mut::<crate::diagnostics::MetricsRegistry>() {
+            if hit {
+                crate::diagnostics::samplers::texture_cache_hit(&mut m);
+            } else {
+                crate::diagnostics::samplers::texture_cache_miss(&mut m);
+            }
+        }
+    });
 }
 
 /// Build the [`StandardMaterial`] a [`MaterialSettings`] describes, plus its
