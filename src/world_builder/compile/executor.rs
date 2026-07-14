@@ -38,7 +38,7 @@ use crate::terrain::{FinishedHeightMap, OutgoingTerrain, TerrainMesh};
 use crate::water::{WaterMaterial, WaterPlane, WaterSurfaces};
 
 use super::super::image_cache::BlobImageCache;
-use super::super::{PlacementMarker, PlacementUnit, PropMeshAssets, RoomEntity};
+use super::super::{PlacementMarker, PlacementUnit, RoomEntity};
 
 use super::dispatch::dispatch_top_level;
 use super::job::{
@@ -61,7 +61,6 @@ pub(crate) fn compile_room_record(
     mut water_materials: ResMut<Assets<WaterMaterial>>,
     mut images: ResMut<Assets<Image>>,
     palette: Option<Res<MaterialPalette>>,
-    prop_assets: Option<Res<PropMeshAssets>>,
     mut generator_caches: GeneratorCaches,
     current_room: Option<Res<CurrentRoomDid>>,
     mut blob_image_cache: ResMut<BlobImageCache>,
@@ -125,7 +124,6 @@ pub(crate) fn compile_room_record(
             palette: palette.as_deref(),
             heightmap: heightmap.as_deref(),
             terrain_meshes: &terrain_meshes,
-            prop_assets: prop_assets.as_deref(),
             lsystem_material_cache: &mut generator_caches.lsystem_material,
             lsystem_cache_touched: &mut job.touched.lsystem_material,
             lsystem_mesh_cache: &mut generator_caches.lsystem_mesh,

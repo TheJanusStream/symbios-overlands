@@ -21,7 +21,6 @@ use crate::pds::Generator;
 use crate::state::CurrentRoomDid;
 use crate::terrain::{FinishedHeightMap, OutgoingTerrain, TerrainMesh};
 use crate::water::{WaterMaterial, WaterSurfaces};
-use crate::world_builder::PropMeshAssets;
 use crate::world_builder::avatar_spawn::spawn_avatar_visuals_subtree;
 use crate::world_builder::compile::GeneratorCaches;
 use crate::world_builder::image_cache::BlobImageCache;
@@ -37,7 +36,6 @@ pub struct AvatarSpawnDeps<'w, 's> {
     pub palette: Option<Res<'w, MaterialPalette>>,
     pub heightmap: Option<Res<'w, FinishedHeightMap>>,
     pub terrain_meshes: Query<'w, 's, Entity, (With<TerrainMesh>, Without<OutgoingTerrain>)>,
-    pub prop_assets: Option<Res<'w, PropMeshAssets>>,
     pub caches: GeneratorCaches<'w>,
     pub blob_image_cache: ResMut<'w, BlobImageCache>,
     pub blob_audio_cache: ResMut<'w, crate::world_builder::audio_resolver::BlobAudioCache>,
@@ -94,7 +92,6 @@ pub fn spawn_avatar_visuals(
         deps.palette.as_deref(),
         deps.heightmap.as_deref(),
         &deps.terrain_meshes,
-        deps.prop_assets.as_deref(),
         &mut deps.caches,
         deps.blob_image_cache.as_mut(),
         deps.blob_audio_cache.as_mut(),

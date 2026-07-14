@@ -80,8 +80,6 @@ mod sign;
 pub mod spatial_audio;
 mod surface_bake;
 
-use std::collections::HashMap;
-
 use crate::pds::{Placement, PropMeshType, RoomRecord, ScatterBounds};
 use crate::state::{AppState, LiveRoomRecord};
 use crate::terrain::FinishedHeightMap;
@@ -143,18 +141,6 @@ pub fn register_headless_spawn(app: &mut App) {
         // overwrites, so the sink-backed `SessionLog` that `DiagnosticsPlugin`
         // inserts in the full app still wins.
         .init_resource::<crate::diagnostics::SessionLog>();
-
-    // Insert the shared L-system prop meshes imperatively (not via the
-    // `setup_prop_assets` Startup system) so the resource is present before
-    // the render tool's own Startup spawn system reads `AvatarSpawnDeps`.
-    // Without this the headless path leaves `ctx.prop_assets` = None and
-    // silently drops every L-system foliage card (`~`), so plant renders
-    // showed only the bare woody skeleton.
-    let prop_assets = {
-        let mut meshes = app.world_mut().resource_mut::<Assets<Mesh>>();
-        build_prop_mesh_assets(&mut meshes)
-    };
-    app.insert_resource(prop_assets);
 }
 
 /// Marks an in-scene portal cube and carries the destination coordinates the
@@ -260,15 +246,6 @@ pub struct AvatarVisualRoot {
     pub base_rotation: Quat,
 }
 
-/// Base meshes for each [`PropMeshType`] — built once at startup so every
-/// L-system spawn can share the same handles. Foliage variants (Leaf, Twig)
-/// are billboard cards whose UV layout matches the upstream
-/// `bevy_symbios_texture` card convention (V=1 at the base).
-#[derive(Resource)]
-pub struct PropMeshAssets {
-    pub meshes: HashMap<PropMeshType, Handle<Mesh>>,
-}
-
 pub struct WorldBuilderPlugin;
 
 impl Plugin for WorldBuilderPlugin {
@@ -300,7 +277,6 @@ impl Plugin for WorldBuilderPlugin {
             .init_resource::<spatial_audio::BakedAudioCache>()
             .init_resource::<particles::ParticleQuadMesh>()
             .init_resource::<particles::ParticleAtlasMeshes>()
-            .add_systems(Startup, setup_prop_assets)
             // `not(Login)` rather than `in_state(InGame)`: the room
             // compile is by far the longest single-frame stall on the
             // wasm build (every entity + collider + L-system / shape
@@ -370,43 +346,44 @@ fn create_foliage_card(width: f32, height: f32) -> Mesh {
     mesh
 }
 
-/// Build the shared prop-mesh set (one handle per `PropMeshType`). Shared by
-/// the [`setup_prop_assets`] startup system and the headless render tool's
-/// [`register_headless_spawn`] so both produce identical L-system foliage.
-pub(crate) fn build_prop_mesh_assets(meshes: &mut Assets<Mesh>) -> PropMeshAssets {
-    let mut prop_meshes = HashMap::new();
-    prop_meshes.insert(
-        PropMeshType::Leaf,
-        meshes.add(create_foliage_card(0.5, 0.8)),
-    );
-    prop_meshes.insert(
-        PropMeshType::Twig,
-        meshes.add(create_foliage_card(0.7, 1.0)),
-    );
-    prop_meshes.insert(
-        PropMeshType::Sphere,
-        meshes.add(Sphere::new(0.2).mesh().ico(2).unwrap()),
-    );
-    prop_meshes.insert(
-        PropMeshType::Cone,
-        meshes.add(Cone::new(0.15, 0.4).mesh().resolution(8)),
-    );
-    prop_meshes.insert(
-        PropMeshType::Cylinder,
-        meshes.add(Cylinder::new(0.1, 0.5).mesh().resolution(8)),
-    );
-    prop_meshes.insert(PropMeshType::Cube, meshes.add(Cuboid::new(0.3, 0.3, 0.3)));
-
-    PropMeshAssets {
-        meshes: prop_meshes,
+/// Raw mesh geometry for one [`PropMeshType`] — the primitive an L-system prop
+/// (leaf / fruit / cone / …) renders as. Foliage variants (Leaf, Twig) are
+/// billboard cards whose UV layout matches the upstream `bevy_symbios_texture`
+/// card convention (V=1 at the base).
+///
+/// Pure (no `Assets<Mesh>`), so `build_lsystem_geometry` can bake each prop's
+/// mesh directly into its material bucket at geometry-build time (#812) — one
+/// tree drops from ~1,500 prop entities to a handful of merged mesh buckets,
+/// killing the per-frame `BinnedRenderPhase` churn that ratcheted wasm memory
+/// (#811). The geometry is identical to what the old per-prop child entities
+/// carried, so renders are unchanged.
+pub(crate) fn prop_mesh_geometry(kind: PropMeshType) -> Mesh {
+    match kind {
+        PropMeshType::Leaf => create_foliage_card(0.5, 0.8),
+        PropMeshType::Twig => create_foliage_card(0.7, 1.0),
+        PropMeshType::Sphere => Sphere::new(0.2).mesh().ico(2).unwrap(),
+        PropMeshType::Cone => Cone::new(0.15, 0.4).mesh().resolution(8).into(),
+        PropMeshType::Cylinder => Cylinder::new(0.1, 0.5).mesh().resolution(8).into(),
+        PropMeshType::Cube => Cuboid::new(0.3, 0.3, 0.3).into(),
     }
 }
 
-/// Startup system that populates [`PropMeshAssets`] with the shared prop
-/// meshes (one handle per `PropMeshType`).
-fn setup_prop_assets(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
-    let assets = build_prop_mesh_assets(&mut meshes);
-    commands.insert_resource(assets);
+/// An empty triangle-list mesh carrying exactly the attribute set the turtle
+/// mesher writes on every branch bucket (`POSITION`/`NORMAL`/`COLOR`/`UV_0`,
+/// U32 indices). Seeds a per-material bucket for props whose material id has no
+/// branch geometry, so [`Mesh::merge`] — which requires the source to cover
+/// every destination attribute — accepts the baked prop meshes (#812).
+pub(crate) fn empty_bucket_mesh() -> Mesh {
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, Vec::<[f32; 3]>::new());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, Vec::<[f32; 3]>::new());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, Vec::<[f32; 4]>::new());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, Vec::<[f32; 2]>::new());
+    mesh.insert_indices(Indices::U32(Vec::new()));
+    mesh
 }
 
 /// Applies the record's `traits` entries for `generator_ref` to `entity`

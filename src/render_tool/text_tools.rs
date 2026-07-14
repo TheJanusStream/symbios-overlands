@@ -210,11 +210,10 @@ pub(super) fn diff_sessions(path_a: &str, path_b: &str) {
 
 /// Per-instance entity count of a generator tree, with L-systems **expanded**
 /// (the spawn path turns one L-system node into `1 root + material mesh
-/// buckets + one entity per prop` — leaves and fruit are where a "1-node"
-/// tree becomes thousands of entities, #810). Shape-grammar nodes also expand
-/// at spawn but are left at 1 and flagged via [`tree_has_shape`] — the census
-/// evidence shows L-systems dominate seeded-room counts by orders of
-/// magnitude.
+/// buckets` — since #812 props are baked into those buckets rather than spawned
+/// as one entity each). Shape-grammar nodes also expand at spawn but are left
+/// at 1 and flagged via [`tree_has_shape`] — the census evidence shows
+/// L-systems dominate seeded-room counts by orders of magnitude.
 fn tree_entities(g: &Generator, generator_ref: &str) -> u64 {
     let own = match &g.kind {
         GeneratorKind::LSystem {
@@ -227,6 +226,8 @@ fn tree_entities(g: &Generator, generator_ref: &str) -> u64 {
             width,
             elasticity,
             tropism,
+            prop_mappings,
+            prop_scale,
             mesh_resolution,
             ..
         } => crate::world_builder::lsystem::build_lsystem_geometry(
@@ -240,11 +241,11 @@ fn tree_entities(g: &Generator, generator_ref: &str) -> u64 {
             *elasticity,
             *tropism,
             *mesh_resolution,
+            prop_mappings,
+            *prop_scale,
             generator_ref,
         )
-        .map_or(1, |(buckets, props)| {
-            1 + buckets.len() as u64 + props.len() as u64
-        }),
+        .map_or(1, |buckets| 1 + buckets.len() as u64),
         _ => 1,
     };
     own + g

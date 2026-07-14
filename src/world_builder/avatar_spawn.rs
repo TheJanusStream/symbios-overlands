@@ -24,7 +24,6 @@ use std::collections::HashSet;
 use bevy::prelude::*;
 use bevy_symbios::materials::MaterialPalette;
 
-use super::PropMeshAssets;
 use super::compile::{GeneratorCaches, SpawnCtx, spawn_generator};
 use super::image_cache::BlobImageCache;
 use crate::pds::{Generator, RoomRecord};
@@ -61,7 +60,6 @@ pub fn spawn_avatar_visuals_subtree(
     palette: Option<&MaterialPalette>,
     heightmap: Option<&FinishedHeightMap>,
     terrain_meshes: &Query<Entity, (With<TerrainMesh>, Without<OutgoingTerrain>)>,
-    prop_assets: Option<&PropMeshAssets>,
     caches: &mut GeneratorCaches,
     blob_image_cache: &mut BlobImageCache,
     blob_audio_cache: &mut super::audio_resolver::BlobAudioCache,
@@ -103,7 +101,6 @@ pub fn spawn_avatar_visuals_subtree(
         palette,
         heightmap,
         terrain_meshes,
-        prop_assets,
         lsystem_material_cache: &mut caches.lsystem_material,
         lsystem_cache_touched: &mut lsystem_cache_touched,
         lsystem_mesh_cache: &mut caches.lsystem_mesh,

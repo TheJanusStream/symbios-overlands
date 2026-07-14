@@ -13,7 +13,6 @@ use crate::state::CurrentRoomDid;
 use crate::terrain::{FinishedHeightMap, OutgoingTerrain, TerrainMesh};
 use crate::water::{WaterMaterial, WaterSurfaces};
 
-use super::super::PropMeshAssets;
 use super::super::audio_resolver::BlobAudioCache;
 use super::super::image_cache::BlobImageCache;
 use super::super::lsystem::{LSystemMaterialCache, LSystemMeshCache};
@@ -126,7 +125,6 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     pub(crate) heightmap: Option<&'a FinishedHeightMap>,
     pub(crate) terrain_meshes:
         &'a Query<'wq, 'sq, Entity, (With<TerrainMesh>, Without<OutgoingTerrain>)>,
-    pub(crate) prop_assets: Option<&'a PropMeshAssets>,
     /// Persistent, hash-invalidated material cache. A single scatter
     /// placement with count=100 would otherwise allocate 100 fresh
     /// `StandardMaterial`s *and* enqueue 100 identical foliage texture
