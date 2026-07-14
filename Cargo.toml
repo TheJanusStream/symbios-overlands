@@ -9,6 +9,14 @@ edition = "2024"
 [workspace]
 members = ["crates/gen-jobs", "crates/gen-worker"]
 
+[features]
+# Native allocation tracer (#811): wraps the global allocator and prints a
+# backtrace for every allocation >= 16 MiB, so the per-frame giant-buffer
+# churn measured on wasm can be attributed by name. Diagnostic-only — run
+# `cargo run --release --features alloc-trace`, play for a minute, read
+# stderr. Off by default: zero cost in normal builds.
+alloc-trace = []
+
 [dependencies]
 bevy = "0.18"
 bevy_egui = "0.39"

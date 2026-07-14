@@ -136,3 +136,96 @@ pub mod wasm {
 #[cfg(target_arch = "wasm32")]
 #[global_allocator]
 static GLOBAL_TRACKING_ALLOC: wasm::TrackingAlloc = wasm::TrackingAlloc;
+
+/// Native attribution tracer (`--features alloc-trace`, #811): the wasm
+/// tracker measured a per-frame ~16–27 MiB exact-fit allocation churn
+/// (~70 MB/s transient) that ratchets the never-shrinking wasm heap via
+/// fragmentation — but wasm can't produce a callstack. The same code runs
+/// natively, so this feature wraps the native allocator and prints a
+/// backtrace for every giant allocation: one minute of play names the
+/// collection. Prints the first [`native::FULL_REPORTS`] with full stacks,
+/// then a one-line size report every [`native::SAMPLE_EVERY`]th so a
+/// per-frame churn doesn't drown stderr.
+#[cfg(all(not(target_arch = "wasm32"), feature = "alloc-trace"))]
+pub mod native {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+
+    /// Allocations at or above this size are reported (matches the wasm
+    /// tracker's giant class).
+    pub const GIANT_BYTES: usize = 16 * 1024 * 1024;
+    /// How many giant allocations get a full backtrace before sampling.
+    pub const FULL_REPORTS: u64 = 24;
+    /// After the full reports, print a one-liner for every Nth giant.
+    pub const SAMPLE_EVERY: u64 = 128;
+
+    static GIANT_SEEN: AtomicU64 = AtomicU64::new(0);
+    /// Re-entrancy latch: capturing a backtrace allocates; a nested giant
+    /// allocation during capture must not recurse into another capture.
+    static IN_REPORT: AtomicU64 = AtomicU64::new(0);
+
+    pub struct TracingAlloc;
+
+    fn report(bytes: usize) {
+        let n = GIANT_SEEN.fetch_add(1, Relaxed);
+        let full = n < FULL_REPORTS;
+        if !full && !n.is_multiple_of(SAMPLE_EVERY) {
+            return;
+        }
+        if IN_REPORT.swap(1, Relaxed) == 1 {
+            return;
+        }
+        if full {
+            // `force_capture` works without RUST_BACKTRACE=1; resolution
+            // allocates, which is safe here (delegation + atomics only, and
+            // the latch above stops recursion).
+            eprintln!(
+                "[alloc-trace] giant allocation #{n}: {:.2} MiB ({bytes} bytes)\n{}",
+                bytes as f64 / (1024.0 * 1024.0),
+                std::backtrace::Backtrace::force_capture()
+            );
+        } else {
+            eprintln!(
+                "[alloc-trace] giant allocation #{n}: {:.2} MiB ({bytes} bytes) [sampled]",
+                bytes as f64 / (1024.0 * 1024.0),
+            );
+        }
+        IN_REPORT.store(0, Relaxed);
+    }
+
+    // SAFETY: delegates verbatim to `System`; side effects are atomics and
+    // (latched, bounded) stderr reporting.
+    unsafe impl GlobalAlloc for TracingAlloc {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            let p = unsafe { System.alloc(layout) };
+            if !p.is_null() && layout.size() >= GIANT_BYTES {
+                report(layout.size());
+            }
+            p
+        }
+
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            let p = unsafe { System.alloc_zeroed(layout) };
+            if !p.is_null() && layout.size() >= GIANT_BYTES {
+                report(layout.size());
+            }
+            p
+        }
+
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            unsafe { System.dealloc(ptr, layout) };
+        }
+
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            let p = unsafe { System.realloc(ptr, layout, new_size) };
+            if !p.is_null() && new_size >= GIANT_BYTES {
+                report(new_size);
+            }
+            p
+        }
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), feature = "alloc-trace"))]
+#[global_allocator]
+static GLOBAL_TRACING_ALLOC: native::TracingAlloc = native::TracingAlloc;

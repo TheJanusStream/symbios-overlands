@@ -131,22 +131,67 @@ fn spawn_room(
     images: &mut Assets<Image>,
     deps: &mut AvatarSpawnDeps,
 ) {
+    use rand_chacha::rand_core::{RngCore, SeedableRng};
+
+    // Uniform f32 in [0, 1) — the same minimal idiom the seeded-defaults
+    // derivers use (the app links rand_core, not the full `rand` traits).
+    fn unit(rng: &mut rand_chacha::ChaCha8Rng) -> f32 {
+        (rng.next_u32() >> 8) as f32 / (1u32 << 24) as f32
+    }
+
     for placement in &record.placements {
-        let Placement::Absolute {
-            generator_ref,
-            transform,
-            ..
-        } = placement
-        else {
-            continue;
-        };
-        let Some(generator) = record.generators.get(generator_ref) else {
-            continue;
-        };
-        let chassis = commands.spawn(to_transform(transform)).id();
-        spawn_avatar_visuals(
-            commands, chassis, generator, None, meshes, materials, images, deps, false,
-        );
+        match placement {
+            Placement::Absolute {
+                generator_ref,
+                transform,
+                ..
+            } => {
+                let Some(generator) = record.generators.get(generator_ref) else {
+                    continue;
+                };
+                let chassis = commands.spawn(to_transform(transform)).id();
+                spawn_avatar_visuals(
+                    commands, chassis, generator, None, meshes, materials, images, deps, false,
+                );
+            }
+            // Expand scatters at full count so `--room` renders (and, with
+            // `--features alloc-trace`, allocation-profiles) the region at its
+            // true entity density — previously only Absolute placements
+            // spawned, hiding the forests that dominate seeded rooms (#810/
+            // #811). No terrain exists headless, so instances sit on the
+            // ground plane with a seeded yaw instead of terrain-snapping.
+            Placement::Scatter {
+                generator_ref,
+                bounds: crate::pds::ScatterBounds::Circle { center, radius },
+                count,
+                local_seed,
+                ..
+            } => {
+                let Some(generator) = record.generators.get(generator_ref) else {
+                    continue;
+                };
+                let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(*local_seed);
+                for _ in 0..*count {
+                    let angle = unit(&mut rng) * std::f32::consts::TAU;
+                    let dist = radius.0 * unit(&mut rng).sqrt();
+                    let yaw = unit(&mut rng) * std::f32::consts::TAU;
+                    let chassis = commands
+                        .spawn(
+                            Transform::from_xyz(
+                                center.0[0] + dist * angle.cos(),
+                                0.0,
+                                center.0[1] + dist * angle.sin(),
+                            )
+                            .with_rotation(Quat::from_rotation_y(yaw)),
+                        )
+                        .id();
+                    spawn_avatar_visuals(
+                        commands, chassis, generator, None, meshes, materials, images, deps, false,
+                    );
+                }
+            }
+            _ => {}
+        }
     }
 }
 
