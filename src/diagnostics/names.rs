@@ -70,6 +70,19 @@ pub const RUNTIME_TEXTURE_CACHE_MISS_COUNT: &str = "runtime.texture_cache.miss_c
 /// steps tracking visible-count peaks confirms the GPU-stall staging-pileup
 /// diagnosis; steps WITHOUT a visible-count peak refute it.
 pub const RUNTIME_VISIBLE_ENTITY_COUNT: &str = "runtime.visible_entity.count";
+/// Live wasm-heap bytes in small allocations (< 64 KiB) — see
+/// [`crate::alloc_track`] (#811). The four `runtime.alloc.*` gauges shape a
+/// heap runaway: growth in `giant_bytes` is one huge buffer; growth in
+/// `small_bytes` is a million-object leak.
+pub const RUNTIME_ALLOC_SMALL_BYTES: &str = "runtime.alloc.small_bytes";
+/// Live wasm-heap bytes in medium allocations (64 KiB – 1 MiB).
+pub const RUNTIME_ALLOC_MEDIUM_BYTES: &str = "runtime.alloc.medium_bytes";
+/// Live wasm-heap bytes in large allocations (1 – 16 MiB).
+pub const RUNTIME_ALLOC_LARGE_BYTES: &str = "runtime.alloc.large_bytes";
+/// Live wasm-heap bytes in giant allocations (≥ 16 MiB). Each giant
+/// allocation additionally logs a `GiantAllocation` event with its exact
+/// size — the fingerprint that identifies the owning collection.
+pub const RUNTIME_ALLOC_GIANT_BYTES: &str = "runtime.alloc.giant_bytes";
 
 // ---- network / multiuser --------------------------------------------------
 /// Peer connections observed.
@@ -201,6 +214,10 @@ pub const ALL: &[(&str, MetricKind)] = &[
     (RUNTIME_TEXTURE_CACHE_HIT_COUNT, MetricKind::Counter),
     (RUNTIME_TEXTURE_CACHE_MISS_COUNT, MetricKind::Counter),
     (RUNTIME_VISIBLE_ENTITY_COUNT, MetricKind::Gauge),
+    (RUNTIME_ALLOC_SMALL_BYTES, MetricKind::Gauge),
+    (RUNTIME_ALLOC_MEDIUM_BYTES, MetricKind::Gauge),
+    (RUNTIME_ALLOC_LARGE_BYTES, MetricKind::Gauge),
+    (RUNTIME_ALLOC_GIANT_BYTES, MetricKind::Gauge),
     // net
     (NET_PEER_CONNECTED_COUNT, MetricKind::Counter),
     (NET_PEER_DISCONNECTED_COUNT, MetricKind::Counter),

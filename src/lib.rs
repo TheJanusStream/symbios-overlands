@@ -31,6 +31,7 @@ use bevy::pbr::wireframe::WireframePlugin;
 use bevy::prelude::*;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 
+pub mod alloc_track;
 pub mod audio_materials;
 pub mod audio_mute;
 pub mod avatar;

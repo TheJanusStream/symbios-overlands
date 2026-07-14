@@ -448,6 +448,12 @@ pub enum EventPayload {
         job: String,
         elapsed_secs: f64,
     },
+    /// One allocation ≥ 16 MiB landed on the wasm heap (#811). The exact
+    /// size is the fingerprint that identifies the owning collection — a ×2
+    /// sequence across events is a `Vec` doubling caught red-handed.
+    GiantAllocation {
+        bytes: u64,
+    },
     WorkerSpawnFailed {
         reason: String,
     },
@@ -549,6 +555,7 @@ impl EventPayload {
             | WorkerSpawnFailed { .. } => Subsystem::Offload,
 
             RespawnTriggered { .. }
+            | GiantAllocation { .. }
             | PortalTravelInitiated { .. }
             | PortalTravelCompleted { .. }
             | PortalTravelFailed { .. } => Subsystem::Runtime,
@@ -634,6 +641,8 @@ impl EventPayload {
             | WorkerSpawnFailed { .. } => Category::Job,
 
             RespawnTriggered { .. } => Category::Physics,
+
+            GiantAllocation { .. } => Category::Perf,
 
             PortalTravelInitiated { .. }
             | PortalTravelCompleted { .. }
@@ -890,6 +899,12 @@ impl EventPayload {
             OffloadJobFailed { job, reason } => format!("offload '{job}' FAILED ({reason})"),
             OffloadTaskTimeout { job, elapsed_secs } => {
                 format!("offload '{job}' TIMEOUT ({elapsed_secs:.1}s)")
+            }
+            GiantAllocation { bytes } => {
+                format!(
+                    "giant allocation: {:.1} MiB",
+                    *bytes as f64 / (1024.0 * 1024.0)
+                )
             }
             WorkerSpawnFailed { reason } => format!("worker spawn FAILED ({reason})"),
 

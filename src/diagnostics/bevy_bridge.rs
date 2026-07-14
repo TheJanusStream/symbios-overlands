@@ -56,7 +56,7 @@ impl Plugin for MetricsPlugin {
         {
             app.add_systems(
                 Update,
-                scrape_wasm_memory.run_if(on_timer(Duration::from_secs(1))),
+                (scrape_wasm_memory, scrape_alloc_track).run_if(on_timer(Duration::from_secs(1))),
             );
             // Crash-surviving session-log tail (#811): recover the previous
             // session's persisted tail at boot, then persist this session's
@@ -328,6 +328,37 @@ fn scrape_wasm_memory(mut reg: ResMut<MetricsRegistry>) {
             reg.observe_gauge(names::RUNTIME_MEMORY_WASM_BYTES, bytes as f64);
         }
     }
+}
+
+/// Mirror the tracking allocator's size-class live-byte totals into gauges
+/// and log a [`EventPayload::GiantAllocation`] fingerprint for every ≥ 16 MiB
+/// allocation since the last scrape (#811). `Local` tracks the drained count
+/// so each fingerprint is logged exactly once; a burst deeper than the
+/// allocator's ring between scrapes loses the oldest sizes, never the newest
+/// (the runaway's latest doublings are the identifying ones).
+#[cfg(target_arch = "wasm32")]
+fn scrape_alloc_track(
+    mut reg: ResMut<MetricsRegistry>,
+    mut log: ResMut<crate::diagnostics::SessionLog>,
+    time: Res<Time>,
+    mut giants_seen: Local<u64>,
+) {
+    use crate::alloc_track::wasm as alloc_track;
+
+    let (small, medium, large, giant) = alloc_track::snapshot();
+    reg.observe_gauge(names::RUNTIME_ALLOC_SMALL_BYTES, small as f64);
+    reg.observe_gauge(names::RUNTIME_ALLOC_MEDIUM_BYTES, medium as f64);
+    reg.observe_gauge(names::RUNTIME_ALLOC_LARGE_BYTES, large as f64);
+    reg.observe_gauge(names::RUNTIME_ALLOC_GIANT_BYTES, giant as f64);
+
+    let now = time.elapsed_secs_f64();
+    for bytes in alloc_track::giant_sizes_since(*giants_seen) {
+        log.info(
+            now,
+            crate::diagnostics::event::EventPayload::GiantAllocation { bytes },
+        );
+    }
+    *giants_seen = alloc_track::giant_total();
 }
 
 #[cfg(test)]
