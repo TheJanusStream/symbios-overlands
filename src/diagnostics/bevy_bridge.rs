@@ -46,6 +46,7 @@ impl Plugin for MetricsPlugin {
                 scrape_bevy_diagnostics,
                 scrape_signal_diagnostics,
                 scrape_audio_diagnostics,
+                scrape_visible_entities,
                 emit_metric_snapshot,
             )
                 .chain()
@@ -167,6 +168,25 @@ fn scrape_audio_diagnostics(
         reg.observe_gauge(names::AUDIO_BAKE_CACHE_ENTRIES, entries as f64);
         reg.observe_gauge(names::AUDIO_BAKE_CACHE_BYTES, bytes as f64);
     }
+}
+
+/// Post-culling visible-entity total, summed over every mesh class of every
+/// view — the #811 discriminator. On WebGL2 the per-frame CPU staging
+/// (instance uniforms) scales with this number, so the next captured session
+/// either shows wasm heap steps tracking visible-count peaks (confirming the
+/// GPU-stall staging-pileup diagnosis) or steps without a peak (refuting it).
+/// 1 Hz `last`-value sampling is deliberate: the jank episodes that matter
+/// run multi-second, so a peak can't hide between scrapes for long.
+fn scrape_visible_entities(
+    views: Query<&bevy::camera::visibility::VisibleEntities>,
+    mut reg: ResMut<MetricsRegistry>,
+) {
+    let visible: usize = views
+        .iter()
+        .flat_map(|v| v.entities.values())
+        .map(Vec::len)
+        .sum();
+    reg.observe_gauge(names::RUNTIME_VISIBLE_ENTITY_COUNT, visible as f64);
 }
 
 /// Mirror the multiuser signaller's `SignalDiagnostics` counters into the

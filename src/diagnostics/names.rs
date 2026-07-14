@@ -64,6 +64,12 @@ pub const RUNTIME_TEXTURE_CACHE_HIT_COUNT: &str = "runtime.texture_cache.hit_cou
 /// Procedural-material texture-cache misses that dispatched a bake (config
 /// selected a generator and no cached fingerprint matched).
 pub const RUNTIME_TEXTURE_CACHE_MISS_COUNT: &str = "runtime.texture_cache.miss_count";
+/// Entities in the camera's post-culling visible set (all mesh classes,
+/// summed across views) — the #811 discriminator. On WebGL2 the per-frame
+/// CPU staging (instance uniforms) scales with this number, so wasm heap
+/// steps tracking visible-count peaks confirms the GPU-stall staging-pileup
+/// diagnosis; steps WITHOUT a visible-count peak refute it.
+pub const RUNTIME_VISIBLE_ENTITY_COUNT: &str = "runtime.visible_entity.count";
 
 // ---- network / multiuser --------------------------------------------------
 /// Peer connections observed.
@@ -194,6 +200,7 @@ pub const ALL: &[(&str, MetricKind)] = &[
     (RUNTIME_AVATAR_REBUILD_MS, MetricKind::Histogram),
     (RUNTIME_TEXTURE_CACHE_HIT_COUNT, MetricKind::Counter),
     (RUNTIME_TEXTURE_CACHE_MISS_COUNT, MetricKind::Counter),
+    (RUNTIME_VISIBLE_ENTITY_COUNT, MetricKind::Gauge),
     // net
     (NET_PEER_CONNECTED_COUNT, MetricKind::Counter),
     (NET_PEER_DISCONNECTED_COUNT, MetricKind::Counter),
