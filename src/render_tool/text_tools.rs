@@ -307,13 +307,13 @@ pub(super) fn room_census(seeds: u64) {
         }
         let total: u64 = rows.iter().map(|(e, _)| e).sum();
         totals.push((total, seed));
-        rows.sort_by(|a, b| b.0.cmp(&a.0));
+        rows.sort_by_key(|b| std::cmp::Reverse(b.0));
         println!("seed {seed}: ~{total} entities ({} placements)", rows.len());
         for (_, desc) in rows.iter().take(3) {
             println!("    {desc}");
         }
     }
-    totals.sort_by(|a, b| b.0.cmp(&a.0));
+    totals.sort_by_key(|b| std::cmp::Reverse(b.0));
     println!("\nworst seeds:");
     for (total, seed) in totals.iter().take(10) {
         println!("  seed {seed}: ~{total}");
