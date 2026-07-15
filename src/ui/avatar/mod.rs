@@ -128,6 +128,20 @@ impl AvatarEditorState {
         self.window_visible
     }
 
+    /// True whenever the local avatar should be held perfectly still for
+    /// editing: the window is open (un-collapsed) *or* a visuals row is
+    /// selected during the close-frame gap. This is the wide gate the whole
+    /// editing session keys on — the cosmetic gait/sway hold
+    /// (`player::gait::animate_avatar_gait`) *and* the full-body chassis
+    /// freeze (`player::freeze_local_avatar_while_editing`, which also stops
+    /// falling-physics and the passive movers) — so the avatar shows at rest
+    /// for the whole session, not just the moments a row is selected (#814).
+    /// Collapsing the window resumes the live animation *and* physics for
+    /// previewing.
+    pub fn holds_avatar_still(&self) -> bool {
+        self.window_visible || self.has_visuals_selection()
+    }
+
     /// Drop the visuals selection — used when switching tabs, collapsing
     /// the editor window, or losing the mutex to the room editor.
     pub fn clear_visuals_selection(&mut self) {
@@ -562,5 +576,33 @@ pub fn poll_publish_avatar_tasks(
                 };
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The editing hold must engage whenever the window is open — not only
+    /// when a visuals row is selected. Both the cosmetic gait/sway hold and
+    /// the full-body chassis freeze (which stops falling-physics and the
+    /// passive movers) key on this, so a narrow selection-only gate lets the
+    /// avatar keep falling/drifting the moment no row is picked (#814).
+    #[test]
+    fn holds_avatar_still_covers_the_whole_open_session_not_just_selection() {
+        let mut state = AvatarEditorState::default();
+        // Window shut, nothing selected: live physics/animation run.
+        assert!(!state.holds_avatar_still());
+
+        // Window open, no row selected: still held (the #814 fix — this was
+        // the case that previously left the chassis falling).
+        state.window_visible = true;
+        assert!(!state.has_visuals_selection());
+        assert!(state.holds_avatar_still());
+
+        // Window collapsed but a row lingers during the close-frame gap.
+        state.window_visible = false;
+        state.selected_prim_path = Some(vec![0]);
+        assert!(state.holds_avatar_still());
     }
 }

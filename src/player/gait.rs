@@ -277,7 +277,7 @@ pub(super) fn animate_avatar_gait(
     let dt = time.delta_secs();
     let t = time.elapsed_secs();
     let hold_rest_pose = avatar_editor
-        .map(|e| e.window_visible() || e.has_visuals_selection())
+        .map(|e| e.holds_avatar_still())
         .unwrap_or(false);
 
     for (

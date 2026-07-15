@@ -209,7 +209,7 @@ impl Plugin for PlayerPlugin {
             )
             .add_systems(
                 Update,
-                freeze_local_avatar_on_visuals_select.run_if(in_state(AppState::InGame)),
+                freeze_local_avatar_while_editing.run_if(in_state(AppState::InGame)),
             );
     }
 }
@@ -222,14 +222,15 @@ impl Plugin for PlayerPlugin {
 /// user put it.
 ///
 /// The actual full-body freeze lives in
-/// [`freeze_local_avatar_on_visuals_select`], which parks the chassis
-/// with a full axis lock for the duration of the selection, and in
-/// [`gait::animate_avatar_gait`], which holds the local avatar's
-/// cosmetic sway at its rest pose whenever the Avatar editor window is
-/// open — a deliberately wider gate than this selection-scoped one
-/// (#737/#741). The input gates here are still worth keeping: the drive
-/// systems have non-physics side effects (gait state, jump triggers)
-/// that shouldn't respond while an edit is in progress.
+/// [`freeze_local_avatar_while_editing`], which parks the chassis with a
+/// full axis lock, and the cosmetic sway hold lives in
+/// [`gait::animate_avatar_gait`] — both keyed on the deliberately wider
+/// [`AvatarEditorState::holds_avatar_still`] gate (window open, not just
+/// row selected: #737/#741/#814). The input gates here stay
+/// selection-scoped on purpose: the drive systems have non-physics side
+/// effects (gait state, jump triggers) that only need suppressing while a
+/// row is actively being edited, and the freeze already neutralizes any
+/// movement they would cause once the window is open.
 fn avatar_visuals_row_selected(avatar_editor: Option<Res<AvatarEditorState>>) -> bool {
     avatar_editor
         .map(|e| e.has_visuals_selection())
@@ -244,18 +245,25 @@ struct VisualsEditFreeze {
     prior_locked_axes: Option<LockedAxes>,
 }
 
-/// Hold the local player's chassis fully frozen while any avatar visuals
-/// row is selected: lock every axis, zero gravity, and re-zero momentum
-/// each frame until the selection clears. Freezing the chassis (rather
-/// than just gating the drive systems) stops the passive movers too —
-/// suspension, buoyancy, gravity, slope creep — so the avatar holds its
-/// exact pose during the edit, even mid-air. That matters for
-/// correctness as well as ergonomics: the drag commit's world→local
-/// conversion reads the parent chassis's `GlobalTransform`, which must
-/// be stable while the gizmo is attached, and previously only a *root*
-/// selection appeared frozen (the gizmo detaches the whole visuals root
-/// from the chassis) while child selections left the rest of the avatar
-/// drifting on live physics.
+/// Hold the local player's chassis fully frozen for the whole avatar
+/// editing session — whenever the Avatar window is open, or a visuals row
+/// is selected during the close-frame gap ([`AvatarEditorState::holds_avatar_still`]):
+/// lock every axis, zero gravity, and re-zero momentum each frame until
+/// the editor releases. Freezing the chassis (rather than just gating the
+/// drive systems) stops the passive movers too — suspension, buoyancy,
+/// gravity/falling, slope creep — so the avatar holds its exact pose
+/// during the edit, even mid-air. That matters for correctness as well as
+/// ergonomics: the drag commit's world→local conversion reads the parent
+/// chassis's `GlobalTransform`, which must be stable while the gizmo is
+/// attached.
+///
+/// The gate matches the cosmetic gait/sway hold in
+/// [`gait::animate_avatar_gait`] (#814): both key on the window being
+/// open, not just the moments a row is selected. Previously this freeze
+/// was selection-scoped, so merely opening the editor without picking a
+/// row left the chassis falling and drifting under live physics while the
+/// visual root's internal sway was held — the whole body still
+/// translated. Collapsing the window resumes physics for previewing.
 ///
 /// Deliberately NOT `RigidBodyDisabled` (#740): in avian 0.6 an
 /// insert/remove cycle of `RigidBodyDisabled` on a body with touching
@@ -281,7 +289,7 @@ struct VisualsEditFreeze {
 /// still-running solver injects — penetration recovery, restitution
 /// residue — so nothing accumulates toward a burst on release.
 #[allow(clippy::type_complexity)]
-fn freeze_local_avatar_on_visuals_select(
+fn freeze_local_avatar_while_editing(
     mut commands: Commands,
     avatar_editor: Option<Res<AvatarEditorState>>,
     mut q: Query<
@@ -295,11 +303,11 @@ fn freeze_local_avatar_on_visuals_select(
         (With<LocalPlayer>, With<RigidBody>),
     >,
 ) {
-    let selected = avatar_editor
-        .map(|e| e.has_visuals_selection())
+    let held = avatar_editor
+        .map(|e| e.holds_avatar_still())
         .unwrap_or(false);
     for (entity, mut lin, mut ang, locked_axes, freeze) in q.iter_mut() {
-        if selected {
+        if held {
             lin.0 = Vec3::ZERO;
             ang.0 = Vec3::ZERO;
             match freeze {
