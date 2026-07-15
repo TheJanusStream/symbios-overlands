@@ -29,6 +29,7 @@ use super::{CarPreset, chassis_corners};
 pub(super) fn apply_car_suspension(
     live: Res<LiveAvatarRecord>,
     mut query: Query<(Entity, Forces, &GlobalTransform), (With<LocalPlayer>, With<CarPreset>)>,
+    sensors: Query<Entity, With<Sensor>>,
     spatial_query: SpatialQuery,
 ) {
     let LocomotionConfig::Car(p) = &live.0.locomotion else {
@@ -42,7 +43,9 @@ pub(super) fn apply_car_suspension(
     let corners = chassis_corners(half_extents);
     let ray_max = p.suspension_rest_length.0 + 1.5;
     let chassis_tf = global_tf.compute_transform();
-    let filter = SpatialQueryFilter::default().with_excluded_entities([chassis_entity]);
+    // Exclude self + every sensor so the suspension never rests on a gateway
+    // veil / portal (#813) — see [`super::ground_ray_filter`].
+    let filter = super::ground_ray_filter(chassis_entity, sensors.iter());
     let lin_vel = forces.linear_velocity();
     let ang_vel = forces.angular_velocity();
     let center_of_mass = global_tf.translation();

@@ -100,6 +100,25 @@ pub(super) fn chassis_corners(half_extents: Vec3) -> [Vec3; 4] {
     CORNER_OFFSETS_RAW.map(|raw| Vec3::new(raw[0], raw[1], raw[2]) * half_extents)
 }
 
+/// Build the ground-detection ray filter shared by the vehicle suspension
+/// casts and the humanoid jump-grounding check, excluding the caster's own
+/// `chassis` plus every `Sensor` collider (pass `sensors.iter()`).
+///
+/// Sensors — the gateway veil ([`GatewayMarker`](crate::world_builder::GatewayMarker))
+/// and portal cubes — are phantom walk-in volumes: `Sensor` exempts them
+/// from contact-force resolution, but avian's `cast_ray` still reports them
+/// as hits. Left in the ground ray, a gateway box reads as ground and the
+/// suspension spring drives the vehicle up its surface instead of letting it
+/// pass through into the zone (#813). Excluding all sensors keeps the
+/// invariant that ground rays only ever see solid ground, with no per-prim
+/// tagging or collision-layer scheme to maintain.
+pub(super) fn ground_ray_filter(
+    chassis: Entity,
+    sensors: impl IntoIterator<Item = Entity>,
+) -> SpatialQueryFilter {
+    SpatialQueryFilter::default().with_excluded_entities(std::iter::once(chassis).chain(sensors))
+}
+
 /// Steering-direction multiplier from a vehicle's signed longitudinal speed:
 /// `-1` while genuinely reversing (below `-REVERSE_STEER_SPEED`), else `+1`.
 /// Both [`car`] and [`hover_boat`] multiply their A/D yaw torque by it so the
@@ -324,6 +343,27 @@ fn freeze_local_avatar_on_visuals_select(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The suspension / grounding ray must skip its own chassis *and* every
+    /// sensor (gateway veils, portals), so a vehicle drives into a gateway
+    /// rather than climbing its surface (#813).
+    #[test]
+    fn ground_ray_filter_excludes_chassis_and_all_sensors() {
+        let mut world = World::new();
+        let chassis = world.spawn_empty().id();
+        let gateway = world.spawn_empty().id();
+        let portal = world.spawn_empty().id();
+        let terrain = world.spawn_empty().id();
+
+        let filter = ground_ray_filter(chassis, [gateway, portal]);
+
+        assert!(filter.excluded_entities.contains(&chassis));
+        assert!(filter.excluded_entities.contains(&gateway));
+        assert!(filter.excluded_entities.contains(&portal));
+        // Solid ground stays visible to the ray.
+        assert!(!filter.excluded_entities.contains(&terrain));
+        assert_eq!(filter.excluded_entities.len(), 3);
+    }
 
     /// The steer-sign shared by the car (#723) and hover-boat (#724) drives:
     /// forward sign held through a standstill (turn-in-place), inverted only

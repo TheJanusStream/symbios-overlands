@@ -99,6 +99,7 @@ pub(super) fn apply_humanoid_walk(
         ),
         (With<LocalPlayer>, With<HumanoidPreset>),
     >,
+    sensors: Query<Entity, With<Sensor>>,
     spatial_query: SpatialQuery,
     traveling: Option<Res<TravelingTo>>,
 ) {
@@ -189,7 +190,10 @@ pub(super) fn apply_humanoid_walk(
             if keyboard.just_pressed(KeyCode::Space) {
                 let origin = chassis_pos + Vec3::Y * 0.05;
                 let feet_distance = total_height * 0.5 + 0.1;
-                let filter = SpatialQueryFilter::default().with_excluded_entities([entity]);
+                // Exclude self + every sensor so a gateway veil / portal never
+                // counts as ground for the jump check (#813) —
+                // see [`super::ground_ray_filter`].
+                let filter = super::ground_ray_filter(entity, sensors.iter());
                 let grounded = spatial_query
                     .cast_ray(origin, Dir3::NEG_Y, feet_distance, true, &filter)
                     .is_some();
