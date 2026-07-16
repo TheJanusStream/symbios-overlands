@@ -68,6 +68,8 @@ pub(super) fn sync_gizmo_selection(
     camera_query: Query<&GlobalTransform, With<Camera3d>>,
     // Any entity still carrying gizmo state a deselect would need to tear down.
     gizmoed: Query<(), Or<(With<GizmoTarget>, With<GizmoDetachedPrim>)>>,
+    // Live gizmo flags, for the mid-drag resolution freeze (#822).
+    active_gizmos: Query<&GizmoTarget>,
 ) {
     // No `is_changed()` guard. The earlier optimization missed the case
     // where a drag commit flips only the *record's* change tick (the
@@ -151,10 +153,30 @@ pub(super) fn sync_gizmo_selection(
         gizmo_options.gizmo_orientation = GizmoOrientation::Local;
     }
 
+    // Mid-drag resolution freeze (#822): while any gizmo drag is in
+    // flight, the target must not be re-resolved. Without this, the
+    // camera-proximity scan below can re-rank instances mid-gesture (the
+    // dragged instance moves past a sibling, or scroll-zoom shifts the
+    // camera) — `attach_or_release_prim` would then strip `GizmoTarget`
+    // from the dragged entity, which the drag system reads as a falling
+    // edge and commits the drag mid-air. `is_active` is written in the
+    // gizmo crate's `Last` schedule, so it reads one frame stale — the
+    // release frame therefore runs one extra frozen frame before normal
+    // resolution resumes, which is harmless. Selection can't change
+    // mid-drag (scene picks are drag-suppressed and the mouse is held on
+    // a handle), so freezing attach/release entirely is safe.
+    if active_gizmos.iter().any(|t| t.is_active()) {
+        return;
+    }
+
     // --- Resolve which prim entity (if any) should carry the gizmo ----------
-    // Room prim: closest live instance of the UI-selected (generator_ref,
-    // path) pair to the camera, only when the Room editor is active and
-    // the Generators tab is showing.
+    // Room prim: the live instance of the UI-selected (generator_ref,
+    // path) pair nearest the owner's last scene-click (#822 — so the
+    // clicked instance hosts the gizmo, surviving the respawns a drag
+    // commit triggers because the preference is a position, not an
+    // entity id), falling back to camera proximity for GUI-originated
+    // selections. Only when the Room editor is active and the Generators
+    // tab is showing.
     let target_room_prim = if target_proxy.is_some() {
         None
     } else if active == ActiveTarget::Room && room_state.selected_tab == EditorTab::Generators {
@@ -163,11 +185,17 @@ pub(super) fn sync_gizmo_selection(
             room_state.selected_prim_path.as_ref(),
         ) {
             (Some(generator_ref), Some(path)) => {
+                let reference_pos = room_state
+                    .preferred_pick
+                    .as_ref()
+                    .filter(|p| p.generator_ref == *generator_ref && p.path == *path)
+                    .map(|p| p.pos)
+                    .unwrap_or(cam_pos);
                 let mut best_entity = None;
                 let mut best_dist_sq = f32::MAX;
                 for (entity, marker, tf, _, _, _) in prim_query.iter() {
                     if marker.generator_ref == *generator_ref && marker.path == *path {
-                        let dist_sq = tf.translation().distance_squared(cam_pos);
+                        let dist_sq = tf.translation().distance_squared(reference_pos);
                         if dist_sq < best_dist_sq {
                             best_dist_sq = dist_sq;
                             best_entity = Some(entity);

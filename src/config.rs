@@ -1104,6 +1104,27 @@ pub mod ui {
         pub const ANCHOR_OFFSET: [f32; 2] = [-12.0, 40.0];
     }
 
+    /// In-scene selection highlight (`crate::editor_gizmo::highlight`,
+    /// #822 / W5): wire boxes around what the gizmo will affect.
+    pub mod selection_highlight {
+        /// Box colour [R, G, B, A] for the selected node's subtree on the
+        /// gizmo-hosting instance. Warm amber — the classic selection
+        /// accent, distinct from the blob proxies' add-green/carve-red
+        /// and the wireframe's cool blue-grey.
+        pub const SELECTED_COLOR: [f32; 4] = [1.0, 0.82, 0.25, 0.95];
+
+        /// Box colour for the OTHER live instances of the same blueprint
+        /// node (a scattered generator edits every instance at once, so
+        /// the blast radius is shown honestly — but dimly, one box per
+        /// instance, so a 50-house scatter reads as context rather than
+        /// noise).
+        pub const SIBLING_COLOR: [f32; 4] = [1.0, 0.82, 0.25, 0.25];
+
+        /// Floor on each box axis so flat/degenerate bounds (a card, an
+        /// empty container) still draw a visible sliver.
+        pub const MIN_BOX_EXTENT: f32 = 0.05;
+    }
+
     /// In-scene BlobGroup element editing (#705): wireframe surface +
     /// gizmo-draggable per-element proxies (`crate::editor_gizmo::blob`).
     pub mod blob_edit {

@@ -137,6 +137,17 @@ pub struct RoomEditorState {
     /// click, then this clears. A world-pick bypasses the tree's own
     /// click-to-focus path, which is what normally focuses it.
     pub pending_tree_focus: bool,
+    /// Where the owner's most recent scene-click pick landed (#822).
+    /// For a multi-instance node (a scattered blueprint), the gizmo sync
+    /// prefers the live instance nearest this position over the
+    /// camera-nearest one, so the gizmo appears on the instance the
+    /// owner actually clicked — and, because the position (not the
+    /// entity id) is stored, the preference survives the record-driven
+    /// respawns a drag commit triggers. Identity-gated: sync consults it
+    /// only while the selection still matches `generator_ref`/`path`, so
+    /// a GUI-originated selection (tree row click) naturally falls back
+    /// to camera proximity without anyone having to clear this.
+    pub preferred_pick: Option<PreferredPick>,
     raw_text: String,
     raw_text_initialised: bool,
     raw_error: Option<String>,
@@ -195,7 +206,18 @@ impl RoomEditorState {
         self.selected_generator = None;
         self.selected_prim_path = None;
         self.tree_view_state.set_selected(Vec::new());
+        self.preferred_pick = None;
     }
+}
+
+/// A scene-click pick's landing spot (#822): which node was picked and
+/// where in the world the picked instance stood. See
+/// [`RoomEditorState::preferred_pick`].
+#[derive(Clone, Debug)]
+pub struct PreferredPick {
+    pub generator_ref: String,
+    pub path: Vec<usize>,
+    pub pos: Vec3,
 }
 
 /// Extra system params for [`room_admin_ui`], grouped into one

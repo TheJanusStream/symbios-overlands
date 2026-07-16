@@ -113,6 +113,11 @@ pub struct AvatarEditorState {
     /// the moments a row is selected. Collapsing the window deliberately
     /// counts as closed — tuck the panel away to preview the live sway.
     window_visible: bool,
+    /// Set for one frame when an in-world pick (#823) selects a visuals
+    /// node. On the next Visuals-tab draw the tree grabs keyboard focus
+    /// so the picked row highlights like a direct click — the same
+    /// one-shot mechanism as `RoomEditorState::pending_tree_focus`.
+    pending_tree_focus: bool,
 }
 
 impl AvatarEditorState {
@@ -148,6 +153,26 @@ impl AvatarEditorState {
         self.selected_generator = None;
         self.selected_prim_path = None;
         self.tree_view_state.set_selected(Vec::new());
+    }
+
+    /// Select a visuals node from an in-world scene pick (#823), exactly
+    /// as if its tree row had been clicked: selection set, every
+    /// ancestor expanded (the tree collapses by default, so the picked
+    /// row must be revealed), the row marked selected in the tree
+    /// widget, and a one-shot focus request armed so the row gets the
+    /// bright focused highlight on the next draw. Mirrors the room
+    /// editor's pick path in `editor_gizmo::pick_on_scene_click`.
+    pub fn select_from_scene_pick(&mut self, path: Vec<usize>) {
+        let root = AvatarVisualsTreeSource::ROOT_NAME.to_string();
+        self.selected_generator = Some(root.clone());
+        self.selected_prim_path = Some(path.clone());
+        for depth in 0..path.len() {
+            self.tree_view_state
+                .set_openness(GenNodeId::child(root.clone(), path[..depth].to_vec()), true);
+        }
+        self.tree_view_state
+            .set_selected(vec![GenNodeId::child(root, path)]);
+        self.pending_tree_focus = true;
     }
 }
 
@@ -252,6 +277,7 @@ pub fn avatar_ui(
                     audio_editor,
                     seed_row_state,
                     default_cache,
+                    pending_tree_focus,
                     ..
                 } = &mut *editor;
 
@@ -259,15 +285,17 @@ pub fn avatar_ui(
                     AvatarTab::Visuals => {
                         ui.allocate_ui(egui::vec2(ui.available_width(), body_height), |ui| {
                             let mut source = AvatarVisualsTreeSource::new(&mut live_mut.0.visuals);
+                            // One-shot focus request from an in-world pick
+                            // (#823) — same consume-on-draw contract as the
+                            // room editor's tree.
+                            let request_focus = std::mem::take(pending_tree_focus);
                             draw_generators_tab(
                                 ui,
                                 &mut source,
                                 selected_generator,
                                 selected_prim_path,
                                 tree_view_state,
-                                // No in-world node picking for avatar visuals,
-                                // so the tree never needs a programmatic focus.
-                                false,
+                                request_focus,
                                 renaming_unused,
                                 inventory.as_deref_mut(),
                                 audio_editor,
@@ -604,5 +632,43 @@ mod tests {
         state.window_visible = false;
         state.selected_prim_path = Some(vec![0]);
         assert!(state.holds_avatar_still());
+    }
+
+    /// #823: a scene pick must land the full row-click state — selection
+    /// set to the picked path under the fixed "visuals" root, the row
+    /// selected in the tree widget, every ancestor expanded, and the
+    /// one-shot focus request armed (then consumed by the next draw).
+    #[test]
+    fn scene_pick_selects_expands_and_arms_focus() {
+        let mut state = AvatarEditorState::default();
+        state.select_from_scene_pick(vec![1, 0, 2]);
+
+        assert_eq!(
+            state.selected_generator.as_deref(),
+            Some(AvatarVisualsTreeSource::ROOT_NAME)
+        );
+        assert_eq!(state.selected_prim_path, Some(vec![1, 0, 2]));
+        assert!(state.has_visuals_selection());
+        assert!(state.pending_tree_focus, "focus request armed");
+
+        // The tree widget mirrors the selection...
+        let selected_id = GenNodeId::child(
+            AvatarVisualsTreeSource::ROOT_NAME.to_string(),
+            vec![1, 0, 2],
+        );
+        assert_eq!(state.tree_view_state.selected(), &vec![selected_id]);
+        // ...and every ancestor (root, [1], [1,0]) is explicitly opened
+        // so the picked row is actually visible.
+        for depth in 0..3 {
+            let ancestor = GenNodeId::child(
+                AvatarVisualsTreeSource::ROOT_NAME.to_string(),
+                vec![1, 0, 2][..depth].to_vec(),
+            );
+            assert_eq!(
+                state.tree_view_state.is_open(&ancestor),
+                Some(true),
+                "ancestor at depth {depth} expanded"
+            );
+        }
     }
 }

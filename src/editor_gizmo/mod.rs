@@ -60,11 +60,15 @@
 //!   targeting and the element writeback.
 //! * [`context_menu`] — the right-click scene menu (#720): select item /
 //!   select placement / create new at the hit point.
+//! * [`highlight`] — selection wire boxes (#822 / W5): the selected
+//!   node's subtree bright, sibling scatter instances dim, so the
+//!   gizmo's blast radius is visible before a drag.
 
 mod blob;
 mod commit;
 mod context_menu;
 mod drag;
+mod highlight;
 mod sync;
 
 pub use blob::BlobEditContext;
@@ -80,7 +84,7 @@ use transform_gizmo_bevy::{GizmoOrientation, GizmoTarget};
 use crate::state::AppState;
 use crate::ui::avatar::AvatarEditorState;
 use crate::ui::room::{EditorTab, RoomEditorState};
-use crate::world_builder::{PlacementMarker, PrimMarker};
+use crate::world_builder::{AvatarVisualPrim, PlacementMarker, PrimMarker};
 
 /// Owner-facing toggle for how the gizmo's drag axes are oriented.
 ///
@@ -214,6 +218,7 @@ impl Plugin for EditorGizmoPlugin {
                     blob::proxy::reconcile_blob_proxies,
                     sync::sync_gizmo_selection,
                     drag::manage_gizmo_drag,
+                    highlight::draw_selection_highlight,
                     blob::wireframe::swap_blob_wireframe,
                     blob::preview::blob_drag_preview,
                 )
@@ -262,10 +267,13 @@ impl Plugin for EditorGizmoPlugin {
 /// a left-click into the 3D viewport raycasts the scene's meshes and
 /// selects what it hits — the exact sub-part of an asset on Region Assets,
 /// the owning placement on Placements — exactly as if the matching GUI row
-/// had been clicked. Hitting nothing selectable (sky, terrain, water,
-/// avatars) clears the selection, which makes the gizmo vanish via [`sync`].
-/// On any other tab, or with the editor closed, a scene click just clears —
-/// the pre-#702 behaviour.
+/// had been clicked. With the Avatar window open, clicking the local
+/// avatar's own visual parts selects the matching visuals node in the
+/// Avatar editor the same way (#823); the avatar branch outranks the room
+/// one, matching the cross-editor mutex. Hitting nothing selectable (sky,
+/// terrain, water, remote peers) clears the selection, which makes the
+/// gizmo vanish via [`sync`]. On any other tab, or with the editors
+/// closed, a scene click just clears — the pre-#702 behaviour.
 ///
 /// Mesh raycast, not physics: most catalogue props carry no collider, so
 /// `SpatialQuery` would see through them; `MeshRayCast` hits anything
@@ -294,9 +302,11 @@ fn pick_on_scene_click(
     parents: Query<&ChildOf>,
     mut room_state: ResMut<RoomEditorState>,
     mut avatar_state: ResMut<AvatarEditorState>,
-    (mut blob_ctx, blob_proxies): (
+    (mut blob_ctx, blob_proxies, global_tfs, avatar_prims): (
         ResMut<blob::BlobEditContext>,
         Query<&blob::proxy::BlobElementProxy>,
+        Query<&GlobalTransform>,
+        Query<&AvatarVisualPrim>,
     ),
 ) {
     // Left button only — the orbit/pan camera owns Right/Middle, so this
@@ -321,59 +331,86 @@ fn pick_on_scene_click(
         return;
     }
 
+    // Cursor → world ray → nearest rendered mesh, cast ONCE and shared by
+    // the proxy, avatar (#823), and room pick branches below.
+    let hit_entity = scene_hit_under_cursor(&windows, &cameras, &mut raycast);
+
     // Blob element proxies take pick precedence (#705): while a BlobGroup
     // is under edit, clicking one of its red/green proxy meshes selects
     // that element for the gizmo — in whichever editor owns the session,
-    // so this runs before the avatar-clear and the room-editor gates. The
-    // proxy carries its own mesh, so the raycast hit *is* the proxy
+    // so this runs before the avatar branches and the room-editor gates.
+    // The proxy carries its own mesh, so the raycast hit *is* the proxy
     // entity (no ancestor walk needed).
     if blob_ctx.active.is_some()
-        && let Some(hit) = scene_hit_under_cursor(&windows, &cameras, &mut raycast)
+        && let Some(hit) = hit_entity
         && let Ok(proxy) = blob_proxies.get(hit)
     {
         blob_ctx.selected_element = Some(proxy.index);
         return;
     }
 
-    // A scene click always takes the avatar editor's selection away —
-    // same cross-editor mutex direction as before #702.
+    // Avatar pick (#823): with the Avatar window open, clicking one of
+    // the LOCAL avatar's own visual parts selects that node in the
+    // Avatar editor — ancestor-expand + row focus, exactly like the room
+    // pick below. `AvatarVisualPrim` is only attached to local-player
+    // visuals, so remote peers can never be picked. Runs before the
+    // avatar-clear (a hit IS a new avatar selection) and before the room
+    // gates (avatar wins the cross-editor mutex, matching
+    // `determine_active_target`); the room selection is cleared so the
+    // gizmo dispatch is unambiguous.
+    if panels.avatar {
+        let mut cursor_entity = hit_entity;
+        while let Some(entity) = cursor_entity {
+            if let Ok(marker) = avatar_prims.get(entity) {
+                avatar_state.select_from_scene_pick(marker.path.clone());
+                if room_state.has_selection() {
+                    room_state.clear_selection();
+                }
+                return;
+            }
+            cursor_entity = parents.get(entity).ok().map(ChildOf::parent);
+        }
+    }
+
+    // A scene click that did NOT land on the avatar takes the avatar
+    // editor's selection away — same cross-editor mutex direction as
+    // before #702.
     if avatar_state.has_visuals_selection() {
         avatar_state.clear_visuals_selection();
     }
 
-    // Picking needs the editor open on a pickable tab, in a room the user
-    // owns (the same gate the editor window itself renders under). In
-    // every other situation, keep the old clear-on-click behaviour.
+    // Picking needs the editor open in a room the user owns (the same
+    // gate the editor window itself renders under). In every other
+    // situation, keep the old clear-on-click behaviour. The active tab no
+    // longer gates the pick (#824): a hit from a non-pickable tab
+    // switches to the matching tab, exactly like the right-click menu's
+    // Select entries always did.
     let owns_room = matches!(
         (session.as_deref(), room_did.as_deref()),
         (Some(s), Some(r)) if s.did == r.0
     );
-    let pickable_tab = matches!(
-        room_state.selected_tab,
-        EditorTab::Generators | EditorTab::Placements
-    );
-    if !(panels.world_editor && owns_room && pickable_tab) {
+    if !(panels.world_editor && owns_room) {
         if room_state.has_selection() {
             room_state.clear_selection();
         }
         return;
     }
 
-    // Cursor → world ray → nearest rendered mesh.
-    let hit_entity = scene_hit_under_cursor(&windows, &cameras, &mut raycast);
-
     // Walk from the hit mesh up the hierarchy: the FIRST `PrimMarker` is
     // the exact (deepest) sub-part under the cursor; the `PlacementMarker`
     // sits on the anchor above it. Non-selectable scenery (terrain, water,
-    // sky, avatars) carries neither and falls through to a clear.
-    let mut picked_prim: Option<PrimMarker> = None;
+    // sky, avatars) carries neither and falls through to a clear. The
+    // marker-carrying entity rides along (#822): its world position seeds
+    // `preferred_pick` so the gizmo lands on the instance that was
+    // actually clicked, not the camera-nearest one.
+    let mut picked_prim: Option<(PrimMarker, Entity)> = None;
     let mut picked_placement: Option<usize> = None;
     let mut cursor_entity = hit_entity;
     while let Some(entity) = cursor_entity {
         if picked_prim.is_none()
             && let Ok(marker) = prim_markers.get(entity)
         {
-            picked_prim = Some(marker.clone());
+            picked_prim = Some((marker.clone(), entity));
         }
         if let Ok(marker) = placement_markers.get(entity) {
             picked_placement = Some(marker.0);
@@ -384,10 +421,19 @@ fn pick_on_scene_click(
 
     match room_state.selected_tab {
         EditorTab::Generators => {
-            if let Some(marker) = picked_prim {
+            if let Some((marker, marker_entity)) = picked_prim {
                 room_state.selected_placement = None;
                 room_state.selected_generator = Some(marker.generator_ref.clone());
                 room_state.selected_prim_path = Some(marker.path.clone());
+                room_state.preferred_pick =
+                    global_tfs
+                        .get(marker_entity)
+                        .ok()
+                        .map(|gt| crate::ui::room::PreferredPick {
+                            generator_ref: marker.generator_ref.clone(),
+                            path: marker.path.clone(),
+                            pos: gt.translation(),
+                        });
                 // Reveal the picked row: the tree collapses by default
                 // (#719), so open every ancestor along the path or the
                 // selected row stays hidden inside a collapsed parent.
@@ -429,15 +475,57 @@ fn pick_on_scene_click(
                 room_state.clear_selection();
             }
         }
-        // Unreachable: `pickable_tab` gated above.
-        _ => {}
+        // Environment / Effects / Raw JSON (#824): a hit switches to the
+        // tab that can show it — the exact sub-part on Region Assets when
+        // a prim was hit, the enclosing placement otherwise — mirroring
+        // the right-click menu's Select entries. Empty scenery clears.
+        _ => {
+            if let Some((marker, marker_entity)) = picked_prim {
+                room_state.selected_tab = EditorTab::Generators;
+                room_state.selected_placement = None;
+                room_state.selected_generator = Some(marker.generator_ref.clone());
+                room_state.selected_prim_path = Some(marker.path.clone());
+                room_state.preferred_pick =
+                    global_tfs
+                        .get(marker_entity)
+                        .ok()
+                        .map(|gt| crate::ui::room::PreferredPick {
+                            generator_ref: marker.generator_ref.clone(),
+                            path: marker.path.clone(),
+                            pos: gt.translation(),
+                        });
+                for depth in 0..marker.path.len() {
+                    room_state.tree_view_state.set_openness(
+                        crate::ui::room::GenNodeId::child(
+                            marker.generator_ref.clone(),
+                            marker.path[..depth].to_vec(),
+                        ),
+                        true,
+                    );
+                }
+                room_state
+                    .tree_view_state
+                    .set_selected(vec![crate::ui::room::GenNodeId::child(
+                        marker.generator_ref,
+                        marker.path,
+                    )]);
+                room_state.pending_tree_focus = true;
+            } else if let Some(index) = picked_placement {
+                room_state.selected_tab = EditorTab::Placements;
+                room_state.selected_generator = None;
+                room_state.selected_prim_path = None;
+                room_state.tree_view_state.set_selected(Vec::new());
+                room_state.selected_placement = Some(index);
+            } else {
+                room_state.clear_selection();
+            }
+        }
     }
 }
 
-/// Cursor position → world ray → nearest rendered mesh under it. Shared
-/// by the proxy-precedence branch and the ordinary pick path of
-/// [`pick_on_scene_click`] (the two run in sequence, so a blob-edit miss
-/// costs one extra raycast per click — clicks, not frames).
+/// Cursor position → world ray → nearest rendered mesh under it. Cast
+/// once per click at the top of [`pick_on_scene_click`] and shared by
+/// the proxy, avatar, and room branches.
 fn scene_hit_under_cursor(
     windows: &Query<&Window, With<PrimaryWindow>>,
     cameras: &Query<(&Camera, &GlobalTransform), With<Camera3d>>,

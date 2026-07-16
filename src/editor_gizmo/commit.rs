@@ -93,7 +93,8 @@ pub(super) fn commit_room_drag(
         };
 
         if is_copy && !marker.path.is_empty() {
-            if let Some(new_idx) = append_sibling_at_path(generator, &marker.path, new_local) {
+            if let Some(new_idx) = append_sibling_at_path(generator, &marker.path, Some(new_local))
+            {
                 if let Some(path) = editor.selected_prim_path.as_mut()
                     && let Some(last) = path.last_mut()
                 {
@@ -225,15 +226,16 @@ fn commit_transform_at_path(
     true
 }
 
-/// Append a sibling clone of the node at `path`, with `new_local` as the
-/// clone's transform. Returns the new sibling's child-index on success;
-/// `None` if `path` is empty (root has no parent to clone into) or
-/// invalid. Used only by the room copy-on-drag path — avatar prims do
-/// not support copy.
-fn append_sibling_at_path(
+/// Append a sibling clone of the node at `path`. `new_local` overrides
+/// the clone's transform (the copy-on-drag path passes the dragged
+/// pose); `None` keeps the original's transform verbatim — the context
+/// menu's in-place Duplicate (#824). Returns the new sibling's
+/// child-index on success; `None` if `path` is empty (root has no
+/// parent to clone into) or invalid. Avatar prims do not support copy.
+pub(super) fn append_sibling_at_path(
     generator: &mut Generator,
     path: &[usize],
-    new_local: Transform,
+    new_local: Option<Transform>,
 ) -> Option<usize> {
     if path.is_empty() {
         return None;
@@ -252,7 +254,9 @@ fn append_sibling_at_path(
         return None;
     }
     let mut new_child = parent.children[child_idx].clone();
-    new_child.transform = TransformData::from(new_local);
+    if let Some(new_local) = new_local {
+        new_child.transform = TransformData::from(new_local);
+    }
     parent.children.push(new_child);
     Some(parent.children.len() - 1)
 }
