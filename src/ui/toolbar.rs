@@ -23,9 +23,13 @@ use crate::player::{AirplanePreset, CarPreset, HelicopterPreset, HoverBoatPreset
 use crate::state::{CurrentRoomDid, LocalPlayer};
 
 /// Open/closed state for every toolbar-managed window. Initialised at
-/// app startup and reset by `logout::cleanup_on_logout` so the next
-/// session starts from the defaults (including a fresh controls hint).
-#[derive(Resource)]
+/// app startup, overwritten by the persisted prefs ([`crate::prefs`],
+/// #820) when the machine has saved a layout, and carried across logout
+/// so the next session reopens the same panels. Serde: `#[serde(default)]`
+/// fills bools missing from an older prefs file with these defaults, so
+/// the struct can grow without breaking saved state.
+#[derive(Resource, Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct UiPanels {
     pub chat: bool,
     pub people: bool,

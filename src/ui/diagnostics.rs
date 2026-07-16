@@ -656,12 +656,13 @@ fn render_health_tab(
 ///   "Download session log" button hands [`SessionLog::drain_ndjson`] to the
 ///   browser as a byte-for-byte-identical `.jsonl` file the analyzer can read.
 ///
-/// `status` carries a transient `(message, shown_at_secs)` toast (mirroring the
-/// landmark-link copy feedback) rendered for a few seconds after a click.
+/// Click outcomes are reported through the app-wide toast channel
+/// ([`crate::ui::toast::Toasts`], #819) — the same feedback surface the
+/// landmark-link copy uses.
 fn render_log_export_controls(
     ui: &mut egui::Ui,
     session_log: &SessionLog,
-    status: &mut Option<(String, f64)>,
+    toasts: &mut crate::ui::toast::Toasts,
     now: f64,
 ) {
     ui.label("Session log");
@@ -675,10 +676,10 @@ fn render_log_export_controls(
                     .color(egui::Color32::GRAY),
             );
             if ui.button("Copy path").clicked() {
-                *status = Some(match write_to_clipboard(&path) {
-                    Ok(()) => ("Path copied".to_string(), now),
-                    Err(e) => (format!("Copy failed ({e})"), now),
-                });
+                match write_to_clipboard(&path) {
+                    Ok(()) => toasts.success("Path copied", now),
+                    Err(e) => toasts.error(format!("Copy failed ({e})"), now),
+                }
             }
         }
         None => {
@@ -693,16 +694,14 @@ fn render_log_export_controls(
     if ui.button("Download session log").clicked() {
         let ndjson = session_log.drain_ndjson();
         let count = session_log.len();
-        *status = Some(
-            match crate::boot_params::download_text_file(
-                "symbios-session-log.jsonl",
-                "application/x-ndjson",
-                &ndjson,
-            ) {
-                Ok(()) => (format!("Downloaded {count} events"), now),
-                Err(e) => (format!("Download failed ({e})"), now),
-            },
-        );
+        match crate::boot_params::download_text_file(
+            "symbios-session-log.jsonl",
+            "application/x-ndjson",
+            &ndjson,
+        ) {
+            Ok(()) => toasts.success(format!("Downloaded {count} events"), now),
+            Err(e) => toasts.error(format!("Download failed ({e})"), now),
+        }
     }
 
     // Crash-surviving tail of the *previous* session (#811) — present only
@@ -712,33 +711,19 @@ fn render_log_export_controls(
     if crate::diagnostics::crash_log::previous_session_log_bytes() > 0
         && ui.button("Download previous session log").clicked()
     {
-        *status = Some(
-            match crate::diagnostics::crash_log::previous_session_log() {
-                Some(ndjson) => {
-                    match crate::boot_params::download_text_file(
-                        "symbios-session-log-previous.jsonl",
-                        "application/x-ndjson",
-                        &ndjson,
-                    ) {
-                        Ok(()) => ("Downloaded previous session tail".to_string(), now),
-                        Err(e) => (format!("Download failed ({e})"), now),
-                    }
+        match crate::diagnostics::crash_log::previous_session_log() {
+            Some(ndjson) => {
+                match crate::boot_params::download_text_file(
+                    "symbios-session-log-previous.jsonl",
+                    "application/x-ndjson",
+                    &ndjson,
+                ) {
+                    Ok(()) => toasts.success("Downloaded previous session tail", now),
+                    Err(e) => toasts.error(format!("Download failed ({e})"), now),
                 }
-                None => (
-                    "Previous session tail missing from storage".to_string(),
-                    now,
-                ),
-            },
-        );
-    }
-
-    if let Some((msg, at)) = status.as_ref()
-        && now - at < 6.0
-    {
-        ui.colored_label(
-            egui::Color32::from_rgb(160, 200, 160),
-            egui::RichText::new(msg).small(),
-        );
+            }
+            None => toasts.warn("Previous session tail missing from storage", now),
+        }
     }
 }
 
@@ -753,8 +738,7 @@ pub fn diagnostics_ui(
     mut session_log: ResMut<SessionLog>,
     invariants: Res<InvariantRegistry>,
     metrics: Res<MetricsRegistry>,
-    mut landmark_status: Local<Option<(String, f64)>>,
-    mut log_export_status: Local<Option<(String, f64)>>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
     mut active_tab: Local<DiagTab>,
     time: Res<Time>,
     local_player_q: Query<&Transform, With<LocalPlayer>>,
@@ -875,18 +859,9 @@ pub fn diagnostics_ui(
                     let yaw_deg = yaw_rad.to_degrees();
                     let link = build_landmark_link(&room.0, tf.translation, yaw_deg);
                     let now = time.elapsed_secs_f64();
-                    *landmark_status = Some(match write_to_clipboard(&link) {
-                        Ok(()) => (format!("Copied: {link}"), now),
-                        Err(e) => (format!("Copy failed ({e}); {link}"), now),
-                    });
-                }
-                if let Some((msg, at)) = landmark_status.as_ref() {
-                    let ago = (time.elapsed_secs_f64() - at).max(0.0);
-                    if ago < 6.0 {
-                        ui.colored_label(
-                            egui::Color32::from_rgb(160, 200, 160),
-                            egui::RichText::new(msg).small(),
-                        );
+                    match write_to_clipboard(&link) {
+                        Ok(()) => toasts.success(format!("Copied: {link}"), now),
+                        Err(e) => toasts.error(format!("Copy failed ({e}); {link}"), now),
                     }
                 }
                 ui.separator();
@@ -935,12 +910,7 @@ pub fn diagnostics_ui(
 
             // Session-log export: on-disk path + Copy (native) / Download button
             // (wasm), so the same NDJSON the analyzer reads is one click away.
-            render_log_export_controls(
-                ui,
-                &session_log,
-                &mut log_export_status,
-                time.elapsed_secs_f64(),
-            );
+            render_log_export_controls(ui, &session_log, &mut toasts, time.elapsed_secs_f64());
             ui.separator();
 
             ui.label("Event Log");
@@ -1056,24 +1026,24 @@ mod tests {
     }
 
     /// Headless egui frame: the A-8 session-log export controls render without
-    /// panicking with the sink disabled (default log → "(session log disabled)"),
-    /// with a transient toast active, and (native) with a file sink attached so
-    /// the path + "Copy path" branch is exercised.
+    /// panicking with the sink disabled (default log → "(session log disabled)")
+    /// and (native) with a file sink attached so the path + "Copy path" branch
+    /// is exercised. Click feedback goes through the toast channel (#819),
+    /// whose queue logic is unit-tested in `crate::ui::toast`.
     #[test]
     fn log_export_controls_render_without_panicking() {
-        fn render_once(log: &SessionLog, mut status: Option<(String, f64)>) {
+        fn render_once(log: &SessionLog) {
+            let mut toasts = crate::ui::toast::Toasts::default();
             let ctx = egui::Context::default();
             let _ = ctx.run(egui::RawInput::default(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    render_log_export_controls(ui, log, &mut status, 1.0);
+                    render_log_export_controls(ui, log, &mut toasts, 1.0);
                 });
             });
         }
 
-        // Disabled sink → the muted "(session log disabled)" branch, no toast.
-        render_once(&SessionLog::default(), None);
-        // A recent toast still renders (within the 6 s fade window).
-        render_once(&SessionLog::default(), Some(("Path copied".into(), 1.0)));
+        // Disabled sink → the muted "(session log disabled)" branch.
+        render_once(&SessionLog::default());
 
         // Native sink attached → the path + "Copy path" button branch.
         #[cfg(not(target_arch = "wasm32"))]
@@ -1084,7 +1054,7 @@ mod tests {
             let mut log = SessionLog::default();
             log.set_sink(Sink::open_in(&dir, None));
             assert!(log.sink_path().is_some(), "sink path present once attached");
-            render_once(&log, None);
+            render_once(&log);
             let _ = std::fs::remove_dir_all(&dir);
         }
     }

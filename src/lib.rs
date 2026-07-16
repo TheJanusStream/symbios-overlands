@@ -50,6 +50,7 @@ pub mod oauth;
 pub mod offload;
 pub mod pds;
 pub mod player;
+pub mod prefs;
 pub mod protocol;
 pub mod seeded_defaults;
 pub mod social;
@@ -206,6 +207,7 @@ pub fn run() {
         .init_resource::<PublishFeedback<AvatarRecord>>()
         .init_resource::<PublishFeedback<InventoryRecord>>()
         .init_resource::<ui::toolbar::UiPanels>()
+        .init_resource::<ui::toast::Toasts>()
         .init_resource::<ui::catalogue::CatalogueBrowser>()
         .init_resource::<ui::inventory::PendingGeneratorDrop>()
         .init_resource::<state::PendingOutgoingOffers>()
@@ -334,6 +336,9 @@ pub fn run() {
                 ui::inventory::inventory_ui,
                 ui::catalogue::catalogue_ui,
                 ui::toolbar::controls_hint_ui,
+                // Last in the chain AND on the egui Foreground order, so
+                // toasts paint above every floating window (#819).
+                ui::toast::toast_ui,
             )
                 .chain()
                 .run_if(in_state(AppState::InGame)),
@@ -367,6 +372,12 @@ pub fn run() {
             )
                 .run_if(in_state(AppState::InGame)),
         )
+        // Machine-local UI prefs (#820): restore panels/settings from the
+        // store once at startup, then persist them (debounced) whenever
+        // they change. Runs in every AppState — panel toggles only happen
+        // InGame, but the startup load must land before the first frame.
+        .add_systems(Startup, prefs::load_prefs_at_startup)
+        .add_systems(Update, prefs::save_prefs_when_changed)
         .add_systems(Startup, setup_lighting)
         .add_systems(
             Update,

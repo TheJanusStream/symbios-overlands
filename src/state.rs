@@ -226,7 +226,11 @@ pub struct StoredRoomRecord(pub RoomRecord);
 
 /// Local-only UX preferences that are *not* stored on the PDS (they
 /// describe how this client renders the world, not the world itself).
-#[derive(Resource)]
+/// Persisted machine-locally by [`crate::prefs`] (#820); grow it only
+/// with `#[serde(default)]`-compatible fields so old prefs files keep
+/// loading.
+#[derive(Resource, Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct LocalSettings {
     /// When true, remote peer transforms are smoothed with a Hermite spline
     /// applied to a delayed jitter buffer.  When false, peers snap to the

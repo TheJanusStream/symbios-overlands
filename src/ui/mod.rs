@@ -32,6 +32,9 @@
 //!   `AppState::Loading` gate (fetch / retry / bake status rows).
 //! * [`toolbar`]      — top toolbar with per-panel toggle buttons
 //!   ([`toolbar::UiPanels`]) and the first-run controls hint.
+//! * [`toast`]        — transient top-right notification stack
+//!   ([`toast::Toasts`]); the one channel for "something just happened"
+//!   feedback (#819).
 
 pub mod avatar;
 pub mod catalogue;
@@ -44,5 +47,6 @@ pub mod loading;
 pub mod login;
 pub mod people;
 pub mod room;
+pub mod toast;
 pub mod toolbar;
 pub mod unsaved_guard;

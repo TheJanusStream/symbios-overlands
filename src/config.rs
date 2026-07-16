@@ -1079,6 +1079,31 @@ pub mod ui {
         pub const SIZE_READOUT_REFRESH_SECS: f64 = 0.5;
     }
 
+    /// Transient toast notifications (`crate::ui::toast`, #819).
+    pub mod toast {
+        /// Seconds a toast stays visible before pruning. Matches the 6 s
+        /// the Diagnostics window's hand-rolled statuses used before they
+        /// migrated onto this channel.
+        pub const DURATION_SECS: f64 = 6.0;
+
+        /// Queue cap: a burst past this drops the oldest entry. Toasts
+        /// are glanceable feedback, not a log — the diagnostics event
+        /// log is the durable record.
+        pub const MAX_VISIBLE: usize = 6;
+
+        /// Success accent [R, G, B] — the exact green the migrated
+        /// Diagnostics toasts used, kept so the founding consumers look
+        /// unchanged. Warn/Error/Info reuse the diagnostics severity map.
+        pub const SUCCESS_RGB: [u8; 3] = [160, 200, 160];
+
+        /// Max text width before wrapping.
+        pub const MAX_WIDTH: f32 = 320.0;
+
+        /// Anchor offset from the screen's top-right corner: clear of
+        /// the window edge and below the toolbar strip.
+        pub const ANCHOR_OFFSET: [f32; 2] = [-12.0, 40.0];
+    }
+
     /// In-scene BlobGroup element editing (#705): wireframe surface +
     /// gizmo-draggable per-element proxies (`crate::editor_gizmo::blob`).
     pub mod blob_edit {

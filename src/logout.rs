@@ -178,12 +178,16 @@ fn cleanup_on_logout(
     // different user never shows the previous session's stale
     // "✓ Saved (Ns ago)".
     commands.insert_resource(PublishFeedback::<RoomRecord>::default());
-    // Same reset-don't-remove treatment for the toolbar's panel flags:
-    // the next session starts from the defaults, including a fresh
-    // first-run controls hint.
-    commands.insert_resource(crate::ui::toolbar::UiPanels::default());
+    // UiPanels is deliberately NOT reset here (#820): panel layout is a
+    // machine-local preference persisted by `crate::prefs`, so logging
+    // out and back in reopens the same windows — and the dismissed
+    // first-run Controls hint stays dismissed instead of greeting the
+    // user every session.
     commands.insert_resource(PublishFeedback::<AvatarRecord>::default());
     commands.insert_resource(PublishFeedback::<InventoryRecord>::default());
+    // Toasts are session-scoped feedback: a "Copied: …" from the old
+    // session must not greet the next login's first InGame frames.
+    commands.insert_resource(crate::ui::toast::Toasts::default());
 
     // Hard logout path: tear down every session + networking resource.
     commands.remove_resource::<AtprotoSession>();

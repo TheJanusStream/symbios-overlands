@@ -177,12 +177,22 @@ impl Plugin for PlayerPlugin {
                     hover_boat::sync_hover_boat_physics,
                     hover_boat::apply_hover_boat_suspension,
                     hover_boat::apply_hover_boat_buoyancy,
+                    // Passive stabilisation runs UNGATED, exactly like
+                    // suspension/buoyancy above: helicopter hover +
+                    // self-righting and airplane cruise/lift/drag are
+                    // not input responses, so egui focus must not cut
+                    // them (#821 — the airship used to fall out of the
+                    // sky whenever a text field grabbed the keyboard).
+                    helicopter::apply_helicopter_stabilization,
+                    airplane::apply_airplane_aerodynamics,
                     // Disable keyboard-driven control systems while the
                     // owner is typing in an egui text field — otherwise
                     // WASD-heavy chat messages steer the vehicle through
-                    // walls. Physics (suspension, buoyancy, gravity) and
-                    // the uprighting / respawn passes still run so a
-                    // vehicle left mid-air keeps obeying gravity.
+                    // walls. Physics (suspension, buoyancy, gravity,
+                    // hover/lift stabilisation) and the uprighting /
+                    // respawn passes still run so a vehicle left mid-air
+                    // keeps obeying gravity — and an airship keeps
+                    // hovering.
                     hover_boat::apply_hover_boat_drive
                         .run_if(not(egui_wants_any_keyboard_input))
                         .run_if(not(avatar_visuals_row_selected)),
