@@ -40,9 +40,26 @@ pub(super) fn draw_tree_panel(
 
     let allowed_root_kinds = source.allowed_kinds_for_root();
     let allowed_child_kinds = source.allowed_kinds_for_child();
+    // Multi-root capability drives three affordances at once: root rename,
+    // root delete, and the add-root toolbar below. A single-root source
+    // (avatar visuals) used to RENDER the add menus anyway — the user
+    // opened a 20-entry kind list (or the whole catalogue), clicked, and
+    // nothing happened because `add_root` refused (#830). Hidden now;
+    // children are added via the row context menu's "+ Add child".
     let allow_rename = source.allow_multiple_roots();
 
+    if !allow_rename {
+        ui.label(
+            egui::RichText::new("Right-click a row to add child parts.")
+                .small()
+                .weak(),
+        );
+    }
+
     ui.horizontal_wrapped(|ui| {
+        if !source.allow_multiple_roots() {
+            return;
+        }
         ui.menu_button("+ New", |ui| {
             for kind_tag in allowed_root_kinds {
                 if ui.button(*kind_tag).clicked() {
@@ -379,7 +396,10 @@ fn build_tree_node(
             *pending.borrow_mut() = Some(PendingAction::SaveToInventory(menu_id.clone()));
             ui.close();
         }
-        if ui.button("− Delete").clicked() {
+        // A single-root source (avatar visuals) refuses root removal —
+        // hide the item instead of offering a silent no-op (#830).
+        // `menu_allow_rename` mirrors `allow_multiple_roots`.
+        if (!menu_is_root || menu_allow_rename) && ui.button("− Delete").clicked() {
             *pending.borrow_mut() = Some(PendingAction::Delete(menu_id.clone()));
             ui.close();
         }

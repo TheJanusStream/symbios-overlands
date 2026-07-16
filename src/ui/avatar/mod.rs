@@ -22,7 +22,7 @@
 //!   * **Save to PDS** writes the current `LiveAvatarRecord` to the
 //!     owner's PDS via `com.atproto.repo.putRecord` and then syncs the
 //!     value into [`StoredAvatarRecord`] on success.
-//!   * **Load from PDS** drops all in-flight edits by copying
+//!   * **Revert to saved** drops all in-flight edits by copying
 //!     [`StoredAvatarRecord`] back into `LiveAvatarRecord`.
 //!   * **Reset to default** replaces `LiveAvatarRecord` with the canonical
 //!     [`AvatarRecord::default_for_did`] seed.
@@ -193,15 +193,16 @@ pub fn avatar_ui(
     mut gizmo_frame_pref: ResMut<crate::editor_gizmo::GizmoFramePref>,
     // Grouped into one tuple param so `session_log` fits under Bevy's 16-param
     // `IntoSystem` ceiling (needed to record an avatar re-seed, #627).
-    (audio_monitor, mut audio_requests, time, mut session_log, mut blob_ctx): (
+    (audio_monitor, mut audio_requests, time, mut session_log, mut blob_ctx, grammar_diag): (
         Res<bevy_symbios_audio::ui::AudioMonitor>,
         MessageWriter<bevy_symbios_audio::ui::MonitorRequest>,
         Res<Time>,
         ResMut<SessionLog>,
         ResMut<crate::editor_gizmo::BlobEditContext>,
+        Res<crate::world_builder::grammar_diag::GrammarDiagnostics>,
     ),
 ) {
-    use crate::config::ui::airship as cfg;
+    use crate::config::ui::avatar as cfg;
 
     // `ResMut::deref_mut` unconditionally flips the change tick, so
     // mutating `live.0` inside the egui closure would otherwise mark the
@@ -260,14 +261,6 @@ pub fn avatar_ui(
                 });
                 ui.separator();
 
-                // Reserve room below the tab body for the separator +
-                // Publish/Load/Reset row + feedback line; the scroll
-                // area then fills the rest of the window so dragging the
-                // window taller actually grows the tab body.
-                const FOOTER_RESERVE: f32 = 110.0;
-                const BODY_MIN_HEIGHT: f32 = 200.0;
-                let body_height = (ui.available_height() - FOOTER_RESERVE).max(BODY_MIN_HEIGHT);
-
                 let AvatarEditorState {
                     selected_tab,
                     selected_generator,
@@ -280,6 +273,124 @@ pub fn avatar_ui(
                     pending_tree_focus,
                     ..
                 } = &mut *editor;
+
+                // --- Footer as a real bottom panel (#830) -----------------
+                // Declared BEFORE the tab body (egui's panels-before-content
+                // rule) but rendered pinned to the window's bottom edge, so
+                // it can never be clipped off a short window — the old
+                // fixed FOOTER_RESERVE guessed the footer height and lost
+                // whenever the guess was wrong. The tab body then fills
+                // exactly the space that remains.
+                egui::TopBottomPanel::bottom("avatar_footer")
+                    .resizable(false)
+                    .show_inside(ui, |ui| {
+                        // Networking is a single fixed row rather than a
+                        // collapsible section: one checkbox never earned a
+                        // drawer, and a fixed footer height is what keeps
+                        // this panel honest. Caption says what the toggle
+                        // is NOT — part of the avatar record above it.
+                        ui.horizontal(|ui| {
+                            ui.checkbox(&mut settings.smooth_kinematics, "Smooth remote peers")
+                                .on_hover_text(
+                                    "Hermite spline + 100 ms buffer. Uncheck to snap \
+                                 to the latest packet and expose raw jitter.",
+                                );
+                            ui.label(
+                                egui::RichText::new("(this device only — not saved)")
+                                    .small()
+                                    .weak(),
+                            );
+                        });
+                        ui.separator();
+
+                        // --- Publish / Revert / Reset -------------------------
+                        // Same shared row + status line as the World and
+                        // Inventory editors (`ui::editable`). Dirty is derived
+                        // through `records_differ` — the *same* canonical
+                        // equality the other two use — instead of
+                        // `AvatarRecord`'s `PartialEq`, so all three editors
+                        // behave identically.
+
+                        // Manual re-roll — the same DID-seeded engine as the
+                        // defaults, with an owner-chosen master seed. Replaces
+                        // the whole working avatar like "Reset to default"
+                        // (which is this with seed = fnv1a_64(did)). The pfp
+                        // banner tracks the DID, not the seed, so it survives
+                        // a re-roll.
+                        if let Some(s) = session.as_ref() {
+                            let reroll = seed_row(
+                                ui,
+                                seed_row_state,
+                                crate::seeded_defaults::fnv1a_64(&s.did),
+                                time.elapsed_secs_f64(),
+                            );
+                            if let SeedAction::Reroll(seed) = reroll {
+                                live_mut.0 = AvatarRecord::default_for_seed(seed);
+                                session_log.info(
+                                    time.elapsed_secs_f64(),
+                                    EventPayload::AvatarReseeded { seed },
+                                );
+                            }
+                        }
+                        ui.separator();
+
+                        let dirty = stored
+                            .as_ref()
+                            .is_some_and(|s| records_differ(&s.0, &live_mut.0));
+                        let can_publish = session.is_some() && refresh_ctx.is_some();
+                        // Rebuild the seeded default only when the session DID
+                        // changes, not every frame (#637) — full
+                        // part-composition build.
+                        match session.as_ref() {
+                            Some(s) if default_cache.as_ref().is_none_or(|(d, _)| d != &s.did) => {
+                                *default_cache =
+                                    Some((s.did.clone(), AvatarRecord::default_for_did(&s.did)));
+                            }
+                            None => *default_cache = None,
+                            _ => {}
+                        }
+                        let default_record = default_cache.as_ref().map(|(_, r)| r);
+                        let can_reset =
+                            default_record.is_some_and(|d| records_differ(d, &live_mut.0));
+
+                        let record_bytes = crate::ui::editable::refresh_size_readout(
+                            &mut *feedback,
+                            &live_mut.0,
+                            time.elapsed_secs_f64(),
+                        );
+                        match save_load_reset_row(ui, dirty, can_publish, can_reset, record_bytes) {
+                            RecordAction::None => {}
+                            RecordAction::Publish => {
+                                if let (Some(session), Some(refresh)) =
+                                    (session.as_ref(), refresh_ctx.as_ref())
+                                {
+                                    feedback.status = PublishStatus::Publishing;
+                                    spawn_publish_avatar_task(
+                                        &mut commands,
+                                        session,
+                                        refresh,
+                                        live_mut.0.clone(),
+                                        time.elapsed_secs_f64(),
+                                    );
+                                }
+                            }
+                            RecordAction::Load => {
+                                if let Some(stored) = &stored {
+                                    live_mut.0 = stored.0.clone();
+                                }
+                            }
+                            RecordAction::Reset => {
+                                if let Some(default_record) = default_record {
+                                    live_mut.0 = default_record.clone();
+                                }
+                            }
+                        }
+
+                        publish_status_line(ui, &feedback.status, time.elapsed_secs_f64());
+                    });
+
+                // The tab body fills exactly what the footer left over.
+                let body_height = ui.available_height();
 
                 match *selected_tab {
                     AvatarTab::Visuals => {
@@ -299,6 +410,7 @@ pub fn avatar_ui(
                                 renaming_unused,
                                 inventory.as_deref_mut(),
                                 audio_editor,
+                                &grammar_diag,
                                 &mut widget_changed,
                                 &mut blob_ctx.selected_element,
                             );
@@ -309,6 +421,20 @@ pub fn avatar_ui(
                             .auto_shrink([true, false])
                             .max_height(body_height)
                             .show(ui, |ui| {
+                                // The full-body edit freeze (#814) makes
+                                // tuning feel like editing a statue; the
+                                // sanctioned preview path existed only in
+                                // code comments until #830.
+                                ui.label(
+                                    egui::RichText::new(
+                                        "⏵ Collapse this window (double-click its title \
+                                         bar) to test-drive — physics resumes while it's \
+                                         collapsed, reopen to keep tuning.",
+                                    )
+                                    .small()
+                                    .weak(),
+                                );
+                                ui.add_space(4.0);
                                 draw_locomotion_tab(
                                     ui,
                                     &mut live_mut.0.locomotion,
@@ -317,108 +443,6 @@ pub fn avatar_ui(
                             });
                     }
                 }
-
-                ui.separator();
-
-                // --- Networking (local-only, not broadcast) ---------------
-                egui::CollapsingHeader::new("Networking")
-                    .default_open(false)
-                    .show(ui, |ui| {
-                        ui.checkbox(
-                            &mut settings.smooth_kinematics,
-                            "Smooth remote peers (Hermite spline + 100 ms buffer)",
-                        );
-                        ui.label(
-                            egui::RichText::new(
-                                "Uncheck to snap to the latest packet and expose raw jitter.",
-                            )
-                            .small()
-                            .weak(),
-                        );
-                    });
-
-                ui.separator();
-
-                // --- Publish / Load from PDS / Reset to default -----------
-                // Same shared row + status line as the World and Inventory
-                // editors (`ui::editable`). Dirty is derived through
-                // `records_differ` — the *same* canonical equality the
-                // other two use — instead of `AvatarRecord`'s `PartialEq`,
-                // so all three editors behave identically.
-
-                // Manual re-roll — the same DID-seeded engine as the
-                // defaults, with an owner-chosen master seed. Replaces the
-                // whole working avatar like "Reset to default" (which is
-                // this with seed = fnv1a_64(did)). The pfp banner tracks
-                // the DID, not the seed, so it survives a re-roll.
-                if let Some(s) = session.as_ref() {
-                    let reroll = seed_row(
-                        ui,
-                        seed_row_state,
-                        crate::seeded_defaults::fnv1a_64(&s.did),
-                        time.elapsed_secs_f64(),
-                    );
-                    if let SeedAction::Reroll(seed) = reroll {
-                        live_mut.0 = AvatarRecord::default_for_seed(seed);
-                        session_log.info(
-                            time.elapsed_secs_f64(),
-                            EventPayload::AvatarReseeded { seed },
-                        );
-                    }
-                }
-                ui.separator();
-
-                let dirty = stored
-                    .as_ref()
-                    .is_some_and(|s| records_differ(&s.0, &live_mut.0));
-                let can_publish = session.is_some() && refresh_ctx.is_some();
-                // Rebuild the seeded default only when the session DID changes,
-                // not every frame (#637) — full part-composition build.
-                match session.as_ref() {
-                    Some(s) if default_cache.as_ref().is_none_or(|(d, _)| d != &s.did) => {
-                        *default_cache =
-                            Some((s.did.clone(), AvatarRecord::default_for_did(&s.did)));
-                    }
-                    None => *default_cache = None,
-                    _ => {}
-                }
-                let default_record = default_cache.as_ref().map(|(_, r)| r);
-                let can_reset = default_record.is_some_and(|d| records_differ(d, &live_mut.0));
-
-                let record_bytes = crate::ui::editable::refresh_size_readout(
-                    &mut *feedback,
-                    &live_mut.0,
-                    time.elapsed_secs_f64(),
-                );
-                match save_load_reset_row(ui, dirty, can_publish, can_reset, record_bytes) {
-                    RecordAction::None => {}
-                    RecordAction::Publish => {
-                        if let (Some(session), Some(refresh)) =
-                            (session.as_ref(), refresh_ctx.as_ref())
-                        {
-                            feedback.status = PublishStatus::Publishing;
-                            spawn_publish_avatar_task(
-                                &mut commands,
-                                session,
-                                refresh,
-                                live_mut.0.clone(),
-                                time.elapsed_secs_f64(),
-                            );
-                        }
-                    }
-                    RecordAction::Load => {
-                        if let Some(stored) = &stored {
-                            live_mut.0 = stored.0.clone();
-                        }
-                    }
-                    RecordAction::Reset => {
-                        if let Some(default_record) = default_record {
-                            live_mut.0 = default_record.clone();
-                        }
-                    }
-                }
-
-                publish_status_line(ui, &feedback.status, time.elapsed_secs_f64());
             });
 
         if live_mut.0 != before {

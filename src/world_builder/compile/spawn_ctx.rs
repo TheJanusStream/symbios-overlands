@@ -231,3 +231,36 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// avatars (whose visuals are not locally editable).
     pub(crate) local_avatar_mode: bool,
 }
+
+impl SpawnCtx<'_, '_, '_, '_, '_> {
+    /// Record a grammar compile outcome into
+    /// [`crate::world_builder::grammar_diag::GrammarDiagnostics`] (#829),
+    /// keyed so the editors can look it up: room compiles use the
+    /// generator's record key; the LOCAL avatar uses the avatar editor's
+    /// fixed root key (the synthetic `avatar/<id>` cache namespace would
+    /// never match a UI selection); REMOTE peers' grammars are not
+    /// recorded — a neighbour's broken tree is not the local editor's
+    /// business. Queued as a command (the spawn paths have no resource
+    /// access — same zero-signature-ripple idiom as the texture-cache
+    /// counters), applied when this compile's command buffer drains.
+    pub(crate) fn record_grammar_status(&mut self, generator_ref: &str, error: Option<String>) {
+        let key = if !self.avatar_mode {
+            generator_ref.to_string()
+        } else if self.local_avatar_mode {
+            crate::ui::room::generators::AvatarVisualsTreeSource::ROOT_NAME.to_string()
+        } else {
+            return;
+        };
+        let status = match error {
+            None => crate::world_builder::grammar_diag::GrammarStatus::Ok,
+            Some(message) => crate::world_builder::grammar_diag::GrammarStatus::Error { message },
+        };
+        self.commands.queue(move |world: &mut World| {
+            if let Some(mut diag) =
+                world.get_resource_mut::<crate::world_builder::grammar_diag::GrammarDiagnostics>()
+            {
+                diag.by_generator.insert(key, status);
+            }
+        });
+    }
+}

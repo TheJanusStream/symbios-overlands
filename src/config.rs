@@ -1052,8 +1052,15 @@ pub mod ui {
         pub const FEED_WINDOW_MIN_WIDTH: f32 = 360.0;
     }
 
-    pub mod airship {
-        pub const WINDOW_DEFAULT_WIDTH: f32 = 320.0;
+    /// Avatar editor window (was `airship` — a naming fossil from the
+    /// steampunk-airship era that made this module invisible to anyone
+    /// grepping for the avatar window's geometry, #830).
+    pub mod avatar {
+        /// Wide enough that the embedded generator tree's 260px side
+        /// panel leaves a usable detail panel — the old 320px default
+        /// crushed it to a ~50px sliver while the identical widget got
+        /// 820px in the room editor (#830).
+        pub const WINDOW_DEFAULT_WIDTH: f32 = 760.0;
         pub const WINDOW_DEFAULT_POS: [f32; 2] = [200.0, 10.0];
     }
 
@@ -1102,6 +1109,22 @@ pub mod ui {
         /// Anchor offset from the screen's top-right corner: clear of
         /// the window edge and below the toolbar strip.
         pub const ANCHOR_OFFSET: [f32; 2] = [-12.0, 40.0];
+    }
+
+    /// Drag-to-place drop preview (`crate::ui::inventory::drop`, #831):
+    /// the ground ring that shows where an armed drag will land.
+    pub mod drop_preview {
+        /// Ring + post colour when the release would place here
+        /// [R, G, B, A] — the blob-edit "add" green family.
+        pub const VALID_COLOR: [f32; 4] = [0.15, 0.85, 0.30, 0.9];
+        /// Ring colour when the ground under the cursor can't take the
+        /// drop (visiting someone else's overland) — the "carve" red.
+        pub const INVALID_COLOR: [f32; 4] = [0.90, 0.15, 0.15, 0.9];
+        /// Footprint radius when the dragged item has no catalogue
+        /// clearance metadata (inventory blueprints).
+        pub const DEFAULT_RADIUS_M: f32 = 0.75;
+        /// Height of the vertical marker post above the hit point.
+        pub const POST_HEIGHT_M: f32 = 1.5;
     }
 
     /// Gizmo snap increments (`crate::editor_gizmo::GizmoFramePref`,

@@ -140,8 +140,10 @@ fn bake_prop_into_bucket(bucket: &mut Mesh, mesh_type: PropMeshType, transform: 
 /// [`Skeleton`] — the pure expansion (no ECS, no meshes) shared by the
 /// mesher below and the seeded-room per-tree entity clamp
 /// ([`lsystem_entity_estimate`], consumed by `pds::room`'s tree-scatter
-/// derivation, #810). `None` on grammar errors or empty state so callers
-/// can skip the generator.
+/// derivation, #810). `Err` carries the grammar error (line-numbered
+/// where the parser knows one, without the generator name) so the spawn
+/// path can surface it in the editor (#829); every error is also
+/// `warn!`-logged here, keeping the pure callers' log behaviour.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn expand_lsystem_skeleton(
     source_code: &str,
@@ -154,7 +156,7 @@ pub(crate) fn expand_lsystem_skeleton(
     elasticity: Fp,
     tropism: Option<Fp3>,
     generator_ref: &str,
-) -> Option<Skeleton> {
+) -> Result<Skeleton, String> {
     let mut sys = System::new();
     sys.set_seed(seed);
 
@@ -165,21 +167,24 @@ pub(crate) fn expand_lsystem_skeleton(
         }
         if trimmed.starts_with('#') {
             if let Err(e) = sys.add_directive(trimmed) {
-                warn!("L-system `{}` line {}: {}", generator_ref, i + 1, e);
-                return None;
+                let msg = format!("line {}: {}", i + 1, e);
+                warn!("L-system `{}` {}", generator_ref, msg);
+                return Err(msg);
             }
             continue;
         }
         if let Some(axiom) = trimmed.strip_prefix("omega:") {
             if let Err(e) = sys.set_axiom(axiom.trim()) {
-                warn!("L-system `{}` axiom error: {}", generator_ref, e);
-                return None;
+                let msg = format!("axiom error: {}", e);
+                warn!("L-system `{}` {}", generator_ref, msg);
+                return Err(msg);
             }
             continue;
         }
         if let Err(e) = sys.add_rule(trimmed) {
-            warn!("L-system `{}` rule error: {}", generator_ref, e);
-            return None;
+            let msg = format!("rule error: {}", e);
+            warn!("L-system `{}` {}", generator_ref, msg);
+            return Err(msg);
         }
     }
 
@@ -199,15 +204,17 @@ pub(crate) fn expand_lsystem_skeleton(
     sys.max_capacity = MAX_LSYSTEM_STATE_LEN;
     for _ in 0..iterations {
         if let Err(e) = sys.derive(1) {
-            warn!("L-system `{}` derivation error: {}", generator_ref, e);
-            return None;
+            let msg = format!("derivation error: {}", e);
+            warn!("L-system `{}` {}", generator_ref, msg);
+            return Err(msg);
         }
         if sys.state.len() > MAX_LSYSTEM_STATE_LEN {
-            warn!(
-                "L-system `{}` state exceeded {} symbols — aborting derivation",
-                generator_ref, MAX_LSYSTEM_STATE_LEN
+            let msg = format!(
+                "state exceeded {} symbols — aborting derivation (lower the iterations)",
+                MAX_LSYSTEM_STATE_LEN
             );
-            return None;
+            warn!("L-system `{}` {}", generator_ref, msg);
+            return Err(msg);
         }
     }
 
@@ -221,42 +228,37 @@ pub(crate) fn expand_lsystem_skeleton(
             }
             if trimmed.starts_with('#') {
                 if let Err(e) = sys.add_directive(trimmed) {
-                    warn!(
-                        "L-system `{}` finalization line {}: {}",
-                        generator_ref,
-                        i + 1,
-                        e
-                    );
-                    return None;
+                    let msg = format!("finalization line {}: {}", i + 1, e);
+                    warn!("L-system `{}` {}", generator_ref, msg);
+                    return Err(msg);
                 }
                 continue;
             }
             if let Err(e) = sys.add_rule(trimmed) {
-                warn!(
-                    "L-system `{}` finalization rule error: {}",
-                    generator_ref, e
-                );
-                return None;
+                let msg = format!("finalization rule error: {}", e);
+                warn!("L-system `{}` {}", generator_ref, msg);
+                return Err(msg);
             }
         }
         if let Err(e) = sys.derive(1) {
-            warn!(
-                "L-system `{}` finalization derivation error: {}",
-                generator_ref, e
-            );
-            return None;
+            let msg = format!("finalization derivation error: {}", e);
+            warn!("L-system `{}` {}", generator_ref, msg);
+            return Err(msg);
         }
         if sys.state.len() > MAX_LSYSTEM_STATE_LEN {
-            warn!(
-                "L-system `{}` finalization exceeded {} symbols — aborting",
-                generator_ref, MAX_LSYSTEM_STATE_LEN
+            let msg = format!(
+                "finalization exceeded {} symbols — aborting",
+                MAX_LSYSTEM_STATE_LEN
             );
-            return None;
+            warn!("L-system `{}` {}", generator_ref, msg);
+            return Err(msg);
         }
     }
 
     if sys.state.is_empty() {
-        return None;
+        let msg = "derivation produced an empty state — nothing to draw".to_string();
+        warn!("L-system `{}` {}", generator_ref, msg);
+        return Err(msg);
     }
 
     let turtle_config = TurtleConfig {
@@ -269,20 +271,21 @@ pub(crate) fn expand_lsystem_skeleton(
     };
     let mut interpreter = TurtleInterpreter::new(turtle_config);
     interpreter.populate_standard_symbols(&sys.interner);
-    Some(interpreter.build_skeleton(&sys.state))
+    Ok(interpreter.build_skeleton(&sys.state))
 }
 
 /// Parse, derive, interpret and mesh an L-system generator, baking every prop
 /// into the mesh bucket for its material id. Returns the raw mesh buckets keyed
-/// by material id. `None` on grammar errors or empty state so the caller can
-/// skip the spawn.
+/// by material id. `Err` on grammar errors or empty state so the caller can
+/// skip the spawn and surface the message.
 ///
 /// Split out of `spawn_lsystem_entity` so `LSystemMeshCache` can invoke the
 /// expensive pipeline at most once per `(generator_ref, geometry_hash)` pair.
 /// Props (leaves / fruit — the term that exploded entity counts, #810) become
 /// merged triangles rather than one entity each, killing the per-frame
 /// `BinnedRenderPhase` churn that ratcheted wasm memory to the 4 GiB wall
-/// (#811).
+/// (#811). `Err` carries the grammar error for the editor status line
+/// (#829).
 #[allow(clippy::too_many_arguments)]
 // `pub(crate)` (not `pub(super)`): the render tool's `--room-census` (#810)
 // expands seeded rooms' L-systems analytically to count the entities a
@@ -302,7 +305,7 @@ pub(crate) fn build_lsystem_geometry(
     prop_mappings: &HashMap<u16, PropMeshType>,
     prop_scale: Fp,
     generator_ref: &str,
-) -> Option<LSystemGeometryBuild> {
+) -> Result<LSystemGeometryBuild, String> {
     let skeleton = expand_lsystem_skeleton(
         source_code,
         finalization_code,
@@ -369,7 +372,7 @@ pub(crate) fn build_lsystem_geometry(
         let _ = mesh.generate_tangents();
     }
 
-    Some(mesh_buckets)
+    Ok(mesh_buckets)
 }
 
 /// Entity count one spawned instance of this L-system produces: `1` root +
@@ -407,7 +410,8 @@ pub(crate) fn lsystem_entity_estimate(
         elasticity,
         tropism,
         generator_ref,
-    )?;
+    )
+    .ok()?;
     let mut materials: Vec<u8> = skeleton
         .strands
         .iter()
@@ -472,9 +476,15 @@ pub(super) fn spawn_lsystem_entity(
     let LSystemGeometry {
         mesh_buckets: mesh_bucket_handles,
     } = match geometry {
-        Some(g) => g,
+        // Cache hit = this exact grammar compiled cleanly earlier in the
+        // session — still record Ok so a fixed-then-unchanged grammar
+        // doesn't leave a stale error in the editor (#829).
+        Some(g) => {
+            ctx.record_grammar_status(generator_ref, None);
+            g
+        }
         None => {
-            let Some(mesh_buckets_raw) = build_lsystem_geometry(
+            let mesh_buckets_raw = match build_lsystem_geometry(
                 source_code,
                 finalization_code,
                 *iterations,
@@ -488,13 +498,20 @@ pub(super) fn spawn_lsystem_entity(
                 prop_mappings,
                 *prop_scale,
                 generator_ref,
-            ) else {
-                // Grammar rejected or empty state — evict any stale entry
-                // so a later edit that fixes the grammar triggers a rebuild
-                // instead of reusing invalid geometry.
-                ctx.lsystem_mesh_cache.remove(generator_ref);
-                return None;
+            ) {
+                Ok(buckets) => buckets,
+                Err(message) => {
+                    // Grammar rejected or empty state — evict any stale
+                    // entry so a later edit that fixes the grammar
+                    // triggers a rebuild instead of reusing invalid
+                    // geometry, and surface the error in the editor's
+                    // grammar forge (#829).
+                    ctx.lsystem_mesh_cache.remove(generator_ref);
+                    ctx.record_grammar_status(generator_ref, Some(message));
+                    return None;
+                }
             };
+            ctx.record_grammar_status(generator_ref, None);
             let built = LSystemGeometry {
                 mesh_buckets: mesh_buckets_raw
                     .into_iter()
@@ -684,6 +701,60 @@ mod tests {
             prop_mappings,
             prop_scale,
         )
+    }
+
+    /// #829: grammar failures surface as `Err` with the same line-numbered
+    /// message the log carries, so the editor forge can render them; a
+    /// clean grammar still expands.
+    #[test]
+    fn grammar_errors_surface_as_line_numbered_results() {
+        // A malformed directive on line 2 (line 1 is a comment).
+        let broken = "// a comment\n#thisisnotadirective";
+        let err = expand_lsystem_skeleton(
+            broken,
+            "",
+            0,
+            1,
+            Fp(25.0),
+            Fp(1.0),
+            Fp(0.1),
+            Fp(0.0),
+            None,
+            "test_gen",
+        )
+        .expect_err("malformed directive must be rejected");
+        assert!(err.contains("line 2"), "error names the line: {err}");
+
+        // An axiom-only grammar with zero iterations expands cleanly.
+        let ok = expand_lsystem_skeleton(
+            "omega: F",
+            "",
+            0,
+            1,
+            Fp(25.0),
+            Fp(1.0),
+            Fp(0.1),
+            Fp(0.0),
+            None,
+            "test_gen",
+        );
+        assert!(ok.is_ok(), "trivial grammar expands: {ok:?}");
+
+        // No axiom at all -> empty state, reported rather than silent.
+        let empty = expand_lsystem_skeleton(
+            "// nothing",
+            "",
+            0,
+            1,
+            Fp(25.0),
+            Fp(1.0),
+            Fp(0.1),
+            Fp(0.0),
+            None,
+            "test_gen",
+        )
+        .expect_err("empty state must be reported");
+        assert!(empty.contains("empty state"), "{empty}");
     }
 
     /// The estimator must count exactly what the geometry builder produces:

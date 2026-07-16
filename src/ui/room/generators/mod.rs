@@ -224,6 +224,9 @@ pub(crate) fn draw_generators_tab(
     renaming_generator: &mut Option<(String, String)>,
     inventory: Option<&mut LiveInventoryRecord>,
     audio_editor: &mut super::audio::AudioEditorState,
+    // Grammar compile outcomes (#829), rendered by the L-system / Shape
+    // forges in the detail panel.
+    grammar_diag: &crate::world_builder::grammar_diag::GrammarDiagnostics,
     dirty: &mut bool,
     // In-scene blob element selection (#705), threaded to the BlobGroup
     // detail editor so its rows mirror the scene proxies' gizmo state.
@@ -259,6 +262,7 @@ pub(crate) fn draw_generators_tab(
             selected_generator,
             selected_prim_path,
             audio_editor,
+            grammar_diag,
             dirty,
             blob_selected_element,
         );

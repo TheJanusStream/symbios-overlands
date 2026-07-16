@@ -208,6 +208,7 @@ pub fn run() {
         .init_resource::<PublishFeedback<InventoryRecord>>()
         .init_resource::<ui::toolbar::UiPanels>()
         .init_resource::<ui::toast::Toasts>()
+        .init_resource::<world_builder::grammar_diag::GrammarDiagnostics>()
         .init_resource::<ui::catalogue::CatalogueBrowser>()
         .init_resource::<ui::inventory::PendingGeneratorDrop>()
         .init_resource::<state::PendingOutgoingOffers>()
@@ -369,6 +370,7 @@ pub fn run() {
                 ui::avatar::poll_publish_avatar_tasks,
                 ui::inventory::poll_publish_inventory_tasks,
                 ui::inventory::handle_generator_drop,
+                ui::inventory::preview_generator_drop,
             )
                 .run_if(in_state(AppState::InGame)),
         )

@@ -134,6 +134,35 @@ pub(super) fn draw_transform_no_scale(ui: &mut egui::Ui, t: &mut TransformData, 
     );
 }
 
+/// Compile-status line for a grammar forge (#829): the latest outcome of
+/// this generator's L-system / Shape compile, from
+/// [`crate::world_builder::grammar_diag::GrammarDiagnostics`]. Errors
+/// render red with the parser's line-numbered message; success renders a
+/// quiet tick so silence is distinguishable from "compiled fine".
+/// `None` = not compiled yet this session (freshly loaded editor).
+pub(super) fn grammar_status_line(
+    ui: &mut egui::Ui,
+    status: Option<&crate::world_builder::grammar_diag::GrammarStatus>,
+) {
+    use crate::world_builder::grammar_diag::GrammarStatus;
+    match status {
+        Some(GrammarStatus::Error { message }) => {
+            ui.colored_label(
+                egui::Color32::from_rgb(220, 90, 90),
+                egui::RichText::new(format!("✗ {message}")).small(),
+            );
+        }
+        Some(GrammarStatus::Ok) => {
+            ui.label(
+                egui::RichText::new("✓ grammar compiled")
+                    .small()
+                    .color(egui::Color32::from_rgb(130, 190, 130)),
+            );
+        }
+        None => {}
+    }
+}
+
 pub(super) fn fp_slider(
     ui: &mut egui::Ui,
     label: &str,

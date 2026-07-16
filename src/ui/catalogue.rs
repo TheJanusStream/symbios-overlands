@@ -346,7 +346,12 @@ pub(crate) fn catalogue_ui(
     mut node_cache: Local<NodeCache>,
     mut placeable_cache: Local<Option<(String, bool)>>,
 ) {
-    let can_drag_place = match (session.as_ref(), room_did.as_ref()) {
+    // Ownership only tunes the drag TOOLTIP now (#832): drags always arm —
+    // a visitor's release on a People row gifts (valid in any room, #699),
+    // and a visitor's ground release is policed + explained by the drop
+    // handler's toast. Gating the drag here locked visitors out of
+    // catalogue gifting even though the drop handler fully supported it.
+    let owns_room = match (session.as_ref(), room_did.as_ref()) {
         (Some(s), Some(r)) => s.did == r.0,
         _ => false,
     };
@@ -435,12 +440,49 @@ pub(crate) fn catalogue_ui(
                             .show(ui, |ui| {
                                 let (_resp, actions) =
                                     TreeView::new(ui.make_persistent_id("catalogue_tree"))
+                                        // Enables dragging rows OUT of the
+                                        // tree (`Action::DragExternal`) so a
+                                        // leaf itself is a drag-to-place
+                                        // source (#832) — the natural gesture
+                                        // used to do nothing; the only handle
+                                        // was buried below the detail grid.
+                                        .allow_drag_and_drop(true)
                                         .show(ui, |builder| render_nodes(builder, nodes));
                                 for action in actions {
-                                    if let Action::SetSelected(ids) = action
-                                        && let Some(slug) = ids.first().and_then(|id| leaf_slug(id))
-                                    {
-                                        browser.selected = Some(slug.to_string());
+                                    match action {
+                                        Action::SetSelected(ids) => {
+                                            if let Some(slug) =
+                                                ids.first().and_then(|id| leaf_slug(id))
+                                            {
+                                                browser.selected = Some(slug.to_string());
+                                            }
+                                        }
+                                        // Fires every frame a row is dragged
+                                        // outside the tree: arm the shared
+                                        // drop bus once (placeable leaves
+                                        // only) and select the row so the
+                                        // detail panel follows the drag.
+                                        Action::DragExternal(drag) | Action::MoveExternal(drag) => {
+                                            let Some(slug) =
+                                                drag.source.first().and_then(|id| leaf_slug(id))
+                                            else {
+                                                continue;
+                                            };
+                                            if pending_drop.generator_name.as_deref() == Some(slug)
+                                            {
+                                                continue;
+                                            }
+                                            let placeable = by_slug(slug)
+                                                .map(|e| is_drop_placeable(&e.build("")))
+                                                .unwrap_or(false);
+                                            if placeable {
+                                                browser.selected = Some(slug.to_string());
+                                                pending_drop.generator_name =
+                                                    Some(slug.to_string());
+                                                pending_drop.source = DropSource::Catalogue;
+                                            }
+                                        }
+                                        _ => {}
                                     }
                                 }
                             });
@@ -456,7 +498,7 @@ pub(crate) fn catalogue_ui(
                             ui,
                             browser.selected.as_deref(),
                             &mut pending_drop,
-                            can_drag_place,
+                            owns_room,
                             placeable,
                         );
                     });
@@ -548,7 +590,7 @@ fn detail_panel(
     ui: &mut egui::Ui,
     selected: Option<&str>,
     pending_drop: &mut PendingGeneratorDrop,
-    can_drag_place: bool,
+    owns_room: bool,
     // Precomputed + cached by the caller (#639) so the whole generator tree
     // isn't deep-built every frame just to read its kind discriminant.
     placeable: bool,
@@ -565,17 +607,22 @@ fn detail_panel(
     let slug = entry.slug();
 
     ui.heading(entry.name());
-    ui.label(entry.description());
+    ui.add(egui::Label::new(entry.description()).wrap());
     ui.add_space(4.0);
     ui.separator();
 
     egui::Grid::new("catalogue_detail_grid")
         .num_columns(2)
         .spacing([10.0, 4.0])
+        // Cap the value column and WRAP its text (#832 follow-up): grid
+        // cells default to no-wrap, so a long Themes list used to demand
+        // its full single-line width and stretch the whole Catalogue
+        // window unreasonably wide.
+        .max_col_width(280.0)
         .show(ui, |ui| {
             let row = |ui: &mut egui::Ui, k: &str, v: String| {
                 ui.label(egui::RichText::new(k).strong());
-                ui.label(v);
+                ui.add(egui::Label::new(v).wrap());
                 ui.end_row();
             };
             row(ui, "Category", entry.category().label().to_string());
@@ -602,26 +649,33 @@ fn detail_panel(
     ui.add_space(6.0);
     ui.separator();
 
-    // Placement affordance — a drag handle that arms the same
-    // PendingGeneratorDrop the inventory/viewport path consumes. `placeable`
-    // is passed in (cached by the caller) rather than deep-building the
-    // generator here every frame.
+    // Tree rows are the drag source (#832) — the old dedicated drag
+    // handle here was redundant the moment rows dragged directly (user
+    // validation feedback) — so this footer is instruction + live drag
+    // feedback only. `placeable` is passed in (cached by the caller)
+    // rather than deep-building the generator here every frame.
     if !placeable {
         ui.label(
             egui::RichText::new("Room-scoped — not point-placeable.")
                 .small()
                 .color(egui::Color32::GRAY),
         );
-    } else if can_drag_place {
-        let handle =
-            egui::Label::new(egui::RichText::new("⠿  Drag into the room to place").strong())
-                .sense(egui::Sense::click_and_drag());
-        let resp = ui.add(handle);
-        if resp.drag_started() {
-            pending_drop.generator_name = Some(slug.to_string());
-            pending_drop.source = DropSource::Catalogue;
-        }
-        if resp.dragged() && pending_drop.generator_name.as_deref() == Some(slug) {
+    } else {
+        let hint = if owns_room {
+            "Drag it from the list into the room — or onto a peer in People to gift."
+        } else {
+            "Drag it from the list onto a peer in People to gift."
+        };
+        ui.add(
+            egui::Label::new(egui::RichText::new(hint).small().color(egui::Color32::GRAY)).wrap(),
+        );
+        if pending_drop.generator_name.as_deref() == Some(slug)
+            && pending_drop.source == DropSource::Catalogue
+            && ui.ctx().input(|i| i.pointer.primary_down())
+        {
+            // Follow-the-cursor tooltip while a row drag is in flight —
+            // keyed off the shared pending state (the tree auto-selects
+            // the dragged row, so this panel is showing that entry).
             egui::Tooltip::always_open(
                 ui.ctx().clone(),
                 ui.layer_id(),
@@ -629,15 +683,19 @@ fn detail_panel(
                 egui::PopupAnchor::Pointer,
             )
             .show(|ui| {
-                ui.label(format!("Place “{}”", entry.name()));
+                if owns_room {
+                    ui.label(format!(
+                        "Place “{}” — or drop on a peer in the People list to gift",
+                        entry.name()
+                    ));
+                } else {
+                    ui.label(format!(
+                        "Offer “{}” — drop on a peer in the People list",
+                        entry.name()
+                    ));
+                }
             });
         }
-    } else {
-        ui.label(
-            egui::RichText::new("Open a room you own to place items.")
-                .small()
-                .color(egui::Color32::GRAY),
-        );
     }
 }
 

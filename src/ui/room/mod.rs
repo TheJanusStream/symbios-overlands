@@ -12,7 +12,7 @@
 //!   as a slim manifest plus content-addressed child generator records in
 //!   one atomic `com.atproto.repo.applyWrites` batch (#697), and syncs the
 //!   value into [`StoredRoomRecord`] on success.
-//! - **Load from PDS** drops all in-flight edits by copying
+//! - **Revert to saved** drops all in-flight edits by copying
 //!   [`StoredRoomRecord`] back into the live `RoomRecord`.
 //! - **Reset to default** replaces `RoomRecord` with the canonical
 //!   `RoomRecord::default_for_did` seed — useful after a botched edit or
@@ -238,6 +238,8 @@ pub struct RoomEditorExtras<'w, 's> {
     heightmap: Option<Res<'w, crate::terrain::FinishedHeightMap>>,
     blob_ctx: ResMut<'w, crate::editor_gizmo::BlobEditContext>,
     players: Query<'w, 's, &'static Transform, With<LocalPlayer>>,
+    /// Grammar compile outcomes for the forges' status lines (#829).
+    grammar_diag: Res<'w, crate::world_builder::grammar_diag::GrammarDiagnostics>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -265,6 +267,7 @@ pub fn room_admin_ui(
         heightmap,
         mut blob_ctx,
         players,
+        grammar_diag,
     } = extras;
     let (Some(session), Some(refresh_ctx), Some(room_did), Some(record)) =
         (session, refresh_ctx, room_did, room_record.as_mut())
@@ -559,6 +562,7 @@ pub fn room_admin_ui(
                                 renaming_generator,
                                 inventory.as_deref_mut(),
                                 audio_editor,
+                                &grammar_diag,
                                 &mut widget_change,
                                 &mut blob_ctx.selected_element,
                             );
@@ -622,7 +626,7 @@ pub fn room_admin_ui(
 
                 ui.separator();
 
-                // Publish / Load from PDS / Reset to default — the shared
+                // Publish / Revert to saved / Reset to default — the shared
                 // row + status line used by every editor (`ui::editable`).
                 // `dirty` is *derived* (the live record serialises
                 // differently from the stored snapshot) rather than a

@@ -33,9 +33,8 @@ use super::{DropSource, PendingGeneratorDrop, is_drop_placeable};
 ///   blueprint into `RoomRecord.generators` under a collision-safe key
 ///   (reusing an identical existing entry when present) and append a
 ///   `Placement::Absolute`.
-/// * [`DropSource::RoomGenerators`] release over the 3D viewport — the
-///   source generator is already a key in `RoomRecord.generators`; just
-///   append a new `Placement::Absolute` that references it.
+/// * [`DropSource::Catalogue`] release over the 3D viewport — resolve
+///   the slug and stamp a fresh deep-copied blueprint the same way.
 ///
 /// The peer branch fires even when the local user does not own the current
 /// room — gifting is a personal transaction between two players and
@@ -63,13 +62,26 @@ pub fn handle_generator_drop(
     mut session_log: ResMut<SessionLog>,
     mut sender: SendMessage<OverlandsMessage>,
     mut chunk: crate::network::chunk::ChunkSend,
-    time: Res<Time>,
+    // Bundled to stay under Bevy's 16-parameter ceiling.
+    (time, keyboard, mut toasts): (
+        Res<Time>,
+        Res<ButtonInput<KeyCode>>,
+        ResMut<crate::ui::toast::Toasts>,
+    ),
 ) {
     let Some(name) = pending.generator_name.clone() else {
         return;
     };
     let source = pending.source;
     let peer_target = pending.peer_target.clone();
+
+    // Escape disarms the drag mid-flight (#831) — before this the only
+    // ways out were releasing over a window or over the sky.
+    if keyboard.just_pressed(KeyCode::Escape) {
+        pending.generator_name = None;
+        pending.peer_target = None;
+        return;
+    }
 
     // The drag only commits on the frame the button is released. Every other
     // frame the mouse is either still held (drag in progress — we want to
@@ -108,9 +120,6 @@ pub fn handle_generator_drop(
             DropSource::Inventory => inventory
                 .as_ref()
                 .and_then(|inv| inv.0.generators.get(&name).cloned()),
-            DropSource::RoomGenerators => room
-                .as_deref()
-                .and_then(|r| r.0.generators.get(&name).cloned()),
             DropSource::Catalogue => {
                 crate::catalogue::by_slug(&name).map(|entry| entry.build(&sess.did))
             }
@@ -161,6 +170,18 @@ pub fn handle_generator_drop(
     // requires a clean viewport release.
     // -----------------------------------------------------------------
 
+    // Releasing over any egui area (notably the Inventory window itself) is
+    // the standard "cancel" gesture — treat it as a silent no-op instead of
+    // placing a generator under the user's UI. Checked BEFORE the ownership
+    // gate (#831) so a visitor's deliberate window-cancel never draws the
+    // "you can't place here" toast below.
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
+    if ctx.is_pointer_over_area() {
+        return;
+    }
+
     // All gate checks run *before* we touch `room` mutably. `ResMut::as_mut()`
     // unconditionally flips the resource's change tick, so taking the mutable
     // borrow earlier would spam `RoomRecord::is_changed` (and therefore the
@@ -169,6 +190,13 @@ pub fn handle_generator_drop(
         return;
     };
     if session.did != room_did.0 {
+        // A true viewport release in a room the user doesn't own — the
+        // drag used to just vanish (#831).
+        toasts.warn(
+            "Only the overland's owner can place items here — drop on a \
+             peer in the People list to gift instead.",
+            time.elapsed_secs_f64(),
+        );
         return;
     }
     // Inventory-sourced drops need the live stash to pull the
@@ -182,18 +210,8 @@ pub fn handle_generator_drop(
             };
             Some(inv)
         }
-        DropSource::RoomGenerators | DropSource::Catalogue => None,
+        DropSource::Catalogue => None,
     };
-
-    // Releasing over any egui area (notably the Inventory window itself) is
-    // the standard "cancel" gesture — treat it as a no-op instead of placing
-    // a generator under the user's UI.
-    let Ok(ctx) = contexts.ctx_mut() else {
-        return;
-    };
-    if ctx.is_pointer_over_area() {
-        return;
-    }
 
     let Ok(window) = windows.single() else {
         return;
@@ -216,6 +234,12 @@ pub fn handle_generator_drop(
         terrain_q.get(e).is_ok()
     });
     let Some(hit) = hit else {
+        // Sky / out-of-world release: indistinguishable from a successful
+        // off-screen placement without this (#831).
+        toasts.info(
+            "Released over open sky — nothing placed.",
+            time.elapsed_secs_f64(),
+        );
         return;
     };
     let hit_point = ray.origin + *ray.direction * hit.distance;
@@ -242,15 +266,6 @@ pub fn handle_generator_drop(
             let key = choose_room_generator_key(&record.generators, &name, &generator);
             record.generators.entry(key.clone()).or_insert(generator);
             key
-        }
-        DropSource::RoomGenerators => {
-            let Some(generator) = record.generators.get(&name) else {
-                return;
-            };
-            if !is_drop_placeable(generator) {
-                return;
-            }
-            name.clone()
         }
         DropSource::Catalogue => {
             // `name` carries the catalogue entry's slug. Resolve to
@@ -322,4 +337,96 @@ fn choose_room_generator_key(
         }
     }
     inventory_name.to_string()
+}
+
+/// Live ground preview for an armed drag (#831): a footprint ring + post
+/// at the exact spot a release would place the item, re-raycast every
+/// frame — before this the drop point was invisible until commit (the
+/// raycast ran only in the release path), so "released over sky", "landed
+/// behind that building" and "placed 40 m downhill" all looked identical
+/// mid-drag. Green = a release here places; red = the ground can't take
+/// it (visiting someone else's overland — gift on a People row instead).
+/// Over egui areas nothing draws: the follow-cursor tooltip is the
+/// feedback there, and a release there is the cancel gesture.
+#[allow(clippy::too_many_arguments)]
+pub fn preview_generator_drop(
+    mut contexts: EguiContexts,
+    pending: Res<PendingGeneratorDrop>,
+    mut gizmos: Gizmos,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    spatial: SpatialQuery,
+    terrain_q: Query<Entity, With<TerrainMesh>>,
+    session: Option<Res<AtprotoSession>>,
+    room_did: Option<Res<CurrentRoomDid>>,
+) {
+    use crate::config::ui::drop_preview as cfg;
+
+    let Some(name) = pending.generator_name.as_ref() else {
+        return;
+    };
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
+    if ctx.is_pointer_over_area() {
+        return;
+    }
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let Some(cursor) = window.cursor_position() else {
+        return;
+    };
+    let Ok((camera, cam_tf)) = cameras.single() else {
+        return;
+    };
+    let Ok(ray) = camera.viewport_to_world(cam_tf, cursor) else {
+        return;
+    };
+    // Terrain-only, exactly like the release path — the preview must
+    // show where the commit raycast will actually land.
+    let filter = SpatialQueryFilter::default();
+    let hit = spatial.cast_ray_predicate(ray.origin, ray.direction, 4096.0, true, &filter, &|e| {
+        terrain_q.get(e).is_ok()
+    });
+    let Some(hit) = hit else {
+        return; // Sky under the cursor — nothing to mark.
+    };
+    let hit_point = ray.origin + *ray.direction * hit.distance;
+
+    let owns_room = matches!(
+        (session.as_deref(), room_did.as_deref()),
+        (Some(s), Some(r)) if s.did == r.0
+    );
+    let [r, g, b, a] = if owns_room {
+        cfg::VALID_COLOR
+    } else {
+        cfg::INVALID_COLOR
+    };
+    let color = Color::srgba(r, g, b, a);
+
+    // Footprint radius: catalogue entries carry a clearance; inventory
+    // blueprints (and degenerate zero clearances) fall back to a small
+    // visible ring.
+    let radius = match pending.source {
+        DropSource::Catalogue => crate::catalogue::by_slug(name)
+            .map(|entry| entry.footprint().clearance)
+            .filter(|c| *c > 0.0)
+            .unwrap_or(cfg::DEFAULT_RADIUS_M),
+        DropSource::Inventory => cfg::DEFAULT_RADIUS_M,
+    };
+
+    // Flat ring on the ground (the gizmo circle lies in its isometry's
+    // XY plane; pitch it back to horizontal) plus a post so the spot
+    // reads from a distance and against clutter.
+    let ring_pos = hit_point + Vec3::Y * 0.05;
+    gizmos.circle(
+        Isometry3d::new(
+            ring_pos,
+            Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2),
+        ),
+        radius,
+        color,
+    );
+    gizmos.line(hit_point, hit_point + Vec3::Y * cfg::POST_HEIGHT_M, color);
 }

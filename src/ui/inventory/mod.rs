@@ -18,9 +18,7 @@
 //! over the 3D viewport while standing in their own room,
 //! [`drop::handle_generator_drop`] raycasts against the terrain and appends
 //! a fresh `Placement::Absolute` to the live `RoomRecord`, copying the
-//! dragged generator into the room's `generators` map on first use. The
-//! same handler also services drags started from the World Editor's
-//! Generators tab — see [`DropSource`].
+//! dragged generator into the room's `generators` map on first use.
 //!
 //! Drag-to-gift: releasing the same drag over a peer row in the People
 //! window routes it into an `ItemOffer` instead. Gifting works in ANY room
@@ -29,7 +27,7 @@
 
 mod drop;
 
-pub use drop::handle_generator_drop;
+pub use drop::{handle_generator_drop, preview_generator_drop};
 
 use std::collections::HashMap;
 
@@ -71,15 +69,16 @@ pub struct PublishInventoryTask {
 /// Origin of a drag-to-place operation. The raycast + placement path
 /// is identical for every source; only the generator lookup differs.
 /// Inventory drops copy a blueprint into the room's `generators` map
-/// under a collision-safe key; room-editor drops reuse the existing
-/// key; catalogue drops resolve the slug against
+/// under a collision-safe key; catalogue drops resolve the slug against
 /// [`crate::catalogue::by_slug`] and stamp a fresh deep-copied
-/// blueprint into the room's `generators` map.
+/// blueprint into the room's `generators` map. (A `RoomGenerators`
+/// variant for World-Editor-tab drags was documented but never armed
+/// by any UI — deleted in #832; the scene context menu's Duplicate
+/// (#824) covers stamping another instance of an existing generator.)
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub enum DropSource {
     #[default]
     Inventory,
-    RoomGenerators,
     Catalogue,
 }
 
@@ -227,9 +226,13 @@ pub fn inventory_ui(
                                 .map(is_drop_placeable)
                                 .unwrap_or(false);
                             if is_placeable {
-                                let label =
-                                    egui::Label::new(&name).sense(egui::Sense::click_and_drag());
-                                let resp = ui.add(label);
+                                // The ⠿ handle + grab cursor make the row
+                                // read as draggable (#832) — it used to be
+                                // a plain label whose drag sense was
+                                // discoverable only by accident.
+                                let label = egui::Label::new(format!("⠿ {name}"))
+                                    .sense(egui::Sense::click_and_drag());
+                                let resp = ui.add(label).on_hover_cursor(egui::CursorIcon::Grab);
                                 if resp.drag_started() {
                                     pending_drop.generator_name = Some(name.clone());
                                     pending_drop.source = DropSource::Inventory;
@@ -252,7 +255,8 @@ pub fn inventory_ui(
                                     .show(|ui| {
                                         if owns_room {
                                             ui.label(format!(
-                                                "Place “{name}” — or drop on a peer to offer it"
+                                                "Place “{name}” — or drop on a peer in the \
+                                                 People list to gift"
                                             ));
                                         } else {
                                             ui.label(format!(
@@ -262,7 +266,17 @@ pub fn inventory_ui(
                                     });
                                 }
                             } else {
+                                // Room-scoped kinds (terrain/water) can't be
+                                // point-placed — say so instead of rendering
+                                // an identical-looking row that silently
+                                // refuses to drag (#832; the catalogue
+                                // already explains the same distinction).
                                 ui.label(&name);
+                                ui.label(
+                                    egui::RichText::new("(room-scoped)")
+                                        .small()
+                                        .color(egui::Color32::GRAY),
+                                );
                             }
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),

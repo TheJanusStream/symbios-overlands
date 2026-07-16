@@ -34,12 +34,14 @@ use super::water::draw_water_editor;
 /// from Inventory / Rename / Save to Inventory / Delete) lives in the
 /// per-row context menu on the tree panel; this function never mutates
 /// the tree shape.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_detail_panel(
     ui: &mut egui::Ui,
     source: &mut dyn GeneratorTreeSource,
     selected_generator: &mut Option<String>,
     selected_prim_path: &mut Option<Vec<usize>>,
     audio_editor: &mut super::super::audio::AudioEditorState,
+    grammar_diag: &crate::world_builder::grammar_diag::GrammarDiagnostics,
     dirty: &mut bool,
     // In-scene blob element selection (#705); see `draw_primitive_blob_group`.
     blob_selected_element: &mut Option<usize>,
@@ -62,6 +64,9 @@ pub(super) fn draw_detail_panel(
     };
 
     let is_root = id.path.is_empty();
+    // Grammar compile status is keyed by the ROOT name — the spawn path
+    // records one outcome per generator tree (#829).
+    let grammar_status = grammar_diag.get(&id.root);
     // Snapshot the kind tag and choose the kind-picker vocabulary up
     // front so the immutable borrow used for the header is released
     // before we re-enter the source mutably for the editor body.
@@ -115,7 +120,14 @@ pub(super) fn draw_detail_panel(
             .id_salt(("gen_detail_scroll", &salt))
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                draw_generator_detail(ui, &salt, &mut node.kind, dirty, blob_selected_element);
+                draw_generator_detail(
+                    ui,
+                    &salt,
+                    &mut node.kind,
+                    grammar_status,
+                    dirty,
+                    blob_selected_element,
+                );
 
                 // Per-construct audio slot (#314). The bridge writes back
                 // any committed pop-out edit and offers the variant picker
@@ -273,6 +285,10 @@ fn draw_generator_detail(
     ui: &mut egui::Ui,
     salt: &str,
     kind: &mut GeneratorKind,
+    // Latest compile outcome for the ROOT this node lives under (#829) —
+    // consumed by the L-system / Shape forges; a broken grammar anywhere
+    // under the root shows the same (line-numbered) message.
+    grammar_status: Option<&crate::world_builder::grammar_diag::GrammarStatus>,
     dirty: &mut bool,
     blob_selected_element: &mut Option<usize>,
 ) {
@@ -299,6 +315,7 @@ fn draw_generator_detail(
             ..
         } => draw_lsystem_forge(
             ui,
+            grammar_status,
             source_code,
             finalization_code,
             iterations,
@@ -322,6 +339,7 @@ fn draw_generator_detail(
             materials,
         } => draw_shape_forge(
             ui,
+            grammar_status,
             grammar_source,
             root_rule,
             footprint,

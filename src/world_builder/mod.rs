@@ -67,6 +67,7 @@ pub(crate) mod blob_fetch;
 pub(crate) mod compile;
 mod gateway;
 mod generator_cache;
+pub mod grammar_diag;
 pub mod image_cache;
 // `pub(crate)` for the render tool's `--room-census` (#810), which calls the
 // pure `build_lsystem_geometry` to count spawn-time L-system expansion.

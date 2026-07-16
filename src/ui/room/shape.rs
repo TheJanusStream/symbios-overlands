@@ -12,11 +12,12 @@ use bevy_egui::egui;
 use crate::pds::{Fp3, SovereignMaterialSettings};
 
 use super::material::draw_texture_bridge;
-use super::widgets::{color_picker, drag_u64, fp_slider};
+use super::widgets::{color_picker, drag_u64, fp_slider, grammar_status_line};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_shape_forge(
     ui: &mut egui::Ui,
+    grammar_status: Option<&crate::world_builder::grammar_diag::GrammarStatus>,
     grammar_source: &mut String,
     root_rule: &mut String,
     footprint: &mut Fp3,
@@ -49,6 +50,10 @@ pub(super) fn draw_shape_forge(
                 *dirty = true;
             }
         });
+
+    // Latest compile outcome (#829) — parser errors land right under the
+    // grammar instead of vanishing into the log.
+    grammar_status_line(ui, grammar_status);
 
     egui::CollapsingHeader::new("Lot")
         .default_open(true)

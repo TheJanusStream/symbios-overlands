@@ -6,11 +6,12 @@ use bevy_egui::egui;
 use crate::pds::{Fp, Fp3, PropMeshType, SovereignMaterialSettings};
 
 use super::material::draw_texture_bridge;
-use super::widgets::{color_picker, drag_u32, drag_u64, fp_slider};
+use super::widgets::{color_picker, drag_u32, drag_u64, fp_slider, grammar_status_line};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_lsystem_forge(
     ui: &mut egui::Ui,
+    grammar_status: Option<&crate::world_builder::grammar_diag::GrammarStatus>,
     source_code: &mut String,
     finalization_code: &mut String,
     iterations: &mut u32,
@@ -58,6 +59,11 @@ pub(super) fn draw_lsystem_forge(
                 *dirty = true;
             }
         });
+
+    // Latest compile outcome (#829) — a grammar typo used to mean "the
+    // world silently stops updating"; now the parser's line-numbered
+    // error lands right under the code that caused it.
+    grammar_status_line(ui, grammar_status);
 
     egui::CollapsingHeader::new("Turtle")
         .default_open(true)

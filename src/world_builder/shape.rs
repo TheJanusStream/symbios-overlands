@@ -44,7 +44,7 @@ pub type ShapeMaterialCache = GeneratorCache<(String, String), Handle<StandardMa
 /// `scope_to_transform`, the unit-sized procedural mesh handle (shared across
 /// all terminals with the same `(profile, size)` triple), and the optional
 /// material name emitted by `Mat("...")` in the grammar.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ShapeInstance {
     pub transform: Transform,
     pub mesh: Handle<Mesh>,
@@ -97,8 +97,10 @@ fn shape_geometry_fingerprint(
 
 /// Parse the multi-line grammar source line-by-line, populate the
 /// interpreter, derive the model from the supplied footprint, and return
-/// a flat list of [`ShapeInstance`]s ready to spawn. `None` on parse / derive
-/// failure or empty output so the caller can skip the spawn.
+/// a flat list of [`ShapeInstance`]s ready to spawn. `Err` (the grammar
+/// error, line-numbered where the parser knows one) on parse / derive
+/// failure or empty output so the caller can skip the spawn and surface
+/// the message in the editor (#829); every error is also `warn!`-logged.
 ///
 /// Mirrors the line-based authoring convention used by sibling editors
 /// (`symbios-ground-lab`): one rule per line, blank lines and `// …` lines
@@ -113,7 +115,7 @@ fn build_shape_geometry(
     generator_ref: &str,
     meshes: &mut Assets<Mesh>,
     upstream_cache: &mut UpstreamShapeMeshCache,
-) -> Option<Vec<ShapeInstance>> {
+) -> Result<Vec<ShapeInstance>, String> {
     let mut interpreter = Interpreter::new();
     interpreter.seed = seed;
 
@@ -126,30 +128,27 @@ fn build_shape_geometry(
         match parse_rule(line) {
             Ok(rule) => {
                 if let Err(e) = interpreter.add_weighted_rules(&rule.name, rule.variants) {
-                    warn!(
-                        "Shape `{}` rule `{}` rejected: {}",
-                        generator_ref, rule.name, e
-                    );
-                    return None;
+                    let msg = format!("rule `{}` rejected: {}", rule.name, e);
+                    warn!("Shape `{}` {}", generator_ref, msg);
+                    return Err(msg);
                 }
                 rule_count += 1;
             }
             Err(e) => {
-                warn!("Shape `{}` line {}: {}", generator_ref, i + 1, e);
-                return None;
+                let msg = format!("line {}: {}", i + 1, e);
+                warn!("Shape `{}` {}", generator_ref, msg);
+                return Err(msg);
             }
         }
     }
 
     if rule_count == 0 {
-        return None;
+        return Err("grammar has no rules".to_string());
     }
     if !interpreter.has_rule(root_rule) {
-        warn!(
-            "Shape `{}` root rule `{}` not defined in grammar",
-            generator_ref, root_rule
-        );
-        return None;
+        let msg = format!("root rule `{}` not defined in grammar", root_rule);
+        warn!("Shape `{}` {}", generator_ref, msg);
+        return Err(msg);
     }
 
     let root_scope = Scope::new(
@@ -165,13 +164,14 @@ fn build_shape_geometry(
     let model = match interpreter.derive(root_scope, root_rule) {
         Ok(m) => m,
         Err(e) => {
-            warn!("Shape `{}` derivation error: {}", generator_ref, e);
-            return None;
+            let msg = format!("derivation error: {}", e);
+            warn!("Shape `{}` {}", generator_ref, msg);
+            return Err(msg);
         }
     };
 
     if model.terminals.is_empty() {
-        return None;
+        return Err("grammar produced no geometry (no terminal shapes)".to_string());
     }
 
     // Dedupe meshes through the upstream `ShapeMeshCache` resource so two
@@ -205,7 +205,7 @@ fn build_shape_geometry(
         });
     }
 
-    Some(instances)
+    Ok(instances)
 }
 
 /// Resolve (and cache) a [`StandardMaterial`] handle for a given material
@@ -282,9 +282,15 @@ pub(super) fn spawn_shape_entity(
     let cached = ctx.shape_mesh_cache.get_if(generator_ref, geometry_hash);
 
     let instances = match cached {
-        Some(i) => i,
+        // Cache hit = this exact grammar compiled cleanly earlier in the
+        // session — still record Ok so a fixed-then-unchanged grammar
+        // doesn't leave a stale error in the editor (#829).
+        Some(i) => {
+            ctx.record_grammar_status(generator_ref, None);
+            i
+        }
         None => {
-            let Some(built) = build_shape_geometry(
+            let built = match build_shape_geometry(
                 grammar_source,
                 root_rule,
                 *footprint,
@@ -292,14 +298,20 @@ pub(super) fn spawn_shape_entity(
                 generator_ref,
                 ctx.meshes,
                 ctx.upstream_shape_mesh_cache,
-            ) else {
-                // Grammar rejected, root rule missing, or empty model —
-                // evict any stale entry so a later edit that fixes the
-                // grammar triggers a rebuild instead of reusing a stale
-                // success result.
-                ctx.shape_mesh_cache.remove(generator_ref);
-                return None;
+            ) {
+                Ok(built) => built,
+                Err(message) => {
+                    // Grammar rejected, root rule missing, or empty model —
+                    // evict any stale entry so a later edit that fixes the
+                    // grammar triggers a rebuild instead of reusing a stale
+                    // success result, and surface the error in the editor's
+                    // grammar forge (#829).
+                    ctx.shape_mesh_cache.remove(generator_ref);
+                    ctx.record_grammar_status(generator_ref, Some(message));
+                    return None;
+                }
             };
+            ctx.record_grammar_status(generator_ref, None);
             let instances: Arc<[ShapeInstance]> = built.into();
             ctx.shape_mesh_cache.insert(
                 generator_ref.to_string(),
@@ -360,4 +372,56 @@ pub(super) fn spawn_shape_entity(
     }
 
     Some(parent)
+}
+
+#[cfg(test)]
+mod grammar_error_tests {
+    use super::*;
+
+    /// #829: shape-grammar failures surface as `Err` with the message the
+    /// editor forge renders — line-numbered parse errors, a named missing
+    /// root rule, and the no-rules case.
+    #[test]
+    fn shape_grammar_errors_surface_as_results() {
+        // A bare asset store suffices — the error paths never reach the
+        // mesh-baking stage that would populate it.
+        let mut meshes = Assets::<Mesh>::default();
+        let mut cache = UpstreamShapeMeshCache::default();
+
+        let err = build_shape_geometry(
+            "",
+            "Root",
+            Fp3([8.0, 8.0, 8.0]),
+            1,
+            "test_gen",
+            &mut meshes,
+            &mut cache,
+        )
+        .expect_err("empty grammar must be rejected");
+        assert!(err.contains("no rules"), "{err}");
+
+        let err = build_shape_geometry(
+            "House --> Extrude(10) Body",
+            "Root",
+            Fp3([8.0, 8.0, 8.0]),
+            1,
+            "test_gen",
+            &mut meshes,
+            &mut cache,
+        )
+        .expect_err("missing root rule must be rejected");
+        assert!(err.contains("root rule `Root`"), "{err}");
+
+        let err = build_shape_geometry(
+            "%%% not a rule at all",
+            "Root",
+            Fp3([8.0, 8.0, 8.0]),
+            1,
+            "test_gen",
+            &mut meshes,
+            &mut cache,
+        )
+        .expect_err("parse failure must be rejected");
+        assert!(err.contains("line 1"), "{err}");
+    }
 }

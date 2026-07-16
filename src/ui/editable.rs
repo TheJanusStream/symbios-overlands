@@ -37,7 +37,9 @@ pub enum RecordAction {
     /// "Save to PDS" — push `live` to the PDS; on success the poll
     /// system pins `stored = live`.
     Publish,
-    /// "Load from PDS" — discard uncommitted edits (`live = stored`).
+    /// "Revert to saved" — discard uncommitted edits (`live = stored`,
+    /// the session-cached copy; no network fetch happens — the old
+    /// "Load from PDS" label promised one, #830).
     Load,
     /// "Reset to default" — `live = default_for_did(did)`.
     Reset,
@@ -53,7 +55,7 @@ pub enum RecordAction {
 ///   glanceable. Never cleared optimistically: the derived `dirty` only
 ///   drops once the poll system pins `stored = live` on a *successful*
 ///   round-trip, so a failed publish stays dirty and retryable.
-/// * **Load from PDS** — `dirty` (nothing to revert when clean).
+/// * **Revert to saved** — `dirty` (nothing to revert when clean).
 /// * **Reset to default** — `can_reset` (the live record already
 ///   differs from the canonical default).
 ///
@@ -87,7 +89,11 @@ pub fn save_load_reset_row(
             action = RecordAction::Publish;
         }
         if ui
-            .add_enabled(dirty, egui::Button::new("Load from PDS"))
+            .add_enabled(dirty, egui::Button::new("Revert to saved"))
+            .on_hover_text(
+                "Discard unsaved edits and restore the last state saved to \
+                 your PDS this session",
+            )
             .clicked()
         {
             action = RecordAction::Load;
