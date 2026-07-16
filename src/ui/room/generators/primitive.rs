@@ -6,11 +6,10 @@ use bevy_egui::egui;
 
 use crate::pds::generator::{BlobElement, BlobShape, LathePoint, SpinePoint, UvMapping};
 use crate::pds::sanitize::limits::{MAX_BLOB_ELEMENTS, MAX_SWEEP_POINTS};
-use crate::pds::types::Fp4;
 use crate::pds::{Fp, Fp2, Fp3, SovereignMaterialSettings, TortureParams};
 
 use super::super::construct::{draw_torture, draw_universal_material};
-use super::super::widgets::{drag_u32, fp_slider};
+use super::super::widgets::{drag_u32, euler_rotation_row, fp_slider};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_primitive_cuboid(
@@ -599,28 +598,10 @@ pub(super) fn draw_primitive_blob_group(
                     }
                 }
             });
-            // Orientation as yaw/pitch/roll drags, stored as a quaternion.
-            ui.horizontal(|ui| {
-                ui.label("  Rot (Y/P/R)");
-                let q = bevy::math::Quat::from_array(e.rotation.0);
-                let (mut yaw, mut pitch, mut roll) = q.to_euler(bevy::math::EulerRot::YXZ);
-                let mut changed = false;
-                for a in [&mut yaw, &mut pitch, &mut roll] {
-                    changed |= ui
-                        .add(egui::DragValue::new(a).speed(0.02).range(-3.15..=3.15))
-                        .changed();
-                }
-                if changed {
-                    e.rotation = Fp4(bevy::math::Quat::from_euler(
-                        bevy::math::EulerRot::YXZ,
-                        yaw,
-                        pitch,
-                        roll,
-                    )
-                    .to_array());
-                    *dirty = true;
-                }
-            });
+            // Orientation as yaw/pitch/roll DEGREE drags, stored as a
+            // quaternion — the shared #826 row, so every rotation editor
+            // in the app speaks the same units.
+            euler_rotation_row(ui, "  Rot", &mut e.rotation, dirty);
         });
     }
     if let Some(i) = remove

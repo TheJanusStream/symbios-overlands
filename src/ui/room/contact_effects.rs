@@ -1,9 +1,12 @@
 //! Room-editor tab for authored avatar-world contact effects (#246).
 //!
-//! Edits [`crate::pds::ContactEffects`] in place; any change flips the
-//! shared `dirty` flag so the room re-publishes and the world
-//! compiler's `apply_contact_recipes` rebuilds the runtime registry on
-//! the next save — no recompile, no relog.
+//! Persistent master-detail (#825 / W4): recipe list on the left with
+//! the Add action above it, the selected recipe's editor on the right —
+//! the same split-panel layout as the Region Assets and Placements
+//! tabs. Edits [`crate::pds::ContactEffects`] in place; any change
+//! flips the shared `dirty` flag, and the world compiler's
+//! `apply_contact_recipes` rebuilds the runtime registry on the live
+//! record's next debounce flush — edits apply LIVE, no publish needed.
 
 use bevy_egui::egui;
 
@@ -28,185 +31,232 @@ fn new_recipe(existing: usize) -> ContactEffectRecord {
 pub(super) fn draw_contact_effects_tab(
     ui: &mut egui::Ui,
     effects: &mut ContactEffects,
+    selected: &mut Option<usize>,
     dirty: &mut bool,
 ) {
-    ui.heading("Contact effects");
-    ui.label(
-        egui::RichText::new(
-            "Particle bursts triggered when an avatar contacts a surface \
-             (e.g. a boat hitting water). Edits take effect on the next \
-             Publish.",
-        )
-        .small()
-        .color(egui::Color32::GRAY),
-    );
-    ui.add_space(4.0);
+    // Drop a selection whose row vanished (delete, Load-from-PDS shrink).
+    if selected.is_some_and(|i| i >= effects.recipes.len()) {
+        *selected = None;
+    }
 
-    let mut per_frame = effects.max_particles_per_frame;
-    drag_u32(
-        ui,
-        "Max particles / frame (all recipes)",
-        &mut per_frame,
-        0,
-        4096,
-        dirty,
-    );
-    effects.max_particles_per_frame = per_frame;
+    egui::SidePanel::left("effects_list_panel")
+        .resizable(true)
+        .default_width(260.0)
+        .min_width(180.0)
+        .show_inside(ui, |ui| {
+            // Add action ABOVE the list (#825).
+            if ui.button("+ Add recipe").clicked() {
+                let n = effects.recipes.len();
+                effects.recipes.push(new_recipe(n));
+                *selected = Some(effects.recipes.len() - 1);
+                *dirty = true;
+            }
+            let mut per_frame = effects.max_particles_per_frame;
+            drag_u32(ui, "Max particles / frame", &mut per_frame, 0, 4096, dirty);
+            effects.max_particles_per_frame = per_frame;
+            ui.separator();
 
-    ui.separator();
-
-    let mut remove: Option<usize> = None;
-    for (i, r) in effects.recipes.iter_mut().enumerate() {
-        let header = format!(
-            "{}  ({}, {})",
-            r.name,
-            surface_label(r.surface),
-            phase_label(r.phase),
-        );
-        egui::CollapsingHeader::new(header)
-            .id_salt(("contact_recipe", i))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("Name");
-                    if ui.text_edit_singleline(&mut r.name).changed() {
-                        *dirty = true;
-                    }
-                });
-                if ui.checkbox(&mut r.enabled, "Enabled").changed() {
-                    *dirty = true;
-                }
-
-                ui.collapsing("Trigger", |ui| {
-                    surface_combo(ui, i, &mut r.surface, dirty);
-                    phase_combo(ui, i, &mut r.phase, dirty);
-                    fp_slider(ui, "Min speed (m/s)", &mut r.min_speed, 0.0, 50.0, dirty);
-                    fp_slider(ui, "Min intensity", &mut r.min_intensity, 0.0, 1.0, dirty);
-                });
-
-                fp_slider(ui, "Cooldown (s)", &mut r.cooldown, 0.0, 5.0, dirty);
-
-                effect_kind_combo(ui, i, &mut r.effect, dirty);
-                match &mut r.effect {
-                    ContactEffectKind::ParticleBurst {
-                        count,
-                        radius_scale,
-                        velocity_inherit,
-                        particle,
-                    } => {
-                        ui.collapsing("Count = clamp(speed·gain + base, min, max)", |ui| {
-                            fp_slider(ui, "Gain", &mut count.gain, 0.0, 40.0, dirty);
-                            fp_slider(ui, "Base", &mut count.base, 0.0, 40.0, dirty);
-                            drag_u32(ui, "Min", &mut count.min, 0, 512, dirty);
-                            drag_u32(ui, "Max", &mut count.max, 0, 512, dirty);
-                        });
-                        fp_slider(ui, "Radius scale", radius_scale, 0.0, 8.0, dirty);
-                        fp_slider(ui, "Velocity inherit", velocity_inherit, 0.0, 2.0, dirty);
-                        ui.collapsing("Particle", |ui| {
-                            shape_combo(ui, i, &mut particle.shape, dirty);
-                            fp_slider(
-                                ui,
-                                "Lifetime min (s)",
-                                &mut particle.lifetime_min,
-                                0.0,
-                                5.0,
-                                dirty,
-                            );
-                            fp_slider(
-                                ui,
-                                "Lifetime max (s)",
-                                &mut particle.lifetime_max,
-                                0.0,
-                                5.0,
-                                dirty,
-                            );
-                            fp_slider(ui, "Speed min", &mut particle.speed_min, 0.0, 20.0, dirty);
-                            fp_slider(ui, "Speed max", &mut particle.speed_max, 0.0, 20.0, dirty);
-                            fp_slider(
-                                ui,
-                                "Gravity ×",
-                                &mut particle.gravity_multiplier,
-                                -2.0,
-                                2.0,
-                                dirty,
-                            );
-                            fp_slider(
-                                ui,
-                                "Linear drag",
-                                &mut particle.linear_drag,
-                                0.0,
-                                5.0,
-                                dirty,
-                            );
-                            fp_slider(ui, "Start size", &mut particle.start_size, 0.0, 1.0, dirty);
-                            fp_slider(ui, "End size", &mut particle.end_size, 0.0, 1.0, dirty);
-                            color_picker_rgba(ui, "Start colour", &mut particle.start_color, dirty);
-                            color_picker_rgba(ui, "End colour", &mut particle.end_color, dirty);
-                            if ui.checkbox(&mut particle.billboard, "Billboard").changed() {
-                                *dirty = true;
-                            }
-                            drag_u32(
-                                ui,
-                                "Max particles",
-                                &mut particle.max_particles,
-                                0,
-                                512,
-                                dirty,
-                            );
-                            // Procedural sprite billboard (#367). Reuses the
-                            // material tab's picker; `allow_referenced =
-                            // false` because the contact-burst bake path
-                            // ignores fetched-asset references (same as the
-                            // ParticleSystem generator's procedural slot).
-                            // `None` falls back to a flat coloured quad.
-                            ui.horizontal(|ui| {
-                                ui.label("Sprite");
-                                super::material::draw_texture_bridge_opts(
-                                    ui,
-                                    &mut particle.procedural_texture,
-                                    &format!("contact_particle_sprite_{i}"),
-                                    dirty,
-                                    false,
-                                );
-                            });
-                        });
-                    }
-                    ContactEffectKind::DecalStamp { decal } => {
-                        decal_form(ui, decal, dirty);
-                    }
-                    ContactEffectKind::AudioCue { audio } => {
-                        audio_form(ui, i, audio, dirty);
-                    }
-                    ContactEffectKind::Unknown => {
+            let mut remove: Option<usize> = None;
+            egui::ScrollArea::vertical()
+                .id_salt("effects_list")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    if effects.recipes.is_empty() {
                         ui.label(
-                            egui::RichText::new(
-                                "Unknown effect kind (authored by a newer client) \
-                                 — shown read-only; re-pick a kind above to author it.",
-                            )
-                            .small()
-                            .color(egui::Color32::GRAY),
+                            egui::RichText::new("(no recipes — click + Add recipe above)")
+                                .small()
+                                .color(egui::Color32::GRAY),
                         );
                     }
-                }
+                    for (i, r) in effects.recipes.iter().enumerate() {
+                        let label = format!(
+                            "{}  ({}, {})",
+                            r.name,
+                            surface_label(r.surface),
+                            phase_label(r.phase),
+                        );
+                        ui.horizontal(|ui| {
+                            if ui.selectable_label(*selected == Some(i), label).clicked() {
+                                *selected = Some(i);
+                            }
+                            if ui
+                                .add(
+                                    egui::Button::new("−")
+                                        .fill(egui::Color32::from_rgb(180, 50, 50)),
+                                )
+                                .clicked()
+                            {
+                                remove = Some(i);
+                            }
+                        });
+                    }
+                });
+            if let Some(i) = remove {
+                effects.recipes.remove(i);
+                *selected = match *selected {
+                    Some(s) if s == i => None,
+                    Some(s) if s > i => Some(s - 1),
+                    other => other,
+                };
+                *dirty = true;
+            }
+        });
 
-                if ui
-                    .button(egui::RichText::new("Remove recipe").color(egui::Color32::LIGHT_RED))
-                    .clicked()
-                {
-                    remove = Some(i);
-                }
+    egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::ScrollArea::vertical()
+            .id_salt("effect_detail")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.label(
+                    egui::RichText::new(
+                        "Particle bursts, decals and audio cues triggered when an \
+                         avatar contacts a surface (e.g. a boat hitting water). \
+                         Edits apply live — trigger the effect by touching the \
+                         surface.",
+                    )
+                    .small()
+                    .color(egui::Color32::GRAY),
+                );
+                ui.add_space(4.0);
+                let Some(i) = *selected else {
+                    ui.label(
+                        egui::RichText::new("Select a recipe on the left.")
+                            .small()
+                            .color(egui::Color32::GRAY),
+                    );
+                    return;
+                };
+                let Some(r) = effects.recipes.get_mut(i) else {
+                    return;
+                };
+                draw_recipe_detail(ui, i, r, dirty);
             });
-    }
+    });
+}
 
-    if let Some(i) = remove {
-        effects.recipes.remove(i);
+/// The selected recipe's full editor — everything that used to live in
+/// the per-recipe `CollapsingHeader` body before the split (#825).
+fn draw_recipe_detail(ui: &mut egui::Ui, i: usize, r: &mut ContactEffectRecord, dirty: &mut bool) {
+    ui.horizontal(|ui| {
+        ui.label("Name");
+        if ui.text_edit_singleline(&mut r.name).changed() {
+            *dirty = true;
+        }
+    });
+    if ui.checkbox(&mut r.enabled, "Enabled").changed() {
         *dirty = true;
     }
 
-    ui.add_space(4.0);
-    if ui.button("➕ Add recipe").clicked() {
-        let n = effects.recipes.len();
-        effects.recipes.push(new_recipe(n));
-        *dirty = true;
+    ui.collapsing("Trigger", |ui| {
+        surface_combo(ui, i, &mut r.surface, dirty);
+        phase_combo(ui, i, &mut r.phase, dirty);
+        fp_slider(ui, "Min speed (m/s)", &mut r.min_speed, 0.0, 50.0, dirty);
+        fp_slider(ui, "Min intensity", &mut r.min_intensity, 0.0, 1.0, dirty);
+    });
+
+    fp_slider(ui, "Cooldown (s)", &mut r.cooldown, 0.0, 5.0, dirty);
+
+    effect_kind_combo(ui, i, &mut r.effect, dirty);
+    match &mut r.effect {
+        ContactEffectKind::ParticleBurst {
+            count,
+            radius_scale,
+            velocity_inherit,
+            particle,
+        } => {
+            ui.collapsing("Count = clamp(speed·gain + base, min, max)", |ui| {
+                fp_slider(ui, "Gain", &mut count.gain, 0.0, 40.0, dirty);
+                fp_slider(ui, "Base", &mut count.base, 0.0, 40.0, dirty);
+                drag_u32(ui, "Min", &mut count.min, 0, 512, dirty);
+                drag_u32(ui, "Max", &mut count.max, 0, 512, dirty);
+            });
+            fp_slider(ui, "Radius scale", radius_scale, 0.0, 8.0, dirty);
+            fp_slider(ui, "Velocity inherit", velocity_inherit, 0.0, 2.0, dirty);
+            ui.collapsing("Particle", |ui| {
+                shape_combo(ui, i, &mut particle.shape, dirty);
+                fp_slider(
+                    ui,
+                    "Lifetime min (s)",
+                    &mut particle.lifetime_min,
+                    0.0,
+                    5.0,
+                    dirty,
+                );
+                fp_slider(
+                    ui,
+                    "Lifetime max (s)",
+                    &mut particle.lifetime_max,
+                    0.0,
+                    5.0,
+                    dirty,
+                );
+                fp_slider(ui, "Speed min", &mut particle.speed_min, 0.0, 20.0, dirty);
+                fp_slider(ui, "Speed max", &mut particle.speed_max, 0.0, 20.0, dirty);
+                fp_slider(
+                    ui,
+                    "Gravity ×",
+                    &mut particle.gravity_multiplier,
+                    -2.0,
+                    2.0,
+                    dirty,
+                );
+                fp_slider(
+                    ui,
+                    "Linear drag",
+                    &mut particle.linear_drag,
+                    0.0,
+                    5.0,
+                    dirty,
+                );
+                fp_slider(ui, "Start size", &mut particle.start_size, 0.0, 1.0, dirty);
+                fp_slider(ui, "End size", &mut particle.end_size, 0.0, 1.0, dirty);
+                color_picker_rgba(ui, "Start colour", &mut particle.start_color, dirty);
+                color_picker_rgba(ui, "End colour", &mut particle.end_color, dirty);
+                if ui.checkbox(&mut particle.billboard, "Billboard").changed() {
+                    *dirty = true;
+                }
+                drag_u32(
+                    ui,
+                    "Max particles",
+                    &mut particle.max_particles,
+                    0,
+                    512,
+                    dirty,
+                );
+                // Procedural sprite billboard (#367). Reuses the
+                // material tab's picker; `allow_referenced =
+                // false` because the contact-burst bake path
+                // ignores fetched-asset references (same as the
+                // ParticleSystem generator's procedural slot).
+                // `None` falls back to a flat coloured quad.
+                ui.horizontal(|ui| {
+                    ui.label("Sprite");
+                    super::material::draw_texture_bridge_opts(
+                        ui,
+                        &mut particle.procedural_texture,
+                        &format!("contact_particle_sprite_{i}"),
+                        dirty,
+                        false,
+                    );
+                });
+            });
+        }
+        ContactEffectKind::DecalStamp { decal } => {
+            decal_form(ui, decal, dirty);
+        }
+        ContactEffectKind::AudioCue { audio } => {
+            audio_form(ui, i, audio, dirty);
+        }
+        ContactEffectKind::Unknown => {
+            ui.label(
+                egui::RichText::new(
+                    "Unknown effect kind (authored by a newer client) \
+                                 — shown read-only; re-pick a kind above to author it.",
+                )
+                .small()
+                .color(egui::Color32::GRAY),
+            );
+        }
     }
 }
 

@@ -316,18 +316,17 @@ fn write_transform_into_placement(
             true
         }
         Placement::Scatter { bounds, .. } => {
+            // Scatter is translate-only (#827, user decision): the gizmo
+            // no longer offers rotation handles, and the Rect angle is
+            // owned by the Bounds "Rotation (deg)" slider. Deliberately
+            // do NOT derive a yaw from the anchor pose here — that wrote
+            // the anchor's (identity) rotation over an authored Rect
+            // angle on every translate-only drag.
             match bounds {
-                crate::pds::ScatterBounds::Circle { center, .. } => {
+                crate::pds::ScatterBounds::Circle { center, .. }
+                | crate::pds::ScatterBounds::Rect { center, .. } => {
                     center.0[0] = transform.translation.x;
                     center.0[1] = transform.translation.z;
-                }
-                crate::pds::ScatterBounds::Rect {
-                    center, rotation, ..
-                } => {
-                    center.0[0] = transform.translation.x;
-                    center.0[1] = transform.translation.z;
-                    let (yaw, _, _) = transform.rotation.to_euler(EulerRot::YXZ);
-                    rotation.0 = yaw;
                 }
             }
             true
@@ -401,5 +400,52 @@ mod tests {
         // cell yaw here is 2.1 rad).
         assert!(unchanged.rotation.angle_between(root_old.rotation) < 5e-3);
         assert!(unchanged.scale.distance(root_old.scale) < 1e-3);
+    }
+}
+
+#[cfg(test)]
+mod scatter_commit_tests {
+    use super::*;
+    use crate::pds::{BiomeFilter, Fp, Fp2, ScatterBounds};
+
+    /// #827: a translate-only scatter drag moves the bounds centre and
+    /// must NOT touch the Rect's authored rotation — the old code derived
+    /// yaw from the anchor pose (identity on a fresh spawn) and zeroed
+    /// the slider-set angle on every drag.
+    #[test]
+    fn scatter_rect_translate_preserves_the_authored_angle() {
+        let mut placement = Placement::Scatter {
+            generator_ref: "g".into(),
+            bounds: ScatterBounds::Rect {
+                center: Fp2([0.0, 0.0]),
+                extents: Fp2([32.0, 16.0]),
+                rotation: Fp(0.9),
+            },
+            count: 8,
+            local_seed: 1,
+            biome_filter: BiomeFilter::default(),
+            snap_to_terrain: true,
+            random_yaw: true,
+            avoid_urban: false,
+        };
+        let dragged = Transform::from_xyz(15.0, 3.0, -7.5);
+        assert!(write_transform_into_placement(
+            &mut placement,
+            &dragged,
+            None
+        ));
+        match placement {
+            Placement::Scatter {
+                bounds:
+                    ScatterBounds::Rect {
+                        center, rotation, ..
+                    },
+                ..
+            } => {
+                assert_eq!(center.0, [15.0, -7.5]);
+                assert_eq!(rotation.0, 0.9, "authored angle must survive");
+            }
+            other => panic!("variant changed: {other:?}"),
+        }
     }
 }

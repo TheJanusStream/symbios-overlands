@@ -99,9 +99,38 @@ use crate::world_builder::{AvatarVisualPrim, PlacementMarker, PrimMarker};
 /// tilted construct.
 ///
 /// Wraps `transform_gizmo_bevy::GizmoOrientation` so call sites don't
-/// have to know about the upstream type.
-#[derive(Resource, Clone, Copy, Default, PartialEq, Eq, Debug)]
-pub struct GizmoFramePref(pub GizmoOrientation);
+/// have to know about the upstream type. Also carries the snap
+/// preference (#827) — same lifecycle, same two owner-facing rows, so it
+/// rides the resource both editors already hold instead of costing each
+/// UI system another parameter slot.
+#[derive(Resource, Clone, Copy, PartialEq, Debug)]
+pub struct GizmoFramePref {
+    pub orientation: GizmoOrientation,
+    /// Snap gizmo drags to fixed increments (#827). Off by default —
+    /// free-form dragging is the common case; precision alignment opts
+    /// in per session.
+    pub snap: bool,
+    /// Translation increment in metres while snapping.
+    pub snap_distance: f32,
+    /// Rotation increment in degrees while snapping (the upstream option
+    /// wants radians; sync converts).
+    pub snap_angle_deg: f32,
+    /// Scale increment while snapping.
+    pub snap_scale: f32,
+}
+
+impl Default for GizmoFramePref {
+    fn default() -> Self {
+        use crate::config::ui::gizmo_snap as cfg;
+        Self {
+            orientation: GizmoOrientation::default(),
+            snap: false,
+            snap_distance: cfg::DISTANCE_M,
+            snap_angle_deg: cfg::ANGLE_DEG,
+            snap_scale: cfg::SCALE,
+        }
+    }
+}
 
 /// Tab-bar widget shared by both editor panels: a two-state toggle
 /// between World and Local gizmo orientation. Lives next to each
@@ -131,15 +160,50 @@ pub fn draw_gizmo_frame_toggle(
              world-axis scaling of a rotated element is imprecise. The \
              World/Local toggle applies to the whole-object gizmo.",
         );
+        draw_snap_controls(ui, pref);
         return;
     }
-    let is_global = pref.0 == GizmoOrientation::Global;
+    let is_global = pref.orientation == GizmoOrientation::Global;
     if ui.selectable_label(is_global, "World").clicked() {
-        pref.0 = GizmoOrientation::Global;
+        pref.orientation = GizmoOrientation::Global;
     }
     if ui.selectable_label(!is_global, "Local").clicked() {
-        pref.0 = GizmoOrientation::Local;
+        pref.orientation = GizmoOrientation::Local;
     }
+    draw_snap_controls(ui, pref);
+}
+
+/// Snap toggle + increment fields (#827), rendered beside the
+/// World/Local toggle in both editors. The increments only appear while
+/// snapping is on, keeping the idle tab bar lean.
+fn draw_snap_controls(ui: &mut egui::Ui, pref: &mut GizmoFramePref) {
+    ui.separator();
+    ui.checkbox(&mut pref.snap, "Snap")
+        .on_hover_text("Snap gizmo drags to fixed increments");
+    if !pref.snap {
+        return;
+    }
+    ui.add(
+        egui::DragValue::new(&mut pref.snap_distance)
+            .speed(0.1)
+            .range(0.01..=100.0)
+            .suffix(" m"),
+    )
+    .on_hover_text("Translation increment");
+    ui.add(
+        egui::DragValue::new(&mut pref.snap_angle_deg)
+            .speed(1.0)
+            .range(1.0..=90.0)
+            .suffix("°"),
+    )
+    .on_hover_text("Rotation increment");
+    ui.add(
+        egui::DragValue::new(&mut pref.snap_scale)
+            .speed(0.05)
+            .range(0.01..=2.0)
+            .suffix("×"),
+    )
+    .on_hover_text("Scale increment");
 }
 
 /// Marker attached to a prim while it is serving as the gizmo target.

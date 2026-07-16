@@ -1,6 +1,14 @@
-//! Placements tab — master list + detail editor for `Absolute`, `Scatter`,
-//! and `Grid` placements, plus the `ScatterBounds` and `BiomeFilter`
-//! sub-widgets.
+//! Placements tab — persistent master-detail (#825 / W4): a left list
+//! panel with the Add actions ABOVE it, and a right detail panel for the
+//! selected `Absolute`, `Scatter`, or `Grid` placement, plus the
+//! `ScatterBounds` and `BiomeFilter` sub-widgets. Same split-panel
+//! layout as the Region Assets tab, so the window's tabs share one
+//! navigation model.
+//!
+//! New placements spawn AT THE PLAYER'S POSITION (snap-to-terrain on, so
+//! they land on the ground where the owner is standing) instead of at
+//! the world origin — an origin add 500 m away read as "the button is
+//! broken".
 
 use bevy_egui::egui;
 
@@ -9,19 +17,101 @@ use crate::pds::{
     WaterRelation,
 };
 
+use super::environment::PlayerPose;
 use super::widgets::{drag_u32, drag_u64, draw_transform_no_scale, fp_slider, generator_combo};
+
+/// One-line list/heading label for a placement row.
+fn placement_label(index: usize, placement: &Placement) -> String {
+    match placement {
+        Placement::Absolute { generator_ref, .. } => {
+            format!("#{index} Absolute → {generator_ref}")
+        }
+        Placement::Scatter {
+            generator_ref,
+            count,
+            ..
+        } => {
+            format!("#{index} Scatter × {count} → {generator_ref}")
+        }
+        Placement::Grid {
+            generator_ref,
+            counts,
+            ..
+        } => {
+            format!(
+                "#{index} Grid {}x{}x{} → {generator_ref}",
+                counts[0], counts[1], counts[2]
+            )
+        }
+        Placement::Unknown => format!("#{index} (unknown)"),
+    }
+}
+
+/// The player's ground position as an anchor for a fresh placement —
+/// `[x, z]` when the pose is known, world origin otherwise.
+fn anchor_xz(player_pose: Option<PlayerPose>) -> [f32; 2] {
+    player_pose.map(|p| [p.x, p.z]).unwrap_or([0.0, 0.0])
+}
+
+/// Fresh `Absolute` at the player's feet: snapped, so Y is a surface
+/// offset and 0 lands it exactly on the ground at the anchor.
+fn new_absolute_placement(target: String, anchor: [f32; 2]) -> Placement {
+    Placement::Absolute {
+        generator_ref: target,
+        transform: TransformData {
+            translation: Fp3([anchor[0], 0.0, anchor[1]]),
+            ..TransformData::default()
+        },
+        snap_to_terrain: true,
+        avoid_water: false,
+        avoid_water_clearance: Fp(0.0),
+    }
+}
+
+/// Fresh `Scatter` whose bounds circle is centred on the anchor.
+fn new_scatter_placement(target: String, anchor: [f32; 2]) -> Placement {
+    let mut bounds = ScatterBounds::default();
+    match &mut bounds {
+        ScatterBounds::Circle { center, .. } | ScatterBounds::Rect { center, .. } => {
+            *center = Fp2(anchor);
+        }
+    }
+    Placement::Scatter {
+        generator_ref: target,
+        bounds,
+        count: 16,
+        local_seed: 1,
+        biome_filter: BiomeFilter::default(),
+        snap_to_terrain: true,
+        random_yaw: true,
+        avoid_urban: false,
+    }
+}
+
+/// Fresh `Grid` anchored at the player's feet (snapped: the compile
+/// replaces Y with the terrain height).
+fn new_grid_placement(target: String, anchor: [f32; 2]) -> Placement {
+    Placement::Grid {
+        generator_ref: target,
+        transform: TransformData {
+            translation: Fp3([anchor[0], 0.0, anchor[1]]),
+            ..TransformData::default()
+        },
+        counts: [2, 1, 2],
+        gaps: Fp3([2.0, 2.0, 2.0]),
+        snap_to_terrain: true,
+        random_yaw: false,
+    }
+}
 
 pub(super) fn draw_placements_tab(
     ui: &mut egui::Ui,
     record: &mut RoomRecord,
     selected: &mut Option<usize>,
     heightmap: Option<&crate::terrain::FinishedHeightMap>,
+    player_pose: Option<PlayerPose>,
     dirty: &mut bool,
 ) {
-    // Single-column master/detail — see `draw_generators_tab` for the
-    // rationale; logic mirrors it with index-based selection.
-    let selected_exists = selected.is_some_and(|i| i < record.placements.len());
-
     // Sorted: `record.generators` is a HashMap, so unsorted keys would put
     // the combos in nondeterministic hash order (varying between sessions).
     let mut all_names: Vec<String> = record.generators.keys().cloned().collect();
@@ -44,120 +134,132 @@ pub(super) fn draw_placements_tab(
         .collect();
     eligible_names.sort();
 
-    if selected_exists {
-        let idx = selected.expect("selected_exists implies Some");
-        ui.horizontal(|ui| {
-            if ui.button("← Back").clicked() {
-                *selected = None;
+    // Drop a selection whose row vanished (delete, Load-from-PDS shrink).
+    if selected.is_some_and(|i| i >= record.placements.len()) {
+        *selected = None;
+    }
+
+    egui::SidePanel::left("placements_list_panel")
+        .resizable(true)
+        .default_width(260.0)
+        .min_width(180.0)
+        .show_inside(ui, |ui| {
+            // Add actions ABOVE the list (#825).
+            let anchor = anchor_xz(player_pose);
+            ui.horizontal(|ui| {
+                if ui
+                    .small_button("+ Absolute")
+                    .on_hover_text("Add a single placement at your position")
+                    .clicked()
+                {
+                    record.placements.push(new_absolute_placement(
+                        all_names.first().cloned().unwrap_or_default(),
+                        anchor,
+                    ));
+                    *selected = Some(record.placements.len() - 1);
+                    *dirty = true;
+                }
+                // Scatter and Grid require an eligible target — disable the
+                // buttons when every generator in the record is a Terrain or
+                // Water root, so the user can't seed an immediately-invalid
+                // placement that the sanitiser would just drop on next save.
+                let has_eligible = !eligible_names.is_empty();
+                if ui
+                    .add_enabled(has_eligible, egui::Button::new("+ Scatter").small())
+                    .on_hover_text("Scatter instances in a region centred on you")
+                    .clicked()
+                {
+                    record.placements.push(new_scatter_placement(
+                        eligible_names.first().cloned().unwrap_or_default(),
+                        anchor,
+                    ));
+                    *selected = Some(record.placements.len() - 1);
+                    *dirty = true;
+                }
+                if ui
+                    .add_enabled(has_eligible, egui::Button::new("+ Grid").small())
+                    .on_hover_text("Add a grid of instances anchored at your position")
+                    .clicked()
+                {
+                    record.placements.push(new_grid_placement(
+                        eligible_names.first().cloned().unwrap_or_default(),
+                        anchor,
+                    ));
+                    *selected = Some(record.placements.len() - 1);
+                    *dirty = true;
+                }
+            });
+            ui.separator();
+
+            let mut to_remove: Option<usize> = None;
+            egui::ScrollArea::vertical()
+                .id_salt("placements_list")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    if record.placements.is_empty() {
+                        ui.label(
+                            egui::RichText::new("(no placements — click + Absolute above)")
+                                .small()
+                                .color(egui::Color32::GRAY),
+                        );
+                    }
+                    for (i, p) in record.placements.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            if ui
+                                .selectable_label(*selected == Some(i), placement_label(i, p))
+                                .clicked()
+                            {
+                                *selected = Some(i);
+                            }
+                            if ui
+                                .add(
+                                    egui::Button::new("−")
+                                        .fill(egui::Color32::from_rgb(180, 50, 50)),
+                                )
+                                .clicked()
+                            {
+                                to_remove = Some(i);
+                            }
+                        });
+                    }
+                });
+            if let Some(idx) = to_remove {
+                record.placements.remove(idx);
+                // Indices above the removal shifted down — keep the same
+                // ROW selected where possible, clear if it was the one
+                // removed.
+                *selected = match *selected {
+                    Some(s) if s == idx => None,
+                    Some(s) if s > idx => Some(s - 1),
+                    other => other,
+                };
+                *dirty = true;
             }
-            ui.heading(format!("Detail — #{idx}"));
         });
-        ui.add_space(4.0);
-        if let Some(p) = record.placements.get_mut(idx) {
-            draw_placement_detail(ui, p, &all_names, &eligible_names, heightmap, dirty);
-        }
-        return;
-    }
 
-    *selected = None;
-
-    ui.heading("Placements");
-    ui.add_space(4.0);
-
-    let mut to_remove: Option<usize> = None;
-    for (i, p) in record.placements.iter().enumerate() {
-        let label = match p {
-            Placement::Absolute { generator_ref, .. } => {
-                format!("#{i} Absolute → {generator_ref}")
-            }
-            Placement::Scatter {
-                generator_ref,
-                count,
-                ..
-            } => {
-                format!("#{i} Scatter × {count} → {generator_ref}")
-            }
-            Placement::Grid {
-                generator_ref,
-                counts,
-                ..
-            } => {
-                format!(
-                    "#{i} Grid {}x{}x{} → {generator_ref}",
-                    counts[0], counts[1], counts[2]
-                )
-            }
-            Placement::Unknown => format!("#{i} (unknown)"),
-        };
-        ui.horizontal(|ui| {
-            if ui.selectable_label(false, label).clicked() {
-                *selected = Some(i);
-            }
-            if ui
-                .add(egui::Button::new("−").fill(egui::Color32::from_rgb(180, 50, 50)))
-                .clicked()
-            {
-                to_remove = Some(i);
-            }
-        });
-    }
-    if let Some(idx) = to_remove {
-        record.placements.remove(idx);
-        *dirty = true;
-    }
-
-    ui.add_space(6.0);
-    ui.separator();
-    ui.label("Add placement:");
-    ui.horizontal(|ui| {
-        if ui.small_button("+ Absolute").clicked() {
-            record.placements.push(Placement::Absolute {
-                generator_ref: all_names.first().cloned().unwrap_or_default(),
-                transform: TransformData::default(),
-                snap_to_terrain: true,
-                avoid_water: false,
-                avoid_water_clearance: crate::pds::Fp(0.0),
+    egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::ScrollArea::vertical()
+            .id_salt("placement_detail")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                let Some(idx) = *selected else {
+                    ui.label(
+                        egui::RichText::new(
+                            "Select a placement on the left — or click an object in \
+                             the world.",
+                        )
+                        .small()
+                        .color(egui::Color32::GRAY),
+                    );
+                    return;
+                };
+                let Some(p) = record.placements.get_mut(idx) else {
+                    return;
+                };
+                ui.heading(placement_label(idx, p));
+                ui.add_space(4.0);
+                draw_placement_detail(ui, p, &all_names, &eligible_names, heightmap, dirty);
             });
-            *selected = Some(record.placements.len() - 1);
-            *dirty = true;
-        }
-        // Scatter and Grid require an eligible target — disable the
-        // buttons when every generator in the record is a Terrain or
-        // Water root, so the user can't seed an immediately-invalid
-        // placement that the sanitiser would just drop on next save.
-        let has_eligible = !eligible_names.is_empty();
-        if ui
-            .add_enabled(has_eligible, egui::Button::new("+ Scatter").small())
-            .clicked()
-        {
-            record.placements.push(Placement::Scatter {
-                generator_ref: eligible_names.first().cloned().unwrap_or_default(),
-                bounds: ScatterBounds::default(),
-                count: 16,
-                local_seed: 1,
-                biome_filter: BiomeFilter::default(),
-                snap_to_terrain: true,
-                random_yaw: true,
-                avoid_urban: false,
-            });
-            *selected = Some(record.placements.len() - 1);
-            *dirty = true;
-        }
-        if ui
-            .add_enabled(has_eligible, egui::Button::new("+ Grid").small())
-            .clicked()
-        {
-            record.placements.push(Placement::Grid {
-                generator_ref: eligible_names.first().cloned().unwrap_or_default(),
-                transform: TransformData::default(),
-                counts: [2, 1, 2],
-                gaps: Fp3([2.0, 2.0, 2.0]),
-                snap_to_terrain: true,
-                random_yaw: false,
-            });
-            *selected = Some(record.placements.len() - 1);
-            *dirty = true;
-        }
     });
 }
 
@@ -384,14 +486,7 @@ fn draw_scatter_bounds(ui: &mut egui::Ui, bounds: &mut ScatterBounds, dirty: &mu
     }
     match bounds {
         ScatterBounds::Circle { center, radius } => {
-            ui.label(
-                egui::RichText::new(format!(
-                    "Center: X {:.1}, Z {:.1} (Use Gizmo to move)",
-                    center.0[0], center.0[1]
-                ))
-                .small()
-                .color(egui::Color32::GRAY),
-            );
+            scatter_center_row(ui, center, dirty);
             fp_slider(ui, "Radius", radius, 1.0, 1024.0, dirty);
         }
         ScatterBounds::Rect {
@@ -399,14 +494,7 @@ fn draw_scatter_bounds(ui: &mut egui::Ui, bounds: &mut ScatterBounds, dirty: &mu
             extents,
             rotation,
         } => {
-            ui.label(
-                egui::RichText::new(format!(
-                    "Center: X {:.1}, Z {:.1} (Use Gizmo to move)",
-                    center.0[0], center.0[1]
-                ))
-                .small()
-                .color(egui::Color32::GRAY),
-            );
+            scatter_center_row(ui, center, dirty);
             let mut e = extents.0;
             ui.horizontal(|ui| {
                 ui.label("Extents");
@@ -431,6 +519,24 @@ fn draw_scatter_bounds(ui: &mut egui::Ui, bounds: &mut ScatterBounds, dirty: &mu
             }
         }
     }
+}
+
+/// Numeric X/Z entry for a scatter bounds centre (#825) — precise
+/// placement no longer needs the gizmo, which stays available as the
+/// coarse channel.
+fn scatter_center_row(ui: &mut egui::Ui, center: &mut Fp2, dirty: &mut bool) {
+    ui.horizontal(|ui| {
+        ui.label("Center X / Z");
+        for v in center.0.iter_mut() {
+            if ui
+                .add(egui::DragValue::new(v).speed(1.0))
+                .on_hover_text("Type exact coordinates — or drag the gizmo in the scene")
+                .changed()
+            {
+                *dirty = true;
+            }
+        }
+    });
 }
 
 fn draw_biome_filter(ui: &mut egui::Ui, filter: &mut BiomeFilter, dirty: &mut bool) {
@@ -467,4 +573,71 @@ fn draw_biome_filter(ui: &mut egui::Ui, filter: &mut BiomeFilter, dirty: &mut bo
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const POSE: PlayerPose = PlayerPose {
+        x: 120.5,
+        y: 8.0,
+        z: -44.25,
+        yaw_deg: 90.0,
+    };
+
+    #[test]
+    fn anchor_is_the_player_position_or_origin() {
+        assert_eq!(anchor_xz(Some(POSE)), [120.5, -44.25]);
+        assert_eq!(anchor_xz(None), [0.0, 0.0]);
+    }
+
+    #[test]
+    fn new_absolute_lands_snapped_at_the_players_feet() {
+        let p = new_absolute_placement("tree".into(), anchor_xz(Some(POSE)));
+        match p {
+            Placement::Absolute {
+                generator_ref,
+                transform,
+                snap_to_terrain,
+                ..
+            } => {
+                assert_eq!(generator_ref, "tree");
+                // Snapped semantics: Y is a surface offset, so 0 puts the
+                // anchor exactly ON the ground at the player's X/Z.
+                assert_eq!(transform.translation.0, [120.5, 0.0, -44.25]);
+                assert!(snap_to_terrain);
+            }
+            other => panic!("expected Absolute, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn new_scatter_centres_its_bounds_on_the_player() {
+        let p = new_scatter_placement("tree".into(), anchor_xz(Some(POSE)));
+        match p {
+            Placement::Scatter { bounds, .. } => match bounds {
+                ScatterBounds::Circle { center, .. } | ScatterBounds::Rect { center, .. } => {
+                    assert_eq!(center.0, [120.5, -44.25]);
+                }
+            },
+            other => panic!("expected Scatter, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn new_grid_anchors_at_the_player() {
+        let p = new_grid_placement("tree".into(), anchor_xz(Some(POSE)));
+        match p {
+            Placement::Grid {
+                transform,
+                snap_to_terrain,
+                ..
+            } => {
+                assert_eq!(transform.translation.0, [120.5, 0.0, -44.25]);
+                assert!(snap_to_terrain);
+            }
+            other => panic!("expected Grid, got {other:?}"),
+        }
+    }
 }

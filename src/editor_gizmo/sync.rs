@@ -10,6 +10,7 @@ use bevy::ecs::hierarchy::ChildOf;
 use bevy::prelude::*;
 use transform_gizmo_bevy::{EnumSet, GizmoMode, GizmoOptions, GizmoOrientation, GizmoTarget};
 
+use crate::pds::Placement;
 use crate::pds::generator::BlobShape;
 use crate::ui::avatar::AvatarEditorState;
 use crate::ui::room::{EditorTab, RoomEditorState};
@@ -63,13 +64,15 @@ pub(super) fn sync_gizmo_selection(
         Has<GizmoDetachedPrim>,
         Option<&ChildOf>,
     )>,
-    detached_query: Query<&GizmoDetachedPrim>,
-    global_tf: Query<&GlobalTransform>,
+    // Bundled to stay under Bevy's 16-parameter ceiling.
+    (detached_query, global_tf): (Query<&GizmoDetachedPrim>, Query<&GlobalTransform>),
     camera_query: Query<&GlobalTransform, With<Camera3d>>,
     // Any entity still carrying gizmo state a deselect would need to tear down.
     gizmoed: Query<(), Or<(With<GizmoTarget>, With<GizmoDetachedPrim>)>>,
     // Live gizmo flags, for the mid-drag resolution freeze (#822).
     active_gizmos: Query<&GizmoTarget>,
+    // The live record, for variant-aware placement gizmo modes (#827).
+    room_record: Option<Res<crate::state::LiveRoomRecord>>,
 ) {
     // No `is_changed()` guard. The earlier optimization missed the case
     // where a drag commit flips only the *record's* change tick (the
@@ -82,11 +85,17 @@ pub(super) fn sync_gizmo_selection(
     // room's population (every `PrimMarker` node — not a fixed small set
     // when a room carries a dense scatter).
 
-    // Per-frame: push the current orientation preference into the
-    // gizmo's global config. Cheap to set unconditionally —
+    // Per-frame: push the current orientation + snap preferences into
+    // the gizmo's global config. Cheap to set unconditionally —
     // `GizmoOptions` change-detects on field write inside
-    // `transform-gizmo-bevy`.
-    gizmo_options.gizmo_orientation = frame_pref.0;
+    // `transform-gizmo-bevy`. Snap increments come from the same
+    // resource the World/Local toggle edits (#827); the upstream angle
+    // option is radians.
+    gizmo_options.gizmo_orientation = frame_pref.orientation;
+    gizmo_options.snapping = frame_pref.snap;
+    gizmo_options.snap_distance = frame_pref.snap_distance;
+    gizmo_options.snap_angle = frame_pref.snap_angle_deg.to_radians();
+    gizmo_options.snap_scale = frame_pref.snap_scale;
 
     let mut active = determine_active_target(&room_state, &avatar_state);
     // The room gizmo exists only while the World-editor window is open
@@ -254,20 +263,24 @@ pub(super) fn sync_gizmo_selection(
     let is_avatar_prim_selected = target_avatar_prim.is_some();
 
     // Restrict gizmo modes per the type of thing selected. Placements
-    // can't scale (their generator's construct tree owns shape). Prims
-    // can translate / rotate / scale except for blueprint roots, which
-    // are locked to rotate + scale — translating the root would just
-    // shift the whole subtree relative to its own origin. Avatar
-    // visuals follow the same root rule; their root translation lives in
-    // the chassis (anchored by locomotion physics). Blob elements get a
-    // shape-specific set (see `element_modes`).
+    // can't scale (their generator's construct tree owns shape) and get
+    // a variant-aware set — Scatter is translate-only (#827, see
+    // `placement_modes`). Prims can translate / rotate / scale except
+    // for blueprint roots, which are locked to rotate + scale —
+    // translating the root would just shift the whole subtree relative
+    // to its own origin. Avatar visuals follow the same root rule; their
+    // root translation lives in the chassis (anchored by locomotion
+    // physics). Blob elements get a shape-specific set (see
+    // `element_modes`).
     if let Some((_, shape)) = target_proxy {
         gizmo_options.gizmo_modes = element_modes(shape);
     } else if placement_selected {
-        let mut modes = EnumSet::new();
-        modes.insert_all(GizmoMode::all_translate());
-        modes.insert_all(GizmoMode::all_rotate());
-        gizmo_options.gizmo_modes = modes;
+        let placement = room_record.as_ref().and_then(|record| {
+            room_state
+                .selected_placement
+                .and_then(|idx| record.0.placements.get(idx))
+        });
+        gizmo_options.gizmo_modes = placement_modes(placement);
     } else if is_room_prim_selected {
         let is_root = room_state
             .selected_prim_path
@@ -350,6 +363,34 @@ pub(super) fn sync_gizmo_selection(
             &global_tf,
         );
     }
+}
+
+/// Mode set for a placement selection (#827): only the gestures the
+/// commit actually keeps, so no drag silently evaporates.
+///
+/// * `Absolute` / `Grid` — translate + rotate (both written verbatim;
+///   scale is owned by the generator tree, as before).
+/// * `Scatter` — translate ONLY (user decision, 2026-07-16): the GUI
+///   shows bounds, not a transform, and a Rect's angle is the Bounds
+///   "Rotation (deg)" slider — a gizmo rotation was discarded (Circle)
+///   or half-kept (Rect yaw), reading as a bug.
+/// * `Unknown` — nothing: the commit refuses to write into a schema it
+///   doesn't know, so no handle should promise otherwise.
+/// * `None` (record momentarily unavailable) — the pre-#827 set, so a
+///   transient lookup miss doesn't strip handles mid-session.
+fn placement_modes(placement: Option<&Placement>) -> EnumSet<GizmoMode> {
+    let mut modes = EnumSet::new();
+    match placement {
+        Some(Placement::Scatter { .. }) => {
+            modes.insert_all(GizmoMode::all_translate());
+        }
+        Some(Placement::Unknown) => {}
+        Some(Placement::Absolute { .. }) | Some(Placement::Grid { .. }) | None => {
+            modes.insert_all(GizmoMode::all_translate());
+            modes.insert_all(GizmoMode::all_rotate());
+        }
+    }
+    modes
 }
 
 /// Mode set for a prim selection — root prims (path == []) are locked to
@@ -749,7 +790,7 @@ mod repro_tests {
         avatar_state.selected_prim_path = Some(vec![]);
         app.insert_resource(avatar_state);
         // The user has the World (Global) frame selected.
-        app.world_mut().resource_mut::<GizmoFramePref>().0 = GizmoOrientation::Global;
+        app.world_mut().resource_mut::<GizmoFramePref>().orientation = GizmoOrientation::Global;
 
         app.add_systems(Update, reconcile_blob_proxies);
         app.add_systems(
@@ -800,5 +841,87 @@ mod repro_tests {
             GizmoOrientation::Global,
             "the World/Local toggle must still govern the whole-prim gizmo",
         );
+    }
+}
+
+#[cfg(test)]
+mod mode_tests {
+    use super::*;
+    use crate::pds::{BiomeFilter, Fp, Fp3, ScatterBounds, TransformData};
+
+    fn scatter() -> Placement {
+        Placement::Scatter {
+            generator_ref: "g".into(),
+            bounds: ScatterBounds::default(),
+            count: 4,
+            local_seed: 1,
+            biome_filter: BiomeFilter::default(),
+            snap_to_terrain: true,
+            random_yaw: true,
+            avoid_urban: false,
+        }
+    }
+
+    fn absolute() -> Placement {
+        Placement::Absolute {
+            generator_ref: "g".into(),
+            transform: TransformData::default(),
+            snap_to_terrain: true,
+            avoid_water: false,
+            avoid_water_clearance: Fp(0.0),
+        }
+    }
+
+    fn grid() -> Placement {
+        Placement::Grid {
+            generator_ref: "g".into(),
+            transform: TransformData::default(),
+            counts: [2, 1, 2],
+            gaps: Fp3([2.0, 2.0, 2.0]),
+            snap_to_terrain: true,
+            random_yaw: false,
+        }
+    }
+
+    /// #827 (user decision): scatter placements are translate-only — a
+    /// rotation gesture had no honest commit (Circle discarded it, Rect
+    /// half-kept it and clobbered the authored slider angle).
+    #[test]
+    fn scatter_gets_translate_only_handles() {
+        let modes = placement_modes(Some(&scatter()));
+        for m in GizmoMode::all_translate() {
+            assert!(modes.contains(m), "missing translate mode {m:?}");
+        }
+        for m in GizmoMode::all_rotate() {
+            assert!(!modes.contains(m), "scatter must not rotate: {m:?}");
+        }
+        for m in GizmoMode::all_scale() {
+            assert!(!modes.contains(m), "placements never scale: {m:?}");
+        }
+    }
+
+    #[test]
+    fn absolute_and_grid_keep_translate_plus_rotate() {
+        for placement in [absolute(), grid()] {
+            let modes = placement_modes(Some(&placement));
+            for m in GizmoMode::all_translate()
+                .iter()
+                .chain(GizmoMode::all_rotate())
+            {
+                assert!(modes.contains(m), "{placement:?} missing {m:?}");
+            }
+            for m in GizmoMode::all_scale() {
+                assert!(!modes.contains(m));
+            }
+        }
+    }
+
+    #[test]
+    fn unknown_gets_no_handles_and_none_falls_back() {
+        assert!(placement_modes(Some(&Placement::Unknown)).is_empty());
+        // Transient record-lookup miss keeps the pre-#827 behaviour.
+        let fallback = placement_modes(None);
+        assert!(fallback.contains(GizmoMode::TranslateX));
+        assert!(fallback.contains(GizmoMode::RotateY));
     }
 }

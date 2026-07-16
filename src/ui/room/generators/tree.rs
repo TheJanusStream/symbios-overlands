@@ -214,25 +214,44 @@ pub(super) fn draw_tree_panel(
         .first()
         .filter(|id| find_node(&*source, id).is_some())
         .cloned();
+    sync_selection_fields(
+        valid,
+        selected_generator,
+        selected_prim_path,
+        tree_view_state,
+    );
+}
+
+/// Mirror the tree widget's (validated) selection into the editor-state
+/// fields the gizmo layer reads. Deliberately has NO access to the shared
+/// dirty flag (#828): selecting a row edits nothing, but the flag arms
+/// the debounce, whose flush calls `set_changed()` on the live record —
+/// a FULL recompile (room) / visuals despawn-respawn (avatar) plus a
+/// whole-record peer broadcast per click. Browsing a large tree was a
+/// hitch-and-network storm. Every real mutation (widgets, structural
+/// ops, gizmo commits) sets dirty through its own path; keeping `dirty`
+/// out of this signature makes the regression structurally impossible.
+fn sync_selection_fields(
+    valid: Option<GenNodeId>,
+    selected_generator: &mut Option<String>,
+    selected_prim_path: &mut Option<Vec<usize>>,
+    tree_view_state: &mut TreeViewState,
+) {
     match valid {
         Some(id) => {
             if selected_generator.as_deref() != Some(id.root.as_str()) {
                 *selected_generator = Some(id.root.clone());
-                *dirty = true;
             }
             if selected_prim_path.as_deref() != Some(id.path.as_slice()) {
                 *selected_prim_path = Some(id.path.clone());
-                *dirty = true;
             }
         }
         None => {
             if selected_generator.is_some() {
                 *selected_generator = None;
-                *dirty = true;
             }
             if selected_prim_path.is_some() {
                 *selected_prim_path = None;
-                *dirty = true;
             }
             if !tree_view_state.selected().is_empty() {
                 tree_view_state.set_selected(Vec::new());
@@ -433,4 +452,42 @@ pub(super) fn node_salt(id: &GenNodeId) -> String {
         s.push_str(&i.to_string());
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #828: selection sync mirrors the tree into the gizmo-read fields —
+    /// and, by construction (no `dirty` parameter), can never arm the
+    /// debounce that recompiles + broadcasts the record.
+    #[test]
+    fn selection_sync_updates_fields_and_clears_stale_state() {
+        let mut selected_generator: Option<String> = None;
+        let mut selected_prim_path: Option<Vec<usize>> = None;
+        let mut tree_state = TreeViewState::default();
+
+        // A valid selection lands in both fields.
+        let id = GenNodeId::child("oak".to_string(), vec![1, 0]);
+        tree_state.set_selected(vec![id.clone()]);
+        sync_selection_fields(
+            Some(id),
+            &mut selected_generator,
+            &mut selected_prim_path,
+            &mut tree_state,
+        );
+        assert_eq!(selected_generator.as_deref(), Some("oak"));
+        assert_eq!(selected_prim_path, Some(vec![1, 0]));
+
+        // A stale/no selection clears the fields AND the widget state.
+        sync_selection_fields(
+            None,
+            &mut selected_generator,
+            &mut selected_prim_path,
+            &mut tree_state,
+        );
+        assert_eq!(selected_generator, None);
+        assert_eq!(selected_prim_path, None);
+        assert!(tree_state.selected().is_empty());
+    }
 }

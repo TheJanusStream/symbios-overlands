@@ -9,6 +9,63 @@ use crate::pds::{
     Fp, Fp3, Fp4, GeneratorKind, SovereignAssetReference, SovereignGeneratorKind, TransformData,
 };
 
+/// Quaternion → yaw/pitch/roll in degrees (`EulerRot::YXZ`: yaw about Y,
+/// then pitch about X, then roll about Z — the convention the BlobGroup
+/// element editor established). Pure for round-trip tests.
+pub(super) fn quat_to_ypr_degrees(q: [f32; 4]) -> [f32; 3] {
+    let (yaw, pitch, roll) = bevy::math::Quat::from_array(q).to_euler(bevy::math::EulerRot::YXZ);
+    [yaw.to_degrees(), pitch.to_degrees(), roll.to_degrees()]
+}
+
+/// Yaw/pitch/roll in degrees → quaternion. Inverse of
+/// [`quat_to_ypr_degrees`] away from the ±90° pitch fold.
+pub(super) fn ypr_degrees_to_quat(ypr: [f32; 3]) -> [f32; 4] {
+    bevy::math::Quat::from_euler(
+        bevy::math::EulerRot::YXZ,
+        ypr[0].to_radians(),
+        ypr[1].to_radians(),
+        ypr[2].to_radians(),
+    )
+    .to_array()
+}
+
+/// Rotation editor row (#826): yaw/pitch/roll DEGREE drags backed by the
+/// record's quaternion — "rotate 45° around Y" is typed as `Yaw 45`
+/// instead of hand-computing quaternion components. Stateless
+/// quat→euler→quat per edit, the same pattern the BlobGroup element
+/// editor proved out; the RECORD keeps the quaternion (no schema
+/// change), and gizmo commits still write quats directly — this row
+/// re-derives its angles from whatever the quat currently is. Near the
+/// ±90° pitch fold the displayed yaw/roll pair can re-canonicalise
+/// (Euler ambiguity); the underlying rotation stays exact.
+pub(super) fn euler_rotation_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    rotation: &mut Fp4,
+    dirty: &mut bool,
+) {
+    ui.horizontal(|ui| {
+        ui.label(label);
+        let mut ypr = quat_to_ypr_degrees(rotation.0);
+        let mut changed = false;
+        for (angle, name) in ypr.iter_mut().zip(["Yaw", "Pitch", "Roll"]) {
+            changed |= ui
+                .add(
+                    egui::DragValue::new(angle)
+                        .speed(1.0)
+                        .range(-180.0..=180.0)
+                        .suffix("°"),
+                )
+                .on_hover_text(name)
+                .changed();
+        }
+        if changed {
+            *rotation = Fp4(ypr_degrees_to_quat(ypr));
+            *dirty = true;
+        }
+    });
+}
+
 pub(super) fn draw_transform(ui: &mut egui::Ui, t: &mut TransformData, dirty: &mut bool) {
     ui.label("Translation");
     let mut tr = t.translation.0;
@@ -35,16 +92,8 @@ pub(super) fn draw_transform(ui: &mut egui::Ui, t: &mut TransformData, dirty: &m
     });
     t.scale = Fp3(sc);
 
-    ui.label("Rotation (quaternion xyzw)");
-    let mut rot = t.rotation.0;
-    ui.horizontal(|ui| {
-        for v in rot.iter_mut() {
-            if ui.add(egui::DragValue::new(v).speed(0.01)).changed() {
-                *dirty = true;
-            }
-        }
-    });
-    t.rotation = Fp4(rot);
+    ui.label("Rotation (yaw / pitch / roll)");
+    euler_rotation_row(ui, "", &mut t.rotation, dirty);
 }
 
 pub(super) fn draw_transform_no_scale(ui: &mut egui::Ui, t: &mut TransformData, dirty: &mut bool) {
@@ -72,35 +121,8 @@ pub(super) fn draw_transform_no_scale(ui: &mut egui::Ui, t: &mut TransformData, 
     });
     t.translation = Fp3(tr);
 
-    ui.label("Rotation (quaternion xyzw)");
-    let mut rot = t.rotation.0;
-    ui.horizontal(|ui| {
-        if ui
-            .add(egui::DragValue::new(&mut rot[0]).speed(0.01))
-            .changed()
-        {
-            *dirty = true;
-        }
-        if ui
-            .add(egui::DragValue::new(&mut rot[1]).speed(0.01))
-            .changed()
-        {
-            *dirty = true;
-        }
-        if ui
-            .add(egui::DragValue::new(&mut rot[2]).speed(0.01))
-            .changed()
-        {
-            *dirty = true;
-        }
-        if ui
-            .add(egui::DragValue::new(&mut rot[3]).speed(0.01))
-            .changed()
-        {
-            *dirty = true;
-        }
-    });
-    t.rotation = Fp4(rot);
+    ui.label("Rotation (yaw / pitch / roll)");
+    euler_rotation_row(ui, "", &mut t.rotation, dirty);
 
     ui.label(
         egui::RichText::new(format!(
@@ -364,4 +386,52 @@ pub(super) fn default_shape_kind() -> GeneratorKind {
     crate::catalogue::items::ancient::villa::Villa
         .build("")
         .kind
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn quat_close(a: [f32; 4], b: [f32; 4]) -> bool {
+        let qa = bevy::math::Quat::from_array(a);
+        let qb = bevy::math::Quat::from_array(b);
+        qa.angle_between(qb) < 1e-4
+    }
+
+    #[test]
+    fn typing_yaw_45_is_a_pure_y_rotation() {
+        let q = ypr_degrees_to_quat([45.0, 0.0, 0.0]);
+        let expected = bevy::math::Quat::from_rotation_y(45f32.to_radians()).to_array();
+        assert!(quat_close(q, expected), "{q:?} vs {expected:?}");
+    }
+
+    #[test]
+    fn euler_round_trip_is_stable_for_composite_rotations() {
+        // A rotation touching all three axes (pitch well below the ±90°
+        // fold): quat → degrees → quat must return the same rotation, and
+        // a second pass must return the same DISPLAYED angles — the
+        // stateless per-frame re-derivation the row relies on.
+        let original = bevy::math::Quat::from_euler(
+            bevy::math::EulerRot::YXZ,
+            35f32.to_radians(),
+            -20f32.to_radians(),
+            110f32.to_radians(),
+        )
+        .to_array();
+        let ypr = quat_to_ypr_degrees(original);
+        let back = ypr_degrees_to_quat(ypr);
+        assert!(quat_close(original, back));
+        let ypr2 = quat_to_ypr_degrees(back);
+        for (a, b) in ypr.iter().zip(ypr2.iter()) {
+            assert!((a - b).abs() < 1e-2, "{ypr:?} vs {ypr2:?}");
+        }
+    }
+
+    #[test]
+    fn identity_quat_reads_as_all_zero_degrees() {
+        let ypr = quat_to_ypr_degrees([0.0, 0.0, 0.0, 1.0]);
+        for a in ypr {
+            assert!(a.abs() < 1e-4);
+        }
+    }
 }

@@ -119,6 +119,10 @@ pub struct RoomEditorState {
     pub selected_tab: EditorTab,
     pub selected_generator: Option<String>,
     pub selected_placement: Option<usize>,
+    /// Selected recipe row on the Effects tab's master-detail split
+    /// (#825). Not gizmo-coupled, so tab switches leave it alone — the
+    /// user's place in the recipe list survives a peek at Environment.
+    pub selected_effect: Option<usize>,
     /// Path through the selected named generator's tree to the node the
     /// owner has selected in the unified tree view. An empty `Vec` means the
     /// generator's own root; a `Some([i0, i1, ...])` means the `i_n`-th
@@ -302,6 +306,7 @@ pub fn room_admin_ui(
         selected_tab,
         selected_generator,
         selected_placement,
+        selected_effect,
         selected_prim_path,
         tree_view_state,
         pending_tree_focus,
@@ -507,12 +512,35 @@ pub fn room_admin_ui(
                 const BODY_MIN_HEIGHT: f32 = 160.0;
                 let body_height = (ui.available_height() - FOOTER_RESERVE).max(BODY_MIN_HEIGHT);
 
-                // The Generators tab paints its own SidePanel + CentralPanel
-                // split, so it manages its own scrolls and bypasses the
-                // outer ScrollArea that the simpler tabs share. Wrapping a
-                // nested SidePanel inside an outer ScrollArea collapses the
-                // sidebar's height to zero.
+                // The Generators, Placements and Effects tabs paint their
+                // own SidePanel + CentralPanel splits (#825), so they
+                // manage their own scrolls and bypass the outer ScrollArea
+                // that the simpler tabs share. Wrapping a nested SidePanel
+                // inside an outer ScrollArea collapses the sidebar's
+                // height to zero.
                 match *selected_tab {
+                    EditorTab::Placements => {
+                        ui.allocate_ui(egui::vec2(ui.available_width(), body_height), |ui| {
+                            placements::draw_placements_tab(
+                                ui,
+                                record_mut,
+                                selected_placement,
+                                heightmap.as_deref(),
+                                player_pose,
+                                &mut widget_change,
+                            );
+                        });
+                    }
+                    EditorTab::Effects => {
+                        ui.allocate_ui(egui::vec2(ui.available_width(), body_height), |ui| {
+                            contact_effects::draw_contact_effects_tab(
+                                ui,
+                                &mut record_mut.contact_effects,
+                                selected_effect,
+                                &mut widget_change,
+                            );
+                        });
+                    }
                     EditorTab::Generators => {
                         // Consume the one-shot focus request set by the
                         // in-world pick (#719): read + clear it here so the
@@ -551,22 +579,6 @@ pub fn room_admin_ui(
                                         audio_editor,
                                     );
                                 }
-                                EditorTab::Placements => {
-                                    placements::draw_placements_tab(
-                                        ui,
-                                        record_mut,
-                                        selected_placement,
-                                        heightmap.as_deref(),
-                                        &mut widget_change,
-                                    );
-                                }
-                                EditorTab::Effects => {
-                                    contact_effects::draw_contact_effects_tab(
-                                        ui,
-                                        &mut record_mut.contact_effects,
-                                        &mut widget_change,
-                                    );
-                                }
                                 EditorTab::Raw => {
                                     raw::draw_raw_tab(
                                         ui,
@@ -576,7 +588,10 @@ pub fn room_admin_ui(
                                         &mut widget_change,
                                     );
                                 }
-                                EditorTab::Generators => unreachable!(),
+                                // Generators / Placements / Effects paint
+                                // their own split panels in the outer
+                                // match arms above.
+                                _ => unreachable!(),
                             });
                     }
                 }

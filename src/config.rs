@@ -1104,6 +1104,16 @@ pub mod ui {
         pub const ANCHOR_OFFSET: [f32; 2] = [-12.0, 40.0];
     }
 
+    /// Gizmo snap increments (`crate::editor_gizmo::GizmoFramePref`,
+    /// #827): the defaults the Snap toggle starts from. Chosen for
+    /// building-scale alignment work — half-metre grid, 15° angles
+    /// (24 stops per turn), quarter scale steps.
+    pub mod gizmo_snap {
+        pub const DISTANCE_M: f32 = 0.5;
+        pub const ANGLE_DEG: f32 = 15.0;
+        pub const SCALE: f32 = 0.25;
+    }
+
     /// In-scene selection highlight (`crate::editor_gizmo::highlight`,
     /// #822 / W5): wire boxes around what the gizmo will affect.
     pub mod selection_highlight {
