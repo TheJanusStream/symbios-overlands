@@ -81,6 +81,9 @@ struct Incoming {
 pub(super) struct InboundBuffers<'w> {
     smoother_cfg: Res<'w, SmootherConfigRes>,
     reassembly: ResMut<'w, super::chunk::ChunkReassembly>,
+    /// Read-only peek at which panels are open: a chat message landing
+    /// while the Chat window is closed bumps the unread badge (#835).
+    panels: Res<'w, crate::ui::toolbar::UiPanels>,
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -436,6 +439,11 @@ pub(super) fn handle_incoming_messages(
                         text: clipped,
                         timestamp: ts,
                     });
+                    // With the window closed this message would be
+                    // invisible — count it for the toolbar badge (#835).
+                    if !bufs.panels.chat {
+                        chat.unread += 1;
+                    }
                     // Bound the rolling history so a chatty peer can't grow
                     // the scroll area unbounded — each entry re-wraps every
                     // frame once it's in egui's text layout cache.

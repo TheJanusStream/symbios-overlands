@@ -72,6 +72,7 @@ pub fn save_load_reset_row(
     can_publish: bool,
     can_reset: bool,
     record_bytes: Option<usize>,
+    publish_shortcut: bool,
 ) -> RecordAction {
     let size_class = record_bytes.map(record_size::classify);
     let over_hard = size_class == Some(SizeClass::OverHardCeiling);
@@ -82,10 +83,17 @@ pub fn save_load_reset_row(
         } else {
             egui::Color32::GRAY
         }));
+        let enabled = dirty && can_publish && !over_hard;
         if ui
-            .add_enabled(dirty && can_publish && !over_hard, publish)
+            .add_enabled(enabled, publish)
+            .on_hover_text("Save your edits to your PDS (Ctrl+S)")
             .clicked()
         {
+            action = RecordAction::Publish;
+        }
+        // Ctrl+S (#836) — behind the SAME gate as the button, so the
+        // shortcut can never publish what a click could not.
+        if publish_shortcut && enabled {
             action = RecordAction::Publish;
         }
         if ui

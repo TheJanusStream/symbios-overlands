@@ -1,42 +1,48 @@
 //! Diagnostics HUD — a five-tab panel (see [`DiagTab`]). The Overview /
 //! Runtime / Network / Offload tabs draw the frame-time sparkline and
 //! per-subsystem metric health cards + anomaly badges over the shared
-//! metrics registry. The Identity tab carries the historic panel: local
-//! identity, current room DID, peer roster with per-peer mute toggles,
-//! the "Copy Landmark Link" share button (bundles the current room DID +
-//! player position + yaw into a URL that the WASM build opens directly
-//! and the native build accepts as `--did=… --pos=… --rot=…`), a
-//! native-only wireframe-mode checkbox (skipped on WebGL2 where
-//! `POLYGON_MODE_LINE` is unavailable), a scrolling event log, and the
-//! log-out button (routed through [`crate::ui::unsaved_guard`] so
-//! unpublished edits are never silently discarded).
+//! metrics registry. The Session tab (#837 — the honest remainder after
+//! the toolbar's account chip took identity / logout / Copy Landmark
+//! Link) holds the session-debug tools: a native-only wireframe-mode
+//! checkbox (skipped on WebGL2 where `POLYGON_MODE_LINE` is
+//! unavailable), the session-log export controls, a demoted debug peer
+//! roster (DIDs + copy buttons — People owns presence and mutes), and
+//! the scrolling event log. This module also hosts
+//! [`landmark_link_button`], the share-your-spot button the account
+//! chip renders (bundles the current room DID + player position + yaw
+//! into a URL the WASM build opens directly and the native build
+//! accepts as `--did=… --pos=… --rot=…`).
 
 #[cfg(not(target_arch = "wasm32"))]
 use bevy::pbr::wireframe::WireframeConfig;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
-use bevy_symbios_multiuser::auth::AtprotoSession;
 
 use crate::boot_params::{build_landmark_link, write_to_clipboard};
 use crate::diagnostics::anomaly::InvariantRegistry;
 use crate::diagnostics::event::{Severity, Subsystem};
 use crate::diagnostics::{MetricsRegistry, SessionLog, names};
-use crate::state::{CurrentRoomDid, LocalPlayer, RemotePeer};
-use crate::ui::unsaved_guard::{GuardedAction, UnsavedGuard};
+use crate::state::RemotePeer;
 
-/// Which tab of the Diagnostics panel is showing. Identity carries the historic
-/// panel (preserved verbatim); Overview (C-3) draws the frame-time sparkline +
-/// counts + memory, and the Runtime / Network / Offload tabs (C-4) draw the
-/// per-subsystem health cards over the shared metrics registry + anomaly badges.
-/// Default is Identity so the panel opens exactly as it did before tabs existed.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+/// Which tab of the Diagnostics panel is showing. Overview (C-3) draws the
+/// frame-time sparkline + counts + memory; the Runtime / Network / Offload
+/// tabs (C-4) draw the per-subsystem health cards over the shared metrics
+/// registry + anomaly badges; Session (#837 — né "Identity", before the
+/// toolbar's account chip absorbed identity/logout/share) keeps the
+/// session-debug remainder: wireframe toggle, log export, a demoted peer
+/// roster, and the event log. Default is Overview — the health summary,
+/// not a legacy-parity drawer.
+///
+/// A `Resource` (not a window-local) since #835, so the toolbar's anomaly
+/// dot can open the panel directly onto the worst-offending tab.
+#[derive(Resource, Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum DiagTab {
+    #[default]
     Overview,
     Runtime,
     Network,
     Offload,
-    #[default]
-    Identity,
+    Session,
 }
 
 impl DiagTab {
@@ -45,7 +51,7 @@ impl DiagTab {
         DiagTab::Runtime,
         DiagTab::Network,
         DiagTab::Offload,
-        DiagTab::Identity,
+        DiagTab::Session,
     ];
 
     fn label(self) -> &'static str {
@@ -54,7 +60,7 @@ impl DiagTab {
             DiagTab::Runtime => "Runtime",
             DiagTab::Network => "Network",
             DiagTab::Offload => "Offload",
-            DiagTab::Identity => "Identity",
+            DiagTab::Session => "Session",
         }
     }
 }
@@ -75,13 +81,26 @@ pub(crate) fn severity_color(sev: Severity) -> egui::Color32 {
     egui::Color32::from_rgb(r, g, b)
 }
 
-/// The currently-violated rules as `(id, severity, last detail, fire count)`,
-/// worst-severity first (ties broken by id for stable output). The pure data
-/// behind the badge strip, unit-tested independently of egui.
-fn collect_badges(invariants: &InvariantRegistry) -> Vec<(&'static str, Severity, String, u64)> {
-    let mut badges: Vec<(&'static str, Severity, String, u64)> = invariants
+/// The currently-violated rules as `(id, severity, last detail, fire count,
+/// description, last fired)`, worst-severity first (ties broken by id for
+/// stable output). The pure data behind the badge strip, unit-tested
+/// independently of egui. The description is the badge's face text (#837 —
+/// human words, the raw id demotes to the hover); ids without a description
+/// (impossible for registered rules) fall back to the id itself.
+type Badge = (&'static str, Severity, String, u64, &'static str, f64);
+fn collect_badges(invariants: &InvariantRegistry) -> Vec<Badge> {
+    let mut badges: Vec<Badge> = invariants
         .active_badges()
-        .map(|(id, sev, st)| (id, sev, st.last_detail.clone(), st.fire_count))
+        .map(|(id, sev, st)| {
+            (
+                id,
+                sev,
+                st.last_detail.clone(),
+                st.fire_count,
+                invariants.rule_description(id).unwrap_or(id),
+                st.last_fired_secs,
+            )
+        })
         .collect();
     badges.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
     badges
@@ -123,11 +142,17 @@ fn render_anomaly_section(ui: &mut egui::Ui, invariants: &InvariantRegistry) {
         );
     } else {
         ui.label(format!("Active Anomalies ({})", badges.len()));
-        for (id, sev, detail, fires) in &badges {
+        for (id, sev, detail, fires, description, last_fired) in &badges {
             let color = severity_color(*sev);
             ui.horizontal(|ui| {
                 ui.colored_label(color, "●");
-                ui.monospace(egui::RichText::new(*id).small().color(color));
+                // Human description up front (#837); the raw rule id and
+                // when it last fired live in the hover for debugging.
+                ui.label(egui::RichText::new(*description).small().color(color))
+                    .on_hover_text(format!(
+                        "{id} — last fired {}",
+                        crate::format_elapsed_ts(*last_fired)
+                    ));
                 if *fires > 1 {
                     ui.label(
                         egui::RichText::new(format!("×{fires}"))
@@ -189,6 +214,12 @@ const METRIC_RULE_TABLE: &[(&str, &str)] = &[
         "loading.record_fetch_exhausted",
     ),
     (names::LOADING_GATE_TOTAL_SECS, "loading.gate_stall"),
+    // #802/#837 close-the-loop: audio overload badges the looping-voice
+    // row, so the toolbar dot finally routes to the Audio card.
+    (
+        names::AUDIO_SPATIAL_ACTIVE_SINKS,
+        "audio.looping_voices_overload",
+    ),
 ];
 
 /// The invariant rule that badges `metric`, if any (see [`METRIC_RULE_TABLE`]).
@@ -209,10 +240,13 @@ fn anomaly_badge(ui: &mut egui::Ui, invariants: &InvariantRegistry, metric_id: &
         return;
     };
     if let Some((_, sev, st)) = invariants.active_badges().find(|(id, _, _)| *id == rule_id) {
+        // `last_fired_secs` is a session timestamp, not an age — format it
+        // like the event log's stamps instead of reading as "Ns ago" (#837).
         ui.colored_label(severity_color(sev), "●")
             .on_hover_text(format!(
-                "{rule_id} — last fired {:.0}s: {}",
-                st.last_fired_secs, st.last_detail
+                "{rule_id} — last fired {}: {}",
+                crate::format_elapsed_ts(st.last_fired_secs),
+                st.last_detail
             ));
     }
 }
@@ -220,6 +254,19 @@ fn anomaly_badge(ui: &mut egui::Ui, invariants: &InvariantRegistry, metric_id: &
 /// The count of live-violated invariants attributable to a tab, for its label
 /// badge (C-6). Overview aggregates everything; the subsystem tabs count their
 /// own subsystem (Offload also owns the loading-gate rules).
+/// The Diagnostics tab that presents anomalies from `subsystem` — the
+/// inverse of [`tab_anomaly_count`]'s attribution, used by the toolbar
+/// dot's click-through (#835). `Session` has no card tab of its own;
+/// its badges render on every tab, so Overview is the honest landing.
+pub(crate) fn tab_for_subsystem(subsystem: Option<Subsystem>) -> DiagTab {
+    match subsystem {
+        Some(Subsystem::Runtime) => DiagTab::Runtime,
+        Some(Subsystem::Network) => DiagTab::Network,
+        Some(Subsystem::Offload) | Some(Subsystem::Loading) => DiagTab::Offload,
+        Some(Subsystem::Session) | None => DiagTab::Overview,
+    }
+}
+
 fn tab_anomaly_count(tab: DiagTab, invariants: &InvariantRegistry) -> usize {
     match tab {
         DiagTab::Overview => invariants.active_badges().count(),
@@ -229,7 +276,7 @@ fn tab_anomaly_count(tab: DiagTab, invariants: &InvariantRegistry) -> usize {
             invariants.active_count_for(Subsystem::Offload)
                 + invariants.active_count_for(Subsystem::Loading)
         }
-        DiagTab::Identity => 0,
+        DiagTab::Session => 0,
     }
 }
 
@@ -361,6 +408,7 @@ fn render_overview_tab(
 fn health_card(
     ui: &mut egui::Ui,
     invariants: &InvariantRegistry,
+    metrics: &MetricsRegistry,
     title: &str,
     rows: &[(&str, String, &str)],
 ) {
@@ -378,7 +426,16 @@ fn health_card(
                 .show(ui, |ui| {
                     for (label, value, metric) in rows {
                         ui.label(*label);
-                        ui.monospace(value.as_str());
+                        // Histogram rows render p50/p90 inline (#837 — the
+                        // full five-stat line wrapped in the 280px window);
+                        // min/max/mean/n move to the hover.
+                        let cell = ui.monospace(value.as_str());
+                        if let Some(d) = metrics.hist_distro(metric) {
+                            cell.on_hover_text(format!(
+                                "min {:.1}  max {:.1}  mean {:.1}  n {}",
+                                d.min, d.max, d.mean, d.n
+                            ));
+                        }
                         anomaly_badge(ui, invariants, metric);
                         ui.end_row();
                     }
@@ -396,6 +453,7 @@ fn render_health_tab(
     tab: DiagTab,
     metrics: &MetricsRegistry,
     invariants: &InvariantRegistry,
+    audio_muted: &mut crate::audio_mute::AudioMuted,
 ) {
     // Row-value shorthands over the C-2 readers: gauge latest / counter / distro.
     let g = |name: &str| {
@@ -405,12 +463,20 @@ fn render_health_tab(
             .unwrap_or_else(|| "—".to_string())
     };
     let c = |name: &str| metrics.counter_value(name).to_string();
-    let h = |name: &str| metrics.hist_distro_str(name);
+    // Histograms: p50/p90 inline (#837) — the five-stat line wrapped in
+    // the 280px window; health_card hangs min/max/mean/n on the hover.
+    let h = |name: &str| {
+        metrics
+            .hist_distro(name)
+            .map(|d| format!("p50 {:.1}  p90 {:.1}", d.p50, d.p90))
+            .unwrap_or_else(|| "—".to_string())
+    };
 
     match tab {
         DiagTab::Runtime => health_card(
             ui,
             invariants,
+            metrics,
             "Runtime",
             &[
                 (
@@ -455,15 +521,32 @@ fn render_health_tab(
             health_card(
                 ui,
                 invariants,
+                metrics,
                 "Peers",
                 &[
+                    // Cumulative session counters relabeled (#837): the old
+                    // "Connected/Disconnected" read as live states. The real
+                    // live headcount is their difference — joins minus
+                    // leaves, since every peer entity increments one and
+                    // eventually the other. No rule badge: the People
+                    // window/toolbar own presence UX; churn badges below.
                     (
-                        "Connected",
+                        "Peers now",
+                        metrics
+                            .counter_value(names::NET_PEER_CONNECTED_COUNT)
+                            .saturating_sub(
+                                metrics.counter_value(names::NET_PEER_DISCONNECTED_COUNT),
+                            )
+                            .to_string(),
+                        "",
+                    ),
+                    (
+                        "Joins (session)",
                         c(names::NET_PEER_CONNECTED_COUNT),
                         names::NET_PEER_CONNECTED_COUNT,
                     ),
                     (
-                        "Disconnected",
+                        "Leaves (session)",
                         c(names::NET_PEER_DISCONNECTED_COUNT),
                         names::NET_PEER_DISCONNECTED_COUNT,
                     ),
@@ -482,6 +565,7 @@ fn render_health_tab(
             health_card(
                 ui,
                 invariants,
+                metrics,
                 "Avatar fetch",
                 &[
                     (
@@ -504,6 +588,7 @@ fn render_health_tab(
             health_card(
                 ui,
                 invariants,
+                metrics,
                 "Jitter & offers",
                 &[
                     (
@@ -533,6 +618,7 @@ fn render_health_tab(
             health_card(
                 ui,
                 invariants,
+                metrics,
                 "Async jobs",
                 &[
                     (
@@ -564,6 +650,7 @@ fn render_health_tab(
             health_card(
                 ui,
                 invariants,
+                metrics,
                 "Audio",
                 &[
                     (
@@ -593,9 +680,31 @@ fn render_health_tab(
                     ),
                 ],
             );
+            // #802/#837 close-the-loop: one interpretation line + the remedy
+            // inline, so the overload badge lands somewhere actionable
+            // instead of a bare number.
+            ui.label(
+                egui::RichText::new(
+                    "Looping voices are the live mixing load — when the overload \
+                     badge is lit, muting confirms whether audio is what's \
+                     dragging the frame.",
+                )
+                .small()
+                .color(egui::Color32::GRAY),
+            );
+            let mute_label = if audio_muted.0 {
+                "Unmute all audio"
+            } else {
+                "Mute all audio"
+            };
+            if ui.button(mute_label).clicked() {
+                audio_muted.0 = !audio_muted.0;
+            }
+            ui.add_space(6.0);
             health_card(
                 ui,
                 invariants,
+                metrics,
                 "Loading gate",
                 &[
                     (
@@ -632,6 +741,7 @@ fn render_health_tab(
             health_card(
                 ui,
                 invariants,
+                metrics,
                 "Render",
                 &[(
                     "Splat texture slots",
@@ -640,7 +750,7 @@ fn render_health_tab(
                 )],
             );
         }
-        DiagTab::Overview | DiagTab::Identity => {}
+        DiagTab::Overview | DiagTab::Session => {}
     }
 }
 
@@ -727,37 +837,70 @@ fn render_log_export_controls(
     }
 }
 
+/// "Copy Landmark Link" — emits a shareable URL pointing at the WASM
+/// build with the local player's current room DID, exact world position,
+/// and yaw in degrees. Visible to visitors as well as owners (any player
+/// in the room can share where they are). Shared by the Diagnostics
+/// Identity tab and the toolbar's account chip (#835); returns whether
+/// the button was clicked so the chip can close its menu.
+pub(crate) fn landmark_link_button(
+    ui: &mut egui::Ui,
+    room_did: &str,
+    player_tf: Option<Transform>,
+    toasts: &mut crate::ui::toast::Toasts,
+    now: f64,
+) -> bool {
+    let clicked = ui
+        .add_enabled(player_tf.is_some(), egui::Button::new("Copy Landmark Link"))
+        .on_hover_text("Copy a link that drops a visitor exactly where you are standing")
+        .clicked();
+    if clicked && let Some(tf) = player_tf {
+        // Every locomotion preset writes its yaw into the chassis
+        // transform itself — the humanoid walk controller slerps the
+        // chassis rotation toward the movement direction (the rigid-body
+        // solver keeps the capsule axis-aligned via `LockedAxes`), and
+        // the vehicle presets are torque-driven so their chassis rotation
+        // already matches the visual yaw.
+        let yaw_deg = tf.rotation.to_euler(EulerRot::YXZ).0.to_degrees();
+        let link = build_landmark_link(room_did, tf.translation, yaw_deg);
+        match write_to_clipboard(&link) {
+            Ok(()) => toasts.success(format!("Copied: {link}"), now),
+            Err(e) => toasts.error(format!("Copy failed ({e}); {link}"), now),
+        }
+    }
+    clicked
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn diagnostics_ui(
-    mut commands: Commands,
     mut contexts: EguiContexts,
     mut panels: ResMut<crate::ui::toolbar::UiPanels>,
-    session: Option<Res<AtprotoSession>>,
-    room_did: Option<Res<CurrentRoomDid>>,
-    mut peers: Query<&mut RemotePeer>,
-    mut session_log: ResMut<SessionLog>,
+    mut chrome: crate::ui::layout::WindowChrome,
+    peers: Query<&RemotePeer>,
+    session_log: ResMut<SessionLog>,
     invariants: Res<InvariantRegistry>,
     metrics: Res<MetricsRegistry>,
     mut toasts: ResMut<crate::ui::toast::Toasts>,
-    mut active_tab: Local<DiagTab>,
+    mut active_tab: ResMut<DiagTab>,
     time: Res<Time>,
-    local_player_q: Query<&Transform, With<LocalPlayer>>,
+    mut audio_muted: ResMut<crate::audio_mute::AudioMuted>,
     // Native-only: the wireframe plugin (and the resource it inserts) is
     // skipped on WASM so this parameter only exists off-web.
     #[cfg(not(target_arch = "wasm32"))] mut wireframe: ResMut<WireframeConfig>,
 ) {
-    use crate::config::ui::diagnostics as cfg;
-
-    egui::Window::new("Diagnostics")
+    let ctx = contexts.ctx_mut().unwrap();
+    let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Diagnostics, ctx);
+    let response = egui::Window::new("Diagnostics")
         .open(&mut panels.diagnostics)
-        .default_pos(cfg::WINDOW_DEFAULT_POS)
-        .default_size([cfg::WINDOW_DEFAULT_WIDTH, cfg::WINDOW_DEFAULT_HEIGHT])
+        .default_pos(pos)
+        .default_size(size)
+        .constrain_to(ctx.available_rect())
         .resizable(true)
         .collapsible(true)
-        .show(contexts.ctx_mut().unwrap(), |ui| {
-            // Tab selector. The historic panel content lives under Identity;
-            // Overview (C-3) + the Runtime/Network/Offload health cards (C-4)
-            // render the shared metrics spine.
+        .show(ctx, |ui| {
+            // Tab selector. Overview (C-3) + the Runtime/Network/Offload
+            // health cards (C-4) render the shared metrics spine; Session
+            // (#837) keeps the session-debug remainder.
             ui.horizontal(|ui| {
                 for tab in DiagTab::ALL {
                     // Per-subsystem fired-count badge on the tab label (C-6):
@@ -778,139 +921,95 @@ pub fn diagnostics_ui(
             // behind an un-built health tab.
             render_anomaly_section(ui, &invariants);
 
-            // Overview / Perf tab (C-3).
+            // Overview / Perf tab (C-3). Wrapped in a ScrollArea (#837) so
+            // content past the window height scrolls instead of clipping;
+            // per-tab id salts keep the scroll positions independent.
             if *active_tab == DiagTab::Overview {
-                render_overview_tab(ui, &metrics, &invariants);
+                egui::ScrollArea::vertical()
+                    .id_salt("diag_scroll_overview")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        render_overview_tab(ui, &metrics, &invariants);
+                    });
                 return;
             }
 
             // Per-subsystem health cards (C-4): Runtime / Network / Offload.
+            // The Offload tab's five cards used to clip at the default
+            // 480px window height with no way to reach the Render card.
             if matches!(
                 *active_tab,
                 DiagTab::Runtime | DiagTab::Network | DiagTab::Offload
             ) {
-                render_health_tab(ui, *active_tab, &metrics, &invariants);
+                egui::ScrollArea::vertical()
+                    .id_salt(("diag_scroll_health", active_tab.label()))
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        render_health_tab(ui, *active_tab, &metrics, &invariants, &mut audio_muted);
+                    });
                 return;
             }
 
-            ui.label("Local Identity");
-            match &session {
-                Some(sess) => {
-                    ui.monospace(format!("@{}", sess.handle));
-                    ui.monospace(
-                        egui::RichText::new(&sess.did)
-                            .small()
-                            .color(egui::Color32::GRAY),
-                    );
-                }
-                None => {
-                    ui.colored_label(egui::Color32::GRAY, "(not authenticated)");
-                }
-            }
-
-            if ui.button("Log out").clicked() {
-                // Route through the unsaved-edits guard instead of
-                // flipping the state directly: it transitions to
-                // `AppState::Login` immediately when nothing is dirty,
-                // and otherwise offers Publish / Discard / Cancel first.
-                commands.insert_resource(UnsavedGuard::new(GuardedAction::Logout));
-            }
+            // ── Session tab (#837) — the honest remainder after the account
+            // chip (#835) absorbed identity / logout / Copy Landmark Link:
+            // render-debug toggles, log export, a demoted debug roster, and
+            // the event log.
 
             // Render-debug toggles. Wireframe is native-only because the
             // wgpu POLYGON_MODE_LINE feature isn't available on WebGL2;
             // the plugin is registered with the same cfg in lib.rs.
             #[cfg(not(target_arch = "wasm32"))]
             {
-                ui.separator();
                 ui.label("Render");
                 ui.checkbox(&mut wireframe.global, "Wireframe mode");
-            }
-
-            ui.separator();
-
-            if let Some(room) = &room_did {
-                ui.label("Room");
-                ui.monospace(
-                    egui::RichText::new(&room.0)
-                        .small()
-                        .color(egui::Color32::GRAY),
-                );
-
-                // "Copy Landmark Link" — emits a shareable URL pointing at
-                // the WASM build with the local player's current room DID,
-                // exact world position, and yaw in degrees. Visible to
-                // visitors as well as owners (any player in the room can
-                // share where they are).
-                let player_tf = local_player_q.single().ok().copied();
-                let can_copy = player_tf.is_some();
-                if ui
-                    .add_enabled(can_copy, egui::Button::new("Copy Landmark Link"))
-                    .clicked()
-                    && let Some(tf) = player_tf
-                {
-                    // Every locomotion preset writes its yaw into the
-                    // chassis transform itself — the humanoid walk
-                    // controller now slerps the chassis rotation toward
-                    // the movement direction (the rigid-body solver
-                    // keeps the capsule axis-aligned via `LockedAxes`),
-                    // and the vehicle presets are torque-driven so their
-                    // chassis rotation already matches the visual yaw.
-                    let yaw_rad = tf.rotation.to_euler(EulerRot::YXZ).0;
-                    let yaw_deg = yaw_rad.to_degrees();
-                    let link = build_landmark_link(&room.0, tf.translation, yaw_deg);
-                    let now = time.elapsed_secs_f64();
-                    match write_to_clipboard(&link) {
-                        Ok(()) => toasts.success(format!("Copied: {link}"), now),
-                        Err(e) => toasts.error(format!("Copy failed ({e}); {link}"), now),
-                    }
-                }
                 ui.separator();
             }
-
-            let peer_count = peers.iter().count();
-            ui.label(format!("Peers ({})", peer_count));
-
-            for mut peer in peers.iter_mut() {
-                let handle = peer.handle.as_deref().unwrap_or("identifying…").to_owned();
-                let did = peer.did.as_deref().unwrap_or("unknown").to_owned();
-                let dot_color = if peer.muted {
-                    egui::Color32::GRAY
-                } else {
-                    egui::Color32::GREEN
-                };
-                let mut muted = peer.muted;
-                ui.horizontal(|ui| {
-                    ui.colored_label(dot_color, "●");
-                    ui.vertical(|ui| {
-                        ui.monospace(format!("@{}", handle));
-                        ui.monospace(egui::RichText::new(&did).small().color(egui::Color32::GRAY));
-                    });
-                    ui.checkbox(&mut muted, "Mute");
-                });
-                // Guard the write so Bevy's change-detection flag is only
-                // raised when the mute state actually flips.  An unconditional
-                // assignment marks `RemotePeer` as `Changed` every frame and
-                // invalidates any `Changed<RemotePeer>` filters downstream.
-                if peer.muted != muted {
-                    peer.muted = muted;
-                    crate::ui::people::log_peer_mute_toggled(
-                        &mut session_log,
-                        time.elapsed_secs_f64(),
-                        peer.peer_id.to_string(),
-                        muted,
-                    );
-                }
-            }
-
-            if peer_count == 0 {
-                ui.colored_label(egui::Color32::GRAY, "(no peers)");
-            }
-
-            ui.separator();
 
             // Session-log export: on-disk path + Copy (native) / Download button
             // (wasm), so the same NDJSON the analyzer reads is one click away.
             render_log_export_controls(ui, &session_log, &mut toasts, time.elapsed_secs_f64());
+            ui.separator();
+
+            // Demoted duplicate of the People roster (#837): People owns
+            // presence and mutes; this fold is for debugging — DIDs with a
+            // copy button, collapsed by default and scroll-capped so it can
+            // no longer squeeze the event log off-screen.
+            let peer_count = peers.iter().count();
+            egui::CollapsingHeader::new(format!("Peers (debug) ({peer_count})")).show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("diag_peer_roster")
+                    .max_height(160.0)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        for peer in peers.iter() {
+                            let handle =
+                                peer.handle.as_deref().unwrap_or("identifying…").to_owned();
+                            let did = peer.did.as_deref().unwrap_or("unknown").to_owned();
+                            ui.horizontal(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.monospace(format!("@{}", handle));
+                                    ui.monospace(
+                                        egui::RichText::new(&did)
+                                            .small()
+                                            .color(egui::Color32::GRAY),
+                                    );
+                                });
+                                if ui.small_button("Copy DID").clicked() {
+                                    let now = time.elapsed_secs_f64();
+                                    match write_to_clipboard(&did) {
+                                        Ok(()) => toasts.success(format!("Copied: {did}"), now),
+                                        Err(e) => {
+                                            toasts.error(format!("Copy failed ({e})"), now);
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                        if peer_count == 0 {
+                            ui.colored_label(egui::Color32::GRAY, "(no peers)");
+                        }
+                    });
+            });
             ui.separator();
 
             ui.label("Event Log");
@@ -947,6 +1046,12 @@ pub fn diagnostics_ui(
                     }
                 });
         });
+    if let Some(response) = response {
+        chrome.remember(
+            crate::ui::layout::UiWindow::Diagnostics,
+            response.response.rect,
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1096,9 +1201,10 @@ mod tests {
     fn health_tabs_render_without_panicking() {
         fn render_once(tab: DiagTab, m: &MetricsRegistry, reg: &InvariantRegistry) {
             let ctx = egui::Context::default();
+            let mut muted = crate::audio_mute::AudioMuted::default();
             let _ = ctx.run(egui::RawInput::default(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    render_health_tab(ui, tab, m, reg);
+                    render_health_tab(ui, tab, m, reg, &mut muted);
                 });
             });
         }
@@ -1151,6 +1257,6 @@ mod tests {
         assert_eq!(tab_anomaly_count(DiagTab::Offload, &reg), 1);
         // Overview aggregates everything.
         assert_eq!(tab_anomaly_count(DiagTab::Overview, &reg), 3);
-        assert_eq!(tab_anomaly_count(DiagTab::Identity, &reg), 0);
+        assert_eq!(tab_anomaly_count(DiagTab::Session, &reg), 0);
     }
 }

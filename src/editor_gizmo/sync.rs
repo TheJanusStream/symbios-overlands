@@ -544,6 +544,7 @@ mod repro_tests {
             catalogue: false,
             diagnostics: false,
             controls: false,
+            controls_seen: true,
         }
     }
 

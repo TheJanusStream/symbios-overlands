@@ -175,8 +175,14 @@ pub fn gateway_picker_ui(
                             "No matches."
                         });
                     }
+                    // Scale the list cap with the screen instead of a
+                    // flat 240px (#834): ~1/3 of the height keeps the
+                    // bottom-anchored window clear of the scene on a
+                    // laptop while letting a tall monitor show more
+                    // mutuals; the old 240px stays as the floor.
+                    let list_cap = (ui.ctx().content_rect().height() / 3.0).max(240.0);
                     egui::ScrollArea::vertical()
-                        .max_height(240.0)
+                        .max_height(list_cap)
                         .auto_shrink([false, true])
                         .show(ui, |ui| {
                             for m in rows {

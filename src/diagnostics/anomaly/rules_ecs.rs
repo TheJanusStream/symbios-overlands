@@ -25,6 +25,7 @@ pub fn register_ecs_rules(reg: &mut InvariantRegistry) {
     reg.register(RespawnThrashing);
     reg.register(OrphanAvatarVisual);
     reg.register(FrameTimeSpike);
+    reg.register(LoopingVoicesOverload);
     reg.register(WasmMemoryHigh);
     reg.register(WasmMemoryCritical);
 }
@@ -265,6 +266,40 @@ impl Rule for FrameTimeSpike {
     }
 }
 
+// --- LoopingVoicesOverload ---------------------------------------------------
+/// Live looping spatial voices above this is audio overload (#802/#837):
+/// every voice is a per-frame spatialise-and-mix, and past this count the
+/// mixer drags the frame long before anything else looks unhealthy. A
+/// dense themed room lands in the low tens; overload cases observed in
+/// #802 ran well past this.
+const LOOPING_VOICES_OVERLOAD_COUNT: f64 = 48.0;
+
+struct LoopingVoicesOverload;
+const LOOPING_VOICES_OVERLOAD: RuleHeader = RuleHeader {
+    // `Offload` subsystem so the toolbar dot and tab badges route to the
+    // Offload tab — the one that renders the Audio health card (with its
+    // interpretation line + inline mute shortcut).
+    id: "audio.looping_voices_overload",
+    subsystem: Subsystem::Offload,
+    severity: Severity::Warn,
+    debounce: DebouncePolicy::Interval(30.0),
+    description: "too many looping audio voices — mixing may drag the frame rate",
+    when_state: None,
+};
+impl Rule for LoopingVoicesOverload {
+    fn header(&self) -> &RuleHeader {
+        &LOOPING_VOICES_OVERLOAD
+    }
+    fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
+        let voices = gauge_last(cx, names::AUDIO_SPATIAL_ACTIVE_SINKS)?;
+        Some(if voices > LOOPING_VOICES_OVERLOAD_COUNT {
+            Verdict::violated(format!("{voices:.0} looping voices"))
+        } else {
+            Verdict::Clear
+        })
+    }
+}
+
 // --- WasmMemoryHigh / WasmMemoryCritical --------------------------------------
 // The wasm32 linear memory tops out at 4 GiB and NEVER SHRINKS (dlmalloc keeps
 // every grown page), so heap growth is a one-way trip: once allocation fails,
@@ -368,6 +403,17 @@ mod tests {
         assert!(FrameTimeSpike.eval(&ctx(&m)).unwrap().is_violated());
         m.observe_gauge(names::RUNTIME_FRAME_TIME_MS, 16.6);
         assert_eq!(FrameTimeSpike.eval(&ctx(&m)), Some(Verdict::Clear));
+    }
+
+    #[test]
+    fn looping_voices_overload_fires_above_threshold() {
+        let mut m = MetricsRegistry::default();
+        // No gauge yet (no audio ever spawned) → dormant, not violated.
+        assert!(LoopingVoicesOverload.eval(&ctx(&m)).is_none());
+        m.observe_gauge(names::AUDIO_SPATIAL_ACTIVE_SINKS, 72.0);
+        assert!(LoopingVoicesOverload.eval(&ctx(&m)).unwrap().is_violated());
+        m.observe_gauge(names::AUDIO_SPATIAL_ACTIVE_SINKS, 12.0);
+        assert_eq!(LoopingVoicesOverload.eval(&ctx(&m)), Some(Verdict::Clear));
     }
 
     #[test]

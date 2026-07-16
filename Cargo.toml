@@ -84,6 +84,8 @@ web-sys = { version = "0.3", features = [
     "BlobPropertyBag",
     "Clipboard",
     "ClipboardEvent",
+    "EventTarget",
+    "KeyboardEvent",
     "Navigator",
     "Storage",
     "Location",

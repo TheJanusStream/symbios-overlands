@@ -32,6 +32,10 @@
 //!   `AppState::Loading` gate (fetch / retry / bake status rows).
 //! * [`toolbar`]      — top toolbar with per-panel toggle buttons
 //!   ([`toolbar::UiPanels`]) and the first-run controls hint.
+//! * [`layout`]       — computed non-overlapping default window
+//!   geometry + persisted rects ([`layout::WindowChrome`], #833).
+//! * [`shortcuts`]    — global keyboard shortcuts: the Esc back-out
+//!   ladder, Enter-to-chat, and Ctrl+S publish (#836).
 //! * [`toast`]        — transient top-right notification stack
 //!   ([`toast::Toasts`]); the one channel for "something just happened"
 //!   feedback (#819).
@@ -43,10 +47,12 @@ pub mod diagnostics;
 pub mod editable;
 pub mod gateway;
 pub mod inventory;
+pub mod layout;
 pub mod loading;
 pub mod login;
 pub mod people;
 pub mod room;
+pub mod shortcuts;
 pub mod toast;
 pub mod toolbar;
 pub mod unsaved_guard;

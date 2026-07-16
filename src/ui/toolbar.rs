@@ -18,9 +18,11 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
+use crate::avatar::{BskyProfileCache, draw_avatar_icon};
 use crate::diagnostics::anomaly::InvariantRegistry;
 use crate::player::{AirplanePreset, CarPreset, HelicopterPreset, HoverBoatPreset};
-use crate::state::{CurrentRoomDid, LocalPlayer};
+use crate::state::{ChatHistory, CurrentRoomDid, LocalPlayer, RemotePeer};
+use crate::ui::unsaved_guard::{GuardedAction, UnsavedGuard};
 
 /// Open/closed state for every toolbar-managed window. Initialised at
 /// app startup, overwritten by the persisted prefs ([`crate::prefs`],
@@ -41,6 +43,11 @@ pub struct UiPanels {
     /// The controls overlay. Defaults to open — this is the first-run
     /// hint — and is re-openable from the toolbar.
     pub controls: bool,
+    /// True once the Controls sheet has been dismissed at least once on
+    /// this machine (#834). While false — a true first run — the sheet
+    /// is center-anchored so a brand-new visitor cannot miss it; ever
+    /// after it is a normal draggable window near the right edge.
+    pub controls_seen: bool,
 }
 
 impl Default for UiPanels {
@@ -54,7 +61,45 @@ impl Default for UiPanels {
             catalogue: false,
             diagnostics: false,
             controls: true,
+            controls_seen: false,
         }
+    }
+}
+
+/// Reserved width of the Chat toggle — wide enough for "Chat (99+)" so
+/// the unread badge appearing/growing never shifts the buttons after it.
+const CHAT_TOGGLE_WIDTH: f32 = 84.0;
+/// Reserved width of the People toggle, sized for "People (99+)".
+const PEOPLE_TOGGLE_WIDTH: f32 = 100.0;
+/// Reserved slot width of the anomaly dot, occupied even while healthy
+/// so the dot appearing/vanishing stops shifting the Controls button.
+const ANOMALY_DOT_WIDTH: f32 = 14.0;
+
+/// Counts above this render as "99+" — the badge is a "look here"
+/// signal, not a metric, and capping it keeps the reserved width honest.
+const BADGE_COUNT_CAP: usize = 99;
+
+/// A panel toggle with a fixed minimum width and a one-line tooltip:
+/// the width reservation is what keeps count-badged labels ("Chat (3)")
+/// from shifting the rest of the row as the count changes.
+fn toggle_with_badge(ui: &mut egui::Ui, flag: &mut bool, label: String, min_width: f32, tip: &str) {
+    let size = egui::vec2(min_width, ui.spacing().interact_size.y);
+    if ui
+        .add_sized(size, egui::Button::selectable(*flag, label))
+        .on_hover_text(tip)
+        .clicked()
+    {
+        *flag = !*flag;
+    }
+}
+
+/// Format a badge count, capped so the label can't outgrow its
+/// reserved width.
+fn badge_count(n: usize) -> String {
+    if n > BADGE_COUNT_CAP {
+        format!("{BADGE_COUNT_CAP}+")
+    } else {
+        n.to_string()
     }
 }
 
@@ -62,6 +107,13 @@ impl Default for UiPanels {
 /// Editor button only renders for the room's owner — the panel itself
 /// is owner-gated too, so showing the button to a visitor would be a
 /// dead control.
+///
+/// #835 additions: one-line tooltips on every toggle, an unread-count
+/// badge on Chat, a live headcount on People, a clickable anomaly dot
+/// that opens Diagnostics on the worst tab, and an account chip at the
+/// far right (identity, current room, Copy Landmark Link, Log out — the
+/// two-click home for actions that used to hide in Diagnostics→Identity).
+#[allow(clippy::too_many_arguments)]
 pub fn toolbar_ui(
     mut contexts: EguiContexts,
     mut panels: ResMut<UiPanels>,
@@ -69,6 +121,14 @@ pub fn toolbar_ui(
     session: Option<Res<AtprotoSession>>,
     current_room: Option<Res<CurrentRoomDid>>,
     invariants: Res<InvariantRegistry>,
+    mut chat: ResMut<ChatHistory>,
+    peers: Query<&RemotePeer>,
+    mut diag_tab: ResMut<crate::ui::diagnostics::DiagTab>,
+    mut commands: Commands,
+    profile_cache: Res<BskyProfileCache>,
+    local_player_q: Query<&Transform, With<LocalPlayer>>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    time: Res<Time>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
@@ -78,20 +138,108 @@ pub fn toolbar_ui(
         _ => false,
     };
 
+    // An open Chat window means every message is on screen — the badge
+    // only counts what arrives while it's closed. Guarded write so the
+    // resource isn't marked changed every frame the window sits open.
+    if panels.chat && chat.unread != 0 {
+        chat.unread = 0;
+    }
+    let chat_label = if chat.unread > 0 {
+        format!("Chat ({})", badge_count(chat.unread))
+    } else {
+        "Chat".to_owned()
+    };
+    // Everyone in the room, self included — matching the People window's
+    // own "In room (N)" header.
+    let people_total = peers.iter().count() + session.is_some() as usize;
+
     egui::TopBottomPanel::top("overlands-toolbar").show(ctx, |ui| {
         ui.horizontal(|ui| {
-            ui.toggle_value(&mut panels.chat, "Chat");
-            ui.toggle_value(&mut panels.people, "People");
-            ui.toggle_value(&mut panels.avatar, "Avatar");
-            ui.toggle_value(&mut panels.inventory, "Inventory");
-            ui.toggle_value(&mut panels.catalogue, "Catalogue");
+            toggle_with_badge(
+                ui,
+                &mut panels.chat,
+                chat_label,
+                CHAT_TOGGLE_WIDTH,
+                "Chat — talk with everyone in this overland (Enter)",
+            );
+            toggle_with_badge(
+                ui,
+                &mut panels.people,
+                format!("People ({})", badge_count(people_total)),
+                PEOPLE_TOGGLE_WIDTH,
+                "People — who's here; drag an item onto a row to gift it",
+            );
+            ui.toggle_value(&mut panels.avatar, "Avatar")
+                .on_hover_text("Avatar — edit your look and vehicle");
+            ui.toggle_value(&mut panels.inventory, "Inventory")
+                .on_hover_text("Inventory — your saved item blueprints");
+            ui.toggle_value(&mut panels.catalogue, "Catalogue")
+                .on_hover_text("Catalogue — browse placeable items");
             if owns_room {
-                ui.toggle_value(&mut panels.world_editor, "World Editor");
+                ui.toggle_value(&mut panels.world_editor, "World Editor")
+                    .on_hover_text("World Editor — reshape this overland (you own it)");
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // Master mute. First in the right-to-left layout, so it
-                // sits in the far-right corner. The icon shows the current
-                // state; the hover text names the action a click performs.
+                // Account chip — first in the right-to-left layout, so it
+                // owns the far-right corner. The only 2-click route to
+                // logout and location sharing (#835); Diagnostics keeps
+                // its duplicates.
+                if let Some(sess) = session.as_deref() {
+                    ui.menu_button(format!("@{}", sess.handle), |ui| {
+                        ui.horizontal(|ui| {
+                            draw_avatar_icon(
+                                ui,
+                                Some(sess.did.as_str()),
+                                &profile_cache,
+                                crate::ui::chat::AVATAR_ICON_PX,
+                            );
+                            ui.monospace(format!("@{}", sess.handle));
+                        });
+                        ui.monospace(
+                            egui::RichText::new(&sess.did)
+                                .small()
+                                .color(egui::Color32::GRAY),
+                        );
+                        if let Some(room) = current_room.as_deref() {
+                            ui.separator();
+                            ui.label(if owns_room {
+                                "Current overland: yours"
+                            } else {
+                                "Current overland:"
+                            });
+                            if !owns_room {
+                                ui.monospace(
+                                    egui::RichText::new(&room.0)
+                                        .small()
+                                        .color(egui::Color32::GRAY),
+                                );
+                            }
+                            let player_tf = local_player_q.single().ok().copied();
+                            if crate::ui::diagnostics::landmark_link_button(
+                                ui,
+                                &room.0,
+                                player_tf,
+                                &mut toasts,
+                                time.elapsed_secs_f64(),
+                            ) {
+                                ui.close();
+                            }
+                        }
+                        ui.separator();
+                        if ui.button("Log out").clicked() {
+                            // Route through the unsaved-edits guard instead
+                            // of flipping the state directly: it transitions
+                            // immediately when nothing is dirty, and offers
+                            // Publish / Discard / Cancel otherwise.
+                            commands.insert_resource(UnsavedGuard::new(GuardedAction::Logout));
+                            ui.close();
+                        }
+                    })
+                    .response
+                    .on_hover_text("Account — identity, share your spot, log out");
+                }
+                // Master mute. The icon shows the current state; the hover
+                // text names the action a click performs.
                 let (icon, action) = if audio_muted.0 {
                     ("🔇", "Unmute all audio")
                 } else {
@@ -100,20 +248,40 @@ pub fn toolbar_ui(
                 if ui.button(icon).on_hover_text(action).clicked() {
                     audio_muted.0 = !audio_muted.0;
                 }
-                ui.toggle_value(&mut panels.diagnostics, "Diagnostics");
-                // Worst-active anomaly dot (D-6): a severity-coloured ● appears
+                ui.toggle_value(&mut panels.diagnostics, "Diagnostics")
+                    .on_hover_text("Diagnostics — session health, metrics, and logs");
+                // Worst-active anomaly dot (D-6): a severity-coloured ●
                 // beside the Diagnostics toggle whenever an invariant is
-                // violated, so a broken session is visible even with the panel
-                // closed. Nothing renders while healthy.
+                // violated, so a broken session is visible even with the
+                // panel closed. The slot is reserved even while healthy so
+                // the dot's appearance doesn't shift the Controls button;
+                // clicking it opens Diagnostics on the worst tab (#835).
+                let slot = egui::vec2(ANOMALY_DOT_WIDTH, ui.spacing().interact_size.y);
+                let (dot_rect, dot_resp) = ui.allocate_exact_size(slot, egui::Sense::click());
                 if let Some(worst) = invariants.worst_active() {
+                    ui.painter().text(
+                        dot_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "●",
+                        egui::FontId::proportional(14.0),
+                        crate::ui::diagnostics::severity_color(worst),
+                    );
                     let n = invariants.active_badges().count();
-                    ui.colored_label(crate::ui::diagnostics::severity_color(worst), "●")
+                    let dot_resp = dot_resp
+                        .on_hover_cursor(egui::CursorIcon::PointingHand)
                         .on_hover_text(format!(
-                            "{n} active anomal{} — open Diagnostics",
+                            "{n} active anomal{} — click to open Diagnostics",
                             if n == 1 { "y" } else { "ies" }
                         ));
+                    if dot_resp.clicked() {
+                        panels.diagnostics = true;
+                        *diag_tab = crate::ui::diagnostics::tab_for_subsystem(
+                            invariants.worst_active_subsystem(),
+                        );
+                    }
                 }
-                ui.toggle_value(&mut panels.controls, "Controls");
+                ui.toggle_value(&mut panels.controls, "Controls")
+                    .on_hover_text("Controls — movement & camera cheat-sheet");
             });
         });
     });
@@ -129,6 +297,21 @@ enum PilotedChassis {
     Skiff,
     Airship,
     Airplane,
+}
+
+impl PilotedChassis {
+    /// Player-facing name for the sheet's "Piloting:" heading (#834) —
+    /// the rows already swap live with the chassis (#803), but without
+    /// this the window never said WHICH chassis they describe.
+    fn label(self) -> &'static str {
+        match self {
+            Self::OnFoot => "On foot",
+            Self::Boat => "Boat",
+            Self::Skiff => "Skiff",
+            Self::Airship => "Airship",
+            Self::Airplane => "Airplane",
+        }
+    }
 }
 
 /// One key-binding row in the Controls cheat-sheet: the key glyphs and what
@@ -259,6 +442,7 @@ fn piloted_chassis(boat: bool, skiff: bool, airship: bool, airplane: bool) -> Pi
 pub fn controls_hint_ui(
     mut contexts: EguiContexts,
     mut panels: ResMut<UiPanels>,
+    mut chrome: crate::ui::layout::WindowChrome,
     local: Query<
         (
             Has<HoverBoatPreset>,
@@ -282,43 +466,82 @@ pub fn controls_hint_ui(
     );
 
     let mut open = true;
-    egui::Window::new("Controls")
+    let mut window = egui::Window::new("Controls")
         .open(&mut open)
         .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
-            egui::Grid::new("controls-grid")
-                .num_columns(2)
-                .spacing([24.0, 4.0])
-                .show(ui, |ui| {
-                    for row in movement_rows(chassis) {
-                        ui.monospace(row.keys);
-                        ui.label(row.action);
-                        ui.end_row();
-                    }
-                    // Camera controls are the same on every chassis.
-                    ui.monospace("Right-drag");
-                    ui.label("orbit camera");
+        .resizable(false);
+    // Center-anchored ONLY on a true first run, where missing it would
+    // strand a brand-new visitor (#834). `.anchor()` re-pins every
+    // frame — permanently immovable — so once the sheet has been seen
+    // it becomes a normal draggable window near the right edge, and can
+    // no longer superimpose with the (also centered) offer modal.
+    if panels.controls_seen {
+        let (pos, _size) = chrome.place(crate::ui::layout::UiWindow::Controls, ctx);
+        window = window.default_pos(pos).constrain_to(ctx.available_rect());
+    } else {
+        window = window.anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]);
+    }
+    let response = window.show(ctx, |ui| {
+        ui.strong(format!("Piloting: {}", chassis.label()));
+        ui.add_space(4.0);
+        egui::Grid::new("controls-grid")
+            .num_columns(2)
+            .spacing([24.0, 4.0])
+            .show(ui, |ui| {
+                for row in movement_rows(chassis) {
+                    ui.monospace(row.keys);
+                    ui.label(row.action);
                     ui.end_row();
-                    ui.monospace("Middle-drag");
-                    ui.label("pan camera");
-                    ui.end_row();
-                    ui.monospace("Scroll");
-                    ui.label("zoom");
-                    ui.end_row();
-                });
-            ui.add_space(6.0);
-            ui.label("Walk through a portal doorway to travel into another overland.");
-            ui.add_space(6.0);
-            ui.vertical_centered(|ui| {
-                if ui.button("Got it").clicked() {
-                    panels.controls = false;
                 }
+                // Camera controls are the same on every chassis.
+                ui.monospace("Right-drag");
+                ui.label("orbit camera");
+                ui.end_row();
+                ui.monospace("Middle-drag");
+                ui.label("pan camera");
+                ui.end_row();
+                ui.monospace("Scroll");
+                ui.label("zoom");
+                ui.end_row();
+                // Global shortcuts (#836) — same on every chassis.
+                ui.monospace("Enter");
+                ui.label("open chat");
+                ui.end_row();
+                ui.monospace("Esc");
+                ui.label("back out: drag · selection · windows");
+                ui.end_row();
+                ui.monospace("Ctrl+S");
+                ui.label("save the editor you're in");
+                ui.end_row();
             });
+        ui.add_space(6.0);
+        ui.small("Change your vehicle in Avatar → Locomotion.");
+        ui.add_space(6.0);
+        ui.label("Walk through a portal doorway to travel into another overland.");
+        ui.add_space(6.0);
+        ui.vertical_centered(|ui| {
+            if ui.button("Got it").clicked() {
+                panels.controls = false;
+            }
         });
+    });
+    // Only track geometry once de-anchored — remembering the anchored
+    // rect would persist "screen center" as the window's home.
+    if panels.controls_seen
+        && let Some(response) = response.as_ref()
+    {
+        chrome.remember(
+            crate::ui::layout::UiWindow::Controls,
+            response.response.rect,
+        );
+    }
     if !open {
         panels.controls = false;
+    }
+    // Any dismissal — [x] or "Got it" — ends the first-run treatment on
+    // this machine (persisted via #820, like the rest of UiPanels).
+    if !panels.controls && !panels.controls_seen {
+        panels.controls_seen = true;
     }
 }
 

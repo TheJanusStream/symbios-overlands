@@ -108,9 +108,34 @@ impl InvariantRegistry {
         })
     }
 
+    /// A rule's human-readable one-liner, for the GUI badge text (#837 —
+    /// the ids alone read as internal identifiers, not player language).
+    pub fn rule_description(&self, id: RuleId) -> Option<&'static str> {
+        self.rules
+            .iter()
+            .find(|r| r.header().id == id)
+            .map(|r| r.header().description)
+    }
+
     /// The worst severity currently active — for the toolbar warning dot.
     pub fn worst_active(&self) -> Option<Severity> {
         self.active_badges().map(|(_, sev, _)| sev).max()
+    }
+
+    /// The subsystem owning the worst currently-active badge — the
+    /// toolbar dot's click target routes to the matching Diagnostics
+    /// tab (#835). Ties resolve to the first rule in registration
+    /// order, which is stable within a build.
+    pub fn worst_active_subsystem(&self) -> Option<Subsystem> {
+        self.rules
+            .iter()
+            .filter_map(|r| {
+                let h = r.header();
+                let st = self.state.get(h.id)?;
+                st.currently_violated.then_some((h.severity, h.subsystem))
+            })
+            .max_by_key(|(sev, _)| *sev)
+            .map(|(_, subsystem)| subsystem)
     }
 
     /// Count currently-violated rules whose subsystem is `subsystem` — the

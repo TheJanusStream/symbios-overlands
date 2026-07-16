@@ -167,6 +167,12 @@ pub fn run() {
     // wireframe checkbox is gated under the same cfg.
     #[cfg(not(target_arch = "wasm32"))]
     app.add_plugins(WireframePlugin::default());
+    // wasm-only: preventDefault the browser's Ctrl+S/Cmd+S save dialog so
+    // the in-app publish shortcut (#836) can own the chord. Installed as
+    // a JS capture-phase listener because `prevent_default_event_handling`
+    // stays false (F5 / Ctrl+R must keep working).
+    #[cfg(target_arch = "wasm32")]
+    app.add_systems(Startup, ui::shortcuts::install_ctrl_s_blocker);
     app.add_plugins(PhysicsPlugins::default())
         // BootParams must be resident before DiagnosticsPlugin::build reads it
         // for the boot StartupSnapshot, so insert it here and add the plugin
@@ -207,6 +213,11 @@ pub fn run() {
         .init_resource::<PublishFeedback<AvatarRecord>>()
         .init_resource::<PublishFeedback<InventoryRecord>>()
         .init_resource::<ui::toolbar::UiPanels>()
+        .init_resource::<ui::layout::WindowLayout>()
+        .init_resource::<ui::layout::LiveWindowRects>()
+        .init_resource::<ui::diagnostics::DiagTab>()
+        .init_resource::<ui::shortcuts::PublishShortcut>()
+        .init_resource::<ui::chat::ChatFocusRequest>()
         .init_resource::<ui::toast::Toasts>()
         .init_resource::<world_builder::grammar_diag::GrammarDiagnostics>()
         .init_resource::<ui::catalogue::CatalogueBrowser>()
@@ -349,6 +360,14 @@ pub fn run() {
             ui::unsaved_guard::unsaved_guard_ui
                 .run_if(in_state(AppState::InGame))
                 .run_if(resource_exists::<ui::unsaved_guard::UnsavedGuard>),
+        )
+        // Global keyboard shortcuts (#836): Esc back-out ladder,
+        // Enter-to-chat, Ctrl+S publish. Update (not the egui pass) so the
+        // ladder's state checks land before the PostUpdate gizmo/blob Esc
+        // handlers consume theirs.
+        .add_systems(
+            Update,
+            ui::shortcuts::global_shortcuts.run_if(in_state(AppState::InGame)),
         )
         // Gateway destination picker (#748): the zone watcher opens/closes
         // the picker from the player's sensor overlap, the window renders

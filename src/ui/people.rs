@@ -56,6 +56,7 @@ pub(crate) fn log_peer_mute_toggled(
 pub fn people_ui(
     mut contexts: EguiContexts,
     mut panels: ResMut<crate::ui::toolbar::UiPanels>,
+    mut chrome: crate::ui::layout::WindowChrome,
     session: Option<Res<AtprotoSession>>,
     mut peers: Query<(&mut RemotePeer, Option<&SocialResonance>)>,
     profile_cache: Res<BskyProfileCache>,
@@ -63,7 +64,6 @@ pub fn people_ui(
     time: Res<Time>,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
 ) {
-    use crate::config::ui::people as cfg;
     let now = time.elapsed_secs_f64();
 
     // Drag-to-gift hover snapshot lives in `pending_drop.peer_target`. We
@@ -79,10 +79,12 @@ pub fn people_ui(
     }
 
     let ctx = contexts.ctx_mut().unwrap();
-    egui::Window::new("People")
+    let (pos, size) = chrome.place(crate::ui::layout::UiWindow::People, ctx);
+    let response = egui::Window::new("People")
         .open(&mut panels.people)
-        .default_pos(cfg::WINDOW_DEFAULT_POS)
-        .default_size([cfg::WINDOW_DEFAULT_WIDTH, cfg::WINDOW_DEFAULT_HEIGHT])
+        .default_pos(pos)
+        .default_size(size)
+        .constrain_to(ctx.available_rect())
         .resizable(true)
         .collapsible(true)
         .show(ctx, |ui| {
@@ -209,6 +211,9 @@ pub fn people_ui(
                     }
                 });
         });
+    if let Some(response) = response {
+        chrome.remember(crate::ui::layout::UiWindow::People, response.response.rect);
+    }
 }
 
 /// Renders the incoming-offer modal when [`IncomingOfferDialog`] is set
@@ -222,6 +227,7 @@ pub fn people_ui(
 pub fn incoming_offer_ui(
     mut commands: Commands,
     mut contexts: EguiContexts,
+    mut panels: ResMut<crate::ui::toolbar::UiPanels>,
     dialog: Option<Res<IncomingOfferDialog>>,
     mut live_inventory: Option<ResMut<LiveInventoryRecord>>,
     stored_inventory: Option<Res<crate::state::StoredInventoryRecord>>,
@@ -242,63 +248,86 @@ pub fn incoming_offer_ui(
     };
 
     let mut action: Option<OfferAction> = None;
-    egui::Window::new("Incoming Item Offer")
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
-            ui.label(format!(
-                "@{} wants to gift you \"{}\".",
-                dialog.sender_handle, dialog.item_name
-            ));
-            ui.monospace(
-                egui::RichText::new(&dialog.sender_did)
-                    .small()
-                    .color(egui::Color32::GRAY),
-            );
-            ui.separator();
-            if let Some(live) = live_inventory.as_deref() {
-                let cap = crate::config::state::MAX_INVENTORY_ITEMS;
-                let len = live.0.generators.len();
-                ui.label(format!("Your stash: {len}/{cap}"));
-                if len >= cap {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(220, 90, 90),
-                        "Inventory full — accepting will not work.",
-                    );
+    // A true `egui::Modal`, matching the unsaved-edits guard — the
+    // app's one modality pattern (#834). It always paints topmost and
+    // blocks background input, so it can never end up buried under the
+    // (previously also center-anchored) Controls sheet with its
+    // buttons unreachable.
+    let modal = egui::Modal::new(egui::Id::new("incoming-item-offer")).show(ctx, |ui| {
+        ui.heading("Incoming item offer");
+        ui.add_space(4.0);
+        ui.label(format!(
+            "@{} wants to gift you \"{}\".",
+            dialog.sender_handle, dialog.item_name
+        ));
+        ui.monospace(
+            egui::RichText::new(&dialog.sender_did)
+                .small()
+                .color(egui::Color32::GRAY),
+        );
+        ui.separator();
+        if let Some(live) = live_inventory.as_deref() {
+            let cap = crate::config::state::MAX_INVENTORY_ITEMS;
+            let len = live.0.generators.len();
+            ui.label(format!("Your stash: {len}/{cap}"));
+            if len >= cap {
+                ui.colored_label(
+                    egui::Color32::from_rgb(220, 90, 90),
+                    "Inventory full — remove an item to accept.",
+                );
+                if ui.button("Open Inventory").clicked() {
+                    panels.inventory = true;
                 }
             }
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                let can_accept = live_inventory
-                    .as_deref()
-                    .map(|l| l.0.generators.len() < crate::config::state::MAX_INVENTORY_ITEMS)
-                    .unwrap_or(false);
-                if ui
-                    .add_enabled(
-                        can_accept,
-                        egui::Button::new(
-                            egui::RichText::new("Accept").color(egui::Color32::LIGHT_GREEN),
-                        ),
-                    )
-                    .clicked()
-                {
-                    action = Some(OfferAction::Accept);
-                }
-                if ui.button("Decline").clicked() {
-                    action = Some(OfferAction::Decline);
-                }
-                if ui
-                    .add(egui::Button::new(
-                        egui::RichText::new("Mute & Decline")
-                            .color(egui::Color32::from_rgb(220, 90, 90)),
-                    ))
-                    .clicked()
-                {
-                    action = Some(OfferAction::MuteAndDecline);
-                }
-            });
+        }
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            let can_accept = live_inventory
+                .as_deref()
+                .map(|l| l.0.generators.len() < crate::config::state::MAX_INVENTORY_ITEMS)
+                .unwrap_or(false);
+            if ui
+                .add_enabled(
+                    can_accept,
+                    egui::Button::new(
+                        egui::RichText::new("Accept").color(egui::Color32::LIGHT_GREEN),
+                    ),
+                )
+                .clicked()
+            {
+                action = Some(OfferAction::Accept);
+            }
+            if ui.button("Decline").clicked() {
+                action = Some(OfferAction::Decline);
+            }
+            if ui
+                .add(egui::Button::new(
+                    egui::RichText::new("Mute & Decline")
+                        .color(egui::Color32::from_rgb(220, 90, 90)),
+                ))
+                .clicked()
+            {
+                action = Some(OfferAction::MuteAndDecline);
+            }
         });
+        ui.add_space(4.0);
+        // The lifecycle sweep auto-declines the dialog after the TTL
+        // (`config::network::OFFER_DIALOG_TIMEOUT_SECS`) — surface that
+        // instead of letting the offer vanish invisibly mid-decision.
+        let remaining = (crate::config::network::OFFER_DIALOG_TIMEOUT_SECS
+            - (time.elapsed_secs_f64() - dialog.arrived_at_secs))
+            .max(0.0)
+            .ceil() as u64;
+        ui.small(format!(
+            "Declines automatically in {remaining}s — Esc to decline now."
+        ));
+    });
+    // Esc (or a click on the dimmed backdrop) = Decline: the safe,
+    // non-destructive dismissal — the sender gets an honest response
+    // instead of a dialog that lingers until the TTL sweep.
+    if action.is_none() && modal.should_close() {
+        action = Some(OfferAction::Decline);
+    }
 
     let Some(action) = action else {
         return;

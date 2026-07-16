@@ -992,20 +992,13 @@ pub mod ui {
         /// warm gold everywhere. Paired with a `★` glyph so the cue
         /// survives a colour-blind viewer / greyscale capture.
         pub const MUTUAL_COLOR: [u8; 3] = [240, 190, 70];
-        /// Default egui window geometry.
-        pub const WINDOW_DEFAULT_WIDTH: f32 = 380.0;
-        pub const WINDOW_DEFAULT_HEIGHT: f32 = 400.0;
-        /// Rightmost slot in the top-row layout — the only panel that
-        /// starts open, so it needs the space to render its scroll area
-        /// and input field at first frame.
-        pub const WINDOW_DEFAULT_POS: [f32; 2] = [960.0, 10.0];
     }
 
-    pub mod diagnostics {
-        pub const WINDOW_DEFAULT_WIDTH: f32 = 280.0;
-        pub const WINDOW_DEFAULT_HEIGHT: f32 = 480.0;
-        pub const WINDOW_DEFAULT_POS: [f32; 2] = [10.0, 10.0];
+    // Window geometry (positions AND default sizes) lives in
+    // `crate::ui::layout` since #833 — defaults are computed from the
+    // screen rect there, not pixel constants here.
 
+    pub mod diagnostics {
         /// Severity → HUD colour `[R, G, B]` — the single map the diagnostics
         /// event-log tint, the anomaly badges/pills, the per-metric dots and the
         /// toolbar worst-active dot all read (C-6), so a warning is the same
@@ -1016,12 +1009,6 @@ pub mod ui {
         pub const SEVERITY_WARN_RGB: [u8; 3] = [210, 170, 90];
         pub const SEVERITY_ERROR_RGB: [u8; 3] = [210, 120, 90];
         pub const SEVERITY_CRITICAL_RGB: [u8; 3] = [220, 90, 90];
-    }
-
-    pub mod people {
-        pub const WINDOW_DEFAULT_WIDTH: f32 = 280.0;
-        pub const WINDOW_DEFAULT_HEIGHT: f32 = 300.0;
-        pub const WINDOW_DEFAULT_POS: [f32; 2] = [770.0, 10.0];
     }
 
     pub mod login {
@@ -1050,18 +1037,6 @@ pub mod ui {
         pub const FEED_WINDOW_POS: [f32; 2] = [460.0, 60.0];
         /// Minimum content width of the feed window.
         pub const FEED_WINDOW_MIN_WIDTH: f32 = 360.0;
-    }
-
-    /// Avatar editor window (was `airship` — a naming fossil from the
-    /// steampunk-airship era that made this module invisible to anyone
-    /// grepping for the avatar window's geometry, #830).
-    pub mod avatar {
-        /// Wide enough that the embedded generator tree's 260px side
-        /// panel leaves a usable detail panel — the old 320px default
-        /// crushed it to a ~50px sliver while the identical widget got
-        /// 820px in the room editor (#830).
-        pub const WINDOW_DEFAULT_WIDTH: f32 = 760.0;
-        pub const WINDOW_DEFAULT_POS: [f32; 2] = [200.0, 10.0];
     }
 
     pub mod editor {

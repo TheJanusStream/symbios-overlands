@@ -336,6 +336,7 @@ type NodeCache = Option<(BrowseMode, String, Vec<CatNode>, usize)>;
 pub(crate) fn catalogue_ui(
     mut contexts: EguiContexts,
     mut panels: ResMut<crate::ui::toolbar::UiPanels>,
+    mut chrome: crate::ui::layout::WindowChrome,
     mut browser: ResMut<CatalogueBrowser>,
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
@@ -361,10 +362,12 @@ pub(crate) fn catalogue_ui(
     };
 
     let mut open = panels.catalogue;
-    egui::Window::new("Catalogue")
+    let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Catalogue, ctx);
+    let response = egui::Window::new("Catalogue")
         .open(&mut open)
-        .default_pos([390.0, 420.0])
-        .default_size([560.0, 440.0])
+        .default_pos(pos)
+        .default_size(size)
+        .constrain_to(ctx.available_rect())
         .resizable(true)
         .collapsible(true)
         .show(ctx, |ui| {
@@ -505,6 +508,12 @@ pub(crate) fn catalogue_ui(
             });
         });
     panels.catalogue = open;
+    if let Some(response) = response {
+        chrome.remember(
+            crate::ui::layout::UiWindow::Catalogue,
+            response.response.rect,
+        );
+    }
 }
 
 /// Hierarchical "+ From Catalogue" menu shared by every add-catalogue call

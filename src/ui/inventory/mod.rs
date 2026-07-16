@@ -117,6 +117,7 @@ pub struct PeerDropTarget {
 pub fn inventory_ui(
     mut contexts: EguiContexts,
     mut panels: ResMut<crate::ui::toolbar::UiPanels>,
+    mut chrome: crate::ui::layout::WindowChrome,
     mut commands: Commands,
     session: Option<Res<AtprotoSession>>,
     refresh_ctx: Option<Res<crate::oauth::OauthRefreshCtx>>,
@@ -127,6 +128,7 @@ pub fn inventory_ui(
     mut pending_drop: ResMut<PendingGeneratorDrop>,
     mut state: Local<InventoryEditorState>,
     time: Res<Time>,
+    mut publish_shortcut: ResMut<crate::ui::shortcuts::PublishShortcut>,
 ) {
     let (Some(live), Some(stored), Some(session), Some(refresh_ctx)) =
         (live.as_mut(), stored, session, refresh_ctx)
@@ -182,10 +184,12 @@ pub fn inventory_ui(
         }
     }
 
-    egui::Window::new("Inventory")
+    let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Inventory, ctx);
+    let response = egui::Window::new("Inventory")
         .open(&mut panels.inventory)
-        .default_pos([390.0, 10.0])
-        .default_size([300.0, 400.0])
+        .default_pos(pos)
+        .default_size(size)
+        .constrain_to(ctx.available_rect())
         .resizable(true)
         .collapsible(true)
         .show(ctx, |ui| {
@@ -331,7 +335,8 @@ pub fn inventory_ui(
                 feedback.live_bytes_at = Some(now);
             }
             let record_bytes = feedback.live_bytes;
-            match save_load_reset_row(ui, dirty, true, can_reset, record_bytes) {
+            let ctrl_s = publish_shortcut.take(crate::ui::shortcuts::EditorKind::Inventory);
+            match save_load_reset_row(ui, dirty, true, can_reset, record_bytes, ctrl_s) {
                 RecordAction::None => {}
                 RecordAction::Publish => {
                     feedback.status = PublishStatus::Publishing;
@@ -354,6 +359,12 @@ pub fn inventory_ui(
 
             publish_status_line(ui, &feedback.status, time.elapsed_secs_f64());
         });
+    if let Some(response) = response {
+        chrome.remember(
+            crate::ui::layout::UiWindow::Inventory,
+            response.response.rect,
+        );
+    }
 }
 
 /// Spawn the async inventory publish. Since #696 this commits the

@@ -87,7 +87,7 @@ impl AudioEditorState {
     }
 
     /// Drop the working copy and close the window.
-    fn close(&mut self) {
+    pub(crate) fn close(&mut self) {
         self.open = false;
         self.patch = None;
         self.sequence = None;
@@ -249,6 +249,7 @@ pub(crate) fn draw_audio_editor_window(
     editor: &mut AudioEditorState,
     monitor: &AudioMonitor,
     requests: &mut MessageWriter<MonitorRequest>,
+    chrome: &mut crate::ui::layout::WindowChrome,
 ) {
     if !editor.open {
         return;
@@ -256,13 +257,16 @@ pub(crate) fn draw_audio_editor_window(
 
     let id = egui::Id::new(&editor.salt).with("audio_editor");
     let mut keep_open = true;
-    egui::Window::new(format!("Audio Editor — {}", editor.salt))
+    // One shared layout slot for every audio slot's pop-out: the window
+    // id is salted per slot, but geometry-wise they are the same tool.
+    let (pos, size) = chrome.place(crate::ui::layout::UiWindow::AudioEditor, ctx);
+    let response = egui::Window::new(format!("Audio Editor — {}", editor.salt))
         .id(id.with("window"))
         .open(&mut keep_open)
         .resizable(true)
-        .default_width(900.0)
-        .default_height(640.0)
-        .default_pos([60.0, 60.0])
+        .default_size(size)
+        .default_pos(pos)
+        .constrain_to(ctx.available_rect())
         .show(ctx, |ui| {
             // The crate's editors return EditorResponse { changed,
             // rebake }; we treat `rebake` (a committed edit — drag ended
@@ -295,6 +299,12 @@ pub(crate) fn draw_audio_editor_window(
                 ui.label("No editable audio in this slot.");
             }
         });
+    if let Some(response) = response.as_ref() {
+        chrome.remember(
+            crate::ui::layout::UiWindow::AudioEditor,
+            response.response.rect,
+        );
+    }
 
     // Honour the window's [x] close button, and drop the working copy
     // (a fresh "Edit audio…" reseeds from the committed sovereign value).

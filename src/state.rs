@@ -84,6 +84,11 @@ pub struct ChatEntry {
 #[derive(Resource, Default)]
 pub struct ChatHistory {
     pub messages: Vec<ChatEntry>,
+    /// Messages that arrived while the Chat window was closed — drives
+    /// the toolbar's "Chat (n)" badge (#835), which is the only way an
+    /// incoming message is visible at all with the window shut. Cleared
+    /// by the toolbar whenever the window is open.
+    pub unread: usize,
 }
 
 /// Relay hostname captured at login, used when building the room URL.

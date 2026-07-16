@@ -19,13 +19,14 @@
 //! Schema stability: [`PersistedPrefs`] only ever GROWS `Option` fields
 //! (`#[serde(default)]` everywhere), so an old file loads under a newer
 //! binary (missing fields stay `None`) and an older binary ignores
-//! fields a newer one wrote. Planned growth: per-window rects (#833)
-//! and the DID-keyed mute list (#844) extend this struct.
+//! fields a newer one wrote. Per-window rects landed as `windows`
+//! (#833); planned growth: the DID-keyed mute list (#844).
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::state::LocalSettings;
+use crate::ui::layout::WindowLayout;
 use crate::ui::toolbar::UiPanels;
 
 /// Trailing debounce for [`save_prefs_when_changed`]: a save fires this
@@ -54,14 +55,20 @@ pub struct PersistedPrefs {
     /// and friends land here later).
     #[serde(default)]
     pub settings: Option<LocalSettings>,
+    /// Last-shown rect of every managed window (#833), keyed by
+    /// [`crate::ui::layout::UiWindow::key`] — a machine's arranged
+    /// layout beats the computed defaults on the next run.
+    #[serde(default)]
+    pub windows: Option<WindowLayout>,
 }
 
 impl PersistedPrefs {
     /// Snapshot the live resources for saving.
-    fn capture(panels: &UiPanels, settings: &LocalSettings) -> Self {
+    fn capture(panels: &UiPanels, settings: &LocalSettings, windows: &WindowLayout) -> Self {
         Self {
             panels: Some(panels.clone()),
             settings: Some(settings.clone()),
+            windows: Some(windows.clone()),
         }
     }
 }
@@ -172,6 +179,9 @@ pub fn load_prefs_at_startup(mut commands: Commands) {
     if let Some(settings) = prefs.settings {
         commands.insert_resource(settings);
     }
+    if let Some(windows) = prefs.windows {
+        commands.insert_resource(windows);
+    }
 }
 
 /// Trailing-debounce state for [`save_prefs_when_changed`]: the session
@@ -192,21 +202,22 @@ fn debounce_step(pending: Option<f64>, changed: bool, now: f64) -> (Option<f64>,
     }
 }
 
-/// Watch [`UiPanels`] + [`LocalSettings`] and persist a snapshot shortly
-/// after the last change. Change detection also fires on the startup
-/// load's own insert — that lone extra write of identical data is
-/// harmless and keeps the system free of special cases.
+/// Watch [`UiPanels`] + [`LocalSettings`] + [`WindowLayout`] and persist
+/// a snapshot shortly after the last change. Change detection also fires
+/// on the startup load's own insert — that lone extra write of identical
+/// data is harmless and keeps the system free of special cases.
 pub fn save_prefs_when_changed(
     panels: Res<UiPanels>,
     settings: Res<LocalSettings>,
+    windows: Res<WindowLayout>,
     time: Res<Time>,
     mut debounce: Local<SaveDebounce>,
 ) {
-    let changed = panels.is_changed() || settings.is_changed();
+    let changed = panels.is_changed() || settings.is_changed() || windows.is_changed();
     let (pending, fire) = debounce_step(debounce.0, changed, time.elapsed_secs_f64());
     debounce.0 = pending;
     if fire {
-        save(&PersistedPrefs::capture(&panels, &settings));
+        save(&PersistedPrefs::capture(&panels, &settings, &windows));
     }
 }
 
@@ -224,9 +235,14 @@ mod tests {
         let settings = LocalSettings {
             smooth_kinematics: false,
         };
+        let mut windows = WindowLayout::default();
+        windows
+            .rects
+            .insert("chat".to_owned(), [890.0, 40.0, 380.0, 400.0]);
         let prefs = PersistedPrefs {
             panels: Some(panels.clone()),
             settings: Some(settings.clone()),
+            windows: Some(windows),
         };
         let json = serde_json::to_string(&prefs).unwrap();
         let back: PersistedPrefs = serde_json::from_str(&json).unwrap();
@@ -235,6 +251,10 @@ mod tests {
         assert!(restored.chat);
         assert!(!restored.controls);
         assert!(!back.settings.unwrap().smooth_kinematics);
+        assert_eq!(
+            back.windows.unwrap().rects["chat"],
+            [890.0, 40.0, 380.0, 400.0]
+        );
     }
 
     #[test]
@@ -298,6 +318,7 @@ mod tests {
         let prefs = PersistedPrefs {
             panels: Some(panels),
             settings: None,
+            windows: None,
         };
         save_to_path(&path, &prefs).unwrap();
         let back = load_from_path(&path).unwrap();

@@ -240,6 +240,10 @@ pub struct RoomEditorExtras<'w, 's> {
     players: Query<'w, 's, &'static Transform, With<LocalPlayer>>,
     /// Grammar compile outcomes for the forges' status lines (#829).
     grammar_diag: Res<'w, crate::world_builder::grammar_diag::GrammarDiagnostics>,
+    /// Managed window geometry (#833) for the World Editor + audio pop-out.
+    chrome: crate::ui::layout::WindowChrome<'w>,
+    /// Pending Ctrl+S request for the shared save row (#836).
+    publish_shortcut: ResMut<'w, crate::ui::shortcuts::PublishShortcut>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -268,6 +272,8 @@ pub fn room_admin_ui(
         mut blob_ctx,
         players,
         grammar_diag,
+        mut chrome,
+        mut publish_shortcut,
     } = extras;
     let (Some(session), Some(refresh_ctx), Some(room_did), Some(record)) =
         (session, refresh_ctx, room_did, room_record.as_mut())
@@ -406,13 +412,14 @@ pub fn room_admin_ui(
             }
         }
 
+        let (pos, size) = chrome.place(crate::ui::layout::UiWindow::WorldEditor, ctx);
         let world_editor_response = egui::Window::new("World Editor")
             .open(&mut panels.world_editor)
             .collapsible(true)
             .resizable(true)
-            .default_width(820.0)
-            .default_height(620.0)
-            .default_pos([580.0, 10.0])
+            .default_size(size)
+            .default_pos(pos)
+            .constrain_to(ctx.available_rect())
             .show(ctx, |ui| {
                 // Recovery banner — shown when the stored PDS record failed
                 // to decode and we're running on the synthesised default.
@@ -682,7 +689,8 @@ pub fn room_admin_ui(
                     publish_feedback.live_bytes_at = Some(now);
                 }
                 let record_bytes = publish_feedback.live_bytes;
-                match save_load_reset_row(ui, dirty, true, can_reset, record_bytes) {
+                let ctrl_s = publish_shortcut.take(crate::ui::shortcuts::EditorKind::World);
+                match save_load_reset_row(ui, dirty, true, can_reset, record_bytes, ctrl_s) {
                     RecordAction::None => {}
                     RecordAction::Publish => {
                         publish_feedback.status = PublishStatus::Publishing;
@@ -729,7 +737,20 @@ pub fn room_admin_ui(
         // in `audio_editor.committed`, which the matching slot's bridge
         // (room-ambient here, per-construct in the Generators tab) picks
         // up on its next frame and writes into the live record.
-        audio::draw_audio_editor_window(ctx, audio_editor, &audio_monitor, &mut audio_requests);
+        audio::draw_audio_editor_window(
+            ctx,
+            audio_editor,
+            &audio_monitor,
+            &mut audio_requests,
+            &mut chrome,
+        );
+
+        if let Some(response) = world_editor_response.as_ref() {
+            chrome.remember(
+                crate::ui::layout::UiWindow::WorldEditor,
+                response.response.rect,
+            );
+        }
 
         // `Window::show` returns `Some(InnerResponse { inner: None, .. })`
         // when the window is rendered but collapsed (the closure does

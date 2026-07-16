@@ -20,10 +20,18 @@ use crate::state::{ChatEntry, ChatHistory, RemotePeer, SocialResonance};
 /// two layouts line up visually.
 pub(crate) const AVATAR_ICON_PX: f32 = 18.0;
 
+/// One-shot request to focus the chat input (#836): the global Enter
+/// shortcut sets it (alongside opening the panel) and [`chat_ui`]
+/// consumes it on its next render, so a reply is Enter → type → Enter.
+#[derive(Resource, Default)]
+pub struct ChatFocusRequest(pub bool);
+
 #[allow(clippy::too_many_arguments)]
 pub fn chat_ui(
     mut contexts: EguiContexts,
     mut panels: ResMut<crate::ui::toolbar::UiPanels>,
+    mut chrome: crate::ui::layout::WindowChrome,
+    mut focus_request: ResMut<ChatFocusRequest>,
     session: Option<Res<AtprotoSession>>,
     mut chat: ResMut<ChatHistory>,
     profile_cache: Res<BskyProfileCache>,
@@ -47,13 +55,16 @@ pub fn chat_ui(
         .filter_map(|(p, _)| p.did.as_deref())
         .collect();
 
-    egui::Window::new("Chat")
+    let ctx = contexts.ctx_mut().unwrap();
+    let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Chat, ctx);
+    let response = egui::Window::new("Chat")
         .open(&mut panels.chat)
-        .default_pos(cfg::WINDOW_DEFAULT_POS)
-        .default_size([cfg::WINDOW_DEFAULT_WIDTH, cfg::WINDOW_DEFAULT_HEIGHT])
+        .default_pos(pos)
+        .default_size(size)
+        .constrain_to(ctx.available_rect())
         .resizable(true)
         .collapsible(true)
-        .show(contexts.ctx_mut().unwrap(), |ui| {
+        .show(ctx, |ui| {
             // Reserve vertical space for the bottom separator + input row
             // and let the scroll area fill everything above.
             // `auto_shrink([true, false])` combined with the dynamic
@@ -123,6 +134,12 @@ pub fn chat_ui(
                     let response = ui.add(
                         egui::TextEdit::singleline(&mut *input).desired_width(ui.available_width()),
                     );
+                    // Global Enter shortcut (#836): consume the one-shot
+                    // focus request so typing starts immediately.
+                    if focus_request.0 {
+                        response.request_focus();
+                        focus_request.0 = false;
+                    }
                     let submit = send.clicked()
                         || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
 
@@ -179,4 +196,7 @@ pub fn chat_ui(
                 });
             });
         });
+    if let Some(response) = response {
+        chrome.remember(crate::ui::layout::UiWindow::Chat, response.response.rect);
+    }
 }

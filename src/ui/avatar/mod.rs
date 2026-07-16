@@ -96,7 +96,7 @@ pub struct AvatarEditorState {
     /// Pop-out audio editor state for the per-construct audio slot on
     /// avatar visuals generators. Shares the same widget as the room
     /// editor; see [`crate::ui::room::audio::AudioEditorState`].
-    audio_editor: crate::ui::room::audio::AudioEditorState,
+    pub(crate) audio_editor: crate::ui::room::audio::AudioEditorState,
     /// Buffer for the manual re-roll "Random seed" row — defaults to the
     /// owner's DID seed, editable to re-roll the whole avatar. See
     /// [`crate::ui::editable::seed_row`].
@@ -191,6 +191,8 @@ pub fn avatar_ui(
     mut editor: ResMut<AvatarEditorState>,
     mut room_editor: Option<ResMut<RoomEditorState>>,
     mut gizmo_frame_pref: ResMut<crate::editor_gizmo::GizmoFramePref>,
+    mut chrome: crate::ui::layout::WindowChrome,
+    mut publish_shortcut: ResMut<crate::ui::shortcuts::PublishShortcut>,
     // Grouped into one tuple param so `session_log` fits under Bevy's 16-param
     // `IntoSystem` ceiling (needed to record an avatar re-seed, #627).
     (audio_monitor, mut audio_requests, time, mut session_log, mut blob_ctx, grammar_diag): (
@@ -202,8 +204,6 @@ pub fn avatar_ui(
         Res<crate::world_builder::grammar_diag::GrammarDiagnostics>,
     ),
 ) {
-    use crate::config::ui::avatar as cfg;
-
     // `ResMut::deref_mut` unconditionally flips the change tick, so
     // mutating `live.0` inside the egui closure would otherwise mark the
     // resource changed every frame the editor is visible — and
@@ -231,13 +231,19 @@ pub fn avatar_ui(
         let live_mut = live.bypass_change_detection();
         let before = live_mut.0.clone();
 
+        let ctx = contexts.ctx_mut().unwrap();
+        // Width only from the layout slot — the Avatar window auto-heights
+        // to its content, and forcing the persisted height back on it
+        // would pad the shorter Locomotion tab with dead space.
+        let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Avatar, ctx);
         let response = egui::Window::new("Avatar")
             .open(&mut panels.avatar)
-            .default_pos(cfg::WINDOW_DEFAULT_POS)
-            .default_width(cfg::WINDOW_DEFAULT_WIDTH)
+            .default_pos(pos)
+            .default_width(size.x)
+            .constrain_to(ctx.available_rect())
             .resizable(true)
             .collapsible(true)
-            .show(contexts.ctx_mut().unwrap(), |ui| {
+            .show(ctx, |ui| {
                 // --- Tab bar ----------------------------------------------
                 ui.horizontal(|ui| {
                     let tabs = [
@@ -358,7 +364,16 @@ pub fn avatar_ui(
                             &live_mut.0,
                             time.elapsed_secs_f64(),
                         );
-                        match save_load_reset_row(ui, dirty, can_publish, can_reset, record_bytes) {
+                        let ctrl_s =
+                            publish_shortcut.take(crate::ui::shortcuts::EditorKind::Avatar);
+                        match save_load_reset_row(
+                            ui,
+                            dirty,
+                            can_publish,
+                            can_reset,
+                            record_bytes,
+                            ctrl_s,
+                        ) {
                             RecordAction::None => {}
                             RecordAction::Publish => {
                                 if let (Some(session), Some(refresh)) =
@@ -449,6 +464,10 @@ pub fn avatar_ui(
             widget_changed = true;
         }
 
+        if let Some(response) = response.as_ref() {
+            chrome.remember(crate::ui::layout::UiWindow::Avatar, response.response.rect);
+        }
+
         // `Window::show` returns `Some(InnerResponse { inner: None, .. })`
         // when the window is rendered but collapsed (the closure does not
         // fire). `Some(InnerResponse { inner: Some(_), .. })` means the
@@ -474,6 +493,7 @@ pub fn avatar_ui(
         &mut editor.audio_editor,
         &audio_monitor,
         &mut audio_requests,
+        &mut chrome,
     );
 
     // Collapse-deselect: if the window is hidden or collapsed and we still
