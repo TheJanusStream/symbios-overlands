@@ -143,7 +143,10 @@ fn draw_row(ui: &mut egui::Ui, label: &str, status: RowStatus) -> RowAction {
     ui.horizontal(|ui| {
         match status {
             RowStatus::Done => {
-                ui.colored_label(crate::ui::theme::current(ui.ctx()).status.ok, "✔");
+                ui.colored_label(
+                    crate::ui::theme::current(ui.ctx()).status.ok,
+                    crate::ui::affordances::CHECK,
+                );
                 ui.label(label);
             }
             RowStatus::Fallback => {

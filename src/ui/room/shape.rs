@@ -153,11 +153,7 @@ pub(super) fn draw_shape_forge(
                             to_rename = Some((name.clone(), draft));
                             *dirty = true;
                         }
-                        if ui
-                            .add(
-                                egui::Button::new("−")
-                                    .fill(crate::ui::theme::current(ui.ctx()).danger_fill),
-                            )
+                        if crate::ui::affordances::remove_button(ui, "Remove this material slot")
                             .clicked()
                         {
                             to_remove = Some(name.clone());

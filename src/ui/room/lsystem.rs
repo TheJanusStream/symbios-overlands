@@ -123,11 +123,7 @@ pub(super) fn draw_lsystem_forge(
                 ui.group(|ui| {
                     ui.horizontal(|ui| {
                         ui.strong(format!("Slot {}", id));
-                        if ui
-                            .add(
-                                egui::Button::new("−")
-                                    .fill(crate::ui::theme::current(ui.ctx()).danger_fill),
-                            )
+                        if crate::ui::affordances::remove_button(ui, "Remove this material slot")
                             .clicked()
                         {
                             to_remove = Some(id);
@@ -195,13 +191,7 @@ pub(super) fn draw_lsystem_forge(
                                 }
                             });
                     }
-                    if ui
-                        .add(
-                            egui::Button::new("−")
-                                .fill(crate::ui::theme::current(ui.ctx()).danger_fill),
-                        )
-                        .clicked()
-                    {
+                    if crate::ui::affordances::remove_button(ui, "Remove this mapping").clicked() {
                         to_remove = Some(id);
                     }
                 });

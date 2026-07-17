@@ -79,11 +79,7 @@ pub(super) fn draw_contact_effects_tab(
                             if ui.selectable_label(*selected == Some(i), label).clicked() {
                                 *selected = Some(i);
                             }
-                            if ui
-                                .add(
-                                    egui::Button::new("−")
-                                        .fill(crate::ui::theme::current(ui.ctx()).danger_fill),
-                                )
+                            if crate::ui::affordances::remove_button(ui, "Remove this recipe")
                                 .clicked()
                             {
                                 remove = Some(i);

@@ -408,12 +408,14 @@ pub(super) fn scene_context_menu_ui(
                 } else {
                     "Delete item"
                 };
-                if ui.button(label).clicked() {
+                if crate::ui::affordances::danger_menu_button(ui, label).clicked() {
                     *chosen.borrow_mut() = Some(MenuChoice::DeleteItem);
                     ui.close();
                 }
             }
-            if picked_placement.is_some() && ui.button("Delete placement").clicked() {
+            if picked_placement.is_some()
+                && crate::ui::affordances::danger_menu_button(ui, "Delete placement").clicked()
+            {
                 *chosen.borrow_mut() = Some(MenuChoice::DeletePlacement);
                 ui.close();
             }

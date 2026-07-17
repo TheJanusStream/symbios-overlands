@@ -359,8 +359,8 @@ pub fn apply_theme(ctx: &egui::Context, theme: &Theme) {
     // follow-up: chips invert their text against the teal fill); the
     // focus cue moves to a thicker accent text cursor below, so a
     // focused field stays findable even though its ring goes dark.
-    visuals.selection.stroke = egui::Stroke::new(1.0, theme.accent_fill_text);
-    visuals.text_cursor.stroke = egui::Stroke::new(2.0, theme.accent);
+    visuals.selection.stroke = egui::Stroke::new(1.0_f32, theme.accent_fill_text);
+    visuals.text_cursor.stroke = egui::Stroke::new(2.0_f32, theme.accent);
     visuals.window_fill = theme.window_fill;
     visuals.panel_fill = theme.panel_fill;
     visuals.window_stroke = egui::Stroke::new(theme.border_stroke_width, theme.border);

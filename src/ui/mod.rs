@@ -44,6 +44,7 @@
 //!   ([`toast::Toasts`]); the one channel for "something just happened"
 //!   feedback (#819).
 
+pub mod affordances;
 pub mod avatar;
 pub mod catalogue;
 pub mod chat;

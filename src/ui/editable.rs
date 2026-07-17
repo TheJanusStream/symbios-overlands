@@ -249,10 +249,7 @@ pub fn publish_status_line(ui: &mut egui::Ui, status: &PublishStatus, now_secs: 
             );
         }
         PublishStatus::Success { at_secs } => {
-            ui.colored_label(
-                crate::ui::theme::current(ui.ctx()).status.ok,
-                format!("✓ Saved ({:.0}s ago)", ago(*at_secs)),
-            );
+            crate::ui::affordances::ok_label(ui, format!("Saved ({:.0}s ago)", ago(*at_secs)));
         }
         PublishStatus::Failed { at_secs, message } => {
             ui.colored_label(

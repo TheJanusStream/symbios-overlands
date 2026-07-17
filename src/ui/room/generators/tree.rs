@@ -423,7 +423,9 @@ fn build_tree_node(
         // A single-root source (avatar visuals) refuses root removal —
         // hide the item instead of offering a silent no-op (#830).
         // `menu_allow_rename` mirrors `allow_multiple_roots`.
-        if (!menu_is_root || menu_allow_rename) && ui.button("− Delete").clicked() {
+        if (!menu_is_root || menu_allow_rename)
+            && crate::ui::affordances::danger_menu_button(ui, "Delete").clicked()
+        {
             *pending.borrow_mut() = Some(PendingAction::Delete(menu_id.clone()));
             ui.close();
         }

@@ -211,11 +211,7 @@ pub(super) fn draw_placements_tab(
                             {
                                 *selected = Some(i);
                             }
-                            if ui
-                                .add(
-                                    egui::Button::new("−")
-                                        .fill(crate::ui::theme::current(ui.ctx()).danger_fill),
-                                )
+                            if crate::ui::affordances::remove_button(ui, "Delete this placement")
                                 .clicked()
                             {
                                 to_remove = Some(i);

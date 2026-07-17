@@ -149,9 +149,9 @@ pub fn toast_ui(mut contexts: EguiContexts, mut toasts: ResMut<Toasts>, time: Re
             for toast in toasts.queue.iter().rev() {
                 egui::Frame::window(&ui.ctx().style()).show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.colored_label(
+                        crate::ui::affordances::status_dot(
+                            ui,
                             toast.kind.color(&crate::ui::theme::current(ui.ctx())),
-                            "●",
                         );
                         ui.add(
                             egui::Label::new(egui::RichText::new(&toast.text).small())

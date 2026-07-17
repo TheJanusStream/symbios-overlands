@@ -361,13 +361,11 @@ pub fn inventory_ui(
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if ui
-                                        .add(
-                                            egui::Button::new("−").fill(
-                                                crate::ui::theme::current(ui.ctx()).danger_fill,
-                                            ),
-                                        )
-                                        .clicked()
+                                    if crate::ui::affordances::remove_button(
+                                        ui,
+                                        "Delete this item from your stash",
+                                    )
+                                    .clicked()
                                     {
                                         to_remove = Some(name.clone());
                                     }

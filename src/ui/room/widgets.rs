@@ -154,9 +154,12 @@ pub(super) fn grammar_status_line(
         }
         Some(GrammarStatus::Ok) => {
             ui.label(
-                egui::RichText::new("✓ grammar compiled")
-                    .small()
-                    .color(crate::ui::theme::current(ui.ctx()).status.ok),
+                egui::RichText::new(format!(
+                    "{} grammar compiled",
+                    crate::ui::affordances::CHECK
+                ))
+                .small()
+                .color(crate::ui::theme::current(ui.ctx()).status.ok),
             );
         }
         None => {}

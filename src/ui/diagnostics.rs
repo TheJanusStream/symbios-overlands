@@ -130,13 +130,13 @@ fn render_anomaly_section(ui: &mut egui::Ui, invariants: &InvariantRegistry) {
     }
 
     if badges.is_empty() {
-        ui.colored_label(th.status.ok, "✓ No active anomalies");
+        crate::ui::affordances::ok_label(ui, "No active anomalies");
     } else {
         ui.label(format!("Active Anomalies ({})", badges.len()));
         for (id, sev, detail, fires, description, last_fired) in &badges {
             let color = th.status.severity(*sev);
             ui.horizontal(|ui| {
-                ui.colored_label(color, "●");
+                crate::ui::affordances::status_dot(ui, color);
                 // Human description up front (#837); the raw rule id and
                 // when it last fired live in the hover for debugging.
                 ui.label(egui::RichText::new(*description).small().color(color))
@@ -233,12 +233,11 @@ fn anomaly_badge(ui: &mut egui::Ui, invariants: &InvariantRegistry, metric_id: &
     if let Some((_, sev, st)) = invariants.active_badges().find(|(id, _, _)| *id == rule_id) {
         // `last_fired_secs` is a session timestamp, not an age — format it
         // like the event log's stamps instead of reading as "Ns ago" (#837).
-        ui.colored_label(severity_color(ui, sev), "●")
-            .on_hover_text(format!(
-                "{rule_id} — last fired {}: {}",
-                crate::format_elapsed_ts(st.last_fired_secs),
-                st.last_detail
-            ));
+        crate::ui::affordances::status_dot(ui, severity_color(ui, sev)).on_hover_text(format!(
+            "{rule_id} — last fired {}: {}",
+            crate::format_elapsed_ts(st.last_fired_secs),
+            st.last_detail
+        ));
     }
 }
 

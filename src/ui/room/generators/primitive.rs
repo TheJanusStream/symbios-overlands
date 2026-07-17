@@ -349,7 +349,7 @@ pub(super) fn draw_primitive_spine(
                 p.radius = Fp(r);
                 *dirty = true;
             }
-            if ui.button("−").on_hover_text("Remove point").clicked() {
+            if crate::ui::affordances::remove_button(ui, "Remove point").clicked() {
                 remove = Some(i);
             }
         });
@@ -360,7 +360,7 @@ pub(super) fn draw_primitive_spine(
         points.remove(i);
         *dirty = true;
     }
-    if points.len() < MAX_SWEEP_POINTS && ui.button("+ point").clicked() {
+    if points.len() < MAX_SWEEP_POINTS && ui.button("+ Add point").clicked() {
         // Extend past the current end, continuing the last segment's
         // direction so the new point doesn't fold the spline back.
         let last = points[points.len() - 1];
@@ -420,7 +420,7 @@ pub(super) fn draw_primitive_lathe(
                 p.height = Fp(h);
                 *dirty = true;
             }
-            if ui.button("−").on_hover_text("Remove station").clicked() {
+            if crate::ui::affordances::remove_button(ui, "Remove station").clicked() {
                 remove = Some(i);
             }
         });
@@ -431,7 +431,7 @@ pub(super) fn draw_primitive_lathe(
         points.remove(i);
         *dirty = true;
     }
-    if points.len() < MAX_SWEEP_POINTS && ui.button("+ station").clicked() {
+    if points.len() < MAX_SWEEP_POINTS && ui.button("+ Add station").clicked() {
         let last = points[points.len() - 1];
         points.push(LathePoint {
             radius: last.radius,
@@ -525,7 +525,7 @@ pub(super) fn draw_primitive_blob_group(
                 if ui.button("⧉").on_hover_text("Duplicate").clicked() {
                     duplicate = Some(i);
                 }
-                if ui.button("−").on_hover_text("Remove").clicked() {
+                if crate::ui::affordances::remove_button(ui, "Remove this element").clicked() {
                     remove = Some(i);
                 }
             });
@@ -629,7 +629,7 @@ pub(super) fn draw_primitive_blob_group(
         }
         *dirty = true;
     }
-    if elements.len() < MAX_BLOB_ELEMENTS && ui.button("+ element").clicked() {
+    if elements.len() < MAX_BLOB_ELEMENTS && ui.button("+ Add element").clicked() {
         elements.push(BlobElement::default());
         *dirty = true;
     }

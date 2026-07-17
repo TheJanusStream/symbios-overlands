@@ -111,7 +111,7 @@ pub fn people_ui(
                         // author tag (#856) — the "you" cue carries across.
                         let self_color = crate::ui::theme::current(ui.ctx()).status.info;
                         ui.horizontal(|ui| {
-                            ui.colored_label(self_color, "●");
+                            crate::ui::affordances::status_dot(ui, self_color);
                             draw_avatar_icon(
                                 ui,
                                 Some(s.did.as_str()),
@@ -153,7 +153,7 @@ pub fn people_ui(
                         // row stays inert for the drag.
                         let can_receive_gift = drag_active && !peer.muted && peer.did.is_some();
                         let row = ui.horizontal(|ui| {
-                            ui.colored_label(dot_color, "●");
+                            crate::ui::affordances::status_dot(ui, dot_color);
                             draw_avatar_icon(
                                 ui,
                                 peer.did.as_deref(),
