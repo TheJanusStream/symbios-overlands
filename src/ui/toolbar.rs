@@ -298,8 +298,6 @@ pub fn toolbar_ui(
                 }
                 ui.toggle_value(&mut panels.diagnostics, "Diagnostics")
                     .on_hover_text("Diagnostics — session health, metrics, and logs");
-                ui.toggle_value(&mut panels.settings, "Settings")
-                    .on_hover_text("Settings — theme & client preferences");
                 // Worst-active anomaly dot (D-6): a severity-coloured ●
                 // beside the Diagnostics toggle whenever an invariant is
                 // violated, so a broken session is visible even with the
@@ -330,6 +328,11 @@ pub fn toolbar_ui(
                         );
                     }
                 }
+                // Added AFTER the dot in this right-to-left layout so the
+                // dot stays glued to the Diagnostics toggle it belongs to
+                // (visual order: … Controls · Settings · ● · Diagnostics).
+                ui.toggle_value(&mut panels.settings, "Settings")
+                    .on_hover_text("Settings — theme & client preferences");
                 ui.toggle_value(&mut panels.controls, "Controls")
                     .on_hover_text("Controls — movement & camera cheat-sheet");
             });
