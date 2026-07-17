@@ -58,6 +58,7 @@ pub mod login;
 pub mod people;
 pub mod room;
 pub mod shortcuts;
+pub mod theme;
 pub mod toast;
 pub mod toolbar;
 pub mod travel;

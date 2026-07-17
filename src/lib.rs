@@ -242,6 +242,13 @@ pub fn run() {
         .init_resource::<ui::login::LoginError>()
         .init_resource::<ui::login::LoginUiLatch>()
         .init_resource::<ui::login::LoginPostFeed>()
+        // Semantic theme (#855): applied on startup (self-retrying until
+        // the egui context exists, so the Login screen is themed from
+        // its first frame) and re-applied whenever the #857 picker swaps
+        // the resource. Runs in Update — the egui pass renders after it,
+        // so a change lands the same frame it's made.
+        .init_resource::<ui::theme::CurrentTheme>()
+        .add_systems(Update, ui::theme::apply_theme_on_change)
         .add_systems(
             OnEnter(AppState::Login),
             (

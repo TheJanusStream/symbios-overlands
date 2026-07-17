@@ -183,6 +183,7 @@ pub fn login_ui(
     begin_tasks: Query<Entity, With<BeginAuthTask>>,
     complete_tasks: Query<Entity, With<CompleteAuthTask>>,
     mut feed: ResMut<LoginPostFeed>,
+    theme: Res<crate::ui::theme::CurrentTheme>,
     #[cfg(not(target_arch = "wasm32"))] mut native: NativeWaitState,
     #[cfg(target_arch = "wasm32")] wasm: WasmResumeState,
 ) {
@@ -269,9 +270,9 @@ pub fn login_ui(
             let mut begin_now = false;
             if !redirecting && !completing && !waiting {
                 // Primary call to action — deliberately oversized and
-                // filled green so it reads as *the* thing to do on the
+                // filled with the identity accent (#855, teal — was a
+                // one-off green) so it reads as *the* thing to do on the
                 // login screen rather than a peer of the text fields.
-                let [er, eg, eb] = crate::config::ui::login::ENTER_BUTTON_COLOR;
                 let enter = ui.add(
                     egui::Button::new(
                         egui::RichText::new("Enter the Overlands")
@@ -279,7 +280,7 @@ pub fn login_ui(
                             .strong()
                             .color(egui::Color32::WHITE),
                     )
-                    .fill(egui::Color32::from_rgb(er, eg, eb))
+                    .fill(theme.0.accent_fill)
                     .min_size(egui::Vec2::from(
                         crate::config::ui::login::ENTER_BUTTON_MIN_SIZE,
                     )),

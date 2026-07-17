@@ -1054,10 +1054,9 @@ pub mod ui {
     }
 
     pub mod login {
-        /// Fill colour [R, G, B] of the primary "Enter the Overlands"
-        /// action button. A confident actionable green so the one
-        /// thing to do on the login screen is unmistakable.
-        pub const ENTER_BUTTON_COLOR: [u8; 3] = [46, 160, 67];
+        // The "Enter the Overlands" button's fill colour moved to the
+        // semantic theme (#855): `ui::theme::Theme::accent_fill`. Only
+        // geometry stays here.
         /// Minimum button size (px). Sized well above the default
         /// label-hugging button so it reads as the screen's primary
         /// call to action, not just another control.
