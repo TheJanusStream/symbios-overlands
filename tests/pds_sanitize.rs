@@ -803,7 +803,13 @@ fn default_landing_clamped_and_definanned() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn inventory_stash_over_cap_is_trimmed_deterministically() {
+fn inventory_stash_over_bound_is_trimmed_deterministically() {
+    // #841: sanitize's trim point moved from the 50-item gameplay cap
+    // (which silently deleted the user's items in alphabet order) to the
+    // hostile-PDS DoS backstop — over-cap stashes survive the load and
+    // the Inventory UI owns the cap. The trim itself must stay
+    // deterministic and lexicographic past the backstop.
+    let bound = symbios_overlands::config::state::MAX_INVENTORY_SANITIZE_ITEMS;
     let mut inv = InventoryRecord::default();
     let template = match RoomRecord::default_for_did(TEST_DID)
         .generators
@@ -813,21 +819,22 @@ fn inventory_stash_over_cap_is_trimmed_deterministically() {
         Some(g) => g,
         None => panic!("expected base_terrain in default record"),
     };
-    for i in 0..200 {
+    for i in 0..bound + 100 {
         inv.generators
-            .insert(format!("slot_{i:03}"), template.clone());
+            .insert(format!("slot_{i:04}"), template.clone());
     }
     inv.sanitize();
-    assert!(inv.generators.len() <= 50);
+    assert_eq!(inv.generators.len(), bound);
 
     // Deterministic lexicographic trim: survivors all come from the front
     // of the sorted key order.
     let mut keys: Vec<String> = inv.generators.keys().cloned().collect();
     keys.sort();
     let last = keys.last().unwrap();
+    let first_trimmed = format!("slot_{:04}", bound);
     assert!(
-        last.as_str() <= "slot_049",
-        "lexicographic trim surfaced a key past slot_049: {last}"
+        last.as_str() < first_trimmed.as_str(),
+        "lexicographic trim surfaced a key past {first_trimmed}: {last}"
     );
 }
 

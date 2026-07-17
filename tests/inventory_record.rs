@@ -31,7 +31,15 @@ fn inventory_round_trips_through_json() {
 }
 
 #[test]
-fn inventory_cannot_exceed_fifty_slots_after_sanitize() {
+fn sanitize_bounds_the_stash_at_the_dos_backstop_not_the_gameplay_cap() {
+    // #841 changed the contract this test used to pin: sanitize no longer
+    // truncates to the 50-item gameplay cap (that silently deleted items
+    // in lexicographic order on login — the alphabet chose which). An
+    // over-cap stash must now SURVIVE the load — the Inventory window
+    // surfaces it red and blocks publishing until the user prunes — while
+    // the hostile-PDS DoS backstop still bounds the allocation.
+    let cap = symbios_overlands::config::state::MAX_INVENTORY_ITEMS;
+    let bound = symbios_overlands::config::state::MAX_INVENTORY_SANITIZE_ITEMS;
     let mut inv = InventoryRecord::default();
     let template = RoomRecord::default_for_did(TEST_DID)
         .generators
@@ -44,9 +52,18 @@ fn inventory_cannot_exceed_fifty_slots_after_sanitize() {
     }
     inv.sanitize();
     assert!(
-        inv.generators.len() <= 50,
-        "sanitize must cap the stash at 50 generators"
+        inv.generators.len() > cap,
+        "an over-cap stash must survive sanitize — the {cap}-item cap is \
+         enforced by the UI, not by silent truncation (#841)"
     );
+    assert_eq!(
+        inv.generators.len(),
+        bound,
+        "sanitize truncates only at the {bound}-item DoS backstop"
+    );
+    // Deterministic survivors: lexicographic low keys stay.
+    assert!(inv.generators.contains_key("slot_0000"));
+    assert!(!inv.generators.contains_key(&format!("slot_{:04}", bound)));
 }
 
 #[test]
