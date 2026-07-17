@@ -82,10 +82,22 @@ pub struct Theme {
     pub status: StatusPalette,
     /// Identity accent (teal): hyperlinks, selection, wordmark, focus.
     pub accent: egui::Color32,
-    /// Filled call-to-action background (white text on top) — the login
-    /// "Enter the Overlands" button. Darker than `accent` so large
-    /// fills don't glow.
+    /// Filled call-to-action background — the login "Enter the
+    /// Overlands" button. Bright teal on the dark bases, deep teal on
+    /// light; [`Self::accent_fill_text`] carries the matching inverted
+    /// label colour.
     pub accent_fill: egui::Color32,
+    /// Label colour on every accent-teal fill (#857 follow-up): the CTA
+    /// button AND selected chips (toolbar toggles, tabs, gizmo
+    /// World/Local — egui paints selected-widget text with
+    /// `selection.stroke`). Dark bases run bright fills with near-black
+    /// text, the light base deeper fills with white text.
+    pub accent_fill_text: egui::Color32,
+    /// Selected-chip / text-selection background. Mid-toned in every
+    /// palette: bright enough that [`Self::accent_fill_text`] reads on a
+    /// selected chip, dim enough that body text survives over a
+    /// text-selection band (one egui knob covers both).
+    pub selection_fill: egui::Color32,
     /// Destructive filled-button background (white text) — the shared
     /// danger idiom (`ui::confirm::danger_button`).
     pub danger_fill: egui::Color32,
@@ -117,6 +129,54 @@ pub struct Theme {
     /// bevy_egui upgrade can never flip the mode out from under the
     /// palette.
     pub egui_base: egui::Theme,
+    /// Window/separator stroke width — the high-contrast palette widens
+    /// it so window edges register without hunting.
+    pub border_stroke_width: f32,
+}
+
+/// Which shipped palette the user picked (#857). Persisted in
+/// [`crate::state::LocalSettings`] → prefs; `theme::sync_theme_from_settings`
+/// keeps [`CurrentTheme`] following it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub enum UserTheme {
+    #[default]
+    Dark,
+    Light,
+    HighContrast,
+}
+
+impl UserTheme {
+    /// Picker label.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Dark => "Dark",
+            Self::Light => "Light",
+            Self::HighContrast => "High contrast",
+        }
+    }
+
+    /// Build the palette this preference names.
+    pub fn theme(self) -> Theme {
+        match self {
+            Self::Dark => Theme::dark(),
+            Self::Light => Theme::light(),
+            Self::HighContrast => Theme::high_contrast(),
+        }
+    }
+}
+
+/// Keep [`CurrentTheme`] following the persisted preference. Guarded
+/// write, so the resource change (and the egui re-apply it triggers)
+/// fires only when the pick actually differs — including the startup
+/// frame where the prefs load swaps `LocalSettings` in.
+pub fn sync_theme_from_settings(
+    settings: Res<crate::state::LocalSettings>,
+    mut current: ResMut<CurrentTheme>,
+) {
+    let want = settings.theme.theme();
+    if current.0 != want {
+        current.0 = want;
+    }
 }
 
 impl Theme {
@@ -142,7 +202,11 @@ impl Theme {
                 critical_tier: ramp(sev_cfg::SEVERITY_CRITICAL_RGB),
             },
             accent: egui::Color32::from_rgb(72, 199, 208),
-            accent_fill: egui::Color32::from_rgb(16, 125, 134),
+            // Bright fill + near-black label (#857 follow-up): the old
+            // dark-teal fill with white text read muddy.
+            accent_fill: egui::Color32::from_rgb(64, 190, 200),
+            accent_fill_text: egui::Color32::from_gray(8),
+            selection_fill: egui::Color32::from_rgb(40, 165, 175),
             danger_fill: egui::Color32::from_rgb(160, 40, 40),
             // Unifies the (90,20,20) critical-anomaly strip and the
             // (90,30,30) recovery banners onto one surface.
@@ -157,6 +221,82 @@ impl Theme {
             text_faint: egui::Color32::from_gray(96),
             border: egui::Color32::from_gray(60),
             egui_base: egui::Theme::Dark,
+            border_stroke_width: 1.0,
+        }
+    }
+
+    /// The light palette (#857): every dark-assuming role re-derived for
+    /// pale surfaces — status hues deepened so they hold AA-ish contrast
+    /// on near-white, accent deepened per the 2026-07-17 decision.
+    pub fn light() -> Self {
+        Self {
+            status: StatusPalette {
+                ok: egui::Color32::from_rgb(30, 130, 50),
+                warn: egui::Color32::from_rgb(165, 115, 10),
+                error: egui::Color32::from_rgb(185, 35, 35),
+                info: egui::Color32::from_rgb(25, 95, 200),
+                trace: egui::Color32::from_gray(150),
+                info_tier: egui::Color32::from_gray(70),
+                warn_tier: egui::Color32::from_rgb(165, 115, 10),
+                error_tier: egui::Color32::from_rgb(180, 85, 25),
+                critical_tier: egui::Color32::from_rgb(185, 35, 35),
+            },
+            accent: egui::Color32::from_rgb(0, 130, 140),
+            accent_fill: egui::Color32::from_rgb(0, 118, 128),
+            accent_fill_text: egui::Color32::WHITE,
+            // Mid-deep: white chip text pops, and dark body text still
+            // reads over a text-selection band of the same colour.
+            selection_fill: egui::Color32::from_rgb(60, 150, 160),
+            danger_fill: egui::Color32::from_rgb(175, 45, 45),
+            danger_surface: egui::Color32::from_rgb(250, 218, 218),
+            danger_surface_text: egui::Color32::from_rgb(120, 20, 20),
+            window_fill: egui::Color32::from_gray(246),
+            panel_fill: egui::Color32::from_gray(246),
+            chart_fill: egui::Color32::from_gray(235),
+            chart_fill_deep: egui::Color32::from_gray(225),
+            text_strong: egui::Color32::from_gray(18),
+            text_weak: egui::Color32::from_gray(90),
+            text_faint: egui::Color32::from_gray(128),
+            border: egui::Color32::from_gray(190),
+            egui_base: egui::Theme::Light,
+            border_stroke_width: 1.0,
+        }
+    }
+
+    /// The high-contrast palette (#857): a dark base pushed to the
+    /// extremes — near-black surfaces, near-white primary text, brighter
+    /// status hues and a wider window stroke, for low-vision use and
+    /// harsh ambient light.
+    pub fn high_contrast() -> Self {
+        Self {
+            status: StatusPalette {
+                ok: egui::Color32::from_rgb(90, 255, 120),
+                warn: egui::Color32::from_rgb(255, 200, 60),
+                error: egui::Color32::from_rgb(255, 90, 80),
+                info: egui::Color32::from_rgb(130, 190, 255),
+                trace: egui::Color32::from_gray(170),
+                info_tier: egui::Color32::from_gray(255),
+                warn_tier: egui::Color32::from_rgb(255, 200, 60),
+                error_tier: egui::Color32::from_rgb(255, 145, 90),
+                critical_tier: egui::Color32::from_rgb(255, 80, 80),
+            },
+            accent: egui::Color32::from_rgb(90, 240, 250),
+            accent_fill: egui::Color32::from_rgb(90, 240, 250),
+            accent_fill_text: egui::Color32::BLACK,
+            selection_fill: egui::Color32::from_rgb(30, 170, 185),
+            danger_fill: egui::Color32::from_rgb(205, 40, 40),
+            danger_surface: egui::Color32::from_rgb(120, 15, 15),
+            danger_surface_text: egui::Color32::from_rgb(255, 230, 230),
+            window_fill: egui::Color32::from_gray(10),
+            panel_fill: egui::Color32::from_gray(10),
+            chart_fill: egui::Color32::from_gray(20),
+            chart_fill_deep: egui::Color32::from_gray(14),
+            text_strong: egui::Color32::from_gray(255),
+            text_weak: egui::Color32::from_gray(200),
+            text_faint: egui::Color32::from_gray(160),
+            border: egui::Color32::from_gray(170),
+            egui_base: egui::Theme::Dark,
+            border_stroke_width: 1.5,
         }
     }
 }
@@ -213,13 +353,35 @@ pub fn apply_theme(ctx: &egui::Context, theme: &Theme) {
         egui::Theme::Light => egui::Visuals::light(),
     };
     visuals.hyperlink_color = theme.accent;
-    visuals.selection.bg_fill = theme.accent_fill;
-    visuals.selection.stroke = egui::Stroke::new(1.0, theme.accent);
+    visuals.selection.bg_fill = theme.selection_fill;
+    // `selection.stroke` is BOTH the selected-widget label colour and the
+    // focused-TextEdit outline in egui 0.33. The label wins (#857
+    // follow-up: chips invert their text against the teal fill); the
+    // focus cue moves to a thicker accent text cursor below, so a
+    // focused field stays findable even though its ring goes dark.
+    visuals.selection.stroke = egui::Stroke::new(1.0, theme.accent_fill_text);
+    visuals.text_cursor.stroke = egui::Stroke::new(2.0, theme.accent);
     visuals.window_fill = theme.window_fill;
     visuals.panel_fill = theme.panel_fill;
-    visuals.window_stroke = egui::Stroke::new(1.0, theme.border);
+    visuals.window_stroke = egui::Stroke::new(theme.border_stroke_width, theme.border);
     visuals.warn_fg_color = theme.status.warn;
     visuals.error_fg_color = theme.status.error;
+    // Light-base only (#857 follow-up): egui's stock light text
+    // (~gray 60-80) reads too pale — pull every widget tier's label
+    // colour down to the palette's text_strong. The dark bases keep
+    // egui's stock tiering (their hover/active brightening is part of
+    // the validated look).
+    if theme.egui_base == egui::Theme::Light {
+        for w in [
+            &mut visuals.widgets.noninteractive,
+            &mut visuals.widgets.inactive,
+            &mut visuals.widgets.hovered,
+            &mut visuals.widgets.active,
+            &mut visuals.widgets.open,
+        ] {
+            w.fg_stroke.color = theme.text_strong;
+        }
+    }
     ctx.set_visuals(visuals);
 }
 
@@ -258,43 +420,60 @@ mod tests {
         d(a.r(), b.r()) + d(a.g(), b.g()) + d(a.b(), b.b())
     }
 
-    /// The 2026-07-17 decision this palette encodes: the identity accent
+    fn all_palettes() -> [(&'static str, Theme); 3] {
+        [
+            ("dark", Theme::dark()),
+            ("light", Theme::light()),
+            ("high_contrast", Theme::high_contrast()),
+        ]
+    }
+
+    /// The 2026-07-17 decision every palette encodes: the identity accent
     /// is teal, NOT the ok-green — status and brand must never collide.
     #[test]
     fn accent_is_distinct_from_every_status_colour() {
-        let t = Theme::dark();
-        for (name, c) in [
-            ("ok", t.status.ok),
-            ("warn", t.status.warn),
-            ("error", t.status.error),
-            ("info", t.status.info),
-        ] {
+        for (palette, t) in all_palettes() {
+            for (name, c) in [
+                ("ok", t.status.ok),
+                ("warn", t.status.warn),
+                ("error", t.status.error),
+                ("info", t.status.info),
+            ] {
+                assert!(
+                    dist(t.accent, c) > 90,
+                    "{palette}: accent {:?} too close to status.{name} {c:?}",
+                    t.accent
+                );
+            }
+            // Teal shape: blue ≈ green (both high), red clearly lowest.
+            assert!(t.accent.r() < t.accent.g() && t.accent.r() < t.accent.b());
+            let gb_gap = (t.accent.g() as i32 - t.accent.b() as i32).abs();
             assert!(
-                dist(t.accent, c) > 90,
-                "accent {:?} too close to status.{name} {c:?}",
-                t.accent
+                gb_gap < 40,
+                "{palette}: accent should be teal, not green or blue"
             );
         }
-        // Teal shape: blue ≈ green (both high), red clearly lowest.
-        assert!(t.accent.r() < t.accent.g() && t.accent.r() < t.accent.b());
-        let gb_gap = (t.accent.g() as i32 - t.accent.b() as i32).abs();
-        assert!(gb_gap < 40, "accent should be teal, not green or blue");
     }
 
     /// The four general-purpose status colours must be mutually distinct
     /// — the whole point of collapsing 4 ambers / 5 reds / 7 greens.
     #[test]
     fn status_colours_are_mutually_distinct() {
-        let s = Theme::dark().status;
-        let all = [
-            ("ok", s.ok),
-            ("warn", s.warn),
-            ("error", s.error),
-            ("info", s.info),
-        ];
-        for (i, (an, a)) in all.iter().enumerate() {
-            for (bn, b) in all.iter().skip(i + 1) {
-                assert!(dist(*a, *b) > 90, "status.{an} and status.{bn} too close");
+        for (palette, t) in all_palettes() {
+            let s = t.status;
+            let all = [
+                ("ok", s.ok),
+                ("warn", s.warn),
+                ("error", s.error),
+                ("info", s.info),
+            ];
+            for (i, (an, a)) in all.iter().enumerate() {
+                for (bn, b) in all.iter().skip(i + 1) {
+                    assert!(
+                        dist(*a, *b) > 90,
+                        "{palette}: status.{an} and status.{bn} too close"
+                    );
+                }
             }
         }
     }
@@ -321,15 +500,60 @@ mod tests {
         }
     }
 
-    /// Dark-surface sanity: text roles must actually read on the fills.
+    /// Surface sanity for every palette: text roles must actually read
+    /// on the fills, and danger-banner text on its surface.
     #[test]
-    fn text_reads_on_dark_surfaces() {
-        let t = Theme::dark();
-        assert!(dist(t.text_strong, t.window_fill) > 400);
-        assert!(dist(t.text_weak, t.window_fill) > 200);
-        assert!(
-            dist(t.chart_fill, t.window_fill) < 30,
-            "chart fills sit near the window tone"
-        );
+    fn text_reads_on_every_palette_surface() {
+        for (palette, t) in all_palettes() {
+            assert!(
+                dist(t.text_strong, t.window_fill) > 400,
+                "{palette}: text_strong illegible on window_fill"
+            );
+            assert!(
+                dist(t.text_weak, t.window_fill) > 200,
+                "{palette}: text_weak illegible on window_fill"
+            );
+            assert!(
+                dist(t.chart_fill, t.window_fill) < 40,
+                "{palette}: chart fills should sit near the window tone"
+            );
+            assert!(
+                dist(t.danger_surface_text, t.danger_surface) > 300,
+                "{palette}: danger banner text illegible on its surface"
+            );
+        }
+    }
+
+    /// #857 follow-up: the CTA label must read on its fill in every
+    /// palette — dark bases run bright-fill/dark-text, light the
+    /// inverse — and the selection band must not drown the body text
+    /// drawn over it.
+    #[test]
+    fn accent_fill_labels_and_selection_stay_readable() {
+        for (palette, t) in all_palettes() {
+            assert!(
+                dist(t.accent_fill_text, t.accent_fill) > 300,
+                "{palette}: CTA label illegible on accent_fill"
+            );
+            assert!(
+                dist(t.text_strong, t.selection_fill) > 200,
+                "{palette}: body text illegible over the selection band"
+            );
+            assert!(
+                dist(t.accent_fill_text, t.selection_fill) > 300,
+                "{palette}: selected-chip label illegible on selection_fill"
+            );
+        }
+    }
+
+    /// High-contrast must earn its name: strictly stronger text-vs-surface
+    /// separation than the dark palette, and a wider window stroke.
+    #[test]
+    fn high_contrast_is_actually_higher_contrast() {
+        let dark = Theme::dark();
+        let hc = Theme::high_contrast();
+        assert!(dist(hc.text_strong, hc.window_fill) > dist(dark.text_strong, dark.window_fill));
+        assert!(dist(hc.text_weak, hc.window_fill) > dist(dark.text_weak, dark.window_fill));
+        assert!(hc.border_stroke_width > dark.border_stroke_width);
     }
 }

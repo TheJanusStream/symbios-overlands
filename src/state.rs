@@ -312,12 +312,17 @@ pub struct LocalSettings {
     /// applied to a delayed jitter buffer.  When false, peers snap to the
     /// latest received packet (useful for debugging raw network latency).
     pub smooth_kinematics: bool,
+    /// Which shipped UI palette this machine uses (#857). Applied by
+    /// `ui::theme::sync_theme_from_settings`; old prefs files without
+    /// the field default to Dark via the struct-level `serde(default)`.
+    pub theme: crate::ui::theme::UserTheme,
 }
 
 impl Default for LocalSettings {
     fn default() -> Self {
         Self {
             smooth_kinematics: true,
+            theme: crate::ui::theme::UserTheme::Dark,
         }
     }
 }

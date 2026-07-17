@@ -57,6 +57,7 @@ pub mod loading;
 pub mod login;
 pub mod people;
 pub mod room;
+pub mod settings;
 pub mod shortcuts;
 pub mod theme;
 pub mod toast;

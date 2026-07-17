@@ -256,6 +256,7 @@ mod tests {
         };
         let settings = LocalSettings {
             smooth_kinematics: false,
+            ..Default::default()
         };
         let mut windows = WindowLayout::default();
         windows

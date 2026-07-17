@@ -73,6 +73,7 @@ pub enum UiWindow {
     Diagnostics,
     AudioEditor,
     Controls,
+    Settings,
 }
 
 /// Where a slot's default position hugs horizontally. Vertically every
@@ -109,6 +110,7 @@ impl UiWindow {
             Self::Diagnostics => "diagnostics",
             Self::AudioEditor => "audio_editor",
             Self::Controls => "controls",
+            Self::Settings => "settings",
         }
     }
 
@@ -135,6 +137,9 @@ impl UiWindow {
             // The de-anchored Controls sheet (#834): a compact card
             // near the right edge once it stops being center-pinned.
             Self::Controls => (Right, [300.0, 280.0]),
+            // Compact preference card (#857) — same right-edge family
+            // as the Controls sheet it usually appears near.
+            Self::Settings => (Right, [300.0, 200.0]),
         };
         Slot { anchor, size }
     }
@@ -383,6 +388,7 @@ mod tests {
             UiWindow::Diagnostics,
             UiWindow::AudioEditor,
             UiWindow::Controls,
+            UiWindow::Settings,
         ] {
             let (pos, size) = place_in(id.slot(), &[], avail);
             let rect = egui::Rect::from_min_size(pos, size);

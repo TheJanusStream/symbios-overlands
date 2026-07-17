@@ -156,6 +156,7 @@ fn window_area_id(window: UiWindow) -> egui::Id {
         UiWindow::Diagnostics => "Diagnostics",
         UiWindow::AudioEditor => "Audio Editor",
         UiWindow::Controls => "Controls",
+        UiWindow::Settings => "Settings",
     })
 }
 
@@ -223,6 +224,7 @@ pub fn global_shortcuts(
                 (UiWindow::WorldEditor, panels.world_editor),
                 (UiWindow::Diagnostics, panels.diagnostics),
                 (UiWindow::Controls, panels.controls),
+                (UiWindow::Settings, panels.settings),
             ]
             .into_iter()
             .filter(|(_, open)| *open)
@@ -237,6 +239,7 @@ pub fn global_shortcuts(
                 Some(UiWindow::WorldEditor) => panels.world_editor = false,
                 Some(UiWindow::Diagnostics) => panels.diagnostics = false,
                 Some(UiWindow::Controls) => panels.controls = false,
+                Some(UiWindow::Settings) => panels.settings = false,
                 Some(UiWindow::AudioEditor) | None => {}
             }
         }

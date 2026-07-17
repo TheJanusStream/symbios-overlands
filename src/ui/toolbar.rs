@@ -40,6 +40,8 @@ pub struct UiPanels {
     pub inventory: bool,
     pub catalogue: bool,
     pub diagnostics: bool,
+    /// The Settings window (#857): theme picker + client toggles.
+    pub settings: bool,
     /// The controls overlay. Defaults to open — this is the first-run
     /// hint — and is re-openable from the toolbar.
     pub controls: bool,
@@ -66,6 +68,7 @@ impl Default for UiPanels {
             inventory: false,
             catalogue: false,
             diagnostics: false,
+            settings: false,
             controls: true,
             controls_seen: false,
             owner_hint_seen: false,
@@ -275,6 +278,8 @@ pub fn toolbar_ui(
                 }
                 ui.toggle_value(&mut panels.diagnostics, "Diagnostics")
                     .on_hover_text("Diagnostics — session health, metrics, and logs");
+                ui.toggle_value(&mut panels.settings, "Settings")
+                    .on_hover_text("Settings — theme & client preferences");
                 // Worst-active anomaly dot (D-6): a severity-coloured ●
                 // beside the Diagnostics toggle whenever an invariant is
                 // violated, so a broken session is visible even with the

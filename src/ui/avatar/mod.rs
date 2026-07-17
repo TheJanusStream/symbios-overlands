@@ -37,8 +37,8 @@ use crate::diagnostics::SessionLog;
 use crate::diagnostics::event::{EventPayload, RecordKind};
 use crate::pds::{self, AvatarRecord};
 use crate::state::{
-    LiveAvatarRecord, LiveInventoryRecord, LocalSettings, PublishFeedback, PublishStatus,
-    StoredAvatarRecord, records_differ,
+    LiveAvatarRecord, LiveInventoryRecord, PublishFeedback, PublishStatus, StoredAvatarRecord,
+    records_differ,
 };
 use crate::ui::editable::{
     RecordAction, SeedAction, publish_status_line, save_load_reset_row, seed_row,
@@ -197,7 +197,6 @@ pub fn avatar_ui(
     mut commands: Commands,
     mut live: ResMut<LiveAvatarRecord>,
     stored: Option<Res<StoredAvatarRecord>>,
-    mut settings: ResMut<LocalSettings>,
     session: Option<Res<AtprotoSession>>,
     refresh_ctx: Option<Res<crate::oauth::OauthRefreshCtx>>,
     mut feedback: ResMut<PublishFeedback<AvatarRecord>>,
@@ -348,24 +347,10 @@ pub fn avatar_ui(
                 egui::TopBottomPanel::bottom("avatar_footer")
                     .resizable(false)
                     .show_inside(ui, |ui| {
-                        // Networking is a single fixed row rather than a
-                        // collapsible section: one checkbox never earned a
-                        // drawer, and a fixed footer height is what keeps
-                        // this panel honest. Caption says what the toggle
-                        // is NOT — part of the avatar record above it.
-                        ui.horizontal(|ui| {
-                            ui.checkbox(&mut settings.smooth_kinematics, "Smooth remote peers")
-                                .on_hover_text(
-                                    "Hermite spline + 100 ms buffer. Uncheck to snap \
-                                 to the latest packet and expose raw jitter.",
-                                );
-                            ui.label(
-                                egui::RichText::new("(this device only — not saved)")
-                                    .small()
-                                    .weak(),
-                            );
-                        });
-                        ui.separator();
+                        // The "Smooth remote peers" toggle moved to the
+                        // Settings window (#857) — it's a client network
+                        // preference, not part of the avatar record this
+                        // editor publishes.
 
                         // --- Publish / Revert / Reset -------------------------
                         // Same shared row + status line as the World and

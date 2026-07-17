@@ -278,7 +278,7 @@ pub fn login_ui(
                         egui::RichText::new("Enter the Overlands")
                             .size(crate::config::ui::login::ENTER_BUTTON_TEXT_SIZE)
                             .strong()
-                            .color(egui::Color32::WHITE),
+                            .color(theme.0.accent_fill_text),
                     )
                     .fill(theme.0.accent_fill)
                     .min_size(egui::Vec2::from(

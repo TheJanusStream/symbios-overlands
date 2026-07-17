@@ -248,7 +248,14 @@ pub fn run() {
         // the resource. Runs in Update — the egui pass renders after it,
         // so a change lands the same frame it's made.
         .init_resource::<ui::theme::CurrentTheme>()
-        .add_systems(Update, ui::theme::apply_theme_on_change)
+        .add_systems(
+            Update,
+            (
+                ui::theme::sync_theme_from_settings,
+                ui::theme::apply_theme_on_change,
+            )
+                .chain(),
+        )
         .add_systems(
             OnEnter(AppState::Login),
             (
@@ -382,6 +389,7 @@ pub fn run() {
                 ui::room::room_admin_ui,
                 ui::inventory::inventory_ui,
                 ui::catalogue::catalogue_ui,
+                ui::settings::settings_ui,
                 ui::toolbar::controls_hint_ui,
                 // Travel visibility (#842): the in-flight overlay and the
                 // portal approach prompt. Anchored HUD surfaces, so their
