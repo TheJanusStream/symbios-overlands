@@ -289,11 +289,11 @@ pub fn toolbar_ui(
                 let slot = egui::vec2(ANOMALY_DOT_WIDTH, ui.spacing().interact_size.y);
                 let (dot_rect, dot_resp) = ui.allocate_exact_size(slot, egui::Sense::click());
                 if let Some(worst) = invariants.worst_active() {
-                    ui.painter().text(
+                    // Painted circle, not a "●" glyph — U+25CF is
+                    // tofu in the proportional family (#861).
+                    ui.painter().circle_filled(
                         dot_rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        "●",
-                        egui::FontId::proportional(14.0),
+                        4.5,
                         crate::ui::diagnostics::severity_color(ui, worst),
                     );
                     let n = invariants.active_badges().count();
@@ -598,7 +598,7 @@ pub fn controls_hint_ui(
                 ui.end_row();
             });
         ui.add_space(6.0);
-        ui.small("Change your vehicle in Avatar → Locomotion.");
+        ui.small("Change your vehicle in Avatar › Locomotion.");
         ui.add_space(6.0);
         ui.label("Walk through a portal doorway to travel into another overland.");
         // Owner-only: the world-editing gestures (#851). Every one of

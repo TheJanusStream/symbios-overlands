@@ -152,7 +152,11 @@ pub fn save_load_reset_row(
                     crate::ui::theme::current(ui.ctx()).status.warn,
                 ),
                 SizeClass::OverHardCeiling => (
-                    format!("✗ {} — too large to save", human_bytes(bytes)),
+                    format!(
+                        "{} {} — too large to save",
+                        crate::ui::affordances::CROSS,
+                        human_bytes(bytes)
+                    ),
                     crate::ui::theme::current(ui.ctx()).status.error,
                 ),
             };
@@ -254,7 +258,11 @@ pub fn publish_status_line(ui: &mut egui::Ui, status: &PublishStatus, now_secs: 
         PublishStatus::Failed { at_secs, message } => {
             ui.colored_label(
                 crate::ui::theme::current(ui.ctx()).status.error,
-                format!("✗ Save failed ({:.0}s ago): {message}", ago(*at_secs)),
+                format!(
+                    "{} Save failed ({:.0}s ago): {message}",
+                    crate::ui::affordances::CROSS,
+                    ago(*at_secs)
+                ),
             );
         }
     }

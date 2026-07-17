@@ -149,7 +149,7 @@ pub(super) fn grammar_status_line(
         Some(GrammarStatus::Error { message }) => {
             ui.colored_label(
                 crate::ui::theme::current(ui.ctx()).status.error,
-                egui::RichText::new(format!("✗ {message}")).small(),
+                egui::RichText::new(format!("{} {message}", crate::ui::affordances::CROSS)).small(),
             );
         }
         Some(GrammarStatus::Ok) => {

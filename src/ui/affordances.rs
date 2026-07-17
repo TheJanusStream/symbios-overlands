@@ -17,20 +17,28 @@
 //!   [`danger_menu_button`]: error-red text, no fill (a filled button
 //!   inside a menu reads as a different widget class), no `−` prefix —
 //!   the colour is the signal.
-//! * **Done/valid** — [`CHECK`] (`✓`) in `status.ok`, via [`ok_label`]
-//!   for the common glyph+text case. (`✔` is retired.)
-//! * **Status dot** — [`status_dot`] for the `●`-in-a-status-colour
-//!   pattern (anomaly badges, presence, toasts).
+//! * **Done/valid** — [`CHECK`] in `status.ok`, via [`ok_label`] for
+//!   the common glyph+text case; failures pair with [`CROSS`]. Both are
+//!   pinned to emoji-font-backed code points — see the constants' docs
+//!   for the tofu story (#861).
+//! * **Status dot** — [`status_dot`]: a *painted* circle, because the
+//!   `●` glyph only exists in the monospace font (#861).
 
 use bevy_egui::egui;
 
 use crate::ui::theme;
 
-/// THE checkmark. One glyph app-wide — the loading screen used `✔`
-/// while everything else used `✓`.
-pub const CHECK: &str = "✓";
+/// THE checkmark. One glyph app-wide. `✔` (heavy check), NOT `✓`:
+/// U+2713 exists in no font this app ships — not Noto Sans, not any of
+/// egui's embedded faces — so every `✓` ever rendered was tofu (#861).
+/// U+2714 lives in the embedded NotoEmoji/emoji-icon fallbacks.
+pub const CHECK: &str = "✔";
 
-/// A done/valid/saved label: `✓ text` in the theme's ok green.
+/// THE cross/failure glyph, for the same reason: `✗`/`✕` exist in no
+/// shipped font; `✖` (U+2716) renders via the emoji fallbacks.
+pub const CROSS: &str = "✖";
+
+/// A done/valid/saved label: `✔ text` in the theme's ok green.
 pub fn ok_label(ui: &mut egui::Ui, text: impl std::fmt::Display) -> egui::Response {
     let ok = theme::current(ui.ctx()).status.ok;
     ui.colored_label(ok, format!("{CHECK} {text}"))
@@ -58,19 +66,26 @@ pub fn danger_menu_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
     ui.button(egui::RichText::new(label).color(error))
 }
 
-/// The `●`-in-a-status-colour dot that precedes badge/presence rows.
+/// The status-colour dot that precedes badge/presence rows. PAINTED,
+/// not a glyph: `●` (U+25CF) exists only in the embedded monospace
+/// font, so as proportional text every dot in the app was tofu (#861).
 pub fn status_dot(ui: &mut egui::Ui, color: egui::Color32) -> egui::Response {
-    ui.colored_label(color, "●")
+    let size = ui.text_style_height(&egui::TextStyle::Body);
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
+    ui.painter().circle_filled(rect.center(), size * 0.3, color);
+    response
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The retired glyph must not sneak back in: the constant is the
-    /// single source for the app's checkmark.
+    /// The tofu glyphs must not sneak back in: U+2713/U+2717 exist in
+    /// no font this app ships (#861) — the constants are the single
+    /// source, pinned to the emoji-font-backed code points.
     #[test]
-    fn check_glyph_is_the_plain_checkmark() {
-        assert_eq!(CHECK, "\u{2713}");
+    fn glyph_constants_are_the_renderable_variants() {
+        assert_eq!(CHECK, "\u{2714}");
+        assert_eq!(CROSS, "\u{2716}");
     }
 }

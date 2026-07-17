@@ -157,7 +157,11 @@ pub fn toast_ui(mut contexts: EguiContexts, mut toasts: ResMut<Toasts>, time: Re
                             egui::Label::new(egui::RichText::new(&toast.text).small())
                                 .wrap_mode(egui::TextWrapMode::Wrap),
                         );
-                        if ui.small_button("✕").on_hover_text("Dismiss").clicked() {
+                        if ui
+                            .small_button(crate::ui::affordances::CROSS)
+                            .on_hover_text("Dismiss")
+                            .clicked()
+                        {
                             dismissed = Some(toast.id);
                         }
                     });

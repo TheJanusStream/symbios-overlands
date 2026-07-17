@@ -305,7 +305,7 @@ pub fn inventory_ui(
                                 // read as draggable (#832) — it used to be
                                 // a plain label whose drag sense was
                                 // discoverable only by accident.
-                                let label = egui::Label::new(format!("⠿ {name}"))
+                                let label = egui::Label::new(format!("☰ {name}"))
                                     .sense(egui::Sense::click_and_drag());
                                 let resp = ui.add(label).on_hover_cursor(egui::CursorIcon::Grab);
                                 ui.label(

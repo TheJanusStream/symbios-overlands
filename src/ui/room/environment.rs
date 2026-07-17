@@ -156,7 +156,7 @@ pub(super) fn draw_environment_tab(
             ui.label(
                 egui::RichText::new(
                     "Cloud-deck dissolves into the distance-fog colour at the horizon, \
-                     so adjust Distance Fog → Visibility for a tighter or wider band.",
+                     so adjust Distance Fog › Visibility for a tighter or wider band.",
                 )
                 .small()
                 .color(crate::ui::theme::current(ui.ctx()).text_weak),

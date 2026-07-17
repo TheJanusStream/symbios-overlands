@@ -355,7 +355,7 @@ pub fn render_login_feed_panel(ui: &mut egui::Ui, feed: &LoginPostFeed) -> Login
                         ui.add(egui::Label::new(&post.text).wrap());
                         if ui
                             .small_button(
-                                egui::RichText::new("Open on Bluesky →")
+                                egui::RichText::new("Open on Bluesky ↗")
                                     .color(crate::ui::theme::current(ui.ctx()).accent),
                             )
                             .clicked()

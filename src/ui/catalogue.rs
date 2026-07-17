@@ -379,7 +379,9 @@ pub(crate) fn catalogue_ui(
                         .hint_text("name / theme")
                         .desired_width(150.0),
                 );
-                if !browser.search.is_empty() && ui.small_button("✕").clicked() {
+                if !browser.search.is_empty()
+                    && ui.small_button(crate::ui::affordances::CROSS).clicked()
+                {
                     browser.search.clear();
                 }
                 ui.separator();

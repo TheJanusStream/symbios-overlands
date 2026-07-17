@@ -24,14 +24,14 @@ use super::widgets::{drag_u32, drag_u64, draw_transform_no_scale, fp_slider, gen
 fn placement_label(index: usize, placement: &Placement) -> String {
     match placement {
         Placement::Absolute { generator_ref, .. } => {
-            format!("#{index} Absolute → {generator_ref}")
+            format!("#{index} Absolute › {generator_ref}")
         }
         Placement::Scatter {
             generator_ref,
             count,
             ..
         } => {
-            format!("#{index} Scatter × {count} → {generator_ref}")
+            format!("#{index} Scatter × {count} › {generator_ref}")
         }
         Placement::Grid {
             generator_ref,
@@ -39,7 +39,7 @@ fn placement_label(index: usize, placement: &Placement) -> String {
             ..
         } => {
             format!(
-                "#{index} Grid {}x{}x{} → {generator_ref}",
+                "#{index} Grid {}x{}x{} › {generator_ref}",
                 counts[0], counts[1], counts[2]
             )
         }
