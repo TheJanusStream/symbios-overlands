@@ -101,6 +101,20 @@ pub struct AvatarEditorState {
     /// owner's DID seed, editable to re-roll the whole avatar. See
     /// [`crate::ui::editable::seed_row`].
     seed_row_state: crate::ui::editable::SeedRowState,
+    /// Pending Revert/Reset confirmation for the shared save row (#838).
+    row_confirm: crate::ui::confirm::ConfirmState<crate::ui::editable::RecordAction>,
+    /// Pending locomotion-preset-switch confirmation (#838): switching
+    /// presets replaces all tuning, so a tuned config asks first.
+    preset_confirm: crate::ui::confirm::ConfirmState<crate::pds::LocomotionConfig>,
+    /// Pending publish-after-unrecoverable-fetch confirmation (#840):
+    /// while [`crate::state::AvatarRecordRecovery`] is present the
+    /// editor holds the default, and saving would overwrite the real
+    /// stored record — the first publish asks first.
+    publish_guard: crate::ui::confirm::ConfirmState<()>,
+    /// Pending destructive tree-operation confirmations (#838): root
+    /// delete (no-op for the single-root avatar tree, but the kind-change
+    /// half is live) shared with the room editor's Generators machinery.
+    tree_confirms: crate::ui::room::generators::TreeConfirms,
     /// Cached seeded-default record, keyed by the DID it was built for (#637).
     /// `AvatarRecord::default_for_did` runs the full part-composition pipeline,
     /// so build it once per session rather than every frame the editor is open;
@@ -195,13 +209,24 @@ pub fn avatar_ui(
     mut publish_shortcut: ResMut<crate::ui::shortcuts::PublishShortcut>,
     // Grouped into one tuple param so `session_log` fits under Bevy's 16-param
     // `IntoSystem` ceiling (needed to record an avatar re-seed, #627).
-    (audio_monitor, mut audio_requests, time, mut session_log, mut blob_ctx, grammar_diag): (
+    (
+        audio_monitor,
+        mut audio_requests,
+        time,
+        mut session_log,
+        mut blob_ctx,
+        grammar_diag,
+        recovery,
+        mut toasts,
+    ): (
         Res<bevy_symbios_audio::ui::AudioMonitor>,
         MessageWriter<bevy_symbios_audio::ui::MonitorRequest>,
         Res<Time>,
         ResMut<SessionLog>,
         ResMut<crate::editor_gizmo::BlobEditContext>,
         Res<crate::world_builder::grammar_diag::GrammarDiagnostics>,
+        Option<Res<crate::state::AvatarRecordRecovery>>,
+        ResMut<crate::ui::toast::Toasts>,
     ),
 ) {
     // `ResMut::deref_mut` unconditionally flips the change tick, so
@@ -275,10 +300,43 @@ pub fn avatar_ui(
                     renaming_unused,
                     audio_editor,
                     seed_row_state,
+                    row_confirm,
+                    preset_confirm,
+                    publish_guard,
+                    tree_confirms,
                     default_cache,
                     pending_tree_focus,
                     ..
                 } = &mut *editor;
+
+                // Recovery banner (#840) — the stored record could not be
+                // loaded and this editor holds the DID default. Same idiom
+                // as the World editor's banner; the deliberate-overwrite
+                // affordance here is the publish confirm, not a reset
+                // button (publishing IS the reset).
+                if let Some(rec) = recovery.as_deref() {
+                    egui::Frame::new()
+                        .fill(egui::Color32::from_rgb(90, 30, 30))
+                        .inner_margin(6.0)
+                        .corner_radius(4.0)
+                        .show(ui, |ui| {
+                            ui.colored_label(
+                                egui::Color32::WHITE,
+                                "⚠ Your stored avatar could not be loaded — this is the default.",
+                            );
+                            ui.label(
+                                egui::RichText::new(format!("Reason: {}", rec.reason)).small(),
+                            );
+                            ui.label(
+                                egui::RichText::new(
+                                    "Saving will overwrite the stored copy (you'll be asked \
+                                     first). Logging out and back in retries the load.",
+                                )
+                                .small(),
+                            );
+                        });
+                    ui.add_space(4.0);
+                }
 
                 // --- Footer as a real bottom panel (#830) -----------------
                 // Declared BEFORE the tab body (egui's panels-before-content
@@ -329,6 +387,7 @@ pub fn avatar_ui(
                                 seed_row_state,
                                 crate::seeded_defaults::fnv1a_64(&s.did),
                                 time.elapsed_secs_f64(),
+                                "avatar",
                             );
                             if let SeedAction::Reroll(seed) = reroll {
                                 live_mut.0 = AvatarRecord::default_for_seed(seed);
@@ -366,6 +425,7 @@ pub fn avatar_ui(
                         );
                         let ctrl_s =
                             publish_shortcut.take(crate::ui::shortcuts::EditorKind::Avatar);
+                        let mut do_publish = false;
                         match save_load_reset_row(
                             ui,
                             dirty,
@@ -373,20 +433,30 @@ pub fn avatar_ui(
                             can_reset,
                             record_bytes,
                             ctrl_s,
+                            matches!(feedback.status, PublishStatus::Publishing),
+                            row_confirm,
                         ) {
                             RecordAction::None => {}
                             RecordAction::Publish => {
-                                if let (Some(session), Some(refresh)) =
-                                    (session.as_ref(), refresh_ctx.as_ref())
-                                {
-                                    feedback.status = PublishStatus::Publishing;
-                                    spawn_publish_avatar_task(
-                                        &mut commands,
-                                        session,
-                                        refresh,
-                                        live_mut.0.clone(),
-                                        time.elapsed_secs_f64(),
+                                // Clobber protection (#840): after an
+                                // unrecoverable fetch the editor holds the
+                                // default while the real record may still
+                                // sit on the PDS — the first publish asks.
+                                if let Some(rec) = recovery.as_deref() {
+                                    publish_guard.request(
+                                        "Overwrite your stored avatar?",
+                                        format!(
+                                            "Your avatar loaded as the default because \
+                                             the stored copy could not be read ({}). \
+                                             Saving now replaces whatever is stored on \
+                                             your PDS with what you see here.",
+                                            rec.reason
+                                        ),
+                                        "Save anyway",
+                                        (),
                                     );
+                                } else {
+                                    do_publish = true;
                                 }
                             }
                             RecordAction::Load => {
@@ -399,6 +469,28 @@ pub fn avatar_ui(
                                     live_mut.0 = default_record.clone();
                                 }
                             }
+                        }
+                        if publish_guard
+                            .show(ui.ctx(), "avatar-recovery-publish")
+                            .is_some()
+                        {
+                            // Acknowledged: the overwrite is deliberate now,
+                            // so the marker (and its banner) retires.
+                            commands.remove_resource::<crate::state::AvatarRecordRecovery>();
+                            do_publish = true;
+                        }
+                        if do_publish
+                            && let (Some(session), Some(refresh)) =
+                                (session.as_ref(), refresh_ctx.as_ref())
+                        {
+                            feedback.status = PublishStatus::Publishing;
+                            spawn_publish_avatar_task(
+                                &mut commands,
+                                session,
+                                refresh,
+                                live_mut.0.clone(),
+                                time.elapsed_secs_f64(),
+                            );
                         }
 
                         publish_status_line(ui, &feedback.status, time.elapsed_secs_f64());
@@ -428,6 +520,9 @@ pub fn avatar_ui(
                                 &grammar_diag,
                                 &mut widget_changed,
                                 &mut blob_ctx.selected_element,
+                                tree_confirms,
+                                &mut toasts,
+                                time.elapsed_secs_f64(),
                             );
                         });
                     }
@@ -454,6 +549,7 @@ pub fn avatar_ui(
                                     ui,
                                     &mut live_mut.0.locomotion,
                                     &mut widget_changed,
+                                    preset_confirm,
                                 );
                             });
                     }

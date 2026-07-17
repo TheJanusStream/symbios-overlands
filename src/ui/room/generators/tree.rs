@@ -34,6 +34,9 @@ pub(super) fn draw_tree_panel(
     // *unfocused* highlight instead.
     request_focus: bool,
     dirty: &mut bool,
+    confirms: &mut super::TreeConfirms,
+    toasts: &mut crate::ui::toast::Toasts,
+    now: f64,
 ) {
     ui.heading("Generators");
     ui.add_space(2.0);
@@ -218,6 +221,9 @@ pub(super) fn draw_tree_panel(
             renaming_generator,
             inventory,
             dirty,
+            confirms,
+            toasts,
+            now,
         );
     }
 
@@ -392,7 +398,25 @@ fn build_tree_node(
             *pending.borrow_mut() = Some(PendingAction::Rename(menu_root.clone()));
             ui.close();
         }
-        if ui.button("Save to Inventory").clicked() {
+        // Cap-gated (#841): "Save to Inventory" used to insert
+        // unconditionally, blowing past the 50-item cap the gift-accept
+        // path enforces — sanitize then silently deleted the overflow on
+        // the next login. Disabled (with the reason) instead of hidden.
+        let cap = crate::config::state::MAX_INVENTORY_ITEMS;
+        let stash_full = menu_inventory.is_some_and(|inv| inv.0.generators.len() >= cap);
+        if ui
+            .add_enabled(
+                menu_inventory.is_some() && !stash_full,
+                egui::Button::new("Save to Inventory"),
+            )
+            .on_hover_text("Copy this node into your inventory as a reusable blueprint")
+            .on_disabled_hover_text(if stash_full {
+                format!("Inventory full ({cap}/{cap}) — remove an item first")
+            } else {
+                "Inventory not loaded".to_owned()
+            })
+            .clicked()
+        {
             *pending.borrow_mut() = Some(PendingAction::SaveToInventory(menu_id.clone()));
             ui.close();
         }

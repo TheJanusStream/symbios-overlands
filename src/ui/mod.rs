@@ -36,6 +36,8 @@
 //!   geometry + persisted rects ([`layout::WindowChrome`], #833).
 //! * [`shortcuts`]    — global keyboard shortcuts: the Esc back-out
 //!   ladder, Enter-to-chat, and Ctrl+S publish (#836).
+//! * [`confirm`]      — shared destructive-action confirm modal +
+//!   rename dialog ([`confirm::ConfirmState`], #838).
 //! * [`toast`]        — transient top-right notification stack
 //!   ([`toast::Toasts`]); the one channel for "something just happened"
 //!   feedback (#819).
@@ -43,6 +45,7 @@
 pub mod avatar;
 pub mod catalogue;
 pub mod chat;
+pub mod confirm;
 pub mod diagnostics;
 pub mod editable;
 pub mod gateway;

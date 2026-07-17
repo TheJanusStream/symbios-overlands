@@ -23,19 +23,54 @@ pub trait LocomotionPanel {
 /// Render the picker row (one selectable label per preset, switching
 /// preset replaces `*locomotion` with the new variant's default-tuned
 /// instance) followed by the per-preset detail panel.
-pub fn draw_locomotion_tab(ui: &mut egui::Ui, locomotion: &mut LocomotionConfig, dirty: &mut bool) {
+///
+/// #838: switching presets throws away ALL of the current preset's
+/// tuning, so when the live config differs from its own defaults (the
+/// user has actually tuned something) the switch routes through the
+/// shared confirm modal. An untuned config (or one that IS the default)
+/// switches instantly — nothing is lost.
+pub fn draw_locomotion_tab(
+    ui: &mut egui::Ui,
+    locomotion: &mut LocomotionConfig,
+    dirty: &mut bool,
+    confirm: &mut crate::ui::confirm::ConfirmState<LocomotionConfig>,
+) {
     let current_kind = locomotion.kind_tag();
+    // The current variant's default-tuned instance, for the "has the
+    // user tuned anything?" comparison. `None` for `Unknown` (a
+    // newer-schema preset this build can't reconstruct) — treated as
+    // tuned, since switching away discards data we can't even read.
+    let current_default = LocomotionConfig::pickers()
+        .iter()
+        .find(|(kind, _, _)| *kind == current_kind)
+        .map(|(_, _, ctor)| ctor());
+    let has_custom_tuning = current_default.as_ref() != Some(locomotion);
 
     ui.horizontal_wrapped(|ui| {
         ui.label("Preset:");
         for (kind, label, ctor) in LocomotionConfig::pickers() {
             if ui.selectable_label(current_kind == *kind, *label).clicked() && current_kind != *kind
             {
-                *locomotion = ctor();
-                *dirty = true;
+                if has_custom_tuning {
+                    confirm.request(
+                        format!("Switch to the {label} preset?"),
+                        "Switching presets replaces ALL of your current \
+                         locomotion tuning with the new preset's defaults. \
+                         This cannot be undone.",
+                        format!("Switch to {label}"),
+                        ctor(),
+                    );
+                } else {
+                    *locomotion = ctor();
+                    *dirty = true;
+                }
             }
         }
     });
+    if let Some(new_config) = confirm.show(ui.ctx(), "locomotion-preset") {
+        *locomotion = new_config;
+        *dirty = true;
+    }
     ui.separator();
 
     match locomotion {

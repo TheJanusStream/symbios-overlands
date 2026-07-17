@@ -14,7 +14,6 @@ use super::super::lsystem::draw_lsystem_forge;
 use super::super::shape::draw_shape_forge;
 use super::super::terrain::draw_terrain_forge;
 use super::super::widgets::draw_transform;
-use super::GeneratorTreeSource;
 use super::particles::draw_generator_particles;
 use super::primitive::{
     draw_primitive_bevel, draw_primitive_blob_group, draw_primitive_capsule, draw_primitive_cone,
@@ -27,6 +26,7 @@ use super::reparent::{current_id, find_node, find_node_mut};
 use super::sign::draw_generator_sign;
 use super::tree::{node_salt, path_string};
 use super::water::draw_water_editor;
+use super::{GenNodeId, GeneratorTreeSource};
 
 /// Renders only the *content* of the selected node — kind picker,
 /// transform, per-kind detail editor — plus a header that names the node
@@ -45,6 +45,8 @@ pub(super) fn draw_detail_panel(
     dirty: &mut bool,
     // In-scene blob element selection (#705); see `draw_primitive_blob_group`.
     blob_selected_element: &mut Option<usize>,
+    // Pending kind-change confirmation (#838), answered by the caller.
+    kind_confirm: &mut crate::ui::confirm::ConfirmState<(GenNodeId, &'static str)>,
 ) {
     let Some(id) = current_id(selected_generator, selected_prim_path) else {
         ui.vertical_centered(|ui| {
@@ -106,9 +108,19 @@ pub(super) fn draw_detail_panel(
     let salt = node_salt(&id);
 
     if let Some(node) = find_node_mut(source, &id) {
+        let child_count = node.children.len();
         ui.horizontal(|ui| {
             ui.label("Kind:");
-            generator_kind_picker(ui, &mut node.kind, allowed_kinds, &salt, dirty);
+            generator_kind_picker(
+                ui,
+                &mut node.kind,
+                allowed_kinds,
+                &salt,
+                dirty,
+                &id,
+                child_count,
+                kind_confirm,
+            );
         });
 
         ui.add_space(4.0);

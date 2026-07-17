@@ -229,11 +229,24 @@ pub(super) fn apply_humanoid_walk(
             if keyboard.pressed(KeyCode::Space) {
                 desired.y += p.swim_vertical_speed.0;
             }
-            if keyboard.pressed(KeyCode::ShiftLeft)
+            // Ctrl is deliberately NOT a swim-down key on wasm (#839):
+            // W+Ctrl while swimming is the browser's close-tab chord,
+            // preventDefault cannot intercept it, and the session (plus
+            // any unsaved edits) died with the tab. Shift and C cover
+            // swim-down everywhere; native keeps Ctrl for muscle memory.
+            // The Controls sheet rows in `ui::toolbar` mirror this —
+            // change both together (#803).
+            #[allow(unused_mut)]
+            let mut swim_down = keyboard.pressed(KeyCode::ShiftLeft)
                 || keyboard.pressed(KeyCode::ShiftRight)
-                || keyboard.pressed(KeyCode::ControlLeft)
-                || keyboard.pressed(KeyCode::ControlRight)
+                || keyboard.pressed(KeyCode::KeyC);
+            #[cfg(not(target_arch = "wasm32"))]
             {
+                swim_down = swim_down
+                    || keyboard.pressed(KeyCode::ControlLeft)
+                    || keyboard.pressed(KeyCode::ControlRight);
+            }
+            if swim_down {
                 desired.y -= p.swim_vertical_speed.0;
             }
 

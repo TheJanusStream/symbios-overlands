@@ -204,11 +204,21 @@ pub(super) fn poll_portal_travel_tasks(
         // `loading::poll_room_record_task`.
         let elapsed = time.elapsed_secs_f64();
         let mut new_record = match result {
-            // Owner has saved a record — install it.
-            Ok(Some(r)) => r,
+            // Owner has saved a record — install it. A clean install also
+            // clears any recovery banner a previous room raised (#840):
+            // carrying it into this room would offer a "Reset PDS to
+            // default" against a HEALTHY record.
+            Ok(Some(r)) => {
+                commands.remove_resource::<RoomRecordRecovery>();
+                r
+            }
             // 404: the destination owner has never customised their
-            // overland. Synthesising the default is safe.
-            Ok(None) => RoomRecord::default_for_did(&travel_data.target_did),
+            // overland. Synthesising the default is safe — and clean, so
+            // the stale-banner sweep applies here too (#840).
+            Ok(None) => {
+                commands.remove_resource::<RoomRecordRecovery>();
+                RoomRecord::default_for_did(&travel_data.target_did)
+            }
             // Schema-incompatible record on the PDS: not transient, so
             // retrying won't help. Fall through to the default and raise
             // a recovery banner the destination owner can clear by

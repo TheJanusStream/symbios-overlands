@@ -95,6 +95,23 @@ pub(crate) trait GeneratorTreeSource {
     fn allowed_kinds_for_root(&self) -> &'static [&'static str];
     /// Allowed kind tags at child positions inside the tree.
     fn allowed_kinds_for_child(&self) -> &'static [&'static str];
+    /// How many implementation-side references (Placements) a root delete
+    /// would cascade through — the number the delete confirm shows
+    /// (#838). Sources without side-tables (avatar) report zero.
+    fn placement_ref_count(&self, _root: &str) -> usize {
+        0
+    }
+}
+
+/// Pending destructive tree operations awaiting confirmation (#838):
+/// a root delete (cascades through referencing placements) and a kind
+/// change on a node with children or tuned params (discards both).
+/// Embedded in each editor's state and threaded through
+/// [`draw_generators_tab`].
+#[derive(Default)]
+pub(crate) struct TreeConfirms {
+    pub(crate) delete: crate::ui::confirm::ConfirmState<GenNodeId>,
+    pub(crate) kind: crate::ui::confirm::ConfirmState<(GenNodeId, &'static str)>,
 }
 
 /// `GeneratorTreeSource` adapter for the room editor: directly mutates
@@ -143,6 +160,20 @@ impl GeneratorTreeSource for RoomTreeSource<'_> {
     }
     fn allowed_kinds_for_child(&self) -> &'static [&'static str] {
         ROOM_CHILD_KINDS
+    }
+    fn placement_ref_count(&self, root: &str) -> usize {
+        // Mirrors [`sweep_root_refs`]'s match exactly — this count is the
+        // "also removes N placements" the delete confirm promises.
+        self.record
+            .placements
+            .iter()
+            .filter(|p| match p {
+                Placement::Absolute { generator_ref, .. }
+                | Placement::Scatter { generator_ref, .. }
+                | Placement::Grid { generator_ref, .. } => generator_ref == root,
+                Placement::Unknown => false,
+            })
+            .count()
     }
 }
 
@@ -231,6 +262,13 @@ pub(crate) fn draw_generators_tab(
     // In-scene blob element selection (#705), threaded to the BlobGroup
     // detail editor so its rows mirror the scene proxies' gizmo state.
     blob_selected_element: &mut Option<usize>,
+    // Pending destructive-tree confirmations (#838): root delete + kind
+    // change. Requested inside the tree / detail panels, answered here.
+    confirms: &mut TreeConfirms,
+    // Toast channel + session clock for structural-op feedback (#841's
+    // Save-to-Inventory success/full toasts).
+    toasts: &mut crate::ui::toast::Toasts,
+    now: f64,
 ) {
     // Inventory now flows only into the tree panel (for the root-level
     // "+ From Inventory" toolbar, the per-row "+ From Inventory" submenu,
@@ -252,6 +290,9 @@ pub(crate) fn draw_generators_tab(
                 inventory,
                 request_focus,
                 dirty,
+                confirms,
+                toasts,
+                now,
             );
         });
 
@@ -265,8 +306,27 @@ pub(crate) fn draw_generators_tab(
             grammar_diag,
             dirty,
             blob_selected_element,
+            &mut confirms.kind,
         );
     });
+
+    // Answer the confirms parked by the panels above. Rendering them
+    // here — with the tree source still in scope — means the payloads
+    // can re-resolve their nodes at apply time, so a confirm is safe
+    // even if the selection moved while the dialog was up.
+    if let Some(id) = confirms.delete.show(ui.ctx(), "tree-delete") {
+        source.remove_root(&id.root);
+        *selected_generator = None;
+        *selected_prim_path = None;
+        tree_view_state.set_selected(Vec::new());
+        *dirty = true;
+    }
+    if let Some((id, kind_tag)) = confirms.kind.show(ui.ctx(), "tree-kind-change")
+        && let Some(node) = reparent::find_node_mut(source, &id)
+    {
+        node.kind = super::construct::make_default_for_kind(kind_tag);
+        *dirty = true;
+    }
 }
 
 /// Remove every `Placement` whose `generator_ref` matches the deleted root

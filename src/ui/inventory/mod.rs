@@ -51,6 +51,13 @@ use crate::ui::editable::{RecordAction, publish_status_line, save_load_reset_row
 pub struct InventoryEditorState {
     /// Active rename modal: `(original_key, draft_key)`.
     pub renaming_generator: Option<(String, String)>,
+    /// Pending Revert/Reset confirmation for the shared save row (#838).
+    pub row_confirm: crate::ui::confirm::ConfirmState<RecordAction>,
+    /// Pending publish-after-degraded-fetch confirmation (#840): while
+    /// [`crate::state::InventoryRecordRecovery`] is present the stash
+    /// shows the empty default and saving would wipe the stored one —
+    /// the first publish asks first.
+    pub publish_guard: crate::ui::confirm::ConfirmState<()>,
 }
 
 /// Async task for publishing the inventory record to the owner's PDS. Carries
@@ -129,6 +136,7 @@ pub fn inventory_ui(
     mut state: Local<InventoryEditorState>,
     time: Res<Time>,
     mut publish_shortcut: ResMut<crate::ui::shortcuts::PublishShortcut>,
+    recovery: Option<Res<crate::state::InventoryRecordRecovery>>,
 ) {
     let (Some(live), Some(stored), Some(session), Some(refresh_ctx)) =
         (live.as_mut(), stored, session, refresh_ctx)
@@ -150,37 +158,30 @@ pub fn inventory_ui(
 
     let ctx = contexts.ctx_mut().unwrap();
 
-    // Rename modal — independent top-level egui Window so it floats above
-    // the Inventory window. Same shape as the world editor's rename flow.
+    // Rename dialog — the shared modal (#838): keeps itself open on an
+    // empty/taken name with the reason inline, Enter applies, Esc cancels.
     if let Some((old_name, mut new_name)) = state.renaming_generator.clone() {
-        let mut close = false;
-        let mut apply = false;
-        egui::Window::new("Rename Inventory Item")
-            .collapsible(false)
-            .show(ctx, |ui| {
-                ui.text_edit_singleline(&mut new_name).request_focus();
-                ui.horizontal(|ui| {
-                    if ui.button("Apply").clicked() {
-                        apply = true;
-                        close = true;
-                    }
-                    if ui.button("Cancel").clicked() {
-                        close = true;
-                    }
-                });
-            });
-
-        if apply
-            && !new_name.is_empty()
-            && !live.0.generators.contains_key(&new_name)
-            && let Some(g) = live.0.generators.remove(&old_name)
-        {
-            live.0.generators.insert(new_name.clone(), g);
-        }
-        if close {
-            state.renaming_generator = None;
-        } else {
-            state.renaming_generator = Some((old_name, new_name));
+        match crate::ui::confirm::rename_dialog(
+            ctx,
+            "Rename Inventory Item",
+            &old_name,
+            &mut new_name,
+            |draft| live.0.generators.contains_key(draft),
+        ) {
+            crate::ui::confirm::RenameOutcome::Open => {
+                state.renaming_generator = Some((old_name, new_name));
+            }
+            crate::ui::confirm::RenameOutcome::Cancelled => {
+                state.renaming_generator = None;
+            }
+            crate::ui::confirm::RenameOutcome::Renamed(applied) => {
+                if applied != old_name
+                    && let Some(g) = live.0.generators.remove(&old_name)
+                {
+                    live.0.generators.insert(applied, g);
+                }
+                state.renaming_generator = None;
+            }
         }
     }
 
@@ -193,11 +194,52 @@ pub fn inventory_ui(
         .resizable(true)
         .collapsible(true)
         .show(ctx, |ui| {
-            ui.label(format!(
-                "Stored Generators: {}/{}",
-                live.0.generators.len(),
-                crate::config::state::MAX_INVENTORY_ITEMS
-            ));
+            // Degraded-session banner (#840): the fetch fell back to an
+            // empty default, so this stash is NOT what's on the PDS.
+            if let Some(rec) = recovery.as_deref() {
+                egui::Frame::new()
+                    .fill(egui::Color32::from_rgb(90, 30, 30))
+                    .inner_margin(6.0)
+                    .corner_radius(4.0)
+                    .show(ui, |ui| {
+                        ui.colored_label(
+                            egui::Color32::WHITE,
+                            "⚠ Your stash could not be loaded — this shows an empty default.",
+                        );
+                        ui.label(egui::RichText::new(format!("Reason: {}", rec.reason)).small());
+                        ui.label(
+                            egui::RichText::new(
+                                "Saving would overwrite the stored stash (you'll be asked \
+                                 first). Logging out and back in retries the load.",
+                            )
+                            .small(),
+                        );
+                    });
+                ui.add_space(4.0);
+            }
+            // Over-cap surfacing (#841): a legacy stash past the cap used
+            // to be silently truncated by sanitize on the next login —
+            // now it loads intact, reads red here, and blocks publishing
+            // until the user decides what to prune.
+            let cap = crate::config::state::MAX_INVENTORY_ITEMS;
+            let count = live.0.generators.len();
+            let over_cap = count > cap;
+            if over_cap {
+                ui.colored_label(
+                    egui::Color32::from_rgb(220, 90, 90),
+                    format!(
+                        "Stored Generators: {count}/{cap} — over the {cap}-item cap; \
+                         remove {} to enable saving",
+                        if count - cap == 1 {
+                            "1 item".to_owned()
+                        } else {
+                            format!("{} items", count - cap)
+                        }
+                    ),
+                );
+            } else {
+                ui.label(format!("Stored Generators: {count}/{cap}"));
+            }
             ui.separator();
 
             // Reserve room below the list for the separator + Publish row +
@@ -215,7 +257,9 @@ pub fn inventory_ui(
                 .show(ui, |ui| {
                     let mut to_remove: Option<String> = None;
                     let mut names: Vec<String> = live.0.generators.keys().cloned().collect();
-                    names.sort();
+                    // Case-insensitive (#841): plain `sort()` put "Zebra"
+                    // before "apple".
+                    names.sort_by_key(|name| name.to_lowercase());
 
                     for name in names {
                         ui.horizontal(|ui| {
@@ -229,6 +273,14 @@ pub fn inventory_ui(
                                 .get(&name)
                                 .map(is_drop_placeable)
                                 .unwrap_or(false);
+                            // What KIND of blueprint each row is (#841) —
+                            // names alone ("cuboid_2", "my_tree") didn't say.
+                            let kind_tag = live
+                                .0
+                                .generators
+                                .get(&name)
+                                .map(|g| g.kind_tag())
+                                .unwrap_or("?");
                             if is_placeable {
                                 // The ⠿ handle + grab cursor make the row
                                 // read as draggable (#832) — it used to be
@@ -237,6 +289,11 @@ pub fn inventory_ui(
                                 let label = egui::Label::new(format!("⠿ {name}"))
                                     .sense(egui::Sense::click_and_drag());
                                 let resp = ui.add(label).on_hover_cursor(egui::CursorIcon::Grab);
+                                ui.label(
+                                    egui::RichText::new(format!("({kind_tag})"))
+                                        .small()
+                                        .color(egui::Color32::GRAY),
+                                );
                                 if resp.drag_started() {
                                     pending_drop.generator_name = Some(name.clone());
                                     pending_drop.source = DropSource::Inventory;
@@ -277,7 +334,7 @@ pub fn inventory_ui(
                                 // already explains the same distinction).
                                 ui.label(&name);
                                 ui.label(
-                                    egui::RichText::new("(room-scoped)")
+                                    egui::RichText::new(format!("({kind_tag} — room-scoped)"))
                                         .small()
                                         .color(egui::Color32::GRAY),
                                 );
@@ -318,6 +375,9 @@ pub fn inventory_ui(
             let dirty = records_differ(&live.0, &stored.0);
             let default_record = InventoryRecord::default();
             let can_reset = records_differ(&live.0, &default_record);
+            // Publishing is blocked while over the cap (#841) — the red
+            // header line explains; mirrors the hard-ceiling size block.
+            let within_cap = live.0.generators.len() <= crate::config::state::MAX_INVENTORY_ITEMS;
             // `session` + `refresh_ctx` are guaranteed present (the early
             // return above bails otherwise), so a publish is always
             // attemptable while dirty.
@@ -336,18 +396,38 @@ pub fn inventory_ui(
             }
             let record_bytes = feedback.live_bytes;
             let ctrl_s = publish_shortcut.take(crate::ui::shortcuts::EditorKind::Inventory);
-            match save_load_reset_row(ui, dirty, true, can_reset, record_bytes, ctrl_s) {
+            let mut do_publish = false;
+            match save_load_reset_row(
+                ui,
+                dirty,
+                within_cap,
+                can_reset,
+                record_bytes,
+                ctrl_s,
+                matches!(feedback.status, PublishStatus::Publishing),
+                &mut state.row_confirm,
+            ) {
                 RecordAction::None => {}
                 RecordAction::Publish => {
-                    feedback.status = PublishStatus::Publishing;
-                    spawn_publish_inventory_task(
-                        &mut commands,
-                        &session,
-                        &refresh_ctx,
-                        live.0.clone(),
-                        stored.0.clone(),
-                        time.elapsed_secs_f64(),
-                    );
+                    // Clobber protection (#840): while the session is
+                    // degraded, saving this (empty-default) stash would
+                    // wipe whatever is actually stored — ask first.
+                    if let Some(rec) = recovery.as_deref() {
+                        state.publish_guard.request(
+                            "Overwrite your stored stash?",
+                            format!(
+                                "Your inventory loaded as an empty default because \
+                                 the stored copy could not be fetched ({}). Saving \
+                                 now replaces whatever is stored on your PDS with \
+                                 what you see here.",
+                                rec.reason
+                            ),
+                            "Save anyway",
+                            (),
+                        );
+                    } else {
+                        do_publish = true;
+                    }
                 }
                 RecordAction::Load => {
                     live.0 = stored.0.clone();
@@ -355,6 +435,25 @@ pub fn inventory_ui(
                 RecordAction::Reset => {
                     live.0 = default_record;
                 }
+            }
+            if state
+                .publish_guard
+                .show(ui.ctx(), "inventory-recovery-publish")
+                .is_some()
+            {
+                commands.remove_resource::<crate::state::InventoryRecordRecovery>();
+                do_publish = true;
+            }
+            if do_publish {
+                feedback.status = PublishStatus::Publishing;
+                spawn_publish_inventory_task(
+                    &mut commands,
+                    &session,
+                    &refresh_ctx,
+                    live.0.clone(),
+                    stored.0.clone(),
+                    time.elapsed_secs_f64(),
+                );
             }
 
             publish_status_line(ui, &feedback.status, time.elapsed_secs_f64());

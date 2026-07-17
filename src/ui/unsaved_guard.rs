@@ -67,6 +67,10 @@ pub enum GuardedAction {
     /// Transition back to `AppState::Login`; `logout::cleanup_on_logout`
     /// does the actual teardown on the state edge.
     Logout,
+    /// Close the app (native window-close intercept, #839): the window's
+    /// close button routes through this guard instead of killing the
+    /// process with unsaved edits aboard. Confirming exits via `AppExit`.
+    Quit,
 }
 
 /// Dialog lifecycle. `Publishing` renders a spinner and waits for every
@@ -117,7 +121,9 @@ impl DirtyRecords {
     pub(crate) fn blocks(&self, action: &GuardedAction) -> bool {
         match action {
             GuardedAction::PortalTravel { .. } => self.room,
-            GuardedAction::Logout => self.room || self.avatar || self.inventory,
+            GuardedAction::Logout | GuardedAction::Quit => {
+                self.room || self.avatar || self.inventory
+            }
         }
     }
 }
@@ -172,7 +178,7 @@ impl GuardFeedbacks<'_> {
     /// about, for the dialog's error line.
     fn failure_message(&self, action: &GuardedAction) -> Option<String> {
         let mut sources: Vec<(&str, &PublishStatus)> = vec![("World", &self.room.status)];
-        if matches!(action, GuardedAction::Logout) {
+        if matches!(action, GuardedAction::Logout | GuardedAction::Quit) {
             sources.push(("Avatar", &self.avatar.status));
             sources.push(("Inventory", &self.inventory.status));
         }
@@ -270,6 +276,7 @@ pub fn unsaved_guard_ui(
     let (continue_publish, continue_discard, stay) = match guard.action {
         GuardedAction::PortalTravel { .. } => ("Publish & travel", "Discard & travel", "Stay here"),
         GuardedAction::Logout => ("Publish & log out", "Discard & log out", "Cancel"),
+        GuardedAction::Quit => ("Publish & quit", "Discard & quit", "Cancel"),
     };
 
     egui::Modal::new(egui::Id::new("unsaved-guard")).show(ctx, |ui| {
@@ -280,7 +287,7 @@ pub fn unsaved_guard_ui(
         if dirty.room {
             names.push("World");
         }
-        if matches!(guard.action, GuardedAction::Logout) {
+        if matches!(guard.action, GuardedAction::Logout | GuardedAction::Quit) {
             if dirty.avatar {
                 names.push("Avatar");
             }
@@ -295,6 +302,7 @@ pub fn unsaved_guard_ui(
         ui.label(match guard.action {
             GuardedAction::PortalTravel { .. } => "Traveling through the portal will discard them.",
             GuardedAction::Logout => "Logging out will discard them.",
+            GuardedAction::Quit => "Quitting will discard them.",
         });
 
         if let Some(error) = &guard.error {
@@ -312,9 +320,11 @@ pub fn unsaved_guard_ui(
                 ui.label("Publishing…");
             });
             ui.add_space(4.0);
-            if ui.button(stay).clicked() {
-                // Backing out doesn't cancel the in-flight tasks — the
-                // editors' poll systems land them as a normal publish.
+            // "Continue in background" (#838), not "Stay here": backing
+            // out doesn't cancel the in-flight tasks — the editors' poll
+            // systems land them as a normal publish — so the honest label
+            // says the save keeps going.
+            if ui.button("Continue in background").clicked() {
                 close(&guard.action, &mut commands, &time);
             }
             return;
@@ -348,7 +358,7 @@ pub fn unsaved_guard_ui(
                         time.elapsed_secs_f64(),
                     );
                 }
-                if matches!(guard.action, GuardedAction::Logout) {
+                if matches!(guard.action, GuardedAction::Logout | GuardedAction::Quit) {
                     if dirty.avatar
                         && let Some(live) = records.live_avatar.as_deref()
                     {
@@ -381,15 +391,24 @@ pub fn unsaved_guard_ui(
                 }
                 guard.phase = GuardPhase::Publishing;
             }
-            if ui.button(continue_discard).clicked() {
-                // No revert needed: portal travel overwrites the live
-                // room record with the destination's, and logout removes
-                // every record resource outright.
-                proceed(&guard.action, &mut commands, &mut next_state);
-            }
             if ui.button(stay).clicked() {
                 close(&guard.action, &mut commands, &time);
             }
+            // Discard is the data-loss option (#838): danger-styled and
+            // pushed to the far edge so it is never adjacent to the two
+            // safe choices — the old row rendered three identical
+            // buttons side by side.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add(crate::ui::confirm::danger_button(continue_discard))
+                    .clicked()
+                {
+                    // No revert needed: portal travel overwrites the live
+                    // room record with the destination's, and logout
+                    // removes every record resource outright.
+                    proceed(&guard.action, &mut commands, &mut next_state);
+                }
+            });
         });
     });
 }
@@ -406,6 +425,11 @@ fn proceed(action: &GuardedAction, commands: &mut Commands, next_state: &mut Nex
         GuardedAction::Logout => {
             next_state.set(AppState::Login);
         }
+        GuardedAction::Quit => {
+            // `close_when_requested` is disabled so the [x] could route
+            // here — exiting is now on us.
+            commands.write_message(bevy::app::AppExit::Success);
+        }
     }
     commands.remove_resource::<UnsavedGuard>();
 }
@@ -420,6 +444,120 @@ fn close(action: &GuardedAction, commands: &mut Commands, time: &Time) {
         });
     }
     commands.remove_resource::<UnsavedGuard>();
+}
+
+// ---------------------------------------------------------------------
+// Exit guards (#839): the guard used to cover only portals, gateways and
+// logout — closing the native window or the browser tab bypassed it
+// entirely and took the unsaved edits down with the process.
+// ---------------------------------------------------------------------
+
+/// Native: intercept the window's close button. The `WindowPlugin` is built with
+/// `close_when_requested: false`, so nothing closes until this system
+/// decides: clean records exit immediately; dirty ones raise the same
+/// guard dialog portals and logout use, as [`GuardedAction::Quit`].
+/// Runs in every `AppState` — outside `InGame` the record resources are
+/// absent, the dirty set is empty, and the close is unprompted.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn intercept_window_close(
+    mut close_requested: MessageReader<bevy::window::WindowCloseRequested>,
+    records: GuardRecords,
+    session: Option<Res<AtprotoSession>>,
+    current_room: Option<Res<CurrentRoomDid>>,
+    guard: Option<Res<UnsavedGuard>>,
+    mut commands: Commands,
+    mut exit: MessageWriter<bevy::app::AppExit>,
+) {
+    if close_requested.is_empty() {
+        return;
+    }
+    close_requested.clear();
+    // A guard dialog is already up (possibly mid-publish) — a second [x]
+    // must not bypass it.
+    if guard.is_some() {
+        return;
+    }
+    let owns_room = matches!(
+        (session.as_deref(), current_room.as_deref()),
+        (Some(s), Some(r)) if s.did == r.0
+    );
+    if records.compute(owns_room).blocks(&GuardedAction::Quit) {
+        commands.insert_resource(UnsavedGuard::new(GuardedAction::Quit));
+    } else {
+        exit.write(bevy::app::AppExit::Success);
+    }
+}
+
+/// wasm: the live "would closing this tab lose work?" bit for the
+/// `beforeunload` listener. A JS event handler can't query the ECS, so
+/// [`sync_beforeunload_dirty`] mirrors the dirty state here and the
+/// listener just reads it.
+#[cfg(target_arch = "wasm32")]
+static BEFOREUNLOAD_DIRTY: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// How often the wasm dirty mirror recomputes. The diff serializes all
+/// three records, so it is throttled rather than per-frame; a one-second
+/// stale window on a browser-close prompt is imperceptible.
+#[cfg(target_arch = "wasm32")]
+const BEFOREUNLOAD_SYNC_INTERVAL_SECS: f64 = 1.0;
+
+/// wasm: throttled mirror of the guard's derived dirty set into
+/// [`BEFOREUNLOAD_DIRTY`]. Runs in every `AppState`; with the record
+/// resources absent (login screen) the flag settles to `false` and the
+/// tab closes unprompted.
+#[cfg(target_arch = "wasm32")]
+pub fn sync_beforeunload_dirty(
+    records: GuardRecords,
+    session: Option<Res<AtprotoSession>>,
+    current_room: Option<Res<CurrentRoomDid>>,
+    time: Res<Time>,
+    mut next_check: Local<f64>,
+) {
+    let now = time.elapsed_secs_f64();
+    if now < *next_check {
+        return;
+    }
+    *next_check = now + BEFOREUNLOAD_SYNC_INTERVAL_SECS;
+    let owns_room = matches!(
+        (session.as_deref(), current_room.as_deref()),
+        (Some(s), Some(r)) if s.did == r.0
+    );
+    let dirty = records.compute(owns_room).blocks(&GuardedAction::Quit);
+    BEFOREUNLOAD_DIRTY.store(dirty, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// wasm: install the `beforeunload` listener once at startup. While the
+/// mirrored dirty flag is set, closing/reloading the tab raises the
+/// browser's own leave-site confirm; while clean it does nothing at all
+/// (no `preventDefault`, no return value — an unconditional handler
+/// would nag on every navigation). Leaked via `Closure::forget`: it must
+/// live for the whole page lifetime anyway.
+#[cfg(target_arch = "wasm32")]
+pub fn install_beforeunload_guard() {
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen::closure::Closure;
+
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let closure = Closure::<dyn FnMut(web_sys::BeforeUnloadEvent)>::new(
+        move |event: web_sys::BeforeUnloadEvent| {
+            if BEFOREUNLOAD_DIRTY.load(std::sync::atomic::Ordering::Relaxed) {
+                // Modern browsers ignore the string and show their own
+                // wording; preventDefault + a non-empty return value is
+                // the cross-browser way to request the prompt.
+                event.prevent_default();
+                event.set_return_value("You have unsaved edits.");
+            }
+        },
+    );
+    if let Err(e) =
+        window.add_event_listener_with_callback("beforeunload", closure.as_ref().unchecked_ref())
+    {
+        warn!("failed to install beforeunload guard: {e:?}");
+    }
+    closure.forget();
 }
 
 #[cfg(test)]

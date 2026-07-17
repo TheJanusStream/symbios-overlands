@@ -139,6 +139,10 @@ pub fn run() {
                         prevent_default_event_handling: false,
                         ..default()
                     }),
+                    // The [x] must not kill the process with unsaved edits
+                    // aboard (#839): `intercept_window_close` routes it
+                    // through the unsaved guard and exits via `AppExit`.
+                    close_when_requested: false,
                     ..default()
                 })
                 // `webrtc_ice::agent::agent_internal` emits a `WARN` every
@@ -173,6 +177,15 @@ pub fn run() {
     // stays false (F5 / Ctrl+R must keep working).
     #[cfg(target_arch = "wasm32")]
     app.add_systems(Startup, ui::shortcuts::install_ctrl_s_blocker);
+    // Exit guards (#839): closing the tab / native window used to bypass
+    // the unsaved-edits guard entirely. Both run in every AppState —
+    // without record resources the dirty set is empty and closing is
+    // unprompted.
+    #[cfg(target_arch = "wasm32")]
+    app.add_systems(Startup, ui::unsaved_guard::install_beforeunload_guard)
+        .add_systems(Update, ui::unsaved_guard::sync_beforeunload_dirty);
+    #[cfg(not(target_arch = "wasm32"))]
+    app.add_systems(Update, ui::unsaved_guard::intercept_window_close);
     app.add_plugins(PhysicsPlugins::default())
         // BootParams must be resident before DiagnosticsPlugin::build reads it
         // for the boot StartupSnapshot, so insert it here and add the plugin
@@ -215,6 +228,7 @@ pub fn run() {
         .init_resource::<ui::toolbar::UiPanels>()
         .init_resource::<ui::layout::WindowLayout>()
         .init_resource::<ui::layout::LiveWindowRects>()
+        .init_resource::<loading::fetch::RecordFetchOutcomes>()
         .init_resource::<ui::diagnostics::DiagTab>()
         .init_resource::<ui::shortcuts::PublishShortcut>()
         .init_resource::<ui::chat::ChatFocusRequest>()
@@ -281,12 +295,16 @@ pub fn run() {
             (
                 diagnostics::plugin::record_session_snapshot,
                 loading::reset_ambient_bake_state,
+                loading::reset_fetch_outcomes,
                 loading::start_room_record_fetch,
                 loading::start_avatar_record_fetch,
                 loading::start_inventory_record_fetch,
             ),
         )
-        .add_systems(OnEnter(AppState::InGame), loading::arm_ambient_settle)
+        .add_systems(
+            OnEnter(AppState::InGame),
+            (loading::arm_ambient_settle, loading::toast_fetch_fallbacks),
+        )
         .add_systems(
             Update,
             (

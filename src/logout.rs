@@ -151,9 +151,12 @@ fn cleanup_on_logout(
     commands.remove_resource::<StoredAvatarRecord>();
     commands.remove_resource::<LiveInventoryRecord>();
     commands.remove_resource::<StoredInventoryRecord>();
-    // Clear any recovery marker from this session so a fresh login does
-    // not start with the "incompatible record" banner still showing.
+    // Clear any recovery markers from this session so a fresh login does
+    // not start with the "incompatible record" banners still showing
+    // (avatar/inventory markers added in #840).
     commands.remove_resource::<RoomRecordRecovery>();
+    commands.remove_resource::<crate::state::AvatarRecordRecovery>();
+    commands.remove_resource::<crate::state::InventoryRecordRecovery>();
     // Defensive: the unsaved-edits guard removes itself when it proceeds,
     // but if anything else ever drives the InGame→Login edge while a
     // dialog is open, a stale guard must not greet the next login.

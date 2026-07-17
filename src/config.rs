@@ -831,6 +831,18 @@ pub mod state {
     /// cannot gift you over the cap.
     pub const MAX_INVENTORY_ITEMS: usize = 50;
 
+    /// Hard DoS bound `InventoryRecord::sanitize` truncates at — NOT the
+    /// gameplay cap above (#841). Sanitize used to truncate straight to
+    /// [`MAX_INVENTORY_ITEMS`] in lexicographic key order, silently
+    /// deleting items the user had watched get saved (the alphabet chose
+    /// which). An over-cap legacy stash now survives the load — the
+    /// Inventory window shows it red and blocks publishing until it's
+    /// pruned — while a hostile PDS still can't force an unbounded
+    /// allocation. Matches the [`MAX_INVENTORY_LIST_PAGES`] fetch ceiling
+    /// (2 pages × 100 records), so nothing the fetch can return is ever
+    /// truncated.
+    pub const MAX_INVENTORY_SANITIZE_ITEMS: usize = 200;
+
     /// Maximum `com.atproto.repo.listRecords` pages (100 records each) the
     /// inventory-item fetch walks before stopping (#696). Two pages scan
     /// four times the [`MAX_INVENTORY_ITEMS`] cap — ample for any legitimate

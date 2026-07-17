@@ -19,9 +19,12 @@ use bevy_egui::{EguiContexts, egui};
 
 use crate::diagnostics::anomaly::LoadingClock;
 use crate::diagnostics::anomaly::rules::GATE_STALL_SECS;
+use crate::diagnostics::event::FetchStatus;
 use crate::loading::AmbientHandle;
-use crate::loading::fetch::{LoadedRecord, PendingRecordRetry};
-use crate::pds::{AvatarRecord, RoomRecord};
+use crate::loading::fetch::{
+    LoadedRecord, PendingRecordRetry, RecordFetchOutcomes, is_failure_fallback,
+};
+use crate::pds::{AvatarRecord, InventoryRecord, RoomRecord};
 use crate::state::{LiveAvatarRecord, LiveInventoryRecord, LiveRoomRecord};
 use crate::terrain::FinishedHeightMap;
 
@@ -49,6 +52,11 @@ fn gate_elapsed_style(elapsed: f64) -> (egui::Color32, &'static str) {
 enum RowStatus {
     /// The gate resource is present.
     Done,
+    /// The gate resource is present, but only because the fetch fell
+    /// back to the default after a FAILURE (decode error / exhausted
+    /// retries) — rendered amber, not as a green success (#840). A 404
+    /// default (fresh account) still counts as [`RowStatus::Done`].
+    Fallback,
     /// Work is in flight (fetching / generating / baking).
     Active,
     /// A transient fetch failure is waiting out its backoff window.
@@ -59,17 +67,23 @@ enum RowStatus {
     },
 }
 
-/// Derive a record row's status from its gate resource and retry
-/// markers. The fetch task itself doesn't need probing: while neither
-/// the resource nor a retry marker exists the fetch is in flight (the
-/// start systems dispatch on the first Loading frame).
+/// Derive a record row's status from its gate resource, its terminal
+/// fetch outcome and retry markers. The fetch task itself doesn't need
+/// probing: while neither the resource nor a retry marker exists the
+/// fetch is in flight (the start systems dispatch on the first Loading
+/// frame).
 fn record_row<R: LoadedRecord>(
     resource_present: bool,
+    outcome: Option<FetchStatus>,
     retries: &Query<&PendingRecordRetry<R>>,
     now: f64,
 ) -> RowStatus {
     if resource_present {
-        return RowStatus::Done;
+        return if outcome.is_some_and(is_failure_fallback) {
+            RowStatus::Fallback
+        } else {
+            RowStatus::Done
+        };
     }
     if let Some(marker) = retries.iter().next() {
         return RowStatus::Retrying {
@@ -88,6 +102,12 @@ fn draw_row(ui: &mut egui::Ui, label: &str, status: RowStatus) {
             RowStatus::Done => {
                 ui.colored_label(egui::Color32::LIGHT_GREEN, "✔");
                 ui.label(label);
+            }
+            RowStatus::Fallback => {
+                let amber = egui::Color32::from_rgb(210, 170, 90);
+                ui.colored_label(amber, "⚠");
+                ui.label(label);
+                ui.colored_label(amber, "— using default (stored copy unavailable)");
             }
             RowStatus::Active => {
                 ui.spinner();
@@ -126,6 +146,8 @@ pub fn loading_ui(
     world_compiled: Option<Res<crate::world_builder::WorldCompiled>>,
     room_retries: Query<&PendingRecordRetry<RoomRecord>>,
     avatar_retries: Query<&PendingRecordRetry<AvatarRecord>>,
+    inventory_retries: Query<&PendingRecordRetry<InventoryRecord>>,
+    outcomes: Res<RecordFetchOutcomes>,
     time: Res<Time>,
     loading_clock: Res<LoadingClock>,
 ) {
@@ -139,15 +161,16 @@ pub fn loading_ui(
     } else {
         RowStatus::Active
     };
-    let room_status = record_row::<RoomRecord>(live_room.is_some(), &room_retries, now);
-    let avatar_status = record_row::<AvatarRecord>(live_avatar.is_some(), &avatar_retries, now);
-    // Inventory never retries (best-effort fetch), so its row is a
-    // plain present/absent check — no retry query needed.
-    let inventory_status = if live_inventory.is_some() {
-        RowStatus::Done
-    } else {
-        RowStatus::Active
-    };
+    let room_status =
+        record_row::<RoomRecord>(live_room.is_some(), outcomes.room, &room_retries, now);
+    let avatar_status =
+        record_row::<AvatarRecord>(live_avatar.is_some(), outcomes.avatar, &avatar_retries, now);
+    let inventory_status = record_row::<InventoryRecord>(
+        live_inventory.is_some(),
+        outcomes.inventory,
+        &inventory_retries,
+        now,
+    );
     // The ambient bake only dispatches once the room record lands, so
     // until then the row is genuinely waiting on the room row above —
     // shown as active anyway: from the user's perspective the

@@ -66,6 +66,7 @@ pub enum RecordAction {
 /// [`HARD_RECORD_CEILING_BYTES`] hard ceiling — and past the ceiling the
 /// Publish button is disabled outright, mirroring the pre-flight guard
 /// in `crate::pds::record_size::preflight` (#694).
+#[allow(clippy::too_many_arguments)]
 pub fn save_load_reset_row(
     ui: &mut egui::Ui,
     dirty: bool,
@@ -73,17 +74,29 @@ pub fn save_load_reset_row(
     can_reset: bool,
     record_bytes: Option<usize>,
     publish_shortcut: bool,
+    publishing: bool,
+    confirm: &mut crate::ui::confirm::ConfirmState<RecordAction>,
 ) -> RecordAction {
     let size_class = record_bytes.map(record_size::classify);
     let over_hard = size_class == Some(SizeClass::OverHardCeiling);
     let mut action = RecordAction::None;
     ui.horizontal(|ui| {
-        let publish = egui::Button::new(egui::RichText::new("Save to PDS").color(if dirty {
-            egui::Color32::LIGHT_GREEN
+        // While a publish is in flight the button reads "Saving…" and is
+        // disabled — a second click used to race a second task against
+        // the first (#838).
+        let publish_label = if publishing {
+            "Saving…"
         } else {
-            egui::Color32::GRAY
-        }));
-        let enabled = dirty && can_publish && !over_hard;
+            "Save to PDS"
+        };
+        let publish = egui::Button::new(egui::RichText::new(publish_label).color(
+            if dirty && !publishing {
+                egui::Color32::LIGHT_GREEN
+            } else {
+                egui::Color32::GRAY
+            },
+        ));
+        let enabled = dirty && can_publish && !over_hard && !publishing;
         if ui
             .add_enabled(enabled, publish)
             .on_hover_text("Save your edits to your PDS (Ctrl+S)")
@@ -96,6 +109,9 @@ pub fn save_load_reset_row(
         if publish_shortcut && enabled {
             action = RecordAction::Publish;
         }
+        // Revert / Reset are un-undoable bulk replacements — both route
+        // through the shared confirm modal instead of firing on the
+        // click itself (#838).
         if ui
             .add_enabled(dirty, egui::Button::new("Revert to saved"))
             .on_hover_text(
@@ -104,13 +120,26 @@ pub fn save_load_reset_row(
             )
             .clicked()
         {
-            action = RecordAction::Load;
+            confirm.request(
+                "Revert to saved?",
+                "Discards every unsaved edit and restores the last state saved \
+                 to your PDS this session. This cannot be undone.",
+                "Discard edits",
+                RecordAction::Load,
+            );
         }
         if ui
             .add_enabled(can_reset, egui::Button::new("Reset to default"))
             .clicked()
         {
-            action = RecordAction::Reset;
+            confirm.request(
+                "Reset to default?",
+                "Replaces the whole record with its generated default. Unsaved \
+                 edits are lost immediately; the copy on your PDS is untouched \
+                 until you save.",
+                "Reset",
+                RecordAction::Reset,
+            );
         }
         if let (Some(bytes), Some(class)) = (record_bytes, size_class) {
             let (text, color) = match class {
@@ -136,6 +165,11 @@ pub fn save_load_reset_row(
                 ));
         }
     });
+    // A confirmed Revert/Reset surfaces as this frame's action, exactly
+    // as if the (now-guarded) button had fired directly.
+    if let Some(confirmed) = confirm.show(ui.ctx(), "save-row") {
+        action = confirmed;
+    }
     action
 }
 
@@ -244,6 +278,9 @@ pub struct SeedRowState {
     /// after logging in as a different user — so the field never shows a
     /// stale owner's seed.
     synced_for: Option<u64>,
+    /// Pending re-roll confirmation (#838): a re-roll replaces the whole
+    /// record one row above Save, so it never fires on the click itself.
+    confirm: crate::ui::confirm::ConfirmState<u64>,
 }
 
 /// Render the "Random seed" re-roll row shared by the World and Avatar
@@ -251,17 +288,19 @@ pub struct SeedRowState {
 ///
 /// The field shows `did_seed` — the master seed the DID-derived defaults
 /// are built from — by default. The owner can type any `u64`, roll a
-/// fresh one (🎲), or restore the DID seed (↺), then click **Apply** to
-/// re-roll the whole record from that seed. This is exactly the existing
-/// "Reset to default" with an owner-chosen seed instead of
+/// fresh one (🎲), or restore the DID seed (↺), then click the re-roll
+/// button ("Re-roll {subject}", #838 — the old "Apply" label undersold
+/// that it replaces the ENTIRE record) and confirm. This is exactly the
+/// existing "Reset to default" with an owner-chosen seed instead of
 /// `fnv1a_64(did)`. `now_secs` seeds the dice without a system clock
-/// (wasm has none). Returns [`SeedAction::Reroll`] only on Apply with a
-/// parseable seed.
+/// (wasm has none). Returns [`SeedAction::Reroll`] only after the
+/// confirm dialog's danger button.
 pub fn seed_row(
     ui: &mut egui::Ui,
     state: &mut SeedRowState,
     did_seed: u64,
     now_secs: f64,
+    subject: &str,
 ) -> SeedAction {
     // (Re)initialise the buffer to the DID seed on first use and whenever
     // the active DID's seed changes.
@@ -293,11 +332,26 @@ pub fn seed_row(
             state.buf = dice_seed(now_secs, did_seed).to_string();
         }
         let apply_clicked = ui
-            .add_enabled(parsed.is_ok(), egui::Button::new("Apply"))
-            .on_hover_text("Re-roll the whole record from this seed")
+            .add_enabled(
+                parsed.is_ok(),
+                egui::Button::new(format!("Re-roll {subject}")),
+            )
+            .on_hover_text(format!(
+                "Replace the whole {subject} with a fresh roll from this seed"
+            ))
             .clicked();
         if let (true, Ok(seed)) = (apply_clicked, parsed) {
-            action = SeedAction::Reroll(seed);
+            state.confirm.request(
+                format!("Re-roll the {subject}?"),
+                format!(
+                    "Replaces the entire {subject} with a fresh roll from seed \
+                     {seed}. Everything you have built or edited — saved or not \
+                     — is replaced in the editor; your PDS copy is untouched \
+                     until you save."
+                ),
+                format!("Re-roll {subject}"),
+                seed,
+            );
         }
         if ui
             .button("↺")
@@ -307,6 +361,9 @@ pub fn seed_row(
             state.buf = did_seed.to_string();
         }
     });
+    if let Some(seed) = state.confirm.show(ui.ctx(), "seed-row") {
+        action = SeedAction::Reroll(seed);
+    }
     action
 }
 

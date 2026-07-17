@@ -5,12 +5,16 @@
 //! lives in [`super::fetch`]; everything here is the per-record policy
 //! the trait captures:
 //!
-//! | record    | retries | unrecoverable hook                       |
-//! |-----------|---------|------------------------------------------|
-//! | Room      | 12      | raises [`RoomRecordRecovery`] banner     |
-//! | Avatar    | 12      | default fallback only                    |
-//! | Inventory | 0       | default fallback only (best-effort: the  |
-//! |           |         | stash is not gameplay-critical)          |
+//! | record    | retries | unrecoverable hook                         |
+//! |-----------|---------|--------------------------------------------|
+//! | Room      | 12      | raises [`RoomRecordRecovery`] banner       |
+//! | Avatar    | 12      | raises [`AvatarRecordRecovery`] (#840)     |
+//! | Inventory | 2       | raises [`InventoryRecordRecovery`] (#840)  |
+//!
+//! Every unrecoverable fallback installs the default as Live AND Stored,
+//! which makes "dirty" read clean while the real record still sits on
+//! the PDS — the recovery markers are what stop the next routine publish
+//! from clobbering it (#840). A later clean fetch clears them.
 
 use bevy::prelude::*;
 use bevy::tasks::Task;
@@ -18,8 +22,9 @@ use bevy::tasks::Task;
 use crate::diagnostics::event::RecordKind;
 use crate::pds::{self, AvatarRecord, FetchError, InventoryRecord, RoomRecord};
 use crate::state::{
-    CurrentRoomDid, LiveAvatarRecord, LiveInventoryRecord, LiveRoomRecord, RoomRecordRecovery,
-    StoredAvatarRecord, StoredInventoryRecord, StoredRoomRecord,
+    AvatarRecordRecovery, CurrentRoomDid, InventoryRecordRecovery, LiveAvatarRecord,
+    LiveInventoryRecord, LiveRoomRecord, RoomRecordRecovery, StoredAvatarRecord,
+    StoredInventoryRecord, StoredRoomRecord,
 };
 
 use super::fetch::{LoadedRecord, dispatch, spawn_record_fetch};
@@ -66,6 +71,10 @@ impl LoadedRecord for RoomRecord {
     fn on_unrecoverable(commands: &mut Commands, reason: String) {
         commands.insert_resource(RoomRecordRecovery { reason });
     }
+
+    fn clear_recovery(commands: &mut Commands) {
+        commands.remove_resource::<RoomRecordRecovery>();
+    }
 }
 
 impl LoadedRecord for AvatarRecord {
@@ -86,16 +95,31 @@ impl LoadedRecord for AvatarRecord {
         commands.insert_resource(LiveAvatarRecord(self.clone()));
         commands.insert_resource(StoredAvatarRecord(self));
     }
+
+    /// The default was installed as Live AND Stored, so "dirty" reads
+    /// clean while the real record still sits on the PDS — without this
+    /// marker the next routine avatar publish clobbers it (#840). The
+    /// Avatar editor shows a banner and gates the first publish behind
+    /// a confirm while the marker is present.
+    fn on_unrecoverable(commands: &mut Commands, reason: String) {
+        commands.insert_resource(AvatarRecordRecovery { reason });
+    }
+
+    fn clear_recovery(commands: &mut Commands) {
+        commands.remove_resource::<AvatarRecordRecovery>();
+    }
 }
 
 impl LoadedRecord for InventoryRecord {
     const LABEL: &'static str = "Inventory";
     const RECORD_KIND: RecordKind = RecordKind::Inventory;
-    /// Best-effort: transient failures fall straight through to an empty
-    /// stash rather than retrying, because nothing gameplay-critical
-    /// reads the inventory — the owner can re-publish a saved item after
-    /// login if they want to recover.
-    const MAX_ATTEMPTS: u32 = 0;
+    /// Two quick retries (2 s + 4 s of backoff), then fall through to
+    /// the empty default. The old budget of ZERO meant one transient
+    /// blip installed an empty stash presented as a green success — and
+    /// the next publish wiped the real one (#840). The stash still isn't
+    /// gameplay-critical, so it doesn't get the room/avatar ten-minute
+    /// budget; the recovery marker below covers the fall-through.
+    const MAX_ATTEMPTS: u32 = 2;
 
     fn dispatch_fetch(did: String) -> Task<Result<Option<Self>, FetchError>> {
         dispatch(move |client| async move { pds::fetch_inventory_record(&client, &did).await })
@@ -109,6 +133,18 @@ impl LoadedRecord for InventoryRecord {
         self.sanitize();
         commands.insert_resource(LiveInventoryRecord(self.clone()));
         commands.insert_resource(StoredInventoryRecord(self));
+    }
+
+    /// The session runs "degraded": the stash shows empty while items
+    /// may still exist on the PDS (#840). The Inventory window shows a
+    /// banner and gates the first publish behind a confirm while the
+    /// marker is present.
+    fn on_unrecoverable(commands: &mut Commands, reason: String) {
+        commands.insert_resource(InventoryRecordRecovery { reason });
+    }
+
+    fn clear_recovery(commands: &mut Commands) {
+        commands.remove_resource::<InventoryRecordRecovery>();
     }
 }
 

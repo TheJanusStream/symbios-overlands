@@ -197,6 +197,30 @@ pub struct RoomRecordRecovery {
     pub reason: String,
 }
 
+/// Present when the avatar-record fetch fell back to the DID default for
+/// an unrecoverable reason — decode failure or an exhausted retry budget
+/// (#840). Live and Stored are both the default, so "dirty" reads clean
+/// while the real record still sits on the PDS: the Avatar editor shows
+/// a banner and the first publish asks for confirmation before it
+/// overwrites the stored copy. Cleared by a successful fetch, by that
+/// confirmed publish, and on logout.
+#[derive(Resource, Debug, Clone)]
+pub struct AvatarRecordRecovery {
+    /// Human-readable fetch/decode error, shown in the banner.
+    pub reason: String,
+}
+
+/// Present when the inventory fetch fell back to the empty default after
+/// its (short) retry budget (#840) — the session is "degraded": the
+/// stash shows empty while items may still exist on the PDS, and an
+/// unconfirmed publish would wipe them. Same lifecycle as
+/// [`AvatarRecordRecovery`].
+#[derive(Resource, Debug, Clone)]
+pub struct InventoryRecordRecovery {
+    /// Human-readable fetch error, shown in the banner.
+    pub reason: String,
+}
+
 /// The local player's **live** avatar record — what the editor sliders
 /// mutate in real time and what gets broadcast to peers. Diverges from
 /// `StoredAvatarRecord` until the owner presses "Publish" (or reverts).

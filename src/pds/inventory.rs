@@ -61,20 +61,29 @@ impl Default for InventoryRecord {
 
 impl InventoryRecord {
     /// Clamp every stored generator to the same bounds the room record
-    /// enforces, drop items with oversized names, and cap the overall stash
-    /// size so a hostile PDS can't force the owner's client into a
+    /// enforces, drop items with oversized names, and bound the overall
+    /// stash size so a hostile PDS can't force the owner's client into a
     /// multi-megabyte allocation on login. Both the name filter and the
-    /// count cap run in lexicographic key order so the survivor set is
+    /// count bound run in lexicographic key order so the survivor set is
     /// deterministic (HashMap iteration is SipHash-randomised).
+    ///
+    /// The count bound is [`MAX_INVENTORY_SANITIZE_ITEMS`] — the DoS
+    /// backstop — NOT the 50-item gameplay cap (#841): sanitize used to
+    /// truncate an over-cap legacy stash straight to 50, silently
+    /// deleting items with the alphabet deciding which. Over-cap stashes
+    /// now survive the load; the Inventory window surfaces them red and
+    /// blocks publishing until the user prunes.
+    ///
+    /// [`MAX_INVENTORY_SANITIZE_ITEMS`]: crate::config::state::MAX_INVENTORY_SANITIZE_ITEMS
     pub fn sanitize(&mut self) {
         self.generators.retain(|name, _| {
             name.chars().count() <= crate::config::state::MAX_INVENTORY_NAME_CHARS
         });
-        let cap = crate::config::state::MAX_INVENTORY_ITEMS;
-        if self.generators.len() > cap {
+        let bound = crate::config::state::MAX_INVENTORY_SANITIZE_ITEMS;
+        if self.generators.len() > bound {
             let mut keys: Vec<String> = self.generators.keys().cloned().collect();
             keys.sort();
-            for key in keys.into_iter().skip(cap) {
+            for key in keys.into_iter().skip(bound) {
                 self.generators.remove(&key);
             }
         }
@@ -510,6 +519,30 @@ mod tests {
         record.sanitize();
         assert_eq!(record.generators.len(), 1);
         assert!(record.generators.contains_key("ok"));
+    }
+
+    #[test]
+    fn sanitize_preserves_over_cap_stashes_up_to_the_dos_bound() {
+        // #841: an over-cap legacy stash must SURVIVE the load (the UI
+        // surfaces it and blocks publish) — sanitize only truncates at
+        // the hostile-PDS DoS bound, deterministically past it.
+        let cap = crate::config::state::MAX_INVENTORY_ITEMS;
+        let bound = crate::config::state::MAX_INVENTORY_SANITIZE_ITEMS;
+        let names: Vec<String> = (0..bound + 10).map(|i| format!("item_{i:04}")).collect();
+        let mut record = stash(&names.iter().map(String::as_str).collect::<Vec<_>>());
+        record.sanitize();
+        assert!(
+            record.generators.len() > cap,
+            "over-cap stash was truncated"
+        );
+        assert_eq!(record.generators.len(), bound);
+        // Lexicographic survivors: the zero-padded low indices stay.
+        assert!(record.generators.contains_key("item_0000"));
+        assert!(
+            !record
+                .generators
+                .contains_key(&format!("item_{:04}", bound + 5))
+        );
     }
 
     #[test]

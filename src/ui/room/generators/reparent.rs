@@ -69,6 +69,9 @@ pub(super) fn apply_pending(
     renaming_generator: &mut Option<(String, String)>,
     inventory: Option<&mut LiveInventoryRecord>,
     dirty: &mut bool,
+    confirms: &mut super::TreeConfirms,
+    toasts: &mut crate::ui::toast::Toasts,
+    now: f64,
 ) {
     match action {
         PendingAction::AddChild { parent, kind_tag } => {
@@ -114,24 +117,63 @@ pub(super) fn apply_pending(
             if let Some(inv) = inventory
                 && let Some(node) = find_node(&*source, &id)
             {
+                // Cap enforcement (#841): the context-menu item is
+                // disabled when full, but the buffered action could race
+                // a same-frame insert — never exceed the cap here either.
+                let cap = crate::config::state::MAX_INVENTORY_ITEMS;
+                if inv.0.generators.len() >= cap {
+                    toasts.warn(
+                        format!("Inventory full ({cap}/{cap}) — item not saved."),
+                        now,
+                    );
+                    return;
+                }
                 let prefix = if id.path.is_empty() {
                     id.root.clone()
                 } else {
                     node.kind_tag().to_lowercase()
                 };
                 let safe_name = unique_key(&inv.0.generators, &prefix);
-                inv.0.generators.insert(safe_name, node.clone());
-                *dirty = true;
+                inv.0.generators.insert(safe_name.clone(), node.clone());
+                // First feedback this action ever had (#841) — and NO
+                // `*dirty = true`: that flag arms the ROOM debounce +
+                // peer broadcast, but this mutation touched only the
+                // inventory record (its own dirty state is derived
+                // live-vs-stored and needs no flag).
+                toasts.success(
+                    format!("Saved as \"{safe_name}\" — open Inventory to place or gift it."),
+                    now,
+                );
             }
         }
         PendingAction::Delete(id) => {
             if id.path.is_empty() {
-                // Root delete — `remove_root` also sweeps dangling
-                // Placements + traits referencing this generator name on
-                // implementations that carry such tables (room source).
-                // On sources with no such side-tables (avatar source) the
-                // sweep is a no-op.
-                source.remove_root(&id.root);
+                // Root delete — un-undoable and CASCADING: `remove_root`
+                // also sweeps every Placement + traits entry referencing
+                // this generator name (a 200-tree scatter dies with it).
+                // Since #838 it never fires from the click itself: park it
+                // behind the shared confirm, which names the blast radius.
+                // `draw_generators_tab` performs the delete on confirm.
+                let placements = source.placement_ref_count(&id.root);
+                let body = if placements > 0 {
+                    format!(
+                        "Deletes the generator \"{}\" AND removes the {placements} \
+                         placement{} referencing it from the world. This cannot \
+                         be undone.",
+                        id.root,
+                        if placements == 1 { "" } else { "s" },
+                    )
+                } else {
+                    format!(
+                        "Deletes the generator \"{}\" and everything under it. \
+                         This cannot be undone.",
+                        id.root
+                    )
+                };
+                confirms
+                    .delete
+                    .request(format!("Delete \"{}\"?", id.root), body, "Delete", id);
+                return;
             } else if let Some(parent_id) = id.parent_id() {
                 let last_idx = *id.path.last().expect("non-root has non-empty path");
                 if let Some(parent) = find_node_mut(source, &parent_id)

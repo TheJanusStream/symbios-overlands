@@ -334,7 +334,13 @@ const ON_FOOT_ROWS: &[ControlRow] = &[
         action: "jump · climb · swim up",
     },
     ControlRow {
-        keys: "Shift / Ctrl",
+        // Ctrl is not bound on wasm (#839): W+Ctrl is the browser's
+        // close-tab chord. Mirrors `player::humanoid`'s swim keys.
+        keys: if cfg!(target_arch = "wasm32") {
+            "Shift / C"
+        } else {
+            "Shift / Ctrl / C"
+        },
         action: "swim down",
     },
 ];

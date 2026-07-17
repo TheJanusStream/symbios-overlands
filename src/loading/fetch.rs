@@ -67,10 +67,79 @@ pub trait LoadedRecord: Sized + Send + Sync + 'static {
 
     /// Hook fired when the stored record can never be fetched intact —
     /// decode failure (schema drift is permanent, retrying can't help)
-    /// or an exhausted retry budget. The room impl raises the
-    /// [`crate::state::RoomRecordRecovery`] banner here; the others
-    /// don't need anything beyond the default fallback.
-    fn on_unrecoverable(_commands: &mut Commands, _reason: String) {}
+    /// or an exhausted retry budget. Every impl raises its recovery
+    /// marker here (#840): room's drives the World-editor banner, avatar
+    /// and inventory gate their first publish behind a confirm so a
+    /// routine Save can't clobber the real stored record. Required (no
+    /// default) so a future record type can't silently skip the
+    /// clobber-protection contract.
+    fn on_unrecoverable(commands: &mut Commands, reason: String);
+
+    /// Hook fired when a fetch resolves cleanly (a record, or an honest
+    /// 404 for a never-published one): clears the recovery marker a
+    /// previous pass may have left behind (#840) — e.g. a portal-hop
+    /// decode failure whose banner would otherwise follow the player
+    /// home, where its "Reset PDS to default" would wipe a HEALTHY
+    /// record. Required for the same reason as
+    /// [`on_unrecoverable`](Self::on_unrecoverable).
+    fn clear_recovery(commands: &mut Commands);
+}
+
+/// Terminal outcome of each record fetch for the current `Loading` pass
+/// (#840): the loading screen renders failure-fallback rows amber
+/// ("using default") instead of a green check, and the `InGame` entry
+/// toast names what fell back. Reset on every `Loading` entry.
+#[derive(Resource, Default, Clone, Debug)]
+pub struct RecordFetchOutcomes {
+    pub room: Option<FetchStatus>,
+    pub avatar: Option<FetchStatus>,
+    pub inventory: Option<FetchStatus>,
+}
+
+impl RecordFetchOutcomes {
+    fn slot(&mut self, kind: RecordKind) -> &mut Option<FetchStatus> {
+        match kind {
+            RecordKind::Room => &mut self.room,
+            RecordKind::Avatar => &mut self.avatar,
+            RecordKind::Inventory => &mut self.inventory,
+        }
+    }
+
+    pub(crate) fn set(&mut self, kind: RecordKind, status: FetchStatus) {
+        *self.slot(kind) = Some(status);
+    }
+
+    pub fn get(&self, kind: RecordKind) -> Option<FetchStatus> {
+        match kind {
+            RecordKind::Room => self.room,
+            RecordKind::Avatar => self.avatar,
+            RecordKind::Inventory => self.inventory,
+        }
+    }
+
+    /// Labels of every record whose fetch fell back for a FAILURE reason
+    /// (decode error / exhausted retries) — 404 is a legitimate fresh
+    /// account, not a fallback worth alarming anyone about.
+    pub fn failure_fallback_labels(&self) -> Vec<&'static str> {
+        [
+            ("World", self.room),
+            ("Avatar", self.avatar),
+            ("Inventory", self.inventory),
+        ]
+        .into_iter()
+        .filter(|(_, status)| status.is_some_and(is_failure_fallback))
+        .map(|(label, _)| label)
+        .collect()
+    }
+}
+
+/// Whether a terminal [`FetchStatus`] means "the default was installed
+/// even though a real record may exist" — the clobber hazard (#840).
+pub(crate) fn is_failure_fallback(status: FetchStatus) -> bool {
+    matches!(
+        status,
+        FetchStatus::DecodeError | FetchStatus::Exhausted | FetchStatus::BestEffortFallback
+    )
 }
 
 /// Exponential backoff for transient fetch failures. Without a delay, a
@@ -224,6 +293,7 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
     mut session_log: ResMut<SessionLog>,
     time: Res<Time>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
+    mut outcomes: ResMut<RecordFetchOutcomes>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
@@ -265,6 +335,7 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                     R::LABEL,
                     msg
                 );
+                outcomes.set(R::RECORD_KIND, FetchStatus::DecodeError);
                 R::on_unrecoverable(&mut commands, msg);
                 R::default_for(&did)
             }
@@ -295,6 +366,7 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                         R::MAX_ATTEMPTS,
                         err
                     );
+                    outcomes.set(R::RECORD_KIND, status);
                     R::on_unrecoverable(&mut commands, format!("PDS unreachable: {err:?}"));
                     R::default_for(&did)
                 } else {
@@ -345,6 +417,10 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                     duration_secs: now - spawned_at,
                 },
             );
+            outcomes.set(R::RECORD_KIND, status);
+            // A clean resolution (record, or an honest 404) clears any
+            // stale recovery marker a previous pass raised (#840).
+            R::clear_recovery(&mut commands);
         }
         crate::diagnostics::samplers::record_fetch_latency_secs(&mut metrics, now - spawned_at);
         record.install(&mut commands);
@@ -373,8 +449,10 @@ pub(crate) fn fire_pending_record_retries<R: LoadedRecord>(
 
 #[cfg(test)]
 mod tests {
-    use super::{record_backoff_secs, terminal_fallback_status};
-    use crate::diagnostics::event::FetchStatus;
+    use super::{
+        RecordFetchOutcomes, is_failure_fallback, record_backoff_secs, terminal_fallback_status,
+    };
+    use crate::diagnostics::event::{FetchStatus, RecordKind};
 
     #[test]
     fn backoff_doubles_and_saturates() {
@@ -396,5 +474,35 @@ mod tests {
         assert_eq!(terminal_fallback_status(0), FetchStatus::BestEffortFallback);
         // Room / avatar spent a real retry budget before giving up.
         assert_eq!(terminal_fallback_status(12), FetchStatus::Exhausted);
+    }
+
+    #[test]
+    fn failure_fallbacks_exclude_fresh_accounts() {
+        // Ok and 404 are healthy resolutions (#840) — a fresh account's
+        // synthesised default must not read as a clobber hazard.
+        assert!(!is_failure_fallback(FetchStatus::Ok));
+        assert!(!is_failure_fallback(FetchStatus::NotFound));
+        assert!(!is_failure_fallback(FetchStatus::TransientError));
+        assert!(is_failure_fallback(FetchStatus::DecodeError));
+        assert!(is_failure_fallback(FetchStatus::Exhausted));
+        assert!(is_failure_fallback(FetchStatus::BestEffortFallback));
+    }
+
+    #[test]
+    fn fetch_outcomes_track_per_record_and_name_fallbacks() {
+        let mut outcomes = RecordFetchOutcomes::default();
+        assert!(outcomes.failure_fallback_labels().is_empty());
+
+        outcomes.set(RecordKind::Room, FetchStatus::Ok);
+        outcomes.set(RecordKind::Avatar, FetchStatus::DecodeError);
+        outcomes.set(RecordKind::Inventory, FetchStatus::NotFound);
+        assert_eq!(outcomes.get(RecordKind::Room), Some(FetchStatus::Ok));
+        assert_eq!(outcomes.failure_fallback_labels(), vec!["Avatar"]);
+
+        outcomes.set(RecordKind::Inventory, FetchStatus::Exhausted);
+        assert_eq!(
+            outcomes.failure_fallback_labels(),
+            vec!["Avatar", "Inventory"]
+        );
     }
 }

@@ -56,6 +56,39 @@ pub(crate) use records::{
 
 use bevy::prelude::*;
 
+/// `OnEnter(Loading)`: forget the previous pass's terminal fetch
+/// outcomes (#840) so a portal hop's loading screen doesn't inherit the
+/// last login's fallback markers.
+pub(crate) fn reset_fetch_outcomes(mut commands: Commands) {
+    commands.insert_resource(fetch::RecordFetchOutcomes::default());
+}
+
+/// `OnEnter(InGame)`: one toast naming every record whose fetch fell
+/// back to a default for a FAILURE reason (#840) — the loading screen's
+/// amber rows scroll away with the state change, and without this the
+/// only trace of "your avatar is not your avatar" was the session log.
+pub(crate) fn toast_fetch_fallbacks(
+    outcomes: Res<fetch::RecordFetchOutcomes>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    time: Res<Time>,
+) {
+    let fallen = outcomes.failure_fallback_labels();
+    if fallen.is_empty() {
+        return;
+    }
+    let plural = fallen.len() > 1;
+    toasts.warn(
+        format!(
+            "Using default{} for {} — the stored cop{} could not be loaded. \
+             Saving would overwrite what's stored.",
+            if plural { "s" } else { "" },
+            fallen.join(", "),
+            if plural { "ies" } else { "y" },
+        ),
+        time.elapsed_secs_f64(),
+    );
+}
+
 use crate::state::{
     AppState, LiveAvatarRecord, LiveInventoryRecord, LiveRoomRecord, StoredAvatarRecord,
     StoredInventoryRecord, StoredRoomRecord,

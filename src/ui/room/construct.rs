@@ -30,21 +30,58 @@ pub(super) fn allows_children(kind: &GeneratorKind) -> bool {
 /// Switching to a different primitive builds a fresh default for that
 /// shape; switching to a non-primitive (Terrain/Water/LSystem/Portal)
 /// constructs a reasonable starter so the owner has something to edit.
+///
+/// #838: a kind change discards the node's tuned params and (when the new
+/// kind refuses children) strands its subtree — so when the node carries
+/// children or non-default params, the switch parks behind the shared
+/// confirm (answered in `draw_generators_tab`, which re-resolves
+/// `node_id`) instead of applying on the click.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn generator_kind_picker(
     ui: &mut egui::Ui,
     kind: &mut GeneratorKind,
     kinds: &[&'static str],
     salt: &str,
     dirty: &mut bool,
+    node_id: &super::generators::GenNodeId,
+    child_count: usize,
+    confirm: &mut crate::ui::confirm::ConfirmState<(super::generators::GenNodeId, &'static str)>,
 ) {
     let current = kind.kind_tag();
+    // "Has the user tuned anything?" — the same value a fresh switch to
+    // this kind would install. Unknown has no constructor, so switching
+    // away from it always warns (it discards data this build can't read).
+    let is_pristine = *kind == make_default_for_kind(current);
     egui::ComboBox::from_id_salt(format!("{}_kind", salt))
         .selected_text(current)
         .show_ui(ui, |ui| {
             for k in kinds {
                 if ui.selectable_label(current == *k, *k).clicked() && current != *k {
-                    *kind = make_default_for_kind(k);
-                    *dirty = true;
+                    if child_count == 0 && is_pristine {
+                        *kind = make_default_for_kind(k);
+                        *dirty = true;
+                    } else {
+                        let mut losses: Vec<String> = Vec::new();
+                        if !is_pristine {
+                            losses.push(format!("this node's {current} settings"));
+                        }
+                        if child_count > 0 {
+                            losses.push(format!(
+                                "{child_count} child node{}",
+                                if child_count == 1 { "" } else { "s" }
+                            ));
+                        }
+                        confirm.request(
+                            format!("Change kind to {k}?"),
+                            format!(
+                                "Switching this node to {k} discards {}. This \
+                                 cannot be undone.",
+                                losses.join(" and ")
+                            ),
+                            format!("Change to {k}"),
+                            (node_id.clone(), *k),
+                        );
+                    }
                 }
             }
         });

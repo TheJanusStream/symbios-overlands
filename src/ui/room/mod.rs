@@ -175,6 +175,15 @@ pub struct RoomEditorState {
     /// owner's DID seed, editable to re-roll the whole room. See
     /// [`crate::ui::editable::seed_row`].
     seed_row_state: crate::ui::editable::SeedRowState,
+    /// Pending Revert/Reset confirmation for the shared save row (#838).
+    row_confirm: crate::ui::confirm::ConfirmState<RecordAction>,
+    /// Pending destructive tree-operation confirmations (#838): root
+    /// delete + kind change on the Generators tab.
+    tree_confirms: generators::TreeConfirms,
+    /// Pending recovery-banner "Reset PDS to default" confirmation
+    /// (#840): the button hard-overwrites the stored record, and a
+    /// stale banner (pre-#840) could offer it against a healthy one.
+    recovery_reset_confirm: crate::ui::confirm::ConfirmState<()>,
     /// Cached seeded-default record, keyed by the DID it was built for (#637).
     /// `RoomRecord::default_for_did` runs the whole procedural pipeline (9
     /// derivers, catalogue builds, a mini-settlement, an ambient-audio recipe),
@@ -244,6 +253,8 @@ pub struct RoomEditorExtras<'w, 's> {
     chrome: crate::ui::layout::WindowChrome<'w>,
     /// Pending Ctrl+S request for the shared save row (#836).
     publish_shortcut: ResMut<'w, crate::ui::shortcuts::PublishShortcut>,
+    /// Toast channel for structural-op feedback (#841).
+    toasts: ResMut<'w, crate::ui::toast::Toasts>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -274,6 +285,7 @@ pub fn room_admin_ui(
         grammar_diag,
         mut chrome,
         mut publish_shortcut,
+        mut toasts,
     } = extras;
     let (Some(session), Some(refresh_ctx), Some(room_did), Some(record)) =
         (session, refresh_ctx, room_did, room_record.as_mut())
@@ -325,6 +337,9 @@ pub fn room_admin_ui(
         renaming_generator,
         audio_editor,
         seed_row_state,
+        row_confirm,
+        tree_confirms,
+        recovery_reset_confirm,
         default_cache,
         stored_baseline,
         ..
@@ -345,70 +360,68 @@ pub fn room_admin_ui(
     {
         let record_mut: &mut RoomRecord = &mut record.bypass_change_detection().0;
 
-        // Rename modal — rendered as an independent top-level egui Window so
-        // it floats above the World Editor. Cloning the `(old, draft)` pair
-        // out first lets us mutate the draft in a scratch variable and feed
-        // the final decision back into `renaming_generator` without holding
-        // a long-lived mutable borrow across the `egui::Window::show` call.
+        // Rename dialog — the shared modal (#838): keeps itself open on an
+        // empty/taken name with the reason inline, Enter applies, Esc
+        // cancels. Cloning the `(old, draft)` pair out first lets us mutate
+        // the draft in a scratch variable and feed the final decision back
+        // into `renaming_generator` without holding a long-lived mutable
+        // borrow across the modal's `show` call.
         if let Some((old_name, mut new_name)) = renaming_generator.clone() {
-            let mut close = false;
-            let mut apply = false;
-            egui::Window::new("Rename Generator")
-                .collapsible(false)
-                .show(ctx, |ui| {
-                    ui.text_edit_singleline(&mut new_name).request_focus();
-                    ui.horizontal(|ui| {
-                        if ui.button("Apply").clicked() {
-                            apply = true;
-                            close = true;
-                        }
-                        if ui.button("Cancel").clicked() {
-                            close = true;
-                        }
-                    });
-                });
-
-            if apply
-                && !new_name.is_empty()
-                && !record_mut.generators.contains_key(&new_name)
-                && let Some(g) = record_mut.generators.remove(&old_name)
-            {
-                record_mut.generators.insert(new_name.clone(), g);
-                // Rewrite every Placement that referenced the old key so the
-                // world compiler can still resolve its generator after the
-                // rename. Unknown placements (forward-compat variants) stay
-                // untouched because we can't see their generator_ref field.
-                for p in record_mut.placements.iter_mut() {
-                    match p {
-                        Placement::Absolute { generator_ref, .. }
-                        | Placement::Scatter { generator_ref, .. }
-                        | Placement::Grid { generator_ref, .. } => {
-                            if generator_ref == &old_name {
-                                *generator_ref = new_name.clone();
+            let outcome = crate::ui::confirm::rename_dialog(
+                ctx,
+                "Rename Generator",
+                &old_name,
+                &mut new_name,
+                |draft| record_mut.generators.contains_key(draft),
+            );
+            match outcome {
+                crate::ui::confirm::RenameOutcome::Open => {
+                    *renaming_generator = Some((old_name, new_name));
+                }
+                crate::ui::confirm::RenameOutcome::Cancelled => {
+                    *renaming_generator = None;
+                }
+                crate::ui::confirm::RenameOutcome::Renamed(applied) => {
+                    if applied != old_name
+                        && let Some(g) = record_mut.generators.remove(&old_name)
+                    {
+                        record_mut.generators.insert(applied.clone(), g);
+                        // Rewrite every Placement that referenced the old key
+                        // so the world compiler can still resolve its
+                        // generator after the rename. Unknown placements
+                        // (forward-compat variants) stay untouched because we
+                        // can't see their generator_ref field.
+                        for p in record_mut.placements.iter_mut() {
+                            match p {
+                                Placement::Absolute { generator_ref, .. }
+                                | Placement::Scatter { generator_ref, .. }
+                                | Placement::Grid { generator_ref, .. } => {
+                                    if generator_ref == &old_name {
+                                        *generator_ref = applied.clone();
+                                    }
+                                }
+                                Placement::Unknown => {}
                             }
                         }
-                        Placement::Unknown => {}
+                        // Migrate the traits mapping too — `RoomRecord::traits`
+                        // is keyed on generator name, so a rename without this
+                        // step orphans ECS trait bindings like
+                        // `collider_heightfield` and leaves the renamed
+                        // generator with no collision.
+                        if let Some(traits) = record_mut.traits.remove(&old_name) {
+                            record_mut.traits.insert(applied.clone(), traits);
+                        }
+                        *selected_generator = Some(applied.clone());
+                        // Tree-view ids are keyed on `(root, path)`, so the
+                        // rename also has to retarget the current selection at
+                        // the new root key — otherwise the tree highlights
+                        // nothing while the gizmo still tracks the renamed
+                        // root.
+                        tree_view_state.set_one_selected(GenNodeId::root(applied));
+                        widget_change = true;
                     }
+                    *renaming_generator = None;
                 }
-                // Migrate the traits mapping too — `RoomRecord::traits` is
-                // keyed on generator name, so a rename without this step
-                // orphans ECS trait bindings like `collider_heightfield`
-                // and leaves the renamed generator with no collision.
-                if let Some(traits) = record_mut.traits.remove(&old_name) {
-                    record_mut.traits.insert(new_name.clone(), traits);
-                }
-                *selected_generator = Some(new_name.clone());
-                // Tree-view ids are keyed on `(root, path)`, so the rename
-                // also has to retarget the current selection at the new
-                // root key — otherwise the tree highlights nothing while
-                // the gizmo still tracks the renamed root.
-                tree_view_state.set_one_selected(GenNodeId::root(new_name.clone()));
-                widget_change = true;
-            }
-            if close {
-                *renaming_generator = None;
-            } else {
-                *renaming_generator = Some((old_name, new_name));
             }
         }
 
@@ -442,7 +455,23 @@ pub fn room_admin_ui(
                              to overwrite the stored record on your PDS with this default \
                              so the next login loads cleanly.",
                         );
+                        // Confirmed reset (#840): this button hard-deletes
+                        // and replaces the stored record — never on the
+                        // click itself.
                         if ui.button("Reset PDS to default").clicked() {
+                            recovery_reset_confirm.request(
+                                "Reset your stored world?",
+                                "Deletes the room record stored on your PDS and \
+                                 replaces it with this default. Whatever the old \
+                                 record contained is gone for good.",
+                                "Reset PDS record",
+                                (),
+                            );
+                        }
+                        if recovery_reset_confirm
+                            .show(ui.ctx(), "room-recovery-reset")
+                            .is_some()
+                        {
                             let default_record = pds::RoomRecord::default_for_did(&room_did.0);
                             *record_mut = default_record.clone();
                             *raw_text =
@@ -572,6 +601,9 @@ pub fn room_admin_ui(
                                 &grammar_diag,
                                 &mut widget_change,
                                 &mut blob_ctx.selected_element,
+                                tree_confirms,
+                                &mut toasts,
+                                time.elapsed_secs_f64(),
                             );
                         });
                     }
@@ -620,6 +652,7 @@ pub fn room_admin_ui(
                     seed_row_state,
                     crate::seeded_defaults::fnv1a_64(&room_did.0),
                     time.elapsed_secs_f64(),
+                    "world",
                 ) {
                     *record_mut = pds::RoomRecord::default_for_seed(seed, &room_did.0);
                     *raw_text = serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
@@ -690,7 +723,16 @@ pub fn room_admin_ui(
                 }
                 let record_bytes = publish_feedback.live_bytes;
                 let ctrl_s = publish_shortcut.take(crate::ui::shortcuts::EditorKind::World);
-                match save_load_reset_row(ui, dirty, true, can_reset, record_bytes, ctrl_s) {
+                match save_load_reset_row(
+                    ui,
+                    dirty,
+                    true,
+                    can_reset,
+                    record_bytes,
+                    ctrl_s,
+                    matches!(publish_feedback.status, PublishStatus::Publishing),
+                    row_confirm,
+                ) {
                     RecordAction::None => {}
                     RecordAction::Publish => {
                         publish_feedback.status = PublishStatus::Publishing;
