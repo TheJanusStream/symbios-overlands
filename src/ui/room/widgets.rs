@@ -130,7 +130,7 @@ pub(super) fn draw_transform_no_scale(ui: &mut egui::Ui, t: &mut TransformData, 
             t.scale.0[0], t.scale.0[1], t.scale.0[2]
         ))
         .small()
-        .color(egui::Color32::GRAY),
+        .color(crate::ui::theme::current(ui.ctx()).text_weak),
     );
 }
 
@@ -148,7 +148,7 @@ pub(super) fn grammar_status_line(
     match status {
         Some(GrammarStatus::Error { message }) => {
             ui.colored_label(
-                egui::Color32::from_rgb(220, 90, 90),
+                crate::ui::theme::current(ui.ctx()).status.error,
                 egui::RichText::new(format!("✗ {message}")).small(),
             );
         }
@@ -156,7 +156,7 @@ pub(super) fn grammar_status_line(
             ui.label(
                 egui::RichText::new("✓ grammar compiled")
                     .small()
-                    .color(egui::Color32::from_rgb(130, 190, 130)),
+                    .color(crate::ui::theme::current(ui.ctx()).status.ok),
             );
         }
         None => {}
@@ -361,7 +361,7 @@ pub(super) fn draw_asset_reference_editor(
             ui.label(
                 egui::RichText::new("Unrecognised source — authored by a newer client.")
                     .small()
-                    .color(egui::Color32::GRAY),
+                    .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
         }
     }

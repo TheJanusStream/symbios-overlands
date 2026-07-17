@@ -213,7 +213,7 @@ fn draw_patch_summary(ui: &mut egui::Ui, patch: &SovereignAudioPatch) {
             patch.seed,
         ))
         .small()
-        .color(egui::Color32::GRAY),
+        .color(crate::ui::theme::current(ui.ctx()).text_weak),
     );
 }
 
@@ -231,7 +231,7 @@ fn draw_sequence_summary(ui: &mut egui::Ui, recipe: &SovereignSequenceRecipe) {
             if events == 1 { "" } else { "s" },
         ))
         .small()
-        .color(egui::Color32::GRAY),
+        .color(crate::ui::theme::current(ui.ctx()).text_weak),
     );
 }
 
@@ -345,7 +345,7 @@ fn audition_row(
         ui.label(
             egui::RichText::new(status)
                 .small()
-                .color(egui::Color32::GRAY),
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
         );
     });
 

@@ -68,17 +68,10 @@ impl DiagTab {
 /// Map a [`Severity`] to the HUD colour used for both the event-log line tint
 /// and the anomaly badges / toolbar dot (D-6), so a warning reads the same amber
 /// everywhere. `pub(crate)` so [`crate::ui::toolbar`] can colour its worst-active
-/// dot identically.
-pub(crate) fn severity_color(sev: Severity) -> egui::Color32 {
-    use crate::config::ui::diagnostics as cfg;
-    let [r, g, b] = match sev {
-        Severity::Trace => cfg::SEVERITY_TRACE_RGB,
-        Severity::Info => cfg::SEVERITY_INFO_RGB,
-        Severity::Warn => cfg::SEVERITY_WARN_RGB,
-        Severity::Error => cfg::SEVERITY_ERROR_RGB,
-        Severity::Critical => cfg::SEVERITY_CRITICAL_RGB,
-    };
-    egui::Color32::from_rgb(r, g, b)
+/// dot identically. Delegates to the active theme's severity ramp (#856) —
+/// the `ui` handle is how the palette is reached from render code.
+pub(crate) fn severity_color(ui: &egui::Ui, sev: Severity) -> egui::Color32 {
+    crate::ui::theme::current(ui.ctx()).status.severity(sev)
 }
 
 /// The currently-violated rules as `(id, severity, last detail, fire count,
@@ -113,6 +106,7 @@ fn collect_badges(invariants: &InvariantRegistry) -> Vec<Badge> {
 /// ledger the live engine writes, so the panel mirrors the anomaly engine's
 /// current state. Shown on every tab so the health signal is never hidden.
 fn render_anomaly_section(ui: &mut egui::Ui, invariants: &InvariantRegistry) {
+    let th = crate::ui::theme::current(ui.ctx());
     let badges = collect_badges(invariants);
 
     // Persistent banner while any Critical invariant is active — the same
@@ -120,12 +114,12 @@ fn render_anomaly_section(ui: &mut egui::Ui, invariants: &InvariantRegistry) {
     let crit = badges.iter().filter(|b| b.1 == Severity::Critical).count();
     if crit > 0 {
         egui::Frame::new()
-            .fill(egui::Color32::from_rgb(90, 20, 20))
+            .fill(th.danger_surface)
             .inner_margin(6.0)
             .corner_radius(4.0)
             .show(ui, |ui| {
                 ui.colored_label(
-                    egui::Color32::from_rgb(255, 210, 210),
+                    th.danger_surface_text,
                     format!(
                         "⚠ {crit} CRITICAL invariant{} active — session health is compromised.",
                         if crit == 1 { "" } else { "s" }
@@ -136,14 +130,11 @@ fn render_anomaly_section(ui: &mut egui::Ui, invariants: &InvariantRegistry) {
     }
 
     if badges.is_empty() {
-        ui.colored_label(
-            egui::Color32::from_rgb(130, 190, 130),
-            "✓ No active anomalies",
-        );
+        ui.colored_label(th.status.ok, "✓ No active anomalies");
     } else {
         ui.label(format!("Active Anomalies ({})", badges.len()));
         for (id, sev, detail, fires, description, last_fired) in &badges {
-            let color = severity_color(*sev);
+            let color = th.status.severity(*sev);
             ui.horizontal(|ui| {
                 ui.colored_label(color, "●");
                 // Human description up front (#837); the raw rule id and
@@ -157,14 +148,14 @@ fn render_anomaly_section(ui: &mut egui::Ui, invariants: &InvariantRegistry) {
                     ui.label(
                         egui::RichText::new(format!("×{fires}"))
                             .small()
-                            .color(egui::Color32::DARK_GRAY),
+                            .color(th.text_faint),
                     );
                 }
                 if !detail.is_empty() {
                     ui.monospace(
                         egui::RichText::new(format!("— {detail}"))
                             .small()
-                            .color(egui::Color32::GRAY),
+                            .color(th.text_weak),
                     );
                 }
             });
@@ -242,7 +233,7 @@ fn anomaly_badge(ui: &mut egui::Ui, invariants: &InvariantRegistry, metric_id: &
     if let Some((_, sev, st)) = invariants.active_badges().find(|(id, _, _)| *id == rule_id) {
         // `last_fired_secs` is a session timestamp, not an age — format it
         // like the event log's stamps instead of reading as "Ns ago" (#837).
-        ui.colored_label(severity_color(sev), "●")
+        ui.colored_label(severity_color(ui, sev), "●")
             .on_hover_text(format!(
                 "{rule_id} — last fired {}: {}",
                 crate::format_elapsed_ts(st.last_fired_secs),
@@ -287,7 +278,8 @@ fn sparkline(ui: &mut egui::Ui, samples: &[f64], height: f32) {
     let width = ui.available_width().max(32.0);
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 2.0, egui::Color32::from_gray(24));
+    let th = crate::ui::theme::current(ui.ctx());
+    painter.rect_filled(rect, 2.0, th.chart_fill_deep);
     if samples.len() < 2 {
         return;
     }
@@ -309,7 +301,7 @@ fn sparkline(ui: &mut egui::Ui, samples: &[f64], height: f32) {
         .collect();
     painter.add(egui::Shape::line(
         pts,
-        egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(120, 200, 140)),
+        egui::Stroke::new(1.5_f32, th.accent),
     ));
 }
 
@@ -342,7 +334,8 @@ fn memory_readout(ui: &mut egui::Ui, metrics: &MetricsRegistry) {
             ui.monospace(format!("{label}: {}", fmt_bytes(bytes)));
         }
         None => {
-            ui.colored_label(egui::Color32::GRAY, format!("{label}: unavailable"));
+            let th = crate::ui::theme::current(ui.ctx());
+            ui.colored_label(th.text_weak, format!("{label}: unavailable"));
         }
     }
 }
@@ -413,7 +406,7 @@ fn health_card(
     rows: &[(&str, String, &str)],
 ) {
     egui::Frame::new()
-        .fill(egui::Color32::from_gray(28))
+        .fill(crate::ui::theme::current(ui.ctx()).chart_fill)
         .inner_margin(6.0)
         .corner_radius(4.0)
         .show(ui, |ui| {
@@ -690,7 +683,7 @@ fn render_health_tab(
                      dragging the frame.",
                 )
                 .small()
-                .color(egui::Color32::GRAY),
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
             let mute_label = if audio_muted.0 {
                 "Unmute all audio"
@@ -783,7 +776,7 @@ fn render_log_export_controls(
             ui.monospace(
                 egui::RichText::new(&path)
                     .small()
-                    .color(egui::Color32::GRAY),
+                    .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
             if ui.button("Copy path").clicked() {
                 match write_to_clipboard(&path) {
@@ -794,7 +787,7 @@ fn render_log_export_controls(
         }
         None => {
             ui.colored_label(
-                egui::Color32::GRAY,
+                crate::ui::theme::current(ui.ctx()).text_weak,
                 egui::RichText::new("(session log disabled)").small(),
             );
         }
@@ -991,7 +984,7 @@ pub fn diagnostics_ui(
                                     ui.monospace(
                                         egui::RichText::new(&did)
                                             .small()
-                                            .color(egui::Color32::GRAY),
+                                            .color(crate::ui::theme::current(ui.ctx()).text_weak),
                                     );
                                 });
                                 if ui.small_button("Copy DID").clicked() {
@@ -1006,7 +999,10 @@ pub fn diagnostics_ui(
                             });
                         }
                         if peer_count == 0 {
-                            ui.colored_label(egui::Color32::GRAY, "(no peers)");
+                            ui.colored_label(
+                                crate::ui::theme::current(ui.ctx()).text_weak,
+                                "(no peers)",
+                            );
                         }
                     });
             });
@@ -1035,12 +1031,14 @@ pub fn diagnostics_ui(
                         let ts = crate::format_elapsed_ts(ev.t_mono_secs);
                         ui.horizontal(|ui| {
                             ui.monospace(
-                                egui::RichText::new(ts).small().color(egui::Color32::GRAY),
+                                egui::RichText::new(ts)
+                                    .small()
+                                    .color(crate::ui::theme::current(ui.ctx()).text_weak),
                             );
                             ui.monospace(
                                 egui::RichText::new(ev.payload.short_line())
                                     .small()
-                                    .color(severity_color(ev.severity)),
+                                    .color(severity_color(ui, ev.severity)),
                             );
                         });
                     }

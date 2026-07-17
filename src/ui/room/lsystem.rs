@@ -124,7 +124,10 @@ pub(super) fn draw_lsystem_forge(
                     ui.horizontal(|ui| {
                         ui.strong(format!("Slot {}", id));
                         if ui
-                            .add(egui::Button::new("−").fill(egui::Color32::from_rgb(180, 50, 50)))
+                            .add(
+                                egui::Button::new("−")
+                                    .fill(crate::ui::theme::current(ui.ctx()).danger_fill),
+                            )
                             .clicked()
                         {
                             to_remove = Some(id);
@@ -193,7 +196,10 @@ pub(super) fn draw_lsystem_forge(
                             });
                     }
                     if ui
-                        .add(egui::Button::new("−").fill(egui::Color32::from_rgb(180, 50, 50)))
+                        .add(
+                            egui::Button::new("−")
+                                .fill(crate::ui::theme::current(ui.ctx()).danger_fill),
+                        )
                         .clicked()
                     {
                         to_remove = Some(id);

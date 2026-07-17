@@ -217,12 +217,12 @@ pub fn inventory_ui(
             // empty default, so this stash is NOT what's on the PDS.
             if let Some(rec) = recovery.as_deref() {
                 egui::Frame::new()
-                    .fill(egui::Color32::from_rgb(90, 30, 30))
+                    .fill(crate::ui::theme::current(ui.ctx()).danger_surface)
                     .inner_margin(6.0)
                     .corner_radius(4.0)
                     .show(ui, |ui| {
                         ui.colored_label(
-                            egui::Color32::WHITE,
+                            crate::ui::theme::current(ui.ctx()).danger_surface_text,
                             "⚠ Your stash could not be loaded — this shows an empty default.",
                         );
                         ui.label(egui::RichText::new(format!("Reason: {}", rec.reason)).small());
@@ -245,7 +245,7 @@ pub fn inventory_ui(
             let over_cap = count > cap;
             if over_cap {
                 ui.colored_label(
-                    egui::Color32::from_rgb(220, 90, 90),
+                    crate::ui::theme::current(ui.ctx()).status.error,
                     format!(
                         "Stored Generators: {count}/{cap} — over the {cap}-item cap; \
                          remove {} to enable saving",
@@ -311,7 +311,7 @@ pub fn inventory_ui(
                                 ui.label(
                                     egui::RichText::new(format!("({kind_tag})"))
                                         .small()
-                                        .color(egui::Color32::GRAY),
+                                        .color(crate::ui::theme::current(ui.ctx()).text_weak),
                                 );
                                 if resp.drag_started() {
                                     pending_drop.generator_name = Some(name.clone());
@@ -355,7 +355,7 @@ pub fn inventory_ui(
                                 ui.label(
                                     egui::RichText::new(format!("({kind_tag} — room-scoped)"))
                                         .small()
-                                        .color(egui::Color32::GRAY),
+                                        .color(crate::ui::theme::current(ui.ctx()).text_weak),
                                 );
                             }
                             ui.with_layout(
@@ -363,8 +363,9 @@ pub fn inventory_ui(
                                 |ui| {
                                     if ui
                                         .add(
-                                            egui::Button::new("−")
-                                                .fill(egui::Color32::from_rgb(180, 50, 50)),
+                                            egui::Button::new("−").fill(
+                                                crate::ui::theme::current(ui.ctx()).danger_fill,
+                                            ),
                                         )
                                         .clicked()
                                     {

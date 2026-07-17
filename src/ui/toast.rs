@@ -39,15 +39,15 @@ pub enum ToastKind {
 }
 
 impl ToastKind {
-    fn color(self) -> egui::Color32 {
+    /// Dot colour from the active theme (#856): the Success green is the
+    /// semantic ok (was its own config green), the rest ride the same
+    /// severity ramp as the diagnostics HUD.
+    fn color(self, th: &crate::ui::theme::Theme) -> egui::Color32 {
         match self {
-            ToastKind::Info => crate::ui::diagnostics::severity_color(Severity::Info),
-            ToastKind::Success => {
-                let [r, g, b] = cfg::SUCCESS_RGB;
-                egui::Color32::from_rgb(r, g, b)
-            }
-            ToastKind::Warn => crate::ui::diagnostics::severity_color(Severity::Warn),
-            ToastKind::Error => crate::ui::diagnostics::severity_color(Severity::Error),
+            ToastKind::Info => th.status.severity(Severity::Info),
+            ToastKind::Success => th.status.ok,
+            ToastKind::Warn => th.status.severity(Severity::Warn),
+            ToastKind::Error => th.status.severity(Severity::Error),
         }
     }
 }
@@ -149,7 +149,10 @@ pub fn toast_ui(mut contexts: EguiContexts, mut toasts: ResMut<Toasts>, time: Re
             for toast in toasts.queue.iter().rev() {
                 egui::Frame::window(&ui.ctx().style()).show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.colored_label(toast.kind.color(), "●");
+                        ui.colored_label(
+                            toast.kind.color(&crate::ui::theme::current(ui.ctx())),
+                            "●",
+                        );
                         ui.add(
                             egui::Label::new(egui::RichText::new(&toast.text).small())
                                 .wrap_mode(egui::TextWrapMode::Wrap),

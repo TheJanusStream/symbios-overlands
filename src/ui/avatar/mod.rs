@@ -316,12 +316,12 @@ pub fn avatar_ui(
                 // button (publishing IS the reset).
                 if let Some(rec) = recovery.as_deref() {
                     egui::Frame::new()
-                        .fill(egui::Color32::from_rgb(90, 30, 30))
+                        .fill(crate::ui::theme::current(ui.ctx()).danger_surface)
                         .inner_margin(6.0)
                         .corner_radius(4.0)
                         .show(ui, |ui| {
                             ui.colored_label(
-                                egui::Color32::WHITE,
+                                crate::ui::theme::current(ui.ctx()).danger_surface_text,
                                 "⚠ Your stored avatar could not be loaded — this is the default.",
                             );
                             ui.label(

@@ -200,7 +200,7 @@ pub(super) fn draw_placements_tab(
                         ui.label(
                             egui::RichText::new("(no placements — click + Absolute above)")
                                 .small()
-                                .color(egui::Color32::GRAY),
+                                .color(crate::ui::theme::current(ui.ctx()).text_weak),
                         );
                     }
                     for (i, p) in record.placements.iter().enumerate() {
@@ -214,7 +214,7 @@ pub(super) fn draw_placements_tab(
                             if ui
                                 .add(
                                     egui::Button::new("−")
-                                        .fill(egui::Color32::from_rgb(180, 50, 50)),
+                                        .fill(crate::ui::theme::current(ui.ctx()).danger_fill),
                                 )
                                 .clicked()
                             {
@@ -249,7 +249,7 @@ pub(super) fn draw_placements_tab(
                              the world.",
                         )
                         .small()
-                        .color(egui::Color32::GRAY),
+                        .color(crate::ui::theme::current(ui.ctx()).text_weak),
                     );
                     return;
                 };
@@ -458,7 +458,7 @@ fn draw_placement_detail(
         }
         Placement::Unknown => {
             ui.colored_label(
-                egui::Color32::from_rgb(220, 160, 80),
+                crate::ui::theme::current(ui.ctx()).status.warn,
                 "Unknown placement type — editable only via Raw JSON.",
             );
         }

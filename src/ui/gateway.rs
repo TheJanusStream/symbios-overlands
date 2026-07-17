@@ -174,7 +174,7 @@ pub fn gateway_picker_ui(
                 }
                 Some(MutualsState::Failed(reason)) => {
                     ui.colored_label(
-                        egui::Color32::LIGHT_RED,
+                        crate::ui::theme::current(ui.ctx()).status.error,
                         format!("Could not load mutuals — {reason}"),
                     );
                     ui.label("Retrying shortly…");

@@ -24,7 +24,7 @@ pub(super) fn draw_raw_tab(
             .desired_width(f32::INFINITY),
     );
     if let Some(err) = error.as_ref() {
-        ui.colored_label(egui::Color32::from_rgb(220, 80, 80), err);
+        ui.colored_label(crate::ui::theme::current(ui.ctx()).status.error, err);
     }
     ui.horizontal(|ui| {
         if ui.button("Parse into pending record").clicked() {

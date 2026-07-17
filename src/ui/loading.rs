@@ -53,19 +53,13 @@ const ROWS_WIDTH: f32 = 470.0;
 /// deliberately does NOT say "stalled": with the room fetch's ~10-minute
 /// retry budget, a load past [`GATE_STALL_SECS`] is usually still making
 /// (slow) progress, and the per-row status is the honest detail (#849).
-fn gate_elapsed_style(elapsed: f64) -> (egui::Color32, &'static str) {
+fn gate_elapsed_style(elapsed: f64, th: &crate::ui::theme::Theme) -> (egui::Color32, &'static str) {
     if elapsed >= GATE_STALL_SECS {
-        (
-            egui::Color32::from_rgb(220, 90, 90),
-            " — much longer than usual",
-        )
+        (th.status.error, " — much longer than usual")
     } else if elapsed >= GATE_WARN_SECS {
-        (
-            egui::Color32::from_rgb(210, 170, 90),
-            " — slower than usual",
-        )
+        (th.status.warn, " — slower than usual")
     } else {
-        (egui::Color32::LIGHT_GRAY, "")
+        (th.text_strong, "")
     }
 }
 
@@ -149,11 +143,11 @@ fn draw_row(ui: &mut egui::Ui, label: &str, status: RowStatus) -> RowAction {
     ui.horizontal(|ui| {
         match status {
             RowStatus::Done => {
-                ui.colored_label(egui::Color32::LIGHT_GREEN, "✔");
+                ui.colored_label(crate::ui::theme::current(ui.ctx()).status.ok, "✔");
                 ui.label(label);
             }
             RowStatus::Fallback => {
-                let amber = egui::Color32::from_rgb(210, 170, 90);
+                let amber = crate::ui::theme::current(ui.ctx()).status.warn;
                 ui.colored_label(amber, "⚠");
                 ui.label(label);
                 ui.colored_label(amber, "— using default (stored copy unavailable)");
@@ -162,7 +156,10 @@ fn draw_row(ui: &mut egui::Ui, label: &str, status: RowStatus) -> RowAction {
                 ui.spinner();
                 ui.label(label);
                 if let Some((attempt, max)) = attempt {
-                    ui.colored_label(egui::Color32::YELLOW, format!("(attempt {attempt}/{max})"));
+                    ui.colored_label(
+                        crate::ui::theme::current(ui.ctx()).status.warn,
+                        format!("(attempt {attempt}/{max})"),
+                    );
                 }
             }
             RowStatus::Blocked(on) => {
@@ -179,7 +176,7 @@ fn draw_row(ui: &mut egui::Ui, label: &str, status: RowStatus) -> RowAction {
                 ui.spinner();
                 ui.label(label);
                 ui.colored_label(
-                    egui::Color32::YELLOW,
+                    crate::ui::theme::current(ui.ctx()).status.warn,
                     format!(
                         "retrying in {:.0}s (attempt {attempt}/{max})",
                         in_secs.ceil()
@@ -350,7 +347,8 @@ pub fn loading_ui(
             // the D critical stall threshold.
             if let Some(entered) = loading_clock.entered_at() {
                 let elapsed = (now - entered).max(0.0);
-                let (color, note) = gate_elapsed_style(elapsed);
+                let (color, note) =
+                    gate_elapsed_style(elapsed, &crate::ui::theme::current(ui.ctx()));
                 ui.colored_label(color, format!("Elapsed: {elapsed:.0}s{note}"));
             }
             if any_retrying {
@@ -411,20 +409,24 @@ mod tests {
 
     #[test]
     fn gate_elapsed_style_thresholds() {
+        let th = crate::ui::theme::Theme::dark();
         // Fresh load → neutral (no suffix).
-        assert_eq!(gate_elapsed_style(0.0).1, "");
-        assert_eq!(gate_elapsed_style(GATE_WARN_SECS - 0.1).1, "");
+        assert_eq!(gate_elapsed_style(0.0, &th).1, "");
+        assert_eq!(gate_elapsed_style(GATE_WARN_SECS - 0.1, &th).1, "");
         // Past the warn point → amber.
-        assert_eq!(gate_elapsed_style(GATE_WARN_SECS).1, " — slower than usual");
         assert_eq!(
-            gate_elapsed_style(GATE_STALL_SECS - 0.1).1,
+            gate_elapsed_style(GATE_WARN_SECS, &th).1,
+            " — slower than usual"
+        );
+        assert_eq!(
+            gate_elapsed_style(GATE_STALL_SECS - 0.1, &th).1,
             " — slower than usual"
         );
         // Past the D critical stall threshold → red, but NOT the old
         // "stalled" wording: the retry budget runs ~10 minutes, so a slow
         // load is usually still progressing (#849).
         assert_eq!(
-            gate_elapsed_style(GATE_STALL_SECS).1,
+            gate_elapsed_style(GATE_STALL_SECS, &th).1,
             " — much longer than usual"
         );
     }

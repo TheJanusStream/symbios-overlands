@@ -147,7 +147,7 @@ pub(super) fn draw_tree_panel(
                 ui.label(
                     egui::RichText::new("(no generators — click \"+ New\" above)")
                         .small()
-                        .color(egui::Color32::GRAY),
+                        .color(crate::ui::theme::current(ui.ctx()).text_weak),
                 );
                 return;
             }
@@ -360,7 +360,7 @@ fn build_tree_node(
                     ui.label(
                         egui::RichText::new("(no placeable inventory items)")
                             .small()
-                            .color(egui::Color32::GRAY),
+                            .color(crate::ui::theme::current(ui.ctx()).text_weak),
                     );
                     return;
                 }

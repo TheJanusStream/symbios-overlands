@@ -81,7 +81,7 @@ pub fn draw_locomotion_tab(
         LocomotionConfig::Car(p) => p.draw(ui, dirty),
         LocomotionConfig::Unknown => {
             ui.colored_label(
-                egui::Color32::ORANGE,
+                crate::ui::theme::current(ui.ctx()).status.warn,
                 "This avatar's locomotion preset was authored against a newer schema — \
                  pick a preset above to replace it.",
             );

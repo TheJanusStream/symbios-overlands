@@ -65,7 +65,7 @@ pub(super) fn draw_contact_effects_tab(
                         ui.label(
                             egui::RichText::new("(no recipes — click + Add recipe above)")
                                 .small()
-                                .color(egui::Color32::GRAY),
+                                .color(crate::ui::theme::current(ui.ctx()).text_weak),
                         );
                     }
                     for (i, r) in effects.recipes.iter().enumerate() {
@@ -82,7 +82,7 @@ pub(super) fn draw_contact_effects_tab(
                             if ui
                                 .add(
                                     egui::Button::new("−")
-                                        .fill(egui::Color32::from_rgb(180, 50, 50)),
+                                        .fill(crate::ui::theme::current(ui.ctx()).danger_fill),
                                 )
                                 .clicked()
                             {
@@ -115,14 +115,14 @@ pub(super) fn draw_contact_effects_tab(
                          surface.",
                     )
                     .small()
-                    .color(egui::Color32::GRAY),
+                    .color(crate::ui::theme::current(ui.ctx()).text_weak),
                 );
                 ui.add_space(4.0);
                 let Some(i) = *selected else {
                     ui.label(
                         egui::RichText::new("Select a recipe on the left.")
                             .small()
-                            .color(egui::Color32::GRAY),
+                            .color(crate::ui::theme::current(ui.ctx()).text_weak),
                     );
                     return;
                 };
@@ -254,7 +254,7 @@ fn draw_recipe_detail(ui: &mut egui::Ui, i: usize, r: &mut ContactEffectRecord, 
                                  — shown read-only; re-pick a kind above to author it.",
                 )
                 .small()
-                .color(egui::Color32::GRAY),
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
         }
     }
@@ -430,7 +430,7 @@ fn audio_form(ui: &mut egui::Ui, salt: usize, audio: &mut AudioParams, dirty: &m
                          re-pick a source kind above.",
                     )
                     .small()
-                    .color(egui::Color32::GRAY),
+                    .color(crate::ui::theme::current(ui.ctx()).text_weak),
                 );
             }
         }

@@ -441,12 +441,12 @@ pub fn room_admin_ui(
                 // being stuck.
                 if let Some(rec) = recovery.as_deref() {
                     let banner = egui::Frame::new()
-                        .fill(egui::Color32::from_rgb(90, 30, 30))
+                        .fill(crate::ui::theme::current(ui.ctx()).danger_surface)
                         .inner_margin(6.0)
                         .corner_radius(4.0);
                     banner.show(ui, |ui| {
                         ui.colored_label(
-                            egui::Color32::WHITE,
+                            crate::ui::theme::current(ui.ctx()).danger_surface_text,
                             "⚠ Stored room record is incompatible with this build.",
                         );
                         ui.label(format!("Decode error: {}", rec.reason));

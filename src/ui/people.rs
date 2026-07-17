@@ -107,8 +107,9 @@ pub fn people_ui(
                     // for the local author tag, so the visual "you" cue
                     // carries across both windows. No Mute button on self.
                     if let Some(s) = session.as_deref() {
-                        let [r, g, b] = crate::config::ui::chat::AUTHOR_COLOR;
-                        let self_color = egui::Color32::from_rgb(r, g, b);
+                        // Same info-blue the chat uses for the local
+                        // author tag (#856) — the "you" cue carries across.
+                        let self_color = crate::ui::theme::current(ui.ctx()).status.info;
                         ui.horizontal(|ui| {
                             ui.colored_label(self_color, "●");
                             draw_avatar_icon(
@@ -140,11 +141,8 @@ pub fn people_ui(
                     });
                     for (mut peer, resonance) in rows {
                         let handle = peer.handle.as_deref().unwrap_or("identifying…").to_owned();
-                        let dot_color = if peer.muted {
-                            egui::Color32::GRAY
-                        } else {
-                            egui::Color32::GREEN
-                        };
+                        let th = crate::ui::theme::current(ui.ctx());
+                        let dot_color = if peer.muted { th.text_faint } else { th.status.ok };
                         let mut muted = peer.muted;
 
                         // Render the row inside an egui Response we can
@@ -169,9 +167,12 @@ pub fn people_ui(
                             // async getRelationships query lands; treat
                             // missing / Unknown / None as "not a mutual".
                             if matches!(resonance, Some(SocialResonance::Mutual)) {
-                                let [mr, mg, mb] = crate::config::ui::chat::MUTUAL_COLOR;
+                                // Accent, not gold (#856): the old
+                                // (240,190,70) star sat in the warn-amber
+                                // family — a friend must not read as a
+                                // caution. Brand highlight = accent.
                                 ui.colored_label(
-                                    egui::Color32::from_rgb(mr, mg, mb),
+                                    crate::ui::theme::current(ui.ctx()).accent,
                                     egui::RichText::new(format!("★ @{handle}")).monospace(),
                                 )
                                 .on_hover_text("You and this peer follow each other");
@@ -199,7 +200,7 @@ pub fn people_ui(
                                     format!("🎁 {offers_pending} offers pending")
                                 };
                                 ui.label(
-                                    egui::RichText::new(text).small().color(egui::Color32::GRAY),
+                                    egui::RichText::new(text).small().color(crate::ui::theme::current(ui.ctx()).text_weak),
                                 )
                                 .on_hover_text("Waiting for this peer to accept or decline");
                             }
@@ -256,7 +257,10 @@ pub fn people_ui(
                             ui.painter().rect_filled(
                                 row_rect,
                                 4.0,
-                                egui::Color32::from_rgba_unmultiplied(80, 160, 255, 40),
+                                {
+                                    let a = crate::ui::theme::current(ui.ctx()).accent;
+                                    egui::Color32::from_rgba_unmultiplied(a.r(), a.g(), a.b(), 40)
+                                },
                             );
                             if let Some(did) = peer.did.clone() {
                                 pending_drop.peer_target = Some(PeerDropTarget {
@@ -290,9 +294,9 @@ pub fn people_ui(
                     }
 
                     if peer_count == 0 && session.is_none() {
-                        ui.colored_label(egui::Color32::GRAY, "(empty)");
+                        ui.colored_label(crate::ui::theme::current(ui.ctx()).text_weak, "(empty)");
                     } else if peer_count == 0 {
-                        ui.colored_label(egui::Color32::GRAY, "(no other peers)");
+                        ui.colored_label(crate::ui::theme::current(ui.ctx()).text_weak, "(no other peers)");
                     }
                 });
         });
@@ -355,7 +359,7 @@ pub fn incoming_offer_ui(
         ui.monospace(
             egui::RichText::new(&dialog.sender_did)
                 .small()
-                .color(egui::Color32::GRAY),
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
         );
         // What's actually being offered (#843): kind + rough serialized
         // size. The generator arrives decoded + sanitized before the
@@ -375,7 +379,7 @@ pub fn incoming_offer_ui(
         ui.label(
             egui::RichText::new(format!("{} · {}", dialog.generator.kind_tag(), size_text))
                 .small()
-                .color(egui::Color32::GRAY),
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
         );
         ui.separator();
         if let Some(live) = live_inventory.as_deref() {
@@ -384,7 +388,7 @@ pub fn incoming_offer_ui(
             ui.label(format!("Your stash: {len}/{cap}"));
             if len >= cap {
                 ui.colored_label(
-                    egui::Color32::from_rgb(220, 90, 90),
+                    crate::ui::theme::current(ui.ctx()).status.error,
                     "Inventory full — remove an item to accept.",
                 );
                 if ui.button("Open Inventory").clicked() {
@@ -402,7 +406,8 @@ pub fn incoming_offer_ui(
                 .add_enabled(
                     can_accept,
                     egui::Button::new(
-                        egui::RichText::new("Accept").color(egui::Color32::LIGHT_GREEN),
+                        egui::RichText::new("Accept")
+                            .color(crate::ui::theme::current(ui.ctx()).status.ok),
                     ),
                 )
                 .clicked()
@@ -415,7 +420,7 @@ pub fn incoming_offer_ui(
             if ui
                 .add(egui::Button::new(
                     egui::RichText::new("Mute & Decline")
-                        .color(egui::Color32::from_rgb(220, 90, 90)),
+                        .color(crate::ui::theme::current(ui.ctx()).status.error),
                 ))
                 .clicked()
             {

@@ -53,13 +53,13 @@ pub(super) fn draw_detail_panel(
             ui.add_space(40.0);
             ui.label(
                 egui::RichText::new("Select a generator from the tree to edit.")
-                    .color(egui::Color32::GRAY),
+                    .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
             ui.add_space(8.0);
             ui.label(
                 egui::RichText::new("Right-click any tree row for: + Add child / Rename / Save to Inventory / − Delete.")
                     .small()
-                    .color(egui::Color32::GRAY),
+                    .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
         });
         return;
@@ -92,13 +92,16 @@ pub(super) fn draw_detail_panel(
     ui.horizontal(|ui| {
         if is_root {
             ui.heading(&id.root);
-            ui.label(egui::RichText::new(format!("({})", kind_tag)).color(egui::Color32::GRAY));
+            ui.label(
+                egui::RichText::new(format!("({})", kind_tag))
+                    .color(crate::ui::theme::current(ui.ctx()).text_weak),
+            );
         } else {
             ui.heading(kind_tag);
             ui.label(
                 egui::RichText::new(format!("path: /{}", path_string(&id.path)))
                     .small()
-                    .color(egui::Color32::GRAY),
+                    .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
         }
     });
@@ -150,7 +153,7 @@ pub(super) fn draw_detail_panel(
                 ui.label(
                     egui::RichText::new("Audio")
                         .strong()
-                        .color(egui::Color32::LIGHT_GRAY),
+                        .color(crate::ui::theme::current(ui.ctx()).text_strong),
                 );
                 super::super::audio::draw_audio_bridge(
                     ui,
@@ -616,7 +619,7 @@ fn draw_generator_detail(
         GeneratorKind::ParticleSystem(params) => draw_generator_particles(ui, params, salt, dirty),
         GeneratorKind::Unknown => {
             ui.colored_label(
-                egui::Color32::from_rgb(220, 160, 80),
+                crate::ui::theme::current(ui.ctx()).status.warn,
                 "Unknown generator type — editable only via the Raw JSON tab.",
             );
         }

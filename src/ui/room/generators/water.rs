@@ -21,7 +21,7 @@ pub(super) fn draw_water_editor(ui: &mut egui::Ui, surface: &mut WaterSurface, d
                      low (transparent looking down), deep is high (opaque at grazing).",
                 )
                 .small()
-                .color(egui::Color32::GRAY),
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
         });
 

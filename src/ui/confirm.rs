@@ -22,16 +22,13 @@
 
 use bevy_egui::egui;
 
-/// Fill colour of the danger (confirm) button — the same red family the
-/// delete "−" button and severity-critical accents use.
-const DANGER_FILL: egui::Color32 = egui::Color32::from_rgb(160, 40, 40);
-
-/// A danger-styled button: white label on red. Shared by the confirm
-/// modal and the unsaved-guard's Discard action so "this loses work"
-/// reads identically everywhere.
-pub fn danger_button(label: &str) -> egui::Button<'static> {
+/// A danger-styled button: white label on the theme's danger red
+/// ([`crate::ui::theme::Theme::danger_fill`], #856). Shared by the
+/// confirm modal and the unsaved-guard's Discard action so "this loses
+/// work" reads identically everywhere.
+pub fn danger_button(label: &str, th: &crate::ui::theme::Theme) -> egui::Button<'static> {
     egui::Button::new(egui::RichText::new(label.to_owned()).color(egui::Color32::WHITE))
-        .fill(DANGER_FILL)
+        .fill(th.danger_fill)
 }
 
 /// The text + payload of one pending confirmation.
@@ -103,7 +100,13 @@ impl<T> ConfirmState<T> {
                     // Push the danger button to the far side so it is
                     // never adjacent to Cancel (misclick separation).
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.add(danger_button(&pending.confirm_label)).clicked() {
+                        if ui
+                            .add(danger_button(
+                                &pending.confirm_label,
+                                &crate::ui::theme::current(ui.ctx()),
+                            ))
+                            .clicked()
+                        {
                             outcome = Some(true);
                         }
                     });
@@ -182,7 +185,7 @@ pub fn rename_dialog(
             field.request_focus();
         }
         if let Err(reason) = &validation {
-            ui.colored_label(egui::Color32::from_rgb(220, 90, 90), reason);
+            ui.colored_label(crate::ui::theme::current(ui.ctx()).status.error, reason);
         }
         ui.add_space(8.0);
 

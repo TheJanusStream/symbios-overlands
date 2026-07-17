@@ -35,7 +35,7 @@ pub(super) fn draw_shape_forge(
                      Lines beginning with `//` are skipped.",
                 )
                 .small()
-                .color(egui::Color32::GRAY),
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
             if ui
                 .add(
@@ -120,7 +120,7 @@ pub(super) fn draw_shape_forge(
                      grey material.",
                 )
                 .small()
-                .color(egui::Color32::GRAY),
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
 
             // Sort by name so the editor order is stable across frames —
@@ -154,7 +154,10 @@ pub(super) fn draw_shape_forge(
                             *dirty = true;
                         }
                         if ui
-                            .add(egui::Button::new("−").fill(egui::Color32::from_rgb(180, 50, 50)))
+                            .add(
+                                egui::Button::new("−")
+                                    .fill(crate::ui::theme::current(ui.ctx()).danger_fill),
+                            )
                             .clicked()
                         {
                             to_remove = Some(name.clone());

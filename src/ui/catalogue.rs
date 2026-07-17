@@ -435,7 +435,7 @@ pub(crate) fn catalogue_ui(
                         ui.label(
                             egui::RichText::new(format!("{total} entries"))
                                 .small()
-                                .color(egui::Color32::GRAY),
+                                .color(crate::ui::theme::current(ui.ctx()).text_weak),
                         );
                         egui::ScrollArea::vertical()
                             .id_salt("catalogue_tree_scroll")
@@ -609,7 +609,7 @@ fn detail_panel(
         ui.label(
             egui::RichText::new("Select an item to see its details.")
                 .italics()
-                .color(egui::Color32::GRAY),
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
         );
         return;
     };
@@ -667,7 +667,7 @@ fn detail_panel(
         ui.label(
             egui::RichText::new("Room-scoped — not point-placeable.")
                 .small()
-                .color(egui::Color32::GRAY),
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
         );
     } else {
         let hint = if owns_room {
@@ -676,7 +676,12 @@ fn detail_panel(
             "Drag it from the list onto a peer in People to gift."
         };
         ui.add(
-            egui::Label::new(egui::RichText::new(hint).small().color(egui::Color32::GRAY)).wrap(),
+            egui::Label::new(
+                egui::RichText::new(hint)
+                    .small()
+                    .color(crate::ui::theme::current(ui.ctx()).text_weak),
+            )
+            .wrap(),
         );
         if pending_drop.generator_name.as_deref() == Some(slug)
             && pending_drop.source == DropSource::Catalogue

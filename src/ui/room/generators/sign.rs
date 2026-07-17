@@ -219,7 +219,7 @@ pub(super) fn draw_sign_source(
         }
         SignSource::Unknown => {
             ui.colored_label(
-                egui::Color32::from_rgb(220, 160, 80),
+                crate::ui::theme::current(ui.ctx()).status.warn,
                 "Unknown source variant — pick one above to replace it.",
             );
         }

@@ -1025,15 +1025,11 @@ pub mod ui {
         /// malicious) peer could otherwise spam the channel until egui's
         /// scroll area holds megabytes of strings, re-wrapping every frame.
         pub const MAX_HISTORY_ENTRIES: usize = 500;
-        /// Author label colour [R, G, B].
-        pub const AUTHOR_COLOR: [u8; 3] = [100, 180, 255];
-        /// Name colour [R, G, B] for a peer the local user *mutually*
-        /// follows (`SocialResonance::Mutual`). Shared by the People
-        /// panel and the chat author tag — same cross-window-reuse
-        /// precedent as [`AUTHOR_COLOR`] — so a friend reads the same
-        /// warm gold everywhere. Paired with a `★` glyph so the cue
-        /// survives a colour-blind viewer / greyscale capture.
-        pub const MUTUAL_COLOR: [u8; 3] = [240, 190, 70];
+        // Author + mutual colours moved to the semantic theme (#856):
+        // author tag = `status.info`, mutual star = `accent` (the old
+        // warm gold sat in the warn-amber family — a friend must not
+        // read as a caution). The `★` glyph still carries the mutual cue
+        // for colour-blind viewers / greyscale captures.
     }
 
     // Window geometry (positions AND default sizes) lives in
@@ -1114,10 +1110,9 @@ pub mod ui {
         /// log is the durable record.
         pub const MAX_VISIBLE: usize = 6;
 
-        /// Success accent [R, G, B] — the exact green the migrated
-        /// Diagnostics toasts used, kept so the founding consumers look
-        /// unchanged. Warn/Error/Info reuse the diagnostics severity map.
-        pub const SUCCESS_RGB: [u8; 3] = [160, 200, 160];
+        // The Success dot colour moved to the semantic theme (#856):
+        // `ui::theme::StatusPalette::ok`, shared with every other
+        // success indicator in the app.
 
         /// Max text width before wrapping.
         pub const MAX_WIDTH: f32 = 320.0;

@@ -99,7 +99,7 @@ pub fn chat_ui(
                             // was minutes-since-app-launch, meaningless
                             // across peers and sessions.
                             ui.colored_label(
-                                egui::Color32::GRAY,
+                                crate::ui::theme::current(ui.ctx()).text_weak,
                                 format!("[{}]", crate::state::clock_hhmm(entry.at_epoch_secs)),
                             );
                             // Profile icon by DID, or a same-sized
@@ -116,18 +116,14 @@ pub fn chat_ui(
                                 .did
                                 .as_deref()
                                 .is_some_and(|d| mutual_dids.contains(d));
+                            // Accent star for mutuals, info-blue author
+                            // tag (#856) — same roles the People window
+                            // uses, formerly bespoke config golds/blues.
+                            let th = crate::ui::theme::current(ui.ctx());
                             let (tag_color, tag_text) = if is_mutual {
-                                let [r, g, b] = cfg::MUTUAL_COLOR;
-                                (
-                                    egui::Color32::from_rgb(r, g, b),
-                                    format!("★ [{}]", entry.author),
-                                )
+                                (th.accent, format!("★ [{}]", entry.author))
                             } else {
-                                let [r, g, b] = cfg::AUTHOR_COLOR;
-                                (
-                                    egui::Color32::from_rgb(r, g, b),
-                                    format!("[{}]", entry.author),
-                                )
+                                (th.status.info, format!("[{}]", entry.author))
                             };
                             let tag = ui.colored_label(tag_color, tag_text);
                             if is_mutual {

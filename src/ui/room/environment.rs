@@ -126,7 +126,7 @@ pub(super) fn draw_environment_tab(
             ui.label(
                 egui::RichText::new("Wind direction (XZ)")
                     .small()
-                    .color(egui::Color32::GRAY),
+                    .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
             let mut wind = env.cloud_wind_dir.0;
             ui.horizontal(|ui| {
@@ -159,7 +159,7 @@ pub(super) fn draw_environment_tab(
                      so adjust Distance Fog → Visibility for a tighter or wider band.",
                 )
                 .small()
-                .color(egui::Color32::GRAY),
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
         });
 
@@ -213,7 +213,7 @@ pub(super) fn draw_environment_tab(
                      disappears on long sightlines.",
                 )
                 .small()
-                .color(egui::Color32::GRAY),
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
             ui.add_space(4.0);
             fp_slider(
@@ -245,7 +245,7 @@ pub(super) fn draw_environment_tab(
                      this many metres of water depth. 0 disables it.",
                 )
                 .small()
-                .color(egui::Color32::GRAY),
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
         });
 

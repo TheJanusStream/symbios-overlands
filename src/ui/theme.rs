@@ -89,6 +89,12 @@ pub struct Theme {
     /// Destructive filled-button background (white text) — the shared
     /// danger idiom (`ui::confirm::danger_button`).
     pub danger_fill: egui::Color32,
+    /// Danger *banner* background (critical-anomaly strip, record-recovery
+    /// banners) — darker than `danger_fill` so a persistent surface
+    /// doesn't scream like a button.
+    pub danger_surface: egui::Color32,
+    /// Readable pale text on [`Self::danger_surface`].
+    pub danger_surface_text: egui::Color32,
     /// Floating-window background.
     pub window_fill: egui::Color32,
     /// Top/side panel background (toolbar).
@@ -101,6 +107,9 @@ pub struct Theme {
     pub text_strong: egui::Color32,
     /// De-emphasised text (hints, timestamps, reasons).
     pub text_weak: egui::Color32,
+    /// Quietest text tier (fire-count markers, dividers-with-words) —
+    /// present but deliberately easy to skip over.
+    pub text_faint: egui::Color32,
     /// Window and separator strokes.
     pub border: egui::Color32,
     /// Which egui base visuals this palette is built over — pinned into
@@ -135,12 +144,17 @@ impl Theme {
             accent: egui::Color32::from_rgb(72, 199, 208),
             accent_fill: egui::Color32::from_rgb(16, 125, 134),
             danger_fill: egui::Color32::from_rgb(160, 40, 40),
+            // Unifies the (90,20,20) critical-anomaly strip and the
+            // (90,30,30) recovery banners onto one surface.
+            danger_surface: egui::Color32::from_rgb(90, 25, 25),
+            danger_surface_text: egui::Color32::from_rgb(255, 210, 210),
             window_fill: egui::Color32::from_gray(27),
             panel_fill: egui::Color32::from_gray(27),
             chart_fill: egui::Color32::from_gray(28),
             chart_fill_deep: egui::Color32::from_gray(24),
             text_strong: egui::Color32::from_gray(220),
             text_weak: egui::Color32::from_gray(140),
+            text_faint: egui::Color32::from_gray(96),
             border: egui::Color32::from_gray(60),
             egui_base: egui::Theme::Dark,
         }
@@ -163,7 +177,31 @@ impl Default for CurrentTheme {
 /// stock visuals. Deliberately a light touch on widget internals — the
 /// dark look users know IS mostly stock egui; the palette owns identity
 /// (accent) and surfaces, not every bevel.
+/// egui-context carrier for the active palette — see [`current`].
+#[derive(Clone)]
+struct ThemeInCtx(std::sync::Arc<Theme>);
+
+/// Read the active theme from inside any egui render code — no system
+/// param needed. [`apply_theme`] stashes an `Arc` of the palette in the
+/// context's data map, so deeply nested render helpers (and systems
+/// already at Bevy's 16-param `IntoSystem` ceiling, like `room_admin_ui`
+/// and `avatar_ui`) reach it through the `Ui`/`Context` they hold:
+/// `let th = theme::current(ui.ctx());`. Falls back to the dark palette
+/// if read before the first apply — in practice impossible, since the
+/// installer runs in `Update` ahead of every egui pass.
+pub fn current(ctx: &egui::Context) -> std::sync::Arc<Theme> {
+    ctx.data(|d| d.get_temp::<ThemeInCtx>(egui::Id::NULL))
+        .map(|t| t.0)
+        .unwrap_or_else(|| std::sync::Arc::new(Theme::dark()))
+}
+
 pub fn apply_theme(ctx: &egui::Context, theme: &Theme) {
+    ctx.data_mut(|d| {
+        d.insert_temp(
+            egui::Id::NULL,
+            ThemeInCtx(std::sync::Arc::new(theme.clone())),
+        )
+    });
     ctx.options_mut(|o| {
         o.theme_preference = match theme.egui_base {
             egui::Theme::Dark => egui::ThemePreference::Dark,

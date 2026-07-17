@@ -91,9 +91,9 @@ pub fn save_load_reset_row(
         };
         let publish = egui::Button::new(egui::RichText::new(publish_label).color(
             if dirty && !publishing {
-                egui::Color32::LIGHT_GREEN
+                crate::ui::theme::current(ui.ctx()).status.ok
             } else {
-                egui::Color32::GRAY
+                crate::ui::theme::current(ui.ctx()).text_weak
             },
         ));
         let enabled = dirty && can_publish && !over_hard && !publishing;
@@ -143,14 +143,17 @@ pub fn save_load_reset_row(
         }
         if let (Some(bytes), Some(class)) = (record_bytes, size_class) {
             let (text, color) = match class {
-                SizeClass::WithinBudget => (human_bytes(bytes), egui::Color32::GRAY),
+                SizeClass::WithinBudget => (
+                    human_bytes(bytes),
+                    crate::ui::theme::current(ui.ctx()).text_weak,
+                ),
                 SizeClass::OverSoftBudget => (
                     format!("⚠ {}", human_bytes(bytes)),
-                    egui::Color32::from_rgb(220, 200, 80),
+                    crate::ui::theme::current(ui.ctx()).status.warn,
                 ),
                 SizeClass::OverHardCeiling => (
                     format!("✗ {} — too large to save", human_bytes(bytes)),
-                    egui::Color32::from_rgb(220, 90, 90),
+                    crate::ui::theme::current(ui.ctx()).status.error,
                 ),
             };
             ui.label(egui::RichText::new(text).color(color).small())
@@ -240,17 +243,20 @@ pub fn publish_status_line(ui: &mut egui::Ui, status: &PublishStatus, now_secs: 
     match status {
         PublishStatus::Idle => {}
         PublishStatus::Publishing => {
-            ui.colored_label(egui::Color32::from_rgb(220, 200, 80), "⟳ Saving to PDS…");
+            ui.colored_label(
+                crate::ui::theme::current(ui.ctx()).status.warn,
+                "⟳ Saving to PDS…",
+            );
         }
         PublishStatus::Success { at_secs } => {
             ui.colored_label(
-                egui::Color32::from_rgb(80, 200, 120),
+                crate::ui::theme::current(ui.ctx()).status.ok,
                 format!("✓ Saved ({:.0}s ago)", ago(*at_secs)),
             );
         }
         PublishStatus::Failed { at_secs, message } => {
             ui.colored_label(
-                egui::Color32::from_rgb(220, 90, 90),
+                crate::ui::theme::current(ui.ctx()).status.error,
                 format!("✗ Save failed ({:.0}s ago): {message}", ago(*at_secs)),
             );
         }
@@ -318,7 +324,7 @@ pub fn seed_row(
         let parsed = state.buf.trim().parse::<u64>();
         let mut field = egui::TextEdit::singleline(&mut state.buf).desired_width(190.0);
         if parsed.is_err() {
-            field = field.text_color(egui::Color32::from_rgb(220, 90, 90));
+            field = field.text_color(crate::ui::theme::current(ui.ctx()).status.error);
         }
         ui.add(field).on_hover_text(
             "Master seed for the DID-derived defaults. Edit, then Apply to re-roll.",

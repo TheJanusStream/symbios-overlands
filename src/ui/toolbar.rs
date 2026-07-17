@@ -223,7 +223,7 @@ pub fn toolbar_ui(
                         ui.monospace(
                             egui::RichText::new(&sess.did)
                                 .small()
-                                .color(egui::Color32::GRAY),
+                                .color(crate::ui::theme::current(ui.ctx()).text_weak),
                         );
                         if let Some(room) = current_room.as_deref() {
                             ui.separator();
@@ -236,7 +236,7 @@ pub fn toolbar_ui(
                                 ui.monospace(
                                     egui::RichText::new(&room.0)
                                         .small()
-                                        .color(egui::Color32::GRAY),
+                                        .color(crate::ui::theme::current(ui.ctx()).text_weak),
                                 );
                             }
                             let player_tf = local_player_q.single().ok().copied();
@@ -289,7 +289,7 @@ pub fn toolbar_ui(
                         egui::Align2::CENTER_CENTER,
                         "●",
                         egui::FontId::proportional(14.0),
-                        crate::ui::diagnostics::severity_color(worst),
+                        crate::ui::diagnostics::severity_color(ui, worst),
                     );
                     let n = invariants.active_badges().count();
                     let dot_resp = dot_resp

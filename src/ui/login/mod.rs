@@ -477,7 +477,7 @@ pub fn login_ui(
 
             if let Some(err) = &login_error.0 {
                 let (friendly, details) = errors::friendly_login_error(err);
-                ui.colored_label(egui::Color32::RED, friendly);
+                ui.colored_label(crate::ui::theme::current(ui.ctx()).status.error, friendly);
                 if let Some(raw) = details {
                     ui.collapsing("Details", |ui| {
                         ui.small(raw);

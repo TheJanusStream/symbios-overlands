@@ -317,7 +317,7 @@ pub fn render_login_feed_panel(ui: &mut egui::Ui, feed: &LoginPostFeed) -> Login
         }
         FetchStatus::Error(msg) => {
             ui.colored_label(
-                egui::Color32::from_rgb(200, 120, 120),
+                crate::ui::theme::current(ui.ctx()).status.error,
                 format!("Couldn't fetch posts: {msg}"),
             );
             if ui.button("Retry").clicked() {
@@ -327,7 +327,7 @@ pub fn render_login_feed_panel(ui: &mut egui::Ui, feed: &LoginPostFeed) -> Login
         FetchStatus::Loaded => {
             if feed.posts.is_empty() {
                 ui.colored_label(
-                    egui::Color32::GRAY,
+                    crate::ui::theme::current(ui.ctx()).text_weak,
                     format!("(no recent posts contain {})", feed_hashtag()),
                 );
             } else {
@@ -337,7 +337,7 @@ pub fn render_login_feed_panel(ui: &mut egui::Ui, feed: &LoginPostFeed) -> Login
                             ui.monospace(
                                 egui::RichText::new(format!("@{}", post.author_handle))
                                     .small()
-                                    .color(egui::Color32::LIGHT_BLUE),
+                                    .color(crate::ui::theme::current(ui.ctx()).status.info),
                             );
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
@@ -345,7 +345,7 @@ pub fn render_login_feed_panel(ui: &mut egui::Ui, feed: &LoginPostFeed) -> Login
                                     ui.monospace(
                                         egui::RichText::new(&post.indexed_at)
                                             .small()
-                                            .color(egui::Color32::GRAY),
+                                            .color(crate::ui::theme::current(ui.ctx()).text_weak),
                                     );
                                 },
                             );
@@ -356,7 +356,7 @@ pub fn render_login_feed_panel(ui: &mut egui::Ui, feed: &LoginPostFeed) -> Login
                         if ui
                             .small_button(
                                 egui::RichText::new("Open on Bluesky →")
-                                    .color(egui::Color32::from_rgb(120, 170, 220)),
+                                    .color(crate::ui::theme::current(ui.ctx()).accent),
                             )
                             .clicked()
                         {

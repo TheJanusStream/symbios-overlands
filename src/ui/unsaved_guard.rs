@@ -308,7 +308,7 @@ pub fn unsaved_guard_ui(
         if let Some(error) = &guard.error {
             ui.add_space(4.0);
             ui.colored_label(
-                egui::Color32::LIGHT_RED,
+                crate::ui::theme::current(ui.ctx()).status.error,
                 format!("Publish failed — {error}"),
             );
         }
@@ -400,7 +400,10 @@ pub fn unsaved_guard_ui(
             // buttons side by side.
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
-                    .add(crate::ui::confirm::danger_button(continue_discard))
+                    .add(crate::ui::confirm::danger_button(
+                        continue_discard,
+                        &crate::ui::theme::current(ui.ctx()),
+                    ))
                     .clicked()
                 {
                     // No revert needed: portal travel overwrites the live

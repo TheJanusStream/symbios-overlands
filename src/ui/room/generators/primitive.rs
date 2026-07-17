@@ -471,7 +471,7 @@ pub(super) fn draw_primitive_blob_group(
              to sculpt it with the gizmo. Esc returns to the whole prim.",
         )
         .small()
-        .color(egui::Color32::GRAY),
+        .color(crate::ui::theme::current(ui.ctx()).text_weak),
     );
     let mut remove: Option<usize> = None;
     let mut duplicate: Option<usize> = None;
