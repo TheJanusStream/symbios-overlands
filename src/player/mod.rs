@@ -81,6 +81,18 @@ use bevy_egui::input::egui_wants_any_keyboard_input;
 use crate::config::rover as cfg;
 use crate::state::{AppState, LocalPlayer};
 use crate::ui::avatar::AvatarEditorState;
+use crate::ui::unsaved_guard::UnsavedGuard;
+
+/// Run condition: an [`UnsavedGuard`] modal is up (#852). egui modals
+/// block the pointer but NOT game keys, so without this the player could
+/// WASD away from a portal mid-"Unpublished changes" decision and
+/// "Publish & travel" would fire from wherever they had drifted. The
+/// five input-driven drive systems (and the jump latch) gate on
+/// `not(this)`; passive physics (suspension, stabilisation, gravity)
+/// keeps running, same policy as the egui-focus gate.
+fn guard_modal_open(guard: Option<Res<UnsavedGuard>>) -> bool {
+    guard.is_some()
+}
 
 // Corner offsets in local space for the four suspension rays. The
 // hover-boat and car presets share the same four-corner pattern; their
@@ -195,31 +207,52 @@ impl Plugin for PlayerPlugin {
                     // hovering.
                     hover_boat::apply_hover_boat_drive
                         .run_if(not(egui_wants_any_keyboard_input))
-                        .run_if(not(avatar_visuals_row_selected)),
+                        .run_if(not(avatar_visuals_row_selected))
+                        .run_if(not(guard_modal_open)),
                     hover_boat::apply_hover_boat_uprighting
                         .run_if(not(avatar_visuals_row_selected)),
                     humanoid::apply_humanoid_walk
                         .run_if(not(egui_wants_any_keyboard_input))
-                        .run_if(not(avatar_visuals_row_selected)),
+                        .run_if(not(avatar_visuals_row_selected))
+                        .run_if(not(guard_modal_open)),
+                    // Ungated + chained right after the walk system: a
+                    // queued jump tap must die with the first fixed step
+                    // that could have acted on it, even when the walk
+                    // system itself was gated off (#852).
+                    humanoid::clear_jump_queue,
                     airplane::apply_airplane_forces
                         .run_if(not(egui_wants_any_keyboard_input))
-                        .run_if(not(avatar_visuals_row_selected)),
+                        .run_if(not(avatar_visuals_row_selected))
+                        .run_if(not(guard_modal_open)),
                     helicopter::apply_helicopter_forces
                         .run_if(not(egui_wants_any_keyboard_input))
-                        .run_if(not(avatar_visuals_row_selected)),
+                        .run_if(not(avatar_visuals_row_selected))
+                        .run_if(not(guard_modal_open)),
                     car::apply_car_suspension,
                     car::apply_car_drive
                         .run_if(not(egui_wants_any_keyboard_input))
-                        .run_if(not(avatar_visuals_row_selected)),
+                        .run_if(not(avatar_visuals_row_selected))
+                        .run_if(not(guard_modal_open)),
                     car::apply_car_uprighting.run_if(not(avatar_visuals_row_selected)),
                     respawn::respawn_if_fallen,
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             )
+            .init_resource::<humanoid::JumpQueued>()
             .add_systems(
                 Update,
-                freeze_local_avatar_while_editing.run_if(in_state(AppState::InGame)),
+                (
+                    freeze_local_avatar_while_editing,
+                    // Same gates as `apply_humanoid_walk`, so a space typed
+                    // into chat (or pressed under a guard modal) never
+                    // queues a jump for the moment focus returns (#852).
+                    humanoid::latch_jump_input
+                        .run_if(not(egui_wants_any_keyboard_input))
+                        .run_if(not(avatar_visuals_row_selected))
+                        .run_if(not(guard_modal_open)),
+                )
+                    .run_if(in_state(AppState::InGame)),
             );
     }
 }

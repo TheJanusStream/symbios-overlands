@@ -165,6 +165,33 @@ pub mod camera {
     pub const ORBIT_PITCH: f32 = 0.4;
     /// Initial camera world-space position [x, y, z].
     pub const INITIAL_POS: [f32; 3] = [0.0, 8.0, 12.0];
+    /// Closest zoom (m) — keeps the camera from tunnelling inside the
+    /// avatar's own visuals (#853).
+    pub const ZOOM_LOWER_LIMIT: f32 = 2.0;
+    /// Farthest zoom (m) — frames a whole settlement while staying well
+    /// inside the fog-visibility envelope ([`fog::VISIBILITY`]), past
+    /// which everything is haze anyway.
+    pub const ZOOM_UPPER_LIMIT: f32 = 200.0;
+    /// Lowest allowed orbit pitch (rad): slightly below horizontal so a
+    /// player on a ridge can still look up at their avatar; the terrain
+    /// clamp handles actual ground penetration.
+    pub const PITCH_LOWER_LIMIT: f32 = -0.3;
+    /// Highest allowed orbit pitch (rad): just shy of straight-down so
+    /// the orbit basis never reaches the pole.
+    pub const PITCH_UPPER_LIMIT: f32 = 1.54;
+    /// Clearance (m) the terrain clamp keeps between the camera and the
+    /// ground surface.
+    pub const TERRAIN_CLEARANCE: f32 = 1.0;
+    /// Sample count along the focus→camera ray for the terrain clamp —
+    /// at the 200 m zoom ceiling this probes every ~12.5 m, finer than
+    /// any terrain feature the 2 m-cell heightmap can express.
+    pub const TERRAIN_CLAMP_SAMPLES: u32 = 16;
+    /// Shortest focus→camera distance the terrain clamp may shrink to (m).
+    pub const TERRAIN_CLAMP_MIN_DIST: f32 = 1.0;
+    /// Freeze vehicle-yaw inheritance while `|forward.y|` exceeds this
+    /// (#853): heading is undefined near-vertical, and Euler extraction
+    /// there whipped the camera π mid-loop.
+    pub const YAW_FREEZE_FORWARD_Y: f32 = 0.95;
 
     pub mod fog {
         /// sRGBA colour of the atmospheric haze (matches a mid-sky tone).

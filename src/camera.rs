@@ -19,6 +19,7 @@ use crate::config::camera as cfg;
 use crate::config::interaction::audio as audio_cfg;
 use crate::player::VehicleChassis;
 use crate::state::{AppState, LocalPlayer};
+use crate::terrain::FinishedHeightMap;
 
 pub struct CameraPlugin;
 
@@ -32,16 +33,26 @@ impl Plugin for CameraPlugin {
             )
             .add_systems(
                 PostUpdate,
-                gate_camera_on_gui.before(PanOrbitCameraSystemSet),
+                (
+                    gate_camera_on_gui.before(PanOrbitCameraSystemSet),
+                    // After the crate has written the camera Transform,
+                    // before propagation snapshots it for rendering.
+                    clamp_camera_to_terrain
+                        .after(PanOrbitCameraSystemSet)
+                        .before(bevy::transform::TransformSystems::Propagate)
+                        .run_if(in_state(AppState::InGame)),
+                ),
             );
     }
 }
 
 /// Our replacement for `bevy_panorbit_camera`'s `bevy_egui` feature (which
 /// is deliberately disabled — see Cargo.toml): block camera input while the
-/// GUI wants the pointer/keyboard, EXCEPT that a held right button always
-/// controls the camera (#702) — orbiting must never die because the drag
-/// started over (or crossed) an editor window.
+/// GUI wants the pointer/keyboard, EXCEPT that a held right or middle
+/// button always controls the camera — an orbit (#702) or pan (#853) must
+/// never die because the drag started over (or crossed) an editor window.
+/// Scroll-zoom stays blocked while hovering a window on purpose: the wheel
+/// is how egui scrolls its own panels.
 ///
 /// Mirrors the crate's own two-frame trick: `wants_pointer_input()` flips
 /// true one frame late on a click into a window, so both the previous and
@@ -57,13 +68,65 @@ fn gate_camera_on_gui(
         let ctx = ctx.get_mut();
         gui_wants |= ctx.wants_pointer_input() || ctx.wants_keyboard_input();
     }
-    let enable = mouse.pressed(MouseButton::Right) || (!gui_wants && !*prev_gui_wants);
+    let enable = mouse.any_pressed([MouseButton::Right, MouseButton::Middle])
+        || (!gui_wants && !*prev_gui_wants);
     *prev_gui_wants = gui_wants;
     for mut cam in cameras.iter_mut() {
         // Manual change-detect: writing every frame would dirty the
         // component and defeat the crate's own change tracking.
         if cam.enabled != enable {
             cam.enabled = enable;
+        }
+    }
+}
+
+/// Distance along a focus→camera ray at which the ray first dips below
+/// the ground line, sampled at [`cfg::TERRAIN_CLAMP_SAMPLES`] points and
+/// backed off one step; `dist` when the whole ray is clear. Pure over a
+/// ground-height closure so it unit-tests without a real heightmap.
+fn clamp_distance_along_ray(
+    focus: Vec3,
+    dir: Vec3,
+    dist: f32,
+    mut ground_y: impl FnMut(f32, f32) -> f32,
+) -> f32 {
+    let steps = cfg::TERRAIN_CLAMP_SAMPLES;
+    let step = dist / steps as f32;
+    for i in 1..=steps {
+        let t = step * i as f32;
+        let p = focus + dir * t;
+        if p.y < ground_y(p.x, p.z) + cfg::TERRAIN_CLEARANCE {
+            return (t - step).max(cfg::TERRAIN_CLAMP_MIN_DIST);
+        }
+    }
+    dist
+}
+
+/// Pull the camera in along its focus→camera ray when it would dip under
+/// the terrain (#853) — orbiting low or zooming out over a slope used to
+/// show the world's underside. Runs after `PanOrbitCameraSystemSet` has
+/// written the camera `Transform` and only rewrites `translation`:
+/// sliding along the ray toward the focus preserves the exact look
+/// direction, and the crate recomputes the transform from its own
+/// yaw/pitch/radius state next frame, so no feedback loop forms.
+fn clamp_camera_to_terrain(
+    heightmap: Option<Res<FinishedHeightMap>>,
+    mut cameras: Query<(&PanOrbitCamera, &mut Transform), With<Camera3d>>,
+) {
+    let Some(hm) = heightmap else {
+        return;
+    };
+    for (cam, mut tf) in cameras.iter_mut() {
+        let focus = cam.focus;
+        let offset = tf.translation - focus;
+        let dist = offset.length();
+        if dist <= cfg::TERRAIN_CLAMP_MIN_DIST {
+            continue;
+        }
+        let dir = offset / dist;
+        let clamped = clamp_distance_along_ray(focus, dir, dist, |x, z| hm.world_height_at(x, z));
+        if clamped < dist {
+            tf.translation = focus + dir * clamped;
         }
     }
 }
@@ -123,6 +186,14 @@ fn spawn_orbit_camera(mut commands: Commands) {
             pitch: Some(cfg::ORBIT_PITCH),
             button_orbit: MouseButton::Right,
             button_pan: MouseButton::Middle,
+            // Zoom + pitch envelope (#853): without limits the wheel
+            // could zoom through the avatar or out past the fog, and a
+            // low orbit dived straight under the ground plane (the
+            // terrain clamp handles the slope-dependent remainder).
+            zoom_lower_limit: cfg::ZOOM_LOWER_LIMIT,
+            zoom_upper_limit: Some(cfg::ZOOM_UPPER_LIMIT),
+            pitch_lower_limit: Some(cfg::PITCH_LOWER_LIMIT),
+            pitch_upper_limit: Some(cfg::PITCH_UPPER_LIMIT),
             ..default()
         },
         Transform::from_xyz(pos[0], pos[1], pos[2]).looking_at(Vec3::ZERO, Vec3::Y),
@@ -184,17 +255,29 @@ fn follow_local_player(
     // helicopter, car). On the humanoid preset the physics body never
     // rotates, and we want the mouse to orbit freely without snapping when
     // the visual rig turns to face movement.
+    //
+    // Heading comes from the projected forward vector, not
+    // `to_euler(YXZ)` (#853): the Euler yaw term degenerates at pitch
+    // ±90°, so an airplane loop used to whip the camera π at the
+    // vertical. Near the pole the projection has no magnitude and the
+    // heading is genuinely undefined — freeze yaw inheritance there
+    // (keep `prev_yaw`) and resume accumulating once the nose comes back
+    // down; a full loop then contributes its true net yaw instead of a
+    // flip.
     if vehicle.is_some() {
-        let (vehicle_yaw, _, _) = player_tf.rotation.to_euler(EulerRot::YXZ);
-        if let Some(prev) = *prev_yaw {
-            let delta = {
-                use std::f32::consts::{PI, TAU};
-                let d = (vehicle_yaw - prev).rem_euclid(TAU);
-                if d > PI { d - TAU } else { d }
-            };
-            cam.target_yaw += delta;
+        let fwd = player_tf.rotation * Vec3::NEG_Z;
+        if fwd.y.abs() <= cfg::YAW_FREEZE_FORWARD_Y {
+            let vehicle_yaw = (-fwd.x).atan2(-fwd.z);
+            if let Some(prev) = *prev_yaw {
+                let delta = {
+                    use std::f32::consts::{PI, TAU};
+                    let d = (vehicle_yaw - prev).rem_euclid(TAU);
+                    if d > PI { d - TAU } else { d }
+                };
+                cam.target_yaw += delta;
+            }
+            *prev_yaw = Some(vehicle_yaw);
         }
-        *prev_yaw = Some(vehicle_yaw);
     } else {
         *prev_yaw = None;
     }
@@ -262,6 +345,99 @@ mod tests {
             (cam.target_yaw - 0.5).abs() < 1e-5,
             "target_yaw must accumulate the wrapped yaw delta, got {}",
             cam.target_yaw
+        );
+    }
+
+    /// #853: mid-loop (forward near-vertical) the heading is undefined —
+    /// yaw inheritance must freeze instead of whipping the camera, and
+    /// resume accumulating from the pre-loop reference when the nose
+    /// comes back down.
+    #[test]
+    fn vertical_forward_freezes_yaw_inheritance() {
+        use std::f32::consts::FRAC_PI_2;
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_systems(Update, follow_local_player);
+        let player = app
+            .world_mut()
+            .spawn((
+                Transform::from_rotation(Quat::from_rotation_y(0.3)),
+                LocalPlayer,
+                VehicleChassis,
+            ))
+            .id();
+        app.world_mut().spawn(PanOrbitCamera::default());
+        app.update();
+
+        // Nose straight up (forward = +Y): the degenerate stretch. The
+        // old to_euler extraction produced an arbitrary yaw here.
+        app.world_mut()
+            .entity_mut(player)
+            .get_mut::<Transform>()
+            .unwrap()
+            .rotation = Quat::from_rotation_x(FRAC_PI_2);
+        app.update();
+        {
+            let mut cams = app.world_mut().query::<&PanOrbitCamera>();
+            let cam = cams.single(app.world()).unwrap();
+            assert_eq!(
+                cam.target_yaw, 0.0,
+                "yaw must not move while forward is vertical"
+            );
+        }
+
+        // Nose back down at a new heading: the delta from the PRE-loop
+        // reference (0.3 → 0.8) accumulates, nothing from the vertical.
+        app.world_mut()
+            .entity_mut(player)
+            .get_mut::<Transform>()
+            .unwrap()
+            .rotation = Quat::from_rotation_y(0.8);
+        app.update();
+        let mut cams = app.world_mut().query::<&PanOrbitCamera>();
+        let cam = cams.single(app.world()).unwrap();
+        assert!(
+            (cam.target_yaw - 0.5).abs() < 1e-5,
+            "yaw must resume from the pre-loop reference, got {}",
+            cam.target_yaw
+        );
+    }
+
+    /// #853: the terrain clamp pulls the camera in along the ray, one
+    /// sample short of the first below-ground point, and leaves clear
+    /// rays untouched.
+    #[test]
+    fn terrain_clamp_stops_short_of_the_ground() {
+        let focus = Vec3::new(0.0, 10.0, 0.0);
+        // Descending ray at 45°: hits y = ground(5.0) + clearance
+        // somewhere past the midpoint of a 16 m ray.
+        let dir = Vec3::new(
+            std::f32::consts::FRAC_1_SQRT_2,
+            -std::f32::consts::FRAC_1_SQRT_2,
+            0.0,
+        );
+        let dist = 16.0;
+        let flat_ground = |_x: f32, _z: f32| 5.0;
+
+        let clamped = clamp_distance_along_ray(focus, dir, dist, flat_ground);
+        assert!(
+            clamped < dist,
+            "a ray dipping under ground must be shortened"
+        );
+        // Every sample up to the clamped distance stays above ground +
+        // clearance (the guarantee the renderer relies on).
+        let p = focus + dir * clamped;
+        assert!(
+            p.y >= 5.0 + cfg::TERRAIN_CLEARANCE - 1e-4,
+            "clamped point {p:?} is below the clearance line"
+        );
+
+        // A ray that never dips below ground is untouched.
+        let up_dir = Vec3::new(0.0, 1.0, 0.0);
+        assert_eq!(
+            clamp_distance_along_ray(focus, up_dir, dist, flat_ground),
+            dist
         );
     }
 }

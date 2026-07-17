@@ -13,6 +13,42 @@ use crate::water::WaterSurfaces;
 
 use super::HumanoidPreset;
 
+/// Update-side jump edge latch (#852). The drive systems run in
+/// `FixedUpdate` (64 Hz) but a key's `just_pressed` edge lives for one
+/// *render* frame: at 120/144 Hz many render frames execute zero fixed
+/// steps, so a Space tap frequently evaporated before any fixed step
+/// sampled it — and a hitchy frame running 2+ steps saw the same edge
+/// in each, double-firing the impulse. [`latch_jump_input`] converts
+/// the render-frame edge into this queued flag; the first fixed step
+/// reads it and [`clear_jump_queue`] (chained right after the walk
+/// system) wipes it, so exactly one step ever sees a given tap.
+#[derive(Resource, Default)]
+pub(super) struct JumpQueued(pub(super) bool);
+
+/// Latch Space's render-frame press edge for the fixed step. Registered
+/// under the same input gates as [`apply_humanoid_walk`] (egui keyboard
+/// focus, visuals-row selection, guard modal), so typing a space in chat
+/// never queues a jump for the moment focus returns.
+pub(super) fn latch_jump_input(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut queued: ResMut<JumpQueued>,
+) {
+    if keyboard.just_pressed(KeyCode::Space) {
+        queued.0 = true;
+    }
+}
+
+/// Wipe the jump queue at the end of every fixed step — chained after
+/// [`apply_humanoid_walk`] and deliberately NOT input-gated: whether the
+/// walk system consumed the edge, ignored it (mid-air, swimming), or was
+/// gated off entirely, a queued tap must never outlive the first fixed
+/// step that had the chance to act on it.
+pub(super) fn clear_jump_queue(mut queued: ResMut<JumpQueued>) {
+    if queued.0 {
+        queued.0 = false;
+    }
+}
+
 /// Classification of the humanoid's relationship to the water surface
 /// directly beneath them. Drives the three locomotion modes — walking on
 /// land, slowed wading with feet under water, and free 3D swimming with
@@ -102,6 +138,8 @@ pub(super) fn apply_humanoid_walk(
     sensors: Query<Entity, With<Sensor>>,
     spatial_query: SpatialQuery,
     traveling: Option<Res<TravelingTo>>,
+    jump_queued: Res<JumpQueued>,
+    avatar_editor: Option<Res<crate::ui::avatar::AvatarEditorState>>,
 ) {
     if traveling.is_some() {
         return;
@@ -187,7 +225,12 @@ pub(super) fn apply_humanoid_walk(
                 facing_target = Some(new_h.normalize());
             }
 
-            if keyboard.just_pressed(KeyCode::Space) {
+            // The Update-side latch, not `just_pressed` (#852): the edge
+            // only lives one render frame, which frequently contains zero
+            // fixed steps on >64 Hz displays. `clear_jump_queue` (chained
+            // after this system) wipes the flag each step, so a tap fires
+            // at most once and a mid-air tap can't fire on a later landing.
+            if jump_queued.0 {
                 let origin = chassis_pos + Vec3::Y * 0.05;
                 let feet_distance = total_height * 0.5 + 0.1;
                 // Exclude self + every sensor so a gateway veil / portal never
@@ -297,7 +340,19 @@ pub(super) fn apply_humanoid_walk(
     // capsule axis-aligned regardless. Apply the slerp to the chassis
     // transform itself so the entire avatar visuals tree (a child of
     // chassis) follows.
-    if let Some(facing) = facing_target {
+    //
+    // Skipped while the avatar-edit freeze holds the chassis (#852):
+    // this is a raw `Transform` write, which `LockedAxes::ALL_LOCKED`
+    // cannot constrain — with the Avatar window open and no row
+    // selected the drive gates (deliberately selection-scoped, see
+    // `super::avatar_visuals_row_selected`) let this system run, and
+    // WASD slewed the "frozen" avatar's facing mid-edit.
+    let frozen = avatar_editor
+        .map(|e| e.holds_avatar_still())
+        .unwrap_or(false);
+    if let Some(facing) = facing_target
+        && !frozen
+    {
         let target = Transform::IDENTITY.looking_to(facing, Vec3::Y).rotation;
         let turn_alpha = (12.0 * dt).clamp(0.0, 1.0);
         chassis_tf.rotation = chassis_tf.rotation.slerp(target, turn_alpha);
