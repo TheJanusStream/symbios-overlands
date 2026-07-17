@@ -13,25 +13,44 @@ use crate::state::{AppState, RelayHost};
 use super::complete::{install_completed_session, spawn_complete_task};
 use super::{CompleteAuthTask, CompletedSession, LoginError};
 
-/// WASM-only: on first login-state frame, check the URL for `?code=&state=`
-/// returned by the authorization server. If present, scrub the URL so a
-/// reload cannot replay the single-use code, then kick off the exchange.
+/// WASM-only: on first login-state frame, check the URL for the
+/// authorization server's callback parameters. On `?code=&state=`, scrub
+/// the URL so a reload cannot replay the single-use code, then kick off
+/// the exchange. On `?error=` (user denied, expired request, …), scrub
+/// the URL, drop the now-useless pending blob, and surface the error —
+/// before #847 a deny silently re-showed the form over a stale
+/// `PendingAuth` blob.
 pub fn check_wasm_callback(
     mut commands: Commands,
     oauth_client: Res<OauthClientRes>,
     existing: Query<&CompleteAuthTask>,
+    mut login_error: ResMut<LoginError>,
     mut ran: Local<bool>,
 ) {
     if *ran || !existing.is_empty() {
         return;
     }
     *ran = true;
-    let Some((code, _state)) = oauth::wasm::read_callback_params() else {
+    let params = oauth::wasm::read_callback_params();
+    if let Some(msg) = params.error_message() {
+        warn!("OAuth callback returned an error redirect: {msg}");
+        oauth::wasm::scrub_url();
+        let _ = oauth::wasm::take_pending();
+        login_error.0 = Some(msg);
+        return;
+    }
+    let Some(code) = params.code else {
         return;
     };
     oauth::wasm::scrub_url();
     let Some(pending) = oauth::wasm::take_pending() else {
         warn!("OAuth callback returned ?code= but no pending auth in sessionStorage");
+        login_error.0 = Some(
+            "The login response arrived, but this tab had no login attempt in \
+             progress (it may have started in another tab, or the browser session \
+             expired). Please sign in again."
+                .to_string(),
+        );
         return;
     };
     commands.insert_resource(RelayHost(pending.relay_host.clone()));

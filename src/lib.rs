@@ -247,6 +247,7 @@ pub fn run() {
             (
                 ui::login::reset_login_ui_latch,
                 ui::login::start_login_feed_fetch,
+                loading::clear_abort_flag,
             ),
         )
         .init_resource::<ui::room::RoomEditorState>()
@@ -305,20 +306,27 @@ pub fn run() {
         )
         .add_systems(
             OnEnter(AppState::InGame),
-            (loading::arm_ambient_settle, loading::toast_fetch_fallbacks),
+            (
+                loading::arm_ambient_settle,
+                loading::toast_fetch_fallbacks,
+                ui::toolbar::flash_owner_controls_once,
+            ),
         )
         .add_systems(
             Update,
             (
+                loading::abort_loading_to_login,
                 loading::poll_record_task::<RoomRecord>,
                 loading::poll_record_task::<AvatarRecord>,
                 loading::poll_record_task::<InventoryRecord>,
                 loading::fire_pending_record_retries::<RoomRecord>,
                 loading::fire_pending_record_retries::<AvatarRecord>,
-                // No retry instance for InventoryRecord: its fetch is
-                // best-effort (MAX_ATTEMPTS = 0), so no retry marker is
-                // ever spawned for it.
-                //
+                // Inventory grew a real (2-attempt) retry budget in #840,
+                // so its markers need a firing instance too — without
+                // this one, a single transient inventory blip parked a
+                // `PendingRecordRetry<InventoryRecord>` forever and the
+                // gate hung on `LiveInventoryRecord` (#849).
+                loading::fire_pending_record_retries::<InventoryRecord>,
                 // Ambient bake is chained AFTER the room-record poll so
                 // the dispatch sees `LiveRoomRecord` in the same frame
                 // it arrives — without `.chain()` the starter would

@@ -151,6 +151,39 @@ fn did_web_document_url(rest: &str) -> String {
     }
 }
 
+/// Resolve an ATProto `@handle` to its DID via the public AppView's
+/// unauthenticated `com.atproto.identity.resolveHandle` — CORS-reachable
+/// on wasm, same pattern as the login feed's `getAuthorFeed` (#848).
+///
+/// Errors are plain-language, suitable for direct display on the login
+/// form: the everyday failure is a typo'd handle, not a transport fault.
+pub async fn resolve_handle(client: &reqwest::Client, handle: &str) -> Result<String, String> {
+    #[derive(Deserialize)]
+    struct ResolveHandleResp {
+        did: String,
+    }
+    let url = url::Url::parse_with_params(
+        "https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle",
+        [("handle", handle)],
+    )
+    .map_err(|e| format!("Couldn't build the handle lookup URL: {e}"))?;
+    let resp = client.get(url).send().await.map_err(|e| {
+        format!("Couldn't reach the network to look up @{handle} — {e}. Check your connection.")
+    })?;
+    if !resp.status().is_success() {
+        // The AppView answers 400 `HandleNotFound` for unknown handles —
+        // by far the likeliest cause is a typo.
+        return Err(format!(
+            "Couldn't find an account for @{handle} — check the spelling."
+        ));
+    }
+    let body: ResolveHandleResp = resp
+        .json()
+        .await
+        .map_err(|e| format!("Handle lookup for @{handle} returned an unreadable answer: {e}"))?;
+    Ok(body.did)
+}
+
 /// Resolve a DID to its ATProto PDS endpoint by fetching the DID document.
 pub async fn resolve_pds(client: &reqwest::Client, did: &str) -> Option<String> {
     let url = if did.starts_with("did:plc:") {

@@ -266,7 +266,19 @@ impl Plugin for TerrainPlugin {
                     .chain()
                     .run_if(not(in_state(AppState::Login))),
             )
-            .add_systems(OnExit(AppState::InGame), lifecycle::cleanup_terrain);
+            .add_systems(OnExit(AppState::InGame), lifecycle::cleanup_terrain)
+            // The loading screen's "Back to login" abort (#849) never
+            // passes through `InGame`, so the OnExit teardown above
+            // wouldn't fire — react to the abort flag directly. The flag
+            // is removed by deferred command, so it is still visible to
+            // this frame's whole Update schedule; the run never repeats.
+            .add_systems(
+                Update,
+                lifecycle::cleanup_terrain.run_if(
+                    in_state(AppState::Loading)
+                        .and(resource_exists::<crate::loading::AbortLoading>),
+                ),
+            );
     }
 }
 

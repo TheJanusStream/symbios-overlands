@@ -200,6 +200,31 @@ impl PlacementUnit {
 #[derive(Resource)]
 pub struct WorldCompiled;
 
+/// One-frame delay latch for the first compile of a `Loading` pass
+/// (#849). [`arm_world_compile`] inserts this the frame the compile's
+/// dependencies (room record + terrain mesh) are satisfied; the compile
+/// itself is gated on it, so the loading screen gets one full rendered
+/// frame to present its "Building world — may pause" row *before* the
+/// first compile slice can stall the main thread (multi-second on
+/// wasm). Irrelevant once `InGame` (the compile condition ORs the state
+/// in); removed by `logout::cleanup_on_logout` so the next login delays
+/// again.
+#[derive(Resource)]
+pub struct WorldCompileArmed;
+
+/// Insert [`WorldCompileArmed`] one frame ahead of the first compile —
+/// see the latch's docs. Runs only during `AppState::Loading`.
+fn arm_world_compile(
+    mut commands: Commands,
+    armed: Option<Res<WorldCompileArmed>>,
+    record: Option<Res<crate::state::LiveRoomRecord>>,
+    terrain: Query<(), With<crate::terrain::TerrainMesh>>,
+) {
+    if armed.is_none() && record.is_some() && !terrain.is_empty() {
+        commands.insert_resource(WorldCompileArmed);
+    }
+}
+
 /// Tags the root entity of a `Placement::Absolute` with its index into the
 /// live `RoomRecord::placements` vec. `editor_gizmo` reads this to map a
 /// selected-in-UI placement to its 3D entity and to commit the gizmo's
@@ -291,9 +316,19 @@ impl Plugin for WorldBuilderPlugin {
             // that gap would silently skip the terrain traits.
             .add_systems(
                 Update,
+                arm_world_compile.run_if(in_state(AppState::Loading)),
+            )
+            .add_systems(
+                Update,
                 (
-                    compile::compile_room_record
-                        .run_if(any_with_component::<crate::terrain::TerrainMesh>),
+                    // The `WorldCompileArmed` OR keeps the first Loading
+                    // compile one rendered frame behind its dependencies
+                    // (#849) without gating in-game rebuilds.
+                    compile::compile_room_record.run_if(
+                        any_with_component::<crate::terrain::TerrainMesh>.and(
+                            in_state(AppState::InGame).or(resource_exists::<WorldCompileArmed>),
+                        ),
+                    ),
                     compile::apply_environment_state,
                     compile::apply_contact_recipes,
                     image_cache::poll_blob_image_tasks,

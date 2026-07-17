@@ -74,10 +74,18 @@ pub fn poll_begin_auth_task(
                             commands.insert_resource(oauth::NativePendingAuthRes(
                                 std::sync::Mutex::new(Some(pending)),
                             ));
+                            // Retain the URL for the waiting UI's "Copy
+                            // login URL" button — deliberately inserted
+                            // even (especially) when the browser launch
+                            // below fails, so the user can complete the
+                            // login by hand.
+                            commands.insert_resource(oauth::NativeAuthUrl(auth_url.clone()));
                             if let Err(e) = webbrowser::open(&auth_url) {
-                                let msg = format!("open browser: {e}");
-                                warn!("{msg}");
-                                login_error.0 = Some(msg);
+                                warn!("open browser: {e}");
+                                login_error.0 = Some(format!(
+                                    "Couldn't open your browser automatically ({e}). \
+                                     Use \"Copy login URL\" and paste it into any browser."
+                                ));
                             }
                         }
                         Err(e) => {

@@ -72,24 +72,73 @@ fn client_metadata_scope_matches_hosted_document() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn parse_callback_query_typical() {
-    let (c, s) = oauth::parse_callback_query("/callback?code=abc123&state=xyz");
-    assert_eq!(c.as_deref(), Some("abc123"));
-    assert_eq!(s.as_deref(), Some("xyz"));
+    let p = oauth::parse_callback_query("/callback?code=abc123&state=xyz");
+    assert_eq!(p.code.as_deref(), Some("abc123"));
+    assert_eq!(p.state.as_deref(), Some("xyz"));
+    assert!(p.error.is_none());
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn parse_callback_query_percent_encoded() {
-    let (c, _) = oauth::parse_callback_query("/callback?code=a%2Bb&state=s");
-    assert_eq!(c.as_deref(), Some("a+b"));
+    let p = oauth::parse_callback_query("/callback?code=a%2Bb&state=s");
+    assert_eq!(p.code.as_deref(), Some("a+b"));
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn parse_callback_query_missing() {
-    let (c, s) = oauth::parse_callback_query("/callback");
-    assert!(c.is_none());
-    assert!(s.is_none());
+    let p = oauth::parse_callback_query("/callback");
+    assert!(p.code.is_none());
+    assert!(p.state.is_none());
+    assert!(p.error.is_none());
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn parse_callback_query_error_redirect() {
+    // #847: the AS's deny redirect (RFC 6749 §4.1.2.1) must parse —
+    // before this, `error` was dropped and a deny left the native
+    // listener waiting forever.
+    let p = oauth::parse_callback_query(
+        "/callback?error=access_denied&error_description=User%20denied%20access&state=xyz",
+    );
+    assert!(p.code.is_none());
+    assert_eq!(p.error.as_deref(), Some("access_denied"));
+    assert_eq!(p.error_description.as_deref(), Some("User denied access"));
+    assert_eq!(p.state.as_deref(), Some("xyz"));
+}
+
+#[test]
+fn callback_error_message_wording() {
+    // The everyday deny gets plain language, not an error code…
+    let denied = oauth::CallbackParams {
+        error: Some("access_denied".into()),
+        ..Default::default()
+    };
+    let msg = denied.error_message().expect("deny must produce a message");
+    assert!(msg.contains("cancelled"), "{msg}");
+    assert!(!msg.contains("access_denied"), "{msg}");
+
+    // …other errors surface code + description verbatim…
+    let other = oauth::CallbackParams {
+        error: Some("invalid_request".into()),
+        error_description: Some("request expired".into()),
+        ..Default::default()
+    };
+    let msg = other.error_message().expect("error must produce a message");
+    assert!(
+        msg.contains("invalid_request") && msg.contains("request expired"),
+        "{msg}"
+    );
+
+    // …and a success callback produces none.
+    let ok = oauth::CallbackParams {
+        code: Some("abc".into()),
+        state: Some("xyz".into()),
+        ..Default::default()
+    };
+    assert!(ok.error_message().is_none());
 }
 
 // ---------------------------------------------------------------------------
@@ -102,21 +151,22 @@ fn parse_callback_query_empty_values() {
     // Server bug or truncated redirect — we must not panic; both values
     // parse as empty strings rather than `None`, because the key *was*
     // present. Callers decide how to handle empty codes.
-    let (c, s) = oauth::parse_callback_query("/callback?code=&state=");
-    assert_eq!(c.as_deref(), Some(""));
-    assert_eq!(s.as_deref(), Some(""));
+    let p = oauth::parse_callback_query("/callback?code=&state=");
+    assert_eq!(p.code.as_deref(), Some(""));
+    assert_eq!(p.state.as_deref(), Some(""));
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn parse_callback_query_ignores_unknown_params() {
     // atproto OAuth callbacks can carry extra fields (`iss`, session-id
-    // cookies, etc.). We need to quietly skip anything that isn't code/state.
-    let (c, s) = oauth::parse_callback_query(
+    // cookies, etc.). We need to quietly skip anything that isn't a
+    // recognised callback parameter.
+    let p = oauth::parse_callback_query(
         "/callback?iss=https%3A%2F%2Fpds.example&code=abc&state=xyz&extra=1",
     );
-    assert_eq!(c.as_deref(), Some("abc"));
-    assert_eq!(s.as_deref(), Some("xyz"));
+    assert_eq!(p.code.as_deref(), Some("abc"));
+    assert_eq!(p.state.as_deref(), Some("xyz"));
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -124,17 +174,17 @@ fn parse_callback_query_ignores_unknown_params() {
 fn parse_callback_query_plus_in_percent_encoding() {
     // `%20` should become a space. Regression guard — native callback
     // decoder has to respect the full percent-encoding alphabet.
-    let (c, _) = oauth::parse_callback_query("/callback?code=hello%20world&state=s");
-    assert_eq!(c.as_deref(), Some("hello world"));
+    let p = oauth::parse_callback_query("/callback?code=hello%20world&state=s");
+    assert_eq!(p.code.as_deref(), Some("hello world"));
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn parse_callback_query_malformed_pair_no_panic() {
     // Barewords (`?foo` with no `=`) must not panic the loopback server.
-    let (c, s) = oauth::parse_callback_query("/callback?code&state=only");
-    assert_eq!(c.as_deref(), Some(""));
-    assert_eq!(s.as_deref(), Some("only"));
+    let p = oauth::parse_callback_query("/callback?code&state=only");
+    assert_eq!(p.code.as_deref(), Some(""));
+    assert_eq!(p.state.as_deref(), Some("only"));
 }
 
 #[test]

@@ -12,7 +12,7 @@ use proto_blue_oauth::{OAuthServerMetadata, types::TokenSet};
 use serde::{Deserialize, Serialize};
 
 use super::discovery::WASM_REDIRECT_URI;
-use super::util::percent_decode;
+use super::util::{CallbackParams, parse_query_params};
 use super::{PERSISTED_SESSION_KEY, PendingAuth, SESSION_STORAGE_KEY};
 
 /// Retrieve the browser's `sessionStorage`, or `None` if it is not
@@ -40,28 +40,16 @@ pub fn take_pending() -> Option<PendingAuth> {
     serde_json::from_str(&raw).ok()
 }
 
-/// Parse `?code=&state=` out of the current URL, returning `(code,
-/// state)` if both are present.
-pub fn read_callback_params() -> Option<(String, String)> {
-    let window = web_sys::window()?;
-    let search = window.location().search().ok()?;
+/// Parse the recognised OAuth callback parameters (`code`, `state`,
+/// `error`, `error_description`) out of the current URL's query string.
+/// Returns an all-`None` [`CallbackParams`] on a bare page load.
+pub fn read_callback_params() -> CallbackParams {
     // URL query parser via `web_sys::UrlSearchParams` would need the
     // "UrlSearchParams" feature enabled. A tiny hand-roll is lighter.
-    let query = search.trim_start_matches('?');
-    let mut code = None;
-    let mut state = None;
-    for pair in query.split('&') {
-        let mut it = pair.splitn(2, '=');
-        let k = it.next().unwrap_or("");
-        let v = it.next().unwrap_or("");
-        let decoded = percent_decode(v);
-        match k {
-            "code" => code = Some(decoded),
-            "state" => state = Some(decoded),
-            _ => {}
-        }
-    }
-    Some((code?, state?))
+    web_sys::window()
+        .and_then(|w| w.location().search().ok())
+        .map(|search| parse_query_params(search.trim_start_matches('?')))
+        .unwrap_or_default()
 }
 
 /// Replace the current URL with the bare redirect origin so reloads

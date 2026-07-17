@@ -48,6 +48,12 @@ pub struct UiPanels {
     /// is center-anchored so a brand-new visitor cannot miss it; ever
     /// after it is a normal draggable window near the right edge.
     pub controls_seen: bool,
+    /// True once the owner-gestures callout has fired (#851): the first
+    /// `InGame` arrival in a world the player OWNS re-opens the Controls
+    /// sheet so its "You own this world" section (right-click menu,
+    /// Shift-copy, Esc) is actually seen. Persisted like the rest of the
+    /// struct so it happens once per machine, not once per session.
+    pub owner_hint_seen: bool,
 }
 
 impl Default for UiPanels {
@@ -62,7 +68,20 @@ impl Default for UiPanels {
             diagnostics: false,
             controls: true,
             controls_seen: false,
+            owner_hint_seen: false,
         }
+    }
+}
+
+/// Does the signed-in player own the overland they're standing in?
+/// Ownership is DID equality — the room record lives in the owner's PDS.
+fn owns_current_room(
+    session: Option<&AtprotoSession>,
+    current_room: Option<&CurrentRoomDid>,
+) -> bool {
+    match (session, current_room) {
+        (Some(session), Some(room)) => session.did == room.0,
+        _ => false,
     }
 }
 
@@ -104,9 +123,9 @@ fn badge_count(n: usize) -> String {
 }
 
 /// Slim top bar enumerating every panel as a toggle button. The World
-/// Editor button only renders for the room's owner — the panel itself
-/// is owner-gated too, so showing the button to a visitor would be a
-/// dead control.
+/// Editor button is enabled only for the room's owner — the panel
+/// itself is owner-gated too. Visitors see it disabled with an
+/// ownership explanation instead of not at all (#851).
 ///
 /// #835 additions: one-line tooltips on every toggle, an unread-count
 /// badge on Chat, a live headcount on People, a clickable anomaly dot
@@ -133,10 +152,7 @@ pub fn toolbar_ui(
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
-    let owns_room = match (session.as_deref(), current_room.as_deref()) {
-        (Some(session), Some(room)) => session.did == room.0,
-        _ => false,
-    };
+    let owns_room = owns_current_room(session.as_deref(), current_room.as_deref());
 
     // An open Chat window means every message is on screen — the badge
     // only counts what arrives while it's closed. Guarded write so the
@@ -178,6 +194,15 @@ pub fn toolbar_ui(
             if owns_room {
                 ui.toggle_value(&mut panels.world_editor, "World Editor")
                     .on_hover_text("World Editor — reshape this overland (you own it)");
+            } else {
+                // Rendered disabled instead of hidden (#851): the silent
+                // pop-in taught nobody why the button exists — now a
+                // visitor hovering it learns the ownership rule.
+                ui.add_enabled(false, egui::Button::selectable(false, "World Editor"))
+                    .on_disabled_hover_text(
+                        "Only this overland's owner can edit it. Your own overland \
+                         is editable when you're home.",
+                    );
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 // Account chip — first in the right-to-left layout, so it
@@ -409,6 +434,34 @@ const AIRPLANE_ROWS: &[ControlRow] = &[
     },
 ];
 
+// World-editing gesture rows (#851), shown to the room's owner. These
+// mirror the live handlers — same #803 contract as the movement rows,
+// change both together:
+// * right-click menu → `editor_gizmo::context_menu::detect_scene_right_click`
+//   (click-vs-drag discrimination: a right-DRAG still orbits the camera)
+// * left-click pick  → the editor's scene picker (active while an editor
+//   window is open)
+// * Shift-copy-drag  → `editor_gizmo::drag` (Shift at drag-start clones)
+// * Esc              → drag abort + selection clear (`ui::shortcuts`)
+const EDITOR_ROWS: &[ControlRow] = &[
+    ControlRow {
+        keys: "Right-click",
+        action: "create / select menu (a right-DRAG still orbits)",
+    },
+    ControlRow {
+        keys: "Left-click",
+        action: "pick the object under the cursor (editor open)",
+    },
+    ControlRow {
+        keys: "Shift-drag",
+        action: "drag a copy instead of moving",
+    },
+    ControlRow {
+        keys: "Esc",
+        action: "abort a drag · clear the selection",
+    },
+];
+
 /// Movement key rows for the piloted chassis — the pure preset→rows mapping
 /// (#803, unit-tested below). The camera rows and portal hint are shared and
 /// rendered separately by [`controls_hint_ui`].
@@ -440,10 +493,27 @@ fn piloted_chassis(boat: bool, skiff: bool, airship: bool, airplane: bool) -> Pi
     }
 }
 
+/// First `InGame` arrival in a world the player OWNS re-opens the
+/// Controls sheet so the owner-gestures section is actually seen once
+/// (#851). Latched via the persisted [`UiPanels::owner_hint_seen`], so
+/// it fires once per machine — visiting other worlds doesn't count, and
+/// re-logins don't re-flash it. Registered on `OnEnter(InGame)`.
+pub fn flash_owner_controls_once(
+    mut panels: ResMut<UiPanels>,
+    session: Option<Res<AtprotoSession>>,
+    current_room: Option<Res<CurrentRoomDid>>,
+) {
+    if owns_current_room(session.as_deref(), current_room.as_deref()) && !panels.owner_hint_seen {
+        panels.owner_hint_seen = true;
+        panels.controls = true;
+    }
+}
+
 /// Movement / camera cheat-sheet. Open on first `InGame` entry (the
 /// [`UiPanels`] default) and from the toolbar afterwards. The movement rows are
 /// context-sensitive to the chassis the player is currently piloting (#803);
-/// the camera rows and portal hint are shared.
+/// the camera rows and portal hint are shared, and the room's owner
+/// additionally gets the world-editing gesture rows (#851).
 #[allow(clippy::type_complexity)]
 pub fn controls_hint_ui(
     mut contexts: EguiContexts,
@@ -458,6 +528,8 @@ pub fn controls_hint_ui(
         ),
         With<LocalPlayer>,
     >,
+    session: Option<Res<AtprotoSession>>,
+    current_room: Option<Res<CurrentRoomDid>>,
 ) {
     if !panels.controls {
         return;
@@ -524,6 +596,30 @@ pub fn controls_hint_ui(
         ui.small("Change your vehicle in Avatar → Locomotion.");
         ui.add_space(6.0);
         ui.label("Walk through a portal doorway to travel into another overland.");
+        // Owner-only: the world-editing gestures (#851). Every one of
+        // these was previously undiscoverable — and right-click doubling
+        // as camera orbit actively taught people to avoid the menu.
+        if owns_current_room(session.as_deref(), current_room.as_deref()) {
+            ui.add_space(8.0);
+            ui.separator();
+            ui.strong("You own this world — World Editor");
+            ui.add_space(4.0);
+            egui::Grid::new("controls-editor-grid")
+                .num_columns(2)
+                .spacing([24.0, 4.0])
+                .show(ui, |ui| {
+                    for row in EDITOR_ROWS {
+                        ui.monospace(row.keys);
+                        ui.label(row.action);
+                        ui.end_row();
+                    }
+                });
+            ui.add_space(4.0);
+            ui.small(
+                "The World/Local toggle beside the editor's transform fields \
+                 switches the drag gizmo's orientation.",
+            );
+        }
         ui.add_space(6.0);
         ui.vertical_centered(|ui| {
             if ui.button("Got it").clicked() {
@@ -599,6 +695,20 @@ mod tests {
                 assert!(!row.keys.is_empty(), "{chassis:?} row has empty keys");
                 assert!(!row.action.is_empty(), "{chassis:?} row has empty action");
             }
+        }
+    }
+
+    #[test]
+    fn editor_rows_cover_the_core_gestures() {
+        // #851's acceptance: a new owner learns the three core editing
+        // gestures (plus the escape) from the sheet alone. Guard the rows
+        // so a future trim can't silently drop one.
+        let keys: Vec<&str> = EDITOR_ROWS.iter().map(|r| r.keys).collect();
+        for expected in ["Right-click", "Left-click", "Shift-drag", "Esc"] {
+            assert!(keys.contains(&expected), "editor rows lost {expected}");
+        }
+        for row in EDITOR_ROWS {
+            assert!(!row.action.is_empty(), "{} row has empty action", row.keys);
         }
     }
 

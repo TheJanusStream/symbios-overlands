@@ -37,7 +37,9 @@ pub async fn begin_authorization(
     relay_host: &str,
     target_did: &str,
 ) -> Result<(String, PendingAuth), String> {
-    let http = reqwest::Client::new();
+    // Timed client (#848) — reqwest's default has no timeouts, and an
+    // unresponsive PDS would otherwise pin the login spinner forever.
+    let http = crate::config::http::default_client();
     let auth_server = discover_auth_server(&http, pds_url).await?;
     let server_metadata = oauth_client
         .discover_server(&auth_server)
@@ -107,7 +109,7 @@ pub async fn complete_authorization(
         oauth_client.dpop_nonces().clone(),
     ));
 
-    let http = reqwest::Client::new();
+    let http = crate::config::http::default_client();
     let pds_url = crate::pds::resolve_pds(&http, &did)
         .await
         .ok_or_else(|| format!("resolve_pds: could not resolve DID document for {did}"))?;

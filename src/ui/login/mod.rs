@@ -30,9 +30,11 @@
 
 mod begin;
 mod complete;
+mod errors;
 #[cfg(not(target_arch = "wasm32"))]
 mod native_callback;
 mod posts;
+mod validation;
 #[cfg(target_arch = "wasm32")]
 mod wasm_resume;
 
@@ -44,6 +46,7 @@ pub use posts::{LoginPostFeed, poll_login_feed_fetch, start_login_feed_fetch};
 #[cfg(target_arch = "wasm32")]
 pub use wasm_resume::{check_wasm_callback, check_wasm_resume, poll_resume_task};
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
@@ -110,6 +113,11 @@ pub struct LoginUiLatch {
     /// `BootParams::autosubmit` is set). Latched so a re-render before
     /// the [`BeginAuthTask`] entity becomes visible doesn't double-fire.
     pub autosubmitted: bool,
+    /// Set the first frame the idle form gives keyboard focus to the
+    /// destination field (#848), so the type-then-Enter reflex works
+    /// without a mouse. One-shot so later frames don't steal focus back
+    /// from wherever the user tabbed to.
+    pub focused: bool,
 }
 
 /// Reset the [`LoginUiLatch`] when the app (re)enters
@@ -119,6 +127,31 @@ pub struct LoginUiLatch {
 /// `BootParams` would never refire `autosubmit` for the second visit.
 pub fn reset_login_ui_latch(mut latch: ResMut<LoginUiLatch>) {
     *latch = LoginUiLatch::default();
+}
+
+/// Native-only bundle of the loopback-listener resources [`login_ui`]
+/// needs for the browser-waiting state (#847): presence of the receiver
+/// marks the stretch between browser launch and callback, the server
+/// handle powers *Cancel*, and the retained URL powers *Copy login URL*.
+/// Bundled as a [`SystemParam`] struct to stay clear of Bevy's 16-param
+/// `IntoSystem` ceiling, which already bites `login_ui` (see
+/// [`posts::retry_fetch`]).
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(SystemParam)]
+pub struct NativeWaitState<'w> {
+    receiver: Option<Res<'w, oauth::NativeCallbackReceiver>>,
+    server: Option<ResMut<'w, oauth::NativeCallbackServerRes>>,
+    auth_url: Option<Res<'w, oauth::NativeAuthUrl>>,
+}
+
+/// WASM-only bundle for the persisted-session resume state (#847): the
+/// in-flight [`wasm_resume::ResumeAuthTask`]s, so [`login_ui`] can show
+/// "Resuming session…" instead of a fully-clickable form racing the
+/// resume, plus the escape hatch that cancels it.
+#[cfg(target_arch = "wasm32")]
+#[derive(SystemParam)]
+pub struct WasmResumeState<'w, 's> {
+    resume_tasks: Query<'w, 's, Entity, With<wasm_resume::ResumeAuthTask>>,
 }
 
 #[derive(Clone)]
@@ -147,9 +180,11 @@ pub fn login_ui(
     boot: Option<Res<BootParams>>,
     login_error: Res<LoginError>,
     oauth_client: Res<OauthClientRes>,
-    begin_tasks: Query<&BeginAuthTask>,
-    complete_tasks: Query<&CompleteAuthTask>,
+    begin_tasks: Query<Entity, With<BeginAuthTask>>,
+    complete_tasks: Query<Entity, With<CompleteAuthTask>>,
     mut feed: ResMut<LoginPostFeed>,
+    #[cfg(not(target_arch = "wasm32"))] mut native: NativeWaitState,
+    #[cfg(target_arch = "wasm32")] wasm: WasmResumeState,
 ) {
     // First-frame pre-fill from URL/CLI boot params. Done as a one-shot
     // (`latch.prefilled`) so a subsequent re-render does not stomp on
@@ -182,28 +217,57 @@ pub fn login_ui(
         .default_pos(crate::config::ui::login::WINDOW_POS)
         .show(&ctx, |ui| {
             ui.set_min_width(crate::config::ui::login::WINDOW_MIN_WIDTH);
-            ui.label("Authenticate via your ATProto PDS (OAuth 2.0) to enter the overlands.");
+            ui.label(
+                "Sign in with your Bluesky (ATProto) account to explore procedurally \
+                 seeded worlds, build your own, and visit friends.",
+            );
             ui.add_space(8.0);
 
-            ui.horizontal(|ui| {
-                ui.label("PDS:");
-                ui.text_edit_singleline(&mut form.pds);
-            });
-            ui.horizontal(|ui| {
-                ui.label("Relay Host:");
-                ui.text_edit_singleline(&mut form.relay_host);
-            });
-            ui.horizontal(|ui| {
-                ui.label("Destination DID (blank = Home):");
-                ui.text_edit_singleline(&mut form.target_did);
+            // Enter-to-submit (#848): a field that just lost focus to the
+            // Enter key reads as "I'm done typing — go".
+            let mut enter_submitted = false;
+            let mut track_enter = |resp: &egui::Response| {
+                if resp.lost_focus() && resp.ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    enter_submitted = true;
+                }
+            };
+
+            ui.label("Destination — a friend's @handle or DID, blank for your own world:");
+            let dest_resp = ui.text_edit_singleline(&mut form.target_did);
+            track_enter(&dest_resp);
+            if !latch.focused {
+                dest_resp.request_focus();
+                latch.focused = true;
+            }
+
+            // The PDS / relay endpoints are operator plumbing nobody
+            // should touch on a first login — folded away so the first
+            // screen doesn't lead with a bare IP that reads as sketchy.
+            ui.collapsing("Advanced", |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("PDS:");
+                    track_enter(&ui.text_edit_singleline(&mut form.pds));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Relay Host:");
+                    track_enter(&ui.text_edit_singleline(&mut form.relay_host));
+                });
             });
 
             ui.add_space(8.0);
 
             let redirecting = !begin_tasks.is_empty();
             let completing = !complete_tasks.is_empty();
+            // Target-specific third busy state (#847): on native, the
+            // stretch between browser launch and loopback callback; on
+            // WASM, the silent persisted-session resume that used to
+            // hide behind a fully-clickable form.
+            #[cfg(not(target_arch = "wasm32"))]
+            let waiting = native.receiver.is_some();
+            #[cfg(target_arch = "wasm32")]
+            let waiting = !wasm.resume_tasks.is_empty();
             let mut begin_now = false;
-            if !redirecting && !completing {
+            if !redirecting && !completing && !waiting {
                 // Primary call to action — deliberately oversized and
                 // filled green so it reads as *the* thing to do on the
                 // login screen rather than a peer of the text fields.
@@ -220,7 +284,7 @@ pub fn login_ui(
                         crate::config::ui::login::ENTER_BUTTON_MIN_SIZE,
                     )),
                 );
-                if enter.clicked() {
+                if enter.clicked() || enter_submitted {
                     begin_now = true;
                 }
                 // Auto-submit when the URL/CLI supplied a destination DID.
@@ -250,62 +314,186 @@ pub fn login_ui(
                     // Idle state — render nothing extra. The button above
                     // is the only affordance.
                 }
+            } else if completing {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Completing authentication…");
+                });
+                // Escape hatch for a hung exchange (#848). The
+                // authorization code is single-use, so a cancelled
+                // exchange can't be resumed — the user just starts a
+                // fresh login, which is exactly what the form offers.
+                if ui.button("Cancel").clicked() {
+                    for e in complete_tasks.iter() {
+                        commands.entity(e).despawn();
+                    }
+                    commands.insert_resource(LoginError(None));
+                }
+            } else if redirecting {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Contacting your PDS…");
+                });
+                if ui.button("Cancel").clicked() {
+                    // Dropping the task aborts the discovery round-trip.
+                    for e in begin_tasks.iter() {
+                        commands.entity(e).despawn();
+                    }
+                    commands.insert_resource(LoginError(None));
+                }
             } else {
-                ui.spinner();
-                ui.label(if completing {
-                    "Completing authentication…"
-                } else {
-                    "Opening your PDS authorization page…"
-                });
+                // `waiting` — the target-specific stretch.
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Complete the login in your browser…");
+                    });
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Cancel").clicked() {
+                            // Shut the loopback listener down promptly
+                            // (frees the port for the next attempt) and
+                            // drop the rest of the attempt's resources.
+                            if let Some(server) = native.server.as_mut()
+                                && let Some(mut handle) = server.0.take()
+                            {
+                                handle.shutdown();
+                            }
+                            commands.remove_resource::<oauth::NativeCallbackReceiver>();
+                            commands.remove_resource::<oauth::NativeCallbackServerRes>();
+                            commands.remove_resource::<oauth::NativePendingAuthRes>();
+                            commands.remove_resource::<oauth::NativeAuthUrl>();
+                            commands.insert_resource(LoginError(None));
+                        }
+                        if let Some(url) = native.auth_url.as_deref()
+                            && ui
+                                .button("Copy login URL")
+                                .on_hover_text(
+                                    "Paste into any browser on this machine \
+                                     to finish signing in",
+                                )
+                                .clicked()
+                        {
+                            ui.ctx().copy_text(url.0.clone());
+                        }
+                    });
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Resuming your previous session…");
+                    });
+                    ui.add_space(4.0);
+                    if ui.button("Not you? Sign in differently").clicked() {
+                        // Cancel the in-flight resume (dropping the task
+                        // aborts it), forget the persisted session, and
+                        // fall back to the idle form. Latch autosubmit
+                        // off so a boot `did=` link doesn't immediately
+                        // re-fire a login the user just backed out of.
+                        oauth::wasm::clear_persisted();
+                        for e in wasm.resume_tasks.iter() {
+                            commands.entity(e).despawn();
+                        }
+                        latch.autosubmitted = true;
+                        commands.insert_resource(LoginError(None));
+                    }
+                }
             }
+            // Validate at the form (#848) so a blank relay or typo'd
+            // destination fails right here with a readable message,
+            // instead of minutes later deep in the pipeline.
             if begin_now {
-                commands.insert_resource(LoginError(None));
-                let relay_host = form.relay_host.trim().to_string();
-                let pds_url = form.pds.trim().to_string();
-                let target_did = form.target_did.trim().to_string();
-                let boot_pos = boot.as_deref().and_then(|b| b.target_pos);
-                let boot_yaw = boot.as_deref().and_then(|b| b.target_yaw_deg);
-                info!(
-                    "OAuth begin: pds={} relay={} target_did={}",
-                    pds_url,
-                    relay_host,
-                    if target_did.is_empty() {
-                        "<home>"
-                    } else {
-                        target_did.as_str()
+                match validation::validate_form(&form.pds, &form.relay_host, &form.target_did) {
+                    Err(msg) => {
+                        commands.insert_resource(LoginError(Some(msg)));
                     }
-                );
-                commands.insert_resource(RelayHost(relay_host.clone()));
+                    Ok(validated) => {
+                        commands.insert_resource(LoginError(None));
+                        // Reflect the normalisation (scheme prepended,
+                        // stray scheme stripped) back into the form so
+                        // what runs is what the user sees.
+                        form.pds = validated.pds_url.clone();
+                        form.relay_host = validated.relay_host.clone();
+                        let boot_pos = boot.as_deref().and_then(|b| b.target_pos);
+                        let boot_yaw = boot.as_deref().and_then(|b| b.target_yaw_deg);
+                        info!(
+                            "OAuth begin: pds={} relay={} destination={:?}",
+                            validated.pds_url, validated.relay_host, validated.destination
+                        );
+                        commands.insert_resource(RelayHost(validated.relay_host.clone()));
 
-                let client = oauth_client.0.clone();
-                let pool = bevy::tasks::IoTaskPool::get();
-                let task = pool.spawn(async move {
-                    let fut = async move {
-                        let (auth_url, mut pending) =
-                            oauth::begin_authorization(&client, &pds_url, &relay_host, &target_did)
+                        let client = oauth_client.0.clone();
+                        let pool = bevy::tasks::IoTaskPool::get();
+                        let task = pool.spawn(async move {
+                            let validation::ValidatedForm {
+                                pds_url,
+                                relay_host,
+                                destination,
+                            } = validated;
+                            let fut = async move {
+                                let target_did = match destination {
+                                    validation::Destination::Home => String::new(),
+                                    validation::Destination::Did(did) => did,
+                                    // An @handle destination resolves to a
+                                    // DID up front — a typo fails in one
+                                    // round-trip with a spelling hint,
+                                    // instead of burning the post-login
+                                    // record-fetch retry budget.
+                                    validation::Destination::Handle(handle) => {
+                                        let http = crate::config::http::default_client();
+                                        crate::pds::resolve_handle(&http, &handle).await?
+                                    }
+                                };
+                                let (auth_url, mut pending) = oauth::begin_authorization(
+                                    &client,
+                                    &pds_url,
+                                    &relay_host,
+                                    &target_did,
+                                )
                                 .await?;
-                        // Carry the URL/CLI spawn pose across the OAuth
-                        // redirect — the AS strips our query params, so
-                        // this is the only path that survives.
-                        pending.target_pos = boot_pos;
-                        pending.target_yaw_deg = boot_yaw;
-                        Ok::<_, String>((auth_url, pending))
-                    };
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        fut.await
+                                // Carry the URL/CLI spawn pose across the OAuth
+                                // redirect — the AS strips our query params, so
+                                // this is the only path that survives.
+                                pending.target_pos = boot_pos;
+                                pending.target_yaw_deg = boot_yaw;
+                                Ok::<_, String>((auth_url, pending))
+                            };
+                            #[cfg(target_arch = "wasm32")]
+                            {
+                                fut.await
+                            }
+                            #[cfg(not(target_arch = "wasm32"))]
+                            {
+                                crate::config::http::block_on(fut)
+                            }
+                        });
+                        commands.spawn(BeginAuthTask(task));
                     }
-                    #[cfg(not(target_arch = "wasm32"))]
-                    {
-                        crate::config::http::block_on(fut)
-                    }
-                });
-                commands.spawn(BeginAuthTask(task));
+                }
             }
 
             if let Some(err) = &login_error.0 {
-                ui.colored_label(egui::Color32::RED, err);
+                let (friendly, details) = errors::friendly_login_error(err);
+                ui.colored_label(egui::Color32::RED, friendly);
+                if let Some(raw) = details {
+                    ui.collapsing("Details", |ui| {
+                        ui.small(raw);
+                    });
+                }
             }
+
+            // A visitor without an ATProto account needs a path (#848);
+            // account creation lives with Bluesky, not us.
+            ui.add_space(8.0);
+            ui.separator();
+            ui.horizontal_wrapped(|ui| {
+                ui.label("New here?");
+                if ui.link("Create a free Bluesky account").clicked() {
+                    posts::open_url_in_browser(crate::config::login::SIGNUP_URL);
+                }
+            });
         });
 
     // Latest #Overlands posts from the configured Bluesky handle, in their

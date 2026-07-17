@@ -5,6 +5,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Symbios Overlands</title>
+    <meta name="theme-color" content="#222222">
+    <meta property="og:title" content="Symbios Overlands">
+    <meta property="og:description"
+        content="Procedurally seeded shared worlds on ATProto — explore, build, visit friends.">
+    <!-- Inline SVG favicon: no extra asset to deploy, and the tab stops
+         showing the 404 fallback icon (#850). -->
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏔️</text></svg>">
     <style>
         html, body {
             margin: 0;
@@ -28,8 +36,58 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            font-size: 24px;
+            font-size: 20px;
+            text-align: center;
             pointer-events: none;
+        }
+
+        .spinner {
+            margin: 0 auto 16px auto;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #444;
+            border-top-color: #9c6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        #loading-progress {
+            margin-top: 8px;
+            font-size: 14px;
+            color: #aaa;
+        }
+
+        #load-error {
+            color: white;
+            font-family: monospace;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            max-width: 34em;
+            text-align: center;
+        }
+
+        #load-error button {
+            font: inherit;
+            padding: 6px 24px;
+            margin: 12px 0;
+            cursor: pointer;
+        }
+
+        #load-error details {
+            text-align: left;
+            color: #aaa;
+            font-size: 12px;
+        }
+
+        #load-error pre {
+            white-space: pre-wrap;
+            word-break: break-word;
         }
     </style>
     <script>
@@ -64,17 +122,110 @@
 </head>
 
 <body>
-    <div id="loading">Loading...</div>
+    <div id="loading">
+        <div class="spinner"></div>
+        <div id="loading-status">Loading Symbios Overlands…</div>
+        <div id="loading-progress"></div>
+    </div>
+    <div id="load-error" hidden>
+        <p>Symbios Overlands couldn't start.</p>
+        <p style="font-size: 14px; color: #aaa;">This is usually a download hiccup or a stale
+            cached version — reloading fixes most cases.</p>
+        <button onclick="location.reload()">Reload</button>
+        <details>
+            <summary>Technical details</summary>
+            <pre id="load-error-detail"></pre>
+        </details>
+    </div>
     <script type="module">
         import init from './symbios-overlands.js';
+        // Right-drag orbits the camera in-game; without this the browser
+        // context menu opens on every release. Load-bearing — keep.
         document.addEventListener('contextmenu', event => event.preventDefault());
+
+        const progressEl = document.getElementById('loading-progress');
+        const mb = bytes => (bytes / (1024 * 1024)).toFixed(1);
+
+        // Fetch the .wasm ourselves so the multi-MB download shows live
+        // byte progress instead of a static "Loading..." (#850). The
+        // wrapped Response keeps the original headers (instantiateStreaming
+        // needs the application/wasm content-type) while the tee'd stream
+        // counts decoded bytes.
+        async function fetchWasmWithProgress(url) {
+            const resp = await fetch(url);
+            if (!resp.ok) {
+                throw new Error('wasm download failed: HTTP ' + resp.status + ' for ' + url);
+            }
+            if (!resp.body || typeof ReadableStream === 'undefined') {
+                return resp; // ancient browser: no progress, still correct
+            }
+            // Probe Response-from-stream support BEFORE consuming the body —
+            // once getReader() runs the original response can't be reused,
+            // so an unsupported browser must bail out here, not throw later.
+            try {
+                new Response(new ReadableStream());
+            } catch {
+                return resp;
+            }
+            // Content-Length is the *encoded* (gzip/brotli) size while the
+            // reader yields decoded bytes, so only trust it for a percentage
+            // when the transfer is identity-encoded. Otherwise show plain MB.
+            const encoding = resp.headers.get('Content-Encoding');
+            const lengthHeader = resp.headers.get('Content-Length');
+            const total = (!encoding || encoding === 'identity') && lengthHeader
+                ? parseInt(lengthHeader, 10) : 0;
+            let received = 0;
+            const reader = resp.body.getReader();
+            const counted = new ReadableStream({
+                async pull(controller) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        progressEl.textContent = 'Starting…';
+                        controller.close();
+                        return;
+                    }
+                    received += value.byteLength;
+                    progressEl.textContent = total
+                        ? mb(received) + ' MB of ' + mb(total) + ' MB ('
+                            + Math.floor(100 * received / total) + '%)'
+                        : mb(received) + ' MB downloaded';
+                    controller.enqueue(value);
+                },
+                cancel(reason) { return reader.cancel(reason); }
+            });
+            return new Response(counted, {
+                status: resp.status,
+                statusText: resp.statusText,
+                headers: resp.headers,
+            });
+        }
+
+        function showError(e) {
+            console.error('Failed to initialize:', e);
+            document.getElementById('loading').style.display = 'none';
+            const errorEl = document.getElementById('load-error');
+            errorEl.hidden = false;
+            document.getElementById('load-error-detail').textContent =
+                (e && (e.stack || e.message)) || String(e);
+        }
+
         async function run() {
             try {
-                await init();
+                try {
+                    await init({ module_or_path: fetchWasmWithProgress('./symbios-overlands_bg.wasm') });
+                } catch (e) {
+                    // winit's wasm backend historically unwinds init() with a
+                    // "using exceptions for control flow" throw that is NOT a
+                    // failure — never show it as one.
+                    if (e && String(e).toLowerCase().includes('control flow')) {
+                        console.debug('init unwound via control-flow exception (benign)');
+                    } else {
+                        throw e;
+                    }
+                }
                 document.getElementById('loading').style.display = 'none';
             } catch (e) {
-                console.error("Failed to initialize:", e);
-                document.getElementById('loading').innerText = "Error: " + e;
+                showError(e);
             }
         }
         run();

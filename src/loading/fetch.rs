@@ -212,7 +212,25 @@ where
     let pool = bevy::tasks::IoTaskPool::get();
     pool.spawn(async move {
         let client = config::http::default_client();
-        make(client).await
+        // Browser reqwest exposes no builder timeouts (`config::http`
+        // explicitly assigns enforcement to callers), so a hung PDS
+        // would freeze the whole retry state machine forever — retries
+        // only advance when a task *resolves* (#849). Race the fetch
+        // against a browser timer to restore native parity with
+        // `REQUEST_TIMEOUT`; the loser is dropped, which aborts the
+        // underlying browser fetch.
+        let fetch = async move { make(client).await };
+        let timeout = async {
+            gloo_timers::future::TimeoutFuture::new(
+                config::http::REQUEST_TIMEOUT.as_millis() as u32
+            )
+            .await;
+            Err(FetchError::Network(format!(
+                "timed out after {}s",
+                config::http::REQUEST_TIMEOUT.as_secs()
+            )))
+        };
+        futures_lite::future::or(fetch, timeout).await
     })
 }
 
@@ -220,7 +238,7 @@ where
 /// so the `Loading` poll system can drain it without a dedicated
 /// resource.
 #[derive(Component)]
-pub(crate) struct RecordFetchTask<R: LoadedRecord> {
+pub struct RecordFetchTask<R: LoadedRecord> {
     did: String,
     task: Task<Result<Option<R>, FetchError>>,
     /// Zero for the initial fetch; incremented on each transient-failure
@@ -229,6 +247,15 @@ pub(crate) struct RecordFetchTask<R: LoadedRecord> {
     /// Session-relative seconds when this attempt was dispatched, so the poller
     /// can record its spawn→resolve latency (E-4).
     spawned_at: f64,
+}
+
+impl<R: LoadedRecord> RecordFetchTask<R> {
+    /// Which attempt is in flight (0 = the initial fetch), so the loading
+    /// screen can keep the attempt counter visible during the marker-
+    /// despawn gap between a retry firing and its task resolving (#849).
+    pub(crate) fn attempt(&self) -> u32 {
+        self.attempt
+    }
 }
 
 /// In-flight retry timer for a record fetch. The backoff sleep is
@@ -244,6 +271,9 @@ pub struct PendingRecordRetry<R: LoadedRecord> {
     did: String,
     attempt: u32,
     fire_at_secs: f64,
+    /// What the failed attempt reported — surfaced under the loading
+    /// screen's retrying row (#849) so "retrying" isn't a mystery.
+    reason: String,
     _marker: PhantomData<R>,
 }
 
@@ -256,6 +286,17 @@ impl<R: LoadedRecord> PendingRecordRetry<R> {
     /// Absolute `Time::elapsed_secs_f64` deadline, for progress UI.
     pub(crate) fn fire_at_secs(&self) -> f64 {
         self.fire_at_secs
+    }
+
+    /// The failure that queued this retry, for progress UI (#849).
+    pub(crate) fn reason(&self) -> &str {
+        &self.reason
+    }
+
+    /// DID the fetch targets — lets the loading screen's "Retry now"
+    /// respawn the fetch without waiting out the backoff (#849).
+    pub(crate) fn did(&self) -> &str {
+        &self.did
     }
 }
 
@@ -392,6 +433,7 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                         did,
                         attempt: next_attempt,
                         fire_at_secs: elapsed + backoff as f64,
+                        reason: format!("{err:?}"),
                         _marker: PhantomData,
                     });
                     crate::diagnostics::samplers::record_fetch_retry(&mut metrics);

@@ -536,15 +536,11 @@ mod repro_tests {
 
     fn panels() -> crate::ui::toolbar::UiPanels {
         crate::ui::toolbar::UiPanels {
-            chat: false,
-            people: false,
             avatar: true,
             world_editor: true,
-            inventory: false,
-            catalogue: false,
-            diagnostics: false,
             controls: false,
             controls_seen: true,
+            ..Default::default()
         }
     }
 

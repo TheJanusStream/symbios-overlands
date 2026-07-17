@@ -68,8 +68,8 @@ pub use discovery::{RELAY_SERVICE_LXM, granular_scope};
 pub use discovery::{client_metadata, discover_auth_server};
 #[cfg(not(target_arch = "wasm32"))]
 pub use native_server::{
-    NativeCallbackReceiver, NativeCallbackServerHandle, NativeCallbackServerRes,
-    parse_callback_query, start_native_callback_server,
+    NativeCallbackOutcome, NativeCallbackReceiver, NativeCallbackServerHandle,
+    NativeCallbackServerRes, parse_callback_query, start_native_callback_server,
 };
 pub use refresh::{
     fetch_session_identity, oauth_get_with_nonce_retry, oauth_post_with_nonce_retry,
@@ -78,6 +78,7 @@ pub use refresh::{
 pub use service_token::{
     get_relay_service_auth, poll_service_token_refresh, schedule_service_token_refresh,
 };
+pub use util::CallbackParams;
 
 /// In-flight OAuth authorization state persisted between the `authorize()`
 /// call and the callback. On WASM this is serialized into
@@ -150,3 +151,14 @@ impl Default for OauthClientRes {
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Resource, Default)]
 pub struct NativePendingAuthRes(pub std::sync::Mutex<Option<PendingAuth>>);
+
+/// Native-only: the authorization URL of the in-flight login attempt,
+/// retained for the waiting UI's "Copy login URL" affordance. Before
+/// #847 the URL was discarded right after the `webbrowser::open` call —
+/// even when that call *failed* — leaving no recovery path short of
+/// restarting the flow. Inserted alongside the callback listener
+/// resources and removed with them (callback consumed, error redirect,
+/// or user cancel).
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Resource)]
+pub struct NativeAuthUrl(pub String);

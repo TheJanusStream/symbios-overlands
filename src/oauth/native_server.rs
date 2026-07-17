@@ -1,7 +1,8 @@
 //! Native loopback callback server: a `tiny_http` listener that catches
 //! the `127.0.0.1:NATIVE_CALLBACK_PORT/callback?code=&state=` redirect
-//! from the authorization server and ships the pair through a channel
-//! back into the Bevy frame loop.
+//! from the authorization server — or its `?error=&state=` error twin
+//! (user denied, expired request, …) — and ships the outcome through a
+//! channel back into the Bevy frame loop.
 //!
 //! Cross-site request hardening: only requests whose URL path starts
 //! with `/callback` *and* whose `state` query parameter matches the
@@ -13,13 +14,25 @@
 
 use bevy::prelude::*;
 
-use super::util::percent_decode;
+use super::util::{CallbackParams, parse_query_params};
 
-/// Channel carrying the `code` / `state` pair from the loopback callback
+/// Terminal outcome shipped from the loopback listener back into the
+/// Bevy frame loop. `state` was already validated against the expected
+/// value by the listener, so it is not carried.
+pub enum NativeCallbackOutcome {
+    /// Authorization code from a successful consent.
+    Code(String),
+    /// The AS's error redirect (user denied, expired request, …),
+    /// pre-formatted for the login UI by
+    /// [`CallbackParams::error_message`].
+    Error(String),
+}
+
+/// Channel carrying the callback outcome from the loopback callback
 /// server back to the Bevy polling system.
 #[derive(Resource)]
 pub struct NativeCallbackReceiver(
-    pub std::sync::Mutex<std::sync::mpsc::Receiver<(String, String)>>,
+    pub std::sync::Mutex<std::sync::mpsc::Receiver<NativeCallbackOutcome>>,
 );
 
 /// Owning handle to a running loopback listener. The accept loop blocks
@@ -72,7 +85,7 @@ pub fn start_native_callback_server(
     expected_state: String,
 ) -> Result<
     (
-        std::sync::mpsc::Receiver<(String, String)>,
+        std::sync::mpsc::Receiver<NativeCallbackOutcome>,
         NativeCallbackServerHandle,
     ),
     String,
@@ -104,20 +117,27 @@ pub fn start_native_callback_server(
                 .next()
                 .map(|p| p == "/callback" || p.starts_with("/callback/"))
                 .unwrap_or(false);
-            let (code, state) = parse_callback_query(&url);
+            let params = parse_callback_query(&url);
 
-            let state_matches = state.as_deref().is_some_and(|s| s == expected_state);
-            let is_authorized_callback = path_ok && code.is_some() && state_matches;
+            let state_matches = params.state.as_deref().is_some_and(|s| s == expected_state);
+            let is_authorized_code = path_ok && state_matches && params.code.is_some();
+            // The AS's error redirect (RFC 6749 §4.1.2.1) — the user
+            // clicked *Deny*, the request expired, etc. It carries the
+            // same `state` echo as a success, so the match above still
+            // protects against a forged cancel from another tab.
+            let is_authorized_error =
+                path_ok && state_matches && !is_authorized_code && params.error.is_some();
 
-            let response = if is_authorized_callback {
-                tiny_http::Response::from_string(
+            let response = if is_authorized_code {
+                html_response(
                     "<!doctype html><html><body><h2>Login successful.</h2>\
                      <p>You can close this tab and return to Symbios Overlands.</p></body></html>",
                 )
-                .with_header(
-                    "Content-Type: text/html; charset=utf-8"
-                        .parse::<tiny_http::Header>()
-                        .unwrap(),
+            } else if is_authorized_error {
+                html_response(
+                    "<!doctype html><html><body><h2>Login was cancelled.</h2>\
+                     <p>You can close this tab and return to Symbios Overlands \
+                     to try again.</p></body></html>",
                 )
             } else {
                 // Reject everything else with a 404. Crucially we do NOT
@@ -135,8 +155,15 @@ pub fn start_native_callback_server(
             };
             let _ = req.respond(response);
 
-            if is_authorized_callback && let (Some(code), Some(state)) = (code, state) {
-                let _ = tx.send((code, state));
+            if is_authorized_code && let Some(code) = params.code {
+                let _ = tx.send(NativeCallbackOutcome::Code(code));
+                break;
+            }
+            if is_authorized_error {
+                let msg = params
+                    .error_message()
+                    .unwrap_or_else(|| "Login failed at the authorization server.".to_string());
+                let _ = tx.send(NativeCallbackOutcome::Error(msg));
                 break;
             }
         }
@@ -151,28 +178,26 @@ pub fn start_native_callback_server(
     ))
 }
 
-/// Parse `code` and `state` out of a URL like `/callback?code=abc&state=xyz`.
+/// Shared HTML success/cancel response builder for the terminal
+/// listener answers.
+fn html_response(body: &str) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
+    tiny_http::Response::from_string(body).with_header(
+        "Content-Type: text/html; charset=utf-8"
+            .parse::<tiny_http::Header>()
+            .unwrap(),
+    )
+}
+
+/// Parse the recognised callback parameters out of a URL like
+/// `/callback?code=abc&state=xyz` (or its `?error=access_denied&…`
+/// error-redirect twin).
 ///
 /// Exposed so the integration-test suite in `tests/` can exercise the
 /// native-loopback callback parser end-to-end; no production caller outside
 /// this module invokes it directly.
-pub fn parse_callback_query(url: &str) -> (Option<String>, Option<String>) {
+pub fn parse_callback_query(url: &str) -> CallbackParams {
     let Some(q_start) = url.find('?') else {
-        return (None, None);
+        return CallbackParams::default();
     };
-    let query = &url[q_start + 1..];
-    let mut code = None;
-    let mut state = None;
-    for pair in query.split('&') {
-        let mut it = pair.splitn(2, '=');
-        let k = it.next().unwrap_or("");
-        let v = it.next().unwrap_or("");
-        let decoded = percent_decode(v);
-        match k {
-            "code" => code = Some(decoded),
-            "state" => state = Some(decoded),
-            _ => {}
-        }
-    }
-    (code, state)
+    parse_query_params(&url[q_start + 1..])
 }

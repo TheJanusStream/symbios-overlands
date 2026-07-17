@@ -95,6 +95,74 @@ use crate::state::{
 };
 use crate::terrain;
 
+/// Marker resource inserted by the loading screen's "Back to login"
+/// button (#849). Consumed by [`abort_loading_to_login`] on the next
+/// `Update` — the click handler only raises the flag so the teardown
+/// runs as a proper system with command-flush ordering, not inside an
+/// egui closure.
+#[derive(Resource)]
+pub struct AbortLoading;
+
+/// Escape hatch from a stuck loading screen (#849): tear down everything
+/// the `Loading` pass has built or dispatched so far and return to the
+/// login form. Before this, the only exit from a dead PDS was killing
+/// the app — the logout cleanup ran on `OnExit(InGame)` only, which a
+/// stuck load never reaches.
+///
+/// Aborting is a real logout (the session, socket config and caches were
+/// already installed on Loading entry), so the shared
+/// [`crate::logout::cleanup_on_logout`] system is run on demand via
+/// `run_system_cached`, and the terrain teardown reacts to the
+/// still-visible [`AbortLoading`] flag from its own plugin registration;
+/// only the Loading-specific in-flight state — fetch tasks, backoff
+/// markers, the ambient bake — is drained here.
+#[allow(clippy::type_complexity)]
+pub(crate) fn abort_loading_to_login(
+    mut commands: Commands,
+    abort: Option<Res<AbortLoading>>,
+    mut next_state: ResMut<NextState<AppState>>,
+    in_flight: Query<
+        Entity,
+        Or<(
+            With<fetch::RecordFetchTask<crate::pds::RoomRecord>>,
+            With<fetch::RecordFetchTask<crate::pds::AvatarRecord>>,
+            With<fetch::RecordFetchTask<crate::pds::InventoryRecord>>,
+            With<fetch::PendingRecordRetry<crate::pds::RoomRecord>>,
+            With<fetch::PendingRecordRetry<crate::pds::AvatarRecord>>,
+            With<fetch::PendingRecordRetry<crate::pds::InventoryRecord>>,
+            With<AmbientBakeTask>,
+        )>,
+    >,
+) {
+    if abort.is_none() {
+        return;
+    }
+    // The flag is deliberately NOT removed here: the terrain teardown
+    // (registered in `TerrainPlugin`) keys off it during this same
+    // frame, and an auto-inserted sync point could otherwise apply the
+    // removal before that system runs. [`clear_abort_flag`] drops it on
+    // the `OnEnter(Login)` edge this abort sets in motion.
+    info!("Loading aborted by user — returning to login");
+    // Dropping a task entity drops its Task, which cancels the async
+    // work (and on wasm aborts the underlying browser fetch).
+    for e in in_flight.iter() {
+        commands.entity(e).despawn();
+    }
+    commands.remove_resource::<AmbientHandle>();
+    commands.remove_resource::<ambient::AmbientBakeStarted>();
+    commands.run_system_cached(crate::logout::cleanup_on_logout);
+    next_state.set(AppState::Login);
+}
+
+/// `OnEnter(Login)`: drop a spent [`AbortLoading`] flag. Kept alive
+/// through the aborting frame on purpose (see
+/// [`abort_loading_to_login`]); once the state edge fires it must not
+/// leak into the next session's Loading pass, where it would abort it
+/// instantly.
+pub(crate) fn clear_abort_flag(mut commands: Commands) {
+    commands.remove_resource::<AbortLoading>();
+}
+
 /// Transition out of `Loading` only once *every* resource the first
 /// `InGame` frame relies on is present:
 ///

@@ -17,6 +17,11 @@ use super::{
 /// Despawn terrain + water entities and reset terrain-specific resources so
 /// the next login cycle restarts heightmap generation and splat texture
 /// uploads from scratch.
+///
+/// Also registered against the loading screen's "Back to login" abort
+/// flag (#849), which tears down a partially-built world without ever
+/// passing through `InGame` — see the [`super::TerrainPlugin`]
+/// registration.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn cleanup_terrain(
     mut commands: Commands,

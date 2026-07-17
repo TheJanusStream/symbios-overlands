@@ -37,8 +37,13 @@ impl Plugin for LogoutPlugin {
 // Grab-bag teardown system at Bevy's 16-param ceiling: the session-scoped caches
 // ride in a tuple param (their combined type trips `type_complexity`) to stay
 // under it, so both lints are expected here.
+//
+// `pub(crate)`: besides the `OnExit(InGame)` registration above, the
+// loading screen's "Back to login" abort path (#849) runs this on demand
+// via `commands.run_system_cached` — aborting a stuck load is a real
+// logout (session, sockets, caches), it just never reached `InGame`.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-fn cleanup_on_logout(
+pub(crate) fn cleanup_on_logout(
     mut commands: Commands,
     players: Query<Entity, With<LocalPlayer>>,
     peers: Query<Entity, With<RemotePeer>>,
@@ -172,6 +177,8 @@ fn cleanup_on_logout(
     // skipping the rebuild of a now-empty scene. Any in-flight sliced
     // job is dropped with them (its queue indexes the old record).
     commands.remove_resource::<crate::world_builder::WorldCompiled>();
+    // Re-arm the one-frame compile delay for the next Loading pass (#849).
+    commands.remove_resource::<crate::world_builder::WorldCompileArmed>();
     commands.insert_resource(crate::world_builder::compile::CompiledWorld::default());
     commands.insert_resource(crate::world_builder::compile::CompileJob::default());
 

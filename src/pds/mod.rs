@@ -181,4 +181,4 @@ pub use types::{
     BiomeFilter, FP_SCALE, Fp, Fp2, Fp3, Fp4, Fp64, ScatterBounds, TransformData, WaterRelation,
     map_u8_as_string, map_u16_as_string, u64_as_string,
 };
-pub use xrpc::{DidDocument, DidService, FetchError, resolve_pds};
+pub use xrpc::{DidDocument, DidService, FetchError, resolve_handle, resolve_pds};

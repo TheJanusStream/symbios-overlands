@@ -978,6 +978,9 @@ pub mod login {
     /// Default relay signaller hostname.
     pub const DEFAULT_RELAY_HOST: &str = "37.143.131.78.nip.io";
     pub const DEFAULT_TARGET_DID: &str = "";
+    /// Where the login form's "New here?" link sends visitors without an
+    /// ATProto account — Bluesky's signup lives on its app root.
+    pub const SIGNUP_URL: &str = "https://bsky.app";
 }
 
 // ---------------------------------------------------------------------------
