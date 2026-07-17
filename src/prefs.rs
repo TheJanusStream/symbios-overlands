@@ -60,15 +60,25 @@ pub struct PersistedPrefs {
     /// layout beats the computed defaults on the next run.
     #[serde(default)]
     pub windows: Option<WindowLayout>,
+    /// DIDs muted by the local user (#844) — the durable mute list a
+    /// reconnecting peer can no longer reset.
+    #[serde(default)]
+    pub muted_dids: Option<crate::state::MutedDids>,
 }
 
 impl PersistedPrefs {
     /// Snapshot the live resources for saving.
-    fn capture(panels: &UiPanels, settings: &LocalSettings, windows: &WindowLayout) -> Self {
+    fn capture(
+        panels: &UiPanels,
+        settings: &LocalSettings,
+        windows: &WindowLayout,
+        muted_dids: &crate::state::MutedDids,
+    ) -> Self {
         Self {
             panels: Some(panels.clone()),
             settings: Some(settings.clone()),
             windows: Some(windows.clone()),
+            muted_dids: Some(muted_dids.clone()),
         }
     }
 }
@@ -182,6 +192,9 @@ pub fn load_prefs_at_startup(mut commands: Commands) {
     if let Some(windows) = prefs.windows {
         commands.insert_resource(windows);
     }
+    if let Some(muted_dids) = prefs.muted_dids {
+        commands.insert_resource(muted_dids);
+    }
 }
 
 /// Trailing-debounce state for [`save_prefs_when_changed`]: the session
@@ -210,14 +223,23 @@ pub fn save_prefs_when_changed(
     panels: Res<UiPanels>,
     settings: Res<LocalSettings>,
     windows: Res<WindowLayout>,
+    muted_dids: Res<crate::state::MutedDids>,
     time: Res<Time>,
     mut debounce: Local<SaveDebounce>,
 ) {
-    let changed = panels.is_changed() || settings.is_changed() || windows.is_changed();
+    let changed = panels.is_changed()
+        || settings.is_changed()
+        || windows.is_changed()
+        || muted_dids.is_changed();
     let (pending, fire) = debounce_step(debounce.0, changed, time.elapsed_secs_f64());
     debounce.0 = pending;
     if fire {
-        save(&PersistedPrefs::capture(&panels, &settings, &windows));
+        save(&PersistedPrefs::capture(
+            &panels,
+            &settings,
+            &windows,
+            &muted_dids,
+        ));
     }
 }
 
@@ -239,10 +261,15 @@ mod tests {
         windows
             .rects
             .insert("chat".to_owned(), [890.0, 40.0, 380.0, 400.0]);
+        let mut muted = crate::state::MutedDids::default();
+        assert!(muted.set("did:plc:harasser", true));
+        // Re-muting an already-muted DID reports "no change".
+        assert!(!muted.set("did:plc:harasser", true));
         let prefs = PersistedPrefs {
             panels: Some(panels.clone()),
             settings: Some(settings.clone()),
             windows: Some(windows),
+            muted_dids: Some(muted),
         };
         let json = serde_json::to_string(&prefs).unwrap();
         let back: PersistedPrefs = serde_json::from_str(&json).unwrap();
@@ -255,6 +282,7 @@ mod tests {
             back.windows.unwrap().rects["chat"],
             [890.0, 40.0, 380.0, 400.0]
         );
+        assert!(back.muted_dids.unwrap().0.contains("did:plc:harasser"));
     }
 
     #[test]
@@ -319,6 +347,7 @@ mod tests {
             panels: Some(panels),
             settings: None,
             windows: None,
+            muted_dids: None,
         };
         save_to_path(&path, &prefs).unwrap();
         let back = load_from_path(&path).unwrap();

@@ -27,6 +27,7 @@ pub(super) fn handle_peer_connections(
     mut sender: SendMessage<OverlandsMessage>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
     mut seq: ResMut<super::chunk::OutboundChunkSeq>,
+    mut chat: ResMut<crate::state::ChatHistory>,
 ) {
     let elapsed = time.elapsed_secs_f64();
     for event in peer_events.drain() {
@@ -122,6 +123,20 @@ pub(super) fn handle_peer_connections(
                             },
                         );
                         crate::diagnostics::samplers::peer_disconnected(&mut metrics);
+                        // Presence line (#844) — the join side prints when
+                        // the handle resolves (avatar.rs); departures print
+                        // here with the best name we ever learned. A peer
+                        // that never identified gets a generic line rather
+                        // than a raw PeerId nobody recognises.
+                        let name = match (peer.handle.as_deref(), peer.did.as_deref()) {
+                            (Some(handle), _) => format!("@{handle}"),
+                            (None, Some(did)) => {
+                                let head: String = did.chars().take(16).collect();
+                                format!("{head}…")
+                            }
+                            (None, None) => "A traveler".to_owned(),
+                        };
+                        chat.push(None, "system", format!("{name} left the room."));
                         commands.entity(entity).despawn();
                     }
                 }
@@ -145,6 +160,8 @@ pub(super) fn evict_stale_offer_dialog(
     time: Res<Time>,
     mut session_log: ResMut<SessionLog>,
     mut sender: SendMessage<OverlandsMessage>,
+    mut busy_declines: ResMut<crate::state::BusyAutoDeclines>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
 ) {
     let Some(dialog) = dialog else {
         return;
@@ -172,6 +189,29 @@ pub(super) fn evict_stale_offer_dialog(
             offer_id: dialog.offer_id,
         },
     );
+    // The dialog is closing (#843): report anything the busy-gate turned
+    // away while it sat unanswered, then reset the counter for the next
+    // dialog. The eviction itself gets a line too — it used to vanish
+    // invisibly mid-decision.
+    toasts.info(
+        format!(
+            "Offer of \"{}\" from @{} expired unanswered — declined.",
+            dialog.item_name, dialog.sender_handle
+        ),
+        now,
+    );
+    if busy_declines.0 > 0 {
+        toasts.info(
+            format!(
+                "{} more offer{} arrived while it waited and {} auto-declined.",
+                busy_declines.0,
+                if busy_declines.0 == 1 { "" } else { "s" },
+                if busy_declines.0 == 1 { "was" } else { "were" },
+            ),
+            now,
+        );
+        busy_declines.0 = 0;
+    }
     commands.remove_resource::<IncomingOfferDialog>();
 }
 
@@ -184,6 +224,7 @@ pub(super) fn sweep_stale_pending_offers(
     time: Res<Time>,
     mut pending: ResMut<PendingOutgoingOffers>,
     mut session_log: ResMut<SessionLog>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
 ) {
     let now = time.elapsed_secs_f64();
     let ttl = config::network::PENDING_OFFER_TIMEOUT_SECS;
@@ -191,21 +232,70 @@ pub(super) fn sweep_stale_pending_offers(
     if before == 0 {
         return;
     }
-    let mut expired: Vec<u64> = Vec::new();
+    // Handle + item ride along for the sender's expiry toast (#843).
+    let mut expired: Vec<(u64, String, String)> = Vec::new();
     pending.by_id.retain(|&id, entry| {
         let alive = now - entry.sent_at_secs < ttl;
         if !alive {
-            expired.push(id);
+            expired.push((id, entry.target_handle.clone(), entry.item_name.clone()));
         }
         alive
     });
-    for offer_id in expired {
+    for (offer_id, handle, item) in expired {
         // Info, not Warn: a peer not answering a gift offer within the TTL is a
         // benign, expected social outcome (AFK / implicit decline / brief hiccup)
         // — it mirrors the incoming-side `ItemOfferDialogAutoDeclinedTimeout`
         // above and must not inflate the offline analyzer's warning verdict.
         session_log.info(now, EventPayload::PendingOfferTimedOut { offer_id });
+        toasts.info(
+            format!("Offer of \"{item}\" to @{handle} expired without an answer."),
+            now,
+        );
     }
+}
+
+/// Dismiss an open offer dialog whose sender was just muted (#844): the
+/// People-window mute checkbox used to leave the dialog lingering — only
+/// the dialog's own "Mute & Decline" button closed it. Runs on
+/// `Changed<RemotePeer>` (the mute writes are already change-guarded, so
+/// this reacts only to real flips) and returns the same authenticated
+/// decline the other close paths send, keeping the sender's pending
+/// state in sync.
+pub(super) fn dismiss_offer_dialog_from_muted_sender(
+    mut commands: Commands,
+    dialog: Option<Res<IncomingOfferDialog>>,
+    changed_peers: Query<&RemotePeer, Changed<RemotePeer>>,
+    mut sender: SendMessage<OverlandsMessage>,
+    mut session_log: ResMut<SessionLog>,
+    time: Res<Time>,
+) {
+    let Some(dialog) = dialog else {
+        return;
+    };
+    let sender_now_muted = changed_peers
+        .iter()
+        .any(|peer| peer.peer_id == dialog.sender_peer_id && peer.muted);
+    if !sender_now_muted {
+        return;
+    }
+    let now = time.elapsed_secs_f64();
+    sender.to(
+        dialog.sender_peer_id,
+        OverlandsMessage::ItemOfferResponse {
+            offer_id: dialog.offer_id,
+            target_did: dialog.sender_did.clone(),
+            accepted: false,
+        },
+        ChannelKind::Reliable,
+    );
+    session_log.info(
+        now,
+        EventPayload::ItemOfferUserResponded {
+            offer_id: dialog.offer_id,
+            accepted: false,
+        },
+    );
+    commands.remove_resource::<IncomingOfferDialog>();
 }
 
 /// Propagate each peer's mute flag to its `Visibility` component so that

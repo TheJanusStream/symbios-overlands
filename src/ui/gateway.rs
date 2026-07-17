@@ -69,6 +69,37 @@ pub fn watch_gateway_zone(
     }
 }
 
+/// Small re-open chip while the player stands in a gateway zone with the
+/// picker dismissed (#842): the only way back in used to be walking out
+/// of the zone and back ([`GatewayDismissed`] clears on exit only).
+/// Registered behind `resource_exists::<GatewayDismissed>`, whose
+/// presence already implies "still in the zone".
+pub fn gateway_reopen_chip_ui(
+    mut commands: Commands,
+    mut contexts: EguiContexts,
+    picker: Option<Res<GatewayPicker>>,
+    traveling: Option<Res<TravelingTo>>,
+    guard: Option<Res<UnsavedGuard>>,
+) {
+    if picker.is_some() || traveling.is_some() || guard.is_some() {
+        return;
+    }
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
+    egui::Window::new("gateway-reopen-chip")
+        .title_bar(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -24.0])
+        .show(ctx, |ui| {
+            if ui.button("⌖ Gateway — choose a destination").clicked() {
+                // The zone watcher sees the dismissal gone and reopens
+                // the picker on its next run.
+                commands.remove_resource::<GatewayDismissed>();
+            }
+        });
+}
+
 /// Render the destination picker. Registered behind
 /// `resource_exists::<GatewayPicker>`.
 #[allow(clippy::too_many_arguments)]

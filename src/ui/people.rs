@@ -63,6 +63,12 @@ pub fn people_ui(
     mut pending_drop: ResMut<PendingGeneratorDrop>,
     time: Res<Time>,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
+    pending_offers: Res<crate::state::PendingOutgoingOffers>,
+    mut muted_dids: ResMut<crate::state::MutedDids>,
+    mut commands: Commands,
+    current_room: Option<Res<crate::state::CurrentRoomDid>>,
+    traveling: Option<Res<crate::state::TravelingTo>>,
+    guard: Option<Res<crate::ui::unsaved_guard::UnsavedGuard>>,
 ) {
     let now = time.elapsed_secs_f64();
 
@@ -118,7 +124,21 @@ pub fn people_ui(
                     // Remote peers. Handshake-in-progress peers show as
                     // "identifying…" so their presence is visible before
                     // the handle resolves.
-                    for (mut peer, resonance) in peers.iter_mut() {
+                    //
+                    // Sorted (#844): bare query iteration follows archetype
+                    // order, so rows JUMPED when `SocialResonance` resolved
+                    // (a component insert moves the entity). Mutuals first,
+                    // then case-insensitive handle — the same deliberate
+                    // order the gateway picker uses; a stable list also
+                    // de-risks drag-to-gift aim.
+                    let mut rows: Vec<_> = peers.iter_mut().collect();
+                    rows.sort_by_key(|(peer, resonance)| {
+                        (
+                            !matches!(resonance, Some(SocialResonance::Mutual)),
+                            peer.handle.as_deref().unwrap_or("~").to_lowercase(),
+                        )
+                    });
+                    for (mut peer, resonance) in rows {
                         let handle = peer.handle.as_deref().unwrap_or("identifying…").to_owned();
                         let dot_color = if peer.muted {
                             egui::Color32::GRAY
@@ -158,10 +178,70 @@ pub fn people_ui(
                             } else {
                                 ui.monospace(format!("@{}", handle));
                             }
+                            // Outgoing-gift badge (#843): while an offer to
+                            // this peer awaits their answer, say so on the
+                            // row — the sender used to have no trace at all.
+                            let offers_pending = peer
+                                .did
+                                .as_deref()
+                                .map(|did| {
+                                    pending_offers
+                                        .by_id
+                                        .values()
+                                        .filter(|o| o.target_did == did)
+                                        .count()
+                                })
+                                .unwrap_or(0);
+                            if offers_pending > 0 {
+                                let text = if offers_pending == 1 {
+                                    "🎁 offer pending".to_owned()
+                                } else {
+                                    format!("🎁 {offers_pending} offers pending")
+                                };
+                                ui.label(
+                                    egui::RichText::new(text).small().color(egui::Color32::GRAY),
+                                )
+                                .on_hover_text("Waiting for this peer to accept or decline");
+                            }
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    ui.checkbox(&mut muted, "Mute");
+                                    ui.checkbox(&mut muted, "Mute").on_hover_text(
+                                        "Hides their avatar, chat, audio and gift \
+                                         offers. Persists across sessions.",
+                                    );
+                                    // "Meet someone → visit their overland"
+                                    // finally has a UI path (#845). Routed
+                                    // through the unsaved-edits guard exactly
+                                    // like gateway travel; `target_pos: None`
+                                    // arrives at their default landing. Not
+                                    // offered for muted peers, unresolved
+                                    // DIDs, the room we're already in, or
+                                    // while a travel/guard is in flight.
+                                    let already_here = peer.did.as_deref().is_some_and(|did| {
+                                        current_room.as_deref().is_some_and(|room| room.0 == did)
+                                    });
+                                    if !peer.muted
+                                        && !already_here
+                                        && traveling.is_none()
+                                        && guard.is_none()
+                                        && let Some(did) = peer.did.as_deref()
+                                        && ui
+                                            .small_button("Visit")
+                                            .on_hover_text(format!(
+                                                "Travel to @{handle}'s overland"
+                                            ))
+                                            .clicked()
+                                    {
+                                        commands.insert_resource(
+                                            crate::ui::unsaved_guard::UnsavedGuard::new(
+                                                crate::ui::unsaved_guard::GuardedAction::PortalTravel {
+                                                    target_did: did.to_owned(),
+                                                    target_pos: None,
+                                                },
+                                            ),
+                                        );
+                                    }
                                 },
                             );
                         });
@@ -195,6 +275,11 @@ pub fn people_ui(
                         // downstream.
                         if peer.muted != muted {
                             peer.muted = muted;
+                            // Mirror into the durable DID-keyed list (#844)
+                            // so the mute survives reconnects and relogs.
+                            if let Some(did) = peer.did.as_deref() {
+                                muted_dids.set(did, muted);
+                            }
                             log_peer_mute_toggled(
                                 &mut session_log,
                                 now,
@@ -223,7 +308,7 @@ pub fn people_ui(
 /// task is spawned immediately so the new item is on the PDS before the
 /// user closes the window — the user explicitly opted into "auto-publish
 /// on accept" for less-likely-to-lose-items behaviour.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn incoming_offer_ui(
     mut commands: Commands,
     mut contexts: EguiContexts,
@@ -237,8 +322,15 @@ pub fn incoming_offer_ui(
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
     mut session_log: ResMut<SessionLog>,
     mut inventory_feedback: ResMut<PublishFeedback<InventoryRecord>>,
-    time: Res<Time>,
-    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
+    // Bundled to stay under Bevy's 16-parameter ceiling (#843/#844).
+    (time, mut metrics, mut busy_declines, mut toasts, mut offer_size, mut muted_dids): (
+        Res<Time>,
+        ResMut<crate::diagnostics::MetricsRegistry>,
+        ResMut<crate::state::BusyAutoDeclines>,
+        ResMut<crate::ui::toast::Toasts>,
+        Local<Option<(u64, Option<usize>)>>,
+        ResMut<crate::state::MutedDids>,
+    ),
 ) {
     let Some(dialog) = dialog else {
         return;
@@ -262,6 +354,26 @@ pub fn incoming_offer_ui(
         ));
         ui.monospace(
             egui::RichText::new(&dialog.sender_did)
+                .small()
+                .color(egui::Color32::GRAY),
+        );
+        // What's actually being offered (#843): kind + rough serialized
+        // size. The generator arrives decoded + sanitized before the
+        // dialog opens; the size is measured once per offer (cached by
+        // offer_id — serializing per frame would be wasted work).
+        let bytes = match *offer_size {
+            Some((id, bytes)) if id == dialog.offer_id => bytes,
+            _ => {
+                let bytes = crate::pds::record_size::serialized_record_bytes(&dialog.generator);
+                *offer_size = Some((dialog.offer_id, bytes));
+                bytes
+            }
+        };
+        let size_text = bytes
+            .map(crate::pds::record_size::human_bytes)
+            .unwrap_or_else(|| "size unknown".to_owned());
+        ui.label(
+            egui::RichText::new(format!("{} · {}", dialog.generator.kind_tag(), size_text))
                 .small()
                 .color(egui::Color32::GRAY),
         );
@@ -334,6 +446,20 @@ pub fn incoming_offer_ui(
     };
 
     let now = time.elapsed_secs_f64();
+    // The dialog is closing (#843): report offers the busy-gate silently
+    // turned away while the user decided, then reset for the next one.
+    if busy_declines.0 > 0 {
+        toasts.info(
+            format!(
+                "{} more offer{} arrived while you decided and {} auto-declined.",
+                busy_declines.0,
+                if busy_declines.0 == 1 { "" } else { "s" },
+                if busy_declines.0 == 1 { "was" } else { "were" },
+            ),
+            now,
+        );
+        busy_declines.0 = 0;
+    }
     let accepted = matches!(action, OfferAction::Accept);
     // Count the local user's offer disposition (E-4) — accept vs any decline.
     if accepted {
@@ -349,6 +475,10 @@ pub fn incoming_offer_ui(
         for mut peer in peers.iter_mut() {
             if peer.peer_id == dialog.sender_peer_id && !peer.muted {
                 peer.muted = true;
+                // Durable DID-keyed mute (#844). The dialog's sender DID is
+                // relay-authenticated, so it is safe to key on even if the
+                // peer entity's own `did` hasn't resolved yet.
+                muted_dids.set(&dialog.sender_did, true);
                 log_peer_mute_toggled(&mut session_log, now, peer.peer_id.to_string(), true);
                 break;
             }

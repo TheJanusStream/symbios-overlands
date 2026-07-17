@@ -155,6 +155,13 @@ pub fn handle_generator_drop(
                 item_name: name.clone(),
             },
         );
+        // Sender-side feedback (#843): releasing on a peer row used to
+        // confirm NOTHING — the offer's whole lifecycle lived in the
+        // diagnostics log.
+        toasts.success(
+            format!("Offer sent to @{} — \"{}\".", target.handle, name),
+            now,
+        );
         info!(
             "Sent ItemOffer #{} \"{}\" to @{} ({})",
             offer_id, name, target.handle, target.did

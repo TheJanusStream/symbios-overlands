@@ -13,7 +13,7 @@ use bevy_symbios_multiuser::prelude::*;
 
 use crate::avatar::{BskyProfileCache, draw_avatar_icon};
 use crate::protocol::OverlandsMessage;
-use crate::state::{ChatEntry, ChatHistory, RemotePeer, SocialResonance};
+use crate::state::{ChatHistory, RemotePeer, SocialResonance};
 
 /// Edge length (px) of the avatar icons rendered next to each author's
 /// handle in the chat HUD. Same value used by the People panel so the
@@ -32,15 +32,25 @@ pub fn chat_ui(
     mut panels: ResMut<crate::ui::toolbar::UiPanels>,
     mut chrome: crate::ui::layout::WindowChrome,
     mut focus_request: ResMut<ChatFocusRequest>,
+    mut was_open: Local<bool>,
     session: Option<Res<AtprotoSession>>,
     mut chat: ResMut<ChatHistory>,
     profile_cache: Res<BskyProfileCache>,
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
     mut input: Local<String>,
-    time: Res<Time>,
     peers: Query<(&RemotePeer, Option<&SocialResonance>)>,
 ) {
     use crate::config::ui::chat as cfg;
+
+    // Autofocus on open (#846): however the window opened — toolbar
+    // toggle, Enter shortcut, unread-badge click — the input grabs focus
+    // on the rising edge, so "open chat → type" needs no extra click.
+    // Reuses the #836 one-shot request the input widget already consumes.
+    let just_opened = panels.chat && !*was_open;
+    *was_open = panels.chat;
+    if just_opened {
+        focus_request.0 = true;
+    }
 
     // DIDs of peers the local user mutually follows — their chat author
     // tag gets the same warm-gold ★ as their People-panel row. Built
@@ -85,7 +95,13 @@ pub fn chat_ui(
                 .show(ui, |ui| {
                     for entry in &chat.messages {
                         ui.horizontal_wrapped(|ui| {
-                            ui.colored_label(egui::Color32::GRAY, format!("[{}]", entry.timestamp));
+                            // Local wall-clock HH:MM (#846) — the old stamp
+                            // was minutes-since-app-launch, meaningless
+                            // across peers and sessions.
+                            ui.colored_label(
+                                egui::Color32::GRAY,
+                                format!("[{}]", crate::state::clock_hhmm(entry.at_epoch_secs)),
+                            );
                             // Profile icon by DID, or a same-sized
                             // placeholder spacer so the row layout
                             // doesn't shift between cache-miss and
@@ -178,15 +194,12 @@ pub fn chat_ui(
 
                         let (did, author) = match session.as_ref() {
                             Some(s) => (Some(s.did.clone()), s.handle.clone()),
-                            None => (None, "me".into()),
+                            None => (None, "me".to_owned()),
                         };
-                        let ts = crate::format_elapsed_ts(time.elapsed_secs_f64());
-                        chat.messages.push(ChatEntry {
-                            did,
-                            author,
-                            text: text.clone(),
-                            timestamp: ts,
-                        });
+                        // Capped + wall-clock-stamped (#846): local sends
+                        // used to push uncapped with a session-relative
+                        // stamp.
+                        chat.push(did, author, text.clone());
 
                         writer.write(Broadcast {
                             payload: OverlandsMessage::Chat { text },

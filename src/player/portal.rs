@@ -183,6 +183,8 @@ pub(super) fn poll_portal_travel_tasks(
         With<LocalPlayer>,
     >,
     time: Res<Time>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    profile_cache: Res<crate::avatar::BskyProfileCache>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) = bevy::tasks::futures_lite::future::block_on(
@@ -252,6 +254,18 @@ pub(super) fn poll_portal_travel_tasks(
                     },
                 );
                 warn!("Portal travel fetch failed: {:?} — aborting travel", err);
+                // The player just unfreezes with zero explanation without
+                // this — "the portal did nothing" (#842).
+                toasts.error(
+                    format!(
+                        "Couldn't reach {}'s world — walk into the portal again to retry.",
+                        crate::ui::travel::display_name_for_did(
+                            &profile_cache,
+                            &travel_data.target_did,
+                        )
+                    ),
+                    elapsed,
+                );
                 commands.remove_resource::<TravelingTo>();
                 // Brief cooldown so the player isn't immediately
                 // re-pulled into the same failing fetch by their own
@@ -346,6 +360,17 @@ pub(super) fn poll_portal_travel_tasks(
 
         // 5. Clean up state
         chat.messages.clear();
+        // Arrival line (#842): the hard cut wipes the world AND the chat
+        // history in the same frame — say where we landed and why the
+        // scrollback vanished.
+        chat.push(
+            None,
+            "system",
+            format!(
+                "Arrived in {}'s world — chat history starts fresh here.",
+                crate::ui::travel::display_name_for_did(&profile_cache, &travel_data.target_did)
+            ),
+        );
         commands.remove_resource::<TravelingTo>();
         // Engage the post-arrival cooldown so a portal at the
         // destination whose collider envelops the spawn position can't

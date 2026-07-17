@@ -84,6 +84,15 @@ pub(super) struct InboundBuffers<'w> {
     /// Read-only peek at which panels are open: a chat message landing
     /// while the Chat window is closed bumps the unread badge (#835).
     panels: Res<'w, crate::ui::toolbar::UiPanels>,
+    /// Gift-lifecycle feedback (#843): accepted/declined responses toast
+    /// to the sender the moment they land.
+    toasts: ResMut<'w, crate::ui::toast::Toasts>,
+    /// Busy-gate auto-declines counted while an offer dialog is up
+    /// (#843); the dialog reports them when it closes.
+    busy_declines: ResMut<'w, crate::state::BusyAutoDeclines>,
+    /// Durable mute list (#844): applied the moment a peer's DID
+    /// resolves, so a muted harasser stays muted across reconnects.
+    muted_dids: Res<'w, crate::state::MutedDids>,
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -263,6 +272,12 @@ pub(super) fn handle_incoming_messages(
                         // returns a verified value.
                         peer.handle = None;
                         peer.did = Some(did.clone());
+                        // Durable mute (#844): the flag used to live only on
+                        // this session-scoped entity, so disconnect/rejoin
+                        // reset it — reconnecting was a mute-reset button.
+                        if bufs.muted_dids.0.contains(&did) && !peer.muted {
+                            peer.muted = true;
+                        }
                         // Install from cache synchronously when we've fetched
                         // this DID before in the same session; otherwise
                         // kick the async PDS fetch. Skipping the network
@@ -432,25 +447,12 @@ pub(super) fn handle_incoming_messages(
                     let author = sender_peer
                         .and_then(|(_, peer, _, _)| peer.handle.clone())
                         .unwrap_or_else(|| msg.sender.to_string());
-                    let ts = crate::format_elapsed_ts(now);
-                    chat.messages.push(crate::state::ChatEntry {
-                        did,
-                        author,
-                        text: clipped,
-                        timestamp: ts,
-                    });
+                    // Capped + wall-clock-stamped (#846).
+                    chat.push(did, author, clipped);
                     // With the window closed this message would be
                     // invisible — count it for the toolbar badge (#835).
                     if !bufs.panels.chat {
                         chat.unread += 1;
-                    }
-                    // Bound the rolling history so a chatty peer can't grow
-                    // the scroll area unbounded — each entry re-wraps every
-                    // frame once it's in egui's text layout cache.
-                    let cap = crate::config::ui::chat::MAX_HISTORY_ENTRIES;
-                    if chat.messages.len() > cap {
-                        let drop = chat.messages.len() - cap;
-                        chat.messages.drain(..drop);
                     }
                 }
             }
@@ -549,6 +551,10 @@ pub(super) fn handle_incoming_messages(
                     );
                     session_log.info(now, EventPayload::ItemOfferAutoDeclinedBusy { offer_id });
                     crate::diagnostics::samplers::offer_auto_declined_busy(&mut metrics);
+                    // Counted for the dialog's closing note (#843) — the
+                    // decline itself stays invisible until then, preserving
+                    // the single-dialog anti-spam invariant.
+                    bufs.busy_declines.0 = bufs.busy_declines.0.saturating_add(1);
                     continue;
                 }
 
@@ -659,16 +665,36 @@ pub(super) fn handle_incoming_messages(
                 }
 
                 // Consume the pending entry now that the responder is
-                // authenticated; the value itself is no longer needed since the
-                // response event is keyed by `offer_id`.
-                if pending_offers.by_id.remove(&offer_id).is_none() {
+                // authenticated — its handle + item name feed the sender's
+                // outcome toast (#843).
+                let Some(pending) = pending_offers.by_id.remove(&offer_id) else {
                     continue;
-                }
+                };
 
                 session_log.info(
                     now,
                     EventPayload::ItemOfferResponseReceived { offer_id, accepted },
                 );
+                // The sender finally learns the outcome somewhere visible
+                // (#843). `accepted:false` covers declined / busy / muted
+                // undifferentiated — the protocol carries no reason code.
+                if accepted {
+                    bufs.toasts.success(
+                        format!(
+                            "@{} accepted \"{}\".",
+                            pending.target_handle, pending.item_name
+                        ),
+                        now,
+                    );
+                } else {
+                    bufs.toasts.info(
+                        format!(
+                            "@{} declined \"{}\".",
+                            pending.target_handle, pending.item_name
+                        ),
+                        now,
+                    );
+                }
             }
         }
     }

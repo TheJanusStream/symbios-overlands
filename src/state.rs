@@ -77,7 +77,29 @@ pub struct ChatEntry {
     pub did: Option<String>,
     pub author: String,
     pub text: String,
-    pub timestamp: String,
+    /// Wall-clock arrival time as Unix seconds (#846). The old field was
+    /// a pre-formatted minutes-since-app-launch string — meaningless
+    /// across peers and sessions. Raw epoch here; the HUD renders local
+    /// HH:MM via [`clock_hhmm`].
+    pub at_epoch_secs: i64,
+}
+
+/// Current wall-clock time as Unix seconds. `chrono`'s clock is backed
+/// by JS `Date` on wasm (`wasmbind`), so this is safe on both targets —
+/// `std::time::SystemTime` panics on wasm32 (known gotcha).
+pub fn now_epoch_secs() -> i64 {
+    chrono::Utc::now().timestamp()
+}
+
+/// Render an epoch stamp as the viewer's local `HH:MM` (#846).
+pub fn clock_hhmm(epoch_secs: i64) -> String {
+    chrono::DateTime::<chrono::Utc>::from_timestamp(epoch_secs, 0)
+        .map(|utc| {
+            utc.with_timezone(&chrono::Local)
+                .format("%H:%M")
+                .to_string()
+        })
+        .unwrap_or_else(|| "--:--".to_owned())
 }
 
 /// Rolling chat history shown in the HUD.
@@ -89,6 +111,31 @@ pub struct ChatHistory {
     /// incoming message is visible at all with the window shut. Cleared
     /// by the toolbar whenever the window is open.
     pub unread: usize,
+}
+
+impl ChatHistory {
+    /// Append a wall-clock-stamped entry, enforcing the rolling cap
+    /// (#846). The cap used to live only on the inbound path — local
+    /// sends and the presence/system lines grew the history unboundedly.
+    /// EVERY writer routes through here now.
+    pub fn push(
+        &mut self,
+        did: Option<String>,
+        author: impl Into<String>,
+        text: impl Into<String>,
+    ) {
+        self.messages.push(ChatEntry {
+            did,
+            author: author.into(),
+            text: text.into(),
+            at_epoch_secs: now_epoch_secs(),
+        });
+        let cap = crate::config::ui::chat::MAX_HISTORY_ENTRIES;
+        if self.messages.len() > cap {
+            let drop = self.messages.len() - cap;
+            self.messages.drain(..drop);
+        }
+    }
 }
 
 /// Relay hostname captured at login, used when building the room URL.
@@ -357,6 +404,36 @@ pub struct IncomingOfferDialog {
     /// any future timeout logic key off this.
     pub arrived_at_secs: f64,
 }
+
+/// DIDs the local user has muted, persisted across sessions via the
+/// prefs layer (#820/#844). The live cache stays `RemotePeer::muted` —
+/// this set is the durable source: applied when a peer's DID resolves,
+/// updated by every mute toggle. Without it a mute lived on the
+/// session-scoped peer entity, so a harasser reset the block by simply
+/// reconnecting. Machine-local like the rest of the prefs.
+#[derive(Resource, Default, Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct MutedDids(pub std::collections::HashSet<String>);
+
+impl MutedDids {
+    /// Record a mute-flag change for `did`. Returns true when the set
+    /// actually changed (drives prefs change detection honestly).
+    pub fn set(&mut self, did: &str, muted: bool) -> bool {
+        if muted {
+            self.0.insert(did.to_owned())
+        } else {
+            self.0.remove(did)
+        }
+    }
+}
+
+/// Offers auto-declined by the busy-gate while the current
+/// [`IncomingOfferDialog`] sat on screen (#843). The network layer's
+/// single-dialog anti-spam invariant silently declines them; this counter
+/// lets the UI say "N more offers arrived while you decided" when the
+/// dialog closes, instead of peers' gifts vanishing without a trace.
+/// Reset whenever a dialog is answered or evicted.
+#[derive(Resource, Default, Debug)]
+pub struct BusyAutoDeclines(pub u32);
 
 /// A gift that the local user has sent to a peer but hasn't yet received
 /// a response for. Keyed by `offer_id` (the sender-chosen token echoed by

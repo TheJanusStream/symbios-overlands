@@ -38,6 +38,8 @@
 //!   ladder, Enter-to-chat, and Ctrl+S publish (#836).
 //! * [`confirm`]      — shared destructive-action confirm modal +
 //!   rename dialog ([`confirm::ConfirmState`], #838).
+//! * [`travel`]       — in-flight travel overlay + portal approach
+//!   prompt (#842).
 //! * [`toast`]        — transient top-right notification stack
 //!   ([`toast::Toasts`]); the one channel for "something just happened"
 //!   feedback (#819).
@@ -58,4 +60,5 @@ pub mod room;
 pub mod shortcuts;
 pub mod toast;
 pub mod toolbar;
+pub mod travel;
 pub mod unsaved_guard;

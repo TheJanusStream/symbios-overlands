@@ -10,7 +10,7 @@ use crate::state::{LiveRoomRecord, LocalPlayer};
 
 use super::random_spawn_xz;
 
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn respawn_if_fallen(
     mut query: Query<
         (
@@ -27,6 +27,7 @@ pub(super) fn respawn_if_fallen(
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
     mut recent_respawns: ResMut<crate::diagnostics::anomaly::RecentRespawns>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
 ) {
     let Ok((mut pos, mut rot, mut lin_vel, mut ang_vel)) = query.single_mut() else {
         return;
@@ -81,6 +82,9 @@ pub(super) fn respawn_if_fallen(
     lin_vel.0 = Vec3::ZERO;
     ang_vel.0 = Vec3::ZERO;
     let now = time.elapsed_secs_f64();
+    // The teleport used to be silent (#842) — one instant the player is
+    // falling, the next they are somewhere else with no explanation.
+    toasts.warn("Returned to spawn — you fell out of the world.", now);
     crate::diagnostics::samplers::player_respawned(&mut metrics);
     // Feed the respawn-thrashing window (#672) alongside the monotonic metric.
     recent_respawns.note(now);

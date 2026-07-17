@@ -41,6 +41,10 @@ avian3d = "0.6"
 fast-surface-nets = "0.2"
 ndshape = "0.3"
 serde = { version = "1.0", features = ["derive"] }
+# Wall-clock chat timestamps (#846). Already in the tree transitively;
+# `wasmbind` backs the clock + local timezone with JS Date on wasm32
+# (std::time panics there — known gotcha).
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "wasmbind"] }
 image = "0.25"
 futures-lite = "2"
 reqwest = { version = "0.12", default-features = false, features = [

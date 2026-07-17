@@ -120,6 +120,25 @@ pub struct PeerDropTarget {
     pub handle: String,
 }
 
+/// Auto-open the People window the moment a gift-capable drag arms with
+/// peers present (#846). Peer drop targets exist ONLY as rendered People
+/// rows — with the window closed (the default) a drag had nothing to
+/// land on and a visitor's release was a silent no-op. Rising-edge only,
+/// so closing People mid-drag is respected.
+pub fn open_people_for_gift_drag(
+    pending: Res<PendingGeneratorDrop>,
+    peers: Query<(), With<crate::state::RemotePeer>>,
+    mut panels: ResMut<crate::ui::toolbar::UiPanels>,
+    mut was_armed: Local<bool>,
+) {
+    let armed = pending.generator_name.is_some();
+    let rising = armed && !*was_armed;
+    *was_armed = armed;
+    if rising && !peers.is_empty() && !panels.people {
+        panels.people = true;
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn inventory_ui(
     mut contexts: EguiContexts,
@@ -529,6 +548,8 @@ pub fn poll_publish_inventory_tasks(
     mut session_log: ResMut<SessionLog>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
     time: Res<Time>,
+    mut panels: ResMut<crate::ui::toolbar::UiPanels>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
@@ -574,6 +595,14 @@ pub fn poll_publish_inventory_tasks(
                         reason: e.clone(),
                     },
                 );
+                // Surfaced OUTSIDE the Inventory window (#843): the
+                // accept-a-gift flow publishes without the window open,
+                // so its failure used to be invisible — the item looked
+                // saved and evaporated on the next login. Toast + open
+                // the window, where the status line and Save button
+                // offer the retry.
+                toasts.error(format!("Couldn't save your inventory — {e}"), now);
+                panels.inventory = true;
                 feedback.status = PublishStatus::Failed {
                     at_secs: now,
                     message: e,

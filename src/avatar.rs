@@ -106,11 +106,21 @@ fn fetch_local_avatar(
     spawn_avatar_task(&mut commands, entity, did);
 }
 
+/// Presence line for a peer whose verified handle just resolved (#844):
+/// "joined" is announced at identification, not at raw socket connect —
+/// that's the first moment there is a trustworthy name to print. Styled
+/// as the same system authorship the portal arrival line uses; does NOT
+/// bump the unread badge (presence is ambience, not a message).
+fn push_joined_line(chat: &mut crate::state::ChatHistory, handle: &str) {
+    chat.push(None, "system", format!("@{handle} joined the room."));
+}
+
 fn trigger_avatar_fetches(
     mut commands: Commands,
     pending: Query<(Entity, &AvatarFetchPending)>,
     cache: Res<BskyProfileCache>,
     mut peers: Query<&mut RemotePeer>,
+    mut chat: ResMut<crate::state::ChatHistory>,
 ) {
     for (entity, pending) in pending.iter() {
         let did = pending.did.clone();
@@ -124,6 +134,9 @@ fn trigger_avatar_fetches(
             if let Some(handle) = cached.handle.clone()
                 && let Ok(mut peer) = peers.get_mut(entity)
             {
+                if peer.handle.is_none() {
+                    push_joined_line(&mut chat, &handle);
+                }
                 peer.handle = Some(handle);
             }
             continue;
@@ -163,6 +176,7 @@ fn poll_avatar_tasks(
     mut images: ResMut<Assets<Image>>,
     mut egui_textures: ResMut<EguiUserTextures>,
     mut cache: ResMut<BskyProfileCache>,
+    mut chat: ResMut<crate::state::ChatHistory>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
@@ -184,6 +198,9 @@ fn poll_avatar_tasks(
         if let Some(handle) = verified_handle.clone()
             && let Ok(mut peer) = peers.get_mut(entity)
         {
+            if peer.handle.is_none() {
+                push_joined_line(&mut chat, &handle);
+            }
             peer.handle = Some(handle);
         }
 

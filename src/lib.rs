@@ -237,6 +237,8 @@ pub fn run() {
         .init_resource::<ui::catalogue::CatalogueBrowser>()
         .init_resource::<ui::inventory::PendingGeneratorDrop>()
         .init_resource::<state::PendingOutgoingOffers>()
+        .init_resource::<state::BusyAutoDeclines>()
+        .init_resource::<state::MutedDids>()
         .init_resource::<ui::login::LoginError>()
         .init_resource::<ui::login::LoginUiLatch>()
         .init_resource::<ui::login::LoginPostFeed>()
@@ -366,6 +368,12 @@ pub fn run() {
                 ui::inventory::inventory_ui,
                 ui::catalogue::catalogue_ui,
                 ui::toolbar::controls_hint_ui,
+                // Travel visibility (#842): the in-flight overlay and the
+                // portal approach prompt. Anchored HUD surfaces, so their
+                // position in the window chain doesn't matter beyond
+                // running after the toolbar carves the top strip.
+                ui::travel::travel_overlay_ui,
+                ui::travel::portal_prompt_ui,
                 // Last in the chain AND on the egui Foreground order, so
                 // toasts paint above every floating window (#819).
                 ui::toast::toast_ui,
@@ -400,6 +408,15 @@ pub fn run() {
                 .run_if(in_state(AppState::InGame))
                 .run_if(resource_exists::<ui::gateway::GatewayPicker>),
         )
+        // Re-open chip while standing in a dismissed gateway zone (#842):
+        // `GatewayDismissed` exists exactly between "picker closed" and
+        // "walked out of the zone".
+        .add_systems(
+            EguiPrimaryContextPass,
+            ui::gateway::gateway_reopen_chip_ui
+                .run_if(in_state(AppState::InGame))
+                .run_if(resource_exists::<ui::gateway::GatewayDismissed>),
+        )
         .add_systems(
             Update,
             (
@@ -408,6 +425,7 @@ pub fn run() {
                 ui::inventory::poll_publish_inventory_tasks,
                 ui::inventory::handle_generator_drop,
                 ui::inventory::preview_generator_drop,
+                ui::inventory::open_people_for_gift_drag,
             )
                 .run_if(in_state(AppState::InGame)),
         )

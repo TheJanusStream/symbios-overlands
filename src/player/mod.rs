@@ -302,6 +302,7 @@ struct VisualsEditFreeze {
 fn freeze_local_avatar_while_editing(
     mut commands: Commands,
     avatar_editor: Option<Res<AvatarEditorState>>,
+    traveling: Option<Res<crate::state::TravelingTo>>,
     mut q: Query<
         (
             Entity,
@@ -313,9 +314,15 @@ fn freeze_local_avatar_while_editing(
         (With<LocalPlayer>, With<RigidBody>),
     >,
 ) {
+    // Held for an avatar-editing session AND while a portal travel is in
+    // flight (#842): travel suppresses the drive systems but used to
+    // leave the chassis loose under gravity/physics, so aircraft sagged
+    // and boats drifted through the fetch. Same park/release machinery
+    // either way.
     let held = avatar_editor
         .map(|e| e.holds_avatar_still())
-        .unwrap_or(false);
+        .unwrap_or(false)
+        || traveling.is_some();
     for (entity, mut lin, mut ang, locked_axes, freeze) in q.iter_mut() {
         if held {
             lin.0 = Vec3::ZERO;
