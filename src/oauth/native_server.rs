@@ -129,16 +129,15 @@ pub fn start_native_callback_server(
                 path_ok && state_matches && !is_authorized_code && params.error.is_some();
 
             let response = if is_authorized_code {
-                html_response(
-                    "<!doctype html><html><body><h2>Login successful.</h2>\
-                     <p>You can close this tab and return to Symbios Overlands.</p></body></html>",
-                )
+                html_response(&styled_page(
+                    "Login successful.",
+                    "You can close this tab and return to Symbios Overlands.",
+                ))
             } else if is_authorized_error {
-                html_response(
-                    "<!doctype html><html><body><h2>Login was cancelled.</h2>\
-                     <p>You can close this tab and return to Symbios Overlands \
-                     to try again.</p></body></html>",
-                )
+                html_response(&styled_page(
+                    "Login was cancelled.",
+                    "You can close this tab and return to Symbios Overlands to try again.",
+                ))
             } else {
                 // Reject everything else with a 404. Crucially we do NOT
                 // break the listener loop here — a forged request from
@@ -176,6 +175,27 @@ pub fn start_native_callback_server(
             thread: Some(thread),
         },
     ))
+}
+
+/// Build the branded page shell for the terminal listener answers
+/// (#860): dark surface + teal wordmark matching the app's dark theme
+/// and the wasm splash, so the browser tab reads as the same product.
+/// The heading/body copy is passed through verbatim — #847 chose that
+/// wording deliberately.
+fn styled_page(heading: &str, body: &str) -> String {
+    format!(
+        "<!doctype html><html><head><meta charset=\"utf-8\">\
+         <title>Symbios Overlands</title>\
+         <meta name=\"theme-color\" content=\"#1b1b1b\"></head>\
+         <body style=\"margin:0;height:100vh;display:flex;align-items:center;\
+         justify-content:center;background:#1b1b1b;color:#dcdcdc;\
+         font-family:system-ui,sans-serif;text-align:center\"><div>\
+         <div style=\"color:#48c7d0;font-weight:700;letter-spacing:0.35em;\
+         font-size:15px;margin-bottom:18px\">SYMBIOS&nbsp;OVERLANDS</div>\
+         <h2 style=\"margin:0 0 8px 0;font-weight:600\">{heading}</h2>\
+         <p style=\"margin:0;color:#9a9a9a\">{body}</p>\
+         </div></body></html>"
+    )
 }
 
 /// Shared HTML success/cancel response builder for the terminal

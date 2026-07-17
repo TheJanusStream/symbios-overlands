@@ -88,6 +88,11 @@ fn owns_current_room(
     }
 }
 
+/// Reserved width of the toolbar wordmark (#860) — fixed so the brand
+/// text can never shift the toggles after it (same contract as the
+/// badge widths below).
+const WORDMARK_WIDTH: f32 = 148.0;
+
 /// Reserved width of the Chat toggle — wide enough for "Chat (99+)" so
 /// the unread badge appearing/growing never shifts the buttons after it.
 const CHAT_TOGGLE_WIDTH: f32 = 84.0;
@@ -174,6 +179,21 @@ pub fn toolbar_ui(
 
     egui::TopBottomPanel::top("overlands-toolbar").show(ctx, |ui| {
         ui.horizontal(|ui| {
+            // Wordmark (#860): the product's name at the bar's left edge.
+            // Non-interactive, accent-coloured, fixed width — the brand
+            // anchor for every session, and the same product identity the
+            // wasm splash and OAuth return pages carry.
+            let accent = crate::ui::theme::current(ui.ctx()).accent;
+            ui.add_sized(
+                egui::vec2(WORDMARK_WIDTH, ui.spacing().interact_size.y),
+                egui::Label::new(
+                    egui::RichText::new("SYMBIOS OVERLANDS")
+                        .strong()
+                        .color(accent),
+                )
+                .selectable(false),
+            );
+            ui.separator();
             toggle_with_badge(
                 ui,
                 &mut panels.chat,
