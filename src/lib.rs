@@ -248,11 +248,18 @@ pub fn run() {
         // the resource. Runs in Update — the egui pass renders after it,
         // so a change lands the same frame it's made.
         .init_resource::<ui::theme::CurrentTheme>()
+        .init_resource::<ui::fonts::CjkFonts>()
         .add_systems(
             Update,
             (
                 ui::theme::sync_theme_from_settings,
                 ui::theme::apply_theme_on_change,
+                // Fonts ride the same Update slot (#858): base install is
+                // a self-retrying one-shot; detect/poll are change-gated
+                // and drive the at-most-once lazy CJK swap.
+                ui::fonts::install_base_fonts,
+                ui::fonts::detect_cjk_need,
+                ui::fonts::poll_cjk_fetch,
             )
                 .chain(),
         )

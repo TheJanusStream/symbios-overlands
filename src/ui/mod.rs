@@ -50,6 +50,7 @@ pub mod chat;
 pub mod confirm;
 pub mod diagnostics;
 pub mod editable;
+pub mod fonts;
 pub mod gateway;
 pub mod inventory;
 pub mod layout;
