@@ -37,6 +37,9 @@ pub(super) fn draw_tree_panel(
     confirms: &mut super::TreeConfirms,
     toasts: &mut crate::ui::toast::Toasts,
     now: f64,
+    // Undo-entry label channel (#865): structural ops name themselves so
+    // the toast can say "Undid: add of oak_3" instead of "Undid: edit".
+    label: &mut crate::ui::undo::LabelSlot,
 ) {
     ui.heading("Generators");
     ui.add_space(2.0);
@@ -72,6 +75,7 @@ pub(super) fn draw_tree_panel(
                     {
                         *selected_generator = Some(name.clone());
                         *selected_prim_path = Some(Vec::new());
+                        label.set(format!("add of {name}"));
                         tree_view_state.set_one_selected(GenNodeId::root(name));
                         *dirty = true;
                     }
@@ -100,6 +104,7 @@ pub(super) fn draw_tree_panel(
                 {
                     *selected_generator = Some(new_name.clone());
                     *selected_prim_path = Some(Vec::new());
+                    label.set(format!("add of {new_name}"));
                     tree_view_state.set_one_selected(GenNodeId::root(new_name));
                     *dirty = true;
                 }
@@ -118,6 +123,7 @@ pub(super) fn draw_tree_panel(
                 {
                     *selected_generator = Some(new_name.clone());
                     *selected_prim_path = Some(Vec::new());
+                    label.set(format!("add of {new_name}"));
                     tree_view_state.set_one_selected(GenNodeId::root(new_name));
                     *dirty = true;
                 }
@@ -224,6 +230,7 @@ pub(super) fn draw_tree_panel(
             confirms,
             toasts,
             now,
+            label,
         );
     }
 

@@ -286,6 +286,7 @@ pub(super) fn scene_context_menu_ui(
     inventory: Option<Res<LiveInventoryRecord>>,
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
+    mut undo_labels: ResMut<crate::ui::undo::PendingUndoLabels>,
 ) {
     if !menu.open {
         return;
@@ -527,6 +528,7 @@ pub(super) fn scene_context_menu_ui(
                 return;
             };
             if let Some(new_path) = duplicate_prim(&mut room.0, &prim.generator_ref, &prim.path) {
+                undo_labels.set_room(format!("duplicate of {}", prim.generator_ref));
                 // Land the editor on the clone (it spawns coincident with
                 // the original — the selection highlight + gizmo make it
                 // grabbable despite the overlap).
@@ -552,6 +554,7 @@ pub(super) fn scene_context_menu_ui(
                 return;
             };
             if let Some(new_idx) = duplicate_placement(&mut room.0, idx) {
+                undo_labels.set_room(format!("duplicate of placement {idx}"));
                 panels.world_editor = true;
                 editor.selected_tab = EditorTab::Placements;
                 editor.selected_generator = None;
@@ -565,6 +568,7 @@ pub(super) fn scene_context_menu_ui(
                 return;
             };
             if delete_prim(&mut room.0, &prim.generator_ref, &prim.path) {
+                undo_labels.set_room(format!("delete of {}", prim.generator_ref));
                 // Sibling indices (and, for a root, placement indices)
                 // shifted under whatever was selected — clear rather than
                 // leave a stale path pointing at the wrong node.
@@ -576,6 +580,7 @@ pub(super) fn scene_context_menu_ui(
                 return;
             };
             if delete_placement(&mut room.0, idx) {
+                undo_labels.set_room(format!("delete of placement {idx}"));
                 editor.clear_selection();
             }
         }
@@ -584,14 +589,16 @@ pub(super) fn scene_context_menu_ui(
             let Some(room) = room.as_mut() else {
                 return;
             };
-            create_at_point(
+            if let Some(key) = create_at_point(
                 &prefix,
                 *generator,
                 world_pos,
                 &mut panels,
                 &mut editor,
                 &mut room.0,
-            );
+            ) {
+                undo_labels.set_room(format!("create of {key}"));
+            }
         }
     }
 }

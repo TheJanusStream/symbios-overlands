@@ -72,6 +72,10 @@ pub(super) fn apply_pending(
     confirms: &mut super::TreeConfirms,
     toasts: &mut crate::ui::toast::Toasts,
     now: f64,
+    // Undo-entry label channel (#865). Only set on arms that actually
+    // mutate the record (`dirty = true`) — a parked label with no
+    // matching change tick would mislabel the NEXT edit.
+    label: &mut crate::ui::undo::LabelSlot,
 ) {
     match action {
         PendingAction::AddChild { parent, kind_tag } => {
@@ -79,6 +83,7 @@ pub(super) fn apply_pending(
                 && allows_children(&node.kind)
             {
                 let new_kind = make_default_for_kind(kind_tag);
+                label.set(format!("add of {kind_tag}"));
                 node.children.push(Generator::from_kind(new_kind));
                 let new_idx = node.children.len() - 1;
                 let mut new_path = parent.path.clone();
@@ -95,6 +100,7 @@ pub(super) fn apply_pending(
             if let Some(node) = find_node_mut(source, &parent)
                 && allows_children(&node.kind)
             {
+                label.set(format!("add of {}", generator.kind_tag()));
                 node.children.push(*generator);
                 let new_idx = node.children.len() - 1;
                 let mut new_path = parent.path.clone();
@@ -179,6 +185,10 @@ pub(super) fn apply_pending(
                 if let Some(parent) = find_node_mut(source, &parent_id)
                     && last_idx < parent.children.len()
                 {
+                    label.set(format!(
+                        "delete of {}",
+                        parent.children[last_idx].kind_tag()
+                    ));
                     parent.children.remove(last_idx);
                 }
             }
@@ -201,6 +211,7 @@ pub(super) fn apply_pending(
                 target,
                 position,
                 dirty,
+                label,
             );
         }
     }
@@ -233,6 +244,7 @@ pub(super) fn apply_reparent(
     mut target: GenNodeId,
     mut position: DirPosition<GenNodeId>,
     dirty: &mut bool,
+    label: &mut crate::ui::undo::LabelSlot,
 ) {
     if drag_source.is_virtual_root() {
         return;
@@ -380,6 +392,7 @@ pub(super) fn apply_reparent(
     // openness state on the old id by simply not referencing it again.
     *selected_generator = Some(new_id.root.clone());
     *selected_prim_path = Some(new_id.path.clone());
+    label.set(format!("reparent of {}", new_id.root));
     tree_view_state.set_one_selected(new_id);
     *dirty = true;
 }
@@ -658,6 +671,8 @@ mod tests {
             GenNodeId::default(),
             DirPosition::Last,
             &mut dirty,
+            &mut crate::ui::undo::PendingUndoLabels::default()
+                .slot(crate::ui::shortcuts::EditorKind::World),
         );
 
         // parent's child list shrinks; a new top-level "cuboid" appears.
@@ -700,6 +715,8 @@ mod tests {
             GenNodeId::root("host"),
             DirPosition::Last,
             &mut dirty,
+            &mut crate::ui::undo::PendingUndoLabels::default()
+                .slot(crate::ui::shortcuts::EditorKind::World),
         );
 
         assert!(!record.generators.contains_key("victim"));
@@ -739,6 +756,8 @@ mod tests {
             GenNodeId::default(),
             DirPosition::Last,
             &mut dirty,
+            &mut crate::ui::undo::PendingUndoLabels::default()
+                .slot(crate::ui::shortcuts::EditorKind::World),
         );
 
         assert!(record.generators.contains_key("a"));
@@ -772,6 +791,8 @@ mod tests {
             GenNodeId::child("a", vec![0]),
             DirPosition::Last,
             &mut dirty,
+            &mut crate::ui::undo::PendingUndoLabels::default()
+                .slot(crate::ui::shortcuts::EditorKind::World),
         );
 
         // `a` still exists with its child, no churn.
@@ -815,6 +836,8 @@ mod tests {
             GenNodeId::child("r", vec![2]),
             DirPosition::Last,
             &mut dirty,
+            &mut crate::ui::undo::PendingUndoLabels::default()
+                .slot(crate::ui::shortcuts::EditorKind::World),
         );
 
         let r = record.generators.get("r").expect("root still there");
@@ -877,6 +900,8 @@ mod tests {
             GenNodeId::root("r"),
             DirPosition::After(GenNodeId::child("r", vec![4])),
             &mut dirty,
+            &mut crate::ui::undo::PendingUndoLabels::default()
+                .slot(crate::ui::shortcuts::EditorKind::World),
         );
 
         let r = record.generators.get("r").expect("root still there");
@@ -919,6 +944,8 @@ mod tests {
             GenNodeId::root("water"),
             DirPosition::Last,
             &mut dirty,
+            &mut crate::ui::undo::PendingUndoLabels::default()
+                .slot(crate::ui::shortcuts::EditorKind::World),
         );
 
         // Cube is still its own root; water still has zero children.

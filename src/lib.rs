@@ -291,6 +291,7 @@ pub fn run() {
         .init_resource::<ui::undo::AvatarUndoHistory>()
         .init_resource::<ui::undo::RoomWriteSignals>()
         .init_resource::<ui::undo::PendingUndoLabels>()
+        .init_resource::<ui::undo::UndoShortcut>()
         .add_systems(
             PostUpdate,
             (
@@ -440,12 +441,20 @@ pub fn run() {
                 .run_if(resource_exists::<ui::unsaved_guard::UnsavedGuard>),
         )
         // Global keyboard shortcuts (#836): Esc back-out ladder,
-        // Enter-to-chat, Ctrl+S publish. Update (not the egui pass) so the
-        // ladder's state checks land before the PostUpdate gizmo/blob Esc
-        // handlers consume theirs.
+        // Enter-to-chat, Ctrl+S publish, Ctrl+Z/Ctrl+Shift+Z undo (#864).
+        // Update (not the egui pass) so the ladder's state checks land
+        // before the PostUpdate gizmo/blob Esc handlers consume theirs.
+        // The undo apply is chained after the chord detection so a
+        // keypress restores in the same frame; header-button requests
+        // (stamped during the egui pass) apply on the next frame's run.
         .add_systems(
             Update,
-            ui::shortcuts::global_shortcuts.run_if(in_state(AppState::InGame)),
+            (
+                ui::shortcuts::global_shortcuts,
+                ui::undo::apply_undo_shortcut,
+            )
+                .chain()
+                .run_if(in_state(AppState::InGame)),
         )
         // Gateway destination picker (#748): the zone watcher opens/closes
         // the picker from the player's sensor overlap, the window renders

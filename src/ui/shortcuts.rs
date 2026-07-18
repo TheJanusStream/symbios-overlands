@@ -174,6 +174,7 @@ pub fn global_shortcuts(
     gizmo_targets: Query<&GizmoTarget>,
     mut audio_requests: MessageWriter<bevy_symbios_audio::ui::MonitorRequest>,
     dirty: EditorDirtyState,
+    mut undo: ResMut<crate::ui::undo::UndoShortcut>,
 ) {
     // Guarded so the every-frame system doesn't flag the resource
     // changed while nothing is pending.
@@ -278,6 +279,36 @@ pub fn global_shortcuts(
         if let Some(kind) = topmost(ctx, &candidates) {
             publish.request(kind);
         }
+    }
+
+    // ── Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y): undo / redo (#864) ────────
+    // Routes to the front-most OPEN editor window — same `topmost` scan
+    // as Ctrl+S, minus the dirty gate (an empty history toasts its own
+    // no-op). Suppressed mid-gizmo-drag: restoring the record under an
+    // active drag would let the drag-end commit write stale transforms
+    // into the restored state; Esc-abort the drag first.
+    let z = keyboard.just_pressed(KeyCode::KeyZ);
+    let y = keyboard.just_pressed(KeyCode::KeyY);
+    if ctrl && (z || y) && !egui_wants_keyboard && !gizmo_targets.iter().any(|t| t.is_active()) {
+        let shift = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+        let kind = if y || shift {
+            crate::ui::undo::StepKind::Redo
+        } else {
+            crate::ui::undo::StepKind::Undo
+        };
+        let candidates: Vec<(egui::Id, EditorKind)> = [
+            (
+                UiWindow::WorldEditor,
+                EditorKind::World,
+                panels.world_editor,
+            ),
+            (UiWindow::Avatar, EditorKind::Avatar, panels.avatar),
+        ]
+        .into_iter()
+        .filter(|(_, _, open)| *open)
+        .map(|(w, kind, _)| (window_area_id(w), kind))
+        .collect();
+        undo.request(topmost(ctx, &candidates), kind);
     }
 }
 

@@ -55,8 +55,10 @@ use super::avatar::AvatarEditorState;
 use super::room::{GenNodeId, RoomEditorState};
 
 pub mod restore;
+pub mod trigger;
 
 pub use restore::{StepKind, step_avatar, step_room};
+pub use trigger::{UndoShortcut, apply_undo_shortcut, undo_redo_buttons};
 
 /// Fallback entry label until the mutation sites report richer ones
 /// (#865). Toasts render it as "Undid: edit".
@@ -321,6 +323,25 @@ impl PendingUndoLabels {
         self.avatar = Some(label.into());
     }
 
+    /// True while a label is already parked for the room entry — the
+    /// coarse tab-level fallback checks this so it never overwrites a
+    /// specific site's label from the same edit burst.
+    pub fn room_pending(&self) -> bool {
+        self.room.is_some()
+    }
+
+    pub fn avatar_pending(&self) -> bool {
+        self.avatar.is_some()
+    }
+
+    /// A handle pre-bound to one editor's slot, for shared UI helpers
+    /// (the generator tree serves both editors) that shouldn't need to
+    /// know which editor they're inside. Inventory has no undo stack —
+    /// its slot swallows labels.
+    pub fn slot(&mut self, kind: crate::ui::shortcuts::EditorKind) -> LabelSlot<'_> {
+        LabelSlot { labels: self, kind }
+    }
+
     fn take_room(&mut self) -> String {
         self.room
             .take()
@@ -331,6 +352,24 @@ impl PendingUndoLabels {
         self.avatar
             .take()
             .unwrap_or_else(|| GENERIC_LABEL.to_string())
+    }
+}
+
+/// See [`PendingUndoLabels::slot`].
+pub struct LabelSlot<'a> {
+    labels: &'a mut PendingUndoLabels,
+    kind: crate::ui::shortcuts::EditorKind,
+}
+
+impl LabelSlot<'_> {
+    /// Name the edit that is being committed this frame ("delete of
+    /// oak_3 + 12 placements"). Latest-wins within a frame.
+    pub fn set(&mut self, label: impl Into<String>) {
+        match self.kind {
+            crate::ui::shortcuts::EditorKind::World => self.labels.set_room(label),
+            crate::ui::shortcuts::EditorKind::Avatar => self.labels.set_avatar(label),
+            crate::ui::shortcuts::EditorKind::Inventory => {}
+        }
     }
 }
 

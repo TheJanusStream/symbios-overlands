@@ -269,6 +269,9 @@ pub(crate) fn draw_generators_tab(
     // Save-to-Inventory success/full toasts).
     toasts: &mut crate::ui::toast::Toasts,
     now: f64,
+    // Undo-entry label channel (#865), pre-bound to the hosting editor's
+    // slot so this shared widget stays editor-agnostic.
+    label: &mut crate::ui::undo::LabelSlot,
 ) {
     // Inventory now flows only into the tree panel (for the root-level
     // "+ From Inventory" toolbar, the per-row "+ From Inventory" submenu,
@@ -293,6 +296,7 @@ pub(crate) fn draw_generators_tab(
                 confirms,
                 toasts,
                 now,
+                label,
             );
         });
 
@@ -315,6 +319,18 @@ pub(crate) fn draw_generators_tab(
     // can re-resolve their nodes at apply time, so a confirm is safe
     // even if the selection moved while the dialog was up.
     if let Some(id) = confirms.delete.show(ui.ctx(), "tree-delete") {
+        // Blast radius measured BEFORE the sweep, so the undo toast can
+        // say what the cascade actually took with it.
+        let placements = source.placement_ref_count(&id.root);
+        label.set(if placements > 0 {
+            format!(
+                "delete of {} + {placements} placement{}",
+                id.root,
+                if placements == 1 { "" } else { "s" }
+            )
+        } else {
+            format!("delete of {}", id.root)
+        });
         source.remove_root(&id.root);
         *selected_generator = None;
         *selected_prim_path = None;
@@ -324,6 +340,7 @@ pub(crate) fn draw_generators_tab(
     if let Some((id, kind_tag)) = confirms.kind.show(ui.ctx(), "tree-kind-change")
         && let Some(node) = reparent::find_node_mut(source, &id)
     {
+        label.set(format!("kind change to {kind_tag}"));
         node.kind = super::construct::make_default_for_kind(kind_tag);
         *dirty = true;
     }

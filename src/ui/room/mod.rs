@@ -335,6 +335,13 @@ pub struct RoomEditorExtras<'w, 's> {
     publish_shortcut: ResMut<'w, crate::ui::shortcuts::PublishShortcut>,
     /// Toast channel for structural-op feedback (#841).
     toasts: ResMut<'w, crate::ui::toast::Toasts>,
+    /// Undo history (read: button enabled-state + tooltips) and the
+    /// shared request the header buttons stamp (#864).
+    undo_history: Res<'w, crate::ui::undo::RoomUndoHistory>,
+    undo_shortcut: ResMut<'w, crate::ui::undo::UndoShortcut>,
+    /// Label channel for the next undo entry (#865): sites name their
+    /// edit; the flush fallback names the tab.
+    undo_labels: ResMut<'w, crate::ui::undo::PendingUndoLabels>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -366,6 +373,9 @@ pub fn room_admin_ui(
         mut chrome,
         mut publish_shortcut,
         mut toasts,
+        undo_history,
+        mut undo_shortcut,
+        mut undo_labels,
     } = extras;
     let (Some(session), Some(refresh_ctx), Some(room_did), Some(record)) =
         (session, refresh_ctx, room_did, room_record.as_mut())
@@ -492,6 +502,7 @@ pub fn room_admin_ui(
                             record_mut.traits.insert(applied.clone(), traits);
                         }
                         *selected_generator = Some(applied.clone());
+                        undo_labels.set_room(format!("rename of {old_name} to {applied}"));
                         // Tree-view ids are keyed on `(root, path)`, so the
                         // rename also has to retarget the current selection at
                         // the new root key — otherwise the tree highlights
@@ -558,6 +569,7 @@ pub fn room_admin_ui(
                                 serde_json::to_string_pretty(&default_record).unwrap_or_default();
                             *raw_error = None;
                             needs_broadcast = true;
+                            undo_labels.set_room("reset PDS to default");
                             // Use the delete-then-put reset path. The vanilla
                             // putRecord upsert can return 500 when the stored
                             // record is incompatible with the current lexicon;
@@ -618,6 +630,13 @@ pub fn room_admin_ui(
                         &mut gizmo_frame_pref,
                         blob_ctx.selected_element.is_some(),
                     );
+                    ui.separator();
+                    crate::ui::undo::undo_redo_buttons(
+                        ui,
+                        &undo_history,
+                        crate::ui::shortcuts::EditorKind::World,
+                        &mut undo_shortcut,
+                    );
                 });
                 ui.separator();
 
@@ -647,6 +666,7 @@ pub fn room_admin_ui(
                                 heightmap.as_deref(),
                                 player_pose,
                                 &mut widget_change,
+                                &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::World),
                             );
                         });
                     }
@@ -684,6 +704,7 @@ pub fn room_admin_ui(
                                 tree_confirms,
                                 &mut toasts,
                                 time.elapsed_secs_f64(),
+                                &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::World),
                             );
                         });
                     }
@@ -709,6 +730,8 @@ pub fn room_admin_ui(
                                         raw_error,
                                         record_mut,
                                         &mut widget_change,
+                                        &mut undo_labels
+                                            .slot(crate::ui::shortcuts::EditorKind::World),
                                     );
                                 }
                                 // Generators / Placements / Effects paint
@@ -742,6 +765,7 @@ pub fn room_admin_ui(
                     *selected_prim_path = None;
                     tree_view_state.set_selected(Vec::new());
                     needs_broadcast = true;
+                    undo_labels.set_room(format!("seed re-roll ({seed})"));
                 }
 
                 ui.separator();
@@ -836,6 +860,7 @@ pub fn room_admin_ui(
                             *selected_prim_path = None;
                             tree_view_state.set_selected(Vec::new());
                             needs_broadcast = true;
+                            undo_labels.set_room("load from PDS");
                         }
                     }
                     RecordAction::Reset => {
@@ -847,6 +872,7 @@ pub fn room_admin_ui(
                         *selected_prim_path = None;
                         tree_view_state.set_selected(Vec::new());
                         needs_broadcast = true;
+                        undo_labels.set_room("reset to default");
                     }
                 }
 
@@ -908,6 +934,18 @@ pub fn room_admin_ui(
     // `records_differ`, so there is no flag to set here.
     if widget_change {
         *pending_flush_secs = crate::config::ui::editor::MENU_DEBOUNCE_SECS;
+        // Coarse per-tab undo label (#865) — only when no site named the
+        // edit specifically this burst (latest-wins would otherwise let
+        // the generic name clobber "delete of oak_3").
+        if !undo_labels.room_pending() {
+            undo_labels.set_room(match *selected_tab {
+                EditorTab::Environment => "environment edit",
+                EditorTab::Generators => "asset edit",
+                EditorTab::Placements => "placement edit",
+                EditorTab::Effects => "effects edit",
+                EditorTab::Raw => "raw JSON edit",
+            });
+        }
     }
     // Drain the debounce timer and flip `needs_broadcast` on the frame it
     // reaches zero. A slider drag keeps resetting `pending_flush_secs`

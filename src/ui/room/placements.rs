@@ -111,6 +111,9 @@ pub(super) fn draw_placements_tab(
     heightmap: Option<&crate::terrain::FinishedHeightMap>,
     player_pose: Option<PlayerPose>,
     dirty: &mut bool,
+    // Undo-entry label channel (#865): add/remove name themselves;
+    // detail-panel widget edits fall back to the tab-level label.
+    label: &mut crate::ui::undo::LabelSlot,
 ) {
     // Sorted: `record.generators` is a HashMap, so unsorted keys would put
     // the combos in nondeterministic hash order (varying between sessions).
@@ -152,6 +155,7 @@ pub(super) fn draw_placements_tab(
                     .on_hover_text("Add a single placement at your position")
                     .clicked()
                 {
+                    label.set("add of absolute placement");
                     record.placements.push(new_absolute_placement(
                         all_names.first().cloned().unwrap_or_default(),
                         anchor,
@@ -169,6 +173,7 @@ pub(super) fn draw_placements_tab(
                     .on_hover_text("Scatter instances in a region centred on you")
                     .clicked()
                 {
+                    label.set("add of scatter placement");
                     record.placements.push(new_scatter_placement(
                         eligible_names.first().cloned().unwrap_or_default(),
                         anchor,
@@ -181,6 +186,7 @@ pub(super) fn draw_placements_tab(
                     .on_hover_text("Add a grid of instances anchored at your position")
                     .clicked()
                 {
+                    label.set("add of grid placement");
                     record.placements.push(new_grid_placement(
                         eligible_names.first().cloned().unwrap_or_default(),
                         anchor,
@@ -220,6 +226,10 @@ pub(super) fn draw_placements_tab(
                     }
                 });
             if let Some(idx) = to_remove {
+                label.set(format!(
+                    "remove of {}",
+                    placement_label(idx, &record.placements[idx])
+                ));
                 record.placements.remove(idx);
                 // Indices above the removal shifted down — keep the same
                 // ROW selected where possible, clear if it was the one

@@ -34,6 +34,7 @@ pub fn draw_locomotion_tab(
     locomotion: &mut LocomotionConfig,
     dirty: &mut bool,
     confirm: &mut crate::ui::confirm::ConfirmState<LocomotionConfig>,
+    undo_label: &mut crate::ui::undo::LabelSlot,
 ) {
     let current_kind = locomotion.kind_tag();
     // The current variant's default-tuned instance, for the "has the
@@ -62,12 +63,14 @@ pub fn draw_locomotion_tab(
                     );
                 } else {
                     *locomotion = ctor();
+                    undo_label.set(format!("preset switch to {label}"));
                     *dirty = true;
                 }
             }
         }
     });
     if let Some(new_config) = confirm.show(ui.ctx(), "locomotion-preset") {
+        undo_label.set(format!("preset switch to {}", new_config.kind_tag()));
         *locomotion = new_config;
         *dirty = true;
     }

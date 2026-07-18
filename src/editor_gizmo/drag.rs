@@ -102,6 +102,8 @@ pub(super) fn manage_gizmo_drag(
     avatar_record: Option<ResMut<LiveAvatarRecord>>,
     // For the snapped-placement Y rebase at commit time (#701).
     heightmap: Option<Res<crate::terrain::FinishedHeightMap>>,
+    // Undo-entry labels (#865): a gizmo commit names its target.
+    mut undo_labels: ResMut<crate::ui::undo::PendingUndoLabels>,
 ) {
     // Find the entity (if any) whose gizmo reports active this frame, and
     // record which target type it belongs to so the falling edge can
@@ -285,6 +287,7 @@ pub(super) fn manage_gizmo_drag(
                 let landed = commit_blob_element_drag(&info, &local, Some(&mut record.0), None);
                 if landed.is_some() {
                     info!("Blob element drag committed (room). Rebuilding world.");
+                    undo_labels.set_room("blob element edit");
                     record.set_changed();
                 }
                 landed
@@ -293,6 +296,7 @@ pub(super) fn manage_gizmo_drag(
                 let landed = commit_blob_element_drag(&info, &local, None, Some(&mut record));
                 if landed.is_some() {
                     info!("Blob element drag committed (avatar). Rebuilding visuals.");
+                    undo_labels.set_avatar("blob element edit");
                     record.set_changed();
                 }
                 landed
@@ -325,6 +329,17 @@ pub(super) fn manage_gizmo_drag(
                 state.original_world_tf,
             ) {
                 info!("Gizmo drag committed (room). Rebuilding world.");
+                let verb = if is_copy { "duplicate" } else { "move" };
+                let target = prim_query
+                    .get(active_entity)
+                    .map(|(_, _, marker, _, _)| marker.generator_ref.clone())
+                    .or_else(|_| {
+                        placement_query
+                            .get(active_entity)
+                            .map(|(_, _, marker, _)| format!("placement {}", marker.0))
+                    })
+                    .unwrap_or_else(|_| "selection".to_string());
+                undo_labels.set_room(format!("{verb} of {target}"));
                 // No dirty flag to set: the World Editor derives "dirty"
                 // from `records_differ(stored, live)`, and this commit
                 // just mutated the live record. `set_changed()` still
@@ -338,6 +353,7 @@ pub(super) fn manage_gizmo_drag(
             };
             if commit_avatar_drag(active_entity, &avatar_prim_query, &global_tf, &mut record) {
                 info!("Gizmo drag committed (avatar). Rebuilding visuals.");
+                undo_labels.set_avatar("move of avatar part");
                 // The avatar editor's UI debounce only runs when widgets
                 // fire; a gizmo drag bypasses that path, so explicitly
                 // mark the record changed so `rebuild_local_visuals` and

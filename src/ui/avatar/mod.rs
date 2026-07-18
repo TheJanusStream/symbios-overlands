@@ -264,6 +264,9 @@ pub fn avatar_ui(
         grammar_diag,
         recovery,
         mut toasts,
+        undo_history,
+        mut undo_shortcut,
+        mut undo_labels,
     ): (
         Res<bevy_symbios_audio::ui::AudioMonitor>,
         MessageWriter<bevy_symbios_audio::ui::MonitorRequest>,
@@ -273,6 +276,9 @@ pub fn avatar_ui(
         Res<crate::world_builder::grammar_diag::GrammarDiagnostics>,
         Option<Res<crate::state::AvatarRecordRecovery>>,
         ResMut<crate::ui::toast::Toasts>,
+        Res<crate::ui::undo::AvatarUndoHistory>,
+        ResMut<crate::ui::undo::UndoShortcut>,
+        ResMut<crate::ui::undo::PendingUndoLabels>,
     ),
 ) {
     // `ResMut::deref_mut` unconditionally flips the change tick, so
@@ -334,6 +340,13 @@ pub fn avatar_ui(
                         ui,
                         &mut gizmo_frame_pref,
                         blob_ctx.selected_element.is_some(),
+                    );
+                    ui.separator();
+                    crate::ui::undo::undo_redo_buttons(
+                        ui,
+                        &undo_history,
+                        crate::ui::shortcuts::EditorKind::Avatar,
+                        &mut undo_shortcut,
                     );
                 });
                 ui.separator();
@@ -423,6 +436,7 @@ pub fn avatar_ui(
                             );
                             if let SeedAction::Reroll(seed) = reroll {
                                 live_mut.0 = AvatarRecord::default_for_seed(seed);
+                                undo_labels.set_avatar(format!("seed re-roll ({seed})"));
                                 session_log.info(
                                     time.elapsed_secs_f64(),
                                     EventPayload::AvatarReseeded { seed },
@@ -494,11 +508,13 @@ pub fn avatar_ui(
                             RecordAction::Load => {
                                 if let Some(stored) = &stored {
                                     live_mut.0 = stored.0.clone();
+                                    undo_labels.set_avatar("load from PDS");
                                 }
                             }
                             RecordAction::Reset => {
                                 if let Some(default_record) = default_record {
                                     live_mut.0 = default_record.clone();
+                                    undo_labels.set_avatar("reset to default");
                                 }
                             }
                         }
@@ -555,6 +571,7 @@ pub fn avatar_ui(
                                 tree_confirms,
                                 &mut toasts,
                                 time.elapsed_secs_f64(),
+                                &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
                             );
                         });
                     }
@@ -582,6 +599,7 @@ pub fn avatar_ui(
                                     &mut live_mut.0.locomotion,
                                     &mut widget_changed,
                                     preset_confirm,
+                                    &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
                                 );
                             });
                     }
@@ -655,6 +673,13 @@ pub fn avatar_ui(
 
     if widget_changed {
         editor.pending_flush_secs = crate::config::ui::editor::MENU_DEBOUNCE_SECS;
+        // Coarse per-tab undo label (#865) when no site named the edit.
+        if !undo_labels.avatar_pending() {
+            undo_labels.set_avatar(match editor.selected_tab {
+                AvatarTab::Visuals => "visuals edit",
+                AvatarTab::Locomotion => "locomotion edit",
+            });
+        }
     }
     if editor.pending_flush_secs > 0.0 {
         editor.pending_flush_secs = (editor.pending_flush_secs - time.delta_secs()).max(0.0);

@@ -63,10 +63,11 @@ pub fn handle_generator_drop(
     mut sender: SendMessage<OverlandsMessage>,
     mut chunk: crate::network::chunk::ChunkSend,
     // Bundled to stay under Bevy's 16-parameter ceiling.
-    (time, keyboard, mut toasts): (
+    (time, keyboard, mut toasts, mut undo_labels): (
         Res<Time>,
         Res<ButtonInput<KeyCode>>,
         ResMut<crate::ui::toast::Toasts>,
+        ResMut<crate::ui::undo::PendingUndoLabels>,
     ),
 ) {
     let Some(name) = pending.generator_name.clone() else {
@@ -306,6 +307,7 @@ pub fn handle_generator_drop(
         avoid_water_clearance: crate::pds::Fp(0.0),
         snap_to_terrain: false,
     });
+    undo_labels.set_room(format!("drop of {gen_key}"));
     info!(
         "Placed generator '{}' (as '{}') from {:?} at ({:.2}, {:.2}, {:.2})",
         name, gen_key, source, hit_point.x, hit_point.y, hit_point.z

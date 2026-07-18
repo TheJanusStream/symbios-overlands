@@ -11,6 +11,7 @@ pub(super) fn draw_raw_tab(
     error: &mut Option<String>,
     pending: &mut RoomRecord,
     dirty: &mut bool,
+    label: &mut crate::ui::undo::LabelSlot,
 ) {
     ui.heading("Raw JSON");
     ui.add_space(4.0);
@@ -39,6 +40,7 @@ pub(super) fn draw_raw_tab(
                     *pending = parsed;
                     *error = None;
                     *dirty = true;
+                    label.set("raw JSON parse");
                 }
                 Err(e) => *error = Some(format!("Invalid JSON schema: {}", e)),
             }
