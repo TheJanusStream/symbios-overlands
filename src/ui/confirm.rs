@@ -79,6 +79,15 @@ impl<T> ConfirmState<T> {
         self.pending.is_some()
     }
 
+    /// Drop a pending request without an answer. Used by the undo
+    /// restore (#863): a parked payload (a `GenNodeId`, a
+    /// `RecordAction`) was resolved against the pre-restore record and
+    /// could re-resolve to a different node after the tree changes
+    /// under the open dialog.
+    pub fn cancel(&mut self) {
+        self.pending = None;
+    }
+
     /// Render the modal when pending. Returns the payload exactly once,
     /// on the frame the danger button is clicked; Esc, backdrop click,
     /// or Cancel drop the request. `salt` keeps two simultaneously-alive

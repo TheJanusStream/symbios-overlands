@@ -169,6 +169,53 @@ impl AvatarEditorState {
         self.tree_view_state.set_selected(Vec::new());
     }
 
+    /// Snapshot the selection state an undo entry carries (#862) so a
+    /// restore (#863) can re-seed it instead of dumping the user to a
+    /// full deselect.
+    pub(crate) fn undo_selection(&self) -> crate::ui::undo::AvatarSelection {
+        crate::ui::undo::AvatarSelection {
+            generator: self.selected_generator.clone(),
+            prim_path: self.selected_prim_path.clone(),
+            tree: self.tree_view_state.selected().clone(),
+        }
+    }
+
+    /// Post-restore fixup (#863): re-seed the visuals selection from the
+    /// undo entry, validated against the restored record; drop parked
+    /// confirm payloads and the pending widget debounce. Mirrors
+    /// [`RoomEditorState::restore_from_undo`](crate::ui::room::RoomEditorState).
+    pub(crate) fn restore_from_undo(
+        &mut self,
+        record: &AvatarRecord,
+        sel: &crate::ui::undo::AvatarSelection,
+    ) {
+        self.row_confirm.cancel();
+        self.preset_confirm.cancel();
+        self.publish_guard.cancel();
+        self.tree_confirms.delete.cancel();
+        self.tree_confirms.kind.cancel();
+        // A pending burst was aimed at pre-restore state; draining it
+        // would double-fire `set_changed` and mint a phantom entry.
+        self.pending_flush_secs = 0.0;
+        match &sel.prim_path {
+            // `select_from_scene_pick` is exactly the fixup contract:
+            // fields set, ancestors expanded, row selected + focused.
+            Some(path) if crate::ui::undo::restore::node_path_valid(&record.visuals, path) => {
+                self.select_from_scene_pick(path.clone());
+            }
+            // Root row selected without a node path: keep it — the
+            // single visuals root always exists.
+            None if sel.generator.is_some() => {
+                let root = AvatarVisualsTreeSource::ROOT_NAME.to_string();
+                self.selected_generator = Some(root.clone());
+                self.selected_prim_path = None;
+                self.tree_view_state
+                    .set_selected(vec![GenNodeId::root(root)]);
+            }
+            _ => self.clear_visuals_selection(),
+        }
+    }
+
     /// Select a visuals node from an in-world scene pick (#823), exactly
     /// as if its tree row had been clicked: selection set, every
     /// ancestor expanded (the tree collapses by default, so the picked

@@ -1096,6 +1096,13 @@ pub mod ui {
         /// full live record to count its bytes — cheap enough at 2 Hz even
         /// for a large room record, wasteful at 60 Hz.
         pub const SIZE_READOUT_REFRESH_SECS: f64 = 0.5;
+
+        /// Undoable steps each editor's history ring holds beyond the
+        /// baseline (#862; decision 2026-07-18). Each entry is a whole
+        /// record clone — typically under the 100 KiB publish soft
+        /// budget — so 32 bounds a ring at a few MiB even on wasm,
+        /// where the heap never shrinks.
+        pub const UNDO_DEPTH: usize = 32;
     }
 
     /// Transient toast notifications (`crate::ui::toast`, #819).

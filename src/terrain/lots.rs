@@ -213,6 +213,7 @@ pub(super) fn maybe_populate_lots(
     mut record: ResMut<LiveRoomRecord>,
     did: Option<Res<CurrentRoomDid>>,
     heightmap: Option<Res<FinishedHeightMap>>,
+    mut undo_signals: ResMut<crate::ui::undo::RoomWriteSignals>,
 ) {
     let Some(heightmap) = heightmap else {
         return;
@@ -231,6 +232,9 @@ pub(super) fn maybe_populate_lots(
             .keys()
             .any(|k| k.starts_with(LOT_PREFIX))
         {
+            // Derived write (#862): fold the sweep into the edit that
+            // disabled the network, not a phantom undo entry of its own.
+            undo_signals.derived = true;
             strip_lot_buildings(&mut record.0);
         }
         return;
@@ -243,6 +247,10 @@ pub(super) fn maybe_populate_lots(
     }
 
     // A different layout (re-roll) or none yet: clear stale, then repopulate.
+    // Derived write (#862): the strip + inject below are fallout of the
+    // road edit that changed the layout seed — fold them into that
+    // entry so one undo reverts the edit and its buildings together.
+    undo_signals.derived = true;
     let stripped = strip_lot_buildings(&mut record.0);
     let lots = crate::urban::extract_building_lots(&heightmap.0, &config);
     if lots.is_empty() {

@@ -65,4 +65,5 @@ pub mod theme;
 pub mod toast;
 pub mod toolbar;
 pub mod travel;
+pub mod undo;
 pub mod unsaved_guard;

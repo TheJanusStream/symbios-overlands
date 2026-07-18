@@ -93,6 +93,10 @@ pub(super) struct InboundBuffers<'w> {
     /// Durable mute list (#844): applied the moment a peer's DID
     /// resolves, so a muted harasser stays muted across reconnects.
     muted_dids: Res<'w, crate::state::MutedDids>,
+    /// Undo-capture classification (#862): an inbound owner
+    /// `RoomStateUpdate` wholesale-replaces `LiveRoomRecord`, and the
+    /// history must reset instead of recording it as a local edit.
+    undo_signals: ResMut<'w, crate::ui::undo::RoomWriteSignals>,
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -396,6 +400,12 @@ pub(super) fn handle_incoming_messages(
                 // entity (water, sun colour, scattered shapes) in one pass.
                 if let Some(record) = room_record.as_mut() {
                     record.0 = new_record;
+                    // Foreign wholesale write (#862): mostly guests (whose
+                    // history is empty anyway), but a second session of
+                    // the SAME owner DID passes the is_owner gate too —
+                    // the local ring must reset rather than offer undos
+                    // across the other session's replacement.
+                    bufs.undo_signals.foreign = true;
                     info!("Room state updated from owner broadcast");
                 }
             }

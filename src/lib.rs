@@ -279,6 +279,28 @@ pub fn run() {
         .init_resource::<loading::AmbientRebakePending>()
         .init_resource::<editor_gizmo::GizmoFramePref>()
         .init_resource::<oauth::OauthClientRes>()
+        // Undo/redo history (#862): capture runs in PostUpdate so it
+        // observes every writer's change tick from this frame together
+        // with the write signal that classifies it (edit / foreign /
+        // derived). Ordered after the egui pass (which bevy_egui runs
+        // inside PostUpdate) — the editors' debounce flush ticks in that
+        // pass, and observing it a frame late could merge an edit with
+        // its lot-population fallout and misclassify both as derived.
+        // History does not survive logout.
+        .init_resource::<ui::undo::RoomUndoHistory>()
+        .init_resource::<ui::undo::AvatarUndoHistory>()
+        .init_resource::<ui::undo::RoomWriteSignals>()
+        .init_resource::<ui::undo::PendingUndoLabels>()
+        .add_systems(
+            PostUpdate,
+            (
+                ui::undo::capture_room_history,
+                ui::undo::capture_avatar_history,
+            )
+                .after(bevy_egui::EguiPostUpdateSet::EndPass)
+                .run_if(in_state(AppState::InGame)),
+        )
+        .add_systems(OnExit(AppState::InGame), ui::undo::clear_history_on_logout)
         .add_systems(
             EguiPrimaryContextPass,
             ui::login::login_ui.run_if(in_state(AppState::Login)),

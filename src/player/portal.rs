@@ -185,6 +185,7 @@ pub(super) fn poll_portal_travel_tasks(
     time: Res<Time>,
     mut toasts: ResMut<crate::ui::toast::Toasts>,
     profile_cache: Res<crate::avatar::BskyProfileCache>,
+    mut undo_signals: ResMut<crate::ui::undo::RoomWriteSignals>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) = bevy::tasks::futures_lite::future::block_on(
@@ -285,6 +286,12 @@ pub(super) fn poll_portal_travel_tasks(
         // 2. Hot-swap the ECS Resources (Triggers `world_builder` automatically!)
         if let Some(rec) = room_record.as_mut() {
             rec.0 = new_record.clone();
+            // Wholesale replacement the editor didn't author: the undo
+            // capture must reset to a fresh baseline, not record this as
+            // an edit (#862). The room-DID identity key would catch a
+            // cross-DID travel anyway; the signal also covers a self-loop
+            // portal back into the same room.
+            undo_signals.foreign = true;
         }
         if let Some(stored) = stored_room.as_mut() {
             **stored = crate::state::StoredRoomRecord(new_record);

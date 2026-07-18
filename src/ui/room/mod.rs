@@ -221,6 +221,86 @@ impl RoomEditorState {
         self.tree_view_state.set_selected(Vec::new());
         self.preferred_pick = None;
     }
+
+    /// Snapshot the selection state an undo entry carries (#862) so a
+    /// restore (#863) can re-seed it instead of dumping the user to a
+    /// full deselect.
+    pub(crate) fn undo_selection(&self) -> crate::ui::undo::RoomSelection {
+        crate::ui::undo::RoomSelection {
+            generator: self.selected_generator.clone(),
+            placement: self.selected_placement,
+            prim_path: self.selected_prim_path.clone(),
+            tree: self.tree_view_state.selected().clone(),
+        }
+    }
+
+    /// Post-restore fixup (#863): the record was just wholesale-replaced
+    /// with an undo/redo snapshot, so every piece of editor state that
+    /// referenced the old tree must be re-seeded or dropped — the same
+    /// lockstep `reparent.rs` keeps after a structural edit.
+    pub(crate) fn restore_from_undo(
+        &mut self,
+        record: &pds::RoomRecord,
+        sel: &crate::ui::undo::RoomSelection,
+    ) {
+        // Parked confirm payloads (a `GenNodeId`, a `RecordAction`) were
+        // resolved against the pre-restore tree and could re-resolve to
+        // a different node; drop them rather than let a stale dialog
+        // apply to the restored record. Same for a half-typed rename.
+        self.row_confirm.cancel();
+        self.tree_confirms.delete.cancel();
+        self.tree_confirms.kind.cancel();
+        self.recovery_reset_confirm.cancel();
+        self.renaming_generator = None;
+        // A widget burst still in the debounce was aimed at record state
+        // the restore just replaced; letting the timer drain would fire
+        // a second `set_changed` and mint a phantom history entry.
+        self.pending_flush_secs = 0.0;
+        // Refresh the raw-JSON mirror exactly like Load-from-PDS does.
+        self.raw_text = serde_json::to_string_pretty(record).unwrap_or_default();
+        self.raw_error = None;
+        self.raw_text_initialised = true;
+        // Selection re-seed, validated against the RESTORED record —
+        // whatever no longer resolves demotes to "nothing selected"
+        // instead of pointing the gizmo at the wrong node.
+        self.preferred_pick = None;
+        self.selected_placement = sel.placement.filter(|&idx| idx < record.placements.len());
+        let generator_valid = match (&sel.generator, &sel.prim_path) {
+            (Some(root), Some(path)) => record
+                .generators
+                .get(root)
+                .is_some_and(|g| crate::ui::undo::restore::node_path_valid(g, path)),
+            (Some(root), None) => record.generators.contains_key(root),
+            (None, _) => false,
+        };
+        if generator_valid {
+            self.selected_generator = sel.generator.clone();
+            self.selected_prim_path = sel.prim_path.clone();
+        } else {
+            self.selected_generator = None;
+            self.selected_prim_path = None;
+        }
+        let tree: Vec<GenNodeId> = sel
+            .tree
+            .iter()
+            .filter(|id| crate::ui::undo::restore::room_node_id_valid(&record.generators, id))
+            .cloned()
+            .collect();
+        // Reveal what survived: expand every ancestor of each restored
+        // row (the tree collapses by default — the scene-pick path in
+        // `editor_gizmo` does the same) and arm the one-shot focus so
+        // the row highlights like a direct click.
+        for id in &tree {
+            for depth in 0..id.path.len() {
+                self.tree_view_state.set_openness(
+                    GenNodeId::child(id.root.clone(), id.path[..depth].to_vec()),
+                    true,
+                );
+            }
+        }
+        self.pending_tree_focus = !tree.is_empty();
+        self.tree_view_state.set_selected(tree);
+    }
 }
 
 /// A scene-click pick's landing spot (#822): which node was picked and
