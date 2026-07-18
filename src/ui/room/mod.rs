@@ -326,6 +326,8 @@ pub struct RoomEditorExtras<'w, 's> {
     players: Query<'w, 's, &'static Transform, With<LocalPlayer>>,
     /// Grammar compile outcomes for the forges' status lines (#829).
     grammar_diag: Res<'w, crate::world_builder::grammar_diag::GrammarDiagnostics>,
+    /// Live road-network stats for the RoadNetwork detail readout (#888).
+    road_stats: Res<'w, crate::terrain::RoadPanelStats>,
     /// Managed window geometry (#833) for the World Editor + audio pop-out.
     chrome: crate::ui::layout::WindowChrome<'w>,
     /// Pending Ctrl+S request for the shared save row (#836).
@@ -367,6 +369,7 @@ pub fn room_admin_ui(
         mut blob_ctx,
         players,
         grammar_diag,
+        road_stats,
         mut chrome,
         mut publish_shortcut,
         mut toasts,
@@ -710,6 +713,7 @@ pub fn room_admin_ui(
                                 &mut toasts,
                                 time.elapsed_secs_f64(),
                                 &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::World),
+                                Some(&road_stats),
                             );
                         });
                     }

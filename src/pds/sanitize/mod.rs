@@ -236,6 +236,9 @@ pub fn sanitize_kind(kind: &mut GeneratorKind) {
 fn sanitize_road(c: &mut crate::pds::generator::RoadConfig) {
     use common::clamp_finite;
     c.district_half_extent.0 = clamp_finite(c.district_half_extent.0, 10.0, 512.0, 170.0);
+    for axis in c.center.0.iter_mut() {
+        *axis = clamp_finite(*axis, -512.0, 512.0, 0.0);
+    }
     c.major_spacing.0 = clamp_finite(c.major_spacing.0, 10.0, 500.0, 95.0);
     c.minor_spacing.0 = clamp_finite(c.minor_spacing.0, 8.0, 400.0, 55.0);
     c.major_half_width.0 = clamp_finite(c.major_half_width.0, 0.5, 20.0, 3.5);

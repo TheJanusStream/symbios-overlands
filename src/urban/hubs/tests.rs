@@ -29,7 +29,7 @@ fn hub_meets_each_road_and_closes_gaps() {
     let ends = [arm(0.0), arm(third), arm(2.0 * third)];
     let hm = HeightMap::new(64, 64, 2.0); // flat; hub welds skirt feet to each arm's skirt_y
     let mut parts = RoadParts::default();
-    extrude_hubs(&ends, &hm, 0.0, &dims, &mut parts);
+    extrude_hubs(&ends, &hm, [0.0; 2], &dims, &mut parts);
 
     // Deck: 1 centre + 3 arms × 2 corners = 7 verts, 6 fan triangles.
     assert_eq!(parts.deck.vertices.len(), 1 + 3 * 2);
@@ -80,7 +80,7 @@ fn hub_is_flat_at_the_max_incident_mouth() {
     // while each corner still meets its own mouth seamlessly.
     let mixed = [arm(0.0, 1.0), arm(third, 2.0), arm(2.0 * third, 3.0)];
     let mut parts = RoadParts::default();
-    extrude_hubs(&mixed, &hm, 0.0, &dims, &mut parts);
+    extrude_hubs(&mixed, &hm, [0.0; 2], &dims, &mut parts);
     let apex_y = parts.deck.vertices[0][1];
     assert!((apex_y - 3.0).abs() < 1.0e-3, "apex {apex_y} ≠ max 3.0");
     assert!(
@@ -96,7 +96,7 @@ fn hub_is_flat_at_the_max_incident_mouth() {
     // corner — sits at the one height → a flat plane.
     let level = [arm(0.0, 3.0), arm(third, 3.0), arm(2.0 * third, 3.0)];
     let mut flat = RoadParts::default();
-    extrude_hubs(&level, &hm, 0.0, &dims, &mut flat);
+    extrude_hubs(&level, &hm, [0.0; 2], &dims, &mut flat);
     assert!(!flat.deck.vertices.is_empty(), "hub produced no deck");
     for v in &flat.deck.vertices {
         assert!(
@@ -138,7 +138,7 @@ fn hub_deck_stays_simple_with_asymmetric_mouths() {
         arm(2.0 * third, 4.0, 1.5),
     ];
     let mut parts = RoadParts::default();
-    extrude_hubs(&ends, &hm, 0.0, &dims, &mut parts);
+    extrude_hubs(&ends, &hm, [0.0; 2], &dims, &mut parts);
 
     // Apex = vertex 0; the mouth corners follow in angular-sweep order, so
     // their angle around the apex is monotonic (⇒ a simple polygon).
@@ -187,7 +187,7 @@ fn hub_mouth_corners_coincide_with_the_ribbon_end() {
         0.0,
         3.0,
         &hm,
-        0.0,
+        [0.0; 2],
         &dims,
         &degree,
         &mut road_ends,
@@ -352,7 +352,7 @@ fn hub_fillet_joins_the_ribbon_outer_curbs() {
             s,
             e,
             &hm,
-            0.0,
+            [0.0; 2],
             &dims,
             &degree,
             &mut road_ends,
@@ -362,7 +362,7 @@ fn hub_fillet_joins_the_ribbon_outer_curbs() {
     assert_eq!(road_ends.len(), 3, "the Y must record three mouths");
 
     let mut hub = RoadParts::default();
-    extrude_hubs(&road_ends, &hm, 0.0, &dims, &mut hub);
+    extrude_hubs(&road_ends, &hm, [0.0; 2], &dims, &mut hub);
 
     let near = |verts: &[[f32; 3]], p: [f32; 3]| {
         verts.iter().any(|v| {
@@ -453,7 +453,7 @@ fn hub_fillet_skirt_welds_on_shallow_cross_slope() {
             s,
             e,
             &hm,
-            0.0,
+            [0.0; 2],
             &dims,
             &degree,
             &mut road_ends,
@@ -462,7 +462,7 @@ fn hub_fillet_skirt_welds_on_shallow_cross_slope() {
     }
     assert_eq!(road_ends.len(), 3, "the Y must record three mouths");
     let mut hub = RoadParts::default();
-    extrude_hubs(&road_ends, &hm, 0.0, &dims, &mut hub);
+    extrude_hubs(&road_ends, &hm, [0.0; 2], &dims, &mut hub);
 
     // Lowest ribbon vertex at an XZ = that point's skirt bottom.
     let ribbon_floor = |xz: [f32; 2]| {
@@ -521,7 +521,7 @@ fn hub_fillet_faces_out() {
     };
     let ends = [arm(0.0), arm(third), arm(2.0 * third)];
     let mut parts = RoadParts::default();
-    extrude_hubs(&ends, &hm, 0.0, &dims, &mut parts);
+    extrude_hubs(&ends, &hm, [0.0; 2], &dims, &mut parts);
 
     // The symmetric Y's mouth-corner centroid is the origin; the apex sits at
     // the mean deck height (clamped upward to flat terrain → stays 1.0).
@@ -579,7 +579,7 @@ fn hub_fillet_skirt_holds_the_arm_depth_over_humped_terrain() {
     };
     let ends = [arm(0.0), arm(third), arm(2.0 * third)];
     let mut parts = RoadParts::default();
-    extrude_hubs(&ends, &hm, 0.0, &dims, &mut parts);
+    extrude_hubs(&ends, &hm, [0.0; 2], &dims, &mut parts);
 
     let curb_top = 1.0 + dims.curb_height; // highest structure point
     let mut min_y = f32::INFINITY;
@@ -625,7 +625,7 @@ fn hub_through_road_far_edge_stays_straight() {
     let (fp2, pi) = (std::f32::consts::FRAC_PI_2, std::f32::consts::PI);
     let ends = [arm(0.0), arm(fp2), arm(pi)];
     let mut parts = RoadParts::default();
-    extrude_hubs(&ends, &hm, 0.0, &dims, &mut parts);
+    extrude_hubs(&ends, &hm, [0.0; 2], &dims, &mut parts);
 
     // The straight −z side's outer edge sits at z = −wo; a bulged fillet would
     // push structure past it (more negative z).
@@ -682,7 +682,7 @@ fn hub_fillet_winding_consistent_on_sloped_hub() {
         arm(2.0 * third, 4.0, 4.0),
     ];
     let mut parts = RoadParts::default();
-    extrude_hubs(&ends, &hm, 0.0, &dims, &mut parts);
+    extrude_hubs(&ends, &hm, [0.0; 2], &dims, &mut parts);
 
     let v = &parts.structure.vertices;
     let nrm = &parts.structure.normals;
@@ -733,7 +733,7 @@ fn pilot_hub_fillets_are_wound_consistently() {
         |nd| degree.get(nd).copied().unwrap_or(0) >= 3,
         &dims,
     );
-    let world_offset = lo as f32 * sub.scale();
+    let world_offset = [lo[0] as f32 * sub.scale(), lo[1] as f32 * sub.scale()];
     let mut road_ends = Vec::new();
     let mut ribbon = RoadParts::default();
     for (ci, c) in chains.iter().enumerate() {
@@ -811,7 +811,7 @@ fn hub_fillet_endpoints_exact_on_asymmetric_hub() {
         arm(250.0, 5.0, 5.0, 1.5),
     ];
     let mut parts = RoadParts::default();
-    extrude_hubs(&ends, &hm, 0.0, &dims, &mut parts);
+    extrude_hubs(&ends, &hm, [0.0; 2], &dims, &mut parts);
 
     let near = |p: [f32; 3]| {
         parts.structure.vertices.iter().any(|v| {

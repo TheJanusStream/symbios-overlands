@@ -33,6 +33,7 @@ pub(super) fn cleanup_terrain(
     pending_splat_refs: Query<Entity, With<PendingSplatLayerFetch>>,
     mut splat_state: ResMut<TerrainSplatState>,
     mut road_state: ResMut<RoadRebuild>,
+    mut road_stats: ResMut<super::RoadPanelStats>,
     mut last_cfg: ResMut<LastTerrainConfigJson>,
     mut pending_cfg: ResMut<PendingTerrainConfigJson>,
 ) {
@@ -64,6 +65,7 @@ pub(super) fn cleanup_terrain(
     // Full reset (#884): clears the live fingerprint, disarms any pending
     // debounce, and drops (= cancels) an in-flight background extrusion.
     *road_state = RoadRebuild::default();
+    *road_stats = super::RoadPanelStats::default();
     last_cfg.0 = None;
     pending_cfg.0 = None;
     commands.remove_resource::<FinishedHeightMap>();

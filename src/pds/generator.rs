@@ -161,8 +161,15 @@ pub struct RoadConfig {
     /// without disturbing terrain or settlement.
     #[serde(with = "u64_as_string")]
     pub seed: u64,
-    /// Half-extent (m from spawn) of the district the network fills.
+    /// Half-extent (m from the district centre) of the district the network
+    /// fills.
     pub district_half_extent: Fp,
+    /// District centre offset (m, XZ) from the room origin (#889). Zero =
+    /// the historical spawn-centred district; a non-zero offset moves the
+    /// whole built-up area (streets, lots, the wild-scatter exclusion)
+    /// without touching the terrain. The road builder clamps the window
+    /// back inside the heightmap when the offset pushes it past an edge.
+    pub center: Fp2,
     /// Spacing (m) between parallel major / minor roads.
     pub major_spacing: Fp,
     pub minor_spacing: Fp,
@@ -194,6 +201,7 @@ crate::pds::serde_util::impl_default_eliding_serialize!(RoadConfig {
     enabled,
     seed via u64_as_string(u64),
     district_half_extent,
+    center,
     major_spacing,
     minor_spacing,
     major_half_width,
@@ -211,6 +219,7 @@ impl Default for RoadConfig {
             enabled: true,
             seed: 0,
             district_half_extent: Fp(170.0),
+            center: Fp2([0.0, 0.0]),
             major_spacing: Fp(95.0),
             minor_spacing: Fp(55.0),
             major_half_width: Fp(3.5),

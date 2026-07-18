@@ -87,6 +87,19 @@ pub struct WaterVolume;
 #[derive(Resource)]
 pub struct FinishedHeightMap(pub HeightMap);
 
+/// Live road-network stats for the editor's readout (#888): written by the
+/// road re-mesh on every swap and by the lot layer on inject/strip, zeroed
+/// on sweep / world teardown. `built` distinguishes "no network meshed"
+/// from a genuinely empty one, so the panel can say "building…" vs "0".
+#[derive(Resource, Default, Clone, Copy)]
+pub struct RoadPanelStats {
+    pub built: bool,
+    pub streets: usize,
+    pub junctions: usize,
+    pub vertices: usize,
+    pub buildings: usize,
+}
+
 impl FinishedHeightMap {
     /// Terrain height at **world** coordinates: the heightmap's own frame
     /// starts at `(0, 0)` in its corner, while the world centres the
@@ -201,6 +214,7 @@ impl Plugin for TerrainPlugin {
             .init_resource::<LastTerrainConfigJson>()
             .init_resource::<PendingTerrainConfigJson>()
             .init_resource::<roads::RoadRebuild>()
+            .init_resource::<RoadPanelStats>()
             // Terrain + texture + mesh spawning runs as conditional Update
             // systems in both Loading and InGame so the same plumbing handles
             // the initial world build *and* in-place regeneration when the

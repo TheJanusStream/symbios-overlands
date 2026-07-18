@@ -50,6 +50,9 @@ pub(super) fn draw_detail_panel(
     // Undo-toast label slot — per-kind editors with named actions (the
     // road seed row) set it; plain slider edits keep the generic label.
     undo_label: &mut crate::ui::undo::LabelSlot,
+    // Live road stats for the RoadNetwork readout (#888); `None` when the
+    // source can't grow roads.
+    road_stats: Option<&crate::terrain::RoadPanelStats>,
 ) {
     let Some(id) = current_id(selected_generator, selected_prim_path) else {
         ui.vertical_centered(|ui| {
@@ -165,6 +168,7 @@ pub(super) fn draw_detail_panel(
                     dirty,
                     blob_selected_element,
                     undo_label,
+                    road_stats,
                 );
 
                 // Per-construct audio slot (#314). The bridge writes back
@@ -215,24 +219,75 @@ fn active_road_node_id(source: &dyn GeneratorTreeSource) -> Option<GenNodeId> {
 /// generator). Exposes the authorable street knobs; the terrain plugin
 /// recomputes the road mesh from the heightmap on any change. Geometry-only
 /// rendering constants (UV tile, ribbon step) stay in code.
+/// One labelled road slider with a named undo entry (#887).
+fn road_slider(
+    ui: &mut egui::Ui,
+    v: &mut f32,
+    range: std::ops::RangeInclusive<f32>,
+    label: &str,
+    undo_name: &str,
+    dirty: &mut bool,
+    undo_label: &mut crate::ui::undo::LabelSlot,
+) {
+    if ui.add(egui::Slider::new(v, range).text(label)).changed() {
+        undo_label.set(format!("road {undo_name}"));
+        *dirty = true;
+    }
+}
+
+/// Vertex count above which the stats readout tints warn — a road mesh this
+/// heavy is a real slice of the wasm frame/memory budget.
+const ROAD_HEAVY_VERTS: usize = 150_000;
+
 fn draw_road_editor(
     ui: &mut egui::Ui,
     config: &mut crate::pds::generator::RoadConfig,
     dirty: &mut bool,
     undo_label: &mut crate::ui::undo::LabelSlot,
+    road_stats: Option<&crate::terrain::RoadPanelStats>,
 ) {
     if ui.checkbox(&mut config.enabled, "Roads enabled").changed() {
+        undo_label.set(format!(
+            "roads {}",
+            if config.enabled {
+                "enabled"
+            } else {
+                "disabled"
+            }
+        ));
         *dirty = true;
     }
-    if ui
-        .checkbox(&mut config.populate_lots, "Grow buildings on lots")
-        .on_hover_text(
-            "Fill the network's enclosed blocks with themed buildings at load. \
-             Re-roll the layout to re-seed them.",
-        )
-        .changed()
-    {
-        *dirty = true;
+
+    // Live network readout (#888) — what the last completed re-mesh
+    // actually built, so every slider edit becomes legible ~a debounce
+    // later. Warn-tinted when the mesh weight starts to matter on wasm.
+    if let Some(stats) = road_stats {
+        let theme = crate::ui::theme::current(ui.ctx());
+        if stats.built {
+            let text = format!(
+                "{} streets · {} junctions · {} buildings · {} verts",
+                stats.streets, stats.junctions, stats.buildings, stats.vertices
+            );
+            let heavy = stats.vertices > ROAD_HEAVY_VERTS;
+            let color = if heavy {
+                theme.status.warn
+            } else {
+                theme.text_weak
+            };
+            let label = ui.label(egui::RichText::new(text).small().color(color));
+            if heavy {
+                label.on_hover_text(
+                    "This road mesh is heavy — consider a smaller district or \
+                     wider spacing, especially for wasm visitors.",
+                );
+            }
+        } else if config.enabled {
+            ui.label(
+                egui::RichText::new("building…")
+                    .small()
+                    .color(theme.text_weak),
+            );
+        }
     }
     ui.add_space(4.0);
     // Editable seed row (#885): type a layout number to reproduce/share a
@@ -244,95 +299,199 @@ fn draw_road_editor(
         text: String,
         synced_to: u64,
     }
-    ui.horizontal(|ui| {
-        ui.label("Layout seed:");
-        let id = ui.id().with("road_seed");
-        let mut st = ui
-            .data_mut(|d| d.get_temp::<SeedBuf>(id))
-            .unwrap_or(SeedBuf {
-                text: config.seed.to_string(),
-                synced_to: config.seed,
-            });
-        if st.synced_to != config.seed {
-            st.text = config.seed.to_string();
-            st.synced_to = config.seed;
-        }
-        let parse_ok = st.text.trim().parse::<u64>().is_ok();
-        let mut field = egui::TextEdit::singleline(&mut st.text).desired_width(150.0);
-        if !parse_ok {
-            field = field.text_color(crate::ui::theme::current(ui.ctx()).status.error);
-        }
-        let resp = ui.add(field).on_hover_text(
-            "Street-layout seed. Type a number and press Enter to apply — \
+    let seed_row = |ui: &mut egui::Ui,
+                    config: &mut crate::pds::generator::RoadConfig,
+                    dirty: &mut bool,
+                    undo_label: &mut crate::ui::undo::LabelSlot| {
+        ui.horizontal(|ui| {
+            ui.label("Layout seed:");
+            let id = ui.id().with("road_seed");
+            let mut st = ui
+                .data_mut(|d| d.get_temp::<SeedBuf>(id))
+                .unwrap_or(SeedBuf {
+                    text: config.seed.to_string(),
+                    synced_to: config.seed,
+                });
+            if st.synced_to != config.seed {
+                st.text = config.seed.to_string();
+                st.synced_to = config.seed;
+            }
+            let parse_ok = st.text.trim().parse::<u64>().is_ok();
+            let mut field = egui::TextEdit::singleline(&mut st.text).desired_width(150.0);
+            if !parse_ok {
+                field = field.text_color(crate::ui::theme::current(ui.ctx()).status.error);
+            }
+            let resp = ui.add(field).on_hover_text(
+                "Street-layout seed. Type a number and press Enter to apply — \
              the same seed reproduces the same streets. Terrain is untouched.",
-        );
-        if resp.lost_focus()
-            && let Ok(v) = st.text.trim().parse::<u64>()
-            && v != config.seed
-        {
-            config.seed = v;
-            st.synced_to = v;
-            undo_label.set(format!("road seed set ({v})"));
-            *dirty = true;
-        }
-        if ui
-            .button("🎲")
-            .on_hover_text("Re-roll the street layout — terrain untouched")
-            .clicked()
-        {
-            // Deterministic LCG step → a fresh street layout.
-            config.seed = config
-                .seed
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407);
-            st.text = config.seed.to_string();
-            st.synced_to = config.seed;
-            undo_label.set(format!("road seed re-roll ({})", config.seed));
-            *dirty = true;
-        }
-        ui.data_mut(|d| d.insert_temp(id, st));
-    });
-    ui.add_space(4.0);
+            );
+            if resp.lost_focus()
+                && let Ok(v) = st.text.trim().parse::<u64>()
+                && v != config.seed
+            {
+                config.seed = v;
+                st.synced_to = v;
+                undo_label.set(format!("road seed set ({v})"));
+                *dirty = true;
+            }
+            if ui
+                .button("🎲")
+                .on_hover_text("Re-roll the street layout — terrain untouched")
+                .clicked()
+            {
+                // Deterministic LCG step → a fresh street layout.
+                config.seed = config
+                    .seed
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                st.text = config.seed.to_string();
+                st.synced_to = config.seed;
+                undo_label.set(format!("road seed re-roll ({})", config.seed));
+                *dirty = true;
+            }
+            ui.data_mut(|d| d.insert_temp(id, st));
+        });
+    };
+
     // Slider ranges follow the `sanitize_road` clamps (#883) except
     // where a deliberately tighter max keeps the slider usable: half-widths
     // stop well short of the sanitizer's 20 m ceiling (a 20 m-wide lane is
     // a plaza, and the full range would make the useful 1–4 m band a
     // couple of pixels), and curb/chamfer stop at 1 m for the same reason.
     // The sanitizer still accepts hand-edited records up to its bounds.
-    let mut row = |v: &mut f32, lo: f32, hi: f32, label: &str| {
-        if ui.add(egui::Slider::new(v, lo..=hi).text(label)).changed() {
-            *dirty = true;
-        }
-    };
-    row(
-        &mut config.district_half_extent.0,
-        10.0,
-        512.0,
-        "District ½-extent (m)",
-    );
-    row(
-        &mut config.major_spacing.0,
-        10.0,
-        500.0,
-        "Major spacing (m)",
-    );
-    row(&mut config.minor_spacing.0, 8.0, 400.0, "Minor spacing (m)");
-    row(
-        &mut config.major_half_width.0,
-        0.5,
-        8.0,
-        "Major ½-width (m)",
-    );
-    row(
-        &mut config.minor_half_width.0,
-        0.5,
-        6.0,
-        "Minor ½-width (m)",
-    );
-    row(&mut config.curb_height.0, 0.0, 1.0, "Curb height (m)");
-    row(&mut config.curb_top_width.0, 0.0, 1.0, "Curb top width (m)");
-    row(&mut config.chamfer_width.0, 0.0, 1.0, "Curb chamfer (m)");
-    row(&mut config.skirt_depth.0, 0.5, 50.0, "Skirt depth (m)");
+
+    // #887: three sections — the street PLAN (what moves lots too), the
+    // ribbon cross-SECTION (mesh-only), and the building layer.
+    egui::CollapsingHeader::new("Layout")
+        .default_open(true)
+        .show(ui, |ui| {
+            seed_row(ui, config, dirty, undo_label);
+            ui.add_space(4.0);
+            road_slider(
+                ui,
+                &mut config.district_half_extent.0,
+                10.0..=512.0,
+                "District ½-extent (m)",
+                "district extent",
+                dirty,
+                undo_label,
+            );
+            // District centre offset (#889).
+            ui.horizontal(|ui| {
+                ui.label("District centre (m)");
+                for (axis_label, axis) in ["X", "Z"].iter().zip(config.center.0.iter_mut()) {
+                    ui.label(*axis_label);
+                    if ui
+                        .add(egui::DragValue::new(axis).speed(1.0).range(-512.0..=512.0))
+                        .changed()
+                    {
+                        undo_label.set("road district centre".to_string());
+                        *dirty = true;
+                    }
+                }
+            });
+            ui.label(
+                egui::RichText::new(
+                    "Offset from the room origin; the district slides back inside \
+                     the map when pushed past an edge.",
+                )
+                .small()
+                .weak(),
+            );
+            road_slider(
+                ui,
+                &mut config.major_spacing.0,
+                10.0..=500.0,
+                "Major spacing (m)",
+                "major spacing",
+                dirty,
+                undo_label,
+            );
+            road_slider(
+                ui,
+                &mut config.minor_spacing.0,
+                8.0..=400.0,
+                "Minor spacing (m)",
+                "minor spacing",
+                dirty,
+                undo_label,
+            );
+        });
+
+    egui::CollapsingHeader::new("Ribbon profile")
+        .default_open(false)
+        .show(ui, |ui| {
+            road_slider(
+                ui,
+                &mut config.major_half_width.0,
+                0.5..=8.0,
+                "Major ½-width (m)",
+                "major width",
+                dirty,
+                undo_label,
+            );
+            road_slider(
+                ui,
+                &mut config.minor_half_width.0,
+                0.5..=6.0,
+                "Minor ½-width (m)",
+                "minor width",
+                dirty,
+                undo_label,
+            );
+            road_slider(
+                ui,
+                &mut config.curb_height.0,
+                0.0..=1.0,
+                "Curb height (m)",
+                "curb height",
+                dirty,
+                undo_label,
+            );
+            road_slider(
+                ui,
+                &mut config.curb_top_width.0,
+                0.0..=1.0,
+                "Curb top width (m)",
+                "curb top width",
+                dirty,
+                undo_label,
+            );
+            road_slider(
+                ui,
+                &mut config.chamfer_width.0,
+                0.0..=1.0,
+                "Curb chamfer (m)",
+                "curb chamfer",
+                dirty,
+                undo_label,
+            );
+            road_slider(
+                ui,
+                &mut config.skirt_depth.0,
+                0.5..=50.0,
+                "Skirt depth (m)",
+                "skirt depth",
+                dirty,
+                undo_label,
+            );
+        });
+
+    egui::CollapsingHeader::new("Lots")
+        .default_open(true)
+        .show(ui, |ui| {
+            if ui
+                .checkbox(&mut config.populate_lots, "Grow buildings on lots")
+                .on_hover_text(
+                    "Fill the network's enclosed blocks with themed buildings at load. \
+                     Re-roll the layout to re-seed them.",
+                )
+                .changed()
+            {
+                undo_label.set("road lots toggle".to_string());
+                *dirty = true;
+            }
+        });
 }
 
 /// Inline editor for a [`GeneratorKind::Portal`]: the destination room's
@@ -390,6 +549,7 @@ fn draw_gateway_editor(ui: &mut egui::Ui, size: &mut crate::pds::Fp3, dirty: &mu
 /// `salt` uniquely identifies this node in egui's ID stack — it's passed
 /// through to nested material widgets so collapsing one node never
 /// affects another when the same widget type repeats across the tree.
+#[allow(clippy::too_many_arguments)] // one shared dispatch; each arg is a distinct channel.
 fn draw_generator_detail(
     ui: &mut egui::Ui,
     salt: &str,
@@ -401,13 +561,16 @@ fn draw_generator_detail(
     dirty: &mut bool,
     blob_selected_element: &mut Option<usize>,
     undo_label: &mut crate::ui::undo::LabelSlot,
+    road_stats: Option<&crate::terrain::RoadPanelStats>,
 ) {
     match kind {
         GeneratorKind::Terrain(cfg) => draw_terrain_forge(ui, cfg, dirty),
         GeneratorKind::Water { surface } => {
             draw_water_editor(ui, surface, dirty);
         }
-        GeneratorKind::RoadNetwork(config) => draw_road_editor(ui, config, dirty, undo_label),
+        GeneratorKind::RoadNetwork(config) => {
+            draw_road_editor(ui, config, dirty, undo_label, road_stats)
+        }
         GeneratorKind::LSystem {
             source_code,
             finalization_code,

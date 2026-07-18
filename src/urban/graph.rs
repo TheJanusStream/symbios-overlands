@@ -18,7 +18,7 @@ use crate::pds::generator::RoadConfig;
 pub(crate) fn build_road_graph(
     hm: &HeightMap,
     config: &RoadConfig,
-) -> Option<(RoadGraph, HeightMap, usize)> {
+) -> Option<(RoadGraph, HeightMap, [usize; 2])> {
     let (mut graph, sub, lo) = build_road_graph_raw(hm, config)?;
     // Clean tracer / rationalize artefacts (grazing false junctions and dead-end
     // stubs) out of the topology, and weld near-miss dead-ends into junctions,
@@ -34,7 +34,7 @@ pub(crate) fn build_road_graph(
 pub(crate) fn build_road_graph_raw(
     hm: &HeightMap,
     config: &RoadConfig,
-) -> Option<(RoadGraph, HeightMap, usize)> {
+) -> Option<(RoadGraph, HeightMap, [usize; 2])> {
     if !config.enabled {
         return None;
     }
@@ -45,14 +45,22 @@ pub(crate) fn build_road_graph_raw(
     if side < 8 {
         return None;
     }
-    let lo = full_w / 2 - half_cells;
+    // District centre (#889): the authored XZ offset in cells, clamped so the
+    // window always stays fully inside the heightmap — pushing the centre past
+    // an edge slides the district back rather than truncating it.
+    let max_lo = full_w - side;
+    let lo_axis = |offset_m: f32| -> usize {
+        let centered = full_w as f32 / 2.0 + offset_m / scale;
+        ((centered - half_cells as f32).round().max(0.0) as usize).min(max_lo)
+    };
+    let lo = [lo_axis(config.center.0[0]), lo_axis(config.center.0[1])];
 
     // District window → its own heightmap, both for tensor to road and for us
     // to sample heights from. Copied, never written back (no carving).
     let mut sub = HeightMap::new(side, side, scale);
     for z in 0..side {
         for x in 0..side {
-            sub.set(x, z, hm.get(lo + x, lo + z));
+            sub.set(x, z, hm.get(lo[0] + x, lo[1] + z));
         }
     }
 

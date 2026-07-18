@@ -68,8 +68,13 @@ fn seed_prefix(seed: u64) -> String {
 /// re-roll.
 fn layout_fingerprint(did: &str, c: &RoadConfig) -> String {
     format!(
-        "{did}|{}|{}|{}|{}",
-        c.seed, c.district_half_extent.0, c.major_spacing.0, c.minor_spacing.0
+        "{did}|{}|{}|{}|{}|{}|{}",
+        c.seed,
+        c.district_half_extent.0,
+        c.major_spacing.0,
+        c.minor_spacing.0,
+        c.center.0[0],
+        c.center.0[1],
     )
 }
 
@@ -253,11 +258,13 @@ fn active_config(record: &RoomRecord) -> Option<RoadConfig> {
 /// Populate the road network's lots with buildings when the heightmap or record
 /// changes, writing them into the live record (which recompiles + flags dirty).
 /// Idempotent per layout seed; sweeps stale buildings on re-roll / toggle-off.
+#[allow(clippy::too_many_arguments)] // Bevy system: each arg is a distinct resource.
 pub(super) fn maybe_populate_lots(
     mut record: ResMut<LiveRoomRecord>,
     did: Option<Res<CurrentRoomDid>>,
     heightmap: Option<Res<FinishedHeightMap>>,
     mut undo_signals: ResMut<crate::ui::undo::RoomWriteSignals>,
+    mut stats: ResMut<super::RoadPanelStats>,
     time: Res<Time>,
     // Session-side layout fingerprint (#882): `None` until the first
     // decision this run, cleared when the network deactivates.
@@ -292,6 +299,7 @@ pub(super) fn maybe_populate_lots(
                     // disabled the network, not a phantom undo entry of its own.
                     undo_signals.derived = true;
                     strip_lot_buildings(&mut record.0);
+                    stats.buildings = 0;
                 }
                 return;
             }
@@ -306,6 +314,14 @@ pub(super) fn maybe_populate_lots(
                     LotAction::Adopt => {
                         *session_fp = Some(fp);
                         *due = None;
+                        // Readout (#888): count the adopted (saved) buildings
+                        // so a loaded room doesn't report zero.
+                        stats.buildings = record
+                            .0
+                            .placements
+                            .iter()
+                            .filter(|p| refs_lot_building(p))
+                            .count();
                     }
                     LotAction::Repopulate => {
                         *due = Some(now + super::roads::ROAD_EDIT_DEBOUNCE_SECS)
@@ -343,9 +359,10 @@ pub(super) fn maybe_populate_lots(
     if lots.is_empty() {
         // Nothing enclosed; the strip above (if any) already updated the record.
         let _ = stripped;
+        stats.buildings = 0;
         return;
     }
-    inject_lot_buildings(&mut record.0, &lots, did_str, config.seed);
+    stats.buildings = inject_lot_buildings(&mut record.0, &lots, did_str, config.seed);
 }
 
 #[cfg(test)]
@@ -386,6 +403,10 @@ mod tests {
         let mut seeded = base.clone();
         seeded.seed ^= 1;
         assert_ne!(fp(&base), fp(&seeded), "re-roll moves lots");
+
+        let mut centered = base.clone();
+        centered.center.0 = [40.0, -25.0];
+        assert_ne!(fp(&base), fp(&centered), "centre offset moves lots (#889)");
 
         let mut ribbon = base.clone();
         ribbon.major_half_width.0 += 1.0;

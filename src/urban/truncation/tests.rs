@@ -247,7 +247,7 @@ fn short_junction_connector_keeps_both_hubs() {
             s,
             e,
             &hm,
-            0.0,
+            [0.0; 2],
             &dims,
             &degree,
             &mut road_ends,
@@ -258,7 +258,7 @@ fn short_junction_connector_keeps_both_hubs() {
     assert_eq!(arms_at(0), 3, "node 0 lost an arm to over-truncation");
     assert_eq!(arms_at(1), 3, "node 1 lost an arm to over-truncation");
 
-    extrude_hubs(&road_ends, &hm, 0.0, &dims, &mut parts);
+    extrude_hubs(&road_ends, &hm, [0.0; 2], &dims, &mut parts);
     assert!(
         !parts.deck.is_empty(),
         "both junctions failed to grow a hub"
@@ -308,7 +308,7 @@ fn pilot_junctions_keep_every_mouth_after_truncation() {
             s,
             e,
             &sub,
-            0.0,
+            [0.0; 2],
             &dims,
             &degree,
             &mut road_ends,

@@ -167,6 +167,7 @@ pub(super) fn maybe_rebuild_roads(
     did: Option<Res<CurrentRoomDid>>,
     heightmap: Option<Res<FinishedHeightMap>>,
     mut state: ResMut<RoadRebuild>,
+    mut stats: ResMut<super::RoadPanelStats>,
     time: Res<Time>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -180,6 +181,11 @@ pub(super) fn maybe_rebuild_roads(
                 commands.entity(e).try_despawn();
             }
             *state = RoadRebuild::default();
+            let buildings = stats.buildings;
+            *stats = super::RoadPanelStats {
+                buildings,
+                ..default()
+            };
         }
         return;
     };
@@ -219,6 +225,11 @@ pub(super) fn maybe_rebuild_roads(
                     }
                     state.building = None;
                     state.live = None;
+                    let buildings = stats.buildings;
+                    *stats = super::RoadPanelStats {
+                        buildings,
+                        ..default()
+                    };
                 }
             }
         }
@@ -247,6 +258,12 @@ pub(super) fn maybe_rebuild_roads(
                 parts,
             );
         }
+        // Editor readout (#888) — buildings belong to the lot layer, which
+        // updates its own field on its own cadence.
+        stats.built = true;
+        stats.streets = parts.as_ref().map_or(0, |p| p.chains);
+        stats.junctions = parts.as_ref().map_or(0, |p| p.junctions);
+        stats.vertices = parts.as_ref().map_or(0, |p| p.vertex_count());
         state.live = Some(built);
     }
 }

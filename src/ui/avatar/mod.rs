@@ -573,6 +573,8 @@ pub fn avatar_ui(
                                 &mut toasts,
                                 time.elapsed_secs_f64(),
                                 &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
+                                // Avatars can't grow roads — no stats readout.
+                                None,
                             );
                         });
                     }

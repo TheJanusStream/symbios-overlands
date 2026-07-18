@@ -19,7 +19,7 @@ pub(crate) fn extrude_chain(
     start_trim: f32,
     end_trim: f32,
     hm: &HeightMap,
-    world_offset: f32,
+    world_offset: [f32; 2],
     dims: &Dims,
     degree: &[u32],
     road_ends: &mut Vec<RoadEnd>,

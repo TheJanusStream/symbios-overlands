@@ -104,11 +104,11 @@ struct Frame {
 /// Interior reference point of a chain segment (the centreline at mid-height
 /// between the deck and the skirt bottom), used to orient each face's normal
 /// outward.
-fn beam_axis(f0: &Frame, f1: &Frame, world_offset: f32) -> [f32; 3] {
+fn beam_axis(f0: &Frame, f1: &Frame, world_offset: [f32; 2]) -> [f32; 3] {
     [
-        (f0.cx + f1.cx) * 0.5 + world_offset,
+        (f0.cx + f1.cx) * 0.5 + world_offset[0],
         (f0.base_y + f1.base_y + f0.skirt_bottom_y + f1.skirt_bottom_y) * 0.25,
-        (f0.cz + f1.cz) * 0.5 + world_offset,
+        (f0.cz + f1.cz) * 0.5 + world_offset[1],
     ]
 }
 
@@ -150,7 +150,7 @@ pub(crate) fn extrude_ribbon(
     chain: &Chain,
     sample: &ChainSample,
     base_y: &[f32],
-    world_offset: f32,
+    world_offset: [f32; 2],
     dims: &Dims,
     degree: &[u32],
     road_ends: &mut Vec<RoadEnd>,
@@ -221,9 +221,9 @@ pub(crate) fn extrude_ribbon(
             f.base_y + ph
         };
         [
-            f.cx + f.rx * lateral + world_offset,
+            f.cx + f.rx * lateral + world_offset[0],
             y,
-            f.cz + f.rz * lateral + world_offset,
+            f.cz + f.rz * lateral + world_offset[1],
         ]
     };
 
@@ -265,9 +265,9 @@ pub(crate) fn extrude_ribbon(
     let lift = dims.curb_height + NEON_LINE_LIFT_M;
     let neon_at = |f: &Frame, lu: f32| {
         [
-            f.cx + f.rx * (lu * f.scale) + world_offset,
+            f.cx + f.rx * (lu * f.scale) + world_offset[0],
             f.base_y + lift,
-            f.cz + f.rz * (lu * f.scale) + world_offset,
+            f.cz + f.rz * (lu * f.scale) + world_offset[1],
         ]
     };
     for (u0, u1) in [

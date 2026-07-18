@@ -55,7 +55,7 @@ const FILLET_SEG: usize = 6;
 pub(crate) fn extrude_hubs(
     road_ends: &[RoadEnd],
     hm: &HeightMap,
-    world_offset: f32,
+    world_offset: [f32; 2],
     dims: &Dims,
     parts: &mut RoadParts,
 ) {
@@ -80,17 +80,17 @@ pub(crate) fn extrude_hubs(
         for (ai, a) in arms.iter().enumerate() {
             corners.push((
                 [
-                    a.cx - a.rx * a.half_w + world_offset,
+                    a.cx - a.rx * a.half_w + world_offset[0],
                     a.deck_y,
-                    a.cz - a.rz * a.half_w + world_offset,
+                    a.cz - a.rz * a.half_w + world_offset[1],
                 ],
                 ai,
             ));
             corners.push((
                 [
-                    a.cx + a.rx * a.half_w + world_offset,
+                    a.cx + a.rx * a.half_w + world_offset[0],
                     a.deck_y,
-                    a.cz + a.rz * a.half_w + world_offset,
+                    a.cz + a.rz * a.half_w + world_offset[1],
                 ],
                 ai,
             ));
@@ -112,8 +112,8 @@ pub(crate) fn extrude_hubs(
             corners.iter().map(|(q, _)| q[2]).sum::<f32>() / corners.len() as f32,
         );
         let max_y = arms.iter().map(|a| a.deck_y).fold(f32::MIN, f32::max);
-        let center_y =
-            max_y.max(hm.get_height_at(cx - world_offset, cz - world_offset) + ROAD_DEPTH_BIAS_M);
+        let center_y = max_y
+            .max(hm.get_height_at(cx - world_offset[0], cz - world_offset[1]) + ROAD_DEPTH_BIAS_M);
         let center = [cx, center_y, cz];
 
         // Angular sweep around the centroid → a simple polygon however the mouths
@@ -192,8 +192,8 @@ pub(crate) fn extrude_hubs(
             // — the deck-edge corner pushed out by curb_top + chamfer (= the outer
             // footprint `wo`), i.e. exactly where the incident ribbon's outer curb
             // ends — so the fillet arc joins one ribbon's outer curb to the next.
-            let cl = [arm_l.cx + world_offset, arm_l.cz + world_offset];
-            let cr = [arm_r.cx + world_offset, arm_r.cz + world_offset];
+            let cl = [arm_l.cx + world_offset[0], arm_l.cz + world_offset[1]];
+            let cr = [arm_r.cx + world_offset[0], arm_r.cz + world_offset[1]];
             let rad_l = norm2([l[0] - cl[0], l[2] - cl[1]]);
             let rad_r = norm2([r[0] - cr[0], r[2] - cr[1]]);
             let (wo_l, wo_r) = (arm_l.half_w + ct + cf, arm_r.half_w + ct + cf);

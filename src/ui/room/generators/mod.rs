@@ -272,6 +272,9 @@ pub(crate) fn draw_generators_tab(
     // Undo-entry label channel (#865), pre-bound to the hosting editor's
     // slot so this shared widget stays editor-agnostic.
     label: &mut crate::ui::undo::LabelSlot,
+    // Live road-network stats for the RoadNetwork detail readout (#888).
+    // `None` for tree sources that can't grow roads (the avatar editor).
+    road_stats: Option<&crate::terrain::RoadPanelStats>,
 ) {
     // Inventory now flows only into the tree panel (for the root-level
     // "+ From Inventory" toolbar, the per-row "+ From Inventory" submenu,
@@ -312,6 +315,7 @@ pub(crate) fn draw_generators_tab(
             blob_selected_element,
             &mut confirms.kind,
             label,
+            road_stats,
         );
     });
 

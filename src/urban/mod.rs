@@ -201,6 +201,19 @@ pub struct RoadParts {
     pub structure: RoadGeometry,
     /// Thin strips riding proud of each curb's inner top crease.
     pub neon: RoadGeometry,
+    /// Street (chain) count of the built network — for the editor's stats
+    /// readout (#888), not the geometry.
+    pub chains: usize,
+    /// Junction (active degree ≥ 3) count — see [`Self::chains`].
+    pub junctions: usize,
+}
+
+impl RoadParts {
+    /// Total vertex count across the three surfaces — the editor's
+    /// mesh-weight readout (#888).
+    pub fn vertex_count(&self) -> usize {
+        self.deck.vertices.len() + self.structure.vertices.len() + self.neon.vertices.len()
+    }
 }
 
 /// Build terrain-conforming road geometry from a [`RoadConfig`], or `None` if
@@ -233,7 +246,7 @@ pub fn build_road_geometry(hm: &HeightMap, config: &RoadConfig) -> Option<RoadPa
     );
 
     let mut parts = RoadParts::default();
-    let world_offset = lo as f32 * sub.scale();
+    let world_offset = [lo[0] as f32 * sub.scale(), lo[1] as f32 * sub.scale()];
 
     // Sample each chain's terrain ONCE (the only heightmap-sampling site), then
     // resolve flat junction heights + the per-chain deck heights network-wide
@@ -264,6 +277,9 @@ pub fn build_road_geometry(hm: &HeightMap, config: &RoadConfig) -> Option<RoadPa
         }
     }
     extrude_hubs(&road_ends, &sub, world_offset, &dims, &mut parts);
+    // Editor stats (#888): streets = chains, junctions = active degree ≥ 3.
+    parts.chains = chains.len();
+    parts.junctions = degree.iter().filter(|&&d| d >= 3).count();
     (!parts.deck.is_empty() || !parts.structure.is_empty()).then_some(parts)
 }
 
@@ -302,13 +318,14 @@ pub fn extract_building_lots(hm: &HeightMap, config: &RoadConfig) -> Vec<Buildin
 
     // Sub-window XZ (origin at the window's lower corner) → room-centred frame:
     // the road mesh draws window coord `p` at world `p + lo*scale - half`, so a
-    // footprint placed there lands exactly on its street.
+    // footprint placed there lands exactly on its street. Per-axis since the
+    // district centre offset (#889) can shift the window asymmetrically.
     let scale = sub.scale();
     let half = hm.width().saturating_sub(1) as f32 * scale * 0.5;
-    let shift = lo as f32 * scale - half;
+    let shift = [lo[0] as f32 * scale - half, lo[1] as f32 * scale - half];
     lots.into_iter()
         .map(|l| BuildingLot {
-            position: [l.position.x + shift, l.position.y + shift],
+            position: [l.position.x + shift[0], l.position.y + shift[1]],
             // tensor measures the lot's rotation in the XZ (top-down) plane;
             // placement yaw is around +Y, the opposite winding sense.
             yaw: -l.rotation,
