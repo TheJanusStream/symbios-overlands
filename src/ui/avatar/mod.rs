@@ -101,11 +101,6 @@ pub struct AvatarEditorState {
     /// owner's DID seed, editable to re-roll the whole avatar. See
     /// [`crate::ui::editable::seed_row`].
     seed_row_state: crate::ui::editable::SeedRowState,
-    /// Pending Revert/Reset confirmation for the shared save row (#838).
-    row_confirm: crate::ui::confirm::ConfirmState<crate::ui::editable::RecordAction>,
-    /// Pending locomotion-preset-switch confirmation (#838): switching
-    /// presets replaces all tuning, so a tuned config asks first.
-    preset_confirm: crate::ui::confirm::ConfirmState<crate::pds::LocomotionConfig>,
     /// Pending publish-after-unrecoverable-fetch confirmation (#840):
     /// while [`crate::state::AvatarRecordRecovery`] is present the
     /// editor holds the default, and saving would overwrite the real
@@ -189,8 +184,6 @@ impl AvatarEditorState {
         record: &AvatarRecord,
         sel: &crate::ui::undo::AvatarSelection,
     ) {
-        self.row_confirm.cancel();
-        self.preset_confirm.cancel();
         self.publish_guard.cancel();
         self.tree_confirms.delete.cancel();
         self.tree_confirms.kind.cancel();
@@ -359,8 +352,6 @@ pub fn avatar_ui(
                     renaming_unused,
                     audio_editor,
                     seed_row_state,
-                    row_confirm,
-                    preset_confirm,
                     publish_guard,
                     tree_confirms,
                     default_cache,
@@ -480,7 +471,8 @@ pub fn avatar_ui(
                             record_bytes,
                             ctrl_s,
                             matches!(feedback.status, PublishStatus::Publishing),
-                            row_confirm,
+                            // Undo covers Revert/Reset here (#866).
+                            None,
                         ) {
                             RecordAction::None => {}
                             RecordAction::Publish => {
@@ -598,7 +590,6 @@ pub fn avatar_ui(
                                     ui,
                                     &mut live_mut.0.locomotion,
                                     &mut widget_changed,
-                                    preset_confirm,
                                     &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
                                 );
                             });

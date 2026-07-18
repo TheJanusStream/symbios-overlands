@@ -154,7 +154,7 @@ pub(super) fn apply_pending(
         }
         PendingAction::Delete(id) => {
             if id.path.is_empty() {
-                // Root delete — un-undoable and CASCADING: `remove_root`
+                // Root delete — CASCADING: `remove_root`
                 // also sweeps every Placement + traits entry referencing
                 // this generator name (a 200-tree scatter dies with it).
                 // Since #838 it never fires from the click itself: park it
@@ -164,15 +164,15 @@ pub(super) fn apply_pending(
                 let body = if placements > 0 {
                     format!(
                         "Deletes the generator \"{}\" AND removes the {placements} \
-                         placement{} referencing it from the world. This cannot \
-                         be undone.",
+                         placement{} referencing it from the world. Undo (Ctrl+Z) \
+                         can restore it this session.",
                         id.root,
                         if placements == 1 { "" } else { "s" },
                     )
                 } else {
                     format!(
                         "Deletes the generator \"{}\" and everything under it. \
-                         This cannot be undone.",
+                         Undo (Ctrl+Z) can restore it this session.",
                         id.root
                     )
                 };

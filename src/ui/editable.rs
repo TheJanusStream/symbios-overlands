@@ -75,7 +75,11 @@ pub fn save_load_reset_row(
     record_bytes: Option<usize>,
     publish_shortcut: bool,
     publishing: bool,
-    confirm: &mut crate::ui::confirm::ConfirmState<RecordAction>,
+    // `Some` routes Revert/Reset through the confirm modal — required
+    // for the Inventory editor, which has no undo stack (#866). Room
+    // and Avatar pass `None`: both replacements are one Ctrl+Z away,
+    // so the guard would only double-charge a now-recoverable click.
+    mut confirm: Option<&mut crate::ui::confirm::ConfirmState<RecordAction>>,
 ) -> RecordAction {
     let size_class = record_bytes.map(record_size::classify);
     let over_hard = size_class == Some(SizeClass::OverHardCeiling);
@@ -109,37 +113,48 @@ pub fn save_load_reset_row(
         if publish_shortcut && enabled {
             action = RecordAction::Publish;
         }
-        // Revert / Reset are un-undoable bulk replacements — both route
-        // through the shared confirm modal instead of firing on the
-        // click itself (#838).
+        // Revert / Reset are whole-record replacements. With an undo
+        // stack behind the editor (`confirm: None`) they fire directly —
+        // Ctrl+Z restores the pre-click state. Without one (Inventory)
+        // they still route through the confirm modal (#838 → #866).
+        let revert_hover = if confirm.is_none() {
+            "Discard unsaved edits and restore the last state saved to \
+             your PDS this session. Undo (Ctrl+Z) restores them."
+        } else {
+            "Discard unsaved edits and restore the last state saved to \
+             your PDS this session"
+        };
         if ui
             .add_enabled(dirty, egui::Button::new("Revert to saved"))
-            .on_hover_text(
-                "Discard unsaved edits and restore the last state saved to \
-                 your PDS this session",
-            )
+            .on_hover_text(revert_hover)
             .clicked()
         {
-            confirm.request(
-                "Revert to saved?",
-                "Discards every unsaved edit and restores the last state saved \
-                 to your PDS this session. This cannot be undone.",
-                "Discard edits",
-                RecordAction::Load,
-            );
+            match confirm.as_deref_mut() {
+                None => action = RecordAction::Load,
+                Some(confirm) => confirm.request(
+                    "Revert to saved?",
+                    "Discards every unsaved edit and restores the last state saved \
+                     to your PDS this session. This cannot be undone.",
+                    "Discard edits",
+                    RecordAction::Load,
+                ),
+            }
         }
         if ui
             .add_enabled(can_reset, egui::Button::new("Reset to default"))
             .clicked()
         {
-            confirm.request(
-                "Reset to default?",
-                "Replaces the whole record with its generated default. Unsaved \
-                 edits are lost immediately; the copy on your PDS is untouched \
-                 until you save.",
-                "Reset",
-                RecordAction::Reset,
-            );
+            match confirm.as_deref_mut() {
+                None => action = RecordAction::Reset,
+                Some(confirm) => confirm.request(
+                    "Reset to default?",
+                    "Replaces the whole record with its generated default. Unsaved \
+                     edits are lost immediately; the copy on your PDS is untouched \
+                     until you save.",
+                    "Reset",
+                    RecordAction::Reset,
+                ),
+            }
         }
         if let (Some(bytes), Some(class)) = (record_bytes, size_class) {
             let (text, color) = match class {
@@ -173,8 +188,10 @@ pub fn save_load_reset_row(
         }
     });
     // A confirmed Revert/Reset surfaces as this frame's action, exactly
-    // as if the (now-guarded) button had fired directly.
-    if let Some(confirmed) = confirm.show(ui.ctx(), "save-row") {
+    // as if the (guarded) button had fired directly.
+    if let Some(confirm) = confirm
+        && let Some(confirmed) = confirm.show(ui.ctx(), "save-row")
+    {
         action = confirmed;
     }
     action
@@ -289,9 +306,6 @@ pub struct SeedRowState {
     /// after logging in as a different user — so the field never shows a
     /// stale owner's seed.
     synced_for: Option<u64>,
-    /// Pending re-roll confirmation (#838): a re-roll replaces the whole
-    /// record one row above Save, so it never fires on the click itself.
-    confirm: crate::ui::confirm::ConfirmState<u64>,
 }
 
 /// Render the "Random seed" re-roll row shared by the World and Avatar
@@ -304,8 +318,9 @@ pub struct SeedRowState {
 /// that it replaces the ENTIRE record) and confirm. This is exactly the
 /// existing "Reset to default" with an owner-chosen seed instead of
 /// `fnv1a_64(did)`. `now_secs` seeds the dice without a system clock
-/// (wasm has none). Returns [`SeedAction::Reroll`] only after the
-/// confirm dialog's danger button.
+/// (wasm has none). Fires on the click itself (#866): the confirm that
+/// guarded it pre-undo would only double-charge a one-Ctrl+Z-away
+/// replacement, and the undo toast names the seed it replaced.
 pub fn seed_row(
     ui: &mut egui::Ui,
     state: &mut SeedRowState,
@@ -352,17 +367,7 @@ pub fn seed_row(
             ))
             .clicked();
         if let (true, Ok(seed)) = (apply_clicked, parsed) {
-            state.confirm.request(
-                format!("Re-roll the {subject}?"),
-                format!(
-                    "Replaces the entire {subject} with a fresh roll from seed \
-                     {seed}. Everything you have built or edited — saved or not \
-                     — is replaced in the editor; your PDS copy is untouched \
-                     until you save."
-                ),
-                format!("Re-roll {subject}"),
-                seed,
-            );
+            action = SeedAction::Reroll(seed);
         }
         if ui
             .button("↺")
@@ -372,9 +377,6 @@ pub fn seed_row(
             state.buf = did_seed.to_string();
         }
     });
-    if let Some(seed) = state.confirm.show(ui.ctx(), "seed-row") {
-        action = SeedAction::Reroll(seed);
-    }
     action
 }
 

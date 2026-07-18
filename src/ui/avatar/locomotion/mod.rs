@@ -33,47 +33,24 @@ pub fn draw_locomotion_tab(
     ui: &mut egui::Ui,
     locomotion: &mut LocomotionConfig,
     dirty: &mut bool,
-    confirm: &mut crate::ui::confirm::ConfirmState<LocomotionConfig>,
     undo_label: &mut crate::ui::undo::LabelSlot,
 ) {
     let current_kind = locomotion.kind_tag();
-    // The current variant's default-tuned instance, for the "has the
-    // user tuned anything?" comparison. `None` for `Unknown` (a
-    // newer-schema preset this build can't reconstruct) — treated as
-    // tuned, since switching away discards data we can't even read.
-    let current_default = LocomotionConfig::pickers()
-        .iter()
-        .find(|(kind, _, _)| *kind == current_kind)
-        .map(|(_, _, ctor)| ctor());
-    let has_custom_tuning = current_default.as_ref() != Some(locomotion);
 
     ui.horizontal_wrapped(|ui| {
         ui.label("Preset:");
         for (kind, label, ctor) in LocomotionConfig::pickers() {
+            // Fires on the click itself (#866): pre-undo this asked for
+            // confirmation when tuning would be discarded, but a switch
+            // is now one Ctrl+Z away and the toast names it.
             if ui.selectable_label(current_kind == *kind, *label).clicked() && current_kind != *kind
             {
-                if has_custom_tuning {
-                    confirm.request(
-                        format!("Switch to the {label} preset?"),
-                        "Switching presets replaces ALL of your current \
-                         locomotion tuning with the new preset's defaults. \
-                         This cannot be undone.",
-                        format!("Switch to {label}"),
-                        ctor(),
-                    );
-                } else {
-                    *locomotion = ctor();
-                    undo_label.set(format!("preset switch to {label}"));
-                    *dirty = true;
-                }
+                *locomotion = ctor();
+                undo_label.set(format!("preset switch to {label}"));
+                *dirty = true;
             }
         }
     });
-    if let Some(new_config) = confirm.show(ui.ctx(), "locomotion-preset") {
-        undo_label.set(format!("preset switch to {}", new_config.kind_tag()));
-        *locomotion = new_config;
-        *dirty = true;
-    }
     ui.separator();
 
     match locomotion {

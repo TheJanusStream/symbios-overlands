@@ -175,8 +175,6 @@ pub struct RoomEditorState {
     /// owner's DID seed, editable to re-roll the whole room. See
     /// [`crate::ui::editable::seed_row`].
     seed_row_state: crate::ui::editable::SeedRowState,
-    /// Pending Revert/Reset confirmation for the shared save row (#838).
-    row_confirm: crate::ui::confirm::ConfirmState<RecordAction>,
     /// Pending destructive tree-operation confirmations (#838): root
     /// delete + kind change on the Generators tab.
     tree_confirms: generators::TreeConfirms,
@@ -243,11 +241,10 @@ impl RoomEditorState {
         record: &pds::RoomRecord,
         sel: &crate::ui::undo::RoomSelection,
     ) {
-        // Parked confirm payloads (a `GenNodeId`, a `RecordAction`) were
-        // resolved against the pre-restore tree and could re-resolve to
-        // a different node; drop them rather than let a stale dialog
-        // apply to the restored record. Same for a half-typed rename.
-        self.row_confirm.cancel();
+        // Parked confirm payloads (a `GenNodeId`) were resolved against
+        // the pre-restore tree and could re-resolve to a different node;
+        // drop them rather than let a stale dialog apply to the restored
+        // record. Same for a half-typed rename.
         self.tree_confirms.delete.cancel();
         self.tree_confirms.kind.cancel();
         self.recovery_reset_confirm.cancel();
@@ -427,7 +424,6 @@ pub fn room_admin_ui(
         renaming_generator,
         audio_editor,
         seed_row_state,
-        row_confirm,
         tree_confirms,
         recovery_reset_confirm,
         default_cache,
@@ -835,7 +831,8 @@ pub fn room_admin_ui(
                     record_bytes,
                     ctrl_s,
                     matches!(publish_feedback.status, PublishStatus::Publishing),
-                    row_confirm,
+                    // Undo covers Revert/Reset here (#866) — no modal.
+                    None,
                 ) {
                     RecordAction::None => {}
                     RecordAction::Publish => {

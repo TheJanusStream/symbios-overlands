@@ -1,11 +1,17 @@
 //! Shared destructive-action confirmation + rename dialogs (#838).
 //!
-//! Until #817's undo stack lands, a confirm dialog is the only thing
-//! standing between a misclick and un-undoable data loss (a root delete
-//! cascades through every referencing placement; a seed re-roll or
-//! Reset replaces the whole record one row above Save). This module is
-//! the one implementation every editor reuses, so the danger styling
-//! and the Esc/backdrop-cancels semantics stay identical everywhere:
+//! With the #817 undo stack live, confirms guard a narrower set (#866):
+//! actions whose blast radius deserves a beat of attention even though
+//! undo can restore them (cascade root delete, kind change), actions in
+//! an editor with NO undo stack (Inventory's Revert/Reset), and actions
+//! undo cannot recall at all — network writes (publish, the recovery
+//! banner's delete-then-put PDS reset, publish-over-recovery). One-click
+//! in-record replacements that used to confirm here (seed re-roll,
+//! locomotion preset switch, Room/Avatar Revert/Reset) now fire
+//! directly — they are one Ctrl+Z away, and a modal would only
+//! double-charge a recoverable click. This module is the one
+//! implementation every editor reuses, so the danger styling and the
+//! Esc/backdrop-cancels semantics stay identical everywhere:
 //!
 //! * [`ConfirmState<T>`] — a small owner-embedded state machine: a
 //!   click on something destructive [`request`](ConfirmState::request)s

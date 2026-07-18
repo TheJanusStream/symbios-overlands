@@ -423,7 +423,8 @@ pub fn inventory_ui(
                 record_bytes,
                 ctrl_s,
                 matches!(feedback.status, PublishStatus::Publishing),
-                &mut state.row_confirm,
+                // Inventory has no undo stack (#866) — keep the modal.
+                Some(&mut state.row_confirm),
             ) {
                 RecordAction::None => {}
                 RecordAction::Publish => {

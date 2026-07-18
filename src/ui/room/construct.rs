@@ -74,8 +74,8 @@ pub(super) fn generator_kind_picker(
                         confirm.request(
                             format!("Change kind to {k}?"),
                             format!(
-                                "Switching this node to {k} discards {}. This \
-                                 cannot be undone.",
+                                "Switching this node to {k} discards {}. Undo \
+                                 (Ctrl+Z) can restore it this session.",
                                 losses.join(" and ")
                             ),
                             format!("Change to {k}"),
