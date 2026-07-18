@@ -67,8 +67,13 @@ pub fn chat_ui(
 
     let ctx = contexts.ctx_mut().unwrap();
     let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Chat, ctx);
+    // Guarded-dirty (#879): `.open(&mut panels.chat)` through the
+    // `ResMut` would mark UiPanels changed every frame, starving the
+    // prefs save debounce — local copy in, write back only on the ✕
+    // click (the Settings window's idiom).
+    let mut open = panels.chat;
     let response = egui::Window::new("Chat")
-        .open(&mut panels.chat)
+        .open(&mut open)
         .default_pos(pos)
         .default_size(size)
         .constrain_to(ctx.available_rect())
@@ -207,5 +212,8 @@ pub fn chat_ui(
         });
     if let Some(response) = response {
         chrome.remember(crate::ui::layout::UiWindow::Chat, response.response.rect);
+    }
+    if panels.chat && !open {
+        panels.chat = false;
     }
 }

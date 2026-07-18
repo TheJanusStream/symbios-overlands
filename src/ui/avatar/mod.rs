@@ -306,8 +306,12 @@ pub fn avatar_ui(
         // to its content, and forcing the persisted height back on it
         // would pad the shorter Locomotion tab with dead space.
         let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Avatar, ctx);
+        // Guarded-dirty (#879): `.open(&mut panels.avatar)` through the
+        // `ResMut` would mark UiPanels changed every frame, starving the
+        // prefs save debounce — local copy in, write back only on close.
+        let mut open = panels.avatar;
         let response = egui::Window::new("Avatar")
-            .open(&mut panels.avatar)
+            .open(&mut open)
             .default_pos(pos)
             .default_width(size.x)
             .constrain_to(ctx.available_rect())
@@ -626,6 +630,9 @@ pub fn avatar_ui(
 
         if let Some(response) = response.as_ref() {
             chrome.remember(crate::ui::layout::UiWindow::Avatar, response.response.rect);
+        }
+        if panels.avatar && !open {
+            panels.avatar = false;
         }
 
         // `Window::show` returns `Some(InnerResponse { inner: None, .. })`

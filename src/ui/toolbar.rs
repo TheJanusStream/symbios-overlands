@@ -108,8 +108,15 @@ const BADGE_COUNT_CAP: usize = 99;
 
 /// A panel toggle with a fixed minimum width and a one-line tooltip:
 /// the width reservation is what keeps count-badged labels ("Chat (3)")
-/// from shifting the rest of the row as the count changes.
-fn toggle_with_badge(ui: &mut egui::Ui, flag: &mut bool, label: String, min_width: f32, tip: &str) {
+/// from shifting the rest of the row as the count changes. Returns
+/// whether the flag flipped, for the caller's guarded-dirty bookkeeping.
+fn toggle_with_badge(
+    ui: &mut egui::Ui,
+    flag: &mut bool,
+    label: String,
+    min_width: f32,
+    tip: &str,
+) -> bool {
     let size = egui::vec2(min_width, ui.spacing().interact_size.y);
     if ui
         .add_sized(size, egui::Button::selectable(*flag, label))
@@ -117,7 +124,9 @@ fn toggle_with_badge(ui: &mut egui::Ui, flag: &mut bool, label: String, min_widt
         .clicked()
     {
         *flag = !*flag;
+        return true;
     }
+    false
 }
 
 /// Format a badge count, capped so the label can't outgrow its
@@ -162,10 +171,19 @@ pub fn toolbar_ui(
     };
     let owns_room = owns_current_room(session.as_deref(), current_room.as_deref());
 
+    // Guarded-dirty (#879): `&mut panels.x` through the `ResMut` marks
+    // UiPanels changed EVERY frame the toolbar draws — which re-armed
+    // the prefs save debounce forever, so preferences only ever hit disk
+    // at logout (the first frame the toolbar stops drawing). Borrow
+    // bypassed and tick `set_changed` only on a real toggle, the same
+    // idiom as the Settings window.
+    let p = panels.bypass_change_detection();
+    let mut panels_dirty = false;
+
     // An open Chat window means every message is on screen — the badge
     // only counts what arrives while it's closed. Guarded write so the
     // resource isn't marked changed every frame the window sits open.
-    if panels.chat && chat.unread != 0 {
+    if p.chat && chat.unread != 0 {
         chat.unread = 0;
     }
     let chat_label = if chat.unread > 0 {
@@ -194,29 +212,37 @@ pub fn toolbar_ui(
                 .selectable(false),
             );
             ui.separator();
-            toggle_with_badge(
+            panels_dirty |= toggle_with_badge(
                 ui,
-                &mut panels.chat,
+                &mut p.chat,
                 chat_label,
                 CHAT_TOGGLE_WIDTH,
                 "Chat — talk with everyone in this overland (Enter)",
             );
-            toggle_with_badge(
+            panels_dirty |= toggle_with_badge(
                 ui,
-                &mut panels.people,
+                &mut p.people,
                 format!("People ({})", badge_count(people_total)),
                 PEOPLE_TOGGLE_WIDTH,
                 "People — who's here; drag an item onto a row to gift it",
             );
-            ui.toggle_value(&mut panels.avatar, "Avatar")
-                .on_hover_text("Avatar — edit your look and vehicle");
-            ui.toggle_value(&mut panels.inventory, "Inventory")
-                .on_hover_text("Inventory — your saved item blueprints");
-            ui.toggle_value(&mut panels.catalogue, "Catalogue")
-                .on_hover_text("Catalogue — browse placeable items");
+            panels_dirty |= ui
+                .toggle_value(&mut p.avatar, "Avatar")
+                .on_hover_text("Avatar — edit your look and vehicle")
+                .changed();
+            panels_dirty |= ui
+                .toggle_value(&mut p.inventory, "Inventory")
+                .on_hover_text("Inventory — your saved item blueprints")
+                .changed();
+            panels_dirty |= ui
+                .toggle_value(&mut p.catalogue, "Catalogue")
+                .on_hover_text("Catalogue — browse placeable items")
+                .changed();
             if owns_room {
-                ui.toggle_value(&mut panels.world_editor, "World Editor")
-                    .on_hover_text("World Editor — reshape this overland (you own it)");
+                panels_dirty |= ui
+                    .toggle_value(&mut p.world_editor, "World Editor")
+                    .on_hover_text("World Editor — reshape this overland (you own it)")
+                    .changed();
             } else {
                 // Rendered disabled instead of hidden (#851): the silent
                 // pop-in taught nobody why the button exists — now a
@@ -296,8 +322,10 @@ pub fn toolbar_ui(
                 if ui.button(icon).on_hover_text(action).clicked() {
                     audio_muted.0 = !audio_muted.0;
                 }
-                ui.toggle_value(&mut panels.diagnostics, "Diagnostics")
-                    .on_hover_text("Diagnostics — session health, metrics, and logs");
+                panels_dirty |= ui
+                    .toggle_value(&mut p.diagnostics, "Diagnostics")
+                    .on_hover_text("Diagnostics — session health, metrics, and logs")
+                    .changed();
                 // Worst-active anomaly dot (D-6): a severity-coloured ●
                 // beside the Diagnostics toggle whenever an invariant is
                 // violated, so a broken session is visible even with the
@@ -322,7 +350,8 @@ pub fn toolbar_ui(
                             if n == 1 { "y" } else { "ies" }
                         ));
                     if dot_resp.clicked() {
-                        panels.diagnostics = true;
+                        panels_dirty |= !p.diagnostics;
+                        p.diagnostics = true;
                         *diag_tab = crate::ui::diagnostics::tab_for_subsystem(
                             invariants.worst_active_subsystem(),
                         );
@@ -331,13 +360,21 @@ pub fn toolbar_ui(
                 // Added AFTER the dot in this right-to-left layout so the
                 // dot stays glued to the Diagnostics toggle it belongs to
                 // (visual order: … Controls · Settings · ● · Diagnostics).
-                ui.toggle_value(&mut panels.settings, "Settings")
-                    .on_hover_text("Settings — theme & client preferences");
-                ui.toggle_value(&mut panels.controls, "Controls")
-                    .on_hover_text("Controls — movement & camera cheat-sheet");
+                panels_dirty |= ui
+                    .toggle_value(&mut p.settings, "Settings")
+                    .on_hover_text("Settings — theme & client preferences")
+                    .changed();
+                panels_dirty |= ui
+                    .toggle_value(&mut p.controls, "Controls")
+                    .on_hover_text("Controls — movement & camera cheat-sheet")
+                    .changed();
             });
         });
     });
+
+    if panels_dirty {
+        panels.set_changed();
+    }
 }
 
 /// The chassis the local player is currently piloting, resolved from the

@@ -882,8 +882,12 @@ pub fn diagnostics_ui(
 ) {
     let ctx = contexts.ctx_mut().unwrap();
     let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Diagnostics, ctx);
+    // Guarded-dirty (#879): `.open(&mut panels.diagnostics)` through the
+    // `ResMut` would mark UiPanels changed every frame, starving the
+    // prefs save debounce — local copy in, write back only on close.
+    let mut open = panels.diagnostics;
     let response = egui::Window::new("Diagnostics")
-        .open(&mut panels.diagnostics)
+        .open(&mut open)
         .default_pos(pos)
         .default_size(size)
         .constrain_to(ctx.available_rect())
@@ -1048,6 +1052,9 @@ pub fn diagnostics_ui(
             crate::ui::layout::UiWindow::Diagnostics,
             response.response.rect,
         );
+    }
+    if panels.diagnostics && !open {
+        panels.diagnostics = false;
     }
 }
 

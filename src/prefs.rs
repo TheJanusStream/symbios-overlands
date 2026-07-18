@@ -16,6 +16,15 @@
 //! degrades to defaults and heals itself on the next save — the same
 //! philosophy as the OAuth session blob (`crate::oauth::wasm`).
 //!
+//! CONTRACT for systems touching a watched resource (#879): mutate it
+//! GUARDED — `bypass_change_detection` + `set_changed` on a real edit,
+//! or a local copy written back conditionally. An egui widget holding
+//! `&mut resource.field` (`Window::open`, `toggle_value`, …) derefs
+//! mutably every frame and flags a change even when nothing moved;
+//! before the guards, that re-armed the trailing debounce forever and
+//! prefs only reached disk at logout. [`SAVE_MAX_LATENCY_SECS`] is the
+//! backstop if a future writer forgets.
+//!
 //! Schema stability: [`PersistedPrefs`] only ever GROWS `Option` fields
 //! (`#[serde(default)]` everywhere), so an old file loads under a newer
 //! binary (missing fields stay `None`) and an older binary ignores
@@ -36,6 +45,16 @@ use transform_gizmo_bevy::GizmoOrientation;
 /// one write. Long enough to absorb a window-arranging session, short
 /// enough that a quit right after a toggle still usually persists it.
 const SAVE_DEBOUNCE_SECS: f64 = 1.0;
+
+/// Hard ceiling from the FIRST pending change to the save (#879). A
+/// trailing debounce alone can be starved forever by a system that
+/// mutably derefs a watched resource every frame (egui's
+/// `.open(&mut …)` / `toggle_value(&mut …)` patterns did exactly that,
+/// so prefs only ever hit disk at logout, and closing the tab/app lost
+/// the whole session's changes). The known writers are guarded at the
+/// source now; this cap is the backstop that turns any future
+/// regression into "saves every few seconds" instead of "never saves".
+const SAVE_MAX_LATENCY_SECS: f64 = 5.0;
 
 /// `localStorage` key on wasm. Namespaced like the OAuth session blob's
 /// key so the origin's storage stays legible in devtools.
@@ -248,20 +267,42 @@ pub fn load_prefs_at_startup(mut commands: Commands) {
     }
 }
 
-/// Trailing-debounce state for [`save_prefs_when_changed`]: the session
-/// second at which the pending save falls due.
-#[derive(Default)]
-pub struct SaveDebounce(Option<f64>);
+/// A pending save: the trailing-debounce deadline and the hard cap set
+/// by the first change of the burst.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct PendingSave {
+    /// Fires when quiet until here (re-armed by each change)…
+    due: f64,
+    /// …but never later than here (fixed at the burst's first change).
+    cap: f64,
+}
 
-/// Step the debounce: a change (re)arms the deadline; an armed deadline
-/// that has come due fires exactly once. Pure so the state machine is
-/// unit-testable.
-fn debounce_step(pending: Option<f64>, changed: bool, now: f64) -> (Option<f64>, bool) {
-    if changed {
-        return (Some(now + SAVE_DEBOUNCE_SECS), false);
-    }
+/// Trailing-debounce state for [`save_prefs_when_changed`].
+#[derive(Default)]
+pub struct SaveDebounce(Option<PendingSave>);
+
+/// Step the debounce: a change (re)arms the trailing deadline — clamped
+/// to the max-latency cap the burst's FIRST change fixed — and a
+/// deadline that has come due fires exactly once. Pure so the state
+/// machine is unit-testable.
+fn debounce_step(
+    pending: Option<PendingSave>,
+    changed: bool,
+    now: f64,
+) -> (Option<PendingSave>, bool) {
+    let pending = if changed {
+        let cap = pending
+            .map(|p| p.cap)
+            .unwrap_or(now + SAVE_MAX_LATENCY_SECS);
+        Some(PendingSave {
+            due: (now + SAVE_DEBOUNCE_SECS).min(cap),
+            cap,
+        })
+    } else {
+        pending
+    };
     match pending {
-        Some(deadline) if now >= deadline => (None, true),
+        Some(p) if now >= p.due => (None, true),
         other => (other, false),
     }
 }
@@ -380,17 +421,17 @@ mod tests {
 
     #[test]
     fn debounce_arms_extends_and_fires_once() {
-        // A change arms the deadline.
+        // A change arms the deadline (and fixes the burst's cap).
         let (pending, fire) = debounce_step(None, true, 10.0);
-        assert_eq!(pending, Some(10.0 + SAVE_DEBOUNCE_SECS));
+        assert_eq!(pending.map(|p| p.due), Some(10.0 + SAVE_DEBOUNCE_SECS));
         assert!(!fire);
         // A further change pushes the deadline out (trailing debounce).
         let (pending, fire) = debounce_step(pending, true, 10.5);
-        assert_eq!(pending, Some(10.5 + SAVE_DEBOUNCE_SECS));
+        assert_eq!(pending.map(|p| p.due), Some(10.5 + SAVE_DEBOUNCE_SECS));
         assert!(!fire);
         // Quiet but not yet due → keep waiting.
         let (pending, fire) = debounce_step(pending, false, 11.0);
-        assert_eq!(pending, Some(10.5 + SAVE_DEBOUNCE_SECS));
+        assert_eq!(pending.map(|p| p.due), Some(10.5 + SAVE_DEBOUNCE_SECS));
         assert!(!fire);
         // Due → fire exactly once and disarm.
         let (pending, fire) = debounce_step(pending, false, 12.0);
@@ -399,6 +440,35 @@ mod tests {
         // Idle afterwards → nothing.
         let (pending, fire) = debounce_step(pending, false, 13.0);
         assert_eq!(pending, None);
+        assert!(!fire);
+    }
+
+    #[test]
+    fn continuous_changes_cannot_starve_the_save() {
+        // #879 regression shape: a "changed" signal every frame. The old
+        // trailing debounce re-armed forever and never fired — prefs
+        // reached disk only at logout. The max-latency cap must force a
+        // save within SAVE_MAX_LATENCY_SECS of the burst's first change.
+        let mut pending = None;
+        let mut fired_at = None;
+        let dt = 1.0 / 60.0;
+        for frame in 0..(20.0 / dt) as u64 {
+            let now = 10.0 + frame as f64 * dt;
+            let (next, fire) = debounce_step(pending, true, now);
+            pending = next;
+            if fire {
+                fired_at = Some(now);
+                break;
+            }
+        }
+        let fired_at = fired_at.expect("cap must force a save under continuous changes");
+        assert!(
+            fired_at <= 10.0 + SAVE_MAX_LATENCY_SECS + 0.1,
+            "save fired at {fired_at}, later than the cap"
+        );
+        // And the cycle restarts cleanly: the next change re-arms.
+        let (pending, fire) = debounce_step(pending, true, fired_at + 1.0);
+        assert!(pending.is_some());
         assert!(!fire);
     }
 

@@ -86,8 +86,12 @@ pub fn people_ui(
 
     let ctx = contexts.ctx_mut().unwrap();
     let (pos, size) = chrome.place(crate::ui::layout::UiWindow::People, ctx);
+    // Guarded-dirty (#879): `.open(&mut panels.people)` through the
+    // `ResMut` would mark UiPanels changed every frame, starving the
+    // prefs save debounce — local copy in, write back only on close.
+    let mut open = panels.people;
     let response = egui::Window::new("People")
-        .open(&mut panels.people)
+        .open(&mut open)
         .default_pos(pos)
         .default_size(size)
         .constrain_to(ctx.available_rect())
@@ -302,6 +306,9 @@ pub fn people_ui(
         });
     if let Some(response) = response {
         chrome.remember(crate::ui::layout::UiWindow::People, response.response.rect);
+    }
+    if panels.people && !open {
+        panels.people = false;
     }
 }
 

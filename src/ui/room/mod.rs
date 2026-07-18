@@ -513,8 +513,12 @@ pub fn room_admin_ui(
         }
 
         let (pos, size) = chrome.place(crate::ui::layout::UiWindow::WorldEditor, ctx);
+        // Guarded-dirty (#879): `.open(&mut panels.world_editor)` through
+        // the `ResMut` would mark UiPanels changed every frame, starving
+        // the prefs save debounce — local copy in, write back on close.
+        let mut open = panels.world_editor;
         let world_editor_response = egui::Window::new("World Editor")
-            .open(&mut panels.world_editor)
+            .open(&mut open)
             .collapsible(true)
             .resizable(true)
             .default_size(size)
@@ -900,6 +904,9 @@ pub fn room_admin_ui(
                 crate::ui::layout::UiWindow::WorldEditor,
                 response.response.rect,
             );
+        }
+        if panels.world_editor && !open {
+            panels.world_editor = false;
         }
 
         // `Window::show` returns `Some(InnerResponse { inner: None, .. })`

@@ -205,8 +205,12 @@ pub fn inventory_ui(
     }
 
     let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Inventory, ctx);
+    // Guarded-dirty (#879): `.open(&mut panels.inventory)` through the
+    // `ResMut` would mark UiPanels changed every frame, starving the
+    // prefs save debounce — local copy in, write back only on close.
+    let mut open = panels.inventory;
     let response = egui::Window::new("Inventory")
-        .open(&mut panels.inventory)
+        .open(&mut open)
         .default_pos(pos)
         .default_size(size)
         .constrain_to(ctx.available_rect())
@@ -482,6 +486,9 @@ pub fn inventory_ui(
             crate::ui::layout::UiWindow::Inventory,
             response.response.rect,
         );
+    }
+    if panels.inventory && !open {
+        panels.inventory = false;
     }
 }
 
