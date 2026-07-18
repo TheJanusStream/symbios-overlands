@@ -123,7 +123,11 @@ impl Default for GizmoFramePref {
     fn default() -> Self {
         use crate::config::ui::gizmo_snap as cfg;
         Self {
-            orientation: GizmoOrientation::default(),
+            // Local by default (#871): part editing in rotated hierarchies
+            // is the common case, and the frame-following selection box
+            // makes the mode visible. Overridden by the persisted prefs
+            // on machines that chose World.
+            orientation: GizmoOrientation::Local,
             snap: false,
             snap_distance: cfg::DISTANCE_M,
             snap_angle_deg: cfg::ANGLE_DEG,
@@ -143,11 +147,16 @@ impl Default for GizmoFramePref {
 /// world-frame scale is lossy for a rotated element), so the toggle is
 /// shown disabled-at-Local with an explanatory hover rather than letting
 /// it appear to do nothing.
+/// Returns `true` when a click/edit actually changed the preference —
+/// callers route the pref through `bypass_change_detection` (the borrow
+/// is open every frame the tab bar draws) and `set_changed()` only on a
+/// real edit, so the #871 prefs persistence isn't re-armed each frame.
+#[must_use]
 pub fn draw_gizmo_frame_toggle(
     ui: &mut egui::Ui,
     pref: &mut GizmoFramePref,
     element_editing: bool,
-) {
+) -> bool {
     ui.label("Gizmo:");
     if element_editing {
         ui.add_enabled_ui(false, |ui| {
@@ -160,50 +169,62 @@ pub fn draw_gizmo_frame_toggle(
              world-axis scaling of a rotated element is imprecise. The \
              World/Local toggle applies to the whole-object gizmo.",
         );
-        draw_snap_controls(ui, pref);
-        return;
+        return draw_snap_controls(ui, pref);
     }
+    let mut changed = false;
     let is_global = pref.orientation == GizmoOrientation::Global;
     if ui.selectable_label(is_global, "World").clicked() {
         pref.orientation = GizmoOrientation::Global;
+        changed = true;
     }
     if ui.selectable_label(!is_global, "Local").clicked() {
         pref.orientation = GizmoOrientation::Local;
+        changed = true;
     }
-    draw_snap_controls(ui, pref);
+    draw_snap_controls(ui, pref) || changed
 }
 
 /// Snap toggle + increment fields (#827), rendered beside the
 /// World/Local toggle in both editors. The increments only appear while
 /// snapping is on, keeping the idle tab bar lean.
-fn draw_snap_controls(ui: &mut egui::Ui, pref: &mut GizmoFramePref) {
+fn draw_snap_controls(ui: &mut egui::Ui, pref: &mut GizmoFramePref) -> bool {
+    let mut changed = false;
     ui.separator();
-    ui.checkbox(&mut pref.snap, "Snap")
-        .on_hover_text("Snap gizmo drags to fixed increments");
+    changed |= ui
+        .checkbox(&mut pref.snap, "Snap")
+        .on_hover_text("Snap gizmo drags to fixed increments")
+        .changed();
     if !pref.snap {
-        return;
+        return changed;
     }
-    ui.add(
-        egui::DragValue::new(&mut pref.snap_distance)
-            .speed(0.1)
-            .range(0.01..=100.0)
-            .suffix(" m"),
-    )
-    .on_hover_text("Translation increment");
-    ui.add(
-        egui::DragValue::new(&mut pref.snap_angle_deg)
-            .speed(1.0)
-            .range(1.0..=90.0)
-            .suffix("°"),
-    )
-    .on_hover_text("Rotation increment");
-    ui.add(
-        egui::DragValue::new(&mut pref.snap_scale)
-            .speed(0.05)
-            .range(0.01..=2.0)
-            .suffix("×"),
-    )
-    .on_hover_text("Scale increment");
+    changed |= ui
+        .add(
+            egui::DragValue::new(&mut pref.snap_distance)
+                .speed(0.1)
+                .range(0.01..=100.0)
+                .suffix(" m"),
+        )
+        .on_hover_text("Translation increment")
+        .changed();
+    changed |= ui
+        .add(
+            egui::DragValue::new(&mut pref.snap_angle_deg)
+                .speed(1.0)
+                .range(1.0..=90.0)
+                .suffix("°"),
+        )
+        .on_hover_text("Rotation increment")
+        .changed();
+    changed |= ui
+        .add(
+            egui::DragValue::new(&mut pref.snap_scale)
+                .speed(0.05)
+                .range(0.01..=2.0)
+                .suffix("×"),
+        )
+        .on_hover_text("Scale increment")
+        .changed();
+    changed
 }
 
 /// Marker attached to a prim while it is serving as the gizmo target.

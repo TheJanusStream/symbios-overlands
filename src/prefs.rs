@@ -25,9 +25,11 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::editor_gizmo::GizmoFramePref;
 use crate::state::LocalSettings;
 use crate::ui::layout::WindowLayout;
 use crate::ui::toolbar::UiPanels;
+use transform_gizmo_bevy::GizmoOrientation;
 
 /// Trailing debounce for [`save_prefs_when_changed`]: a save fires this
 /// many seconds after the LAST change, collapsing toggle bursts into
@@ -64,6 +66,50 @@ pub struct PersistedPrefs {
     /// reconnecting peer can no longer reset.
     #[serde(default)]
     pub muted_dids: Option<crate::state::MutedDids>,
+    /// Gizmo frame + snap preferences (#871). A serde mirror rather than
+    /// the resource itself: the upstream `GizmoOrientation` doesn't
+    /// implement serde, and mirroring keeps the on-disk schema
+    /// independent of upstream enum shape.
+    #[serde(default)]
+    pub gizmo: Option<GizmoPrefs>,
+}
+
+/// Serde mirror of [`GizmoFramePref`] (#871).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct GizmoPrefs {
+    pub local_frame: bool,
+    pub snap: bool,
+    pub snap_distance: f32,
+    pub snap_angle_deg: f32,
+    pub snap_scale: f32,
+}
+
+impl From<&GizmoFramePref> for GizmoPrefs {
+    fn from(pref: &GizmoFramePref) -> Self {
+        Self {
+            local_frame: pref.orientation == GizmoOrientation::Local,
+            snap: pref.snap,
+            snap_distance: pref.snap_distance,
+            snap_angle_deg: pref.snap_angle_deg,
+            snap_scale: pref.snap_scale,
+        }
+    }
+}
+
+impl From<&GizmoPrefs> for GizmoFramePref {
+    fn from(prefs: &GizmoPrefs) -> Self {
+        Self {
+            orientation: if prefs.local_frame {
+                GizmoOrientation::Local
+            } else {
+                GizmoOrientation::Global
+            },
+            snap: prefs.snap,
+            snap_distance: prefs.snap_distance,
+            snap_angle_deg: prefs.snap_angle_deg,
+            snap_scale: prefs.snap_scale,
+        }
+    }
 }
 
 impl PersistedPrefs {
@@ -73,12 +119,14 @@ impl PersistedPrefs {
         settings: &LocalSettings,
         windows: &WindowLayout,
         muted_dids: &crate::state::MutedDids,
+        gizmo: &GizmoFramePref,
     ) -> Self {
         Self {
             panels: Some(panels.clone()),
             settings: Some(settings.clone()),
             windows: Some(windows.clone()),
             muted_dids: Some(muted_dids.clone()),
+            gizmo: Some(gizmo.into()),
         }
     }
 }
@@ -195,6 +243,9 @@ pub fn load_prefs_at_startup(mut commands: Commands) {
     if let Some(muted_dids) = prefs.muted_dids {
         commands.insert_resource(muted_dids);
     }
+    if let Some(gizmo) = prefs.gizmo {
+        commands.insert_resource(GizmoFramePref::from(&gizmo));
+    }
 }
 
 /// Trailing-debounce state for [`save_prefs_when_changed`]: the session
@@ -224,13 +275,17 @@ pub fn save_prefs_when_changed(
     settings: Res<LocalSettings>,
     windows: Res<WindowLayout>,
     muted_dids: Res<crate::state::MutedDids>,
+    gizmo: Res<GizmoFramePref>,
     time: Res<Time>,
     mut debounce: Local<SaveDebounce>,
 ) {
     let changed = panels.is_changed()
         || settings.is_changed()
         || windows.is_changed()
-        || muted_dids.is_changed();
+        || muted_dids.is_changed()
+        // Guarded-dirty at the source (#871): the editors borrow the
+        // pref bypassed and tick it only on a real toggle/edit.
+        || gizmo.is_changed();
     let (pending, fire) = debounce_step(debounce.0, changed, time.elapsed_secs_f64());
     debounce.0 = pending;
     if fire {
@@ -239,6 +294,7 @@ pub fn save_prefs_when_changed(
             &settings,
             &windows,
             &muted_dids,
+            &gizmo,
         ));
     }
 }
@@ -266,15 +322,31 @@ mod tests {
         assert!(muted.set("did:plc:harasser", true));
         // Re-muting an already-muted DID reports "no change".
         assert!(!muted.set("did:plc:harasser", true));
+        let gizmo = GizmoPrefs {
+            local_frame: false,
+            snap: true,
+            snap_distance: 0.5,
+            snap_angle_deg: 15.0,
+            snap_scale: 0.25,
+        };
         let prefs = PersistedPrefs {
             panels: Some(panels.clone()),
             settings: Some(settings.clone()),
             windows: Some(windows),
             muted_dids: Some(muted),
+            gizmo: Some(gizmo),
         };
         let json = serde_json::to_string(&prefs).unwrap();
         let back: PersistedPrefs = serde_json::from_str(&json).unwrap();
         assert_eq!(back, prefs);
+        // The mirror round-trips through the live resource shape too:
+        // a persisted World choice survives the Local default (#871).
+        let restored_pref = GizmoFramePref::from(back.gizmo.as_ref().unwrap());
+        assert_eq!(restored_pref.orientation, GizmoOrientation::Global);
+        assert_eq!(
+            GizmoPrefs::from(&restored_pref),
+            *back.gizmo.as_ref().unwrap()
+        );
         let restored = back.panels.unwrap();
         assert!(restored.chat);
         assert!(!restored.controls);
@@ -349,6 +421,7 @@ mod tests {
             settings: None,
             windows: None,
             muted_dids: None,
+            gizmo: None,
         };
         save_to_path(&path, &prefs).unwrap();
         let back = load_from_path(&path).unwrap();

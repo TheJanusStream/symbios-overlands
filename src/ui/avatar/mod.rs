@@ -329,11 +329,16 @@ pub fn avatar_ui(
                         }
                     }
                     ui.separator();
-                    crate::editor_gizmo::draw_gizmo_frame_toggle(
+                    // Bypassed borrow + explicit tick (#871): the pref is
+                    // persisted on change, and a raw ResMut deref here would
+                    // re-arm the save debounce every frame the tab bar draws.
+                    if crate::editor_gizmo::draw_gizmo_frame_toggle(
                         ui,
-                        &mut gizmo_frame_pref,
+                        gizmo_frame_pref.bypass_change_detection(),
                         blob_ctx.selected_element.is_some(),
-                    );
+                    ) {
+                        gizmo_frame_pref.set_changed();
+                    }
                     ui.separator();
                     crate::ui::undo::undo_redo_buttons(
                         ui,

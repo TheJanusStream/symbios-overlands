@@ -23,8 +23,11 @@
 //! Bounds come from each mesh entity's render [`Aabb`] transformed to
 //! world space and merged over the subtree (ECS descendants — which
 //! keeps working mid-drag, when the hosted prim is detached from its
-//! parent but keeps its own children). Axis-aligned by design: an
-//! indicator, not a fitted hull.
+//! parent but keeps its own children). The box follows the gizmo's
+//! frame preference (#871): in World mode it is world-axis-aligned; in
+//! Local mode it is oriented to the boxed instance's accumulated
+//! rotation — the same frame the gizmo's handles use — so the toggle is
+//! legible at a glance. An indicator, not a fitted hull, either way.
 
 use bevy::camera::primitives::Aabb;
 use bevy::ecs::hierarchy::Children;
@@ -37,7 +40,7 @@ use crate::ui::room::{EditorTab, RoomEditorState};
 use crate::world_builder::{AvatarVisualPrim, PlacementMarker, PrimMarker};
 
 use super::blob::BlobEditContext;
-use super::{ActiveTarget, GizmoDetachedPrim, determine_active_target};
+use super::{ActiveTarget, GizmoDetachedPrim, GizmoFramePref, determine_active_target};
 
 /// Draw the selection wire boxes. Runs after [`super::sync`] in
 /// `PostUpdate` (transforms propagated, this frame's gizmo host known).
@@ -58,6 +61,8 @@ pub(super) fn draw_selection_highlight(
     placement_query: Query<(Entity, &PlacementMarker)>,
     children: Query<&Children>,
     bounds_query: Query<(&Aabb, &GlobalTransform)>,
+    frame_pref: Res<GizmoFramePref>,
+    transforms: Query<&GlobalTransform>,
 ) {
     // Element sculpting owns the in-scene picture (#705): wireframe +
     // proxies. A whole-node box on top would only add noise.
@@ -85,6 +90,17 @@ pub(super) fn draw_selection_highlight(
         cfg::SIBLING_COLOR[3],
     );
 
+    // Local mode boxes each instance in ITS OWN accumulated rotation
+    // (#871) — for a scattered blueprint every dim sibling shows its own
+    // orientation, matching what a local-frame drag of that instance
+    // would do. World mode keeps the axis-aligned merge.
+    let local = frame_pref.orientation == transform_gizmo_bevy::GizmoOrientation::Local;
+    let frame_of = |entity: Entity| -> Option<Quat> {
+        local
+            .then(|| transforms.get(entity).ok().map(|gt| gt.rotation()))
+            .flatten()
+    };
+
     match active {
         ActiveTarget::Room => match room_state.selected_tab {
             EditorTab::Generators => {
@@ -106,7 +122,14 @@ pub(super) fn draw_selection_highlight(
                     } else {
                         sibling
                     };
-                    draw_subtree_box(&mut gizmos, entity, color, &children, &bounds_query);
+                    draw_subtree_box(
+                        &mut gizmos,
+                        entity,
+                        color,
+                        frame_of(entity),
+                        &children,
+                        &bounds_query,
+                    );
                 }
             }
             EditorTab::Placements => {
@@ -115,7 +138,14 @@ pub(super) fn draw_selection_highlight(
                 };
                 for (entity, marker) in placement_query.iter() {
                     if marker.0 == index {
-                        draw_subtree_box(&mut gizmos, entity, selected, &children, &bounds_query);
+                        draw_subtree_box(
+                            &mut gizmos,
+                            entity,
+                            selected,
+                            frame_of(entity),
+                            &children,
+                            &bounds_query,
+                        );
                     }
                 }
             }
@@ -128,7 +158,14 @@ pub(super) fn draw_selection_highlight(
             // Local-only and singular (see `sync`) — at most one match.
             for (entity, marker) in avatar_prim_query.iter() {
                 if marker.path == *path {
-                    draw_subtree_box(&mut gizmos, entity, selected, &children, &bounds_query);
+                    draw_subtree_box(
+                        &mut gizmos,
+                        entity,
+                        selected,
+                        frame_of(entity),
+                        &children,
+                        &bounds_query,
+                    );
                 }
             }
         }
@@ -140,19 +177,32 @@ pub(super) fn draw_selection_highlight(
 /// one wire box. Entities without a render [`Aabb`] (bare containers,
 /// anchors) contribute nothing; a subtree with no meshes at all draws
 /// nothing rather than a zero box at the origin.
+///
+/// `frame: Some(rotation)` (#871, gizmo in Local mode) folds the corners
+/// in that rotated basis and draws the box oriented to it — a tight OBB
+/// for the instance instead of the world-axis-aligned merge. For a
+/// non-uniformly scaled *rotated* parent chain the extracted rotation is
+/// an approximation (shear is not representable) — the same
+/// approximation the gizmo handles themselves live with.
 fn draw_subtree_box(
     gizmos: &mut Gizmos,
     root: Entity,
     color: Color,
+    frame: Option<Quat>,
     children: &Query<&Children>,
     bounds_query: &Query<(&Aabb, &GlobalTransform)>,
 ) {
+    let inv = frame.map(|q| q.inverse());
     let mut merged: Option<(Vec3, Vec3)> = None;
     let mut stack = vec![root];
     while let Some(entity) = stack.pop() {
         if let Ok((aabb, gt)) = bounds_query.get(entity) {
             for corner in aabb_world_corners(aabb, gt) {
-                merged = Some(merge_bounds(merged, corner));
+                let p = match inv {
+                    Some(inv) => inv * corner,
+                    None => corner,
+                };
+                merged = Some(merge_bounds(merged, p));
             }
         }
         if let Ok(kids) = children.get(entity) {
@@ -164,9 +214,20 @@ fn draw_subtree_box(
     };
     let center = (min + max) * 0.5;
     let size = (max - min).max(Vec3::splat(cfg::MIN_BOX_EXTENT));
+    let (translation, rotation) = match frame {
+        Some(q) => (q * center, q),
+        None => (center, Quat::IDENTITY),
+    };
     // `cube` draws a unit wire cube through the Transform, so the scale
     // carries the box size — same idiom as the copy-drag ghost.
-    gizmos.cube(Transform::from_translation(center).with_scale(size), color);
+    gizmos.cube(
+        Transform {
+            translation,
+            rotation,
+            scale: size,
+        },
+        color,
+    );
 }
 
 /// The eight corners of a local-space render [`Aabb`] in world space.
@@ -250,6 +311,30 @@ mod tests {
             .unwrap();
         assert!((max - Vec3::new(1.0, 2.0, 3.0)).length() < 1e-5);
         assert!((min + Vec3::new(1.0, 2.0, 3.0)).length() < 1e-5);
+    }
+
+    #[test]
+    fn folding_in_the_matching_frame_gives_a_tight_box() {
+        // A yawed unit box folded in ITS OWN frame (#871, gizmo Local)
+        // stays 1×1×1 — the world-axis fold of the same corners widens
+        // to √2 on X/Z (asserted by the rotation test above). This is
+        // the visible difference between the two toggle modes.
+        let aabb = Aabb {
+            center: Vec3::ZERO.into(),
+            half_extents: Vec3::splat(0.5).into(),
+        };
+        let yaw = Quat::from_rotation_y(std::f32::consts::FRAC_PI_4);
+        let gt = GlobalTransform::from(Transform::from_rotation(yaw));
+        let inv = yaw.inverse();
+        let (min, max) = aabb_world_corners(&aabb, &gt)
+            .iter()
+            .fold(None, |acc, &p| Some(merge_bounds(acc, inv * p)))
+            .unwrap();
+        let size = max - min;
+        assert!(
+            (size - Vec3::ONE).length() < 1e-5,
+            "local-frame fold should be tight, got {size:?}"
+        );
     }
 
     #[test]
