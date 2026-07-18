@@ -22,6 +22,30 @@ pub struct HumanoidParams {
     pub swim_speed: Fp,
     pub swim_vertical_speed: Fp,
     pub wading_speed_factor: Fp,
+    /// Horizontal-velocity decay rate (1/s) once every movement key is
+    /// released — higher stops harder ("stops on a dime" at the
+    /// default). Promoted from a hard-coded constant by #876; field-level
+    /// serde default so records published before it deserialize to the
+    /// historical feel.
+    #[serde(default = "default_stop_damping")]
+    pub stop_damping: Fp,
+    /// Facing slerp rate (1/s) toward the movement direction — how
+    /// quickly the whole avatar turns to face where it walks or swims.
+    #[serde(default = "default_turn_rate")]
+    pub turn_rate: Fp,
+}
+
+/// Serde fallback for records published before #876 — the constant the
+/// walk controller hard-coded. Shared with `Default` so an old record and
+/// a fresh preset agree.
+fn default_stop_damping() -> Fp {
+    Fp(20.0)
+}
+
+/// Serde fallback for records published before #876 (see
+/// [`default_stop_damping`]).
+fn default_turn_rate() -> Fp {
+    Fp(12.0)
 }
 
 impl Default for HumanoidParams {
@@ -37,6 +61,8 @@ impl Default for HumanoidParams {
             swim_speed: Fp(2.5),
             swim_vertical_speed: Fp(1.8),
             wading_speed_factor: Fp(0.5),
+            stop_damping: default_stop_damping(),
+            turn_rate: default_turn_rate(),
         }
     }
 }
@@ -65,6 +91,8 @@ impl LocomotionPreset for HumanoidParams {
         self.swim_speed = clamp_pos(self.swim_speed, 0.0, 50.0);
         self.swim_vertical_speed = clamp_pos(self.swim_vertical_speed, 0.0, 50.0);
         self.wading_speed_factor = clamp_unit(self.wading_speed_factor);
+        self.stop_damping = clamp_pos(self.stop_damping, 0.0, 100.0);
+        self.turn_rate = clamp_pos(self.turn_rate, 0.0, 50.0);
     }
 
     fn into_config(self) -> LocomotionConfig {

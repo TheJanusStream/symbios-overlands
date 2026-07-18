@@ -232,3 +232,74 @@ fn avatar_sanitize_clamps_non_finite_chassis_dimensions() {
         params.mass.0
     );
 }
+
+// ---------------------------------------------------------------------------
+// Wire back-compat (#874/#876)
+// ---------------------------------------------------------------------------
+
+/// A record published before #874 (no `gait` section) and before #876 (no
+/// promoted feel fields on its locomotion preset) must still deserialize —
+/// field-level serde defaults fill in the historical constants, and the
+/// missing gait section stays `None` (the DID-seeded fallback).
+#[test]
+fn pre_gait_pre_feel_records_still_deserialize() {
+    let presets: [LocomotionConfig; 5] = [
+        LocomotionConfig::HoverBoat(Box::default()),
+        LocomotionConfig::Humanoid(Box::default()),
+        LocomotionConfig::Airplane(Box::default()),
+        LocomotionConfig::Helicopter(Box::default()),
+        LocomotionConfig::Car(Box::default()),
+    ];
+    // Every field #874/#876 added, across all presets. Stripping keys a
+    // preset doesn't carry is a no-op.
+    let added_fields = [
+        "stop_damping",
+        "turn_rate",
+        "upright_engage_tilt_degrees",
+        "upright_assist_accel",
+        "upright_assist_damping",
+        "center_of_mass_drop",
+        "stabilize_torque",
+        "cruise_throttle",
+    ];
+    for preset in presets {
+        let mut avatar = AvatarRecord::default_for_did("did:plc:alice");
+        let tag = preset.kind_tag();
+        avatar.locomotion = preset;
+
+        let mut value = serde_json::to_value(&avatar).unwrap();
+        let obj = value.as_object_mut().unwrap();
+        obj.remove("gait").expect("default record carries gait");
+        let loco = obj["locomotion"].as_object_mut().unwrap();
+        for field in added_fields {
+            loco.remove(field);
+        }
+
+        let old: AvatarRecord = serde_json::from_value(value)
+            .unwrap_or_else(|e| panic!("{tag}: pre-#874/#876 record must decode: {e}"));
+        assert!(old.gait.is_none(), "{tag}: absent gait stays None");
+        // The defaults reproduce the exact record the new schema builds,
+        // so old and new clients agree on the feel. Compared on the wire
+        // (same as `assert_round_trips`): continuous fields quantise
+        // through `Fp`, so struct equality would fail on precision-only
+        // diffs invisible to every peer.
+        assert_eq!(
+            serde_json::to_value(&old.locomotion).unwrap(),
+            serde_json::to_value(&avatar.locomotion).unwrap(),
+            "{tag}"
+        );
+    }
+}
+
+/// The re-roll path derives the gait from the same master seed as the
+/// visuals, so two peers reading the published record and a client
+/// re-deriving from the seed agree.
+#[test]
+fn reroll_gait_follows_the_seed() {
+    let a = AvatarRecord::default_for_seed(42);
+    let b = AvatarRecord::default_for_seed(42);
+    assert_eq!(a.gait, b.gait);
+    assert!(a.gait.is_some());
+    let c = AvatarRecord::default_for_seed(43);
+    assert_ne!(a.gait, c.gait, "different seed, different idle motion");
+}

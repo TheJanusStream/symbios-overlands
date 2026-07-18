@@ -37,6 +37,10 @@ impl LocomotionPanel for HumanoidParams {
                 fp_slider(ui, &mut self.acceleration, 2.0..=30.0, 0.5, dirty);
                 ui.label("Jump impulse (N·s)");
                 fp_slider(ui, &mut self.jump_impulse, 100.0..=1500.0, 10.0, dirty);
+                ui.label("Stop snappiness (1/s)");
+                fp_slider(ui, &mut self.stop_damping, 1.0..=60.0, 0.5, dirty);
+                ui.label("Facing turn rate (1/s)");
+                fp_slider(ui, &mut self.turn_rate, 1.0..=30.0, 0.5, dirty);
             });
 
         egui::CollapsingHeader::new("Water")

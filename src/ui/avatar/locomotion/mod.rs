@@ -5,13 +5,14 @@
 
 mod airplane;
 mod car;
+mod gait;
 mod helicopter;
 mod hover_boat;
 mod humanoid;
 
 use bevy_egui::egui;
 
-use crate::pds::{Fp, LocomotionConfig};
+use crate::pds::{Fp, GaitParams, LocomotionConfig};
 
 /// Egui detail panel for one locomotion preset. Implemented on each
 /// `*Params` struct in this module's siblings — `draw_locomotion_tab`
@@ -32,6 +33,8 @@ pub trait LocomotionPanel {
 pub fn draw_locomotion_tab(
     ui: &mut egui::Ui,
     locomotion: &mut LocomotionConfig,
+    gait: &mut Option<GaitParams>,
+    fallback_seed: u64,
     dirty: &mut bool,
     undo_label: &mut crate::ui::undo::LabelSlot,
 ) {
@@ -67,6 +70,9 @@ pub fn draw_locomotion_tab(
             );
         }
     }
+
+    ui.separator();
+    gait::draw_gait_section(ui, locomotion, gait, fallback_seed, dirty, undo_label);
 }
 
 // ---------------------------------------------------------------------------

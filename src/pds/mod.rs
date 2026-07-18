@@ -138,8 +138,8 @@ pub mod xrpc;
 pub use asset_reference::SovereignAssetReference;
 pub use audio::SovereignAudioConfig;
 pub use avatar::{
-    AirplaneParams, AvatarRecord, CarParams, HelicopterParams, HoverBoatParams, HumanoidParams,
-    LocomotionConfig, fetch_avatar_record, publish_avatar_record,
+    AirplaneParams, AvatarRecord, CarParams, GaitParams, HelicopterParams, HoverBoatParams,
+    HumanoidParams, LocomotionConfig, fetch_avatar_record, publish_avatar_record,
 };
 pub use contact_effects::{
     AudioClipSource, AudioParams, ContactEffectKind, ContactEffectRecord, ContactEffects,

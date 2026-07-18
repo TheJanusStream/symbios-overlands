@@ -308,6 +308,16 @@ pub struct SeedRowState {
     synced_for: Option<u64>,
 }
 
+impl SeedRowState {
+    /// The seed the row currently shows, when it parses. `None` both for
+    /// an un-parseable edit in progress and before the first
+    /// [`seed_row`] draw synced the buffer — callers fall back to the
+    /// DID seed, matching what that first sync will show.
+    pub fn current_seed(&self) -> Option<u64> {
+        self.buf.trim().parse().ok()
+    }
+}
+
 /// Render the "Random seed" re-roll row shared by the World and Avatar
 /// editors.
 ///

@@ -29,6 +29,8 @@ impl LocomotionPanel for AirplaneParams {
             .show(ui, |ui| {
                 ui.label("Thrust (N)");
                 fp_slider(ui, &mut self.thrust, 0.0..=10_000.0, 50.0, dirty);
+                ui.label("Cruise throttle (hands-off fraction)");
+                fp_slider(ui, &mut self.cruise_throttle, 0.0..=1.0, 0.01, dirty);
                 ui.label("Pitch torque (N·m)");
                 fp_slider(ui, &mut self.pitch_torque, 0.0..=5_000.0, 25.0, dirty);
                 ui.label("Roll torque (N·m)");

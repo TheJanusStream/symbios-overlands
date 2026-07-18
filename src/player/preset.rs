@@ -136,8 +136,9 @@ impl PresetComponents for CarParams {
         // half-height, it leaves the level ride height untouched (the four
         // symmetric suspension corners still balance the weight with zero net
         // torque when level) but makes gravity resist roll and an inverted
-        // rest unstable.
-        let com_y = cfg::CAR_CENTER_OF_MASS_Y_FRAC * self.chassis_half_extents.0[1];
+        // rest unstable. The fraction is record tuning since #876; like the
+        // collider dimensions it applies on chassis (re)build, not live.
+        let com_y = -self.center_of_mass_drop.0 * self.chassis_half_extents.0[1];
         commands
             .entity(entity)
             .insert(CenterOfMass(Vec3::new(0.0, com_y, 0.0)));

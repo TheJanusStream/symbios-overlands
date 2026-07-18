@@ -2,7 +2,7 @@
 //! `lift_per_speed × forward airspeed`, drag along the velocity vector,
 //! pitch / roll / yaw from input.
 
-use super::{LocomotionConfig, LocomotionPreset, clamp_half_extents, clamp_pos};
+use super::{LocomotionConfig, LocomotionPreset, clamp_half_extents, clamp_pos, clamp_unit};
 use crate::pds::types::{Fp, Fp3};
 use serde::{Deserialize, Serialize};
 
@@ -35,6 +35,19 @@ pub struct AirplaneParams {
     /// Minimum forward airspeed (m/s) below which lift drops to zero —
     /// approximates a stall without simulating AOA.
     pub min_airspeed: Fp,
+    /// Hands-off throttle fraction of `thrust` — the airplane flies by
+    /// default; Space/Shift add/subtract the same fraction (so 1.0 =
+    /// full, 0.0 = idle). Promoted from a hard-coded constant by #876;
+    /// field-level serde default keeps pre-#876 records at the
+    /// historical feel.
+    #[serde(default = "default_cruise_throttle")]
+    pub cruise_throttle: Fp,
+}
+
+/// Serde fallback for records published before #876 — the constant the
+/// throttle table hard-coded. Shared with `Default`.
+fn default_cruise_throttle() -> Fp {
+    Fp(0.5)
 }
 
 impl Default for AirplaneParams {
@@ -51,6 +64,7 @@ impl Default for AirplaneParams {
             lift_per_speed: Fp(45.0),
             drag_coefficient: Fp(0.6),
             min_airspeed: Fp(6.0),
+            cruise_throttle: default_cruise_throttle(),
         }
     }
 }
@@ -71,6 +85,7 @@ impl LocomotionPreset for AirplaneParams {
         self.lift_per_speed = clamp_pos(self.lift_per_speed, 0.0, 1_000.0);
         self.drag_coefficient = clamp_pos(self.drag_coefficient, 0.0, 100.0);
         self.min_airspeed = clamp_pos(self.min_airspeed, 0.0, 100.0);
+        self.cruise_throttle = clamp_unit(self.cruise_throttle);
     }
 
     fn into_config(self) -> LocomotionConfig {

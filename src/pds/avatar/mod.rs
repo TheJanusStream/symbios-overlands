@@ -29,9 +29,11 @@
 //! old records require a manual republish.
 
 pub mod default_visuals;
+pub mod gait;
 pub mod locomotion;
 pub mod parts;
 
+pub use gait::GaitParams;
 pub use locomotion::{
     AirplaneParams, CarParams, HelicopterParams, HoverBoatParams, HumanoidParams, LocomotionConfig,
     LocomotionPickerEntry, LocomotionPreset,
@@ -62,6 +64,15 @@ pub struct AvatarRecord {
     /// Physics preset selecting the player's chassis collider + control
     /// scheme + tuning. Local-only — remote peers ignore this.
     pub locomotion: LocomotionConfig,
+    /// Idle-motion tuning (bounce / sway / head-turn amplitudes). Optional
+    /// on the wire: records published before the field existed (or by
+    /// clients that never touched the sliders) omit it, and every peer
+    /// falls back to the DID-seeded [`GaitParams::for_seed`] derivation —
+    /// identical to the pre-#874 behavior. Field-level `default` (not a
+    /// container default) so a present-but-partial record still fails
+    /// loudly instead of half-deserializing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gait: Option<GaitParams>,
 }
 
 impl AvatarRecord {
@@ -94,6 +105,10 @@ impl AvatarRecord {
             lex_type: AVATAR_COLLECTION.into(),
             visuals,
             locomotion,
+            // Explicit rather than None so a re-roll re-rolls the idle
+            // motion with the same seed as the visuals — peers rendering
+            // the published record see the identical gait.
+            gait: Some(GaitParams::for_seed(seed)),
         }
     }
 
@@ -103,6 +118,9 @@ impl AvatarRecord {
     pub fn sanitize(&mut self) {
         sanitize_avatar_visuals(&mut self.visuals);
         self.locomotion.sanitize();
+        if let Some(gait) = &mut self.gait {
+            gait.sanitize();
+        }
     }
 }
 

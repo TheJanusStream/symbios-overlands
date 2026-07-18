@@ -27,17 +27,13 @@ use crate::state::{LiveAvatarRecord, LocalPlayer, TravelingTo};
 use super::{HelicopterPreset, VisualsEditFreeze};
 
 /// Strength (N·m) of the auto-stabilising torque that pulls the
-/// helicopter's chassis-up axis toward world-up. High enough that the
-/// player never inverts but low enough that visual tilt from cyclic
-/// input still reads as motion. Hard-coded because it is a behavioural
-/// constant of the preset rather than an authoring knob.
-const AUTO_STABILIZE_TORQUE: f32 = 800.0;
-
 /// Shortest-path corrective torque that pulls `chassis_up` toward
 /// world-up. Zero when already upright; strongest at 90° of tilt. Pure
-/// so the stabilisation contract is unit-testable.
-fn stabilize_torque(chassis_up: Vec3) -> Vec3 {
-    chassis_up.cross(Vec3::Y) * AUTO_STABILIZE_TORQUE
+/// so the stabilisation contract is unit-testable. `strength` is the
+/// record's `stabilize_torque` (#876) — the default keeps the historical
+/// never-inverts feel while still letting cyclic tilt read as motion.
+fn stabilize_torque(chassis_up: Vec3, strength: f32) -> Vec3 {
+    chassis_up.cross(Vec3::Y) * strength
 }
 
 /// Passive lift and self-righting for the helicopter chassis: hover
@@ -80,7 +76,10 @@ pub(super) fn apply_helicopter_stabilization(
     // the player never inverts. The cross product gives a torque
     // perpendicular to both, which is the rotation-axis of the
     // shortest-path correction.
-    forces.apply_torque(stabilize_torque(global_tf.up().as_vec3()));
+    forces.apply_torque(stabilize_torque(
+        global_tf.up().as_vec3(),
+        p.stabilize_torque.0,
+    ));
 }
 
 #[allow(clippy::type_complexity)]
@@ -154,16 +153,21 @@ pub(super) fn apply_helicopter_forces(
 mod tests {
     use super::*;
 
+    /// The default record strength — tests exercise the historical feel.
+    fn strength() -> f32 {
+        crate::pds::HelicopterParams::default().stabilize_torque.0
+    }
+
     #[test]
     fn upright_chassis_gets_no_stabilize_torque() {
-        assert_eq!(stabilize_torque(Vec3::Y), Vec3::ZERO);
+        assert_eq!(stabilize_torque(Vec3::Y, strength()), Vec3::ZERO);
     }
 
     #[test]
     fn tilted_chassis_gets_shortest_path_correction() {
         // Chassis-up pointing along +X: X × Y = +Z, and a +Z torque
         // rotates +X toward +Y (right-hand rule) — i.e. back upright.
-        let torque = stabilize_torque(Vec3::X);
+        let torque = stabilize_torque(Vec3::X, strength());
         assert!(torque.z > 0.0, "expected +Z corrective torque: {torque}");
         assert_eq!(torque.x, 0.0);
         assert_eq!(torque.y, 0.0);
@@ -175,8 +179,15 @@ mod tests {
         // so the torque vanishes — any perturbation off the pole
         // re-engages it. Document the dead point rather than pretend
         // it recovers instantly.
-        assert_eq!(stabilize_torque(-Vec3::Y), Vec3::ZERO);
-        let nudged = stabilize_torque(Vec3::new(0.01, -1.0, 0.0).normalize());
+        assert_eq!(stabilize_torque(-Vec3::Y, strength()), Vec3::ZERO);
+        let nudged = stabilize_torque(Vec3::new(0.01, -1.0, 0.0).normalize(), strength());
         assert!(nudged.length() > 0.0);
+    }
+
+    #[test]
+    fn stabilize_torque_scales_with_the_record_strength() {
+        let half = stabilize_torque(Vec3::X, strength() * 0.5);
+        let full = stabilize_torque(Vec3::X, strength());
+        assert!((full.length() - 2.0 * half.length()).abs() < 1e-3);
     }
 }

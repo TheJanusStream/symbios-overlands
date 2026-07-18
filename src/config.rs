@@ -95,25 +95,9 @@ pub mod rover {
     pub const UPRIGHTING_TORQUE: f32 = 800.0;
 
     // --- Car rollover stability + recovery (#804) ----------------------------
-    /// Fraction of the chassis half-height (Y) at which the car's centre of
-    /// mass is placed *below* the body origin. A low CoM is the dominant
-    /// anti-rollover lever — it does not shift the level ride height (the
-    /// four symmetric suspension corners still balance the weight and produce
-    /// zero net torque when level) but makes gravity strongly resist roll and
-    /// makes an inverted rest unstable. Negative = below the origin.
-    pub const CAR_CENTER_OF_MASS_Y_FRAC: f32 = -0.6;
-    /// Cosine of the tilt past which the uprighting assist engages: the car's
-    /// up axis dotted with world-up. `cos(60°) = 0.5`, so the assist is silent
-    /// through normal cornering lean and slope driving and only wakes when the
-    /// chassis is genuinely tipping onto its side or roof.
-    pub const CAR_UPRIGHT_ASSIST_COS: f32 = 0.5;
-    /// Mass-scaled angular acceleration of the righting torque (torque =
-    /// mass · this). Mass-scaling rights a heavy armored skiff as briskly as a
-    /// light buggy despite their different rotational inertia.
-    pub const CAR_UPRIGHT_ANGULAR_ACCEL: f32 = 2.5;
-    /// Mass-scaled angular damping applied while righting so the chassis
-    /// settles upright instead of oscillating past level.
-    pub const CAR_UPRIGHT_ANGULAR_DAMP: f32 = 0.8;
+    // The CoM fraction, engage tilt, righting acceleration, and righting
+    // damping moved onto `CarParams` as record tuning (#876) — their defaults
+    // there are the values that used to live here.
     /// Below this squared magnitude the `up × world-up` righting axis has
     /// degenerated (the chassis is dead-inverted — a saddle it could perch on),
     /// so the assist falls back to the roll axis to tip it off its roof.

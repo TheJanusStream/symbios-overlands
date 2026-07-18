@@ -28,6 +28,19 @@ pub struct HelicopterParams {
     pub strafe_force: Fp,
     /// Yaw input torque on A/D (N·m).
     pub yaw_torque: Fp,
+    /// Auto-stabilise torque (N·m per radian-ish of tilt) pulling the
+    /// chassis-up axis back toward world-up. High keeps the airship
+    /// stately; low lets cyclic tilt linger. Promoted from a hard-coded
+    /// constant by #876; field-level serde default keeps pre-#876
+    /// records at the historical feel.
+    #[serde(default = "default_stabilize_torque")]
+    pub stabilize_torque: Fp,
+}
+
+/// Serde fallback for records published before #876 — the constant the
+/// stabiliser hard-coded. Shared with `Default`.
+fn default_stabilize_torque() -> Fp {
+    Fp(800.0)
 }
 
 impl Default for HelicopterParams {
@@ -44,6 +57,7 @@ impl Default for HelicopterParams {
             cyclic_force: Fp(900.0),
             strafe_force: Fp(800.0),
             yaw_torque: Fp(400.0),
+            stabilize_torque: default_stabilize_torque(),
         }
     }
 }
@@ -62,6 +76,7 @@ impl LocomotionPreset for HelicopterParams {
         self.cyclic_force = clamp_pos(self.cyclic_force, 0.0, 50_000.0);
         self.strafe_force = clamp_pos(self.strafe_force, 0.0, 50_000.0);
         self.yaw_torque = clamp_pos(self.yaw_torque, 0.0, 50_000.0);
+        self.stabilize_torque = clamp_pos(self.stabilize_torque, 0.0, 50_000.0);
     }
 
     fn into_config(self) -> LocomotionConfig {

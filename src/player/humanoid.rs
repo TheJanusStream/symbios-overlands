@@ -214,8 +214,9 @@ pub(super) fn apply_humanoid_walk(
                 current_h.lerp(desired, alpha)
             } else {
                 // Snappy friction: collapse horizontal velocity to zero fast
-                // so the avatar stops on a dime instead of coasting.
-                let decay = (-20.0 * dt).exp();
+                // (stops on a dime at the default `stop_damping`) instead of
+                // coasting.
+                let decay = (-p.stop_damping.0 * dt).exp();
                 current_h * decay
             };
             lin_vel.0.x = new_h.x;
@@ -354,7 +355,7 @@ pub(super) fn apply_humanoid_walk(
         && !frozen
     {
         let target = Transform::IDENTITY.looking_to(facing, Vec3::Y).rotation;
-        let turn_alpha = (12.0 * dt).clamp(0.0, 1.0);
+        let turn_alpha = (p.turn_rate.0 * dt).clamp(0.0, 1.0);
         chassis_tf.rotation = chassis_tf.rotation.slerp(target, turn_alpha);
     }
 }

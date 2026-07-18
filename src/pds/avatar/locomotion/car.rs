@@ -22,6 +22,43 @@ pub struct CarParams {
     pub lateral_grip: Fp,
     /// Extra lateral-grip multiplier applied when Space (handbrake) is held.
     pub handbrake_grip_factor: Fp,
+    /// Tilt (degrees from upright) beyond which the uprighting assist
+    /// engages (#804). Below it the assist stays silent so cornering lean
+    /// and slope driving are never fought. Promoted from
+    /// `CAR_UPRIGHT_ASSIST_COS` by #876 (60° ↔ cos 0.5); field-level
+    /// serde default keeps pre-#876 records at the historical feel.
+    #[serde(default = "default_upright_engage_tilt")]
+    pub upright_engage_tilt_degrees: Fp,
+    /// Mass-normalised righting acceleration (rad/s²-equivalent) applied
+    /// past the engage tilt.
+    #[serde(default = "default_upright_accel")]
+    pub upright_assist_accel: Fp,
+    /// Mass-normalised spin damping while righting, so the chassis
+    /// settles level instead of oscillating.
+    #[serde(default = "default_upright_damping")]
+    pub upright_assist_damping: Fp,
+    /// Centre-of-mass drop as a fraction of the chassis half-height,
+    /// below the body origin (#804's anti-rollover lever). Applied when
+    /// the chassis is (re)built, like the collider dimensions.
+    #[serde(default = "default_center_of_mass_drop")]
+    pub center_of_mass_drop: Fp,
+}
+
+/// Serde fallbacks for records published before #876 — the values the
+/// uprighting/centre-of-mass code hard-coded (formerly the
+/// `config::rover::CAR_UPRIGHT_*` constants). Shared with `Default` so an
+/// old record and a fresh preset agree.
+fn default_upright_engage_tilt() -> Fp {
+    Fp(60.0)
+}
+fn default_upright_accel() -> Fp {
+    Fp(2.5)
+}
+fn default_upright_damping() -> Fp {
+    Fp(0.8)
+}
+fn default_center_of_mass_drop() -> Fp {
+    Fp(0.6)
 }
 
 impl Default for CarParams {
@@ -40,6 +77,10 @@ impl Default for CarParams {
             turn_torque: Fp(1_800.0),
             lateral_grip: Fp(20_000.0),
             handbrake_grip_factor: Fp(0.25),
+            upright_engage_tilt_degrees: default_upright_engage_tilt(),
+            upright_assist_accel: default_upright_accel(),
+            upright_assist_damping: default_upright_damping(),
+            center_of_mass_drop: default_center_of_mass_drop(),
         }
     }
 }
@@ -60,6 +101,12 @@ impl LocomotionPreset for CarParams {
         self.turn_torque = clamp_pos(self.turn_torque, 0.0, 50_000.0);
         self.lateral_grip = clamp_pos(self.lateral_grip, 0.0, 200_000.0);
         self.handbrake_grip_factor = clamp_pos(self.handbrake_grip_factor, 0.0, 100.0);
+        // Floor of 15°: an assist that engages inside ordinary cornering
+        // lean would fight normal driving every turn.
+        self.upright_engage_tilt_degrees = clamp_pos(self.upright_engage_tilt_degrees, 15.0, 90.0);
+        self.upright_assist_accel = clamp_pos(self.upright_assist_accel, 0.0, 50.0);
+        self.upright_assist_damping = clamp_pos(self.upright_assist_damping, 0.0, 20.0);
+        self.center_of_mass_drop = clamp_pos(self.center_of_mass_drop, 0.0, 1.0);
     }
 
     fn into_config(self) -> LocomotionConfig {

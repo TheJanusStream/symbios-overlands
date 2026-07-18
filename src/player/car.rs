@@ -135,29 +135,35 @@ pub(super) fn apply_car_drive(
 /// a physics world.
 ///
 /// `up` / `right` are the chassis's world-space up and right axes, `ang_vel`
-/// its angular velocity, and `mass` its mass. Returns `None` while `up·Y` is at
-/// or above [`cfg::CAR_UPRIGHT_ASSIST_COS`] — i.e. within normal cornering-lean
-/// / slope-driving range — so the assist never fights ordinary driving. Past
-/// that tilt it returns a torque that rotates `up` toward world-up (falling
-/// back to the roll axis when the chassis is dead-inverted, so it can't perch
-/// on its roof), minus a spin-damping term so it settles level rather than
-/// oscillating.
-fn upright_assist_torque(up: Vec3, right: Vec3, ang_vel: Vec3, mass: f32) -> Option<Vec3> {
-    if up.dot(Vec3::Y) >= cfg::CAR_UPRIGHT_ASSIST_COS {
+/// its angular velocity, and `p` the record's car tuning (#876 promoted the
+/// engage tilt / accel / damping from constants). Returns `None` while the
+/// tilt is inside `upright_engage_tilt_degrees` — i.e. within normal
+/// cornering-lean / slope-driving range — so the assist never fights ordinary
+/// driving. Past that tilt it returns a torque that rotates `up` toward
+/// world-up (falling back to the roll axis when the chassis is dead-inverted,
+/// so it can't perch on its roof), minus a spin-damping term so it settles
+/// level rather than oscillating.
+fn upright_assist_torque(
+    up: Vec3,
+    right: Vec3,
+    ang_vel: Vec3,
+    p: &crate::pds::CarParams,
+) -> Option<Vec3> {
+    if up.dot(Vec3::Y) >= p.upright_engage_tilt_degrees.0.to_radians().cos() {
         return None;
     }
     let mut axis = up.cross(Vec3::Y);
     if axis.length_squared() < cfg::CAR_UPRIGHT_DEGENERATE_SQ {
         axis = right;
     }
-    let restoring = axis.normalize_or_zero() * (mass * cfg::CAR_UPRIGHT_ANGULAR_ACCEL);
-    let damping = -ang_vel * (mass * cfg::CAR_UPRIGHT_ANGULAR_DAMP);
+    let restoring = axis.normalize_or_zero() * (p.mass.0 * p.upright_assist_accel.0);
+    let damping = -ang_vel * (p.mass.0 * p.upright_assist_damping.0);
     Some(restoring + damping)
 }
 
 /// Right a car that has tipped onto its side or roof. Runs every fixed step
 /// (like the hover-boat's uprighting) but stays dormant until the chassis is
-/// tilted past [`cfg::CAR_UPRIGHT_ASSIST_COS`], so it leaves normal driving —
+/// tilted past the record's engage tilt, so it leaves normal driving —
 /// cornering lean, driving across slopes — untouched and only rescues a
 /// genuine flip. Not input-gated: a flipped car keeps righting even while the
 /// owner types in a chat field.
@@ -175,7 +181,7 @@ pub(super) fn apply_car_uprighting(
     let up = global_tf.up().as_vec3();
     let right = global_tf.right().as_vec3();
     let ang_vel = forces.angular_velocity();
-    if let Some(torque) = upright_assist_torque(up, right, ang_vel, p.mass.0) {
+    if let Some(torque) = upright_assist_torque(up, right, ang_vel, p) {
         forces.apply_torque(torque);
     }
 }
@@ -183,25 +189,30 @@ pub(super) fn apply_car_uprighting(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pds::CarParams;
 
-    const MASS: f32 = 900.0;
+    fn params() -> CarParams {
+        CarParams::default()
+    }
 
     #[test]
     fn upright_car_gets_no_assist() {
         // Dead level, and a modest cornering lean (30°) — both within the
         // assist's silent band, so it must return None (never fight driving).
-        assert!(upright_assist_torque(Vec3::Y, Vec3::X, Vec3::ZERO, MASS).is_none());
+        let p = params();
+        assert!(upright_assist_torque(Vec3::Y, Vec3::X, Vec3::ZERO, &p).is_none());
         let leaned = Quat::from_rotation_z(30f32.to_radians()) * Vec3::Y;
-        assert!(upright_assist_torque(leaned, Vec3::X, Vec3::ZERO, MASS).is_none());
+        assert!(upright_assist_torque(leaned, Vec3::X, Vec3::ZERO, &p).is_none());
     }
 
     #[test]
     fn tipped_car_is_pushed_back_toward_upright() {
-        // Rolled 100° about +Z (past the 60° engage tilt). With no spin the
-        // torque must point along `up × Y` — the axis whose rotation lifts the
-        // up vector back toward world-up — and be mass-scaled.
+        // Rolled 100° about +Z (past the default 60° engage tilt). With no
+        // spin the torque must point along `up × Y` — the axis whose rotation
+        // lifts the up vector back toward world-up — and be mass-scaled.
+        let p = params();
         let up = Quat::from_rotation_z(100f32.to_radians()) * Vec3::Y;
-        let torque = upright_assist_torque(up, Vec3::X, Vec3::ZERO, MASS)
+        let torque = upright_assist_torque(up, Vec3::X, Vec3::ZERO, &p)
             .expect("a car tipped past 60° must be assisted");
         let righting_axis = up.cross(Vec3::Y).normalize();
         assert!(
@@ -209,7 +220,7 @@ mod tests {
             "torque should roll the chassis back toward upright, got {torque:?}"
         );
         assert!(
-            torque.length() >= MASS * cfg::CAR_UPRIGHT_ANGULAR_ACCEL * 0.5,
+            torque.length() >= p.mass.0 * p.upright_assist_accel.0 * 0.5,
             "righting torque should be mass-scaled and substantial"
         );
     }
@@ -219,12 +230,13 @@ mod tests {
         // Exactly upside down: `up × Y` degenerates to ~zero, so without the
         // fallback the car would perch on its roof. The assist must instead
         // torque about the supplied roll (right) axis to tip it off.
+        let p = params();
         let right = Vec3::X;
-        let torque = upright_assist_torque(Vec3::NEG_Y, right, Vec3::ZERO, MASS)
+        let torque = upright_assist_torque(Vec3::NEG_Y, right, Vec3::ZERO, &p)
             .expect("an inverted car must be assisted");
         let along_roll = torque.dot(right);
         assert!(
-            along_roll.abs() >= MASS * cfg::CAR_UPRIGHT_ANGULAR_ACCEL * 0.5,
+            along_roll.abs() >= p.mass.0 * p.upright_assist_accel.0 * 0.5,
             "inverted assist should act about the roll axis, got {torque:?}"
         );
     }
@@ -235,13 +247,26 @@ mod tests {
         // spin already in that righting sense: the damping term must shrink the
         // net righting torque (magnitude along -Z) versus the static case, so
         // the car settles upright instead of overshooting past level.
+        let p = params();
         let up = Quat::from_rotation_z(100f32.to_radians()) * Vec3::Y;
         let righting_axis = up.cross(Vec3::Y).normalize(); // ≈ -Z
-        let still = upright_assist_torque(up, Vec3::X, Vec3::ZERO, MASS).unwrap();
-        let spinning = upright_assist_torque(up, Vec3::X, righting_axis * 5.0, MASS).unwrap();
+        let still = upright_assist_torque(up, Vec3::X, Vec3::ZERO, &p).unwrap();
+        let spinning = upright_assist_torque(up, Vec3::X, righting_axis * 5.0, &p).unwrap();
         assert!(
             spinning.dot(righting_axis) < still.dot(righting_axis),
             "a chassis already rotating upright should get less righting torque"
         );
+    }
+
+    #[test]
+    fn widened_engage_tilt_keeps_the_assist_silent_longer() {
+        // The promoted engage-tilt knob (#876): at 80° the default assist
+        // engages but a record tuned to 85° stays silent.
+        let tilted = Quat::from_rotation_z(80f32.to_radians()) * Vec3::Y;
+        let p = params();
+        assert!(upright_assist_torque(tilted, Vec3::X, Vec3::ZERO, &p).is_some());
+        let mut wide = params();
+        wide.upright_engage_tilt_degrees = crate::pds::Fp(85.0);
+        assert!(upright_assist_torque(tilted, Vec3::X, Vec3::ZERO, &wide).is_none());
     }
 }

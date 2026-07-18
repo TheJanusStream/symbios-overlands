@@ -65,5 +65,31 @@ impl LocomotionPanel for CarParams {
                 ui.label("Handbrake grip factor");
                 fp_slider(ui, &mut self.handbrake_grip_factor, 0.0..=2.0, 0.01, dirty);
             });
+
+        egui::CollapsingHeader::new("Rollover & recovery")
+            .default_open(false)
+            .show(ui, |ui| {
+                ui.label("Centre-of-mass drop (× half-height)");
+                fp_slider(ui, &mut self.center_of_mass_drop, 0.0..=1.0, 0.01, dirty);
+                ui.label(
+                    egui::RichText::new(
+                        "Applies when the chassis rebuilds (preset swap / respawn).",
+                    )
+                    .small()
+                    .weak(),
+                );
+                ui.label("Upright assist engages beyond tilt (°)");
+                fp_slider(
+                    ui,
+                    &mut self.upright_engage_tilt_degrees,
+                    15.0..=90.0,
+                    1.0,
+                    dirty,
+                );
+                ui.label("Upright assist strength (rad/s²)");
+                fp_slider(ui, &mut self.upright_assist_accel, 0.0..=10.0, 0.1, dirty);
+                ui.label("Upright assist damping");
+                fp_slider(ui, &mut self.upright_assist_damping, 0.0..=5.0, 0.05, dirty);
+            });
     }
 }

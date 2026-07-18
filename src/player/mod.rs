@@ -57,7 +57,7 @@
 
 mod airplane;
 mod car;
-mod gait;
+pub(crate) mod gait;
 mod helicopter;
 mod hotswap;
 mod hover_boat;

@@ -34,18 +34,15 @@ use crate::state::{LiveAvatarRecord, LocalPlayer, TravelingTo};
 
 use super::{AirplanePreset, VisualsEditFreeze};
 
-/// The hands-off throttle fraction. Applied passively by
-/// [`apply_airplane_aerodynamics`]; the input system layers
-/// [`throttle_delta`] on top.
-const CRUISE_THROTTLE: f32 = 0.5;
-
-/// Input contribution to the throttle, relative to [`CRUISE_THROTTLE`].
-/// `cruise + delta` reproduces the historical absolute table exactly:
-/// Space = 1.0, Shift = 0.0, neither = 0.5, both = 0.5.
-fn throttle_delta(space: bool, shift: bool) -> f32 {
+/// Input contribution to the throttle, relative to the record's
+/// hands-off `cruise` fraction (#876 promoted it from a constant; the
+/// passive side is applied by [`apply_airplane_aerodynamics`]).
+/// `cruise + delta` reproduces the historical absolute table exactly at
+/// the 0.5 default: Space = 1.0, Shift = 0.0, neither = 0.5, both = 0.5.
+fn throttle_delta(space: bool, shift: bool, cruise: f32) -> f32 {
     match (space, shift) {
-        (true, false) => CRUISE_THROTTLE,
-        (false, true) => -CRUISE_THROTTLE,
+        (true, false) => cruise,
+        (false, true) => -cruise,
         _ => 0.0,
     }
 }
@@ -96,7 +93,7 @@ pub(super) fn apply_airplane_aerodynamics(
     let forward = global_tf.forward().as_vec3();
 
     // Idle cruise: the airplane flies by default; input only modulates.
-    forces.apply_force(forward * p.thrust.0 * CRUISE_THROTTLE);
+    forces.apply_force(forward * p.thrust.0 * p.cruise_throttle.0);
 
     // Aerodynamics.
     let lin_vel = forces.linear_velocity();
@@ -142,7 +139,7 @@ pub(super) fn apply_airplane_forces(
     // off (egui focus).
     let space = keyboard.pressed(KeyCode::Space);
     let shift = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
-    forces.apply_force(forward * p.thrust.0 * throttle_delta(space, shift));
+    forces.apply_force(forward * p.thrust.0 * throttle_delta(space, shift, p.cruise_throttle.0));
 
     // Pitch: W tips the nose down (positive forward → +X local axis
     // rotation). The airplane's local right vector is the rotation axis
@@ -175,6 +172,11 @@ pub(super) fn apply_airplane_forces(
 mod tests {
     use super::*;
 
+    /// The default record cruise fraction — the historical constant.
+    fn cruise() -> f32 {
+        crate::pds::AirplaneParams::default().cruise_throttle.0
+    }
+
     #[test]
     fn cruise_plus_delta_reproduces_the_historical_throttle_table() {
         // (space, shift) -> absolute throttle before the #821 split.
@@ -186,7 +188,7 @@ mod tests {
         ];
         for (space, shift, expected) in table {
             assert_eq!(
-                CRUISE_THROTTLE + throttle_delta(space, shift),
+                cruise() + throttle_delta(space, shift, cruise()),
                 expected,
                 "space={space} shift={shift}"
             );
@@ -198,7 +200,7 @@ mod tests {
         // With the input system gated off (egui focus), only the passive
         // cruise applies — the airplane must keep flying at idle power,
         // i.e. the input system contributes nothing at rest.
-        assert_eq!(throttle_delta(false, false), 0.0);
+        assert_eq!(throttle_delta(false, false, cruise()), 0.0);
     }
 
     #[test]

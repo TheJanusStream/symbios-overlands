@@ -37,6 +37,8 @@ impl LocomotionPanel for HelicopterParams {
                 fp_slider(ui, &mut self.strafe_force, 0.0..=5_000.0, 25.0, dirty);
                 ui.label("Yaw torque (N·m)");
                 fp_slider(ui, &mut self.yaw_torque, 0.0..=5_000.0, 25.0, dirty);
+                ui.label("Auto-stabilise torque (N·m)");
+                fp_slider(ui, &mut self.stabilize_torque, 0.0..=5_000.0, 25.0, dirty);
             });
     }
 }

@@ -591,9 +591,27 @@ pub fn avatar_ui(
                                     .weak(),
                                 );
                                 ui.add_space(4.0);
+                                // Master seed for the Idle-motion section's
+                                // baseline + ⟲ re-derive: the seed row's
+                                // current value when it parses (the footer
+                                // synced it to the DID seed on first draw),
+                                // else the DID derivation every peer falls
+                                // back to for a record without a gait
+                                // section.
+                                let fallback_seed = seed_row_state
+                                    .current_seed()
+                                    .or_else(|| {
+                                        session
+                                            .as_ref()
+                                            .map(|s| crate::seeded_defaults::fnv1a_64(&s.did))
+                                    })
+                                    .unwrap_or_default();
+                                let record = &mut live_mut.0;
                                 draw_locomotion_tab(
                                     ui,
-                                    &mut live_mut.0.locomotion,
+                                    &mut record.locomotion,
+                                    &mut record.gait,
+                                    fallback_seed,
                                     &mut widget_changed,
                                     &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
                                 );
