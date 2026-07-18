@@ -80,6 +80,38 @@ fn gate_camera_on_gui(
     }
 }
 
+/// How (whether) the orbit camera avoids the terrain (#872). Referenced
+/// from [`crate::state::LocalSettings`], persisted machine-locally.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub enum CameraGroundAvoidance {
+    /// No clamping — the camera may dip under terrain when orbiting low.
+    Off,
+    /// Keep the CAMERA's own position above ground + clearance; terrain
+    /// between the avatar and the camera may occlude the view but never
+    /// pulls the camera in. The default since #872: the original
+    /// whole-ray check zoomed in aggressively at near-horizontal pitch
+    /// (the focus sits ~1 m over ground, so early ray samples hug the
+    /// clearance line) and across intermediate ridges, both with the
+    /// camera itself nowhere near the ground.
+    #[default]
+    CameraOnly,
+    /// The pre-#872 behavior: additionally pull in whenever any point of
+    /// the focus→camera ray dips under the clearance line, so terrain
+    /// never occludes the avatar.
+    FullRay,
+}
+
+impl CameraGroundAvoidance {
+    /// Settings-picker label.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::CameraOnly => "Camera",
+            Self::FullRay => "Camera + view",
+        }
+    }
+}
+
 /// Distance along a focus→camera ray at which the ray first dips below
 /// the ground line, sampled at [`cfg::TERRAIN_CLAMP_SAMPLES`] points and
 /// backed off one step; `dist` when the whole ray is clear. Pure over a
@@ -88,6 +120,7 @@ fn clamp_distance_along_ray(
     focus: Vec3,
     dir: Vec3,
     dist: f32,
+    clearance: f32,
     mut ground_y: impl FnMut(f32, f32) -> f32,
 ) -> f32 {
     let steps = cfg::TERRAIN_CLAMP_SAMPLES;
@@ -95,11 +128,37 @@ fn clamp_distance_along_ray(
     for i in 1..=steps {
         let t = step * i as f32;
         let p = focus + dir * t;
-        if p.y < ground_y(p.x, p.z) + cfg::TERRAIN_CLEARANCE {
+        if p.y < ground_y(p.x, p.z) + clearance {
             return (t - step).max(cfg::TERRAIN_CLAMP_MIN_DIST);
         }
     }
     dist
+}
+
+/// Largest distance ≤ `dist` at which the CAMERA position itself clears
+/// ground + `clearance` (#872, [`CameraGroundAvoidance::CameraOnly`]):
+/// walk inward from the desired distance and stop at the first clear
+/// sample. A desired position already in the clear returns `dist`
+/// untouched — the camera is never pulled in while it has headroom,
+/// which is exactly the false positive the whole-ray check suffered.
+fn clamp_distance_camera_only(
+    focus: Vec3,
+    dir: Vec3,
+    dist: f32,
+    clearance: f32,
+    mut ground_y: impl FnMut(f32, f32) -> f32,
+) -> f32 {
+    let steps = cfg::TERRAIN_CLAMP_SAMPLES;
+    let step = dist / steps as f32;
+    let mut t = dist;
+    while t > cfg::TERRAIN_CLAMP_MIN_DIST {
+        let p = focus + dir * t;
+        if p.y >= ground_y(p.x, p.z) + clearance {
+            return t;
+        }
+        t -= step;
+    }
+    cfg::TERRAIN_CLAMP_MIN_DIST
 }
 
 /// Pull the camera in along its focus→camera ray when it would dip under
@@ -111,11 +170,19 @@ fn clamp_distance_along_ray(
 /// yaw/pitch/radius state next frame, so no feedback loop forms.
 fn clamp_camera_to_terrain(
     heightmap: Option<Res<FinishedHeightMap>>,
+    settings: Res<crate::state::LocalSettings>,
     mut cameras: Query<(&PanOrbitCamera, &mut Transform), With<Camera3d>>,
 ) {
     let Some(hm) = heightmap else {
         return;
     };
+    let mode = settings.camera_ground_avoidance;
+    if mode == CameraGroundAvoidance::Off {
+        return;
+    }
+    // Sanitized here rather than trusting the prefs file: a hand-edited
+    // clearance of NaN/negative would otherwise poison every clamp.
+    let clearance = settings.camera_ground_clearance_m.clamp(0.0, 50.0);
     for (cam, mut tf) in cameras.iter_mut() {
         let focus = cam.focus;
         let offset = tf.translation - focus;
@@ -124,7 +191,16 @@ fn clamp_camera_to_terrain(
             continue;
         }
         let dir = offset / dist;
-        let clamped = clamp_distance_along_ray(focus, dir, dist, |x, z| hm.world_height_at(x, z));
+        let ground = |x: f32, z: f32| hm.world_height_at(x, z);
+        let clamped = match mode {
+            CameraGroundAvoidance::Off => unreachable!("early return above"),
+            CameraGroundAvoidance::CameraOnly => {
+                clamp_distance_camera_only(focus, dir, dist, clearance, ground)
+            }
+            CameraGroundAvoidance::FullRay => {
+                clamp_distance_along_ray(focus, dir, dist, clearance, ground)
+            }
+        };
         if clamped < dist {
             tf.translation = focus + dir * clamped;
         }
@@ -420,7 +496,8 @@ mod tests {
         let dist = 16.0;
         let flat_ground = |_x: f32, _z: f32| 5.0;
 
-        let clamped = clamp_distance_along_ray(focus, dir, dist, flat_ground);
+        let clamped =
+            clamp_distance_along_ray(focus, dir, dist, cfg::TERRAIN_CLEARANCE, flat_ground);
         assert!(
             clamped < dist,
             "a ray dipping under ground must be shortened"
@@ -436,8 +513,67 @@ mod tests {
         // A ray that never dips below ground is untouched.
         let up_dir = Vec3::new(0.0, 1.0, 0.0);
         assert_eq!(
-            clamp_distance_along_ray(focus, up_dir, dist, flat_ground),
+            clamp_distance_along_ray(focus, up_dir, dist, cfg::TERRAIN_CLEARANCE, flat_ground),
             dist
         );
+    }
+
+    /// The #872 camera-only mode: a camera with headroom is NEVER pulled
+    /// in, regardless of what the ray between it and the focus crosses —
+    /// the two false-positive modes of the whole-ray check.
+    #[test]
+    fn camera_only_clamp_ignores_terrain_under_the_ray() {
+        // Focus just over flat ground (an avatar), camera high up: a
+        // ridge under the middle of the ray dips the whole-ray check but
+        // must not move the camera-only one.
+        let focus = Vec3::new(0.0, 6.0, 0.0);
+        let dir = Vec3::new(0.6, 0.8, 0.0).normalize();
+        let dist = 20.0;
+        // Ridge at x ∈ [4, 8] towering to y = 14; flat y = 5 elsewhere.
+        let ridged = |x: f32, _z: f32| if (4.0..=8.0).contains(&x) { 14.0 } else { 5.0 };
+        let camera = focus + dir * dist;
+        assert!(camera.y > 14.0 + cfg::TERRAIN_CLEARANCE, "camera is clear");
+        assert_eq!(
+            clamp_distance_camera_only(focus, dir, dist, cfg::TERRAIN_CLEARANCE, ridged),
+            dist,
+            "a clear camera must not be pulled in by ray-intermediate terrain"
+        );
+        assert!(
+            clamp_distance_along_ray(focus, dir, dist, cfg::TERRAIN_CLEARANCE, ridged) < dist,
+            "sanity: the whole-ray check DOES clamp on the same scene"
+        );
+    }
+
+    #[test]
+    fn camera_only_clamp_pulls_in_a_buried_camera_minimally() {
+        // Descending ray: the desired camera position is under ground;
+        // the clamp walks inward only as far as the first clear sample.
+        let focus = Vec3::new(0.0, 20.0, 0.0);
+        let dir = Vec3::new(
+            std::f32::consts::FRAC_1_SQRT_2,
+            -std::f32::consts::FRAC_1_SQRT_2,
+            0.0,
+        );
+        let dist = 24.0;
+        let flat_ground = |_x: f32, _z: f32| 5.0;
+        let clamped =
+            clamp_distance_camera_only(focus, dir, dist, cfg::TERRAIN_CLEARANCE, flat_ground);
+        assert!(clamped < dist, "a buried camera must be pulled in");
+        let p = focus + dir * clamped;
+        assert!(
+            p.y >= 5.0 + cfg::TERRAIN_CLEARANCE - 1e-4,
+            "clamped camera {p:?} is below the clearance line"
+        );
+
+        // Fully buried ray (focus below clearance, pointing down): the
+        // clamp bottoms out at the minimum distance rather than looping.
+        let sunk = clamp_distance_camera_only(
+            Vec3::new(0.0, 4.0, 0.0),
+            Vec3::NEG_Y,
+            dist,
+            cfg::TERRAIN_CLEARANCE,
+            flat_ground,
+        );
+        assert_eq!(sunk, cfg::TERRAIN_CLAMP_MIN_DIST);
     }
 }

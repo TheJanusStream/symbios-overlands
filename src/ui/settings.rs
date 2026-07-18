@@ -13,6 +13,7 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
+use crate::camera::CameraGroundAvoidance;
 use crate::state::LocalSettings;
 use crate::ui::theme::UserTheme;
 use crate::ui::toolbar::UiPanels;
@@ -57,6 +58,50 @@ pub fn settings_ui(
                 }
             });
             ui.small("Applies immediately; remembered on this machine.");
+
+            ui.add_space(8.0);
+            ui.separator();
+            ui.strong("Camera");
+            ui.label("Ground avoidance:");
+            ui.horizontal(|ui| {
+                for mode in [
+                    CameraGroundAvoidance::Off,
+                    CameraGroundAvoidance::CameraOnly,
+                    CameraGroundAvoidance::FullRay,
+                ] {
+                    dirty |= ui
+                        .selectable_value(&mut s.camera_ground_avoidance, mode, mode.label())
+                        .on_hover_text(match mode {
+                            CameraGroundAvoidance::Off => {
+                                "Never pull the camera in — it may dip under \
+                                 terrain when orbiting low."
+                            }
+                            CameraGroundAvoidance::CameraOnly => {
+                                "Keep the camera itself above the ground. \
+                                 Terrain between you and the camera may block \
+                                 the view but never zooms it in."
+                            }
+                            CameraGroundAvoidance::FullRay => {
+                                "Also zoom in whenever terrain would block the \
+                                 view of your avatar (the old behavior — \
+                                 aggressive at low angles)."
+                            }
+                        })
+                        .changed();
+                }
+            });
+            if s.camera_ground_avoidance != CameraGroundAvoidance::Off {
+                ui.horizontal(|ui| {
+                    ui.label("Clearance:");
+                    dirty |= ui
+                        .add(
+                            egui::Slider::new(&mut s.camera_ground_clearance_m, 0.2..=5.0)
+                                .suffix(" m"),
+                        )
+                        .on_hover_text("Headroom kept between the camera and the terrain")
+                        .changed();
+                });
+            }
 
             ui.add_space(8.0);
             ui.separator();

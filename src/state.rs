@@ -305,7 +305,7 @@ pub struct StoredRoomRecord(pub RoomRecord);
 /// Persisted machine-locally by [`crate::prefs`] (#820); grow it only
 /// with `#[serde(default)]`-compatible fields so old prefs files keep
 /// loading.
-#[derive(Resource, Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Resource, Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct LocalSettings {
     /// When true, remote peer transforms are smoothed with a Hermite spline
@@ -316,6 +316,13 @@ pub struct LocalSettings {
     /// `ui::theme::sync_theme_from_settings`; old prefs files without
     /// the field default to Dark via the struct-level `serde(default)`.
     pub theme: crate::ui::theme::UserTheme,
+    /// Camera ground-avoidance mode (#872): whether (and how) the orbit
+    /// camera is pulled in to keep terrain out of the shot. Old prefs
+    /// files default to the camera-position-only check.
+    pub camera_ground_avoidance: crate::camera::CameraGroundAvoidance,
+    /// Headroom the ground avoidance keeps between the camera and the
+    /// terrain surface, in metres (#872).
+    pub camera_ground_clearance_m: f32,
 }
 
 impl Default for LocalSettings {
@@ -323,6 +330,8 @@ impl Default for LocalSettings {
         Self {
             smooth_kinematics: true,
             theme: crate::ui::theme::UserTheme::Dark,
+            camera_ground_avoidance: crate::camera::CameraGroundAvoidance::default(),
+            camera_ground_clearance_m: crate::config::camera::TERRAIN_CLEARANCE,
         }
     }
 }
