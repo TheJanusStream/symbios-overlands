@@ -7,7 +7,7 @@ use crate::interaction::TerrainSurfaceQuery;
 use crate::state::LiveRoomRecord;
 
 use super::referenced::PendingSplatLayerFetch;
-use super::roads::{RoadFingerprint, RoadMeshEntity};
+use super::roads::{RoadMeshEntity, RoadRebuild};
 use super::{
     FinishedHeightMap, LastTerrainConfigJson, OutgoingTerrain, PendingTerrainConfigJson,
     SplatMaterialHandle, TerrainMesh, TerrainSplatState, TerrainTask, TextureLayerIndex,
@@ -32,7 +32,7 @@ pub(super) fn cleanup_terrain(
     pending_textures: Query<Entity, With<TextureLayerIndex>>,
     pending_splat_refs: Query<Entity, With<PendingSplatLayerFetch>>,
     mut splat_state: ResMut<TerrainSplatState>,
-    mut road_fp: ResMut<RoadFingerprint>,
+    mut road_state: ResMut<RoadRebuild>,
     mut last_cfg: ResMut<LastTerrainConfigJson>,
     mut pending_cfg: ResMut<PendingTerrainConfigJson>,
 ) {
@@ -61,7 +61,9 @@ pub(super) fn cleanup_terrain(
         commands.entity(e).despawn();
     }
     *splat_state = TerrainSplatState::default();
-    road_fp.0 = None;
+    // Full reset (#884): clears the live fingerprint, disarms any pending
+    // debounce, and drops (= cancels) an in-flight background extrusion.
+    *road_state = RoadRebuild::default();
     last_cfg.0 = None;
     pending_cfg.0 = None;
     commands.remove_resource::<FinishedHeightMap>();

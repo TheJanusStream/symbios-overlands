@@ -47,6 +47,9 @@ pub(super) fn draw_detail_panel(
     blob_selected_element: &mut Option<usize>,
     // Pending kind-change confirmation (#838), answered by the caller.
     kind_confirm: &mut crate::ui::confirm::ConfirmState<(GenNodeId, &'static str)>,
+    // Undo-toast label slot — per-kind editors with named actions (the
+    // road seed row) set it; plain slider edits keep the generic label.
+    undo_label: &mut crate::ui::undo::LabelSlot,
 ) {
     let Some(id) = current_id(selected_generator, selected_prim_path) else {
         ui.vertical_centered(|ui| {
@@ -110,6 +113,10 @@ pub(super) fn draw_detail_panel(
 
     let salt = node_salt(&id);
 
+    // Resolved BEFORE the mutable node borrow below: which node (if any)
+    // the terrain plugin actually reads roads from (#886).
+    let active_road_node = active_road_node_id(source);
+
     if let Some(node) = find_node_mut(source, &id) {
         let child_count = node.children.len();
         ui.horizontal(|ui| {
@@ -125,6 +132,21 @@ pub(super) fn draw_detail_panel(
                 kind_confirm,
             );
         });
+
+        // Placement warning (#886): only the first RoadNetwork directly
+        // under the deterministically-chosen Terrain root is ever read
+        // (`find_road_config`); anywhere else the node is silently inert
+        // — say so instead of letting a dead panel look live.
+        if matches!(node.kind, GeneratorKind::RoadNetwork(_))
+            && active_road_node.as_ref() != Some(&id)
+        {
+            ui.colored_label(
+                crate::ui::theme::current(ui.ctx()).status.warn,
+                "This node grows no roads: only the first RoadNetwork placed \
+                 directly under the Terrain generator is read. Move it there — \
+                 or remove it if another network already occupies that slot.",
+            );
+        }
 
         ui.add_space(4.0);
         draw_transform(ui, &mut node.transform, dirty);
@@ -142,6 +164,7 @@ pub(super) fn draw_detail_panel(
                     grammar_status,
                     dirty,
                     blob_selected_element,
+                    undo_label,
                 );
 
                 // Per-construct audio slot (#314). The bridge writes back
@@ -166,6 +189,28 @@ pub(super) fn draw_detail_panel(
     }
 }
 
+/// The node id the terrain plugin reads its road network from, mirroring
+/// [`crate::pds::room::find_road_config`]'s selection rule exactly: the
+/// FIRST `RoadNetwork` among the direct children of the sorted-first
+/// Terrain root — and only that root, even when it carries no network.
+/// `None` when the tree has no active network. Drives the #886 misplaced-
+/// node warning.
+fn active_road_node_id(source: &dyn GeneratorTreeSource) -> Option<GenNodeId> {
+    for name in source.root_names() {
+        let Some(root) = source.get_root(&name) else {
+            continue;
+        };
+        if matches!(root.kind, GeneratorKind::Terrain(_)) {
+            return root
+                .children
+                .iter()
+                .position(|c| matches!(c.kind, GeneratorKind::RoadNetwork(_)))
+                .map(|i| GenNodeId::child(name, vec![i]));
+        }
+    }
+    None
+}
+
 /// Inline editor for a [`crate::pds::generator::RoadConfig`] (the RoadNetwork
 /// generator). Exposes the authorable street knobs; the terrain plugin
 /// recomputes the road mesh from the heightmap on any change. Geometry-only
@@ -174,6 +219,7 @@ fn draw_road_editor(
     ui: &mut egui::Ui,
     config: &mut crate::pds::generator::RoadConfig,
     dirty: &mut bool,
+    undo_label: &mut crate::ui::undo::LabelSlot,
 ) {
     if ui.checkbox(&mut config.enabled, "Roads enabled").changed() {
         *dirty = true;
@@ -189,18 +235,70 @@ fn draw_road_editor(
         *dirty = true;
     }
     ui.add_space(4.0);
+    // Editable seed row (#885): type a layout number to reproduce/share a
+    // street plan, or 🎲 for a fresh one. The buffer lives in egui temp
+    // memory keyed to this node, re-synced whenever the record's seed
+    // changes underneath it (dice, undo, remote edit).
+    #[derive(Clone)]
+    struct SeedBuf {
+        text: String,
+        synced_to: u64,
+    }
     ui.horizontal(|ui| {
-        ui.label(format!("Layout seed: {}", config.seed));
-        if ui.button("Re-roll").clicked() {
-            // Deterministic LCG step → a fresh street layout, terrain untouched.
+        ui.label("Layout seed:");
+        let id = ui.id().with("road_seed");
+        let mut st = ui
+            .data_mut(|d| d.get_temp::<SeedBuf>(id))
+            .unwrap_or(SeedBuf {
+                text: config.seed.to_string(),
+                synced_to: config.seed,
+            });
+        if st.synced_to != config.seed {
+            st.text = config.seed.to_string();
+            st.synced_to = config.seed;
+        }
+        let parse_ok = st.text.trim().parse::<u64>().is_ok();
+        let mut field = egui::TextEdit::singleline(&mut st.text).desired_width(150.0);
+        if !parse_ok {
+            field = field.text_color(crate::ui::theme::current(ui.ctx()).status.error);
+        }
+        let resp = ui.add(field).on_hover_text(
+            "Street-layout seed. Type a number and press Enter to apply — \
+             the same seed reproduces the same streets. Terrain is untouched.",
+        );
+        if resp.lost_focus()
+            && let Ok(v) = st.text.trim().parse::<u64>()
+            && v != config.seed
+        {
+            config.seed = v;
+            st.synced_to = v;
+            undo_label.set(format!("road seed set ({v})"));
+            *dirty = true;
+        }
+        if ui
+            .button("🎲")
+            .on_hover_text("Re-roll the street layout — terrain untouched")
+            .clicked()
+        {
+            // Deterministic LCG step → a fresh street layout.
             config.seed = config
                 .seed
                 .wrapping_mul(6364136223846793005)
                 .wrapping_add(1442695040888963407);
+            st.text = config.seed.to_string();
+            st.synced_to = config.seed;
+            undo_label.set(format!("road seed re-roll ({})", config.seed));
             *dirty = true;
         }
+        ui.data_mut(|d| d.insert_temp(id, st));
     });
     ui.add_space(4.0);
+    // Slider ranges follow the `sanitize_road` clamps (#883) except
+    // where a deliberately tighter max keeps the slider usable: half-widths
+    // stop well short of the sanitizer's 20 m ceiling (a 20 m-wide lane is
+    // a plaza, and the full range would make the useful 1–4 m band a
+    // couple of pixels), and curb/chamfer stop at 1 m for the same reason.
+    // The sanitizer still accepts hand-edited records up to its bounds.
     let mut row = |v: &mut f32, lo: f32, hi: f32, label: &str| {
         if ui.add(egui::Slider::new(v, lo..=hi).text(label)).changed() {
             *dirty = true;
@@ -208,25 +306,20 @@ fn draw_road_editor(
     };
     row(
         &mut config.district_half_extent.0,
-        50.0,
+        10.0,
         512.0,
         "District ½-extent (m)",
     );
     row(
         &mut config.major_spacing.0,
-        30.0,
-        300.0,
+        10.0,
+        500.0,
         "Major spacing (m)",
     );
-    row(
-        &mut config.minor_spacing.0,
-        20.0,
-        200.0,
-        "Minor spacing (m)",
-    );
+    row(&mut config.minor_spacing.0, 8.0, 400.0, "Minor spacing (m)");
     row(
         &mut config.major_half_width.0,
-        1.0,
+        0.5,
         8.0,
         "Major ½-width (m)",
     );
@@ -236,9 +329,10 @@ fn draw_road_editor(
         6.0,
         "Minor ½-width (m)",
     );
-    row(&mut config.curb_height.0, 0.0, 0.5, "Curb height (m)");
+    row(&mut config.curb_height.0, 0.0, 1.0, "Curb height (m)");
+    row(&mut config.curb_top_width.0, 0.0, 1.0, "Curb top width (m)");
     row(&mut config.chamfer_width.0, 0.0, 1.0, "Curb chamfer (m)");
-    row(&mut config.skirt_depth.0, 1.0, 15.0, "Skirt depth (m)");
+    row(&mut config.skirt_depth.0, 0.5, 50.0, "Skirt depth (m)");
 }
 
 /// Inline editor for a [`GeneratorKind::Portal`]: the destination room's
@@ -306,13 +400,14 @@ fn draw_generator_detail(
     grammar_status: Option<&crate::world_builder::grammar_diag::GrammarStatus>,
     dirty: &mut bool,
     blob_selected_element: &mut Option<usize>,
+    undo_label: &mut crate::ui::undo::LabelSlot,
 ) {
     match kind {
         GeneratorKind::Terrain(cfg) => draw_terrain_forge(ui, cfg, dirty),
         GeneratorKind::Water { surface } => {
             draw_water_editor(ui, surface, dirty);
         }
-        GeneratorKind::RoadNetwork(config) => draw_road_editor(ui, config, dirty),
+        GeneratorKind::RoadNetwork(config) => draw_road_editor(ui, config, dirty, undo_label),
         GeneratorKind::LSystem {
             source_code,
             finalization_code,

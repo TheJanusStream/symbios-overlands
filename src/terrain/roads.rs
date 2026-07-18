@@ -15,6 +15,8 @@
 
 use avian3d::prelude::{Collider, RigidBody};
 use bevy::prelude::*;
+use bevy::tasks::Task;
+use bevy_symbios_ground::HeightMap;
 
 use crate::seeded_defaults::{SceneCharacter, ThemeArchetype};
 use crate::state::{CurrentRoomDid, LiveRoomRecord};
@@ -104,63 +106,165 @@ fn road_palette(theme: ThemeArchetype) -> RoadPalette {
     }
 }
 
-/// Fingerprint of the road config last meshed — `None` when no road mesh is
-/// live (no config, disabled, or no terrain). Lets the rebuild skip work when
-/// an unrelated record edit fires.
+/// Trailing debounce (s) between a road-config edit and the re-mesh (#884).
+/// Long enough to collapse a slider drag into one rebuild, short enough that
+/// the world answers promptly on release. Shared with the lot-population
+/// system so buildings re-derive on the same cadence as the streets.
+pub(super) const ROAD_EDIT_DEBOUNCE_SECS: f64 = 0.3;
+
+/// Road-rebuild pipeline state (#884). Replaces the old synchronous
+/// fingerprint: edits arm a trailing debounce, the deadline kicks the CPU
+/// extrusion onto a background task, and completion swaps the meshes — the
+/// previous road stays visible in the meantime, so a drag never shows a
+/// road-less gap.
 #[derive(Resource, Default)]
-pub(super) struct RoadFingerprint(pub(super) Option<String>);
+pub(super) struct RoadRebuild {
+    /// serde-JSON of the config whose mesh is currently live — `None` when no
+    /// road mesh exists (no config, disabled, or no terrain).
+    live: Option<String>,
+    /// Deadline for the pending re-mesh; every further edit pushes it out.
+    due: Option<f64>,
+    /// In-flight background extrusion: the fingerprint it builds + its task.
+    /// Replacing the pair drops the old task, which cancels it.
+    building: Option<(String, Task<Option<crate::urban::RoadParts>>)>,
+}
+
+/// The active road config + its fingerprint. `enabled: false` reads as no
+/// config — the mesh sweep path.
+fn current_config(
+    record: &crate::pds::RoomRecord,
+) -> (Option<crate::pds::generator::RoadConfig>, Option<String>) {
+    let config = crate::pds::find_road_config(record)
+        .filter(|c| c.enabled)
+        .cloned();
+    // `to_string` on this plain struct cannot realistically fail; an empty
+    // fingerprint (rather than a panic or a silently-dropped mesh) is the
+    // degenerate fallback.
+    let want = config
+        .as_ref()
+        .map(|c| serde_json::to_string(c).unwrap_or_default());
+    (config, want)
+}
+
+/// Data-copy of the heightmap for the background task — `HeightMap` is not
+/// `Clone`, but the road builder only samples heights (the normal cache and
+/// lake table rebuild lazily / are unused by the road window copy).
+fn copy_heightmap(hm: &HeightMap) -> HeightMap {
+    let mut copy = HeightMap::new(hm.width(), hm.height(), hm.scale());
+    copy.data_mut().copy_from_slice(hm.data());
+    copy
+}
 
 /// Re-mesh the road network when the heightmap or the road config changes,
-/// reusing the existing heightmap (no terrain regeneration).
+/// reusing the existing heightmap (no terrain regeneration). Debounced +
+/// task-offloaded (#884): on native the extrusion runs on the
+/// `AsyncComputeTaskPool`; on wasm the pool is the main thread, so the win
+/// there is the debounce (one build per edit gesture instead of per tick).
 #[allow(clippy::too_many_arguments)] // Bevy system: each arg is a distinct resource/query.
 pub(super) fn maybe_rebuild_roads(
     mut commands: Commands,
     record: Res<LiveRoomRecord>,
     did: Option<Res<CurrentRoomDid>>,
     heightmap: Option<Res<FinishedHeightMap>>,
-    mut fingerprint: ResMut<RoadFingerprint>,
+    mut state: ResMut<RoadRebuild>,
+    time: Res<Time>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     existing: Query<Entity, With<RoadMeshEntity>>,
 ) {
     // No terrain (not yet generated, or torn down) → no roads. Sweep any
-    // straggler once, then idle.
+    // straggler once (dropping an in-flight build cancels it), then idle.
     let Some(heightmap) = heightmap else {
-        if fingerprint.0.is_some() {
+        if state.live.is_some() || state.due.is_some() || state.building.is_some() {
             for e in &existing {
                 commands.entity(e).try_despawn();
             }
-            fingerprint.0 = None;
+            *state = RoadRebuild::default();
         }
         return;
     };
+    let now = time.elapsed_secs_f64();
 
-    // Only consider work on frames where the terrain or the record changed.
-    if !heightmap.is_changed() && !record.is_changed() {
-        return;
+    // 1 — change detection arms (or cancels) the trailing debounce. A fresh
+    // heightmap (initial load / terrain regen) always re-meshes, since the
+    // draped geometry depends on the new surface.
+    if heightmap.is_changed() || record.is_changed() {
+        let (_, want) = current_config(&record.0);
+        if heightmap.is_changed() || want != state.live {
+            state.due = Some(now + ROAD_EDIT_DEBOUNCE_SECS);
+        } else if state.building.is_none() {
+            // The config slid back to exactly the live mesh (an undo mid-
+            // debounce): nothing left to rebuild.
+            state.due = None;
+        }
     }
 
-    let config = crate::pds::find_road_config(&record.0)
-        .filter(|c| c.enabled)
-        .cloned();
-    let want = config.as_ref().and_then(|c| serde_json::to_string(c).ok());
-
-    // A record edit that didn't touch the road config, on stable terrain, is a
-    // no-op. A fresh heightmap (initial load / terrain regen) always re-meshes,
-    // since the draped geometry depends on the new surface.
-    if !heightmap.is_changed() && want == fingerprint.0 {
-        return;
+    // 2 — deadline reached: kick the extrusion for the CURRENT config (not a
+    // snapshot from arm time — later edits inside the debounce window are
+    // folded in), or sweep synchronously when the network went away.
+    if state.due.is_some_and(|d| now >= d) {
+        state.due = None;
+        let (config, want) = current_config(&record.0);
+        if want != state.live || heightmap.is_changed() {
+            match config {
+                Some(config) => {
+                    let hm = copy_heightmap(&heightmap.0);
+                    let task = bevy::tasks::AsyncComputeTaskPool::get()
+                        .spawn(async move { crate::urban::build_road_geometry(&hm, &config) });
+                    state.building = Some((want.unwrap_or_default(), task));
+                }
+                None => {
+                    for e in &existing {
+                        commands.entity(e).try_despawn();
+                    }
+                    state.building = None;
+                    state.live = None;
+                }
+            }
+        }
     }
 
-    for e in &existing {
-        commands.entity(e).try_despawn();
+    // 3 — a finished build swaps the meshes. The result may already be a step
+    // behind a still-armed debounce; applying it keeps the display fresh and
+    // the pending deadline rebuilds to the latest config right after.
+    let finished = if let Some((_, task)) = &mut state.building {
+        futures_lite::future::block_on(futures_lite::future::poll_once(task))
+    } else {
+        None
+    };
+    if let Some(parts) = finished {
+        let (built, _) = state.building.take().expect("building checked above");
+        for e in &existing {
+            commands.entity(e).try_despawn();
+        }
+        if let Some(parts) = &parts {
+            spawn_road_meshes(
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                did.as_deref(),
+                &heightmap.0,
+                parts,
+            );
+        }
+        state.live = Some(built);
     }
-    if let Some(config) = &config
-        && let Some(parts) = crate::urban::build_road_geometry(&heightmap.0, config)
+}
+
+/// Spawn the three road surface entities for `parts` — split from the
+/// rebuild system so the async completion path stays readable.
+fn spawn_road_meshes(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    did: Option<&CurrentRoomDid>,
+    heightmap: &HeightMap,
+    parts: &crate::urban::RoadParts,
+) {
+    // The ribbon lives in the full heightmap frame; the terrain mesh child
+    // is offset by -half, so the road shares that offset.
     {
-        // The ribbon lives in the full heightmap frame; the terrain mesh child
-        // is offset by -half, so the road shares that offset.
-        let world_extent = (heightmap.0.width() - 1) as f32 * heightmap.0.scale();
+        let world_extent = (heightmap.width() - 1) as f32 * heightmap.scale();
         let half = world_extent * 0.5;
         let offset = Transform::from_xyz(-half, 0.0, -half);
 
@@ -239,5 +343,4 @@ pub(super) fn maybe_rebuild_roads(
             }
         }
     }
-    fingerprint.0 = want;
 }

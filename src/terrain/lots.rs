@@ -53,9 +53,53 @@ const LOT_STREAM_SALT: u64 = 0x10C5_B011_D196_5EED;
 /// leaving daylight under the downhill edge (matches the settlement deriver).
 const FOUNDATION_SINK_M: f32 = 0.35;
 
-/// Per-seed building name prefix — the idempotency key for one layout.
+/// Per-seed building name prefix — the record-side half of the idempotency
+/// key for one layout (survives session restarts inside the saved record).
 fn seed_prefix(seed: u64) -> String {
     format!("{LOT_PREFIX}{seed}_")
+}
+
+/// Session-side idempotency key (#882): the layout-relevant subset of the
+/// network config. Only fields that feed `build_road_graph` — and thus move
+/// the enclosed blocks — participate; ribbon-profile dims (half-widths,
+/// curbs, skirt) re-mesh roads without moving lots, so editing them must
+/// NOT churn the buildings. The seed prefix alone missed spacing/extent
+/// edits, leaving buildings standing on the previous layout until a
+/// re-roll.
+fn layout_fingerprint(did: &str, c: &RoadConfig) -> String {
+    format!(
+        "{did}|{}|{}|{}|{}",
+        c.seed, c.district_half_extent.0, c.major_spacing.0, c.minor_spacing.0
+    )
+}
+
+/// What [`maybe_populate_lots`] should do for an active network, from the
+/// record state (`populated` = buildings with the current seed prefix
+/// exist) and the session fingerprint. Pure so the idempotency contract is
+/// unit-testable.
+#[derive(PartialEq, Eq, Debug)]
+enum LotAction {
+    /// Buildings match the current layout — leave them alone.
+    Skip,
+    /// Fresh session over a record that already carries this seed's
+    /// buildings (a load): adopt the fingerprint without churning the
+    /// record — saved buildings are trusted, exactly the pre-#882
+    /// behavior on load.
+    Adopt,
+    /// Layout changed (re-roll, spacing/extent edit, or nothing built
+    /// yet): strip stale buildings and repopulate.
+    Repopulate,
+}
+
+fn lot_action(populated: bool, session_fp: Option<&str>, current_fp: &str) -> LotAction {
+    if !populated {
+        return LotAction::Repopulate;
+    }
+    match session_fp {
+        Some(prev) if prev == current_fp => LotAction::Skip,
+        Some(_) => LotAction::Repopulate,
+        None => LotAction::Adopt,
+    }
 }
 
 /// Whether a placement (any referencing variant) targets an injected lot
@@ -214,51 +258,93 @@ pub(super) fn maybe_populate_lots(
     did: Option<Res<CurrentRoomDid>>,
     heightmap: Option<Res<FinishedHeightMap>>,
     mut undo_signals: ResMut<crate::ui::undo::RoomWriteSignals>,
+    time: Res<Time>,
+    // Session-side layout fingerprint (#882): `None` until the first
+    // decision this run, cleared when the network deactivates.
+    mut session_fp: Local<Option<String>>,
+    // Trailing re-derive debounce (#884): lot extraction re-traces the
+    // whole street graph, so a spacing-slider drag must cost one
+    // re-derive on release, not one per tick — the same cadence as the
+    // road re-mesh.
+    mut due: Local<Option<f64>>,
 ) {
     let Some(heightmap) = heightmap else {
         return;
     };
-    // Only consider work on frames where the terrain or the record changed.
-    if !heightmap.is_changed() && !record.is_changed() {
-        return;
-    }
+    let now = time.elapsed_secs_f64();
+    let did_str = did.as_ref().map_or("", |d| d.0.as_str());
 
-    let Some(config) = active_config(&record.0) else {
-        // No active lot-growing network (disabled, no roads, or populate off):
-        // sweep any buildings a prior config left behind.
-        if record
-            .0
-            .generators
-            .keys()
-            .any(|k| k.starts_with(LOT_PREFIX))
-        {
-            // Derived write (#862): fold the sweep into the edit that
-            // disabled the network, not a phantom undo entry of its own.
-            undo_signals.derived = true;
-            strip_lot_buildings(&mut record.0);
+    // 1 — change detection decides + arms. Sweeps (network gone) stay
+    // immediate: a toggle isn't a drag storm and leaving stale buildings
+    // up for the debounce window would flash them at the old layout.
+    if heightmap.is_changed() || record.is_changed() {
+        match active_config(&record.0) {
+            None => {
+                *session_fp = None;
+                *due = None;
+                if record
+                    .0
+                    .generators
+                    .keys()
+                    .any(|k| k.starts_with(LOT_PREFIX))
+                {
+                    // Derived write (#862): fold the sweep into the edit that
+                    // disabled the network, not a phantom undo entry of its own.
+                    undo_signals.derived = true;
+                    strip_lot_buildings(&mut record.0);
+                }
+                return;
+            }
+            Some(config) => {
+                let fp = layout_fingerprint(did_str, &config);
+                let prefix = seed_prefix(config.seed);
+                let populated = record.0.generators.keys().any(|k| k.starts_with(&prefix));
+                match lot_action(populated, session_fp.as_deref(), &fp) {
+                    // Layout matches the standing buildings — also cancels a
+                    // pending re-derive when an undo walked the edit back.
+                    LotAction::Skip => *due = None,
+                    LotAction::Adopt => {
+                        *session_fp = Some(fp);
+                        *due = None;
+                    }
+                    LotAction::Repopulate => {
+                        *due = Some(now + super::roads::ROAD_EDIT_DEBOUNCE_SECS)
+                    }
+                }
+            }
         }
-        return;
-    };
+    }
 
-    // Already populated for this exact layout? Leave it alone.
+    // 2 — deadline reached: re-evaluate against the CURRENT record (edits
+    // inside the debounce window fold in) and repopulate if still needed.
+    if !due.is_some_and(|d| now >= d) {
+        return;
+    }
+    *due = None;
+    let Some(config) = active_config(&record.0) else {
+        return; // the change branch above already swept
+    };
+    let fp = layout_fingerprint(did_str, &config);
     let prefix = seed_prefix(config.seed);
-    if record.0.generators.keys().any(|k| k.starts_with(&prefix)) {
+    let populated = record.0.generators.keys().any(|k| k.starts_with(&prefix));
+    if lot_action(populated, session_fp.as_deref(), &fp) != LotAction::Repopulate {
         return;
     }
 
-    // A different layout (re-roll) or none yet: clear stale, then repopulate.
-    // Derived write (#862): the strip + inject below are fallout of the
-    // road edit that changed the layout seed — fold them into that
-    // entry so one undo reverts the edit and its buildings together.
+    // A changed layout (re-roll, spacing / extent edit) or none yet: clear
+    // stale, then repopulate. Derived write (#862): the strip + inject
+    // below are fallout of the road edit that changed the layout — fold
+    // them into that entry so one undo reverts the edit and its buildings
+    // together.
     undo_signals.derived = true;
     let stripped = strip_lot_buildings(&mut record.0);
+    *session_fp = Some(fp);
     let lots = crate::urban::extract_building_lots(&heightmap.0, &config);
     if lots.is_empty() {
         // Nothing enclosed; the strip above (if any) already updated the record.
         let _ = stripped;
         return;
     }
-    let did_str = did.as_ref().map_or("", |d| d.0.as_str());
     inject_lot_buildings(&mut record.0, &lots, did_str, config.seed);
 }
 
@@ -280,6 +366,57 @@ mod tests {
     /// room's own theme has no landmark entry, so the pools are never empty.
     fn urban_did() -> String {
         "did:test:0".to_string()
+    }
+
+    #[test]
+    fn layout_fingerprint_tracks_layout_fields_only() {
+        // #882: the graph (and thus the lots) depends on seed + extent +
+        // spacings; ribbon-profile dims must NOT churn the buildings.
+        let base = RoadConfig::default();
+        let fp = |c: &RoadConfig| layout_fingerprint("did:test:0", c);
+
+        let mut spacing = base.clone();
+        spacing.major_spacing.0 += 10.0;
+        assert_ne!(fp(&base), fp(&spacing), "spacing edits move lots");
+
+        let mut extent = base.clone();
+        extent.district_half_extent.0 += 25.0;
+        assert_ne!(fp(&base), fp(&extent), "extent edits move lots");
+
+        let mut seeded = base.clone();
+        seeded.seed ^= 1;
+        assert_ne!(fp(&base), fp(&seeded), "re-roll moves lots");
+
+        let mut ribbon = base.clone();
+        ribbon.major_half_width.0 += 1.0;
+        ribbon.curb_height.0 += 0.1;
+        ribbon.skirt_depth.0 += 3.0;
+        assert_eq!(
+            fp(&base),
+            fp(&ribbon),
+            "ribbon-profile edits must not re-derive lots"
+        );
+
+        assert_ne!(
+            fp(&base),
+            layout_fingerprint("did:test:1", &base),
+            "fingerprint is per-room"
+        );
+    }
+
+    #[test]
+    fn lot_action_contract() {
+        let fp = "did|1|170|95|55";
+        let other = "did|1|170|105|55";
+        // Nothing built yet → populate, regardless of session state.
+        assert_eq!(lot_action(false, None, fp), LotAction::Repopulate);
+        assert_eq!(lot_action(false, Some(fp), fp), LotAction::Repopulate);
+        // Built + matching session fingerprint → leave alone.
+        assert_eq!(lot_action(true, Some(fp), fp), LotAction::Skip);
+        // Built + differing fingerprint (spacing edit, same seed) → rebuild.
+        assert_eq!(lot_action(true, Some(other), fp), LotAction::Repopulate);
+        // Built + fresh session (a load): trust the saved buildings, adopt.
+        assert_eq!(lot_action(true, None, fp), LotAction::Adopt);
     }
 
     #[test]

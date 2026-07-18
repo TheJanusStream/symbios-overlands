@@ -311,6 +311,7 @@ pub(crate) fn draw_generators_tab(
             dirty,
             blob_selected_element,
             &mut confirms.kind,
+            label,
         );
     });
 

@@ -200,7 +200,7 @@ impl Plugin for TerrainPlugin {
             .init_resource::<TerrainSplatState>()
             .init_resource::<LastTerrainConfigJson>()
             .init_resource::<PendingTerrainConfigJson>()
-            .init_resource::<roads::RoadFingerprint>()
+            .init_resource::<roads::RoadRebuild>()
             // Terrain + texture + mesh spawning runs as conditional Update
             // systems in both Loading and InGame so the same plumbing handles
             // the initial world build *and* in-place regeneration when the
