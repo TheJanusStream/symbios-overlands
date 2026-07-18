@@ -55,15 +55,31 @@ const TERRAIN_COLLIDER_MISSING: RuleHeader = RuleHeader {
     description: "no physics collider present in-game (nothing solid to stand on)",
     when_state: Some(AppState::InGame),
 };
+/// In-game dwell before the never-seen arm of `TerrainColliderMissing`
+/// may fire (#869): the 1 Hz collider gauge's newest sample can predate
+/// the terrain body on the InGame entry frame, which put a permanent
+/// (OncePerCondition) CRITICAL into every session report at t≈gate-exit.
+const TERRAIN_GRACE_SECS: f64 = 5.0;
+
 impl Rule for TerrainColliderMissing {
     fn header(&self) -> &RuleHeader {
         &TERRAIN_COLLIDER_MISSING
     }
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
         // The loading gate guarantees a solid terrain collider before InGame,
-        // so zero colliders here means the terrain body failed to spawn.
-        let n = gauge_last(cx, names::RUNTIME_COLLIDER_COUNT)?;
-        Some(if n < 1.0 {
+        // so zero colliders means the terrain body failed to spawn — but the
+        // gauge samples at 1 Hz, so give the entry frame its grace (#869):
+        // fire immediately only when colliders were SEEN and then vanished;
+        // otherwise require a few seconds of in-game dwell first.
+        let g = cx.metrics.gauge(names::RUNTIME_COLLIDER_COUNT)?;
+        if g.last() >= 1.0 {
+            return Some(Verdict::Clear);
+        }
+        let seen_then_lost = g.iter().any(|v| v >= 1.0);
+        let dwell_elapsed = cx
+            .ingame_elapsed_secs
+            .is_some_and(|t| t >= TERRAIN_GRACE_SECS);
+        Some(if seen_then_lost || dwell_elapsed {
             Verdict::violated("0 colliders in-game — terrain body missing")
         } else {
             Verdict::Clear
@@ -379,6 +395,7 @@ mod tests {
             state: AppState::InGame,
             metrics,
             loading_elapsed_secs: None,
+            ingame_elapsed_secs: Some(60.0),
             player_y: None,
             ground_y: None,
             nan_body_count: 0,
@@ -389,11 +406,39 @@ mod tests {
 
     #[test]
     fn terrain_collider_missing_fires_at_zero_colliders() {
+        // The shared ctx() dwell (60 s) is past the grace window, so the
+        // never-seen arm fires like the pre-#869 rule did.
         let mut m = MetricsRegistry::default();
         m.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 0.0);
         assert!(TerrainColliderMissing.eval(&ctx(&m)).unwrap().is_violated());
         m.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 3.0);
         assert_eq!(TerrainColliderMissing.eval(&ctx(&m)), Some(Verdict::Clear));
+    }
+
+    #[test]
+    fn terrain_collider_missing_grace_gates_the_entry_frame() {
+        // Entry-frame shape (#869): only zero samples so far (the 1 Hz
+        // gauge predates the terrain body) and sub-grace dwell → Clear.
+        let mut m = MetricsRegistry::default();
+        m.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 0.0);
+        let mut cx = ctx(&m);
+        cx.ingame_elapsed_secs = Some(1.0);
+        assert_eq!(TerrainColliderMissing.eval(&cx), Some(Verdict::Clear));
+        // Past the grace with still no collider ever seen → genuine miss.
+        cx.ingame_elapsed_secs = Some(TERRAIN_GRACE_SECS + 1.0);
+        assert!(TerrainColliderMissing.eval(&cx).unwrap().is_violated());
+    }
+
+    #[test]
+    fn terrain_collider_missing_seen_then_lost_fires_inside_grace() {
+        // Colliders existed and vanished — that is never a startup blip,
+        // so it must fire even inside the grace window.
+        let mut m = MetricsRegistry::default();
+        m.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 142.0);
+        m.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 0.0);
+        let mut cx = ctx(&m);
+        cx.ingame_elapsed_secs = Some(1.0);
+        assert!(TerrainColliderMissing.eval(&cx).unwrap().is_violated());
     }
 
     #[test]

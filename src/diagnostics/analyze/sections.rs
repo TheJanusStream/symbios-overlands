@@ -545,6 +545,44 @@ pub(super) fn write_metric_trends(s: &mut String, events: &[SessionEvent]) {
 
 // --- analyzer filters (B-5) -------------------------------------------------
 
+/// Physics events whose float payloads were non-finite at the source
+/// (#868): NaN restored from a pre-sentinel build's `null`, or the
+/// ±[`NON_FINITE_SENTINEL`](crate::diagnostics::event::NON_FINITE_SENTINEL)
+/// a current build writes. During the #867 meltdown these were exactly
+/// the forensically interesting lines, and the old typed parse dropped
+/// all 1,461 of them into the "unparseable" count — surfacing them as a
+/// section turns a NaN cascade into evidence.
+fn write_nonfinite_physics(s: &mut String, events: &[SessionEvent]) {
+    let suspect =
+        |v: f32| !v.is_finite() || v.abs() >= crate::diagnostics::event::NON_FINITE_SENTINEL;
+    let mut count = 0usize;
+    let mut first_t: Option<f64> = None;
+    let mut last_t = 0.0f64;
+    for e in events {
+        if let EventPayload::RespawnTriggered {
+            fell_to_y,
+            ground_y,
+        } = &e.payload
+            && (suspect(*fell_to_y) || suspect(*ground_y))
+        {
+            count += 1;
+            first_t.get_or_insert(e.t_mono_secs);
+            last_t = e.t_mono_secs;
+        }
+    }
+    let Some(first_t) = first_t else {
+        return;
+    };
+    let _ = writeln!(s);
+    let _ = writeln!(s, "[Non-Finite Physics Values]");
+    let _ = writeln!(
+        s,
+        "  {count} respawn event(s) carried NaN/Inf-derived positions \
+         ({first_t:.1}s–{last_t:.1}s) — the physics state was corrupt in \
+         this window; treat position/velocity metrics inside it as garbage"
+    );
+}
+
 /// Emit the analysis sections (`[Verdict]` … `[Invariant Violations]`) over
 /// `events` — the full log, or a [`super::Filters`]-selected subset. Split out so the
 /// filtered and unfiltered reports share one section pipeline.
@@ -578,6 +616,9 @@ pub(super) fn write_sections(s: &mut String, events: &[SessionEvent]) {
 
     // -- metric-series trends (B-3) -------------------------------------------
     write_metric_trends(s, events);
+
+    // -- non-finite physics values (#868) -------------------------------------
+    write_nonfinite_physics(s, events);
 
     // -- invariant violations (D-5) -------------------------------------------
     // The offline counterpart to the live anomaly engine: replay the shared rule

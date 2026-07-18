@@ -75,6 +75,10 @@ pub struct LiveCtx<'a> {
     pub metrics: &'a MetricsRegistry,
     /// Seconds spent in `Loading` so far — `Some` only while loading.
     pub loading_elapsed_secs: Option<f64>,
+    /// Seconds spent in `InGame` so far — `Some` only in-game (#869).
+    /// Grace-gates rules whose 1 Hz gauge samples can predate the world
+    /// finishing its spawn on the entry frame.
+    pub ingame_elapsed_secs: Option<f64>,
     /// Local player world-Y and the terrain height beneath it, when known.
     pub player_y: Option<f32>,
     pub ground_y: Option<f32>,
@@ -161,6 +165,7 @@ mod tests {
             state: AppState::InGame,
             metrics: &metrics,
             loading_elapsed_secs: None,
+            ingame_elapsed_secs: Some(60.0),
             player_y: None,
             ground_y: None,
             nan_body_count: 0,

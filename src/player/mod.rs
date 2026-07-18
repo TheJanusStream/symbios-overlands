@@ -283,8 +283,15 @@ fn avatar_visuals_row_selected(avatar_editor: Option<Res<AvatarEditorState>>) ->
 /// Marker carried by the chassis while the visuals-edit freeze is
 /// engaged, remembering the [`LockedAxes`] to restore on release (the
 /// humanoid preset locks rotation; the vehicle presets carry none).
+///
+/// `pub(super)` since #867: the locomotion hot-swap defers its body
+/// rebuild while this marker is present — replacing the `Collider` on a
+/// parked, touching body corrupts avian 0.6's contact bookkeeping the
+/// same way the #740 `RigidBodyDisabled` cycle does, and the corrupted
+/// pair surfaces on release as a fall-through-the-world + runaway
+/// respawn feedback that ends in NaN.
 #[derive(Component)]
-struct VisualsEditFreeze {
+pub(super) struct VisualsEditFreeze {
     prior_locked_axes: Option<LockedAxes>,
 }
 

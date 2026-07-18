@@ -295,6 +295,87 @@ fn axis_lock_freeze_toggles_during_motion_keep_constraint_graph_in_sync() {
     }
 }
 
+/// #867 canary: replace the COLLIDER (the locomotion hot-swap's strip +
+/// rebuild) on a chassis that is parked by the freeze and touching the
+/// ground — the sequence behind the avatar re-roll meltdown (re-seed
+/// changes the chassis family while the Avatar editor freeze holds the
+/// body, then the editor closes). Mimics the app systems exactly:
+/// `strip_preset_components` removes `Collider`/`Mass`/`LockedAxes` and
+/// the build inserts the new family's in the same command flush; the
+/// freeze's re-assert arm re-locks on the following frame; visual
+/// children rebuild alongside; release restores the preset's axes.
+///
+/// Since #867 the app DEFERS the swap until the freeze releases (the
+/// rebuild system's `Without<VisualsEditFreeze>` gate), so this exact
+/// sequence no longer occurs in-game. The test pins down how avian 0.6
+/// behaves if it ever regresses: the body must stay finite, stay on the
+/// ground, and keep the constraint graph in sync through release.
+/// If this fails after an avian upgrade the deferral must stay; if the
+/// upgrade also fixes #740, both workarounds can be revisited together.
+#[test]
+fn collider_replace_while_parked_and_touching_survives_release() {
+    let mut app = app_with_physics();
+    app.world_mut()
+        .spawn((RigidBody::Static, heightfield_ground(), Transform::IDENTITY));
+    let chassis = spawn_chassis(&mut app);
+    spawn_visual_children(&mut app, chassis);
+
+    // Land and settle into a touching contact.
+    step_checked(&mut app, 60, "settle");
+    engage_freeze(&mut app, chassis);
+    step_frozen(&mut app, chassis, 20, "frozen");
+
+    // Four kind-changing re-seeds while parked: strip + rebuild with a
+    // different collider shape each round (capsule ↔ cuboid hull), the
+    // freeze re-assert re-locking one frame later, visuals churning too.
+    let shapes = [
+        Collider::cuboid(1.6, 0.6, 0.8), // boat-ish hull
+        Collider::capsule(0.35, 0.9),    // humanoid
+        Collider::cuboid(1.1, 0.5, 2.2), // car-ish hull
+        Collider::capsule(0.4, 1.1),     // humanoid re-roll
+    ];
+    for (round, shape) in shapes.into_iter().enumerate() {
+        {
+            let mut e = app.world_mut().entity_mut(chassis);
+            // strip_preset_components: collider + mass + axes gone…
+            e.remove::<(Collider, Mass, LockedAxes)>();
+            // …build_preset_components: new family, preset axes.
+            e.insert((shape, Mass(60.0), HUMANOID_AXES));
+        }
+        rebuild_children(&mut app, chassis);
+        // One step with the preset's axes before the freeze re-assert
+        // arm notices and re-locks (state-synced, next frame).
+        set_velocity(&mut app, chassis, Vec3::ZERO);
+        app.update();
+        assert_graph_in_sync(&mut app, "reseed-swap", round);
+        app.world_mut()
+            .entity_mut(chassis)
+            .insert(LockedAxes::ALL_LOCKED);
+        step_frozen(&mut app, chassis, 20, &format!("reseed-parked-{round}"));
+    }
+
+    // Close the editor: freeze releases, gravity + preset axes return.
+    release_freeze(&mut app, chassis);
+
+    // ~5 s of live simulation: the meltdown signature was a clean free
+    // fall through the ground within the first second, NaN inside two.
+    for i in 0..300 {
+        app.update();
+        assert_graph_in_sync(&mut app, "released", i);
+        let tf = *app.world().entity(chassis).get::<Transform>().unwrap();
+        assert!(
+            tf.translation.is_finite(),
+            "chassis went non-finite after release at step {i}: {:?}",
+            tf.translation
+        );
+        assert!(
+            tf.translation.y > -2.0,
+            "chassis fell through the ground after release at step {i}: y={}",
+            tf.translation.y
+        );
+    }
+}
+
 /// Upstream canary, kept `#[ignore]`d: the raw `RigidBodyDisabled`
 /// insert→remove cycle this file's freeze recipe exists to avoid. On
 /// avian 0.6.1 it dies in `Islands::add_contact`

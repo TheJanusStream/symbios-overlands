@@ -94,10 +94,30 @@ pub(super) fn detect_local_locomotion_change(
 /// components and visuals. Runs in `Update` on the main schedule so Avian
 /// sees the removed/inserted components on the next physics step without
 /// a race.
+///
+/// DEFERRED while the visuals-edit freeze parks the chassis (#867,
+/// `Without<VisualsEditFreeze>`): stripping + reinserting the `Collider`
+/// on a parked body that is touching the terrain corrupts avian 0.6's
+/// contact/island bookkeeping — the same class as the #740
+/// `RigidBodyDisabled` cycle the freeze itself avoids — and the broken
+/// pair surfaces on freeze release as a clean fall through the world
+/// followed by a runaway respawn→NaN feedback (the #867 meltdown).
+/// `NeedsLocomotionRebuild` simply stays parked on the entity; the
+/// freeze holds the pose so the stale body is invisible mid-edit, and
+/// the marker is removed at release-time flush, so this system applies
+/// the rebuild on the first frame the body is live again. Visuals-only
+/// edits keep flowing through [`rebuild_local_visuals`] regardless.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn apply_local_locomotion_rebuild(
     mut commands: Commands,
-    players: Query<(Entity, Option<&Children>), (With<LocalPlayer>, With<NeedsLocomotionRebuild>)>,
+    players: Query<
+        (Entity, Option<&Children>),
+        (
+            With<LocalPlayer>,
+            With<NeedsLocomotionRebuild>,
+            Without<super::VisualsEditFreeze>,
+        ),
+    >,
     orphan_visuals: Query<Entity, (With<AvatarVisualPrim>, Without<ChildOf>)>,
     live: Res<LiveAvatarRecord>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -152,13 +172,29 @@ fn despawn_orphan_avatar_visuals(
 /// Non-variant changes (slider tweaks inside the *same* preset, or
 /// visuals-tree edits) only need new visual children — rigid-body
 /// identity stays intact.
+///
+/// The `NeedsLocomotionRebuild` skip only applies while the body rebuild
+/// can actually run this frame: since #867 defers that rebuild for the
+/// whole frozen editing session, a kind-changing re-seed would otherwise
+/// starve the cosmetic repaint too and the re-roll stayed invisible
+/// until the editor closed (#870). While the freeze marker is present
+/// the visuals repaint here on every record change — physics components
+/// stay untouched, which is exactly what the deferral protects — at the
+/// cost of one redundant repaint when the deferred rebuild lands at
+/// release.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn rebuild_local_visuals(
     mut commands: Commands,
     live: Res<LiveAvatarRecord>,
     players: Query<
         (Entity, Option<&Children>),
-        (With<LocalPlayer>, Without<NeedsLocomotionRebuild>),
+        (
+            With<LocalPlayer>,
+            Or<(
+                Without<NeedsLocomotionRebuild>,
+                With<super::VisualsEditFreeze>,
+            )>,
+        ),
     >,
     orphan_visuals: Query<Entity, (With<AvatarVisualPrim>, Without<ChildOf>)>,
     mut meshes: ResMut<Assets<Mesh>>,

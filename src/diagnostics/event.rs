@@ -140,6 +140,12 @@ pub struct StartupInfo {
 ///
 /// Fields carry only serde-friendly scalars/strings — domain values (peer ids,
 /// DIDs, positions) are pre-formatted to strings/arrays at the call site.
+///
+/// f32 fields whose values can go non-finite (physics state) must route
+/// through [`finite_or_sentinel`] at the emit site: `serde_json` writes
+/// NaN/±Inf as `null`, silently breaking the NDJSON schema — that is how
+/// the offline analyzer dropped 1,461 lines of the #867 meltdown as
+/// "unparseable" (#868).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "kind")]
 pub enum EventPayload {
@@ -460,8 +466,23 @@ pub enum EventPayload {
 
     // ---- Runtime health ----------------------------------------------------
     RespawnTriggered {
+        // `deserialize_with` (#868): pre-sentinel builds wrote non-finite
+        // values as `null`; mapping those back to NaN keeps old incident
+        // logs analyzable instead of dropping the exact lines that
+        // describe a NaN cascade as "unparseable".
+        #[serde(deserialize_with = "f32_null_as_nan")]
         fell_to_y: f32,
+        #[serde(deserialize_with = "f32_null_as_nan")]
         ground_y: f32,
+    },
+    /// The respawn safety net escalated (#867): repeated respawns inside
+    /// the thrash window, or a non-finite body state, mean plain
+    /// teleports are not recovering — the whole physics body (collider,
+    /// mass, preset) is stripped and rebuilt to shed corrupted solver
+    /// state.
+    PhysicsBodyRebuilt {
+        respawns_recent: u32,
+        non_finite: bool,
     },
     PortalTravelInitiated {
         target_did: String,
@@ -555,6 +576,7 @@ impl EventPayload {
             | WorkerSpawnFailed { .. } => Subsystem::Offload,
 
             RespawnTriggered { .. }
+            | PhysicsBodyRebuilt { .. }
             | GiantAllocation { .. }
             | PortalTravelInitiated { .. }
             | PortalTravelCompleted { .. }
@@ -640,7 +662,7 @@ impl EventPayload {
             | OffloadTaskTimeout { .. }
             | WorkerSpawnFailed { .. } => Category::Job,
 
-            RespawnTriggered { .. } => Category::Physics,
+            RespawnTriggered { .. } | PhysicsBodyRebuilt { .. } => Category::Physics,
 
             GiantAllocation { .. } => Category::Perf,
 
@@ -914,12 +936,54 @@ impl EventPayload {
             } => {
                 format!("respawn: fell to y={fell_to_y:.1} (ground {ground_y:.1})")
             }
+            PhysicsBodyRebuilt {
+                respawns_recent,
+                non_finite,
+            } => format!(
+                "physics body rebuilt ({respawns_recent} respawns in window{})",
+                if *non_finite {
+                    ", non-finite state"
+                } else {
+                    ""
+                }
+            ),
             PortalTravelInitiated { target_did } => format!("portal → {target_did}"),
             PortalTravelCompleted { target_did } => format!("portal arrived {target_did}"),
             PortalTravelFailed { target_did, reason } => {
                 format!("portal → {target_did} FAILED ({reason})")
             }
         }
+    }
+}
+
+/// Sentinel magnitude [`finite_or_sentinel`] substitutes for non-finite
+/// floats: far beyond any legitimate world coordinate, well inside f32
+/// range, and round-trip-stable through JSON.
+pub const NON_FINITE_SENTINEL: f32 = 1.0e30;
+
+/// Deserialize an `f32` that a pre-#868 build may have written as
+/// `null` (`serde_json` encodes NaN/±Inf that way): map `null` back to
+/// NaN so old incident logs parse.
+fn f32_null_as_nan<'de, D>(d: D) -> Result<f32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(<Option<f32> as serde::Deserialize>::deserialize(d)?.unwrap_or(f32::NAN))
+}
+
+/// Clamp a physics-derived float into something `serde_json` can encode
+/// (#868): NaN/±Inf would serialize as `null` and break the NDJSON
+/// schema for every downstream reader. NaN maps to the positive
+/// sentinel; ±Inf keep their sign. The magnitude is recognisably
+/// impossible, so a report line reading `1e30` says "non-finite at the
+/// source" rather than pretending precision.
+pub fn finite_or_sentinel(v: f32) -> f32 {
+    if v.is_finite() {
+        v
+    } else if v == f32::NEG_INFINITY {
+        -NON_FINITE_SENTINEL
+    } else {
+        NON_FINITE_SENTINEL
     }
 }
 

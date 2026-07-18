@@ -30,6 +30,9 @@ use crate::state::{AppState, LocalPlayer};
 #[derive(Resource, Default)]
 pub struct LoadingClock {
     entered_at: Option<f64>,
+    /// Session-relative stamp of the Loading → InGame transition (#869);
+    /// `None` until the first gate exit and across re-logins.
+    ingame_entered_at: Option<f64>,
 }
 
 impl LoadingClock {
@@ -38,6 +41,12 @@ impl LoadingClock {
     /// against the same clock the stall rule measures (C-5).
     pub fn entered_at(&self) -> Option<f64> {
         self.entered_at
+    }
+
+    /// Session-relative seconds when `InGame` was entered, or `None`
+    /// before the first loading-gate exit (#869).
+    pub fn ingame_entered_at(&self) -> Option<f64> {
+        self.ingame_entered_at
     }
 }
 
@@ -155,6 +164,9 @@ fn diagnostic_tick(
     let loading_elapsed_secs = (cur_state == AppState::Loading)
         .then(|| loading_clock.entered_at.map(|t| now - t))
         .flatten();
+    let ingame_elapsed_secs = (cur_state == AppState::InGame)
+        .then(|| loading_clock.ingame_entered_at.map(|t| now - t))
+        .flatten();
     let player_pos = player_q.iter().next().map(|t| t.translation);
     let player_y = player_pos.map(|p| p.y);
     // Terrain height under the player, for the fell-through-terrain rule —
@@ -189,6 +201,7 @@ fn diagnostic_tick(
         state: cur_state,
         metrics: &metrics,
         loading_elapsed_secs,
+        ingame_elapsed_secs,
         player_y,
         ground_y,
         nan_body_count,
@@ -206,6 +219,9 @@ fn loading_clock_enter(
 ) {
     let now = time.elapsed_secs_f64();
     clock.entered_at = Some(now);
+    // A fresh login's gate is starting: the previous session's InGame
+    // stamp must not grace-exempt (or prematurely arm) this one's rules.
+    clock.ingame_entered_at = None;
     // Mark the loading-gate open in the session stream (B-2 timeline start +
     // the LoadingGateStall replay rule's start marker).
     log.info(now, EventPayload::LoadingPhaseStarted);
@@ -233,6 +249,9 @@ fn loading_clock_exit(
         );
     }
     clock.entered_at = None;
+    // The only exit from Loading is into InGame (see above): stamp the
+    // in-game dwell clock the grace-gated rules read (#869).
+    clock.ingame_entered_at = Some(time.elapsed_secs_f64());
 }
 
 /// Installs the live anomaly engine: the shared rule registry, the loading
@@ -266,6 +285,7 @@ mod tests {
             state: AppState::InGame,
             metrics,
             loading_elapsed_secs: None,
+            ingame_elapsed_secs: Some(60.0),
             player_y: None,
             ground_y: None,
             nan_body_count: 0,
