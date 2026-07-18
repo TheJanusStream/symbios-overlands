@@ -116,9 +116,9 @@ pub(super) fn draw_detail_panel(
 
     let salt = node_salt(&id);
 
-    // Resolved BEFORE the mutable node borrow below: which node (if any)
-    // the terrain plugin actually reads roads from (#886).
-    let active_road_node = active_road_node_id(source);
+    // Resolved BEFORE the mutable node borrow below: which nodes the
+    // terrain plugin actually reads roads from (#886/#895).
+    let active_road_nodes = active_road_node_ids(source);
 
     if let Some(node) = find_node_mut(source, &id) {
         let child_count = node.children.len();
@@ -140,14 +140,15 @@ pub(super) fn draw_detail_panel(
         // under the deterministically-chosen Terrain root is ever read
         // (`find_road_config`); anywhere else the node is silently inert
         // — say so instead of letting a dead panel look live.
-        if matches!(node.kind, GeneratorKind::RoadNetwork(_))
-            && active_road_node.as_ref() != Some(&id)
-        {
+        if matches!(node.kind, GeneratorKind::RoadNetwork(_)) && !active_road_nodes.contains(&id) {
             ui.colored_label(
                 crate::ui::theme::current(ui.ctx()).status.warn,
-                "This node grows no roads: only the first RoadNetwork placed \
-                 directly under the Terrain generator is read. Move it there — \
-                 or remove it if another network already occupies that slot.",
+                format!(
+                    "This node grows no roads: only the first {} RoadNetwork nodes \
+                     placed directly under the Terrain generator are read. Move it \
+                     there — or remove it if those slots are taken.",
+                    crate::pds::room::MAX_ROAD_NETWORKS
+                ),
             );
         }
 
@@ -193,13 +194,13 @@ pub(super) fn draw_detail_panel(
     }
 }
 
-/// The node id the terrain plugin reads its road network from, mirroring
-/// [`crate::pds::room::find_road_config`]'s selection rule exactly: the
-/// FIRST `RoadNetwork` among the direct children of the sorted-first
-/// Terrain root — and only that root, even when it carries no network.
-/// `None` when the tree has no active network. Drives the #886 misplaced-
-/// node warning.
-fn active_road_node_id(source: &dyn GeneratorTreeSource) -> Option<GenNodeId> {
+/// The node ids the terrain plugin reads road networks from, mirroring
+/// [`crate::pds::room::find_road_configs`]'s selection rule exactly: the
+/// first [`crate::pds::room::MAX_ROAD_NETWORKS`] `RoadNetwork` children of
+/// the sorted-first Terrain root — and only that root, even when it carries
+/// none. Empty when the tree has no active network. Drives the #886
+/// misplaced-node warning.
+fn active_road_node_ids(source: &dyn GeneratorTreeSource) -> Vec<GenNodeId> {
     for name in source.root_names() {
         let Some(root) = source.get_root(&name) else {
             continue;
@@ -208,11 +209,14 @@ fn active_road_node_id(source: &dyn GeneratorTreeSource) -> Option<GenNodeId> {
             return root
                 .children
                 .iter()
-                .position(|c| matches!(c.kind, GeneratorKind::RoadNetwork(_)))
-                .map(|i| GenNodeId::child(name, vec![i]));
+                .enumerate()
+                .filter(|(_, c)| matches!(c.kind, GeneratorKind::RoadNetwork(_)))
+                .take(crate::pds::room::MAX_ROAD_NETWORKS)
+                .map(|(i, _)| GenNodeId::child(name.clone(), vec![i]))
+                .collect();
         }
     }
-    None
+    Vec::new()
 }
 
 /// Inline editor for a [`crate::pds::generator::RoadConfig`] (the RoadNetwork
@@ -264,10 +268,13 @@ fn draw_road_editor(
     if let Some(stats) = road_stats {
         let theme = crate::ui::theme::current(ui.ctx());
         if stats.built {
-            let text = format!(
+            let mut text = format!(
                 "{} streets · {} junctions · {} buildings · {} verts",
                 stats.streets, stats.junctions, stats.buildings, stats.vertices
             );
+            if stats.props > 0 {
+                text.push_str(&format!(" · {} props", stats.props));
+            }
             let heavy = stats.vertices > ROAD_HEAVY_VERTS;
             let color = if heavy {
                 theme.status.warn
@@ -367,6 +374,22 @@ fn draw_road_editor(
         .show(ui, |ui| {
             seed_row(ui, config, dirty, undo_label);
             ui.add_space(4.0);
+            // Street-plan style (#890).
+            ui.horizontal(|ui| {
+                ui.label("Style:");
+                for (value, label, tip) in crate::pds::generator::RoadStyle::pickers() {
+                    if ui
+                        .selectable_label(config.style == value, label)
+                        .on_hover_text(tip)
+                        .clicked()
+                        && config.style != value
+                    {
+                        config.style = value;
+                        undo_label.set(format!("road style {label}"));
+                        *dirty = true;
+                    }
+                }
+            });
             road_slider(
                 ui,
                 &mut config.district_half_extent.0,
@@ -477,6 +500,85 @@ fn draw_road_editor(
             );
         });
 
+    egui::CollapsingHeader::new("Appearance")
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.label(
+                egui::RichText::new(
+                    "Overrides the room theme's road look. Unchecked = theme \
+                     default. Colour edits apply instantly (no rebuild).",
+                )
+                .small()
+                .weak(),
+            );
+            let ap = &mut config.appearance;
+            // One override row: checkbox arms the Option, colour button edits it.
+            let mut color_row = |ui: &mut egui::Ui,
+                                 slot: &mut Option<crate::pds::Fp3>,
+                                 label: &str,
+                                 armed_default: [f32; 3]| {
+                ui.horizontal(|ui| {
+                    let mut on = slot.is_some();
+                    if ui.checkbox(&mut on, label).changed() {
+                        *slot = on.then_some(crate::pds::Fp3(armed_default));
+                        undo_label.set(format!("road {label} override"));
+                        *dirty = true;
+                    }
+                    if let Some(c) = slot
+                        && ui.color_edit_button_rgb(&mut c.0).changed()
+                    {
+                        undo_label.set(format!("road {label}"));
+                        *dirty = true;
+                    }
+                });
+            };
+            color_row(ui, &mut ap.deck_color, "Deck colour", [0.03, 0.03, 0.035]);
+            color_row(
+                ui,
+                &mut ap.structure_color,
+                "Curb/skirt colour",
+                [0.09, 0.09, 0.10],
+            );
+            color_row(ui, &mut ap.neon_color, "Edge-line colour", [0.6, 0.8, 1.0]);
+            ui.horizontal(|ui| {
+                let mut on = ap.deck_roughness.is_some();
+                if ui.checkbox(&mut on, "Deck roughness").changed() {
+                    ap.deck_roughness = on.then_some(crate::pds::Fp(0.22));
+                    undo_label.set("road deck roughness override".to_string());
+                    *dirty = true;
+                }
+                if let Some(r) = &mut ap.deck_roughness
+                    && ui
+                        .add(egui::Slider::new(&mut r.0, 0.0..=1.0).step_by(0.01))
+                        .changed()
+                {
+                    undo_label.set("road deck roughness".to_string());
+                    *dirty = true;
+                }
+            });
+            ui.horizontal(|ui| {
+                let mut on = ap.neon_strength.is_some();
+                if ui.checkbox(&mut on, "Edge-line strength").changed() {
+                    ap.neon_strength = on.then_some(crate::pds::Fp(2.5));
+                    undo_label.set("road edge strength override".to_string());
+                    *dirty = true;
+                }
+                if let Some(s) = &mut ap.neon_strength
+                    && ui
+                        .add(egui::Slider::new(&mut s.0, 0.0..=10.0).step_by(0.1))
+                        .changed()
+                {
+                    undo_label.set("road edge strength".to_string());
+                    *dirty = true;
+                }
+            });
+            if !ap.is_all_theme() && ui.button("⟲ Theme defaults").clicked() {
+                *ap = Default::default();
+                undo_label.set("road appearance reset".to_string());
+                *dirty = true;
+            }
+        });
+
     egui::CollapsingHeader::new("Lots")
         .default_open(true)
         .show(ui, |ui| {
@@ -491,6 +593,119 @@ fn draw_road_editor(
                 undo_label.set("road lots toggle".to_string());
                 *dirty = true;
             }
+            if !config.populate_lots {
+                return;
+            }
+            let lots = &mut config.lots;
+            if ui
+                .add(egui::Slider::new(&mut lots.density.0, 0.0..=1.0).text("Density"))
+                .on_hover_text("Fraction of lots that grow a building — the largest lots win")
+                .changed()
+            {
+                undo_label.set("lot density".to_string());
+                *dirty = true;
+            }
+            // Building-theme override (#892): "Room theme" or an explicit
+            // archetype, stored as a lenient label string.
+            ui.horizontal(|ui| {
+                ui.label("Theme:");
+                let current = if lots.theme_override.trim().is_empty() {
+                    "Room theme".to_string()
+                } else {
+                    lots.theme_override.clone()
+                };
+                egui::ComboBox::from_id_salt("road_lot_theme")
+                    .selected_text(current)
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_label(lots.theme_override.trim().is_empty(), "Room theme")
+                            .clicked()
+                            && !lots.theme_override.is_empty()
+                        {
+                            lots.theme_override.clear();
+                            undo_label.set("lot theme override cleared".to_string());
+                            *dirty = true;
+                        }
+                        for t in crate::seeded_defaults::ThemeArchetype::ALL {
+                            let label = t.label();
+                            if ui
+                                .selectable_label(
+                                    lots.theme_override.eq_ignore_ascii_case(label),
+                                    label,
+                                )
+                                .clicked()
+                                && !lots.theme_override.eq_ignore_ascii_case(label)
+                            {
+                                lots.theme_override = label.to_string();
+                                undo_label.set(format!("lot theme {label}"));
+                                *dirty = true;
+                            }
+                        }
+                    });
+            });
+            ui.horizontal(|ui| {
+                ui.label("Mix:");
+                for (value, label, tip) in crate::pds::generator::LotTierBias::pickers() {
+                    if ui
+                        .selectable_label(lots.tier_bias == value, label)
+                        .on_hover_text(tip)
+                        .clicked()
+                        && lots.tier_bias != value
+                    {
+                        lots.tier_bias = value;
+                        undo_label.set(format!("lot mix {label}"));
+                        *dirty = true;
+                    }
+                }
+            });
+            ui.separator();
+            if ui
+                .checkbox(&mut config.furniture.enabled, "Street furniture")
+                .on_hover_text(
+                    "Plant theme props (lamps, signs, clutter) along the streets, \
+                     just outside the curbs, sides alternating.",
+                )
+                .changed()
+            {
+                undo_label.set("street furniture toggle".to_string());
+                *dirty = true;
+            }
+            if config.furniture.enabled
+                && ui
+                    .add(
+                        egui::Slider::new(&mut config.furniture.spacing.0, 8.0..=200.0)
+                            .text("Prop spacing (m)"),
+                    )
+                    .changed()
+            {
+                undo_label.set("street furniture spacing".to_string());
+                *dirty = true;
+            }
+            ui.separator();
+            let lots = &mut config.lots;
+            ui.horizontal(|ui| {
+                ui.label("Building scale");
+                let mut changed = false;
+                changed |= ui
+                    .add(
+                        egui::DragValue::new(&mut lots.scale_min.0)
+                            .speed(0.05)
+                            .range(0.1..=5.0),
+                    )
+                    .changed();
+                ui.label("to");
+                changed |= ui
+                    .add(
+                        egui::DragValue::new(&mut lots.scale_max.0)
+                            .speed(0.05)
+                            .range(0.1..=5.0),
+                    )
+                    .changed();
+                if changed {
+                    undo_label.set("lot building scale".to_string());
+                    *dirty = true;
+                }
+            });
         });
 }
 

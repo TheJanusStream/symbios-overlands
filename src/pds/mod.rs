@@ -156,8 +156,9 @@ pub use inventory::{
 };
 pub use prim::PropMeshType;
 pub use room::{
-    DefaultLanding, Environment, RoomRecord, delete_room_record, fetch_room_record,
-    find_road_config, find_terrain_config, publish_room_record, reset_room_record,
+    DefaultLanding, Environment, MAX_ROAD_NETWORKS, RoomRecord, delete_room_record,
+    fetch_room_record, find_road_config, find_road_configs, find_terrain_config,
+    publish_room_record, reset_room_record,
 };
 pub use sanitize::{limits, sanitize_avatar_visuals, sanitize_generator};
 pub use terrain::{

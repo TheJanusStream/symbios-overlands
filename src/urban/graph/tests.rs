@@ -117,3 +117,32 @@ fn weld_is_idempotent() {
         "second pass welds nothing"
     );
 }
+
+/// #890: the style presets genuinely change the traced topology — a Grid
+/// district on sloped terrain differs from the Hillside default — while the
+/// forward-compat `Unknown` arm traces exactly as Hillside.
+#[test]
+fn road_style_changes_the_traced_graph() {
+    use crate::pds::generator::RoadStyle;
+    let hm = sloped_heightmap();
+    let graph_for = |style: RoadStyle| {
+        let mut c = cfg(7);
+        c.style = style;
+        build_road_graph_raw(&hm, &c).map(|(g, _, _)| {
+            (
+                g.nodes.len(),
+                g.nodes
+                    .iter()
+                    .map(|n| (n.position.x, n.position.y))
+                    .collect::<Vec<_>>(),
+            )
+        })
+    };
+    let hillside = graph_for(RoadStyle::Hillside).expect("hillside traces");
+    let grid = graph_for(RoadStyle::Grid).expect("grid traces");
+    let organic = graph_for(RoadStyle::Organic).expect("organic traces");
+    let unknown = graph_for(RoadStyle::Unknown).expect("unknown traces");
+    assert_eq!(unknown, hillside, "Unknown must trace as Hillside");
+    assert_ne!(grid.1, hillside.1, "Grid must reshape the network");
+    assert_ne!(organic.1, hillside.1, "Organic must reshape the network");
+}

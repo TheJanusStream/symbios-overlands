@@ -34,10 +34,16 @@ const CURB_RETURN_FACTOR: f32 = 1.5;
 /// wide gap can't balloon the corner apron well past the curb line.
 const CURB_RETURN_MAX_SAG_FACTOR: f32 = 0.8;
 /// Above this |cos| between two adjacent arms' headings the two are collinear —
-/// a through road's two halves (anti-parallel) or an acute fork (parallel) — so
-/// the gap is a near-straight curb and its fillet stays flat (sagitta 0) rather
-/// than bumping a straight edge. Acute forks are blended properly by #578.
+/// a through road's two halves (anti-parallel) or an acute fork (parallel).
+/// The through road's far edge stays a straight curb (sagitta 0); the acute
+/// fork grows a smooth merge crotch instead (#578/#894), told apart by which
+/// side of the hub the two mouths sit on (headings carry arbitrary sign, so
+/// the dot's sign can't be trusted).
 const FILLET_STRAIGHT_COS: f32 = 0.95;
+/// Cap on the acute-merge crotch depth as a multiple of the deck half-width
+/// (#894) — the ideal crotch (`gap/2 ÷ tan(θ/2)`) diverges as the fork
+/// closes, and an unbounded teardrop would spear far down the roads.
+const ACUTE_MERGE_MAX_FACTOR: f32 = 2.5;
 /// Arc segments per curb-return fillet — sampled finely enough to read as a
 /// smooth curve after the along-arc normal averaging.
 const FILLET_SEG: usize = 6;
@@ -222,17 +228,32 @@ pub(crate) fn extrude_hubs(
             ]);
             let radius = CURB_RETURN_FACTOR * half_w;
             let h = chord * 0.5;
-            let sag = if straight {
-                0.0
+            let arc = if straight {
+                // Same-side mouths ⇒ an acute fork: grow the smooth-merge
+                // crotch (#894) — a teardrop whose apex sits where the two
+                // outer curbs would meet, capped so a razor-thin fork can't
+                // spear off down the roads. Opposite-side mouths ⇒ a through
+                // road's far edge: keep the straight curb.
+                let same_side = (cl[0] - center[0]) * (cr[0] - center[0])
+                    + (cl[1] - center[2]) * (cr[1] - center[2])
+                    > 0.0;
+                if same_side {
+                    let cos_abs = (dir_l[0] * dir_r[0] + dir_l[1] * dir_r[1]).abs().min(1.0);
+                    let tan_half = ((1.0 - cos_abs) / (1.0 + cos_abs)).sqrt().max(0.02);
+                    let depth = (h / tan_half).min(ACUTE_MERGE_MAX_FACTOR * half_w);
+                    merge_bezier(o_l, o_r, bd, depth, FILLET_SEG)
+                } else {
+                    fillet_arc(o_l, o_r, bd, 0.0, FILLET_SEG)
+                }
             } else {
                 let s = if radius > h {
                     radius - (radius * radius - h * h).sqrt()
                 } else {
                     h
                 };
-                s.min(CURB_RETURN_MAX_SAG_FACTOR * half_w).min(0.45 * chord)
+                let sag = s.min(CURB_RETURN_MAX_SAG_FACTOR * half_w).min(0.45 * chord);
+                fillet_arc(o_l, o_r, bd, sag, FILLET_SEG)
             };
-            let arc = fillet_arc(o_l, o_r, bd, sag, FILLET_SEG);
 
             // Per-arc-sample curb cross-section, the inner edge riding the deck's
             // straight chord (deck untouched) and the chamfer/skirt rounding out to
@@ -297,6 +318,35 @@ pub(crate) fn extrude_hubs(
 /// whichever way each arm's recorded heading happens to point.
 pub(crate) fn fillet_gap_is_straight(dir_l: [f32; 2], dir_r: [f32; 2]) -> bool {
     (dir_l[0] * dir_r[0] + dir_l[1] * dir_r[1]).abs() > FILLET_STRAIGHT_COS
+}
+
+/// Sample a quadratic Bézier from `a` to `b` whose control point sits `depth`
+/// out along `bd` from the chord midpoint — the acute-fork merge crotch
+/// (#894). Endpoints are exact (they must coincide with the incident
+/// ribbons' outer-curb points); the apex reaches `depth/2` at `t = 0.5`.
+/// Deterministic.
+pub(crate) fn merge_bezier(
+    a: [f32; 2],
+    b: [f32; 2],
+    bd: [f32; 2],
+    depth: f32,
+    segs: usize,
+) -> Vec<[f32; 2]> {
+    let mid = [(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5];
+    let ctrl = [mid[0] + bd[0] * depth, mid[1] + bd[1] * depth];
+    let mut pts = Vec::with_capacity(segs + 1);
+    for i in 0..=segs.max(1) {
+        let t = i as f32 / segs.max(1) as f32;
+        let u = 1.0 - t;
+        pts.push([
+            u * u * a[0] + 2.0 * u * t * ctrl[0] + t * t * b[0],
+            u * u * a[1] + 2.0 * u * t * ctrl[1] + t * t * b[1],
+        ]);
+    }
+    // Endpoint exactness against float drift.
+    *pts.first_mut().expect("segs+1 ≥ 2") = a;
+    *pts.last_mut().expect("segs+1 ≥ 2") = b;
+    pts
 }
 
 /// Sample a circular curb-return arc from `a` to `b` (XZ) bulging by sagitta

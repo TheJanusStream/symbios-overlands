@@ -683,17 +683,21 @@ fn step_unit(
             // (#889); zero offset is the historical spawn-centred circle.
             // `None` unless this scatter opts in and the room actually has an
             // enabled road network.
-            let urban_exclusion = (*avoid_urban)
-                .then(|| crate::pds::find_road_config(ctx.record))
-                .flatten()
-                .filter(|c| c.enabled)
-                .map(|c| {
-                    (
-                        c.center.0[0],
-                        c.center.0[1],
-                        c.district_half_extent.0 * c.district_half_extent.0,
-                    )
-                });
+            let urban_exclusions: Vec<(f32, f32, f32)> = if *avoid_urban {
+                crate::pds::find_road_configs(ctx.record)
+                    .into_iter()
+                    .filter(|c| c.enabled)
+                    .map(|c| {
+                        (
+                            c.center.0[0],
+                            c.center.0[1],
+                            c.district_half_extent.0 * c.district_half_extent.0,
+                        )
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
 
             while *spawned < *count && *attempts < max_attempts {
                 if budget_exceeded(*ctx.entities_spawned, ctx.budget_warned) {
@@ -705,13 +709,13 @@ fn step_unit(
                 *attempts += 1;
                 let (world_x, world_z) = sample_bounds(bounds, rng);
 
-                // Skip points inside the road-network district so wild scatter
-                // doesn't intersect the built-up urban area (roads + lots).
-                if let Some((cx, cz, r2)) = urban_exclusion {
+                // Skip points inside any road-network district (#895) so wild
+                // scatter doesn't intersect the built-up urban areas.
+                if urban_exclusions.iter().any(|&(cx, cz, r2)| {
                     let (dx, dz) = (world_x - cx, world_z - cz);
-                    if dx * dx + dz * dz < r2 {
-                        continue;
-                    }
+                    dx * dx + dz * dz < r2
+                }) {
+                    continue;
                 }
 
                 let (world_y, keep) = if let Some(hm_res) = ctx.heightmap {

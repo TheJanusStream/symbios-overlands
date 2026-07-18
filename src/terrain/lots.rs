@@ -25,7 +25,6 @@ use rand_chacha::rand_core::{RngCore, SeedableRng};
 
 use crate::catalogue::{CatalogueEntry, StructureRole, entries_for, entries_for_room};
 use crate::pds::generator::{GeneratorKind, Placement, RoadConfig};
-use crate::pds::room::find_road_config;
 use crate::pds::sanitize::limits;
 use crate::pds::types::{Fp, Fp3, Fp4, TransformData};
 use crate::pds::{RoomRecord, material_finish, ruin};
@@ -36,6 +35,16 @@ use super::FinishedHeightMap;
 
 /// Name prefix for every injected lot building (any layout seed).
 const LOT_PREFIX: &str = "lot_building_";
+/// Name prefix for every injected street-furniture prop (#893).
+const FURNITURE_PREFIX: &str = "street_prop_";
+/// Distinct sub-stream salt for the furniture-pick RNG (#893).
+const FURNITURE_STREAM_SALT: u64 = 0x57F0_0F57_F00F_57F0;
+/// Cap on injected furniture placements — beyond ~160 lamps the wasm spawn
+/// cost outruns the ambience.
+const MAX_FURNITURE_PROPS: usize = 160;
+/// Shallow terrain sink for furniture (m) — props stand on the verge, they
+/// don't need a building's foundation bite.
+const FURNITURE_SINK_M: f32 = 0.1;
 /// Theme used when the room's own theme has no landmark-role catalogue entry
 /// yet — mirrors the settlement deriver's fallback so a road-growing room of a
 /// still-sparse theme is never left empty.
@@ -53,10 +62,21 @@ const LOT_STREAM_SALT: u64 = 0x10C5_B011_D196_5EED;
 /// leaving daylight under the downhill edge (matches the settlement deriver).
 const FOUNDATION_SINK_M: f32 = 0.35;
 
-/// Per-seed building name prefix — the record-side half of the idempotency
-/// key for one layout (survives session restarts inside the saved record).
+/// Per-network, per-seed generator name prefix — the record-side half of
+/// the idempotency key for one layout (survives session restarts inside the
+/// saved record). Network 0 keeps the legacy shape so pre-#895 records
+/// adopt cleanly; later networks are namespaced by child index.
+fn net_prefix(base: &str, net: usize, seed: u64) -> String {
+    if net == 0 {
+        format!("{base}{seed}_")
+    } else {
+        format!("{base}n{net}_{seed}_")
+    }
+}
+
+#[cfg(test)]
 fn seed_prefix(seed: u64) -> String {
-    format!("{LOT_PREFIX}{seed}_")
+    net_prefix(LOT_PREFIX, 0, seed)
 }
 
 /// Session-side idempotency key (#882): the layout-relevant subset of the
@@ -66,16 +86,27 @@ fn seed_prefix(seed: u64) -> String {
 /// NOT churn the buildings. The seed prefix alone missed spacing/extent
 /// edits, leaving buildings standing on the previous layout until a
 /// re-roll.
+/// Combined fingerprint across every active network (#895).
+fn combined_fingerprint(did: &str, configs: &[RoadConfig]) -> String {
+    configs
+        .iter()
+        .enumerate()
+        .map(|(i, c)| format!("[{i}]{}", layout_fingerprint(did, c)))
+        .collect::<Vec<_>>()
+        .join("\u{1f}")
+}
+
 fn layout_fingerprint(did: &str, c: &RoadConfig) -> String {
     format!(
-        "{did}|{}|{}|{}|{}|{}|{}",
+        "{did}|{}|{}|{}|{}|{}|{}|{:?}",
         c.seed,
         c.district_half_extent.0,
         c.major_spacing.0,
         c.minor_spacing.0,
         c.center.0[0],
         c.center.0[1],
-    )
+        c.style,
+    ) + &format!("|{:?}|{:?}", c.lots, c.furniture)
 }
 
 /// What [`maybe_populate_lots`] should do for an active network, from the
@@ -110,11 +141,20 @@ fn lot_action(populated: bool, session_fp: Option<&str>, current_fp: &str) -> Lo
 /// Whether a placement (any referencing variant) targets an injected lot
 /// building.
 fn refs_lot_building(p: &Placement) -> bool {
+    placement_ref(p).is_some_and(|r| r.starts_with(LOT_PREFIX))
+}
+
+/// Whether a placement targets an injected street-furniture prop (#893).
+fn refs_street_prop(p: &Placement) -> bool {
+    placement_ref(p).is_some_and(|r| r.starts_with(FURNITURE_PREFIX))
+}
+
+fn placement_ref(p: &Placement) -> Option<&str> {
     match p {
         Placement::Absolute { generator_ref, .. }
         | Placement::Scatter { generator_ref, .. }
-        | Placement::Grid { generator_ref, .. } => generator_ref.starts_with(LOT_PREFIX),
-        Placement::Unknown => false,
+        | Placement::Grid { generator_ref, .. } => Some(generator_ref),
+        Placement::Unknown => None,
     }
 }
 
@@ -125,7 +165,7 @@ fn strip_lot_buildings(record: &mut RoomRecord) -> bool {
     let names: Vec<String> = record
         .generators
         .keys()
-        .filter(|k| k.starts_with(LOT_PREFIX))
+        .filter(|k| k.starts_with(LOT_PREFIX) || k.starts_with(FURNITURE_PREFIX))
         .cloned()
         .collect();
     if names.is_empty() {
@@ -134,7 +174,9 @@ fn strip_lot_buildings(record: &mut RoomRecord) -> bool {
     for n in &names {
         record.generators.remove(n);
     }
-    record.placements.retain(|p| !refs_lot_building(p));
+    record
+        .placements
+        .retain(|p| !refs_lot_building(p) && !refs_street_prop(p));
     true
 }
 
@@ -145,15 +187,26 @@ fn inject_lot_buildings(
     lots: &[crate::urban::BuildingLot],
     did: &str,
     seed: u64,
+    prefix: &str,
+    settings: &crate::pds::generator::LotSettings,
 ) -> usize {
     let scene = SceneCharacter::for_seed(fnv1a_64(did));
-    // Fall back to a guaranteed-populated theme if the room's own theme has no
+    // Authored theme override (#892): a case-insensitive label match against
+    // the theme roster; empty / unrecognised falls through to the room theme.
+    let base_theme = ThemeArchetype::ALL
+        .into_iter()
+        .find(|t| {
+            t.label()
+                .eq_ignore_ascii_case(settings.theme_override.trim())
+        })
+        .unwrap_or(scene.theme);
+    // Fall back to a guaranteed-populated theme if the chosen theme has no
     // landmark entry yet, exactly as the settlement deriver does.
-    let theme = if entries_for(scene.theme, StructureRole::Landmark)
+    let theme = if entries_for(base_theme, StructureRole::Landmark)
         .next()
         .is_some()
     {
-        scene.theme
+        base_theme
     } else {
         FALLBACK_THEME
     };
@@ -172,6 +225,12 @@ fn inject_lot_buildings(
     // band fills with secondary buildings, the long tail with props.
     let mut ranked: Vec<&crate::urban::BuildingLot> = lots.iter().collect();
     ranked.sort_by(|a, b| (b.width * b.depth).total_cmp(&(a.width * a.depth)));
+    // Density thinning (#892) BEFORE the budget cap: keep the biggest
+    // `density` fraction so a sparse district reads as a town core, not
+    // random gaps. Ceil so any nonzero density keeps at least one lot.
+    let keep = ((ranked.len() as f32 * settings.density.0.clamp(0.0, 1.0)).ceil() as usize)
+        .min(ranked.len());
+    ranked.truncate(keep);
     // One placement per lot, capped to the free placement budget so a packed
     // map can't trip sanitiser truncation. Generators are shared by entry, so
     // the placement budget — not the generator budget — is the binding limit.
@@ -179,7 +238,6 @@ fn inject_lot_buildings(
     ranked.truncate(cap);
 
     let mut rng = ChaCha8Rng::seed_from_u64(seed ^ LOT_STREAM_SALT);
-    let prefix = seed_prefix(seed);
     // One shared generator per distinct catalogue entry: every lot that picks
     // the same building references it, so the compiler bakes that mesh once and
     // instances it across the placements (the record stays compact instead of
@@ -188,15 +246,41 @@ fn inject_lot_buildings(
     let mut by_slug: HashMap<&'static str, String> = HashMap::new();
     let mut placed = 0usize;
     for (i, lot) in ranked.iter().enumerate() {
-        // Role by rank: lot 0 = landmark; next ~20% = secondary; rest = props.
-        // Each role falls back to the others so a theme missing one role still
-        // populates rather than dropping lots.
-        let order: [&[&'static dyn CatalogueEntry]; 3] = if i == 0 {
-            [&landmark, &secondary, &prop]
-        } else if i * 5 < ranked.len() {
-            [&secondary, &prop, &landmark]
-        } else {
-            [&prop, &secondary, &landmark]
+        // Role by rank + authored bias (#892). Each role falls back to the
+        // others so a theme missing one role still populates rather than
+        // dropping lots.
+        use crate::pds::generator::LotTierBias;
+        let n = ranked.len();
+        let order: [&[&'static dyn CatalogueEntry]; 3] = match settings.tier_bias {
+            // Historical mix: lot 0 landmark, next ~20% secondary.
+            LotTierBias::Balanced | LotTierBias::Unknown => {
+                if i == 0 {
+                    [&landmark, &secondary, &prop]
+                } else if i * 5 < n {
+                    [&secondary, &prop, &landmark]
+                } else {
+                    [&prop, &secondary, &landmark]
+                }
+            }
+            // Top ~10% landmarks, next ~30% secondary.
+            LotTierBias::Monumental => {
+                if i * 10 < n.max(1) || i == 0 {
+                    [&landmark, &secondary, &prop]
+                } else if i * 10 < n * 4 {
+                    [&secondary, &prop, &landmark]
+                } else {
+                    [&prop, &secondary, &landmark]
+                }
+            }
+            // No landmarks: dwellings on the top third, props below.
+            LotTierBias::Residential => {
+                if i * 3 < n {
+                    [&secondary, &prop, &prop]
+                } else {
+                    [&prop, &secondary, &secondary]
+                }
+            }
+            LotTierBias::PropsOnly => [&prop, &prop, &prop],
         };
         let Some(chosen) = order.into_iter().find(|p| !p.is_empty()) else {
             continue;
@@ -228,9 +312,14 @@ fn inject_lot_buildings(
             name
         };
 
-        // Per-lot placement of the shared building: lot-fit scale, street-facing.
+        // Per-lot placement of the shared building: lot-fit scale (authored
+        // clamp, #892), street-facing.
         let fp = entry.footprint();
-        let fit = (lot.width.min(lot.depth) / (2.0 * fp.clearance.max(0.5))).clamp(0.5, 2.0);
+        let (smin, smax) = (
+            settings.scale_min.0.min(settings.scale_max.0),
+            settings.scale_max.0.max(settings.scale_min.0),
+        );
+        let fit = (lot.width.min(lot.depth) / (2.0 * fp.clearance.max(0.5))).clamp(smin, smax);
         let half_yaw = lot.yaw * 0.5;
         record.placements.push(Placement::Absolute {
             generator_ref: name,
@@ -248,11 +337,102 @@ fn inject_lot_buildings(
     placed
 }
 
-/// The active lot-growing network config: enabled, opted into lot population.
-fn active_config(record: &RoomRecord) -> Option<RoadConfig> {
-    find_road_config(record)
-        .filter(|c| c.enabled && c.populate_lots)
-        .cloned()
+/// Inject street-furniture props (#893) at the extracted spots,
+/// deterministic in DID + seed: theme Prop-role entries, one shared
+/// generator per slug (#454 dedup), a placement per spot facing the road.
+/// Returns the number planted.
+fn inject_street_furniture(
+    record: &mut RoomRecord,
+    spots: &[crate::urban::FurnitureSpot],
+    did: &str,
+    seed: u64,
+    prefix: &str,
+    settings: &crate::pds::generator::LotSettings,
+) -> usize {
+    let scene = SceneCharacter::for_seed(fnv1a_64(did));
+    // Same theme resolution as the buildings (#892 override honoured), with
+    // the prop pool falling back to the guaranteed-populated theme.
+    let base_theme = ThemeArchetype::ALL
+        .into_iter()
+        .find(|t| {
+            t.label()
+                .eq_ignore_ascii_case(settings.theme_override.trim())
+        })
+        .unwrap_or(scene.theme);
+    let (prosperity, escalation) = (scene.prosperity_tier(), scene.escalation_tier());
+    let mut pool: Vec<&'static dyn CatalogueEntry> =
+        entries_for_room(base_theme, StructureRole::Prop, prosperity, escalation).collect();
+    if pool.is_empty() {
+        pool =
+            entries_for_room(FALLBACK_THEME, StructureRole::Prop, prosperity, escalation).collect();
+    }
+    if pool.is_empty() {
+        return 0;
+    }
+
+    let cap =
+        MAX_FURNITURE_PROPS.min(limits::MAX_PLACEMENTS.saturating_sub(record.placements.len()));
+    let mut rng = ChaCha8Rng::seed_from_u64(seed ^ FURNITURE_STREAM_SALT);
+    let mut by_slug: HashMap<&'static str, String> = HashMap::new();
+    let mut placed = 0usize;
+    for spot in spots.iter().take(cap) {
+        let entry = pool[(rng.next_u32() as usize) % pool.len()];
+        let slug = entry.slug();
+        let name = if let Some(existing) = by_slug.get(slug) {
+            existing.clone()
+        } else if record.generators.len() >= limits::MAX_GENERATORS {
+            continue;
+        } else {
+            let mut tree = entry.build(did);
+            let entry_seed = seed ^ fnv1a_64(slug) ^ FURNITURE_STREAM_SALT;
+            if let GeneratorKind::Shape { seed: s, .. } = &mut tree.kind {
+                *s = entry_seed;
+            }
+            material_finish::apply_socio_finish(&mut tree, scene.prosperity, scene.escalation);
+            ruin::apply_ruin(&mut tree, scene.escalation, entry_seed);
+            let name = format!("{prefix}{slug}");
+            record.generators.insert(name.clone(), tree);
+            by_slug.insert(slug, name.clone());
+            name
+        };
+        let half_yaw = spot.yaw * 0.5;
+        record.placements.push(Placement::Absolute {
+            generator_ref: name,
+            transform: TransformData {
+                translation: Fp3([spot.position[0], -FURNITURE_SINK_M, spot.position[1]]),
+                rotation: Fp4([0.0, half_yaw.sin(), 0.0, half_yaw.cos()]),
+                scale: Fp3([1.0, 1.0, 1.0]),
+            },
+            snap_to_terrain: true,
+            avoid_water: true,
+            avoid_water_clearance: Fp(entry.footprint().clearance),
+        });
+        placed += 1;
+    }
+    placed
+}
+
+/// Every active road-derived-content config (#895): enabled, and at least
+/// one layer (buildings or furniture) opted in. Paired with its network
+/// (child) index so generator names stay per-district.
+fn active_configs(record: &RoomRecord) -> Vec<(usize, RoadConfig)> {
+    crate::pds::find_road_configs(record)
+        .into_iter()
+        .enumerate()
+        .filter(|(_, c)| c.enabled && (c.populate_lots || c.furniture.enabled))
+        .map(|(i, c)| (i, c.clone()))
+        .collect()
+}
+
+/// Whether the record already carries network `net`'s content for `c`'s
+/// current seed — the record-side idempotency half.
+fn net_populated(record: &RoomRecord, net: usize, c: &RoadConfig) -> bool {
+    let prefix = if c.populate_lots {
+        net_prefix(LOT_PREFIX, net, c.seed)
+    } else {
+        net_prefix(FURNITURE_PREFIX, net, c.seed)
+    };
+    record.generators.keys().any(|k| k.starts_with(&prefix))
 }
 
 /// Populate the road network's lots with buildings when the heightmap or record
@@ -285,49 +465,53 @@ pub(super) fn maybe_populate_lots(
     // immediate: a toggle isn't a drag storm and leaving stale buildings
     // up for the debounce window would flash them at the old layout.
     if heightmap.is_changed() || record.is_changed() {
-        match active_config(&record.0) {
-            None => {
-                *session_fp = None;
+        let configs = active_configs(&record.0);
+        if configs.is_empty() {
+            *session_fp = None;
+            *due = None;
+            if record
+                .0
+                .generators
+                .keys()
+                .any(|k| k.starts_with(LOT_PREFIX) || k.starts_with(FURNITURE_PREFIX))
+            {
+                // Derived write (#862): fold the sweep into the edit that
+                // disabled the network, not a phantom undo entry of its own.
+                undo_signals.derived = true;
+                strip_lot_buildings(&mut record.0);
+                stats.buildings = 0;
+                stats.props = 0;
+            }
+            return;
+        }
+        let fp = combined_fingerprint(
+            did_str,
+            &configs.iter().map(|(_, c)| c.clone()).collect::<Vec<_>>(),
+        );
+        let populated = configs.iter().all(|(i, c)| net_populated(&record.0, *i, c));
+        match lot_action(populated, session_fp.as_deref(), &fp) {
+            // Layout matches the standing buildings — also cancels a
+            // pending re-derive when an undo walked the edit back.
+            LotAction::Skip => *due = None,
+            LotAction::Adopt => {
+                *session_fp = Some(fp);
                 *due = None;
-                if record
+                // Readout (#888): count the adopted (saved) content
+                // so a loaded room doesn't report zero.
+                stats.buildings = record
                     .0
-                    .generators
-                    .keys()
-                    .any(|k| k.starts_with(LOT_PREFIX))
-                {
-                    // Derived write (#862): fold the sweep into the edit that
-                    // disabled the network, not a phantom undo entry of its own.
-                    undo_signals.derived = true;
-                    strip_lot_buildings(&mut record.0);
-                    stats.buildings = 0;
-                }
-                return;
+                    .placements
+                    .iter()
+                    .filter(|p| refs_lot_building(p))
+                    .count();
+                stats.props = record
+                    .0
+                    .placements
+                    .iter()
+                    .filter(|p| refs_street_prop(p))
+                    .count();
             }
-            Some(config) => {
-                let fp = layout_fingerprint(did_str, &config);
-                let prefix = seed_prefix(config.seed);
-                let populated = record.0.generators.keys().any(|k| k.starts_with(&prefix));
-                match lot_action(populated, session_fp.as_deref(), &fp) {
-                    // Layout matches the standing buildings — also cancels a
-                    // pending re-derive when an undo walked the edit back.
-                    LotAction::Skip => *due = None,
-                    LotAction::Adopt => {
-                        *session_fp = Some(fp);
-                        *due = None;
-                        // Readout (#888): count the adopted (saved) buildings
-                        // so a loaded room doesn't report zero.
-                        stats.buildings = record
-                            .0
-                            .placements
-                            .iter()
-                            .filter(|p| refs_lot_building(p))
-                            .count();
-                    }
-                    LotAction::Repopulate => {
-                        *due = Some(now + super::roads::ROAD_EDIT_DEBOUNCE_SECS)
-                    }
-                }
-            }
+            LotAction::Repopulate => *due = Some(now + super::roads::ROAD_EDIT_DEBOUNCE_SECS),
         }
     }
 
@@ -337,32 +521,56 @@ pub(super) fn maybe_populate_lots(
         return;
     }
     *due = None;
-    let Some(config) = active_config(&record.0) else {
+    let configs = active_configs(&record.0);
+    if configs.is_empty() {
         return; // the change branch above already swept
-    };
-    let fp = layout_fingerprint(did_str, &config);
-    let prefix = seed_prefix(config.seed);
-    let populated = record.0.generators.keys().any(|k| k.starts_with(&prefix));
+    }
+    let fp = combined_fingerprint(
+        did_str,
+        &configs.iter().map(|(_, c)| c.clone()).collect::<Vec<_>>(),
+    );
+    let populated = configs.iter().all(|(i, c)| net_populated(&record.0, *i, c));
     if lot_action(populated, session_fp.as_deref(), &fp) != LotAction::Repopulate {
         return;
     }
 
     // A changed layout (re-roll, spacing / extent edit) or none yet: clear
-    // stale, then repopulate. Derived write (#862): the strip + inject
-    // below are fallout of the road edit that changed the layout — fold
-    // them into that entry so one undo reverts the edit and its buildings
-    // together.
+    // stale, then repopulate every active network (#895). Derived write
+    // (#862): the strip + inject below are fallout of the road edit that
+    // changed the layout — fold them into that entry so one undo reverts
+    // the edit and its buildings together.
     undo_signals.derived = true;
-    let stripped = strip_lot_buildings(&mut record.0);
+    strip_lot_buildings(&mut record.0);
     *session_fp = Some(fp);
-    let lots = crate::urban::extract_building_lots(&heightmap.0, &config);
-    if lots.is_empty() {
-        // Nothing enclosed; the strip above (if any) already updated the record.
-        let _ = stripped;
-        stats.buildings = 0;
-        return;
+    stats.buildings = 0;
+    stats.props = 0;
+    for (i, config) in &configs {
+        if config.populate_lots {
+            let lots = crate::urban::extract_building_lots(&heightmap.0, config);
+            if !lots.is_empty() {
+                stats.buildings += inject_lot_buildings(
+                    &mut record.0,
+                    &lots,
+                    did_str,
+                    config.seed,
+                    &net_prefix(LOT_PREFIX, *i, config.seed),
+                    &config.lots,
+                );
+            }
+        }
+        // Street furniture (#893) — independent of the building layer.
+        if config.furniture.enabled {
+            let spots = crate::urban::extract_furniture_spots(&heightmap.0, config);
+            stats.props += inject_street_furniture(
+                &mut record.0,
+                &spots,
+                did_str,
+                config.seed,
+                &net_prefix(FURNITURE_PREFIX, *i, config.seed),
+                &config.lots,
+            );
+        }
     }
-    stats.buildings = inject_lot_buildings(&mut record.0, &lots, did_str, config.seed);
 }
 
 #[cfg(test)]
@@ -408,6 +616,10 @@ mod tests {
         centered.center.0 = [40.0, -25.0];
         assert_ne!(fp(&base), fp(&centered), "centre offset moves lots (#889)");
 
+        let mut styled = base.clone();
+        styled.style = crate::pds::generator::RoadStyle::Grid;
+        assert_ne!(fp(&base), fp(&styled), "style change moves lots (#890)");
+
         let mut ribbon = base.clone();
         ribbon.major_half_width.0 += 1.0;
         ribbon.curb_height.0 += 0.1;
@@ -449,7 +661,14 @@ mod tests {
             .map(|i| lot(i as f32 * 8.0, 0.0, 12.0, 14.0))
             .collect();
 
-        let n = inject_lot_buildings(&mut record, &lots, &did, 4242);
+        let n = inject_lot_buildings(
+            &mut record,
+            &lots,
+            &did,
+            4242,
+            &seed_prefix(4242),
+            &Default::default(),
+        );
         assert!(n > 0, "expected buildings injected onto the lots");
         // One placement per lot...
         let placements = record
@@ -498,8 +717,8 @@ mod tests {
         let mut a = RoomRecord::default_for_did(&did);
         let mut b = RoomRecord::default_for_did(&did);
         let before = a.generators.len();
-        let na = inject_lot_buildings(&mut a, &lots, &did, 7);
-        let nb = inject_lot_buildings(&mut b, &lots, &did, 7);
+        let na = inject_lot_buildings(&mut a, &lots, &did, 7, &seed_prefix(7), &Default::default());
+        let nb = inject_lot_buildings(&mut b, &lots, &did, 7, &seed_prefix(7), &Default::default());
         assert_eq!(na, nb);
         assert!(na <= MAX_LOT_BUILDINGS, "exceeded the placement cap");
         // Dedup: 400 lots collapse onto a handful of shared generators (one per

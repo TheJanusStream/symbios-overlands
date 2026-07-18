@@ -1390,19 +1390,38 @@ pub fn find_terrain_config(record: &RoomRecord) -> Option<&SovereignTerrainConfi
 /// same config; the terrain plugin builds the road mesh from this plus the
 /// finished heightmap (see [`crate::urban`]).
 pub fn find_road_config(record: &RoomRecord) -> Option<&RoadConfig> {
+    find_road_configs(record).into_iter().next()
+}
+
+/// Cap on simultaneously-active road networks per room (#895): every network
+/// costs a full graph trace + extrusion + lot layer, and four districts
+/// already saturate a 1 km room. RoadNetwork children beyond the cap are
+/// inert (the editor warns on them, #886).
+pub const MAX_ROAD_NETWORKS: usize = 4;
+
+/// Every active road network, in child order, up to [`MAX_ROAD_NETWORKS`]
+/// (#895): all `RoadNetwork` children of the deterministically-chosen
+/// (sorted-first) Terrain generator. Same determinism contract as
+/// [`find_road_config`], which is simply this list's head.
+pub fn find_road_configs(record: &RoomRecord) -> Vec<&RoadConfig> {
     let mut keys: Vec<&String> = record.generators.keys().collect();
     keys.sort();
     for k in keys {
         if let Some(generator) = record.generators.get(k)
             && let GeneratorKind::Terrain(_) = &generator.kind
         {
-            return generator.children.iter().find_map(|c| match &c.kind {
-                GeneratorKind::RoadNetwork(cfg) => Some(cfg),
-                _ => None,
-            });
+            return generator
+                .children
+                .iter()
+                .filter_map(|c| match &c.kind {
+                    GeneratorKind::RoadNetwork(cfg) => Some(cfg),
+                    _ => None,
+                })
+                .take(MAX_ROAD_NETWORKS)
+                .collect();
         }
     }
-    None
+    Vec::new()
 }
 
 // ---------------------------------------------------------------------------

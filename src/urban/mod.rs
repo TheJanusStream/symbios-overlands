@@ -335,6 +335,76 @@ pub fn extract_building_lots(hm: &HeightMap, config: &RoadConfig) -> Vec<Buildin
         .collect()
 }
 
+/// A street-furniture spot (#893) in the room placement frame: a point just
+/// outside a street's curb line, facing the road.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FurnitureSpot {
+    /// Prop centre, room-centred XZ.
+    pub position: [f32; 2],
+    /// Yaw (radians, around +Y) turning the prop's authored front (+Z)
+    /// toward the street.
+    pub yaw: f32,
+}
+
+/// Clearance (m) between the outer curb footprint and a furniture prop, so
+/// lamps never merge into the chamfer (the coplanar z-fight lesson).
+const FURNITURE_CURB_CLEARANCE_M: f32 = 0.6;
+
+/// Extract street-furniture spots (#893): a point every `spacing` metres of
+/// arc along each chain, alternating sides, offset outside the curb's outer
+/// footprint. Deterministic in the config (pure geometry — no RNG here; the
+/// injector's seeded stream picks *which* prop stands at each spot).
+pub fn extract_furniture_spots(hm: &HeightMap, config: &RoadConfig) -> Vec<FurnitureSpot> {
+    if !config.furniture.enabled {
+        return Vec::new();
+    }
+    let Some((graph, sub, lo)) = build_road_graph(hm, config) else {
+        return Vec::new();
+    };
+    let dims = Dims::from_config(config);
+    let chains = extract_chains(&graph, &sub, &dims);
+    let spacing = config.furniture.spacing.0.max(1.0);
+
+    let scale = sub.scale();
+    let half = hm.width().saturating_sub(1) as f32 * scale * 0.5;
+    let shift = [lo[0] as f32 * scale - half, lo[1] as f32 * scale - half];
+
+    let mut spots = Vec::new();
+    for chain in &chains {
+        // Lateral stand-off: outside the curb's outer footprint.
+        let stand_off =
+            chain.half_w + dims.curb_top_width + dims.chamfer_width + FURNITURE_CURB_CLEARANCE_M;
+        let mut next_at = spacing * 0.5; // start mid-interval, clear of junctions
+        let mut walked = 0.0_f32;
+        let mut side = 1.0_f32;
+        for w in chain.pts.windows(2) {
+            let (dx, dz) = (w[1].0 - w[0].0, w[1].1 - w[0].1);
+            let seg = (dx * dx + dz * dz).sqrt();
+            if seg < 1.0e-4 {
+                continue;
+            }
+            let (ux, uz) = (dx / seg, dz / seg);
+            // Right-hand lateral, matching the ribbon's frame convention.
+            let (rx, rz) = (-uz, ux);
+            while next_at <= walked + seg {
+                let t = next_at - walked;
+                let (cx, cz) = (w[0].0 + ux * t, w[0].1 + uz * t);
+                let (px, pz) = (cx + rx * stand_off * side, cz + rz * stand_off * side);
+                // Face the road: the prop's +Z front turns toward the deck.
+                let (vx, vz) = (-rx * side, -rz * side);
+                spots.push(FurnitureSpot {
+                    position: [px + shift[0], pz + shift[1]],
+                    yaw: vx.atan2(vz),
+                });
+                side = -side;
+                next_at += spacing;
+            }
+            walked += seg;
+        }
+    }
+    spots
+}
+
 /// Convert [`RoadGeometry`] into a Bevy [`Mesh`].
 pub fn to_bevy_mesh(geo: &RoadGeometry) -> Mesh {
     let mut mesh = Mesh::new(
@@ -373,6 +443,35 @@ mod tests {
         let parts = build_road_geometry(&pilot_heightmap(), &cfg(PILOT_ROAD_SEED))
             .expect("room-scale build for the pilot seed must produce roads");
         assert!(!parts.deck.is_empty());
+    }
+
+    #[test]
+    fn furniture_spots_line_the_streets() {
+        // #893: enabled furniture yields spots at the authored spacing,
+        // room-framed, deterministic; disabled yields none.
+        let hm = pilot_heightmap();
+        let mut c = cfg(PILOT_ROAD_SEED);
+        assert!(
+            extract_furniture_spots(&hm, &c).is_empty(),
+            "furniture is opt-in"
+        );
+        c.furniture.enabled = true;
+        let spots = extract_furniture_spots(&hm, &c);
+        assert!(!spots.is_empty(), "no furniture spots on the pilot network");
+        let again = extract_furniture_spots(&hm, &c);
+        assert_eq!(spots, again, "spots must be deterministic");
+        let half = hm.world_width() * 0.5;
+        for s in &spots {
+            assert!(
+                s.position[0].abs() <= half && s.position[1].abs() <= half,
+                "spot {s:?} outside the room"
+            );
+            assert!(s.yaw.is_finite());
+        }
+        // Wider spacing → fewer props.
+        c.furniture.spacing.0 = 120.0;
+        let sparse = extract_furniture_spots(&hm, &c);
+        assert!(sparse.len() < spots.len(), "spacing must thin the props");
     }
 
     #[test]

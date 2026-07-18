@@ -170,6 +170,20 @@ pub struct RoadConfig {
     /// without touching the terrain. The road builder clamps the window
     /// back inside the heightmap when the offset pushes it past an edge.
     pub center: Fp2,
+    /// Street-plan character (#890): how the tensor field trades the
+    /// axis-aligned grid against terrain-following directions.
+    pub style: RoadStyle,
+    /// Optional per-surface look overrides (#891). Every `None` falls back
+    /// to the room theme's road palette, so an untouched network keeps its
+    /// theme identity. Appearance edits re-tint the live materials without
+    /// re-extruding the network.
+    pub appearance: RoadAppearance,
+    /// Building-layer authoring knobs (#892), consumed by the lot
+    /// population system alongside `populate_lots`.
+    pub lots: LotSettings,
+    /// Street-furniture layer (#893): theme props (lamps, signs, clutter)
+    /// planted at intervals along the streets, just outside the curbs.
+    pub furniture: FurnitureSettings,
     /// Spacing (m) between parallel major / minor roads.
     pub major_spacing: Fp,
     pub minor_spacing: Fp,
@@ -197,11 +211,202 @@ fn default_populate_lots() -> bool {
     true
 }
 
+/// Street-plan character for a [`RoadConfig`] (#890) — maps onto the tensor
+/// field's grid-vs-terrain blend at trace time (see
+/// `crate::urban::graph::build_road_graph_raw`). Open union so future styles
+/// degrade gracefully on older clients: `Unknown` traces as [`Self::Hillside`],
+/// the historical terrain-adaptive behavior a record without the field also
+/// gets.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(tag = "$type")]
+pub enum RoadStyle {
+    /// Terrain-adaptive blend (the historical default): a Manhattan grid on
+    /// near-flat ground, contour-following streets on slopes.
+    #[default]
+    #[serde(rename = "network.symbios.road_style.hillside")]
+    Hillside,
+    /// Axis-aligned Manhattan grid everywhere — terrain is ignored for street
+    /// *direction* (decks still drape over its height).
+    #[serde(rename = "network.symbios.road_style.grid")]
+    Grid,
+    /// Contour-following everywhere with gentle directional jitter — streets
+    /// wander with the land and never settle into a grid, even on flats.
+    #[serde(rename = "network.symbios.road_style.organic")]
+    Organic,
+    #[serde(other)]
+    Unknown,
+}
+
+/// Per-surface look overrides for a road network (#891). Field-level
+/// `Option`s: `None` = the room theme's [`road palette`] value for that
+/// surface, `Some` = the author's override — so one surface can be re-tinted
+/// while the rest keep the theme identity. All-`None` (the default) is
+/// elided from the wire entirely.
+///
+/// [`road palette`]: crate::terrain
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct RoadAppearance {
+    /// Drivable-deck base colour (linear-ish sRGB triplet, 0–1).
+    pub deck_color: Option<Fp3>,
+    /// Deck roughness (0 = mirror-wet, 1 = matte).
+    pub deck_roughness: Option<Fp>,
+    /// Curb / skirt / bottom (structure) base colour.
+    pub structure_color: Option<Fp3>,
+    /// Curb edge-line colour (before the strength multiplier).
+    pub neon_color: Option<Fp3>,
+    /// Edge-line emissive strength (~6 = hot neon tube, ~1 = painted line,
+    /// 0 = off).
+    pub neon_strength: Option<Fp>,
+}
+
+impl RoadAppearance {
+    /// Whether every field defers to the theme palette.
+    pub fn is_all_theme(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// Building-layer authoring knobs for a road network (#892). Field-level
+/// serde defaults keep pre-#892 records at the historical behavior; the
+/// whole struct is elided from the wire while untouched.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct LotSettings {
+    /// Fraction (0–1) of the extracted lots that grow a building. Thinning
+    /// keeps the LARGEST lots (rank order), so low density reads as a
+    /// sparse town core rather than random gaps.
+    pub density: Fp,
+    /// Building-catalogue theme label override (matched against
+    /// `ThemeArchetype::label()`, case-insensitive). Empty or unrecognised
+    /// = the room's own theme.
+    pub theme_override: String,
+    /// Role emphasis across the ranked lots.
+    pub tier_bias: LotTierBias,
+    /// Building fit-scale clamp (relative to lot size).
+    pub scale_min: Fp,
+    pub scale_max: Fp,
+}
+
+impl Default for LotSettings {
+    fn default() -> Self {
+        Self {
+            density: Fp(1.0),
+            theme_override: String::new(),
+            tier_bias: LotTierBias::Balanced,
+            scale_min: Fp(0.5),
+            scale_max: Fp(2.0),
+        }
+    }
+}
+
+/// Street-furniture layer settings (#893). Opt-in (`enabled` defaults
+/// false so pre-#893 records — and fresh networks — stay uncluttered);
+/// the whole struct is elided from the wire while untouched.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct FurnitureSettings {
+    /// Whether the layer plants anything at all.
+    pub enabled: bool,
+    /// Arc-length interval (m) between props along each street, sides
+    /// alternating.
+    pub spacing: Fp,
+}
+
+impl Default for FurnitureSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            spacing: Fp(30.0),
+        }
+    }
+}
+
+/// Role emphasis for lot buildings (#892). Open union: `Unknown` populates
+/// as `Balanced`, the historical mix.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(tag = "$type")]
+pub enum LotTierBias {
+    /// Historical mix: the biggest lot takes the landmark, the next ~20%
+    /// secondary buildings, the tail props.
+    #[default]
+    #[serde(rename = "network.symbios.lot_bias.balanced")]
+    Balanced,
+    /// Monument-heavy: the top ~10% of lots take landmarks, the next ~30%
+    /// secondary.
+    #[serde(rename = "network.symbios.lot_bias.monumental")]
+    Monumental,
+    /// No landmarks: dwellings (secondary) on the bigger lots, props on
+    /// the rest.
+    #[serde(rename = "network.symbios.lot_bias.residential")]
+    Residential,
+    /// Props only — street clutter without buildings.
+    #[serde(rename = "network.symbios.lot_bias.props_only")]
+    PropsOnly,
+    #[serde(other)]
+    Unknown,
+}
+
+impl LotTierBias {
+    /// Picker rows for the editor: `(value, label, tooltip)`.
+    pub fn pickers() -> [(Self, &'static str, &'static str); 4] {
+        [
+            (
+                Self::Balanced,
+                "Balanced",
+                "One landmark on the biggest lot, some secondaries, mostly props",
+            ),
+            (
+                Self::Monumental,
+                "Monumental",
+                "Landmark-heavy: grand buildings dominate the district",
+            ),
+            (
+                Self::Residential,
+                "Residential",
+                "No landmarks — dwellings and props only",
+            ),
+            (
+                Self::PropsOnly,
+                "Props only",
+                "Street clutter without buildings",
+            ),
+        ]
+    }
+}
+
+impl RoadStyle {
+    /// Picker rows for the editor: `(value, label, tooltip)`.
+    pub fn pickers() -> [(Self, &'static str, &'static str); 3] {
+        [
+            (
+                Self::Hillside,
+                "Hillside",
+                "Grid on flats, contour-following on slopes — the adaptive default",
+            ),
+            (
+                Self::Grid,
+                "Grid",
+                "Axis-aligned Manhattan grid everywhere, whatever the terrain",
+            ),
+            (
+                Self::Organic,
+                "Organic",
+                "Streets follow the land everywhere, with a gentle wander",
+            ),
+        ]
+    }
+}
+
 crate::pds::serde_util::impl_default_eliding_serialize!(RoadConfig {
     enabled,
     seed via u64_as_string(u64),
     district_half_extent,
     center,
+    style,
+    appearance,
+    lots,
+    furniture,
     major_spacing,
     minor_spacing,
     major_half_width,
@@ -220,6 +425,10 @@ impl Default for RoadConfig {
             seed: 0,
             district_half_extent: Fp(170.0),
             center: Fp2([0.0, 0.0]),
+            style: RoadStyle::Hillside,
+            appearance: RoadAppearance::default(),
+            lots: LotSettings::default(),
+            furniture: FurnitureSettings::default(),
             major_spacing: Fp(95.0),
             minor_spacing: Fp(55.0),
             major_half_width: Fp(3.5),

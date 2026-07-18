@@ -64,12 +64,34 @@ pub(crate) fn build_road_graph_raw(
         }
     }
 
-    let cfg = TensorConfig {
+    let mut cfg = TensorConfig {
         seed: config.seed,
         major_road_dist: config.major_spacing.0,
         minor_road_dist: config.minor_spacing.0,
         ..TensorConfig::default()
     };
+    // Street-plan style (#890): trade the field's axis-aligned fallback
+    // against terrain-derived directions. `Hillside` (and `Unknown`, the
+    // forward-compat arm) keeps the historical adaptive blend.
+    match config.style {
+        crate::pds::generator::RoadStyle::Grid => {
+            // Slope thresholds above any real terrain slope → the pure
+            // axis-aligned Manhattan fallback everywhere.
+            cfg.field.flat_threshold_low = f32::MAX;
+            cfg.field.flat_threshold_high = f32::MAX;
+        }
+        crate::pds::generator::RoadStyle::Organic => {
+            // Near-zero thresholds → terrain-derived directions on any real
+            // slope (kept strictly positive so dead-flat ground still has
+            // the axis fallback instead of a degenerate direction), plus a
+            // gentle wander: low-frequency jitter + looser tracer momentum.
+            cfg.field.flat_threshold_low = 1.0e-6;
+            cfg.field.flat_threshold_high = 2.0e-6;
+            cfg.field.jitter_amplitude = 0.15;
+            cfg.tracer_inertia = 0.6;
+        }
+        crate::pds::generator::RoadStyle::Hillside | crate::pds::generator::RoadStyle::Unknown => {}
+    }
     let mut graph = generate_roads(&sub, &cfg).ok()?;
     // Rationalize for clean XZ geometry (RDP straighten + Bézier fillets). We
     // ignore its smoothed elevations and sample the real terrain when draping.

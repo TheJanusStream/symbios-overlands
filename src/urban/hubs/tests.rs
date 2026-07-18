@@ -831,3 +831,67 @@ fn hub_fillet_endpoints_exact_on_asymmetric_hub() {
         }
     }
 }
+
+/// #894 (the long-deferred #578): an acute fork's gap grows a smooth-merge
+/// crotch instead of the flat chord — the curb between the two near-parallel
+/// mouths reaches outward past the straight line joining them, bounded by the
+/// merge cap. A through road's far edge (anti-parallel pair) stays straight.
+#[test]
+fn acute_fork_grows_a_merge_crotch() {
+    let dims = Dims::from_config(&cfg(7));
+    let t = 6.0_f32;
+    let arm = |ang: f32| {
+        let (dx, dz) = (ang.cos(), ang.sin());
+        RoadEnd {
+            node: 0,
+            cx: dx * t,
+            cz: dz * t,
+            rx: -dz,
+            rz: dx,
+            half_w: 3.0,
+            deck_y: 1.0,
+            skirt_y: -4.0,
+        }
+    };
+    let hm = HeightMap::new(64, 64, 2.0);
+    // Two arms 10° apart (acute fork) + one opposite (the through balance).
+    let fork = [arm(0.0), arm(10f32.to_radians()), arm(std::f32::consts::PI)];
+    let mut parts = RoadParts::default();
+    extrude_hubs(&fork, &hm, [0.0; 2], &dims, &mut parts);
+    assert!(!parts.structure.is_empty());
+    // The crotch reaches beyond every mouth centre's distance from the node.
+    let mouth_r = t;
+    let max_r = parts
+        .structure
+        .vertices
+        .iter()
+        .map(|v| v[0].hypot(v[2]))
+        .fold(0.0_f32, f32::max);
+    assert!(
+        max_r > mouth_r + 0.5,
+        "acute gap stayed flat (max structure radius {max_r} vs mouths at {mouth_r})"
+    );
+    // Bounded: the cap keeps the teardrop near the hub.
+    assert!(
+        max_r < mouth_r + dims.major_half_width * 6.0 + 6.0,
+        "merge crotch ran away ({max_r})"
+    );
+    for nrm in &parts.structure.normals {
+        assert!(nrm.iter().all(|c| c.is_finite()));
+    }
+}
+
+/// #894 companion: the merge Bézier is endpoint-exact and apex-bounded.
+#[test]
+fn merge_bezier_is_endpoint_exact_and_bounded() {
+    let a = [1.0, 0.0];
+    let b = [-1.0, 0.0];
+    let pts = merge_bezier(a, b, [0.0, 1.0], 4.0, 6);
+    assert_eq!(pts.first(), Some(&a));
+    assert_eq!(pts.last(), Some(&b));
+    let apex = pts[3][1];
+    assert!(
+        (apex - 2.0).abs() < 1.0e-4,
+        "quadratic apex = depth/2, got {apex}"
+    );
+}

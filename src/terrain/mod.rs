@@ -98,6 +98,8 @@ pub struct RoadPanelStats {
     pub junctions: usize,
     pub vertices: usize,
     pub buildings: usize,
+    /// Street-furniture props planted by the #893 layer.
+    pub props: usize,
 }
 
 impl FinishedHeightMap {
@@ -246,6 +248,12 @@ impl Plugin for TerrainPlugin {
                         .run_if(resource_exists::<LiveRoomRecord>)
                         .after(heightmap::poll_terrain_task)
                         .after(heightmap::spawn_terrain_mesh),
+                    // Appearance overrides re-tint the live materials in
+                    // place (#891) — after the rebuild so a fresh spawn's
+                    // materials are what get re-tinted, never stale ones.
+                    roads::sync_road_appearance
+                        .run_if(resource_exists::<LiveRoomRecord>)
+                        .after(roads::maybe_rebuild_roads),
                     // Once the heightmap exists, fill a road-growing room's
                     // lots with buildings (injected into the live record). Runs
                     // after the terrain task so it sees the finished surface.

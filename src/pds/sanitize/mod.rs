@@ -247,6 +247,38 @@ fn sanitize_road(c: &mut crate::pds::generator::RoadConfig) {
     c.curb_top_width.0 = clamp_finite(c.curb_top_width.0, 0.0, 5.0, 0.22);
     c.chamfer_width.0 = clamp_finite(c.chamfer_width.0, 0.0, 5.0, 0.4);
     c.skirt_depth.0 = clamp_finite(c.skirt_depth.0, 0.5, 50.0, 5.0);
+    // Appearance overrides (#891): colours to unit range, strength bounded so
+    // a hostile record can't bloom the whole frame white.
+    for color in [
+        &mut c.appearance.deck_color,
+        &mut c.appearance.structure_color,
+        &mut c.appearance.neon_color,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        for ch in color.0.iter_mut() {
+            *ch = clamp_finite(*ch, 0.0, 1.0, 0.5);
+        }
+    }
+    if let Some(r) = &mut c.appearance.deck_roughness {
+        r.0 = clamp_finite(r.0, 0.0, 1.0, 0.22);
+    }
+    if let Some(s) = &mut c.appearance.neon_strength {
+        s.0 = clamp_finite(s.0, 0.0, 20.0, 2.5);
+    }
+    // Lot knobs (#892): density unit-range, scales positive with
+    // min ≤ max (swap-fixed), theme label bounded like other free text.
+    c.lots.density.0 = clamp_finite(c.lots.density.0, 0.0, 1.0, 1.0);
+    c.lots.scale_min.0 = clamp_finite(c.lots.scale_min.0, 0.1, 5.0, 0.5);
+    c.lots.scale_max.0 = clamp_finite(c.lots.scale_max.0, 0.1, 5.0, 2.0);
+    if c.lots.scale_min.0 > c.lots.scale_max.0 {
+        std::mem::swap(&mut c.lots.scale_min, &mut c.lots.scale_max);
+    }
+    c.lots.theme_override.truncate(64);
+    // Furniture (#893): spacing floor keeps a hostile record from planting
+    // a prop every half-metre down every street.
+    c.furniture.spacing.0 = clamp_finite(c.furniture.spacing.0, 8.0, 200.0, 30.0);
 }
 
 /// Clamp a whole [`Generator`] tree (root + descendants) in place. Shared
