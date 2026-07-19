@@ -11,12 +11,14 @@
 pub mod accent;
 pub mod atmosphere;
 pub mod audio;
+mod exotic;
 pub mod gateway;
 pub mod palette;
 pub mod particles;
 pub mod rocks;
 pub mod scatters;
 pub mod settlement;
+pub mod siting;
 pub mod terrain;
 pub mod textures;
 
@@ -28,6 +30,9 @@ pub use palette::RoomPalette;
 pub use particles::{AmbientParticles, ParticleMood};
 pub use rocks::{RockScatter, RockScatters};
 pub use scatters::{TreeScatter, TreeScatters, TreeSpecies};
-pub use settlement::{Settlement, SettlementMember};
+pub use settlement::{
+    BUILD_SLOPE_LIMIT, Settlement, SettlementCluster, SettlementMember, SettlementPlan,
+};
+pub use siting::{BuildableRegion, TerrainProbe};
 pub use terrain::{GeneratorKind, SplatRule, TerrainShape};
 pub use textures::{BiomeTextures, GroundTextureParams, RockTextureParams};

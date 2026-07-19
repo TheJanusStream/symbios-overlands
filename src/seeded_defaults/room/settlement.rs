@@ -24,6 +24,7 @@ use std::f32::consts::TAU;
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
 
+use super::siting::{BuildableRegion, TerrainProbe};
 use crate::catalogue::{StructureRole, entries_for, entries_for_room};
 use crate::seeded_defaults::scene::{
     EscalationTier, ProsperityTier, SceneCharacter, ThemeArchetype, pick, range_f32, unit_f32,
@@ -297,6 +298,427 @@ fn place_props(
         });
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// Terrain-aware settlement plan (#905)
+// ---------------------------------------------------------------------------
+
+/// Slope limit (rise/run) for buildable ground — the threshold the
+/// wiring layer hands to [`TerrainProbe::new`] when segmenting the
+/// derive-time proxy. ~16°: gentle hillside, comfortably under what a
+/// snapped foundation skirt can absorb. Deliberately conservative
+/// because the proxy under-reads fine-scale steepness (box-averaged).
+pub const BUILD_SLOPE_LIMIT: f32 = 0.28;
+
+/// Fraction of a region's raw area treated as actually fillable with
+/// structures — the rest is breathing room between footprints.
+const FILL_FRACTION: f32 = 0.35;
+
+/// A member's desired position may snap at most this far (m) to reach a
+/// buildable cell; anything farther means the layout doesn't fit the
+/// region there and the member is dropped instead of smeared.
+const SNAP_MAX_DIST: f32 = 30.0;
+
+/// Minimum region area (m²) for a hamlet (secondary + props, no
+/// landmark) to grow in a leftover region.
+const HAMLET_MIN_AREA: f32 = 400.0;
+
+/// At most this many hamlets beyond the clusters.
+const MAX_HAMLETS: usize = 2;
+
+/// Room-wide ceiling on settlement members across every cluster.
+const MAX_TOTAL_MEMBERS: usize = 20;
+
+/// Sub-stream tweak so the sited plan draws from its own RNG stream,
+/// decoupled from the legacy flat-ring deriver.
+const SITED_STREAM_TWEAK: u64 = 0x517E_D000;
+
+/// One placed cluster: landmark-led (`landmark: Some`) or a hamlet.
+#[derive(Clone, Debug)]
+pub struct SettlementCluster {
+    pub landmark: Option<SettlementMember>,
+    pub secondaries: Vec<SettlementMember>,
+    pub props: Vec<SettlementMember>,
+}
+
+impl SettlementCluster {
+    fn member_count(&self) -> usize {
+        usize::from(self.landmark.is_some()) + self.secondaries.len() + self.props.len()
+    }
+}
+
+/// The terrain-aware settlement for a room: one primary landmark-led
+/// cluster (always present), optionally a second landmark cluster on
+/// naturally-partitioned landforms (archipelago islands, valley
+/// basins), plus small hamlets in leftover buildable regions.
+#[derive(Clone, Debug)]
+pub struct SettlementPlan {
+    pub clusters: Vec<SettlementCluster>,
+}
+
+impl SettlementPlan {
+    /// The primary cluster's landmark — present by construction (the
+    /// primary cluster always carries one, even on the honest-adaptation
+    /// fallback path).
+    pub fn primary_landmark(&self) -> &SettlementMember {
+        self.clusters[0]
+            .landmark
+            .as_ref()
+            .expect("primary cluster always carries a landmark")
+    }
+
+    /// Derive the plan against a segmented terrain probe. Deterministic
+    /// from `(scene, room_seed, probe)`; the probe itself is
+    /// deterministic from the seeded terrain config, so peers agree.
+    ///
+    /// Placement policy (#905, user-picked): prefer buildable regions
+    /// near spawn but follow the flat land out when the near ground is
+    /// hostile; shrink honestly when flat land is scarce (worst case a
+    /// lone landmark on the least-bad site — terrain is never modified);
+    /// Archipelago / Valleys rooms may grow a second full landmark
+    /// cluster, every landform may grow hamlets, all under
+    /// [`MAX_TOTAL_MEMBERS`].
+    pub fn from_scene_sited(scene: &SceneCharacter, room_seed: u64, probe: &TerrainProbe) -> Self {
+        let mut rng =
+            ChaCha8Rng::seed_from_u64(room_seed ^ SETTLEMENT_STREAM_SALT ^ SITED_STREAM_TWEAK);
+        let theme = effective_theme(scene.theme);
+        let prosperity = scene.prosperity_tier();
+        let escalation = scene.escalation_tier();
+
+        let regions = probe.regions();
+
+        // Honest-adaptation floor: no buildable region at all → the
+        // landmark alone on the least-steep site the room has.
+        if regions.is_empty() {
+            let pool = tiered_pool(theme, StructureRole::Landmark, prosperity, escalation);
+            let entry = pick(&pool, &mut rng);
+            let fp = entry.footprint();
+            let mut site = probe.least_bad_site();
+            // Keep it out of the ±5 m spawn-scatter square; the bearing
+            // is preserved so it stays on (or near) its flat cell.
+            let d = (site[0].powi(2) + site[1].powi(2)).sqrt();
+            if d < 10.0 {
+                let scale = if d < 1e-3 { 0.0 } else { 10.0 / d };
+                site = if scale == 0.0 {
+                    [10.0, 0.0]
+                } else {
+                    [site[0] * scale, site[1] * scale]
+                };
+            }
+            let yaw_rad = site[0].atan2(site[1]) + range_f32(&mut rng, -0.35, 0.35);
+            let (scale_lo, scale_hi) = landmark_scale_band(prosperity);
+            return Self {
+                clusters: vec![SettlementCluster {
+                    landmark: Some(SettlementMember {
+                        slug: entry.slug(),
+                        offset: site,
+                        yaw_rad,
+                        scale: range_f32(&mut rng, scale_lo, scale_hi),
+                        grammar_seed: rng.next_u64(),
+                        clearance: fp.clearance,
+                    }),
+                    secondaries: Vec::new(),
+                    props: Vec::new(),
+                }],
+            };
+        }
+
+        // Primary region: flat capacity × spawn proximity, so near land
+        // wins when adequate and a distant plateau wins over a cramped
+        // near ledge.
+        let primary_idx = {
+            let mut best = 0;
+            let mut best_score = f32::MIN;
+            for (i, r) in regions.iter().enumerate() {
+                let capacity = (r.area_m2).min(8_000.0) / 8_000.0;
+                let proximity = 1.0 / (1.0 + r.min_spawn_dist / 80.0);
+                let score = capacity * proximity;
+                if score > best_score {
+                    best_score = score;
+                    best = i;
+                }
+            }
+            best
+        };
+
+        let mut clusters = Vec::new();
+        let mut total = 0usize;
+        let primary = place_cluster(
+            theme,
+            prosperity,
+            escalation,
+            &regions[primary_idx],
+            probe,
+            ClusterKind::Primary,
+            MAX_TOTAL_MEMBERS,
+            &mut rng,
+        );
+        total += primary.member_count();
+        clusters.push(primary);
+
+        // Extra clusters in leftover regions, largest first (`regions`
+        // is already sorted largest-first).
+        let allow_second_landmark = matches!(
+            scene.landform,
+            crate::seeded_defaults::scene::LandformArchetype::Archipelago
+                | crate::seeded_defaults::scene::LandformArchetype::Valleys
+        );
+        let mut second_landmark_placed = false;
+        let mut hamlets = 0usize;
+        for (i, region) in regions.iter().enumerate() {
+            if i == primary_idx || total >= MAX_TOTAL_MEMBERS {
+                continue;
+            }
+            let landmark_room = region.area_m2 * FILL_FRACTION;
+            if allow_second_landmark
+                && !second_landmark_placed
+                && landmark_room >= 2.0 * member_area_cost(8.0)
+            {
+                let c = place_cluster(
+                    theme,
+                    prosperity,
+                    escalation,
+                    region,
+                    probe,
+                    ClusterKind::Outpost,
+                    MAX_TOTAL_MEMBERS - total,
+                    &mut rng,
+                );
+                if c.member_count() > 0 {
+                    total += c.member_count();
+                    second_landmark_placed = true;
+                    clusters.push(c);
+                }
+            } else if hamlets < MAX_HAMLETS && region.area_m2 >= HAMLET_MIN_AREA {
+                let c = place_cluster(
+                    theme,
+                    prosperity,
+                    escalation,
+                    region,
+                    probe,
+                    ClusterKind::Hamlet,
+                    MAX_TOTAL_MEMBERS - total,
+                    &mut rng,
+                );
+                if c.member_count() > 0 {
+                    total += c.member_count();
+                    hamlets += 1;
+                    clusters.push(c);
+                }
+            }
+        }
+
+        Self { clusters }
+    }
+}
+
+/// Approximate ground area (m²) one member occupies, from its dry-land
+/// clearance radius plus breathing room.
+fn member_area_cost(clearance: f32) -> f32 {
+    let r = clearance + 2.0;
+    std::f32::consts::PI * r * r
+}
+
+/// What kind of cluster [`place_cluster`] grows.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ClusterKind {
+    /// The room's main settlement: landmark + full prosperity bands.
+    Primary,
+    /// A second landmark-led cluster (archipelago island / second
+    /// valley): landmark + reduced counts.
+    Outpost,
+    /// No landmark; a secondary with a prop or two.
+    Hamlet,
+}
+
+/// Grow one cluster inside `region`. Members whose desired ring
+/// position can't snap to a buildable cell (or would blow the region's
+/// fill budget / `member_budget`) are dropped — that *is* the capacity
+/// adaptation.
+#[allow(clippy::too_many_arguments)] // internal: a param object would just rename the call site
+fn place_cluster(
+    theme: ThemeArchetype,
+    prosperity: ProsperityTier,
+    escalation: EscalationTier,
+    region: &BuildableRegion,
+    probe: &TerrainProbe,
+    kind: ClusterKind,
+    member_budget: usize,
+    rng: &mut ChaCha8Rng,
+) -> SettlementCluster {
+    let mut cluster = SettlementCluster {
+        landmark: None,
+        secondaries: Vec::new(),
+        props: Vec::new(),
+    };
+    if member_budget == 0 {
+        return cluster;
+    }
+    let usable_area = region.area_m2 * FILL_FRACTION;
+    let mut consumed = 0.0_f32;
+    // (position, keep-clear radius) of everything placed so far.
+    let mut placed: Vec<([f32; 2], f32)> = Vec::new();
+
+    // Anchor: landmark for landmark-led clusters, a secondary for
+    // hamlets. Sits on the region cell nearest spawn that still clears
+    // the spawn square (falling back to the centroid for a region that
+    // hugs the origin).
+    let anchor_role = if kind == ClusterKind::Hamlet {
+        StructureRole::Secondary
+    } else {
+        StructureRole::Landmark
+    };
+    let anchor_pool = tiered_pool(theme, anchor_role, prosperity, escalation);
+    let anchor_pool = if anchor_pool.is_empty() && kind == ClusterKind::Hamlet {
+        // A theme with no secondaries yet: fall back to props so the
+        // hamlet is at least a marked spot rather than empty.
+        tiered_pool(theme, StructureRole::Prop, prosperity, escalation)
+    } else {
+        anchor_pool
+    };
+    if anchor_pool.is_empty() {
+        return cluster;
+    }
+    let anchor_entry = pick(&anchor_pool, rng);
+    let anchor_fp = anchor_entry.footprint();
+    let spawn_clear = if kind == ClusterKind::Primary {
+        anchor_fp.min_spawn_dist
+    } else {
+        // Non-primary clusters live in other regions; only the basic
+        // spawn-square clearance applies.
+        10.0
+    };
+    let Some(anchor_pos) = probe
+        .snap_to_region(region, [0.0, 0.0], &[([0.0, 0.0], spawn_clear)])
+        .or_else(|| probe.snap_to_region(region, region.centroid, &[]))
+    else {
+        return cluster;
+    };
+    let anchor_yaw = anchor_pos[0].atan2(anchor_pos[1]) + range_f32(rng, -0.35, 0.35);
+    let (scale_lo, scale_hi) = if kind == ClusterKind::Hamlet {
+        (0.80, 1.10)
+    } else {
+        landmark_scale_band(prosperity)
+    };
+    let anchor_member = SettlementMember {
+        slug: anchor_entry.slug(),
+        offset: anchor_pos,
+        yaw_rad: anchor_yaw,
+        scale: range_f32(rng, scale_lo, scale_hi),
+        grammar_seed: rng.next_u64(),
+        clearance: anchor_fp.clearance,
+    };
+    consumed += member_area_cost(anchor_fp.clearance);
+    placed.push((anchor_pos, anchor_fp.clearance));
+    let anchor_clearance = anchor_fp.clearance;
+    if kind == ClusterKind::Hamlet {
+        cluster.secondaries.push(anchor_member);
+    } else {
+        cluster.landmark = Some(anchor_member);
+    }
+
+    // Secondaries fan out on the far side of the anchor (as the flat
+    // deriver always did), each snapped to buildable ground.
+    let (sec_lo, sec_hi) = match kind {
+        ClusterKind::Primary => secondary_count_band(prosperity),
+        ClusterKind::Outpost => (0, 2),
+        ClusterKind::Hamlet => (0, 0), // the anchor *is* the secondary
+    };
+    let mut remaining = tiered_pool(theme, StructureRole::Secondary, prosperity, escalation);
+    let sec_hi = sec_hi.min(remaining.len()).min(MAX_SECONDARIES);
+    let sec_count = sample_count(rng, sec_lo.min(sec_hi), sec_hi);
+    let base = anchor_pos[0].atan2(anchor_pos[1]);
+    for i in 0..sec_count {
+        if cluster.member_count() >= member_budget {
+            break;
+        }
+        let idx = ((unit_f32(rng) * remaining.len() as f32) as usize).min(remaining.len() - 1);
+        let entry = remaining.remove(idx);
+        let fp = entry.footprint();
+        if consumed + member_area_cost(fp.clearance) > usable_area {
+            continue;
+        }
+        let spread = if sec_count == 1 {
+            range_f32(rng, -0.6, 0.6)
+        } else {
+            -1.2 + 2.4 * (i as f32) / ((sec_count - 1) as f32) + range_f32(rng, -0.25, 0.25)
+        };
+        let dir = base + spread;
+        let r = anchor_clearance + fp.clearance + range_f32(rng, 4.0, 12.0);
+        let desired = [anchor_pos[0] + dir.sin() * r, anchor_pos[1] + dir.cos() * r];
+        let keep: Vec<([f32; 2], f32)> =
+            placed.iter().map(|&(p, c)| (p, c + fp.clearance)).collect();
+        let Some(pos) = probe.snap_to_region(region, desired, &keep) else {
+            continue;
+        };
+        let snap_d = ((pos[0] - desired[0]).powi(2) + (pos[1] - desired[1]).powi(2)).sqrt();
+        if snap_d > SNAP_MAX_DIST {
+            continue;
+        }
+        let yaw_rad =
+            (anchor_pos[0] - pos[0]).atan2(anchor_pos[1] - pos[1]) + range_f32(rng, -0.25, 0.25);
+        cluster.secondaries.push(SettlementMember {
+            slug: entry.slug(),
+            offset: pos,
+            yaw_rad,
+            scale: range_f32(rng, 0.80, 1.10),
+            grammar_seed: rng.next_u64(),
+            clearance: fp.clearance,
+        });
+        consumed += member_area_cost(fp.clearance);
+        placed.push((pos, fp.clearance));
+    }
+
+    // Props scatter around the anchor, snapped the same way. Their
+    // keep-clear only guards against sitting *inside* another footprint
+    // (clutter may crowd).
+    let prop_pool: Vec<&'static dyn crate::catalogue::CatalogueEntry> =
+        entries_for_room(theme, StructureRole::Prop, prosperity, escalation).collect();
+    if !prop_pool.is_empty() {
+        let (prop_lo, prop_hi) = match kind {
+            ClusterKind::Primary => prop_count_band(prosperity),
+            ClusterKind::Outpost => (1, 3),
+            ClusterKind::Hamlet => (1, 2),
+        };
+        let prop_count = sample_count(rng, prop_lo, prop_hi.min(MAX_PROPS));
+        for _ in 0..prop_count {
+            if cluster.member_count() >= member_budget {
+                break;
+            }
+            let entry = pick(&prop_pool, rng);
+            let fp = entry.footprint();
+            if consumed + member_area_cost(fp.clearance) > usable_area {
+                break;
+            }
+            let dir = base + range_f32(rng, -1.4, 1.4);
+            let r = range_f32(rng, anchor_clearance + 2.0, anchor_clearance + 25.0);
+            let desired = [anchor_pos[0] + dir.sin() * r, anchor_pos[1] + dir.cos() * r];
+            let keep: Vec<([f32; 2], f32)> = placed
+                .iter()
+                .map(|&(p, c)| (p, (c + fp.clearance) * 0.5))
+                .collect();
+            let Some(pos) = probe.snap_to_region(region, desired, &keep) else {
+                continue;
+            };
+            let snap_d = ((pos[0] - desired[0]).powi(2) + (pos[1] - desired[1]).powi(2)).sqrt();
+            if snap_d > SNAP_MAX_DIST {
+                continue;
+            }
+            cluster.props.push(SettlementMember {
+                slug: entry.slug(),
+                offset: pos,
+                yaw_rad: unit_f32(rng) * TAU,
+                scale: range_f32(rng, 0.70, 1.05),
+                grammar_seed: rng.next_u64(),
+                clearance: fp.clearance,
+            });
+            consumed += member_area_cost(fp.clearance);
+            placed.push((pos, fp.clearance));
+        }
+    }
+
+    cluster
 }
 
 #[cfg(test)]
@@ -929,6 +1351,159 @@ mod tests {
             assert!(
                 r.secondaries.len() >= p.secondaries.len(),
                 "rich should not have fewer secondaries (seed {s})"
+            );
+        }
+    }
+
+    // -- Terrain-aware plan (#905) -----------------------------------------
+
+    /// Probe over a synthetic heightmap defined by a closure.
+    fn probe_from(
+        grid: usize,
+        cell: f32,
+        water_y: f32,
+        f: impl Fn(usize, usize) -> f32,
+    ) -> TerrainProbe {
+        let mut data = vec![0.0_f32; grid * grid];
+        for z in 0..grid {
+            for x in 0..grid {
+                data[z * grid + x] = f(x, z);
+            }
+        }
+        let map = gen_jobs::HeightmapData {
+            width: grid as u32,
+            height: grid as u32,
+            scale: cell,
+            data,
+        };
+        TerrainProbe::new(&map, water_y, BUILD_SLOPE_LIMIT)
+    }
+
+    fn sited_scene(s: u64, landform: crate::seeded_defaults::LandformArchetype) -> SceneCharacter {
+        let mut scene = SceneCharacter::for_seed(s);
+        scene.theme = ThemeArchetype::AncientClassical;
+        scene.landform = landform;
+        scene
+    }
+
+    /// Two flat plateaus split by an over-steep ravine — the canonical
+    /// multi-region terrain.
+    fn two_plateau_probe() -> TerrainProbe {
+        probe_from(
+            17,
+            8.0,
+            0.0,
+            |x, _| {
+                if (7..=9).contains(&x) { 2.0 } else { 30.0 }
+            },
+        )
+    }
+
+    #[test]
+    fn sited_flat_room_grows_a_full_primary_cluster() {
+        use crate::seeded_defaults::LandformArchetype::Rolling;
+        let probe = probe_from(64, 12.0, -5.0, |_, _| 10.0);
+        for s in 0u64..8 {
+            let plan = SettlementPlan::from_scene_sited(&sited_scene(s, Rolling), s, &probe);
+            assert!(!plan.clusters.is_empty());
+            let lm = plan.primary_landmark();
+            let d = (lm.offset[0].powi(2) + lm.offset[1].powi(2)).sqrt();
+            assert!(d >= 10.0, "landmark on the spawn square: {d}");
+            assert!(by_slug(lm.slug).is_some());
+        }
+    }
+
+    #[test]
+    fn sited_members_sit_on_buildable_ground() {
+        use crate::seeded_defaults::LandformArchetype::Archipelago;
+        let probe = two_plateau_probe();
+        for s in 0u64..12 {
+            let plan = SettlementPlan::from_scene_sited(&sited_scene(s, Archipelago), s, &probe);
+            for c in &plan.clusters {
+                for m in c
+                    .landmark
+                    .iter()
+                    .chain(c.secondaries.iter())
+                    .chain(c.props.iter())
+                {
+                    let slope = probe.slope_at(m.offset);
+                    assert!(
+                        slope <= BUILD_SLOPE_LIMIT + 1e-3,
+                        "seed {s}: member {} on slope {slope} at {:?}",
+                        m.slug,
+                        m.offset
+                    );
+                    assert!(
+                        probe.height_at(m.offset) > 0.0,
+                        "seed {s}: member {} under water",
+                        m.slug
+                    );
+                }
+            }
+        }
+    }
+
+    /// Archipelago / Valleys rooms may grow a second landmark-led
+    /// cluster on a second buildable region; other landforms only grow
+    /// hamlets there.
+    #[test]
+    fn second_landmark_is_landform_gated() {
+        use crate::seeded_defaults::LandformArchetype::{Archipelago, Rolling};
+        let probe = two_plateau_probe();
+
+        let mut arch_second_landmark = false;
+        for s in 0u64..24 {
+            let plan = SettlementPlan::from_scene_sited(&sited_scene(s, Archipelago), s, &probe);
+            arch_second_landmark |= plan.clusters[1..].iter().any(|c| c.landmark.is_some());
+
+            let rolling = SettlementPlan::from_scene_sited(&sited_scene(s, Rolling), s, &probe);
+            assert!(
+                rolling.clusters[1..].iter().all(|c| c.landmark.is_none()),
+                "seed {s}: rolling room grew a second landmark"
+            );
+        }
+        assert!(
+            arch_second_landmark,
+            "no archipelago seed grew a second landmark cluster on a clear two-island room"
+        );
+    }
+
+    /// Honest adaptation: a room with no buildable region at all still
+    /// gets its landmark — alone, on the least-bad site.
+    #[test]
+    fn sited_hostile_room_gets_a_lone_landmark() {
+        use crate::seeded_defaults::LandformArchetype::Craggy;
+        // Uniform over-steep ramp: no region anywhere.
+        let probe = probe_from(24, 6.0, -100.0, |x, _| x as f32 * 6.0);
+        for s in 0u64..8 {
+            let plan = SettlementPlan::from_scene_sited(&sited_scene(s, Craggy), s, &probe);
+            assert_eq!(plan.clusters.len(), 1);
+            let c = &plan.clusters[0];
+            assert!(c.landmark.is_some());
+            assert!(c.secondaries.is_empty() && c.props.is_empty());
+            let lm = plan.primary_landmark();
+            let d = (lm.offset[0].powi(2) + lm.offset[1].powi(2)).sqrt();
+            assert!(d >= 10.0 - 1e-3, "lone landmark on the spawn square: {d}");
+        }
+    }
+
+    #[test]
+    fn sited_plan_is_deterministic_and_bounded() {
+        use crate::seeded_defaults::LandformArchetype::Archipelago;
+        let probe = two_plateau_probe();
+        for s in 0u64..12 {
+            let scene = sited_scene(s, Archipelago);
+            let a = SettlementPlan::from_scene_sited(&scene, s, &probe);
+            let b = SettlementPlan::from_scene_sited(&scene, s, &probe);
+            assert_eq!(a.clusters.len(), b.clusters.len());
+            let count =
+                |p: &SettlementPlan| -> usize { p.clusters.iter().map(|c| c.member_count()).sum() };
+            assert_eq!(count(&a), count(&b));
+            assert!(count(&a) <= MAX_TOTAL_MEMBERS);
+            assert_eq!(
+                a.primary_landmark().offset,
+                b.primary_landmark().offset,
+                "seed {s} nondeterministic"
             );
         }
     }

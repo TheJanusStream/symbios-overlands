@@ -215,7 +215,7 @@ pub(super) fn spawn_terrain_mesh(
 /// [`gen_jobs::HeightmapParams`] the offload layer runs. The generation itself
 /// lives in the Bevy-free [`gen_jobs`] crate so native and the wasm Web Worker
 /// share one (deterministic) implementation.
-pub(super) fn heightmap_params(cfg: &SovereignTerrainConfig) -> gen_jobs::HeightmapParams {
+pub(crate) fn heightmap_params(cfg: &SovereignTerrainConfig) -> gen_jobs::HeightmapParams {
     use gen_jobs::GeneratorKind;
     gen_jobs::HeightmapParams {
         grid_size: cfg.grid_size,

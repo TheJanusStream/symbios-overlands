@@ -54,9 +54,12 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: None,
             },
+            // Strength reduced from 0.22 (#903): the seeded palette now
+            // leans magenta at the source, so the sRGB wash on top stays
+            // light to avoid double-tinting.
             Cyberpunk => Self {
                 tint: [0.85, 0.10, 0.70],
-                tint_strength: 0.22,
+                tint_strength: 0.14,
                 haze: 0.10,
                 brightness: 1.0,
                 particle_mood: None,
@@ -102,16 +105,21 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: None,
             },
+            // Strength reduced from 0.20 (#903): the exotic palette layer
+            // now carries the teal-green sky/water identity, so the wash
+            // only reinforces it.
             AlienOrganic => Self {
                 tint: [0.25, 0.85, 0.40],
-                tint_strength: 0.20,
+                tint_strength: 0.14,
                 haze: 0.08,
                 brightness: 1.0,
                 particle_mood: Some(ParticleMood::Fireflies),
             },
+            // Strength reduced from 0.20 (#903): indigo-violet now leans
+            // in at the palette level.
             AlienMonolithic => Self {
                 tint: [0.40, 0.55, 0.95],
-                tint_strength: 0.20,
+                tint_strength: 0.14,
                 haze: 0.06,
                 brightness: 1.0,
                 particle_mood: Some(ParticleMood::MistMotes),
@@ -204,9 +212,11 @@ impl ThemeAccent {
                 particle_mood: Some(ParticleMood::DustMotes),
             },
             // Arcane air — a soft violet wash thick with drifting magic motes.
+            // Strength reduced from 0.14 (#903): the violet-rose cast now
+            // also leans in at the palette level.
             Fantasy => Self {
                 tint: [0.60, 0.48, 0.82],
-                tint_strength: 0.14,
+                tint_strength: 0.10,
                 haze: 0.06,
                 brightness: 1.0,
                 particle_mood: Some(ParticleMood::Fireflies),

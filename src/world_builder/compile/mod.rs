@@ -31,6 +31,7 @@ mod environment;
 mod executor;
 pub(super) mod job;
 mod scatter;
+mod slope;
 mod spawn_ctx;
 mod water;
 

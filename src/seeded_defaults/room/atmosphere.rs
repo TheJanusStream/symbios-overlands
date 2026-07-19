@@ -165,40 +165,10 @@ fn derive_atmosphere(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> Atmosphere
     let azimuth_deg = range_f32(rng, 0.0, 360.0);
     let sun_position = spherical_to_world(altitude_deg, azimuth_deg, 75.0);
 
-    // -- Sun illuminance + ambient -----------------------------------------
-    let sun_illuminance = lerp(20_000.0, 9_000.0, tod) + range_f32(rng, -1_500.0, 1_500.0);
-    let ambient_brightness = lerp(450.0, 250.0, tod) + range_f32(rng, -50.0, 50.0);
-
-    // -- Fog ----------------------------------------------------------------
-    // Alpine = far-seeing, volcanic = hazy, coastal = humid mid-distance.
-    let (vis_lo, vis_hi) = match scene.biome {
-        BiomeArchetype::Alpine | BiomeArchetype::Glacial => (400.0, 600.0),
-        BiomeArchetype::Tundra => (350.0, 550.0),
-        BiomeArchetype::Lush | BiomeArchetype::TemperateForest | BiomeArchetype::Boreal => {
-            (300.0, 450.0)
-        }
-        BiomeArchetype::Coastal => (250.0, 400.0),
-        BiomeArchetype::Arid | BiomeArchetype::Savanna | BiomeArchetype::Badlands => (300.0, 500.0),
-        // Humid haze (jungle) and standing-water fog (wetland) close in
-        // the view almost as hard as volcanic smoke.
-        BiomeArchetype::Jungle | BiomeArchetype::Wetland => (200.0, 360.0),
-        BiomeArchetype::Volcanic => (180.0, 320.0),
-        BiomeArchetype::Meadow => (350.0, 520.0),
-    };
-    let fog_visibility = range_f32(rng, vis_lo, vis_hi);
-    let fog_sun_exponent = range_f32(rng, 50.0, 150.0);
-
-    // -- Water-global -------------------------------------------------------
-    let water_normal_scale_near = range_f32(rng, 0.55, 1.20);
-    let water_normal_scale_far = range_f32(rng, 0.05, 0.14);
-    let water_sun_glitter = range_f32(rng, 1.2, 2.8);
-    // Shoreline foam: uniformly sampled across the slider envelope so
-    // some rooms read as calm ponds (≈0) while others get a dramatic
-    // surf band (≈8 m).
-    let shore_foam_width = range_f32(rng, 0.0, 8.0);
-
     // -- Clouds -------------------------------------------------------------
-    // Biome biases cover; tundra/alpine overcast more, arid clearer.
+    // Sampled before the illuminance block because cover feeds it: an
+    // overcast room reads dimmer. Biome biases cover; tundra/alpine
+    // overcast more, arid clearer.
     let (cover_lo, cover_hi) = match scene.biome {
         BiomeArchetype::Tundra | BiomeArchetype::Alpine | BiomeArchetype::Boreal => (0.45, 0.75),
         // Low cloud / fog sits over standing-water wetlands.
@@ -222,6 +192,46 @@ fn derive_atmosphere(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> Atmosphere
     } else {
         [wd_x, wd_z]
     };
+
+    // -- Sun illuminance + ambient -----------------------------------------
+    // Time of day sets the base level; cloud cover then dims it — the
+    // direct sun loses far more than the diffuse ambient does (overcast
+    // light is dim but flat, not dark).
+    let sun_base = lerp(20_000.0, 9_000.0, tod) + range_f32(rng, -1_500.0, 1_500.0);
+    let sun_illuminance = sun_base * (1.0 - 0.45 * cloud_cover);
+    let ambient_base = lerp(450.0, 250.0, tod) + range_f32(rng, -50.0, 50.0);
+    let ambient_brightness = ambient_base * (1.0 - 0.15 * cloud_cover);
+
+    // -- Fog ----------------------------------------------------------------
+    // Alpine = far-seeing, volcanic = hazy, coastal = humid mid-distance.
+    let (vis_lo, vis_hi) = match scene.biome {
+        BiomeArchetype::Alpine | BiomeArchetype::Glacial => (400.0, 600.0),
+        BiomeArchetype::Tundra => (350.0, 550.0),
+        BiomeArchetype::Lush | BiomeArchetype::TemperateForest | BiomeArchetype::Boreal => {
+            (300.0, 450.0)
+        }
+        BiomeArchetype::Coastal => (250.0, 400.0),
+        BiomeArchetype::Arid | BiomeArchetype::Savanna | BiomeArchetype::Badlands => (300.0, 500.0),
+        // Humid haze (jungle) and standing-water fog (wetland) close in
+        // the view almost as hard as volcanic smoke.
+        BiomeArchetype::Jungle | BiomeArchetype::Wetland => (200.0, 360.0),
+        BiomeArchetype::Volcanic => (180.0, 320.0),
+        BiomeArchetype::Meadow => (350.0, 520.0),
+    };
+    let fog_visibility = range_f32(rng, vis_lo, vis_hi);
+    // A horizon-hugging sun throws a broader glow lobe than a high one:
+    // lower exponent = wider glow, so scale the sampled exponent down as
+    // the sun drops toward the horizon.
+    let fog_sun_exponent = (range_f32(rng, 50.0, 150.0) * (1.0 - 0.3 * tod)).max(35.0);
+
+    // -- Water-global -------------------------------------------------------
+    let water_normal_scale_near = range_f32(rng, 0.55, 1.20);
+    let water_normal_scale_far = range_f32(rng, 0.05, 0.14);
+    let water_sun_glitter = range_f32(rng, 1.2, 2.8);
+    // Shoreline foam: uniformly sampled across the slider envelope so
+    // some rooms read as calm ponds (≈0) while others get a dramatic
+    // surf band (≈8 m).
+    let shore_foam_width = range_f32(rng, 0.0, 8.0);
 
     Atmosphere {
         sun_position,
@@ -310,6 +320,7 @@ mod tests {
                 assert!(a.sun_illuminance > 0.0);
                 assert!(a.ambient_brightness > 0.0);
                 assert!(a.fog_visibility > 0.0);
+                assert!((35.0..=150.0).contains(&a.fog_sun_exponent));
                 assert!((0.0..=1.0).contains(&a.cloud_cover));
                 assert!((0.0..=1.0).contains(&a.cloud_density));
                 assert!(a.cloud_height > 0.0);
@@ -319,6 +330,46 @@ mod tests {
                 assert!(mag > 1.0, "sun_position degenerate: {sp:?}");
             }
         }
+    }
+
+    /// Cloud cover feeds the illuminance: overcast biomes (tundra) read
+    /// dimmer than clear ones (arid), and the direct sun loses
+    /// proportionally more than the diffuse ambient — overcast light is
+    /// dim but flat, not dark. Per-seed the RNG stream is identical for
+    /// both biomes (cover bands change bounds, not draw count), so the
+    /// difference is purely the coupling.
+    #[test]
+    fn overcast_dims_sun_more_than_ambient() {
+        let mut arid_sun = 0.0;
+        let mut arid_amb = 0.0;
+        let mut tundra_sun = 0.0;
+        let mut tundra_amb = 0.0;
+        for s in 0u64..32 {
+            let mut scene = SceneCharacter::for_seed(s);
+            scene.biome = BiomeArchetype::Arid;
+            let a = Atmosphere::from_scene(&scene, s);
+            arid_sun += a.sun_illuminance;
+            arid_amb += a.ambient_brightness;
+
+            scene.biome = BiomeArchetype::Tundra;
+            let t = Atmosphere::from_scene(&scene, s);
+            tundra_sun += t.sun_illuminance;
+            tundra_amb += t.ambient_brightness;
+        }
+        assert!(
+            tundra_sun < arid_sun,
+            "overcast tundra sun {tundra_sun} should be dimmer than clear arid {arid_sun}"
+        );
+        assert!(
+            tundra_amb < arid_amb,
+            "overcast tundra ambient {tundra_amb} should be dimmer than clear arid {arid_amb}"
+        );
+        let sun_drop = (arid_sun - tundra_sun) / arid_sun;
+        let amb_drop = (arid_amb - tundra_amb) / arid_amb;
+        assert!(
+            sun_drop > amb_drop,
+            "direct sun should dim more than ambient (sun {sun_drop} vs ambient {amb_drop})"
+        );
     }
 
     #[test]

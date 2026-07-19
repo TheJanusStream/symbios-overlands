@@ -117,7 +117,17 @@ struct LandformProfile {
     erosion_rate: (f32, f32),
     /// Thermal erosion sweep count. Craggy=high.
     thermal_iterations: (u32, u32),
-    /// Talus repose angle (radians). Craggy=steep, Rolling=gentle.
+    /// Maximum stable height step between adjacent heightmap cells, in
+    /// world metres — **not** an angle (the erosion runs after heights
+    /// are scaled to metres; see `ThermalErosion::talus_angle` in
+    /// `symbios-ground`). Cells sit ~2 m apart, so ~0.5 m ≈ a 15°
+    /// repose slope and ~1.3 m ≈ 34° scree. Low values act as a strong
+    /// smoothing dial (every slope sheds material each sweep); high
+    /// values leave everything below a genuine cliff untouched. Rolling
+    /// stays low (soft hills), Craggy/Mesa run high so peaks and
+    /// terrace lips keep their edges and only over-steep faces shed
+    /// scree (#904 — the old 0.03–0.12 bands mushed exactly the
+    /// landforms whose identity is sharpness).
     thermal_talus_angle: (f32, f32),
     /// FBM octaves. Higher = more fine detail.
     octaves: (u32, u32),
@@ -149,7 +159,7 @@ fn landform_profile(l: LandformArchetype) -> LandformProfile {
             erosion_drops: (15_000, 35_000),
             erosion_rate: (0.15, 0.30),
             thermal_iterations: (10, 25),
-            thermal_talus_angle: (0.04, 0.07),
+            thermal_talus_angle: (0.05, 0.10),
             octaves: (4, 6),
             persistence: (0.40, 0.55),
             lacunarity: (1.9, 2.3),
@@ -165,7 +175,7 @@ fn landform_profile(l: LandformArchetype) -> LandformProfile {
             erosion_drops: (25_000, 55_000),
             erosion_rate: (0.30, 0.45),
             thermal_iterations: (40, 80),
-            thermal_talus_angle: (0.07, 0.12),
+            thermal_talus_angle: (0.30, 0.50),
             octaves: (6, 8),
             persistence: (0.50, 0.65),
             lacunarity: (2.0, 2.6),
@@ -180,8 +190,8 @@ fn landform_profile(l: LandformArchetype) -> LandformProfile {
             height_scale: (50.0, 75.0),
             erosion_drops: (8_000, 25_000),
             erosion_rate: (0.15, 0.30),
-            thermal_iterations: (15, 35),
-            thermal_talus_angle: (0.03, 0.06),
+            thermal_iterations: (10, 20),
+            thermal_talus_angle: (0.32, 0.50),
             octaves: (4, 6),
             persistence: (0.40, 0.55),
             lacunarity: (1.9, 2.4),
@@ -197,7 +207,7 @@ fn landform_profile(l: LandformArchetype) -> LandformProfile {
             erosion_drops: (25_000, 50_000),
             erosion_rate: (0.20, 0.35),
             thermal_iterations: (15, 30),
-            thermal_talus_angle: (0.04, 0.08),
+            thermal_talus_angle: (0.10, 0.20),
             octaves: (5, 7),
             persistence: (0.45, 0.60),
             lacunarity: (2.0, 2.4),
@@ -213,7 +223,7 @@ fn landform_profile(l: LandformArchetype) -> LandformProfile {
             erosion_drops: (60_000, 120_000),
             erosion_rate: (0.30, 0.45),
             thermal_iterations: (20, 40),
-            thermal_talus_angle: (0.04, 0.07),
+            thermal_talus_angle: (0.10, 0.20),
             octaves: (5, 7),
             persistence: (0.45, 0.60),
             lacunarity: (1.9, 2.3),
@@ -619,6 +629,41 @@ mod tests {
                     assert!((0.02..=0.55).contains(&f), "{landform:?}/{biome:?}: {f}");
                 }
             }
+        }
+    }
+
+    /// The talus bands encode landform identity (#904): sharp-edged
+    /// landforms (Craggy peaks, Mesa terrace lips) keep a high stable
+    /// step so thermal erosion only sheds genuine over-steep faces,
+    /// while Rolling stays low (its identity *is* the smoothing).
+    #[test]
+    fn talus_keeps_sharp_landforms_sharp() {
+        for s in 0u64..32 {
+            let mut scene = SceneCharacter::for_seed(s);
+
+            scene.landform = LandformArchetype::Craggy;
+            let craggy = TerrainShape::from_scene(&scene, s).thermal_talus_angle;
+            assert!(craggy >= 0.25, "craggy talus {craggy} too smoothing");
+
+            scene.landform = LandformArchetype::Mesa;
+            let mesa = TerrainShape::from_scene(&scene, s);
+            assert!(
+                mesa.thermal_talus_angle >= 0.25,
+                "mesa talus {} would mush the terrace lips",
+                mesa.thermal_talus_angle
+            );
+            assert!(
+                mesa.thermal_iterations <= 20,
+                "mesa sweeps {} too many for crisp terraces",
+                mesa.thermal_iterations
+            );
+
+            scene.landform = LandformArchetype::Rolling;
+            let rolling = TerrainShape::from_scene(&scene, s).thermal_talus_angle;
+            assert!(
+                rolling <= 0.12,
+                "rolling talus {rolling} lost its soft-hill smoothing"
+            );
         }
     }
 

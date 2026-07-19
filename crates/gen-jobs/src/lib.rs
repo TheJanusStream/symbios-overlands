@@ -401,6 +401,130 @@ fn run_heightmap(p: HeightmapParams) -> HeightmapData {
     }
 }
 
+/// Floor on the hydraulic drop count of a proxy run, so tiny proxies
+/// still carve *some* macro drainage instead of skipping erosion in all
+/// but name.
+const PROXY_MIN_DROPS: u32 = 500;
+
+/// Floor on the thermal sweep count of a proxy run.
+const PROXY_MIN_THERMAL: u32 = 4;
+
+/// Low-resolution proxy of [`run_heightmap`] for synchronous derive-time
+/// terrain queries (#905) — cheap enough to run inline while a room
+/// record is being derived, close enough in macro shape that flat-region
+/// decisions made against it hold on the full-resolution map.
+///
+/// Macro-shape fidelity per generator:
+///
+/// - `FbmNoise` samples noise in normalised grid space and
+///   `VoronoiTerracing` lays its seeds in normalised space, so both
+///   produce the *same* macro features at any resolution — the proxy
+///   generates directly at `proxy_grid`.
+/// - `DiamondSquare`'s RNG stream depends on the recursion depth (and
+///   thus the grid size), so a low-res run is a different terrain. For
+///   it the base generates at the full grid and is box-downsampled.
+///
+/// Erosion runs on the proxy with cost-scaled parameters: hydraulic
+/// drops scale with the cell-count ratio, thermal sweeps with the linear
+/// ratio, and the talus step with the cell-size ratio (it is a
+/// per-adjacent-cell height threshold, so a constant *slope* limit
+/// scales linearly with cell spacing). The result approximates — not
+/// reproduces — the full map, which is why consumers pair it with a
+/// conservative threshold and a compile-time safety net.
+///
+/// Deterministic from `p` + `proxy_grid` alone, like every job here.
+pub fn run_heightmap_proxy(p: &HeightmapParams, proxy_grid: u32) -> HeightmapData {
+    let full_grid = (p.grid_size as usize).max(2);
+    let proxy_grid = (proxy_grid as usize).clamp(2, full_grid);
+    let extent = (full_grid - 1) as f32 * p.cell_scale.max(0.01);
+    let proxy_cell = extent / (proxy_grid - 1) as f32;
+
+    let mut hm = match p.generator_kind {
+        GeneratorKind::DiamondSquare => {
+            let mut full = HeightMap::new(full_grid, full_grid, p.cell_scale.max(0.01));
+            apply_base_generator(p, &mut full);
+            box_downsample(&full, proxy_grid, proxy_cell)
+        }
+        GeneratorKind::FbmNoise | GeneratorKind::VoronoiTerracing => {
+            let mut proxy = HeightMap::new(proxy_grid, proxy_grid, proxy_cell);
+            apply_base_generator(p, &mut proxy);
+            proxy
+        }
+    };
+
+    for v in hm.data_mut() {
+        *v *= p.height_scale;
+    }
+
+    let cell_ratio = ((full_grid * full_grid) as f64 / (proxy_grid * proxy_grid) as f64) as f32;
+    let linear_ratio = (proxy_grid - 1) as f32 / (full_grid - 1) as f32;
+
+    if p.erosion_enabled {
+        HydraulicErosion {
+            seed: p.seed,
+            num_drops: ((p.erosion_drops as f32 / cell_ratio) as u32).max(PROXY_MIN_DROPS),
+            max_steps: HYDRAULIC_MAX_STEPS,
+            inertia: p.inertia,
+            erosion_rate: p.erosion_rate,
+            deposition_rate: p.deposition_rate,
+            evaporation_rate: p.evaporation_rate,
+            capacity_factor: p.capacity_factor,
+            min_slope: HYDRAULIC_MIN_SLOPE,
+            water_level: HYDRAULIC_WATER_LEVEL,
+            ..HydraulicErosion::new(p.seed)
+        }
+        .erode(&mut hm);
+    }
+
+    if p.thermal_enabled {
+        ThermalErosion::new()
+            .with_iterations(
+                ((p.thermal_iterations as f32 * linear_ratio) as u32).max(PROXY_MIN_THERMAL),
+            )
+            .with_talus_angle(p.thermal_talus_angle / linear_ratio)
+            .erode(&mut hm);
+    }
+
+    HeightmapData {
+        width: hm.width() as u32,
+        height: hm.height() as u32,
+        scale: hm.scale(),
+        data: hm.data().to_vec(),
+    }
+}
+
+/// Box-downsample `full` to a `proxy_grid`² map with cell size
+/// `proxy_cell`: each proxy cell averages the full-resolution cells in
+/// the window it covers, so macro shape survives and single-cell spikes
+/// don't alias through.
+fn box_downsample(full: &HeightMap, proxy_grid: usize, proxy_cell: f32) -> HeightMap {
+    let full_grid = full.width();
+    let mut proxy = HeightMap::new(proxy_grid, proxy_grid, proxy_cell);
+    let ratio = (full_grid - 1) as f32 / (proxy_grid - 1) as f32;
+    let half = (ratio * 0.5).max(0.5);
+
+    for pz in 0..proxy_grid {
+        for px in 0..proxy_grid {
+            let cx = px as f32 * ratio;
+            let cz = pz as f32 * ratio;
+            let x0 = ((cx - half).ceil() as i32).max(0) as usize;
+            let x1 = ((cx + half).floor() as i32).min(full_grid as i32 - 1) as usize;
+            let z0 = ((cz - half).ceil() as i32).max(0) as usize;
+            let z1 = ((cz + half).floor() as i32).min(full_grid as i32 - 1) as usize;
+            let mut sum = 0.0_f64;
+            let mut n = 0u32;
+            for z in z0..=z1 {
+                for x in x0..=x1 {
+                    sum += full.get(x, z) as f64;
+                    n += 1;
+                }
+            }
+            proxy.set(px, pz, (sum / n.max(1) as f64) as f32);
+        }
+    }
+    proxy
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -511,6 +635,109 @@ mod tests {
             assert!(
                 d.data.iter().all(|v| v.is_finite()),
                 "{kind:?} produced a non-finite height at the erosion/height clamp corner",
+            );
+        }
+    }
+
+    fn heightmap_of(d: &HeightmapData) -> HeightMap {
+        let mut hm = HeightMap::new(d.width as usize, d.height as usize, d.scale);
+        hm.data_mut().copy_from_slice(&d.data);
+        hm
+    }
+
+    #[test]
+    fn proxy_is_deterministic_and_spans_the_full_extent() {
+        let p = params(99);
+        let a = run_heightmap_proxy(&p, 8);
+        let b = run_heightmap_proxy(&p, 8);
+        assert_eq!(a, b);
+        assert_eq!((a.width, a.height), (8, 8));
+        // Same world extent as the full map, just sparser cells.
+        let full_extent = (p.grid_size - 1) as f32 * p.cell_scale;
+        let proxy_extent = (a.width - 1) as f32 * a.scale;
+        assert!((full_extent - proxy_extent).abs() < 1e-3);
+        assert!(a.data.iter().all(|v| v.is_finite()));
+    }
+
+    /// The proxy's whole purpose: macro shape must track the full map for
+    /// every generator kind — including DiamondSquare, whose RNG stream is
+    /// grid-size-dependent and therefore goes through the full-res +
+    /// box-downsample path. Erosion is disabled so the comparison isolates
+    /// the base-shape agreement (eroded proxies only approximate).
+    #[test]
+    fn proxy_macro_shape_tracks_full_map() {
+        for kind in [
+            GeneratorKind::FbmNoise,
+            GeneratorKind::DiamondSquare,
+            GeneratorKind::VoronoiTerracing,
+        ] {
+            let p = HeightmapParams {
+                grid_size: 129,
+                cell_scale: 2.0,
+                base_frequency: 3.0,
+                generator_kind: kind,
+                erosion_enabled: false,
+                thermal_enabled: false,
+                ..params(4242)
+            };
+            let full = heightmap_of(&run(p.clone()));
+            let proxy = heightmap_of(&run_heightmap_proxy(&p, 33));
+
+            let mut sum_abs = 0.0_f64;
+            let mut n = 0u32;
+            for pz in 0..proxy.height() {
+                for px in 0..proxy.width() {
+                    let wx = px as f32 * proxy.scale();
+                    let wz = pz as f32 * proxy.scale();
+                    sum_abs += (proxy.get(px, pz) - full.get_height_at(wx, wz)).abs() as f64;
+                    n += 1;
+                }
+            }
+            let mean_abs = sum_abs / n as f64;
+            // Tolerance is relative to the height scale; Voronoi's hard
+            // terrace edges make point-vs-average differ locally, so the
+            // assertion is on the mean.
+            assert!(
+                mean_abs < 0.12 * p.height_scale as f64,
+                "{kind:?}: proxy diverges from full map (mean abs {mean_abs})"
+            );
+        }
+    }
+
+    #[test]
+    fn proxy_with_erosion_is_finite_and_still_tracks_roughly() {
+        for kind in [
+            GeneratorKind::FbmNoise,
+            GeneratorKind::DiamondSquare,
+            GeneratorKind::VoronoiTerracing,
+        ] {
+            let p = HeightmapParams {
+                grid_size: 129,
+                cell_scale: 2.0,
+                base_frequency: 3.0,
+                generator_kind: kind,
+                ..params(777)
+            };
+            let full = heightmap_of(&run(p.clone()));
+            let proxy = heightmap_of(&run_heightmap_proxy(&p, 33));
+            assert!(proxy.data().iter().all(|v| v.is_finite()));
+
+            let mut sum_abs = 0.0_f64;
+            let mut n = 0u32;
+            for pz in 0..proxy.height() {
+                for px in 0..proxy.width() {
+                    let wx = px as f32 * proxy.scale();
+                    let wz = pz as f32 * proxy.scale();
+                    sum_abs += (proxy.get(px, pz) - full.get_height_at(wx, wz)).abs() as f64;
+                    n += 1;
+                }
+            }
+            let mean_abs = sum_abs / n as f64;
+            // Looser than the erosion-free bound: the proxy's erosion is an
+            // approximation by design.
+            assert!(
+                mean_abs < 0.2 * p.height_scale as f64,
+                "{kind:?}: eroded proxy far from full map (mean abs {mean_abs})"
             );
         }
     }

@@ -382,6 +382,13 @@ impl RoomRecord {
     /// verbatim and scales down only the outliers' scatter counts.
     const ROOM_TREE_ENTITY_BUDGET: u64 = 120_000;
 
+    /// Grid size of the derive-time proxy heightmap used for settlement
+    /// siting (#905). At the default 512-cell / ~2 m terrain this is a
+    /// ~10 m proxy cell — building-footprint scale, coarse enough that
+    /// the synchronous generation stays a low-single-digit-millisecond
+    /// cost inside `default_for_seed`.
+    const SETTLEMENT_PROXY_GRID: u32 = 96;
+
     /// Build the seeded default room from a pre-computed seed — the
     /// manual re-roll path. `seed` drives every derived value (terrain
     /// shape, palette, atmosphere, scatters, landmark, audio, …); `did`
@@ -398,8 +405,9 @@ impl RoomRecord {
         use crate::pds::types::{BiomeFilter, ScatterBounds, WaterRelation};
         use crate::pds::{Fp2, TortureParams};
         use crate::seeded_defaults::{
-            AmbientParticles, Atmosphere, BiomeTextures, RockScatters, RoomPalette, SceneCharacter,
-            Settlement, TerrainShape, TreeScatters, WaterDynamics,
+            AmbientParticles, Atmosphere, BUILD_SLOPE_LIMIT, BiomeTextures, RockScatters,
+            RoomPalette, SceneCharacter, SettlementPlan, TerrainProbe, TerrainShape, TreeScatters,
+            WaterDynamics,
         };
 
         let did_seed = seed;
@@ -423,6 +431,22 @@ impl RoomRecord {
         apply_textures_to_material(&textures, &mut terrain_cfg.material);
         apply_biome_signature_surface(scene.biome, did_seed, &mut terrain_cfg.material);
 
+        // Terrain-aware settlement siting (#905): a low-resolution proxy
+        // of the exact heightmap this config will generate, segmented
+        // into buildable flat regions. Deterministic from the config, so
+        // peers derive identical rooms. The water level uses the same
+        // fraction × height-scale product the Water child below places
+        // its surface at.
+        let seeded_water_y = shape.water_level_fraction * shape.height_scale;
+        let terrain_probe = TerrainProbe::new(
+            &gen_jobs::run_heightmap_proxy(
+                &crate::terrain::heightmap_params(&terrain_cfg),
+                Self::SETTLEMENT_PROXY_GRID,
+            ),
+            seeded_water_y,
+            BUILD_SLOPE_LIMIT,
+        );
+
         let mut water_surface = WaterSurface {
             shallow_color: Fp4(palette.water_shallow),
             deep_color: Fp4(palette.water_deep),
@@ -438,13 +462,12 @@ impl RoomRecord {
         // portable blueprint.
         let mut base_region = Generator::from_kind(GeneratorKind::Terrain(terrain_cfg));
         // Water altitude is the seeded `water_level_fraction` of the
-        // seeded `height_scale`. Expressed as a fraction so a tall
-        // craggy room and a short rolling room can both read as "30 %
+        // seeded `height_scale` (`seeded_water_y`, computed above for
+        // the terrain probe). Expressed as a fraction so a tall craggy
+        // room and a short rolling room can both read as "30 %
         // submerged" — the absolute Y differs but the proportion of
         // land vs water stays meaningful. Archetype + biome biases
-        // happen inside `TerrainShape::from_scene`; here we just
-        // multiply out.
-        let seeded_water_y = shape.water_level_fraction * shape.height_scale;
+        // happen inside `TerrainShape::from_scene`.
         base_region.children.push(Generator {
             kind: GeneratorKind::Water {
                 surface: water_surface,
@@ -697,55 +720,72 @@ impl RoomRecord {
             avoid_water_clearance: Fp(0.0),
         });
 
-        // Seeded mini-settlement: most home regions grow a themed cluster near
-        // spawn — one landmark plus any secondaries and props available for the
-        // room's theme (see crate::seeded_defaults::room::settlement).
-        // Shape-grammar entries get their stochastic seed restamped per DID so
-        // two users sharing a structure type still see different derivations;
-        // the landmark faces the spawn origin, secondaries face the landmark,
-        // and every member snaps to terrain with its own water clearance.
+        // Seeded settlement, sited on the terrain (#905): the plan places
+        // its clusters inside the probe's buildable flat regions — one
+        // primary landmark cluster (kept under the historical "landmark"
+        // generator name the gateway and compile layers key on), an
+        // optional second landmark cluster on naturally-partitioned
+        // landforms, and small hamlets in leftover regions. Shape-grammar
+        // entries get their stochastic seed restamped per DID so two users
+        // sharing a structure type still see different derivations; every
+        // member snaps to terrain with its own water clearance.
         //
         // Built once here and reused by the gateway wiring below, which
-        // anchors the gate to the landmark.
-        let settlement = Settlement::from_scene(&scene, did_seed);
+        // anchors the gate to the primary landmark.
+        let settlement_plan = SettlementPlan::from_scene_sited(&scene, did_seed, &terrain_probe);
         {
             let (prosperity, escalation) = (scene.prosperity, scene.escalation);
-            wire_settlement_member(
-                &settlement.landmark,
-                "landmark",
-                did,
-                prosperity,
-                escalation,
-                &mut generators,
-                &mut placements,
-            );
-            for (i, member) in settlement.secondaries.iter().enumerate() {
-                wire_settlement_member(
-                    member,
-                    &format!("settlement_secondary_{i}"),
-                    did,
-                    prosperity,
-                    escalation,
-                    &mut generators,
-                    &mut placements,
-                );
-            }
-            // Props are sampled with replacement, so the same prop can recur.
-            // Share one generator per distinct prop slug (named by slug) and
-            // reference it from each copy's placement — the compiler bakes that
-            // mesh once and instances it, instead of carrying a near-duplicate
-            // Region Asset per copy (mirrors the lot-building layer).
-            for member in &settlement.props {
-                let name = format!("settlement_prop_{}", member.slug);
-                if !generators.contains_key(&name) {
-                    let Some(prop_gen) =
-                        build_member_generator(member, did, prosperity, escalation)
-                    else {
-                        continue;
+            for (ci, cluster) in settlement_plan.clusters.iter().enumerate() {
+                if let Some(landmark) = &cluster.landmark {
+                    let name = if ci == 0 {
+                        "landmark".to_string()
+                    } else {
+                        format!("landmark_{ci}")
                     };
-                    generators.insert(name.clone(), prop_gen);
+                    wire_settlement_member(
+                        landmark,
+                        &name,
+                        did,
+                        prosperity,
+                        escalation,
+                        &mut generators,
+                        &mut placements,
+                    );
                 }
-                placements.push(member_placement(name, member));
+                for (i, member) in cluster.secondaries.iter().enumerate() {
+                    let name = if ci == 0 {
+                        format!("settlement_secondary_{i}")
+                    } else {
+                        format!("settlement_c{ci}_secondary_{i}")
+                    };
+                    wire_settlement_member(
+                        member,
+                        &name,
+                        did,
+                        prosperity,
+                        escalation,
+                        &mut generators,
+                        &mut placements,
+                    );
+                }
+                // Props are sampled with replacement, so the same prop can
+                // recur (within and across clusters). Share one generator per
+                // distinct prop slug (named by slug) and reference it from
+                // each copy's placement — the compiler bakes that mesh once
+                // and instances it, instead of carrying a near-duplicate
+                // Region Asset per copy (mirrors the lot-building layer).
+                for member in &cluster.props {
+                    let name = format!("settlement_prop_{}", member.slug);
+                    if !generators.contains_key(&name) {
+                        let Some(prop_gen) =
+                            build_member_generator(member, did, prosperity, escalation)
+                        else {
+                            continue;
+                        };
+                        generators.insert(name.clone(), prop_gen);
+                    }
+                    placements.push(member_placement(name, member));
+                }
             }
         }
 
@@ -768,9 +808,10 @@ impl RoomRecord {
                 .or_else(|| crate::catalogue::by_slug("civic_gateway"));
         if let Some(entry) = gateway_entry {
             let gate_clearance = entry.footprint().clearance;
+            let primary_landmark = settlement_plan.primary_landmark();
             let spot = crate::seeded_defaults::GatewaySpot::for_landmark(
-                settlement.landmark.offset,
-                settlement.landmark.clearance,
+                primary_landmark.offset,
+                primary_landmark.clearance,
                 gate_clearance,
             );
             let mut gate = entry.build(did);
@@ -2028,7 +2069,7 @@ mod tests {
 
     #[test]
     fn default_room_carries_a_themed_settlement() {
-        use crate::seeded_defaults::room::settlement::{MAX_PROPS, MAX_SECONDARIES};
+        use crate::seeded_defaults::room::settlement::MAX_SECONDARIES;
         for s in 0u64..16 {
             let did = format!("did:test:{s}");
             let record = RoomRecord::default_for_did(&did);
@@ -2084,73 +2125,78 @@ mod tests {
                 assert!(*snap, "{name} must snap to terrain");
                 let [x, _, z] = transform.translation.0;
                 let dist = (x * x + z * z).sqrt();
+                // Sited members clear the ±5 m spawn-scatter square (#905);
+                // non-primary clusters may legitimately sit nearer than the
+                // old 30–60 m spawn ring did.
                 assert!(
-                    dist >= 20.0,
+                    dist >= 9.5,
                     "settlement member {name} too close to spawn: {dist} m"
                 );
             }
 
+            // `settlement_secondary_*` names are primary-cluster only
+            // (other clusters use `settlement_c<N>_secondary_*`), so the
+            // per-cluster band cap applies directly. Prop generators are
+            // deduped by slug across every cluster; bound them by the
+            // room-wide member ceiling instead of the per-cluster band.
             assert!(
                 secondaries <= MAX_SECONDARIES,
                 "too many secondaries: {secondaries}"
             );
-            assert!(props <= MAX_PROPS, "too many props: {props}");
+            assert!(props <= 20, "too many distinct props: {props}");
         }
     }
 
     #[test]
     fn settlement_props_dedupe_to_one_generator_per_slug() {
-        use crate::seeded_defaults::{SceneCharacter, Settlement, fnv1a_64};
-        use std::collections::HashSet;
-        // Find a room whose settlement repeats a prop slug — props are
-        // sampled with replacement, so dedup must actually collapse something.
-        let found = (0u64..256).find_map(|s| {
+        // Props are sampled with replacement (within and across clusters,
+        // #905), so some room's record must carry more prop placements
+        // than prop generators — the dedup actually collapsing copies.
+        // Structural invariants are asserted for every room checked along
+        // the way; the search stops at the first room that repeats.
+        let mut collapsed = None;
+        for s in 0u64..64 {
             let did = format!("did:test:{s}");
-            let seed = fnv1a_64(&did);
-            let scene = SceneCharacter::for_seed(seed);
-            let settlement = Settlement::from_scene(&scene, seed);
-            let total = settlement.props.len();
-            let distinct: HashSet<_> = settlement.props.iter().map(|m| m.slug).collect();
-            (total > distinct.len()).then_some((did, total, distinct.len()))
-        });
-        let (did, total_props, distinct_props) =
-            found.expect("no seed in 0..256 repeated a settlement prop");
-
-        let record = RoomRecord::default_for_did(&did);
-        let prop_placements = record
-            .placements
-            .iter()
-            .filter(|p| {
-                matches!(p, Placement::Absolute { generator_ref, .. }
-                    if generator_ref.starts_with("settlement_prop_"))
-            })
-            .count();
-        let prop_gens = record
-            .generators
-            .keys()
-            .filter(|k| k.starts_with("settlement_prop_"))
-            .count();
-        // One placement per prop copy, but one generator per distinct slug.
-        assert_eq!(prop_placements, total_props, "one placement per prop copy");
-        assert_eq!(
-            prop_gens, distinct_props,
-            "one generator per distinct prop slug"
-        );
-        assert!(
-            prop_gens < prop_placements,
-            "dedup must collapse repeated props ({prop_gens} gens for {prop_placements} placements)"
-        );
-        // Every prop placement resolves to its shared generator.
-        for p in &record.placements {
-            if let Placement::Absolute { generator_ref, .. } = p
-                && generator_ref.starts_with("settlement_prop_")
-            {
-                assert!(
-                    record.generators.contains_key(generator_ref),
-                    "prop placement references missing generator {generator_ref}"
-                );
+            let record = RoomRecord::default_for_did(&did);
+            let prop_placements = record
+                .placements
+                .iter()
+                .filter(|p| {
+                    matches!(p, Placement::Absolute { generator_ref, .. }
+                        if generator_ref.starts_with("settlement_prop_"))
+                })
+                .count();
+            let prop_gens = record
+                .generators
+                .keys()
+                .filter(|k| k.starts_with("settlement_prop_"))
+                .count();
+            assert!(
+                prop_gens <= prop_placements,
+                "{did}: more prop generators than placements"
+            );
+            // Every prop placement resolves to its shared generator.
+            for p in &record.placements {
+                if let Placement::Absolute { generator_ref, .. } = p
+                    && generator_ref.starts_with("settlement_prop_")
+                {
+                    assert!(
+                        record.generators.contains_key(generator_ref),
+                        "prop placement references missing generator {generator_ref}"
+                    );
+                }
+            }
+            if prop_gens < prop_placements {
+                collapsed = Some((did, prop_gens, prop_placements));
+                break;
             }
         }
+        let (did, gens, placements) =
+            collapsed.expect("no seed in 0..64 repeated a settlement prop");
+        assert!(
+            gens < placements,
+            "{did}: dedup must collapse repeated props ({gens} gens for {placements} placements)"
+        );
     }
 
     #[test]

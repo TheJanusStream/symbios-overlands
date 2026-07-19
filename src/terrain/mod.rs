@@ -45,6 +45,7 @@
 //! every sub-module touches some subset of them.
 
 mod heightmap;
+pub(crate) use heightmap::heightmap_params;
 mod lifecycle;
 mod lots;
 mod referenced;

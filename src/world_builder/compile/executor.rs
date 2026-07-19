@@ -463,16 +463,28 @@ fn start_unit(
             let extent = (hm.width() - 1) as f32 * hm.scale();
             let half = extent * 0.5;
             // Water-avoiding placements slide to dry land before the
-            // height sample (may move X/Z, preserves bearing).
-            if let Some(clearance) = avoid_water
-                && let Some(water_y) = room_water_y
-            {
-                relocate_above_water(
+            // height sample (may move X/Z, preserves bearing), then off
+            // over-steep ground (#905) — the safety net under the
+            // derive-time proxy siting. Both walks are gated on the
+            // seeded pipeline's `avoid_water` opt-in, so editor-authored
+            // placements are never second-guessed.
+            if let Some(clearance) = avoid_water {
+                if let Some(water_y) = room_water_y {
+                    relocate_above_water(
+                        hm,
+                        extent,
+                        half,
+                        &mut anchor_world_tf.translation,
+                        water_y,
+                        clearance,
+                    );
+                }
+                super::slope::relocate_off_steep_ground(
                     hm,
                     extent,
                     half,
                     &mut anchor_world_tf.translation,
-                    water_y,
+                    room_water_y,
                     clearance,
                 );
             }
