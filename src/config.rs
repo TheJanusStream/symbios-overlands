@@ -1035,29 +1035,54 @@ pub mod ui {
 
     pub mod login {
         // The "Enter the Overlands" button's fill colour moved to the
-        // semantic theme (#855): `ui::theme::Theme::accent_fill`. Only
-        // geometry stays here.
-        /// Minimum button size (px). Sized well above the default
-        /// label-hugging button so it reads as the screen's primary
-        /// call to action, not just another control.
-        pub const ENTER_BUTTON_MIN_SIZE: [f32; 2] = [240.0, 40.0];
+        // semantic theme (#855): `ui::theme::Theme::accent_fill`; the
+        // backdrop gradient stops live there too (#896). Only geometry
+        // stays here. The login screen (#896) is composed of a hero
+        // wordmark plus two frameless cards centred as a pair from the
+        // live screen rect — the same screen-relative philosophy as
+        // `ui::layout` (#833), but computed locally since the login
+        // screen has no toolbar carving the rect and no drag-to-move.
+        /// Height (px) of the full-width "Enter the Overlands" button.
+        /// Tall enough to read as the screen's primary call to action,
+        /// not just another control.
+        pub const ENTER_BUTTON_HEIGHT: f32 = 44.0;
         /// Button label text size (px) — larger than body text to
         /// match the enlarged hit area.
         pub const ENTER_BUTTON_TEXT_SIZE: f32 = 18.0;
 
-        /// Login form window: initial top-left position (px) and minimum
-        /// content width. The `#Overlands` post feed renders in its *own*
-        /// window pinned just to the right (see [`FEED_WINDOW_POS`]); the
-        /// fixed width keeps the two from overlapping on the first paint,
-        /// before the user has had a chance to drag either one.
-        pub const WINDOW_POS: [f32; 2] = [40.0, 60.0];
-        pub const WINDOW_MIN_WIDTH: f32 = 400.0;
-        /// Feed window initial top-left. Sits at the login window's right
-        /// edge (`WINDOW_POS.x + WINDOW_MIN_WIDTH`) plus a ~20 px gutter,
-        /// with the same top so the two read as a side-by-side pair.
-        pub const FEED_WINDOW_POS: [f32; 2] = [460.0, 60.0];
-        /// Minimum content width of the feed window.
-        pub const FEED_WINDOW_MIN_WIDTH: f32 = 360.0;
+        /// Content width (px) of the login card. On viewports too narrow
+        /// to hold it plus [`EDGE_PAD`], the card shrinks to fit.
+        pub const CARD_WIDTH: f32 = 400.0;
+        /// Content width (px) of the `#Overlands` feed card.
+        pub const FEED_CARD_WIDTH: f32 = 360.0;
+        /// Horizontal gap between the two cards when they sit side by
+        /// side; also the vertical gap when a narrow viewport stacks
+        /// the feed card underneath the login card.
+        pub const CARD_GUTTER: f32 = 24.0;
+        /// Card chrome: content padding inside the rounded frame.
+        pub const CARD_INNER_MARGIN: f32 = 16.0;
+        /// Card chrome: corner rounding radius (px).
+        pub const CARD_CORNER_RADIUS: f32 = 8.0;
+        /// Top of the hero wordmark, as a fraction of screen height.
+        pub const HERO_TOP_FRAC: f32 = 0.12;
+        /// Top of the card pair, as a fraction of screen height —
+        /// clamped below the hero's actual bottom edge at render time
+        /// so short viewports never overlap the two.
+        pub const CARDS_TOP_FRAC: f32 = 0.28;
+        /// Cap on the feed card's scrollable body, as a fraction of
+        /// screen height, so the pair reads as one balanced composition
+        /// instead of a short card beside an arbitrarily tall one.
+        pub const FEED_MAX_HEIGHT_FRAC: f32 = 0.48;
+        /// Minimum breathing room (px) between any card edge and the
+        /// screen edge on cramped viewports.
+        pub const EDGE_PAD: f32 = 16.0;
+        /// Hero wordmark text size (px).
+        pub const WORDMARK_TEXT_SIZE: f32 = 32.0;
+        /// Hero tagline text size (px).
+        pub const TAGLINE_TEXT_SIZE: f32 = 15.0;
+        /// Feed-card heading text size (px) — the card lost its window
+        /// title bar (#896), so the heading renders in the body.
+        pub const FEED_HEADING_TEXT_SIZE: f32 = 16.0;
     }
 
     pub mod editor {

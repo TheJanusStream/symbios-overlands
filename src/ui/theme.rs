@@ -124,6 +124,12 @@ pub struct Theme {
     pub text_faint: egui::Color32,
     /// Window and separator strokes.
     pub border: egui::Color32,
+    /// Login-screen backdrop gradient, top edge (zenith). Painted as a
+    /// full-screen vertical gradient behind the login cards so the
+    /// pre-world screen reads as a sky, not a flat clear-colour void.
+    pub backdrop_top: egui::Color32,
+    /// Login-screen backdrop gradient, bottom edge (horizon).
+    pub backdrop_bottom: egui::Color32,
     /// Which egui base visuals this palette is built over — pinned into
     /// `ThemePreference` by [`apply_theme`] so an OS-theme-forwarding
     /// bevy_egui upgrade can never flip the mode out from under the
@@ -220,6 +226,11 @@ impl Theme {
             text_weak: egui::Color32::from_gray(140),
             text_faint: egui::Color32::from_gray(96),
             border: egui::Color32::from_gray(60),
+            // Night-sky slate falling toward a teal-tinged horizon — the
+            // horizon hue is a desaturated cousin of the accent so the
+            // backdrop and the CTA read as one family.
+            backdrop_top: egui::Color32::from_rgb(14, 22, 33),
+            backdrop_bottom: egui::Color32::from_rgb(56, 86, 102),
             egui_base: egui::Theme::Dark,
             border_stroke_width: 1.0,
         }
@@ -258,6 +269,9 @@ impl Theme {
             text_weak: egui::Color32::from_gray(90),
             text_faint: egui::Color32::from_gray(128),
             border: egui::Color32::from_gray(190),
+            // Daylight sky falling to a pale near-white horizon.
+            backdrop_top: egui::Color32::from_rgb(128, 168, 198),
+            backdrop_bottom: egui::Color32::from_rgb(233, 240, 244),
             egui_base: egui::Theme::Light,
             border_stroke_width: 1.0,
         }
@@ -295,6 +309,10 @@ impl Theme {
             text_weak: egui::Color32::from_gray(200),
             text_faint: egui::Color32::from_gray(160),
             border: egui::Color32::from_gray(170),
+            // Near-flat and near-black: a decorative gradient would cost
+            // contrast, which is this palette's whole reason to exist.
+            backdrop_top: egui::Color32::from_gray(0),
+            backdrop_bottom: egui::Color32::from_gray(16),
             egui_base: egui::Theme::Dark,
             border_stroke_width: 1.5,
         }

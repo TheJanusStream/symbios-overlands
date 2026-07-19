@@ -29,10 +29,10 @@
 //!    despawns any stale [`LoginFeedFetchTask`], and spawns a fresh one.
 //! 3. [`poll_login_feed_fetch`] drains finished tasks each frame and
 //!    writes their result back into [`LoginPostFeed`].
-//! 4. [`render_login_feed_panel`] paints the feed body into its own egui
-//!    window (titled by [`feed_panel_title`], pinned beside the login
-//!    form), returning a [`LoginFeedAction`] so the parent UI system can
-//!    act on Retry / Open clicks.
+//! 4. [`render_login_feed_panel`] paints the feed body into its card
+//!    beside the login card (headed by [`feed_panel_title`] +
+//!    [`feed_panel_subtitle`]), returning a [`LoginFeedAction`] so the
+//!    parent UI system can act on Retry / Open clicks.
 
 use bevy::prelude::*;
 use bevy::tasks::{IoTaskPool, Task};
@@ -67,13 +67,19 @@ fn feed_hashtag() -> &'static str {
     option_env!("OVERLANDS_LOGIN_FEED_HASHTAG").unwrap_or(DEFAULT_HASHTAG)
 }
 
-/// Title for the standalone feed window, e.g. `Latest #Overlands from
-/// @codewright.bsky.social`. Lives here (next to the env-driven handle /
-/// hashtag) so the window title and the body stay single-sourced; the
-/// login UI uses it as the [`egui::Window`] title now that the feed is no
-/// longer a section inside the login window.
+/// Heading for the feed card, e.g. `Dev updates · #Overlands`. Lives
+/// here (next to the env-driven handle / hashtag) so the heading and the
+/// body stay single-sourced; the login UI paints it inside the card now
+/// that the feed lost its `egui::Window` title bar (#896).
 pub fn feed_panel_title() -> String {
-    format!("Latest {} from @{}", feed_hashtag(), feed_handle())
+    format!("Dev updates · {}", feed_hashtag())
+}
+
+/// Attribution line under the heading, e.g. `from @codewright.bsky.social`
+/// — stated once here instead of repeated on every card (#896), since
+/// `getAuthorFeed` only ever returns one author's posts.
+pub fn feed_panel_subtitle() -> String {
+    format!("from @{}", feed_handle())
 }
 
 /// One displayed post — strictly the fields the UI actually renders.
@@ -87,6 +93,9 @@ pub struct DisplayPost {
     /// for "is this fresh?" feedback on the login screen.
     pub indexed_at: String,
     pub post_url: String,
+    /// No longer rendered per-card (the panel subtitle carries the
+    /// attribution once, #896), but still scanned by the lazy-CJK font
+    /// loader (`ui::fonts`) alongside the post text.
     pub author_handle: String,
 }
 
@@ -300,11 +309,12 @@ fn rkey_from_uri(uri: &str) -> Option<String> {
 // Render
 // ---------------------------------------------------------------------------
 
-/// Render the post-feed body into its window and report the user's chosen
+/// Render the post-feed body into its card and report the user's chosen
 /// action back to the caller. Stateless; the parent UI system owns the
 /// [`LoginPostFeed`] resource and the [`Commands`] needed to act on the
-/// returned action. The window title ([`feed_panel_title`]) carries the
-/// "Latest … from @…" header, so this paints only the status/list body.
+/// returned action. The card heading ([`feed_panel_title`] +
+/// [`feed_panel_subtitle`]) is painted by the caller, so this paints
+/// only the status/list body.
 pub fn render_login_feed_panel(ui: &mut egui::Ui, feed: &LoginPostFeed) -> LoginFeedAction {
     let mut action = LoginFeedAction::None;
 
@@ -332,38 +342,45 @@ pub fn render_login_feed_panel(ui: &mut egui::Ui, feed: &LoginPostFeed) -> Login
                 );
             } else {
                 for post in &feed.posts {
-                    ui.group(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.monospace(
-                                egui::RichText::new(format!("@{}", post.author_handle))
-                                    .small()
-                                    .color(crate::ui::theme::current(ui.ctx()).status.info),
-                            );
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    ui.monospace(
-                                        egui::RichText::new(&post.indexed_at)
-                                            .small()
-                                            .color(crate::ui::theme::current(ui.ctx()).text_weak),
-                                    );
-                                },
-                            );
+                    let theme = crate::ui::theme::current(ui.ctx());
+                    // Soft inset card (`chart_fill` on the card's
+                    // `window_fill`) instead of the stock stroked
+                    // `ui.group` — quieter chrome, and the per-card
+                    // @handle is gone (the panel subtitle states it
+                    // once; `getAuthorFeed` is single-author, #896).
+                    egui::Frame::new()
+                        .fill(theme.chart_fill)
+                        .corner_radius(6.0)
+                        .inner_margin(8.0)
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.horizontal(|ui| {
+                                ui.monospace(
+                                    egui::RichText::new(&post.indexed_at)
+                                        .small()
+                                        .color(theme.text_weak),
+                                );
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if ui
+                                            .small_button(
+                                                egui::RichText::new("Open on Bluesky ↗")
+                                                    .color(theme.accent),
+                                            )
+                                            .clicked()
+                                        {
+                                            action =
+                                                LoginFeedAction::OpenUrl(post.post_url.clone());
+                                        }
+                                    },
+                                );
+                            });
+                            // Wrapping label so long posts don't blow out
+                            // the card's fixed width.
+                            ui.add(egui::Label::new(&post.text).wrap());
                         });
-                        // Wrapping label so long posts don't blow out the
-                        // login window's fixed width.
-                        ui.add(egui::Label::new(&post.text).wrap());
-                        if ui
-                            .small_button(
-                                egui::RichText::new("Open on Bluesky ↗")
-                                    .color(crate::ui::theme::current(ui.ctx()).accent),
-                            )
-                            .clicked()
-                        {
-                            action = LoginFeedAction::OpenUrl(post.post_url.clone());
-                        }
-                    });
-                    ui.add_space(2.0);
+                    ui.add_space(6.0);
                 }
             }
         }
