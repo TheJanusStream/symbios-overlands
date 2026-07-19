@@ -46,8 +46,11 @@ const DEFAULT_HANDLE: &str = "codewright.bsky.social";
 /// Compile-time fallback hashtag filter when
 /// `OVERLANDS_LOGIN_FEED_HASHTAG` is unset at build time.
 const DEFAULT_HASHTAG: &str = "#Overlands";
-/// Maximum number of posts the panel renders after filtering.
-const POST_LIMIT: usize = 5;
+/// Maximum number of posts the panel renders after filtering. The card
+/// body scrolls (#898), so this is a memory/layout cap rather than a
+/// visual one — it only needs to stay below [`AUTHOR_FEED_LIMIT`], past
+/// which the single-request fetch can't reach anyway.
+const POST_LIMIT: usize = 25;
 /// How many recent posts to pull from `getAuthorFeed` before applying the
 /// hashtag filter. 100 is the API's hard maximum per request; if the
 /// hashtag is rarer than `1 in 100` of an author's recent posts, the

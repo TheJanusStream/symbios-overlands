@@ -252,19 +252,24 @@ pub fn login_ui(
             hero_frame.show(ui, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.label(
-                        egui::RichText::new(letterspace("SYMBIOS OVERLANDS"))
+                        egui::RichText::new(letterspace("OVERLANDS"))
                             .size(cfg::WORDMARK_TEXT_SIZE)
                             .strong()
                             .color(theme.0.accent),
                     );
                     ui.add_space(6.0);
+                    // Two labels, not one wrapping label (#898): a wrap
+                    // just before the final word orphaned "friends." on
+                    // its own line, and each label centres itself.
                     ui.label(
-                        egui::RichText::new(
-                            "Procedurally seeded worlds on ATProto — explore, build, \
-                         visit friends.",
-                        )
-                        .size(cfg::TAGLINE_TEXT_SIZE)
-                        .color(theme.0.text_weak),
+                        egui::RichText::new("Procedurally seeded worlds on ATProto")
+                            .size(cfg::TAGLINE_TEXT_SIZE)
+                            .color(theme.0.text_weak),
+                    );
+                    ui.label(
+                        egui::RichText::new("Explore, build, visit friends.")
+                            .size(cfg::TAGLINE_TEXT_SIZE)
+                            .color(theme.0.text_weak),
                     );
                 });
             });
@@ -612,6 +617,14 @@ pub fn login_ui(
                 let max_h = (screen.height() * cfg::FEED_MAX_HEIGHT_FRAC).min(avail_h);
                 egui::ScrollArea::vertical()
                     .max_height(max_h)
+                    // Load-bearing inside an auto-sized `Area` (#898): the
+                    // area ui reports only a placeholder available height
+                    // (~64 px), and the scroll viewport is `min(available,
+                    // max_height)` floored by `min_scrolled_height` — so
+                    // without raising that floor to the real budget, the
+                    // feed collapses to a 64 px slit. Content shorter than
+                    // the budget still auto-shrinks.
+                    .min_scrolled_height(max_h)
                     .show(ui, |ui| match posts::render_login_feed_panel(ui, &feed) {
                         posts::LoginFeedAction::None => {}
                         posts::LoginFeedAction::Retry => {
