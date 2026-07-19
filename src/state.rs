@@ -323,6 +323,10 @@ pub struct LocalSettings {
     /// Headroom the ground avoidance keeps between the camera and the
     /// terrain surface, in metres (#872).
     pub camera_ground_clearance_m: f32,
+    /// Build and slowly orbit a live seeded demo world behind the login
+    /// screen (#897). Off ⇒ the login screen keeps its sky-gradient
+    /// backdrop and skips the pre-login world build entirely.
+    pub login_world_backdrop: bool,
 }
 
 impl Default for LocalSettings {
@@ -332,6 +336,7 @@ impl Default for LocalSettings {
             theme: crate::ui::theme::UserTheme::Dark,
             camera_ground_avoidance: crate::camera::CameraGroundAvoidance::default(),
             camera_ground_clearance_m: crate::config::camera::TERRAIN_CLEARANCE,
+            login_world_backdrop: true,
         }
     }
 }

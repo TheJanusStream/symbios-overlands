@@ -262,7 +262,10 @@ impl Plugin for TerrainPlugin {
                         .after(heightmap::poll_terrain_task)
                         .after(heightmap::spawn_terrain_mesh),
                 )
-                    .run_if(not(in_state(AppState::Login))),
+                    // Historically `not(Login)`; the attract backdrop
+                    // (#897) widens the gate so the login screen's demo
+                    // world builds through this same pipeline.
+                    .run_if(crate::attract::world_pipeline_active),
             )
             // `not(Login)` rather than `in_state(InGame)`: the splat
             // array assembly (~4 × full-mipchain layers concatenated
@@ -286,9 +289,19 @@ impl Plugin for TerrainPlugin {
                     splat::free_referenced_splat_sources,
                 )
                     .chain()
-                    .run_if(not(in_state(AppState::Login))),
+                    // Widened for the attract backdrop, like the group
+                    // above (#897).
+                    .run_if(crate::attract::world_pipeline_active),
             )
             .add_systems(OnExit(AppState::InGame), lifecycle::cleanup_terrain)
+            // The attract demo world (#897) never passes through `InGame`
+            // either — reset terrain state on the way out of `Login`, so
+            // the real `Loading` build starts from scratch exactly like
+            // the #849 abort path.
+            .add_systems(
+                OnExit(AppState::Login),
+                lifecycle::cleanup_terrain.run_if(resource_exists::<crate::attract::AttractScene>),
+            )
             // The loading screen's "Back to login" abort (#849) never
             // passes through `InGame`, so the OnExit teardown above
             // wouldn't fire — react to the abort flag directly. The flag

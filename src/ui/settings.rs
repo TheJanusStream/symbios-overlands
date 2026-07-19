@@ -113,6 +113,18 @@ pub fn settings_ui(
                      latest packet and expose raw jitter.",
                 )
                 .changed();
+
+            ui.add_space(8.0);
+            ui.separator();
+            ui.strong("Login screen");
+            dirty |= ui
+                .checkbox(&mut s.login_world_backdrop, "Live world backdrop")
+                .on_hover_text(
+                    "Build and slowly orbit a random seeded world behind the \
+                     login screen. Costs a few seconds of world generation; \
+                     applies the next time you see the login screen.",
+                )
+                .changed();
             ui.small("(this device only — not saved to your PDS)");
 
             if dirty {

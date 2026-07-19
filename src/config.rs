@@ -140,6 +140,25 @@ pub mod rover {
 }
 
 // ---------------------------------------------------------------------------
+// Login-screen attract backdrop (attract.rs)
+// ---------------------------------------------------------------------------
+pub mod attract {
+    /// Attract-camera orbit radius (m) — frames a whole settlement.
+    /// Must stay within [`super::camera::ZOOM_UPPER_LIMIT`], which the
+    /// orbit crate clamps the target radius against.
+    pub const ORBIT_RADIUS: f32 = 150.0;
+    /// Attract-camera pitch (rad) — a gentle aerial angle, well inside
+    /// the [`super::camera`] pitch envelope.
+    pub const ORBIT_PITCH: f32 = 0.5;
+    /// Yaw drift rate (rad/s): one full lap every ~2.6 minutes — slow
+    /// enough to read as a vista, fast enough to show it's alive.
+    pub const YAW_RATE: f32 = 0.04;
+    /// Focus lift above the terrain-centre height (m), so the framing
+    /// centres on the built-up band rather than the ground plane.
+    pub const FOCUS_LIFT: f32 = 8.0;
+}
+
+// ---------------------------------------------------------------------------
 // Camera (camera.rs)
 // ---------------------------------------------------------------------------
 pub mod camera {

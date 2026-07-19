@@ -326,7 +326,13 @@ impl Plugin for WorldBuilderPlugin {
                     // (#849) without gating in-game rebuilds.
                     compile::compile_room_record.run_if(
                         any_with_component::<crate::terrain::TerrainMesh>.and(
-                            in_state(AppState::InGame).or(resource_exists::<WorldCompileArmed>),
+                            in_state(AppState::InGame)
+                                .or(resource_exists::<WorldCompileArmed>)
+                                // The attract demo world (#897) compiles
+                                // directly: there is no loading screen in
+                                // `Login` for the one-frame arm delay to
+                                // protect.
+                                .or(resource_exists::<crate::attract::AttractScene>),
                         ),
                     ),
                     compile::apply_environment_state,
@@ -339,7 +345,10 @@ impl Plugin for WorldBuilderPlugin {
                     surface_bake::poll_surface_bakes,
                     draw_placement_visualizers,
                 )
-                    .run_if(not(in_state(AppState::Login))),
+                    // Historically `not(Login)`; widened so the attract
+                    // backdrop's demo world (#897) compiles and polls its
+                    // asset fetches on the login screen.
+                    .run_if(crate::attract::world_pipeline_active),
             )
             // Audio-reference resolver poll runs in Loading too — the
             // loading gate's ambient-bake path dispatches Referenced

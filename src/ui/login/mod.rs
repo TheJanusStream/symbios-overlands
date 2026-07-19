@@ -184,6 +184,8 @@ pub fn login_ui(
     complete_tasks: Query<Entity, With<CompleteAuthTask>>,
     mut feed: ResMut<LoginPostFeed>,
     theme: Res<crate::ui::theme::CurrentTheme>,
+    attract: Option<Res<crate::attract::AttractScene>>,
+    terrain_mesh: Query<(), With<crate::terrain::TerrainMesh>>,
     #[cfg(not(target_arch = "wasm32"))] mut native: NativeWaitState,
     #[cfg(target_arch = "wasm32")] wasm: WasmResumeState,
 ) {
@@ -216,36 +218,55 @@ pub fn login_ui(
 
     // Full-screen sky gradient behind everything (#896) — without it the
     // login screen floats over the raw `ClearColor`, which reads as an
-    // unfinished tool rather than the doorway to a world.
-    paint_backdrop(&ctx, &theme.0);
+    // unfinished tool rather than the doorway to a world. Once the
+    // attract backdrop's demo world (#897) has a terrain mesh to show,
+    // the gradient steps aside and the world takes over.
+    let world_backdrop_visible = attract.is_some() && !terrain_mesh.is_empty();
+    if !world_backdrop_visible {
+        paint_backdrop(&ctx, &theme.0);
+    }
 
     let screen = ctx.content_rect();
 
     // Hero wordmark + tagline, centred. Mirrors the HTML loading
     // screen's letterspaced teal wordmark so loading → login reads as
     // one continuous brand surface instead of a visual-language reset.
+    // Over the live world backdrop the hero text needs its own contrast
+    // guarantee — a translucent panel of the theme's window fill. Over
+    // the flat gradient (whose colours the theme already vouches for)
+    // it stays chromeless.
+    let hero_frame = if world_backdrop_visible {
+        egui::Frame::new()
+            .fill(theme.0.window_fill.gamma_multiply(0.85))
+            .corner_radius(10.0)
+            .inner_margin(12.0)
+    } else {
+        egui::Frame::new()
+    };
     let hero = egui::Area::new(egui::Id::new("login-hero"))
         .anchor(
             egui::Align2::CENTER_TOP,
             [0.0, screen.height() * cfg::HERO_TOP_FRAC],
         )
         .show(&ctx, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.label(
-                    egui::RichText::new(letterspace("SYMBIOS OVERLANDS"))
-                        .size(cfg::WORDMARK_TEXT_SIZE)
-                        .strong()
-                        .color(theme.0.accent),
-                );
-                ui.add_space(6.0);
-                ui.label(
-                    egui::RichText::new(
-                        "Procedurally seeded worlds on ATProto — explore, build, \
+            hero_frame.show(ui, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.label(
+                        egui::RichText::new(letterspace("SYMBIOS OVERLANDS"))
+                            .size(cfg::WORDMARK_TEXT_SIZE)
+                            .strong()
+                            .color(theme.0.accent),
+                    );
+                    ui.add_space(6.0);
+                    ui.label(
+                        egui::RichText::new(
+                            "Procedurally seeded worlds on ATProto — explore, build, \
                          visit friends.",
-                    )
-                    .size(cfg::TAGLINE_TEXT_SIZE)
-                    .color(theme.0.text_weak),
-                );
+                        )
+                        .size(cfg::TAGLINE_TEXT_SIZE)
+                        .color(theme.0.text_weak),
+                    );
+                });
             });
         });
 

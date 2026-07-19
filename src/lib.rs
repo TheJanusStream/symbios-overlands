@@ -32,6 +32,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 
 pub mod alloc_track;
+pub mod attract;
 pub mod audio_materials;
 pub mod audio_mute;
 pub mod avatar;
@@ -204,6 +205,7 @@ pub fn run() {
         .add_plugins(world_builder::WorldBuilderPlugin)
         .add_plugins(player::PlayerPlugin)
         .add_plugins(camera::CameraPlugin)
+        .add_plugins(attract::AttractPlugin)
         .add_plugins(network::NetworkPlugin)
         .add_plugins(avatar::AvatarPlugin)
         .add_plugins(social::SocialPlugin)
