@@ -166,7 +166,7 @@ impl TerrainProbe {
             });
         }
 
-        regions.sort_by(|a, b| b.cell_count.cmp(&a.cell_count));
+        regions.sort_by_key(|b| std::cmp::Reverse(b.cell_count));
 
         Self {
             grid,
