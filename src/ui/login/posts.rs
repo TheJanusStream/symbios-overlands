@@ -357,6 +357,7 @@ pub fn render_login_feed_panel(ui: &mut egui::Ui, feed: &LoginPostFeed) -> Login
                         .inner_margin(8.0)
                         .show(ui, |ui| {
                             ui.set_width(ui.available_width());
+                            ui.separator();
                             ui.horizontal(|ui| {
                                 ui.monospace(
                                     egui::RichText::new(&post.indexed_at)

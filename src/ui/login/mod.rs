@@ -229,7 +229,7 @@ pub fn login_ui(
     let screen = ctx.content_rect();
 
     // Hero wordmark + tagline, centred. Mirrors the HTML loading
-    // screen's letterspaced teal wordmark so loading → login reads as
+    // screen's teal wordmark so loading → login reads as
     // one continuous brand surface instead of a visual-language reset.
     // Over the live world backdrop the hero text needs its own contrast
     // guarantee — a translucent panel of the theme's window fill. Over
@@ -252,7 +252,7 @@ pub fn login_ui(
             hero_frame.show(ui, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.label(
-                        egui::RichText::new(letterspace("OVERLANDS"))
+                        egui::RichText::new("SYMBIOS OVERLANDS")
                             .size(cfg::WORDMARK_TEXT_SIZE)
                             .strong()
                             .color(theme.0.accent),
@@ -636,21 +636,6 @@ pub fn login_ui(
                     });
             });
         });
-}
-
-/// Insert a plain space between every character (word gaps widen to
-/// three spaces): poor-man's letterspacing for the hero wordmark, since
-/// egui has no tracking control. Plain ASCII spaces rather than U+2009
-/// thin spaces keep the Noto glyph-coverage story trivial (#858).
-fn letterspace(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() * 2);
-    for (i, ch) in s.chars().enumerate() {
-        if i > 0 {
-            out.push(' ');
-        }
-        out.push(ch);
-    }
-    out
 }
 
 /// Full-screen vertical gradient (zenith → horizon) painted on egui's
