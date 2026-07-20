@@ -13,3 +13,10 @@ pub mod lsys_cactus;
 pub mod lsys_dead_shrub;
 pub mod lsys_mangrove;
 pub mod lsys_palm;
+// WS2 expansion species (epic #907, #910) — understory, grove and
+// ornamental silhouettes rounding the pool out to the teens.
+pub mod lsys_bamboo;
+pub mod lsys_birch;
+pub mod lsys_bush;
+pub mod lsys_fern;
+pub mod lsys_flowering_tree;

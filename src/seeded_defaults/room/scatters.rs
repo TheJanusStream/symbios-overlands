@@ -51,6 +51,16 @@ pub enum TreeSpecies {
     Mangrove,
     /// Flat-crowned umbrella tree (`lsys_acacia`) — savanna.
     Acacia,
+    /// Pale-barked slender broadleaf (`lsys_birch`) — boreal / temperate.
+    Birch,
+    /// Rounded leafy shrub (`lsys_bush`) — woody understory filler.
+    Bush,
+    /// Ground rosette of arching fronds (`lsys_fern`) — shade floors.
+    Fern,
+    /// Clump of green canes (`lsys_bamboo`) — jungle groves.
+    Bamboo,
+    /// Small pink-blossomed ornamental (`lsys_flowering_tree`).
+    Blossom,
 }
 
 impl TreeSpecies {
@@ -66,6 +76,11 @@ impl TreeSpecies {
             Self::Palm => "lsys_palm",
             Self::Mangrove => "lsys_mangrove",
             Self::Acacia => "lsys_acacia",
+            Self::Birch => "lsys_birch",
+            Self::Bush => "lsys_bush",
+            Self::Fern => "lsys_fern",
+            Self::Bamboo => "lsys_bamboo",
+            Self::Blossom => "lsys_flowering_tree",
         }
     }
 }
@@ -75,25 +90,41 @@ impl TreeSpecies {
 fn species_pool(biome: BiomeArchetype) -> &'static [TreeSpecies] {
     use TreeSpecies::*;
     match biome {
-        BiomeArchetype::Lush => &[TernaryProps, TernaryProps, Sympodial, Monopodial],
+        BiomeArchetype::Lush => &[
+            TernaryProps,
+            TernaryProps,
+            Sympodial,
+            Monopodial,
+            Bush,
+            Blossom,
+        ],
         // Palms over the broadleaf shore (#491).
-        BiomeArchetype::Coastal => &[Palm, Palm, Sympodial, TernaryProps],
+        BiomeArchetype::Coastal => &[Palm, Palm, Sympodial, TernaryProps, Bush],
         BiomeArchetype::Alpine => &[Monopodial, Monopodial, TernaryProps],
         BiomeArchetype::Tundra => &[Monopodial],
         // Saguaro + dead scrub over the odd gnarled survivor (#487).
         BiomeArchetype::Arid => &[Cactus, DeadShrub, TernaryGravity],
         // Scorched near-bare: deadwood + gnarled survivor (#490).
         BiomeArchetype::Volcanic => &[DeadShrub, TernaryGravity],
-        // Tropical wall — palms over broadleaf, no conifer (#485).
-        BiomeArchetype::Jungle => &[Palm, TernaryProps, TernaryProps, Sympodial],
-        // Mixed broadleaf woodland, same blend as temperate Lush.
-        BiomeArchetype::TemperateForest => &[TernaryProps, TernaryProps, Sympodial, Monopodial],
-        // Conifer-dominant taiga.
-        BiomeArchetype::Boreal => &[Monopodial, Monopodial, TernaryProps],
-        // Stilt-rooted mangroves over a gnarled understory (#492).
-        BiomeArchetype::Wetland => &[Mangrove, Mangrove, TernaryGravity, Sympodial],
-        // Few trees over the grass — broad crowns where they stand.
-        BiomeArchetype::Meadow => &[Sympodial, TernaryProps],
+        // Tropical wall — palms over broadleaf + bamboo groves and floor
+        // ferns (#910).
+        BiomeArchetype::Jungle => &[Palm, TernaryProps, TernaryProps, Sympodial, Bamboo, Fern],
+        // Mixed broadleaf woodland with birch edges and bush understory.
+        BiomeArchetype::TemperateForest => &[
+            TernaryProps,
+            TernaryProps,
+            Sympodial,
+            Monopodial,
+            Birch,
+            Bush,
+        ],
+        // Conifer-dominant taiga with pioneer birch stands.
+        BiomeArchetype::Boreal => &[Monopodial, Monopodial, TernaryProps, Birch],
+        // Stilt-rooted mangroves over a gnarled understory + floor ferns.
+        BiomeArchetype::Wetland => &[Mangrove, Mangrove, TernaryGravity, Sympodial, Fern],
+        // Few trees over the grass — broad crowns, blossom ornamentals and
+        // the odd bush where they stand.
+        BiomeArchetype::Meadow => &[Sympodial, TernaryProps, Blossom, Blossom, Bush],
         // Scattered flat-crowned acacia + the odd gnarled survivor (#488).
         BiomeArchetype::Savanna => &[Acacia, Acacia, TernaryGravity],
         // Only the most stubborn dead scrub clings to the rock (#489).

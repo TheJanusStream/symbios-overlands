@@ -402,6 +402,11 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &plants::lsys_palm::Palm,
     &plants::lsys_mangrove::Mangrove,
     &plants::lsys_acacia::Acacia,
+    &plants::lsys_bamboo::Bamboo,
+    &plants::lsys_birch::Birch,
+    &plants::lsys_bush::Bush,
+    &plants::lsys_fern::Fern,
+    &plants::lsys_flowering_tree::FloweringTree,
     // Patterns — abstract L-system / ABOP demos.
     &patterns::lsys_branching::BranchingPattern,
     &patterns::lsys_koch_island::QuadraticKochIsland,
