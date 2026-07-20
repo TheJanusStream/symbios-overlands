@@ -71,14 +71,20 @@ fn build_kind() -> GeneratorKind {
     GeneratorKind::LSystem {
         // Leader A climbs one internode per iteration, stochastically
         // dropping a short lateral B (or skipping one, a3 — the airy gap
-        // look), rolled near the golden angle. Laterals recurse weakly into
-        // drooping leaf twigs (light -Y tropism supplies the hang). K leaf
-        // markers express next iteration; finalization tufts every apex so
-        // no age shows bare twig ends.
+        // look). Laterals recurse weakly into drooping leaf twigs (light -Y
+        // tropism supplies the hang). K leaf markers express next iteration;
+        // finalization tufts every apex so no age shows bare twig ends.
+        //
+        // PHYLLOTAXIS (#917): the leader's divergence is the exact golden
+        // angle 137.5° (360·τ⁻²), jittered by under ±1°. ABOP Fig 4.2 shows
+        // 137.3 / 137.5 / 137.6 producing visibly different parastichies —
+        // the spiral packing collapses into radial gaps a tenth of a degree
+        // off. Divergence is species identity, so the stochastic budget goes
+        // on TOPOLOGY (branch vs skip, above) rather than on this angle.
         source_code: "omega: !(0.14)A(0.85,0.09)\n\
-                      a1: 0.45 : A(l,w) -> !(w)F(l)[&(52)B(l*0.55,w*0.6)]/(137)A(l*0.95,w*0.9)\n\
-                      a2: 0.4 : A(l,w) -> !(w)F(l)[&(62)B(l*0.5,w*0.55)]/(133)A(l*0.93,w*0.88)\n\
-                      a3: 0.15 : A(l,w) -> !(w)F(l)/(141)A(l*0.96,w*0.92)\n\
+                      a1: 0.45 : A(l,w) -> !(w)F(l)[&(52)B(l*0.55,w*0.6)]/(137.5)A(l*0.95,w*0.9)\n\
+                      a2: 0.4 : A(l,w) -> !(w)F(l)[&(62)B(l*0.5,w*0.55)]/(136.6)A(l*0.93,w*0.88)\n\
+                      a3: 0.15 : A(l,w) -> !(w)F(l)/(138.3)A(l*0.96,w*0.92)\n\
                       b1: 0.65 : B(l,w) -> !(w)F(l)K[+(35)B(l*0.7,w*0.72)][-(28)B(l*0.66,w*0.72)]\n\
                       b2: 0.35 : B(l,w) -> !(w)F(l*0.9)K[&(20)B(l*0.7,w*0.72)]\n\
                       k1: K -> ,(1)[~(0,19)]\\(120)[&(25)~(0,18)]\\(115)[^(20)~(0,18)]"

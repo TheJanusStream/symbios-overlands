@@ -208,6 +208,20 @@ pub(crate) fn expand_lsystem_skeleton(
             warn!("L-system `{}` {}", generator_ref, msg);
             return Err(msg);
         }
+        // Advance the state clock one tick per derivation step so the `age`
+        // builtin means something. `age` is `current_time - birth_time`; with
+        // the clock frozen it evaluated to 0.0 in every rule expression, so
+        // age-guarded rules silently never fired. NOTE: `derive` stamps every
+        // rewritten module with the current time, so `age` measures steps
+        // since a module was LAST REWRITTEN, not since germination — it is
+        // useful for dormant modules (bud break, flowering onset) that match
+        // no rule until their guard opens. For whole-plant age, carry an
+        // explicit counter parameter (`A(l,w,n) -> ... A(l*r,w*wr,n+1)`).
+        if let Err(e) = sys.state.advance_time(1.0) {
+            let msg = format!("clock error: {}", e);
+            warn!("L-system `{}` {}", generator_ref, msg);
+            return Err(msg);
+        }
         if sys.state.len() > MAX_LSYSTEM_STATE_LEN {
             let msg = format!(
                 "state exceeded {} symbols — aborting derivation (lower the iterations)",

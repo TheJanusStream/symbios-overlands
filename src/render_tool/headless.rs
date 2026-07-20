@@ -293,9 +293,15 @@ pub(super) fn drive(
     // slot's row on that slot's own centre but with one shared camera
     // distance, so relative subject size across rows stays honest.
     if !capture.framed {
+        capture.waited += 1;
         let rows = targets.0.len() / ANGLES.len();
         if rows == 1 {
-            if let Some((center, radius)) = subject_bounds(&subject) {
+            // A subject that never resolves an AABB — a grammar that errored
+            // or derived to nothing — would otherwise spin here forever, so
+            // fall back to a placeholder bound and capture the empty frame.
+            let bounds = subject_bounds(&subject)
+                .or_else(|| (capture.waited > FRAME_GRACE).then_some((Vec3::Y * 0.5, 0.5)));
+            if let Some((center, radius)) = bounds {
                 let dist = radius / (FOV * 0.5).tan() * 1.2 + radius * 0.5;
                 for (mut transform, cam) in &mut cams {
                     let a = ANGLES[cam.0].to_radians();
@@ -306,7 +312,6 @@ pub(super) fn drive(
             }
             return;
         }
-        capture.waited += 1;
         if let Some(slots) = lineup_bounds(&subject, rows, capture.waited > FRAME_GRACE) {
             let max_radius = slots.iter().map(|s| s.1).fold(0.1f32, f32::max);
             let dist = max_radius / (FOV * 0.5).tan() * 1.2 + max_radius * 0.5;

@@ -65,17 +65,24 @@ fn build_kind() -> GeneratorKind {
     GeneratorKind::LSystem {
         // C emits one frond per iteration at a stochastic launch pitch,
         // rolled near the golden angle so the rosette fills evenly. Each
-        // frond D(s) extends one decaying segment per iteration (s*0.8 —
-        // bounds total length) with leaflet pairs P at every node; the
-        // strong -Y tropism arches mature fronds over. Finalization tips
-        // every rachis and expresses fresh P markers.
+        // frond D(s,u) extends one decaying segment per iteration (s*0.82,
+        // bounding total length) with leaflet pairs P at every node.
+        //
+        // CIRCINATE VERNATION (#917): `u` is the frond's residual coil
+        // angle, applied as the per-segment pitch and decaying 0.62× per
+        // step. A freshly emitted frond still carries ~55° of curl per
+        // segment — the tight crozier/fiddlehead of a young fern — while
+        // the oldest frond has relaxed to a few degrees and lies open.
+        // Because the rosette emits one frond per iteration, every age of
+        // frond coexists on one plant, which is exactly how a real fern
+        // reads. Finalization tips every rachis and expresses fresh P.
         source_code: "omega: !(0.03)C\n\
-                      c1: 0.6 : C -> [&(40)D(0.18)]/(137)C\n\
-                      c2: 0.4 : C -> [&(55)D(0.16)]/(151)C\n\
-                      d1: D(s) -> !(0.022)F(s)P&(12)D(s*0.8)\n\
+                      c1: 0.6 : C -> [&(40)D(0.18,55)]/(137.5)C\n\
+                      c2: 0.4 : C -> [&(55)D(0.16,62)]/(138.2)C\n\
+                      d1: D(s,u) -> !(0.022)F(s)P&(u)D(s*0.82,u*0.62)\n\
                       p1: P -> ,(1)[+(48)~(0,14)][-(48)~(0,14)]"
             .to_string(),
-        finalization_code: "D(s) : * -> ,(1)~(0,12)\n\
+        finalization_code: "D(s,u) : * -> ,(1)~(0,12)\n\
              P -> ,(1)[+(48)~(0,14)][-(48)~(0,14)]"
             .to_string(),
         iterations: 7,

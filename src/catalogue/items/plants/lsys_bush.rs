@@ -68,15 +68,33 @@ fn build_kind() -> GeneratorKind {
     prop_mappings.insert(0, PropMeshType::Leaf);
 
     GeneratorKind::LSystem {
-        // Four stems splay from the base (&8–28 pitches at spread rolls);
-        // each stem S forks stochastically (two-fork / two-fork-tilted /
-        // extend) with leaf markers K at every node, so the dome fills in
-        // as it ages. Short steps (l ≈ 0.28) keep the whole plant at
-        // hedge scale. Finalization tufts apices + expresses fresh K.
-        source_code: "omega: !(0.07)[&(24)S(0.28,0.045)]/(95)[&(28)S(0.3,0.045)]/(120)[&(22)S(0.28,0.045)]/(85)[&(8)S(0.32,0.05)]\n\
+        // Four stems splay from the base; each stem S forks stochastically
+        // (two-fork / two-fork-tilted / extend) with leaf markers K at
+        // every node. Finalization tufts apices + expresses fresh K.
+        //
+        // RETROSPECTIVE GROWTH (#917, ABOP eq. 1.10): new internodes are
+        // emitted at a fixed base length and then every ALREADY-PLACED
+        // internode elongates (`F(l) -> F(l*lr)`) and thickens
+        // (`!(w) -> !(w*vr)`) on every subsequent step. ABOP proves this
+        // yields the same geometry as computing a tip's final size at
+        // birth, but as a developmental sequence rather than a fractal —
+        // so iteration count IS the plant's age, old wood is genuinely
+        // thicker than new wood, and the base accumulates girth. `vr` is
+        // under the da Vinci binary value (√2 ≈ 1.414) because a shrub's
+        // stems stay whippy rather than reading as load-bearing trunks.
+        //
+        // BASITONY: the shrub habit. Lateral vigour must FALL with height
+        // so the lowest branches are longest and the silhouette domes —
+        // hence contraction (0.78–0.86) on every fork with no privileged
+        // leader, the inverse of a tree's acrotonic crown.
+        source_code: "#define lr 1.06\n\
+                      #define vr 1.16\n\
+                      omega: !(0.07)[&(24)S(0.2,0.045)]/(95)[&(28)S(0.21,0.045)]/(120)[&(22)S(0.2,0.045)]/(85)[&(8)S(0.23,0.05)]\n\
                       s1: 0.45 : S(l,w) -> !(w)F(l)K[+(38)/(60)S(l*0.82,w*0.78)][-(32)/(110)S(l*0.8,w*0.78)]\n\
                       s2: 0.3 : S(l,w) -> !(w)F(l*0.9)K[&(28)/(85)S(l*0.85,w*0.8)][^(24)/(200)S(l*0.78,w*0.75)]\n\
                       s3: 0.25 : S(l,w) -> !(w)F(l)K/(120)S(l*0.86,w*0.8)\n\
+                      g1: F(l) : * -> F(l*lr)\n\
+                      g2: !(w) : * -> !(w*vr)\n\
                       k1: K -> ,(1)[~(0,15)]\\(115)[&(20)~(0,14)]\\(125)[^(18)~(0,14)]"
             .to_string(),
         finalization_code: "S(l,w) : * -> ,(1)[~(0,16)]\\(120)[~(0,15)]\\(120)[&(15)~(0,14)]\n\

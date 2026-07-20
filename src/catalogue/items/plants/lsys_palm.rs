@@ -91,10 +91,19 @@ fn build_kind() -> GeneratorKind {
                       c1: 0.35 : C -> [^(18)&(30)D]/(58)[^(16)&(34)D]/(63)[^(20)&(30)D]/(55)[^(18)&(35)D]/(61)[^(17)&(31)D]\n\
                       c2: 0.35 : C -> [^(18)&(32)D]/(52)[^(15)&(33)D]/(57)[^(21)&(29)D]/(64)[^(18)&(34)D]/(49)[^(16)&(30)D]/(60)[^(19)&(33)D]\n\
                       c3: 0.3 : C -> [^(17)&(31)D]/(46)[^(20)&(35)D]/(55)[^(15)&(29)D]/(50)[^(18)&(33)D]/(52)[^(21)&(30)D]/(48)[^(17)&(34)D]/(54)[^(19)&(31)D]\n\
-                      p2: D -> !(0.06)F(s*0.95)&(8)F(s*0.9)P&(12)F(s*0.9)P&(18)F(s*0.85)P&(30)F(s*0.75)P&(44)F(s*0.6)P&(60)F(s*0.45)P&(26)F(s*0.35)P\n\
-                      p3: P -> ,(1)[+(55)~(0,36)][-(55)~(0,36)]"
+                      p2: D -> !(0.06)F(s*0.95)&(8)F(s*0.9)P&(12)F(s*0.9)P&(18)F(s*0.85)P&(30)F(s*0.75)P&(44)F(s*0.6)P&(60)F(s*0.45)P&(26)F(s*0.35)P"
             .to_string(),
-        finalization_code: String::new(),
+        // Organ expression lives here, not in the growth rules (#917): the
+        // grammar emits abstract leaflet-site markers `P` (and unexpanded
+        // rachis tips `D` on the youngest frond) and this pass decides what
+        // they BECOME — so the same palm skeleton can be re-skinned (frond
+        // texture, dead/brown fronds, fruiting) without touching its
+        // morphogenesis. It also fixes a silent gap: leaflet sites created
+        // on the final growth step used to render nothing, because the
+        // in-grammar `P` rule needed one more derivation step to fire.
+        finalization_code: "P -> ,(1)[+(55)~(0,36)][-(55)~(0,36)]\n\
+             D -> ,(1)[+(55)~(0,30)][-(55)~(0,30)]"
+            .to_string(),
         iterations: 7,
         seed: 1,
         angle: Fp(60.0),
