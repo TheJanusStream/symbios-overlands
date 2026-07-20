@@ -85,53 +85,172 @@ impl TreeSpecies {
     }
 }
 
-/// Biome-weighted species pool. Repetition is weighting — lush rooms
-/// roll broadleaf twice as often as conifer; tundra is conifer-only.
-fn species_pool(biome: BiomeArchetype) -> &'static [TreeSpecies] {
-    use TreeSpecies::*;
+/// One pool entry: a species plus the **material variant** it wears in this
+/// biome (#910). The variant re-skins bark/foliage without touching the
+/// grammar, so one conifer skeleton is a blue-green spruce in the taiga, a
+/// warm olive pine on an alpine ridge and a gold larch in the tundra. `""`
+/// means the species' authored default materials. Names are resolved
+/// against [`crate::catalogue::CatalogueEntry::variants`]; an unknown one
+/// falls back to the default rather than failing the room.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlantPick {
+    pub species: TreeSpecies,
+    pub variant: &'static str,
+}
+
+/// Pool entry with the species' own default materials.
+const fn plain(species: TreeSpecies) -> PlantPick {
+    PlantPick {
+        species,
+        variant: "",
+    }
+}
+
+/// Pool entry wearing a named re-skin.
+const fn skin(species: TreeSpecies, variant: &'static str) -> PlantPick {
+    PlantPick { species, variant }
+}
+
+/// Biome-weighted species pools, one const table per biome. Repetition is
+/// weighting — lush rooms roll broadleaf twice as often as conifer; tundra is
+/// conifer-only. These are `const` items rather than inline slice literals
+/// because a slice built from `const fn` calls is not promoted to `'static`.
+const POOL_LUSH: &[PlantPick] = &[
+    plain(TreeSpecies::TernaryProps),
+    plain(TreeSpecies::TernaryProps),
+    plain(TreeSpecies::Sympodial),
+    plain(TreeSpecies::Monopodial),
+    plain(TreeSpecies::Bush),
+    plain(TreeSpecies::Blossom),
+];
+
+// Palms over the broadleaf shore (#491).
+const POOL_COASTAL: &[PlantPick] = &[
+    plain(TreeSpecies::Palm),
+    plain(TreeSpecies::Palm),
+    plain(TreeSpecies::Sympodial),
+    plain(TreeSpecies::TernaryProps),
+    plain(TreeSpecies::Bush),
+];
+
+// Warm-olive pine reads as a different conifer from the taiga
+// spruce, off the same skeleton (#910).
+const POOL_ALPINE: &[PlantPick] = &[
+    skin(TreeSpecies::Monopodial, "pine"),
+    skin(TreeSpecies::Monopodial, "pine"),
+    skin(TreeSpecies::TernaryProps, "dry"),
+];
+
+// Frost-bleached needles + the odd gold larch: the treeline.
+const POOL_TUNDRA: &[PlantPick] = &[
+    skin(TreeSpecies::Monopodial, "frosted"),
+    skin(TreeSpecies::Monopodial, "frosted"),
+    skin(TreeSpecies::Monopodial, "larch_gold"),
+];
+
+// Saguaro + dead scrub over the odd gnarled survivor (#487).
+const POOL_ARID: &[PlantPick] = &[
+    plain(TreeSpecies::Cactus),
+    plain(TreeSpecies::DeadShrub),
+    plain(TreeSpecies::TernaryGravity),
+];
+
+// Scorched near-bare: deadwood + gnarled survivor (#490).
+const POOL_VOLCANIC: &[PlantPick] = &[
+    plain(TreeSpecies::DeadShrub),
+    plain(TreeSpecies::TernaryGravity),
+];
+
+// Tropical wall — palms over deep-green broadleaf + bamboo groves
+// and floor ferns (#910).
+const POOL_JUNGLE: &[PlantPick] = &[
+    plain(TreeSpecies::Palm),
+    skin(TreeSpecies::TernaryProps, "deep_jungle"),
+    skin(TreeSpecies::TernaryProps, "deep_jungle"),
+    plain(TreeSpecies::Sympodial),
+    plain(TreeSpecies::Bamboo),
+    plain(TreeSpecies::Fern),
+];
+
+// Mixed broadleaf woodland with birch edges and bush understory.
+// A minority of the stand carries autumn colour so the woodland
+// reads mixed-age rather than uniformly green.
+const POOL_TEMPERATE_FOREST: &[PlantPick] = &[
+    plain(TreeSpecies::TernaryProps),
+    skin(TreeSpecies::TernaryProps, "autumn"),
+    plain(TreeSpecies::Sympodial),
+    skin(TreeSpecies::Sympodial, "autumn"),
+    plain(TreeSpecies::Monopodial),
+    plain(TreeSpecies::Birch),
+    skin(TreeSpecies::Birch, "autumn_gold"),
+    plain(TreeSpecies::Bush),
+];
+
+// Conifer-dominant taiga with pioneer birch stands.
+const POOL_BOREAL: &[PlantPick] = &[
+    plain(TreeSpecies::Monopodial),
+    plain(TreeSpecies::Monopodial),
+    plain(TreeSpecies::TernaryProps),
+    plain(TreeSpecies::Birch),
+    skin(TreeSpecies::Birch, "autumn_gold"),
+];
+
+// Stilt-rooted mangroves over a gnarled understory + floor ferns;
+// the river-birch skin suits wet ground better than chalk-white.
+const POOL_WETLAND: &[PlantPick] = &[
+    plain(TreeSpecies::Mangrove),
+    plain(TreeSpecies::Mangrove),
+    plain(TreeSpecies::TernaryGravity),
+    plain(TreeSpecies::Sympodial),
+    skin(TreeSpecies::Birch, "dark_bark"),
+    plain(TreeSpecies::Fern),
+];
+
+// Few trees over the grass — broad crowns, blossom ornamentals and
+// the odd bush where they stand.
+const POOL_MEADOW: &[PlantPick] = &[
+    plain(TreeSpecies::Sympodial),
+    skin(TreeSpecies::Sympodial, "blossom_pale"),
+    plain(TreeSpecies::TernaryProps),
+    plain(TreeSpecies::Blossom),
+    plain(TreeSpecies::Blossom),
+    plain(TreeSpecies::Bush),
+];
+
+// Scattered flat-crowned acacia + a drought-stressed survivor (#488).
+const POOL_SAVANNA: &[PlantPick] = &[
+    plain(TreeSpecies::Acacia),
+    plain(TreeSpecies::Acacia),
+    plain(TreeSpecies::TernaryGravity),
+    skin(TreeSpecies::TernaryProps, "dry"),
+];
+
+// Only the most stubborn dead scrub clings to the rock (#489).
+const POOL_BADLANDS: &[PlantPick] = &[
+    plain(TreeSpecies::DeadShrub),
+    plain(TreeSpecies::TernaryGravity),
+];
+
+// No vegetation; `count_range` keeps the count at zero so this
+// pool is never indexed.
+const POOL_GLACIAL: &[PlantPick] = &[plain(TreeSpecies::Monopodial)];
+
+fn species_pool(biome: BiomeArchetype) -> &'static [PlantPick] {
     match biome {
-        BiomeArchetype::Lush => &[
-            TernaryProps,
-            TernaryProps,
-            Sympodial,
-            Monopodial,
-            Bush,
-            Blossom,
-        ],
-        // Palms over the broadleaf shore (#491).
-        BiomeArchetype::Coastal => &[Palm, Palm, Sympodial, TernaryProps, Bush],
-        BiomeArchetype::Alpine => &[Monopodial, Monopodial, TernaryProps],
-        BiomeArchetype::Tundra => &[Monopodial],
-        // Saguaro + dead scrub over the odd gnarled survivor (#487).
-        BiomeArchetype::Arid => &[Cactus, DeadShrub, TernaryGravity],
-        // Scorched near-bare: deadwood + gnarled survivor (#490).
-        BiomeArchetype::Volcanic => &[DeadShrub, TernaryGravity],
-        // Tropical wall — palms over broadleaf + bamboo groves and floor
-        // ferns (#910).
-        BiomeArchetype::Jungle => &[Palm, TernaryProps, TernaryProps, Sympodial, Bamboo, Fern],
-        // Mixed broadleaf woodland with birch edges and bush understory.
-        BiomeArchetype::TemperateForest => &[
-            TernaryProps,
-            TernaryProps,
-            Sympodial,
-            Monopodial,
-            Birch,
-            Bush,
-        ],
-        // Conifer-dominant taiga with pioneer birch stands.
-        BiomeArchetype::Boreal => &[Monopodial, Monopodial, TernaryProps, Birch],
-        // Stilt-rooted mangroves over a gnarled understory + floor ferns.
-        BiomeArchetype::Wetland => &[Mangrove, Mangrove, TernaryGravity, Sympodial, Fern],
-        // Few trees over the grass — broad crowns, blossom ornamentals and
-        // the odd bush where they stand.
-        BiomeArchetype::Meadow => &[Sympodial, TernaryProps, Blossom, Blossom, Bush],
-        // Scattered flat-crowned acacia + the odd gnarled survivor (#488).
-        BiomeArchetype::Savanna => &[Acacia, Acacia, TernaryGravity],
-        // Only the most stubborn dead scrub clings to the rock (#489).
-        BiomeArchetype::Badlands => &[DeadShrub, TernaryGravity],
-        // No vegetation; `count_range` keeps the count at zero so this
-        // pool is never indexed.
-        BiomeArchetype::Glacial => &[Monopodial],
+        BiomeArchetype::Lush => POOL_LUSH,
+        BiomeArchetype::Coastal => POOL_COASTAL,
+        BiomeArchetype::Alpine => POOL_ALPINE,
+        BiomeArchetype::Tundra => POOL_TUNDRA,
+        BiomeArchetype::Arid => POOL_ARID,
+        BiomeArchetype::Volcanic => POOL_VOLCANIC,
+        BiomeArchetype::Jungle => POOL_JUNGLE,
+        BiomeArchetype::TemperateForest => POOL_TEMPERATE_FOREST,
+        BiomeArchetype::Boreal => POOL_BOREAL,
+        BiomeArchetype::Wetland => POOL_WETLAND,
+        BiomeArchetype::Meadow => POOL_MEADOW,
+        BiomeArchetype::Savanna => POOL_SAVANNA,
+        BiomeArchetype::Badlands => POOL_BADLANDS,
+        BiomeArchetype::Glacial => POOL_GLACIAL,
     }
 }
 
@@ -142,6 +261,11 @@ fn species_pool(biome: BiomeArchetype) -> &'static [TreeSpecies] {
 pub struct TreeScatter {
     /// Which catalogue plant this scatter instantiates.
     pub species: TreeSpecies,
+    /// Material re-skin worn by this stand (#910), resolved against the
+    /// species' [`crate::catalogue::CatalogueEntry::variants`]. Empty means
+    /// the species' authored default materials. Geometry is unaffected —
+    /// only bark/foliage colour and texture config change.
+    pub variant: &'static str,
     /// Added to `lsys_ternary_props`'s base iteration count. The
     /// deriver only samples `{-1, 0, +1}` — anything wider risks
     /// compile times spiking on a stray `+2` roll, or empty stubs on
@@ -206,7 +330,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng, room_seed: u64) -> TreeS
     let pool = species_pool(scene.biome);
     let mut scatters = Vec::with_capacity(n as usize);
     for i in 0..n {
-        let species = pool[((unit_f32(rng) * pool.len() as f32) as usize).min(pool.len() - 1)];
+        let pick = pool[((unit_f32(rng) * pool.len() as f32) as usize).min(pool.len() - 1)];
         // Centre is held inside a 200 m square so a 300 m radius
         // scatter still fits comfortably inside the ~1024 m playable
         // terrain plane.
@@ -225,7 +349,8 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng, room_seed: u64) -> TreeS
             .wrapping_mul(0x9E37_79B9_7F4A_7C15)
             .wrapping_add((i as u64).wrapping_mul(SCATTER_LOCAL_SEED_SALT));
         scatters.push(TreeScatter {
-            species,
+            species: pick.species,
+            variant: pick.variant,
             iterations_delta,
             count,
             center: [cx, cz],
@@ -283,9 +408,12 @@ mod tests {
                 );
                 for sc in &ts.scatters {
                     assert!(
-                        species_pool(biome).contains(&sc.species),
-                        "{biome:?} rolled out-of-pool species {:?}",
-                        sc.species
+                        species_pool(biome)
+                            .iter()
+                            .any(|p| p.species == sc.species && p.variant == sc.variant),
+                        "{biome:?} rolled out-of-pool pick {:?}/{:?}",
+                        sc.species,
+                        sc.variant
                     );
                     assert!(sc.count >= 5 && sc.count <= 50, "count {} OOR", sc.count);
                     assert!(
@@ -306,12 +434,26 @@ mod tests {
         // whose catalogue plant isn't registered, the wiring layer would
         // build nothing. Guard every species used by every biome's pool.
         for biome in BiomeArchetype::ALL {
-            for sp in species_pool(biome) {
+            for pick in species_pool(biome) {
+                let sp = pick.species;
                 assert!(
                     crate::catalogue::by_slug(sp.slug()).is_some(),
                     "{biome:?} pool species {sp:?} (slug {}) has no catalogue entry",
                     sp.slug()
                 );
+                // A named variant that no longer exists resolves to the
+                // species' default materials — silently repainting a biome
+                // rather than failing. Names are part of the pool contract,
+                // so guard them (#910).
+                if !pick.variant.is_empty() {
+                    let entry = crate::catalogue::by_slug(sp.slug()).expect("checked above");
+                    assert!(
+                        entry.variants().iter().any(|v| v.name == pick.variant),
+                        "{biome:?} pool names variant {:?} for {sp:?}, which the catalogue \
+                         entry does not define",
+                        pick.variant
+                    );
+                }
             }
         }
     }

@@ -7,11 +7,84 @@
 
 use std::collections::HashMap;
 
+use crate::catalogue::items::plants::variant::{PlantVariant, tint_bark, tint_twig};
 use crate::catalogue::{CatalogueEntry, StructureRole};
 use crate::pds::{
     Fp, Fp3, Generator, GeneratorKind, PropMeshType, SovereignBarkConfig, SovereignLeafConfig,
     SovereignMaterialSettings, SovereignTextureConfig, SovereignTwigConfig,
 };
+
+/// Conifer re-skins (#910): one monopodial skeleton covers the cold biomes.
+/// Slot 0 is bark, slot 1 the needle spray — see the material-slot
+/// convention in `docs/lsystem-playbook.md`.
+static VARIANTS: &[PlantVariant] = &[
+    PlantVariant {
+        name: "pine",
+        label: "Pine (warm olive)",
+        apply: |m| {
+            // Warmer, yellower needles and the red-brown plated bark that
+            // separates a pine ridge from a spruce stand at a distance.
+            tint_twig(
+                m,
+                1,
+                [0.20, 0.32, 0.16],
+                [0.16, 0.28, 0.12],
+                [0.28, 0.38, 0.18],
+            );
+            tint_bark(
+                m,
+                0,
+                [0.42, 0.26, 0.16],
+                [0.50, 0.31, 0.19],
+                [0.20, 0.11, 0.06],
+            );
+        },
+    },
+    PlantVariant {
+        name: "larch_gold",
+        label: "Larch (autumn gold)",
+        apply: |m| {
+            // The deciduous conifer: gold needles before drop. Tundra and
+            // high alpine read as a different world with this one swap.
+            tint_twig(
+                m,
+                1,
+                [0.62, 0.50, 0.18],
+                [0.55, 0.42, 0.13],
+                [0.74, 0.62, 0.26],
+            );
+            tint_bark(
+                m,
+                0,
+                [0.38, 0.29, 0.20],
+                [0.45, 0.35, 0.24],
+                [0.18, 0.13, 0.09],
+            );
+        },
+    },
+    PlantVariant {
+        name: "frosted",
+        label: "Frosted spruce",
+        apply: |m| {
+            // Pale, desaturated and blue-shifted — snow-laden needles for
+            // the coldest rooms, where full-chroma green reads wrong.
+            tint_twig(
+                m,
+                1,
+                [0.24, 0.34, 0.33],
+                [0.20, 0.30, 0.30],
+                [0.34, 0.44, 0.44],
+            );
+            tint_bark(
+                m,
+                0,
+                [0.30, 0.25, 0.22],
+                [0.36, 0.30, 0.27],
+                [0.14, 0.11, 0.09],
+            );
+        },
+    },
+];
 
 pub struct MonopodialTree;
 
@@ -27,6 +100,9 @@ impl CatalogueEntry for MonopodialTree {
     }
     fn role(&self) -> StructureRole {
         StructureRole::Plant
+    }
+    fn variants(&self) -> &'static [PlantVariant] {
+        VARIANTS
     }
     fn build(&self, _local_did: &str) -> Generator {
         Generator::from_kind(build_kind())

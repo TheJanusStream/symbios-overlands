@@ -8,11 +8,51 @@
 
 use std::collections::HashMap;
 
+use crate::catalogue::items::plants::variant::{PlantVariant, tint_bark, tint_leaf};
 use crate::catalogue::{CatalogueEntry, StructureRole};
 use crate::pds::{
     Fp, Fp3, Generator, GeneratorKind, PropMeshType, SovereignBarkConfig, SovereignLeafConfig,
     SovereignMaterialSettings, SovereignTextureConfig,
 };
+
+/// Round-crown broadleaf re-skins (#910). Slot 0 bark, slot 2 leaf.
+static VARIANTS: &[PlantVariant] = &[
+    PlantVariant {
+        name: "autumn",
+        label: "Autumn (deep red)",
+        apply: |m| {
+            tint_leaf(
+                m,
+                2,
+                [0.56, 0.20, 0.14],
+                [0.46, 0.13, 0.09],
+                [0.70, 0.32, 0.18],
+            );
+        },
+    },
+    PlantVariant {
+        name: "blossom_pale",
+        label: "Pale spring flush",
+        apply: |m| {
+            // Fresh yellow-green growth over pale bark — the same crown in
+            // early spring, before the leaves darken.
+            tint_leaf(
+                m,
+                2,
+                [0.52, 0.62, 0.26],
+                [0.44, 0.56, 0.20],
+                [0.64, 0.72, 0.34],
+            );
+            tint_bark(
+                m,
+                0,
+                [0.44, 0.36, 0.27],
+                [0.52, 0.43, 0.33],
+                [0.20, 0.15, 0.11],
+            );
+        },
+    },
+];
 
 pub struct SympodialTree;
 
@@ -28,6 +68,9 @@ impl CatalogueEntry for SympodialTree {
     }
     fn role(&self) -> StructureRole {
         StructureRole::Plant
+    }
+    fn variants(&self) -> &'static [PlantVariant] {
+        VARIANTS
     }
     fn build(&self, _local_did: &str) -> Generator {
         Generator::from_kind(build_kind())

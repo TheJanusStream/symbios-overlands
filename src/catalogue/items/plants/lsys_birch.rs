@@ -7,11 +7,53 @@
 
 use std::collections::HashMap;
 
+use crate::catalogue::items::plants::variant::{PlantVariant, tint_bark, tint_leaf};
 use crate::catalogue::{CatalogueEntry, StructureRole};
 use crate::pds::{
     Fp, Fp3, Generator, GeneratorKind, PropMeshType, SovereignBarkConfig, SovereignLeafConfig,
     SovereignMaterialSettings, SovereignTextureConfig,
 };
+
+/// Birch re-skins (#910). Slot 0 white bark, slot 1 leaf.
+static VARIANTS: &[PlantVariant] = &[
+    PlantVariant {
+        name: "autumn_gold",
+        label: "Autumn gold",
+        apply: |m| {
+            // The species' signature season — white bark against pure yellow
+            // is the birch that reads instantly at any distance.
+            tint_leaf(
+                m,
+                1,
+                [0.80, 0.66, 0.18],
+                [0.72, 0.56, 0.12],
+                [0.90, 0.78, 0.30],
+            );
+        },
+    },
+    PlantVariant {
+        name: "dark_bark",
+        label: "Dark-barked (river birch)",
+        apply: |m| {
+            // Warm shaggy bark instead of the chalk-white — a different
+            // species read from the same skeleton, for wetter ground.
+            tint_bark(
+                m,
+                0,
+                [0.44, 0.33, 0.25],
+                [0.52, 0.40, 0.30],
+                [0.16, 0.11, 0.08],
+            );
+            tint_leaf(
+                m,
+                1,
+                [0.36, 0.50, 0.20],
+                [0.28, 0.44, 0.15],
+                [0.46, 0.60, 0.26],
+            );
+        },
+    },
+];
 
 pub struct Birch;
 
@@ -27,6 +69,9 @@ impl CatalogueEntry for Birch {
     }
     fn role(&self) -> StructureRole {
         StructureRole::Plant
+    }
+    fn variants(&self) -> &'static [PlantVariant] {
+        VARIANTS
     }
     fn build(&self, _local_did: &str) -> Generator {
         Generator::from_kind(build_kind())

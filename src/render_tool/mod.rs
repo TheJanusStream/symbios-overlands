@@ -88,6 +88,15 @@ struct Args {
     /// Catalogue subject: an entry slug (e.g. `villa`, `bench`, `wizard_tower`).
     #[arg(long)]
     catalogue: Option<String>,
+    /// With `--catalogue <plant-slug>`: apply that plant's named material
+    /// re-skin (#910) before rendering — e.g.
+    /// `--catalogue lsys_monopodial_tree --variant larch_gold`. Variants
+    /// change bark/foliage materials only, never geometry, so this composes
+    /// with `--ages`. An unknown name renders the entry's default materials
+    /// (the same fallback the seeded pools get); pass `--variant list` to
+    /// print the entry's available variants and exit.
+    #[arg(long)]
+    variant: Option<String>,
     /// Render a [`Generator`] deserialized from a JSON file. Lets the agent
     /// iterate on an L-system grammar (or any generator) without recompiling
     /// the crate: `--dump` a catalogue entry to seed the JSON, edit the
@@ -356,10 +365,29 @@ fn resolve_subject(args: &Args) -> (Subject, String) {
     if let Some(slug) = &args.catalogue {
         let entry = crate::catalogue::by_slug(slug)
             .unwrap_or_else(|| panic!("unknown catalogue slug {slug:?}"));
-        return (
-            Subject::Single(Box::new(entry.build("did:render:tool"))),
-            format!("cat-{slug}"),
-        );
+        let mut generator = entry.build("did:render:tool");
+        let mut label = format!("cat-{slug}");
+        if let Some(variant) = &args.variant {
+            if variant == "list" {
+                println!("{slug} variants:");
+                for v in entry.variants() {
+                    println!("  {:<16} {}", v.name, v.label);
+                }
+                if entry.variants().is_empty() {
+                    println!("  (none — this entry has no material re-skins)");
+                }
+                std::process::exit(0);
+            }
+            if let GeneratorKind::LSystem { materials, .. } = &mut generator.kind {
+                crate::catalogue::items::plants::variant::apply_named(
+                    entry.variants(),
+                    variant,
+                    materials,
+                );
+            }
+            label.push_str(&format!("-{variant}"));
+        }
+        return (Subject::Single(Box::new(generator)), label);
     }
     let avatar = args.avatar.clone().unwrap_or_else(|| "7".to_string());
     let (generator, label) = match avatar.parse::<u64>() {

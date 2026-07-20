@@ -9,6 +9,7 @@
 
 use std::collections::HashMap;
 
+use crate::catalogue::items::plants::variant::{PlantVariant, tint_bark, tint_leaf, tint_twig};
 use crate::catalogue::{CatalogueEntry, StructureRole};
 use crate::pds::{
     Fp, Fp3, Generator, GeneratorKind, PropMeshType, SovereignBarkConfig, SovereignLeafConfig,
@@ -30,10 +31,89 @@ impl CatalogueEntry for TernaryPropsTree {
     fn role(&self) -> StructureRole {
         StructureRole::Plant
     }
+    fn variants(&self) -> &'static [PlantVariant] {
+        VARIANTS
+    }
     fn build(&self, _local_did: &str) -> Generator {
         Generator::from_kind(build_kind())
     }
 }
+
+/// Broadleaf re-skins (#910). Slot 0 bark, 1 twig cluster, 2 leaf — both
+/// foliage slots must move together or the crown reads two-toned.
+static VARIANTS: &[PlantVariant] = &[
+    PlantVariant {
+        name: "autumn",
+        label: "Autumn (rust and amber)",
+        apply: |m| {
+            tint_twig(
+                m,
+                1,
+                [0.60, 0.34, 0.12],
+                [0.52, 0.26, 0.08],
+                [0.72, 0.46, 0.16],
+            );
+            tint_leaf(
+                m,
+                2,
+                [0.64, 0.34, 0.11],
+                [0.54, 0.24, 0.07],
+                [0.78, 0.50, 0.16],
+            );
+        },
+    },
+    PlantVariant {
+        name: "dry",
+        label: "Dry-season olive",
+        apply: |m| {
+            // Drought-stressed: desaturated olive foliage over pale bark —
+            // the same broadleaf surviving in a savanna or badlands room.
+            tint_twig(
+                m,
+                1,
+                [0.42, 0.44, 0.24],
+                [0.34, 0.36, 0.18],
+                [0.50, 0.50, 0.28],
+            );
+            tint_leaf(
+                m,
+                2,
+                [0.44, 0.46, 0.24],
+                [0.36, 0.38, 0.18],
+                [0.54, 0.54, 0.30],
+            );
+            tint_bark(
+                m,
+                0,
+                [0.46, 0.38, 0.26],
+                [0.54, 0.45, 0.32],
+                [0.24, 0.18, 0.12],
+            );
+        },
+    },
+    PlantVariant {
+        name: "deep_jungle",
+        label: "Deep jungle green",
+        apply: |m| {
+            // Shade-adapted: darker, bluer, higher-chroma than the temperate
+            // default so a jungle canopy doesn't read as a park.
+            tint_twig(
+                m,
+                1,
+                [0.18, 0.36, 0.16],
+                [0.10, 0.26, 0.09],
+                [0.20, 0.38, 0.14],
+            );
+            tint_leaf(
+                m,
+                2,
+                [0.16, 0.38, 0.15],
+                [0.09, 0.28, 0.09],
+                [0.20, 0.42, 0.14],
+            );
+        },
+    },
+];
 
 fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();

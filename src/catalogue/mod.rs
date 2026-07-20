@@ -196,6 +196,16 @@ pub trait CatalogueEntry: Sync {
         StructureRole::Tool
     }
 
+    /// Material re-skins this entry offers (#910). A
+    /// [`StructureRole::Plant`] entry lists the bark/foliage palettes its
+    /// one grammar can wear, so a single skeleton covers several biomes —
+    /// see the `items::plants::variant` module. The seeded species pools name a
+    /// variant per biome; an unnamed or unknown one falls back to the
+    /// entry's authored materials. Defaults to empty (no re-skins).
+    fn variants(&self) -> &'static [items::plants::variant::PlantVariant] {
+        &[]
+    }
+
     /// Prosperity-tier span this entry suits (e.g. a scrap shanty is
     /// `Poor`, a marble fountain is `Rich`). Defaults to
     /// [`ProsperityBand::ANY`] so an untagged entry is eligible in rooms of

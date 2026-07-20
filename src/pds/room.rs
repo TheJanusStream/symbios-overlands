@@ -518,6 +518,18 @@ impl RoomRecord {
                 continue;
             };
             let mut tree_gen = species_entry.build(did);
+            // Apply this stand's material re-skin (#910). Purely a material
+            // edit — geometry is untouched, so the L-system mesh cache
+            // (keyed on the geometry fingerprint) still shares one derivation
+            // across every variant of a species, while the separate material
+            // cache keeps the variants' textures apart.
+            if let GeneratorKind::LSystem { materials, .. } = &mut tree_gen.kind {
+                crate::catalogue::items::plants::variant::apply_named(
+                    species_entry.variants(),
+                    scatter.variant,
+                    materials,
+                );
+            }
             // Non-L-system fallback: a plain generator spawns its own node.
             let mut per_tree_entities = 1u64;
             if let GeneratorKind::LSystem {
