@@ -70,19 +70,30 @@ fn build_kind() -> GeneratorKind {
 
     GeneratorKind::LSystem {
         // Trunk drawn in the axiom (never expanded), then A splits into five
-        // scaffold limbs that lift (^18) and arch out (&). Each B fans into
-        // four thin whips; each whip E self-extends one F(0.42) segment and
-        // drops a four-leaf node K per iteration. Strong downward tropism
-        // bends the long thin whips into a vertical cascade around an open
-        // centre, leaving the trunk clearly visible.
+        // scaffold limbs that lift (^18) and arch out (&). Each B fans
+        // stochastically into 3–5 thin whips; each whip E self-extends one
+        // segment per iteration and drops a leaf node K (two stochastic card
+        // layouts), occasionally terminating in a leaf tuft (e3). The
+        // finalization pass (#910) tufts every still-growing whip tip and
+        // expresses fresh K markers so the stem→leaf transition reads
+        // finished at every age. Strong downward tropism bends the whips
+        // into a vertical cascade around an open centre.
         source_code: "#define s 0.7\n\
                       omega: !(0.45)F(2.4)F(1.8)/(45)A\n\
                       p1: A -> [^(18)&(35)B]/(72)[^(18)&(40)B]/(98)[^(18)&(35)B]/(85)[^(18)&(42)B]/(105)[^(18)&(38)B]\n\
-                      p2: B -> !(0.12)F(1.4)[&(18)E]/(95)[&(25)E]/(95)[&(20)E]/(95)[&(24)E]\n\
-                      p3: E -> F(0.42)K E\n\
-                      p4: K -> ,(2)[~(1,13)]\\(70)[~(1,13)]\\(70)[~(1,13)]\\(70)[~(1,13)]"
+                      b1: 0.4 : B -> !(0.12)F(1.4)[&(18)E]/(95)[&(25)E]/(95)[&(20)E]/(95)[&(24)E]\n\
+                      b2: 0.35 : B -> !(0.12)F(1.3)[&(20)E]/(80)[&(27)E]/(110)[&(22)E]/(75)[&(25)E]/(88)[&(19)E]\n\
+                      b3: 0.25 : B -> !(0.11)F(1.5)[&(16)E]/(115)[&(24)E]/(105)[&(21)E]\n\
+                      e1: 0.5 : E -> F(0.42)K E\n\
+                      e2: 0.35 : E -> F(0.38)&(4)K E\n\
+                      e3: 0.15 : E -> F(0.3)K ,(2)[~(1,14)]\\(120)[&(15)~(1,12)]\\(115)[^(10)~(1,12)]\n\
+                      k1: 0.55 : K -> ,(2)[~(1,13)]\\(70)[~(1,13)]\\(70)[~(1,13)]\\(70)[~(1,13)]\n\
+                      k2: 0.45 : K -> ,(2)[^(12)~(1,12)]\\(85)[&(14)~(1,13)]\\(95)[~(1,12)]"
             .to_string(),
-        finalization_code: String::new(),
+        finalization_code:
+            "E -> ,(2)[~(1,14)]\\(120)[&(15)~(1,12)]\\(115)[^(10)~(1,12)]\n\
+             K -> ,(2)[~(1,13)]\\(70)[~(1,13)]\\(70)[~(1,13)]\\(70)[~(1,13)]"
+                .to_string(),
         iterations: 10,
         seed: 1,
         angle: Fp(45.0),

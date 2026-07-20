@@ -1,7 +1,9 @@
-//! Acacia — a flat-crowned savanna tree. A short trunk that splays into
-//! four near-horizontal limbs, each forking into leafy twigs tipped with
-//! broad gold-green leaf props, giving the wide umbrella silhouette of the
-//! savanna. The crown is built deterministically so it stays flat and wide.
+//! Acacia — a flat-crowned savanna tree. A short trunk forks into a
+//! seed-varied set of limbs whose pitch decays toward horizontal as they
+//! extend one segment per iteration (#910), sprouting gold-green leaf-rosette
+//! twigs along the way — so iteration count reads as age (sapling fork →
+//! spreading juvenile → dense mature parasol) and the crown is irregular
+//! rather than a deterministic starburst.
 
 use std::collections::HashMap;
 
@@ -67,25 +69,36 @@ fn build_kind() -> GeneratorKind {
     prop_mappings.insert(0, PropMeshType::Leaf);
 
     GeneratorKind::LSystem {
-        // Short trunk, then THREE interleaved tiers of near-horizontal limbs
-        // (8 long M at &82, 8 mid P at &76, 6 inner Q at &70) plus a flat
-        // central fill R — each carrying overlapping leaf rosettes (N/Nf) — so
-        // the foliage merges into a DENSE, level, opaque parasol plate with a
-        // filled centre rather than a sparse star-burst. The iconic flat-crowned
-        // umbrella acacia, much wider than it is tall. Tropism stays None so the
-        // canopy stays flat and up.
+        // Age-progressive umbrella acacia (#910). A 3–4 segment trunk (with a
+        // stochastic low-fork lean variant a2), then B forks once into 3–5
+        // limbs at seed-varied azimuths. Each limb U(a,w) self-extends one
+        // segment per iteration while its pitch increment decays
+        // geometrically (a*0.55) — the limb launches steeply out (&47–60 from
+        // vertical) and asymptotes to horizontal, which is what flattens the
+        // crown into the parasol plate. Limbs sprout leaf-rosette twigs V as
+        // they grow (the canopy densifies with age) and terminate
+        // stochastically (u4, p=0.15) so old crowns stay bounded. The
+        // finalization pass caps still-growing tips and expresses freshly
+        // spawned V/N markers so no age renders bare tips.
         source_code: "#define s 0.8\n\
-                      omega: !(0.34)F(s)F(s)/(30)C\n\
-                      p1: C -> [&(82)M]/(45)[&(82)M]/(45)[&(82)M]/(45)[&(82)M]/(45)[&(82)M]/(45)[&(82)M]/(45)[&(82)M]/(45)[&(82)M]/(22)[&(76)P]/(45)[&(76)P]/(45)[&(76)P]/(45)[&(76)P]/(45)[&(76)P]/(45)[&(76)P]/(45)[&(76)P]/(45)[&(76)P]/(30)[&(70)Q]/(60)[&(70)Q]/(60)[&(70)Q]/(60)[&(70)Q]/(60)[&(70)Q]/(60)[&(70)Q]R\n\
-                      p2: M -> !(0.16)N F(s*1.1)N F(s*1.0)N[+(35)F(s*0.6)N][-(35)F(s*0.6)N]F(s*0.9)N &(18)F(s*0.7)N\n\
-                      p3: P -> !(0.14)N F(s*0.85)N F(s*0.75)N F(s*0.6)N\n\
-                      p4: Q -> !(0.12)N F(s*0.55)N F(s*0.4)N\n\
-                      p5: R -> ,(1)Nf[&(55)F(s*0.4)Nf]/(72)[&(80)F(s*0.6)Nf]/(72)[&(80)F(s*0.6)Nf]/(72)[&(80)F(s*0.6)Nf]/(72)[&(80)F(s*0.6)Nf]/(72)[&(80)F(s*0.6)Nf]\n\
-                      N -> ,(1)[~(0,36)][^(10)~(0,34)]/(51)[^(10)~(0,34)][~(0,36)]/(51)[^(10)~(0,34)][~(0,36)]/(51)[^(10)~(0,34)][~(0,36)]/(51)[^(10)~(0,34)][~(0,36)]/(51)[^(10)~(0,34)][~(0,36)]/(51)[^(10)~(0,34)][~(0,36)]\n\
-                      Nf -> ,(1)[~(0,36)][~(0,34)]/(60)[~(0,34)][~(0,36)]/(60)[~(0,34)][~(0,36)]/(60)[~(0,34)][~(0,36)]/(60)[~(0,34)][~(0,36)]"
+                      omega: !(0.34)F(s)F(s*0.95)A\n\
+                      a1: 0.5 : A -> F(s*0.9)/(25)B\n\
+                      a2: 0.5 : A -> &(4)F(s*0.9)F(s*0.8)/(140)B\n\
+                      b1: 0.45 : B -> [&(50)!(0.2)F(s*0.7)U(15,0.17)]/(95)[&(56)!(0.19)F(s*0.65)U(14,0.16)]/(88)[&(52)!(0.2)F(s*0.7)U(16,0.17)]/(105)[&(58)!(0.18)F(s*0.6)U(13,0.15)]\n\
+                      b2: 0.4 : B -> [&(54)!(0.2)F(s*0.7)U(14,0.17)]/(75)[&(49)!(0.19)F(s*0.68)U(15,0.16)]/(110)[&(57)!(0.2)F(s*0.66)U(13,0.17)]/(92)[&(51)!(0.18)F(s*0.62)U(15,0.15)]/(70)[&(60)!(0.17)F(s*0.58)U(12,0.14)]\n\
+                      b3: 0.15 : B -> [&(47)!(0.21)F(s*0.75)U(16,0.18)]/(120)[&(58)!(0.19)F(s*0.65)U(13,0.16)]/(85)[&(53)!(0.2)F(s*0.7)U(15,0.17)]\n\
+                      u1: 0.35 : U(a,w) -> !(w)F(s*0.8)&(a)[+(48)V]U(a*0.55,w*0.85)\n\
+                      u2: 0.3 : U(a,w) -> !(w)F(s*0.75)&(a)[-(52)V]U(a*0.55,w*0.85)\n\
+                      u3: 0.2 : U(a,w) -> !(w)F(s*0.85)&(a)[+(40)V][-(45)V]U(a*0.5,w*0.82)\n\
+                      u4: 0.15 : U(a,w) -> !(w)F(s*0.6)[+(35)V][-(38)V],(1)~(0,30)\n\
+                      v1: V -> !(0.1)F(s*0.5)N[+(30)F(s*0.35)N][-(35)F(s*0.3)N]\n\
+                      N -> ,(1)[~(0,36)][^(10)~(0,34)]/(51)[^(10)~(0,34)][~(0,36)]/(51)[^(10)~(0,34)][~(0,36)]/(51)[^(10)~(0,34)][~(0,36)]/(51)[^(10)~(0,34)][~(0,36)]/(51)[^(10)~(0,34)][~(0,36)]/(51)[^(10)~(0,34)][~(0,36)]"
             .to_string(),
-        finalization_code: String::new(),
-        iterations: 4,
+        finalization_code: "U(a,w) : * -> ,(1)~(0,30)\n\
+             V -> ,(1)~(0,28)\n\
+             N -> ,(1)[~(0,36)][^(10)~(0,34)]/(51)[^(10)~(0,34)][~(0,36)]/(51)[^(10)~(0,34)][~(0,36)]/(51)[^(10)~(0,34)][~(0,36)]/(51)[^(10)~(0,34)][~(0,36)]/(51)[^(10)~(0,34)][~(0,36)]/(51)[^(10)~(0,34)][~(0,36)]"
+            .to_string(),
+        iterations: 6,
         seed: 1,
         angle: Fp(70.0),
         step: Fp(1.0),

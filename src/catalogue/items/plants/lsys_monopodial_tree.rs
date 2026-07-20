@@ -75,25 +75,31 @@ fn build_kind() -> GeneratorKind {
     prop_mappings.insert(0, PropMeshType::Twig);
 
     GeneratorKind::LSystem {
-        // Unchanged monopodial skeleton: a central leader A drops lateral B
-        // branches that sub-branch C/B, shrinking each step for the conical
-        // outline. The finalization hangs a three-card needle spray off every
-        // lateral tip (B and C), angled steeply DOWN (&88–108) so the foliage
-        // droops into tiered conifer skirts and the leader stays pointed.
+        // Monopodial skeleton with stochastic variation (#910): a central
+        // leader A drops lateral B branches that sub-branch C/B, shrinking
+        // each step for the conical outline. Lateral pitch/length and the
+        // leader's phyllotaxis roll are seed-varied (rolls held near the
+        // 137.5° golden angle — wider spreads resonate into azimuth notches).
+        // The finalization hangs a TWO-card needle spray off every lateral
+        // tip, angled steeply down so the foliage droops into tiered conifer
+        // skirts — thinned from three larger cards after the WS0 grading
+        // called the old crown excessively dense.
         source_code: "#define r1 0.9\n\
                       #define r2 0.6\n\
-                      #define a0 45\n\
                       #define a2 45\n\
-                      #define d 137.5\n\
                       #define wr 0.707\n\
                       omega: A(1.0, 0.1)\n\
-                      p1: A(l, w) -> !(w) F(l) [ &(a0) B(l*r2, w*wr) ] / (d) A(l*r1, w*wr)\n\
-                      p2: B(l, w) -> !(w) F(l) [ -(a2) $ C(l*r2, w*wr) ] C(l*r1, w*wr)\n\
-                      p3: C(l, w) -> !(w) F(l) [ +(a2) $ B(l*r2, w*wr) ] B(l*r1, w*wr)"
+                      p1a: 0.4 : A(l, w) -> !(w) F(l) [ &(45) B(l*r2, w*wr) ] / (137.5) A(l*r1, w*wr)\n\
+                      p1b: 0.3 : A(l, w) -> !(w) F(l) [ &(38) B(l*r2*0.9, w*wr) ] / (134) A(l*r1, w*wr)\n\
+                      p1c: 0.3 : A(l, w) -> !(w) F(l) [ &(52) B(l*r2*1.1, w*wr) ] / (141) A(l*r1, w*wr)\n\
+                      p2a: 0.55 : B(l, w) -> !(w) F(l) [ -(a2) $ C(l*r2, w*wr) ] C(l*r1, w*wr)\n\
+                      p2b: 0.45 : B(l, w) -> !(w) F(l*0.9) [ -(a2+9) $ C(l*r2*0.9, w*wr) ] C(l*r1, w*wr)\n\
+                      p3a: 0.55 : C(l, w) -> !(w) F(l) [ +(a2) $ B(l*r2, w*wr) ] B(l*r1, w*wr)\n\
+                      p3b: 0.45 : C(l, w) -> !(w) F(l*0.92) [ +(a2+8) $ B(l*r2*0.92, w*wr) ] B(l*r1, w*wr)"
             .to_string(),
         finalization_code:
-            "B(l,w) : * -> ,(1)[&(88)~(0,30)]/(120)[&(98)~(0,30)]/(120)[&(108)~(0,30)]\n\
-             C(l,w) : * -> ,(1)[&(88)~(0,30)]/(120)[&(98)~(0,30)]/(120)[&(108)~(0,30)]"
+            "B(l,w) : * -> ,(1)[&(90)~(0,26)]/(144)[&(103)~(0,26)]\n\
+             C(l,w) : * -> ,(1)[&(90)~(0,26)]/(144)[&(103)~(0,26)]"
                 .to_string(),
         iterations: 8,
         seed: 1,

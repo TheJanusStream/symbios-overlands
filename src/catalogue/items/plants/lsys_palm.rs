@@ -1,8 +1,9 @@
-//! Palm — a tall bare trunk crowned by a whorl of drooping fronds. A
-//! fixed-length trunk (drawn in the axiom so iteration count can't blow it
-//! up) carries a deterministic crown of five fronds that radiate and droop,
-//! each tipped with a broad leaf prop. The signature coastal / tropical
-//! scatter where a conifer reads wrong.
+//! Palm — a tall bare trunk crowned by a whorl of drooping fronds. The trunk
+//! grows one segment per iteration so iteration count reads as age (#910:
+//! stub → frond skeleton → leafy juvenile → tall mature palm), and stochastic
+//! rules vary crown frond count/spacing and whole-palm stance (vertical or
+//! gently arcing lean) per seed. The signature coastal / tropical scatter
+//! where a conifer reads wrong.
 
 use std::collections::HashMap;
 
@@ -68,25 +69,38 @@ fn build_kind() -> GeneratorKind {
     prop_mappings.insert(0, PropMeshType::Leaf);
 
     GeneratorKind::LSystem {
-        // Fixed six-segment bare trunk in the axiom (so iteration count can't
-        // blow it up), then a whorl C of six fronds spread radially by roll.
-        // Each frond launches up-and-out (^18 &32) then its rachis D pitches
-        // ever more steeply down (&3→48) so the FEATHERED blade arcs over and
-        // droops past horizontal — leaflet pairs P run out each side. A gravity
-        // tropism adds the graceful sag of a coastal palm fountain crown.
+        // Age-progressive palm (#910): the trunk GROWS one segment per
+        // iteration (T self-extends with a stochastic roll wander) under a
+        // crown C picked once, stochastically, from three irregular 5/6/7-
+        // frond whorls — so iteration count is the palm's age and the seed
+        // varies frond count, spacing, and stance. G rolls the whole palm's
+        // stance once: vertical or leaned ±3°. A vertical heading is a
+        // tropism fixpoint (bend ∝ |heading × −Y|), so a vertical palm stays
+        // straight while a leaned one arcs gracefully with height — never the
+        // runaway shepherd's crook a per-segment pitch wander produced.
+        // Rachis D pitches ever more steeply down (&8→60, tuned for the
+        // softer 0.28 elasticity) so the feathered blade arcs over and
+        // droops past horizontal — leaflet pairs P run out each side.
         source_code: "#define s 0.9\n\
-                      omega: !(0.26)F(s)F(s)F(s)F(s)F(s)F(s)C\n\
-                      p1: C -> /(60)[^(18)&(32)D]/(60)[^(18)&(32)D]/(60)[^(18)&(32)D]/(60)[^(18)&(32)D]/(60)[^(18)&(32)D]/(60)[^(18)&(32)D]\n\
-                      p2: D -> !(0.06)F(s*0.95)&(3)F(s*0.9)P&(7)F(s*0.9)P&(12)F(s*0.85)P&(22)F(s*0.75)P&(34)F(s*0.6)P&(48)F(s*0.45)P&(20)F(s*0.35)P\n\
+                      omega: !(0.26)G\n\
+                      g1: 0.4 : G -> T C\n\
+                      g2: 0.3 : G -> &(3)T C\n\
+                      g3: 0.3 : G -> ^(3)/(40)T C\n\
+                      t1: 0.6 : T -> F(s)/(23)T\n\
+                      t2: 0.4 : T -> F(s)/(48)T\n\
+                      c1: 0.35 : C -> [^(18)&(30)D]/(58)[^(16)&(34)D]/(63)[^(20)&(30)D]/(55)[^(18)&(35)D]/(61)[^(17)&(31)D]\n\
+                      c2: 0.35 : C -> [^(18)&(32)D]/(52)[^(15)&(33)D]/(57)[^(21)&(29)D]/(64)[^(18)&(34)D]/(49)[^(16)&(30)D]/(60)[^(19)&(33)D]\n\
+                      c3: 0.3 : C -> [^(17)&(31)D]/(46)[^(20)&(35)D]/(55)[^(15)&(29)D]/(50)[^(18)&(33)D]/(52)[^(21)&(30)D]/(48)[^(17)&(34)D]/(54)[^(19)&(31)D]\n\
+                      p2: D -> !(0.06)F(s*0.95)&(8)F(s*0.9)P&(12)F(s*0.9)P&(18)F(s*0.85)P&(30)F(s*0.75)P&(44)F(s*0.6)P&(60)F(s*0.45)P&(26)F(s*0.35)P\n\
                       p3: P -> ,(1)[+(55)~(0,36)][-(55)~(0,36)]"
             .to_string(),
         finalization_code: String::new(),
-        iterations: 3,
+        iterations: 7,
         seed: 1,
         angle: Fp(60.0),
         step: Fp(1.0),
         width: Fp(0.26),
-        elasticity: Fp(0.45),
+        elasticity: Fp(0.28),
         tropism: Some(Fp3([0.0, -1.0, 0.0])),
         materials,
         prop_mappings,

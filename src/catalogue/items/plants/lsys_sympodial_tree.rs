@@ -1,9 +1,10 @@
-//! Sympodial tree — ABOP Fig 2.7. Sympodial branching where the main axis is
-//! replaced at each step by two daughter branches that take over leader duty in
-//! turn, producing a spreading, vase-like broadleaf crown. A short trunk in the
-//! axiom lifts the crown, and a finalization rule blooms every branch tip into
-//! a dome of green leaf cards so it reads as a full leafy tree rather than a
-//! bare skeleton.
+//! Sympodial tree — a round-crowned park broadleaf. Sympodial branching where
+//! each apex is stochastically replaced by two or three rolled/pitched
+//! daughters (or extends un-forked), so the crown grows outward organically
+//! with iteration count as its age (#910) and the seed varies the whole
+//! silhouette — replacing the old planar `$`-flattened ABOP Fig 2.7 zigzag
+//! that read as artificial. A short trunk in the axiom lifts the crown, and a
+//! finalization rule blooms every apex into a dome of green leaf cards.
 
 use std::collections::HashMap;
 
@@ -23,7 +24,7 @@ impl CatalogueEntry for SympodialTree {
         "Sympodial Tree"
     }
     fn description(&self) -> &'static str {
-        "Spreading-canopy leafy broadleaf with sympodial branching — ABOP Fig 2.7."
+        "Round-crowned leafy broadleaf with stochastic sympodial branching."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Plant
@@ -74,24 +75,21 @@ fn build_kind() -> GeneratorKind {
         // rule blooms each into a two-ring dome of leaf cards (inner &40,
         // outer &80, plus a couple underside cards) so the tips merge into a
         // continuous spreading green canopy over a visible trunk.
-        source_code: "#define r1 0.9\n\
-                      #define r2 0.7\n\
-                      #define a1 10\n\
-                      #define a2 60\n\
-                      #define wr 0.707\n\
-                      omega: !(0.32)F(2.0)F(1.6)A(1.0, 0.1)\n\
-                      p1: A(l,w) -> !(w)F(l)[&(a1)B(l*r1,w*wr)] /(180)[&(a2)B(l*r2,w*wr)]\n\
-                      p2: B(l,w) -> !(w)F(l)[+(a1)$B(l*r1,w*wr)] [-(a2)$B(l*r2,w*wr)]"
+        source_code: "#define wr 0.72\n\
+                      omega: !(0.3)F(1.4)F(1.1)/(45)A(1.0,0.09)\n\
+                      x1: 0.4 : A(l,w) -> !(w)F(l)[&(32)/(94)A(l*0.8,w*wr)][^(8)/(212)A(l*0.75,w*wr)]\n\
+                      x2: 0.35 : A(l,w) -> !(w)F(l)[&(40)/(133)A(l*0.78,w*wr)][&(14)/(255)A(l*0.8,w*wr)][^(22)/(28)A(l*0.62,w*0.65)]\n\
+                      x3: 0.25 : A(l,w) -> !(w)&(6)F(l*1.1)/(120)A(l*0.86,w*0.8)"
             .to_string(),
         finalization_code:
-            "B(l,w) : * -> ,(2)[&(40)~(1,30)]/(90)[&(40)~(1,30)]/(90)[&(40)~(1,30)]/(90)[&(40)~(1,30)]/(45)[&(80)~(1,30)]/(90)[&(80)~(1,30)]/(90)[&(80)~(1,30)]/(90)[&(80)~(1,30)]/(45)[&(95)~(1,18)]/(180)[&(95)~(1,18)]"
+            "A(l,w) : * -> ,(2)[&(40)~(1,30)]/(90)[&(40)~(1,30)]/(90)[&(40)~(1,30)]/(90)[&(40)~(1,30)]/(45)[&(80)~(1,30)]/(90)[&(80)~(1,30)]/(90)[&(80)~(1,30)]/(90)[&(80)~(1,30)]/(45)[&(95)~(1,18)]/(180)[&(95)~(1,18)]"
                 .to_string(),
-        iterations: 9,
+        iterations: 8,
         seed: 1,
         angle: Fp(18.0),
         step: Fp(1.0),
         width: Fp(0.32),
-        elasticity: Fp(0.0),
+        elasticity: Fp(0.08),
         tropism: Some(Fp3([0.0, -1.0, 0.0])),
         materials,
         prop_mappings,
