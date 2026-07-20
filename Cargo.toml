@@ -106,6 +106,15 @@ futures-channel = "0.3"
 gloo-worker = "0.6"
 gen-worker = { path = "crates/gen-worker" }
 
+# WS0 (#908, epic #907): consume the local texture crates while the epic adds
+# new plant generators upstream; reverted to published versions in WS7 (#915).
+# `symbios-texture` is patched too so the `bevy_symbios_texture` wrapper picks
+# up local generators. Path patches do NOT resolve in CI — switch these to
+# `git = ...` patches if a deploy is needed mid-epic.
+[patch.crates-io]
+bevy_symbios_texture = { path = "../bevy_symbios_texture" }
+symbios-texture = { path = "../symbios-texture" }
+
 [profile.release]
 opt-level = "s"   # Optimize for size (helps wasm-bindgen)
 lto = "fat"       # Enable full Link Time Optimization (CRITICAL FIX)

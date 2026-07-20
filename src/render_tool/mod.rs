@@ -14,7 +14,10 @@
 //! cargo run --bin render -- --prim tube         # a single primitive kind
 //! cargo run --bin render -- --room 3            # the seeded settlement
 //! cargo run --bin render -- --generator g.json  # a dumped/edited Generator
-//! # → /tmp/avatar-render/<label>.png  (front / ¾ / side / back tiles)
+//! cargo run --bin render -- --catalogue lsys_palm --ages 2,3,4,5
+//! #                                             # age-progression grid (#908)
+//! # → /tmp/avatar-render/<label>.png  (front / ¾ / side / back tiles;
+//! #   with --ages one such row per iteration count)
 //! ```
 //!
 //! The same binary also hosts several no-render modes that short-circuit
@@ -99,6 +102,19 @@ struct Args {
     /// enabling a no-recompile geometry-iteration loop).
     #[arg(long, default_value_t = false)]
     dump: bool,
+    /// Age-progression sweep for an L-system subject (#908): comma-separated
+    /// iteration counts (e.g. `--ages 2,3,4,5`). Renders a grid sheet instead
+    /// of the single row — one row per age (top→bottom in argument order),
+    /// columns = the four angles — with every row framed at one shared camera
+    /// distance so relative plant size across ages stays honest. Each count
+    /// overrides `iterations` on every L-system node in the subject's
+    /// generator tree; combines with any single-generator subject
+    /// (`--generator` > `--prim` > `--catalogue` > `--avatar`), panics on
+    /// `--room` or a subject without an L-system node. Values above the
+    /// record sanitiser cap (12) are accepted here but blow up derivation
+    /// size fast — the `MAX_LSYSTEM_STATE_LEN` guard still applies.
+    #[arg(long)]
+    ages: Option<String>,
     /// Primitive subject: a kind tag (`cuboid`, `sphere`, `tube`, `bevel`, …).
     #[arg(long)]
     prim: Option<String>,
@@ -273,6 +289,10 @@ pub fn run() {
     }
 
     let (subject, label) = resolve_subject(&args);
+    let (subject, label) = match &args.ages {
+        Some(ages) => age_sweep(subject, &label, ages),
+        None => (subject, label),
+    };
     let out = args
         .out
         .clone()
@@ -347,6 +367,55 @@ fn resolve_subject(args: &Args) -> (Subject, String) {
         Err(_) => (build_for_did(&avatar).0, avatar.replace([':', '/'], "_")),
     };
     (Subject::Single(Box::new(generator)), label)
+}
+
+/// Expand a single-generator subject into the `--ages` lineup: one clone per
+/// iteration count, ready for the grid contact sheet (rows top→bottom follow
+/// the argument order). Panics on `--room` subjects and on generator trees
+/// without an L-system node — an age sweep of those is meaningless.
+fn age_sweep(subject: Subject, label: &str, ages: &str) -> (Subject, String) {
+    let Subject::Single(base) = subject else {
+        panic!("--ages needs a single-generator subject (--generator/--prim/--catalogue/--avatar)");
+    };
+    let ages: Vec<u32> = ages
+        .split(',')
+        .map(|a| {
+            a.trim()
+                .parse::<u32>()
+                .unwrap_or_else(|e| panic!("bad --ages entry {a:?}: {e}"))
+        })
+        .collect();
+    assert!(
+        !ages.is_empty(),
+        "--ages needs at least one iteration count"
+    );
+    let variants: Vec<Generator> = ages
+        .iter()
+        .map(|&n| {
+            let mut g = (*base).clone();
+            assert!(
+                override_lsystem_iterations(&mut g, n),
+                "--ages: subject has no L-system node to sweep"
+            );
+            g
+        })
+        .collect();
+    println!("age sweep rows, top→bottom: {ages:?} iterations");
+    (Subject::Lineup(variants), format!("{label}-ages"))
+}
+
+/// Set `iterations` on every L-system node in the tree; returns whether any
+/// node was hit.
+fn override_lsystem_iterations(g: &mut Generator, iterations: u32) -> bool {
+    let mut hit = false;
+    if let GeneratorKind::LSystem { iterations: it, .. } = &mut g.kind {
+        *it = iterations;
+        hit = true;
+    }
+    for child in &mut g.children {
+        hit |= override_lsystem_iterations(child, iterations);
+    }
+    hit
 }
 
 /// Parse a `"a,b"` pair into `[f32; 2]` (missing components default to 0).

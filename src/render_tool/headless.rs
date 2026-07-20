@@ -17,11 +17,24 @@ use crate::player::visuals::{AvatarSpawnDeps, spawn_avatar_visuals};
 
 use super::{ANGLES, FOV, OUT_DIR, WARMUP};
 
-/// What to render: a single generator tree, or a whole seeded room.
+/// What to render: a single generator tree, an `--ages` lineup of variants of
+/// one tree (one grid row each), or a whole seeded room.
 pub(super) enum Subject {
     Single(Box<Generator>),
+    Lineup(Vec<Generator>),
     Room(Box<RoomRecord>),
 }
+
+/// World-space X distance between `Lineup` slots. Far enough apart that no
+/// subject can bleed into a neighbouring slot's tiles, and the slot of a mesh
+/// resolves from its world position alone (`round(x / SLOT_SPACING)`).
+const SLOT_SPACING: f32 = 1000.0;
+
+/// Frames to wait for every lineup slot's AABB before framing falls back to a
+/// tiny placeholder bound for the missing slots (a degenerate variant — e.g.
+/// an iteration count whose derivation produced no meshes — must not hang the
+/// tool).
+const FRAME_GRACE: u32 = 300;
 
 #[derive(Resource)]
 pub(super) struct RenderJob {
@@ -43,6 +56,8 @@ pub(super) struct Frames(u32);
 pub(super) struct Capture {
     framed: bool,
     started: bool,
+    /// Frames spent waiting for subject AABBs pre-framing (lineup grace timer).
+    waited: u32,
     tile_of: HashMap<Entity, usize>,
     results: Vec<Option<Vec<u8>>>,
 }
@@ -64,12 +79,17 @@ pub(super) fn setup(
             commands.insert_resource(ClearColor(srgb3(env.sky_color.0)));
             env.ambient_brightness.0.max(80.0)
         }
-        Subject::Single(_) => 600.0,
+        Subject::Single(_) | Subject::Lineup(_) => 600.0,
     };
 
-    // One off-screen target + orbiting camera per angle.
-    let mut targets = Vec::with_capacity(ANGLES.len());
-    for (i, _) in ANGLES.iter().enumerate() {
+    // One off-screen target + orbiting camera per tile: a row of the four
+    // angles per lineup slot (a single subject is one slot).
+    let rows = match &job.subject {
+        Subject::Lineup(variants) => variants.len(),
+        _ => 1,
+    };
+    let mut targets = Vec::with_capacity(rows * ANGLES.len());
+    for i in 0..rows * ANGLES.len() {
         let target = images.add(new_target(job.size));
         targets.push(target.clone());
         commands.spawn((
@@ -103,6 +123,25 @@ pub(super) fn setup(
                 &mut deps,
                 false,
             );
+        }
+        Subject::Lineup(variants) => {
+            spawn_neutral_sun(&mut commands);
+            for (slot, generator) in variants.iter().enumerate() {
+                let chassis = commands
+                    .spawn(Transform::from_xyz(slot as f32 * SLOT_SPACING, 0.0, 0.0))
+                    .id();
+                spawn_avatar_visuals(
+                    &mut commands,
+                    chassis,
+                    generator,
+                    None,
+                    &mut meshes,
+                    &mut materials,
+                    &mut images,
+                    &mut deps,
+                    false,
+                );
+            }
         }
         Subject::Room(record) => {
             spawn_env_sun(&mut commands, &record.environment);
@@ -250,13 +289,31 @@ pub(super) fn drive(
     mut cams: Query<(&mut Transform, &TileCam)>,
 ) {
     // Auto-frame the cameras on the subject's world AABB once it resolves
-    // (Bevy computes mesh `Aabb`s a frame after spawn).
+    // (Bevy computes mesh `Aabb`s a frame after spawn). A lineup frames each
+    // slot's row on that slot's own centre but with one shared camera
+    // distance, so relative subject size across rows stays honest.
     if !capture.framed {
-        if let Some((center, radius)) = subject_bounds(&subject) {
-            let dist = radius / (FOV * 0.5).tan() * 1.2 + radius * 0.5;
+        let rows = targets.0.len() / ANGLES.len();
+        if rows == 1 {
+            if let Some((center, radius)) = subject_bounds(&subject) {
+                let dist = radius / (FOV * 0.5).tan() * 1.2 + radius * 0.5;
+                for (mut transform, cam) in &mut cams {
+                    let a = ANGLES[cam.0].to_radians();
+                    let pos = center + Vec3::new(dist * a.sin(), radius * 0.7, dist * a.cos());
+                    *transform = Transform::from_translation(pos).looking_at(center, Vec3::Y);
+                }
+                capture.framed = true;
+            }
+            return;
+        }
+        capture.waited += 1;
+        if let Some(slots) = lineup_bounds(&subject, rows, capture.waited > FRAME_GRACE) {
+            let max_radius = slots.iter().map(|s| s.1).fold(0.1f32, f32::max);
+            let dist = max_radius / (FOV * 0.5).tan() * 1.2 + max_radius * 0.5;
             for (mut transform, cam) in &mut cams {
-                let a = ANGLES[cam.0].to_radians();
-                let pos = center + Vec3::new(dist * a.sin(), radius * 0.7, dist * a.cos());
+                let center = slots[cam.0 / ANGLES.len()].0;
+                let a = ANGLES[cam.0 % ANGLES.len()].to_radians();
+                let pos = center + Vec3::new(dist * a.sin(), max_radius * 0.7, dist * a.cos());
                 *transform = Transform::from_translation(pos).looking_at(center, Vec3::Y);
             }
             capture.framed = true;
@@ -277,6 +334,50 @@ pub(super) fn drive(
             .id();
         capture.tile_of.insert(e, i);
     }
+}
+
+/// Per-slot bounds of a lineup → one (centre, bounding radius) per row, slot
+/// resolved from each mesh's world X (`round(x / SLOT_SPACING)`). Returns
+/// `None` until every slot has at least one resolved AABB, unless `force` —
+/// then still-empty slots get a tiny placeholder bound at their slot origin
+/// so a degenerate variant can't hang the render.
+fn lineup_bounds(
+    q: &Query<(&GlobalTransform, &Aabb), Without<TileCam>>,
+    rows: usize,
+    force: bool,
+) -> Option<Vec<(Vec3, f32)>> {
+    let mut mins = vec![Vec3::splat(f32::INFINITY); rows];
+    let mut maxs = vec![Vec3::splat(f32::NEG_INFINITY); rows];
+    for (gt, aabb) in q.iter() {
+        let c = Vec3::from(aabb.center);
+        let h = Vec3::from(aabb.half_extents);
+        let slot = (gt.transform_point(c).x / SLOT_SPACING).round();
+        if slot < 0.0 || slot as usize >= rows {
+            continue;
+        }
+        let slot = slot as usize;
+        for sx in [-1.0f32, 1.0] {
+            for sy in [-1.0f32, 1.0] {
+                for sz in [-1.0f32, 1.0] {
+                    let w = gt.transform_point(c + Vec3::new(sx * h.x, sy * h.y, sz * h.z));
+                    mins[slot] = mins[slot].min(w);
+                    maxs[slot] = maxs[slot].max(w);
+                }
+            }
+        }
+    }
+    let mut slots = Vec::with_capacity(rows);
+    for (slot, (min, max)) in mins.into_iter().zip(maxs).enumerate() {
+        if min.x > max.x {
+            if !force {
+                return None;
+            }
+            slots.push((Vec3::new(slot as f32 * SLOT_SPACING, 0.5, 0.0), 0.5));
+        } else {
+            slots.push(((min + max) * 0.5, ((max - min) * 0.5).length().max(0.1)));
+        }
+    }
+    Some(slots)
 }
 
 /// Union the world-space AABB of every mesh entity → (centre, bounding radius).
@@ -338,26 +439,37 @@ pub(super) fn on_capture(
     }
 }
 
-/// Tile the per-angle RGBA captures horizontally into one PNG.
+/// Tile the RGBA captures into one PNG: `ANGLES.len()` columns per row, one
+/// row per lineup slot (a single subject is one row — the original horizontal
+/// strip).
 fn save_contact_sheet(results: &[Option<Vec<u8>>], tile: u32, path: &str) -> Result<(), String> {
     let t = tile as usize;
-    let sheet_w = tile * results.len() as u32;
+    let cols = ANGLES.len().min(results.len()).max(1);
+    let rows = results.len().div_ceil(cols);
+    let sheet_w = tile * cols as u32;
     let stride = sheet_w as usize * 4;
-    let mut sheet = vec![0u8; stride * t];
+    let mut sheet = vec![0u8; stride * t * rows];
     for (i, captured) in results.iter().enumerate() {
         let data = captured.as_ref().ok_or("missing tile")?;
         if data.len() < t * t * 4 {
             return Err(format!("tile {i} short: {} bytes", data.len()));
         }
+        let (row, col) = (i / cols, i % cols);
         for y in 0..t {
             let src = &data[y * t * 4..(y + 1) * t * 4];
-            let dst = y * stride + i * t * 4;
+            let dst = (row * t + y) * stride + col * t * 4;
             sheet[dst..dst + t * 4].copy_from_slice(src);
         }
     }
     std::fs::create_dir_all(OUT_DIR).map_err(|e| e.to_string())?;
-    image::save_buffer(path, &sheet, sheet_w, tile, image::ExtendedColorType::Rgba8)
-        .map_err(|e| e.to_string())
+    image::save_buffer(
+        path,
+        &sheet,
+        sheet_w,
+        tile * rows as u32,
+        image::ExtendedColorType::Rgba8,
+    )
+    .map_err(|e| e.to_string())
 }
 
 fn to_transform(t: &TransformData) -> Transform {
