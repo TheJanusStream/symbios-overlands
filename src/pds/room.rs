@@ -374,13 +374,23 @@ impl RoomRecord {
     /// while amputating the order-of-magnitude outliers.
     const TREE_ENTITY_BUDGET: u64 = 1_600;
 
-    /// Room-wide ceiling for seeded tree entities, Σ(scatter count ×
-    /// per-tree) (#810). ~8–10 % of seeds previously projected 300 k–978 k
-    /// (the `MAX_ROOM_ENTITIES` fail-stop is 500 k), which is a 1.4 fps
-    /// slideshow on wasm and the feed for the WebGL2 staging-pileup OOM
-    /// (#811). 120 k preserves the typical seeded region (~90 k trees)
-    /// verbatim and scales down only the outliers' scatter counts.
-    const ROOM_TREE_ENTITY_BUDGET: u64 = 120_000;
+    /// Room-wide ceiling for **all** seeded vegetation entities — trees plus
+    /// ground cover — as Σ(scatter count × per-instance) (#810, #911).
+    ///
+    /// ~8–10 % of seeds previously projected 300 k–978 k (the
+    /// `MAX_ROOM_ENTITIES` fail-stop is 500 k), which is a 1.4 fps slideshow
+    /// on wasm and the feed for the WebGL2 staging-pileup OOM (#811). 120 k
+    /// preserves the typical seeded region verbatim and scales down only the
+    /// outliers.
+    ///
+    /// The two tiers share one ceiling rather than holding independent ones:
+    /// exceeding `MAX_ROOM_ENTITIES` makes the executor silently truncate and
+    /// abandon the rest of the placement queue — a hard visual cliff — so the
+    /// total is what has to be bounded. Sharing also lets the tiers trade
+    /// against each other: since #812 baked props into mesh buckets a tree
+    /// costs only a handful of entities, leaving most of this headroom for the
+    /// ground-cover tier that actually needs the instance count.
+    const ROOM_VEGETATION_ENTITY_BUDGET: u64 = 120_000;
 
     /// Grid size of the derive-time proxy heightmap used for settlement
     /// siting (#905). At the default 512-cell / ~2 m terrain this is a
@@ -419,6 +429,8 @@ impl RoomRecord {
         let water_dynamics = WaterDynamics::from_scene(&scene, did_seed);
         let tree_scatters = TreeScatters::from_scene(&scene, did_seed);
         let rock_scatters = RockScatters::from_scene(&scene, did_seed);
+        let ground_cover =
+            crate::seeded_defaults::room::GroundCoverScatters::from_scene(&scene, did_seed);
         let ambient_particles = AmbientParticles::from_scene(&scene, did_seed);
 
         let mut terrain_cfg = SovereignTerrainConfig {
@@ -584,17 +596,37 @@ impl RoomRecord {
             pending_tree_scatters.push((scatter, tree_gen, per_tree_entities));
         }
 
-        // #810 room budget: if the measured projection still exceeds the
-        // room ceiling (dense biome × several lush scatters), scale every
-        // scatter's count proportionally — the forest thins uniformly
-        // instead of one scatter vanishing. `max(1)` keeps each stand
-        // present so the biome still reads.
-        let projected: u64 = pending_tree_scatters
+        // Ground-cover tier (#911): the cheap card props below the trees.
+        // These are primitive trees, not grammars, so their per-instance cost
+        // is just the node count — exact, and no iteration stepping needed.
+        let mut pending_ground_cover = Vec::with_capacity(ground_cover.scatters.len());
+        for scatter in ground_cover.scatters.iter() {
+            let Some(entry) = crate::catalogue::by_slug(scatter.species.slug()) else {
+                // Pool slugs are compile-time constants guarded by the
+                // deriver's catalogue-resolution test.
+                continue;
+            };
+            let built = entry.build(did);
+            let per_instance = generator_entity_count(&built);
+            pending_ground_cover.push((scatter, built, per_instance));
+        }
+
+        // #810/#911 room budget: if the measured projection exceeds the shared
+        // vegetation ceiling (dense biome × several lush scatters), scale every
+        // scatter's count proportionally — both tiers thin uniformly instead of
+        // one scatter vanishing or one tier starving the other. `max(1)` keeps
+        // each stand and patch present so the biome still reads.
+        let tree_projected: u64 = pending_tree_scatters
             .iter()
             .map(|(s, _, per_tree)| u64::from(s.count) * per_tree)
             .sum();
-        let scale = if projected > Self::ROOM_TREE_ENTITY_BUDGET {
-            Self::ROOM_TREE_ENTITY_BUDGET as f64 / projected as f64
+        let cover_projected: u64 = pending_ground_cover
+            .iter()
+            .map(|(s, _, per_instance)| u64::from(s.count) * per_instance)
+            .sum();
+        let projected = tree_projected.saturating_add(cover_projected);
+        let scale = if projected > Self::ROOM_VEGETATION_ENTITY_BUDGET {
+            Self::ROOM_VEGETATION_ENTITY_BUDGET as f64 / projected as f64
         } else {
             1.0
         };
@@ -619,6 +651,34 @@ impl RoomRecord {
                 random_yaw: true,
                 // Keep wild trees out of the built-up urban district.
                 avoid_urban: true,
+            });
+        }
+
+        for (idx, (scatter, cover_gen, _)) in pending_ground_cover.into_iter().enumerate() {
+            let count = ((f64::from(scatter.count) * scale) as u32).max(1);
+            let cover_gen_name = format!("ground_cover_{idx}");
+            generators.insert(cover_gen_name.clone(), cover_gen);
+            placements.push(Placement::Scatter {
+                generator_ref: cover_gen_name,
+                bounds: ScatterBounds::Circle {
+                    center: Fp2(scatter.center),
+                    radius: Fp(scatter.radius),
+                },
+                count,
+                local_seed: scatter.local_seed,
+                biome_filter: BiomeFilter {
+                    // 0=Grass, 1=Dirt — the same walkable land layers the
+                    // trees use, so cover never sprouts on rock faces or the
+                    // seabed.
+                    biomes: vec![0, 1],
+                    water: WaterRelation::Above,
+                },
+                snap_to_terrain: true,
+                random_yaw: true,
+                // Unlike trees, ground cover is *welcome* in the settlement:
+                // grass between the buildings is what makes a town look
+                // planted rather than dropped onto bare ground.
+                avoid_urban: false,
             });
         }
 
@@ -1456,6 +1516,20 @@ pub const MAX_ROAD_NETWORKS: usize = 4;
 /// (#895): all `RoadNetwork` children of the deterministically-chosen
 /// (sorted-first) Terrain generator. Same determinism contract as
 /// [`find_road_config`], which is simply this list's head.
+/// Total entities one generator tree spawns: itself plus every descendant.
+///
+/// The vegetation budget needs a per-instance cost for the ground-cover props
+/// (#911). Unlike an L-system — whose expansion has to be *estimated* by
+/// deriving the grammar — these are plain primitive trees, so the node count
+/// is the exact spawn cost.
+fn generator_entity_count(generator: &Generator) -> u64 {
+    1 + generator
+        .children
+        .iter()
+        .map(generator_entity_count)
+        .sum::<u64>()
+}
+
 pub fn find_road_configs(record: &RoomRecord) -> Vec<&RoadConfig> {
     let mut keys: Vec<&String> = record.generators.keys().collect();
     keys.sort();
@@ -2287,7 +2361,7 @@ mod tests {
     /// here re-derives each placed tree exactly as the compile will, so this
     /// guards the whole clamp chain, not just the arithmetic.
     #[test]
-    fn seeded_tree_scatters_respect_entity_budgets() {
+    fn seeded_vegetation_scatters_respect_entity_budgets() {
         use crate::pds::generator::Placement;
         for room_seed in [4u64, 11, 46] {
             let record = RoomRecord::default_for_seed(room_seed, "did:test:budget");
@@ -2301,6 +2375,17 @@ mod tests {
                 else {
                     continue;
                 };
+                // Ground cover shares the ceiling with the trees (#911), so it
+                // has to be counted here or the guard measures half the load.
+                // Its props are primitive trees, so the node count is exact.
+                if generator_ref.starts_with("ground_cover_") {
+                    let generator = record
+                        .generators
+                        .get(generator_ref)
+                        .expect("scatter references a derived generator");
+                    projected += generator_entity_count(generator) * u64::from(*count);
+                    continue;
+                }
                 if !generator_ref.starts_with("tree_scatter_") {
                     continue;
                 }
@@ -2343,10 +2428,74 @@ mod tests {
                 projected += per_tree * u64::from(*count);
             }
             assert!(
-                projected <= RoomRecord::ROOM_TREE_ENTITY_BUDGET,
-                "seed {room_seed}: {projected} projected tree entities"
+                projected <= RoomRecord::ROOM_VEGETATION_ENTITY_BUDGET,
+                "seed {room_seed}: {projected} projected vegetation entities"
             );
         }
+    }
+
+    /// The ground-cover tier must actually reach the record, and — unlike the
+    /// trees and boulders — must deliberately *not* avoid the urban district:
+    /// grass between the buildings is what makes a settlement look planted
+    /// rather than dropped onto bare ground. Asserted so the opt-out reads as
+    /// intentional rather than as a missed flag.
+    #[test]
+    fn seeded_ground_cover_is_emitted_and_grows_inside_settlements() {
+        use crate::pds::generator::Placement;
+        let record = (0u64..64)
+            .map(|s| RoomRecord::default_for_did(&format!("did:test:gc{s}")))
+            .find(|r| {
+                r.placements.iter().any(|p| {
+                    matches!(p, Placement::Scatter { generator_ref, .. }
+                        if generator_ref.starts_with("ground_cover_"))
+                })
+            })
+            .expect("a seed with ground cover");
+
+        let mut covered = 0;
+        for p in &record.placements {
+            if let Placement::Scatter {
+                generator_ref,
+                avoid_urban,
+                count,
+                ..
+            } = p
+                && generator_ref.starts_with("ground_cover_")
+            {
+                covered += 1;
+                assert!(
+                    !*avoid_urban,
+                    "{generator_ref} should grow inside the settlement"
+                );
+                assert!(*count > 0, "{generator_ref} placed zero instances");
+                assert!(
+                    record.generators.contains_key(generator_ref),
+                    "{generator_ref} placement has no matching generator"
+                );
+            }
+        }
+        assert!(covered > 0);
+    }
+
+    /// Glacial rooms stay lifeless — the epic's binding decision.
+    #[test]
+    fn glacial_rooms_grow_no_ground_cover() {
+        use crate::pds::generator::Placement;
+        use crate::seeded_defaults::scene::{BiomeArchetype, SceneCharacter};
+        let Some(seed) =
+            (0u64..4096).find(|s| SceneCharacter::for_seed(*s).biome == BiomeArchetype::Glacial)
+        else {
+            panic!("no glacial seed found in the search range");
+        };
+        let record = RoomRecord::default_for_seed(seed, "did:test:glacial");
+        assert!(
+            !record.placements.iter().any(|p| matches!(
+                p,
+                Placement::Scatter { generator_ref, .. }
+                    if generator_ref.starts_with("ground_cover_")
+            )),
+            "glacial seed {seed} grew ground cover"
+        );
     }
 
     #[test]
