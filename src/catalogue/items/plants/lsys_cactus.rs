@@ -7,7 +7,10 @@
 use std::collections::HashMap;
 
 use crate::catalogue::{CatalogueEntry, StructureRole};
-use crate::pds::{Fp, Fp3, Generator, GeneratorKind, SovereignMaterialSettings};
+use crate::pds::{
+    Fp, Fp3, Generator, GeneratorKind, SovereignCactusSkinConfig, SovereignMaterialSettings,
+    SovereignTextureConfig,
+};
 
 pub struct Cactus;
 
@@ -34,10 +37,17 @@ fn build_kind() -> GeneratorKind {
     materials.insert(
         0,
         SovereignMaterialSettings {
-            // Desert sage / blue-green succulent — flat matte, no texture.
-            base_color: Fp3([0.24, 0.42, 0.30]),
+            // Ribbed blue-green succulent skin: vertical accordion pleats with
+            // areoles and pale spines wrapping the column. uv_scale tiles the
+            // rib/areole pattern up the tall stem.
+            base_color: Fp3([0.85, 0.9, 0.85]),
             roughness: Fp(0.7),
             uv_scale: Fp(1.0),
+            texture: SovereignTextureConfig::CactusSkin(SovereignCactusSkinConfig {
+                color_skin: Fp3([0.23, 0.41, 0.29]),
+                color_valley: Fp3([0.08, 0.18, 0.13]),
+                ..Default::default()
+            }),
             ..Default::default()
         },
     );

@@ -260,6 +260,57 @@ define_sovereign_texture_cfg!(SovereignLeafConfig => bevy_symbios_texture::leaf:
     fp64 : venule_strength = 0.50,
 });
 
+define_sovereign_texture_cfg!(SovereignCactusSkinConfig => bevy_symbios_texture::cactus::CactusSkinConfig {
+    u32   : seed = 0,
+    usize : rib_count = 8,
+    usize : areole_rows = 9,
+    fp64  : rib_depth = 0.85,
+    fp64  : rib_sharpness = 0.85,
+    fp3   : color_skin = [0.22, 0.42, 0.27],
+    fp3   : color_valley = [0.07, 0.17, 0.11],
+    fp3   : color_areole = [0.55, 0.50, 0.40],
+    fp3   : color_spine = [0.86, 0.82, 0.66],
+    fp64  : areole_size = 0.022,
+    fp64  : spine_reach = 3.2,
+    usize : spine_count = 8,
+    fp64  : waxiness = 0.55,
+    fp    : normal_strength = 1.4,
+});
+
+define_sovereign_texture_cfg!(SovereignFrondConfig => bevy_symbios_texture::frond::FrondConfig {
+    u32   : seed = 0,
+    usize : variant_rows = 1,
+    usize : variant_cols = 1,
+    fp3   : color_base = [0.11, 0.30, 0.09],
+    fp3   : color_edge = [0.22, 0.42, 0.13],
+    fp64  : width = 0.13,
+    fp64  : tip_taper = 1.4,
+    fp64  : midrib_width = 0.16,
+    fp64  : vein_count = 9.0,
+    fp64  : lobe_count = 0.0,
+    fp64  : lobe_depth = 0.0,
+    fp    : normal_strength = 1.3,
+});
+
+define_sovereign_texture_cfg!(SovereignGrassTuftConfig => bevy_symbios_texture::grass::GrassTuftConfig {
+    u32   : seed = 0,
+    usize : variant_rows = 1,
+    usize : variant_cols = 1,
+    usize : blade_count = 9,
+    fp3   : color_base = [0.11, 0.17, 0.06],
+    fp3   : color_tip = [0.36, 0.46, 0.14],
+    fp3   : color_dry = [0.46, 0.39, 0.15],
+    fp64  : blade_width = 0.05,
+    fp64  : blade_taper = 1.3,
+    fp64  : height_min = 0.55,
+    fp64  : height_max = 0.96,
+    fp64  : fan_spread = 0.34,
+    fp64  : curve = 0.14,
+    fp64  : base_spread = 0.16,
+    fp64  : dry_fraction = 0.22,
+    fp    : normal_strength = 1.2,
+});
+
 define_sovereign_texture_cfg!(SovereignTwigConfig => bevy_symbios_texture::twig::TwigConfig {
     nested(SovereignLeafConfig) : leaf = SovereignLeafConfig::default(),
     fp3   : stem_color = [0.18, 0.08, 0.06],
@@ -810,12 +861,17 @@ pub enum SovereignTextureConfig {
     LeafSprite(SovereignLeafSpriteConfig),
     Flame(SovereignFlameConfig),
     Flower(SovereignFlowerConfig),
+    // Vegetation ground-cover / understory billboard cards.
+    GrassTuft(SovereignGrassTuftConfig),
+    Frond(SovereignFrondConfig),
     // Additional tileable surfaces.
     Fabric(SovereignFabricConfig),
     Sand(SovereignSandConfig),
     Snow(SovereignSnowConfig),
     Ice(SovereignIceConfig),
     Lava(SovereignLavaConfig),
+    // Succulent construct skin (tileable, opaque).
+    CactusSkin(SovereignCactusSkinConfig),
     // Alpha-masked mesh cards.
     ChainLink(SovereignChainLinkConfig),
     LogEnd(SovereignLogEndConfig),
@@ -862,11 +918,14 @@ impl SovereignTextureConfig {
             Self::LeafSprite(_) => "Leaf Sprite",
             Self::Flame(_) => "Flame",
             Self::Flower(_) => "Flower",
+            Self::GrassTuft(_) => "Grass Tuft",
+            Self::Frond(_) => "Frond",
             Self::Fabric(_) => "Fabric",
             Self::Sand(_) => "Sand",
             Self::Snow(_) => "Snow",
             Self::Ice(_) => "Ice",
             Self::Lava(_) => "Lava",
+            Self::CactusSkin(_) => "Cactus Skin",
             Self::ChainLink(_) => "Chain Link",
             Self::LogEnd(_) => "Log End",
             Self::Unknown => "Unknown",
@@ -921,11 +980,14 @@ impl SovereignTextureConfig {
             Self::LeafSprite(c) => T::LeafSprite(c.to_native()),
             Self::Flame(c) => T::Flame(c.to_native()),
             Self::Flower(c) => T::Flower(c.to_native()),
+            Self::GrassTuft(c) => T::GrassTuft(c.to_native()),
+            Self::Frond(c) => T::Frond(c.to_native()),
             Self::Fabric(c) => T::Fabric(c.to_native()),
             Self::Sand(c) => T::Sand(c.to_native()),
             Self::Snow(c) => T::Snow(c.to_native()),
             Self::Ice(c) => T::Ice(c.to_native()),
             Self::Lava(c) => T::Lava(c.to_native()),
+            Self::CactusSkin(c) => T::CactusSkin(c.to_native()),
             Self::ChainLink(c) => T::ChainLink(c.to_native()),
             Self::LogEnd(c) => T::LogEnd(c.to_native()),
         }
@@ -1059,11 +1121,14 @@ mod tests {
         rt!(SovereignLeafSpriteConfig);
         rt!(SovereignFlameConfig);
         rt!(SovereignFlowerConfig);
+        rt!(SovereignGrassTuftConfig);
+        rt!(SovereignFrondConfig);
         rt!(SovereignFabricConfig);
         rt!(SovereignSandConfig);
         rt!(SovereignSnowConfig);
         rt!(SovereignIceConfig);
         rt!(SovereignLavaConfig);
+        rt!(SovereignCactusSkinConfig);
         rt!(SovereignChainLinkConfig);
         rt!(SovereignLogEndConfig);
     }
@@ -1079,6 +1144,7 @@ mod tests {
             SovereignTextureConfig::Snow(Default::default()),
             SovereignTextureConfig::Ice(Default::default()),
             SovereignTextureConfig::Lava(Default::default()),
+            SovereignTextureConfig::CactusSkin(Default::default()),
         ];
         for v in &variants {
             assert_ne!(v.label(), "Unknown", "{v:?} missing label arm");
@@ -1137,6 +1203,34 @@ mod tests {
             SovereignTextureConfig::Bark(Default::default()).sprite_atlas_dims(),
             None
         );
+        // The grass tuft is a foliage billboard card baked at SURFACE
+        // resolution, not a particle atlas — no sprite dims.
+        assert_eq!(
+            SovereignTextureConfig::GrassTuft(Default::default()).sprite_atlas_dims(),
+            None
+        );
+        assert_eq!(
+            SovereignTextureConfig::Frond(Default::default()).sprite_atlas_dims(),
+            None
+        );
         assert_eq!(SovereignTextureConfig::None.sprite_atlas_dims(), None);
+    }
+
+    /// The vegetation foliage cards must be fully wired: a real label and a
+    /// non-`None` upstream dispatch arm.
+    #[test]
+    fn vegetation_cards_are_fully_wired() {
+        use bevy_symbios_texture::TextureConfig as T;
+        let variants = [
+            SovereignTextureConfig::GrassTuft(Default::default()),
+            SovereignTextureConfig::Frond(Default::default()),
+        ];
+        for v in &variants {
+            assert_ne!(v.label(), "Unknown", "{v:?} missing label arm");
+            assert!(
+                !matches!(v.to_texture_config(), T::None),
+                "{v:?} collapsed to TextureConfig::None"
+            );
+        }
     }
 }

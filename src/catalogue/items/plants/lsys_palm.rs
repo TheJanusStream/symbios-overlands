@@ -9,8 +9,8 @@ use std::collections::HashMap;
 
 use crate::catalogue::{CatalogueEntry, StructureRole};
 use crate::pds::{
-    Fp, Fp3, Generator, GeneratorKind, PropMeshType, SovereignBarkConfig, SovereignLeafConfig,
-    SovereignMaterialSettings, SovereignTextureConfig,
+    Fp, Fp3, Fp64, Generator, GeneratorKind, PropMeshType, SovereignBarkConfig,
+    SovereignFrondConfig, SovereignMaterialSettings, SovereignTextureConfig,
 };
 
 pub struct Palm;
@@ -50,15 +50,19 @@ fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 1 — deep tropical green frond leaflet.
+    // 1 — deep tropical green frond leaflet. A broad, entire-margined pinna
+    // (no lobes) — the strap-shaped leaflet of a palm frond, not a broadleaf.
     materials.insert(
         1,
         SovereignMaterialSettings {
             base_color: Fp3([0.24, 0.46, 0.18]),
             roughness: Fp(0.6),
-            texture: SovereignTextureConfig::Leaf(SovereignLeafConfig {
+            texture: SovereignTextureConfig::Frond(SovereignFrondConfig {
                 color_base: Fp3([0.12, 0.34, 0.10]),
                 color_edge: Fp3([0.20, 0.42, 0.12]),
+                width: Fp64(0.2),
+                tip_taper: Fp64(1.1),
+                vein_count: Fp64(11.0),
                 ..Default::default()
             }),
             ..Default::default()

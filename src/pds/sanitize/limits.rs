@@ -51,6 +51,10 @@ pub const MAX_SPRITE_PUFF_OCTAVES: u32 = 8;
 pub const MAX_SPRITE_RING_WAVES: u32 = 16;
 pub const MAX_SPRITE_SHARD_SIDES: u32 = 9;
 pub const MAX_SPRITE_FLOWER_PETALS: u32 = 12;
+/// Blade count for the grass-tuft foliage card. Each blade adds a branch to
+/// the per-pixel silhouette test, so cap it at the record boundary; the value
+/// mirrors the upstream generator's own internal clamp.
+pub const MAX_TEXTURE_GRASS_BLADES: u32 = 24;
 /// Scatter placement count.
 pub const MAX_SCATTER_COUNT: u32 = 100_000;
 /// L-system derivation iterations. 12 is already enough to blow out most

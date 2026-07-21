@@ -134,6 +134,17 @@ impl Sanitize for SovereignTextureConfig {
                 clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
                 s.petal_count = s.petal_count.clamp(4, limits::MAX_SPRITE_FLOWER_PETALS);
             }
+            // Foliage billboard card: an atlas of tufts, each tuft a
+            // `blade_count`-branch per-pixel silhouette test.
+            SovereignTextureConfig::GrassTuft(s) => {
+                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
+                s.blade_count = s.blade_count.clamp(1, limits::MAX_TEXTURE_GRASS_BLADES);
+            }
+            // Frond pinna card: only atlas dims drive a loop count; the vein /
+            // lobe counts are `fp64` frequencies bounded by texture size.
+            SovereignTextureConfig::Frond(s) => {
+                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
+            }
             // Forward to the asset-reference sanitiser — caps URL / DID /
             // CID lengths so a hostile peer can't smuggle a megabyte URL
             // through a referenced texture slot.
@@ -144,7 +155,11 @@ impl Sanitize for SovereignTextureConfig {
             // Sand / Ice / Lava surfaces, whose thread / ripple / crack
             // counts are likewise `fp64` frequencies): per-pixel cost is
             // bounded by `MAX_TEXTURE_SIZE`, so no extra clamp is needed.
+            // Cactus skin: rib / areole / spine counts are integer feature
+            // frequencies, not loop bounds — per-pixel cost is bounded by
+            // `MAX_TEXTURE_SIZE`, so no extra clamp is needed.
             SovereignTextureConfig::None
+            | SovereignTextureConfig::CactusSkin(_)
             | SovereignTextureConfig::Leaf(_)
             | SovereignTextureConfig::Brick(_)
             | SovereignTextureConfig::Plank(_)

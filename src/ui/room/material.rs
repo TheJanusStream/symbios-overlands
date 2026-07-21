@@ -7,17 +7,17 @@ use bevy_egui::egui;
 
 use crate::pds::{
     SovereignAshlarConfig, SovereignAsphaltConfig, SovereignBarkConfig, SovereignBrickConfig,
-    SovereignChainLinkConfig, SovereignCobblestoneConfig, SovereignConcreteConfig,
-    SovereignCorrugatedConfig, SovereignEncausticConfig, SovereignFabricConfig,
-    SovereignFlameConfig, SovereignFlowerConfig, SovereignGroundConfig, SovereignIceConfig,
-    SovereignIronGrilleConfig, SovereignLavaConfig, SovereignLeafConfig, SovereignLeafSpriteConfig,
-    SovereignLogEndConfig, SovereignMarbleConfig, SovereignMaterialConfig, SovereignMetalConfig,
-    SovereignPaversConfig, SovereignPetalConfig, SovereignPlankConfig, SovereignPuffConfig,
-    SovereignRingConfig, SovereignRockConfig, SovereignSandConfig, SovereignShardConfig,
-    SovereignShingleConfig, SovereignSnowConfig, SovereignSnowflakeConfig, SovereignSoftDiscConfig,
-    SovereignSparkConfig, SovereignSplatRule, SovereignStainedGlassConfig, SovereignStuccoConfig,
-    SovereignTextureConfig, SovereignThatchConfig, SovereignTwigConfig, SovereignWainscotingConfig,
-    SovereignWindowConfig,
+    SovereignCactusSkinConfig, SovereignChainLinkConfig, SovereignCobblestoneConfig,
+    SovereignConcreteConfig, SovereignCorrugatedConfig, SovereignEncausticConfig,
+    SovereignFabricConfig, SovereignFlameConfig, SovereignFlowerConfig, SovereignFrondConfig,
+    SovereignGrassTuftConfig, SovereignGroundConfig, SovereignIceConfig, SovereignIronGrilleConfig,
+    SovereignLavaConfig, SovereignLeafConfig, SovereignLeafSpriteConfig, SovereignLogEndConfig,
+    SovereignMarbleConfig, SovereignMaterialConfig, SovereignMetalConfig, SovereignPaversConfig,
+    SovereignPetalConfig, SovereignPlankConfig, SovereignPuffConfig, SovereignRingConfig,
+    SovereignRockConfig, SovereignSandConfig, SovereignShardConfig, SovereignShingleConfig,
+    SovereignSnowConfig, SovereignSnowflakeConfig, SovereignSoftDiscConfig, SovereignSparkConfig,
+    SovereignSplatRule, SovereignStainedGlassConfig, SovereignStuccoConfig, SovereignTextureConfig,
+    SovereignThatchConfig, SovereignTwigConfig, SovereignWainscotingConfig, SovereignWindowConfig,
 };
 
 use super::widgets::{drag_u32, fp_slider};
@@ -180,12 +180,22 @@ pub(super) fn draw_texture_bridge_opts(
             );
             opt!("Flame", SovereignTextureConfig::Flame(Default::default()));
             opt!("Flower", SovereignTextureConfig::Flower(Default::default()));
+            // Vegetation ground-cover / understory billboard cards.
+            opt!(
+                "Grass Tuft",
+                SovereignTextureConfig::GrassTuft(Default::default())
+            );
+            opt!("Frond", SovereignTextureConfig::Frond(Default::default()));
             // Additional tileable surfaces.
             opt!("Fabric", SovereignTextureConfig::Fabric(Default::default()));
             opt!("Sand", SovereignTextureConfig::Sand(Default::default()));
             opt!("Snow", SovereignTextureConfig::Snow(Default::default()));
             opt!("Ice", SovereignTextureConfig::Ice(Default::default()));
             opt!("Lava", SovereignTextureConfig::Lava(Default::default()));
+            opt!(
+                "Cactus Skin",
+                SovereignTextureConfig::CactusSkin(Default::default())
+            );
             // Alpha-masked mesh cards.
             opt!(
                 "Chain Link",
@@ -382,6 +392,16 @@ pub(super) fn draw_texture_bridge_opts(
             SovereignFlowerConfig,
             bevy_symbios_texture::ui::flower_config_editor
         ),
+        SovereignTextureConfig::GrassTuft(c) => run!(
+            c,
+            SovereignGrassTuftConfig,
+            bevy_symbios_texture::ui::grass_config_editor
+        ),
+        SovereignTextureConfig::Frond(c) => run!(
+            c,
+            SovereignFrondConfig,
+            bevy_symbios_texture::ui::frond_config_editor
+        ),
         SovereignTextureConfig::Fabric(c) => run!(
             c,
             SovereignFabricConfig,
@@ -401,6 +421,11 @@ pub(super) fn draw_texture_bridge_opts(
             c,
             SovereignIceConfig,
             bevy_symbios_texture::ui::ice_config_editor
+        ),
+        SovereignTextureConfig::CactusSkin(c) => run!(
+            c,
+            SovereignCactusSkinConfig,
+            bevy_symbios_texture::ui::cactus_config_editor
         ),
         SovereignTextureConfig::Lava(c) => run!(
             c,

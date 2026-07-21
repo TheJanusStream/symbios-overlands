@@ -136,6 +136,8 @@ fn texture_bake_job(layer: &SovereignTextureConfig) -> gen_jobs::TextureBakeJob 
         SovereignTextureConfig::Snow(c) => Job::Snow(c.to_native()),
         SovereignTextureConfig::Ice(c) => Job::Ice(c.to_native()),
         SovereignTextureConfig::Lava(c) => Job::Lava(c.to_native()),
+        // A tileable succulent skin — usable as a splat layer like any surface.
+        SovereignTextureConfig::CactusSkin(c) => Job::CactusSkin(c.to_native()),
         SovereignTextureConfig::Leaf(c) => Job::Leaf(c.to_native()),
         SovereignTextureConfig::Twig(c) => Job::Twig(c.to_native()),
         SovereignTextureConfig::Window(c) => Job::Window(c.to_native()),
@@ -166,7 +168,9 @@ fn texture_bake_job(layer: &SovereignTextureConfig) -> gen_jobs::TextureBakeJob 
         | SovereignTextureConfig::Shard(_)
         | SovereignTextureConfig::LeafSprite(_)
         | SovereignTextureConfig::Flame(_)
-        | SovereignTextureConfig::Flower(_) => {
+        | SovereignTextureConfig::Flower(_)
+        | SovereignTextureConfig::GrassTuft(_)
+        | SovereignTextureConfig::Frond(_) => {
             Job::Ground(crate::pds::SovereignGroundConfig::default().to_native())
         }
     }

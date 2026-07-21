@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use crate::catalogue::{CatalogueEntry, StructureRole};
 use crate::pds::{
-    Fp, Fp3, Generator, GeneratorKind, PropMeshType, SovereignLeafConfig,
+    Fp, Fp3, Fp64, Generator, GeneratorKind, PropMeshType, SovereignFrondConfig,
     SovereignMaterialSettings, SovereignTextureConfig,
 };
 
@@ -44,15 +44,22 @@ fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 1 — deep forest-floor green leaflet.
+    // 1 — deep forest-floor green leaflet. A fine pinnatifid pinna: narrow,
+    // with a lobed (crenate) margin so each leaflet reads as a fern pinnule
+    // rather than a smooth broadleaf.
     materials.insert(
         1,
         SovereignMaterialSettings {
             base_color: Fp3([0.15, 0.34, 0.11]),
             roughness: Fp(0.65),
-            texture: SovereignTextureConfig::Leaf(SovereignLeafConfig {
+            texture: SovereignTextureConfig::Frond(SovereignFrondConfig {
                 color_base: Fp3([0.10, 0.28, 0.08]),
                 color_edge: Fp3([0.20, 0.40, 0.13]),
+                width: Fp64(0.11),
+                tip_taper: Fp64(1.6),
+                vein_count: Fp64(7.0),
+                lobe_count: Fp64(5.0),
+                lobe_depth: Fp64(0.4),
                 ..Default::default()
             }),
             ..Default::default()

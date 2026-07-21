@@ -201,7 +201,9 @@ fn classify(texture: &SovereignTextureConfig) -> ImpactMaterial {
         | SovereignTextureConfig::Shingle(_)
         | SovereignTextureConfig::Wainscoting(_)
         // A cut-log end is a wooden surface.
-        | SovereignTextureConfig::LogEnd(_) => ImpactMaterial::Wood,
+        | SovereignTextureConfig::LogEnd(_)
+        // A cactus stem is a firm, fibrous succulent — closest to wood.
+        | SovereignTextureConfig::CactusSkin(_) => ImpactMaterial::Wood,
         SovereignTextureConfig::Brick(_)
         | SovereignTextureConfig::Concrete(_)
         | SovereignTextureConfig::Stucco(_)
@@ -223,6 +225,8 @@ fn classify(texture: &SovereignTextureConfig) -> ImpactMaterial {
         | SovereignTextureConfig::LeafSprite(_)
         | SovereignTextureConfig::Petal(_)
         | SovereignTextureConfig::Flower(_)
+        | SovereignTextureConfig::GrassTuft(_)
+        | SovereignTextureConfig::Frond(_)
         // Cloth and powder snow both give a muffled, soft footfall.
         | SovereignTextureConfig::Fabric(_)
         | SovereignTextureConfig::Snow(_) => ImpactMaterial::Soft,
