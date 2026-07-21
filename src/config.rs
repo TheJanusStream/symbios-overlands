@@ -488,6 +488,24 @@ pub mod terrain {
         pub const MATERIAL_METALLIC: f32 = 0.0;
         /// Blend sharpness for triplanar axis transitions.
         pub const TRIPLANAR_SHARPNESS: f32 = 4.0;
+
+        /// Height above the water line (m) over which the damp-ground
+        /// darkening fades out (#913, WS5 step 3).
+        ///
+        /// Deliberately close to the riparian scatter band that puts reeds
+        /// at `[0, 3.5] m`: the darkened ground and the plants growing on
+        /// it should be the same margin, or the shoreline reads as two
+        /// unrelated effects that happen to be near each other.
+        pub const MOISTURE_DEPTH: f32 = 4.0;
+        /// How much darker fully-damp ground goes, as a fraction removed
+        /// from the blended albedo at (and below) the water line, easing to
+        /// zero by [`MOISTURE_DEPTH`] above it.
+        ///
+        /// Damp soil really is markedly darker than dry, but this is a
+        /// multiply on top of the #900-tuned palette rather than a change
+        /// to it — so it must stay modest enough that it reads as wet
+        /// ground and never as a different biome.
+        pub const MOISTURE_STRENGTH: f32 = 0.28;
     }
 
     // --- Splat layer: Grass (layer 0) ----------------------------------------

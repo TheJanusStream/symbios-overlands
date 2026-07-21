@@ -288,6 +288,9 @@ impl Plugin for TerrainPlugin {
                     // drain — apply_splat_textures keeps them for the late-fetch
                     // rebuild, this frees them when no fetch remains (#642).
                     splat::free_referenced_splat_sources,
+                    // Cheap scalar re-sync so an edited water level moves
+                    // the damp-ground margin with it (#913).
+                    splat::sync_moisture_water_level,
                 )
                     .chain()
                     // Widened for the attract backdrop, like the group

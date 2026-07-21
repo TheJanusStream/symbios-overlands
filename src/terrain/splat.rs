@@ -408,6 +408,24 @@ pub(super) fn apply_splat_textures(
         mat.extension.uniforms.enabled = 1;
         mat.extension.uniforms.triplanar_scale = tcfg::TILE_SCALE / world_extent.max(1.0);
 
+        // Damp ground near the water line (#913, WS5 step 3). Read from the
+        // same `room_water_level` the scatter sampler's riparian band uses,
+        // so the darkened margin and the reeds standing in it cannot drift
+        // apart. A room with no water generator has no waterline to be damp
+        // around, so the effect stays off and the terrain renders exactly as
+        // it did before this landed.
+        match record
+            .as_ref()
+            .and_then(|r| crate::world_builder::compile::room_water_level(&r.0))
+        {
+            Some(water_y) => {
+                mat.extension.uniforms.water_y = water_y;
+                mat.extension.uniforms.moisture_depth = tcfg::splat::MOISTURE_DEPTH;
+                mat.extension.uniforms.moisture_strength = tcfg::splat::MOISTURE_STRENGTH;
+            }
+            None => mat.extension.uniforms.moisture_strength = 0.0,
+        }
+
         // Bind the avatar-interaction stains overlay (#245). The image
         // is allocated zeroed at startup, so enabling it now is inert
         // until the stamper writes contacts — backward-compatible.
@@ -459,6 +477,51 @@ pub(super) fn apply_splat_textures(
 /// resolving fetch), so the retained ~11 MiB of MAIN_WORLD CPU bytes is pure
 /// dead weight and is released here. Self-guarded (a no-op for procedural rooms,
 /// whose slots are already `None`) and idempotent.
+/// Keep the damp-ground datum in step with an edited water level (#913).
+///
+/// [`apply_splat_textures`] sets `water_y` when the splat textures land,
+/// which covers first load and every terrain regeneration — but moving the
+/// water plane in the editor changes the record WITHOUT regenerating the
+/// heightmap, so the material would keep darkening the ground around the
+/// old waterline until something else forced a terrain rebuild. Cheaper to
+/// re-read the one scalar on record change than to make water edits
+/// regenerate terrain they do not otherwise affect.
+///
+/// Writes only when the value actually moved: `Assets<T>::get_mut` fires a
+/// change event that re-uploads the material's uniform block, and doing
+/// that on every record edit would be a needless per-keystroke upload while
+/// the editor is open.
+pub(super) fn sync_moisture_water_level(
+    record: Option<Res<LiveRoomRecord>>,
+    splat_mat: Option<Res<SplatMaterialHandle>>,
+    mut materials: ResMut<Assets<SplatTerrainMaterial>>,
+) {
+    let (Some(record), Some(splat_mat)) = (record, splat_mat) else {
+        return;
+    };
+    if !record.is_changed() {
+        return;
+    }
+    let water = crate::world_builder::compile::room_water_level(&record.0);
+    let (water_y, strength) = match water {
+        Some(y) => (y, tcfg::splat::MOISTURE_STRENGTH),
+        // No water generator, no waterline to be damp around.
+        None => (0.0, 0.0),
+    };
+    // Peek before taking the change-triggering mutable borrow.
+    let stale = materials.get(&splat_mat.0).is_some_and(|m| {
+        m.extension.uniforms.water_y != water_y
+            || m.extension.uniforms.moisture_strength != strength
+    });
+    if !stale {
+        return;
+    }
+    if let Some(mat) = materials.get_mut(&splat_mat.0) {
+        mat.extension.uniforms.water_y = water_y;
+        mat.extension.uniforms.moisture_strength = strength;
+    }
+}
+
 pub(super) fn free_referenced_splat_sources(
     mut state: ResMut<TerrainSplatState>,
     pending: Query<(), With<super::referenced::PendingSplatLayerFetch>>,

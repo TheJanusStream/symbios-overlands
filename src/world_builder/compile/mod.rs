@@ -49,3 +49,8 @@ pub(super) use executor::compile_room_record;
 pub use job::{CompileJob, CompiledWorld};
 pub(crate) use scatter::ScatterPreview;
 pub use spawn_ctx::{GeneratorCaches, SpawnCtx, budget_exceeded};
+/// Re-exported so the terrain splat pass reads the room's water line from
+/// the same single source the scatter sampler does — if the two ever
+/// disagreed, the damp margin drawn on the ground and the riparian band the
+/// reeds are placed in would sit at different heights (#913).
+pub(crate) use water::room_water_level;

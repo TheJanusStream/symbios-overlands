@@ -74,6 +74,16 @@ struct SplatUniforms {
     triplanar_scale: f32,
     /// Blend sharpness for the triplanar axis transition (k >= 1; 4 is good).
     triplanar_sharpness: f32,
+    /// World Y of the room's water surface — the datum the damp-ground
+    /// darkening measures from (#913).
+    water_y: f32,
+    /// Height above `water_y` (m) over which the darkening eases out.
+    moisture_depth: f32,
+    /// Fraction removed from the albedo at the water line; 0 disables.
+    moisture_strength: f32,
+    /// Pad to 32 bytes — WebGL2 requires uniform blocks be a multiple of
+    /// 16. Mirrors `_pad0` on the Rust `SplatUniforms`.
+    _pad0: u32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(106) var<uniform> splat_uniforms: SplatUniforms;
@@ -331,6 +341,37 @@ fn fragment(
         pbr_input.N = normalize(vec3<f32>(n.x, n.y * (1.0 - 0.2 * foot), n.z));
     }
 #endif // STAINS_BINDING
+
+    // --- Damp ground near the water line (#913, WS5 step 3) -------------
+    // The visible half of the microbiome work: ground at and below the
+    // water line is wet, and wet ground is darker. Easing out over
+    // `moisture_depth` gives the shoreline a soft margin instead of a hard
+    // rim, and matching that depth to the riparian scatter band means the
+    // darkened ground and the reeds standing in it are the same margin.
+    //
+    // Deliberately a MULTIPLY on the finished albedo rather than an edit to
+    // the splat rules or the palette bands: the colour chain either side of
+    // this line is #900-tuned, so a post-tint can be read, judged and
+    // removed on its own. `moisture_strength = 0` restores the previous
+    // terrain exactly, which is also what a record with no water generator
+    // gets, since there is then no waterline to be damp around.
+    //
+    // Applied outside the splat branch so it holds whether or not splat
+    // blending is enabled, and outside STAINS_BINDING so wasm gets it too.
+    if splat_uniforms.moisture_strength > 0.0 {
+        let above_water = in.world_position.y - splat_uniforms.water_y;
+        // 1 at (and below) the waterline, easing to 0 by `moisture_depth`.
+        let damp = 1.0 - smoothstep(
+            0.0,
+            max(splat_uniforms.moisture_depth, 0.001),
+            above_water,
+        );
+        let f = 1.0 - splat_uniforms.moisture_strength * damp;
+        pbr_input.material.base_color = vec4<f32>(
+            pbr_input.material.base_color.rgb * f,
+            pbr_input.material.base_color.a,
+        );
+    }
 
 #ifdef PREPASS_PIPELINE
     let out = deferred_output(in, pbr_input);

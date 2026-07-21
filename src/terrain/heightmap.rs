@@ -181,6 +181,14 @@ pub(super) fn spawn_terrain_mesh(
                 enabled: 0,
                 triplanar_scale: tcfg::TILE_SCALE / world_extent.max(1.0),
                 triplanar_sharpness: tcfg::splat::TRIPLANAR_SHARPNESS,
+                // Damp-ground darkening stays OFF until the splat pass
+                // resolves the room's water line (#913). The material
+                // starts as a flat placeholder anyway, and a zero strength
+                // is exactly the pre-#913 terrain.
+                water_y: 0.0,
+                moisture_depth: tcfg::splat::MOISTURE_DEPTH,
+                moisture_strength: 0.0,
+                _pad0: 0,
             },
             ..default() // weight_map defaults to 1x1 D2, which is fine for the weight sampler
         },

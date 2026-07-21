@@ -10,7 +10,7 @@ use crate::pds::{GeneratorKind, RoomRecord};
 /// room's water plane there), or `None` for dry rooms. Water world Y
 /// is the child's translation because the terrain anchor sits at the
 /// origin unsnapped.
-pub(super) fn room_water_level(record: &RoomRecord) -> Option<f32> {
+pub(crate) fn room_water_level(record: &RoomRecord) -> Option<f32> {
     record
         .generators
         .values()
