@@ -407,6 +407,16 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &plants::lsys_bush::Bush,
     &plants::lsys_fern::Fern,
     &plants::lsys_flowering_tree::FloweringTree,
+    // Ground-cover tier (#911) — crossed cards and flat decals, placed by
+    // the hundred, so each is a handful of entities rather than a grammar.
+    &plants::groundcover::GrassTuft,
+    &plants::groundcover::DryGrassTuft,
+    &plants::groundcover::Wildflower,
+    &plants::groundcover::FernClump,
+    &plants::groundcover::ReedClump,
+    &plants::groundcover::DwarfShrub,
+    &plants::groundcover::MossPatch,
+    &plants::groundcover::LichenPatch,
     // Patterns — abstract L-system / ABOP demos.
     &patterns::lsys_branching::BranchingPattern,
     &patterns::lsys_koch_island::QuadraticKochIsland,

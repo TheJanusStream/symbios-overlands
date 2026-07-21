@@ -4,6 +4,10 @@
 
 pub mod variant;
 
+/// Ground-cover props (#911) — the cheap card/decal scatter tier below the
+/// trees, consuming the WS1 vegetation textures.
+pub mod groundcover;
+
 pub mod lsys_monopodial_tree;
 pub mod lsys_sympodial_tree;
 pub mod lsys_ternary_gravity;
