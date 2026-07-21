@@ -147,6 +147,7 @@ fn scatter_count_clamped_to_max() {
         snap_to_terrain: true,
         random_yaw: true,
         avoid_urban: false,
+        naturalness: Default::default(),
     });
     r.sanitize();
     // Filter for the specific scatter this test injected — the default
@@ -203,6 +204,7 @@ fn scatter_pointing_at_terrain_root_is_dropped() {
         snap_to_terrain: true,
         random_yaw: true,
         avoid_urban: false,
+        naturalness: Default::default(),
     });
     r.sanitize();
     // Filter for the specific scatter this test injected — the default
@@ -271,6 +273,7 @@ fn scatter_pointing_at_water_root_is_dropped() {
         snap_to_terrain: true,
         random_yaw: true,
         avoid_urban: false,
+        naturalness: Default::default(),
     });
     r.sanitize();
     assert!(
@@ -863,6 +866,7 @@ fn sanitize_is_idempotent_on_a_pathological_record() {
         snap_to_terrain: true,
         random_yaw: true,
         avoid_urban: false,
+        naturalness: Default::default(),
     });
     r.sanitize();
     let first: serde_json::Value = serde_json::to_value(&r).unwrap();

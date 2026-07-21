@@ -13,8 +13,8 @@
 use bevy_egui::egui;
 
 use crate::pds::{
-    BiomeFilter, Fp, Fp2, Fp3, GeneratorKind, Placement, RoomRecord, ScatterBounds, TransformData,
-    WaterRelation,
+    BiomeFilter, Fp, Fp2, Fp3, GeneratorKind, Placement, RoomRecord, ScatterBounds,
+    ScatterNaturalness, TransformData, WaterRelation,
 };
 
 use super::environment::PlayerPose;
@@ -85,6 +85,9 @@ fn new_scatter_placement(target: String, anchor: [f32; 2]) -> Placement {
         snap_to_terrain: true,
         random_yaw: true,
         avoid_urban: false,
+        // Flat uniform by default: a fresh scatter should do the plainly
+        // predictable thing, and the Naturalness section is right there.
+        naturalness: ScatterNaturalness::default(),
     }
 }
 
@@ -347,6 +350,7 @@ fn draw_placement_detail(
             snap_to_terrain,
             random_yaw,
             avoid_urban,
+            naturalness,
         } => {
             generator_combo(ui, "Generator", generator_ref, eligible_names, dirty);
             if ui.checkbox(snap_to_terrain, "Snap to Terrain").changed() {
@@ -369,6 +373,7 @@ fn draw_placement_detail(
             drag_u64(ui, "Seed", local_seed, dirty);
             draw_scatter_bounds(ui, bounds, dirty);
             draw_biome_filter(ui, biome_filter, dirty);
+            draw_naturalness(ui, naturalness, dirty);
         }
         Placement::Grid {
             generator_ref,
@@ -579,6 +584,80 @@ fn draw_biome_filter(ui: &mut egui::Ui, filter: &mut BiomeFilter, dirty: &mut bo
             }
         }
     });
+}
+
+/// Placement-naturalness section (#912) — the dials that turn a uniform
+/// sprinkle into something that reads as grown.
+///
+/// Every one of these is safe to drag mid-session: none of them consumes a
+/// draw from the placement RNG, so moving a slider re-poses the instances
+/// without relocating them, and the slope cutoff only ever removes
+/// instances rather than reshuffling the stand. That is the reason the
+/// hover texts can promise what they promise.
+fn draw_naturalness(ui: &mut egui::Ui, n: &mut ScatterNaturalness, dirty: &mut bool) {
+    ui.separator();
+    ui.label("Naturalness");
+
+    // `fp_slider` hands back no response, so these spell the slider out to
+    // hang a hover text off it — the knobs are not self-explanatory from
+    // their labels alone.
+    let mut slider = |label: &str, value: &mut Fp, hi: f32, hint: &str| {
+        let mut v = value.0;
+        if ui
+            .add(egui::Slider::new(&mut v, 0.0..=hi).text(label))
+            .on_hover_text(hint)
+            .changed()
+        {
+            *value = Fp(v);
+            *dirty = true;
+        }
+    };
+    slider(
+        "Clumping",
+        &mut n.clumping,
+        0.95,
+        "Pulls instances toward seeded cluster centres, so the stand grows \
+         in patches with clearings between them. 0 is a flat sprinkle.",
+    );
+    slider(
+        "Edge falloff",
+        &mut n.edge_falloff,
+        4.0,
+        "Thins the stand toward its boundary instead of ending in a mown \
+         circular edge. Higher values concentrate on the middle.",
+    );
+    slider(
+        "Scale jitter",
+        &mut n.scale_jitter,
+        0.6,
+        "Per-instance uniform scale spread, as a half-width in log space: \
+         0.18 gives roughly 0.84×–1.20×. The mesh stays shared.",
+    );
+    slider(
+        "Tilt jitter (rad)",
+        &mut n.tilt_jitter,
+        0.6,
+        "Per-instance lean off vertical, in a random direction. 0.12 ≈ 7°, \
+         about right for ground cover; trees want far less.",
+    );
+
+    let mut limited = n.max_slope_deg.is_some();
+    if ui
+        .checkbox(&mut limited, "Limit by slope")
+        .on_hover_text(
+            "Reject samples on ground steeper than the limit. Needs a \
+             heightmap — a scatter with this on places nothing without one.",
+        )
+        .changed()
+    {
+        // 30° is where a canopy tree stops being plausible, which is the
+        // most common reason to reach for this.
+        n.max_slope_deg = limited.then_some(Fp(30.0));
+        *dirty = true;
+    }
+    if let Some(deg) = &mut n.max_slope_deg {
+        fp_slider(ui, "Max slope (°)", deg, 0.0, 90.0, dirty);
+    }
 }
 
 #[cfg(test)]

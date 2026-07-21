@@ -27,13 +27,25 @@
 //!
 //! # Eviction
 //!
-//! There is no generator ref to GC against, so these caches bound themselves
-//! by capacity ([`PRIM_CACHE_CAPACITY`]) and are cleared wholesale on logout
-//! alongside the per-generator caches (#625 — a session's builds must not
-//! outlive it). Clearing wholesale rather than evicting one entry keeps the
-//! policy trivial and, since the next compile pass re-populates only what it
-//! actually spawns, costs at most one pass of rebuilds.
+//! These caches are swept by the compile executor's end-of-job GC, exactly
+//! like the per-generator caches: a full rebuild retains only the keys that
+//! rebuild touched. The capacity ceiling ([`PRIM_CACHE_CAPACITY`]) remains as
+//! a backstop against a pathological single record, and logout clears them
+//! wholesale so a session's builds never outlive it (#625).
+//!
+//! The sweep is what #919 was missing. Shipped without it, these caches
+//! survived every rebuild, so each region re-roll permanently added that
+//! region's prim meshes and materials — and, through the materials, their
+//! procedural images. Measured at ~90 image and ~100 mesh handles per
+//! re-roll and roughly 70 MB of RSS, none of it ever released; the 4096-entry
+//! ceiling would not have been reached for some 45 re-rolls.
+//!
+//! Eviction is safe because a cache entry is only ever a *second* owner of a
+//! handle — every live instance holds its own — so dropping one frees the
+//! asset if and only if nothing is using it, and costs a re-bake on the next
+//! miss otherwise.
 
+use std::collections::HashSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use bevy::prelude::*;
@@ -88,12 +100,40 @@ pub fn prim_geometry_fingerprint(kind: &GeneratorKind) -> u64 {
 
 /// Drop every entry once the cache exceeds [`PRIM_CACHE_CAPACITY`].
 ///
-/// Call before inserting. See the eviction note in the [module docs](self) for
-/// why this is wholesale rather than LRU.
+/// Call before inserting. A backstop only — the executor's per-rebuild sweep
+/// is the real eviction policy. Wholesale rather than LRU because, with the
+/// sweep in place, reaching this ceiling means one record alone defined 4096
+/// distinct primitives, and there is no useful subset to keep.
 pub(super) fn bound_capacity<V: Clone>(cache: &mut GeneratorCache<u64, V>) {
     if cache.len() >= PRIM_CACHE_CAPACITY {
         cache.clear();
     }
+}
+
+/// Look `key` up **and** mark it reachable for this compile pass.
+///
+/// The two are paired in one call deliberately. The GC retains exactly the
+/// keys a full rebuild touched, so a key served from cache must be marked
+/// just as surely as one that was built — mark only the miss path and the
+/// sweep evicts precisely the entries that were doing their job, on the very
+/// next rebuild. Pairing them here means a caller cannot take the value
+/// without leaving the mark (#919).
+pub(super) fn get_and_touch<V: Clone>(
+    cache: &GeneratorCache<u64, V>,
+    touched: &mut HashSet<u64>,
+    key: u64,
+) -> Option<V> {
+    touched.insert(key);
+    cache.get_if(&key, key)
+}
+
+/// Retain only the entries whose keys `touched` contains.
+///
+/// Separate from the caller's `retain` call so the sweep and the marking it
+/// depends on are defined together, and so the contract between them is
+/// testable without standing up the compile world.
+pub(super) fn retain_touched<V: Clone>(cache: &mut GeneratorCache<u64, V>, touched: &HashSet<u64>) {
+    cache.entries.retain(|k, _| touched.contains(k));
 }
 
 #[cfg(test)]
@@ -197,6 +237,60 @@ mod tests {
             cache.get_if(&key_c, key_c).is_none(),
             "different geometry must miss"
         );
+    }
+
+    /// The #919 sweep: a rebuild retains what it touched and drops the rest.
+    /// Without this the caches survived every rebuild, so each region
+    /// re-roll permanently added its prims to them.
+    #[test]
+    fn sweep_drops_entries_the_rebuild_did_not_touch() {
+        let mut cache: GeneratorCache<u64, u32> = GeneratorCache::default();
+        // Two regions' worth of prims share the cache.
+        for k in [1u64, 2, 3, 4] {
+            cache.insert(k, k, k as u32);
+        }
+        // A rebuild that only reaches keys 3 and 4 — the new region.
+        let touched: HashSet<u64> = [3u64, 4].into_iter().collect();
+        retain_touched(&mut cache, &touched);
+
+        assert_eq!(cache.len(), 2, "the old region's prims must not survive");
+        assert!(cache.get_if(&3u64, 3).is_some() && cache.get_if(&4u64, 4).is_some());
+        assert!(cache.get_if(&1u64, 1).is_none() && cache.get_if(&2u64, 2).is_none());
+    }
+
+    /// The subtle half of the sweep, and the way it would most plausibly be
+    /// broken by a later edit: a key served *from cache* must be marked
+    /// reachable too. Mark only on the build path and the very next rebuild
+    /// evicts every entry that was working — the cache would then thrash
+    /// instead of leak, which is harder to notice and worse for frame time.
+    #[test]
+    fn a_cache_hit_marks_its_key_so_the_sweep_keeps_it() {
+        let mut cache: GeneratorCache<u64, u32> = GeneratorCache::default();
+        cache.insert(7, 7, 70);
+
+        // Pass one populated it; pass two only *reads* it.
+        let mut touched = HashSet::new();
+        assert_eq!(
+            get_and_touch(&cache, &mut touched, 7),
+            Some(70),
+            "the entry is live and must be served"
+        );
+        retain_touched(&mut cache, &touched);
+        assert_eq!(
+            cache.get_if(&7u64, 7),
+            Some(70),
+            "a hit must survive the sweep that follows it"
+        );
+    }
+
+    /// A miss marks its key as well, so the entry the caller is about to
+    /// insert is not swept away by the same pass that built it.
+    #[test]
+    fn a_cache_miss_also_marks_its_key() {
+        let cache: GeneratorCache<u64, u32> = GeneratorCache::default();
+        let mut touched = HashSet::new();
+        assert_eq!(get_and_touch(&cache, &mut touched, 9), None);
+        assert!(touched.contains(&9), "a miss must still mark the key");
     }
 
     #[test]

@@ -856,6 +856,7 @@ mod mode_tests {
             snap_to_terrain: true,
             random_yaw: true,
             avoid_urban: false,
+            naturalness: Default::default(),
         }
     }
 

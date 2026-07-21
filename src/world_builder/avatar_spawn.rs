@@ -81,6 +81,11 @@ pub fn spawn_avatar_visuals_subtree(
     let mut lsystem_mesh_touched: HashSet<String> = HashSet::new();
     let mut shape_material_touched: HashSet<(String, String)> = HashSet::new();
     let mut shape_mesh_touched: HashSet<String> = HashSet::new();
+    // Throwaway, like the sets above: the room compile owns the prim caches'
+    // GC, and an avatar spawn is not a full pass over the world, so it has
+    // no standing to decide what stays (#919).
+    let mut prim_mesh_touched: HashSet<u64> = HashSet::new();
+    let mut prim_material_touched: HashSet<u64> = HashSet::new();
 
     let mut entities_spawned: u32 = 0;
     let mut budget_warned = false;
@@ -109,7 +114,9 @@ pub fn spawn_avatar_visuals_subtree(
         shape_material_touched: &mut shape_material_touched,
         shape_mesh_cache: &mut caches.shape_mesh,
         prim_mesh_cache: &mut caches.prim_mesh,
+        prim_mesh_touched: &mut prim_mesh_touched,
         prim_material_cache: &mut caches.prim_material,
+        prim_material_touched: &mut prim_material_touched,
         upstream_shape_mesh_cache: &mut caches.upstream_shape_mesh,
         shape_mesh_touched: &mut shape_mesh_touched,
         texture_cache: &mut caches.texture,

@@ -80,6 +80,24 @@ impl Plugin for MetricsPlugin {
 #[cfg(not(target_arch = "wasm32"))]
 const BYTES_PER_GIB: f64 = 1024.0 * 1024.0 * 1024.0;
 
+/// The build caches whose lengths are scraped as gauges.
+///
+/// Bundled into one [`bevy::ecs::system::SystemParam`] rather than listed
+/// inline: every one of
+/// them retains asset handles across a rebuild, so they are read as a group
+/// when attributing asset-registry growth, and grouping keeps
+/// [`scrape_bevy_diagnostics`] under the argument-count lint.
+///
+/// All optional — the render-adjacent plugins that own them may not be
+/// installed (headless tools, tests).
+#[derive(bevy::ecs::system::SystemParam)]
+struct CacheGauges<'w> {
+    shape_mesh: Option<Res<'w, bevy_symbios_shape::cache::ShapeMeshCache>>,
+    prim_mesh: Option<Res<'w, crate::world_builder::prim_cache::PrimMeshCache>>,
+    prim_material: Option<Res<'w, crate::world_builder::prim_cache::PrimMaterialCache>>,
+    texture: Option<Res<'w, bevy_symbios_texture::TextureCache>>,
+}
+
 /// Scrape the Bevy diagnostics + game asset/collider counts into the registry.
 /// Runs at 1 Hz. Reads `smoothed()` (falling back to the raw `value()`) so the
 /// gauges are stable rather than per-frame-noisy.
@@ -89,7 +107,7 @@ fn scrape_bevy_diagnostics(
     materials: Res<Assets<StandardMaterial>>,
     images: Res<Assets<Image>>,
     colliders: Query<(), With<avian3d::prelude::Collider>>,
-    shape_cache: Option<Res<bevy_symbios_shape::cache::ShapeMeshCache>>,
+    caches: CacheGauges<'_>,
     mut reg: ResMut<MetricsRegistry>,
 ) {
     let read = |p: &DiagnosticPath| {
@@ -132,8 +150,23 @@ fn scrape_bevy_diagnostics(
         names::RUNTIME_COLLIDER_COUNT,
         colliders.iter().count() as f64,
     );
-    if let Some(cache) = shape_cache {
+    if let Some(cache) = &caches.shape_mesh {
         reg.observe_gauge(names::RUNTIME_SHAPE_MESH_CACHE_LEN, cache.len() as f64);
+    }
+    // Caches that survive a rebuild hold `Handle<Mesh>` / `Handle<Image>`, so
+    // their lengths are the terms that explain the asset-count gauges above.
+    // Without these, #919's growth was visible only as its downstream effect
+    // and could be attributed only by reading the GC.
+    if let Some(cache) = &caches.prim_mesh {
+        reg.observe_gauge(names::RUNTIME_PRIM_MESH_CACHE_LEN, cache.len() as f64);
+    }
+    if let Some(cache) = &caches.prim_material {
+        reg.observe_gauge(names::RUNTIME_PRIM_MATERIAL_CACHE_LEN, cache.len() as f64);
+    }
+    // `None` for a disk-backed store, whose entries aren't resident — left
+    // unreported rather than logged as 0, which would read as "empty".
+    if let Some(n) = caches.texture.as_ref().and_then(|c| c.entry_count()) {
+        reg.observe_gauge(names::RUNTIME_TEXTURE_CACHE_LEN, n as f64);
     }
 
     // The splat material's texture-slot footprint is a compile-time constant

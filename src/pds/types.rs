@@ -40,6 +40,23 @@ pub struct Fp(pub f32);
 impl Fp {
     pub const ZERO: Fp = Fp(0.0);
     pub const ONE: Fp = Fp(1.0);
+
+    /// Exactly zero — the `skip_serializing_if` predicate for optional
+    /// scalar knobs whose "off" state is `0.0`.
+    pub fn is_zero(&self) -> bool {
+        self.0 == 0.0
+    }
+
+    /// `self` clamped into `[lo, hi]`, with any non-finite value collapsed
+    /// to `lo`. `f32::clamp` propagates NaN, so a hostile record could
+    /// otherwise carry a NaN straight through a sanitiser into a transform.
+    pub(crate) fn clamped(self, lo: f32, hi: f32) -> Fp {
+        if self.0.is_finite() {
+            Fp(self.0.clamp(lo, hi))
+        } else {
+            Fp(lo)
+        }
+    }
 }
 
 impl From<f32> for Fp {
@@ -330,6 +347,87 @@ impl Default for ScatterBounds {
         ScatterBounds::Circle {
             center: Fp2([0.0, 0.0]),
             radius: Fp(64.0),
+        }
+    }
+}
+
+/// Placement-naturalness knobs for `Placement::Scatter` (#912) — the dials
+/// that turn a flat uniform sprinkle into something that reads as *grown*.
+/// All-zero / `None` is the historical behaviour and is elided on the wire,
+/// so records written before this struct existed decode unchanged.
+///
+/// The knobs are grouped into one sub-struct rather than added as five
+/// sibling fields on the variant deliberately: an enum struct-variant has no
+/// functional-update syntax, so every construction site must spell out every
+/// field. One field means one line per site now, and WS5's microbiome dials
+/// extend the struct without touching them again.
+///
+/// **Determinism.** Two of these (`clumping`, `edge_falloff`) are pure
+/// remappings of an already-drawn sample and two (`scale_jitter`,
+/// `tilt_jitter`) are drawn from a side stream keyed off the scatter's
+/// `local_seed`; `max_slope_deg` only *rejects*. None of them consumes a
+/// draw from the placement RNG, so changing any knob leaves every surviving
+/// instance's position exactly where it was. The discipline that buys that
+/// is documented in the `world_builder::compile::scatter` module (a private
+/// module, so this is deliberately not a link).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
+pub struct ScatterNaturalness {
+    /// How hard each sample is pulled toward its nearest cluster seed,
+    /// `0` (flat uniform — the historical distribution) to `1` (every
+    /// sample collapses onto a seed). Cluster seeds are themselves derived
+    /// from `local_seed`, so a stand grows in patches rather than at an
+    /// even density. `0.5` roughly halves each patch's radius, which reads
+    /// as thickets with clearings between them.
+    #[serde(default, skip_serializing_if = "Fp::is_zero")]
+    pub clumping: Fp,
+    /// Density falloff toward the bounds edge, as an exponent on the
+    /// normalised radius. `0` is flat; `1` thins the rim noticeably; `2`+
+    /// concentrates hard on the middle. Gives a stand a soft boundary
+    /// instead of a mown circular edge.
+    #[serde(default, skip_serializing_if = "Fp::is_zero")]
+    pub edge_falloff: Fp,
+    /// Per-instance uniform scale spread, as a half-width in log space:
+    /// the scale factor lands in `[e^-j, e^+j]`. `0.18` gives roughly
+    /// 0.84×–1.20×, which is what kills the pixel-identical-clone read
+    /// without any instance looking mis-sized.
+    #[serde(default, skip_serializing_if = "Fp::is_zero")]
+    pub scale_jitter: Fp,
+    /// Per-instance lean off vertical, in radians, applied in a random
+    /// azimuth. `0.12` ≈ 7°, about right for grass and shrubs; trees want
+    /// less (a visibly leaning trunk reads as damaged, not natural).
+    #[serde(default, skip_serializing_if = "Fp::is_zero")]
+    pub tilt_jitter: Fp,
+    /// Reject samples on ground steeper than this, in **degrees** from
+    /// horizontal. `None` (the default) imposes no slope limit, which is
+    /// what every scatter did before this field existed — slope reached
+    /// placement only indirectly, through whichever splat layer the
+    /// terrain config's height+slope bands made dominant.
+    ///
+    /// Requires a heightmap and a terrain generator to evaluate; without
+    /// them a scatter that sets this places nothing, matching how the
+    /// biome allow-list fails closed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_slope_deg: Option<Fp>,
+}
+
+impl ScatterNaturalness {
+    /// `true` when every knob is at its historical default, so the sampler
+    /// can take the plain uniform path and the field is elided on the wire.
+    pub fn is_noop(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Clamp every knob into its supported range. `clumping` stops short of
+    /// `1.0` because a full collapse stacks every instance on a handful of
+    /// points; the rest are generous bounds that only exist to keep a
+    /// hostile record from producing NaN or absurd transforms.
+    pub fn sanitize(&mut self) {
+        self.clumping = self.clumping.clamped(0.0, 0.95);
+        self.edge_falloff = self.edge_falloff.clamped(0.0, 8.0);
+        self.scale_jitter = self.scale_jitter.clamped(0.0, 1.5);
+        self.tilt_jitter = self.tilt_jitter.clamped(0.0, std::f32::consts::FRAC_PI_3);
+        if let Some(deg) = &mut self.max_slope_deg {
+            *deg = deg.clamped(0.0, 90.0);
         }
     }
 }

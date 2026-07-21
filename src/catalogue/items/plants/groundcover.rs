@@ -355,7 +355,7 @@ mod tests {
             let g = e.build("");
             let y = g.transform.translation.0[1];
             assert!(
-                y >= 0.0 && y < 1.0,
+                (0.0..1.0).contains(&y),
                 "{} root y = {y}, expected to rest on the ground plane",
                 e.slug()
             );

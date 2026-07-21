@@ -38,6 +38,23 @@ pub const RUNTIME_IMAGE_HANDLE_COUNT: &str = "runtime.image_handle.count";
 pub const RUNTIME_COLLIDER_COUNT: &str = "runtime.collider.count";
 /// Upstream `ShapeMeshCache` length — the documented unbounded-growth leak.
 pub const RUNTIME_SHAPE_MESH_CACHE_LEN: &str = "runtime.shape_mesh_cache.len";
+/// Content-addressed primitive mesh cache length (#918).
+///
+/// These three cache-length gauges exist because #919 was diagnosable only by
+/// its downstream effect: image and mesh handle counts climbed one step per
+/// region re-roll and never fell, but nothing said *which* cache was holding
+/// them, so the leak could be located only by reading the GC. A cache that
+/// survives a full rebuild needs a gauge, or its growth is invisible until it
+/// shows up as RSS.
+pub const RUNTIME_PRIM_MESH_CACHE_LEN: &str = "runtime.prim_mesh_cache.len";
+/// Content-addressed primitive material cache length (#918) — see
+/// [`RUNTIME_PRIM_MESH_CACHE_LEN`].
+pub const RUNTIME_PRIM_MATERIAL_CACHE_LEN: &str = "runtime.prim_material_cache.len";
+/// Procedural-texture cache length. Unlike the two prim caches this one is
+/// shared with upstream consumers and is *not* swept per rebuild, so its
+/// growth across a session is expected — the gauge is here to size it, and to
+/// separate its contribution to the image-handle count from the prim caches'.
+pub const RUNTIME_TEXTURE_CACHE_LEN: &str = "runtime.texture_cache.len";
 /// Process resident memory (bytes), native only (`SystemInformationDiagnosticsPlugin`).
 pub const RUNTIME_MEMORY_PROCESS_RSS_BYTES: &str = "runtime.memory.process_rss_bytes";
 /// WebAssembly linear-memory size (bytes), wasm only — the heap-never-shrinks watch.
@@ -205,6 +222,9 @@ pub const ALL: &[(&str, MetricKind)] = &[
     (RUNTIME_IMAGE_HANDLE_COUNT, MetricKind::Gauge),
     (RUNTIME_COLLIDER_COUNT, MetricKind::Gauge),
     (RUNTIME_SHAPE_MESH_CACHE_LEN, MetricKind::Gauge),
+    (RUNTIME_PRIM_MESH_CACHE_LEN, MetricKind::Gauge),
+    (RUNTIME_PRIM_MATERIAL_CACHE_LEN, MetricKind::Gauge),
+    (RUNTIME_TEXTURE_CACHE_LEN, MetricKind::Gauge),
     (RUNTIME_MEMORY_PROCESS_RSS_BYTES, MetricKind::Gauge),
     (RUNTIME_MEMORY_WASM_BYTES, MetricKind::Gauge),
     (RUNTIME_CPU_USAGE_PCT, MetricKind::Gauge),

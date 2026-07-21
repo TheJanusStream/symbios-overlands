@@ -45,7 +45,7 @@ use super::job::{
     self, ActiveJob, CompileJob, CompiledUnit, CompiledWorld, CursorKind, FingerprintPass,
     QueuedUnit, StepOutcome, UnitCursor, unit_fingerprint,
 };
-use super::scatter::{dominant_biome, sample_bounds, unit_f32};
+use super::scatter::unit_f32;
 use super::spawn_ctx::{GeneratorCaches, SpawnCtx, budget_exceeded, transform_from_data};
 use super::water::{relocate_above_water, room_water_level};
 
@@ -132,7 +132,9 @@ pub(crate) fn compile_room_record(
             shape_material_touched: &mut job.touched.shape_material,
             shape_mesh_cache: &mut generator_caches.shape_mesh,
             prim_mesh_cache: &mut generator_caches.prim_mesh,
+            prim_mesh_touched: &mut job.touched.prim_mesh,
             prim_material_cache: &mut generator_caches.prim_material,
+            prim_material_touched: &mut job.touched.prim_material,
             upstream_shape_mesh_cache: &mut generator_caches.upstream_shape_mesh,
             shape_mesh_touched: &mut job.touched.shape_mesh,
             texture_cache: &mut generator_caches.texture,
@@ -229,6 +231,28 @@ pub(crate) fn compile_room_record(
             .shape_mesh
             .entries
             .retain(|k, _| job.touched.shape_mesh.contains(k));
+        // The content-addressed primitive caches (#918). Without this they
+        // survived every rebuild and were bounded only by a 4096-entry
+        // wholesale clear or logout, so each region re-roll permanently
+        // added that region's prim meshes, materials, and — through the
+        // materials — their procedural images: ~90 image and ~100 mesh
+        // handles per re-roll, ~70 MB of RSS, never released (#919).
+        //
+        // Evicting is safe for the same reason it is for the caches above:
+        // a cache entry is only a *second* owner of the handle, and every
+        // live instance holds its own. What is evicted here is re-baked on
+        // the next miss. That includes avatar-spawned prims, which share
+        // these caches but populate their touch-sets outside the job — a
+        // full room rebuild costs them one re-bake, and full rebuilds are
+        // already when avatars are being rebuilt anyway.
+        super::super::prim_cache::retain_touched(
+            &mut generator_caches.prim_mesh,
+            &job.touched.prim_mesh,
+        );
+        super::super::prim_cache::retain_touched(
+            &mut generator_caches.prim_material,
+            &job.touched.prim_material,
+        );
         // The upstream `ShapeMeshCache` is keyed by float-exact terminal
         // footprint, has no eviction, and (unlike the caches above) exposes no
         // per-key retain — so a slider drag mints a fresh `Handle<Mesh>` per
@@ -553,7 +577,11 @@ fn start_unit(
             },
         }),
         Placement::Scatter {
-            bounds, local_seed, ..
+            bounds,
+            local_seed,
+            count,
+            naturalness,
+            ..
         } => {
             // Resolve the biome-filter water threshold from the runtime
             // registry. One global Y per scatter, sampled at its centre
@@ -578,6 +606,15 @@ fn start_unit(
                     spawned: 0,
                     attempts: 0,
                     rng: ChaCha8Rng::seed_from_u64(*local_seed),
+                    jitter_rng: Box::new(ChaCha8Rng::seed_from_u64(
+                        local_seed ^ super::scatter::JITTER_SEED_SALT,
+                    )),
+                    clusters: super::scatter::cluster_centers(
+                        bounds,
+                        *count,
+                        *local_seed,
+                        naturalness.edge_falloff.0,
+                    ),
                     water_level,
                 },
             })
@@ -680,37 +717,30 @@ fn step_unit(
                 biome_filter,
                 random_yaw,
                 avoid_urban,
+                naturalness,
                 ..
             },
             CursorKind::Scatter {
                 spawned,
                 attempts,
                 rng,
+                jitter_rng,
+                clusters,
                 water_level,
             },
         ) => {
             let terrain_cfg = crate::pds::find_terrain_config(ctx.record);
             let max_attempts = count.saturating_mul(10).max(*count);
 
-            // Centre + squared radius of the road-network district to keep wild
-            // scatter out of. The centre follows the authored district offset
-            // (#889); zero offset is the historical spawn-centred circle.
-            // `None` unless this scatter opts in and the room actually has an
-            // enabled road network.
-            let urban_exclusions: Vec<(f32, f32, f32)> = if *avoid_urban {
-                crate::pds::find_road_configs(ctx.record)
-                    .into_iter()
-                    .filter(|c| c.enabled)
-                    .map(|c| {
-                        (
-                            c.center.0[0],
-                            c.center.0[1],
-                            c.district_half_extent.0 * c.district_half_extent.0,
-                        )
-                    })
-                    .collect()
-            } else {
-                Vec::new()
+            let urban_exclusions = super::scatter::urban_exclusions(ctx.record, *avoid_urban);
+            let filters = super::scatter::SampleFilters {
+                biome_filter,
+                terrain_cfg,
+                water_level: *water_level,
+                urban_exclusions: &urban_exclusions,
+                // `1 - normal.y` cutoff resolved once per unit (#912) — the
+                // trigonometry would otherwise be paid per sample.
+                slope_cutoff: super::scatter::slope_cutoff(naturalness),
             };
 
             while *spawned < *count && *attempts < max_attempts {
@@ -721,72 +751,30 @@ fn step_unit(
                     return StepOutcome::Yielded;
                 }
                 *attempts += 1;
-                let (world_x, world_z) = sample_bounds(bounds, rng);
-
-                // Skip points inside any road-network district (#895) so wild
-                // scatter doesn't intersect the built-up urban areas.
-                if urban_exclusions.iter().any(|&(cx, cz, r2)| {
-                    let (dx, dz) = (world_x - cx, world_z - cz);
-                    dx * dx + dz * dz < r2
-                }) {
+                let Some((world_x, world_y, world_z)) = super::scatter::try_sample(
+                    bounds,
+                    naturalness,
+                    clusters,
+                    rng,
+                    ctx.heightmap,
+                    &filters,
+                ) else {
                     continue;
-                }
-
-                let (world_y, keep) = if let Some(hm_res) = ctx.heightmap {
-                    let y = hm_res.world_height_at(world_x, world_z);
-                    let keep = if biome_filter.is_noop() {
-                        true
-                    } else {
-                        // Without a terrain generator the biome
-                        // allow-list has no channel to resolve against;
-                        // treat any non-empty list as "never matches" so
-                        // accidental biome filters on dry-land records
-                        // don't silently pass through. The water clause
-                        // still evaluates.
-                        let biome = if let Some(tcfg) = terrain_cfg {
-                            // Normal sampling reads the raw heightmap
-                            // frame; mirror the world→map shift that
-                            // `world_height_at` applies to the height.
-                            let hm = &hm_res.0;
-                            let extent = (hm.width() - 1) as f32 * hm.scale();
-                            let half = extent * 0.5;
-                            let normal = hm.get_normal_at(
-                                (world_x + half).clamp(0.0, extent),
-                                (world_z + half).clamp(0.0, extent),
-                            );
-                            let slope = (1.0 - normal[1]).max(0.0);
-                            dominant_biome(tcfg, y, slope)
-                        } else {
-                            255
-                        };
-                        biome_filter.accepts(biome, y, *water_level)
-                    };
-                    (y, keep)
-                } else {
-                    (0.0, biome_filter.is_noop())
                 };
 
-                if !keep {
-                    continue;
-                }
-
                 // Make scatter children of the anchor so grabbing the
-                // gizmo moves the whole forest live. Always draw from
-                // `rng` so disabling `random_yaw` doesn't shift
-                // downstream samples — the spawn stream stays
-                // byte-identical across peers regardless.
+                // gizmo moves the whole forest live.
                 let local_pos = cursor
                     .anchor_world_tf
                     .compute_affine()
                     .inverse()
                     .transform_point3(Vec3::new(world_x, world_y, world_z));
-                let yaw_sample = unit_f32(rng) * std::f32::consts::PI;
-                let rotation = if *random_yaw {
-                    Quat::from_rotation_y(yaw_sample)
-                } else {
-                    Quat::IDENTITY
-                };
-                let cell_tf = Transform::from_translation(local_pos).with_rotation(rotation);
+                // One fixed group of draws from the side stream, taken
+                // whether or not the knobs are on, so any of them can be
+                // toggled without disturbing the others (#912).
+                let jitter = super::scatter::instance_jitter(jitter_rng, naturalness);
+                let cell_tf =
+                    super::scatter::instance_pose(local_pos, &jitter, *random_yaw, naturalness);
 
                 if let Some(entity) = dispatch_top_level(ctx, generator_ref, cell_tf) {
                     ctx.commands.entity(cursor.anchor).add_child(entity);

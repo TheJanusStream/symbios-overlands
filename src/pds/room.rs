@@ -651,6 +651,7 @@ impl RoomRecord {
                 random_yaw: true,
                 // Keep wild trees out of the built-up urban district.
                 avoid_urban: true,
+                naturalness: crate::seeded_defaults::room::scatters::stand_naturalness(),
             });
         }
 
@@ -679,6 +680,7 @@ impl RoomRecord {
                 // grass between the buildings is what makes a town look
                 // planted rather than dropped onto bare ground.
                 avoid_urban: false,
+                naturalness: scatter.species.naturalness(),
             });
         }
 
@@ -729,6 +731,7 @@ impl RoomRecord {
                 random_yaw: true,
                 // Keep boulders out of the built-up urban district.
                 avoid_urban: true,
+                naturalness: crate::seeded_defaults::room::rocks::field_naturalness(),
             });
         }
 
@@ -1062,8 +1065,11 @@ impl RoomRecord {
         }
         for placement in self.placements.iter_mut() {
             match placement {
-                Placement::Scatter { count, .. } => {
+                Placement::Scatter {
+                    count, naturalness, ..
+                } => {
                     *count = (*count).min(limits::MAX_SCATTER_COUNT);
+                    naturalness.sanitize();
                 }
                 Placement::Grid { counts, gaps, .. } => {
                     counts[0] = counts[0].clamp(1, 100);

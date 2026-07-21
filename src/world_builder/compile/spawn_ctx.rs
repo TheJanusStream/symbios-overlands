@@ -166,7 +166,13 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// Content-addressed primitive mesh / material dedup — see
     /// [`prim_cache`](super::super::prim_cache).
     pub(crate) prim_mesh_cache: &'a mut super::super::prim_cache::PrimMeshCache,
+    /// Content-hash keys touched this pass, recorded on **hit and miss**
+    /// alike so the caller can GC (#919). Recording only misses would
+    /// evict exactly the entries that are working.
+    pub(crate) prim_mesh_touched: &'a mut HashSet<u64>,
     pub(crate) prim_material_cache: &'a mut super::super::prim_cache::PrimMaterialCache,
+    /// See [`Self::prim_mesh_touched`].
+    pub(crate) prim_material_touched: &'a mut HashSet<u64>,
     /// Upstream mesh-asset dedup. Whereas `shape_mesh_cache` caches the full
     /// post-derivation instance list per generator, this cache dedupes
     /// individual `Handle<Mesh>` by `(profile, size)` across every generator

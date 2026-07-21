@@ -43,7 +43,7 @@ mod text_tools;
 use headless::{Capture, Frames, RenderJob, Subject, drive, setup};
 use text_tools::{
     analyze_session, diff_sessions, dump_road_graph, find_part, print_family_seeds, print_outfit,
-    room_census,
+    room_census, scatter_census, scatter_plot,
 };
 
 /// Camera yaw per tile (degrees), left→right: front, ¾, side, back. Avatars /
@@ -145,6 +145,25 @@ struct Args {
     /// cap without a browser in the loop. A no-render mode.
     #[arg(long)]
     room_census: Option<u64>,
+    /// Placement census over seeded rooms (#912): for seeds `0..N`, replay the
+    /// real scatter sampling loop against a heightmap rebuilt from each record
+    /// and print what it actually places — yield vs. requested count, what the
+    /// slope cutoff costs, the per-instance scale spread, and a Clark–Evans
+    /// nearest-neighbour index measuring how clustered the survivors are
+    /// against the same scatter with its naturalness zeroed. Where
+    /// `--room-census` answers "how many entities", this answers "how are they
+    /// arranged". A no-render mode; a few seconds per seed (it rebuilds the
+    /// heightmap).
+    #[arg(long)]
+    scatter_census: Option<u64>,
+    /// Plan-view plot of one seeded room's scatters (#912): a u64 seed or DID.
+    /// Writes a PNG grid to `--out` — one row per scatter, tuned arrangement
+    /// on the left, the same scatter with its naturalness zeroed on the right.
+    /// The four-angle contact sheet cannot show this: a stand is hundreds of
+    /// metres across, so framed to fit every instance is a speck and the
+    /// clustering is invisible. A no-render mode.
+    #[arg(long)]
+    scatter_plot: Option<String>,
     /// Offline session-log post-mortem: read a captured session log
     /// (`diagnostics/session-latest.jsonl`, or the wasm "Download log" dump —
     /// same NDJSON format) and print an agent-facing report (header, `[Verdict]`,
@@ -244,6 +263,23 @@ pub fn run() {
     // exit — the #810 density survey, never renders.
     if let Some(n) = args.room_census {
         room_census(n);
+        return;
+    }
+
+    // `--scatter-census <n>`: replay the real sampling loop over seeded rooms
+    // and print placement yield + arrangement — the #912 naturalness survey.
+    if let Some(n) = args.scatter_census {
+        scatter_census(n);
+        return;
+    }
+
+    // `--scatter-plot <seed>`: write the plan-view PNG that shows what the
+    // census's clustering number means.
+    if let Some(room) = &args.scatter_plot {
+        scatter_plot(
+            room,
+            std::path::Path::new(args.out.as_deref().unwrap_or("scatter-plot.png")),
+        );
         return;
     }
 

@@ -16,6 +16,7 @@
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
+use crate::pds::{Fp, ScatterNaturalness};
 use crate::seeded_defaults::scene::{
     BiomeArchetype, LandformArchetype, SceneCharacter, range_f32, unit_f32,
 };
@@ -34,6 +35,35 @@ pub struct RockScatter {
     pub radius: f32,
     /// Per-scatter RNG seed for `Placement::Scatter::local_seed`.
     pub local_seed: u64,
+}
+
+/// Placement naturalness for a boulder field (#912).
+///
+/// Boulders take the widest dials in the seeded set. The room rolls exactly
+/// *one* boulder design and scatters it, so before this every rock in the
+/// region was the same rock at the same size in a different spot — the most
+/// visible clone-stamp in the terrain. Size spread does most of the work
+/// here; a wide tumble angle does the rest, since a boulder has no "up".
+///
+/// No slope cutoff: unlike anything that has to root, a boulder on a steep
+/// face is exactly where erosion would have left it.
+///
+/// The scale rides on the placement transform, so `avian` picks it up
+/// through `ColliderTransform` — the collider grows with the rock rather
+/// than staying at the design size.
+pub fn field_naturalness() -> ScatterNaturalness {
+    ScatterNaturalness {
+        // Rock fields come in drifts below the outcrop they eroded from.
+        clumping: Fp(0.45),
+        edge_falloff: Fp(0.6),
+        // ≈0.70×–1.42×. Boulders genuinely vary this much, and the shared
+        // design makes the spread read as different rocks rather than as
+        // one rock resized.
+        scale_jitter: Fp(0.35),
+        // ≈23°: settled at an angle, not planted.
+        tilt_jitter: Fp(0.4),
+        max_slope_deg: None,
+    }
 }
 
 /// Per-room boulder design + scatter list.

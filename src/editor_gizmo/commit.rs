@@ -427,6 +427,7 @@ mod scatter_commit_tests {
             snap_to_terrain: true,
             random_yaw: true,
             avoid_urban: false,
+            naturalness: Default::default(),
         };
         let dragged = Transform::from_xyz(15.0, 3.0, -7.5);
         assert!(write_transform_into_placement(

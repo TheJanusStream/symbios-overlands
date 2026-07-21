@@ -88,6 +88,13 @@ pub(super) struct TouchSets {
     pub(super) lsystem_mesh: HashSet<String>,
     pub(super) shape_material: HashSet<(String, String)>,
     pub(super) shape_mesh: HashSet<String>,
+    /// Content-hash keys of the primitive caches (#919). Unlike the sets
+    /// above these are not generator refs — the prim caches are keyed by
+    /// content so one entry can serve many generators — but the GC
+    /// argument is identical: a full job touches every key the live world
+    /// needs, so anything untouched is unreachable.
+    pub(super) prim_mesh: HashSet<u64>,
+    pub(super) prim_material: HashSet<u64>,
 }
 
 pub(super) struct ActiveJob {
@@ -160,7 +167,19 @@ pub(super) enum CursorKind {
     Scatter {
         spawned: u32,
         attempts: u32,
+        /// Positions only (#912). Every per-instance decoration moved to
+        /// `jitter_rng`, which is what makes the naturalness filters
+        /// purely subtractive — see `super::scatter`.
         rng: ChaCha8Rng,
+        /// Per-instance scale / tilt / yaw stream, seeded off the same
+        /// `local_seed` but salted apart from `rng`. Boxed because a
+        /// second inline `ChaCha8Rng` would make this variant twice the
+        /// size of `Grid` and inflate every cursor.
+        jitter_rng: Box<ChaCha8Rng>,
+        /// Cluster seeds for `ScatterNaturalness::clumping`, derived once
+        /// at unit start from `local_seed`. Always populated, so enabling
+        /// clumping changes only the contraction.
+        clusters: Vec<(f32, f32)>,
         /// Water level sampled from the registry at scatter start —
         /// once per unit, matching the monolithic pass.
         water_level: Option<f32>,
@@ -247,7 +266,14 @@ pub(super) fn unit_fingerprint(
         } => {
             extras.insert("water_level".into(), pass.water_level.clone()?);
         }
-        Placement::Scatter { biome_filter, .. } if !biome_filter.is_noop() => {
+        // Both the biome allow-list and the naturalness slope cutoff
+        // resolve against the terrain generator, so either one makes the
+        // compiled output depend on it.
+        Placement::Scatter {
+            biome_filter,
+            naturalness,
+            ..
+        } if !biome_filter.is_noop() || naturalness.max_slope_deg.is_some() => {
             extras.insert("water_level".into(), pass.water_level.clone()?);
             extras.insert("terrain".into(), pass.terrain.clone()?);
         }

@@ -9,7 +9,7 @@ crate-type = ["rlib"]
 
 [dependencies]
 symbios-ground = "0.3"
-symbios-texture = "0.1"
+symbios-texture = "0.2"
 symbios-audio = "0.1"
 serde = { version = "1", features = ["derive"] }
 # Encode the large RGBA / WAV byte buffers as compact msgpack `bin` blobs

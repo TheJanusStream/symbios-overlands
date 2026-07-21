@@ -16,7 +16,7 @@ use super::super::material::{spawn_procedural_material, spawn_water_volume};
 use super::super::particles::{snapshot_from_record, spawn_particle_emitter_entity};
 use super::super::portal::spawn_portal_entity;
 use super::super::prim::{build_primitive_mesh, collider_for_primitive, prim_parts};
-use super::super::prim_cache::{bound_capacity, prim_geometry_fingerprint};
+use super::super::prim_cache::{bound_capacity, get_and_touch, prim_geometry_fingerprint};
 use super::super::shape::spawn_shape_entity;
 use super::super::sign::spawn_sign_entity;
 use super::super::{PlacementUnit, PrimMarker, RoomEntity, apply_traits, reset_traits};
@@ -371,7 +371,10 @@ fn spawn_primitive_entity(
     // The collider is derived from the mesh data, which a cache hit does not
     // hand back — so build the raw mesh only when it is actually needed, and
     // reuse it for both the handle and the collider on a miss.
-    let cached_mesh = ctx.prim_mesh_cache.get_if(&geometry_key, geometry_key);
+    //
+    // `get_and_touch` also marks the key reachable for this pass, on hit and
+    // miss alike, which is what the end-of-job GC retains against (#919).
+    let cached_mesh = get_and_touch(ctx.prim_mesh_cache, ctx.prim_mesh_touched, geometry_key);
     let needs_collider = solid && !ctx.avatar_mode;
     let (mesh_handle, collider) = match cached_mesh {
         // Avatar mode strips colliders unconditionally — the locomotion
@@ -399,7 +402,11 @@ fn spawn_primitive_entity(
     };
 
     let material_key = settings_fingerprint(material_settings);
-    let material_handle = match ctx.prim_material_cache.get_if(&material_key, material_key) {
+    let material_handle = match get_and_touch(
+        ctx.prim_material_cache,
+        ctx.prim_material_touched,
+        material_key,
+    ) {
         Some(handle) => handle,
         None => {
             let handle = spawn_procedural_material(ctx, material_settings);

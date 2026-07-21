@@ -170,14 +170,6 @@ fn spawn_room(
     images: &mut Assets<Image>,
     deps: &mut AvatarSpawnDeps,
 ) {
-    use rand_chacha::rand_core::{RngCore, SeedableRng};
-
-    // Uniform f32 in [0, 1) — the same minimal idiom the seeded-defaults
-    // derivers use (the app links rand_core, not the full `rand` traits).
-    fn unit(rng: &mut rand_chacha::ChaCha8Rng) -> f32 {
-        (rng.next_u32() >> 8) as f32 / (1u32 << 24) as f32
-    }
-
     for placement in &record.placements {
         match placement {
             Placement::Absolute {
@@ -197,33 +189,36 @@ fn spawn_room(
             // `--features alloc-trace`, allocation-profiles) the region at its
             // true entity density — previously only Absolute placements
             // spawned, hiding the forests that dominate seeded rooms (#810/
-            // #811). No terrain exists headless, so instances sit on the
-            // ground plane with a seeded yaw instead of terrain-snapping.
+            // #811).
+            //
+            // Poses come from the compiler's own sampler (#912) so the sheet
+            // shows the real clustering, scale and tilt rather than a
+            // lookalike. The terrain-dependent filters — biome allow-list,
+            // slope cutoff, terrain snapping — cannot run without a
+            // heightmap, so instances sit on the ground plane and no sample
+            // is rejected; the sheet is therefore denser than the game, which
+            // is the right bias for judging arrangement.
             Placement::Scatter {
                 generator_ref,
-                bounds: crate::pds::ScatterBounds::Circle { center, radius },
+                bounds,
                 count,
                 local_seed,
+                random_yaw,
+                naturalness,
                 ..
             } => {
                 let Some(generator) = record.generators.get(generator_ref) else {
                     continue;
                 };
-                let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(*local_seed);
+                let mut preview = crate::world_builder::compile::ScatterPreview::new(
+                    bounds,
+                    *count,
+                    *local_seed,
+                    naturalness,
+                    *random_yaw,
+                );
                 for _ in 0..*count {
-                    let angle = unit(&mut rng) * std::f32::consts::TAU;
-                    let dist = radius.0 * unit(&mut rng).sqrt();
-                    let yaw = unit(&mut rng) * std::f32::consts::TAU;
-                    let chassis = commands
-                        .spawn(
-                            Transform::from_xyz(
-                                center.0[0] + dist * angle.cos(),
-                                0.0,
-                                center.0[1] + dist * angle.sin(),
-                            )
-                            .with_rotation(Quat::from_rotation_y(yaw)),
-                        )
-                        .id();
+                    let chassis = commands.spawn(preview.next_pose()).id();
                     spawn_avatar_visuals(
                         commands, chassis, generator, None, meshes, materials, images, deps, false,
                     );

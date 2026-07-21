@@ -17,6 +17,7 @@
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
+use crate::pds::{Fp, ScatterNaturalness};
 use crate::seeded_defaults::scene::{BiomeArchetype, SceneCharacter, range_f32, unit_f32};
 
 /// Sub-stream salt for the scatter deriver, distinct from palette /
@@ -284,6 +285,34 @@ pub struct TreeScatter {
     /// Distinct from `room_seed` so two scatters in the same room
     /// sample independent instance layouts.
     pub local_seed: u64,
+}
+
+/// Placement naturalness for a tree stand (#912).
+///
+/// Restrained next to the ground-cover tier's numbers, and each restraint
+/// is for a reason:
+///
+/// * **Clumping** is mild. Canopy trees compete for light, so a real stand
+///   is patchy but nowhere near as matted as turf — overdo it and the
+///   trunks interpenetrate.
+/// * **Tilt** is barely there. Roughly 3° reads as a tree that grew on
+///   uneven ground; much past that reads as storm damage, and every trunk
+///   in the stand leaning says "bug".
+/// * **Scale** matters more here than anywhere else, because a stand shares
+///   one generator: before this, `iterations_delta` varied trees between
+///   *stands* but every tree within a stand was a pixel-identical clone.
+/// * **Slope** is the gap this issue closed. The biome allow-list keeps
+///   trees off the Rock layer, but the Grass and Dirt bands still cover
+///   plenty of ground too steep to hold a mature canopy.
+pub fn stand_naturalness() -> ScatterNaturalness {
+    ScatterNaturalness {
+        clumping: Fp(0.35),
+        edge_falloff: Fp(0.8),
+        // ≈0.84×–1.20×: a mixed-age stand, not a plantation.
+        scale_jitter: Fp(0.18),
+        tilt_jitter: Fp(0.05),
+        max_slope_deg: Some(Fp(30.0)),
+    }
 }
 
 /// Full set of seeded tree scatters for a room — empty for arid /

@@ -387,6 +387,16 @@ fn render_overview_tab(
             count_row(ui, "Image handles", names::RUNTIME_IMAGE_HANDLE_COUNT);
             count_row(ui, "Colliders", names::RUNTIME_COLLIDER_COUNT);
             count_row(ui, "ShapeMeshCache", names::RUNTIME_SHAPE_MESH_CACHE_LEN);
+            // The caches that pin the handle counts above (#919) — read them
+            // together, since a mesh/image count that will not fall is
+            // usually one of these holding it.
+            count_row(ui, "PrimMeshCache", names::RUNTIME_PRIM_MESH_CACHE_LEN);
+            count_row(
+                ui,
+                "PrimMaterialCache",
+                names::RUNTIME_PRIM_MATERIAL_CACHE_LEN,
+            );
+            count_row(ui, "TextureCache", names::RUNTIME_TEXTURE_CACHE_LEN);
         });
 
     ui.separator();

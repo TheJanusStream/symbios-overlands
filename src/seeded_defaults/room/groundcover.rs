@@ -29,6 +29,7 @@
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
+use crate::pds::{Fp, ScatterNaturalness};
 use crate::seeded_defaults::scene::{BiomeArchetype, SceneCharacter, range_f32, unit_f32};
 
 /// Sub-stream salt distinct from every sibling room deriver — sharing one
@@ -89,6 +90,52 @@ impl GroundCoverSpecies {
             Self::DwarfShrub => "gc_dwarf_shrub",
             Self::MossPatch => "gc_moss_patch",
             Self::LichenPatch => "gc_lichen_patch",
+        }
+    }
+
+    /// Placement naturalness for this species' scatters (#912).
+    ///
+    /// Ground cover is where these dials show most — it is the tier with
+    /// the instance count — and the differences between species are real
+    /// botany rather than decoration:
+    ///
+    /// * **Clumping** tracks how the plant spreads. Rhizomatous and
+    ///   colonising growth (reeds, moss, lichen) arrives in dense mats with
+    ///   bare ground between; seed-dispersed tufts and flowers are patchy
+    ///   but far less so.
+    /// * **Slope cutoff** tracks what the plant can hold onto. Soil-rooted
+    ///   cover gives up on a steep face well before an encrusting moss or
+    ///   lichen does — those two *prefer* the rock the others can't take.
+    /// * **Tilt** is generous throughout: a card prop standing perfectly
+    ///   plumb is the single most obvious tell that a field was stamped.
+    pub fn naturalness(self) -> ScatterNaturalness {
+        let (clumping, tilt, max_slope_deg) = match self {
+            // Rhizome mats — the densest clumping in the tier.
+            Self::ReedClump => (0.72, 0.10, 26.0),
+            // Encrusting colonies that spread from a hold: very clumped,
+            // and the only cover that belongs on a steep face.
+            Self::MossPatch => (0.70, 0.06, 58.0),
+            Self::LichenPatch => (0.68, 0.05, 62.0),
+            // Shade-followers: patchy with the light gaps.
+            Self::FernClump => (0.58, 0.13, 34.0),
+            // Woody cushions, spaced by competition for thin soil.
+            Self::DwarfShrub => (0.44, 0.09, 40.0),
+            // Seed-dispersed: drifts rather than mats.
+            Self::Wildflower => (0.50, 0.16, 32.0),
+            Self::GrassTuft => (0.55, 0.15, 36.0),
+            Self::DryGrassTuft => (0.48, 0.15, 38.0),
+        };
+        ScatterNaturalness {
+            clumping: Fp(clumping),
+            // Soft rim on every patch: the tier's whole job is to read as
+            // continuous, and overlapping patches only blend if their
+            // edges are not circular cutouts.
+            edge_falloff: Fp(1.2),
+            // ≈0.82×–1.22×. Cards are flat, so size is most of what
+            // distinguishes one instance from the next.
+            scale_jitter: Fp(0.2),
+            tilt_jitter: Fp(tilt),
+            max_slope_deg: Some(Fp(max_slope_deg)),
         }
     }
 }

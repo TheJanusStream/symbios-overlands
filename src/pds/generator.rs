@@ -19,8 +19,8 @@ use super::prim::PropMeshType;
 use super::terrain::SovereignTerrainConfig;
 use super::texture::SovereignMaterialSettings;
 use super::types::{
-    BiomeFilter, Fp, Fp2, Fp3, Fp4, ScatterBounds, TransformData, default_true, is_false, is_true,
-    map_u16_as_string, u64_as_string,
+    BiomeFilter, Fp, Fp2, Fp3, Fp4, ScatterBounds, ScatterNaturalness, TransformData, default_true,
+    is_false, is_true, map_u16_as_string, u64_as_string,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -2027,6 +2027,11 @@ pub enum Placement {
         /// with no enabled road network. Defaults `false`.
         #[serde(default, skip_serializing_if = "is_false")]
         avoid_urban: bool,
+        /// Placement-naturalness dials — clustering, edge falloff,
+        /// per-instance scale/tilt, slope cutoff (#912). All-default is the
+        /// historical flat-uniform sprinkle and is elided on the wire.
+        #[serde(default, skip_serializing_if = "ScatterNaturalness::is_noop")]
+        naturalness: ScatterNaturalness,
     },
 
     #[serde(rename = "network.symbios.place.grid")]
@@ -2046,6 +2051,119 @@ pub enum Placement {
 
     #[serde(other)]
     Unknown,
+}
+
+#[cfg(test)]
+mod scatter_naturalness_wire_tests {
+    //! Wire-format guards for the placement-naturalness knobs (#912).
+    //! Every published room record predates this field, so the whole
+    //! feature rests on the default decoding to "behave exactly as
+    //! before" and on an unset field never reaching the wire.
+    use super::*;
+
+    fn scatter(naturalness: ScatterNaturalness) -> Placement {
+        Placement::Scatter {
+            generator_ref: "tree".into(),
+            bounds: ScatterBounds::default(),
+            count: 40,
+            local_seed: 9,
+            biome_filter: BiomeFilter::default(),
+            snap_to_terrain: true,
+            random_yaw: true,
+            avoid_urban: false,
+            naturalness,
+        }
+    }
+
+    #[test]
+    fn a_record_predating_the_field_decodes_as_the_old_behaviour() {
+        // Byte-for-byte what an already-published scatter looks like.
+        let old = serde_json::json!({
+            "$type": "network.symbios.place.scatter",
+            "generator_ref": "tree",
+            // `Fp` is fixed-point on the wire: i32 scaled by FP_SCALE.
+            "bounds": { "type": "circle", "center": [0, 0], "radius": 640_000 },
+            "count": 40,
+            "local_seed": "9",
+        });
+        let p: Placement = serde_json::from_value(old).expect("old scatter parses");
+        let Placement::Scatter { naturalness, .. } = &p else {
+            panic!("variant changed");
+        };
+        assert!(
+            naturalness.is_noop(),
+            "a record with no naturalness block must sample flat-uniform"
+        );
+        assert!(
+            naturalness.max_slope_deg.is_none(),
+            "and impose no slope limit"
+        );
+    }
+
+    #[test]
+    fn an_unset_block_is_elided_and_a_set_one_round_trips() {
+        let plain = serde_json::to_value(scatter(ScatterNaturalness::default())).unwrap();
+        assert!(
+            !plain.as_object().unwrap().contains_key("naturalness"),
+            "the default block must not bloat every scatter on the wire"
+        );
+
+        let tuned = ScatterNaturalness {
+            clumping: Fp(0.55),
+            edge_falloff: Fp(1.2),
+            scale_jitter: Fp(0.2),
+            tilt_jitter: Fp(0.15),
+            max_slope_deg: Some(Fp(36.0)),
+        };
+        let v = serde_json::to_value(scatter(tuned)).unwrap();
+        let block = v
+            .get("naturalness")
+            .expect("authored knobs stay on the wire");
+        assert!(block.get("clumping").is_some() && block.get("max_slope_deg").is_some());
+
+        let re: Placement = serde_json::from_value(v).expect("reparses");
+        let Placement::Scatter { naturalness, .. } = re else {
+            panic!("variant changed");
+        };
+        assert_eq!(naturalness, tuned);
+    }
+
+    /// Per-knob elision: a scatter that only wants a slope limit should
+    /// not carry four zeroes alongside it.
+    #[test]
+    fn only_the_knobs_that_are_set_reach_the_wire() {
+        let v = serde_json::to_value(scatter(ScatterNaturalness {
+            max_slope_deg: Some(Fp(30.0)),
+            ..ScatterNaturalness::default()
+        }))
+        .unwrap();
+        let block = v.get("naturalness").unwrap().as_object().unwrap();
+        assert_eq!(block.len(), 1, "expected only max_slope_deg, got {block:?}");
+    }
+
+    /// The sanitiser is the record boundary — a hostile or corrupt block
+    /// must not reach a transform. NaN matters specifically: `f32::clamp`
+    /// propagates it, so a naive clamp would let one straight through.
+    #[test]
+    fn sanitize_clamps_every_knob_and_rejects_nan() {
+        let mut n = ScatterNaturalness {
+            clumping: Fp(50.0),
+            edge_falloff: Fp(-3.0),
+            scale_jitter: Fp(f32::NAN),
+            tilt_jitter: Fp(f32::INFINITY),
+            max_slope_deg: Some(Fp(4000.0)),
+        };
+        n.sanitize();
+        assert_eq!(n.clumping, Fp(0.95), "a full collapse is never allowed");
+        assert_eq!(n.edge_falloff, Fp(0.0));
+        assert_eq!(n.scale_jitter, Fp(0.0), "NaN must not survive the clamp");
+        assert_eq!(n.tilt_jitter, Fp(0.0));
+        assert_eq!(n.max_slope_deg, Some(Fp(90.0)));
+        // Idempotent: sanitising an already-clean block changes nothing.
+        let mut again = n;
+        again.sanitize();
+        assert_eq!(again, n);
+    }
 }
 
 #[cfg(test)]

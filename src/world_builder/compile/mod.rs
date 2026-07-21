@@ -21,10 +21,13 @@
 //!   dry-land relocation walk for water-avoiding placements.
 //! * [`environment`] — [`apply_environment_state`] (its own system).
 //! * [`scatter`] — sampling helpers and the biome-rule evaluator.
+//! * [`census`] — offline replay of the sampling loop, for measuring what
+//!   a seeded room actually places (`render --scatter-census`).
 //! * [`dispatch`] — recursive [`spawn_generator`] +
 //!   [`dispatch::dispatch_top_level`] walker into the per-generator spawners.
 //! * [`contact_recipes`] — [`apply_contact_recipes`] system.
 
+mod census;
 mod contact_recipes;
 mod dispatch;
 mod environment;
@@ -38,9 +41,11 @@ mod water;
 // External callers (`super::compile::SpawnCtx` etc.) reach these names
 // through this re-export. Behavioural surface is identical to the
 // pre-refactor flat `compile.rs`.
+pub(crate) use census::scatter_census;
 pub(super) use contact_recipes::apply_contact_recipes;
 pub use dispatch::spawn_generator;
 pub(super) use environment::apply_environment_state;
 pub(super) use executor::compile_room_record;
 pub use job::{CompileJob, CompiledWorld};
+pub(crate) use scatter::ScatterPreview;
 pub use spawn_ctx::{GeneratorCaches, SpawnCtx, budget_exceeded};

@@ -1,6 +1,6 @@
 [package]
 name = "symbios-overlands"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 
 # The app is the workspace root; `crates/*` hold the compute-offload crates
@@ -25,16 +25,16 @@ egui_ltreeview = "0.6"
 # scheduled, which made right-drag dead over GUI windows. `camera.rs` owns
 # the equivalent gate with a right-button override instead (#702).
 bevy_panorbit_camera = "0.34"
-bevy_symbios = "0.4"
+bevy_symbios = "0.5"
 bevy_symbios_ground = { version = "0.3", features = ["physics"] }
 bevy_symbios_multiuser = "0.6"
-bevy_symbios_texture = { version = "0.6", features = ["egui"] }
+bevy_symbios_texture = { version = "0.7", features = ["egui"] }
 bevy_symbios_audio = { version = "0.2", features = ["egui"] }
 transform-gizmo-bevy = "0.9"
 symbios = "1.5"
 symbios-turtle-3d = "0.5"
 symbios-shape = "0.2"
-bevy_symbios_shape = "0.2"
+bevy_symbios_shape = "0.3"
 symbios-tensor = "0.2"
 gen-jobs = { path = "crates/gen-jobs" }
 avian3d = "0.6"
@@ -105,15 +105,6 @@ futures-channel = "0.3"
 # the worker; the worker type + impl live in `gen-worker` (slim, no Bevy).
 gloo-worker = "0.6"
 gen-worker = { path = "crates/gen-worker" }
-
-# WS0 (#908, epic #907): consume the local texture crates while the epic adds
-# new plant generators upstream; reverted to published versions in WS7 (#915).
-# `symbios-texture` is patched too so the `bevy_symbios_texture` wrapper picks
-# up local generators. Path patches do NOT resolve in CI — switch these to
-# `git = ...` patches if a deploy is needed mid-epic.
-[patch.crates-io]
-bevy_symbios_texture = { path = "../bevy_symbios_texture" }
-symbios-texture = { path = "../symbios-texture" }
 
 [profile.release]
 opt-level = "s"   # Optimize for size (helps wasm-bindgen)
