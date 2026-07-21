@@ -86,6 +86,18 @@ impl<K: Eq + Hash, V: Clone> GeneratorCache<K, V> {
     pub fn clear(&mut self) {
         self.entries.clear();
     }
+
+    /// Number of cached entries. The content-addressed primitive caches
+    /// (`prim_cache`) bound themselves on this, having no generator ref to
+    /// GC against.
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// `true` when nothing is cached.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
 }
 
 /// Stable content hash of a `SovereignMaterialSettings` — bytes of its

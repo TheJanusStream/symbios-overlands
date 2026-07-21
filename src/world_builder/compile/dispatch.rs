@@ -10,11 +10,13 @@ use bevy::prelude::*;
 use crate::config::terrain as tcfg;
 use crate::pds::{Generator, GeneratorKind};
 
+use super::super::generator_cache::settings_fingerprint;
 use super::super::lsystem::spawn_lsystem_entity;
 use super::super::material::{spawn_procedural_material, spawn_water_volume};
 use super::super::particles::{snapshot_from_record, spawn_particle_emitter_entity};
 use super::super::portal::spawn_portal_entity;
 use super::super::prim::{build_primitive_mesh, collider_for_primitive, prim_parts};
+use super::super::prim_cache::{bound_capacity, prim_geometry_fingerprint};
 use super::super::shape::spawn_shape_entity;
 use super::super::sign::spawn_sign_entity;
 use super::super::{PlacementUnit, PrimMarker, RoomEntity, apply_traits, reset_traits};
@@ -361,18 +363,52 @@ fn spawn_primitive_entity(
     let solid = parts.solid;
     let material_settings = parts.material;
 
-    let raw_mesh = build_primitive_mesh(kind);
-    // Avatar mode strips colliders unconditionally — the locomotion
-    // preset's chassis collider is the only physics body on the avatar,
-    // and per-prim colliders here would register as Static and conflict
-    // with the chassis's dynamic body.
-    let collider = if solid && !ctx.avatar_mode {
-        collider_for_primitive(kind, &raw_mesh)
-    } else {
-        None
+    // Content-addressed dedup (#918): every instance of a scattered prop
+    // hashes identically, so a scatter of N cards shares one mesh handle and
+    // one material handle instead of allocating N of each.
+    let geometry_key = prim_geometry_fingerprint(kind);
+
+    // The collider is derived from the mesh data, which a cache hit does not
+    // hand back — so build the raw mesh only when it is actually needed, and
+    // reuse it for both the handle and the collider on a miss.
+    let cached_mesh = ctx.prim_mesh_cache.get_if(&geometry_key, geometry_key);
+    let needs_collider = solid && !ctx.avatar_mode;
+    let (mesh_handle, collider) = match cached_mesh {
+        // Avatar mode strips colliders unconditionally — the locomotion
+        // preset's chassis collider is the only physics body on the avatar,
+        // and per-prim colliders here would register as Static and conflict
+        // with the chassis's dynamic body.
+        Some(handle) if !needs_collider => (handle, None),
+        Some(handle) => {
+            let raw_mesh = build_primitive_mesh(kind);
+            (handle, collider_for_primitive(kind, &raw_mesh))
+        }
+        None => {
+            let raw_mesh = build_primitive_mesh(kind);
+            let collider = if needs_collider {
+                collider_for_primitive(kind, &raw_mesh)
+            } else {
+                None
+            };
+            let handle = ctx.meshes.add(raw_mesh);
+            bound_capacity(ctx.prim_mesh_cache);
+            ctx.prim_mesh_cache
+                .insert(geometry_key, geometry_key, handle.clone());
+            (handle, collider)
+        }
     };
-    let mesh_handle = ctx.meshes.add(raw_mesh);
-    let material_handle = spawn_procedural_material(ctx, material_settings);
+
+    let material_key = settings_fingerprint(material_settings);
+    let material_handle = match ctx.prim_material_cache.get_if(&material_key, material_key) {
+        Some(handle) => handle,
+        None => {
+            let handle = spawn_procedural_material(ctx, material_settings);
+            bound_capacity(ctx.prim_material_cache);
+            ctx.prim_material_cache
+                .insert(material_key, material_key, handle.clone());
+            handle
+        }
+    };
 
     let mut cmd = ctx.commands.spawn((
         Mesh3d(mesh_handle),

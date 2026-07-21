@@ -131,6 +131,8 @@ pub(crate) fn compile_room_record(
             shape_material_cache: &mut generator_caches.shape_material,
             shape_material_touched: &mut job.touched.shape_material,
             shape_mesh_cache: &mut generator_caches.shape_mesh,
+            prim_mesh_cache: &mut generator_caches.prim_mesh,
+            prim_material_cache: &mut generator_caches.prim_material,
             upstream_shape_mesh_cache: &mut generator_caches.upstream_shape_mesh,
             shape_mesh_touched: &mut job.touched.shape_mesh,
             texture_cache: &mut generator_caches.texture,

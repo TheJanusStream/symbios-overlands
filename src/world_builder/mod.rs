@@ -76,6 +76,7 @@ mod material;
 pub mod particles;
 pub mod portal;
 mod prim;
+pub mod prim_cache;
 mod shape;
 mod sign;
 pub mod spatial_audio;
@@ -127,6 +128,8 @@ pub fn register_headless_spawn(app: &mut App) {
         .init_resource::<LSystemMeshCache>()
         .init_resource::<ShapeMaterialCache>()
         .init_resource::<ShapeMeshCache>()
+        .init_resource::<prim_cache::PrimMeshCache>()
+        .init_resource::<prim_cache::PrimMaterialCache>()
         .init_resource::<bevy_symbios_shape::cache::ShapeMeshCache>()
         .init_resource::<compile::CompiledWorld>()
         .init_resource::<compile::CompileJob>()
@@ -294,6 +297,8 @@ impl Plugin for WorldBuilderPlugin {
             .init_resource::<LSystemMeshCache>()
             .init_resource::<ShapeMaterialCache>()
             .init_resource::<ShapeMeshCache>()
+            .init_resource::<prim_cache::PrimMeshCache>()
+            .init_resource::<prim_cache::PrimMaterialCache>()
             .init_resource::<bevy_symbios_shape::cache::ShapeMeshCache>()
             .init_resource::<compile::CompiledWorld>()
             .init_resource::<compile::CompileJob>()

@@ -52,7 +52,7 @@ pub(crate) fn cleanup_on_logout(
     refresh_ctx: Option<Res<OauthRefreshCtx>>,
     mut chat: ResMut<ChatHistory>,
     // Grouped into one tuple param to stay within Bevy's 16-param system arity;
-    // the four per-generator caches ride along here for the same reason (#625).
+    // the per-generator and primitive caches ride along here for the same reason (#625).
     (
         mut session_log,
         mut metrics,
@@ -61,6 +61,8 @@ pub(crate) fn cleanup_on_logout(
         mut shape_material,
         mut lsystem_mesh,
         mut lsystem_material,
+        mut prim_mesh,
+        mut prim_material,
     ): (
         ResMut<crate::diagnostics::SessionLog>,
         ResMut<crate::diagnostics::MetricsRegistry>,
@@ -69,6 +71,8 @@ pub(crate) fn cleanup_on_logout(
         ResMut<crate::world_builder::ShapeMaterialCache>,
         ResMut<crate::world_builder::LSystemMeshCache>,
         ResMut<crate::world_builder::LSystemMaterialCache>,
+        ResMut<crate::world_builder::prim_cache::PrimMeshCache>,
+        ResMut<crate::world_builder::prim_cache::PrimMaterialCache>,
     ),
     mut avatar_cache: ResMut<PeerAvatarCache>,
     mut bsky_cache: ResMut<BskyProfileCache>,
@@ -269,6 +273,12 @@ pub(crate) fn cleanup_on_logout(
     shape_material.clear();
     lsystem_mesh.clear();
     lsystem_material.clear();
+    // The content-addressed primitive caches (#918) have no generator ref to
+    // GC against, so within a session they are bounded only by capacity —
+    // making them the same retention hazard, and clearing them here the same
+    // fix (#625).
+    prim_mesh.clear();
+    prim_material.clear();
 
     // The procedural `TextureCache` (FIFO-64, ~192 MiB worst case) is content-
     // keyed and deliberately survives room *changes*, but nothing clears it at

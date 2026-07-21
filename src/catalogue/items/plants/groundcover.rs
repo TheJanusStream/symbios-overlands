@@ -52,7 +52,10 @@ fn quad(
         GeneratorKind::Plane {
             size: Fp2(size),
             subdivisions: 0,
-            solid: true,
+            // Ground cover is never collidable: you walk through grass, and a
+            // collider per card would cost a physics body per instance on a
+            // tier placed by the hundred.
+            solid: false,
             material,
             torture: TortureParams::default(),
         },

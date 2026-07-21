@@ -108,6 +108,8 @@ pub fn spawn_avatar_visuals_subtree(
         shape_material_cache: &mut caches.shape_material,
         shape_material_touched: &mut shape_material_touched,
         shape_mesh_cache: &mut caches.shape_mesh,
+        prim_mesh_cache: &mut caches.prim_mesh,
+        prim_material_cache: &mut caches.prim_material,
         upstream_shape_mesh_cache: &mut caches.upstream_shape_mesh,
         shape_mesh_touched: &mut shape_mesh_touched,
         texture_cache: &mut caches.texture,

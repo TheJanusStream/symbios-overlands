@@ -29,6 +29,11 @@ pub struct GeneratorCaches<'w> {
     pub(crate) lsystem_mesh: ResMut<'w, LSystemMeshCache>,
     pub(crate) shape_material: ResMut<'w, ShapeMaterialCache>,
     pub(crate) shape_mesh: ResMut<'w, ShapeMeshCache>,
+    /// Content-addressed primitive dedup (#918). Primitives have no
+    /// per-generator cache, so without these a scatter allocates one
+    /// `Mesh` and one `StandardMaterial` per instance.
+    pub(crate) prim_mesh: ResMut<'w, super::super::prim_cache::PrimMeshCache>,
+    pub(crate) prim_material: ResMut<'w, super::super::prim_cache::PrimMaterialCache>,
     /// Mesh-asset dedup shared with every other consumer of
     /// `bevy_symbios_shape` (e.g. avatar visualisers): a generator's
     /// `(profile, size)` mesh handle is reused across compile passes and
@@ -158,6 +163,10 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// `(generator_ref, geometry_hash)` pair and shares the per-terminal
     /// `Handle<Mesh>` list across every scatter/grid spawn.
     pub(crate) shape_mesh_cache: &'a mut ShapeMeshCache,
+    /// Content-addressed primitive mesh / material dedup — see
+    /// [`prim_cache`](super::super::prim_cache).
+    pub(crate) prim_mesh_cache: &'a mut super::super::prim_cache::PrimMeshCache,
+    pub(crate) prim_material_cache: &'a mut super::super::prim_cache::PrimMaterialCache,
     /// Upstream mesh-asset dedup. Whereas `shape_mesh_cache` caches the full
     /// post-derivation instance list per generator, this cache dedupes
     /// individual `Handle<Mesh>` by `(profile, size)` across every generator
