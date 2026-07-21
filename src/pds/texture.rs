@@ -260,6 +260,91 @@ define_sovereign_texture_cfg!(SovereignLeafConfig => bevy_symbios_texture::leaf:
     fp64 : venule_strength = 0.50,
 });
 
+define_sovereign_texture_cfg!(SovereignNeedleConfig => bevy_symbios_texture::needle::NeedleConfig {
+    u32   : seed = 0,
+    usize : variant_rows = 1,
+    usize : variant_cols = 1,
+    usize : pair_count = 11,
+    fp3   : color_base = [0.05, 0.13, 0.07],
+    fp3   : color_tip = [0.16, 0.31, 0.14],
+    fp3   : color_shoot = [0.21, 0.13, 0.07],
+    fp64  : needle_angle = 42.0,
+    fp64  : needle_length = 0.3,
+    fp64  : needle_width = 0.009,
+    fp64  : length_taper = 0.55,
+    fp64  : shoot_length = 0.9,
+    fp64  : shoot_width = 0.009,
+    fp    : normal_strength = 1.2,
+});
+
+define_sovereign_texture_cfg!(SovereignBroadleafConfig => bevy_symbios_texture::broadleaf::BroadleafConfig {
+    u32   : seed = 0,
+    usize : variant_rows = 1,
+    usize : variant_cols = 1,
+    fp3   : color_base = [0.13, 0.26, 0.08],
+    fp3   : color_edge = [0.28, 0.38, 0.12],
+    fp64  : lobe_count = 5.0,
+    fp64  : lobe_depth = 0.34,
+    fp64  : fan_angle = 78.0,
+    fp64  : radius = 0.92,
+    fp64  : base_notch = 0.18,
+    fp64  : vein_width = 0.05,
+    fp64  : petiole_length = 0.1,
+    fp    : normal_strength = 1.4,
+});
+
+define_sovereign_texture_cfg!(SovereignMossConfig => bevy_symbios_texture::moss::MossConfig {
+    u32   : seed = 21,
+    fp64  : cushion_scale = 5.0,
+    usize : cushion_octaves = 4,
+    fp64  : filament_scale = 34.0,
+    usize : filament_octaves = 3,
+    fp64  : filament_weight = 0.45,
+    fp3   : color_deep = [0.03, 0.09, 0.03],
+    fp3   : color_tip = [0.26, 0.44, 0.10],
+    fp3   : color_dry = [0.38, 0.34, 0.14],
+    fp64  : dry_patches = 0.25,
+    fp64  : dry_scale = 2.5,
+    fp64  : cushion_depth = 0.6,
+    fp    : normal_strength = 2.4,
+});
+
+define_sovereign_texture_cfg!(SovereignLichenConfig => bevy_symbios_texture::lichen::LichenConfig {
+    u32   : seed = 7,
+    fp64  : patch_scale = 3.0,
+    usize : patch_octaves = 2,
+    fp64  : coverage = 0.45,
+    fp64  : rim_width = 0.06,
+    fp64  : species_scale = 1.8,
+    fp3   : color_rock = [0.13, 0.13, 0.12],
+    fp3   : color_lichen_a = [0.14, 0.17, 0.10],
+    fp3   : color_lichen_b = [0.26, 0.13, 0.04],
+    fp3   : color_rim = [0.38, 0.40, 0.32],
+    fp64  : grain_scale = 40.0,
+    fp64  : grain_strength = 0.18,
+    fp64  : relief = 0.5,
+    fp    : normal_strength = 1.8,
+});
+
+define_sovereign_texture_cfg!(SovereignReedConfig => bevy_symbios_texture::reed::ReedConfig {
+    u32   : seed = 0,
+    usize : variant_rows = 1,
+    usize : variant_cols = 1,
+    usize : blade_count = 6,
+    fp3   : color_base = [0.10, 0.16, 0.06],
+    fp3   : color_tip = [0.38, 0.44, 0.16],
+    fp3   : color_catkin = [0.24, 0.13, 0.05],
+    fp64  : blade_width = 0.022,
+    fp64  : height_min = 0.62,
+    fp64  : height_max = 0.98,
+    fp64  : lean = 0.09,
+    fp64  : tip_fraction = 0.28,
+    fp64  : catkin_share = 0.4,
+    fp64  : catkin_length = 0.2,
+    fp64  : catkin_width = 0.022,
+    fp    : normal_strength = 1.2,
+});
+
 define_sovereign_texture_cfg!(SovereignCactusSkinConfig => bevy_symbios_texture::cactus::CactusSkinConfig {
     u32   : seed = 0,
     usize : rib_count = 8,
@@ -864,6 +949,11 @@ pub enum SovereignTextureConfig {
     // Vegetation ground-cover / understory billboard cards.
     GrassTuft(SovereignGrassTuftConfig),
     Frond(SovereignFrondConfig),
+    Reed(SovereignReedConfig),
+    Needle(SovereignNeedleConfig),
+    Broadleaf(SovereignBroadleafConfig),
+    Moss(SovereignMossConfig),
+    Lichen(SovereignLichenConfig),
     // Additional tileable surfaces.
     Fabric(SovereignFabricConfig),
     Sand(SovereignSandConfig),
@@ -920,6 +1010,11 @@ impl SovereignTextureConfig {
             Self::Flower(_) => "Flower",
             Self::GrassTuft(_) => "Grass Tuft",
             Self::Frond(_) => "Frond",
+            Self::Reed(_) => "Reed",
+            Self::Needle(_) => "Needle",
+            Self::Broadleaf(_) => "Broadleaf",
+            Self::Moss(_) => "Moss",
+            Self::Lichen(_) => "Lichen",
             Self::Fabric(_) => "Fabric",
             Self::Sand(_) => "Sand",
             Self::Snow(_) => "Snow",
@@ -982,6 +1077,11 @@ impl SovereignTextureConfig {
             Self::Flower(c) => T::Flower(c.to_native()),
             Self::GrassTuft(c) => T::GrassTuft(c.to_native()),
             Self::Frond(c) => T::Frond(c.to_native()),
+            Self::Reed(c) => T::Reed(c.to_native()),
+            Self::Needle(c) => T::Needle(c.to_native()),
+            Self::Broadleaf(c) => T::Broadleaf(c.to_native()),
+            Self::Moss(c) => T::Moss(c.to_native()),
+            Self::Lichen(c) => T::Lichen(c.to_native()),
             Self::Fabric(c) => T::Fabric(c.to_native()),
             Self::Sand(c) => T::Sand(c.to_native()),
             Self::Snow(c) => T::Snow(c.to_native()),
@@ -1123,6 +1223,11 @@ mod tests {
         rt!(SovereignFlowerConfig);
         rt!(SovereignGrassTuftConfig);
         rt!(SovereignFrondConfig);
+        rt!(SovereignReedConfig);
+        rt!(SovereignNeedleConfig);
+        rt!(SovereignBroadleafConfig);
+        rt!(SovereignMossConfig);
+        rt!(SovereignLichenConfig);
         rt!(SovereignFabricConfig);
         rt!(SovereignSandConfig);
         rt!(SovereignSnowConfig);
@@ -1145,6 +1250,8 @@ mod tests {
             SovereignTextureConfig::Ice(Default::default()),
             SovereignTextureConfig::Lava(Default::default()),
             SovereignTextureConfig::CactusSkin(Default::default()),
+            SovereignTextureConfig::Moss(Default::default()),
+            SovereignTextureConfig::Lichen(Default::default()),
         ];
         for v in &variants {
             assert_ne!(v.label(), "Unknown", "{v:?} missing label arm");
@@ -1213,6 +1320,18 @@ mod tests {
             SovereignTextureConfig::Frond(Default::default()).sprite_atlas_dims(),
             None
         );
+        assert_eq!(
+            SovereignTextureConfig::Reed(Default::default()).sprite_atlas_dims(),
+            None
+        );
+        assert_eq!(
+            SovereignTextureConfig::Needle(Default::default()).sprite_atlas_dims(),
+            None
+        );
+        assert_eq!(
+            SovereignTextureConfig::Broadleaf(Default::default()).sprite_atlas_dims(),
+            None
+        );
         assert_eq!(SovereignTextureConfig::None.sprite_atlas_dims(), None);
     }
 
@@ -1224,6 +1343,9 @@ mod tests {
         let variants = [
             SovereignTextureConfig::GrassTuft(Default::default()),
             SovereignTextureConfig::Frond(Default::default()),
+            SovereignTextureConfig::Reed(Default::default()),
+            SovereignTextureConfig::Needle(Default::default()),
+            SovereignTextureConfig::Broadleaf(Default::default()),
         ];
         for v in &variants {
             assert_ne!(v.label(), "Unknown", "{v:?} missing label arm");

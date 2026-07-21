@@ -145,6 +145,31 @@ impl Sanitize for SovereignTextureConfig {
             SovereignTextureConfig::Frond(s) => {
                 clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
             }
+            // Reed clump card: an atlas of clumps, each a `blade_count`-branch
+            // per-pixel silhouette test — same shape as the grass tuft.
+            SovereignTextureConfig::Reed(s) => {
+                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
+                s.blade_count = s.blade_count.clamp(1, limits::MAX_TEXTURE_GRASS_BLADES);
+            }
+            // Needle cluster card: `pair_count` drives a per-pixel loop over
+            // two needle segments per pair.
+            SovereignTextureConfig::Needle(s) => {
+                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
+                s.pair_count = s.pair_count.clamp(1, limits::MAX_TEXTURE_GRASS_BLADES);
+            }
+            // Palmate broadleaf card: the lobe count is an `fp64` angular
+            // frequency, not a loop bound — only the atlas needs clamping.
+            SovereignTextureConfig::Broadleaf(s) => {
+                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
+            }
+            // Moss / lichen encrustations: octave counts drive the FBM loop.
+            SovereignTextureConfig::Moss(s) => {
+                s.cushion_octaves = s.cushion_octaves.clamp(1, limits::MAX_GROUND_OCTAVES);
+                s.filament_octaves = s.filament_octaves.clamp(1, limits::MAX_GROUND_OCTAVES);
+            }
+            SovereignTextureConfig::Lichen(s) => {
+                s.patch_octaves = s.patch_octaves.clamp(1, limits::MAX_GROUND_OCTAVES);
+            }
             // Forward to the asset-reference sanitiser — caps URL / DID /
             // CID lengths so a hostile peer can't smuggle a megabyte URL
             // through a referenced texture slot.

@@ -1,17 +1,17 @@
 //! Monopodial tree — ABOP Fig 2.6. A central leader trunk with recursive
 //! lateral branching gives the conical conifer silhouette; a finalization rule
-//! hangs a downward-angled needle spray (Twig cards) off every lateral tip so
+//! hangs a downward-angled needle spray (Needle cards) off every lateral tip so
 //! it reads as a living dark blue-green conifer rather than a bare skeleton.
 //! The lsystem-explorer's `s=100, w=10` constants are scaled down 100× for
 //! room-scale.
 
 use std::collections::HashMap;
 
-use crate::catalogue::items::plants::variant::{PlantVariant, tint_bark, tint_twig};
+use crate::catalogue::items::plants::variant::{PlantVariant, tint_bark, tint_needle};
 use crate::catalogue::{CatalogueEntry, StructureRole};
 use crate::pds::{
-    Fp, Fp3, Generator, GeneratorKind, PropMeshType, SovereignBarkConfig, SovereignLeafConfig,
-    SovereignMaterialSettings, SovereignTextureConfig, SovereignTwigConfig,
+    Fp, Fp3, Fp64, Generator, GeneratorKind, PropMeshType, SovereignBarkConfig,
+    SovereignMaterialSettings, SovereignNeedleConfig, SovereignTextureConfig,
 };
 
 /// Conifer re-skins (#910): one monopodial skeleton covers the cold biomes.
@@ -24,7 +24,7 @@ static VARIANTS: &[PlantVariant] = &[
         apply: |m| {
             // Warmer, yellower needles and the red-brown plated bark that
             // separates a pine ridge from a spruce stand at a distance.
-            tint_twig(
+            tint_needle(
                 m,
                 1,
                 [0.20, 0.32, 0.16],
@@ -46,7 +46,7 @@ static VARIANTS: &[PlantVariant] = &[
         apply: |m| {
             // The deciduous conifer: gold needles before drop. Tundra and
             // high alpine read as a different world with this one swap.
-            tint_twig(
+            tint_needle(
                 m,
                 1,
                 [0.62, 0.50, 0.18],
@@ -68,7 +68,7 @@ static VARIANTS: &[PlantVariant] = &[
         apply: |m| {
             // Pale, desaturated and blue-shifted — snow-laden needles for
             // the coldest rooms, where full-chroma green reads wrong.
-            tint_twig(
+            tint_needle(
                 m,
                 1,
                 [0.24, 0.34, 0.33],
@@ -126,21 +126,22 @@ fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // 1 — dark blue-green needle foliage (Twig card; base_color tints the
-    // twig sprite, which the grammar selects via `,(1)`).
+    // 1 — dark blue-green needle foliage. A real conifer needle cluster
+    // (paired needles on a woody shoot) rather than the broadleaf Twig card
+    // it used to borrow; the grammar selects it via `,(1)`.
     materials.insert(
         1,
         SovereignMaterialSettings {
             base_color: Fp3([0.12, 0.28, 0.22]),
             roughness: Fp(1.0),
-            texture: SovereignTextureConfig::Twig(SovereignTwigConfig {
-                // Cool dark blue-green needles (the default twig leaf skews
-                // warm olive and drifts yellow-green on lit sides).
-                leaf: SovereignLeafConfig {
-                    color_base: Fp3([0.08, 0.22, 0.18]),
-                    color_edge: Fp3([0.14, 0.30, 0.24]),
-                    ..Default::default()
-                },
+            texture: SovereignTextureConfig::Needle(SovereignNeedleConfig {
+                // Cool dark blue-green needles, held close to the shoot in
+                // the spruce/fir manner.
+                color_base: Fp3([0.05, 0.16, 0.12]),
+                color_tip: Fp3([0.13, 0.30, 0.23]),
+                color_shoot: Fp3([0.18, 0.12, 0.08]),
+                needle_angle: Fp64(38.0),
+                pair_count: 13,
                 ..Default::default()
             }),
             ..Default::default()

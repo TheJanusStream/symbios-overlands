@@ -7,17 +7,19 @@ use bevy_egui::egui;
 
 use crate::pds::{
     SovereignAshlarConfig, SovereignAsphaltConfig, SovereignBarkConfig, SovereignBrickConfig,
-    SovereignCactusSkinConfig, SovereignChainLinkConfig, SovereignCobblestoneConfig,
-    SovereignConcreteConfig, SovereignCorrugatedConfig, SovereignEncausticConfig,
-    SovereignFabricConfig, SovereignFlameConfig, SovereignFlowerConfig, SovereignFrondConfig,
-    SovereignGrassTuftConfig, SovereignGroundConfig, SovereignIceConfig, SovereignIronGrilleConfig,
-    SovereignLavaConfig, SovereignLeafConfig, SovereignLeafSpriteConfig, SovereignLogEndConfig,
-    SovereignMarbleConfig, SovereignMaterialConfig, SovereignMetalConfig, SovereignPaversConfig,
-    SovereignPetalConfig, SovereignPlankConfig, SovereignPuffConfig, SovereignRingConfig,
-    SovereignRockConfig, SovereignSandConfig, SovereignShardConfig, SovereignShingleConfig,
-    SovereignSnowConfig, SovereignSnowflakeConfig, SovereignSoftDiscConfig, SovereignSparkConfig,
-    SovereignSplatRule, SovereignStainedGlassConfig, SovereignStuccoConfig, SovereignTextureConfig,
-    SovereignThatchConfig, SovereignTwigConfig, SovereignWainscotingConfig, SovereignWindowConfig,
+    SovereignBroadleafConfig, SovereignCactusSkinConfig, SovereignChainLinkConfig,
+    SovereignCobblestoneConfig, SovereignConcreteConfig, SovereignCorrugatedConfig,
+    SovereignEncausticConfig, SovereignFabricConfig, SovereignFlameConfig, SovereignFlowerConfig,
+    SovereignFrondConfig, SovereignGrassTuftConfig, SovereignGroundConfig, SovereignIceConfig,
+    SovereignIronGrilleConfig, SovereignLavaConfig, SovereignLeafConfig, SovereignLeafSpriteConfig,
+    SovereignLichenConfig, SovereignLogEndConfig, SovereignMarbleConfig, SovereignMaterialConfig,
+    SovereignMetalConfig, SovereignMossConfig, SovereignNeedleConfig, SovereignPaversConfig,
+    SovereignPetalConfig, SovereignPlankConfig, SovereignPuffConfig, SovereignReedConfig,
+    SovereignRingConfig, SovereignRockConfig, SovereignSandConfig, SovereignShardConfig,
+    SovereignShingleConfig, SovereignSnowConfig, SovereignSnowflakeConfig, SovereignSoftDiscConfig,
+    SovereignSparkConfig, SovereignSplatRule, SovereignStainedGlassConfig, SovereignStuccoConfig,
+    SovereignTextureConfig, SovereignThatchConfig, SovereignTwigConfig, SovereignWainscotingConfig,
+    SovereignWindowConfig,
 };
 
 use super::widgets::{drag_u32, fp_slider};
@@ -186,6 +188,14 @@ pub(super) fn draw_texture_bridge_opts(
                 SovereignTextureConfig::GrassTuft(Default::default())
             );
             opt!("Frond", SovereignTextureConfig::Frond(Default::default()));
+            opt!("Reed", SovereignTextureConfig::Reed(Default::default()));
+            opt!("Needle", SovereignTextureConfig::Needle(Default::default()));
+            opt!(
+                "Broadleaf",
+                SovereignTextureConfig::Broadleaf(Default::default())
+            );
+            opt!("Moss", SovereignTextureConfig::Moss(Default::default()));
+            opt!("Lichen", SovereignTextureConfig::Lichen(Default::default()));
             // Additional tileable surfaces.
             opt!("Fabric", SovereignTextureConfig::Fabric(Default::default()));
             opt!("Sand", SovereignTextureConfig::Sand(Default::default()));
@@ -401,6 +411,31 @@ pub(super) fn draw_texture_bridge_opts(
             c,
             SovereignFrondConfig,
             bevy_symbios_texture::ui::frond_config_editor
+        ),
+        SovereignTextureConfig::Reed(c) => run!(
+            c,
+            SovereignReedConfig,
+            bevy_symbios_texture::ui::reed_config_editor
+        ),
+        SovereignTextureConfig::Needle(c) => run!(
+            c,
+            SovereignNeedleConfig,
+            bevy_symbios_texture::ui::needle_config_editor
+        ),
+        SovereignTextureConfig::Broadleaf(c) => run!(
+            c,
+            SovereignBroadleafConfig,
+            bevy_symbios_texture::ui::broadleaf_config_editor
+        ),
+        SovereignTextureConfig::Moss(c) => run!(
+            c,
+            SovereignMossConfig,
+            bevy_symbios_texture::ui::moss_config_editor
+        ),
+        SovereignTextureConfig::Lichen(c) => run!(
+            c,
+            SovereignLichenConfig,
+            bevy_symbios_texture::ui::lichen_config_editor
         ),
         SovereignTextureConfig::Fabric(c) => run!(
             c,

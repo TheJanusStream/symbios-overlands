@@ -227,6 +227,13 @@ fn classify(texture: &SovereignTextureConfig) -> ImpactMaterial {
         | SovereignTextureConfig::Flower(_)
         | SovereignTextureConfig::GrassTuft(_)
         | SovereignTextureConfig::Frond(_)
+        // Reeds are plant matter; moss and lichen are a soft organic mat over
+        // whatever they encrust.
+        | SovereignTextureConfig::Reed(_)
+        | SovereignTextureConfig::Needle(_)
+        | SovereignTextureConfig::Broadleaf(_)
+        | SovereignTextureConfig::Moss(_)
+        | SovereignTextureConfig::Lichen(_)
         // Cloth and powder snow both give a muffled, soft footfall.
         | SovereignTextureConfig::Fabric(_)
         | SovereignTextureConfig::Snow(_) => ImpactMaterial::Soft,

@@ -80,6 +80,26 @@ pub fn tint_twig(
     }
 }
 
+/// Re-tint a slot carrying a [`SovereignTextureConfig::Needle`] texture (a
+/// conifer needle-cluster card). `deep` recolours the needle bases and `tip`
+/// their lit tips; the woody shoot keeps its authored colour.
+pub fn tint_needle(
+    materials: &mut HashMap<u16, SovereignMaterialSettings>,
+    slot: u16,
+    base: [f32; 3],
+    deep: [f32; 3],
+    tip: [f32; 3],
+) {
+    let Some(m) = materials.get_mut(&slot) else {
+        return;
+    };
+    m.base_color = Fp3(base);
+    if let SovereignTextureConfig::Needle(needle) = &mut m.texture {
+        needle.color_base = Fp3(deep);
+        needle.color_tip = Fp3(tip);
+    }
+}
+
 /// Re-tint a slot carrying a [`SovereignTextureConfig::Bark`] texture.
 pub fn tint_bark(
     materials: &mut HashMap<u16, SovereignMaterialSettings>,
