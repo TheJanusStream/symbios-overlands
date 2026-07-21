@@ -2114,6 +2114,8 @@ mod scatter_naturalness_wire_tests {
             scale_jitter: Fp(0.2),
             tilt_jitter: Fp(0.15),
             max_slope_deg: Some(Fp(36.0)),
+            above_water_band: Some(Fp2([0.0, 3.5])),
+            altitude_band: Some(Fp2([12.0, 90.0])),
         };
         let v = serde_json::to_value(scatter(tuned)).unwrap();
         let block = v
@@ -2152,6 +2154,10 @@ mod scatter_naturalness_wire_tests {
             scale_jitter: Fp(f32::NAN),
             tilt_jitter: Fp(f32::INFINITY),
             max_slope_deg: Some(Fp(4000.0)),
+            // Inverted and non-finite bands: a band that accepts nothing
+            // would silently empty the scatter rather than error.
+            above_water_band: Some(Fp2([9.0, 2.0])),
+            altitude_band: Some(Fp2([f32::NAN, 50.0])),
         };
         n.sanitize();
         assert_eq!(n.clumping, Fp(0.95), "a full collapse is never allowed");
@@ -2159,6 +2165,16 @@ mod scatter_naturalness_wire_tests {
         assert_eq!(n.scale_jitter, Fp(0.0), "NaN must not survive the clamp");
         assert_eq!(n.tilt_jitter, Fp(0.0));
         assert_eq!(n.max_slope_deg, Some(Fp(90.0)));
+        assert_eq!(
+            n.above_water_band,
+            Some(Fp2([2.0, 9.0])),
+            "an inverted band is normalised, not left to match nothing"
+        );
+        assert_eq!(
+            n.altitude_band,
+            Some(Fp2([-10_000.0, 50.0])),
+            "a non-finite end collapses to the range bound"
+        );
         // Idempotent: sanitising an already-clean block changes nothing.
         let mut again = n;
         again.sanitize();

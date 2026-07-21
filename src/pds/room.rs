@@ -651,7 +651,15 @@ impl RoomRecord {
                 random_yaw: true,
                 // Keep wild trees out of the built-up urban district.
                 avoid_urban: true,
-                naturalness: crate::seeded_defaults::room::scatters::stand_naturalness(),
+                naturalness: {
+                    let mut n = crate::seeded_defaults::room::scatters::stand_naturalness(
+                        scatter.species,
+                        shape.height_scale,
+                        seeded_water_y,
+                    );
+                    terrain_probe.relax_unsatisfiable_bands(&mut n, scatter.center, scatter.radius);
+                    n
+                },
             });
         }
 
@@ -668,10 +676,11 @@ impl RoomRecord {
                 count,
                 local_seed: scatter.local_seed,
                 biome_filter: BiomeFilter {
-                    // 0=Grass, 1=Dirt — the same walkable land layers the
-                    // trees use, so cover never sprouts on rock faces or the
-                    // seabed.
-                    biomes: vec![0, 1],
+                    // Per-species (#913): the rock-colonising cushions are
+                    // allowed onto Rock, everything else keeps the walkable
+                    // land pair. A uniform Grass+Dirt list contradicted the
+                    // altitude bands, since high ground splats as Rock.
+                    biomes: scatter.species.biome_layers(),
                     water: WaterRelation::Above,
                 },
                 snap_to_terrain: true,
@@ -680,7 +689,13 @@ impl RoomRecord {
                 // grass between the buildings is what makes a town look
                 // planted rather than dropped onto bare ground.
                 avoid_urban: false,
-                naturalness: scatter.species.naturalness(),
+                naturalness: {
+                    let mut n = scatter
+                        .species
+                        .naturalness(shape.height_scale, seeded_water_y);
+                    terrain_probe.relax_unsatisfiable_bands(&mut n, scatter.center, scatter.radius);
+                    n
+                },
             });
         }
 

@@ -17,7 +17,7 @@
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
-use crate::pds::{Fp, ScatterNaturalness};
+use crate::pds::{Fp, Fp2, ScatterNaturalness};
 use crate::seeded_defaults::scene::{BiomeArchetype, SceneCharacter, range_f32, unit_f32};
 
 /// Sub-stream salt for the scatter deriver, distinct from palette /
@@ -304,7 +304,43 @@ pub struct TreeScatter {
 /// * **Slope** is the gap this issue closed. The biome allow-list keeps
 ///   trees off the Rock layer, but the Grass and Dirt bands still cover
 ///   plenty of ground too steep to hold a mature canopy.
-pub fn stand_naturalness() -> ScatterNaturalness {
+///
+/// It also carries the stand's **microbiome bands** (#913): a treeline, and
+/// the wetland band that puts mangroves in the water they belong in.
+///
+/// The treeline is a fraction of the room's **dry relief** — water line up
+/// to terrain amplitude — not a fixed number of metres and not a fraction
+/// of `height_scale` alone. Measured across seeds, dry land spans only
+/// ~0-40 m above water even in rooms whose amplitude is far larger, so a
+/// ceiling taken off `height_scale` lands above the tallest ground and
+/// never binds.
+pub fn stand_naturalness(
+    species: TreeSpecies,
+    height_scale: f32,
+    water_y: f32,
+) -> ScatterNaturalness {
+    let relief = (height_scale - water_y).max(1.0);
+    // Mangroves are the one seeded tree that belongs AT the water: stilt
+    // roots in the shallows, not on the bank above them. Everything else
+    // simply keeps its feet dry, which the biome filter's `Above` relation
+    // already handles.
+    let above_water_band = match species {
+        TreeSpecies::Mangrove => Some(Fp2([0.0, 2.5])),
+        _ => None,
+    };
+    // A treeline. Canopy trees stop partway up the relief, which is what
+    // makes a mountain read as a mountain rather than as a green cone — and
+    // it is the altitude zonation this work stream exists for. Broadleaves
+    // stop around two-thirds of the way up the dry ground.
+    //
+    // Conifers go higher: a frost-bleached spruce at the treeline is the
+    // whole point of the species. Cactus and deadwood get no ceiling at all
+    // — neither is a canopy tree, and both belong on bare high ground.
+    let ceiling = match species {
+        TreeSpecies::Monopodial => 0.88,
+        TreeSpecies::Cactus | TreeSpecies::DeadShrub => 1.0,
+        _ => 0.65,
+    };
     ScatterNaturalness {
         clumping: Fp(0.35),
         edge_falloff: Fp(0.8),
@@ -312,6 +348,10 @@ pub fn stand_naturalness() -> ScatterNaturalness {
         scale_jitter: Fp(0.18),
         tilt_jitter: Fp(0.05),
         max_slope_deg: Some(Fp(30.0)),
+        above_water_band,
+        // `-10_000` rather than 0: terrain dips below the origin plane, and
+        // a floor at 0 would silently strip every stand in a low valley.
+        altitude_band: (ceiling < 1.0).then(|| Fp2([-10_000.0, water_y + ceiling * relief])),
     }
 }
 

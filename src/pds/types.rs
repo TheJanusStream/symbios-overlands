@@ -327,6 +327,23 @@ impl BiomeFilter {
     }
 }
 
+/// Clamp a `[min, max]` band into `[lo, hi]` and swap the ends if they are
+/// inverted. A `None` band is left alone — that is "no constraint", which is
+/// different from an empty one.
+fn sanitize_band(band: &mut Option<Fp2>, lo: f32, hi: f32) {
+    if let Some(Fp2([a, b])) = band {
+        let (mut x, mut y) = (
+            if a.is_finite() { a.clamp(lo, hi) } else { lo },
+            if b.is_finite() { b.clamp(lo, hi) } else { hi },
+        );
+        if x > y {
+            std::mem::swap(&mut x, &mut y);
+        }
+        *a = x;
+        *b = y;
+    }
+}
+
 /// Scatter region shape for `Placement::Scatter`.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type")]
@@ -408,6 +425,42 @@ pub struct ScatterNaturalness {
     /// biome allow-list fails closed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_slope_deg: Option<Fp>,
+    /// Accept only samples whose ground sits within this band **above the
+    /// room's water line**, as `[min, max]` metres (#913).
+    ///
+    /// This is the moisture proxy, and it is deliberately a *height* band
+    /// rather than a horizontal distance to water. On any shoreline that
+    /// is not a cliff the two agree closely, a height band costs nothing
+    /// (the sampler already knows the ground height and the water level),
+    /// and the horizontal version would need a per-room distance field
+    /// that has to be built, stored and freed. Where they disagree — a
+    /// cliff edge — the answer a height band gives is the one you want
+    /// anyway, since nothing riparian grows on a cliff.
+    ///
+    /// `[0, 6]` is a riparian band: reed beds and damp-loving cover that
+    /// hug the shore. A high `min` gives the opposite — dry ridge species
+    /// that should stay well clear of standing water.
+    ///
+    /// Supersedes what `BiomeFilter::water` can express: that is a
+    /// half-space test (above / below), so before this there was no way to
+    /// say "within N metres of the waterline" and reeds could only be
+    /// scattered across all dry land (noted as a gap when the ground-cover
+    /// tier landed).
+    ///
+    /// Requires a heightmap **and** a water line; on a record with no
+    /// water generator a scatter that sets this places nothing, matching
+    /// how the other terrain filters fail closed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub above_water_band: Option<Fp2>,
+    /// Accept only samples whose ground height falls in this world-Y band,
+    /// as `[min, max]` metres (#913).
+    ///
+    /// Altitude zonation: the treeline that keeps conifers off the peaks,
+    /// the alpine cushion plants that only appear above one, the valley
+    /// species that stop partway up. Unlike [`Self::above_water_band`]
+    /// this needs no water line — only the heightmap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub altitude_band: Option<Fp2>,
 }
 
 impl ScatterNaturalness {
@@ -429,6 +482,11 @@ impl ScatterNaturalness {
         if let Some(deg) = &mut self.max_slope_deg {
             *deg = deg.clamped(0.0, 90.0);
         }
+        // Bands are ordered and finite. An inverted band would accept
+        // nothing, which is a silent "this scatter vanished" rather than an
+        // error, so normalise instead of rejecting.
+        sanitize_band(&mut self.above_water_band, -1_000.0, 10_000.0);
+        sanitize_band(&mut self.altitude_band, -10_000.0, 10_000.0);
     }
 }
 

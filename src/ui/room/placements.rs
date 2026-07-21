@@ -641,6 +641,50 @@ fn draw_naturalness(ui: &mut egui::Ui, n: &mut ScatterNaturalness, dirty: &mut b
          about right for ground cover; trees want far less.",
     );
 
+    // Microbiome bands (#913). Each is a two-ended range, so they get a
+    // checkbox plus a pair of drags rather than a slider.
+    let mut band = |label: &str,
+                    hint: &str,
+                    value: &mut Option<Fp2>,
+                    default: [f32; 2],
+                    range: std::ops::RangeInclusive<f32>| {
+        let mut on = value.is_some();
+        if ui.checkbox(&mut on, label).on_hover_text(hint).changed() {
+            *value = on.then_some(Fp2(default));
+            *dirty = true;
+        }
+        if let Some(Fp2([lo, hi])) = value {
+            ui.horizontal(|ui| {
+                ui.label("    min / max");
+                for v in [lo, hi] {
+                    if ui
+                        .add(egui::DragValue::new(v).speed(0.5).range(range.clone()))
+                        .changed()
+                    {
+                        *dirty = true;
+                    }
+                }
+            });
+        }
+    };
+    band(
+        "Limit by height above water",
+        "Reject samples outside this band above the room's water line — the \
+         moisture proxy. [0, 4] is a riparian shoreline band. Needs a water \
+         generator; without one the scatter places nothing.",
+        &mut n.above_water_band,
+        [0.0, 6.0],
+        -100.0..=1000.0,
+    );
+    band(
+        "Limit by altitude",
+        "Reject samples outside this world-Y band — a treeline, or an alpine \
+         floor. Absolute metres, so it depends on the terrain's height scale.",
+        &mut n.altitude_band,
+        [0.0, 100.0],
+        -1000.0..=1000.0,
+    );
+
     let mut limited = n.max_slope_deg.is_some();
     if ui
         .checkbox(&mut limited, "Limit by slope")

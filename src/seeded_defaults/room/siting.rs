@@ -30,6 +30,13 @@ const WATER_MARGIN: f32 = 0.75;
 /// Smaller specks are proxy noise, not building ground.
 const MIN_REGION_CELLS: usize = 3;
 
+/// Share of a scatter's disc that must satisfy a microbiome band for the
+/// band to be kept (#913). Below this the band is treated as unsatisfiable
+/// and dropped, because the ground it leaves also has to survive the biome
+/// allow-list and the slope cutoff — so a band clinging to a few percent of
+/// the disc empties the scatter rather than zoning it.
+const MIN_BAND_COVERAGE: f32 = 0.08;
+
 /// One connected buildable region of the proxy grid.
 #[derive(Clone, Debug)]
 pub struct BuildableRegion {
@@ -199,6 +206,83 @@ impl TerrainProbe {
     pub fn height_at(&self, world: [f32; 2]) -> f32 {
         let (x, z) = self.cell_index(world);
         self.heights[z * self.grid + x]
+    }
+
+    /// Fraction of the proxy cells inside the disc whose height satisfies
+    /// `band` (offset into the band's frame — pass the water line for an
+    /// above-water band, `0.0` for an absolute altitude one). `None` when
+    /// the disc covers no cell at all.
+    fn band_coverage(
+        &self,
+        center: [f32; 2],
+        radius: f32,
+        band: [f32; 2],
+        offset: f32,
+    ) -> Option<f32> {
+        let r2 = radius * radius;
+        let (mut inside, mut ok) = (0u32, 0u32);
+        for z in 0..self.grid {
+            for x in 0..self.grid {
+                let wx = x as f32 * self.cell - self.half;
+                let wz = z as f32 * self.cell - self.half;
+                let (dx, dz) = (wx - center[0], wz - center[1]);
+                if dx * dx + dz * dz > r2 {
+                    continue;
+                }
+                inside += 1;
+                let h = self.heights[z * self.grid + x] - offset;
+                if h >= band[0] && h <= band[1] {
+                    ok += 1;
+                }
+            }
+        }
+        (inside > 0).then(|| ok as f32 / inside as f32)
+    }
+
+    /// Drop any height band on `naturalness` that too little of the
+    /// scatter's disc could satisfy (#913).
+    ///
+    /// A microbiome band is a preference expressed over ground the scatter
+    /// can actually reach. When the deriver rolls a patch centre onto
+    /// terrain that sits almost entirely below an altitude floor — or above
+    /// a riparian ceiling — the band stops zoning the patch and simply
+    /// deletes it: measured across 14 seeds, one lichen scatter went to
+    /// 0/230 placed. Relaxing to "unbanded" there keeps the patch present,
+    /// which is the lesser wrong — a slightly mis-zoned patch reads as
+    /// vegetation, an absent one reads as a bug.
+    ///
+    /// The test is a COVERAGE FRACTION, not "does any cell qualify".
+    /// Requiring a single qualifying cell is far too weak: a flat room
+    /// whose ground just grazes an altitude floor passes that test and
+    /// still places nothing, because the surviving ground also has to clear
+    /// the biome allow-list and the slope cutoff. [`MIN_BAND_COVERAGE`] is
+    /// the margin that makes the test mean "there is somewhere to grow".
+    ///
+    /// Only bands that fail that test are dropped. A band that merely thins
+    /// a scatter is the feature working, and is left alone.
+    ///
+    /// Deterministic: a pure function of the shared proxy heightmap and the
+    /// band, so peers agree without consuming any RNG.
+    pub fn relax_unsatisfiable_bands(
+        &self,
+        naturalness: &mut crate::pds::ScatterNaturalness,
+        center: [f32; 2],
+        radius: f32,
+    ) {
+        if let Some(crate::pds::Fp2(band)) = naturalness.altitude_band
+            && self
+                .band_coverage(center, radius, band, 0.0)
+                .is_some_and(|f| f < MIN_BAND_COVERAGE)
+        {
+            naturalness.altitude_band = None;
+        }
+        if let Some(crate::pds::Fp2(band)) = naturalness.above_water_band
+            && self
+                .band_coverage(center, radius, band, self.water_y)
+                .is_some_and(|f| f < MIN_BAND_COVERAGE)
+        {
+            naturalness.above_water_band = None;
+        }
     }
 
     /// The buildable cell of `region` closest to `desired` that also
@@ -386,5 +470,51 @@ mod tests {
         assert!(p.height_at([-30.0, 0.0]) < p.height_at([30.0, 0.0]));
         // Constant gradient 1/4 per metre → slope 0.25 everywhere.
         assert!((p.slope_at([0.0, 0.0]) - 0.25).abs() < 1e-3);
+    }
+}
+
+#[cfg(test)]
+mod proxy_fidelity {
+    //! [`TerrainProbe::relax_unsatisfiable_bands`] decides whether a
+    //! microbiome band (#913) is worth keeping by measuring coverage on the
+    //! **proxy** heightmap, while the sampler that honours the band reads
+    //! the **full-resolution** map. That is only sound while the two agree
+    //! about the terrain's height distribution, so guard it.
+    //!
+    //! This was written as a throwaway diagnostic while chasing a scatter
+    //! that placed nothing, to rule the proxy in or out. It ruled it out —
+    //! the two track each other to within a couple of percent — and the
+    //! measurement is worth keeping, because if that ever stops being true
+    //! the relaxation starts trusting the wrong map and the symptom is a
+    //! silently empty patch of ground rather than a failure.
+    use crate::pds::RoomRecord;
+
+    #[test]
+    fn proxy_tracks_the_full_map_closely_enough_to_relax_bands_against() {
+        for seed in [1u64, 3, 9, 12] {
+            let record = RoomRecord::default_for_seed(seed, "did:plc:probe");
+            let cfg = crate::pds::find_terrain_config(&record)
+                .cloned()
+                .unwrap_or_default();
+            let proxy = gen_jobs::run_heightmap_proxy(&crate::terrain::heightmap_params(&cfg), 96);
+            let full = crate::terrain::rebuild_heightmap_for_record(&record);
+
+            let pmax = proxy.data.iter().cloned().fold(f32::MIN, f32::max);
+            let fmax = full.data().iter().cloned().fold(f32::MIN, f32::max);
+            let pmean = proxy.data.iter().sum::<f32>() / proxy.data.len() as f32;
+            let fmean = full.data().iter().sum::<f32>() / full.data().len() as f32;
+
+            // Generous bounds — this guards against the proxy drifting into
+            // a different terrain, not against ordinary resampling error.
+            let rel = |a: f32, b: f32| (a - b).abs() / b.abs().max(1.0);
+            assert!(
+                rel(pmax, fmax) < 0.10,
+                "seed {seed}: proxy max {pmax:.1} vs full {fmax:.1}"
+            );
+            assert!(
+                rel(pmean, fmean) < 0.10,
+                "seed {seed}: proxy mean {pmean:.1} vs full {fmean:.1}"
+            );
+        }
     }
 }

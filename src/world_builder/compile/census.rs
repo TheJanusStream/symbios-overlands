@@ -58,6 +58,21 @@ pub(crate) struct ScatterCensusRow {
     /// The configured cutoff in degrees, for reporting alongside the
     /// steepness it produced.
     pub max_slope_deg: Option<f32>,
+    /// The scatter's microbiome bands (#913), for display.
+    pub above_water_band: Option<[f32; 2]>,
+    pub altitude_band: Option<[f32; 2]>,
+    /// Height above the water line at the placed instances, as
+    /// `(median, p95, max)` metres — and the same with the bands removed.
+    ///
+    /// Compared as DISTRIBUTIONS, never as counts. The sampler retries past
+    /// a rejection until it hits the requested count, so a band that
+    /// rejects most of a disc still places the full quota and a
+    /// count-difference reads as a flat zero. (This is the second time that
+    /// trap has been walked into on this census — the slope columns learned
+    /// it first.) What a working band changes is WHICH ground is planted,
+    /// so the band shows up here or nowhere.
+    pub above_water: (f32, f32, f32),
+    pub above_water_unbanded: (f32, f32, f32),
     /// Ground steepness in **degrees** under the instances actually
     /// placed, as `(median, 95th percentile, max)`.
     pub slope_deg: (f32, f32, f32),
@@ -143,6 +158,11 @@ pub(crate) fn scatter_census(record: &RoomRecord) -> ScatterCensus {
                 max_slope_deg: None,
                 ..*naturalness
             });
+            let unbanded = run(&ScatterNaturalness {
+                above_water_band: None,
+                altitude_band: None,
+                ..*naturalness
+            });
 
             Some(ScatterCensusRow {
                 generator_ref: generator_ref.clone(),
@@ -152,6 +172,10 @@ pub(crate) fn scatter_census(record: &RoomRecord) -> ScatterCensus {
                 clark_evans_uniform: clark_evans(&uniform, bounds),
                 scale_range: scale_range(*local_seed, tuned.len(), naturalness),
                 max_slope_deg: naturalness.max_slope_deg.map(|d| d.0),
+                above_water_band: naturalness.above_water_band.map(|b| b.0),
+                altitude_band: naturalness.altitude_band.map(|b| b.0),
+                above_water: height_percentiles(&tuned, &heightmap, water_level),
+                above_water_unbanded: height_percentiles(&unbanded, &heightmap, water_level),
                 slope_deg: slope_percentiles(&tuned, &heightmap),
                 slope_deg_offered: slope_percentiles(&unlimited, &heightmap),
                 bounds_radius: bounds_radius(bounds),
@@ -233,6 +257,27 @@ fn slope_percentiles(points: &[(f32, f32)], heightmap: &FinishedHeightMap) -> (f
     degs.sort_by(f32::total_cmp);
     let at = |q: f32| degs[((degs.len() - 1) as f32 * q).round() as usize];
     (at(0.5), at(0.95), degs[degs.len() - 1])
+}
+
+/// `(median, p95, max)` height above the water line, in metres, over a set
+/// of placed points. `water_level` of `None` measures raw world Y instead,
+/// which is what a room with no water generator has to compare against.
+fn height_percentiles(
+    points: &[(f32, f32)],
+    heightmap: &FinishedHeightMap,
+    water_level: Option<f32>,
+) -> (f32, f32, f32) {
+    if points.is_empty() {
+        return (0.0, 0.0, 0.0);
+    }
+    let wl = water_level.unwrap_or(0.0);
+    let mut hs: Vec<f32> = points
+        .iter()
+        .map(|&(x, z)| heightmap.world_height_at(x, z) - wl)
+        .collect();
+    hs.sort_by(f32::total_cmp);
+    let at = |q: f32| hs[((hs.len() - 1) as f32 * q).round() as usize];
+    (at(0.5), at(0.95), hs[hs.len() - 1])
 }
 
 /// Observed per-instance scale range, replayed from the same side stream

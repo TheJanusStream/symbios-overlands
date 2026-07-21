@@ -63,6 +63,11 @@ pub fn field_naturalness() -> ScatterNaturalness {
         // ≈23°: settled at an angle, not planted.
         tilt_jitter: Fp(0.4),
         max_slope_deg: None,
+        // No microbiome bands (#913): a boulder is not alive. Erosion puts
+        // rock at every altitude and right down to the waterline, so any
+        // band here would remove scree that belongs where it is.
+        above_water_band: None,
+        altitude_band: None,
     }
 }
 

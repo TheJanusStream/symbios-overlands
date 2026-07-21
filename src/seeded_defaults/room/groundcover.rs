@@ -16,20 +16,19 @@
 //! `Placement::Scatter`, and fits both vegetation tiers into the shared
 //! room-wide entity budget.
 //!
-//! Two deliberate gaps, both deferred:
+//! One deliberate gap: **Glacial stays lifeless** — its count range is
+//! `(0, 0)`, so the pool is never indexed.
 //!
-//! * **Glacial stays lifeless.** Its count range is `(0, 0)`, so the pool is
-//!   never indexed.
-//! * **Reeds are not shoreline-bound.** `WaterRelation` is a half-space test,
-//!   not a band, so there is no "within N metres of the waterline" predicate
-//!   to place them against. Wetland terrain near the water is low-lying, so an
-//!   ordinary above-water scatter lands them plausibly; a true shoreline band
-//!   is WS6 work (#914).
+//! Reeds *are* shoreline-bound as of #913. `WaterRelation` is only a
+//! half-space test (above / below), which is why they originally scattered
+//! across all dry land; [`ScatterNaturalness::above_water_band`] adds the
+//! "within N metres of the waterline" predicate that was missing, and the
+//! species table below sets it.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
-use crate::pds::{Fp, ScatterNaturalness};
+use crate::pds::{Fp, Fp2, ScatterNaturalness};
 use crate::seeded_defaults::scene::{BiomeArchetype, SceneCharacter, range_f32, unit_f32};
 
 /// Sub-stream salt distinct from every sibling room deriver — sharing one
@@ -93,6 +92,33 @@ impl GroundCoverSpecies {
         }
     }
 
+    /// Splat layers this species is allowed to grow on — the
+    /// `BiomeFilter::biomes` allow-list (`0 = Grass, 1 = Dirt, 2 = Rock,
+    /// 3 = Snow`).
+    ///
+    /// Per-species rather than one list for the whole tier, because the
+    /// altitude bands (#913) made a uniform list actively contradictory:
+    /// lichen was given a floor in the upper half of the relief while
+    /// still restricted to Grass and Dirt, but the splat rules classify
+    /// exactly that high ground as Rock. The two filters could not both be
+    /// satisfied and the scatter placed nothing at all (measured: 0/230).
+    ///
+    /// Letting the rock-colonising cushions onto rock is also simply
+    /// right: lichen on bare stone is what lichen is for.
+    pub fn biome_layers(self) -> Vec<u8> {
+        match self {
+            // The rock colonisers. Lichen skips manicured grass entirely —
+            // it belongs on stone and thin dirt.
+            Self::LichenPatch => vec![1, 2],
+            // Moss and dwarf shrub take soil where there is soil and rock
+            // where there is not.
+            Self::MossPatch | Self::DwarfShrub => vec![0, 1, 2],
+            // Everything else keeps the walkable-land pair, so cover never
+            // sprouts on rock faces or the seabed.
+            _ => vec![0, 1],
+        }
+    }
+
     /// Placement naturalness for this species' scatters (#912).
     ///
     /// Ground cover is where these dials show most — it is the tier with
@@ -108,7 +134,22 @@ impl GroundCoverSpecies {
     ///   lichen does — those two *prefer* the rock the others can't take.
     /// * **Tilt** is generous throughout: a card prop standing perfectly
     ///   plumb is the single most obvious tell that a field was stamped.
-    pub fn naturalness(self) -> ScatterNaturalness {
+    ///
+    /// It also carries the species' **microbiome bands** (#913) — where it
+    /// can live, as opposed to how it is arranged.
+    ///
+    /// Bands are expressed against the room's **dry relief** — the span
+    /// from the water line up to the terrain's amplitude — not against raw
+    /// metres and not against `height_scale` alone. Measured across seeds,
+    /// dry land spans roughly 0–40 m above water, but that figure moves
+    /// with both `height_scale` and how much of it the water covers, so a
+    /// band in fixed metres zones one room correctly and every other room
+    /// by accident.
+    pub fn naturalness(self, height_scale: f32, water_y: f32) -> ScatterNaturalness {
+        // Height of the tallest dry ground above the water line. Floored so
+        // a nearly-drowned room cannot produce a zero-width band that
+        // silently accepts nothing.
+        let relief = (height_scale - water_y).max(1.0);
         let (clumping, tilt, max_slope_deg) = match self {
             // Rhizome mats — the densest clumping in the tier.
             Self::ReedClump => (0.72, 0.10, 26.0),
@@ -125,6 +166,53 @@ impl GroundCoverSpecies {
             Self::GrassTuft => (0.55, 0.15, 36.0),
             Self::DryGrassTuft => (0.48, 0.15, 38.0),
         };
+        // Microbiome bands (#913). Only where the band MEANS something for
+        // the species — an unnecessary band is not free, because each one
+        // narrows the ground a scatter can land on and so cuts its yield.
+        //
+        // `above_water_band` is relative to the water line, so it needs no
+        // scaling; `altitude_band` is absolute world Y and is therefore
+        // built from `height_scale`.
+        // Fractions of the dry relief, so the zoning holds in a 40 m room
+        // and a 200 m one alike.
+        let above_water_band = match self {
+            // The flagship riparian band: reeds stand at the water's edge,
+            // and until now could only be scattered across all dry land
+            // (the gap the ground-cover tier explicitly logged). Held to a
+            // few metres rather than a fraction — a reed bed is a reed bed
+            // whatever the surrounding relief.
+            Self::ReedClump => Some(Fp2([0.0, 3.5])),
+            // Ferns want damp, shaded low ground — a skirt above the
+            // shoreline rather than a hug of it.
+            Self::FernClump => Some(Fp2([0.0, 0.30 * relief])),
+            // Moss is the damp-loving cushion; it also climbs rock, so it
+            // reaches higher than the ferns and the real constraint stays
+            // its slope tolerance.
+            Self::MossPatch => Some(Fp2([0.0, 0.45 * relief])),
+            // Sun-bleached grass is the one species that should visibly NOT
+            // crowd the waterline — it starts where the damp stops, which
+            // is what makes the riparian edge read as an edge.
+            Self::DryGrassTuft => Some(Fp2([0.25 * relief, 10_000.0])),
+            _ => None,
+        };
+        // NO altitude FLOOR on ground cover, deliberately (#913).
+        //
+        // A floor and the biome allow-list pull against each other: the
+        // splat rules classify high ground as Rock and then Snow, so a
+        // floor pushes a species onto exactly the layers its allow-list
+        // rejects, and the two filters can only both be satisfied on a
+        // shrinking sliver. Measured, that is not a thinner patch — it is
+        // an empty one (0/230, then a second at 0/207 after widening the
+        // allow-list to chase it).
+        //
+        // A *ceiling* has no such conflict, because low ground is reliably
+        // Grass and Dirt; that is why the tree treeline works and lives on
+        // in `scatters::stand_naturalness`. Altitude zonation for this tier
+        // already comes from the biome pools — lichen and dwarf shrub are
+        // Tundra/Alpine/Boreal species — and from their slope tolerance,
+        // which reaches the crags a floor was reaching for.
+        let altitude_band = None;
+
         ScatterNaturalness {
             clumping: Fp(clumping),
             // Soft rim on every patch: the tier's whole job is to read as
@@ -136,6 +224,8 @@ impl GroundCoverSpecies {
             scale_jitter: Fp(0.2),
             tilt_jitter: Fp(tilt),
             max_slope_deg: Some(Fp(max_slope_deg)),
+            above_water_band,
+            altitude_band,
         }
     }
 }

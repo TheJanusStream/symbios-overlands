@@ -36,7 +36,9 @@ use bevy_symbios_ground::SplatRule;
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
 
-use crate::pds::{ScatterBounds, ScatterNaturalness, SovereignSplatRule, SovereignTerrainConfig};
+use crate::pds::{
+    Fp2, ScatterBounds, ScatterNaturalness, SovereignSplatRule, SovereignTerrainConfig,
+};
 
 /// Seed offset for the per-scatter cluster-seed stream. Distinct from
 /// [`JITTER_SEED_SALT`] so a scatter's clump layout and its per-instance
@@ -407,14 +409,36 @@ pub(crate) fn try_sample(
     }
 
     let Some(hm_res) = heightmap else {
-        // Nothing to resolve against: the allow-list and the slope cutoff
-        // both fail closed rather than silently passing every sample.
-        return (filters.biome_filter.is_noop() && filters.slope_cutoff.is_none())
-            .then_some((world_x, 0.0, world_z));
+        // Nothing to resolve against: every terrain filter fails closed
+        // rather than silently passing every sample.
+        let unconstrained = filters.biome_filter.is_noop()
+            && filters.slope_cutoff.is_none()
+            && naturalness.above_water_band.is_none()
+            && naturalness.altitude_band.is_none();
+        return unconstrained.then_some((world_x, 0.0, world_z));
     };
 
     let hm = &hm_res.0;
     let y = hm_res.world_height_at(world_x, world_z);
+
+    // Microbiome bands (#913). Checked before the slope work because they
+    // need only the height already in hand, where slope costs a normal
+    // lookup — and because on a riparian scatter they reject the large
+    // majority of samples.
+    if let Some(Fp2([lo, hi])) = naturalness.altitude_band
+        && !(lo..=hi).contains(&y)
+    {
+        return None;
+    }
+    if let Some(Fp2([lo, hi])) = naturalness.above_water_band {
+        // No water line means the band has nothing to measure from, so it
+        // fails closed — the same stance the biome allow-list takes when
+        // there is no terrain generator to resolve against.
+        let wl = filters.water_level?;
+        if !(lo..=hi).contains(&(y - wl)) {
+            return None;
+        }
+    }
 
     // Steepness feeds two consumers — the allow-list (via the dominant
     // splat layer) and the explicit cutoff — so sample it once, and only if
@@ -788,6 +812,58 @@ mod tests {
                     axis.y
                 );
             }
+        }
+    }
+
+    /// The microbiome bands (#913) must be purely subtractive, exactly like
+    /// the slope cutoff: they reject samples without consuming a draw, so
+    /// narrowing a band removes instances and leaves every survivor where
+    /// it was. Drawing a rejection roll instead would reshuffle the stand.
+    #[test]
+    fn microbiome_bands_consume_no_draws() {
+        let bounds = disc(80.0);
+        let banded = ScatterNaturalness {
+            above_water_band: Some(Fp2([0.0, 4.0])),
+            altitude_band: Some(Fp2([0.0, 20.0])),
+            ..ScatterNaturalness::default()
+        };
+        let mut plain = ChaCha8Rng::seed_from_u64(21);
+        let mut with_bands = ChaCha8Rng::seed_from_u64(21);
+        for _ in 0..400 {
+            sample_bounds(&bounds, &mut plain, 0.0);
+            sample_bounds(&bounds, &mut with_bands, banded.edge_falloff.0);
+        }
+        assert_eq!(plain.next_u32(), with_bands.next_u32());
+    }
+
+    /// A band with no terrain to resolve against must place nothing rather
+    /// than silently ignoring the constraint — the same stance the biome
+    /// allow-list and the slope cutoff take.
+    #[test]
+    fn bands_without_a_heightmap_fail_closed() {
+        let bounds = disc(50.0);
+        let filters = SampleFilters {
+            biome_filter: &crate::pds::BiomeFilter::default(),
+            terrain_cfg: None,
+            water_level: None,
+            urban_exclusions: &[],
+            slope_cutoff: None,
+        };
+        let mut rng = ChaCha8Rng::seed_from_u64(2);
+        for naturalness in [
+            ScatterNaturalness {
+                above_water_band: Some(Fp2([0.0, 4.0])),
+                ..ScatterNaturalness::default()
+            },
+            ScatterNaturalness {
+                altitude_band: Some(Fp2([0.0, 20.0])),
+                ..ScatterNaturalness::default()
+            },
+        ] {
+            assert!(
+                try_sample(&bounds, &naturalness, &[], &mut rng, None, &filters).is_none(),
+                "a band with no heightmap must reject"
+            );
         }
     }
 

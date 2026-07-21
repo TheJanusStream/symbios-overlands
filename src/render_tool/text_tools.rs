@@ -402,9 +402,47 @@ pub(super) fn scatter_census(seeds: u64) {
             let cutoff = row
                 .max_slope_deg
                 .map_or_else(|| "  none".to_string(), |d| format!("{d:>4.0}°"));
+            // Microbiome bands and what they cost (#913). `+0` next to a
+            // set band means the band never rejected anything the other
+            // filters would have kept — worth a second look, since a band
+            // that costs nothing is usually mis-set.
+            let bands = match (row.above_water_band, row.altitude_band) {
+                (None, None) => "        —".to_string(),
+                (w, a) => {
+                    let fmt = |b: Option<[f32; 2]>| {
+                        b.map_or_else(
+                            || "—".to_string(),
+                            |[lo, hi]| {
+                                format!(
+                                    "{lo:.0}..{}",
+                                    if hi > 9_000.0 {
+                                        "∞".into()
+                                    } else {
+                                        format!("{hi:.0}")
+                                    }
+                                )
+                            },
+                        )
+                    };
+                    format!("w{} a{}", fmt(w), fmt(a))
+                }
+            };
+            // Distribution, not count — see the census docs for why.
+            let band_effect = if row.above_water_band.is_some() || row.altitude_band.is_some() {
+                format!(
+                    "  above-water p50/max {:>4.0}/{:<4.0} (unbanded {:.0}/{:.0})",
+                    row.above_water.0,
+                    row.above_water.2,
+                    row.above_water_unbanded.0,
+                    row.above_water_unbanded.2,
+                )
+            } else {
+                String::new()
+            };
             println!(
                 "  {:<20} {:>4}/{:<4} ({:>5.1}%)  R {:>5.2} vs {:>5.2}  scale {:.2}–{:.2}  \
-                 cutoff {cutoff}  ground p95/max {:>3.0}°/{:>3.0}° (offered {:>3.0}°/{:>3.0}°)",
+                 cutoff {cutoff}  ground p95/max {:>3.0}°/{:>3.0}° (offered {:>3.0}°/{:>3.0}°)  \
+                 band {bands}{band_effect}",
                 row.generator_ref,
                 row.placed,
                 row.requested,

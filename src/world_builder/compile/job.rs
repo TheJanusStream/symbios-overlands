@@ -266,14 +266,18 @@ pub(super) fn unit_fingerprint(
         } => {
             extras.insert("water_level".into(), pass.water_level.clone()?);
         }
-        // Both the biome allow-list and the naturalness slope cutoff
-        // resolve against the terrain generator, so either one makes the
-        // compiled output depend on it.
+        // The biome allow-list, the slope cutoff and the microbiome bands
+        // all resolve against the terrain generator and/or the water line,
+        // so any of them makes the compiled output depend on both.
         Placement::Scatter {
             biome_filter,
             naturalness,
             ..
-        } if !biome_filter.is_noop() || naturalness.max_slope_deg.is_some() => {
+        } if !biome_filter.is_noop()
+            || naturalness.max_slope_deg.is_some()
+            || naturalness.above_water_band.is_some()
+            || naturalness.altitude_band.is_some() =>
+        {
             extras.insert("water_level".into(), pass.water_level.clone()?);
             extras.insert("terrain".into(), pass.terrain.clone()?);
         }
