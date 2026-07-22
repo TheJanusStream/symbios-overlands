@@ -178,6 +178,29 @@ pub(super) fn sphere(
     }
 }
 
+/// Barr superellipsoid — the rounded-mass workhorse. `exponent_ns` shapes
+/// the north–south (latitude) profile, `exponent_ew` the east–west
+/// cross-section: `0.2` is a hard box, `~0.65` a filled pillow (sandbags,
+/// cushions, bedrolls), `1.0` a true ellipsoid, `2.5` a pinched octahedron.
+/// Reach for it where a cuboid reads too hard and a scaled sphere too soft.
+pub(super) fn superellipsoid(
+    half_extents: [f32; 3],
+    exponent_ns: f32,
+    exponent_ew: f32,
+    material: SovereignMaterialSettings,
+) -> GeneratorKind {
+    GeneratorKind::Superellipsoid {
+        half_extents: Fp3(half_extents),
+        exponent_ns: Fp(exponent_ns),
+        exponent_ew: Fp(exponent_ew),
+        latitudes: 12,
+        longitudes: 18,
+        solid: false,
+        material,
+        torture: TortureParams::default(),
+    }
+}
+
 pub(super) fn cone(
     radius: f32,
     height: f32,
@@ -297,7 +320,11 @@ pub(super) fn solid(mut kind: GeneratorKind) -> GeneratorKind {
         | GeneratorKind::Cylinder { solid, .. }
         | GeneratorKind::Capsule { solid, .. }
         | GeneratorKind::Cone { solid, .. }
-        | GeneratorKind::Torus { solid, .. } => *solid = true,
+        | GeneratorKind::Torus { solid, .. }
+        // Superellipsoid carries an analytical collider too (a coarse
+        // sampled convex hull), so marking it solid is as cheap here as it
+        // is for the box it replaces.
+        | GeneratorKind::Superellipsoid { solid, .. } => *solid = true,
         _ => {}
     }
     kind
