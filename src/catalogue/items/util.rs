@@ -526,18 +526,11 @@ pub(super) fn tiles_per_metre(tile_m: f32) -> Fp {
 ///
 /// | generator | features / tile | feature | tile |
 /// |---|---|---|---|
-/// | Ashlar | 4 × 4 blocks | 450 mm block | 1.8 m |
-/// | Plank | 5 planks | 200 mm board | 1.0 m |
-/// | Cobblestone | 6 stones | 150 mm cobble | 0.9 m |
-/// | Shingle | 5 courses | 300 mm shingle | 1.5 m |
 /// | Corrugated | 8 ridges | 76 mm sheet pitch | 0.6 m |
-/// | Thatch | — reads as a mass | | 1.2 m |
-/// | Stucco | — near-scaleless | | 2.0 m |
 /// | Marble | veining | | 2.0 m |
 /// | Rock | rock face | | 1.5 m |
 /// | Ground / Sand / Snow / Ice | granular | | 2.0 m |
 /// | Asphalt | coarse aggregate | | 3.0 m |
-/// | Fabric | the weave *is* the feature | | 0.5 m |
 /// | Pavers | paving slabs | | 1.2 m |
 pub(super) mod tile {
     /// 4 brick columns per tile at a 215 mm brick.
@@ -546,6 +539,27 @@ pub(super) mod tile {
     pub(in crate::catalogue::items) const CONCRETE: f32 = 2.4;
     /// Sheet metal — plate seams and brushing.
     pub(in crate::catalogue::items) const METAL: f32 = 1.2;
+    /// `SovereignAshlarConfig::rows`/`cols` blocks per tile — 4 × 4 dressed
+    /// blocks at a 450 mm course.
+    pub(in crate::catalogue::items) const ASHLAR: f32 = 1.8;
+    /// `SovereignPlankConfig::plank_count` boards per tile — 5 to 6 boards,
+    /// so a nominal 150–200 mm sawn board.
+    pub(in crate::catalogue::items) const PLANK: f32 = 1.0;
+    /// `SovereignCobblestoneConfig::scale` stones per tile — 6 stones at a
+    /// 150 mm fieldstone cobble.
+    pub(in crate::catalogue::items) const COBBLE: f32 = 0.9;
+    /// `SovereignShingleConfig::scale` courses per tile — 5 courses at a
+    /// 300 mm slate or shingle.
+    pub(in crate::catalogue::items) const SHINGLE: f32 = 1.5;
+    /// Thatch reads as a straw *mass* rather than a countable feature; sized
+    /// so a bundle layer lands near a 150 mm exposure.
+    pub(in crate::catalogue::items) const THATCH: f32 = 1.2;
+    /// Stucco / lime-wash daub is near-scaleless — sized large so the render
+    /// stays a surface tone rather than becoming visible noise.
+    pub(in crate::catalogue::items) const STUCCO: f32 = 2.0;
+    /// Woven cloth — the weave *is* the feature, so this is the tightest
+    /// tile in the table.
+    pub(in crate::catalogue::items) const FABRIC: f32 = 0.5;
 }
 
 pub(super) fn glow(color: [f32; 3], strength: f32) -> SovereignMaterialSettings {

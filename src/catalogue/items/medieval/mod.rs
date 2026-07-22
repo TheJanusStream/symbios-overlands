@@ -18,6 +18,13 @@
 //! crackle in [`fx`] (sooty smoke, leaping sparks), and the hovel breathes
 //! hearth smoke. The theme's cool steel-blue light accent lives in
 //! [`crate::seeded_defaults::room::accent`].
+//!
+//! Every shared material here is authored in physical tile sizes via
+//! [`tiles_per_metre`] (#936), which is only
+//! valid because all of them land on primitive geometry. [`medieval_castle`]
+//! and [`watchtower`] are grammar-built (`GeneratorKind::Shape`) and carry
+//! their own local materials at that pipeline's hand-tuned `uv_scale` — do
+//! not fold them into these helpers.
 
 pub mod medieval_castle;
 pub mod watchtower;
@@ -41,6 +48,7 @@ pub mod fx;
 
 use bevy_symbios_texture::metal::MetalStyle;
 
+use super::util::{tile, tiles_per_metre};
 use crate::catalogue::items::util::{cuboid_tapered, id_quat, prim, solid};
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, SovereignAshlarConfig, SovereignCobblestoneConfig,
@@ -68,7 +76,7 @@ pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.85),
         metallic: Fp(0.0),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::PLANK),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
             color_wood_light: Fp3([color[0] * 1.25, color[1] * 1.25, color[2] * 1.25]),
             color_wood_dark: Fp3([color[0] * 0.6, color[1] * 0.6, color[2] * 0.6]),
@@ -87,7 +95,7 @@ pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.9),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::ASHLAR),
         texture: SovereignTextureConfig::Ashlar(SovereignAshlarConfig {
             color_stone: Fp3(color),
             color_mortar: Fp3([color[0] * 1.28, color[1] * 1.28, color[2] * 1.22]),
@@ -106,7 +114,7 @@ pub(super) fn rough_stone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.95),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::COBBLE),
         texture: SovereignTextureConfig::Cobblestone(SovereignCobblestoneConfig {
             color_stone: Fp3(color),
             color_mud: Fp3([color[0] * 0.45, color[1] * 0.4, color[2] * 0.32]),
@@ -124,7 +132,7 @@ pub(super) fn daub(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.95),
         metallic: Fp(0.0),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::STUCCO),
         texture: SovereignTextureConfig::Stucco(SovereignStuccoConfig {
             color_base: Fp3(color),
             color_shadow: Fp3([color[0] * 0.78, color[1] * 0.78, color[2] * 0.74]),
@@ -142,7 +150,7 @@ pub(super) fn thatch(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.95),
         metallic: Fp(0.0),
-        uv_scale: Fp(2.0),
+        uv_scale: tiles_per_metre(tile::THATCH),
         texture: SovereignTextureConfig::Thatch(SovereignThatchConfig {
             color_straw: Fp3(color),
             color_shadow: Fp3([color[0] * 0.32, color[1] * 0.30, color[2] * 0.18]),
@@ -161,7 +169,7 @@ pub(super) fn shingle(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.85),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::SHINGLE),
         texture: SovereignTextureConfig::Shingle(SovereignShingleConfig {
             color_tile: Fp3(color),
             color_grout: Fp3([color[0] * 0.5, color[1] * 0.5, color[2] * 0.55]),
@@ -179,7 +187,7 @@ pub(super) fn iron(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.5),
         metallic: Fp(0.8),
-        uv_scale: Fp(1.0),
+        uv_scale: tiles_per_metre(tile::METAL),
         texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
             style: MetalStyle::Brushed,
             color_metal: Fp3(color),
@@ -200,6 +208,7 @@ pub(super) fn cloth(warp: [f32; 3], weft: [f32; 3]) -> SovereignMaterialSettings
         base_color: Fp3(warp),
         roughness: Fp(0.92),
         metallic: Fp(0.0),
+        uv_scale: tiles_per_metre(tile::FABRIC),
         texture: SovereignTextureConfig::Fabric(SovereignFabricConfig {
             color_warp: Fp3(warp),
             color_weft: Fp3(weft),
