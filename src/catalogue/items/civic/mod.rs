@@ -24,6 +24,9 @@
 //! small-footprint so the settlement deriver can append several without
 //! crowding the themed structures.
 
+// Shared emitter recipes (fire, smoke) the props hang their FX on.
+mod fx;
+
 // Cross-theme fallback gateway (a Gateway, not a socio-political prop).
 pub mod gateway;
 // Prosperity Poor.

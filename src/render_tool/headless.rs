@@ -14,6 +14,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, T
 
 use crate::pds::{Environment, Generator, Placement, RoomRecord, TransformData};
 use crate::player::visuals::{AvatarSpawnDeps, spawn_avatar_visuals};
+use crate::world_builder::particles::{Particle, ParticleEmitterMarker};
 
 use super::{ANGLES, FOV, OUT_DIR, WARMUP};
 
@@ -30,6 +31,12 @@ pub(super) enum Subject {
 /// resolves from its world position alone (`round(x / SLOT_SPACING)`).
 const SLOT_SPACING: f32 = 1000.0;
 
+/// The framing query: every mesh entity that isn't a tile camera or a live
+/// particle quad. Aliased because it appears in three signatures and the
+/// inline form trips `clippy::type_complexity`.
+type SubjectQuery<'w, 's> =
+    Query<'w, 's, (&'static GlobalTransform, &'static Aabb), (Without<TileCam>, Without<Particle>)>;
+
 /// Frames to wait for every lineup slot's AABB before framing falls back to a
 /// tiny placeholder bound for the missing slots (a degenerate variant — e.g.
 /// an iteration count whose derivation produced no meshes — must not hang the
@@ -41,6 +48,9 @@ pub(super) struct RenderJob {
     pub(super) subject: Subject,
     pub(super) out: String,
     pub(super) size: u32,
+    /// `--elev`: camera elevation in degrees above the subject centre.
+    /// `None` keeps the default low orbit (see [`cam_offset`]).
+    pub(super) elev: Option<f32>,
 }
 
 #[derive(Component)]
@@ -275,12 +285,15 @@ fn spawn_ground(
     ));
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn drive(
     mut commands: Commands,
     mut frames: ResMut<Frames>,
     mut capture: ResMut<Capture>,
     targets: Res<Targets>,
-    subject: Query<(&GlobalTransform, &Aabb), Without<TileCam>>,
+    job: Res<RenderJob>,
+    subject: SubjectQuery,
+    emitters: Query<&GlobalTransform, With<ParticleEmitterMarker>>,
     mut cams: Query<(&mut Transform, &TileCam)>,
 ) {
     // Auto-frame the cameras on the subject's world AABB once it resolves
@@ -294,13 +307,13 @@ pub(super) fn drive(
             // A subject that never resolves an AABB — a grammar that errored
             // or derived to nothing — would otherwise spin here forever, so
             // fall back to a placeholder bound and capture the empty frame.
-            let bounds = subject_bounds(&subject)
+            let bounds = subject_bounds(&subject, &emitters)
                 .or_else(|| (capture.waited > FRAME_GRACE).then_some((Vec3::Y * 0.5, 0.5)));
             if let Some((center, radius)) = bounds {
                 let dist = radius / (FOV * 0.5).tan() * 1.2 + radius * 0.5;
                 for (mut transform, cam) in &mut cams {
                     let a = ANGLES[cam.0].to_radians();
-                    let pos = center + Vec3::new(dist * a.sin(), radius * 0.7, dist * a.cos());
+                    let pos = center + cam_offset(a, dist, radius, job.elev);
                     *transform = Transform::from_translation(pos).looking_at(center, Vec3::Y);
                 }
                 capture.framed = true;
@@ -313,7 +326,7 @@ pub(super) fn drive(
             for (mut transform, cam) in &mut cams {
                 let center = slots[cam.0 / ANGLES.len()].0;
                 let a = ANGLES[cam.0 % ANGLES.len()].to_radians();
-                let pos = center + Vec3::new(dist * a.sin(), max_radius * 0.7, dist * a.cos());
+                let pos = center + cam_offset(a, dist, max_radius, job.elev);
                 *transform = Transform::from_translation(pos).looking_at(center, Vec3::Y);
             }
             capture.framed = true;
@@ -341,11 +354,7 @@ pub(super) fn drive(
 /// `None` until every slot has at least one resolved AABB, unless `force` —
 /// then still-empty slots get a tiny placeholder bound at their slot origin
 /// so a degenerate variant can't hang the render.
-fn lineup_bounds(
-    q: &Query<(&GlobalTransform, &Aabb), Without<TileCam>>,
-    rows: usize,
-    force: bool,
-) -> Option<Vec<(Vec3, f32)>> {
+fn lineup_bounds(q: &SubjectQuery, rows: usize, force: bool) -> Option<Vec<(Vec3, f32)>> {
     let mut mins = vec![Vec3::splat(f32::INFINITY); rows];
     let mut maxs = vec![Vec3::splat(f32::NEG_INFINITY); rows];
     for (gt, aabb) in q.iter() {
@@ -380,10 +389,36 @@ fn lineup_bounds(
     Some(slots)
 }
 
+/// Where a tile camera sits relative to the framed centre. `elev` (degrees,
+/// from `--elev`) puts it on a true elevation arc; without it the camera
+/// keeps the historic low orbit — a fixed `0.7 * radius` rise at full
+/// distance, i.e. roughly 13° — which reads a facade well but cannot see
+/// into anything open-topped.
+fn cam_offset(yaw: f32, dist: f32, radius: f32, elev: Option<f32>) -> Vec3 {
+    match elev {
+        Some(deg) => {
+            let e = deg.to_radians();
+            let horiz = dist * e.cos();
+            Vec3::new(horiz * yaw.sin(), dist * e.sin(), horiz * yaw.cos())
+        }
+        None => Vec3::new(dist * yaw.sin(), radius * 0.7, dist * yaw.cos()),
+    }
+}
+
 /// Union the world-space AABB of every mesh entity → (centre, bounding radius).
 /// The ground plane is excluded so a room frames on its buildings, not the
-/// 160 m floor.
-fn subject_bounds(q: &Query<(&GlobalTransform, &Aabb), Without<TileCam>>) -> Option<(Vec3, f32)> {
+/// 160 m floor, and live [`Particle`] quads are excluded so a drifting smoke
+/// plume can't jitter the framing from run to run.
+///
+/// Emitter *anchors* are folded in as points instead. An FX-heavy prop —
+/// a fire whose smoke column is authored 2 m above a 0.9 m barrel — is
+/// mostly not geometry, and framing on the geometry alone crops the very
+/// thing an FX review is looking at. The anchors are static, so unlike the
+/// particles they cost nothing in stability.
+fn subject_bounds(
+    q: &SubjectQuery,
+    emitters: &Query<&GlobalTransform, With<ParticleEmitterMarker>>,
+) -> Option<(Vec3, f32)> {
     let (mut min, mut max) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
     let mut any = false;
     for (gt, aabb) in q.iter() {
@@ -406,6 +441,11 @@ fn subject_bounds(q: &Query<(&GlobalTransform, &Aabb), Without<TileCam>>) -> Opt
     }
     if !any {
         return None;
+    }
+    for gt in emitters.iter() {
+        let p = gt.translation();
+        min = min.min(p);
+        max = max.max(p);
     }
     Some(((min + max) * 0.5, ((max - min) * 0.5).length().max(0.1)))
 }

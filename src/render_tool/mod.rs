@@ -53,8 +53,17 @@ const ANGLES: [f32; 4] = [180.0, 135.0, 90.0, 0.0];
 /// Default perspective FOV (matches Bevy's `PerspectiveProjection` default).
 const FOV: f32 = std::f32::consts::FRAC_PI_4;
 /// Frames to run (after framing) before capturing, so procedural textures
-/// finish baking + patching into their materials.
+/// finish baking + patching into their materials — and, since [`STEP`]
+/// advances the clock by a fixed slice each frame, so particle emitters
+/// reach their steady-state plume before the shutter opens.
 const WARMUP: u32 = 200;
+/// Simulated seconds per frame in the headless app. The runner spins at
+/// `Duration::ZERO`, so the real delta is a sub-millisecond artefact of how
+/// fast the machine happens to be; particle emitters driven by it would emit
+/// almost nothing by capture time and the sheet would vary per machine.
+/// Overriding `Time` with a fixed slice makes the FX state at capture a
+/// function of [`WARMUP`] alone.
+const STEP: f32 = 1.0 / 30.0;
 const OUT_DIR: &str = "/tmp/avatar-render";
 
 #[derive(Parser)]
@@ -221,6 +230,13 @@ struct Args {
     profilecut: Option<String>,
     #[arg(long)]
     hollow: Option<f32>,
+    /// Camera elevation in degrees above the subject's centre. The default
+    /// orbit sits low (roughly 13°), which is the right eye-line for judging
+    /// a facade or a silhouette but cannot see into anything open-topped —
+    /// a brazier, a well, a crate, a bowl. Pass e.g. `--elev 45` to look
+    /// down into it.
+    #[arg(long)]
+    elev: Option<f32>,
     /// Per-tile pixel side. Forced to a multiple of 64 (no GPU row padding).
     #[arg(long, default_value_t = 512)]
     size: u32,
@@ -358,12 +374,45 @@ pub fn run() {
     // Resources + texture/material plugins the real spawn path reads.
     crate::world_builder::register_headless_spawn(&mut app);
     app.insert_resource(ClearColor(Color::srgb(0.52, 0.55, 0.70)))
-        .insert_resource(RenderJob { subject, out, size })
+        .insert_resource(RenderJob {
+            subject,
+            out,
+            size,
+            elev: args.elev,
+        })
         .init_resource::<Frames>()
         .init_resource::<Capture>()
         .add_systems(Startup, setup)
         .add_systems(Update, drive)
+        // Particle emitters spawn through the shared dispatch arm, but the
+        // systems that make them *emit* are registered by `WorldBuilderPlugin`
+        // behind `in_state(AppState::InGame)` — a state the render app never
+        // enters. Without these an FX-bearing prop renders as its bare
+        // geometry, which is exactly the detail an FX review needs to see.
+        // The particle integrator reads avian's gravity vector and takes a
+        // `SpatialQuery`, and the render app runs no physics plugin to
+        // supply either. An empty collider tree is the honest state here —
+        // catalogue FX all run with `collide_colliders: false`, so nothing
+        // queries it.
+        .insert_resource(avian3d::prelude::Gravity::default())
+        .init_resource::<avian3d::collider_tree::ColliderTrees>()
+        .add_systems(
+            Update,
+            (
+                fixed_step,
+                crate::world_builder::particles::update_emitter_motion,
+                crate::world_builder::particles::tick_emitter_spawn,
+                crate::world_builder::particles::tick_particles,
+            )
+                .chain(),
+        )
         .run();
+}
+
+/// Replace the wall-clock delta with [`STEP`] so the particle systems that
+/// follow in the chain advance deterministically. See [`STEP`].
+fn fixed_step(mut time: ResMut<Time>) {
+    time.advance_by(Duration::from_secs_f32(STEP));
 }
 
 /// Build the subject + a filename label from the CLI args.

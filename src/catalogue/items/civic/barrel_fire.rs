@@ -1,13 +1,22 @@
-//! Barrel fire — a rusted oil drum with a flame licking out of the top. A
-//! prosperity-Poor scatter prop: the universal sign of people keeping warm
-//! on the margins, in any setting.
+//! Barrel fire — a rusted oil drum burnt out into an open-topped brazier,
+//! with a live fire down inside it. A prosperity-Poor scatter prop: the
+//! universal sign of people keeping warm on the margins, in any setting.
+//!
+//! The fire is entirely particle-driven ([`super::fx`]) — two flame layers,
+//! embers, and two smoke layers. The only static hot geometry is the fuel
+//! bed itself: the coals, which genuinely *are* solid objects sitting still
+//! at the bottom of the drum. Everything above them is combustion, and
+//! combustion modelled as fixed cones reads as an orange plastic decoration
+//! no matter how it is shaded.
 
-use crate::catalogue::items::util::{cylinder_tapered, glow, id_quat, prim, solid, sphere, torus};
+use crate::catalogue::items::util::{
+    cylinder_tapered, glow, id_quat, prim, quat_x, solid, sphere, torus, with_cut,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier, ThemeArchetype};
 
-use super::{EMBER, FIRE, RUST, quat_z, rust_metal};
+use super::{EMBER, RUST, quat_z, rust_metal};
 
 pub struct BarrelFire;
 
@@ -19,7 +28,7 @@ impl CatalogueEntry for BarrelFire {
         "Barrel Fire"
     }
     fn description(&self) -> &'static str {
-        "Rusted oil drum with a flame licking out of the top."
+        "Rusted oil drum burnt open at the top, with a fire down inside it."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Prop
@@ -42,14 +51,34 @@ impl CatalogueEntry for BarrelFire {
     }
 }
 
+/// Deterministic salt for the emitter seeds, so two barrels in one room
+/// still animate in lockstep-free but reproducible fashion.
+const FX_SEED: u64 = 0x0BA9_9E1F;
+
 fn build_tree() -> Generator {
     let drum_h = 0.9;
     let drum_r = 0.34;
+    // Fraction of the radius bored out. The remaining 12% is the steel
+    // wall — thin enough to read as sheet metal at the rim, thick enough
+    // that the top annulus is a visible lip rather than a hairline.
+    let bore = 0.88;
+    // Where the fuel sits. Everything that burns lives between here and
+    // the rim, i.e. *inside* the drum, lighting the bore from within.
+    let bed_y = 0.26;
 
     let mut prims = vec![
-        // The drum.
+        // The drum: a hollowed cylinder, so the top is a genuine opening
+        // with an annular lip and an inner wall you can see down. The
+        // hollow cut routes the collider to a convex hull of the mesh,
+        // which fills the bore — a barrel you cannot step into, which is
+        // the behaviour we want.
         prim(
-            solid(cylinder_tapered(drum_r, drum_h, 14, 0.0, rust_metal(RUST))),
+            solid(with_cut(
+                cylinder_tapered(drum_r, drum_h, 16, 0.0, rust_metal(RUST)),
+                [0.0, 1.0],
+                [0.0, 1.0],
+                bore,
+            )),
             [0.0, drum_h * 0.5, 0.0],
             id_quat(),
         ),
@@ -64,67 +93,75 @@ fn build_tree() -> Generator {
             [0.0, drum_h * 0.72, 0.0],
             id_quat(),
         ),
-        // Charred top rim.
+        // Charred rolled lip, centred on the wall annulus so it caps the
+        // opening rather than floating inside or outside it.
         prim(
-            torus(0.04, drum_r, rust_metal([0.12, 0.1, 0.09])),
+            torus(
+                0.026,
+                drum_r * (1.0 + bore) * 0.5,
+                rust_metal([0.1, 0.09, 0.08]),
+            ),
             [0.0, drum_h, 0.0],
             id_quat(),
         ),
-        // Glowing coal bed at the rim — a deep-saturated ember mass at
+        // Ash floor a little way up the bore — without it you see straight
+        // through the annular bottom cap to the ground.
+        prim(
+            cylinder_tapered(
+                drum_r * bore - 0.01,
+                0.06,
+                14,
+                0.0,
+                rust_metal([0.14, 0.12, 0.11]),
+            ),
+            [0.0, 0.11, 0.0],
+            id_quat(),
+        ),
+        // The coal bed resting on the ash: a deep-saturated ember mass at
         // moderate strength so it reads hot, not a washed near-white blob.
         prim(
-            sphere(0.24, 3, glow(EMBER, 3.5)),
-            [0.0, drum_h + 0.02, 0.0],
+            sphere(0.2, 3, glow(EMBER, 3.5)),
+            [0.0, bed_y, 0.0],
             id_quat(),
         ),
     ];
 
-    // Small bright coals nestled in the bed.
-    for (dx, dz) in [(-0.12_f32, 0.06_f32), (0.13, -0.05), (0.0, 0.13)] {
+    // Small bright coals nestled in the bed, all well within the bore.
+    for (dx, dz) in [(-0.1_f32, 0.05_f32), (0.11, -0.04), (0.0, 0.11)] {
         prims.push(prim(
-            sphere(0.07, 3, glow([1.0, 0.34, 0.06], 3.0)),
-            [dx, drum_h + 0.06, dz],
+            sphere(0.06, 3, glow([1.0, 0.34, 0.06], 3.0)),
+            [dx, bed_y + 0.12, dz],
             id_quat(),
         ));
     }
 
-    // Flame tongues — thin tapered cylinders pinching to points, deep
-    // orange. Several of varied height beat one smooth cone.
-    for (dx, dz, r, h) in [
-        (0.0_f32, 0.0_f32, 0.13_f32, 0.78_f32),
-        (-0.1, 0.05, 0.1, 0.52),
-        (0.1, -0.06, 0.1, 0.56),
-        (0.05, 0.12, 0.09, 0.44),
-        (-0.08, -0.1, 0.08, 0.4),
+    // Two charred fuel stubs standing in the drum, leaning on the wall.
+    // Their tips stop short of the lip: fuel is *in* the barrel, and a
+    // stick crossing the rim was the tell that the old fire was a hat
+    // sitting on a closed drum rather than a fire burning inside one.
+    for (pos, rot) in [
+        ([0.09_f32, 0.56_f32, 0.02_f32], quat_z(0.34)),
+        ([-0.04, 0.5, 0.08], quat_x(-0.4)),
     ] {
         prims.push(prim(
-            cylinder_tapered(r, h, 8, 0.88, glow(FIRE, 3.2)),
-            [dx, drum_h + 0.06 + h * 0.5, dz],
-            id_quat(),
+            cylinder_tapered(0.022, 0.46, 6, 0.25, rust_metal([0.16, 0.11, 0.08])),
+            pos,
+            rot,
         ));
     }
 
-    // Inner yellow-hot tips.
-    for (dx, dz, h) in [(0.0_f32, 0.0_f32, 0.5_f32), (-0.06, 0.04, 0.34)] {
-        prims.push(prim(
-            cylinder_tapered(0.05, h, 6, 0.9, glow([1.0, 0.66, 0.18], 3.0)),
-            [dx, drum_h + 0.12 + h * 0.5, dz],
-            id_quat(),
-        ));
-    }
-
-    // A charred stick poking out of the barrel.
-    prims.push(prim(
-        solid(cylinder_tapered(
-            0.025,
-            0.55,
-            6,
-            0.0,
-            rust_metal([0.18, 0.12, 0.08]),
-        )),
-        [0.22, drum_h + 0.02, 0.05],
-        quat_z(0.6),
+    // The fire itself. Layered bottom-up: body and core overlap just above
+    // the coals and carry themselves out through the opening, embers shed
+    // off the tips, and the smoke column hands off from soot to pale plume
+    // as it climbs.
+    prims.push(super::fx::flame_body([0.0, bed_y + 0.14, 0.0], FX_SEED));
+    prims.push(super::fx::flame_core(
+        [0.0, bed_y + 0.22, 0.0],
+        FX_SEED ^ 0x11,
     ));
+    prims.push(super::fx::embers([0.0, bed_y + 0.4, 0.0], FX_SEED ^ 0x22));
+    prims.push(super::fx::smoke_soot([0.0, 1.15, 0.0], FX_SEED ^ 0x33));
+    prims.push(super::fx::smoke_plume([0.0, 1.95, 0.0], FX_SEED ^ 0x44));
 
     super::assemble(prims)
 }
