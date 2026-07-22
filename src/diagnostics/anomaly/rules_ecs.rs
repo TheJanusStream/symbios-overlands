@@ -71,17 +71,24 @@ impl Rule for TerrainColliderMissing {
         // The loading gate guarantees a solid terrain collider before InGame,
         // so zero colliders means the terrain body failed to spawn — but the
         // gauge samples at 1 Hz, so give the entry frame its grace (#869):
-        // fire immediately only when colliders were SEEN and then vanished;
-        // otherwise require a few seconds of in-game dwell first.
+        // fire immediately only when colliders were seen IN THIS WORLD and
+        // then vanished; otherwise require a few seconds of in-game dwell.
+        //
+        // "Seen" is the tick system's per-InGame-stint latch, NOT a scan of
+        // the gauge ring (#922): the ring spans state transitions, so at
+        // session start it still holds the boot/attract world's colliders
+        // and its newest sample can be the boot→room handover's zero — a
+        // ring scan read that as an in-game vanish and put one false
+        // CRITICAL at the top of every session report, which is how a
+        // reader learns to ignore criticals.
         let g = cx.metrics.gauge(names::RUNTIME_COLLIDER_COUNT)?;
         if g.last() >= 1.0 {
             return Some(Verdict::Clear);
         }
-        let seen_then_lost = g.iter().any(|v| v >= 1.0);
         let dwell_elapsed = cx
             .ingame_elapsed_secs
             .is_some_and(|t| t >= TERRAIN_GRACE_SECS);
-        Some(if seen_then_lost || dwell_elapsed {
+        Some(if cx.colliders_seen_ingame || dwell_elapsed {
             Verdict::violated("0 colliders in-game — terrain body missing")
         } else {
             Verdict::Clear
@@ -526,6 +533,7 @@ mod tests {
             nan_body_count: 0,
             orphan_avatar_count: 0,
             respawns_recent: 0,
+            colliders_seen_ingame: false,
         }
     }
 
@@ -556,13 +564,43 @@ mod tests {
 
     #[test]
     fn terrain_collider_missing_seen_then_lost_fires_inside_grace() {
-        // Colliders existed and vanished — that is never a startup blip,
-        // so it must fire even inside the grace window.
+        // Colliders existed IN THIS WORLD (the tick system's latch) and
+        // vanished — a genuine in-game loss fires even inside the grace
+        // window.
         let mut m = MetricsRegistry::default();
         m.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 142.0);
         m.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 0.0);
         let mut cx = ctx(&m);
         cx.ingame_elapsed_secs = Some(1.0);
+        cx.colliders_seen_ingame = true;
+        assert!(TerrainColliderMissing.eval(&cx).unwrap().is_violated());
+    }
+
+    /// The #922 regression shape: at session start the gauge ring still
+    /// holds the boot/attract world's colliders, followed by the
+    /// boot→room handover's zeros, and the rule evaluates 0.2 s after
+    /// InGame — before the fresh room has been re-sampled. With "seen"
+    /// read from the ring this fired a false CRITICAL at the top of
+    /// every session report; with the per-stint latch (false — nothing
+    /// seen in THIS world yet) it must stay clear and let the dwell
+    /// grace decide.
+    #[test]
+    fn terrain_collider_missing_ignores_the_boot_worlds_ring_samples() {
+        let mut m = MetricsRegistry::default();
+        m.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 78.0); // boot world
+        m.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 0.0); // handover
+        m.observe_gauge(names::RUNTIME_COLLIDER_COUNT, 0.0); // handover
+        let mut cx = ctx(&m);
+        cx.ingame_elapsed_secs = Some(0.2);
+        cx.colliders_seen_ingame = false;
+        assert_eq!(
+            TerrainColliderMissing.eval(&cx),
+            Some(Verdict::Clear),
+            "the boot world's colliders must not arm the current world's \
+             seen-then-lost path"
+        );
+        // …and the same state past the grace is the genuine startup miss.
+        cx.ingame_elapsed_secs = Some(TERRAIN_GRACE_SECS + 1.0);
         assert!(TerrainColliderMissing.eval(&cx).unwrap().is_violated());
     }
 

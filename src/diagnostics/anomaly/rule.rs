@@ -88,6 +88,14 @@ pub struct LiveCtx<'a> {
     pub orphan_avatar_count: usize,
     /// Respawns observed in the recent window (for thrash detection).
     pub respawns_recent: u32,
+    /// Whether a physics collider has been observed at any point since the
+    /// **current** `InGame` entry (#922). The collider gauge's ring cannot
+    /// answer this — it spans state transitions, so at session start it
+    /// still holds the boot/attract world's colliders, and "seen then
+    /// lost" read from the ring mistakes the boot→room handover for an
+    /// in-game vanish. Maintained by the tick system, reset each time the
+    /// loading gate opens.
+    pub colliders_seen_ingame: bool,
 }
 
 /// A diagnostic invariant. Implement [`eval`](Rule::eval) for live detection
@@ -171,6 +179,7 @@ mod tests {
             nan_body_count: 0,
             orphan_avatar_count: 0,
             respawns_recent: 0,
+            colliders_seen_ingame: false,
         };
         assert_eq!(toy.eval(&cx), Some(Verdict::violated("12 entities")));
 

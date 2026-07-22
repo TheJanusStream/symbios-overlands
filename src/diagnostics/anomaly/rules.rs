@@ -655,6 +655,7 @@ mod tests {
                 nan_body_count: 0,
                 orphan_avatar_count: 0,
                 respawns_recent: 0,
+                colliders_seen_ingame: false,
             }
         }
 
@@ -736,6 +737,7 @@ mod tests {
                 nan_body_count: 0,
                 orphan_avatar_count: 0,
                 respawns_recent: 0,
+                colliders_seen_ingame: false,
             }
         }
         let mut metrics = MetricsRegistry::default();

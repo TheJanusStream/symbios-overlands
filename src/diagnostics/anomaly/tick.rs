@@ -33,6 +33,11 @@ pub struct LoadingClock {
     /// Session-relative stamp of the Loading → InGame transition (#869);
     /// `None` until the first gate exit and across re-logins.
     ingame_entered_at: Option<f64>,
+    /// Whether a collider has been observed since the current InGame entry
+    /// (#922) — the cross-world-safe replacement for scanning the collider
+    /// gauge's ring, which at session start still holds the boot/attract
+    /// world's samples. Reset when the loading gate opens.
+    colliders_seen_ingame: bool,
 }
 
 impl LoadingClock {
@@ -145,7 +150,7 @@ fn diagnostic_tick(
     mut log: ResMut<SessionLog>,
     time: Res<Time>,
     state: Res<State<AppState>>,
-    loading_clock: Res<LoadingClock>,
+    mut loading_clock: ResMut<LoadingClock>,
     mut recent_respawns: ResMut<RecentRespawns>,
     hm_res: Option<Res<crate::terrain::FinishedHeightMap>>,
     player_q: Query<&Transform, With<LocalPlayer>>,
@@ -196,6 +201,18 @@ fn diagnostic_tick(
     // the hot-swap sweep reclaims real orphans on the next rebuild.
     let orphan_avatar_count = orphans_q.iter().count();
 
+    // Latch "a collider has existed in this world" (#922): once per InGame
+    // stint, from the same gauge the collider rule thresholds on. Latched
+    // here rather than read from the ring so the boot/attract world's
+    // samples can never arm the current world's seen-then-lost path.
+    if cur_state == AppState::InGame
+        && metrics
+            .gauge(crate::diagnostics::names::RUNTIME_COLLIDER_COUNT)
+            .is_some_and(|g| !g.is_empty() && g.last() >= 1.0)
+    {
+        loading_clock.colliders_seen_ingame = true;
+    }
+
     let cx = LiveCtx {
         now_secs: now,
         state: cur_state,
@@ -207,6 +224,7 @@ fn diagnostic_tick(
         nan_body_count,
         orphan_avatar_count,
         respawns_recent: recent_respawns.count_recent(now),
+        colliders_seen_ingame: loading_clock.colliders_seen_ingame,
     };
 
     run_rules(&mut invariants, &cx, &mut log);
@@ -220,8 +238,10 @@ fn loading_clock_enter(
     let now = time.elapsed_secs_f64();
     clock.entered_at = Some(now);
     // A fresh login's gate is starting: the previous session's InGame
-    // stamp must not grace-exempt (or prematurely arm) this one's rules.
+    // stamp must not grace-exempt (or prematurely arm) this one's rules,
+    // and its colliders must not arm the seen-then-lost path (#922).
     clock.ingame_entered_at = None;
+    clock.colliders_seen_ingame = false;
     // Mark the loading-gate open in the session stream (B-2 timeline start +
     // the LoadingGateStall replay rule's start marker).
     log.info(now, EventPayload::LoadingPhaseStarted);
@@ -291,6 +311,7 @@ mod tests {
             nan_body_count: 0,
             orphan_avatar_count: 0,
             respawns_recent: 0,
+            colliders_seen_ingame: false,
         }
     }
 
