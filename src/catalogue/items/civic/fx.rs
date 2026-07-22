@@ -5,18 +5,20 @@
 //! it drops straight into an [`assemble`](super::assemble) list alongside
 //! the prop's primitives.
 //!
-//! The fire set is deliberately split into *layers* rather than one
+//! Each effect is deliberately split into *layers* rather than one
 //! do-everything emitter. A single emitter has one colour ramp, one size
 //! ramp and one lifetime band, which is why prop fire built that way reads
 //! as a fuzzy orange smear: real flame is a small fast white-hot core
 //! inside a slower deep-orange body, shedding sparse embers, handing off to
-//! near-black soot that only pales as it spreads. Layering costs four extra
-//! emitter entities and buys all of that for free.
+//! near-black soot that only pales as it spreads. A fountain jet splits the
+//! same way — a hard fast column plus the soft mist hanging around its
+//! crown. Layering costs an extra emitter entity or two and buys all of
+//! that for free.
 
 use crate::catalogue::items::fx::Emitter;
 use crate::pds::{
-    EmitterShape, Fp, Fp3, Generator, ParticleBlendMode, SovereignFlameConfig, SovereignPuffConfig,
-    SovereignSparkConfig, SovereignTextureConfig,
+    EmitterShape, Fp, Fp3, Fp64, Generator, ParticleBlendMode, SovereignFlameConfig,
+    SovereignPuffConfig, SovereignSoftDiscConfig, SovereignSparkConfig, SovereignTextureConfig,
 };
 
 /// The white-hot inner cone of an open fire: short-lived, fast, narrow, and
@@ -108,6 +110,84 @@ pub(super) fn embers(pos: [f32; 3], seed: u64) -> Generator {
             points: 4,
             color_core: Fp3([1.0, 0.95, 0.75]),
             color_tip: Fp3([1.0, 0.45, 0.10]),
+            ..Default::default()
+        }),
+    }
+    .at(pos, seed)
+}
+
+/// A fountain jet: a tight fast column of droplets thrown straight up under
+/// *positive* gravity, so the arc and the fall-back are simulated rather
+/// than sculpted. Place it at the nozzle; lifetimes are tuned so droplets
+/// wink out around the height they'd hit the catch basin, since the shared
+/// [`Emitter`] runs with terrain/water collision off and un-killed droplets
+/// would otherwise rain on through the plinth and into the ground.
+pub(super) fn water_jet(pos: [f32; 3], seed: u64) -> Generator {
+    Emitter {
+        shape: EmitterShape::Cone {
+            half_angle: Fp(0.22),
+            height: Fp(0.06),
+        },
+        rate: 165.0,
+        burst: 0,
+        max: 300,
+        life: (0.8, 1.25),
+        speed: (3.8, 4.6),
+        // Real gravity — apex ≈ 0.9 m above the nozzle at these speeds,
+        // and the lifetimes above land droplets back around the catch bowl.
+        gravity: 1.0,
+        accel: [0.0, 0.0, 0.0],
+        // Droplets this size barely feel air; anything more and the column
+        // stalls into a hover instead of arcing over.
+        drag: 0.05,
+        size: (0.13, 0.07),
+        start_color: [0.88, 0.95, 1.0, 1.0],
+        end_color: [0.48, 0.74, 0.9, 0.0],
+        // Alpha, not additive: aerated water is opaque white, and additive
+        // over pale marble blows straight out to a featureless glow.
+        blend: ParticleBlendMode::Alpha,
+        sprite: SovereignTextureConfig::SoftDisc(SovereignSoftDiscConfig {
+            seed: (seed ^ 0x00A1_7E40) as u32,
+            // A 2×2 sheet of per-cell-seeded droplets; `RandomFrame` deals
+            // one per particle, so the column isn't 300 copies of one blob.
+            variant_rows: 2,
+            variant_cols: 2,
+            color_core: Fp3([1.0, 1.0, 1.0]),
+            color_halo: Fp3(super::WATER_BLUE),
+            core_radius: Fp64(0.55),
+            falloff: Fp64(1.4),
+            ellipticity: Fp64(0.35),
+            ..Default::default()
+        }),
+    }
+    .at(pos, seed)
+}
+
+/// The fine mist hanging around a jet's crown: slow, soft, growing as it
+/// dissipates, settling under a fraction of gravity. This is what sells a
+/// jet as water rather than a blue rod — the hard column alone reads as
+/// plastic.
+pub(super) fn water_mist(pos: [f32; 3], seed: u64) -> Generator {
+    Emitter {
+        shape: EmitterShape::Sphere { radius: Fp(0.28) },
+        rate: 26.0,
+        burst: 0,
+        max: 80,
+        life: (0.7, 1.5),
+        speed: (0.15, 0.55),
+        gravity: 0.3,
+        accel: [0.0, 0.0, 0.0],
+        drag: 1.3,
+        size: (0.14, 0.4),
+        start_color: [0.92, 0.96, 1.0, 0.45],
+        end_color: [0.72, 0.85, 0.94, 0.0],
+        blend: ParticleBlendMode::Alpha,
+        sprite: SovereignTextureConfig::SoftDisc(SovereignSoftDiscConfig {
+            seed: (seed ^ 0x0031_5700) as u32,
+            color_core: Fp3([1.0, 1.0, 1.0]),
+            color_halo: Fp3([0.8, 0.9, 1.0]),
+            core_radius: Fp64(0.2),
+            falloff: Fp64(2.4),
             ..Default::default()
         }),
     }

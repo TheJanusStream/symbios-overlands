@@ -1,7 +1,7 @@
 //! Fountain — a tiered marble basin with a central jet. A prosperity-Rich
 //! scatter prop: ornamental waterworks signal civic wealth in any setting.
 
-use crate::catalogue::items::util::{cylinder_tapered, id_quat, prim, solid, sphere, torus, tube};
+use crate::catalogue::items::util::{cylinder_tapered, id_quat, prim, solid, torus, tube};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp, Fp3, Generator, SovereignMaterialSettings};
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier, ThemeArchetype};
@@ -20,6 +20,9 @@ fn water() -> SovereignMaterialSettings {
         ..Default::default()
     }
 }
+
+/// Deterministic salt for the jet's emitter seeds.
+const FX_SEED: u64 = 0x0F00_47A1;
 
 pub struct Fountain;
 
@@ -114,12 +117,12 @@ fn build_tree() -> Generator {
             [0.0, 1.57, 0.0],
             id_quat(),
         ),
-        // Jet rising from the bowl and the spray orb crowning it.
-        prim(
-            cylinder_tapered(0.045, 0.55, 8, 0.0, water()),
-            [0.0, 1.85, 0.0],
-            id_quat(),
-        ),
-        prim(sphere(0.16, 3, water()), [0.0, 2.14, 0.0], id_quat()),
+        // The jet, thrown from the bowl's surface: a dense arcing column
+        // under real gravity, wrapped in the mist its own break-up throws
+        // off. Both are particle systems — a fountain's whole appeal is
+        // that the water *moves*, and the static rod-and-orb this replaces
+        // read as a blue plastic lollipop from every angle.
+        super::fx::water_jet([0.0, 1.62, 0.0], FX_SEED),
+        super::fx::water_mist([0.0, 2.35, 0.0], FX_SEED ^ 0x55),
     ])
 }
