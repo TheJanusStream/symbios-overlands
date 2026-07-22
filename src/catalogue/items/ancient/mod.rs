@@ -43,6 +43,8 @@ pub mod fx;
 
 use bevy_symbios_texture::metal::MetalStyle;
 
+use super::util::{tile, tiles_per_metre};
+
 use crate::pds::{
     Fp, Fp3, Fp64, SovereignAshlarConfig, SovereignMarbleConfig, SovereignMaterialSettings,
     SovereignMetalConfig, SovereignStuccoConfig, SovereignTextureConfig,
@@ -66,7 +68,7 @@ pub(super) fn marble(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.25),
         metallic: Fp(0.0),
-        uv_scale: Fp(1.0),
+        uv_scale: tiles_per_metre(tile::MARBLE),
         texture: SovereignTextureConfig::Marble(SovereignMarbleConfig {
             color_base: Fp3(color),
             color_vein: Fp3([color[0] * 0.55, color[1] * 0.52, color[2] * 0.5]),
@@ -84,7 +86,7 @@ pub(super) fn sandstone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.85),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::ASHLAR_BLOCK * 3.0),
         texture: SovereignTextureConfig::Ashlar(SovereignAshlarConfig {
             color_stone: Fp3(color),
             color_mortar: Fp3([color[0] * 0.78, color[1] * 0.76, color[2] * 0.7]),
@@ -104,7 +106,7 @@ pub(super) fn adobe(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.98),
         metallic: Fp(0.0),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::STUCCO),
         texture: SovereignTextureConfig::Stucco(SovereignStuccoConfig {
             color_base: Fp3(color),
             color_shadow: Fp3([color[0] * 0.7, color[1] * 0.66, color[2] * 0.6]),
@@ -133,7 +135,7 @@ pub(super) fn bronze(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.4),
         metallic: Fp(0.85),
-        uv_scale: Fp(1.0),
+        uv_scale: tiles_per_metre(tile::METAL),
         texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
             style: MetalStyle::Brushed,
             color_metal: Fp3(color),

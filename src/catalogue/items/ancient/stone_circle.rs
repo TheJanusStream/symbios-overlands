@@ -9,6 +9,7 @@
 //! altar on the ground — on slopes the outer stones float or sink a
 //! little, which suits a ruin.
 
+use crate::catalogue::items::util::{tile, tiles_per_metre};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, SovereignMaterialSettings, SovereignRockConfig,
@@ -55,7 +56,7 @@ fn megalith_mat() -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3([0.48, 0.47, 0.45]),
         roughness: Fp(0.95),
-        uv_scale: Fp(1.2),
+        uv_scale: tiles_per_metre(tile::ROCK),
         texture: SovereignTextureConfig::Rock(SovereignRockConfig {
             scale: Fp64(6.0),
             ..Default::default()

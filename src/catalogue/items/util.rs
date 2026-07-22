@@ -503,14 +503,31 @@ pub(super) fn tiles_per_metre(tile_m: f32) -> Fp {
 /// count times a real-world feature size, so one constant reads the same on
 /// a 0.8 m pier and an 8 m wall.
 ///
-/// # Only primitives
+/// # Tiles versus features
 ///
-/// The metre convention (#933–#938) is a property of `build_primitive_mesh`.
-/// `LSystem` and `Shape` geometry is meshed by its own pipeline and still
-/// carries that pipeline's own UVs, so a material used on a tree trunk or a
-/// grammar-built wall must keep its hand-tuned `uv_scale` — converting it
-/// would rescale against a parameterisation that never changed. Check what
-/// a material is actually applied to before touching it.
+/// Most constants here are a whole tile, because the generator's feature
+/// count barely moves between uses. Where that count *does* swing widely,
+/// the constant is one **feature** instead and the call site multiplies by
+/// the config's own count — [`tile::BRICK_COURSE`], [`tile::ASHLAR_BLOCK`],
+/// [`tile::PLANK_BOARD`], [`tile::CORRUGATED_PITCH`]. That keeps the brick (or board,
+/// or rib) the same physical size between two neighbouring buildings, which
+/// is the property that actually reads; pinning the tile instead would pin
+/// the feature to whatever `1 / count` happened to be.
+///
+/// # Not for L-systems
+///
+/// The metre convention covers `build_primitive_mesh` **and** `Shape`: the
+/// shape mesher emits world-space UVs too (`bevy_symbios_shape`'s
+/// `build_profiled_mesh` scales UVs by the scope size, and overlands always
+/// passes `stretch_uvs: false`), so grammar materials convert exactly like
+/// primitive ones.
+///
+/// `LSystem` is the real exception. Its mesher parameterises U as `0..1`
+/// around the tube and V as arc-length over circumference, so a trunk's
+/// texel density is a function of its radius, not of metres. A `Bark` or
+/// foliage material on an L-system must keep its hand-tuned `uv_scale` —
+/// converting it would rescale against a parameterisation that never
+/// changed.
 ///
 /// # Alpha cards
 ///
@@ -526,25 +543,38 @@ pub(super) fn tiles_per_metre(tile_m: f32) -> Fp {
 ///
 /// | generator | features / tile | feature | tile |
 /// |---|---|---|---|
-/// | Corrugated | 8 ridges | 76 mm sheet pitch | 0.6 m |
 /// | Marble | veining | | 2.0 m |
 /// | Rock | rock face | | 1.5 m |
 /// | Ground / Sand / Snow / Ice | granular | | 2.0 m |
-/// | Asphalt | coarse aggregate | | 3.0 m |
 /// | Pavers | paving slabs | | 1.2 m |
 pub(super) mod tile {
-    /// 4 brick columns per tile at a 215 mm brick.
-    pub(in crate::catalogue::items) const BRICK: f32 = 0.86;
+    /// One brick column, for configs whose `SovereignBrickConfig::scale`
+    /// departs from the usual 5 (mudbrick coursing runs 14). Multiply by
+    /// that count; at the usual count, prefer [`BRICK`].
+    pub(in crate::catalogue::items) const BRICK_COURSE: f32 = 0.172;
+    /// The common 5-column brick config.
+    pub(in crate::catalogue::items) const BRICK: f32 = BRICK_COURSE * 5.0;
     /// Board-formed concrete — the board marks are the feature.
     pub(in crate::catalogue::items) const CONCRETE: f32 = 2.4;
     /// Sheet metal — plate seams and brushing.
     pub(in crate::catalogue::items) const METAL: f32 = 1.2;
-    /// `SovereignAshlarConfig::rows`/`cols` blocks per tile — 4 × 4 dressed
-    /// blocks at a 450 mm course.
-    pub(in crate::catalogue::items) const ASHLAR: f32 = 1.8;
-    /// `SovereignPlankConfig::plank_count` boards per tile — 5 to 6 boards,
-    /// so a nominal 150–200 mm sawn board.
-    pub(in crate::catalogue::items) const PLANK: f32 = 1.0;
+    /// One dressed-ashlar block, for configs whose
+    /// `SovereignAshlarConfig::cols` departs from the usual 4. Multiply by
+    /// that count; at the usual count, prefer [`ASHLAR`].
+    pub(in crate::catalogue::items) const ASHLAR_BLOCK: f32 = 0.45;
+    /// The common 4-column ashlar config.
+    pub(in crate::catalogue::items) const ASHLAR: f32 = ASHLAR_BLOCK * 4.0;
+    /// Sawn-board **width**, not a whole tile — multiply by the config's
+    /// `plank_count`.
+    ///
+    /// Like [`CORRUGATED_PITCH`], `SovereignPlankConfig::plank_count` ranges
+    /// too widely (4 on a fence, 9 on clapboard) for one tile size to serve:
+    /// pinning the tile pins the *board* to whatever 1/count happens to be,
+    /// so barn siding came out at 125 mm and mipped to flat red. Fixing the
+    /// board width instead means a fence board and a barn board are the same
+    /// size, which is the property that actually matters between neighbouring
+    /// buildings.
+    pub(in crate::catalogue::items) const PLANK_BOARD: f32 = 0.167;
     /// `SovereignCobblestoneConfig::scale` stones per tile — 6 stones at a
     /// 150 mm fieldstone cobble.
     pub(in crate::catalogue::items) const COBBLE: f32 = 0.9;
@@ -560,6 +590,31 @@ pub(super) mod tile {
     /// Woven cloth — the weave *is* the feature, so this is the tightest
     /// tile in the table.
     pub(in crate::catalogue::items) const FABRIC: f32 = 0.5;
+
+    /// Rough rock face — undressed rubble masonry and natural stone.
+    pub(in crate::catalogue::items) const ROCK: f32 = 1.5;
+    /// Marble veining — a figure rather than a countable feature, sized to
+    /// the block it faces.
+    pub(in crate::catalogue::items) const MARBLE: f32 = 2.0;
+    /// Ground / sand / snow / ice — granular, near-scaleless, and always on
+    /// the largest surfaces in a scene, so it is sized to stay a tone.
+    pub(in crate::catalogue::items) const GROUND: f32 = 2.0;
+    /// Asphalt — coarse aggregate and crack noise, sized large because the
+    /// surfaces it lands on (forecourts, lots) are the biggest in the kit
+    /// and a tight tile turns them into visible repetition.
+    pub(in crate::catalogue::items) const ASPHALT: f32 = 3.0;
+    /// Corrugated steel **ridge pitch**, not a whole tile — multiply by the
+    /// config's `ridges` to get the tile.
+    ///
+    /// This one generator has to be authored the long way round because
+    /// `SovereignCorrugatedConfig::ridges` is not roughly constant across
+    /// uses the way the other counts are: roofing sheet runs ~14 ridges and
+    /// a silo's structural ribbing ~24, against the 4–9 spread that lets
+    /// `PLANK` and `SHINGLE` get away with a single tile size. Pinning one
+    /// tile across that 3× spread would drive the pitch down to 25–43 mm —
+    /// far under the ~76 mm of real sheet, and fine enough that the mip
+    /// chain flattens it to bare colour.
+    pub(in crate::catalogue::items) const CORRUGATED_PITCH: f32 = 0.076;
 }
 
 pub(super) fn glow(color: [f32; 3], strength: f32) -> SovereignMaterialSettings {

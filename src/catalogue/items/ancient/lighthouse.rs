@@ -63,7 +63,9 @@ fn band_mat(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.7),
         metallic: Fp(0.05),
-        uv_scale: Fp(1.5),
+        // No texture, so `uv_scale` is inert — pinned at 1.0 so it does not
+        // read as a stale pre-#936 repeat count.
+        uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::None,
         ..Default::default()
     }

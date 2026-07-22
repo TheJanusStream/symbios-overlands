@@ -19,6 +19,7 @@
 
 use std::collections::HashMap;
 
+use crate::catalogue::items::util::{tile, tiles_per_metre};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, GeneratorKind, SovereignGroundConfig, SovereignMaterialSettings,
@@ -103,7 +104,7 @@ fn build_kind() -> GeneratorKind {
         SovereignMaterialSettings {
             base_color: Fp3([0.22, 0.35, 0.16]),
             roughness: Fp(0.9),
-            uv_scale: Fp(1.0),
+            uv_scale: tiles_per_metre(tile::GROUND),
             texture: SovereignTextureConfig::Ground(SovereignGroundConfig {
                 color_dry: Fp3([0.32, 0.40, 0.20]),
                 color_moist: Fp3([0.14, 0.26, 0.10]),

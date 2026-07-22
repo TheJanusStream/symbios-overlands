@@ -19,12 +19,11 @@
 //! hearth smoke. The theme's cool steel-blue light accent lives in
 //! [`crate::seeded_defaults::room::accent`].
 //!
-//! Every shared material here is authored in physical tile sizes via
-//! [`tiles_per_metre`] (#936), which is only
-//! valid because all of them land on primitive geometry. [`medieval_castle`]
-//! and [`watchtower`] are grammar-built (`GeneratorKind::Shape`) and carry
-//! their own local materials at that pipeline's hand-tuned `uv_scale` — do
-//! not fold them into these helpers.
+//! Every material here is authored in physical tile sizes via
+//! [`tiles_per_metre`] (#936). [`medieval_castle`] and [`watchtower`] are
+//! grammar-built (`GeneratorKind::Shape`) and keep their own local material
+//! maps, but they are on the same metre convention — the shape mesher emits
+//! world-space UVs too — so they are converted alongside these helpers.
 
 pub mod medieval_castle;
 pub mod watchtower;
@@ -76,7 +75,7 @@ pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.85),
         metallic: Fp(0.0),
-        uv_scale: tiles_per_metre(tile::PLANK),
+        uv_scale: tiles_per_metre(tile::PLANK_BOARD * 6.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
             color_wood_light: Fp3([color[0] * 1.25, color[1] * 1.25, color[2] * 1.25]),
             color_wood_dark: Fp3([color[0] * 0.6, color[1] * 0.6, color[2] * 0.6]),

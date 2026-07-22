@@ -7,6 +7,7 @@
 //! its base at the generator origin; dome, slit, railing, and door are
 //! children positioned relative to the drum centre.
 
+use crate::catalogue::items::util::{tile, tiles_per_metre};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, SovereignConcreteConfig, SovereignMaterialSettings,
@@ -57,7 +58,7 @@ fn concrete_mat() -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3([0.62, 0.61, 0.58]),
         roughness: Fp(0.85),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::CONCRETE),
         texture: SovereignTextureConfig::Concrete(SovereignConcreteConfig {
             formwork_lines: Fp64(4.0),
             formwork_depth: Fp64(0.08),
@@ -72,7 +73,7 @@ fn dome_mat() -> SovereignMaterialSettings {
         base_color: Fp3([0.55, 0.58, 0.62]),
         roughness: Fp(0.35),
         metallic: Fp(0.85),
-        uv_scale: Fp(1.0),
+        uv_scale: tiles_per_metre(tile::METAL),
         // Brushed, not StandingSeam: the seam ridges wrap a sphere's
         // UV as wobbly horizontal rings.
         texture: SovereignTextureConfig::Metal(SovereignMetalConfig {

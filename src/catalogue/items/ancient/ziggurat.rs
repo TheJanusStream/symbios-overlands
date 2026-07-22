@@ -8,6 +8,7 @@
 //! with its base at the generator origin; upper tiers, ramp, and
 //! shrine are children positioned relative to the base-tier centre.
 
+use crate::catalogue::items::util::{tile, tiles_per_metre};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, SovereignBrickConfig, SovereignMaterialSettings,
@@ -60,7 +61,8 @@ fn sandstone_mat() -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3([0.72, 0.58, 0.40]),
         roughness: Fp(0.9),
-        uv_scale: Fp(3.0),
+        // Mudbrick coursing runs 14 columns per tile, not the usual 5.
+        uv_scale: tiles_per_metre(tile::BRICK_COURSE * 14.0),
         texture: SovereignTextureConfig::Brick(SovereignBrickConfig {
             aspect_ratio: Fp64(4.0),
             color_brick: Fp3([0.68, 0.54, 0.36]),

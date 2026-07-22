@@ -13,6 +13,7 @@
 
 use std::collections::HashMap;
 
+use crate::catalogue::items::util::{tile, tiles_per_metre};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, GeneratorKind, SovereignAshlarConfig, SovereignGroundConfig,
@@ -77,7 +78,7 @@ fn build_kind() -> GeneratorKind {
         SovereignMaterialSettings {
             base_color: Fp3([0.60, 0.57, 0.52]),
             roughness: Fp(0.9),
-            uv_scale: Fp(2.0),
+            uv_scale: tiles_per_metre(tile::ASHLAR),
             texture: SovereignTextureConfig::Ashlar(SovereignAshlarConfig {
                 color_stone: Fp3([0.60, 0.57, 0.52]),
                 color_mortar: Fp3([0.74, 0.71, 0.66]),
@@ -95,7 +96,7 @@ fn build_kind() -> GeneratorKind {
         SovereignMaterialSettings {
             base_color: Fp3([0.34, 0.31, 0.30]),
             roughness: Fp(0.8),
-            uv_scale: Fp(1.5),
+            uv_scale: tiles_per_metre(tile::SHINGLE),
             texture: SovereignTextureConfig::Shingle(SovereignShingleConfig::default()),
             ..Default::default()
         },
@@ -106,7 +107,7 @@ fn build_kind() -> GeneratorKind {
         SovereignMaterialSettings {
             base_color: Fp3([0.38, 0.22, 0.10]),
             roughness: Fp(0.7),
-            uv_scale: Fp(1.0),
+            uv_scale: tiles_per_metre(tile::PLANK_BOARD * 5.0),
             texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
                 color_wood_light: Fp3([0.4, 0.22, 0.10]),
                 color_wood_dark: Fp3([0.22, 0.12, 0.04]),
@@ -154,7 +155,7 @@ fn build_kind() -> GeneratorKind {
         SovereignMaterialSettings {
             base_color: Fp3([0.20, 0.32, 0.14]),
             roughness: Fp(0.9),
-            uv_scale: Fp(1.0),
+            uv_scale: tiles_per_metre(tile::GROUND),
             texture: SovereignTextureConfig::Ground(SovereignGroundConfig {
                 color_dry: Fp3([0.28, 0.38, 0.18]),
                 color_moist: Fp3([0.14, 0.24, 0.10]),

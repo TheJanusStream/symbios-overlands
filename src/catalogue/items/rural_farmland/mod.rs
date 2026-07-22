@@ -34,6 +34,8 @@ pub mod fx;
 
 use bevy_symbios_texture::metal::MetalStyle;
 
+use super::util::{tile, tiles_per_metre};
+
 use crate::pds::{
     Fp, Fp3, Fp64, SovereignCobblestoneConfig, SovereignCorrugatedConfig,
     SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignShingleConfig,
@@ -58,7 +60,7 @@ pub(super) fn barn_board(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.85),
         metallic: Fp(0.0),
-        uv_scale: Fp(2.0),
+        uv_scale: tiles_per_metre(tile::PLANK_BOARD * 8.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
             color_wood_light: Fp3([color[0] * 1.15, color[1] * 1.1, color[2] * 1.1]),
             color_wood_dark: Fp3([color[0] * 0.65, color[1] * 0.6, color[2] * 0.6]),
@@ -77,7 +79,7 @@ pub(super) fn clapboard(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.8),
         metallic: Fp(0.0),
-        uv_scale: Fp(2.0),
+        uv_scale: tiles_per_metre(tile::PLANK_BOARD * 9.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
             color_wood_light: Fp3([color[0] * 1.08, color[1] * 1.08, color[2] * 1.08]),
             color_wood_dark: Fp3([color[0] * 0.82, color[1] * 0.82, color[2] * 0.82]),
@@ -95,7 +97,7 @@ pub(super) fn weathered(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.95),
         metallic: Fp(0.0),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::PLANK_BOARD * 4.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
             color_wood_light: Fp3([color[0] * 1.15, color[1] * 1.15, color[2] * 1.15]),
             color_wood_dark: Fp3([color[0] * 0.7, color[1] * 0.7, color[2] * 0.7]),
@@ -114,7 +116,8 @@ pub(super) fn metal_roof(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.6),
         metallic: Fp(0.7),
-        uv_scale: Fp(2.0),
+        // 14 ridges of roofing sheet at the standard pitch.
+        uv_scale: tiles_per_metre(tile::CORRUGATED_PITCH * 14.0),
         texture: SovereignTextureConfig::Corrugated(SovereignCorrugatedConfig {
             color_metal: Fp3(color),
             color_rust: Fp3([0.42, 0.24, 0.12]),
@@ -135,7 +138,11 @@ pub(super) fn silo_metal(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.45),
         metallic: Fp(0.85),
-        uv_scale: Fp(3.0),
+        // Legibility override (#936): 24 ribs at the true 76 mm pitch wrap a
+        // 4 m silo ~165 times, which mips to flat grey at every distance the
+        // silo is ever seen from. The ribbing is the silo's whole silhouette
+        // signature, so it is drawn ~3x oversize to exist at all.
+        uv_scale: tiles_per_metre(tile::CORRUGATED_PITCH * 3.0 * 24.0),
         texture: SovereignTextureConfig::Corrugated(SovereignCorrugatedConfig {
             color_metal: Fp3(color),
             color_rust: Fp3([0.4, 0.28, 0.16]),
@@ -155,7 +162,7 @@ pub(super) fn shingle(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.8),
-        uv_scale: Fp(3.0),
+        uv_scale: tiles_per_metre(tile::SHINGLE),
         texture: SovereignTextureConfig::Shingle(SovereignShingleConfig {
             color_tile: Fp3(color),
             color_grout: Fp3([color[0] * 0.6, color[1] * 0.6, color[2] * 0.62]),
@@ -194,7 +201,7 @@ pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.35),
         metallic: Fp(0.5),
-        uv_scale: Fp(1.0),
+        uv_scale: tiles_per_metre(tile::METAL),
         texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
             style: MetalStyle::Brushed,
             color_metal: Fp3(color),
@@ -214,7 +221,7 @@ pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.95),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::COBBLE),
         texture: SovereignTextureConfig::Cobblestone(SovereignCobblestoneConfig {
             color_stone: Fp3(color),
             color_mud: Fp3([color[0] * 0.5, color[1] * 0.45, color[2] * 0.4]),
