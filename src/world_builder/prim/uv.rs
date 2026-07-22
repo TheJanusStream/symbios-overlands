@@ -1,9 +1,27 @@
 //! Post-mesh UV projection for meshers with no analytic parameterisation
 //! (#739). [`project_uvs`] maps a [`UvMapping`] mode over raw attribute
 //! buffers rather than a `Mesh`, so any hand-built mesher can adopt it just
-//! before its `mesh_from_parts` tail — BlobGroup is the only adopter today.
-//! All projections work in the buffers' own (prim-local) frame, so a mode's
-//! result is stable under the prim's transform.
+//! before its `mesh_from_parts` tail.
+//!
+//! # The metre convention (#933)
+//!
+//! **Every projection here emits UVs in metres of prim-local surface: a UV
+//! delta of `1.0` is one metre across the surface.** `uv_scale` on the
+//! material therefore reads as *tiles per metre* — `uv_scale: 5.0` lays a
+//! 20 cm brick course whatever it is applied to.
+//!
+//! This replaces the original `1 / longest-extent` normalisation, under
+//! which each prim received exactly one texture tile across its own bounds.
+//! That made texel density a function of prim *size*: a 0.8 m pier and a
+//! 6.4 m lintel sharing one material could not have matching brickwork, and
+//! the only lever was a per-material `uv_scale` scalar hand-tuned per prop.
+//! Size-invariance is the whole point of the change.
+//!
+//! World-*scale*, not world-*space*: the projections still work in the
+//! buffers' own prim-local frame, so a mode's result is stable under the
+//! prim's transform and the geometry-keyed mesh cache keeps working.
+//! Texture continuity *between* adjacent prims is a different problem and
+//! is not solved here.
 //!
 //! The discontinuous modes (`Box` between projection axes, `Cylindrical` at
 //! the azimuth wrap) split shared vertices along their seams: a shared
@@ -51,41 +69,52 @@ fn bounds(pos: &[[f32; 3]]) -> (Vec3, Vec3) {
     (lo, hi)
 }
 
-/// The original mapping (the default until #742), kept formula-identical
-/// to the pre-#739 inline code: equirectangular projection of each
-/// vertex's direction from the surface centroid.
+/// Equirectangular projection of each vertex's direction from the surface
+/// centroid (the original #739 mapping, and the default until #742), scaled
+/// into metres of arc on the mass's mean sphere: `U` spans one equatorial
+/// circumference, `V` one pole-to-pole half-circumference, so a texel is
+/// square at the equator.
 fn spherical(pos: &[[f32; 3]]) -> Vec<[f32; 2]> {
     use std::f32::consts::{PI, TAU};
     let centroid = pos
         .iter()
         .fold(Vec3::ZERO, |acc, p| acc + Vec3::from_array(*p))
         / pos.len().max(1) as f32;
+    let mean_r = mean_radius(pos, centroid);
     pos.iter()
         .map(|p| {
             let d = (Vec3::from_array(*p) - centroid).normalize_or_zero();
             [
-                0.5 + d.z.atan2(d.x) / TAU,
-                0.5 - d.y.clamp(-1.0, 1.0).asin() / PI,
+                (0.5 + d.z.atan2(d.x) / TAU) * TAU * mean_r,
+                (0.5 - d.y.clamp(-1.0, 1.0).asin() / PI) * PI * mean_r,
             ]
         })
         .collect()
 }
 
-/// Flat projection along one local axis. Uniform `1 / longest-extent`
-/// scale (not per-axis normalisation, which would just re-introduce the
-/// stretch this mode exists to fix), centred so the texture covers the
-/// mass once along its longest axis.
+/// Mean distance of the vertices from `centre` — the radius a rotational
+/// projection measures its arc lengths against.
+fn mean_radius(pos: &[[f32; 3]], centre: Vec3) -> f32 {
+    (pos.iter()
+        .map(|p| (Vec3::from_array(*p) - centre).length())
+        .sum::<f32>()
+        / pos.len().max(1) as f32)
+        .max(1e-5)
+}
+
+/// Flat projection along one local axis, in metres from the bounds centre.
+/// Both UV axes share the one scale (metres), so the stretch a per-axis
+/// normalisation would reintroduce cannot occur.
 fn planar(pos: &[[f32; 3]], mapping: UvMapping) -> Vec<[f32; 2]> {
     let (lo, hi) = bounds(pos);
     let c = (lo + hi) * 0.5;
-    let inv = 1.0 / (hi - lo).max_element().max(1e-5);
     pos.iter()
         .map(|p| {
-            let q = (Vec3::from_array(*p) - c) * inv;
+            let q = Vec3::from_array(*p) - c;
             match mapping {
-                UvMapping::PlanarX => [0.5 + q.z, 0.5 - q.y],
-                UvMapping::PlanarY => [0.5 + q.x, 0.5 + q.z],
-                _ => [0.5 + q.x, 0.5 - q.y],
+                UvMapping::PlanarX => [q.z, -q.y],
+                UvMapping::PlanarY => [q.x, q.z],
+                _ => [q.x, -q.y],
             }
         })
         .collect()
@@ -100,16 +129,15 @@ fn planar(pos: &[[f32; 3]], mapping: UvMapping) -> Vec<[f32; 2]> {
 fn box_mapped(pos: &mut Vec<[f32; 3]>, nor: &mut Vec<[f32; 3]>, idx: &mut [u32]) -> Vec<[f32; 2]> {
     let (lo, hi) = bounds(pos);
     let c = (lo + hi) * 0.5;
-    let inv = 1.0 / (hi - lo).max_element().max(1e-5);
     let uv_for = |p: [f32; 3], region: u8| -> [f32; 2] {
-        let q = (Vec3::from_array(p) - c) * inv;
+        let q = Vec3::from_array(p) - c;
         match region {
-            0 => [0.5 - q.z, 0.5 - q.y], // +X
-            1 => [0.5 + q.z, 0.5 - q.y], // −X
-            2 => [0.5 + q.x, 0.5 + q.z], // +Y
-            3 => [0.5 + q.x, 0.5 - q.z], // −Y
-            4 => [0.5 + q.x, 0.5 - q.y], // +Z
-            _ => [0.5 - q.x, 0.5 - q.y], // −Z
+            0 => [-q.z, -q.y], // +X
+            1 => [q.z, -q.y],  // −X
+            2 => [q.x, q.z],   // +Y
+            3 => [q.x, -q.z],  // −Y
+            4 => [q.x, -q.y],  // +Z
+            _ => [-q.x, -q.y], // −Z
         }
     };
 
@@ -145,13 +173,15 @@ fn box_mapped(pos: &mut Vec<[f32; 3]>, nor: &mut Vec<[f32; 3]>, idx: &mut [u32])
     out_uv
 }
 
-/// Wrap around the vertical axis through the bounds centre: U is azimuth,
-/// V descends from the top scaled by `1 / (τ · mean radius)` so a texel
-/// stays square against the group's mean circumference — the swept prims'
-/// convention (`sweeps::v_of`). Triangles straddling the azimuth wrap
-/// re-point their low-U corners at `U + 1` duplicates (the repeat sampler
-/// tiles them back), killing the one-triangle-wide smear band a shared
-/// seam vertex would cause.
+/// Wrap around the vertical axis through the bounds centre: `U` is metres
+/// of arc around the mass's mean circumference, `V` metres descending from
+/// the top. Both being metres is what keeps a texel square without the
+/// reciprocal scaling the pre-#933 version needed.
+///
+/// Triangles straddling the azimuth wrap re-point their low-`U` corners at
+/// duplicates one full circumference along (the repeat sampler tiles them
+/// back), killing the one-triangle-wide smear band a shared seam vertex
+/// would cause.
 fn cylindrical(pos: &mut Vec<[f32; 3]>, nor: &mut Vec<[f32; 3]>, idx: &mut [u32]) -> Vec<[f32; 2]> {
     use std::f32::consts::TAU;
     let (lo, hi) = bounds(pos);
@@ -161,13 +191,15 @@ fn cylindrical(pos: &mut Vec<[f32; 3]>, nor: &mut Vec<[f32; 3]>, idx: &mut [u32]
         .map(|p| Vec2::new(p[0] - c.x, p[2] - c.z).length())
         .sum::<f32>()
         / pos.len().max(1) as f32;
-    let inv_v = 1.0 / (TAU * mean_r).max(1e-5);
+    // One full turn in metres. Also the offset a seam duplicate carries, so
+    // the wrapped corner lands exactly one tile-period along.
+    let circumference = (TAU * mean_r).max(1e-5);
     let mut uv: Vec<[f32; 2]> = pos
         .iter()
         .map(|p| {
             [
-                0.5 + (p[2] - c.z).atan2(p[0] - c.x) / TAU,
-                (hi.y - p[1]) * inv_v,
+                (0.5 + (p[2] - c.z).atan2(p[0] - c.x) / TAU) * circumference,
+                hi.y - p[1],
             ]
         })
         .collect();
@@ -180,7 +212,7 @@ fn cylindrical(pos: &mut Vec<[f32; 3]>, nor: &mut Vec<[f32; 3]>, idx: &mut [u32]
             .fold(f32::NEG_INFINITY, f32::max);
         for i in tri {
             let old = *i as usize;
-            if max_u - uv[old][0] > 0.5 {
+            if max_u - uv[old][0] > circumference * 0.5 {
                 use std::collections::hash_map::Entry;
                 *i = match shifted.entry(*i) {
                     Entry::Occupied(e) => *e.get(),
@@ -189,7 +221,7 @@ fn cylindrical(pos: &mut Vec<[f32; 3]>, nor: &mut Vec<[f32; 3]>, idx: &mut [u32]
                         let (p, n, u) = (pos[old], nor[old], uv[old]);
                         pos.push(p);
                         nor.push(n);
-                        uv.push([u[0] + 1.0, u[1]]);
+                        uv.push([u[0] + circumference, u[1]]);
                         *e.insert(slot)
                     }
                 };
@@ -205,9 +237,9 @@ mod tests {
 
     /// A full ring of wall quads around the axis: the quad straddling the
     /// atan2 discontinuity (the −X meridian) must re-point its low-U
-    /// corners at `U + 1` duplicates so no wall triangle interpolates
-    /// across the whole texture, and every duplicate must share position
-    /// and normal with an original.
+    /// corners at duplicates one full circumference along, so no wall
+    /// triangle interpolates across the whole texture, and every duplicate
+    /// must share position and normal with an original.
     #[test]
     fn cylindrical_splits_the_wrap_seam() {
         use std::f32::consts::TAU;
@@ -231,6 +263,8 @@ mod tests {
             })
             .collect();
         let originals = pos.len();
+        // Unit ring, so the metre period the seam shifts by is one turn.
+        let circumference = TAU;
         let uv = cylindrical(&mut pos, &mut nor, &mut idx);
 
         assert_eq!(uv.len(), pos.len());
@@ -240,14 +274,17 @@ mod tests {
             let us: Vec<f32> = tri.iter().map(|&i| uv[i as usize][0]).collect();
             let span = us.iter().cloned().fold(f32::NEG_INFINITY, f32::max)
                 - us.iter().cloned().fold(f32::INFINITY, f32::min);
-            assert!(span < 0.5, "a wall triangle interpolates across the seam");
+            assert!(
+                span < circumference * 0.5,
+                "a wall triangle interpolates across the seam"
+            );
         }
         for dup in originals..pos.len() {
             let orig = (0..originals)
                 .find(|&i| pos[i] == pos[dup])
                 .expect("every duplicate shadows an original");
             assert_eq!(nor[orig], nor[dup]);
-            assert!((uv[dup][0] - uv[orig][0] - 1.0).abs() < 1e-6);
+            assert!((uv[dup][0] - uv[orig][0] - circumference).abs() < 1e-5);
             assert_eq!(uv[dup][1], uv[orig][1]);
         }
     }
@@ -276,10 +313,12 @@ mod tests {
         assert_eq!(nor.len(), pos.len());
         assert!(pos.len() > 6, "shared tips split across regions");
         assert_eq!(idx.len(), 24, "triangle count unchanged");
+        // Metre convention: the octahedron spans 2 m on each axis, so UVs
+        // run over ±1 m about the centre rather than the old unit square.
         for (i, u) in uv.iter().enumerate() {
             assert!(
                 u.iter()
-                    .all(|c| c.is_finite() && (-0.01..=1.01).contains(c)),
+                    .all(|c| c.is_finite() && (-1.01..=1.01).contains(c)),
                 "uv {i} out of range: {u:?}"
             );
         }
@@ -298,14 +337,50 @@ mod tests {
         for mapping in [UvMapping::PlanarX, UvMapping::PlanarY, UvMapping::PlanarZ] {
             let uv = planar(&pos, mapping);
             assert_eq!(uv.len(), pos.len());
+            // Metres about the bounds centre: the quad is 4 m × 2 m, so no
+            // component can exceed half the longest span.
             assert!(
                 uv.iter()
                     .flatten()
-                    .all(|c| c.is_finite() && (-0.01..=1.01).contains(c))
+                    .all(|c| c.is_finite() && (-2.01..=2.01).contains(c))
             );
         }
         // PlanarY ignores height: two verts differing only in Y share a UV.
         let uv = planar(&[[0.3, 0.0, -0.4], [0.3, 9.0, -0.4]], UvMapping::PlanarY);
         assert_eq!(uv[0], uv[1]);
+    }
+
+    /// The property the metre convention exists for (#933): texel density
+    /// is a function of surface metres, not of prim size. Scaling a mass by
+    /// `k` must scale its UV span by exactly `k` — under the old
+    /// `1 / longest-extent` normalisation both spans came out `1.0` and a
+    /// small prim and a large one wore the same number of tiles.
+    #[test]
+    fn uv_span_tracks_metres_not_prim_size() {
+        let unit: Vec<[f32; 3]> = vec![
+            [-1.0, -1.0, -1.0],
+            [1.0, -1.0, -1.0],
+            [1.0, 1.0, -1.0],
+            [-1.0, 1.0, -1.0],
+        ];
+        let span_of = |pos: &[[f32; 3]]| {
+            let uv = planar(pos, UvMapping::PlanarZ);
+            let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+            for t in &uv {
+                lo = lo.min(t[0]);
+                hi = hi.max(t[0]);
+            }
+            hi - lo
+        };
+        let small = span_of(&unit);
+        for k in [3.0_f32, 12.5] {
+            let scaled: Vec<[f32; 3]> = unit.iter().map(|p| p.map(|c| c * k)).collect();
+            let got = span_of(&scaled);
+            assert!(
+                (got - small * k).abs() < 1e-4,
+                "a {k}× mass should wear {k}× the tiles, got {got} vs {}",
+                small * k
+            );
+        }
     }
 }

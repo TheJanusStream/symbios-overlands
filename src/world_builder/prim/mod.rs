@@ -812,6 +812,19 @@ mod tests {
                 idx.iter().all(|&i| (i as usize) < pos.len()),
                 "{mode:?}: index out of range"
             );
+            // Metres about the bounds centre since #933, so the bounded-
+            // image invariant is now "within the mass's own half-extent"
+            // rather than "within the unit square".
+            let (mut blo, mut bhi) = ([f32::INFINITY; 3], [f32::NEG_INFINITY; 3]);
+            for p in &pos {
+                for a in 0..3 {
+                    blo[a] = blo[a].min(p[a]);
+                    bhi[a] = bhi[a].max(p[a]);
+                }
+            }
+            let half_span = (0..3)
+                .map(|a| (bhi[a] - blo[a]) * 0.5)
+                .fold(0.0f32, f32::max);
             match mode {
                 // Unknown meshes as the default (Box since #742), so it
                 // shares Box's bounded-image invariant.
@@ -821,8 +834,8 @@ mod tests {
                 | UvMapping::PlanarY
                 | UvMapping::PlanarZ => {
                     assert!(
-                        uv.iter().flatten().all(|c| (-0.01..=1.01).contains(c)),
-                        "{mode:?}: uv left the unit square"
+                        uv.iter().flatten().all(|c| c.abs() <= half_span + 0.01),
+                        "{mode:?}: uv ran past the mass's half-extent ({half_span} m)"
                     );
                 }
                 UvMapping::Cylindrical => {
@@ -839,11 +852,17 @@ mod tests {
                         }
                     }
                     let c = [(lo[0] + hi[0]) * 0.5, (lo[1] + hi[1]) * 0.5];
-                    let radial = |i: u32| {
-                        let p = pos[i as usize];
+                    let radial_of = |p: [f32; 3], c: [f32; 2]| {
                         ((p[0] - c[0]).powi(2) + (p[2] - c[1]).powi(2)).sqrt()
                     };
+                    let radial = |i: u32| radial_of(pos[i as usize], c);
                     let max_r = idx.iter().map(|&i| radial(i)).fold(0.0f32, f32::max);
+                    // U is metres of arc since #933, so the seam period is
+                    // the mean circumference the projection measures
+                    // against — same definition `uv::cylindrical` uses.
+                    let mean_r =
+                        pos.iter().map(|&i| radial_of(i, c)).sum::<f32>() / pos.len() as f32;
+                    let period = std::f32::consts::TAU * mean_r.max(1e-5);
                     let mut checked = 0;
                     for tri in idx.chunks_exact(3) {
                         if tri.iter().any(|&i| radial(i) < 0.25 * max_r) {
@@ -854,8 +873,8 @@ mod tests {
                         let hi = us.clone().fold(f32::NEG_INFINITY, f32::max);
                         let lo = us.fold(f32::INFINITY, f32::min);
                         assert!(
-                            hi - lo < 0.5,
-                            "cylindrical seam not split (ΔU = {})",
+                            hi - lo < period * 0.5,
+                            "cylindrical seam not split (ΔU = {}, period {period})",
                             hi - lo
                         );
                     }

@@ -1133,6 +1133,23 @@ pub struct SovereignMaterialSettings {
     pub emission_strength: Fp,
     pub roughness: Fp,
     pub metallic: Fp,
+    /// Texture repeats per **metre** of surface (#933).
+    ///
+    /// Every mesher emits UVs in metres of prim-local surface, so this is a
+    /// physical density rather than a repeat count: `5.0` lays a 20 cm
+    /// brick course, `0.5` a two-metre concrete panel, and the same value
+    /// reads identically on a 0.8 m pier and an 8 m wall. The reciprocal —
+    /// the tile's edge length in metres — is usually the number worth
+    /// thinking in.
+    ///
+    /// Before #933 UVs were normalised to `0..1` over each prim, which made
+    /// this a per-prim repeat count and texel density a function of prim
+    /// size; every catalogue material carried a hand-tuned value to
+    /// compensate.
+    ///
+    /// Alpha *cards* (the `Window` / foliage / sprite generators) are the
+    /// exception: they upload clamp-to-edge and must span their quad
+    /// exactly once, so they keep `1.0`.
     #[serde(default = "default_uv_scale")]
     pub uv_scale: Fp,
     pub texture: SovereignTextureConfig,
