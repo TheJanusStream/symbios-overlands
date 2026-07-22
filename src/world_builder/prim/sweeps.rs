@@ -172,15 +172,19 @@ pub(super) fn build_spine_mesh(
     let stations = &all[i0..=i1];
     let n_rings = stations.len() as u32;
 
-    // V follows arc length scaled so a texel stays square against the
-    // tube's mean circumference — a plain 0..1 V would compress a long
-    // thin tube's texture into fine hoops (the trouser-stripe bug).
+    // V is arc length along the spine in metres, U metres around the tube
+    // at that station's own radius (#938). Both being metres keeps a texel
+    // square with no scaling factor at all — the pre-#933 form divided V by
+    // the mean circumference to achieve the same thing relative to the
+    // prim, which is exactly the size-dependence the convention removes. A
+    // per-station radius (rather than the mean) also keeps the wrap honest
+    // where a spine tapers along its length.
     let mut arc = vec![0.0f32; stations.len()];
     for i in 1..stations.len() {
         arc[i] = arc[i - 1] + (stations[i].pos - stations[i - 1].pos).length();
     }
-    let mean_r = (stations.iter().map(|s| s.radius).sum::<f32>() / stations.len() as f32).max(1e-3);
-    let v_of = |i: usize| arc[i] / (TAU * mean_r);
+    let v_of = |i: usize| arc[i];
+    let u_of = |ri: usize, j: u32| (a1 - a0).abs() * stations[ri].radius * (j as f32 / res as f32);
     let ang = |j: u32| a0 + (a1 - a0) * (j as f32 / res as f32);
 
     let mut pos: Vec<[f32; 3]> = Vec::new();
@@ -206,7 +210,7 @@ pub(super) fn build_spine_mesh(
                 let n = (dir - st.tangent * (st.slope * scale)).normalize_or_zero() * sgn;
                 pos.push(p.to_array());
                 nor.push(n.to_array());
-                uv.push([j as f32 / res as f32, v_of(ri)]);
+                uv.push([u_of(ri, j) * scale, v_of(ri)]);
             }
         }
         let row = res + 1;
@@ -271,16 +275,19 @@ pub(super) fn build_spine_mesh(
             for (ri, st) in stations.iter().enumerate() {
                 let dir = st.normal * cs + st.binormal * sn;
                 let edge_n = ((st.normal * -sn + st.binormal * cs) * sgn).normalize_or_zero();
+                // The cut face spans the shell radially, so its U is that
+                // radial extent in metres.
                 pos.push((st.pos + dir * st.radius).to_array());
                 nor.push(edge_n.to_array());
-                uv.push([0.0, v_of(ri)]);
+                uv.push([st.radius, v_of(ri)]);
+                let inner_r = if hollow { st.radius * k } else { 0.0 };
                 if hollow {
                     pos.push((st.pos + dir * (st.radius * k)).to_array());
                 } else {
                     pos.push(st.pos.to_array());
                 }
                 nor.push(edge_n.to_array());
-                uv.push([1.0, v_of(ri)]);
+                uv.push([inner_r, v_of(ri)]);
             }
             for ri in 0..n_rings - 1 {
                 let b = base + ri * 2;
@@ -406,6 +413,21 @@ pub(super) fn build_lathe_mesh(
     let stations = trim_profile_stations(lathe_stations(points, smooth), t0, t1);
     let n_st = stations.len() as u32;
     let ang = |i: u32| a0 + (a1 - a0) * (i as f32 / segs as f32);
+    // Metre convention (#938): V is arc length down the silhouette, U the
+    // arc swept at each station's own radius — a lathe's radius varies
+    // hugely along the profile (a vase's neck against its belly), so a
+    // single mean circumference would visibly stretch one against the
+    // other.
+    let mut prof_arc = vec![0.0f32; stations.len()];
+    for i in 1..stations.len() {
+        let (dx, dy) = (
+            stations[i].x - stations[i - 1].x,
+            stations[i].y - stations[i - 1].y,
+        );
+        prof_arc[i] = prof_arc[i - 1] + (dx * dx + dy * dy).sqrt();
+    }
+    let prof_total = prof_arc.last().copied().unwrap_or(0.0);
+    let u_of = |si: usize, i: u32| (a1 - a0).abs() * stations[si].x * (i as f32 / segs as f32);
 
     // Per-station outward 2D profile normal `(radial, y)`: perpendicular to
     // the local profile tangent, averaged across neighbours so a smooth
@@ -440,7 +462,7 @@ pub(super) fn build_lathe_mesh(
                 let (s, c) = a.sin_cos();
                 pos.push([scale * st.x * c, st.y, scale * st.x * s]);
                 nor.push([sgn * pn.x * c, sgn * pn.y, sgn * pn.x * s]);
-                uv.push([i as f32 / segs as f32, 1.0 - si as f32 / (n_st - 1) as f32]);
+                uv.push([u_of(si, i) * scale, prof_total - prof_arc[si]]);
             }
         }
         let row = segs + 1;
@@ -468,10 +490,10 @@ pub(super) fn build_lathe_mesh(
                 let (s, c) = a.sin_cos();
                 pos.push([st.x * c, st.y, st.x * s]);
                 nor.push(nrm);
-                uv.push([0.5 + 0.5 * c, 0.5 + 0.5 * s]);
+                uv.push([st.x * c, st.x * s]);
                 pos.push([k * st.x * c, st.y, k * st.x * s]);
                 nor.push(nrm);
-                uv.push([0.5 + 0.5 * k * c, 0.5 + 0.5 * k * s]);
+                uv.push([k * st.x * c, k * st.x * s]);
             }
             for i in 0..segs {
                 let b = base + i * 2;
@@ -480,13 +502,13 @@ pub(super) fn build_lathe_mesh(
         } else {
             pos.push([0.0, st.y, 0.0]);
             nor.push(nrm);
-            uv.push([0.5, 0.5]);
+            uv.push([0.0, 0.0]);
             for i in 0..=segs {
                 let a = ang(i);
                 let (s, c) = a.sin_cos();
                 pos.push([st.x * c, st.y, st.x * s]);
                 nor.push(nrm);
-                uv.push([0.5 + 0.5 * c, 0.5 + 0.5 * s]);
+                uv.push([st.x * c, st.x * s]);
             }
             for i in 0..segs {
                 idx.extend_from_slice(&[base, base + 1 + i, base + 2 + i]);
@@ -503,16 +525,18 @@ pub(super) fn build_lathe_mesh(
             let nrm = [sgn * -s, 0.0, sgn * c];
             let base = pos.len() as u32;
             for (si, st) in stations.iter().enumerate() {
+                // The cut face spans the shell radially at this station.
                 pos.push([st.x * c, st.y, st.x * s]);
                 nor.push(nrm);
-                uv.push([0.0, si as f32 / (n_st - 1) as f32]);
+                uv.push([st.x, prof_arc[si]]);
+                let inner_x = if hollow { k * st.x } else { 0.0 };
                 if hollow {
                     pos.push([k * st.x * c, st.y, k * st.x * s]);
                 } else {
                     pos.push([0.0, st.y, 0.0]);
                 }
                 nor.push(nrm);
-                uv.push([1.0, si as f32 / (n_st - 1) as f32]);
+                uv.push([inner_x, prof_arc[si]]);
             }
             for si in 0..n_st - 1 {
                 let b = base + si * 2;

@@ -1064,6 +1064,84 @@ mod tests {
         assert!((hv - 3.0).abs() < 1e-2, "cut mesher disagreed on V ({hv})");
     }
 
+    /// #938: capsule and sphere agree across their two meshers too.
+    ///
+    /// The capsule is the one where the meshers genuinely disagreed —
+    /// Bevy distributes `V` by height, our swept profile by arc length —
+    /// so `rescale_capsule_uvs` re-derives Bevy's from vertex height. On a
+    /// stubby capsule the two conventions differ by ~19%, which is exactly
+    /// the shift a cut would have caused before.
+    #[test]
+    fn capsule_and_sphere_uv_metres_agree_across_both_meshers() {
+        let v_span = |mesh: &Mesh| -> f32 {
+            let Some(VertexAttributeValues::Float32x2(uv)) = mesh.attribute(Mesh::ATTRIBUTE_UV_0)
+            else {
+                panic!("no uvs")
+            };
+            let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+            for t in uv {
+                lo = lo.min(t[1]);
+                hi = hi.max(t[1]);
+            }
+            hi - lo
+        };
+
+        // Capsule: r = 0.5, L = 2.0 → profile arc = πr + L ≈ 3.571.
+        let capsule = |hollow: f32| {
+            let mut k = GeneratorKind::default_primitive_for_tag("Capsule").unwrap();
+            if let GeneratorKind::Capsule {
+                radius,
+                length,
+                torture,
+                ..
+            } = &mut k
+            {
+                *radius = Fp(0.5);
+                *length = Fp(2.0);
+                torture.hollow = Fp(hollow);
+            }
+            build_primitive_mesh(&k)
+        };
+        let profile_arc = std::f32::consts::PI * 0.5 + 2.0;
+        let plain = v_span(&capsule(0.0));
+        assert!(
+            (plain - profile_arc).abs() < 0.05,
+            "Bevy capsule V should span the profile arc ({profile_arc}), got {plain}"
+        );
+        // Height-proportional V would have spanned L + 2r = 3.0 — the wrong
+        // answer this test exists to exclude.
+        assert!(
+            (plain - 3.0).abs() > 0.3,
+            "capsule V still looks height-proportional ({plain})"
+        );
+        let cut = v_span(&capsule(0.4));
+        assert!(
+            (cut - plain).abs() < 0.05,
+            "capsule meshers disagree on V ({cut} vs {plain})"
+        );
+
+        // Sphere: both paths are equirectangular, so V spans πr either way.
+        let sphere = |hollow: f32| {
+            let mut k = GeneratorKind::default_primitive_for_tag("Sphere").unwrap();
+            if let GeneratorKind::Sphere {
+                radius, torture, ..
+            } = &mut k
+            {
+                *radius = Fp(1.5);
+                torture.hollow = Fp(hollow);
+            }
+            build_primitive_mesh(&k)
+        };
+        let half_circ = std::f32::consts::PI * 1.5;
+        for (label, h) in [("ico", 0.0), ("lat/lon", 0.4)] {
+            let got = v_span(&sphere(h));
+            assert!(
+                (got - half_circ).abs() < 0.15,
+                "{label} sphere V should span πr ({half_circ}), got {got}"
+            );
+        }
+    }
+
     #[test]
     fn box_pie_cut_and_hollow_carve_the_footprint() {
         // Pie path-cut [0, 0.25]: kept quarter is the +X/+Z quadrant-ish

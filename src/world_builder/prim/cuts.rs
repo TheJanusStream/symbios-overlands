@@ -230,6 +230,15 @@ pub(super) fn build_swept_capsule(
     // Uniform stations over the kept band, plus the exact cap/wall boundary
     // stations so the tangent break in the profile lands on a vertex ring
     // (uniform-only sampling would shade a soft kink across it).
+    // Metre convention (#938): V is arc length along the stadium profile
+    // (`l_total` already measures it), U the equatorial circumference of
+    // the swept longitude arc. Arc length rather than height is what keeps
+    // a texel square over the domes, and the Bevy fast path in `shapes.rs`
+    // re-derives the same figure from vertex Y so cut and uncut capsules
+    // agree.
+    let lon_arc = (lon1 - lon0).abs() * radius;
+    let prof_arc = l_total * (t1 - t0).abs();
+
     let nprof = (2 * latitudes.max(2)).max(6);
     let mut stations: Vec<f32> = (0..=nprof)
         .map(|j| t0 + (t1 - t0) * (j as f32 / nprof as f32))
@@ -268,7 +277,10 @@ pub(super) fn build_swept_capsule(
                 let (sl, cl) = l.sin_cos();
                 pos.push([scale * rho * cl, scale * y, scale * rho * sl]);
                 nor.push([sgn * nr * cl, sgn * ny, sgn * nr * sl]);
-                uv.push([i as f32 / nlon as f32, 1.0 - j as f32 / (nrings - 1) as f32]);
+                uv.push([
+                    lon_arc * (i as f32 / nlon as f32),
+                    prof_arc * (1.0 - j as f32 / (nrings - 1) as f32),
+                ]);
             }
         }
         let row = nlon + 1;
@@ -299,10 +311,10 @@ pub(super) fn build_swept_capsule(
                 let tang = [tr * cl, ty, tr * sl];
                 pos.push([rho * cl, y, rho * sl]);
                 nor.push(tang);
-                uv.push([0.5 + 0.5 * cl, 0.5 + 0.5 * sl]);
+                uv.push([rho * cl, rho * sl]);
                 pos.push([k * rho * cl, k * y, k * rho * sl]);
                 nor.push(tang);
-                uv.push([0.5 + 0.5 * k * cl, 0.5 + 0.5 * k * sl]);
+                uv.push([k * rho * cl, k * rho * sl]);
             }
             for i in 0..nlon {
                 let b = base + i * 2;
@@ -313,13 +325,13 @@ pub(super) fn build_swept_capsule(
             let base = pos.len() as u32;
             pos.push([0.0, y, 0.0]);
             nor.push(nrm);
-            uv.push([0.5, 0.5]);
+            uv.push([0.0, 0.0]);
             for i in 0..=nlon {
                 let l = lonf(i);
                 let (sl, cl) = l.sin_cos();
                 pos.push([rho * cl, y, rho * sl]);
                 nor.push(nrm);
-                uv.push([0.5 + 0.5 * cl, 0.5 + 0.5 * sl]);
+                uv.push([rho * cl, rho * sl]);
             }
             for i in 0..nlon {
                 idx.extend_from_slice(&[base, base + 1 + i, base + 2 + i]);
@@ -336,16 +348,17 @@ pub(super) fn build_swept_capsule(
             let base = pos.len() as u32;
             for (j, t) in stations.iter().enumerate() {
                 let (rho, y, _, _) = profile(*t);
+                let inner_rho = if hollow { k * rho } else { 0.0 };
                 pos.push([rho * cl, y, rho * sl]);
                 nor.push(nrm);
-                uv.push([0.0, j as f32 / (nrings - 1) as f32]);
+                uv.push([rho, prof_arc * (j as f32 / (nrings - 1) as f32)]);
                 if hollow {
                     pos.push([k * rho * cl, k * y, k * rho * sl]);
                 } else {
                     pos.push([0.0, y, 0.0]);
                 }
                 nor.push(nrm);
-                uv.push([1.0, j as f32 / (nrings - 1) as f32]);
+                uv.push([inner_rho, prof_arc * (j as f32 / (nrings - 1) as f32)]);
             }
             for j in 0..nrings - 1 {
                 let b = base + j * 2;
@@ -383,6 +396,13 @@ pub(super) fn build_uv_sphere(
     let phi = |t: f32| -FRAC_PI_2 + t * PI;
     let latt = |j: u32| lat_t0 + (lat_t1 - lat_t0) * (j as f32 / nlat as f32);
     let lonf = |i: u32| lon0 + (lon1 - lon0) * (i as f32 / nlon as f32);
+    // Metre convention (#938): equirectangular arc lengths, matching the
+    // uncut icosphere path — U the swept longitude arc measured at the
+    // equator, V the swept latitude arc. As with any equirectangular
+    // mapping the U scale is exact only at the equator and tightens toward
+    // the poles; that is the projection's nature, not a scaling error.
+    let lon_arc = (lon1 - lon0).abs() * radius;
+    let lat_arc = (phi(lat_t1) - phi(lat_t0)).abs() * radius;
     let bottom_pole = lat_t0 <= 1e-4;
     let top_pole = lat_t1 >= 1.0 - 1e-4;
 
@@ -408,7 +428,10 @@ pub(super) fn build_uv_sphere(
                 let d = [cp * cl, sp, cp * sl];
                 pos.push([rad * d[0], rad * d[1], rad * d[2]]);
                 nor.push([sgn * d[0], sgn * d[1], sgn * d[2]]);
-                uv.push([i as f32 / nlon as f32, 1.0 - j as f32 / nlat as f32]);
+                uv.push([
+                    lon_arc * (i as f32 / nlon as f32),
+                    lat_arc * (1.0 - j as f32 / nlat as f32),
+                ]);
             }
         }
         let row = nlon + 1;
@@ -442,14 +465,14 @@ pub(super) fn build_uv_sphere(
                 let tang = [ny * -sp * cl, ny * cp, ny * -sp * sl];
                 pos.push([radius * cp * cl, y, radius * cp * sl]);
                 nor.push(tang);
-                uv.push([0.5 + 0.5 * cl, 0.5 + 0.5 * sl]);
+                uv.push([rc * cl, rc * sl]);
                 pos.push([
                     radius * ri_frac * cp * cl,
                     radius * ri_frac * sp,
                     radius * ri_frac * cp * sl,
                 ]);
                 nor.push(tang);
-                uv.push([0.5 + 0.5 * ri_frac * cl, 0.5 + 0.5 * ri_frac * sl]);
+                uv.push([rc * ri_frac * cl, rc * ri_frac * sl]);
             }
             for i in 0..nlon {
                 let b = base + i * 2;
@@ -459,13 +482,13 @@ pub(super) fn build_uv_sphere(
             let base = pos.len() as u32;
             pos.push([0.0, y, 0.0]);
             nor.push(nrm);
-            uv.push([0.5, 0.5]);
+            uv.push([0.0, 0.0]);
             for i in 0..=nlon {
                 let l = lonf(i);
                 let (sl, cl) = l.sin_cos();
                 pos.push([rc * cl, y, rc * sl]);
                 nor.push(nrm);
-                uv.push([0.5 + 0.5 * cl, 0.5 + 0.5 * sl]);
+                uv.push([rc * cl, rc * sl]);
             }
             for i in 0..nlon {
                 idx.extend_from_slice(&[base, base + 1 + i, base + 2 + i]);
@@ -484,9 +507,12 @@ pub(super) fn build_uv_sphere(
                 let p = phi(latt(j));
                 let (sp, cp) = p.sin_cos();
                 let d = [cp * cl, sp, cp * sl];
+                // The meridional cut face spans the shell radially in U
+                // and the swept latitude arc in V.
                 pos.push([radius * d[0], radius * d[1], radius * d[2]]);
                 nor.push(nrm);
-                uv.push([0.0, j as f32 / nlat as f32]);
+                uv.push([radius, lat_arc * (j as f32 / nlat as f32)]);
+                let inner_r = if hollow { radius * ri_frac } else { 0.0 };
                 if hollow {
                     pos.push([
                         radius * ri_frac * d[0],
@@ -497,7 +523,7 @@ pub(super) fn build_uv_sphere(
                     pos.push([0.0, radius * sp, 0.0]);
                 }
                 nor.push(nrm);
-                uv.push([1.0, j as f32 / nlat as f32]);
+                uv.push([inner_r, lat_arc * (j as f32 / nlat as f32)]);
             }
             for j in 0..nlat {
                 let b = base + j * 2;
@@ -537,6 +563,12 @@ pub(super) fn build_torus(
     let hollow = ri_frac > 1e-4;
     let majf = |i: u32| maj0 + (maj1 - maj0) * (i as f32 / nmaj as f32);
     let minf = |j: u32| min0 + (min1 - min0) * (j as f32 / nmin as f32);
+    // Metre convention (#938): U runs the swept major arc, V the swept minor
+    // arc — a torus has no caps to scale differently, so both are plain arc
+    // lengths. `maj_arc` measures at the tube's centreline radius, which is
+    // what the surface actually travels on average.
+    let maj_arc = (maj1 - maj0).abs() * major_r;
+    let min_arc = (min1 - min0).abs() * minor_r;
     // Tube-surface point + outward normal for a given (major θ, minor radius, minor φ).
     let point = |th: f32, rad: f32, ph: f32| -> ([f32; 3], [f32; 3]) {
         let (st, ct) = th.sin_cos();
@@ -564,7 +596,10 @@ pub(super) fn build_torus(
                 let (p, no) = point(th, rad, minf(j));
                 pos.push(p);
                 nor.push([sgn * no[0], sgn * no[1], sgn * no[2]]);
-                uv.push([i as f32 / nmaj as f32, j as f32 / nmin as f32]);
+                uv.push([
+                    maj_arc * (i as f32 / nmaj as f32),
+                    min_arc * (j as f32 / nmin as f32),
+                ]);
             }
         }
         let row = nmin + 1;
@@ -588,10 +623,10 @@ pub(super) fn build_torus(
                     let ph = minf(j);
                     pos.push(point(th, minor_r, ph).0);
                     nor.push(nrm);
-                    uv.push([0.0, j as f32 / nmin as f32]);
+                    uv.push([minor_r, min_arc * (j as f32 / nmin as f32)]);
                     pos.push(point(th, minor_r * ri_frac, ph).0);
                     nor.push(nrm);
-                    uv.push([1.0, j as f32 / nmin as f32]);
+                    uv.push([minor_r * ri_frac, min_arc * (j as f32 / nmin as f32)]);
                 }
                 for j in 0..nmin {
                     let b = base + j * 2;
@@ -601,11 +636,13 @@ pub(super) fn build_torus(
                 let base = pos.len() as u32;
                 pos.push([major_r * ct, 0.0, major_r * st]);
                 nor.push(nrm);
-                uv.push([0.5, 0.5]);
+                uv.push([0.0, 0.0]);
                 for j in 0..=nmin {
-                    pos.push(point(th, minor_r, minf(j)).0);
+                    let ph = minf(j);
+                    let (sp, cp) = ph.sin_cos();
+                    pos.push(point(th, minor_r, ph).0);
                     nor.push(nrm);
-                    uv.push([0.5, j as f32 / nmin as f32]);
+                    uv.push([minor_r * cp, minor_r * sp]);
                 }
                 for j in 0..nmin {
                     idx.extend_from_slice(&[base, base + 1 + j, base + 2 + j]);
@@ -626,14 +663,15 @@ pub(super) fn build_torus(
                 let nrm = [sgn * -sp * ct, sgn * cp, sgn * -sp * st];
                 pos.push(point(th, minor_r, ph).0);
                 nor.push(nrm);
-                uv.push([i as f32 / nmaj as f32, 0.0]);
+                uv.push([maj_arc * (i as f32 / nmaj as f32), minor_r]);
+                let inner_r = if hollow { minor_r * ri_frac } else { 0.0 };
                 if hollow {
                     pos.push(point(th, minor_r * ri_frac, ph).0);
                 } else {
                     pos.push([major_r * ct, 0.0, major_r * st]);
                 }
                 nor.push(nrm);
-                uv.push([i as f32 / nmaj as f32, 1.0]);
+                uv.push([maj_arc * (i as f32 / nmaj as f32), inner_r]);
             }
             for i in 0..nmaj {
                 let b = base + i * 2;

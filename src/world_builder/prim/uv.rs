@@ -59,15 +59,22 @@ pub(super) fn project_uvs(
 }
 
 /// Which metre-scale projection (if any) a primitive kind should have baked
-/// over whatever its mesher produced (#934).
+/// over whatever its mesher produced (#934, #938).
 ///
-/// `Cuboid` is the case that matters and the only one taken so far. Its
-/// stock parameterisation — Bevy's for the plain box, the swept rectangular
-/// profile once a cut is active — lays exactly one tile across *each face*,
-/// so an 8 × 4 × 0.35 wall slab wears one tile on the 8 × 4 face and
-/// another crammed into the 0.35 × 4 end. Box projection fixes both at
-/// once: every face is projected along its own normal at one metre scale,
-/// and the two meshers stop disagreeing with each other as a side effect.
+/// The flat-faced family takes box projection. Their stock parameterisations
+/// — Bevy's for the plain box, the swept rectangular profile once a cut is
+/// active, hand-rolled per-face quads for the prisms — all lay exactly one
+/// tile across *each face*, so an 8 × 4 × 0.35 wall slab wears one tile on
+/// the 8 × 4 face and another crammed into the 0.35 × 4 end. Box projection
+/// fixes every one of them the same way: each face is projected along its
+/// own normal at one metre scale, and the two meshers a kind may use stop
+/// disagreeing with each other as a side effect.
+///
+/// `Superellipsoid` joins them because it *is* a rounded box — its lat/lon
+/// parameterisation pinches badly toward the poles on the flat-faced
+/// exponents the catalogue actually uses (sandbags at `0.42`/`0.52`), and
+/// box projection is already the default for its nearest neighbour,
+/// `BlobGroup`.
 ///
 /// Deliberately absent:
 ///
@@ -76,13 +83,15 @@ pub(super) fn project_uvs(
 ///   once (it uploads clamp-to-edge). It gets an explicit "fit" mode with
 ///   the rest of the flat-faced family in #937 rather than a silent metre
 ///   default that would tile every card.
-/// * The rotational family (`Sphere`, `Cylinder`, `Cone`, `Capsule`,
-///   `Torus`) — each has *two* parameterisations already, Bevy's when
-///   untortured and the sweep mesher's once a cut is active, and they mix
-///   wall and cap conventions within one mesh. Rescaling that mixture
-///   globally would turn every cap disc into an ellipse. Unifying them is
-///   #935's job, where the sweep mesher becomes the single source of UV
-///   truth.
+/// * `Sphere` and `Capsule` — see #938. Both have two meshers whose
+///   parameterisations genuinely disagree (an icosphere against a lat/lon
+///   sweep; a height-proportional capsule profile against an arc-length
+///   one), so scaling them needs a decision about *which* to keep rather
+///   than a projection.
+/// * The revolved kinds already handled at their source — `Cylinder`,
+///   `Cone`, `Tube`, `Torus`, `Spine` — whose analytic mappings follow
+///   their shape's own topology and so beat any projection. They scale in
+///   their meshers instead.
 ///
 /// UVs must stay a pure function of geometry: [`prim_geometry_fingerprint`]
 /// drops the material from the mesh cache key, so anything material-derived
@@ -90,7 +99,91 @@ pub(super) fn project_uvs(
 ///
 /// [`prim_geometry_fingerprint`]: crate::world_builder::prim_cache::prim_geometry_fingerprint
 pub(super) fn metre_projection_for(kind: &GeneratorKind) -> Option<UvMapping> {
-    matches!(kind, GeneratorKind::Cuboid { .. }).then_some(UvMapping::Box)
+    matches!(
+        kind,
+        GeneratorKind::Cuboid { .. }
+            | GeneratorKind::Wedge { .. }
+            | GeneratorKind::Bevel { .. }
+            | GeneratorKind::Tetrahedron { .. }
+            | GeneratorKind::Superellipsoid { .. }
+    )
+    .then_some(UvMapping::Box)
+}
+
+/// Scale a mesh's normalised UVs by one span per axis, in place.
+///
+/// The adapter for meshers whose whole surface shares a single
+/// parameterisation — a torus's `U` runs the major arc and its `V` the
+/// minor, with no cap to scale differently — so unlike
+/// [`rescale_revolved_uvs`] there is nothing to classify.
+pub(super) fn scale_uvs(mesh: &mut Mesh, u_span_m: f32, v_span_m: f32) {
+    use bevy::mesh::VertexAttributeValues;
+
+    let Some(VertexAttributeValues::Float32x2(uv)) = mesh.attribute_mut(Mesh::ATTRIBUTE_UV_0)
+    else {
+        return;
+    };
+    for t in uv.iter_mut() {
+        t[0] *= u_span_m;
+        t[1] *= v_span_m;
+    }
+}
+
+/// Put a capsule's UVs on the metre convention, re-deriving `V` from each
+/// vertex's height rather than trusting the builder's (#938).
+///
+/// Bevy's default `CapsuleUvProfile::Aspect` distributes `V` in proportion
+/// to *height* — each hemisphere gets `r / (L + 2r)` of the range — while
+/// our swept capsule parametrises the stadium profile by *arc length*. Left
+/// alone the two disagree by `(π − 2)·r` over the domes, about 19% on a
+/// typical `r = 0.5`, `L = 2.0` capsule, so adding a cut to a capsule would
+/// visibly shift its texture. Arc length is the one that keeps a texel
+/// square, so it wins and this recomputes Bevy's `V` to match.
+///
+/// `V` is measured from the bottom pole: a quarter-circle up the lower
+/// dome, then the straight wall, then a quarter-circle to the top pole.
+/// `U` keeps the builder's azimuth, scaled to the equatorial circumference.
+pub(super) fn rescale_capsule_uvs(mesh: &mut Mesh, radius: f32, length: f32) {
+    use bevy::mesh::VertexAttributeValues;
+    use std::f32::consts::{FRAC_PI_2, TAU};
+
+    let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+    else {
+        return;
+    };
+    let half_len = length * 0.5;
+    let r = radius.max(1e-5);
+    let cap_arc = FRAC_PI_2 * r;
+    let v_of: Vec<f32> = pos
+        .iter()
+        .map(|p| {
+            let y = p[1];
+            if y < -half_len {
+                // Lower dome: arc up from the pole.
+                let s = ((y + half_len) / r).clamp(-1.0, 0.0);
+                r * (s.asin() + FRAC_PI_2)
+            } else if y > half_len {
+                // Upper dome, past the full wall.
+                let s = ((y - half_len) / r).clamp(0.0, 1.0);
+                cap_arc + length + r * s.asin()
+            } else {
+                cap_arc + (y + half_len)
+            }
+        })
+        .collect();
+
+    let Some(VertexAttributeValues::Float32x2(uv)) = mesh.attribute_mut(Mesh::ATTRIBUTE_UV_0)
+    else {
+        return;
+    };
+    if uv.len() != v_of.len() {
+        return;
+    }
+    let circumference = TAU * r;
+    for (t, v) in uv.iter_mut().zip(v_of) {
+        t[0] *= circumference;
+        t[1] = v;
+    }
 }
 
 /// Rescale a *revolved* mesh's normalised UVs into metres in place (#935).

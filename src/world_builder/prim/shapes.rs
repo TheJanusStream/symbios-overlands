@@ -394,10 +394,21 @@ struct SphereShape<'a> {
 impl PrimitiveShape for SphereShape<'_> {
     fn base_mesh(&self) -> Mesh {
         if self.torture.cuts_are_identity() {
-            Sphere::new(self.radius)
+            // Bevy's icosphere UVs are equirectangular (azimuth, inclination
+            // normalised to 0..1), so metres are one uniform scale: a full
+            // equatorial circumference across U, a pole-to-pole
+            // half-circumference down V — the same figures the cut lat/lon
+            // path uses, so the two agree without sharing a mesher (#938).
+            let mut mesh = Sphere::new(self.radius)
                 .mesh()
                 .ico(self.resolution)
-                .unwrap_or_else(|_| Sphere::new(self.radius).mesh().build())
+                .unwrap_or_else(|_| Sphere::new(self.radius).mesh().build());
+            super::uv::scale_uvs(
+                &mut mesh,
+                std::f32::consts::TAU * self.radius,
+                std::f32::consts::PI * self.radius,
+            );
+            mesh
         } else {
             let (lon0, lon1) = path_cut_angles(self.torture);
             build_uv_sphere(
@@ -485,12 +496,14 @@ impl PrimitiveShape for CapsuleShape<'_> {
             } else {
                 DEFORM_ROWS
             };
-            Capsule3d::new(self.radius, self.length)
+            let mut mesh = Capsule3d::new(self.radius, self.length)
                 .mesh()
                 .latitudes(self.latitudes)
                 .longitudes(self.longitudes)
                 .rings(rings)
-                .build()
+                .build();
+            super::uv::rescale_capsule_uvs(&mut mesh, self.radius, self.length);
+            mesh
         } else {
             let (lon0, lon1) = path_cut_angles(self.torture);
             build_swept_capsule(
@@ -567,14 +580,23 @@ struct TorusShape<'a> {
 impl PrimitiveShape for TorusShape<'_> {
     fn base_mesh(&self) -> Mesh {
         if self.torture.cuts_are_identity() {
-            Torus {
+            // Bevy lays U along the major circle and V around the minor
+            // one; both become arc metres (#938) so the ring agrees with
+            // the cut path in `build_torus`.
+            let mut mesh = Torus {
                 minor_radius: self.minor_radius,
                 major_radius: self.major_radius,
             }
             .mesh()
             .minor_resolution(self.minor_resolution as usize)
             .major_resolution(self.major_resolution as usize)
-            .build()
+            .build();
+            super::uv::scale_uvs(
+                &mut mesh,
+                std::f32::consts::TAU * self.major_radius,
+                std::f32::consts::TAU * self.minor_radius,
+            );
+            mesh
         } else {
             use std::f32::consts::TAU;
             let (maj0, maj1) = path_cut_angles(self.torture);

@@ -212,6 +212,14 @@ pub(super) fn build_helix_mesh(
         (n, t.cross(n))
     };
     let phi_of = |j: u32| min0 + (min1 - min0) * (j as f32 / tube_segs as f32);
+    // Metre convention (#938): U is arc length travelled along the coil, V
+    // arc length around the tube's cross-section. One turn of a helix
+    // covers `sqrt(circumference² + pitch²)` — the hypotenuse, not the
+    // circumference, or a steeply pitched spring would wear its texture
+    // squashed along the rise.
+    let turn_len = ((TAU * radius).powi(2) + pitch * pitch).sqrt();
+    let path_len = turns * (p1 - p0) * turn_len;
+    let tube_arc = (min1 - min0).abs() * tube_radius;
 
     let mut pos = Vec::new();
     let mut nor = Vec::new();
@@ -233,7 +241,10 @@ pub(super) fn build_helix_mesh(
                 let dir = n * cp + b * sp;
                 pos.push((c + dir * rad).to_array());
                 nor.push((dir * sgn).to_array());
-                uv.push([i as f32 / path_segs as f32, j as f32 / tube_segs as f32]);
+                uv.push([
+                    path_len * (i as f32 / path_segs as f32),
+                    tube_arc * (j as f32 / tube_segs as f32),
+                ]);
             }
         }
         let row = tube_segs + 1;
@@ -257,14 +268,17 @@ pub(super) fn build_helix_mesh(
                 let lip_n = ((n * -sp + b * cp) * sgn).normalize_or_zero();
                 pos.push((c + dir * tube_radius).to_array());
                 nor.push(lip_n.to_array());
-                uv.push([i as f32 / path_segs as f32, 0.0]);
+                uv.push([path_len * (i as f32 / path_segs as f32), tube_radius]);
                 if hollow {
                     pos.push((c + dir * (tube_radius * k)).to_array());
                 } else {
                     pos.push(c.to_array());
                 }
                 nor.push(lip_n.to_array());
-                uv.push([i as f32 / path_segs as f32, 1.0]);
+                uv.push([
+                    path_len * (i as f32 / path_segs as f32),
+                    if hollow { tube_radius * k } else { 0.0 },
+                ]);
             }
             for i in 0..path_segs {
                 let b = base + i * 2;
@@ -285,10 +299,10 @@ pub(super) fn build_helix_mesh(
                 let dir = n * cp + b * sp;
                 pos.push((c + dir * tube_radius).to_array());
                 nor.push(ncap);
-                uv.push([0.5 + 0.5 * cp, 0.5 + 0.5 * sp]);
+                uv.push([tube_radius * cp, tube_radius * sp]);
                 pos.push((c + dir * (tube_radius * k)).to_array());
                 nor.push(ncap);
-                uv.push([0.5 + 0.5 * k * cp, 0.5 + 0.5 * k * sp]);
+                uv.push([tube_radius * k * cp, tube_radius * k * sp]);
             }
             for j in 0..tube_segs {
                 let b2 = basec + j * 2;
@@ -298,13 +312,13 @@ pub(super) fn build_helix_mesh(
         }
         pos.push(c.to_array());
         nor.push(ncap);
-        uv.push([0.5, 0.5]);
+        uv.push([0.0, 0.0]);
         for j in 0..=tube_segs {
             let (sp, cp) = phi_of(j).sin_cos();
             let dir = n * cp + b * sp;
             pos.push((c + dir * tube_radius).to_array());
             nor.push(ncap);
-            uv.push([0.5 + 0.5 * cp, 0.5 + 0.5 * sp]);
+            uv.push([tube_radius * cp, tube_radius * sp]);
         }
         for j in 0..tube_segs {
             idx.extend_from_slice(&[basec, basec + 1 + j, basec + 2 + j]);
