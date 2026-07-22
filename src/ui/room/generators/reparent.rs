@@ -5,9 +5,11 @@
 //! — the tree-panel widget in [`super::tree`] stages actions and this
 //! module mutates the [`GeneratorTreeSource`] (#650).
 
+use bevy::math::Affine3A;
+use bevy::prelude::{Quat, Transform, Vec3};
 use egui_ltreeview::DirPosition;
 
-use crate::pds::Generator;
+use crate::pds::{Generator, TransformData};
 use crate::state::LiveInventoryRecord;
 
 use super::super::construct::{allows_children, make_default_for_kind};
@@ -297,11 +299,24 @@ pub(super) fn apply_reparent(
         return;
     }
 
+    // The frame the source currently hangs in, captured *before* any
+    // extraction — for a cross-root move the old chain may not survive
+    // Phase 1. Phase 3 uses it to keep the subtree looking exactly where
+    // it looked, so a drag in the tree changes the hierarchy and nothing
+    // else (#926).
+    let old_parent_world = if drag_source.path.is_empty() {
+        Some(Affine3A::IDENTITY)
+    } else {
+        drag_source
+            .parent_id()
+            .and_then(|p| chain_affine(&*source, &p))
+    };
+
     // Phase 1: extract the source subtree. For root sources we pull
     // through `remove_root` (which also sweeps any implementation-specific
     // dangling references); for child sources we splice out of the
     // parent's children Vec.
-    let extracted: Generator = if drag_source.path.is_empty() {
+    let mut extracted: Generator = if drag_source.path.is_empty() {
         let Some(node) = source.remove_root(&drag_source.root) else {
             return;
         };
@@ -340,6 +355,18 @@ pub(super) fn apply_reparent(
 
         extracted
     };
+
+    // Phase 1b: rebase the subtree's local transform into the destination
+    // frame, so the drop preserves its world pose. `target` is already in
+    // post-removal coordinates, so the new chain resolves correctly.
+    let new_parent_world = if target_is_virtual {
+        Some(Affine3A::IDENTITY)
+    } else {
+        chain_affine(&*source, &target)
+    };
+    if let (Some(old_parent), Some(new_parent)) = (old_parent_world, new_parent_world) {
+        rebase_local(&mut extracted.transform, old_parent, new_parent);
+    }
 
     // Phase 2: insert at the destination.
     let new_id = if target_is_virtual {
@@ -395,6 +422,65 @@ pub(super) fn apply_reparent(
     label.set(format!("reparent of {}", new_id.root));
     tree_view_state.set_one_selected(new_id);
     *dirty = true;
+}
+
+/// The affine transform of `id`'s frame, accumulated from its root
+/// generator down through every ancestor's local transform (the root's own
+/// transform included — the spawner applies it too). Returns `None` if any
+/// link in the chain is missing.
+///
+/// "World" here means *the root generator's frame*, deliberately stopping
+/// short of the `Placement` that anchors that root into the region. A root
+/// can be placed many times over — a `Scatter` stamps one generator across
+/// hundreds of poses — so there is no single world pose to preserve
+/// against. Within one root tree (the overwhelmingly common drag, and the
+/// only kind an avatar's single-root tree has) the placement is a shared
+/// prefix that cancels out of the rebase entirely, so this is exact.
+fn chain_affine(source: &dyn GeneratorTreeSource, id: &GenNodeId) -> Option<Affine3A> {
+    if id.is_virtual_root() {
+        return Some(Affine3A::IDENTITY);
+    }
+    let mut node = source.get_root(&id.root)?;
+    let mut acc = affine_of(&node.transform);
+    for &i in &id.path {
+        node = node.children.get(i)?;
+        acc *= affine_of(&node.transform);
+    }
+    Some(acc)
+}
+
+fn affine_of(t: &TransformData) -> Affine3A {
+    Affine3A::from_scale_rotation_translation(
+        Vec3::from_array(t.scale.0),
+        Quat::from_array(t.rotation.0),
+        Vec3::from_array(t.translation.0),
+    )
+}
+
+/// Rewrite `local` so that `new_parent * local` reproduces the world pose
+/// `old_parent * local` had before the move.
+///
+/// Bails without touching `local` when the new parent chain is singular
+/// (a zero scale anywhere above the drop target) or when the result is not
+/// finite: an un-rebased drop is merely surprising, whereas writing a NaN
+/// transform into the record poisons the node for good. Decomposing back
+/// to TRS also drops any shear the chain introduced — only reachable via
+/// non-uniform scale combined with rotation, which the runtime's own
+/// `Transform` propagation cannot represent either.
+fn rebase_local(local: &mut TransformData, old_parent: Affine3A, new_parent: Affine3A) {
+    if new_parent.matrix3.determinant().abs() < 1e-9 {
+        return;
+    }
+    let rebased = new_parent.inverse() * old_parent * affine_of(local);
+    let (scale, rotation, translation) = rebased.to_scale_rotation_translation();
+    if !translation.is_finite() || !scale.is_finite() || !rotation.is_finite() {
+        return;
+    }
+    *local = TransformData::from(Transform {
+        translation,
+        rotation,
+        scale,
+    });
 }
 
 /// Rewrite `id` so it still names the same node after the child at
@@ -625,6 +711,141 @@ mod tests {
         }
         assert!(!record.traits.contains_key("victim"));
         assert!(record.traits.contains_key("survivor"));
+    }
+
+    /// #926: a drag changes the hierarchy, not the appearance. Moving a
+    /// node between two parents with different poses must rewrite its local
+    /// transform so its world pose is bit-for-bit where it was — including
+    /// when the two chains differ in rotation and scale, not just position.
+    #[test]
+    fn reparent_preserves_world_pose_across_posed_parents() {
+        let posed = |t: Transform| Generator {
+            transform: TransformData::from(t),
+            ..cuboid_root()
+        };
+
+        let mut record = empty_record();
+        let mut host = posed(Transform::from_xyz(1.0, 0.0, -2.0));
+        // from[0] — the donor parent, rotated and scaled.
+        host.children.push(posed(
+            Transform::from_xyz(3.0, 1.0, 0.5)
+                .with_rotation(Quat::from_rotation_y(0.7))
+                .with_scale(Vec3::splat(2.0)),
+        ));
+        // from[0][0] — the node that will be dragged.
+        host.children[0].children.push(posed(
+            Transform::from_xyz(0.25, 0.5, -0.75).with_rotation(Quat::from_rotation_x(0.3)),
+        ));
+        // to[1] — the receiving parent, posed differently again.
+        host.children.push(posed(
+            Transform::from_xyz(-4.0, 2.5, 6.0)
+                .with_rotation(Quat::from_rotation_z(-1.1))
+                .with_scale(Vec3::new(0.5, 0.5, 0.5)),
+        ));
+        record.generators.insert("host".to_string(), host);
+
+        let dragged = GenNodeId::child("host", vec![0, 0]);
+        let world_before = {
+            let src = RoomTreeSource::new(&mut record);
+            chain_affine(&src, &dragged).expect("chain resolves")
+        };
+
+        let mut tvs = TreeViewState::default();
+        let mut sel_gen = Some("host".to_string());
+        let mut sel_path = Some(vec![0, 0]);
+        let mut dirty = false;
+        apply_reparent(
+            &mut RoomTreeSource::new(&mut record),
+            &mut sel_gen,
+            &mut sel_path,
+            &mut tvs,
+            dragged,
+            GenNodeId::child("host", vec![1]),
+            DirPosition::Last,
+            &mut dirty,
+            &mut crate::ui::undo::PendingUndoLabels::default()
+                .slot(crate::ui::shortcuts::EditorKind::World),
+        );
+        assert!(dirty, "the move should have happened");
+
+        let landed = GenNodeId::child("host", vec![1, 0]);
+        let world_after = {
+            let src = RoomTreeSource::new(&mut record);
+            chain_affine(&src, &landed).expect("chain resolves at the new home")
+        };
+
+        let (s0, r0, t0) = world_before.to_scale_rotation_translation();
+        let (s1, r1, t1) = world_after.to_scale_rotation_translation();
+        assert!(
+            t0.abs_diff_eq(t1, 1e-4),
+            "world translation moved: {t0:?} -> {t1:?}"
+        );
+        assert!(
+            s0.abs_diff_eq(s1, 1e-4),
+            "world scale moved: {s0:?} -> {s1:?}"
+        );
+        // Quaternions double-cover rotations, so q and -q are the same pose.
+        assert!(
+            r0.abs_diff_eq(r1, 1e-4) || r0.abs_diff_eq(-r1, 1e-4),
+            "world rotation moved: {r0:?} -> {r1:?}"
+        );
+
+        // ...and it really did move: the raw local transform had to change
+        // for the world pose to survive.
+        let local_after = find_node(&RoomTreeSource::new(&mut record), &landed)
+            .expect("node is there")
+            .transform
+            .translation
+            .0;
+        assert!(
+            local_after != [0.25, 0.5, -0.75],
+            "local transform was left untouched — nothing was rebased"
+        );
+    }
+
+    /// A drop into the *same* parent (a pure reorder) has identical old and
+    /// new chains, so the rebase must be a no-op rather than drifting the
+    /// node through repeated round-trips.
+    #[test]
+    fn reorder_within_one_parent_leaves_local_transform_alone() {
+        let mut record = empty_record();
+        let mut host = Generator {
+            transform: TransformData::from(
+                Transform::from_xyz(2.0, 3.0, 4.0).with_rotation(Quat::from_rotation_y(0.9)),
+            ),
+            ..cuboid_root()
+        };
+        for i in 0..2 {
+            host.children.push(Generator {
+                transform: TransformData::from(Transform::from_xyz(i as f32, 1.5, -0.5)),
+                ..cuboid_root()
+            });
+        }
+        record.generators.insert("host".to_string(), host);
+
+        let mut tvs = TreeViewState::default();
+        let mut sel_gen = Some("host".to_string());
+        let mut sel_path = Some(vec![0]);
+        let mut dirty = false;
+        apply_reparent(
+            &mut RoomTreeSource::new(&mut record),
+            &mut sel_gen,
+            &mut sel_path,
+            &mut tvs,
+            GenNodeId::child("host", vec![0]),
+            GenNodeId::root("host"),
+            DirPosition::Last,
+            &mut dirty,
+            &mut crate::ui::undo::PendingUndoLabels::default()
+                .slot(crate::ui::shortcuts::EditorKind::World),
+        );
+
+        let moved = &record.generators["host"].children[1];
+        let t = moved.transform.translation.0;
+        assert!(
+            (t[0] - 0.0).abs() < 1e-5 && (t[1] - 1.5).abs() < 1e-5 && (t[2] + 0.5).abs() < 1e-5,
+            "a pure reorder must not touch the local transform, got {t:?}"
+        );
     }
 
     /// Cycle protection: a node is its own ancestor in the trivial sense, so
