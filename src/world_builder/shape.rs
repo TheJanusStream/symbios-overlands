@@ -68,25 +68,48 @@ pub struct ShapeInstance {
 /// Strings) on every scatter sample / grid cell (#636).
 pub type ShapeMeshCache = GeneratorCache<String, Arc<[ShapeInstance]>>;
 
-/// Stable content hash of the geometry-affecting fields of a
-/// `GeneratorKind::Shape`. Material settings are deliberately excluded
-/// because those are applied per-spawn on top of a shared mesh list (see
-/// [`ShapeMaterialCache`]). Each `Fp3` axis is hashed via its fixed-point
-/// wire form so NaN/denormal floats can't destabilise the key across
-/// compile passes.
-fn shape_geometry_fingerprint(
-    grammar_source: &str,
-    root_rule: &str,
+/// The `GeneratorKind::Shape` payload, borrowed for the duration of one
+/// build. Grouping it keeps the derivation entry points to a handful of
+/// arguments now that the material map is a geometry input too (#939) —
+/// these five always travel together and always come from the same node.
+struct ShapeDef<'a> {
+    grammar_source: &'a str,
+    root_rule: &'a str,
     footprint: Fp3,
     seed: u64,
-) -> u64 {
+    materials: &'a HashMap<String, SovereignMaterialSettings>,
+}
+
+/// Stable content hash of the geometry-affecting fields of a
+/// `GeneratorKind::Shape`. Material *settings* are deliberately excluded
+/// because those are applied per-spawn on top of a shared mesh list (see
+/// [`ShapeMaterialCache`]) — but which slots are alpha cards is not a
+/// setting, it is a geometry input, so that much is folded in (#939). Each
+/// `Fp3` axis is hashed via its fixed-point wire form so NaN/denormal
+/// floats can't destabilise the key across compile passes.
+fn shape_geometry_fingerprint(def: &ShapeDef<'_>) -> u64 {
     let mut h = GeometryHasher::new();
-    h.field(grammar_source);
-    h.field(root_rule);
-    h.field(seed);
-    h.fp(footprint.0[0]);
-    h.fp(footprint.0[1]);
-    h.fp(footprint.0[2]);
+    h.field(def.grammar_source);
+    h.field(def.root_rule);
+    h.field(def.seed);
+    h.fp(def.footprint.0[0]);
+    h.fp(def.footprint.0[1]);
+    h.fp(def.footprint.0[2]);
+    // Which slots are alpha cards *is* a geometry input (#939): a card's
+    // face meshes with UVs stretched into 0..1 instead of tiled in world
+    // space. Only the card-ness enters the hash, not the settings — colour
+    // and roughness edits must still reuse the baked mesh list. Sorted so
+    // `HashMap` iteration order can't destabilise the key across compiles.
+    let mut cards: Vec<&str> = def
+        .materials
+        .iter()
+        .filter(|(_, s)| s.texture.is_card())
+        .map(|(name, _)| name.as_str())
+        .collect();
+    cards.sort_unstable();
+    for name in cards {
+        h.field(name);
+    }
     h.finish()
 }
 
@@ -108,19 +131,16 @@ fn shape_geometry_fingerprint(
 /// — partial rule tables produce confusing terminal layouts that look like
 /// silent bugs in the grammar.
 fn build_shape_geometry(
-    grammar_source: &str,
-    root_rule: &str,
-    footprint: Fp3,
-    seed: u64,
+    def: &ShapeDef<'_>,
     generator_ref: &str,
     meshes: &mut Assets<Mesh>,
     upstream_cache: &mut UpstreamShapeMeshCache,
 ) -> Result<Vec<ShapeInstance>, String> {
     let mut interpreter = Interpreter::new();
-    interpreter.seed = seed;
+    interpreter.seed = def.seed;
 
     let mut rule_count: u32 = 0;
-    for (i, raw) in grammar_source.lines().enumerate() {
+    for (i, raw) in def.grammar_source.lines().enumerate() {
         let line = raw.trim();
         if line.is_empty() || line.starts_with("//") {
             continue;
@@ -145,8 +165,8 @@ fn build_shape_geometry(
     if rule_count == 0 {
         return Err("grammar has no rules".to_string());
     }
-    if !interpreter.has_rule(root_rule) {
-        let msg = format!("root rule `{}` not defined in grammar", root_rule);
+    if !interpreter.has_rule(def.root_rule) {
+        let msg = format!("root rule `{}` not defined in grammar", def.root_rule);
         warn!("Shape `{}` {}", generator_ref, msg);
         return Err(msg);
     }
@@ -155,13 +175,13 @@ fn build_shape_geometry(
         SVec3::ZERO,
         SQuat::IDENTITY,
         SVec3::new(
-            footprint.0[0] as f64,
-            footprint.0[1] as f64,
-            footprint.0[2] as f64,
+            def.footprint.0[0] as f64,
+            def.footprint.0[1] as f64,
+            def.footprint.0[2] as f64,
         ),
     );
 
-    let model = match interpreter.derive(root_scope, root_rule) {
+    let model = match interpreter.derive(root_scope, def.root_rule) {
         Ok(m) => m,
         Err(e) => {
             let msg = format!("derivation error: {}", e);
@@ -188,15 +208,31 @@ fn build_shape_geometry(
             terminal.scope.size.y as f32,
             terminal.scope.size.z as f32,
         );
+        // Alpha cards must span their face exactly once; every other surface
+        // tiles in world space (#939). The shape mesher's `stretch_uvs` is
+        // the grammar-side equivalent of `UvMapping::Fit` on a prim `Plane`,
+        // and without it a `Window` card on a 4 m wall repeats four times
+        // instead of glazing it. Derived from the material rather than
+        // registered by name so it cannot drift from the texture's own
+        // clamp-vs-repeat sampling.
+        let stretch_uvs = terminal
+            .material
+            .as_ref()
+            .and_then(|m| def.materials.get(&m.id))
+            .is_some_and(|s| s.texture.is_card());
         let key = MeshCacheKey {
             profile: ProfileKey::from_profile(&terminal.face_profile),
             size_x_bits: size.x.to_bits(),
             size_y_bits: size.y.to_bits(),
             size_z_bits: size.z.to_bits(),
-            stretch_uvs: false,
+            stretch_uvs,
         };
         let mesh = upstream_cache.get_or_insert_with(key, || {
-            meshes.add(build_profiled_mesh(&terminal.face_profile, size, false))
+            meshes.add(build_profiled_mesh(
+                &terminal.face_profile,
+                size,
+                stretch_uvs,
+            ))
         });
         instances.push(ShapeInstance {
             transform,
@@ -278,7 +314,14 @@ pub(super) fn spawn_shape_entity(
     // unchanged. A scatter placement with count=1000 would otherwise
     // re-derive the grammar and re-bake every terminal mesh on every spawn.
     ctx.shape_mesh_touched.insert(generator_ref.to_string());
-    let geometry_hash = shape_geometry_fingerprint(grammar_source, root_rule, *footprint, *seed);
+    let def = ShapeDef {
+        grammar_source,
+        root_rule,
+        footprint: *footprint,
+        seed: *seed,
+        materials,
+    };
+    let geometry_hash = shape_geometry_fingerprint(&def);
     let cached = ctx.shape_mesh_cache.get_if(generator_ref, geometry_hash);
 
     let instances = match cached {
@@ -291,10 +334,7 @@ pub(super) fn spawn_shape_entity(
         }
         None => {
             let built = match build_shape_geometry(
-                grammar_source,
-                root_rule,
-                *footprint,
-                *seed,
+                &def,
                 generator_ref,
                 ctx.meshes,
                 ctx.upstream_shape_mesh_cache,
@@ -389,10 +429,13 @@ mod grammar_error_tests {
         let mut cache = UpstreamShapeMeshCache::default();
 
         let err = build_shape_geometry(
-            "",
-            "Root",
-            Fp3([8.0, 8.0, 8.0]),
-            1,
+            &ShapeDef {
+                grammar_source: "",
+                root_rule: "Root",
+                footprint: Fp3([8.0, 8.0, 8.0]),
+                seed: 1,
+                materials: &HashMap::new(),
+            },
             "test_gen",
             &mut meshes,
             &mut cache,
@@ -401,10 +444,13 @@ mod grammar_error_tests {
         assert!(err.contains("no rules"), "{err}");
 
         let err = build_shape_geometry(
-            "House --> Extrude(10) Body",
-            "Root",
-            Fp3([8.0, 8.0, 8.0]),
-            1,
+            &ShapeDef {
+                grammar_source: "House --> Extrude(10) Body",
+                root_rule: "Root",
+                footprint: Fp3([8.0, 8.0, 8.0]),
+                seed: 1,
+                materials: &HashMap::new(),
+            },
             "test_gen",
             &mut meshes,
             &mut cache,
@@ -413,15 +459,163 @@ mod grammar_error_tests {
         assert!(err.contains("root rule `Root`"), "{err}");
 
         let err = build_shape_geometry(
-            "%%% not a rule at all",
-            "Root",
-            Fp3([8.0, 8.0, 8.0]),
-            1,
+            &ShapeDef {
+                grammar_source: "%%% not a rule at all",
+                root_rule: "Root",
+                footprint: Fp3([8.0, 8.0, 8.0]),
+                seed: 1,
+                materials: &HashMap::new(),
+            },
             "test_gen",
             &mut meshes,
             &mut cache,
         )
         .expect_err("parse failure must be rejected");
         assert!(err.contains("line 1"), "{err}");
+    }
+}
+
+#[cfg(test)]
+mod card_uv_tests {
+    use super::*;
+    use crate::pds::{Fp, SovereignAshlarConfig, SovereignTextureConfig, SovereignWindowConfig};
+
+    fn card_mat() -> SovereignMaterialSettings {
+        SovereignMaterialSettings {
+            texture: SovereignTextureConfig::Window(SovereignWindowConfig::default()),
+            ..Default::default()
+        }
+    }
+
+    fn surface_mat() -> SovereignMaterialSettings {
+        SovereignMaterialSettings {
+            texture: SovereignTextureConfig::Ashlar(SovereignAshlarConfig::default()),
+            ..Default::default()
+        }
+    }
+
+    /// #939: the card predicate the shape mesher keys on must agree with the
+    /// upstream render properties that drive clamp-vs-repeat sampling. If
+    /// these ever disagree, a card's UVs and its sampler disagree too.
+    #[test]
+    fn card_predicate_matches_upstream_render_properties() {
+        for cfg in [
+            SovereignTextureConfig::Window(SovereignWindowConfig::default()),
+            SovereignTextureConfig::Ashlar(SovereignAshlarConfig::default()),
+            SovereignTextureConfig::None,
+        ] {
+            assert_eq!(
+                cfg.is_card(),
+                cfg.to_texture_config().render_properties().is_card,
+                "{} diverged from upstream render properties",
+                cfg.label()
+            );
+        }
+    }
+
+    /// A `Window` slot is an alpha card and must mesh with stretched UVs; an
+    /// `Ashlar` slot must keep world-space tiling. Asserted on the mesh
+    /// itself rather than on the flag, so a regression in how the flag is
+    /// threaded to `build_profiled_mesh` is caught too: a 4 m stretched face
+    /// spans `0..1`, a tiled one spans `0..4`.
+    #[test]
+    fn card_slots_stretch_their_uvs_and_surfaces_tile() {
+        let mut meshes = Assets::<Mesh>::default();
+        let mut cache = UpstreamShapeMeshCache::default();
+        let mut materials = HashMap::new();
+        materials.insert("Glass".to_string(), card_mat());
+        materials.insert("Stone".to_string(), surface_mat());
+
+        let grammar = [
+            "Lot --> Split(X) { ~1: GlassPart | ~1: StonePart }",
+            "GlassPart --> Extrude(4) Mat(\"Glass\") I(\"Pane\")",
+            "StonePart --> Extrude(4) Mat(\"Stone\") I(\"Wall\")",
+        ]
+        .join("\n");
+
+        let built = build_shape_geometry(
+            &ShapeDef {
+                grammar_source: &grammar,
+                root_rule: "Lot",
+                footprint: Fp3([8.0, 0.0, 4.0]),
+                seed: 1,
+                materials: &materials,
+            },
+            "test_gen",
+            &mut meshes,
+            &mut cache,
+        )
+        .expect("grammar must derive");
+
+        let max_u = |slot: &str| {
+            let inst = built
+                .iter()
+                .find(|i| i.material_id.as_deref() == Some(slot))
+                .unwrap_or_else(|| panic!("no terminal carried the `{slot}` slot"));
+            let mesh = meshes.get(&inst.mesh).expect("mesh handle must resolve");
+            let Some(bevy::mesh::VertexAttributeValues::Float32x2(uvs)) =
+                mesh.attribute(Mesh::ATTRIBUTE_UV_0)
+            else {
+                panic!("`{slot}` mesh has no UV_0 attribute");
+            };
+            uvs.iter().map(|uv| uv[0]).fold(0.0_f32, f32::max)
+        };
+
+        let glass_u = max_u("Glass");
+        assert!(
+            (glass_u - 1.0).abs() < 1e-4,
+            "card slot must span 0..1, got 0..{glass_u}"
+        );
+
+        let stone_u = max_u("Stone");
+        assert!(
+            stone_u > 1.5,
+            "surface slot must tile in world space (metres), got 0..{stone_u}"
+        );
+    }
+
+    /// The geometry cache is keyed on which slots are cards, so flipping a
+    /// slot from surface to card must invalidate it — otherwise the editor
+    /// would keep handing out the tiled mesh after the swap. Colour-only
+    /// edits must NOT invalidate it (that is what `ShapeMaterialCache` is
+    /// for), or every roughness tweak would re-derive the whole grammar.
+    #[test]
+    fn card_ness_invalidates_the_geometry_hash_but_colour_does_not() {
+        let fp = Fp3([8.0, 0.0, 4.0]);
+        let mut surface = HashMap::new();
+        surface.insert("Slot".to_string(), surface_mat());
+
+        let mut card = HashMap::new();
+        card.insert("Slot".to_string(), card_mat());
+
+        let mut recoloured = HashMap::new();
+        recoloured.insert(
+            "Slot".to_string(),
+            SovereignMaterialSettings {
+                roughness: Fp(0.123),
+                ..surface_mat()
+            },
+        );
+
+        let h = |m: &HashMap<String, SovereignMaterialSettings>| {
+            shape_geometry_fingerprint(&ShapeDef {
+                grammar_source: "Lot --> I(\"x\")",
+                root_rule: "Lot",
+                footprint: fp,
+                seed: 1,
+                materials: m,
+            })
+        };
+
+        assert_ne!(
+            h(&surface),
+            h(&card),
+            "flipping a slot to an alpha card must rebuild the geometry"
+        );
+        assert_eq!(
+            h(&surface),
+            h(&recoloured),
+            "a colour/roughness edit must reuse the baked mesh list"
+        );
     }
 }

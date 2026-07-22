@@ -518,9 +518,10 @@ pub(super) fn tiles_per_metre(tile_m: f32) -> Fp {
 ///
 /// The metre convention covers `build_primitive_mesh` **and** `Shape`: the
 /// shape mesher emits world-space UVs too (`bevy_symbios_shape`'s
-/// `build_profiled_mesh` scales UVs by the scope size, and overlands always
-/// passes `stretch_uvs: false`), so grammar materials convert exactly like
-/// primitive ones.
+/// `build_profiled_mesh` scales UVs by the scope size), so grammar
+/// materials convert exactly like primitive ones. Cards are handled for
+/// you there — the shape pipeline derives `stretch_uvs` from the material's
+/// own texture, which is that pipeline's `UvMapping::Fit` (#939).
 ///
 /// `LSystem` is the real exception. Its mesher parameterises U as `0..1`
 /// around the tube and V as arc-length over circumference, so a trunk's

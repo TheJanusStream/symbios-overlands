@@ -1027,6 +1027,22 @@ impl SovereignTextureConfig {
         }
     }
 
+    /// `true` when this texture is an **alpha card** — a clamp-to-edge,
+    /// alpha-masked image that must span its quad exactly once (a window,
+    /// stained glass, an iron grille, a leaf sprite) rather than tiling like
+    /// a surface.
+    ///
+    /// Delegates to the upstream
+    /// [`RenderProperties`](bevy_symbios_texture::RenderProperties), which is
+    /// generated from the same generator registry that decides the material's
+    /// alpha mode, culling and clamp-vs-repeat sampling. Deriving it here
+    /// rather than re-listing the card variants keeps the *geometry* decision
+    /// (how to lay out UVs) from drifting away from the *material* decision
+    /// (how to sample them) when a generator is added upstream.
+    pub fn is_card(&self) -> bool {
+        self.to_texture_config().render_properties().is_card
+    }
+
     /// Convert this wire-format variant into the upstream
     /// [`bevy_symbios_texture::TextureConfig`] tagged-union the
     /// `build_procedural_material_async` helper consumes.
