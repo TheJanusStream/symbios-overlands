@@ -401,6 +401,77 @@ pub(super) fn foundation_disc(radius: f32, depth: f32) -> Generator {
 }
 
 /// Strong self-lit material — lamps, orbs, finials.
+/// Flat quad in the local XZ plane, `size` = `[x_extent, z_extent]`, normal
+/// `+Y`. Stand it up with [`quat_x`]`(-FRAC_PI_2)` to face `-Z` — that maps
+/// the quad's local Z extent onto world Y, so `size` reads as
+/// `[width, height]` for a wall opening.
+pub(super) fn plane(size: [f32; 2], material: SovereignMaterialSettings) -> GeneratorKind {
+    GeneratorKind::Plane {
+        size: Fp2(size),
+        subdivisions: 0,
+        solid: false,
+        material,
+        torture: TortureParams::default(),
+    }
+}
+
+/// Glazing for a wall opening: the `Window` generator's alpha card, on the
+/// material settings it actually wants.
+///
+/// **The `Window` texture is not a window you stick on a wall — it is the
+/// pane that fills a hole you already cut.** Four properties drive that,
+/// and every one of them is silently wrong if the card is used as a face
+/// plate on a solid box:
+///
+/// 1. **It is an alpha card, and the panes are cut away.** The generator
+///    writes opaque alpha for the frame and mullions and `glass_opacity`
+///    for the glass; upstream renders every card at `AlphaMode::Mask(0.5)`.
+///    So any `opacity` below `0.5` discards the pane pixels outright — the
+///    card becomes a frame with real holes in it. Stuck on a solid wall
+///    those holes show the wall; spanning an opening they show what is
+///    behind it, which is the entire point. Author an interior worth
+///    seeing, or the holes show sky.
+/// 2. **`uv_scale` must stay `1.0`.** Cards upload clamp-to-edge, not
+///    repeating. A `uv_scale` above one runs the UVs off the end of the
+///    card and smears its last texel across the remainder — one card is
+///    one opening, always.
+/// 3. **One card, one flat quad.** On a cuboid every face takes the same
+///    texture, so a "window slab" grows windows on its sides, top and
+///    bottom. Use [`plane`].
+/// 4. **Pane counts carry the scale.** The card stretches to whatever quad
+///    it lands on, so `panes_x`/`panes_y` are what tell the viewer how big
+///    the opening is. Pick them against the opening's real aspect ratio so
+///    the panes come out roughly square.
+///
+/// `frame_width` and `mullion_thickness` are fractions of the card, so a
+/// wide opening wants a smaller `frame_width` than a square one if the
+/// frame is to look the same thickness all round.
+pub(super) fn window_card(
+    frame_color: [f32; 3],
+    panes_x: u32,
+    panes_y: u32,
+    opacity: f32,
+    frame_width: f32,
+) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(frame_color),
+        roughness: Fp(0.35),
+        metallic: Fp(0.2),
+        // See rule 2 — cards are clamp-to-edge; anything but 1.0 smears.
+        uv_scale: Fp(1.0),
+        texture: crate::pds::SovereignTextureConfig::Window(crate::pds::SovereignWindowConfig {
+            panes_x,
+            panes_y,
+            frame_width: crate::pds::Fp64(frame_width as f64),
+            glass_opacity: crate::pds::Fp64(opacity as f64),
+            grime_level: crate::pds::Fp64(0.18),
+            color_frame: Fp3(frame_color),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
 pub(super) fn glow(color: [f32; 3], strength: f32) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
