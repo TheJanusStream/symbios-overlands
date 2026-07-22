@@ -37,29 +37,35 @@ pub(super) fn cleanup_terrain(
     mut last_cfg: ResMut<LastTerrainConfigJson>,
     mut pending_cfg: ResMut<PendingTerrainConfigJson>,
 ) {
+    // All `try_despawn` (#923): these flat sweeps overlap — a mid-swap
+    // heightfield is in both `terrain` and `outgoing`, and the water
+    // volumes are `RoomEntity`s that `end_attract_scene` (same
+    // `OnExit(Login)` transition) and `logout::cleanup_on_logout` also
+    // retire — and a plain `despawn` warns per already-dead entity.
+    // Teardown only needs the entities gone, not to be their sole owner.
     for e in &terrain {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
     for e in &outgoing {
         commands.entity(e).try_despawn();
     }
     for e in &water {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
     for e in &roads {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
     // In-flight splat texture bakes would otherwise survive into the next
     // login cycle, resolve onto orphaned entities, and leak until process
     // exit. Drain the marker-tagged bake entities here.
     for e in &pending_textures {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
     // In-flight Referenced-texture fetches likewise need to be drained
     // so a fast logout/login cycle doesn't leak network tasks past the
     // room they were dispatched for.
     for e in &pending_splat_refs {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
     *splat_state = TerrainSplatState::default();
     // Full reset (#884): clears the live fingerprint, disarms any pending

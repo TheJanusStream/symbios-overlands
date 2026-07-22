@@ -160,8 +160,18 @@ pub fn end_attract_scene(
     if attract.is_none() {
         return;
     }
+    // `try_despawn`, not `despawn` (#923): every node of a spawned tree
+    // carries `RoomEntity`, and `despawn` is recursive — so a root's
+    // despawn already takes its children, and the children's own queued
+    // commands then hit dead entities. With the demo world now thousands
+    // of entities (vegetation tiers), plain `despawn` turned this sweep
+    // into a warning per node on every Login→Loading handover. The same
+    // overlap exists across systems: `terrain::cleanup_terrain` retires
+    // the water volumes on this same transition, and they are
+    // `RoomEntity`s too. Same idiom as the executor's full-rebuild sweep
+    // and `logout::cleanup_on_logout`.
     for e in &room_entities {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
     commands.remove_resource::<LiveRoomRecord>();
     commands.remove_resource::<crate::world_builder::WorldCompiled>();
