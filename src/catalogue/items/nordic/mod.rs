@@ -194,13 +194,28 @@ pub(super) fn iron(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// Cut log end-grain — the sawn faces of stacked firewood and post tops.
+/// Cut log end-grain — the sawn face of stacked firewood or a post top.
+///
+/// **This is an alpha card, not a surface** (`LogEnd` is registered `Card`
+/// upstream, so the material renders alpha-masked and double-sided). The
+/// generator draws one round slice — pith, rings, bark rim — and masks away
+/// the corners outside it, so it belongs on a flat quad standing at the
+/// sawn end of a log, never wrapped around the log itself. Wrapped on a
+/// cylinder the mask eats the barrel and leaves floating slivers (#940).
+///
+/// The same rules as [`window_card`](crate::catalogue::items::util::window_card)
+/// apply: `uv_scale` stays `1.0` (cards upload clamp-to-edge; anything else
+/// smears the rim), and one card means one quad. Use it with
+/// [`plane`](crate::catalogue::items::util::plane), which defaults to
+/// `UvMapping::Fit`; give the log's body a real timber surface like
+/// [`timber`].
 pub(super) fn log_end(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.85),
         metallic: Fp(0.0),
-        uv_scale: tiles_per_metre(tile::LOG_END),
+        // Card — clamp-to-edge, must span its quad exactly once.
+        uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::LogEnd(SovereignLogEndConfig {
             color_early: Fp3([color[0] * 1.2, color[1] * 1.2, color[2] * 1.15]),
             color_late: Fp3(color),

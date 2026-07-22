@@ -481,6 +481,49 @@ mod tests {
         );
     }
 
+    /// #940: `LogEnd` is an alpha card whose mask keeps one round slice and
+    /// discards everything outside it, so it only works on a quad it fills
+    /// edge to edge. Wrapped around a solid it deletes the solid — wood_pile
+    /// shipped 19 cylinders rendering as floating slivers because of this.
+    ///
+    /// Deliberately narrower than "no cards on solids": the other cards mask
+    /// their *interior* (window panes, chain-link gaps) and leave a frame, so
+    /// they wrap curved and boxy geometry on purpose — the biodome's glazed
+    /// sphere and ~70 window slabs across the catalogue depend on it. Only
+    /// the border-masking card has a hard geometric requirement.
+    #[test]
+    fn log_end_cards_only_ever_land_on_planes() {
+        use crate::pds::material_finish::node_materials_mut;
+        use crate::pds::{Generator, GeneratorKind, SovereignTextureConfig};
+
+        // Walks mutably purely to reuse `node_materials_mut`, the single
+        // list of which kinds carry a material — a second immutable copy of
+        // that match would be one more place to forget a new prim kind.
+        fn walk(g: &mut Generator, slug: &str, bad: &mut Vec<String>) {
+            let tag = g.kind.kind_tag();
+            if !matches!(g.kind, GeneratorKind::Plane { .. })
+                && node_materials_mut(&mut g.kind)
+                    .into_iter()
+                    .any(|m| matches!(m.texture, SovereignTextureConfig::LogEnd(_)))
+            {
+                bad.push(format!("{slug}: LogEnd on {tag}"));
+            }
+            for c in &mut g.children {
+                walk(c, slug, bad);
+            }
+        }
+
+        let mut bad = Vec::new();
+        for e in ENTRIES {
+            walk(&mut e.build(""), e.slug(), &mut bad);
+        }
+        assert!(
+            bad.is_empty(),
+            "LogEnd is a border-masking card and must sit on a Plane \
+             (see `nordic::log_end`); found: {bad:?}"
+        );
+    }
+
     #[test]
     fn by_slug_resolves_every_entry() {
         for entry in ENTRIES {

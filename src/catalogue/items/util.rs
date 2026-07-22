@@ -599,10 +599,10 @@ pub(super) mod tile {
 
     /// Rough rock face — undressed rubble masonry and natural stone.
     pub(in crate::catalogue::items) const ROCK: f32 = 1.5;
-    /// One sawn log end. The generator draws a whole slice — pith, rings,
-    /// bark rim — per tile, so the tile *is* the log: a split firewood
-    /// round or a post top.
-    pub(in crate::catalogue::items) const LOG_END: f32 = 0.3;
+    // No LOG_END constant, deliberately: `LogEnd` is registered `Card`
+    // upstream, so it belongs in the alpha-card group below — one slice per
+    // quad at `uv_scale` 1.0 — not in this table. It was briefly given a
+    // tile here during #936 and that was wrong (#940).
     /// Marble veining — a figure rather than a countable feature, sized to
     /// the block it faces.
     pub(in crate::catalogue::items) const MARBLE: f32 = 2.0;
