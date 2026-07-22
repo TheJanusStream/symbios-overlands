@@ -35,6 +35,7 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 
+use crate::pds::GeneratorKind;
 use crate::pds::generator::UvMapping;
 
 /// Compute per-vertex UVs for `mapping`, splitting shared vertices where
@@ -55,6 +56,73 @@ pub(super) fn project_uvs(
         UvMapping::Cylindrical => cylindrical(pos, nor, idx),
         UvMapping::PlanarX | UvMapping::PlanarY | UvMapping::PlanarZ => planar(pos, mapping),
     }
+}
+
+/// Which metre-scale projection (if any) a primitive kind should have baked
+/// over whatever its mesher produced (#934).
+///
+/// `Cuboid` is the case that matters and the only one taken so far. Its
+/// stock parameterisation — Bevy's for the plain box, the swept rectangular
+/// profile once a cut is active — lays exactly one tile across *each face*,
+/// so an 8 × 4 × 0.35 wall slab wears one tile on the 8 × 4 face and
+/// another crammed into the 0.35 × 4 end. Box projection fixes both at
+/// once: every face is projected along its own normal at one metre scale,
+/// and the two meshers stop disagreeing with each other as a side effect.
+///
+/// Deliberately absent:
+///
+/// * `Plane` — the card carrier. Every use in the catalogue is a foliage
+///   billboard or a glazing card, and a card must span its quad exactly
+///   once (it uploads clamp-to-edge). It gets an explicit "fit" mode with
+///   the rest of the flat-faced family in #937 rather than a silent metre
+///   default that would tile every card.
+/// * The rotational family (`Sphere`, `Cylinder`, `Cone`, `Capsule`,
+///   `Torus`) — each has *two* parameterisations already, Bevy's when
+///   untortured and the sweep mesher's once a cut is active, and they mix
+///   wall and cap conventions within one mesh. Rescaling that mixture
+///   globally would turn every cap disc into an ellipse. Unifying them is
+///   #935's job, where the sweep mesher becomes the single source of UV
+///   truth.
+///
+/// UVs must stay a pure function of geometry: [`prim_geometry_fingerprint`]
+/// drops the material from the mesh cache key, so anything material-derived
+/// here would silently serve one prop's UVs to another.
+///
+/// [`prim_geometry_fingerprint`]: crate::world_builder::prim_cache::prim_geometry_fingerprint
+pub(super) fn metre_projection_for(kind: &GeneratorKind) -> Option<UvMapping> {
+    matches!(kind, GeneratorKind::Cuboid { .. }).then_some(UvMapping::Box)
+}
+
+/// Re-project a built mesh's UVs through [`project_uvs`], writing back the
+/// (possibly grown) position/normal/index buffers and regenerating tangents.
+///
+/// Bails without touching the mesh if it lacks the float buffers or the
+/// indices the projections need — a mesher that produced something exotic
+/// keeps whatever UVs it made rather than losing them to a half-applied
+/// pass.
+pub(super) fn reproject_mesh(mesh: &mut Mesh, mapping: UvMapping) {
+    use bevy::mesh::{Indices, VertexAttributeValues};
+
+    let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+    else {
+        return;
+    };
+    let Some(VertexAttributeValues::Float32x3(nor)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL) else {
+        return;
+    };
+    let (mut pos, mut nor) = (pos.clone(), nor.clone());
+    let mut idx: Vec<u32> = match mesh.indices() {
+        Some(i) => i.iter().map(|v| v as u32).collect(),
+        None => return,
+    };
+
+    let uv = project_uvs(mapping, &mut pos, &mut nor, &mut idx);
+
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nor);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
+    mesh.insert_indices(Indices::U32(idx));
+    let _ = mesh.generate_tangents();
 }
 
 /// Tight AABB of the vertex positions.

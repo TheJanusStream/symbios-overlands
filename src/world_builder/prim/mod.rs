@@ -54,9 +54,19 @@ pub fn build_primitive_mesh(kind: &GeneratorKind) -> Mesh {
     let torture = torture_of(kind);
     if !torture.is_identity() {
         apply_vertex_torture(&mut mesh, torture);
-    } else {
-        // Non-tortured path still needs tangents for the PBR shader. The
-        // torture branch regenerates them itself after mutating positions.
+    }
+    // Metre-scale UVs for the kinds whose stock parameterisation lays one
+    // tile across each face regardless of that face's size (#934). Runs
+    // *after* torture so the projection follows the deformed surface, and
+    // it re-generates tangents itself because a projection can split
+    // vertices — which would leave any earlier tangent buffer the wrong
+    // length.
+    if let Some(mapping) = uv::metre_projection_for(kind) {
+        uv::reproject_mesh(&mut mesh, mapping);
+    } else if torture.is_identity() {
+        // Non-tortured, non-reprojected path still needs tangents for the
+        // PBR shader. The torture branch regenerates them itself after
+        // mutating positions.
         let _ = mesh.generate_tangents();
     }
     mesh
@@ -909,6 +919,79 @@ mod tests {
             .map(|p| (p[0] * p[0] + p[2] * p[2]).sqrt())
             .fold(0.0_f32, f32::max);
         assert!((top_r - 0.25).abs() < 0.02, "frustum top radius {top_r}");
+    }
+
+    /// #934: a cuboid's UVs measure metres of face, not "one tile per face".
+    ///
+    /// The regression this pins is the corner store's brickwork: an 8 × 4 ×
+    /// 0.35 slab used to wear one tile on its broad face and one on its
+    /// 0.35 m end, so a pier and a lintel sharing a material could not match.
+    /// Now every face's UV span equals its own metres, whatever the slab.
+    #[test]
+    fn cuboid_uv_span_measures_face_metres() {
+        let slab = |size: [f32; 3]| {
+            let mut k = GeneratorKind::default_primitive_for_tag("Cuboid").unwrap();
+            if let GeneratorKind::Cuboid { size: s, .. } = &mut k {
+                *s = Fp3(size);
+            }
+            build_primitive_mesh(&k)
+        };
+
+        // Per-face UV extent, keyed by the face's quantised normal, so each
+        // of the six faces is measured independently.
+        let face_spans = |mesh: &Mesh| -> Vec<(f32, f32)> {
+            let Some(VertexAttributeValues::Float32x3(nor)) =
+                mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
+            else {
+                panic!("no normals")
+            };
+            let Some(VertexAttributeValues::Float32x2(uv)) = mesh.attribute(Mesh::ATTRIBUTE_UV_0)
+            else {
+                panic!("no uvs")
+            };
+            let mut by_face: std::collections::HashMap<[i8; 3], (f32, f32, f32, f32)> =
+                std::collections::HashMap::new();
+            for (n, t) in nor.iter().zip(uv) {
+                let key = [n[0].round() as i8, n[1].round() as i8, n[2].round() as i8];
+                let e = by_face.entry(key).or_insert((
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                ));
+                e.0 = e.0.min(t[0]);
+                e.1 = e.1.max(t[0]);
+                e.2 = e.2.min(t[1]);
+                e.3 = e.3.max(t[1]);
+            }
+            let mut out: Vec<(f32, f32)> =
+                by_face.values().map(|e| (e.1 - e.0, e.3 - e.2)).collect();
+            out.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            out
+        };
+
+        // A 4 × 2 × 0.5 slab: the six faces measure 4×2, 4×0.5 and 2×0.5,
+        // and every UV span must equal one of those side lengths.
+        let spans = face_spans(&slab([4.0, 2.0, 0.5]));
+        assert_eq!(spans.len(), 6, "expected six distinct face normals");
+        for (u, v) in &spans {
+            for d in [*u, *v] {
+                assert!(
+                    [4.0_f32, 2.0, 0.5].iter().any(|s| (d - s).abs() < 1e-3),
+                    "face UV span {d} is not one of the slab's side lengths"
+                );
+            }
+        }
+
+        // And the property that makes materials portable: double the slab,
+        // double every span. Under the old per-face normalisation both were
+        // 1.0 and a material could not tell the two apart.
+        let small = face_spans(&slab([1.0, 1.0, 1.0]));
+        let large = face_spans(&slab([2.0, 2.0, 2.0]));
+        for ((su, sv), (lu, lv)) in small.iter().zip(&large) {
+            assert!((lu - su * 2.0).abs() < 1e-3, "U span did not track size");
+            assert!((lv - sv * 2.0).abs() < 1e-3, "V span did not track size");
+        }
     }
 
     #[test]
