@@ -50,6 +50,7 @@ pub mod garden_bed;
 pub mod lantern;
 pub mod market_stall;
 
+use super::util::{tile, tiles_per_metre};
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, SovereignBrickConfig, SovereignCobblestoneConfig,
     SovereignCorrugatedConfig, SovereignFabricConfig, SovereignMarbleConfig,
@@ -95,7 +96,7 @@ pub(super) fn wood(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.88),
         metallic: Fp(0.0),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::PLANK_BOARD * 4.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
             color_wood_light: Fp3([color[0] * 1.22, color[1] * 1.22, color[2] * 1.22]),
             color_wood_dark: Fp3([color[0] * 0.58, color[1] * 0.58, color[2] * 0.58]),
@@ -115,6 +116,7 @@ pub(super) fn cloth(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.95),
         metallic: Fp(0.0),
+        uv_scale: tiles_per_metre(tile::FABRIC_THREAD * 18.0),
         texture: SovereignTextureConfig::Fabric(SovereignFabricConfig {
             color_warp: Fp3(color),
             color_weft: Fp3([color[0] * 0.72, color[1] * 0.72, color[2] * 0.72]),
@@ -133,7 +135,7 @@ pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.9),
         metallic: Fp(0.0),
-        uv_scale: Fp(2.0),
+        uv_scale: tiles_per_metre(tile::COBBLE),
         texture: SovereignTextureConfig::Cobblestone(SovereignCobblestoneConfig {
             color_stone: Fp3(color),
             color_mud: Fp3([color[0] * 0.5, color[1] * 0.48, color[2] * 0.42]),
@@ -150,7 +152,7 @@ pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.92),
         metallic: Fp(0.0),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::BRICK_COURSE * 9.0),
         texture: SovereignTextureConfig::Brick(SovereignBrickConfig {
             color_brick: Fp3(color),
             aspect_ratio: Fp64(3.0),
@@ -167,7 +169,7 @@ pub(super) fn corrugated(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.8),
         metallic: Fp(0.45),
-        uv_scale: Fp(1.0),
+        uv_scale: tiles_per_metre(tile::CORRUGATED_PITCH * 9.0),
         texture: SovereignTextureConfig::Corrugated(SovereignCorrugatedConfig {
             color_metal: Fp3(color),
             ridges: Fp64(9.0),
@@ -184,6 +186,7 @@ pub(super) fn marble(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.22),
         metallic: Fp(0.0),
+        uv_scale: tiles_per_metre(tile::MARBLE),
         texture: SovereignTextureConfig::Marble(SovereignMarbleConfig {
             color_base: Fp3(color),
             color_vein: Fp3([color[0] * 0.6, color[1] * 0.58, color[2] * 0.56]),
@@ -201,6 +204,7 @@ pub(super) fn rust_metal(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.85),
         metallic: Fp(0.55),
+        uv_scale: tiles_per_metre(tile::METAL),
         texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
             style: MetalStyle::Brushed,
             color_metal: Fp3(color),
@@ -221,6 +225,7 @@ pub(super) fn bronze(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.4),
         metallic: Fp(0.9),
+        uv_scale: tiles_per_metre(tile::METAL),
         texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
             style: MetalStyle::Brushed,
             color_metal: Fp3(color),

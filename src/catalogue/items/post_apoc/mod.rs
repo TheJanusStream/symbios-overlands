@@ -30,6 +30,7 @@ pub mod survivor_lean_to;
 
 pub mod fx;
 
+use super::util::{tile, tiles_per_metre};
 use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::catalogue::items::util::{
@@ -58,7 +59,7 @@ pub(super) fn rusted(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.7),
         metallic: Fp(0.6),
-        uv_scale: Fp(1.0),
+        uv_scale: tiles_per_metre(tile::METAL),
         texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
             style: MetalStyle::Brushed,
             color_metal: Fp3(color),
@@ -77,7 +78,7 @@ pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.92),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::CONCRETE),
         texture: SovereignTextureConfig::Concrete(SovereignConcreteConfig {
             color_base: Fp3(color),
             formwork_lines: Fp64(3.0),
@@ -94,7 +95,7 @@ pub(super) fn sheet(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.6),
         metallic: Fp(0.6),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::CORRUGATED_PITCH * 10.0),
         texture: SovereignTextureConfig::Corrugated(SovereignCorrugatedConfig {
             color_metal: Fp3(color),
             ridges: Fp64(10.0),
@@ -111,7 +112,7 @@ pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.9),
         metallic: Fp(0.0),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::PLANK_BOARD * 5.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
             color_wood_light: Fp3([color[0] * 1.2, color[1] * 1.2, color[2] * 1.2]),
             color_wood_dark: Fp3([color[0] * 0.6, color[1] * 0.6, color[2] * 0.6]),

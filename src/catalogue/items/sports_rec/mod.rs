@@ -33,6 +33,7 @@ pub mod tire_stack;
 
 pub mod fx;
 
+use super::util::{tile, tiles_per_metre};
 use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::catalogue::items::util::{cuboid_tapered, glow, id_quat, prim, solid};
@@ -59,7 +60,7 @@ pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.9),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::CONCRETE),
         texture: SovereignTextureConfig::Concrete(SovereignConcreteConfig {
             color_base: Fp3(color),
             formwork_lines: Fp64(5.0),
@@ -76,7 +77,7 @@ pub(super) fn steel(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.4),
         metallic: Fp(0.85),
-        uv_scale: Fp(1.0),
+        uv_scale: tiles_per_metre(tile::METAL),
         texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
             style: MetalStyle::Brushed,
             color_metal: Fp3(color),
@@ -97,7 +98,7 @@ pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.25),
         metallic: Fp(0.4),
-        uv_scale: Fp(1.0),
+        uv_scale: tiles_per_metre(tile::METAL),
         texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
             style: MetalStyle::Brushed,
             color_metal: Fp3(color),
@@ -139,7 +140,7 @@ pub(super) fn corrugated(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.4),
         metallic: Fp(0.7),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::CORRUGATED_PITCH * 10.0),
         texture: SovereignTextureConfig::Corrugated(SovereignCorrugatedConfig {
             color_metal: Fp3(color),
             ridges: Fp64(10.0),
@@ -173,7 +174,7 @@ pub(super) fn asphalt(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.92),
         metallic: Fp(0.0),
-        uv_scale: Fp(2.0),
+        uv_scale: tiles_per_metre(tile::ASPHALT),
         texture: SovereignTextureConfig::Asphalt(SovereignAsphaltConfig {
             color_base: Fp3(color),
             color_aggregate: Fp3([0.35, 0.33, 0.30]),
@@ -203,7 +204,9 @@ pub(super) fn turf(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.95),
         metallic: Fp(0.0),
-        uv_scale: Fp(4.0),
+        // No texture, so `uv_scale` is inert — pinned at 1.0 so it does not
+        // read as a stale pre-#936 repeat count.
+        uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::None,
         ..Default::default()
     }

@@ -45,6 +45,7 @@ pub mod tarp_shelter;
 
 pub mod fx;
 
+use super::util::{tile, tiles_per_metre};
 use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::pds::{
@@ -73,7 +74,7 @@ pub(super) fn metal(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.32),
         metallic: Fp(0.85),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::METAL),
         texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
             style: MetalStyle::StandingSeam,
             color_metal: Fp3(color),
@@ -118,7 +119,7 @@ pub(super) fn corrugated(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.6),
         metallic: Fp(0.6),
-        uv_scale: Fp(1.0),
+        uv_scale: tiles_per_metre(tile::CORRUGATED_PITCH * 10.0),
         texture: SovereignTextureConfig::Corrugated(SovereignCorrugatedConfig {
             color_metal: Fp3(color),
             color_rust: Fp3([0.42, 0.22, 0.10]),
@@ -140,7 +141,7 @@ pub(super) fn rust(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.9),
         metallic: Fp(0.4),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::METAL),
         texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
             style: MetalStyle::Brushed,
             color_metal: Fp3(color),
@@ -174,7 +175,7 @@ pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.9),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::CONCRETE),
         texture: SovereignTextureConfig::Concrete(SovereignConcreteConfig {
             color_base: Fp3(color),
             formwork_lines: Fp64(4.0),
@@ -206,6 +207,7 @@ pub(super) fn tarp(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.9),
         metallic: Fp(0.0),
+        uv_scale: tiles_per_metre(tile::FABRIC),
         texture: SovereignTextureConfig::Fabric(crate::pds::SovereignFabricConfig::default()),
         ..Default::default()
     }

@@ -30,6 +30,7 @@ pub mod glyph_rubble;
 
 pub mod fx;
 
+use super::util::{tile, tiles_per_metre};
 use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::catalogue::items::fantasy::rune_marks;
@@ -57,7 +58,7 @@ pub(super) fn obsidian(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.15),
         metallic: Fp(0.7),
-        uv_scale: Fp(1.0),
+        uv_scale: tiles_per_metre(tile::METAL),
         texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
             style: MetalStyle::Brushed,
             color_metal: Fp3(color),

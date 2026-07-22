@@ -341,7 +341,7 @@ pub(super) fn foundation_mat() -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3([0.45, 0.43, 0.40]),
         roughness: Fp(0.95),
-        uv_scale: Fp(2.0),
+        uv_scale: tiles_per_metre(tile::ROCK),
         texture: crate::pds::SovereignTextureConfig::Rock(
             crate::pds::SovereignRockConfig::default(),
         ),
@@ -587,18 +587,32 @@ pub(super) mod tile {
     /// Stucco / lime-wash daub is near-scaleless — sized large so the render
     /// stays a surface tone rather than becoming visible noise.
     pub(in crate::catalogue::items) const STUCCO: f32 = 2.0;
-    /// Woven cloth — the weave *is* the feature, so this is the tightest
-    /// tile in the table.
-    pub(in crate::catalogue::items) const FABRIC: f32 = 0.5;
+    /// One woven thread, for configs whose
+    /// `SovereignFabricConfig::thread_count` departs from the usual 20 (fine
+    /// silk runs 40, sailcloth 16). Multiply by that count; at the usual
+    /// count, prefer [`FABRIC`].
+    pub(in crate::catalogue::items) const FABRIC_THREAD: f32 = 0.025;
+    /// The common 20-thread cloth. The weave *is* the feature, so this is
+    /// the tightest tile in the table.
+    pub(in crate::catalogue::items) const FABRIC: f32 = FABRIC_THREAD * 20.0;
 
     /// Rough rock face — undressed rubble masonry and natural stone.
     pub(in crate::catalogue::items) const ROCK: f32 = 1.5;
+    /// One sawn log end. The generator draws a whole slice — pith, rings,
+    /// bark rim — per tile, so the tile *is* the log: a split firewood
+    /// round or a post top.
+    pub(in crate::catalogue::items) const LOG_END: f32 = 0.3;
     /// Marble veining — a figure rather than a countable feature, sized to
     /// the block it faces.
     pub(in crate::catalogue::items) const MARBLE: f32 = 2.0;
     /// Ground / sand / snow / ice — granular, near-scaleless, and always on
     /// the largest surfaces in a scene, so it is sized to stay a tone.
     pub(in crate::catalogue::items) const GROUND: f32 = 2.0;
+    /// Sand. Aliases [`GROUND`] — same granular reasoning — but named
+    /// so a beach material does not read as though it borrowed soil's tile.
+    pub(in crate::catalogue::items) const SAND: f32 = GROUND;
+    /// Snow / ice. Aliases [`GROUND`], as [`SAND`] does.
+    pub(in crate::catalogue::items) const ICE: f32 = GROUND;
     /// Asphalt — coarse aggregate and crack noise, sized large because the
     /// surfaces it lands on (forecourts, lots) are the biggest in the kit
     /// and a tight tile turns them into visible repetition.
@@ -615,6 +629,17 @@ pub(super) mod tile {
     /// far under the ~76 mm of real sheet, and fine enough that the mip
     /// chain flattens it to bare colour.
     pub(in crate::catalogue::items) const CORRUGATED_PITCH: f32 = 0.076;
+    /// Legibility multiplier for corrugated sheet on **broad** surfaces —
+    /// a silo body, factory cladding, a dock wall (#936).
+    ///
+    /// The true pitch reads correctly on a roof or a small prop, but on a
+    /// surface tens of metres across it falls below what the renderer ever
+    /// resolves and mips to flat colour — the same washout the module doc
+    /// warns about, arrived at from the honest direction. Ribbing is the
+    /// whole silhouette signature of these forms, so it is drawn oversize
+    /// rather than not at all. Multiply alongside `CORRUGATED_PITCH`; leave
+    /// it off for roofs and props, which read fine at the real size.
+    pub(in crate::catalogue::items) const CORRUGATED_BROAD: f32 = 3.0;
 }
 
 pub(super) fn glow(color: [f32; 3], strength: f32) -> SovereignMaterialSettings {

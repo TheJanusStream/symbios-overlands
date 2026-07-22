@@ -32,6 +32,7 @@ pub mod fx;
 
 use std::f32::consts::FRAC_PI_2;
 
+use super::util::{tile, tiles_per_metre};
 use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::catalogue::items::util::{
@@ -61,7 +62,7 @@ pub(super) fn siding(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.7),
         metallic: Fp(0.0),
-        uv_scale: Fp(2.0),
+        uv_scale: tiles_per_metre(tile::PLANK_BOARD * 10.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
             color_wood_light: Fp3([color[0] * 1.08, color[1] * 1.08, color[2] * 1.08]),
             color_wood_dark: Fp3([color[0] * 0.85, color[1] * 0.85, color[2] * 0.85]),
@@ -80,7 +81,7 @@ pub(super) fn wood(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.85),
         metallic: Fp(0.0),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::PLANK_BOARD * 4.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
             color_wood_light: Fp3([color[0] * 1.12, color[1] * 1.12, color[2] * 1.12]),
             color_wood_dark: Fp3([color[0] * 0.78, color[1] * 0.78, color[2] * 0.78]),
@@ -97,7 +98,7 @@ pub(super) fn shingle(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.8),
-        uv_scale: Fp(3.0),
+        uv_scale: tiles_per_metre(tile::SHINGLE),
         texture: SovereignTextureConfig::Shingle(SovereignShingleConfig {
             color_tile: Fp3(color),
             color_grout: Fp3([color[0] * 0.6, color[1] * 0.6, color[2] * 0.62]),
@@ -115,7 +116,7 @@ pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.85),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::BRICK),
         texture: SovereignTextureConfig::Brick(SovereignBrickConfig {
             color_brick: Fp3(color),
             color_mortar: Fp3([0.80, 0.78, 0.74]),
@@ -131,7 +132,7 @@ pub(super) fn render(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.9),
-        uv_scale: Fp(2.0),
+        uv_scale: tiles_per_metre(tile::STUCCO),
         texture: SovereignTextureConfig::Stucco(SovereignStuccoConfig {
             color_base: Fp3(color),
             color_shadow: Fp3([color[0] * 0.85, color[1] * 0.85, color[2] * 0.83]),
@@ -169,7 +170,7 @@ pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.3),
         metallic: Fp(0.5),
-        uv_scale: Fp(1.0),
+        uv_scale: tiles_per_metre(tile::METAL),
         texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
             style: MetalStyle::Brushed,
             color_metal: Fp3(color),

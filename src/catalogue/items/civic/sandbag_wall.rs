@@ -12,7 +12,9 @@ use crate::catalogue::items::util::{
     cuboid_tapered, cylinder_tapered, id_quat, prim, quat_mul, quat_y, quat_z, solid, sphere,
     superellipsoid, torus, with_cut,
 };
+use crate::catalogue::items::util::{tile, tiles_per_metre};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
+
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, SovereignFabricConfig, SovereignMaterialSettings,
     SovereignTextureConfig,
@@ -64,7 +66,7 @@ fn burlap(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.98),
         metallic: Fp(0.0),
-        uv_scale: Fp(1.25),
+        uv_scale: tiles_per_metre(tile::FABRIC_THREAD * 30.0),
         texture: SovereignTextureConfig::Fabric(SovereignFabricConfig {
             color_warp: Fp3(color),
             color_weft: Fp3([color[0] * 0.78, color[1] * 0.78, color[2] * 0.78]),

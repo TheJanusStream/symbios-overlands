@@ -138,11 +138,9 @@ pub(super) fn silo_metal(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.45),
         metallic: Fp(0.85),
-        // Legibility override (#936): 24 ribs at the true 76 mm pitch wrap a
-        // 4 m silo ~165 times, which mips to flat grey at every distance the
-        // silo is ever seen from. The ribbing is the silo's whole silhouette
-        // signature, so it is drawn ~3x oversize to exist at all.
-        uv_scale: tiles_per_metre(tile::CORRUGATED_PITCH * 3.0 * 24.0),
+        // Broad surface: 24 ribs at the true pitch wrap a 4 m silo ~165
+        // times and mip to flat grey. See `CORRUGATED_BROAD`.
+        uv_scale: tiles_per_metre(tile::CORRUGATED_PITCH * tile::CORRUGATED_BROAD * 24.0),
         texture: SovereignTextureConfig::Corrugated(SovereignCorrugatedConfig {
             color_metal: Fp3(color),
             color_rust: Fp3([0.4, 0.28, 0.16]),

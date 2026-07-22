@@ -31,6 +31,7 @@ pub mod tumbleweed;
 
 pub mod fx;
 
+use super::util::{tile, tiles_per_metre};
 use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::pds::{
@@ -58,7 +59,7 @@ pub(super) fn clapboard(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.88),
         metallic: Fp(0.0),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::PLANK_BOARD * 7.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
             color_wood_light: Fp3([color[0] * 1.2, color[1] * 1.2, color[2] * 1.18]),
             color_wood_dark: Fp3([color[0] * 0.62, color[1] * 0.6, color[2] * 0.56]),
@@ -76,7 +77,7 @@ pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.95),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::COBBLE),
         texture: SovereignTextureConfig::Cobblestone(SovereignCobblestoneConfig {
             color_stone: Fp3(color),
             color_mud: Fp3([color[0] * 0.5, color[1] * 0.46, color[2] * 0.4]),
@@ -114,7 +115,7 @@ pub(super) fn iron(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.55),
         metallic: Fp(0.8),
-        uv_scale: Fp(1.0),
+        uv_scale: tiles_per_metre(tile::METAL),
         texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
             style: MetalStyle::Brushed,
             color_metal: Fp3(color),
@@ -134,7 +135,7 @@ pub(super) fn tin(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.5),
         metallic: Fp(0.6),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::CORRUGATED_PITCH * 10.0),
         texture: SovereignTextureConfig::Corrugated(SovereignCorrugatedConfig {
             color_metal: Fp3(color),
             ridges: Fp64(10.0),

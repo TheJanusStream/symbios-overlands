@@ -32,6 +32,7 @@ pub mod toadstool_ring;
 
 pub mod fx;
 
+use super::util::{tile, tiles_per_metre};
 use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::catalogue::items::util::{
@@ -61,7 +62,7 @@ pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.85),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::ASHLAR),
         texture: SovereignTextureConfig::Ashlar(SovereignAshlarConfig {
             color_stone: Fp3(color),
             color_mortar: Fp3([color[0] * 0.7, color[1] * 0.7, color[2] * 0.68]),
@@ -79,7 +80,7 @@ pub(super) fn mossy(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.95),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::COBBLE),
         texture: SovereignTextureConfig::Cobblestone(SovereignCobblestoneConfig {
             color_stone: Fp3(color),
             color_mud: Fp3([color[0] * 0.55, color[1] * 0.65, color[2] * 0.42]),
@@ -96,7 +97,7 @@ pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.88),
         metallic: Fp(0.0),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::PLANK_BOARD * 5.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
             color_wood_light: Fp3([color[0] * 1.3, color[1] * 1.3, color[2] * 1.28]),
             color_wood_dark: Fp3([color[0] * 0.6, color[1] * 0.6, color[2] * 0.56]),
@@ -115,7 +116,7 @@ pub(super) fn thatch(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.95),
         metallic: Fp(0.0),
-        uv_scale: Fp(2.0),
+        uv_scale: tiles_per_metre(tile::THATCH),
         texture: SovereignTextureConfig::Thatch(SovereignThatchConfig {
             color_straw: Fp3(color),
             color_shadow: Fp3([color[0] * 0.32, color[1] * 0.30, color[2] * 0.18]),
@@ -154,7 +155,7 @@ pub(super) fn gold(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.25),
         metallic: Fp(0.95),
-        uv_scale: Fp(1.0),
+        uv_scale: tiles_per_metre(tile::METAL),
         texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
             style: MetalStyle::Brushed,
             color_metal: Fp3(color),

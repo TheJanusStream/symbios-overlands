@@ -31,6 +31,7 @@ pub mod maize_granary;
 
 pub mod fx;
 
+use super::util::{tile, tiles_per_metre};
 use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::pds::{
@@ -56,7 +57,7 @@ pub(super) fn limestone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.9),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::ASHLAR),
         texture: SovereignTextureConfig::Ashlar(SovereignAshlarConfig {
             color_stone: Fp3(color),
             color_mortar: Fp3([color[0] * 0.82, color[1] * 0.8, color[2] * 0.72]),
@@ -75,7 +76,7 @@ pub(super) fn painted(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.9),
-        uv_scale: Fp(2.0),
+        uv_scale: tiles_per_metre(tile::STUCCO),
         texture: SovereignTextureConfig::Stucco(SovereignStuccoConfig {
             color_base: Fp3(color),
             color_shadow: Fp3([color[0] * 0.75, color[1] * 0.7, color[2] * 0.68]),
@@ -92,7 +93,7 @@ pub(super) fn cobble(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.95),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::COBBLE),
         texture: SovereignTextureConfig::Cobblestone(SovereignCobblestoneConfig {
             color_stone: Fp3(color),
             color_mud: Fp3([color[0] * 0.5, color[1] * 0.45, color[2] * 0.38]),
@@ -109,7 +110,7 @@ pub(super) fn jade(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.2),
         metallic: Fp(0.1),
-        uv_scale: Fp(1.0),
+        uv_scale: tiles_per_metre(tile::MARBLE),
         texture: SovereignTextureConfig::Marble(SovereignMarbleConfig {
             color_base: Fp3(color),
             color_vein: Fp3([color[0] * 0.5, color[1] * 0.7, color[2] * 0.5]),
@@ -128,7 +129,7 @@ pub(super) fn obsidian(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.1),
         metallic: Fp(0.3),
-        uv_scale: Fp(1.0),
+        uv_scale: tiles_per_metre(tile::MARBLE),
         texture: SovereignTextureConfig::Marble(SovereignMarbleConfig {
             color_base: Fp3(color),
             color_vein: Fp3([
@@ -150,7 +151,7 @@ pub(super) fn gold(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.3),
         metallic: Fp(0.95),
-        uv_scale: Fp(1.0),
+        uv_scale: tiles_per_metre(tile::METAL),
         texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
             style: MetalStyle::Brushed,
             color_metal: Fp3(color),
@@ -170,7 +171,7 @@ pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.85),
         metallic: Fp(0.0),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::PLANK_BOARD * 5.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
             color_wood_light: Fp3([color[0] * 1.25, color[1] * 1.25, color[2] * 1.2]),
             color_wood_dark: Fp3([color[0] * 0.6, color[1] * 0.6, color[2] * 0.55]),
@@ -188,7 +189,7 @@ pub(super) fn thatch(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.95),
         metallic: Fp(0.0),
-        uv_scale: Fp(2.0),
+        uv_scale: tiles_per_metre(tile::THATCH),
         texture: SovereignTextureConfig::Thatch(SovereignThatchConfig {
             color_straw: Fp3(color),
             color_shadow: Fp3([color[0] * 0.32, color[1] * 0.30, color[2] * 0.18]),

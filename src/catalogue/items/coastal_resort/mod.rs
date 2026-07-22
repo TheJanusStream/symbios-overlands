@@ -34,6 +34,7 @@ pub mod fishing_shack;
 
 pub mod fx;
 
+use super::util::{tile, tiles_per_metre};
 use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::pds::{
@@ -61,7 +62,7 @@ pub(super) fn stucco(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.85),
         metallic: Fp(0.0),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::STUCCO),
         texture: SovereignTextureConfig::Stucco(SovereignStuccoConfig {
             color_base: Fp3(color),
             color_shadow: Fp3([color[0] * 0.78, color[1] * 0.76, color[2] * 0.72]),
@@ -80,7 +81,7 @@ pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.88),
         metallic: Fp(0.0),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::PLANK_BOARD * 6.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
             color_wood_light: Fp3([color[0] * 1.2, color[1] * 1.2, color[2] * 1.18]),
             color_wood_dark: Fp3([color[0] * 0.62, color[1] * 0.6, color[2] * 0.56]),
@@ -100,6 +101,7 @@ pub(super) fn canvas(warp: [f32; 3], weft: [f32; 3]) -> SovereignMaterialSetting
         base_color: Fp3(warp),
         roughness: Fp(0.92),
         metallic: Fp(0.0),
+        uv_scale: tiles_per_metre(tile::FABRIC_THREAD * 16.0),
         texture: SovereignTextureConfig::Fabric(SovereignFabricConfig {
             color_warp: Fp3(warp),
             color_weft: Fp3(weft),
@@ -139,7 +141,7 @@ pub(super) fn steel(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.4),
         metallic: Fp(0.85),
-        uv_scale: Fp(1.0),
+        uv_scale: tiles_per_metre(tile::METAL),
         texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
             style: MetalStyle::Brushed,
             color_metal: Fp3(color),
@@ -160,7 +162,7 @@ pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.25),
         metallic: Fp(0.4),
-        uv_scale: Fp(1.0),
+        uv_scale: tiles_per_metre(tile::METAL),
         texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
             style: MetalStyle::Brushed,
             color_metal: Fp3(color),
@@ -180,7 +182,7 @@ pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.9),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::CONCRETE),
         texture: SovereignTextureConfig::Concrete(SovereignConcreteConfig {
             color_base: Fp3(color),
             formwork_lines: Fp64(4.0),
@@ -197,7 +199,7 @@ pub(super) fn sand(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(1.0),
         metallic: Fp(0.0),
-        uv_scale: Fp(2.5),
+        uv_scale: tiles_per_metre(tile::SAND),
         texture: SovereignTextureConfig::Sand(SovereignSandConfig {
             color_crest: Fp3(color),
             color_trough: Fp3([color[0] * 0.78, color[1] * 0.76, color[2] * 0.68]),
@@ -219,7 +221,9 @@ pub(super) fn water(color: [f32; 3]) -> SovereignMaterialSettings {
         emission_strength: Fp(0.5),
         roughness: Fp(0.1),
         metallic: Fp(0.0),
-        uv_scale: Fp(2.0),
+        // No texture, so `uv_scale` is inert — pinned at 1.0 so it does not
+        // read as a stale pre-#936 repeat count.
+        uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::None,
     }
 }
