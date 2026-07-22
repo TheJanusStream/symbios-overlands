@@ -76,6 +76,7 @@ fn default_record_serialises_without_floats() {
         snap_to_terrain: true,
         random_yaw: true,
         avoid_urban: false,
+        float_on_water: false,
         naturalness: Default::default(),
     });
 
@@ -300,6 +301,7 @@ fn every_placement_variant_round_trips() {
         snap_to_terrain: true,
         random_yaw: false,
         avoid_urban: false,
+        float_on_water: false,
         naturalness: Default::default(),
     });
     record.placements.push(Placement::Grid {

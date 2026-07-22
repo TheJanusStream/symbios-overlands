@@ -48,6 +48,12 @@ pub enum PunctuationMood {
     FrogChorus,
     /// Meadow: a sustained high band of cricket / cicada song.
     InsectChorus,
+    /// Jungle (#914): dense trilled whoops — an exotic-bird canopy voice,
+    /// split off from the temperate biomes' songbird chirps.
+    CanopyChatter,
+    /// Badlands (#914): a hollow resonant moan of wind over rock, split off
+    /// from the open deserts' thin whistle.
+    CanyonMoan,
 }
 
 /// Seeded punctuation parameters — see [`derive_punctuation`].
@@ -69,15 +75,25 @@ struct PunctuationParams {
 fn derive_punctuation(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> PunctuationParams {
     use BiomeArchetype::*;
     match scene.biome {
-        // Songbirds in the verdant broadleaf biomes; the jungle's canopy
-        // chatters densest of all.
-        Lush | TemperateForest | Jungle => PunctuationParams {
+        // Songbirds in the verdant broadleaf biomes.
+        Lush | TemperateForest => PunctuationParams {
             mood: PunctuationMood::BirdChirps,
             base_hz: range_f32(rng, 1_800.0, 2_600.0),
             event_count: 4 + (range_f32(rng, 0.0, 4.0) as u32),
             volume: (0.08, 0.15),
             gate: (0.08, 0.18),
             release_beats: 0.3,
+        },
+        // The jungle canopy got its own voice in #914: denser than the
+        // songbirds, pitched lower, and trilled — whooping exotic birds
+        // rather than temperate chirps.
+        Jungle => PunctuationParams {
+            mood: PunctuationMood::CanopyChatter,
+            base_hz: range_f32(rng, 1_300.0, 2_000.0),
+            event_count: 8 + (range_f32(rng, 0.0, 6.0) as u32),
+            volume: (0.06, 0.13),
+            gate: (0.10, 0.28),
+            release_beats: 0.35,
         },
         Coastal => PunctuationParams {
             mood: PunctuationMood::WaveWash,
@@ -95,14 +111,25 @@ fn derive_punctuation(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> Punctuati
             gate: (0.3, 0.5),
             release_beats: 2.0,
         },
-        // Dry wind whistling over open ground / through canyons.
-        Arid | Savanna | Badlands => PunctuationParams {
+        // Dry wind whistling over open ground.
+        Arid | Savanna => PunctuationParams {
             mood: PunctuationMood::WhistleGust,
             base_hz: range_f32(rng, 1_200.0, 2_200.0),
             event_count: 2 + (range_f32(rng, 0.0, 2.0) as u32),
             volume: (0.14, 0.24),
             gate: (1.2, 2.0),
             release_beats: 1.5,
+        },
+        // Badlands split from the open deserts in #914: wind through
+        // carved rock resonates instead of whistling — a low hollow moan,
+        // sparser and longer than the gusts.
+        Badlands => PunctuationParams {
+            mood: PunctuationMood::CanyonMoan,
+            base_hz: range_f32(rng, 300.0, 520.0),
+            event_count: 1 + (range_f32(rng, 0.0, 2.0) as u32),
+            volume: (0.18, 0.30),
+            gate: (2.5, 4.0),
+            release_beats: 2.0,
         },
         // Glassy tings: frost on tundra, cracking ice on a glacier.
         Tundra | Glacial => PunctuationParams {
@@ -182,6 +209,10 @@ fn build_punctuation_patch(
         FrogChorus => (0.01, 0.12, 0.2, 0.25, AdsrCurve::Exponential),
         // Slow swell into a sustained drone.
         InsectChorus => (0.6, 0.4, 0.6, 1.0, AdsrCurve::Linear),
+        // A whoop holds its body a beat longer than a chirp.
+        CanopyChatter => (0.008, 0.10, 0.25, 0.12, AdsrCurve::Exponential),
+        // Slower even than the wave wash: the moan breathes in and out.
+        CanyonMoan => (1.8, 0.8, 0.5, 2.2, AdsrCurve::Linear),
     };
     let mut amp_inputs = BTreeMap::new();
     amp_inputs.insert(
@@ -205,7 +236,7 @@ fn build_punctuation_patch(
     // Source + optional modulators.
     let tonal = matches!(
         punct.mood,
-        BirdChirps | SubBoom | IceTing | DistantHowl | FrogChorus
+        BirdChirps | SubBoom | IceTing | DistantHowl | FrogChorus | CanopyChatter
     );
     if tonal {
         let mut osc_inputs = BTreeMap::new();
@@ -237,6 +268,46 @@ fn build_punctuation_patch(
                 osc_inputs.insert(
                     "freq".to_string(),
                     vec![Connection::modulation(PUNCT_PITCH_ADSR_ID, sweep)],
+                );
+            }
+            CanopyChatter => {
+                // The whoop: a pitch envelope that *rises* into the base
+                // note (negative sweep — the chirps' flick runs the other
+                // way), plus a fast trill vibrato. Trill rate keeps the
+                // whole-cycles-per-loop invariant: 256–383 cycles ⇒ 8–12 Hz
+                // over the 32-beat loop.
+                let mut pitch_inputs = BTreeMap::new();
+                pitch_inputs.insert(
+                    "gate".to_string(),
+                    vec![Connection::from_node(PUNCT_GATE_ID)],
+                );
+                nodes.push(GraphNode {
+                    id: PUNCT_PITCH_ADSR_ID,
+                    kind: NodeKind::Adsr(AdsrEnvelope {
+                        attack_s: 0.001,
+                        decay_s: 0.15,
+                        sustain_level: 0.0,
+                        release_s: 0.05,
+                        curve: AdsrCurve::Linear,
+                    }),
+                    inputs: pitch_inputs,
+                });
+                nodes.push(GraphNode {
+                    id: PUNCT_VIBRATO_ID,
+                    kind: NodeKind::Lfo(Lfo {
+                        rate_hz: (256 + (seed % 128) as u32) as f32 / LOOP_BEATS,
+                        shape: LfoShape::Sine,
+                        depth: 1.0,
+                        offset: 0.0,
+                    }),
+                    inputs: BTreeMap::new(),
+                });
+                osc_inputs.insert(
+                    "freq".to_string(),
+                    vec![
+                        Connection::modulation(PUNCT_PITCH_ADSR_ID, -punct.base_hz * 0.45),
+                        Connection::modulation(PUNCT_VIBRATO_ID, punct.base_hz * 0.04),
+                    ],
                 );
             }
             DistantHowl => {
@@ -279,6 +350,7 @@ fn build_punctuation_patch(
         let q = match punct.mood {
             WaveWash => 0.8,
             InsectChorus => 8.0, // tight cicada whine
+            CanyonMoan => 7.0,   // hollow rock resonance
             _ => 5.0,            // WhistleGust: narrow singing band.
         };
         let mut filter_inputs = BTreeMap::new();
@@ -316,7 +388,7 @@ fn build_punctuation_patch(
     // Punctuation sits deeper in the room's space than the bed — howls
     // and booms especially live on their reverb tail.
     let wet = match punct.mood {
-        SubBoom | DistantHowl | IceTing => 0.45,
+        SubBoom | DistantHowl | IceTing | CanyonMoan => 0.45,
         _ => params.reverb_mix,
     };
     let mut reverb_inputs = BTreeMap::new();
@@ -362,6 +434,9 @@ fn punctuation_track_events(punct: &PunctuationParams, rng: &mut ChaCha8Rng) -> 
             PunctuationMood::IceTing => range_f32(rng, 0.8, 1.6),
             PunctuationMood::SubBoom => range_f32(rng, 0.9, 1.1),
             PunctuationMood::FrogChorus => range_f32(rng, 0.8, 1.2),
+            // The widest spread in the palette: no two whoops alike is what
+            // sells a canopy full of different birds from one instrument.
+            PunctuationMood::CanopyChatter => range_f32(rng, 0.7, 1.5),
             _ => 1.0,
         };
         events.push(Event {
@@ -409,12 +484,14 @@ mod tests {
         let cases = [
             (Lush, PunctuationMood::BirdChirps),
             (TemperateForest, PunctuationMood::BirdChirps),
-            (Jungle, PunctuationMood::BirdChirps),
+            // #914 splits: the jungle canopy and the carved badlands each
+            // got their own voice out of the old three-biome buckets.
+            (Jungle, PunctuationMood::CanopyChatter),
             (Coastal, PunctuationMood::WaveWash),
             (Volcanic, PunctuationMood::SubBoom),
             (Arid, PunctuationMood::WhistleGust),
             (Savanna, PunctuationMood::WhistleGust),
-            (Badlands, PunctuationMood::WhistleGust),
+            (Badlands, PunctuationMood::CanyonMoan),
             (Tundra, PunctuationMood::IceTing),
             (Glacial, PunctuationMood::IceTing),
             (Alpine, PunctuationMood::DistantHowl),

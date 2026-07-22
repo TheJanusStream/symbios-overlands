@@ -85,6 +85,7 @@ fn new_scatter_placement(target: String, anchor: [f32; 2]) -> Placement {
         snap_to_terrain: true,
         random_yaw: true,
         avoid_urban: false,
+        float_on_water: false,
         // Flat uniform by default: a fresh scatter should do the plainly
         // predictable thing, and the Naturalness section is right there.
         naturalness: ScatterNaturalness::default(),
@@ -350,6 +351,7 @@ fn draw_placement_detail(
             snap_to_terrain,
             random_yaw,
             avoid_urban,
+            float_on_water,
             naturalness,
         } => {
             generator_combo(ui, "Generator", generator_ref, eligible_names, dirty);
@@ -364,6 +366,17 @@ fn draw_placement_detail(
                 .on_hover_text(
                     "Skip scatter points inside the road network's district \
                      (keeps wild scatter out of the built-up area).",
+                )
+                .changed()
+            {
+                *dirty = true;
+            }
+            if ui
+                .checkbox(float_on_water, "Float on water")
+                .on_hover_text(
+                    "Spawn instances at the water surface instead of on the \
+                     terrain under it — floating cover like lily pads. \
+                     Instances on dry ground keep their terrain height.",
                 )
                 .changed()
             {

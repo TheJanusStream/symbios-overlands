@@ -147,6 +147,7 @@ fn scatter_count_clamped_to_max() {
         snap_to_terrain: true,
         random_yaw: true,
         avoid_urban: false,
+        float_on_water: false,
         naturalness: Default::default(),
     });
     r.sanitize();
@@ -204,6 +205,7 @@ fn scatter_pointing_at_terrain_root_is_dropped() {
         snap_to_terrain: true,
         random_yaw: true,
         avoid_urban: false,
+        float_on_water: false,
         naturalness: Default::default(),
     });
     r.sanitize();
@@ -273,6 +275,7 @@ fn scatter_pointing_at_water_root_is_dropped() {
         snap_to_terrain: true,
         random_yaw: true,
         avoid_urban: false,
+        float_on_water: false,
         naturalness: Default::default(),
     });
     r.sanitize();
@@ -866,6 +869,7 @@ fn sanitize_is_idempotent_on_a_pathological_record() {
         snap_to_terrain: true,
         random_yaw: true,
         avoid_urban: false,
+        float_on_water: false,
         naturalness: Default::default(),
     });
     r.sanitize();

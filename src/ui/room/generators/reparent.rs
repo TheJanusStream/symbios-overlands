@@ -570,6 +570,7 @@ mod tests {
             snap_to_terrain: true,
             random_yaw: true,
             avoid_urban: false,
+            float_on_water: false,
             naturalness: Default::default(),
         }
     }

@@ -302,9 +302,11 @@ impl BiomeFilter {
     }
 
     /// Accept / reject a sample. `water_level` is `None` when the record has
-    /// no water generator — in that case water-relative filters collapse to
-    /// accept so a filter targeted at land-only biomes still behaves
-    /// sensibly on dry-land records.
+    /// no water generator — in that case `Above` collapses to accept (all
+    /// ground on a dry-land record *is* above water, so a land-targeted
+    /// filter keeps behaving sensibly) while `Below` fails closed (#914):
+    /// there is no below-water ground to stand on, and silently placing an
+    /// aquatic species across dry land would be #335 all over again.
     ///
     /// `Above` demands a freeboard margin, not just `y >= wl`: a sample
     /// exactly at the waterline puts a tree trunk in the surf (and the
@@ -322,6 +324,7 @@ impl BiomeFilter {
         match (self.water, water_level) {
             (WaterRelation::Above, Some(wl)) => y >= wl + ABOVE_FREEBOARD,
             (WaterRelation::Below, Some(wl)) => y < wl,
+            (WaterRelation::Below, None) => false,
             _ => true,
         }
     }

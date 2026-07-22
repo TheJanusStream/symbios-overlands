@@ -717,6 +717,7 @@ fn step_unit(
                 biome_filter,
                 random_yaw,
                 avoid_urban,
+                float_on_water,
                 naturalness,
                 ..
             },
@@ -751,7 +752,7 @@ fn step_unit(
                     return StepOutcome::Yielded;
                 }
                 *attempts += 1;
-                let Some((world_x, world_y, world_z)) = super::scatter::try_sample(
+                let Some((world_x, mut world_y, world_z)) = super::scatter::try_sample(
                     bounds,
                     naturalness,
                     clusters,
@@ -761,6 +762,13 @@ fn step_unit(
                 ) else {
                     continue;
                 };
+                // Floating cover (#914) rides the water surface instead of
+                // the submerged terrain the sample landed on. `max` so a
+                // sample on dry shore keeps its bank height — floating only
+                // ever lifts, it never sinks an instance into the ground.
+                if *float_on_water && let Some(wl) = *water_level {
+                    world_y = world_y.max(wl);
+                }
 
                 // Make scatter children of the anchor so grabbing the
                 // gizmo moves the whole forest live.

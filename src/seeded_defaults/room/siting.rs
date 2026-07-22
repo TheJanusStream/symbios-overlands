@@ -276,7 +276,14 @@ impl TerrainProbe {
         {
             naturalness.altitude_band = None;
         }
+        // A water band that reaches BELOW the waterline is not zoning, it is
+        // an aquatic species' habitat (#914): lilies over the shallow bed,
+        // reeds wading the margin. Relaxing it would not mis-zone a patch —
+        // it would move the species out of the water entirely (pads tiling a
+        // deep lake, reeds across dry upland). A patch whose disc missed the
+        // water placing nothing is the correct outcome there.
         if let Some(crate::pds::Fp2(band)) = naturalness.above_water_band
+            && band[0] >= 0.0
             && self
                 .band_coverage(center, radius, band, self.water_y)
                 .is_some_and(|f| f < MIN_BAND_COVERAGE)

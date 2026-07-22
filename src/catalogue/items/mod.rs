@@ -414,6 +414,8 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &plants::groundcover::Wildflower,
     &plants::groundcover::FernClump,
     &plants::groundcover::ReedClump,
+    &plants::groundcover::ShoreGrass,
+    &plants::groundcover::LilyPad,
     &plants::groundcover::DwarfShrub,
     &plants::groundcover::MossPatch,
     &plants::groundcover::LichenPatch,

@@ -362,7 +362,11 @@ pub(super) fn scatter_census(seeds: u64) {
     for seed in 0..seeds {
         let record = RoomRecord::default_for_seed(seed, "did:plc:census");
         let census = crate::world_builder::compile::scatter_census(&record);
-        println!("\nseed {seed}:");
+        // Name the biome: which rows to expect (aquatic species only roll in
+        // Wetland/Coastal pools, lifelessness is Glacial-only, …) is
+        // unreadable from a bare seed number.
+        let scene = crate::seeded_defaults::SceneCharacter::for_seed(seed);
+        println!("\nseed {seed} ({:?}):", scene.biome);
         if census.rows.is_empty() {
             println!("  (no scatters — a lifeless room)");
             continue;

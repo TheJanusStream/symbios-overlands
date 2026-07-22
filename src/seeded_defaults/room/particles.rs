@@ -48,6 +48,14 @@ pub enum ParticleMood {
     /// room's escalation reaches [`EscalationTier::Conflict`] regardless of
     /// biome or theme.
     Smoke,
+    /// Warm golden pollen haze under the jungle canopy (#914) — the biome's
+    /// own voice after it shared `MistMotes` with Coastal and Wetland.
+    PollenHaze,
+    /// Wind-borne grass seed husks streaming over the savanna (#914),
+    /// distinct from the bare-dirt `DustMotes` of Arid and Badlands.
+    SeedDrift,
+    /// Pale spore motes hanging low over standing wetland water (#914).
+    SporeMotes,
 }
 
 /// Fully-derived ambient emitter parameters. Field names mirror their
@@ -173,6 +181,41 @@ impl AmbientParticles {
                 contrast: Fp64(1.0),
                 ..Default::default()
             }),
+            // Additive like the fireflies, but a smaller, softer grain —
+            // pollen is a haze of specks, not a swarm of lights.
+            ParticleMood::PollenHaze => SovereignTextureConfig::SoftDisc(SovereignSoftDiscConfig {
+                seed,
+                variant_rows: 2,
+                variant_cols: 2,
+                color_core: Fp3([1.0, 0.94, 0.62]),
+                color_halo: Fp3([0.85, 0.75, 0.35]),
+                core_radius: Fp64(0.10),
+                falloff: Fp64(2.8),
+                scale_jitter: Fp64(0.4),
+                ..Default::default()
+            }),
+            // Seed husks reuse the petal card silhouette, recoloured to
+            // straw — the same trick the Leaves mood plays.
+            ParticleMood::SeedDrift => SovereignTextureConfig::Petal(SovereignPetalConfig {
+                seed,
+                variant_rows: 2,
+                variant_cols: 2,
+                color_base: Fp3([0.78, 0.70, 0.42]),
+                color_edge: Fp3([0.58, 0.50, 0.28]),
+                color_throat: Fp3([0.88, 0.82, 0.58]),
+                ..Default::default()
+            }),
+            ParticleMood::SporeMotes => SovereignTextureConfig::SoftDisc(SovereignSoftDiscConfig {
+                seed,
+                variant_rows: 2,
+                variant_cols: 2,
+                color_core: Fp3([0.88, 0.95, 0.78]),
+                color_halo: Fp3([0.62, 0.75, 0.55]),
+                core_radius: Fp64(0.14),
+                falloff: Fp64(2.0),
+                scale_jitter: Fp64(0.35),
+                ..Default::default()
+            }),
         }
     }
 }
@@ -202,14 +245,15 @@ fn biome_mood(biome: BiomeArchetype) -> ParticleMood {
         }
         BiomeArchetype::Boreal => ParticleMood::Snowfall,
         BiomeArchetype::Volcanic => ParticleMood::Embers,
-        BiomeArchetype::Arid | BiomeArchetype::Savanna | BiomeArchetype::Badlands => {
-            ParticleMood::DustMotes
-        }
-        BiomeArchetype::Coastal | BiomeArchetype::Jungle | BiomeArchetype::Wetland => {
-            // Humid haze (jungle) and standing-water fog (wetland) read as
-            // drifting mist motes, same as the sea coast.
-            ParticleMood::MistMotes
-        }
+        // Bare-dirt dust for the true deserts; the savanna's grassland air
+        // carries seed husks instead (#914).
+        BiomeArchetype::Arid | BiomeArchetype::Badlands => ParticleMood::DustMotes,
+        BiomeArchetype::Savanna => ParticleMood::SeedDrift,
+        // The humid trio each get their own voice (#914): sea mist on the
+        // coast, pollen haze under the canopy, spores over the marsh.
+        BiomeArchetype::Coastal => ParticleMood::MistMotes,
+        BiomeArchetype::Jungle => ParticleMood::PollenHaze,
+        BiomeArchetype::Wetland => ParticleMood::SporeMotes,
         BiomeArchetype::TemperateForest => ParticleMood::Leaves,
         // Wildflower meadow — drifting blossom petals.
         BiomeArchetype::Meadow => ParticleMood::Petals,
@@ -358,6 +402,70 @@ fn spec_for_mood(mood: ParticleMood, rng: &mut ChaCha8Rng, seed: u64) -> Ambient
             additive: false,
             seed,
         },
+        ParticleMood::PollenHaze => AmbientParticles {
+            mood: ParticleMood::PollenHaze,
+            // A breathing-height band of warm specks drifting through the
+            // understory light shafts: slower and denser than fireflies,
+            // and dimmer — pollen catches light, it doesn't emit it.
+            emitter_half_extents: [70.0, 4.0, 70.0],
+            emitter_y: 2.5,
+            rate_per_second: range_f32(rng, 18.0, 30.0),
+            max_particles: 320,
+            lifetime: (7.0, 13.0),
+            speed: (0.1, 0.35),
+            gravity_multiplier: 0.0,
+            acceleration: [range_f32(rng, -0.2, 0.2), 0.03, range_f32(rng, -0.2, 0.2)],
+            linear_drag: 0.7,
+            start_size: 0.055,
+            end_size: 0.03,
+            start_color: [1.0, 0.9, 0.5, 0.55],
+            end_color: [0.75, 0.6, 0.25, 0.0],
+            additive: true,
+            seed,
+        },
+        ParticleMood::SeedDrift => AmbientParticles {
+            mood: ParticleMood::SeedDrift,
+            // Grass seed shed at head height, streaming one way on the
+            // steady savanna wind — the same prevailing-wind idea as the
+            // desert dust, but carried by visible husks that settle slowly
+            // instead of an abrasive haze.
+            emitter_half_extents: [85.0, 3.5, 85.0],
+            emitter_y: 2.2,
+            rate_per_second: range_f32(rng, 12.0, 20.0),
+            max_particles: 300,
+            lifetime: (9.0, 16.0),
+            speed: (0.2, 0.5),
+            gravity_multiplier: 0.01,
+            acceleration: [range_f32(rng, 0.4, 0.8), 0.0, range_f32(rng, -0.2, 0.2)],
+            linear_drag: 0.55,
+            start_size: 0.11,
+            end_size: 0.11,
+            start_color: [0.85, 0.78, 0.5, 0.85],
+            end_color: [0.8, 0.72, 0.45, 0.0],
+            additive: false,
+            seed,
+        },
+        ParticleMood::SporeMotes => AmbientParticles {
+            mood: ParticleMood::SporeMotes,
+            // A knee-height blanket over the standing water, barely moving:
+            // spores hang, they don't stream. The faint upward lift is the
+            // marsh air convecting them off the mat.
+            emitter_half_extents: [75.0, 2.0, 75.0],
+            emitter_y: 1.2,
+            rate_per_second: range_f32(rng, 14.0, 24.0),
+            max_particles: 280,
+            lifetime: (8.0, 15.0),
+            speed: (0.05, 0.25),
+            gravity_multiplier: 0.0,
+            acceleration: [range_f32(rng, -0.15, 0.15), 0.04, 0.0],
+            linear_drag: 0.8,
+            start_size: 0.09,
+            end_size: 0.13,
+            start_color: [0.85, 0.95, 0.72, 0.35],
+            end_color: [0.7, 0.85, 0.6, 0.0],
+            additive: false,
+            seed,
+        },
         ParticleMood::Smoke => AmbientParticles {
             mood: ParticleMood::Smoke,
             // A handful of low chimneys / pyres drifting smoke up over the
@@ -482,11 +590,13 @@ mod tests {
             assert_eq!(a, p.sprite_texture());
 
             let expected = match p.mood {
-                ParticleMood::Fireflies => "Soft Disc",
+                ParticleMood::Fireflies | ParticleMood::PollenHaze | ParticleMood::SporeMotes => {
+                    "Soft Disc"
+                }
                 ParticleMood::Snowfall => "Snowflake",
                 ParticleMood::Embers => "Spark",
                 ParticleMood::DustMotes | ParticleMood::MistMotes | ParticleMood::Smoke => "Puff",
-                ParticleMood::Petals | ParticleMood::Leaves => "Petal",
+                ParticleMood::Petals | ParticleMood::Leaves | ParticleMood::SeedDrift => "Petal",
             };
             assert_eq!(a.label(), expected, "mood {:?} sprite", p.mood);
 
@@ -499,6 +609,34 @@ mod tests {
                 "expected a variant atlas, got {rows}×{cols}"
             );
         }
+    }
+
+    /// The #914 bucket splits: the humid trio (Coastal / Jungle / Wetland)
+    /// no longer share one mood, and the savanna's grassland air is not the
+    /// deserts' dust. Guarded as pairwise inequality rather than pinned
+    /// moods, so retuning a biome's voice later doesn't break the test as
+    /// long as the biomes stay distinct.
+    #[test]
+    fn split_biomes_no_longer_share_a_mood() {
+        let humid = [
+            BiomeArchetype::Coastal,
+            BiomeArchetype::Jungle,
+            BiomeArchetype::Wetland,
+        ];
+        for (i, a) in humid.iter().enumerate() {
+            for b in humid.iter().skip(i + 1) {
+                assert_ne!(biome_mood(*a), biome_mood(*b), "{a:?} vs {b:?}");
+            }
+        }
+        assert_ne!(
+            biome_mood(BiomeArchetype::Savanna),
+            biome_mood(BiomeArchetype::Arid),
+            "savanna air is seed husks, not desert dust"
+        );
+        assert_ne!(
+            biome_mood(BiomeArchetype::Savanna),
+            biome_mood(BiomeArchetype::Badlands),
+        );
     }
 
     #[test]

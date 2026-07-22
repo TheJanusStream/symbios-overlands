@@ -69,10 +69,13 @@ fn water_below_rejects_points_at_or_above_surface() {
 }
 
 #[test]
-fn missing_water_level_passes_water_relative_filters() {
-    // Dry-land records (no water generator) — water-relative filters
-    // should collapse to accept so a scatter intended for "above water"
-    // still drops onto a no-water room.
+fn missing_water_level_asymmetry_above_passes_below_fails_closed() {
+    // Dry-land records (no water generator): `Above` collapses to accept —
+    // all ground on a waterless room *is* above water, so a land-targeted
+    // scatter still drops onto it. `Below` is the opposite case (#914):
+    // there is no submerged ground to stand on, and letting an aquatic
+    // species (lily pads, wading reeds) silently spread across dry land
+    // would be the #335 trees-in-water bug inverted.
     let above = BiomeFilter {
         biomes: vec![],
         water: WaterRelation::Above,
@@ -82,7 +85,7 @@ fn missing_water_level_passes_water_relative_filters() {
         water: WaterRelation::Below,
     };
     assert!(above.accepts(0, 5.0, None));
-    assert!(below.accepts(0, -5.0, None));
+    assert!(!below.accepts(0, -5.0, None));
 }
 
 #[test]

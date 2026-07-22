@@ -28,7 +28,7 @@
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
-use crate::pds::{Fp, Fp2, ScatterNaturalness};
+use crate::pds::{Fp, Fp2, ScatterNaturalness, WaterRelation};
 use crate::seeded_defaults::scene::{BiomeArchetype, SceneCharacter, range_f32, unit_f32};
 
 /// Sub-stream salt distinct from every sibling room deriver — sharing one
@@ -67,8 +67,12 @@ pub enum GroundCoverSpecies {
     Wildflower,
     /// Low frond rosette for shaded floors.
     FernClump,
-    /// Tall cattail reeds for wetland margins.
+    /// Tall cattail reeds for wetland margins — wades into the shallows.
     ReedClump,
+    /// Salt-bleached dune grass hugging the coastal waterline.
+    ShoreGrass,
+    /// Floating lily pads on still wetland water (#914).
+    LilyPad,
     /// Low woody cushion for tundra and alpine.
     DwarfShrub,
     /// Velvet moss cushion.
@@ -86,10 +90,54 @@ impl GroundCoverSpecies {
             Self::Wildflower => "gc_wildflower",
             Self::FernClump => "gc_fern_clump",
             Self::ReedClump => "gc_reed_clump",
+            Self::ShoreGrass => "gc_shore_grass",
+            Self::LilyPad => "gc_lily_pad",
             Self::DwarfShrub => "gc_dwarf_shrub",
             Self::MossPatch => "gc_moss_patch",
             Self::LichenPatch => "gc_lichen_patch",
         }
+    }
+
+    /// Which side of the water surface this species' samples must land on —
+    /// the `BiomeFilter::water` clause (#914).
+    ///
+    /// `Above` (with its dry-bank freeboard) is the tier default and stays
+    /// the default: trees standing in water was a real bug (#335), so water
+    /// placement is something a species *opts into*, never inherits.
+    pub fn water_relation(self) -> WaterRelation {
+        match self {
+            // Rooted in the submerged bed; the pads float above it.
+            Self::LilyPad => WaterRelation::Below,
+            // Reeds wade: the stand straddles the waterline, standing both
+            // in the shallows and on the damp bank. `Both` drops the Above
+            // freeboard; the depth band below is what keeps the wading
+            // honest.
+            Self::ReedClump => WaterRelation::Both,
+            _ => WaterRelation::Above,
+        }
+    }
+
+    /// Whether instances spawn at the water surface rather than on the
+    /// terrain under it — `Placement::Scatter::float_on_water`. Only the
+    /// floating cover; emergent species (reeds) stand on the bed.
+    pub fn floats_on_water(self) -> bool {
+        matches!(self, Self::LilyPad)
+    }
+
+    /// Whether this species' water band is **habitat** rather than zoning —
+    /// and must therefore never be relaxed away when it covers little of a
+    /// scatter disc (#914).
+    ///
+    /// The relax pass exists because a zoning band (a damp skirt, a dry
+    /// ridge) that a disc cannot satisfy deletes a patch that should merely
+    /// have been mis-zoned. A habitat band is the opposite case: covering
+    /// only a sliver of the disc is its *normal* state — a strand line or a
+    /// shallows is always a thin ring of any disc that contains it — and
+    /// relaxing it moves the species out of its habitat entirely (shore
+    /// grass across the upland, pads over the deep lake). For these, a disc
+    /// that misses the water placing nothing is the correct outcome.
+    pub fn water_band_is_habitat(self) -> bool {
+        matches!(self, Self::LilyPad | Self::ReedClump | Self::ShoreGrass)
     }
 
     /// Splat layers this species is allowed to grow on — the
@@ -113,6 +161,14 @@ impl GroundCoverSpecies {
             // Moss and dwarf shrub take soil where there is soil and rock
             // where there is not.
             Self::MossPatch | Self::DwarfShrub => vec![0, 1, 2],
+            // The in-water species (#914) carry NO splat allow-list: their
+            // ground is at or below the waterline, and the splat rules were
+            // never written with submerged terrain in mind. Pairing a
+            // below-water band with a walkable-land allow-list is the exact
+            // contradictory-filter shape that silently emptied two WS5
+            // scatters — the depth band and the slope cutoff are the real
+            // constraints here, so the allow-list stays open.
+            Self::LilyPad | Self::ReedClump => vec![],
             // Everything else keeps the walkable-land pair, so cover never
             // sprouts on rock faces or the seabed.
             _ => vec![0, 1],
@@ -153,6 +209,14 @@ impl GroundCoverSpecies {
         let (clumping, tilt, max_slope_deg) = match self {
             // Rhizome mats — the densest clumping in the tier.
             Self::ReedClump => (0.72, 0.10, 26.0),
+            // Lily rafts: pads drift together into dense colonies on the
+            // stillest water. NO tilt — a leaning card on a flat water
+            // surface dips a corner under and reads broken, not natural.
+            // The slope limit is the *bed* under the pads: lilies root in
+            // it, and a steeply shelving bed carries no colony.
+            Self::LilyPad => (0.78, 0.0, 18.0),
+            // Dune grass: wind-combed drifts along the strand line.
+            Self::ShoreGrass => (0.52, 0.16, 30.0),
             // Encrusting colonies that spread from a hold: very clumped,
             // and the only cover that belongs on a steep face.
             Self::MossPatch => (0.70, 0.06, 58.0),
@@ -176,12 +240,23 @@ impl GroundCoverSpecies {
         // Fractions of the dry relief, so the zoning holds in a 40 m room
         // and a 200 m one alike.
         let above_water_band = match self {
-            // The flagship riparian band: reeds stand at the water's edge,
-            // and until now could only be scattered across all dry land
-            // (the gap the ground-cover tier explicitly logged). Held to a
-            // few metres rather than a fraction — a reed bed is a reed bed
+            // The flagship riparian band: reeds stand at the water's edge —
+            // and as of #914 they wade past it, the stand straddling the
+            // waterline into the shallows (ground to 0.6 m below the
+            // surface; the 1.5 m card keeps its head dry). Held to a few
+            // metres rather than a fraction — a reed bed is a reed bed
             // whatever the surrounding relief.
-            Self::ReedClump => Some(Fp2([0.0, 3.5])),
+            Self::ReedClump => Some(Fp2([-0.6, 3.5])),
+            // Floating pads over the shallow bed only: lilies root in it,
+            // so genuinely deep water carries no pads — that depth cutoff
+            // is what keeps the colony hugging the pool margins instead of
+            // tiling the whole lake. The shallow end stops just under the
+            // surface so a pad never beaches itself on ground the waves
+            // expose.
+            Self::LilyPad => Some(Fp2([-3.0, -0.25])),
+            // Dune grass owns the strand line itself — the band the
+            // ordinary grasses' Above-freeboard never quite reaches.
+            Self::ShoreGrass => Some(Fp2([0.0, 2.5])),
             // Ferns want damp, shaded low ground — a skirt above the
             // shoreline rather than a hug of it.
             Self::FernClump => Some(Fp2([0.0, 0.30 * relief])),
@@ -238,8 +313,15 @@ use GroundCoverSpecies as S;
 
 const POOL_LUSH: &[GroundCoverSpecies] = &[S::GrassTuft, S::GrassTuft, S::Wildflower, S::FernClump];
 
-const POOL_COASTAL: &[GroundCoverSpecies] =
-    &[S::GrassTuft, S::GrassTuft, S::DryGrassTuft, S::ReedClump];
+// Shore grass owns the strand line (#914); ordinary grass holds the hinterland.
+const POOL_COASTAL: &[GroundCoverSpecies] = &[
+    S::GrassTuft,
+    S::GrassTuft,
+    S::ShoreGrass,
+    S::ShoreGrass,
+    S::DryGrassTuft,
+    S::ReedClump,
+];
 
 const POOL_ALPINE: &[GroundCoverSpecies] =
     &[S::GrassTuft, S::DwarfShrub, S::MossPatch, S::LichenPatch];
@@ -273,8 +355,15 @@ const POOL_BOREAL: &[GroundCoverSpecies] = &[
     S::LichenPatch,
 ];
 
-const POOL_WETLAND: &[GroundCoverSpecies] =
-    &[S::ReedClump, S::ReedClump, S::GrassTuft, S::MossPatch];
+// Reed beds wading past the waterline, lily rafts floating beyond them (#914).
+const POOL_WETLAND: &[GroundCoverSpecies] = &[
+    S::ReedClump,
+    S::ReedClump,
+    S::LilyPad,
+    S::LilyPad,
+    S::GrassTuft,
+    S::MossPatch,
+];
 
 // Wildflower-heavy, per the epic's meadow decision.
 const POOL_MEADOW: &[GroundCoverSpecies] =
@@ -486,6 +575,78 @@ mod tests {
                 matches!(sp, S::LichenPatch | S::DwarfShrub | S::MossPatch),
                 "tundra pool should not contain {sp:?}"
             );
+        }
+    }
+
+    /// The #335 lesson, as a test: water placement is species-opt-in, so
+    /// every species except the two aquatic ones must keep the Above
+    /// relation and stay terrain-snapped.
+    #[test]
+    fn water_placement_is_species_opt_in() {
+        use GroundCoverSpecies as S;
+        let all = [
+            S::GrassTuft,
+            S::DryGrassTuft,
+            S::Wildflower,
+            S::FernClump,
+            S::ReedClump,
+            S::ShoreGrass,
+            S::LilyPad,
+            S::DwarfShrub,
+            S::MossPatch,
+            S::LichenPatch,
+        ];
+        for sp in all {
+            match sp {
+                S::LilyPad => {
+                    assert_eq!(sp.water_relation(), WaterRelation::Below);
+                    assert!(sp.floats_on_water());
+                }
+                S::ReedClump => {
+                    assert_eq!(sp.water_relation(), WaterRelation::Both);
+                    assert!(!sp.floats_on_water(), "reeds stand on the bed");
+                }
+                _ => {
+                    assert_eq!(
+                        sp.water_relation(),
+                        WaterRelation::Above,
+                        "{sp:?} must not inherit water placement"
+                    );
+                    assert!(!sp.floats_on_water());
+                }
+            }
+        }
+    }
+
+    /// The WS5 contradictory-filter guard: a band that reaches below the
+    /// waterline must never be paired with a splat allow-list, because
+    /// submerged ground does not reliably splat as any walkable layer and
+    /// the two filters together silently empty the scatter.
+    #[test]
+    fn below_water_bands_never_carry_a_splat_allow_list() {
+        use GroundCoverSpecies as S;
+        for sp in [
+            S::GrassTuft,
+            S::DryGrassTuft,
+            S::Wildflower,
+            S::FernClump,
+            S::ReedClump,
+            S::ShoreGrass,
+            S::LilyPad,
+            S::DwarfShrub,
+            S::MossPatch,
+            S::LichenPatch,
+        ] {
+            let n = sp.naturalness(40.0, 12.0);
+            if let Some(Fp2([lo, _])) = n.above_water_band
+                && lo < 0.0
+            {
+                assert!(
+                    sp.biome_layers().is_empty(),
+                    "{sp:?} pairs a below-water band with a splat allow-list \
+                     — the contradiction that empties a scatter"
+                );
+            }
         }
     }
 

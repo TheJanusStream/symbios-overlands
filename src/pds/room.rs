@@ -651,6 +651,7 @@ impl RoomRecord {
                 random_yaw: true,
                 // Keep wild trees out of the built-up urban district.
                 avoid_urban: true,
+                float_on_water: false,
                 naturalness: {
                     let mut n = crate::seeded_defaults::room::scatters::stand_naturalness(
                         scatter.species,
@@ -681,7 +682,10 @@ impl RoomRecord {
                     // land pair. A uniform Grass+Dirt list contradicted the
                     // altitude bands, since high ground splats as Rock.
                     biomes: scatter.species.biome_layers(),
-                    water: WaterRelation::Above,
+                    // Per-species too (#914): Above stays the default, and
+                    // only the aquatic cover (lilies, wading reeds) opts
+                    // into the water — the #335 lesson.
+                    water: scatter.species.water_relation(),
                 },
                 snap_to_terrain: true,
                 random_yaw: true,
@@ -689,11 +693,24 @@ impl RoomRecord {
                 // grass between the buildings is what makes a town look
                 // planted rather than dropped onto bare ground.
                 avoid_urban: false,
+                // Species-opt-in water placement (#914/#335): only the
+                // floating cover (lily pads) rides the water surface.
+                float_on_water: scatter.species.floats_on_water(),
                 naturalness: {
                     let mut n = scatter
                         .species
                         .naturalness(shape.height_scale, seeded_water_y);
-                    terrain_probe.relax_unsatisfiable_bands(&mut n, scatter.center, scatter.radius);
+                    // Habitat bands (#914) are exempt from relaxation: a
+                    // shoreline or shallows band covering a sliver of the
+                    // disc is the band working, not the band unsatisfiable
+                    // — see `water_band_is_habitat`.
+                    if !scatter.species.water_band_is_habitat() {
+                        terrain_probe.relax_unsatisfiable_bands(
+                            &mut n,
+                            scatter.center,
+                            scatter.radius,
+                        );
+                    }
                     n
                 },
             });
@@ -746,6 +763,7 @@ impl RoomRecord {
                 random_yaw: true,
                 // Keep boulders out of the built-up urban district.
                 avoid_urban: true,
+                float_on_water: false,
                 naturalness: crate::seeded_defaults::room::rocks::field_naturalness(),
             });
         }

@@ -2027,6 +2027,19 @@ pub enum Placement {
         /// with no enabled road network. Defaults `false`.
         #[serde(default, skip_serializing_if = "is_false")]
         avoid_urban: bool,
+        /// Spawn each instance at the room's **water surface** instead of on
+        /// the terrain under it, for floating cover — lily pads on a wetland
+        /// pool (#914). Only ever *raises* an instance: ground above the
+        /// water line keeps its terrain height, so a pad sampled onto a
+        /// shore bank sits on the bank rather than sinking to a phantom
+        /// water level inside it. A room with no water surface leaves every
+        /// instance terrain-snapped.
+        ///
+        /// Opt-in per placement, never a default — trees standing in water
+        /// was a real bug (#335), and water placement stays something a
+        /// species asks for explicitly.
+        #[serde(default, skip_serializing_if = "is_false")]
+        float_on_water: bool,
         /// Placement-naturalness dials — clustering, edge falloff,
         /// per-instance scale/tilt, slope cutoff (#912). All-default is the
         /// historical flat-uniform sprinkle and is elided on the wire.
@@ -2071,8 +2084,48 @@ mod scatter_naturalness_wire_tests {
             snap_to_terrain: true,
             random_yaw: true,
             avoid_urban: false,
+            float_on_water: false,
             naturalness,
         }
+    }
+
+    /// `float_on_water` (#914) follows the same wire discipline as the
+    /// naturalness block: absent on every published record (decoding to the
+    /// historical terrain-snap), and elided while false so the seeded
+    /// scatters don't bloat.
+    #[test]
+    fn float_on_water_defaults_false_and_is_elided() {
+        let old = serde_json::json!({
+            "$type": "network.symbios.place.scatter",
+            "generator_ref": "tree",
+            "bounds": { "type": "circle", "center": [0, 0], "radius": 640_000 },
+            "count": 40,
+            "local_seed": "9",
+        });
+        let p: Placement = serde_json::from_value(old).expect("old scatter parses");
+        let Placement::Scatter { float_on_water, .. } = &p else {
+            panic!("variant changed");
+        };
+        assert!(!float_on_water, "published records must not float");
+
+        let plain = serde_json::to_value(scatter(ScatterNaturalness::default())).unwrap();
+        assert!(
+            !plain.as_object().unwrap().contains_key("float_on_water"),
+            "a false flag must not reach the wire"
+        );
+
+        let mut floating = scatter(ScatterNaturalness::default());
+        let Placement::Scatter { float_on_water, .. } = &mut floating else {
+            panic!("variant changed");
+        };
+        *float_on_water = true;
+        let v = serde_json::to_value(&floating).unwrap();
+        assert_eq!(v.get("float_on_water"), Some(&serde_json::json!(true)));
+        let re: Placement = serde_json::from_value(v).expect("reparses");
+        let Placement::Scatter { float_on_water, .. } = re else {
+            panic!("variant changed");
+        };
+        assert!(float_on_water, "a set flag must round-trip");
     }
 
     #[test]
