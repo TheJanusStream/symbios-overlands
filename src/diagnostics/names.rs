@@ -81,6 +81,32 @@ pub const RUNTIME_TEXTURE_CACHE_HIT_COUNT: &str = "runtime.texture_cache.hit_cou
 /// Procedural-material texture-cache misses that dispatched a bake (config
 /// selected a generator and no cached fingerprint matched).
 pub const RUNTIME_TEXTURE_CACHE_MISS_COUNT: &str = "runtime.texture_cache.miss_count";
+/// Completed FULL world compiles (region re-roll / record swap — jobs whose
+/// touch-sets covered every placement and so ran the cache GC). The anchor
+/// for the per-rebuild mark gauges below: asset growth is only meaningful
+/// *across* full rebuilds, since that is the boundary where everything
+/// unreferenced should have been released (#921).
+pub const RUNTIME_FULL_REBUILD_COUNT: &str = "runtime.full_rebuild.count";
+/// `Assets<Image>` handle count sampled once per completed full rebuild.
+///
+/// The #919 lesson, made a signal: a leak is distinguished from legitimate
+/// load not by any threshold on the value but by the count **never falling
+/// across consecutive full rebuilds** — the leaking session stepped
+/// 41→757 with every per-rebuild delta positive, while the healthy one
+/// oscillated around a ~230 plateau. The 1 Hz gauge can't express that
+/// (its 2-minute ring holds an arbitrary slice of the rebuild history), so
+/// these marks form the rebuild-anchored series the growth rule reads.
+pub const RUNTIME_REBUILD_IMAGE_HANDLES: &str = "runtime.rebuild.image_handles";
+/// `Assets<Mesh>` handle count sampled once per completed full rebuild —
+/// see [`RUNTIME_REBUILD_IMAGE_HANDLES`].
+pub const RUNTIME_REBUILD_MESH_HANDLES: &str = "runtime.rebuild.mesh_handles";
+/// Process memory sampled once per completed full rebuild (RSS on native,
+/// wasm linear-memory size on wasm) — see [`RUNTIME_REBUILD_IMAGE_HANDLES`].
+/// Paired with the handle marks it separates the two growth classes: memory
+/// climbing *with* handles is a handle leak; memory climbing while handles
+/// stay flat is allocator retention (#625's ~52 MB/re-roll), which reads as
+/// informational rather than as a bug.
+pub const RUNTIME_REBUILD_MEMORY_BYTES: &str = "runtime.rebuild.memory_bytes";
 /// Entities in the camera's post-culling visible set (all mesh classes,
 /// summed across views) — the #811 discriminator. On WebGL2 the per-frame
 /// CPU staging (instance uniforms) scales with this number, so wasm heap
@@ -233,6 +259,10 @@ pub const ALL: &[(&str, MetricKind)] = &[
     (RUNTIME_AVATAR_REBUILD_MS, MetricKind::Histogram),
     (RUNTIME_TEXTURE_CACHE_HIT_COUNT, MetricKind::Counter),
     (RUNTIME_TEXTURE_CACHE_MISS_COUNT, MetricKind::Counter),
+    (RUNTIME_FULL_REBUILD_COUNT, MetricKind::Counter),
+    (RUNTIME_REBUILD_IMAGE_HANDLES, MetricKind::Gauge),
+    (RUNTIME_REBUILD_MESH_HANDLES, MetricKind::Gauge),
+    (RUNTIME_REBUILD_MEMORY_BYTES, MetricKind::Gauge),
     (RUNTIME_VISIBLE_ENTITY_COUNT, MetricKind::Gauge),
     (RUNTIME_ALLOC_SMALL_BYTES, MetricKind::Gauge),
     (RUNTIME_ALLOC_MEDIUM_BYTES, MetricKind::Gauge),

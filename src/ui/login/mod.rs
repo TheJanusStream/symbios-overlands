@@ -332,11 +332,11 @@ pub fn login_ui(
                 // screen doesn't lead with a bare IP that reads as sketchy.
                 ui.collapsing("Advanced", |ui| {
                     ui.horizontal(|ui| {
-                        ui.label("PDS:");
+                        ui.label("ATProto PDS:");
                         track_enter(&ui.text_edit_singleline(&mut form.pds));
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Relay Host:");
+                        ui.label("P2P Relay Host:");
                         track_enter(&ui.text_edit_singleline(&mut form.relay_host));
                     });
                 });

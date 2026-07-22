@@ -21,6 +21,8 @@ pub fn register_ecs_rules(reg: &mut InvariantRegistry) {
     reg.register(PlayerFellThroughTerrain);
     reg.register(NanInPhysics);
     reg.register(AssetHandleSpike);
+    reg.register(AssetGrowthAcrossRebuilds);
+    reg.register(MemoryRetentionAcrossRebuilds);
     reg.register(ShapeMeshCacheGrowth);
     reg.register(RespawnThrashing);
     reg.register(OrphanAvatarVisual);
@@ -173,6 +175,129 @@ impl Rule for AssetHandleSpike {
         } else {
             Verdict::Clear
         })
+    }
+}
+
+// --- AssetGrowthAcrossRebuilds ----------------------------------------------
+// The #919-shaped watchdog. That leak was reported HEALTHY for a whole
+// session because nothing watched the discriminating signal: not the handle
+// count's *value* (legitimate load moves it arbitrarily) but the count
+// **never falling across consecutive full rebuilds** — the boundary where
+// everything unreferenced should have been released. The executor counts
+// full rebuilds and the 1 Hz scraper snapshots handle counts into the
+// `runtime.rebuild.*` mark gauges when the counter advances; these rules
+// read that rebuild-anchored series, not the wall-clock sparkline.
+
+/// Consecutive rebuild-to-rebuild deltas examined (needs one more mark).
+const REBUILD_DELTA_WINDOW: usize = 4;
+/// Handle growth over the window that reads as a leak. Calibrated against
+/// the two known sessions: leaking (#919) stepped ~+90 images / ~+100
+/// meshes per re-roll (window sum ≳ +360); healthy alternates sign and sums
+/// well under ±60.
+const ASSET_GROWTH_LEAK_TOTAL: f64 = 120.0;
+
+/// The last [`REBUILD_DELTA_WINDOW`] rebuild-to-rebuild deltas of a mark
+/// gauge, or `None` until enough full rebuilds have happened.
+fn rebuild_deltas(cx: &LiveCtx, name: &str) -> Option<Vec<f64>> {
+    let g = cx.metrics.gauge(name)?;
+    if g.len() < REBUILD_DELTA_WINDOW + 1 {
+        return None;
+    }
+    let marks: Vec<f64> = g.iter().collect();
+    let tail = &marks[marks.len() - (REBUILD_DELTA_WINDOW + 1)..];
+    Some(tail.windows(2).map(|w| w[1] - w[0]).collect())
+}
+
+/// `Some(total growth)` when the class leaked across the window: every
+/// rebuild added handles (never falls) and the total is past the floor.
+fn leaking_class(deltas: &[f64]) -> Option<f64> {
+    let total: f64 = deltas.iter().sum();
+    (deltas.iter().all(|d| *d >= 0.0) && total >= ASSET_GROWTH_LEAK_TOTAL).then_some(total)
+}
+
+struct AssetGrowthAcrossRebuilds;
+const ASSET_GROWTH_ACROSS_REBUILDS: RuleHeader = RuleHeader {
+    id: "runtime.asset_growth_across_rebuilds",
+    subsystem: Subsystem::Runtime,
+    severity: Severity::Warn,
+    debounce: DebouncePolicy::Interval(60.0),
+    description: "asset handles grew on every recent full rebuild and never fell (leak signature)",
+    when_state: None,
+};
+impl Rule for AssetGrowthAcrossRebuilds {
+    fn header(&self) -> &RuleHeader {
+        &ASSET_GROWTH_ACROSS_REBUILDS
+    }
+    fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
+        let image = rebuild_deltas(cx, names::RUNTIME_REBUILD_IMAGE_HANDLES);
+        let mesh = rebuild_deltas(cx, names::RUNTIME_REBUILD_MESH_HANDLES);
+        // Dormant until enough rebuilds; one class having a window is enough.
+        if image.is_none() && mesh.is_none() {
+            return None;
+        }
+        let image_leak = image.as_deref().and_then(leaking_class);
+        let mesh_leak = mesh.as_deref().and_then(leaking_class);
+        Some(match (image_leak, mesh_leak) {
+            (None, None) => Verdict::Clear,
+            (img, msh) => {
+                let parts: Vec<String> = [("images", img), ("meshes", msh)]
+                    .into_iter()
+                    .filter_map(|(label, g)| g.map(|t| format!("{label} +{t:.0}")))
+                    .collect();
+                Verdict::violated(format!(
+                    "handles rose on each of the last {REBUILD_DELTA_WINDOW} full rebuilds \
+                     without ever falling ({})",
+                    parts.join(", "),
+                ))
+            }
+        })
+    }
+}
+
+// --- MemoryRetentionAcrossRebuilds ------------------------------------------
+/// Memory growth over the rebuild window that is worth a line when handles
+/// are flat: ~52 MB/re-roll was measured after #919's handle leak was fixed
+/// (allocator retention, #625), so four rebuilds ≈ 200 MB.
+const RETENTION_MEMORY_TOTAL_BYTES: f64 = 150.0 * 1024.0 * 1024.0;
+
+struct MemoryRetentionAcrossRebuilds;
+const MEMORY_RETENTION_ACROSS_REBUILDS: RuleHeader = RuleHeader {
+    id: "runtime.memory_retention_across_rebuilds",
+    subsystem: Subsystem::Runtime,
+    severity: Severity::Info,
+    debounce: DebouncePolicy::Interval(300.0),
+    description: "process memory climbs across full rebuilds while asset handles stay flat \
+                  (allocator retention, not a handle leak)",
+    when_state: None,
+};
+impl Rule for MemoryRetentionAcrossRebuilds {
+    fn header(&self) -> &RuleHeader {
+        &MEMORY_RETENTION_ACROSS_REBUILDS
+    }
+    fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
+        let memory = rebuild_deltas(cx, names::RUNTIME_REBUILD_MEMORY_BYTES)?;
+        // Only attribute the climb to retention when the handle story is
+        // genuinely flat — if handles are moving, the growth rule above owns
+        // the diagnosis and this one stays quiet rather than excusing it.
+        let flat = |name: &str| {
+            rebuild_deltas(cx, name)
+                .is_some_and(|d| d.iter().sum::<f64>().abs() < ASSET_GROWTH_LEAK_TOTAL)
+        };
+        let grew: f64 = memory.iter().sum();
+        Some(
+            if grew >= RETENTION_MEMORY_TOTAL_BYTES
+                && flat(names::RUNTIME_REBUILD_IMAGE_HANDLES)
+                && flat(names::RUNTIME_REBUILD_MESH_HANDLES)
+            {
+                Verdict::violated(format!(
+                    "+{:.0} MB over the last {REBUILD_DELTA_WINDOW} full rebuilds with asset \
+                     handles flat — allocator retention (#625), expected on wasm, not a leak",
+                    grew / (1024.0 * 1024.0)
+                ))
+            } else {
+                Verdict::Clear
+            },
+        )
     }
 }
 
@@ -498,6 +623,124 @@ mod tests {
         m.observe_gauge(names::RUNTIME_MEMORY_WASM_BYTES, 3.6e9);
         assert!(WasmMemoryHigh.eval(&ctx(&m)).unwrap().is_violated());
         assert!(WasmMemoryCritical.eval(&ctx(&m)).unwrap().is_violated());
+    }
+
+    /// Feed a mark gauge a series of per-rebuild snapshots.
+    fn observe_marks(m: &mut MetricsRegistry, name: &'static str, marks: &[f64]) {
+        for v in marks {
+            m.observe_gauge(name, *v);
+        }
+    }
+
+    /// Calibration against the two real sessions that motivated the rule
+    /// (#919 / #921). The leaking one stepped ~+90 images per re-roll and
+    /// never fell; the healthy one oscillates around a plateau. The
+    /// discriminator is monotonicity across rebuilds, not any threshold on
+    /// the value — a healthy session's plateau can sit *higher* than a
+    /// young leaking session and must still read as clear.
+    #[test]
+    fn asset_growth_across_rebuilds_separates_leak_from_plateau() {
+        // Leaking shape (session 1784638603215): every delta positive.
+        let mut m = MetricsRegistry::default();
+        observe_marks(
+            &mut m,
+            names::RUNTIME_REBUILD_IMAGE_HANDLES,
+            &[41.0, 131.0, 221.0, 311.0, 401.0],
+        );
+        let v = AssetGrowthAcrossRebuilds.eval(&ctx(&m)).unwrap();
+        assert!(v.is_violated(), "the #919 shape must fire");
+
+        // Healthy shape (session 1784657742693): deltas alternate sign
+        // around a plateau — clear, despite sitting numerically higher.
+        let mut m = MetricsRegistry::default();
+        observe_marks(
+            &mut m,
+            names::RUNTIME_REBUILD_IMAGE_HANDLES,
+            &[198.0, 240.0, 210.0, 232.0, 228.0],
+        );
+        assert_eq!(
+            AssetGrowthAcrossRebuilds.eval(&ctx(&m)),
+            Some(Verdict::Clear)
+        );
+
+        // Monotone but tiny growth (a few variants accumulating in a
+        // bounded cache) stays under the floor — clear.
+        let mut m = MetricsRegistry::default();
+        observe_marks(
+            &mut m,
+            names::RUNTIME_REBUILD_IMAGE_HANDLES,
+            &[200.0, 210.0, 215.0, 220.0, 228.0],
+        );
+        assert_eq!(
+            AssetGrowthAcrossRebuilds.eval(&ctx(&m)),
+            Some(Verdict::Clear)
+        );
+    }
+
+    #[test]
+    fn asset_growth_is_dormant_until_enough_rebuilds() {
+        let mut m = MetricsRegistry::default();
+        // Four marks = three deltas: one short of the window.
+        observe_marks(
+            &mut m,
+            names::RUNTIME_REBUILD_IMAGE_HANDLES,
+            &[41.0, 131.0, 221.0, 311.0],
+        );
+        assert!(AssetGrowthAcrossRebuilds.eval(&ctx(&m)).is_none());
+    }
+
+    /// The retention rule owns exactly the class the growth rule doesn't:
+    /// memory climbing while handles are flat (#625's ~52 MB/re-roll). When
+    /// handles are moving too, it stays quiet — the growth rule owns that
+    /// diagnosis and one condition must not double-report as both.
+    #[test]
+    fn memory_retention_fires_only_when_handles_are_flat() {
+        const MB: f64 = 1024.0 * 1024.0;
+        let flat_handles = [200.0, 205.0, 198.0, 203.0, 200.0];
+        // Healthy-session memory shape: ~52 MB per re-roll, monotone.
+        let climbing = [715.0 * MB, 767.0 * MB, 819.0 * MB, 871.0 * MB, 923.0 * MB];
+
+        let mut m = MetricsRegistry::default();
+        observe_marks(&mut m, names::RUNTIME_REBUILD_MEMORY_BYTES, &climbing);
+        observe_marks(&mut m, names::RUNTIME_REBUILD_IMAGE_HANDLES, &flat_handles);
+        observe_marks(&mut m, names::RUNTIME_REBUILD_MESH_HANDLES, &flat_handles);
+        let v = MemoryRetentionAcrossRebuilds.eval(&ctx(&m)).unwrap();
+        assert!(v.is_violated(), "retention with flat handles must inform");
+
+        // Same memory climb during a handle leak → the growth rule's case,
+        // not this one's.
+        let mut m = MetricsRegistry::default();
+        observe_marks(&mut m, names::RUNTIME_REBUILD_MEMORY_BYTES, &climbing);
+        observe_marks(
+            &mut m,
+            names::RUNTIME_REBUILD_IMAGE_HANDLES,
+            &[41.0, 131.0, 221.0, 311.0, 401.0],
+        );
+        observe_marks(&mut m, names::RUNTIME_REBUILD_MESH_HANDLES, &flat_handles);
+        assert_eq!(
+            MemoryRetentionAcrossRebuilds.eval(&ctx(&m)),
+            Some(Verdict::Clear)
+        );
+        assert!(
+            AssetGrowthAcrossRebuilds
+                .eval(&ctx(&m))
+                .unwrap()
+                .is_violated()
+        );
+
+        // Flat memory → clear.
+        let mut m = MetricsRegistry::default();
+        observe_marks(
+            &mut m,
+            names::RUNTIME_REBUILD_MEMORY_BYTES,
+            &[900.0 * MB, 910.0 * MB, 905.0 * MB, 915.0 * MB, 912.0 * MB],
+        );
+        observe_marks(&mut m, names::RUNTIME_REBUILD_IMAGE_HANDLES, &flat_handles);
+        observe_marks(&mut m, names::RUNTIME_REBUILD_MESH_HANDLES, &flat_handles);
+        assert_eq!(
+            MemoryRetentionAcrossRebuilds.eval(&ctx(&m)),
+            Some(Verdict::Clear)
+        );
     }
 
     #[test]

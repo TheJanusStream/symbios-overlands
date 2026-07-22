@@ -98,17 +98,26 @@ struct CacheGauges<'w> {
     texture: Option<Res<'w, bevy_symbios_texture::TextureCache>>,
 }
 
+/// The asset registries whose handle counts the scraper gauges — bundled to
+/// keep `scrape_bevy_diagnostics` under clippy's parameter ceiling.
+#[derive(bevy::ecs::system::SystemParam)]
+struct AssetStores<'w> {
+    meshes: Res<'w, Assets<Mesh>>,
+    materials: Res<'w, Assets<StandardMaterial>>,
+    images: Res<'w, Assets<Image>>,
+}
+
 /// Scrape the Bevy diagnostics + game asset/collider counts into the registry.
 /// Runs at 1 Hz. Reads `smoothed()` (falling back to the raw `value()`) so the
 /// gauges are stable rather than per-frame-noisy.
 fn scrape_bevy_diagnostics(
     store: Res<DiagnosticsStore>,
-    meshes: Res<Assets<Mesh>>,
-    materials: Res<Assets<StandardMaterial>>,
-    images: Res<Assets<Image>>,
+    assets: AssetStores<'_>,
     colliders: Query<(), With<avian3d::prelude::Collider>>,
     caches: CacheGauges<'_>,
     mut reg: ResMut<MetricsRegistry>,
+    // Last-seen full-rebuild counter, for the per-rebuild asset marks below.
+    mut last_rebuild_seen: Local<u64>,
 ) {
     let read = |p: &DiagnosticPath| {
         store
@@ -140,12 +149,18 @@ fn scrape_bevy_diagnostics(
     // Game-specific gauges the built-ins don't cover: asset-handle counts (leak
     // watch), collider count (a double signals a duplicate terrain body), and
     // the upstream ShapeMeshCache length (the documented unbounded-growth leak).
-    reg.observe_gauge(names::RUNTIME_MESH_HANDLE_COUNT, meshes.len() as f64);
-    reg.observe_gauge(names::RUNTIME_MATERIAL_HANDLE_COUNT, materials.len() as f64);
+    reg.observe_gauge(names::RUNTIME_MESH_HANDLE_COUNT, assets.meshes.len() as f64);
+    reg.observe_gauge(
+        names::RUNTIME_MATERIAL_HANDLE_COUNT,
+        assets.materials.len() as f64,
+    );
     // Image-asset registry: the dominant memory consumer across a region re-seed
     // and the one the mesh/material counts miss (caches retain `Handle<Image>`) —
     // watches whether textures actually shrink after a rebuild/logout (#625).
-    reg.observe_gauge(names::RUNTIME_IMAGE_HANDLE_COUNT, images.len() as f64);
+    reg.observe_gauge(
+        names::RUNTIME_IMAGE_HANDLE_COUNT,
+        assets.images.len() as f64,
+    );
     reg.observe_gauge(
         names::RUNTIME_COLLIDER_COUNT,
         colliders.iter().count() as f64,
@@ -176,6 +191,39 @@ fn scrape_bevy_diagnostics(
         names::RUNTIME_TEXTURE_BIND_SLOTS,
         crate::splat::SPLAT_TEXTURE_BIND_SLOTS as f64,
     );
+
+    // Per-rebuild asset marks (#921): when the executor's full-rebuild
+    // counter has advanced since the last scrape, snapshot the handle
+    // counts and process memory into the rebuild-anchored mark gauges the
+    // asset-growth rules read. Taken here (≤1 s after completion, after the
+    // spawn commands have applied) rather than inside the executor, which
+    // would sample the asset registries mid-churn. One mark per scrape even
+    // if two rebuilds landed inside the second — the rules compare
+    // rebuild-boundary states, and the latest boundary is the one that
+    // reflects what was actually released.
+    let rebuilds = reg.counter_value(names::RUNTIME_FULL_REBUILD_COUNT);
+    if rebuilds > *last_rebuild_seen {
+        *last_rebuild_seen = rebuilds;
+        reg.observe_gauge(
+            names::RUNTIME_REBUILD_IMAGE_HANDLES,
+            assets.images.len() as f64,
+        );
+        reg.observe_gauge(
+            names::RUNTIME_REBUILD_MESH_HANDLES,
+            assets.meshes.len() as f64,
+        );
+        // RSS on native, wasm linear memory on wasm — whichever this build
+        // observes into the registry above. Read back rather than
+        // re-derived so the mark can never disagree with the live gauge.
+        let memory = reg
+            .gauge(names::RUNTIME_MEMORY_PROCESS_RSS_BYTES)
+            .or_else(|| reg.gauge(names::RUNTIME_MEMORY_WASM_BYTES))
+            .filter(|g| !g.is_empty())
+            .map(|g| g.last());
+        if let Some(bytes) = memory {
+            reg.observe_gauge(names::RUNTIME_REBUILD_MEMORY_BYTES, bytes);
+        }
+    }
 }
 
 /// Scrape the spatial-audio load into the registry at 1 Hz (#802): the count

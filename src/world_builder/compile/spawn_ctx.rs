@@ -66,6 +66,10 @@ pub struct GeneratorCaches<'w> {
     pub(crate) time: Res<'w, Time>,
     /// Session log for the per-job compile telemetry event.
     pub(crate) session_log: ResMut<'w, crate::diagnostics::SessionLog>,
+    /// Metrics registry, for the full-rebuild counter that anchors the
+    /// per-rebuild asset-mark gauges (#921) — the 1 Hz scraper watches the
+    /// counter and snapshots handle counts when it advances.
+    pub(crate) metrics: ResMut<'w, crate::diagnostics::MetricsRegistry>,
 }
 
 /// Hard ceiling on the number of `spawn_generator` calls a single

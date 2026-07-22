@@ -41,6 +41,8 @@
 //! | `runtime.frame_time_spike` | `runtime.frame_time.ms` |
 //! | `runtime.terrain_collider_missing` | `runtime.collider.count` |
 //! | `runtime.asset_handle_spike` | `runtime.mesh_handle.count` (window growth) |
+//! | `runtime.asset_growth_across_rebuilds` | `runtime.rebuild.image_handles` / `.mesh_handles` (per-rebuild marks, #921) |
+//! | `runtime.memory_retention_across_rebuilds` | `runtime.rebuild.memory_bytes` vs the handle marks (#921) |
 //! | `runtime.shape_mesh_cache_growth` | `runtime.shape_mesh_cache.len` (window growth) |
 //! | `net.identity_spoof_burst` | `net.identity.spoofed_count` (also replays `PeerIdentitySpoofRejected`) |
 //!

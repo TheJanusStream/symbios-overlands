@@ -263,6 +263,16 @@ pub(crate) fn compile_room_record(
         // rebuild frees the orphaned footprints without touching live geometry
         // (a re-edited generator simply re-bakes its terminals on the next miss).
         generator_caches.upstream_shape_mesh.clear();
+
+        // Anchor for the asset-growth watch (#921): the 1 Hz diagnostics
+        // scraper snapshots handle counts into the per-rebuild mark gauges
+        // whenever this counter advances. Counted here rather than sampled
+        // there so "a full rebuild happened" has exactly one definition —
+        // a job whose touch-sets covered every placement, i.e. the ones
+        // after which everything unreferenced should have been released.
+        generator_caches
+            .metrics
+            .incr(crate::diagnostics::names::RUNTIME_FULL_REBUILD_COUNT);
     }
 
     let line = format!(
