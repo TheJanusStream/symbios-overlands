@@ -99,7 +99,7 @@ pub(super) fn window_wall(glass: [f32; 3], glow: f32) -> SovereignMaterialSettin
         emission_strength: Fp(glow),
         roughness: Fp(0.4),
         metallic: Fp(0.2),
-        uv_scale: Fp(2.0),
+        uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::Window(SovereignWindowConfig {
             panes_x: 3,
             panes_y: 4,

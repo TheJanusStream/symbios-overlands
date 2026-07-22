@@ -187,7 +187,7 @@ pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
         emission_strength: Fp(glow),
         roughness: Fp(0.15),
         metallic: Fp(0.4),
-        uv_scale: Fp(2.0),
+        uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::Window(SovereignWindowConfig {
             panes_x: 3,
             panes_y: 4,

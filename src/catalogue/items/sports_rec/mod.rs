@@ -121,7 +121,7 @@ pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
         emission_strength: Fp(glow),
         roughness: Fp(0.15),
         metallic: Fp(0.4),
-        uv_scale: Fp(2.0),
+        uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::Window(SovereignWindowConfig {
             panes_x: 5,
             panes_y: 2,
@@ -156,7 +156,7 @@ pub(super) fn chainlink(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.55),
         metallic: Fp(0.7),
-        uv_scale: Fp(3.0),
+        uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::ChainLink(SovereignChainLinkConfig {
             color_wire: Fp3(color),
             cell_count: Fp64(8.0),

@@ -94,7 +94,7 @@ pub(super) fn stained(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
         emission_strength: Fp(glow),
         roughness: Fp(0.1),
         metallic: Fp(0.1),
-        uv_scale: Fp(1.5),
+        uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::StainedGlass(SovereignStainedGlassConfig {
             cell_count: 16,
             grime_level: Fp64(0.18),

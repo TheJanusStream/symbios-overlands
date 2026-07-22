@@ -478,6 +478,76 @@ pub(super) fn window_card(
     }
 }
 
+/// `uv_scale` for a texture whose repeating patch should measure `tile_m`
+/// metres on a side (#936).
+///
+/// Since #933 `uv_scale` is *tiles per metre*, which is an awkward number to
+/// author in — you think "a brick course is about 7 cm", not "14.5 repeats
+/// per metre". This converts, so material helpers read as physical sizes.
+///
+/// **`tile_m` is the size of the generator's whole repeating patch, not of
+/// one feature in it.** The generators bake several features per tile —
+/// `SovereignBrickConfig::scale` is brick columns per tile,
+/// `SovereignPlankConfig::plank_count` planks per tile,
+/// `SovereignCorrugatedConfig::ridges` ridges per tile — so the tile size is
+/// the feature size times that count. Getting this backwards is the easy
+/// mistake: it makes brickwork a hundred times too fine, and at that density
+/// the mip chain washes it to flat colour rather than showing an obvious
+/// error.
+pub(super) fn tiles_per_metre(tile_m: f32) -> Fp {
+    Fp(1.0 / tile_m.max(1e-4))
+}
+
+/// Physical tile sizes, in metres, for the surface generators the catalogue
+/// uses on **primitive** geometry. Each is the generator's default feature
+/// count times a real-world feature size, so one constant reads the same on
+/// a 0.8 m pier and an 8 m wall.
+///
+/// # Only primitives
+///
+/// The metre convention (#933–#938) is a property of `build_primitive_mesh`.
+/// `LSystem` and `Shape` geometry is meshed by its own pipeline and still
+/// carries that pipeline's own UVs, so a material used on a tree trunk or a
+/// grammar-built wall must keep its hand-tuned `uv_scale` — converting it
+/// would rescale against a parameterisation that never changed. Check what
+/// a material is actually applied to before touching it.
+///
+/// # Alpha cards
+///
+/// Deliberately absent. `Window`, `StainedGlass`, `IronGrille`, `ChainLink`
+/// and the foliage/sprite generators upload clamp-to-edge and must span
+/// their quad exactly once, so they hold `uv_scale` at `1.0` and pick
+/// `UvMapping::Fit` instead.
+///
+/// # The rest of the table
+///
+/// Constants land here as each theme is converted, so nothing sits unused.
+/// The sizing already worked out, for when they do:
+///
+/// | generator | features / tile | feature | tile |
+/// |---|---|---|---|
+/// | Ashlar | 4 × 4 blocks | 450 mm block | 1.8 m |
+/// | Plank | 5 planks | 200 mm board | 1.0 m |
+/// | Cobblestone | 6 stones | 150 mm cobble | 0.9 m |
+/// | Shingle | 5 courses | 300 mm shingle | 1.5 m |
+/// | Corrugated | 8 ridges | 76 mm sheet pitch | 0.6 m |
+/// | Thatch | — reads as a mass | | 1.2 m |
+/// | Stucco | — near-scaleless | | 2.0 m |
+/// | Marble | veining | | 2.0 m |
+/// | Rock | rock face | | 1.5 m |
+/// | Ground / Sand / Snow / Ice | granular | | 2.0 m |
+/// | Asphalt | coarse aggregate | | 3.0 m |
+/// | Fabric | the weave *is* the feature | | 0.5 m |
+/// | Pavers | paving slabs | | 1.2 m |
+pub(super) mod tile {
+    /// 4 brick columns per tile at a 215 mm brick.
+    pub(in crate::catalogue::items) const BRICK: f32 = 0.86;
+    /// Board-formed concrete — the board marks are the feature.
+    pub(in crate::catalogue::items) const CONCRETE: f32 = 2.4;
+    /// Sheet metal — plate seams and brushing.
+    pub(in crate::catalogue::items) const METAL: f32 = 1.2;
+}
+
 pub(super) fn glow(color: [f32; 3], strength: f32) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),

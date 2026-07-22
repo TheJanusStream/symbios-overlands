@@ -32,6 +32,7 @@ pub mod fx;
 
 use bevy_symbios_texture::metal::MetalStyle;
 
+use super::util::{tile, tiles_per_metre};
 use crate::catalogue::items::util::{cuboid_tapered, id_quat, prim};
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, SovereignBrickConfig, SovereignConcreteConfig,
@@ -52,6 +53,10 @@ pub(super) const CITY_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier
 /// Curtain-wall glass — the lit facade of a tower or office. Clean panes
 /// with a faint inner glow (`glow` sets the lit-window bloom); a building
 /// reads as glowing glass rather than a black slab.
+/// Glazing. `uv_scale` stays `1.0`: the `Window` generator is an alpha card
+/// and must span its quad exactly once (see
+/// [`window_card`](super::util::window_card)). It also belongs on a `Plane`
+/// with `UvMapping::Fit`, not pinned to the face of a solid.
 pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(tint),
@@ -59,7 +64,7 @@ pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
         emission_strength: Fp(glow),
         roughness: Fp(0.15),
         metallic: Fp(0.6),
-        uv_scale: Fp(2.0),
+        uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::Window(SovereignWindowConfig {
             panes_x: 4,
             panes_y: 5,
@@ -76,7 +81,7 @@ pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.9),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::CONCRETE),
         texture: SovereignTextureConfig::Concrete(SovereignConcreteConfig {
             color_base: Fp3(color),
             formwork_lines: Fp64(5.0),
@@ -93,7 +98,7 @@ pub(super) fn steel(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.4),
         metallic: Fp(0.85),
-        uv_scale: Fp(1.0),
+        uv_scale: tiles_per_metre(tile::METAL),
         texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
             style: MetalStyle::Brushed,
             color_metal: Fp3(color),
@@ -114,7 +119,7 @@ pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.25),
         metallic: Fp(0.5),
-        uv_scale: Fp(1.0),
+        uv_scale: tiles_per_metre(tile::METAL),
         texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
             style: MetalStyle::Brushed,
             color_metal: Fp3(color),
@@ -134,7 +139,7 @@ pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.85),
-        uv_scale: Fp(1.5),
+        uv_scale: tiles_per_metre(tile::BRICK),
         texture: SovereignTextureConfig::Brick(SovereignBrickConfig {
             color_brick: Fp3(color),
             color_mortar: Fp3([0.72, 0.70, 0.66]),
