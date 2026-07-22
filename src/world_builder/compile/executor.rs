@@ -270,9 +270,10 @@ pub(crate) fn compile_room_record(
         // there so "a full rebuild happened" has exactly one definition —
         // a job whose touch-sets covered every placement, i.e. the ones
         // after which everything unreferenced should have been released.
-        generator_caches
-            .metrics
-            .incr(crate::diagnostics::names::RUNTIME_FULL_REBUILD_COUNT);
+        // (`None` in headless embedders without the diagnostics plugin.)
+        if let Some(metrics) = generator_caches.metrics.as_deref_mut() {
+            metrics.incr(crate::diagnostics::names::RUNTIME_FULL_REBUILD_COUNT);
+        }
     }
 
     let line = format!(

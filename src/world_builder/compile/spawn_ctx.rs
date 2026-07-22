@@ -69,7 +69,15 @@ pub struct GeneratorCaches<'w> {
     /// Metrics registry, for the full-rebuild counter that anchors the
     /// per-rebuild asset-mark gauges (#921) — the 1 Hz scraper watches the
     /// counter and snapshots handle counts when it advances.
-    pub(crate) metrics: ResMut<'w, crate::diagnostics::MetricsRegistry>,
+    ///
+    /// `Option` for two reasons (#924): headless embedders (the render
+    /// tool, minimal test apps) run the spawn machinery without the
+    /// diagnostics plugin, and this is also the ONLY metrics access any
+    /// system reaching the registry through this bundle may have — a
+    /// sibling `ResMut<MetricsRegistry>` parameter next to a param that
+    /// contains `GeneratorCaches` is a B0002 aliasing panic at schedule
+    /// build, which unit tests never catch. Route through this field.
+    pub(crate) metrics: Option<ResMut<'w, crate::diagnostics::MetricsRegistry>>,
 }
 
 /// Hard ceiling on the number of `spawn_generator` calls a single
