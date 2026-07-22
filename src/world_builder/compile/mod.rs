@@ -27,6 +27,10 @@
 //!   [`dispatch::dispatch_top_level`] walker into the per-generator spawners.
 //! * [`contact_recipes`] — [`apply_contact_recipes`] system.
 
+// Native-only: the census replays sampling against a heightmap rebuilt via
+// `terrain::rebuild_heightmap_for_record`, which (like the render tool that
+// is its only caller) does not exist on wasm.
+#[cfg(not(target_arch = "wasm32"))]
 mod census;
 mod contact_recipes;
 mod dispatch;
@@ -41,12 +45,14 @@ mod water;
 // External callers (`super::compile::SpawnCtx` etc.) reach these names
 // through this re-export. Behavioural surface is identical to the
 // pre-refactor flat `compile.rs`.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) use census::scatter_census;
 pub(super) use contact_recipes::apply_contact_recipes;
 pub use dispatch::spawn_generator;
 pub(super) use environment::apply_environment_state;
 pub(super) use executor::compile_room_record;
 pub use job::{CompileJob, CompiledWorld};
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) use scatter::ScatterPreview;
 pub use spawn_ctx::{GeneratorCaches, SpawnCtx, budget_exceeded};
 /// Re-exported so the terrain splat pass reads the room's water line from

@@ -262,6 +262,9 @@ pub(crate) fn instance_pose(
 /// parts that *are* meaningful without terrain — the distribution warps and
 /// the per-instance pose — so the sheet still shows what clumping and
 /// jitter do. Instances sit on the ground plane rather than terrain-snapped.
+///
+/// Native-only, like the render tool that is its sole consumer.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) struct ScatterPreview {
     bounds: ScatterBounds,
     naturalness: ScatterNaturalness,
@@ -271,6 +274,7 @@ pub(crate) struct ScatterPreview {
     jitter_rng: ChaCha8Rng,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl ScatterPreview {
     pub(crate) fn new(
         bounds: &ScatterBounds,

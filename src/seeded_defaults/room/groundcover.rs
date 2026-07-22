@@ -41,17 +41,21 @@ const GROUNDCOVER_LOCAL_SEED_SALT: u64 = 0x51E7_51E7_51E7_51E7;
 
 // --- density bands ---------------------------------------------------------
 //
-// Instances per scatter, inclusive. The epic's standing decision is
-// "sparse-but-everywhere" for v1, tuned up in WS7 once the perf picture is
-// measured — these four constants are that dial, and nothing else in the tier
+// Instances per scatter, inclusive. The epic's standing decision was
+// "sparse-but-everywhere" for v1; WS7 (#915) raised the bands ~2× once the
+// perf picture was measured — worst seed sat at ~4% of the 120k shared
+// vegetation budget, entity handles were stable across re-rolls (#919), and
+// the props batch by shared mesh + material (#918), so the room-budget
+// two-pass fit remains the only thing that ever scales a scatter down.
+// These four constants are the whole dial; nothing else in the tier
 // hardcodes a count.
 
 /// Harsh ground: the odd survivor clinging on.
-pub const DENSITY_SPARSE: (u32, u32) = (60, 120);
+pub const DENSITY_SPARSE: (u32, u32) = (120, 240);
 /// Ordinary cover — most biomes sit here.
-pub const DENSITY_MODERATE: (u32, u32) = (140, 260);
+pub const DENSITY_MODERATE: (u32, u32) = (300, 550);
 /// Verdant floor: jungle understory, meadow turf, wetland reed beds.
-pub const DENSITY_LUSH: (u32, u32) = (260, 480);
+pub const DENSITY_LUSH: (u32, u32) = (550, 1000);
 /// Nothing grows.
 pub const DENSITY_NONE: (u32, u32) = (0, 0);
 

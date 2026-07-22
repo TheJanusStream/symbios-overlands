@@ -406,7 +406,12 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng, room_seed: u64) -> TreeS
         let cx = range_f32(rng, -200.0, 200.0);
         let cz = range_f32(rng, -200.0, 200.0);
         let radius = range_f32(rng, 250.0, 400.0);
-        let count = sample_inclusive(rng, 5, 50);
+        // Raised from (5, 50) in WS7 (#915): with the prop/mesh-bucket merge
+        // (#812) a placed tree costs a handful of entities, and the measured
+        // worst seed used ~4% of the shared vegetation budget — the stands
+        // read as thickets now instead of scattered specimens. The #810
+        // two-pass budget fit still bounds the pathological seeds.
+        let count = sample_inclusive(rng, 10, 70);
         let iterations_delta = match (unit_f32(rng) * 3.0) as u32 {
             0 => -1,
             1 => 0,
@@ -484,7 +489,7 @@ mod tests {
                         sc.species,
                         sc.variant
                     );
-                    assert!(sc.count >= 5 && sc.count <= 50, "count {} OOR", sc.count);
+                    assert!(sc.count >= 10 && sc.count <= 70, "count {} OOR", sc.count);
                     assert!(
                         sc.iterations_delta >= -1 && sc.iterations_delta <= 1,
                         "iter delta {} OOR",

@@ -96,14 +96,23 @@ pub use lsystem::{LSystemMaterialCache, LSystemMeshCache};
 pub use prim::build_primitive_mesh;
 pub use shape::{ShapeMaterialCache, ShapeMeshCache};
 
-/// Capacity (entries) of the shared procedural-[`TextureCache`]. At the 512²
-/// bake size one entry pins ~3 MiB of pixel data (albedo + normal + ORM), so
-/// the upstream 256-entry default would allow ~768 MiB — too much headroom for
-/// the wasm heap. 64 entries (~192 MiB worst case, far less in practice) covers
-/// several rooms' worth of distinct configs before FIFO eviction kicks in.
+/// Capacity (entries) of the shared procedural-[`TextureCache`].
+///
+/// 64 was chosen in #625 to bound the wasm heap (a 512² entry pins ~3 MiB of
+/// albedo + normal + ORM pixels, so the upstream 256-entry default allowed
+/// ~768 MiB) — but that was before WS1 (#909) added 8 plant generators and
+/// WS3 (#911) the ground-cover tier. Measured in #915: the cache sat pinned
+/// at 64 from the second re-roll on, with 350 misses against 58 hits —
+/// FIFO was evicting the *seed-independent* catalogue textures (ground
+/// cover, plant variants) between rooms and re-baking them every re-roll at
+/// ~41 ms each. 128 holds a couple of rooms' distinct configs, so the
+/// stable catalogue set survives while the genuinely per-seed entries
+/// (splat, particle sprites) churn. Worst case doubles to ~384 MiB, but the
+/// realistic cost is far lower: per-class bake resolutions (#356) put most
+/// vegetation textures at 256² (~0.8 MiB), not 512².
 ///
 /// [`TextureCache`]: bevy_symbios_texture::TextureCache
-pub const TEXTURE_CACHE_CAPACITY: usize = 64;
+pub const TEXTURE_CACHE_CAPACITY: usize = 128;
 
 /// A fresh, empty [`TextureCache`](bevy_symbios_texture::TextureCache) at the
 /// shared [`TEXTURE_CACHE_CAPACITY`]. Single source for the resource the plugin
