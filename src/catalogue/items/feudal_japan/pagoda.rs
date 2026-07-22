@@ -51,6 +51,31 @@ impl CatalogueEntry for Pagoda {
     }
 }
 
+/// How far the lacquered corner columns stand proud of the plaster face.
+///
+/// They used to be authored flush — half-width `0.2` at `w * 0.5 - 0.2`,
+/// putting the column's outer face exactly on the wall plane. Two coplanar
+/// faces give the depth buffer no basis to choose between them, so the pair
+/// rendered as a stipple of red bleeding through white that swims as the
+/// camera moves. Standing the column out is both the fix and what an
+/// engaged post actually does.
+const COLUMN_PROUD: f32 = 0.07;
+
+/// Taper of the flared roof cap — the fraction of its footprint it loses
+/// between eave and ridge. Shared by the cap itself and by the tuck
+/// arithmetic that beds the next storey into it.
+const ROOF_TAPER: f32 = 0.62;
+
+/// Height of each tier's flared roof cap.
+const CAP_H: f32 = 1.0;
+
+/// How much wider than the storey above the roof below must still be at the
+/// height that storey's base sits. Each upper storey is dropped into the cap
+/// beneath it until this much overhang is available all round, which buries
+/// the body's bottom edge instead of leaving it floating in view above the
+/// ridge.
+const ROOF_OVERLAP: f32 = 0.6;
+
 fn build_tree() -> Generator {
     let plinth_h = 0.7;
 
@@ -72,7 +97,7 @@ fn build_tree() -> Generator {
         (3.6, 2.8, 2.0),
     ];
     let mut y = plinth_h;
-    for (w, h, flare) in tiers {
+    for (tier, &(w, h, flare)) in tiers.iter().enumerate() {
         let body_top = y + h;
         // Plaster body.
         prims.push(prim(
@@ -84,7 +109,11 @@ fn build_tree() -> Generator {
         for (sx, sz) in corners {
             prims.push(prim(
                 solid(cuboid_tapered([0.4, h, 0.4], 0.0, lacquer(LACQUER_RED))),
-                [sx * (w * 0.5 - 0.2), y + h * 0.5, sz * (w * 0.5 - 0.2)],
+                [
+                    sx * (w * 0.5 - 0.2 + COLUMN_PROUD),
+                    y + h * 0.5,
+                    sz * (w * 0.5 - 0.2 + COLUMN_PROUD),
+                ],
                 id_quat(),
             ));
         }
@@ -111,14 +140,13 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
         // Flared tile roof cap rising to the ridge.
-        let cap_h = 1.0;
         prims.push(prim(
             solid(cuboid_tapered(
-                [eave_w, cap_h, eave_w],
-                0.62,
+                [eave_w, CAP_H, eave_w],
+                ROOF_TAPER,
                 roof_tile(TILE_SLATE),
             )),
-            [0.0, body_top + 0.6 + cap_h * 0.5, 0.0],
+            [0.0, body_top + 0.6 + CAP_H * 0.5, 0.0],
             id_quat(),
         ));
         // Four upturned flying-eave corners — the swept-roof signature. Each
@@ -136,7 +164,21 @@ fn build_tree() -> Generator {
                 quat_y(theta),
             ));
         }
-        y = body_top + 0.6 + cap_h;
+        // Where the next storey starts. Not on top of this roof: the cap
+        // narrows as it rises, so a storey parked at the ridge is *wider*
+        // than the roof under it and its bottom edge hangs in plain view.
+        // Drop it into the cap instead, to the height where the cap is
+        // still `ROOF_OVERLAP` wider than the storey all round — the roof
+        // then reads as sheltering the body it carries, which is the whole
+        // grammar of a tiered tower.
+        y = match tiers.get(tier + 1) {
+            Some(&(next_w, _, _)) => {
+                let frac = ((1.0 - (next_w + ROOF_OVERLAP) / eave_w) / ROOF_TAPER).clamp(0.0, 1.0);
+                body_top + 0.6 + CAP_H * frac
+            }
+            // Top tier: the finial rides the ridge itself.
+            None => body_top + 0.6 + CAP_H,
+        };
     }
 
     // Golden sōrin finial: a tapered spire threaded through stacked rings,
