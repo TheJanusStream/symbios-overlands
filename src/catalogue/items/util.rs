@@ -7,6 +7,7 @@
 //! hand, and these helpers keep that assembly at the "place a tapered
 //! cylinder here" altitude instead of struct-literal plumbing.
 
+use crate::pds::generator::UvMapping;
 use crate::pds::{
     Fp, Fp2, Fp3, Fp4, Generator, GeneratorKind, SovereignMaterialSettings, TortureParams,
     TransformData,
@@ -114,6 +115,7 @@ pub(super) fn cuboid_tapered(
 ) -> GeneratorKind {
     GeneratorKind::Cuboid {
         size: Fp3(size),
+        uv_mapping: UvMapping::default(),
         solid: false,
         material,
         torture: TortureParams {
@@ -135,6 +137,7 @@ pub(super) fn cuboid_tapered_xz(
 ) -> GeneratorKind {
     GeneratorKind::Cuboid {
         size: Fp3(size),
+        uv_mapping: UvMapping::default(),
         solid: false,
         material,
         torture: TortureParams {
@@ -191,6 +194,7 @@ pub(super) fn superellipsoid(
 ) -> GeneratorKind {
     GeneratorKind::Superellipsoid {
         half_extents: Fp3(half_extents),
+        uv_mapping: UvMapping::default(),
         exponent_ns: Fp(exponent_ns),
         exponent_ew: Fp(exponent_ew),
         latitudes: 12,
@@ -284,6 +288,7 @@ pub(super) fn helix(
 pub(super) fn wedge(size: [f32; 3], material: SovereignMaterialSettings) -> GeneratorKind {
     GeneratorKind::Wedge {
         size: Fp3(size),
+        uv_mapping: UvMapping::default(),
         solid: false,
         material,
         torture: TortureParams::default(),
@@ -408,6 +413,7 @@ pub(super) fn foundation_disc(radius: f32, depth: f32) -> Generator {
 pub(super) fn plane(size: [f32; 2], material: SovereignMaterialSettings) -> GeneratorKind {
     GeneratorKind::Plane {
         size: Fp2(size),
+        uv_mapping: UvMapping::fit(),
         subdivisions: 0,
         solid: false,
         material,

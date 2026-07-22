@@ -842,10 +842,11 @@ fn draw_generator_detail(
         GeneratorKind::Gateway { size } => draw_gateway_editor(ui, size, dirty),
         GeneratorKind::Cuboid {
             size,
+            uv_mapping,
             solid,
             material,
             torture,
-        } => draw_primitive_cuboid(ui, size, solid, material, torture, salt, dirty),
+        } => draw_primitive_cuboid(ui, size, uv_mapping, solid, material, torture, salt, dirty),
         GeneratorKind::Sphere {
             radius,
             resolution,
@@ -909,6 +910,7 @@ fn draw_generator_detail(
         GeneratorKind::Plane {
             size,
             subdivisions,
+            uv_mapping,
             solid,
             material,
             torture,
@@ -916,6 +918,7 @@ fn draw_generator_detail(
             ui,
             size,
             subdivisions,
+            uv_mapping,
             solid,
             material,
             torture,
@@ -924,10 +927,13 @@ fn draw_generator_detail(
         ),
         GeneratorKind::Tetrahedron {
             size,
+            uv_mapping,
             solid,
             material,
             torture,
-        } => draw_primitive_tetrahedron(ui, size, solid, material, torture, salt, dirty),
+        } => {
+            draw_primitive_tetrahedron(ui, size, uv_mapping, solid, material, torture, salt, dirty)
+        }
         GeneratorKind::Tube {
             radius,
             inner_radius,
@@ -952,6 +958,7 @@ fn draw_generator_detail(
             size,
             bevel,
             bevel_segments,
+            uv_mapping,
             solid,
             material,
             torture,
@@ -960,6 +967,7 @@ fn draw_generator_detail(
             size,
             bevel,
             bevel_segments,
+            uv_mapping,
             solid,
             material,
             torture,
@@ -970,10 +978,11 @@ fn draw_generator_detail(
         // the cuboid editor.
         GeneratorKind::Wedge {
             size,
+            uv_mapping,
             solid,
             material,
             torture,
-        } => draw_primitive_cuboid(ui, size, solid, material, torture, salt, dirty),
+        } => draw_primitive_cuboid(ui, size, uv_mapping, solid, material, torture, salt, dirty),
         GeneratorKind::Helix {
             radius,
             tube_radius,
@@ -1002,6 +1011,7 @@ fn draw_generator_detail(
             exponent_ew,
             latitudes,
             longitudes,
+            uv_mapping,
             solid,
             material,
             torture,
@@ -1012,6 +1022,7 @@ fn draw_generator_detail(
             exponent_ew,
             latitudes,
             longitudes,
+            uv_mapping,
             solid,
             material,
             torture,

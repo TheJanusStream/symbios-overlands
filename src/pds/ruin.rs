@@ -582,6 +582,7 @@ fn scatter_rubble(node: &mut Generator, rng: &mut ChaCha8Rng) {
         let taper = range_f32(rng, 0.0, 0.3);
         node.children.push(Generator {
             kind: GeneratorKind::Cuboid {
+                uv_mapping: crate::pds::generator::UvMapping::default(),
                 size: Fp3([sx, sy, sz]),
                 solid: true,
                 material: rubble_material(grey),
@@ -636,6 +637,7 @@ mod tests {
         // catalogue member.
         let part = |y: f32| Generator {
             kind: GeneratorKind::Cuboid {
+                uv_mapping: crate::pds::generator::UvMapping::default(),
                 size: Fp3([1.0, 1.0, 1.0]),
                 solid: true,
                 material: SovereignMaterialSettings::default(),
@@ -724,6 +726,7 @@ mod tests {
         fn lit(y: f32) -> Generator {
             Generator {
                 kind: GeneratorKind::Cuboid {
+                    uv_mapping: crate::pds::generator::UvMapping::default(),
                     size: Fp3([0.5, 0.5, 0.5]),
                     solid: false,
                     material: SovereignMaterialSettings {
@@ -801,6 +804,7 @@ mod tests {
     fn boxed(size: [f32; 3], at: [f32; 3]) -> Generator {
         Generator {
             kind: GeneratorKind::Cuboid {
+                uv_mapping: crate::pds::generator::UvMapping::default(),
                 size: Fp3(size),
                 solid: true,
                 material: SovereignMaterialSettings::default(),

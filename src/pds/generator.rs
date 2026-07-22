@@ -650,6 +650,19 @@ pub enum UvMapping {
     /// Flat projection along local Z (texture lies on the XY plane).
     #[serde(rename = "network.symbios.uv.planar_z")]
     PlanarZ,
+    /// Keep the mesher's own parameterisation, normalised so the texture
+    /// spans the surface exactly once — the pre-#933 behaviour, now an
+    /// explicit choice rather than the only option.
+    ///
+    /// This is what an **alpha card** needs. The `Window`, foliage and
+    /// sprite generators upload clamp-to-edge rather than repeating, so a
+    /// card must cover its quad once and once only; under the metre
+    /// convention it would instead tile, and past `1.0` the sampler would
+    /// smear its edge texels across the remainder. It is also the right
+    /// pick for anything whose texture is a single picture rather than a
+    /// material — a sign face, a painted panel.
+    #[serde(rename = "network.symbios.uv.fit")]
+    Fit,
     #[serde(other)]
     Unknown,
 }
@@ -662,6 +675,20 @@ impl UvMapping {
     /// non-default choice (now including Spherical) serialises its tag.
     pub fn is_default(&self) -> bool {
         *self == Self::default()
+    }
+
+    /// Constructor for the per-field serde default on card-carrying kinds
+    /// (`Plane`), whose sensible default is [`Fit`](Self::Fit) rather than
+    /// the enum-wide [`Box`](Self::Box).
+    pub fn fit() -> Self {
+        Self::Fit
+    }
+
+    /// Elision predicate paired with [`fit`](Self::fit): a `Plane` that
+    /// wants the card behaviour keeps the field off the wire, and only a
+    /// deliberate non-card choice serialises its tag.
+    pub fn is_fit(&self) -> bool {
+        *self == Self::Fit
     }
 }
 
@@ -1057,6 +1084,11 @@ pub enum GeneratorKind {
     Cuboid {
         size: Fp3,
         solid: bool,
+        /// Texture projection baked onto this prim (#937). Defaults to
+        /// [`UvMapping::Box`] — metre-scale tri-planar, so texel density is
+        /// even across faces of any proportion.
+        #[serde(default, skip_serializing_if = "UvMapping::is_default")]
+        uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
@@ -1129,6 +1161,11 @@ pub enum GeneratorKind {
         size: Fp2,
         subdivisions: u32,
         solid: bool,
+        /// Texture projection baked onto this quad (#937). Defaults to
+        /// [`UvMapping::Fit`], not `Box`: a `Plane` is the catalogue's
+        /// alpha-card carrier, and a card must span its quad exactly once.
+        #[serde(default = "UvMapping::fit", skip_serializing_if = "UvMapping::is_fit")]
+        uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
@@ -1139,6 +1176,11 @@ pub enum GeneratorKind {
     Tetrahedron {
         size: Fp,
         solid: bool,
+        /// Texture projection baked onto this prim (#937). Defaults to
+        /// [`UvMapping::Box`] — metre-scale tri-planar, so texel density is
+        /// even across faces of any proportion.
+        #[serde(default, skip_serializing_if = "UvMapping::is_default")]
+        uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
@@ -1172,6 +1214,11 @@ pub enum GeneratorKind {
         bevel: Fp,
         bevel_segments: u32,
         solid: bool,
+        /// Texture projection baked onto this prim (#937). Defaults to
+        /// [`UvMapping::Box`] — metre-scale tri-planar, so texel density is
+        /// even across faces of any proportion.
+        #[serde(default, skip_serializing_if = "UvMapping::is_default")]
+        uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
@@ -1185,6 +1232,11 @@ pub enum GeneratorKind {
     Wedge {
         size: Fp3,
         solid: bool,
+        /// Texture projection baked onto this prim (#937). Defaults to
+        /// [`UvMapping::Box`] — metre-scale tri-planar, so texel density is
+        /// even across faces of any proportion.
+        #[serde(default, skip_serializing_if = "UvMapping::is_default")]
+        uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
@@ -1224,6 +1276,11 @@ pub enum GeneratorKind {
         latitudes: u32,
         longitudes: u32,
         solid: bool,
+        /// Texture projection baked onto this prim (#937). Defaults to
+        /// [`UvMapping::Box`] — metre-scale tri-planar, so texel density is
+        /// even across faces of any proportion.
+        #[serde(default, skip_serializing_if = "UvMapping::is_default")]
+        uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
@@ -1558,6 +1615,7 @@ impl GeneratorKind {
     pub fn default_cuboid() -> Self {
         GeneratorKind::Cuboid {
             size: Fp3([1.0, 1.0, 1.0]),
+            uv_mapping: UvMapping::default(),
             solid: true,
             material: SovereignMaterialSettings::default(),
             torture: TortureParams::default(),
@@ -1681,6 +1739,7 @@ impl GeneratorKind {
         let mat = SovereignMaterialSettings::default();
         Some(match tag {
             "Cuboid" => GeneratorKind::Cuboid {
+                uv_mapping: UvMapping::default(),
                 size: Fp3([1.0, 1.0, 1.0]),
                 solid: true,
                 material: mat,
@@ -1728,6 +1787,7 @@ impl GeneratorKind {
                 torture: TortureParams::default(),
             },
             "Plane" => GeneratorKind::Plane {
+                uv_mapping: UvMapping::fit(),
                 size: Fp2([1.0, 1.0]),
                 subdivisions: 0,
                 solid: true,
@@ -1735,6 +1795,7 @@ impl GeneratorKind {
                 torture: TortureParams::default(),
             },
             "Tetrahedron" => GeneratorKind::Tetrahedron {
+                uv_mapping: UvMapping::default(),
                 size: Fp(1.0),
                 solid: true,
                 material: mat,
@@ -1750,6 +1811,7 @@ impl GeneratorKind {
                 torture: TortureParams::default(),
             },
             "Bevel" => GeneratorKind::Bevel {
+                uv_mapping: UvMapping::default(),
                 size: Fp3([1.0, 1.0, 1.0]),
                 bevel: Fp(0.15),
                 bevel_segments: 3,
@@ -1758,6 +1820,7 @@ impl GeneratorKind {
                 torture: TortureParams::default(),
             },
             "Wedge" => GeneratorKind::Wedge {
+                uv_mapping: UvMapping::default(),
                 size: Fp3([1.0, 1.0, 1.0]),
                 solid: true,
                 material: mat,
@@ -1777,6 +1840,7 @@ impl GeneratorKind {
             // the family — visually distinct from both Cuboid and Sphere, so
             // a freshly-added prim reads as its own thing.
             "Superellipsoid" => GeneratorKind::Superellipsoid {
+                uv_mapping: UvMapping::default(),
                 half_extents: Fp3([0.5, 0.5, 0.5]),
                 exponent_ns: Fp(0.5),
                 exponent_ew: Fp(0.5),
@@ -2344,6 +2408,60 @@ mod prim_wire_tests {
     /// The `uv_mapping` knob (#739) is default-elided on the wire, every
     /// known mode round-trips through its own tag, and an unrecognised
     /// mode tag degrades to `Unknown` instead of failing the record.
+    /// #937: the flat-faced kinds carry `uv_mapping` too, and `Plane`
+    /// defaults to `Fit` rather than the enum-wide `Box` — a card must span
+    /// its quad once, so a field-less Plane record has to keep meaning
+    /// "card", not silently start tiling.
+    #[test]
+    fn per_prim_uv_mapping_defaults_and_elision() {
+        let json = |k: &GeneratorKind| serde_json::to_value(k).expect("serialize");
+
+        // Cuboid: Box is the default, so it elides.
+        let cuboid = GeneratorKind::default_primitive_for_tag("Cuboid").unwrap();
+        assert!(
+            matches!(cuboid, GeneratorKind::Cuboid { uv_mapping, .. } if uv_mapping == UvMapping::Box)
+        );
+        assert!(
+            json(&cuboid).get("uv_mapping").is_none(),
+            "a Box cuboid must keep the field off the wire"
+        );
+
+        // Plane: Fit is its default, and elides against *that*.
+        let plane = GeneratorKind::default_primitive_for_tag("Plane").unwrap();
+        assert!(
+            matches!(plane, GeneratorKind::Plane { uv_mapping, .. } if uv_mapping == UvMapping::Fit),
+            "Plane must default to Fit — it is the alpha-card carrier"
+        );
+        assert!(
+            json(&plane).get("uv_mapping").is_none(),
+            "a Fit plane must keep the field off the wire"
+        );
+
+        // A field-less Plane from an older record still deserialises to Fit.
+        let mut bare = json(&plane);
+        assert!(bare.get("uv_mapping").is_none());
+        let round: GeneratorKind = serde_json::from_value(bare.clone()).expect("deserialize");
+        assert!(
+            matches!(round, GeneratorKind::Plane { uv_mapping, .. } if uv_mapping == UvMapping::Fit)
+        );
+
+        // An explicit non-default choice serialises its tag and survives.
+        bare["uv_mapping"] = serde_json::json!({ "$type": "network.symbios.uv.planar_y" });
+        let round: GeneratorKind = serde_json::from_value(bare).expect("deserialize");
+        assert!(
+            matches!(round, GeneratorKind::Plane { uv_mapping, .. } if uv_mapping == UvMapping::PlanarY)
+        );
+
+        // And a mode from a newer client degrades to Unknown, which meshes
+        // as the default rather than failing the record.
+        let mut future = json(&cuboid);
+        future["uv_mapping"] = serde_json::json!({ "$type": "network.symbios.uv.conformal" });
+        let round: GeneratorKind = serde_json::from_value(future).expect("deserialize");
+        assert!(
+            matches!(round, GeneratorKind::Cuboid { uv_mapping, .. } if uv_mapping == UvMapping::Unknown)
+        );
+    }
+
     #[test]
     fn blob_group_uv_mapping_wire_format() {
         // The default mode (Box since #742) stays off the wire — a

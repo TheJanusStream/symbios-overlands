@@ -602,6 +602,7 @@ fn generator_node_transform_rejects_non_finite_fields() {
     use symbios_overlands::pds::{Fp4, TransformData};
     let mut generator = Generator {
         kind: GeneratorKind::Cuboid {
+            uv_mapping: symbios_overlands::pds::generator::UvMapping::default(),
             size: Fp3([1.0, 1.0, 1.0]),
             solid: true,
             material: Default::default(),
@@ -701,6 +702,7 @@ fn primitive_torture_clamped() {
     // primitive must be driven back into the finite envelope so the
     // CPU-side vertex mutation pass never sees non-finite math.
     let mut prim = Generator::from_kind(GeneratorKind::Cuboid {
+        uv_mapping: symbios_overlands::pds::generator::UvMapping::default(),
         size: Fp3([1.0, 1.0, 1.0]),
         solid: true,
         material: Default::default(),

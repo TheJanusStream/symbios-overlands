@@ -176,6 +176,7 @@ mod tests {
 
     fn cuboid(color: [f32; 3], roughness: f32, metallic: f32, emission: f32) -> Generator {
         Generator::from_kind(GeneratorKind::Cuboid {
+            uv_mapping: crate::pds::generator::UvMapping::default(),
             size: Fp3([1.0, 1.0, 1.0]),
             solid: true,
             material: SovereignMaterialSettings {

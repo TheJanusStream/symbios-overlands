@@ -15,6 +15,7 @@ use super::super::widgets::{drag_u32, euler_rotation_row, fp_slider};
 pub(super) fn draw_primitive_cuboid(
     ui: &mut egui::Ui,
     size: &mut Fp3,
+    uv_mapping: &mut UvMapping,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
@@ -35,6 +36,7 @@ pub(super) fn draw_primitive_cuboid(
             *dirty = true;
         }
     });
+    draw_uv_mapping(ui, uv_mapping, salt, dirty);
     draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
 }
 
@@ -149,6 +151,7 @@ pub(super) fn draw_primitive_plane(
     ui: &mut egui::Ui,
     size: &mut Fp2,
     subdivisions: &mut u32,
+    uv_mapping: &mut UvMapping,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
@@ -172,6 +175,7 @@ pub(super) fn draw_primitive_plane(
     });
     // The Plane has no revolve axis — its mesher ignores the topology cuts,
     // so don't offer them.
+    draw_uv_mapping(ui, uv_mapping, salt, dirty);
     draw_common_primitive(ui, solid, material, torture, salt, false, dirty);
 }
 
@@ -179,6 +183,7 @@ pub(super) fn draw_primitive_plane(
 pub(super) fn draw_primitive_tetrahedron(
     ui: &mut egui::Ui,
     size: &mut Fp,
+    uv_mapping: &mut UvMapping,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
@@ -186,6 +191,7 @@ pub(super) fn draw_primitive_tetrahedron(
     dirty: &mut bool,
 ) {
     fp_slider(ui, "Size", size, 0.01, 100.0, dirty);
+    draw_uv_mapping(ui, uv_mapping, salt, dirty);
     draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
 }
 
@@ -219,6 +225,7 @@ pub(super) fn draw_primitive_bevel(
     size: &mut Fp3,
     bevel: &mut Fp,
     bevel_segments: &mut u32,
+    uv_mapping: &mut UvMapping,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
@@ -243,6 +250,7 @@ pub(super) fn draw_primitive_bevel(
         fp_slider(ui, "Bevel", bevel, 0.0, 50.0, dirty);
         drag_u32(ui, "Segments", bevel_segments, 1, 16, dirty);
     });
+    draw_uv_mapping(ui, uv_mapping, salt, dirty);
     draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
 }
 
@@ -280,6 +288,7 @@ pub(super) fn draw_primitive_superellipsoid(
     exponent_ew: &mut Fp,
     latitudes: &mut u32,
     longitudes: &mut u32,
+    uv_mapping: &mut UvMapping,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
@@ -310,6 +319,7 @@ pub(super) fn draw_primitive_superellipsoid(
         drag_u32(ui, "Lats", latitudes, 4, 64, dirty);
         drag_u32(ui, "Lons", longitudes, 4, 128, dirty);
     });
+    draw_uv_mapping(ui, uv_mapping, salt, dirty);
     draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
 }
 
@@ -634,11 +644,24 @@ pub(super) fn draw_primitive_blob_group(
         *dirty = true;
     }
     drag_u32(ui, "Grid res", resolution, 8, 48, dirty);
+    draw_uv_mapping(ui, uv_mapping, salt, dirty);
+    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
+}
+
+/// The shared UV-projection picker (#937). Every kind that carries a
+/// `uv_mapping` field shows the same control, so a mode means the same thing
+/// wherever it appears.
+pub(super) fn draw_uv_mapping(
+    ui: &mut egui::Ui,
+    uv_mapping: &mut UvMapping,
+    salt: &str,
+    dirty: &mut bool,
+) {
     ui.horizontal(|ui| {
         ui.label("UV mapping").on_hover_text(
-            "How the texture is projected onto the meshed surface. \
-             Box (the default) keeps texel density uniform on any shape; \
-             Spherical is the original wrap-once mapping.",
+            "How the texture is projected onto the meshed surface. Every \
+             mode but Fit measures in metres, so `uv_scale` reads as tiles \
+             per metre and one material looks the same on prims of any size.",
         );
         let modes = [
             (
@@ -647,6 +670,14 @@ pub(super) fn draw_primitive_blob_group(
                 "Projects each face along its dominant axis at uniform \
                  density — the default. Strong patterns show faint seams \
                  where the projection axis changes.",
+            ),
+            (
+                UvMapping::Fit,
+                "Fit (span once)",
+                "Keeps the mesher's own layout, spanning the surface \
+                 exactly once. Required for alpha cards — window glazing, \
+                 foliage billboards — which upload clamp-to-edge and would \
+                 otherwise tile. The default on Plane.",
             ),
             (
                 UvMapping::Spherical,
@@ -658,9 +689,9 @@ pub(super) fn draw_primitive_blob_group(
             (
                 UvMapping::Cylindrical,
                 "Cylindrical (Y)",
-                "Wraps around the prim's local Y axis (the cut axis); V is \
-                 scaled for square texels like the swept prims. Suits \
-                 limbs, trunks and columns; up/down-facing surface swirls.",
+                "Wraps around the prim's local Y axis (the cut axis), in \
+                 metres of arc. Suits limbs, trunks and columns; \
+                 up/down-facing surface swirls.",
             ),
             (
                 UvMapping::PlanarX,
@@ -684,7 +715,7 @@ pub(super) fn draw_primitive_blob_group(
             .find(|(v, _, _)| v == uv_mapping)
             .map(|(_, n, _)| *n)
             .unwrap_or("Unknown");
-        egui::ComboBox::from_id_salt((salt, "blob_uv_mapping"))
+        egui::ComboBox::from_id_salt((salt, "uv_mapping"))
             .selected_text(current)
             .show_ui(ui, |ui| {
                 for (v, n, hint) in modes {
@@ -700,7 +731,6 @@ pub(super) fn draw_primitive_blob_group(
                 }
             });
     });
-    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
 }
 
 /// Shared tail for every primitive editor: solid checkbox, torture triple,

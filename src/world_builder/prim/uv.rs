@@ -52,16 +52,23 @@ pub(super) fn project_uvs(
 ) -> Vec<[f32; 2]> {
     match mapping {
         UvMapping::Spherical => spherical(pos),
-        UvMapping::Box | UvMapping::Unknown => box_mapped(pos, nor, idx),
+        // `Fit` means "keep the mesher's own parameterisation", which a
+        // caller reaching this function does not have — `project_uvs`
+        // exists precisely for meshers with none. It therefore falls back
+        // to the default alongside `Unknown`, the mode from a newer client.
+        UvMapping::Box | UvMapping::Fit | UvMapping::Unknown => box_mapped(pos, nor, idx),
         UvMapping::Cylindrical => cylindrical(pos, nor, idx),
         UvMapping::PlanarX | UvMapping::PlanarY | UvMapping::PlanarZ => planar(pos, mapping),
     }
 }
 
 /// Which metre-scale projection (if any) a primitive kind should have baked
-/// over whatever its mesher produced (#934, #938).
+/// over whatever its mesher produced — the kind's own `uv_mapping` choice
+/// (#937), or `None` when it has no such field or picked
+/// [`UvMapping::Fit`].
 ///
-/// The flat-faced family takes box projection. Their stock parameterisations
+/// The flat-faced family carries the field and defaults to box projection.
+/// Their stock parameterisations
 /// — Bevy's for the plain box, the swept rectangular profile once a cut is
 /// active, hand-rolled per-face quads for the prisms — all lay exactly one
 /// tile across *each face*, so an 8 × 4 × 0.35 wall slab wears one tile on
@@ -76,13 +83,13 @@ pub(super) fn project_uvs(
 /// box projection is already the default for its nearest neighbour,
 /// `BlobGroup`.
 ///
+/// `Plane` carries the field too but defaults to [`UvMapping::Fit`], since
+/// every use of it in the catalogue is a foliage billboard or a glazing
+/// card and a card must span its quad exactly once. Authors who want a
+/// tiling floor quad set `Box` or a planar mode explicitly.
+///
 /// Deliberately absent:
 ///
-/// * `Plane` — the card carrier. Every use in the catalogue is a foliage
-///   billboard or a glazing card, and a card must span its quad exactly
-///   once (it uploads clamp-to-edge). It gets an explicit "fit" mode with
-///   the rest of the flat-faced family in #937 rather than a silent metre
-///   default that would tile every card.
 /// * `Sphere` and `Capsule` — see #938. Both have two meshers whose
 ///   parameterisations genuinely disagree (an icosphere against a lat/lon
 ///   sweep; a height-proportional capsule profile against an arc-length
@@ -99,15 +106,19 @@ pub(super) fn project_uvs(
 ///
 /// [`prim_geometry_fingerprint`]: crate::world_builder::prim_cache::prim_geometry_fingerprint
 pub(super) fn metre_projection_for(kind: &GeneratorKind) -> Option<UvMapping> {
-    matches!(
-        kind,
-        GeneratorKind::Cuboid { .. }
-            | GeneratorKind::Wedge { .. }
-            | GeneratorKind::Bevel { .. }
-            | GeneratorKind::Tetrahedron { .. }
-            | GeneratorKind::Superellipsoid { .. }
-    )
-    .then_some(UvMapping::Box)
+    let mapping = match kind {
+        GeneratorKind::Cuboid { uv_mapping, .. }
+        | GeneratorKind::Plane { uv_mapping, .. }
+        | GeneratorKind::Wedge { uv_mapping, .. }
+        | GeneratorKind::Bevel { uv_mapping, .. }
+        | GeneratorKind::Tetrahedron { uv_mapping, .. }
+        | GeneratorKind::Superellipsoid { uv_mapping, .. } => *uv_mapping,
+        _ => return None,
+    };
+    // `Fit` keeps whatever the mesher produced — its own parameterisation,
+    // normalised to span the surface once. That is not a projection, so
+    // there is nothing to bake.
+    (mapping != UvMapping::Fit).then_some(mapping)
 }
 
 /// Scale a mesh's normalised UVs by one span per axis, in place.

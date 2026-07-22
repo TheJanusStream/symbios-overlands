@@ -8,6 +8,7 @@
 //! ([`crate::pds::avatar::parts`]) build from this bin so geometry plumbing
 //! lives in exactly one place.
 
+use crate::pds::generator::UvMapping;
 use crate::pds::generator::{
     BlobElement, BlobShape, Generator, GeneratorKind, LathePoint, SpinePoint, TortureParams,
 };
@@ -89,6 +90,7 @@ pub(crate) fn prim(kind: GeneratorKind, translation: [f32; 3], rotation: Fp4) ->
 pub(crate) fn cuboid(size: [f32; 3], material: SovereignMaterialSettings) -> GeneratorKind {
     GeneratorKind::Cuboid {
         size: Fp3(size),
+        uv_mapping: UvMapping::default(),
         solid: false,
         material,
         torture: TortureParams::default(),
@@ -158,7 +160,7 @@ pub(crate) fn blob_group(
     )
 }
 
-/// [`blob_group`] with an explicit [`UvMapping`](crate::pds::generator::UvMapping)
+/// [`blob_group`] with an explicit [`crate::pds::generator::UvMapping`]
 /// instead of the `Box` default — e.g. `Cylindrical` so a wrap-mapped texture
 /// (planking / plating) flows *along* an elongated mass (a boat hull) rather
 /// than tri-planar-projecting with per-face seams.
@@ -373,6 +375,7 @@ pub(crate) fn superellipsoid(
 ) -> GeneratorKind {
     GeneratorKind::Superellipsoid {
         half_extents: Fp3(half_extents),
+        uv_mapping: UvMapping::default(),
         exponent_ns: Fp(exponent_ns),
         exponent_ew: Fp(exponent_ew),
         latitudes: 16,

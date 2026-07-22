@@ -33,6 +33,7 @@ use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{prim, prim_scaled, quat_mul, quat_x, quat_y, quat_z, sphere};
 use crate::catalogue::{CatalogueEntry, StructureRole};
+use crate::pds::generator::UvMapping;
 use crate::pds::{
     Fp, Fp2, Fp3, Fp4, Generator, GeneratorKind, SovereignBroadleafConfig, SovereignFlowerConfig,
     SovereignFrondConfig, SovereignGrassTuftConfig, SovereignLichenConfig,
@@ -51,6 +52,7 @@ fn quad(
     prim(
         GeneratorKind::Plane {
             size: Fp2(size),
+            uv_mapping: UvMapping::fit(),
             subdivisions: 0,
             // Ground cover is never collidable: you walk through grass, and a
             // collider per card would cost a physics body per instance on a

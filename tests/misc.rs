@@ -81,6 +81,7 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
     // Bevy's mesh / Avian's collider constructors.
     let cases: Vec<Generator> = vec![
         Generator::from_kind(GeneratorKind::Cuboid {
+            uv_mapping: symbios_overlands::pds::generator::UvMapping::default(),
             size: Fp3([f32::NAN, -1.0, f32::INFINITY]),
             solid: true,
             material: Default::default(),
@@ -139,6 +140,7 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             torture: TortureParams::default(),
         }),
         Generator::from_kind(GeneratorKind::Plane {
+            uv_mapping: symbios_overlands::pds::generator::UvMapping::fit(),
             size: Fp2([f32::INFINITY, -1.0]),
             subdivisions: 10_000,
             solid: true,
@@ -146,6 +148,7 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             torture: TortureParams::default(),
         }),
         Generator::from_kind(GeneratorKind::Tetrahedron {
+            uv_mapping: symbios_overlands::pds::generator::UvMapping::default(),
             size: Fp(f32::NAN),
             solid: true,
             material: Default::default(),

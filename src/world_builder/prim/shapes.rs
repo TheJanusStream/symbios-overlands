@@ -72,6 +72,7 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             torture,
             solid,
             material,
+            ..
         } => parts(
             Box::new(CuboidShape {
                 size: size.0,
@@ -186,6 +187,7 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             torture,
             solid,
             material,
+            ..
         } => parts(
             Box::new(TetrahedronShape {
                 size: size.0,
@@ -220,6 +222,7 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             torture,
             solid,
             material,
+            ..
         } => parts(
             Box::new(BevelShape {
                 size: size.0,
@@ -235,6 +238,7 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             torture,
             solid,
             material,
+            ..
         } => parts(
             Box::new(WedgeShape {
                 size: size.0,
@@ -273,6 +277,7 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             torture,
             solid,
             material,
+            ..
         } => parts(
             Box::new(SuperellipsoidShape {
                 half_extents: half_extents.0,

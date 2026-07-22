@@ -143,6 +143,7 @@ mod tests {
 
     fn plane(size: [f32; 2], base_color: [f32; 3]) -> GeneratorKind {
         GeneratorKind::Plane {
+            uv_mapping: crate::pds::generator::UvMapping::fit(),
             size: Fp2(size),
             subdivisions: 0,
             solid: false,
@@ -192,6 +193,7 @@ mod tests {
     #[test]
     fn distinct_primitive_kinds_do_not_collide() {
         let cuboid = GeneratorKind::Cuboid {
+            uv_mapping: crate::pds::generator::UvMapping::default(),
             size: Fp3([1.0, 1.0, 1.0]),
             solid: false,
             material: SovereignMaterialSettings::default(),

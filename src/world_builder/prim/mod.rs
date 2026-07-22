@@ -106,6 +106,7 @@ mod tests {
 
     fn cuboid(size: [f32; 3], twist: f32, taper: f32, bend: [f32; 3]) -> GeneratorKind {
         GeneratorKind::Cuboid {
+            uv_mapping: crate::pds::generator::UvMapping::default(),
             size: Fp3(size),
             solid: true,
             material: SovereignMaterialSettings::default(),
@@ -199,6 +200,7 @@ mod tests {
     fn per_axis_taper_narrows_one_axis() {
         // Taper X only → a wedge: the top narrows in X but keeps full Z width.
         let kind = GeneratorKind::Cuboid {
+            uv_mapping: crate::pds::generator::UvMapping::default(),
             size: Fp3([1.0, 1.0, 1.0]),
             solid: true,
             material: SovereignMaterialSettings::default(),
@@ -235,6 +237,7 @@ mod tests {
         // The #688 two-ended taper: bottom narrows, top keeps full width —
         // the shape the old top-only taper needed upside-down authoring for.
         let kind = GeneratorKind::Cuboid {
+            uv_mapping: crate::pds::generator::UvMapping::default(),
             size: Fp3([1.0, 1.0, 1.0]),
             solid: true,
             material: SovereignMaterialSettings::default(),
@@ -306,10 +309,10 @@ mod tests {
             "pinch did not collapse the waist"
         );
     }
-
     #[test]
     fn superellipsoid_stays_inside_extents_and_morphs() {
         let se = |e1: f32, e2: f32| GeneratorKind::Superellipsoid {
+            uv_mapping: crate::pds::generator::UvMapping::default(),
             half_extents: Fp3([0.5, 0.5, 0.5]),
             exponent_ns: Fp(e1),
             exponent_ew: Fp(e2),
@@ -460,10 +463,10 @@ mod tests {
         use crate::pds::generator::{BlobElement, BlobShape};
         use crate::pds::types::Fp4;
         let blob = |elements: Vec<BlobElement>| GeneratorKind::BlobGroup {
+            uv_mapping: crate::pds::generator::UvMapping::default(),
             elements,
             resolution: 32,
             solid: true,
-            uv_mapping: crate::pds::generator::UvMapping::default(),
             material: SovereignMaterialSettings::default(),
             torture: TortureParams::default(),
         };
@@ -592,6 +595,7 @@ mod tests {
         use crate::pds::generator::{BlobElement, BlobShape};
         let blob = |pc: [f32; 2], prc: [f32; 2], hollow: f32| {
             let mut kind = GeneratorKind::BlobGroup {
+                uv_mapping: crate::pds::generator::UvMapping::default(),
                 elements: vec![BlobElement {
                     shape: BlobShape::Sphere,
                     radii: Fp3([0.4, 0.4, 0.4]),
@@ -600,7 +604,6 @@ mod tests {
                 }],
                 resolution: 32,
                 solid: true,
-                uv_mapping: crate::pds::generator::UvMapping::default(),
                 material: SovereignMaterialSettings::default(),
                 torture: TortureParams::default(),
             };
@@ -666,6 +669,7 @@ mod tests {
     fn blob_new_shapes_mesh_true_to_form() {
         use crate::pds::generator::{BlobElement, BlobShape};
         let one = |shape: BlobShape, radii: [f32; 3]| GeneratorKind::BlobGroup {
+            uv_mapping: crate::pds::generator::UvMapping::default(),
             elements: vec![BlobElement {
                 shape,
                 radii: Fp3(radii),
@@ -674,7 +678,6 @@ mod tests {
             }],
             resolution: 32,
             solid: true,
-            uv_mapping: crate::pds::generator::UvMapping::default(),
             material: SovereignMaterialSettings::default(),
             torture: TortureParams::default(),
         };
