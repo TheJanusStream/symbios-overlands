@@ -20,17 +20,21 @@ pub(super) fn build_tube_mesh(outer: f32, inner: f32, height: f32, resolution: u
     let mut uv: Vec<[f32; 2]> = Vec::new();
     let mut idx: Vec<u32> = Vec::new();
 
-    // Walls: outer normal points out (+1), inner points in (-1).
+    // Walls: outer normal points out (+1), inner points in (-1). UVs are
+    // metres (#935) — each shell's U spans its own circumference, so the
+    // bore's tighter wrap gets its own (shorter) run of texture rather than
+    // the outer wall's stretched over it.
     for &(radius, sign) in &[(outer, 1.0f32), (inner, -1.0f32)] {
         let base = pos.len() as u32;
+        let circumference = TAU * radius;
         for i in 0..=res {
             let a = i as f32 / res as f32 * TAU;
             let (s, c) = a.sin_cos();
             let n = [sign * c, 0.0, sign * s];
-            let u = i as f32 / res as f32;
+            let u = i as f32 / res as f32 * circumference;
             pos.push([radius * c, h2, radius * s]);
             nor.push(n);
-            uv.push([u, 1.0]);
+            uv.push([u, height]);
             pos.push([radius * c, -h2, radius * s]);
             nor.push(n);
             uv.push([u, 0.0]);
@@ -50,10 +54,10 @@ pub(super) fn build_tube_mesh(outer: f32, inner: f32, height: f32, resolution: u
             let (s, c) = a.sin_cos();
             pos.push([outer * c, y, outer * s]);
             nor.push([0.0, ny, 0.0]);
-            uv.push([0.5 + 0.5 * c, 0.5 + 0.5 * s]);
+            uv.push([outer * c, outer * s]);
             pos.push([inner * c, y, inner * s]);
             nor.push([0.0, ny, 0.0]);
-            uv.push([0.5 + 0.25 * c, 0.5 + 0.25 * s]);
+            uv.push([inner * c, inner * s]);
         }
         for i in 0..res as u32 {
             let o0 = base + i * 2;

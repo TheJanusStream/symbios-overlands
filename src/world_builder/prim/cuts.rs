@@ -62,6 +62,13 @@ pub(super) fn build_swept_frustum(
     // bore scales the radii uniformly, so its slope is the same).
     let slope_len = (height * height + (r_bottom - r_top) * (r_bottom - r_top)).sqrt();
     let (n_rad, n_y) = (height / slope_len, (r_bottom - r_top) / slope_len);
+    // Metre convention (#935): the wall's U spans the arc it actually
+    // sweeps, measured at the mean radius of a tapering wall, and its V the
+    // band's height. Caps and cut faces below are plain metres in their own
+    // plane. All of it is derived from the post-`profile_cut` radii and
+    // height above, so a sliced or pie-cut prim scales as correctly as a
+    // whole one.
+    let arc_len = (a1 - a0).abs() * (r_bottom + r_top) * 0.5;
 
     let mut pos: Vec<[f32; 3]> = Vec::new();
     let mut nor: Vec<[f32; 3]> = Vec::new();
@@ -86,7 +93,7 @@ pub(super) fn build_swept_frustum(
                 let (s, c) = a.sin_cos();
                 pos.push([rj * c, yj, rj * s]);
                 nor.push([sgn * n_rad * c, sgn * n_y, sgn * n_rad * s]);
-                uv.push([i as f32 / segs as f32, 1.0 - v]);
+                uv.push([arc_len * (i as f32 / segs as f32), height * (1.0 - v)]);
             }
         }
         for j in 0..rows {
@@ -112,10 +119,10 @@ pub(super) fn build_swept_frustum(
                 let (s, c) = a.sin_cos();
                 pos.push([rr * c, y, rr * s]);
                 nor.push(nrm);
-                uv.push([0.5 + 0.5 * c, 0.5 + 0.5 * s]);
+                uv.push([rr * c, rr * s]);
                 pos.push([ri * c, y, ri * s]);
                 nor.push(nrm);
-                uv.push([0.5 + 0.5 * k * c, 0.5 + 0.5 * k * s]);
+                uv.push([ri * c, ri * s]);
             }
             for i in 0..segs {
                 let b = base + i * 2;
@@ -125,13 +132,13 @@ pub(super) fn build_swept_frustum(
             let base = pos.len() as u32;
             pos.push([0.0, y, 0.0]);
             nor.push(nrm);
-            uv.push([0.5, 0.5]);
+            uv.push([0.0, 0.0]);
             for i in 0..n {
                 let a = ang(i);
                 let (s, c) = a.sin_cos();
                 pos.push([rr * c, y, rr * s]);
                 nor.push(nrm);
-                uv.push([0.5 + 0.5 * c, 0.5 + 0.5 * s]);
+                uv.push([rr * c, rr * s]);
             }
             for i in 0..segs {
                 idx.extend_from_slice(&[base, base + 1 + i, base + 2 + i]);
@@ -155,10 +162,10 @@ pub(super) fn build_swept_frustum(
                 let rin = if hollow { rj * k } else { 0.0 };
                 pos.push([rin * c, yj, rin * s]);
                 nor.push(nrm);
-                uv.push([0.0, 1.0 - v]);
+                uv.push([rin, height * (1.0 - v)]);
                 pos.push([rj * c, yj, rj * s]);
                 nor.push(nrm);
-                uv.push([1.0, 1.0 - v]);
+                uv.push([rj, height * (1.0 - v)]);
             }
             for j in 0..rows {
                 let b = base + j * 2;

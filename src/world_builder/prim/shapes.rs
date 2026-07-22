@@ -431,11 +431,23 @@ impl PrimitiveShape for CylinderShape<'_> {
             DEFORM_ROWS
         };
         if self.torture.cuts_are_identity() {
-            Cylinder::new(self.radius, self.height)
+            // Bevy's builder lays one tile across the wall and one across
+            // each cap whatever the cylinder measures; rescale both into
+            // the metre convention (#935). The uncut branch is the only one
+            // that runs here, so the kind's own radius/height *are* the
+            // geometry — no post-cut adjustment to account for.
+            let mut mesh = Cylinder::new(self.radius, self.height)
                 .mesh()
                 .resolution(self.resolution)
                 .segments(rows)
-                .build()
+                .build();
+            super::uv::rescale_revolved_uvs(
+                &mut mesh,
+                std::f32::consts::TAU * self.radius,
+                self.height,
+                self.radius,
+            );
+            mesh
         } else {
             let (a0, a1) = path_cut_angles(self.torture);
             build_swept_frustum(
@@ -509,10 +521,20 @@ struct ConeShape<'a> {
 impl PrimitiveShape for ConeShape<'_> {
     fn base_mesh(&self) -> Mesh {
         if self.torture.cuts_are_identity() && self.torture.deforms_are_identity() {
-            Cone::new(self.radius, self.height)
+            let mut mesh = Cone::new(self.radius, self.height)
                 .mesh()
                 .resolution(self.resolution)
-                .build()
+                .build();
+            // A cone's wall tapers to a point, so its mean circumference is
+            // that of the half-radius — the same figure the swept mesher
+            // uses for a frustum whose top radius is zero.
+            super::uv::rescale_revolved_uvs(
+                &mut mesh,
+                std::f32::consts::PI * self.radius,
+                self.height,
+                self.radius,
+            );
+            mesh
         } else {
             let (a0, a1) = path_cut_angles(self.torture);
             build_swept_frustum(

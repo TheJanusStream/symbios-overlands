@@ -994,6 +994,76 @@ mod tests {
         }
     }
 
+    /// #935: the revolved family measures metres too, and — the part that
+    /// used to be impossible — its two meshers agree. A cylinder is built by
+    /// Bevy while untortured and by the swept-frustum mesher once any cut is
+    /// active; before this the two disagreed on UV scale outright, so adding
+    /// a hollow bore to a column visibly re-tiled its whole surface.
+    #[test]
+    fn cylinder_uv_metres_agree_across_both_meshers() {
+        let wall_span = |mesh: &Mesh| -> (f32, f32) {
+            let Some(VertexAttributeValues::Float32x3(nor)) =
+                mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
+            else {
+                panic!("no normals")
+            };
+            let Some(VertexAttributeValues::Float32x2(uv)) = mesh.attribute(Mesh::ATTRIBUTE_UV_0)
+            else {
+                panic!("no uvs")
+            };
+            // Wall vertices only — caps carry a disc in their own plane.
+            let (mut u0, mut u1, mut v0, mut v1) = (f32::MAX, f32::MIN, f32::MAX, f32::MIN);
+            for (n, t) in nor.iter().zip(uv) {
+                if n[1].abs() > 0.5 {
+                    continue;
+                }
+                u0 = u0.min(t[0]);
+                u1 = u1.max(t[0]);
+                v0 = v0.min(t[1]);
+                v1 = v1.max(t[1]);
+            }
+            (u1 - u0, v1 - v0)
+        };
+
+        let cyl = |hollow: f32| {
+            let mut k = GeneratorKind::default_primitive_for_tag("Cylinder").unwrap();
+            if let GeneratorKind::Cylinder {
+                radius,
+                height,
+                torture,
+                ..
+            } = &mut k
+            {
+                *radius = Fp(0.75);
+                *height = Fp(3.0);
+                torture.hollow = Fp(hollow);
+            }
+            build_primitive_mesh(&k)
+        };
+
+        let circumference = std::f32::consts::TAU * 0.75;
+        // Untortured: Bevy's mesher, rescaled.
+        let (u, v) = wall_span(&cyl(0.0));
+        assert!(
+            (u - circumference).abs() < 1e-2,
+            "wall U should span one circumference ({circumference}), got {u}"
+        );
+        assert!(
+            (v - 3.0).abs() < 1e-2,
+            "wall V should span the height, got {v}"
+        );
+
+        // Hollowed: the swept-frustum mesher. Its outer wall must land on
+        // the same metres — the bore adds an inner shell but cannot change
+        // what a metre of outer wall is worth.
+        let (hu, hv) = wall_span(&cyl(0.4));
+        assert!(
+            (hu - circumference).abs() < 1e-2,
+            "cut mesher disagreed on U ({hu} vs {circumference})"
+        );
+        assert!((hv - 3.0).abs() < 1e-2, "cut mesher disagreed on V ({hv})");
+    }
+
     #[test]
     fn box_pie_cut_and_hollow_carve_the_footprint() {
         // Pie path-cut [0, 0.25]: kept quarter is the +X/+Z quadrant-ish

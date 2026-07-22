@@ -93,6 +93,48 @@ pub(super) fn metre_projection_for(kind: &GeneratorKind) -> Option<UvMapping> {
     matches!(kind, GeneratorKind::Cuboid { .. }).then_some(UvMapping::Box)
 }
 
+/// Rescale a *revolved* mesh's normalised UVs into metres in place (#935).
+///
+/// Bevy's `Cylinder` / `Cone` builders and our own swept-frustum mesher share
+/// one convention — a wall whose `U` runs `0..1` around the sweep and whose
+/// `V` runs `0..1` up, and end caps carrying a disc laid out in `0..1` about
+/// `(0.5, 0.5)`. The two parts need *different* scales, and applying a single
+/// global one is what would turn every cap disc into an ellipse, so the two
+/// are told apart by their normals: a cap's points along the axis, a wall's
+/// does not.
+///
+/// `arc_len` is the metres the wall's `U` sweeps (a full turn unless
+/// path-cut), `height` the metres its `V` climbs, `cap_radius` the metres the
+/// cap disc's `0.5` half-span covers.
+///
+/// Only for meshes that actually follow that convention: a capsule's
+/// hemispherical ends slide continuously between the two classes and a
+/// sphere has no wall/cap split at all, which is why neither is routed here.
+pub(super) fn rescale_revolved_uvs(mesh: &mut Mesh, arc_len: f32, height: f32, cap_radius: f32) {
+    use bevy::mesh::VertexAttributeValues;
+
+    let Some(VertexAttributeValues::Float32x3(nor)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL) else {
+        return;
+    };
+    let axis_aligned: Vec<bool> = nor.iter().map(|n| n[1].abs() > 0.5).collect();
+    let Some(VertexAttributeValues::Float32x2(uv)) = mesh.attribute_mut(Mesh::ATTRIBUTE_UV_0)
+    else {
+        return;
+    };
+    if uv.len() != axis_aligned.len() {
+        return;
+    }
+    for (t, is_cap) in uv.iter_mut().zip(axis_aligned) {
+        if is_cap {
+            t[0] = (t[0] - 0.5) * 2.0 * cap_radius;
+            t[1] = (t[1] - 0.5) * 2.0 * cap_radius;
+        } else {
+            t[0] *= arc_len;
+            t[1] *= height;
+        }
+    }
+}
+
 /// Re-project a built mesh's UVs through [`project_uvs`], writing back the
 /// (possibly grown) position/normal/index buffers and regenerating tangents.
 ///
