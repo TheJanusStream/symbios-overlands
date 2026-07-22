@@ -49,6 +49,22 @@ impl CatalogueEntry for Minka {
     }
 }
 
+/// How far the exposed corner posts stand proud of the daub face.
+///
+/// They were authored at `l * 0.5 - 0.2` with a half-width of `0.175`,
+/// putting their outer faces 25 mm *inside* the wall planes at `l * 0.5` /
+/// `w * 0.5` — so the "exposed" timber framing was entirely swallowed by
+/// the plaster and only visible from indoors. This is the same authoring
+/// slip as the pagoda's z-fighting columns (its `COLUMN_PROUD`) with the
+/// sign flipped: there the post landed exactly on the wall plane and fought
+/// it, here it landed behind the plane and vanished. Standing it out is what
+/// *shinkabe*
+/// framing does anyway — posts read, plaster infills between them.
+const POST_PROUD: f32 = 0.07;
+
+/// Half-width of a corner post (posts are `0.35` square).
+const POST_HALF: f32 = 0.175;
+
 fn build_tree() -> Generator {
     let l = 10.0_f32;
     let w = 7.0_f32;
@@ -93,18 +109,19 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    // Exposed timber corner posts.
+    // Exposed timber corner posts, standing out of the daub on both faces
+    // they meet — see [`POST_PROUD`].
     for (sx, sz) in [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
         prims.push(prim(
             solid(cuboid_tapered(
-                [0.35, wall_h, 0.35],
+                [POST_HALF * 2.0, wall_h, POST_HALF * 2.0],
                 0.0,
                 timber(TIMBER_DARK),
             )),
             [
-                sx * (l * 0.5 - 0.2),
+                sx * (l * 0.5 + POST_PROUD - POST_HALF),
                 foot_h + wall_h * 0.5,
-                sz * (w * 0.5 - 0.2),
+                sz * (w * 0.5 + POST_PROUD - POST_HALF),
             ],
             id_quat(),
         ));
