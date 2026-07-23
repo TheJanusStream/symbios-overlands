@@ -14,7 +14,7 @@ use bevy_symbios_audio::{Connection, Gain, GraphNode, Lfo, LfoShape, NodeId, Nod
 
 use crate::catalogue::items::fx::{Emitter, node, patch};
 use crate::pds::{
-    EmitterShape, Fp, Fp3, Generator, ParticleBlendMode, SovereignAudioConfig,
+    EmitterShape, Fp, Fp3, Generator, ParticleBlendMode, SovereignAudioConfig, SovereignPuffConfig,
     SovereignSoftDiscConfig, SovereignSparkConfig, SovereignTextureConfig,
 };
 
@@ -73,6 +73,36 @@ pub(super) fn arcane_sparkle(pos: [f32; 3], seed: u64) -> Generator {
             points: 5,
             color_core: Fp3([1.0, 0.95, 1.0]),
             color_tip: Fp3([0.7, 0.4, 1.0]),
+            ..Default::default()
+        }),
+    }
+    .at(pos, seed)
+}
+
+/// Wood-smoke curling up from a hearth chimney — a soft grey plume rising and
+/// leaning off on the breeze, the hedge-witch's fire kept in.
+pub(super) fn chimney_smoke(pos: [f32; 3], seed: u64) -> Generator {
+    Emitter {
+        shape: EmitterShape::Cone {
+            half_angle: Fp(0.26),
+            height: Fp(0.35),
+        },
+        rate: 8.0,
+        burst: 0,
+        max: 72,
+        life: (2.6, 5.2),
+        speed: (0.35, 0.9),
+        gravity: -0.05,
+        accel: [0.08, 0.24, 0.0],
+        drag: 0.6,
+        size: (0.28, 1.35),
+        start_color: [0.58, 0.57, 0.54, 0.34],
+        end_color: [0.68, 0.67, 0.64, 0.0],
+        blend: ParticleBlendMode::Alpha,
+        sprite: SovereignTextureConfig::Puff(SovereignPuffConfig {
+            seed: (seed ^ 0x0A5C_5304) as u32,
+            color_base: Fp3([0.66, 0.65, 0.62]),
+            color_shadow: Fp3([0.44, 0.43, 0.41]),
             ..Default::default()
         }),
     }
