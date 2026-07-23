@@ -163,6 +163,11 @@ pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
 /// `rows + 1` transoms. Reusable across the kit's glazed buildings (tower,
 /// office, storefront).
 ///
+/// The glass panel is a slab, not a `Window`-card plane — a known limitation
+/// shared by every caller (#942). Migrating it is per-item work (each façade
+/// needs an interior to reveal and its pane grid re-checked against `bays`),
+/// so it is done as those items come up for review rather than in one sweep.
+///
 /// [`assemble`]: super::util::assemble
 pub(super) fn curtain_wall(
     center: [f32; 3],
