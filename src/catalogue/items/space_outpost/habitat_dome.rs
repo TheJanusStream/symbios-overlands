@@ -20,8 +20,8 @@ use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
 use super::{
-    BEACON_RED, GLASS_CYAN, HULL_PANEL, HULL_WHITE, INTERIOR_WARM, PAD_GREY, STEEL_DARK,
-    VIEWPORT_LIT, concrete, dome_ribs, fx, glass, hull, pressure_hatch, steel,
+    BEACON_RED, GLASS_CYAN, HULL_PANEL, HULL_WHITE, PAD_GREY, STEEL_DARK, VIEWPORT_LIT, concrete,
+    dome_ribs, fx, hull, pressure_hatch, steel,
 };
 
 pub struct HabitatDome;
@@ -90,9 +90,11 @@ fn build_tree() -> Generator {
         [0.0, pad_h + module_h * 0.5, 0.0],
         id_quat(),
     ));
-    // Lit viewport band around the waist — emissive.
+    // Lit viewport band around the waist — a smooth emissive ring. (A `Window`
+    // texture here would tile ~1/m around the drum and read as a tinted band,
+    // not glazing; the ports read from the emissive glow + the porthole ring.)
     prims.push(prim(
-        cylinder_tapered(module_r + 0.08, 1.0, 20, 0.0, glass(GLASS_CYAN, 1.4)),
+        cylinder_tapered(module_r + 0.08, 1.0, 20, 0.0, glow(GLASS_CYAN, 1.3)),
         [0.0, pad_h + 1.5, 0.0],
         id_quat(),
     ));
@@ -106,33 +108,33 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Drum collar seating the dome (overlaps the module top by 0.1).
+    // Drum collar seating the dome — stood a touch proud of the module (radius
+    // module_r + 0.12) so its side never sits coplanar with the hull below it.
+    // Both were module_r before, which z-fought where they overlap.
     prims.push(prim(
-        solid(cylinder_tapered(module_r, 0.6, 20, 0.0, hull(HULL_PANEL))),
+        solid(cylinder_tapered(
+            module_r + 0.12,
+            0.6,
+            20,
+            0.0,
+            hull(HULL_PANEL),
+        )),
         [0.0, module_top + 0.2, 0.0],
         id_quat(),
     ));
 
     // Glazed pressure dome — an upper hemisphere on the drum, not a buried
-    // sphere — with a warm interior glow beneath it.
+    // sphere — lit from within so it glows cyan. This is an emissive glaze, not
+    // a `Window` texture (which would tile in postage-stamp panes over the
+    // whole sphere); the geodesic ribs below give it its paneling.
     prims.push(prim(
         solid(with_cut(
-            sphere(dome_r - 0.08, 6, glass(GLASS_CYAN, 1.2)),
+            sphere(dome_r - 0.08, 6, glow(GLASS_CYAN, 1.2)),
             [0.0, 1.0],
             [0.5, 1.0],
             0.0,
         )),
         [0.0, drum_top, 0.0],
-        id_quat(),
-    ));
-    prims.push(prim(
-        with_cut(
-            sphere(dome_r * 0.82, 5, glow(INTERIOR_WARM, 1.6)),
-            [0.0, 1.0],
-            [0.5, 1.0],
-            0.0,
-        ),
-        [0.0, drum_top + 0.05, 0.0],
         id_quat(),
     ));
     // Geodesic rib cage standing proud of the glass — the habitat signature.
@@ -188,6 +190,7 @@ fn build_tree() -> Generator {
 mod tests {
     use super::*;
     use crate::catalogue::items::util::assert_sanitize_stable;
+    use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
     #[test]
     fn build_round_trips_through_sanitize() {
@@ -199,5 +202,33 @@ mod tests {
         assert!(crate::catalogue::items::util::has_emissive(
             &HabitatDome.build("")
         ));
+    }
+
+    /// #951: no `Window` alpha-card is left on a curved surface — every one (if
+    /// any) must sit on a `Plane` at `uv_scale` 1.0 — and, this being a
+    /// landmark embedded in room records, the tree survives a serde round-trip.
+    #[test]
+    fn glazing_is_planes_and_round_trips() {
+        use crate::pds::material_finish::node_materials_mut;
+        fn walk(g: &mut Generator) {
+            let tag = g.kind.kind_tag();
+            let is_plane = matches!(g.kind, GeneratorKind::Plane { .. });
+            for m in node_materials_mut(&mut g.kind) {
+                if matches!(m.texture, SovereignTextureConfig::Window(_)) {
+                    assert!(is_plane, "Window card must sit on a Plane, found {tag}");
+                    assert_eq!(m.uv_scale.0, 1.0, "Window cards must stay at uv_scale 1.0");
+                }
+            }
+            for c in &mut g.children {
+                walk(c);
+            }
+        }
+        let mut g = HabitatDome.build("");
+        walk(&mut g);
+        let back: Generator = serde_json::from_str(&serde_json::to_string(&g).unwrap()).unwrap();
+        assert!(
+            !crate::state::records_differ(&g, &back),
+            "habitat dome must survive a serde round-trip"
+        );
     }
 }

@@ -42,7 +42,7 @@ use crate::catalogue::items::util::{
 use crate::pds::{
     Fp, Fp3, Fp4, Fp64, Generator, SovereignAshlarConfig, SovereignCobblestoneConfig,
     SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignTextureConfig,
-    SovereignThatchConfig, SovereignWindowConfig,
+    SovereignThatchConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -125,27 +125,6 @@ pub(super) fn thatch(color: [f32; 3]) -> SovereignMaterialSettings {
             ..Default::default()
         }),
         ..Default::default()
-    }
-}
-
-/// Arcane lit glass — the glowing windows of the tower and library. A faint
-/// inner glow (`glow`) so the panes read as enchanted rather than dark.
-pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
-    SovereignMaterialSettings {
-        base_color: Fp3(tint),
-        emission_color: Fp3(tint),
-        emission_strength: Fp(glow),
-        roughness: Fp(0.12),
-        metallic: Fp(0.2),
-        uv_scale: Fp(1.0),
-        texture: SovereignTextureConfig::Window(SovereignWindowConfig {
-            panes_x: 2,
-            panes_y: 4,
-            glass_opacity: Fp64(0.4),
-            grime_level: Fp64(0.06),
-            color_frame: Fp3([0.4, 0.34, 0.16]),
-            ..Default::default()
-        }),
     }
 }
 
