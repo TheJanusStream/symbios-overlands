@@ -8,13 +8,18 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid,
+    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, plane, prim, quat_x, solid,
+    window_card,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{GLASS_TINT, SIDING_BLUE, TRAILER_WHITE, enamel, glass, render, siding};
+use super::{GLASS_TINT, SIDING_BLUE, TRAILER_WHITE, enamel, render, siding};
+
+/// Warm lamp light inside the trailer — the glow that shows through the cut
+/// window panes as a lived-in room rather than a dark box.
+const LAMP_WARM: [f32; 3] = [1.0, 0.84, 0.56];
 
 pub struct TrailerHome;
 
@@ -98,12 +103,79 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // Body.
+    // --- Hollow body: a shell of siding, so the front windows show the lit
+    //     room inside rather than a slab of glass on a solid wall (#944).
+
+    let body_top = floor_y + body_h;
+    let back_z = d * 0.5 - 0.075; // interior face of the rear wall
+    // Rear wall, side walls, and ceiling.
     prims.push(prim(
-        solid(cuboid_tapered([l, body_h, d], 0.0, siding(TRAILER_WHITE))),
-        [0.0, floor_y + body_h * 0.5, 0.0],
+        solid(cuboid_tapered(
+            [l, body_h, 0.15],
+            0.0,
+            siding(TRAILER_WHITE),
+        )),
+        [0.0, floor_y + body_h * 0.5, back_z],
         id_quat(),
     ));
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(prim(
+            solid(cuboid_tapered(
+                [0.15, body_h, d],
+                0.0,
+                siding(TRAILER_WHITE),
+            )),
+            [sx * (l * 0.5 - 0.075), floor_y + body_h * 0.5, 0.0],
+            id_quat(),
+        ));
+    }
+    prims.push(prim(
+        solid(cuboid_tapered([l, 0.15, d], 0.0, siding(TRAILER_WHITE))),
+        [0.0, body_top - 0.075, 0.0],
+        id_quat(),
+    ));
+    // Interior: a warm floor, a pale back liner, a couch and a ceiling lamp,
+    // so the cut panes look into a small lived-in room with real depth.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [l - 0.3, 0.1, d - 0.3],
+            0.0,
+            render([0.66, 0.60, 0.5]),
+        )),
+        [0.0, floor_y + 0.05, 0.0],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [l - 0.3, body_h - 0.3, 0.05],
+            0.0,
+            render([0.82, 0.80, 0.76]),
+        )),
+        [0.0, floor_y + body_h * 0.5, back_z - 0.05],
+        id_quat(),
+    ));
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [2.4, 0.6, 0.8],
+            0.0,
+            enamel([0.42, 0.36, 0.44]),
+        )),
+        [-1.6, floor_y + 0.35, back_z - 0.55],
+        id_quat(),
+    ));
+    // Ceiling lamp + a warm wash up the back wall, so the room glows through
+    // the windows rather than reading as a dark box.
+    prims.push(prim(
+        cuboid_tapered([l - 3.0, 0.14, 0.6], 0.0, glow(LAMP_WARM, 2.8)),
+        [0.0, body_top - 0.25, 0.1],
+        id_quat(),
+    ));
+    prims.push(prim(
+        cuboid_tapered([l - 1.2, 1.4, 0.05], 0.0, glow([1.0, 0.9, 0.7], 1.2)),
+        [0.0, floor_y + 1.4, back_z - 0.12],
+        id_quat(),
+    ));
+
     // Accent stripe.
     prims.push(prim(
         cuboid_tapered([l + 0.05, 0.3, d + 0.05], 0.0, enamel(SIDING_BLUE)),
@@ -121,31 +193,90 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Sliding windows along the front (-Z); the middle one is lit warm.
-    for c in 0..3 {
-        let x = -l * 0.3 + c as f32 * (l * 0.3);
-        let pane = if c == 1 {
-            glass([1.0, 0.82, 0.55], 1.3)
-        } else {
-            glass(GLASS_TINT, 0.0)
-        };
+    // --- Punched front wall (-Z): two sliding windows and an entry door.
+
+    let win = [(-3.5_f32, 0.8_f32), (0.3, 1.0)]; // (centre-x, half-width)
+    let door_x = 3.6_f32;
+    let door_half = 0.45;
+    let sill_y = floor_y + 0.8;
+    let head_y = floor_y + 2.05;
+
+    // Header band across the top of every opening.
+    prims.push(prim(
+        solid(cuboid_tapered(
+            [l, body_top - head_y, 0.15],
+            0.0,
+            siding(TRAILER_WHITE),
+        )),
+        [0.0, (head_y + body_top) * 0.5, front],
+        id_quat(),
+    ));
+    // Piers between the openings and at the ends (the even chunks of `edges`).
+    let mut edges = vec![-l * 0.5];
+    for &(x, half) in &win {
+        edges.push(x - half);
+        edges.push(x + half);
+    }
+    edges.push(door_x - door_half);
+    edges.push(door_x + door_half);
+    edges.push(l * 0.5);
+    let pier_cy = (floor_y + head_y) * 0.5;
+    let pier_h = head_y - floor_y;
+    for pair in edges.chunks(2) {
+        let [a, b] = [pair[0], pair[1]];
+        if b - a > 0.01 {
+            prims.push(prim(
+                solid(cuboid_tapered(
+                    [b - a, pier_h, 0.15],
+                    0.0,
+                    siding(TRAILER_WHITE),
+                )),
+                [(a + b) * 0.5, pier_cy, front],
+                id_quat(),
+            ));
+        }
+    }
+    // Sills under the windows (the door runs to the floor).
+    for &(x, half) in &win {
         prims.push(prim(
-            cuboid_tapered([1.5, 0.9, 0.15], 0.0, pane),
-            [x, floor_y + 1.5, front - 0.05],
+            solid(cuboid_tapered(
+                [half * 2.0, sill_y - floor_y, 0.15],
+                0.0,
+                siding(TRAILER_WHITE),
+            )),
+            [x, (floor_y + sill_y) * 0.5, front],
             id_quat(),
         ));
     }
-    // Door and step.
-    let door_x = l * 0.35;
+    // Sliding-window glazing — clear panes on planes, cut open over the room.
+    for &(x, half) in &win {
+        prims.push(prim(
+            plane(
+                [half * 2.0, head_y - sill_y],
+                window_card(GLASS_TINT, 3, 1, 0.3, 0.05),
+            ),
+            [x, (sill_y + head_y) * 0.5, front - 0.02],
+            quat_x(-FRAC_PI_2),
+        ));
+    }
+
+    // Entry door: a solid leaf filling its opening, with a small frosted
+    // vision panel near the top.
     prims.push(prim(
         solid(cuboid_tapered(
-            [0.85, 1.9, 0.15],
+            [door_half * 2.0, head_y - floor_y, 0.1],
             0.0,
             enamel([0.7, 0.68, 0.62]),
         )),
-        [door_x, floor_y + 0.95, front - 0.05],
+        [door_x, (floor_y + head_y) * 0.5, front - 0.02],
         id_quat(),
     ));
+    prims.push(prim(
+        plane([0.5, 0.55], window_card([0.6, 0.66, 0.7], 1, 1, 0.7, 0.14)),
+        [door_x, head_y - 0.45, front - 0.09],
+        quat_x(-FRAC_PI_2),
+    ));
+    // Concrete entry step below the door.
     prims.push(prim(
         solid(cuboid_tapered(
             [1.1, floor_y, 0.7],
@@ -216,5 +347,18 @@ mod tests {
     #[test]
     fn build_round_trips_through_sanitize() {
         assert_sanitize_stable(&TrailerHome.build(""), "trailer_home");
+    }
+
+    /// #943/#944: the glazing cards set `glass_opacity` to the mirror default
+    /// (0.30); the `window_card` fix snaps it onto the fixed-point grid so a
+    /// room embedding this landmark survives its own serde equality check.
+    #[test]
+    fn build_round_trips_through_serde() {
+        let g = TrailerHome.build("");
+        let back: Generator = serde_json::from_str(&serde_json::to_string(&g).unwrap()).unwrap();
+        assert!(
+            !crate::state::records_differ(&g, &back),
+            "trailer_home must survive a serde round-trip"
+        );
     }
 }
