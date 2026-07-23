@@ -2,9 +2,9 @@
 //! Inventory window. A master-detail browser over [`crate::catalogue::ENTRIES`]:
 //! a hierarchical / sortable tree on the left (search + view-mode selector
 //! above it) and a metadata detail panel on the right. Selecting an entry
-//! shows its description, themes, role, socio bands and footprint, and a
-//! drag-to-place handle that stamps a fresh copy into the active room on
-//! viewport release.
+//! shows its description, themes, role, socio bands and footprint. The tree
+//! rows are themselves the drag source: drag one into the active room (or
+//! onto a peer in People to gift) to stamp a fresh copy on viewport release.
 //!
 //! Drag mechanics mirror [`crate::ui::inventory::inventory_ui`] — the drag
 //! source is [`DropSource::Catalogue`], which makes
@@ -15,13 +15,11 @@
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
-use bevy_symbios_multiuser::auth::AtprotoSession;
 use egui_ltreeview::{Action, TreeView};
 
 use crate::catalogue::{CatalogueCategory, CatalogueEntry, ENTRIES, StructureRole, by_slug};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
-use crate::state::CurrentRoomDid;
 use crate::ui::inventory::{DropSource, PendingGeneratorDrop, is_drop_placeable};
 
 /// How the browser groups / orders entries. The hierarchy is the default;
@@ -332,31 +330,16 @@ fn by_role(entries: &[&'static dyn CatalogueEntry]) -> Vec<CatNode> {
 /// the precomputed leaf `total` alongside (#639).
 type NodeCache = Option<(BrowseMode, String, Vec<CatNode>, usize)>;
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn catalogue_ui(
     mut contexts: EguiContexts,
     mut panels: ResMut<crate::ui::toolbar::UiPanels>,
     mut chrome: crate::ui::layout::WindowChrome,
     mut browser: ResMut<CatalogueBrowser>,
-    session: Option<Res<AtprotoSession>>,
-    room_did: Option<Res<CurrentRoomDid>>,
     mut pending_drop: ResMut<PendingGeneratorDrop>,
-    // Per-frame caches (#639): the node tree is a pure function of (mode,
-    // search) over the `const ENTRIES`; the placeability bool is a pure
-    // function of the selected slug. Rebuild only when those keys change.
+    // Per-frame cache (#639): the node tree is a pure function of (mode,
+    // search) over the `const ENTRIES`; rebuild only when those keys change.
     mut node_cache: Local<NodeCache>,
-    mut placeable_cache: Local<Option<(String, bool)>>,
 ) {
-    // Ownership only tunes the drag TOOLTIP now (#832): drags always arm —
-    // a visitor's release on a People row gifts (valid in any room, #699),
-    // and a visitor's ground release is policed + explained by the drop
-    // handler's toast. Gating the drag here locked visitors out of
-    // catalogue gifting even though the drop handler fully supported it.
-    let owns_room = match (session.as_ref(), room_did.as_ref()) {
-        (Some(s), Some(r)) => s.did == r.0,
-        _ => false,
-    };
-
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
@@ -406,26 +389,6 @@ pub(crate) fn catalogue_ui(
             }
             let (.., nodes, total) = node_cache.as_ref().expect("node cache just populated");
             let total = *total;
-
-            // Placeability is a pure function of the selected slug — cache it so
-            // the detail panel doesn't deep-build the whole `Generator` tree
-            // every frame just to read one enum discriminant (#639).
-            let placeable = match browser.selected.as_deref() {
-                Some(slug) => {
-                    if placeable_cache
-                        .as_ref()
-                        .map(|(s, _)| s != slug)
-                        .unwrap_or(true)
-                    {
-                        let p = by_slug(slug)
-                            .map(|e| is_drop_placeable(&e.build("")))
-                            .unwrap_or(false);
-                        *placeable_cache = Some((slug.to_string(), p));
-                    }
-                    placeable_cache.as_ref().map(|(_, p)| *p).unwrap_or(false)
-                }
-                None => false,
-            };
 
             ui.horizontal_top(|ui| {
                 // ── Left: the tree ──
@@ -495,18 +458,27 @@ pub(crate) fn catalogue_ui(
                 );
                 ui.separator();
                 // ── Right: the detail panel ──
-                egui::ScrollArea::vertical()
-                    .id_salt("catalogue_detail_scroll")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        detail_panel(
-                            ui,
-                            browser.selected.as_deref(),
-                            &mut pending_drop,
-                            owns_room,
-                            placeable,
-                        );
-                    });
+                // Both sides live inside the `horizontal_top` above, so give
+                // the detail its own top-down region (mirroring the tree's
+                // `allocate_ui_with_layout`). Without it the ScrollArea
+                // inherits the left-to-right flow and the heading, description
+                // and property grid render as separate side-by-side columns —
+                // and the description, handed an unbounded width, never wraps
+                // and stretches the whole window. Claiming the remaining width
+                // top-down stacks them into one wrapping column.
+                let detail_w = ui.available_width();
+                ui.allocate_ui_with_layout(
+                    egui::vec2(detail_w, ui.available_height()),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        egui::ScrollArea::vertical()
+                            .id_salt("catalogue_detail_scroll")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                detail_panel(ui, browser.selected.as_deref());
+                            });
+                    },
+                );
             });
         });
     panels.catalogue = open;
@@ -597,15 +569,7 @@ fn render_nodes(builder: &mut egui_ltreeview::TreeViewBuilder<'_, String>, nodes
     }
 }
 
-fn detail_panel(
-    ui: &mut egui::Ui,
-    selected: Option<&str>,
-    pending_drop: &mut PendingGeneratorDrop,
-    owns_room: bool,
-    // Precomputed + cached by the caller (#639) so the whole generator tree
-    // isn't deep-built every frame just to read its kind discriminant.
-    placeable: bool,
-) {
+fn detail_panel(ui: &mut egui::Ui, selected: Option<&str>) {
     let Some(entry) = selected.and_then(by_slug) else {
         ui.add_space(8.0);
         ui.label(
@@ -656,63 +620,6 @@ fn detail_panel(
             ui.label(egui::RichText::new(slug).monospace().small());
             ui.end_row();
         });
-
-    ui.add_space(6.0);
-    ui.separator();
-
-    // Tree rows are the drag source (#832) — the old dedicated drag
-    // handle here was redundant the moment rows dragged directly (user
-    // validation feedback) — so this footer is instruction + live drag
-    // feedback only. `placeable` is passed in (cached by the caller)
-    // rather than deep-building the generator here every frame.
-    if !placeable {
-        ui.label(
-            egui::RichText::new("Room-scoped — not point-placeable.")
-                .small()
-                .color(crate::ui::theme::current(ui.ctx()).text_weak),
-        );
-    } else {
-        let hint = if owns_room {
-            "Drag it from the list into the room — or onto a peer in People to gift."
-        } else {
-            "Drag it from the list onto a peer in People to gift."
-        };
-        ui.add(
-            egui::Label::new(
-                egui::RichText::new(hint)
-                    .small()
-                    .color(crate::ui::theme::current(ui.ctx()).text_weak),
-            )
-            .wrap(),
-        );
-        if pending_drop.generator_name.as_deref() == Some(slug)
-            && pending_drop.source == DropSource::Catalogue
-            && ui.ctx().input(|i| i.pointer.primary_down())
-        {
-            // Follow-the-cursor tooltip while a row drag is in flight —
-            // keyed off the shared pending state (the tree auto-selects
-            // the dragged row, so this panel is showing that entry).
-            egui::Tooltip::always_open(
-                ui.ctx().clone(),
-                ui.layer_id(),
-                egui::Id::new(("catalogue_drag_tip", slug)),
-                egui::PopupAnchor::Pointer,
-            )
-            .show(|ui| {
-                if owns_room {
-                    ui.label(format!(
-                        "Place “{}” — or drop on a peer in the People list to gift",
-                        entry.name()
-                    ));
-                } else {
-                    ui.label(format!(
-                        "Offer “{}” — drop on a peer in the People list",
-                        entry.name()
-                    ));
-                }
-            });
-        }
-    }
 }
 
 #[cfg(test)]
