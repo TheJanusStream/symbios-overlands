@@ -6,17 +6,18 @@
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], which reparents every piece under the base.
 
+use std::f32::consts::FRAC_PI_2;
+
 use crate::catalogue::items::gothic_horror::pointed_arch;
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid, sphere, with_cut,
+    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, plane, prim, quat_x, solid, sphere,
+    window_card, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{
-    ARCANE_GLASS, ARCANE_PURPLE, CRYSTAL_CYAN, GOLD, STONE_GREY, crystal, glass, gold, stone,
-};
+use super::{ARCANE_GLASS, ARCANE_PURPLE, CRYSTAL_CYAN, GOLD, STONE_GREY, crystal, gold, stone};
 
 pub struct EnchantedLibrary;
 
@@ -73,24 +74,42 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Tall arcane-lit arched windows flanking the entrance on the −Z front,
-    // each a glowing pane under a pointed arch (no more flat lightbox wall).
+    // Tall arcane-lit arched windows flanking the entrance on the −Z front.
+    // The body is solid stone, so behind each opening sits an arcane light
+    // chamber set just proud of the wall; the glazing is a cut window card on a
+    // plane (opacity below the alpha-mask cutoff), so the panes reveal that
+    // glow rather than tiling a `Window` texture over a slab (#950). Jamb ribs,
+    // a sill and a pointed head frame it in stone.
     for x in [-3.5_f32, 3.5] {
         prims.push(prim(
-            cuboid_tapered([1.5, 3.0, 0.2], 0.0, glass(ARCANE_GLASS, 1.7)),
-            [x, base_h + 2.0, front + 0.05],
+            solid(cuboid_tapered(
+                [1.5, 3.1, 0.12],
+                0.0,
+                glow(ARCANE_GLASS, 2.0),
+            )),
+            [x, base_h + 2.0, front - 0.04],
             id_quat(),
         ));
-        // Jamb ribs + arched head.
+        prims.push(prim(
+            plane([1.5, 3.0], window_card(ARCANE_GLASS, 3, 5, 0.35, 0.05)),
+            [x, base_h + 2.0, front - 0.11],
+            quat_x(-FRAC_PI_2),
+        ));
+        // Jamb ribs, sill and arched head.
         for s in [-1.0_f32, 1.0] {
             prims.push(prim(
                 solid(cuboid_tapered([0.16, 3.0, 0.34], 0.0, stone(STONE_GREY))),
-                [x + s * 0.83, base_h + 2.0, front + 0.02],
+                [x + s * 0.83, base_h + 2.0, front - 0.06],
                 id_quat(),
             ));
         }
+        prims.push(prim(
+            solid(cuboid_tapered([1.8, 0.18, 0.24], 0.0, stone(STONE_GREY))),
+            [x, base_h + 0.4, front - 0.06],
+            id_quat(),
+        ));
         prims.extend(pointed_arch(
-            [x, base_h + 3.5, front + 0.02],
+            [x, base_h + 3.5, front - 0.06],
             0.75,
             0.14,
             stone(STONE_GREY),
@@ -176,9 +195,44 @@ fn build_tree() -> Generator {
 mod tests {
     use super::*;
     use crate::catalogue::items::util::assert_sanitize_stable;
+    use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
     #[test]
     fn build_round_trips_through_sanitize() {
         assert_sanitize_stable(&EnchantedLibrary.build(""), "enchanted_library");
+    }
+
+    #[test]
+    fn has_arcane_glow() {
+        assert!(crate::catalogue::items::util::has_emissive(
+            &EnchantedLibrary.build("")
+        ));
+    }
+
+    /// #950: every `Window` card sits on a `Plane` at `uv_scale` 1.0 (spans
+    /// once, not tiled), and the built tree survives a serde round-trip.
+    #[test]
+    fn glazing_is_planes_and_round_trips() {
+        use crate::pds::material_finish::node_materials_mut;
+        fn walk(g: &mut Generator) {
+            let tag = g.kind.kind_tag();
+            let is_plane = matches!(g.kind, GeneratorKind::Plane { .. });
+            for m in node_materials_mut(&mut g.kind) {
+                if matches!(m.texture, SovereignTextureConfig::Window(_)) {
+                    assert!(is_plane, "Window card must sit on a Plane, found {tag}");
+                    assert_eq!(m.uv_scale.0, 1.0, "Window cards must stay at uv_scale 1.0");
+                }
+            }
+            for c in &mut g.children {
+                walk(c);
+            }
+        }
+        let mut g = EnchantedLibrary.build("");
+        walk(&mut g);
+        let back: Generator = serde_json::from_str(&serde_json::to_string(&g).unwrap()).unwrap();
+        assert!(
+            !crate::state::records_differ(&g, &back),
+            "enchanted library must survive a serde round-trip"
+        );
     }
 }
