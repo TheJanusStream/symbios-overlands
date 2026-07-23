@@ -468,14 +468,31 @@ pub(super) fn window_card(
         texture: crate::pds::SovereignTextureConfig::Window(crate::pds::SovereignWindowConfig {
             panes_x,
             panes_y,
-            frame_width: crate::pds::Fp64(frame_width as f64),
-            glass_opacity: crate::pds::Fp64(opacity as f64),
+            frame_width: fp64_on_grid(frame_width),
+            glass_opacity: fp64_on_grid(opacity),
             grime_level: crate::pds::Fp64(0.18),
             color_frame: Fp3(frame_color),
             ..Default::default()
         }),
         ..Default::default()
     }
+}
+
+/// Wrap an `f32` in an [`Fp64`](crate::pds::Fp64) snapped to the fixed-point
+/// wire grid.
+///
+/// `Fp64` holds a full-precision `f64` but serialises as `round(x · 10000)`,
+/// and its `PartialEq` compares the raw `f64`. So a value promoted from
+/// `f32` — e.g. `0.3_f32 as f64` = 0.30000001… — is *unequal* to the same
+/// number written as an `f64` literal, yet both serialise to `3000`. The
+/// default-eliding wire format then makes opposite keep/omit decisions
+/// before and after a round-trip whenever the value equals a config default
+/// (glass_opacity's default is 0.30), so the record fails its own equality
+/// check (#943). Snapping to the grid here makes the value canonical, so it
+/// round-trips and compares against defaults the way the wire does.
+fn fp64_on_grid(x: f32) -> crate::pds::Fp64 {
+    let scale = crate::pds::FP_SCALE as f64;
+    crate::pds::Fp64((x as f64 * scale).round() / scale)
 }
 
 /// `uv_scale` for a texture whose repeating patch should measure `tile_m`
