@@ -93,6 +93,7 @@ pub(crate) fn cuboid(size: [f32; 3], material: SovereignMaterialSettings) -> Gen
         uv_mapping: UvMapping::default(),
         solid: false,
         material,
+        faces: Vec::new(),
         torture: TortureParams::default(),
     }
 }
@@ -106,7 +107,9 @@ pub(crate) fn sphere(
         radius: Fp(radius),
         resolution,
         solid: false,
+        uv_mapping: UvMapping::fit(),
         material,
+        faces: Vec::new(),
         torture: TortureParams::default(),
     }
 }
@@ -122,7 +125,9 @@ pub(crate) fn cylinder(
         height: Fp(height),
         resolution,
         solid: false,
+        uv_mapping: UvMapping::fit(),
         material,
+        faces: Vec::new(),
         torture: TortureParams::default(),
     }
 }
@@ -138,7 +143,9 @@ pub(crate) fn capsule(
         latitudes: 8,
         longitudes: 16,
         solid: false,
+        uv_mapping: UvMapping::fit(),
         material,
+        faces: Vec::new(),
         torture: TortureParams::default(),
     }
 }
@@ -176,6 +183,7 @@ pub(crate) fn blob_group_uv(
         solid: false,
         uv_mapping,
         material,
+        faces: Vec::new(),
         torture: TortureParams::default(),
     }
 }
@@ -315,7 +323,9 @@ pub(crate) fn spine(
         resolution,
         samples_per_segment: 8,
         solid: false,
+        uv_mapping: UvMapping::fit(),
         material,
+        faces: Vec::new(),
         torture: TortureParams::default(),
     }
 }
@@ -340,7 +350,9 @@ pub(crate) fn lathe(
         resolution,
         smooth,
         solid: false,
+        uv_mapping: UvMapping::fit(),
         material,
+        faces: Vec::new(),
         torture: TortureParams::default(),
     }
 }
@@ -356,7 +368,9 @@ pub(crate) fn cone(
         height: Fp(height),
         resolution,
         solid: false,
+        uv_mapping: UvMapping::fit(),
         material,
+        faces: Vec::new(),
         torture: TortureParams::default(),
     }
 }
@@ -382,6 +396,7 @@ pub(crate) fn superellipsoid(
         longitudes: 24,
         solid: false,
         material,
+        faces: Vec::new(),
         torture: TortureParams::default(),
     }
 }
@@ -397,7 +412,9 @@ pub(crate) fn torus(
         minor_resolution: 12,
         major_resolution: 24,
         solid: false,
+        uv_mapping: UvMapping::fit(),
         material,
+        faces: Vec::new(),
         torture: TortureParams::default(),
     }
 }
@@ -421,7 +438,9 @@ pub(crate) fn helix(
         turns: Fp(turns),
         resolution,
         solid: false,
+        uv_mapping: UvMapping::fit(),
         material,
+        faces: Vec::new(),
         torture: TortureParams::default(),
     }
 }

@@ -87,6 +87,7 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             torture,
             solid,
             material,
+            ..
         } => parts(
             Box::new(SphereShape {
                 radius: radius.0,
@@ -103,6 +104,7 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             torture,
             solid,
             material,
+            ..
         } => parts(
             Box::new(CylinderShape {
                 radius: radius.0,
@@ -121,6 +123,7 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             torture,
             solid,
             material,
+            ..
         } => parts(
             Box::new(CapsuleShape {
                 radius: radius.0,
@@ -139,6 +142,7 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             torture,
             solid,
             material,
+            ..
         } => parts(
             Box::new(ConeShape {
                 radius: radius.0,
@@ -157,6 +161,7 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             torture,
             solid,
             material,
+            ..
         } => parts(
             Box::new(TorusShape {
                 minor_radius: minor_radius.0,
@@ -204,6 +209,7 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             torture,
             solid,
             material,
+            ..
         } => parts(
             Box::new(TubeShape {
                 radius: radius.0,
@@ -256,6 +262,7 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             torture,
             solid,
             material,
+            ..
         } => parts(
             Box::new(HelixShape {
                 radius: radius.0,
@@ -297,6 +304,7 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             torture,
             solid,
             material,
+            ..
         } => parts(
             Box::new(SpineShape {
                 points: points
@@ -317,6 +325,7 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             torture,
             solid,
             material,
+            ..
         } => parts(
             Box::new(LatheShape {
                 points: points.iter().map(|p| (p.radius.0, p.height.0)).collect(),
@@ -334,6 +343,7 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             torture,
             solid,
             material,
+            ..
         } => parts(
             Box::new(BlobGroupShape {
                 elements,

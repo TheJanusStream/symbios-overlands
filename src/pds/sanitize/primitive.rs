@@ -6,12 +6,15 @@
 //! hand-crafted record can't push mesh/collider builders into NaN / OOM
 //! territory.
 
+use std::collections::HashSet;
+
 use super::Sanitize;
 use super::common::{clamp_finite, sanitize_torture};
 use crate::pds::generator::GeneratorKind;
 use crate::pds::types::{Fp, Fp2, Fp3};
 
 pub(super) fn sanitize_primitive(kind: &mut GeneratorKind) {
+    sanitize_faces(kind);
     let c_dim = |v: f32| clamp_finite(v, 0.01, 100.0, 1.0);
     match kind {
         GeneratorKind::Cuboid {
@@ -304,5 +307,23 @@ pub(super) fn sanitize_primitive(kind: &mut GeneratorKind) {
             sanitize_torture(torture);
         }
         _ => {}
+    }
+}
+
+/// Face-override hygiene (#955), shared by all sixteen primitive arms via
+/// the `faces_mut` accessor: duplicate keys collapse to their first entry
+/// (the deterministic winner across peers), the list is capped, and every
+/// override's material is clamped exactly like the base one. `Unknown`
+/// keys — a face name minted by a newer client — are kept: they are
+/// dormant, not hostile, and dropping them would strip data on rewrite.
+fn sanitize_faces(kind: &mut GeneratorKind) {
+    let Some(faces) = kind.faces_mut() else {
+        return;
+    };
+    let mut seen = HashSet::new();
+    faces.retain(|f| seen.insert(f.face));
+    faces.truncate(super::limits::MAX_FACE_OVERRIDES);
+    for f in faces.iter_mut() {
+        f.material.sanitize();
     }
 }

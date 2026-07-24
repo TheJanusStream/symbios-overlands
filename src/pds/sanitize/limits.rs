@@ -150,6 +150,13 @@ pub const MAX_SWEEP_POINTS: usize = 16;
 /// elements x grid-samples, so this and the resolution clamp jointly bound
 /// the mesh-bake cost of one hostile record.
 pub const MAX_BLOB_ELEMENTS: usize = 16;
+/// Maximum per-face override count on one primitive (#955). The richest
+/// face vocabulary any mesher emits is under twenty keys (a cut hollow
+/// cuboid: six sides + bore + two cut faces), so 24 leaves forward-compat
+/// headroom while bounding the per-prim material fan-out — every override
+/// can carry its own procedural texture, and each distinct one costs a
+/// `StandardMaterial` + texture-cache entry at spawn.
+pub const MAX_FACE_OVERRIDES: usize = 24;
 /// BlobGroup sample-grid resolution bounds (cells along the longest axis).
 /// Grid cost is cubic: 48 is ~110k samples after padding — a few
 /// milliseconds native, still fine on wasm as a bake-on-spawn cost.

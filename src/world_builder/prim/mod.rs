@@ -110,6 +110,7 @@ mod tests {
             size: Fp3(size),
             solid: true,
             material: SovereignMaterialSettings::default(),
+            faces: Vec::new(),
             torture: TortureParams {
                 twist: Fp(twist),
                 taper: Fp2([taper, taper]),
@@ -125,7 +126,9 @@ mod tests {
             height: Fp(height),
             resolution: 24,
             solid: true,
+            uv_mapping: crate::pds::generator::UvMapping::fit(),
             material: SovereignMaterialSettings::default(),
+            faces: Vec::new(),
             torture: TortureParams {
                 twist: Fp(twist),
                 taper: Fp2([taper, taper]),
@@ -204,6 +207,7 @@ mod tests {
             size: Fp3([1.0, 1.0, 1.0]),
             solid: true,
             material: SovereignMaterialSettings::default(),
+            faces: Vec::new(),
             torture: TortureParams {
                 taper: Fp2([0.6, 0.0]),
                 ..Default::default()
@@ -241,6 +245,7 @@ mod tests {
             size: Fp3([1.0, 1.0, 1.0]),
             solid: true,
             material: SovereignMaterialSettings::default(),
+            faces: Vec::new(),
             torture: TortureParams {
                 taper_bottom: Fp2([0.6, 0.6]),
                 ..Default::default()
@@ -273,7 +278,9 @@ mod tests {
             height: Fp(2.0),
             resolution: 24,
             solid: true,
+            uv_mapping: crate::pds::generator::UvMapping::fit(),
             material: SovereignMaterialSettings::default(),
+            faces: Vec::new(),
             torture: TortureParams {
                 bulge: Fp2([b, b]),
                 ..Default::default()
@@ -320,6 +327,7 @@ mod tests {
             longitudes: 24,
             solid: true,
             material: SovereignMaterialSettings::default(),
+            faces: Vec::new(),
             torture: TortureParams::default(),
         };
         let corner_reach = |kind: &GeneratorKind| {
@@ -380,7 +388,9 @@ mod tests {
             resolution: 16,
             samples_per_segment: 8,
             solid: true,
+            uv_mapping: crate::pds::generator::UvMapping::fit(),
             material: SovereignMaterialSettings::default(),
+            faces: Vec::new(),
             torture: TortureParams::default(),
         };
         let mesh = build_primitive_mesh(&kind);
@@ -431,7 +441,9 @@ mod tests {
             resolution: 24,
             smooth,
             solid: true,
+            uv_mapping: crate::pds::generator::UvMapping::fit(),
             material: SovereignMaterialSettings::default(),
+            faces: Vec::new(),
             torture: TortureParams::default(),
         };
         for smooth in [false, true] {
@@ -468,6 +480,7 @@ mod tests {
             resolution: 32,
             solid: true,
             material: SovereignMaterialSettings::default(),
+            faces: Vec::new(),
             torture: TortureParams::default(),
         };
         let positions = |kind: &GeneratorKind| -> Vec<[f32; 3]> {
@@ -564,7 +577,9 @@ mod tests {
             resolution: 24,
             smooth: false,
             solid: true,
+            uv_mapping: crate::pds::generator::UvMapping::fit(),
             material: SovereignMaterialSettings::default(),
+            faces: Vec::new(),
             torture: TortureParams::default(),
         };
         if let Some(t) = kind.torture_mut() {
@@ -605,6 +620,7 @@ mod tests {
                 resolution: 32,
                 solid: true,
                 material: SovereignMaterialSettings::default(),
+                faces: Vec::new(),
                 torture: TortureParams::default(),
             };
             if let Some(t) = kind.torture_mut() {
@@ -679,6 +695,7 @@ mod tests {
             resolution: 32,
             solid: true,
             material: SovereignMaterialSettings::default(),
+            faces: Vec::new(),
             torture: TortureParams::default(),
         };
         let positions = |kind: &GeneratorKind| -> Vec<[f32; 3]> {
@@ -788,6 +805,7 @@ mod tests {
             solid: true,
             uv_mapping,
             material: SovereignMaterialSettings::default(),
+            faces: Vec::new(),
             torture: TortureParams::default(),
         };
         for mode in [

@@ -586,6 +586,7 @@ fn scatter_rubble(node: &mut Generator, rng: &mut ChaCha8Rng) {
                 size: Fp3([sx, sy, sz]),
                 solid: true,
                 material: rubble_material(grey),
+                faces: Vec::new(),
                 torture: TortureParams {
                     taper: Fp2([taper, taper]),
                     ..Default::default()
@@ -641,6 +642,7 @@ mod tests {
                 size: Fp3([1.0, 1.0, 1.0]),
                 solid: true,
                 material: SovereignMaterialSettings::default(),
+                faces: Vec::new(),
                 torture: TortureParams::default(),
             },
             transform: TransformData {
@@ -729,6 +731,7 @@ mod tests {
                     uv_mapping: crate::pds::generator::UvMapping::default(),
                     size: Fp3([0.5, 0.5, 0.5]),
                     solid: false,
+                    faces: Vec::new(),
                     material: SovereignMaterialSettings {
                         emission_color: Fp3(NEON),
                         emission_strength: Fp(8.0),
@@ -808,6 +811,7 @@ mod tests {
                 size: Fp3(size),
                 solid: true,
                 material: SovereignMaterialSettings::default(),
+                faces: Vec::new(),
                 torture: TortureParams::default(),
             },
             transform: TransformData {
@@ -827,7 +831,9 @@ mod tests {
                 height: Fp(2.0),
                 resolution: 12,
                 solid: true,
+                uv_mapping: crate::pds::generator::UvMapping::fit(),
                 material: SovereignMaterialSettings::default(),
+                faces: Vec::new(),
                 torture: TortureParams::default(),
             },
             transform: TransformData {

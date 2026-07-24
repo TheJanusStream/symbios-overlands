@@ -147,6 +147,7 @@ mod tests {
             size: Fp2(size),
             subdivisions: 0,
             solid: false,
+            faces: Vec::new(),
             material: SovereignMaterialSettings {
                 base_color: Fp3(base_color),
                 ..Default::default()
@@ -197,13 +198,16 @@ mod tests {
             size: Fp3([1.0, 1.0, 1.0]),
             solid: false,
             material: SovereignMaterialSettings::default(),
+            faces: Vec::new(),
             torture: TortureParams::default(),
         };
         let sphere = GeneratorKind::Sphere {
             radius: Fp(1.0),
             resolution: 5,
             solid: false,
+            uv_mapping: crate::pds::generator::UvMapping::fit(),
             material: SovereignMaterialSettings::default(),
+            faces: Vec::new(),
             torture: TortureParams::default(),
         };
         assert_ne!(

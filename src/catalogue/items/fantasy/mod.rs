@@ -10,7 +10,7 @@
 //!
 //! Surfaces use the real procedural generators rather than flat colour:
 //! dressed [`stone`] ashlar towers, [`mossy`] old cobble, dark [`timber`]
-//! beams, golden [`thatch`], arcane lit [`glass`] and [`gold`] trim, with
+//! beams, golden [`thatch`], arcane lit glass and [`gold`] trim, with
 //! crystals, runes and motes carried by [`crate::catalogue::items::util::glow`]
 //! emissive trim and the [`fx`] particle/audio kit. The theme's magic-mote
 //! accent lives in [`crate::seeded_defaults::room::accent`].

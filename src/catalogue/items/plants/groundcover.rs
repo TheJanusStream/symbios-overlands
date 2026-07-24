@@ -59,6 +59,7 @@ fn quad(
             // tier placed by the hundred.
             solid: false,
             material,
+            faces: Vec::new(),
             torture: TortureParams::default(),
         },
         translation,

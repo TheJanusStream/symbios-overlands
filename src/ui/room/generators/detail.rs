@@ -846,6 +846,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            ..
         } => draw_primitive_cuboid(ui, size, uv_mapping, solid, material, torture, salt, dirty),
         GeneratorKind::Sphere {
             radius,
@@ -853,6 +854,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            ..
         } => draw_primitive_sphere(
             ui, radius, resolution, solid, material, torture, salt, dirty,
         ),
@@ -863,6 +865,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            ..
         } => draw_primitive_cylinder(
             ui, radius, height, resolution, solid, material, torture, salt, dirty,
         ),
@@ -874,6 +877,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            ..
         } => draw_primitive_capsule(
             ui, radius, length, latitudes, longitudes, solid, material, torture, salt, dirty,
         ),
@@ -884,6 +888,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            ..
         } => draw_primitive_cone(
             ui, radius, height, resolution, solid, material, torture, salt, dirty,
         ),
@@ -895,6 +900,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            ..
         } => draw_primitive_torus(
             ui,
             minor_radius,
@@ -914,6 +920,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            ..
         } => draw_primitive_plane(
             ui,
             size,
@@ -931,6 +938,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            ..
         } => {
             draw_primitive_tetrahedron(ui, size, uv_mapping, solid, material, torture, salt, dirty)
         }
@@ -942,6 +950,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            ..
         } => draw_primitive_tube(
             ui,
             radius,
@@ -962,6 +971,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            ..
         } => draw_primitive_bevel(
             ui,
             size,
@@ -982,6 +992,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            ..
         } => draw_primitive_cuboid(ui, size, uv_mapping, solid, material, torture, salt, dirty),
         GeneratorKind::Helix {
             radius,
@@ -992,6 +1003,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            ..
         } => draw_primitive_helix(
             ui,
             radius,
@@ -1015,6 +1027,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            ..
         } => draw_primitive_superellipsoid(
             ui,
             half_extents,
@@ -1036,6 +1049,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            ..
         } => draw_primitive_spine(
             ui,
             points,
@@ -1054,6 +1068,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            ..
         } => draw_primitive_lathe(
             ui, points, resolution, smooth, solid, material, torture, salt, dirty,
         ),
@@ -1064,6 +1079,7 @@ fn draw_generator_detail(
             uv_mapping,
             material,
             torture,
+            ..
         } => draw_primitive_blob_group(
             ui,
             elements,

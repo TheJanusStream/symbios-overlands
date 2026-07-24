@@ -606,6 +606,7 @@ fn generator_node_transform_rejects_non_finite_fields() {
             size: Fp3([1.0, 1.0, 1.0]),
             solid: true,
             material: Default::default(),
+            faces: Vec::new(),
             torture: TortureParams::default(),
         },
         transform: TransformData {
@@ -647,6 +648,8 @@ fn spine_and_lathe_point_lists_clamped() {
                 radius: Fp(-5.0),
             })
             .collect(),
+        uv_mapping: symbios_overlands::pds::generator::UvMapping::fit(),
+        faces: Vec::new(),
         resolution: 10_000,
         samples_per_segment: 10_000,
         solid: true,
@@ -682,7 +685,9 @@ fn spine_and_lathe_point_lists_clamped() {
         resolution: 0,
         smooth: true,
         solid: true,
+        uv_mapping: symbios_overlands::pds::generator::UvMapping::fit(),
         material: Default::default(),
+        faces: Vec::new(),
         torture: TortureParams::default(),
     });
     sanitize_generator(&mut lathe);
@@ -697,6 +702,53 @@ fn spine_and_lathe_point_lists_clamped() {
 }
 
 #[test]
+fn face_overrides_deduped_and_clamped() {
+    use symbios_overlands::pds::generator::{FaceKey, FaceOverride, UvMapping};
+    let mut prim = Generator::from_kind(
+        symbios_overlands::pds::GeneratorKind::default_primitive_for_tag("Cuboid").unwrap(),
+    );
+    let faces = prim.kind.faces_mut().unwrap();
+    // First Top entry (hostile NaN roughness) must win the dedupe; the
+    // second (metallic 9.0, PlanarY) must vanish entirely.
+    faces.push(FaceOverride {
+        face: FaceKey::Top,
+        material: symbios_overlands::pds::SovereignMaterialSettings {
+            roughness: Fp(f32::NAN),
+            ..Default::default()
+        },
+        uv_mapping: None,
+    });
+    faces.push(FaceOverride {
+        face: FaceKey::Top,
+        material: symbios_overlands::pds::SovereignMaterialSettings {
+            metallic: Fp(9.0),
+            ..Default::default()
+        },
+        uv_mapping: Some(UvMapping::PlanarY),
+    });
+    faces.push(FaceOverride {
+        face: FaceKey::Bottom,
+        material: Default::default(),
+        uv_mapping: None,
+    });
+    sanitize_generator(&mut prim);
+    let faces = prim.kind.faces().unwrap();
+    assert_eq!(faces.len(), 2, "duplicate Top not collapsed: {faces:?}");
+    let top = &faces[0];
+    assert_eq!(top.face, FaceKey::Top);
+    assert_eq!(top.uv_mapping, None, "second Top entry survived the dedupe");
+    assert_eq!(
+        top.material.metallic.0, 0.0,
+        "second Top entry's material survived the dedupe"
+    );
+    assert!(
+        top.material.roughness.0.is_finite(),
+        "override material escaped the clamp"
+    );
+    assert_eq!(faces[1].face, FaceKey::Bottom);
+}
+
+#[test]
 fn primitive_torture_clamped() {
     // NaN/infinity/out-of-range torture parameters on a top-level
     // primitive must be driven back into the finite envelope so the
@@ -706,6 +758,7 @@ fn primitive_torture_clamped() {
         size: Fp3([1.0, 1.0, 1.0]),
         solid: true,
         material: Default::default(),
+        faces: Vec::new(),
         torture: TortureParams {
             twist: Fp(f32::INFINITY),
             taper: Fp2([f32::NAN, 1_000.0]),

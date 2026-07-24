@@ -118,6 +118,7 @@ pub(super) fn cuboid_tapered(
         uv_mapping: UvMapping::default(),
         solid: false,
         material,
+        faces: Vec::new(),
         torture: TortureParams {
             taper: Fp2([taper, taper]),
             ..Default::default()
@@ -140,6 +141,7 @@ pub(super) fn cuboid_tapered_xz(
         uv_mapping: UvMapping::default(),
         solid: false,
         material,
+        faces: Vec::new(),
         torture: TortureParams {
             taper: Fp2(taper_xz),
             ..Default::default()
@@ -159,7 +161,9 @@ pub(super) fn cylinder_tapered(
         height: Fp(height),
         resolution,
         solid: false,
+        uv_mapping: UvMapping::fit(),
         material,
+        faces: Vec::new(),
         torture: TortureParams {
             taper: Fp2([taper, taper]),
             ..Default::default()
@@ -176,7 +180,9 @@ pub(super) fn sphere(
         radius: Fp(radius),
         resolution,
         solid: false,
+        uv_mapping: UvMapping::fit(),
         material,
+        faces: Vec::new(),
         torture: TortureParams::default(),
     }
 }
@@ -201,6 +207,7 @@ pub(super) fn superellipsoid(
         longitudes: 18,
         solid: false,
         material,
+        faces: Vec::new(),
         torture: TortureParams::default(),
     }
 }
@@ -216,7 +223,9 @@ pub(super) fn cone(
         height: Fp(height),
         resolution,
         solid: false,
+        uv_mapping: UvMapping::fit(),
         material,
+        faces: Vec::new(),
         torture: TortureParams::default(),
     }
 }
@@ -232,7 +241,9 @@ pub(super) fn torus(
         minor_resolution: 10,
         major_resolution: 28,
         solid: false,
+        uv_mapping: UvMapping::fit(),
         material,
+        faces: Vec::new(),
         torture: TortureParams::default(),
     }
 }
@@ -253,7 +264,9 @@ pub(super) fn tube(
         height: Fp(height),
         resolution,
         solid: false,
+        uv_mapping: UvMapping::fit(),
         material,
+        faces: Vec::new(),
         torture: TortureParams::default(),
     }
 }
@@ -277,7 +290,9 @@ pub(super) fn helix(
         turns: Fp(turns),
         resolution,
         solid: false,
+        uv_mapping: UvMapping::fit(),
         material,
+        faces: Vec::new(),
         torture: TortureParams::default(),
     }
 }
@@ -291,6 +306,7 @@ pub(super) fn wedge(size: [f32; 3], material: SovereignMaterialSettings) -> Gene
         uv_mapping: UvMapping::default(),
         solid: false,
         material,
+        faces: Vec::new(),
         torture: TortureParams::default(),
     }
 }
@@ -417,6 +433,7 @@ pub(super) fn plane(size: [f32; 2], material: SovereignMaterialSettings) -> Gene
         subdivisions: 0,
         solid: false,
         material,
+        faces: Vec::new(),
         torture: TortureParams::default(),
     }
 }

@@ -85,6 +85,7 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             size: Fp3([f32::NAN, -1.0, f32::INFINITY]),
             solid: true,
             material: Default::default(),
+            faces: Vec::new(),
             torture: TortureParams {
                 twist: Fp(f32::NAN),
                 taper: Fp2([f32::INFINITY, f32::NAN]),
@@ -102,7 +103,9 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             radius: Fp(f32::NAN),
             resolution: u32::MAX,
             solid: true,
+            uv_mapping: symbios_overlands::pds::generator::UvMapping::fit(),
             material: Default::default(),
+            faces: Vec::new(),
             torture: TortureParams::default(),
         }),
         Generator::from_kind(GeneratorKind::Cylinder {
@@ -110,7 +113,9 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             height: Fp(f32::INFINITY),
             resolution: 10_000,
             solid: true,
+            uv_mapping: symbios_overlands::pds::generator::UvMapping::fit(),
             material: Default::default(),
+            faces: Vec::new(),
             torture: TortureParams::default(),
         }),
         Generator::from_kind(GeneratorKind::Capsule {
@@ -119,7 +124,9 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             latitudes: 10_000,
             longitudes: 10_000,
             solid: true,
+            uv_mapping: symbios_overlands::pds::generator::UvMapping::fit(),
             material: Default::default(),
+            faces: Vec::new(),
             torture: TortureParams::default(),
         }),
         Generator::from_kind(GeneratorKind::Cone {
@@ -127,7 +134,9 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             height: Fp(-5.0),
             resolution: 10_000,
             solid: true,
+            uv_mapping: symbios_overlands::pds::generator::UvMapping::fit(),
             material: Default::default(),
+            faces: Vec::new(),
             torture: TortureParams::default(),
         }),
         Generator::from_kind(GeneratorKind::Torus {
@@ -136,7 +145,9 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             minor_resolution: 10_000,
             major_resolution: 10_000,
             solid: true,
+            uv_mapping: symbios_overlands::pds::generator::UvMapping::fit(),
             material: Default::default(),
+            faces: Vec::new(),
             torture: TortureParams::default(),
         }),
         Generator::from_kind(GeneratorKind::Plane {
@@ -145,6 +156,7 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             subdivisions: 10_000,
             solid: true,
             material: Default::default(),
+            faces: Vec::new(),
             torture: TortureParams::default(),
         }),
         Generator::from_kind(GeneratorKind::Tetrahedron {
@@ -152,6 +164,7 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
             size: Fp(f32::NAN),
             solid: true,
             material: Default::default(),
+            faces: Vec::new(),
             torture: TortureParams::default(),
         }),
     ];

@@ -408,6 +408,7 @@ impl RoomRecord {
     pub fn default_for_seed(seed: u64, did: &str) -> Self {
         use crate::pds::generator::{
             AnimationFrameMode, EmitterShape, ParticleBlendMode, SimulationSpace, TextureFilter,
+            UvMapping,
         };
         use crate::pds::texture::{
             SovereignMaterialSettings, SovereignRockConfig, SovereignTextureConfig,
@@ -727,6 +728,8 @@ impl RoomRecord {
             // Solid: a walk-through boulder breaks the fiction the
             // moment someone drives into one.
             solid: true,
+            uv_mapping: UvMapping::fit(),
+            faces: Vec::new(),
             material: SovereignMaterialSettings {
                 base_color: Fp3(palette.rock_stone),
                 roughness: Fp(0.95),

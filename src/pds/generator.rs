@@ -692,6 +692,154 @@ impl UvMapping {
     }
 }
 
+/// Semantic identity of one face of a parametric primitive (#955) — the
+/// key a [`FaceOverride`] addresses. Keys are *semantic*, not positional:
+/// they name what a face **is** (the outer wall, the bore, the +X side…),
+/// so an override keeps meaning when torture parameters change the face
+/// census. An override whose face the current cut/hollow state does not
+/// produce is **dormant** — kept in the record, invisible in the mesh —
+/// and it reappears when the face does (the SL behaviour).
+///
+/// Vocabulary per family (the mesher emits exactly these):
+///
+/// * **Cuboid**: [`SidePx`](Self::SidePx) / [`SideNx`](Self::SideNx) /
+///   [`SidePz`](Self::SidePz) / [`SideNz`](Self::SideNz) +
+///   [`Top`](Self::Top) / [`Bottom`](Self::Bottom).
+/// * **Bevel**: one wrapped [`Wall`](Self::Wall) — its rounded corners
+///   bridge the four sides geometrically — plus `Top` / `Bottom`.
+/// * **Wedge**: [`Slope`](Self::Slope) / [`Back`](Self::Back) / `Bottom`
+///   + the [`Left`](Self::Left) / [`Right`](Self::Right) triangles.
+/// * **Tetrahedron**: [`Base`](Self::Base) + [`Front`](Self::Front) /
+///   `Left` / `Right`.
+/// * **Plane**: a single [`Surface`](Self::Surface).
+/// * **Revolved** (Cylinder / Cone / Tube / Lathe / Spine / Helix):
+///   `Wall` + `Top` / `Bottom` caps.
+/// * **Smooth closed** (Sphere / Capsule / Superellipsoid / BlobGroup):
+///   a single `Surface`; a profile-cut opens `Top` / `Bottom` cap discs.
+///   BlobGroup stays `Surface`-only — its cuts are carved into the SDF,
+///   so cut faces are emergent geometry, not taggable blocks.
+/// * **Cuts** add [`Bore`](Self::Bore) (the hollow inner shell),
+///   [`PathCutStart`](Self::PathCutStart) / [`PathCutEnd`](Self::PathCutEnd)
+///   (the two radial faces closing a pie wedge) and
+///   [`ProfileCutStart`](Self::ProfileCutStart) /
+///   [`ProfileCutEnd`](Self::ProfileCutEnd) (the two open lips of a
+///   torus / helix cross-section band).
+///
+/// Open union like [`UvMapping`]: a face name minted by a newer client
+/// decodes as [`Unknown`](Self::Unknown) and simply stays dormant.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[serde(tag = "$type")]
+pub enum FaceKey {
+    /// Outer lateral surface of a revolved prim, or the Bevel's wrapped side.
+    #[serde(rename = "network.symbios.face.wall")]
+    Wall,
+    /// Inner shell created by `hollow` (or the Tube's built-in bore).
+    #[serde(rename = "network.symbios.face.bore")]
+    Bore,
+    /// +Y cap.
+    #[serde(rename = "network.symbios.face.top")]
+    Top,
+    /// −Y cap.
+    #[serde(rename = "network.symbios.face.bottom")]
+    Bottom,
+    /// Cuboid +X side.
+    #[serde(rename = "network.symbios.face.side_px")]
+    SidePx,
+    /// Cuboid −X side.
+    #[serde(rename = "network.symbios.face.side_nx")]
+    SideNx,
+    /// Cuboid +Z side.
+    #[serde(rename = "network.symbios.face.side_pz")]
+    SidePz,
+    /// Cuboid −Z side.
+    #[serde(rename = "network.symbios.face.side_nz")]
+    SideNz,
+    /// The Wedge's inclined face.
+    #[serde(rename = "network.symbios.face.slope")]
+    Slope,
+    /// The Tetrahedron's +Z lateral face.
+    #[serde(rename = "network.symbios.face.front")]
+    Front,
+    /// The Wedge's vertical −Z face.
+    #[serde(rename = "network.symbios.face.back")]
+    Back,
+    /// −X lateral face (Wedge / Tetrahedron).
+    #[serde(rename = "network.symbios.face.left")]
+    Left,
+    /// +X lateral face (Wedge / Tetrahedron).
+    #[serde(rename = "network.symbios.face.right")]
+    Right,
+    /// The Tetrahedron's −Y face.
+    #[serde(rename = "network.symbios.face.base")]
+    Base,
+    /// The whole surface of a smooth closed prim (Sphere / Capsule /
+    /// Superellipsoid / BlobGroup) or of a Plane.
+    #[serde(rename = "network.symbios.face.surface")]
+    Surface,
+    /// Radial face closing the pie wedge at the path-cut's start angle.
+    #[serde(rename = "network.symbios.face.path_cut_start")]
+    PathCutStart,
+    /// Radial face closing the pie wedge at the path-cut's end angle.
+    #[serde(rename = "network.symbios.face.path_cut_end")]
+    PathCutEnd,
+    /// Open lip at the profile-cut band's start (torus / helix cross-section).
+    #[serde(rename = "network.symbios.face.profile_cut_start")]
+    ProfileCutStart,
+    /// Open lip at the profile-cut band's end (torus / helix cross-section).
+    #[serde(rename = "network.symbios.face.profile_cut_end")]
+    ProfileCutEnd,
+    #[serde(other)]
+    Unknown,
+}
+
+impl FaceKey {
+    /// Short human-readable name — the `kind_tag` analogue for the face
+    /// picker UI and the render tool's dump output.
+    pub fn label(&self) -> &'static str {
+        match self {
+            FaceKey::Wall => "Wall",
+            FaceKey::Bore => "Bore",
+            FaceKey::Top => "Top",
+            FaceKey::Bottom => "Bottom",
+            FaceKey::SidePx => "Side +X",
+            FaceKey::SideNx => "Side −X",
+            FaceKey::SidePz => "Side +Z",
+            FaceKey::SideNz => "Side −Z",
+            FaceKey::Slope => "Slope",
+            FaceKey::Front => "Front",
+            FaceKey::Back => "Back",
+            FaceKey::Left => "Left",
+            FaceKey::Right => "Right",
+            FaceKey::Base => "Base",
+            FaceKey::Surface => "Surface",
+            FaceKey::PathCutStart => "Cut start",
+            FaceKey::PathCutEnd => "Cut end",
+            FaceKey::ProfileCutStart => "Slice start",
+            FaceKey::ProfileCutEnd => "Slice end",
+            FaceKey::Unknown => "Unknown",
+        }
+    }
+}
+
+/// One face's appearance override (#955). The override is **complete and
+/// independent**: `material` is the face's whole material (per-face
+/// `uv_scale` / offset / rotation ride on it), not a delta — editing the
+/// prim's base material later does not bleed into overridden faces (the
+/// SL model). `uv_mapping` is the one exception: `None` inherits the
+/// prim's own projection so a plain recolour never changes the mesh.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct FaceOverride {
+    /// Which face this override paints. Duplicate keys are dropped by the
+    /// sanitizer (first entry wins); unknown keys are kept dormant.
+    pub face: FaceKey,
+    #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
+    pub material: SovereignMaterialSettings,
+    /// Projection override for this face; `None` inherits the prim's
+    /// `uv_mapping`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uv_mapping: Option<UvMapping>,
+}
+
 /// One stamp in a [`GeneratorKind::BlobGroup`]'s ordered edit list — the
 /// Dreams model: elements evaluate in list order, each smoothly added to
 /// (or carved out of) everything before it.
@@ -1091,6 +1239,10 @@ pub enum GeneratorKind {
         uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
+        /// Per-face material / projection overrides (#955); empty = the
+        /// whole prim wears `material`. See [`FaceOverride`].
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        faces: Vec<FaceOverride>,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
@@ -1100,8 +1252,17 @@ pub enum GeneratorKind {
         radius: Fp,
         resolution: u32,
         solid: bool,
+        /// Texture projection for this prim (#955). Defaults to
+        /// [`UvMapping::Fit`] — keep the mesher's own analytic metre-scale
+        /// parameterisation (the pre-#955 behaviour; elided off the wire).
+        #[serde(default = "UvMapping::fit", skip_serializing_if = "UvMapping::is_fit")]
+        uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
+        /// Per-face material / projection overrides (#955); empty = the
+        /// whole prim wears `material`. See [`FaceOverride`].
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        faces: Vec<FaceOverride>,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
@@ -1112,8 +1273,17 @@ pub enum GeneratorKind {
         height: Fp,
         resolution: u32,
         solid: bool,
+        /// Texture projection for this prim (#955). Defaults to
+        /// [`UvMapping::Fit`] — keep the mesher's own analytic metre-scale
+        /// parameterisation (the pre-#955 behaviour; elided off the wire).
+        #[serde(default = "UvMapping::fit", skip_serializing_if = "UvMapping::is_fit")]
+        uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
+        /// Per-face material / projection overrides (#955); empty = the
+        /// whole prim wears `material`. See [`FaceOverride`].
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        faces: Vec<FaceOverride>,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
@@ -1125,8 +1295,17 @@ pub enum GeneratorKind {
         latitudes: u32,
         longitudes: u32,
         solid: bool,
+        /// Texture projection for this prim (#955). Defaults to
+        /// [`UvMapping::Fit`] — keep the mesher's own analytic metre-scale
+        /// parameterisation (the pre-#955 behaviour; elided off the wire).
+        #[serde(default = "UvMapping::fit", skip_serializing_if = "UvMapping::is_fit")]
+        uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
+        /// Per-face material / projection overrides (#955); empty = the
+        /// whole prim wears `material`. See [`FaceOverride`].
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        faces: Vec<FaceOverride>,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
@@ -1137,8 +1316,17 @@ pub enum GeneratorKind {
         height: Fp,
         resolution: u32,
         solid: bool,
+        /// Texture projection for this prim (#955). Defaults to
+        /// [`UvMapping::Fit`] — keep the mesher's own analytic metre-scale
+        /// parameterisation (the pre-#955 behaviour; elided off the wire).
+        #[serde(default = "UvMapping::fit", skip_serializing_if = "UvMapping::is_fit")]
+        uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
+        /// Per-face material / projection overrides (#955); empty = the
+        /// whole prim wears `material`. See [`FaceOverride`].
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        faces: Vec<FaceOverride>,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
@@ -1150,8 +1338,17 @@ pub enum GeneratorKind {
         minor_resolution: u32,
         major_resolution: u32,
         solid: bool,
+        /// Texture projection for this prim (#955). Defaults to
+        /// [`UvMapping::Fit`] — keep the mesher's own analytic metre-scale
+        /// parameterisation (the pre-#955 behaviour; elided off the wire).
+        #[serde(default = "UvMapping::fit", skip_serializing_if = "UvMapping::is_fit")]
+        uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
+        /// Per-face material / projection overrides (#955); empty = the
+        /// whole prim wears `material`. See [`FaceOverride`].
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        faces: Vec<FaceOverride>,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
@@ -1168,6 +1365,10 @@ pub enum GeneratorKind {
         uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
+        /// Per-face material / projection overrides (#955); empty = the
+        /// whole prim wears `material`. See [`FaceOverride`].
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        faces: Vec<FaceOverride>,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
@@ -1183,6 +1384,10 @@ pub enum GeneratorKind {
         uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
+        /// Per-face material / projection overrides (#955); empty = the
+        /// whole prim wears `material`. See [`FaceOverride`].
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        faces: Vec<FaceOverride>,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
@@ -1198,8 +1403,17 @@ pub enum GeneratorKind {
         height: Fp,
         resolution: u32,
         solid: bool,
+        /// Texture projection for this prim (#955). Defaults to
+        /// [`UvMapping::Fit`] — keep the mesher's own analytic metre-scale
+        /// parameterisation (the pre-#955 behaviour; elided off the wire).
+        #[serde(default = "UvMapping::fit", skip_serializing_if = "UvMapping::is_fit")]
+        uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
+        /// Per-face material / projection overrides (#955); empty = the
+        /// whole prim wears `material`. See [`FaceOverride`].
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        faces: Vec<FaceOverride>,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
@@ -1221,6 +1435,10 @@ pub enum GeneratorKind {
         uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
+        /// Per-face material / projection overrides (#955); empty = the
+        /// whole prim wears `material`. See [`FaceOverride`].
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        faces: Vec<FaceOverride>,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
@@ -1239,6 +1457,10 @@ pub enum GeneratorKind {
         uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
+        /// Per-face material / projection overrides (#955); empty = the
+        /// whole prim wears `material`. See [`FaceOverride`].
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        faces: Vec<FaceOverride>,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
@@ -1255,8 +1477,17 @@ pub enum GeneratorKind {
         turns: Fp,
         resolution: u32,
         solid: bool,
+        /// Texture projection for this prim (#955). Defaults to
+        /// [`UvMapping::Fit`] — keep the mesher's own analytic metre-scale
+        /// parameterisation (the pre-#955 behaviour; elided off the wire).
+        #[serde(default = "UvMapping::fit", skip_serializing_if = "UvMapping::is_fit")]
+        uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
+        /// Per-face material / projection overrides (#955); empty = the
+        /// whole prim wears `material`. See [`FaceOverride`].
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        faces: Vec<FaceOverride>,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
@@ -1283,6 +1514,10 @@ pub enum GeneratorKind {
         uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
+        /// Per-face material / projection overrides (#955); empty = the
+        /// whole prim wears `material`. See [`FaceOverride`].
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        faces: Vec<FaceOverride>,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
@@ -1304,8 +1539,17 @@ pub enum GeneratorKind {
         /// Path samples per spline segment (between consecutive points).
         samples_per_segment: u32,
         solid: bool,
+        /// Texture projection for this prim (#955). Defaults to
+        /// [`UvMapping::Fit`] — keep the mesher's own analytic metre-scale
+        /// parameterisation (the pre-#955 behaviour; elided off the wire).
+        #[serde(default = "UvMapping::fit", skip_serializing_if = "UvMapping::is_fit")]
+        uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
+        /// Per-face material / projection overrides (#955); empty = the
+        /// whole prim wears `material`. See [`FaceOverride`].
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        faces: Vec<FaceOverride>,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
@@ -1327,8 +1571,17 @@ pub enum GeneratorKind {
         /// Spline (`true`) vs straight-segment (`false`) profile.
         smooth: bool,
         solid: bool,
+        /// Texture projection for this prim (#955). Defaults to
+        /// [`UvMapping::Fit`] — keep the mesher's own analytic metre-scale
+        /// parameterisation (the pre-#955 behaviour; elided off the wire).
+        #[serde(default = "UvMapping::fit", skip_serializing_if = "UvMapping::is_fit")]
+        uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
+        /// Per-face material / projection overrides (#955); empty = the
+        /// whole prim wears `material`. See [`FaceOverride`].
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        faces: Vec<FaceOverride>,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
@@ -1359,6 +1612,12 @@ pub enum GeneratorKind {
         uv_mapping: UvMapping,
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
+        /// Per-face material / projection overrides (#955). A BlobGroup
+        /// meshes as a single [`FaceKey::Surface`] (its cuts are SDF-
+        /// carved, not taggable), so only a `Surface` override renders;
+        /// others stay dormant.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        faces: Vec<FaceOverride>,
         #[serde(default, skip_serializing_if = "TortureParams::is_default")]
         torture: TortureParams,
     },
@@ -1618,6 +1877,7 @@ impl GeneratorKind {
             uv_mapping: UvMapping::default(),
             solid: true,
             material: SovereignMaterialSettings::default(),
+            faces: Vec::new(),
             torture: TortureParams::default(),
         }
     }
@@ -1668,6 +1928,156 @@ impl GeneratorKind {
             | GeneratorKind::Spine { torture, .. }
             | GeneratorKind::Lathe { torture, .. }
             | GeneratorKind::BlobGroup { torture, .. } => Some(torture),
+            _ => None,
+        }
+    }
+
+    /// Shared read access to a parametric primitive's **base** material;
+    /// `None` for non-primitive variants. The `Sign` panel and the
+    /// slot-mapped `Shape` / `LSystem` material maps are deliberately
+    /// excluded — `node_materials_mut` in `material_finish` is the
+    /// every-material walk.
+    pub fn material(&self) -> Option<&SovereignMaterialSettings> {
+        match self {
+            GeneratorKind::Cuboid { material, .. }
+            | GeneratorKind::Sphere { material, .. }
+            | GeneratorKind::Cylinder { material, .. }
+            | GeneratorKind::Capsule { material, .. }
+            | GeneratorKind::Cone { material, .. }
+            | GeneratorKind::Torus { material, .. }
+            | GeneratorKind::Plane { material, .. }
+            | GeneratorKind::Tetrahedron { material, .. }
+            | GeneratorKind::Tube { material, .. }
+            | GeneratorKind::Bevel { material, .. }
+            | GeneratorKind::Wedge { material, .. }
+            | GeneratorKind::Helix { material, .. }
+            | GeneratorKind::Superellipsoid { material, .. }
+            | GeneratorKind::Spine { material, .. }
+            | GeneratorKind::Lathe { material, .. }
+            | GeneratorKind::BlobGroup { material, .. } => Some(material),
+            _ => None,
+        }
+    }
+
+    /// Shared mutable access to a primitive's base material; `None` for
+    /// non-primitive variants.
+    pub fn material_mut(&mut self) -> Option<&mut SovereignMaterialSettings> {
+        match self {
+            GeneratorKind::Cuboid { material, .. }
+            | GeneratorKind::Sphere { material, .. }
+            | GeneratorKind::Cylinder { material, .. }
+            | GeneratorKind::Capsule { material, .. }
+            | GeneratorKind::Cone { material, .. }
+            | GeneratorKind::Torus { material, .. }
+            | GeneratorKind::Plane { material, .. }
+            | GeneratorKind::Tetrahedron { material, .. }
+            | GeneratorKind::Tube { material, .. }
+            | GeneratorKind::Bevel { material, .. }
+            | GeneratorKind::Wedge { material, .. }
+            | GeneratorKind::Helix { material, .. }
+            | GeneratorKind::Superellipsoid { material, .. }
+            | GeneratorKind::Spine { material, .. }
+            | GeneratorKind::Lathe { material, .. }
+            | GeneratorKind::BlobGroup { material, .. } => Some(material),
+            _ => None,
+        }
+    }
+
+    /// Shared read access to a primitive's per-face overrides (#955);
+    /// `None` for non-primitive variants.
+    pub fn faces(&self) -> Option<&[FaceOverride]> {
+        match self {
+            GeneratorKind::Cuboid { faces, .. }
+            | GeneratorKind::Sphere { faces, .. }
+            | GeneratorKind::Cylinder { faces, .. }
+            | GeneratorKind::Capsule { faces, .. }
+            | GeneratorKind::Cone { faces, .. }
+            | GeneratorKind::Torus { faces, .. }
+            | GeneratorKind::Plane { faces, .. }
+            | GeneratorKind::Tetrahedron { faces, .. }
+            | GeneratorKind::Tube { faces, .. }
+            | GeneratorKind::Bevel { faces, .. }
+            | GeneratorKind::Wedge { faces, .. }
+            | GeneratorKind::Helix { faces, .. }
+            | GeneratorKind::Superellipsoid { faces, .. }
+            | GeneratorKind::Spine { faces, .. }
+            | GeneratorKind::Lathe { faces, .. }
+            | GeneratorKind::BlobGroup { faces, .. } => Some(faces),
+            _ => None,
+        }
+    }
+
+    /// Shared mutable access to a primitive's per-face overrides; `None`
+    /// for non-primitive variants.
+    pub fn faces_mut(&mut self) -> Option<&mut Vec<FaceOverride>> {
+        match self {
+            GeneratorKind::Cuboid { faces, .. }
+            | GeneratorKind::Sphere { faces, .. }
+            | GeneratorKind::Cylinder { faces, .. }
+            | GeneratorKind::Capsule { faces, .. }
+            | GeneratorKind::Cone { faces, .. }
+            | GeneratorKind::Torus { faces, .. }
+            | GeneratorKind::Plane { faces, .. }
+            | GeneratorKind::Tetrahedron { faces, .. }
+            | GeneratorKind::Tube { faces, .. }
+            | GeneratorKind::Bevel { faces, .. }
+            | GeneratorKind::Wedge { faces, .. }
+            | GeneratorKind::Helix { faces, .. }
+            | GeneratorKind::Superellipsoid { faces, .. }
+            | GeneratorKind::Spine { faces, .. }
+            | GeneratorKind::Lathe { faces, .. }
+            | GeneratorKind::BlobGroup { faces, .. } => Some(faces),
+            _ => None,
+        }
+    }
+
+    /// The primitive's whole-prim texture projection (#955); `None` for
+    /// non-primitive variants. Every parametric primitive carries the
+    /// field since #955 — the flat family defaults to `Box`, `Plane` and
+    /// the revolved family to `Fit` (their meshers' own analytic
+    /// parameterisation).
+    pub fn uv_mapping(&self) -> Option<UvMapping> {
+        match self {
+            GeneratorKind::Cuboid { uv_mapping, .. }
+            | GeneratorKind::Sphere { uv_mapping, .. }
+            | GeneratorKind::Cylinder { uv_mapping, .. }
+            | GeneratorKind::Capsule { uv_mapping, .. }
+            | GeneratorKind::Cone { uv_mapping, .. }
+            | GeneratorKind::Torus { uv_mapping, .. }
+            | GeneratorKind::Plane { uv_mapping, .. }
+            | GeneratorKind::Tetrahedron { uv_mapping, .. }
+            | GeneratorKind::Tube { uv_mapping, .. }
+            | GeneratorKind::Bevel { uv_mapping, .. }
+            | GeneratorKind::Wedge { uv_mapping, .. }
+            | GeneratorKind::Helix { uv_mapping, .. }
+            | GeneratorKind::Superellipsoid { uv_mapping, .. }
+            | GeneratorKind::Spine { uv_mapping, .. }
+            | GeneratorKind::Lathe { uv_mapping, .. }
+            | GeneratorKind::BlobGroup { uv_mapping, .. } => Some(*uv_mapping),
+            _ => None,
+        }
+    }
+
+    /// Shared mutable access to a primitive's texture projection; `None`
+    /// for non-primitive variants.
+    pub fn uv_mapping_mut(&mut self) -> Option<&mut UvMapping> {
+        match self {
+            GeneratorKind::Cuboid { uv_mapping, .. }
+            | GeneratorKind::Sphere { uv_mapping, .. }
+            | GeneratorKind::Cylinder { uv_mapping, .. }
+            | GeneratorKind::Capsule { uv_mapping, .. }
+            | GeneratorKind::Cone { uv_mapping, .. }
+            | GeneratorKind::Torus { uv_mapping, .. }
+            | GeneratorKind::Plane { uv_mapping, .. }
+            | GeneratorKind::Tetrahedron { uv_mapping, .. }
+            | GeneratorKind::Tube { uv_mapping, .. }
+            | GeneratorKind::Bevel { uv_mapping, .. }
+            | GeneratorKind::Wedge { uv_mapping, .. }
+            | GeneratorKind::Helix { uv_mapping, .. }
+            | GeneratorKind::Superellipsoid { uv_mapping, .. }
+            | GeneratorKind::Spine { uv_mapping, .. }
+            | GeneratorKind::Lathe { uv_mapping, .. }
+            | GeneratorKind::BlobGroup { uv_mapping, .. } => Some(uv_mapping),
             _ => None,
         }
     }
@@ -1743,13 +2153,16 @@ impl GeneratorKind {
                 size: Fp3([1.0, 1.0, 1.0]),
                 solid: true,
                 material: mat,
+                faces: Vec::new(),
                 torture: TortureParams::default(),
             },
             "Sphere" => GeneratorKind::Sphere {
                 radius: Fp(0.5),
                 resolution: 3,
                 solid: true,
+                uv_mapping: UvMapping::fit(),
                 material: mat,
+                faces: Vec::new(),
                 torture: TortureParams::default(),
             },
             "Cylinder" => GeneratorKind::Cylinder {
@@ -1757,7 +2170,9 @@ impl GeneratorKind {
                 height: Fp(1.0),
                 resolution: 16,
                 solid: true,
+                uv_mapping: UvMapping::fit(),
                 material: mat,
+                faces: Vec::new(),
                 torture: TortureParams::default(),
             },
             "Capsule" => GeneratorKind::Capsule {
@@ -1766,7 +2181,9 @@ impl GeneratorKind {
                 latitudes: 8,
                 longitudes: 16,
                 solid: true,
+                uv_mapping: UvMapping::fit(),
                 material: mat,
+                faces: Vec::new(),
                 torture: TortureParams::default(),
             },
             "Cone" => GeneratorKind::Cone {
@@ -1774,7 +2191,9 @@ impl GeneratorKind {
                 height: Fp(1.0),
                 resolution: 16,
                 solid: true,
+                uv_mapping: UvMapping::fit(),
                 material: mat,
+                faces: Vec::new(),
                 torture: TortureParams::default(),
             },
             "Torus" => GeneratorKind::Torus {
@@ -1783,7 +2202,9 @@ impl GeneratorKind {
                 minor_resolution: 12,
                 major_resolution: 24,
                 solid: true,
+                uv_mapping: UvMapping::fit(),
                 material: mat,
+                faces: Vec::new(),
                 torture: TortureParams::default(),
             },
             "Plane" => GeneratorKind::Plane {
@@ -1792,6 +2213,7 @@ impl GeneratorKind {
                 subdivisions: 0,
                 solid: true,
                 material: mat,
+                faces: Vec::new(),
                 torture: TortureParams::default(),
             },
             "Tetrahedron" => GeneratorKind::Tetrahedron {
@@ -1799,6 +2221,7 @@ impl GeneratorKind {
                 size: Fp(1.0),
                 solid: true,
                 material: mat,
+                faces: Vec::new(),
                 torture: TortureParams::default(),
             },
             "Tube" => GeneratorKind::Tube {
@@ -1807,7 +2230,9 @@ impl GeneratorKind {
                 height: Fp(1.0),
                 resolution: 24,
                 solid: true,
+                uv_mapping: UvMapping::fit(),
                 material: mat,
+                faces: Vec::new(),
                 torture: TortureParams::default(),
             },
             "Bevel" => GeneratorKind::Bevel {
@@ -1817,6 +2242,7 @@ impl GeneratorKind {
                 bevel_segments: 3,
                 solid: true,
                 material: mat,
+                faces: Vec::new(),
                 torture: TortureParams::default(),
             },
             "Wedge" => GeneratorKind::Wedge {
@@ -1824,6 +2250,7 @@ impl GeneratorKind {
                 size: Fp3([1.0, 1.0, 1.0]),
                 solid: true,
                 material: mat,
+                faces: Vec::new(),
                 torture: TortureParams::default(),
             },
             "Helix" => GeneratorKind::Helix {
@@ -1833,7 +2260,9 @@ impl GeneratorKind {
                 turns: Fp(3.0),
                 resolution: 24,
                 solid: true,
+                uv_mapping: UvMapping::fit(),
                 material: mat,
+                faces: Vec::new(),
                 torture: TortureParams::default(),
             },
             // Exponents at 0.5 default to the pillow / rounded-box middle of
@@ -1848,6 +2277,7 @@ impl GeneratorKind {
                 longitudes: 24,
                 solid: true,
                 material: mat,
+                faces: Vec::new(),
                 torture: TortureParams::default(),
             },
             // A gentle forward-arcing taper so a freshly-added spine reads
@@ -1870,7 +2300,9 @@ impl GeneratorKind {
                 resolution: 12,
                 samples_per_segment: 8,
                 solid: true,
+                uv_mapping: UvMapping::fit(),
                 material: mat,
+                faces: Vec::new(),
                 torture: TortureParams::default(),
             },
             // A bellied vase silhouette — the canonical lathe demo shape.
@@ -1900,7 +2332,9 @@ impl GeneratorKind {
                 resolution: 24,
                 smooth: true,
                 solid: true,
+                uv_mapping: UvMapping::fit(),
                 material: mat,
+                faces: Vec::new(),
                 torture: TortureParams::default(),
             },
             // Two generously-blended spheres — the smallest recipe that
@@ -1923,6 +2357,7 @@ impl GeneratorKind {
                 solid: true,
                 uv_mapping: UvMapping::default(),
                 material: mat,
+                faces: Vec::new(),
                 torture: TortureParams::default(),
             },
             _ => return None,
@@ -2513,6 +2948,7 @@ mod prim_wire_tests {
             solid,
             uv_mapping: UvMapping::Spherical,
             material,
+            faces: Vec::new(),
             torture,
         };
         let v = serde_json::to_value(&kind).unwrap();
@@ -2547,6 +2983,104 @@ mod prim_wire_tests {
 
         let re: GeneratorKind = serde_json::from_value(v).expect("reparses");
         assert_eq!(re, kind);
+    }
+}
+
+#[cfg(test)]
+mod face_override_tests {
+    //! Wire-format guards for the per-face override additions (#955): the
+    //! `faces` / revolved-`uv_mapping` fields must elide when default (so a
+    //! pre-#955 record and its re-serialisation are byte-compatible), face
+    //! keys must carry their namespaced tags, and a key minted by a newer
+    //! client must decode dormant rather than fail the record.
+    use super::*;
+
+    fn overridden_cuboid() -> GeneratorKind {
+        let mut kind = GeneratorKind::default_cuboid();
+        kind.faces_mut().expect("cuboid is a primitive").extend([
+            FaceOverride {
+                face: FaceKey::SidePz,
+                material: SovereignMaterialSettings {
+                    base_color: Fp3([0.1, 0.9, 0.2]),
+                    ..Default::default()
+                },
+                uv_mapping: Some(UvMapping::PlanarZ),
+            },
+            FaceOverride {
+                face: FaceKey::Top,
+                material: SovereignMaterialSettings::default(),
+                uv_mapping: None,
+            },
+        ]);
+        kind
+    }
+
+    #[test]
+    fn face_overrides_round_trip() {
+        let kind = overridden_cuboid();
+        let v = serde_json::to_value(&kind).expect("serialises");
+        let re: GeneratorKind = serde_json::from_value(v).expect("reparses");
+        assert_eq!(re, kind);
+    }
+
+    #[test]
+    fn face_key_wire_tags_are_namespaced() {
+        let v = serde_json::to_value(FaceKey::SidePx).expect("serialises");
+        assert_eq!(v["$type"].as_str(), Some("network.symbios.face.side_px"));
+        let v = serde_json::to_value(FaceKey::ProfileCutEnd).expect("serialises");
+        assert_eq!(
+            v["$type"].as_str(),
+            Some("network.symbios.face.profile_cut_end")
+        );
+    }
+
+    #[test]
+    fn unknown_face_key_decodes_dormant() {
+        let re: FaceKey = serde_json::from_value(serde_json::json!({
+            "$type": "network.symbios.face.hologram_shimmer"
+        }))
+        .expect("open union tolerates future keys");
+        assert_eq!(re, FaceKey::Unknown);
+    }
+
+    #[test]
+    fn faceless_prim_elides_and_legacy_records_decode() {
+        // Elision (#695): a prim with no overrides keeps `faces` off the wire.
+        let v = serde_json::to_value(GeneratorKind::default_cuboid()).expect("serialises");
+        assert!(v.as_object().expect("object").get("faces").is_none());
+
+        // A default revolved prim serialises with neither `faces` nor
+        // `uv_mapping` — which makes its wire shape *identical* to a
+        // pre-#955 record's, so parsing it back exercises the legacy path…
+        let sphere = GeneratorKind::default_primitive_for_tag("Sphere").expect("sphere");
+        let legacy_wire = serde_json::to_value(&sphere).expect("serialises");
+        let obj = legacy_wire.as_object().expect("object");
+        assert!(
+            !obj.contains_key("faces") && !obj.contains_key("uv_mapping"),
+            "default revolved prim must elide both #955 fields: {obj:?}"
+        );
+
+        // …decoding to empty overrides and the Fit (mesher-native)
+        // projection, byte-compatible across a load/save cycle.
+        let legacy: GeneratorKind =
+            serde_json::from_value(legacy_wire).expect("legacy sphere decodes");
+        assert_eq!(legacy.faces().map(<[FaceOverride]>::len), Some(0));
+        assert_eq!(legacy.uv_mapping(), Some(UvMapping::Fit));
+        assert_eq!(legacy, sphere);
+    }
+
+    #[test]
+    fn default_material_override_elides_its_material() {
+        let v = serde_json::to_value(overridden_cuboid()).expect("serialises");
+        let faces = v["faces"].as_array().expect("faces array");
+        assert_eq!(faces.len(), 2);
+        // The Top override carries only its face key — its default material
+        // and inherit-mapping stay off the wire.
+        assert!(faces[1].get("material").is_none());
+        assert!(faces[1].get("uv_mapping").is_none());
+        // The painted face keeps both.
+        assert!(faces[0].get("material").is_some());
+        assert!(faces[0].get("uv_mapping").is_some());
     }
 }
 

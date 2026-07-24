@@ -79,28 +79,64 @@ fn finish_tree(node: &mut Generator, wealth: f32, scorch: f32) {
 }
 
 /// Mutable borrows of every [`SovereignMaterialSettings`] carried directly
-/// by one node (not its children). Material-free variants yield an empty
-/// vec. Shared with [`crate::pds::ruin`] so the damage pass walks the same
-/// material set.
+/// by one node (not its children) — for the sixteen primitives that is the
+/// base material **plus each per-face override's** (#955), so the finish
+/// and damage passes weather overridden faces exactly like the rest of the
+/// prim. Material-free variants yield an empty vec. Shared with
+/// [`crate::pds::ruin`] so the damage pass walks the same material set.
 pub(crate) fn node_materials_mut(kind: &mut GeneratorKind) -> Vec<&mut SovereignMaterialSettings> {
     match kind {
-        GeneratorKind::Cuboid { material, .. }
-        | GeneratorKind::Sphere { material, .. }
-        | GeneratorKind::Cylinder { material, .. }
-        | GeneratorKind::Capsule { material, .. }
-        | GeneratorKind::Cone { material, .. }
-        | GeneratorKind::Torus { material, .. }
-        | GeneratorKind::Plane { material, .. }
-        | GeneratorKind::Tetrahedron { material, .. }
-        | GeneratorKind::Tube { material, .. }
-        | GeneratorKind::Bevel { material, .. }
-        | GeneratorKind::Wedge { material, .. }
-        | GeneratorKind::Helix { material, .. }
-        | GeneratorKind::Superellipsoid { material, .. }
-        | GeneratorKind::Spine { material, .. }
-        | GeneratorKind::Lathe { material, .. }
-        | GeneratorKind::BlobGroup { material, .. }
-        | GeneratorKind::Sign { material, .. } => vec![material],
+        GeneratorKind::Cuboid {
+            material, faces, ..
+        }
+        | GeneratorKind::Sphere {
+            material, faces, ..
+        }
+        | GeneratorKind::Cylinder {
+            material, faces, ..
+        }
+        | GeneratorKind::Capsule {
+            material, faces, ..
+        }
+        | GeneratorKind::Cone {
+            material, faces, ..
+        }
+        | GeneratorKind::Torus {
+            material, faces, ..
+        }
+        | GeneratorKind::Plane {
+            material, faces, ..
+        }
+        | GeneratorKind::Tetrahedron {
+            material, faces, ..
+        }
+        | GeneratorKind::Tube {
+            material, faces, ..
+        }
+        | GeneratorKind::Bevel {
+            material, faces, ..
+        }
+        | GeneratorKind::Wedge {
+            material, faces, ..
+        }
+        | GeneratorKind::Helix {
+            material, faces, ..
+        }
+        | GeneratorKind::Superellipsoid {
+            material, faces, ..
+        }
+        | GeneratorKind::Spine {
+            material, faces, ..
+        }
+        | GeneratorKind::Lathe {
+            material, faces, ..
+        }
+        | GeneratorKind::BlobGroup {
+            material, faces, ..
+        } => std::iter::once(material)
+            .chain(faces.iter_mut().map(|f| &mut f.material))
+            .collect(),
+        GeneratorKind::Sign { material, .. } => vec![material],
         GeneratorKind::Shape { materials, .. } => materials.values_mut().collect(),
         GeneratorKind::LSystem { materials, .. } => materials.values_mut().collect(),
         GeneratorKind::Terrain(_)
@@ -187,8 +223,40 @@ mod tests {
                 metallic: Fp(metallic),
                 ..SovereignMaterialSettings::default()
             },
+            faces: Vec::new(),
             torture: crate::pds::TortureParams::default(),
         })
+    }
+
+    /// A face override must weather exactly like the base material (#955) —
+    /// a grimed slum keeps no pristine screen face.
+    #[test]
+    fn socio_finish_weathers_face_overrides_too() {
+        let mut node = cuboid([0.5, 0.5, 0.5], 0.5, 0.0, 0.0);
+        node.kind.faces_mut().expect("cuboid is a primitive").push(
+            crate::pds::generator::FaceOverride {
+                face: crate::pds::generator::FaceKey::Top,
+                material: SovereignMaterialSettings {
+                    base_color: Fp3([0.5, 0.5, 0.5]),
+                    roughness: Fp(0.5),
+                    ..SovereignMaterialSettings::default()
+                },
+                uv_mapping: None,
+            },
+        );
+        // Prosperity 0.0 → wealth −1: full grime tint.
+        apply_socio_finish(&mut node, 0.0, 0.0);
+        let base = node.kind.material().expect("base material").clone();
+        let face = &node.kind.faces().expect("faces")[0].material;
+        assert_ne!(
+            face.base_color.0,
+            [0.5, 0.5, 0.5],
+            "face override escaped the finish pass"
+        );
+        assert_eq!(
+            face.base_color, base.base_color,
+            "identical inputs must weather identically"
+        );
     }
 
     fn only_material(node: &Generator) -> &SovereignMaterialSettings {
