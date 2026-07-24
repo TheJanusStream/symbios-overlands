@@ -4,15 +4,61 @@
 //! beacon. Rooftop steam drifts over a low air-handler hum. ~46 m tall, so
 //! it anchors the district and reads as a glowing tower across the region.
 
+use std::f32::consts::FRAC_PI_2;
+
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, foundation_block, glow, id_quat, prim, solid,
-    sphere,
+    assemble, cuboid_tapered, cylinder_tapered, foundation_block, glow, id_quat, plane, prim,
+    quat_x, quat_z, solid, sphere, window_card,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{CONCRETE_GREY, GLASS_BLUE, LAMP_WARM, STEEL_GREY, concrete, fx, glass, steel};
+use super::{CONCRETE_GREY, GLASS_BLUE, LAMP_WARM, STEEL_GREY, concrete, fx, steel};
+
+/// Glaze the four faces of a square shaft (half-width `hw`, height `h` from
+/// `y0`) with a [`window_card`] on a [`plane`] apiece, standing just proud of
+/// the core so the cut panes reveal the lit interior behind — the curtain wall
+/// as real glazing, not a `Window` texture tiled over a solid box. `cols`/`rows`
+/// are the horizontal/vertical pane counts; on the ±X faces the plane is turned
+/// with [`quat_z`], which swaps the card's axes, so they pass `(rows, cols)`.
+fn glaze_faces(prims: &mut Vec<Generator>, hw: f32, y0: f32, h: f32, cols: u32, rows: u32) {
+    let cy = y0 + h * 0.5;
+    let eps = 0.06;
+    // ±Z faces — size reads [width-X, height-Y].
+    for s in [-1.0_f32, 1.0] {
+        let q = if s < 0.0 {
+            quat_x(-FRAC_PI_2)
+        } else {
+            quat_x(FRAC_PI_2)
+        };
+        prims.push(prim(
+            plane(
+                [2.0 * hw, h],
+                window_card(GLASS_BLUE, cols, rows, 0.3, 0.02),
+            ),
+            [0.0, cy, s * (hw + eps)],
+            q,
+        ));
+    }
+    // ±X faces — the quat_z turn maps the card's U onto Y, so size is
+    // [height, width-Z] and the pane counts swap to (rows, cols).
+    for s in [-1.0_f32, 1.0] {
+        let q = if s < 0.0 {
+            quat_z(FRAC_PI_2)
+        } else {
+            quat_z(-FRAC_PI_2)
+        };
+        prims.push(prim(
+            plane(
+                [h, 2.0 * hw],
+                window_card(GLASS_BLUE, rows, cols, 0.3, 0.02),
+            ),
+            [s * (hw + eps), cy, 0.0],
+            q,
+        ));
+    }
+}
 
 /// Ring `bays - 1` intermediate vertical mullions around each face of a square
 /// glass shaft of half-width `hw`, from `y0` over height `h`, held proud of the
@@ -94,17 +140,21 @@ fn build_tree() -> Generator {
     base.transform.translation.0[1] -= plaza_h * 0.5;
     prims.push(base);
 
-    // Lower glass shaft.
+    // Lower shaft: a lit blue core, glazed on every face. The core is an
+    // emissive mass (the lit floors) rather than the old `Window`-textured box
+    // that tiled ~1/m into a postage-stamp grid; the cut glazing panes over it
+    // read as blue curtain wall.
     let lower_y0 = plaza_h;
     prims.push(prim(
         solid(cuboid_tapered(
-            [lower_w, lower_h, lower_w],
+            [lower_w - 0.2, lower_h, lower_w - 0.2],
             0.0,
-            glass(GLASS_BLUE, 2.5),
+            glow(GLASS_BLUE, 1.6),
         )),
         [0.0, lower_y0 + lower_h * 0.5, 0.0],
         id_quat(),
     ));
+    glaze_faces(&mut prims, lower_w * 0.5, lower_y0, lower_h, 4, 8);
     // Steel spandrel floor bands.
     let bands = 8;
     for k in 1..bands {
@@ -142,10 +192,18 @@ fn build_tree() -> Generator {
         [0.0, lower_y0 + 2.3, front_z - 0.2],
         id_quat(),
     ));
+    // Warm-lit reception behind the doors, so the cut lobby panes read as a lit
+    // foyer rather than a dark recess.
     prims.push(prim(
-        cuboid_tapered([5.2, 4.0, 0.25], 0.0, glass([0.16, 0.22, 0.28], 1.6)),
-        [0.0, lower_y0 + 2.1, front_z - 0.42],
+        cuboid_tapered([5.0, 3.6, 0.08], 0.0, glow(LAMP_WARM, 1.4)),
+        [0.0, lower_y0 + 2.1, front_z - 0.32],
         id_quat(),
+    ));
+    // Glass doors — a cut window card on a plane over the reception.
+    prims.push(prim(
+        plane([5.2, 4.0], window_card([0.16, 0.22, 0.28], 4, 2, 0.3, 0.03)),
+        [0.0, lower_y0 + 2.1, front_z - 0.42],
+        quat_x(-FRAC_PI_2),
     ));
     // Lobby door mullions.
     for x in [-1.4_f32, 0.0, 1.4] {
@@ -179,16 +237,17 @@ fn build_tree() -> Generator {
         [0.0, upper_y0 + 0.2, 0.0],
         id_quat(),
     ));
-    // Upper glass shaft.
+    // Upper shaft: same lit blue core, glazed on every face.
     prims.push(prim(
         solid(cuboid_tapered(
-            [upper_w, upper_h, upper_w],
+            [upper_w - 0.2, upper_h, upper_w - 0.2],
             0.0,
-            glass(GLASS_BLUE, 2.5),
+            glow(GLASS_BLUE, 1.6),
         )),
         [0.0, upper_y0 + 0.4 + upper_h * 0.5, 0.0],
         id_quat(),
     ));
+    glaze_faces(&mut prims, upper_w * 0.5, upper_y0 + 0.4, upper_h, 3, 5);
     for k in 1..5 {
         let y = upper_y0 + 0.4 + upper_h * (k as f32 / 5.0);
         prims.push(prim(
@@ -263,6 +322,7 @@ fn build_tree() -> Generator {
 mod tests {
     use super::*;
     use crate::catalogue::items::util::assert_sanitize_stable;
+    use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
     #[test]
     fn build_round_trips_through_sanitize() {
@@ -274,5 +334,33 @@ mod tests {
         assert!(crate::catalogue::items::util::has_emissive(
             &GlassSkyscraper.build("")
         ));
+    }
+
+    /// #954: every `Window` card (all four curtain-wall faces + the lobby) sits
+    /// on a `Plane` at `uv_scale` 1.0 — spans once, no per-metre tiling — and,
+    /// a landmark embedded in room records, the tree survives a serde round-trip.
+    #[test]
+    fn glazing_is_planes_and_round_trips() {
+        use crate::pds::material_finish::node_materials_mut;
+        fn walk(g: &mut Generator) {
+            let tag = g.kind.kind_tag();
+            let is_plane = matches!(g.kind, GeneratorKind::Plane { .. });
+            for m in node_materials_mut(&mut g.kind) {
+                if matches!(m.texture, SovereignTextureConfig::Window(_)) {
+                    assert!(is_plane, "Window card must sit on a Plane, found {tag}");
+                    assert_eq!(m.uv_scale.0, 1.0, "Window cards must stay at uv_scale 1.0");
+                }
+            }
+            for c in &mut g.children {
+                walk(c);
+            }
+        }
+        let mut g = GlassSkyscraper.build("");
+        walk(&mut g);
+        let back: Generator = serde_json::from_str(&serde_json::to_string(&g).unwrap()).unwrap();
+        assert!(
+            !crate::state::records_differ(&g, &back),
+            "glass skyscraper must survive a serde round-trip"
+        );
     }
 }
