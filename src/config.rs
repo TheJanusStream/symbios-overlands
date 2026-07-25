@@ -1201,6 +1201,36 @@ pub mod ui {
         pub const SCALE: f32 = 0.25;
     }
 
+    /// Click-to-pick face selection (`crate::editor_gizmo::face_pick`,
+    /// #961): the brief in-scene confirmation of which face a click
+    /// resolved.
+    pub mod face_pick {
+        /// Wireframe colour [R, G, B, A] for the picked face's triangles.
+        /// Cyan — deliberately none of the neighbouring signals: not the
+        /// selection box's amber, not the blob proxies' add-green /
+        /// carve-red, not the wireframe's blue-grey.
+        pub const HIGHLIGHT_COLOR: [f32; 4] = [0.25, 0.95, 1.0, 0.9];
+
+        /// Seconds the highlight stays up, fading out over its life. Long
+        /// enough to read on a face the cursor is still covering, short
+        /// enough that it never becomes scenery.
+        pub const HIGHLIGHT_SECS: f64 = 0.7;
+
+        /// Metres each outlined triangle is lifted along its own normal
+        /// before drawing. Gizmo lines are depth-tested, and an outline
+        /// drawn exactly on the surface it outlines z-fights into dashes;
+        /// a hair's clearance reads as a clean wireframe at any distance a
+        /// face is actually clickable from.
+        pub const HIGHLIGHT_LIFT_M: f32 = 0.004;
+
+        /// Triangle ceiling for the highlight. A face can be the whole
+        /// surface of a subdivided sphere; drawing every edge of it would
+        /// cost more than the confirmation is worth, so past this many
+        /// triangles the outline is a representative sample of the face
+        /// rather than all of it.
+        pub const MAX_HIGHLIGHT_TRIANGLES: usize = 1500;
+    }
+
     /// In-scene selection highlight (`crate::editor_gizmo::highlight`,
     /// #822 / W5): wire boxes around what the gizmo will affect.
     pub mod selection_highlight {

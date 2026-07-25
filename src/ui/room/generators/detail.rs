@@ -16,7 +16,7 @@ use super::super::terrain::draw_terrain_forge;
 use super::super::widgets::draw_transform;
 use super::particles::draw_generator_particles;
 use super::primitive::{
-    FacePanel, draw_primitive_bevel, draw_primitive_blob_group, draw_primitive_capsule,
+    FacePanel, FacePickUi, draw_primitive_bevel, draw_primitive_blob_group, draw_primitive_capsule,
     draw_primitive_cone, draw_primitive_cuboid, draw_primitive_cylinder, draw_primitive_helix,
     draw_primitive_lathe, draw_primitive_plane, draw_primitive_sphere, draw_primitive_spine,
     draw_primitive_superellipsoid, draw_primitive_tetrahedron, draw_primitive_torus,
@@ -53,6 +53,9 @@ pub(super) fn draw_detail_panel(
     // Live road stats for the RoadNetwork readout (#888); `None` when the
     // source can't grow roads.
     road_stats: Option<&crate::terrain::RoadPanelStats>,
+    // Click-to-pick face selection (#961): the shared arm flag plus the
+    // pick channel, resolved against THIS node's id below.
+    face_pick: &mut crate::editor_gizmo::FacePick,
 ) {
     let Some(id) = current_id(selected_generator, selected_prim_path) else {
         ui.vertical_centered(|ui| {
@@ -116,6 +119,12 @@ pub(super) fn draw_detail_panel(
 
     let salt = node_salt(&id);
 
+    // A scene pick names one node (#961); resolving it here — where the
+    // node's id is known — is what keeps a stale pick (world editor closed
+    // between the click and this draw) from painting whichever node happens
+    // to be selected now.
+    let picked_face = face_pick.take_for(&id.root, &id.path);
+
     // Resolved BEFORE the mutable node borrow below: which nodes the
     // terrain plugin actually reads roads from (#886/#895).
     let active_road_nodes = active_road_node_ids(source);
@@ -170,6 +179,10 @@ pub(super) fn draw_detail_panel(
                     blob_selected_element,
                     undo_label,
                     road_stats,
+                    FacePickUi {
+                        picked: picked_face,
+                        armed: &mut face_pick.armed,
+                    },
                 );
 
                 // Per-construct audio slot (#314). The bridge writes back
@@ -777,6 +790,9 @@ fn draw_generator_detail(
     blob_selected_element: &mut Option<usize>,
     undo_label: &mut crate::ui::undo::LabelSlot,
     road_stats: Option<&crate::terrain::RoadPanelStats>,
+    // Click-to-pick channel (#961), already narrowed to this node by the
+    // caller: the arm flag plus any face a scene click resolved here.
+    pick: FacePickUi<'_>,
 ) {
     // Snapshot taken before the match's mutable borrow: the per-face panel
     // (#960) needs the WHOLE kind — which faces the current cut state emits,
@@ -788,12 +804,20 @@ fn draw_generator_detail(
     // plus the snapshot. A macro rather than a helper fn because the panel
     // borrows `undo_label` mutably, and only the arm that runs may take
     // that borrow.
+    let FacePickUi {
+        armed: pick_armed,
+        picked: just_picked,
+    } = pick;
     macro_rules! face_panel {
         ($faces:expr) => {
             FacePanel {
                 overrides: $faces,
                 snapshot: snapshot.as_ref(),
                 undo_label: &mut *undo_label,
+                pick: FacePickUi {
+                    armed: &mut *pick_armed,
+                    picked: just_picked,
+                },
             }
         };
     }

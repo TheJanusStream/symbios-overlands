@@ -803,6 +803,22 @@ pub(super) struct FacePanel<'a, 'u> {
     /// Undo-history label sink, so a face edit reads as one in the ⌘Z list
     /// instead of the generic "edit".
     pub undo_label: &'a mut crate::ui::undo::LabelSlot<'u>,
+    /// Click-to-pick channel (#961): the arm flag this panel's button
+    /// toggles, plus any face the last viewport click resolved *for this
+    /// node*.
+    pub pick: FacePickUi<'a>,
+}
+
+/// The Faces panel's half of click-to-pick (#961) — the
+/// [`FacePick`](crate::editor_gizmo::FacePick) resource narrowed to what
+/// the panel may touch, with the addressing already resolved by the caller.
+pub(super) struct FacePickUi<'a> {
+    /// Armed by this panel's button, disarmed by the click that resolves a
+    /// face (or by pressing the button again).
+    pub armed: &'a mut bool,
+    /// A face the last scene click resolved on the node being drawn, to
+    /// focus exactly once — creating its override first if it is new.
+    pub picked: Option<FaceKey>,
 }
 
 /// Shared tail for every primitive editor: solid checkbox, torture triple,
@@ -854,6 +870,11 @@ fn draw_common_primitive(
 ///   and inherits its projection, so it plans into the same material group
 ///   (`FacePlan::is_whole` stays true) and the prim does not split until the
 ///   author actually changes something.
+///
+/// A scene pick (#961) arrives here as `pick.picked`: it adds the face if it
+/// is new, opens its row, and forces this whole section open — the picked
+/// node is usually one the user has never expanded, so a silently-added row
+/// inside a collapsed header would look like nothing happened.
 fn draw_face_overrides(
     ui: &mut egui::Ui,
     faces: FacePanel<'_, '_>,
@@ -865,7 +886,22 @@ fn draw_face_overrides(
         overrides,
         snapshot,
         undo_label,
+        pick,
     } = faces;
+    let FacePickUi {
+        armed,
+        picked: just_picked,
+    } = pick;
+    // Consume the pick before the header: a new face has to be in the list
+    // *this* draw, or its row can't be opened until the next one.
+    if let Some(face) = just_picked
+        && !overrides.iter().any(|ov| ov.face == face)
+        && overrides.len() < MAX_FACE_OVERRIDES
+    {
+        overrides.push(new_face_override(face, base));
+        undo_label.set("face override");
+        *dirty = true;
+    }
     let title = if overrides.is_empty() {
         "Faces".to_string()
     } else {
@@ -877,6 +913,9 @@ fn draw_face_overrides(
     egui::CollapsingHeader::new(title)
         .id_salt(format!("{}_faces", salt))
         .default_open(false)
+        // A pick opens the section for the frame it lands on; egui keeps it
+        // open afterwards, so the override is visible where it was made.
+        .open(just_picked.map(|_| true))
         .show(ui, |ui| {
             // Inside the body: `face_census` meshes the prim, so a closed
             // panel must not pay for it, and a selected BlobGroup must not
@@ -904,12 +943,19 @@ fn draw_face_overrides(
                 // Keyed by face rather than index so removing one row does
                 // not hand its open/closed state to its neighbour.
                 let id = ui.make_persistent_id((salt, "face_row", ov.face.label()));
-                egui::collapsing_header::CollapsingState::load_with_default_open(
+                let mut row = egui::collapsing_header::CollapsingState::load_with_default_open(
                     ui.ctx(),
                     id,
                     false,
-                )
-                .show_header(ui, |ui| {
+                );
+                // The picked face opens so the click lands on an editor, not
+                // on a row the user still has to find and expand. Built here
+                // rather than outside the section: the row's id comes from
+                // this `Ui`'s id stack, which only exists inside the body.
+                if just_picked == Some(ov.face) {
+                    row.set_open(true);
+                }
+                row.show_header(ui, |ui| {
                     let c = ov.material.base_color.0;
                     egui::color_picker::show_color(
                         ui,
@@ -954,6 +1000,31 @@ fn draw_face_overrides(
                 overrides.remove(i);
                 edited = true;
             }
+            // Pick from the scene (#961) — the reason the face vocabulary
+            // ("Side −X", "Slice start") never has to be decoded against the
+            // camera. Sits with the dropdown because they are the two ways
+            // to reach the same list.
+            ui.horizontal(|ui| {
+                if ui
+                    .selectable_label(*armed, "Pick from scene")
+                    .on_hover_text(
+                        "Click a face in the 3D view to give it its own \
+                         material. The click also selects whatever prim it \
+                         lands on, so this works across the whole room — not \
+                         only on the prim shown here.",
+                    )
+                    .clicked()
+                {
+                    *armed = !*armed;
+                }
+                if *armed {
+                    ui.label(
+                        egui::RichText::new("click a face in the view — or here again to cancel")
+                            .small()
+                            .color(weak),
+                    );
+                }
+            });
             // The picker offers only faces this prim emits *now* and does not
             // yet override — the sanitizer drops duplicate keys (first wins),
             // so offering one twice would silently discard the second.

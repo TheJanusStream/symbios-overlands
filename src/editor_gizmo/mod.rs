@@ -63,17 +63,23 @@
 //! * [`highlight`] — selection wire boxes (#822 / W5): the selected
 //!   node's subtree bright, sibling scatter instances dim, so the
 //!   gizmo's blast radius is visible before a drag.
+//! * [`face_pick`] — click-to-pick face selection (#961): the same scene
+//!   click that selects a prim also names the face under the cursor for
+//!   the Faces panel, while the panel has picking armed.
 
 mod blob;
 mod commit;
 mod context_menu;
 mod drag;
+mod face_pick;
 mod highlight;
 mod sync;
 
 pub use blob::BlobEditContext;
+pub use face_pick::FacePick;
 
 use bevy::ecs::hierarchy::ChildOf;
+use bevy::mesh::Mesh3d;
 use bevy::picking::mesh_picking::ray_cast::{MeshRayCast, MeshRayCastSettings};
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
@@ -84,7 +90,7 @@ use transform_gizmo_bevy::{GizmoOrientation, GizmoTarget};
 use crate::state::AppState;
 use crate::ui::avatar::AvatarEditorState;
 use crate::ui::room::{EditorTab, RoomEditorState};
-use crate::world_builder::{AvatarVisualPrim, PlacementMarker, PrimMarker};
+use crate::world_builder::{AvatarVisualPrim, PlacementMarker, PrimFaceGroup, PrimMarker};
 
 /// Owner-facing toggle for how the gizmo's drag axes are oriented.
 ///
@@ -293,6 +299,7 @@ impl Plugin for EditorGizmoPlugin {
         //    visible to the drag system on the very same frame.
         app.init_resource::<blob::BlobEditContext>()
             .init_resource::<blob::proxy::BlobEditAssets>()
+            .init_resource::<face_pick::FacePick>()
             .add_systems(
                 PostUpdate,
                 (
@@ -304,6 +311,7 @@ impl Plugin for EditorGizmoPlugin {
                     sync::sync_gizmo_selection,
                     drag::manage_gizmo_drag,
                     highlight::draw_selection_highlight,
+                    face_pick::draw_face_pick_highlight,
                     blob::wireframe::swap_blob_wireframe,
                     blob::preview::blob_drag_preview,
                 )
@@ -371,7 +379,15 @@ impl Plugin for EditorGizmoPlugin {
 /// the prior frame's hover — and the owner always hovers a handle before
 /// pressing — so a click that *starts* a drag is caught here and leaves
 /// the selection (and the drag) untouched.
-#[allow(clippy::too_many_arguments)]
+///
+/// **Face picking (#961).** While the Faces panel has [`FacePick`] armed,
+/// the same click additionally resolves *which face* of the prim was under
+/// the cursor and hands it to the panel — one click, two answers, because a
+/// face is only ever picked on the prim that is being selected anyway.
+/// While armed, a click that resolves nothing leaves the selection alone
+/// instead of clearing it: dropping the panel the user is aiming from would
+/// take the armed mode down with it.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn pick_on_scene_click(
     mut contexts: EguiContexts,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -392,6 +408,12 @@ fn pick_on_scene_click(
         Query<&blob::proxy::BlobElementProxy>,
         Query<&GlobalTransform>,
         Query<&AvatarVisualPrim>,
+    ),
+    (mut face_pick, face_groups, meshes, time): (
+        ResMut<face_pick::FacePick>,
+        Query<(&PrimFaceGroup, &Mesh3d)>,
+        Res<Assets<Mesh>>,
+        Res<Time>,
     ),
 ) {
     // Left button only — the orbit/pan camera owns Right/Middle, so this
@@ -417,8 +439,32 @@ fn pick_on_scene_click(
     }
 
     // Cursor → world ray → nearest rendered mesh, cast ONCE and shared by
-    // the proxy, avatar (#823), and room pick branches below.
-    let hit_entity = scene_hit_under_cursor(&windows, &cameras, &mut raycast);
+    // the proxy, avatar (#823), and room pick branches below. The hit
+    // triangle rides along for face picking (#961).
+    let hit = scene_hit_under_cursor(&windows, &cameras, &mut raycast);
+    let hit_entity = hit.map(|(entity, _)| entity);
+
+    // Which face the cursor landed on, resolved only while the panel asks
+    // for one. The group table is per render entity — a split prim's child
+    // mesh carries its own — so the hit entity is the one to ask, and the
+    // ancestor walks below only decide *whose* face it is.
+    let picked_face = if face_pick.armed {
+        hit.and_then(|(entity, triangle)| {
+            let (group, mesh) = face_groups.get(entity).ok()?;
+            let face = face_pick::face_at(&group.faces, triangle)?;
+            let outline = meshes
+                .get(&mesh.0)
+                .zip(global_tfs.get(entity).ok())
+                .map(|(mesh, to_world)| {
+                    face_pick::face_triangles(mesh, &group.faces, face, to_world)
+                })
+                .unwrap_or_default();
+            Some((face, outline))
+        })
+    } else {
+        None
+    };
+    let now = time.elapsed_secs_f64();
 
     // Blob element proxies take pick precedence (#705): while a BlobGroup
     // is under edit, clicking one of its red/green proxy meshes selects
@@ -451,6 +497,15 @@ fn pick_on_scene_click(
                 if room_state.has_selection() {
                     room_state.clear_selection();
                 }
+                if let Some((face, outline)) = picked_face {
+                    face_pick.record(
+                        crate::ui::room::generators::AvatarVisualsTreeSource::ROOT_NAME.to_string(),
+                        marker.path.clone(),
+                        face,
+                        outline,
+                        now,
+                    );
+                }
                 return;
             }
             cursor_entity = parents.get(entity).ok().map(ChildOf::parent);
@@ -459,8 +514,9 @@ fn pick_on_scene_click(
 
     // A scene click that did NOT land on the avatar takes the avatar
     // editor's selection away — same cross-editor mutex direction as
-    // before #702.
-    if avatar_state.has_visuals_selection() {
+    // before #702. Armed face picking is aiming at *something*; a miss
+    // must not close the panel it is aimed from.
+    if avatar_state.has_visuals_selection() && !face_pick.armed {
         avatar_state.clear_visuals_selection();
     }
 
@@ -475,7 +531,7 @@ fn pick_on_scene_click(
         (Some(s), Some(r)) if s.did == r.0
     );
     if !(panels.world_editor && owns_room) {
-        if room_state.has_selection() {
+        if room_state.has_selection() && !face_pick.armed {
             room_state.clear_selection();
         }
         return;
@@ -504,49 +560,26 @@ fn pick_on_scene_click(
         cursor_entity = parents.get(entity).ok().map(ChildOf::parent);
     }
 
+    // A face is only ever picked on the prim the same click selects, so the
+    // record rides along with whichever branch below does the selecting.
+    let record_face = |marker: &PrimMarker, pick: &mut face_pick::FacePick| {
+        if let Some((face, outline)) = picked_face.clone() {
+            pick.record(
+                marker.generator_ref.clone(),
+                marker.path.clone(),
+                face,
+                outline,
+                now,
+            );
+        }
+    };
+
     match room_state.selected_tab {
         EditorTab::Generators => {
             if let Some((marker, marker_entity)) = picked_prim {
-                room_state.selected_placement = None;
-                room_state.selected_generator = Some(marker.generator_ref.clone());
-                room_state.selected_prim_path = Some(marker.path.clone());
-                room_state.preferred_pick =
-                    global_tfs
-                        .get(marker_entity)
-                        .ok()
-                        .map(|gt| crate::ui::room::PreferredPick {
-                            generator_ref: marker.generator_ref.clone(),
-                            path: marker.path.clone(),
-                            pos: gt.translation(),
-                        });
-                // Reveal the picked row: the tree collapses by default
-                // (#719), so open every ancestor along the path or the
-                // selected row stays hidden inside a collapsed parent.
-                // `set_openness(true)` records an explicit open-state that
-                // overrides the collapsed default for each ancestor (root at
-                // depth 0 through the immediate parent at depth len-1).
-                for depth in 0..marker.path.len() {
-                    room_state.tree_view_state.set_openness(
-                        crate::ui::room::GenNodeId::child(
-                            marker.generator_ref.clone(),
-                            marker.path[..depth].to_vec(),
-                        ),
-                        true,
-                    );
-                }
-                // Mirror a tree-row click so the GUI highlights the node,
-                // and flag the tree to grab focus on its next draw so the
-                // row gets the bright *focused* highlight rather than the
-                // dim unfocused one (a world-pick bypasses the tree's own
-                // click-to-focus path).
-                room_state
-                    .tree_view_state
-                    .set_selected(vec![crate::ui::room::GenNodeId::child(
-                        marker.generator_ref,
-                        marker.path,
-                    )]);
-                room_state.pending_tree_focus = true;
-            } else {
+                record_face(&marker, &mut face_pick);
+                select_prim_in_tree(&mut room_state, marker, marker_entity, &global_tfs);
+            } else if !face_pick.armed {
                 room_state.clear_selection();
             }
         }
@@ -556,7 +589,7 @@ fn pick_on_scene_click(
                 room_state.selected_prim_path = None;
                 room_state.tree_view_state.set_selected(Vec::new());
                 room_state.selected_placement = Some(index);
-            } else {
+            } else if !face_pick.armed {
                 room_state.clear_selection();
             }
         }
@@ -567,62 +600,90 @@ fn pick_on_scene_click(
         _ => {
             if let Some((marker, marker_entity)) = picked_prim {
                 room_state.selected_tab = EditorTab::Generators;
-                room_state.selected_placement = None;
-                room_state.selected_generator = Some(marker.generator_ref.clone());
-                room_state.selected_prim_path = Some(marker.path.clone());
-                room_state.preferred_pick =
-                    global_tfs
-                        .get(marker_entity)
-                        .ok()
-                        .map(|gt| crate::ui::room::PreferredPick {
-                            generator_ref: marker.generator_ref.clone(),
-                            path: marker.path.clone(),
-                            pos: gt.translation(),
-                        });
-                for depth in 0..marker.path.len() {
-                    room_state.tree_view_state.set_openness(
-                        crate::ui::room::GenNodeId::child(
-                            marker.generator_ref.clone(),
-                            marker.path[..depth].to_vec(),
-                        ),
-                        true,
-                    );
-                }
-                room_state
-                    .tree_view_state
-                    .set_selected(vec![crate::ui::room::GenNodeId::child(
-                        marker.generator_ref,
-                        marker.path,
-                    )]);
-                room_state.pending_tree_focus = true;
+                record_face(&marker, &mut face_pick);
+                select_prim_in_tree(&mut room_state, marker, marker_entity, &global_tfs);
             } else if let Some(index) = picked_placement {
                 room_state.selected_tab = EditorTab::Placements;
                 room_state.selected_generator = None;
                 room_state.selected_prim_path = None;
                 room_state.tree_view_state.set_selected(Vec::new());
                 room_state.selected_placement = Some(index);
-            } else {
+            } else if !face_pick.armed {
                 room_state.clear_selection();
             }
         }
     }
 }
 
-/// Cursor position → world ray → nearest rendered mesh under it. Cast
-/// once per click at the top of [`pick_on_scene_click`] and shared by
-/// the proxy, avatar, and room branches.
+/// Point the Region Assets tree at the sub-part a scene click landed on —
+/// selection, gizmo instance preference, ancestor reveal, row focus.
+///
+/// Shared by the pick's Generators branch and its switch-tabs-and-select
+/// branch, which land on the same node by different routes.
+fn select_prim_in_tree(
+    room_state: &mut RoomEditorState,
+    marker: PrimMarker,
+    marker_entity: Entity,
+    global_tfs: &Query<&GlobalTransform>,
+) {
+    room_state.selected_placement = None;
+    room_state.selected_generator = Some(marker.generator_ref.clone());
+    room_state.selected_prim_path = Some(marker.path.clone());
+    // #822: the clicked instance's world position seeds `preferred_pick` so
+    // the gizmo lands on the instance that was actually clicked, not the
+    // camera-nearest one.
+    room_state.preferred_pick =
+        global_tfs
+            .get(marker_entity)
+            .ok()
+            .map(|gt| crate::ui::room::PreferredPick {
+                generator_ref: marker.generator_ref.clone(),
+                path: marker.path.clone(),
+                pos: gt.translation(),
+            });
+    // Reveal the picked row: the tree collapses by default (#719), so open
+    // every ancestor along the path or the selected row stays hidden inside
+    // a collapsed parent. `set_openness(true)` records an explicit
+    // open-state that overrides the collapsed default for each ancestor
+    // (root at depth 0 through the immediate parent at depth len-1).
+    for depth in 0..marker.path.len() {
+        room_state.tree_view_state.set_openness(
+            crate::ui::room::GenNodeId::child(
+                marker.generator_ref.clone(),
+                marker.path[..depth].to_vec(),
+            ),
+            true,
+        );
+    }
+    // Mirror a tree-row click so the GUI highlights the node, and flag the
+    // tree to grab focus on its next draw so the row gets the bright
+    // *focused* highlight rather than the dim unfocused one (a world-pick
+    // bypasses the tree's own click-to-focus path).
+    room_state
+        .tree_view_state
+        .set_selected(vec![crate::ui::room::GenNodeId::child(
+            marker.generator_ref,
+            marker.path,
+        )]);
+    room_state.pending_tree_focus = true;
+}
+
+/// Cursor position → world ray → nearest rendered mesh under it, with the
+/// index of the triangle that was hit. Cast once per click at the top of
+/// [`pick_on_scene_click`] and shared by the proxy, avatar, and room
+/// branches; only face picking (#961) reads the triangle.
 fn scene_hit_under_cursor(
     windows: &Query<&Window, With<PrimaryWindow>>,
     cameras: &Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     raycast: &mut MeshRayCast,
-) -> Option<Entity> {
+) -> Option<(Entity, Option<usize>)> {
     let cursor = windows.single().ok()?.cursor_position()?;
     let (camera, cam_tf) = cameras.single().ok()?;
     let ray = camera.viewport_to_world(cam_tf, cursor).ok()?;
     raycast
         .cast_ray(ray, &MeshRayCastSettings::default())
         .first()
-        .map(|(entity, _hit)| *entity)
+        .map(|(entity, hit)| (*entity, hit.triangle_index))
 }
 
 /// Drag session state spanning all the frames between mouse-down and

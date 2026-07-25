@@ -260,6 +260,7 @@ pub fn avatar_ui(
         undo_history,
         mut undo_shortcut,
         mut undo_labels,
+        mut face_pick,
     ): (
         Res<bevy_symbios_audio::ui::AudioMonitor>,
         MessageWriter<bevy_symbios_audio::ui::MonitorRequest>,
@@ -272,6 +273,7 @@ pub fn avatar_ui(
         Res<crate::ui::undo::AvatarUndoHistory>,
         ResMut<crate::ui::undo::UndoShortcut>,
         ResMut<crate::ui::undo::PendingUndoLabels>,
+        ResMut<crate::editor_gizmo::FacePick>,
     ),
 ) {
     // `ResMut::deref_mut` unconditionally flips the change tick, so
@@ -575,6 +577,7 @@ pub fn avatar_ui(
                                 &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
                                 // Avatars can't grow roads — no stats readout.
                                 None,
+                                &mut face_pick,
                             );
                         });
                     }

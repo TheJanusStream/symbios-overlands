@@ -275,6 +275,9 @@ pub(crate) fn draw_generators_tab(
     // Live road-network stats for the RoadNetwork detail readout (#888).
     // `None` for tree sources that can't grow roads (the avatar editor).
     road_stats: Option<&crate::terrain::RoadPanelStats>,
+    // Click-to-pick face selection (#961), shared with the scene click
+    // handler that arms it — the Faces panel's other way in.
+    face_pick: &mut crate::editor_gizmo::FacePick,
 ) {
     // Inventory now flows only into the tree panel (for the root-level
     // "+ From Inventory" toolbar, the per-row "+ From Inventory" submenu,
@@ -316,6 +319,7 @@ pub(crate) fn draw_generators_tab(
             &mut confirms.kind,
             label,
             road_stats,
+            face_pick,
         );
     });
 

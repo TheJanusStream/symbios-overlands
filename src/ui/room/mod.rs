@@ -341,6 +341,9 @@ pub struct RoomEditorExtras<'w, 's> {
     /// Label channel for the next undo entry (#865): sites name their
     /// edit; the flush fallback names the tab.
     undo_labels: ResMut<'w, crate::ui::undo::PendingUndoLabels>,
+    /// Click-to-pick face selection (#961): shared with the scene click
+    /// handler that resolves what the Faces panel armed.
+    face_pick: ResMut<'w, crate::editor_gizmo::FacePick>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -376,6 +379,7 @@ pub fn room_admin_ui(
         undo_history,
         mut undo_shortcut,
         mut undo_labels,
+        mut face_pick,
     } = extras;
     let (Some(session), Some(refresh_ctx), Some(room_did), Some(record)) =
         (session, refresh_ctx, room_did, room_record.as_mut())
@@ -714,6 +718,7 @@ pub fn room_admin_ui(
                                 time.elapsed_secs_f64(),
                                 &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::World),
                                 Some(&road_stats),
+                                &mut face_pick,
                             );
                         });
                     }
