@@ -48,6 +48,7 @@ pub(super) fn draw_primitive_sphere(
     ui: &mut egui::Ui,
     radius: &mut Fp,
     resolution: &mut u32,
+    uv_mapping: &mut UvMapping,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
@@ -59,6 +60,7 @@ pub(super) fn draw_primitive_sphere(
         fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
         drag_u32(ui, "Ico Res", resolution, 0, 6, dirty);
     });
+    draw_uv_mapping(ui, uv_mapping, salt, dirty);
     draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
@@ -68,6 +70,7 @@ pub(super) fn draw_primitive_cylinder(
     radius: &mut Fp,
     height: &mut Fp,
     resolution: &mut u32,
+    uv_mapping: &mut UvMapping,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
@@ -80,6 +83,7 @@ pub(super) fn draw_primitive_cylinder(
         fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
         drag_u32(ui, "Res", resolution, 3, 128, dirty);
     });
+    draw_uv_mapping(ui, uv_mapping, salt, dirty);
     draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
@@ -90,6 +94,7 @@ pub(super) fn draw_primitive_capsule(
     length: &mut Fp,
     latitudes: &mut u32,
     longitudes: &mut u32,
+    uv_mapping: &mut UvMapping,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
@@ -105,6 +110,7 @@ pub(super) fn draw_primitive_capsule(
         drag_u32(ui, "Lats", latitudes, 2, 64, dirty);
         drag_u32(ui, "Lons", longitudes, 4, 128, dirty);
     });
+    draw_uv_mapping(ui, uv_mapping, salt, dirty);
     draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
@@ -114,6 +120,7 @@ pub(super) fn draw_primitive_cone(
     radius: &mut Fp,
     height: &mut Fp,
     resolution: &mut u32,
+    uv_mapping: &mut UvMapping,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
@@ -126,6 +133,7 @@ pub(super) fn draw_primitive_cone(
         fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
         drag_u32(ui, "Res", resolution, 3, 128, dirty);
     });
+    draw_uv_mapping(ui, uv_mapping, salt, dirty);
     draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
@@ -136,6 +144,7 @@ pub(super) fn draw_primitive_torus(
     major_radius: &mut Fp,
     minor_resolution: &mut u32,
     major_resolution: &mut u32,
+    uv_mapping: &mut UvMapping,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
@@ -151,6 +160,7 @@ pub(super) fn draw_primitive_torus(
         drag_u32(ui, "Minor Res", minor_resolution, 3, 64, dirty);
         drag_u32(ui, "Major Res", major_resolution, 3, 128, dirty);
     });
+    draw_uv_mapping(ui, uv_mapping, salt, dirty);
     draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
@@ -212,6 +222,7 @@ pub(super) fn draw_primitive_tube(
     inner_radius: &mut Fp,
     height: &mut Fp,
     resolution: &mut u32,
+    uv_mapping: &mut UvMapping,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
@@ -227,6 +238,7 @@ pub(super) fn draw_primitive_tube(
         fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
         drag_u32(ui, "Res", resolution, 3, 128, dirty);
     });
+    draw_uv_mapping(ui, uv_mapping, salt, dirty);
     draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
@@ -274,6 +286,7 @@ pub(super) fn draw_primitive_helix(
     pitch: &mut Fp,
     turns: &mut Fp,
     resolution: &mut u32,
+    uv_mapping: &mut UvMapping,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
@@ -290,6 +303,7 @@ pub(super) fn draw_primitive_helix(
         fp_slider(ui, "Turns", turns, 0.05, 16.0, dirty);
         drag_u32(ui, "Res/turn", resolution, 3, 128, dirty);
     });
+    draw_uv_mapping(ui, uv_mapping, salt, dirty);
     draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
@@ -343,6 +357,7 @@ pub(super) fn draw_primitive_spine(
     points: &mut Vec<SpinePoint>,
     resolution: &mut u32,
     samples_per_segment: &mut u32,
+    uv_mapping: &mut UvMapping,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
@@ -405,6 +420,7 @@ pub(super) fn draw_primitive_spine(
         drag_u32(ui, "Ring segs", resolution, 3, 64, dirty);
         drag_u32(ui, "Samples/seg", samples_per_segment, 2, 32, dirty);
     });
+    draw_uv_mapping(ui, uv_mapping, salt, dirty);
     draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
@@ -414,6 +430,7 @@ pub(super) fn draw_primitive_lathe(
     points: &mut Vec<LathePoint>,
     resolution: &mut u32,
     smooth: &mut bool,
+    uv_mapping: &mut UvMapping,
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
@@ -471,6 +488,7 @@ pub(super) fn draw_primitive_lathe(
             *dirty = true;
         }
     });
+    draw_uv_mapping(ui, uv_mapping, salt, dirty);
     draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
@@ -683,7 +701,9 @@ const UV_MODES: [(UvMapping, &str, &str); 7] = [
         "Keeps the mesher's own layout, spanning the surface \
          exactly once. Required for alpha cards — window glazing, \
          foliage billboards — which upload clamp-to-edge and would \
-         otherwise tile. The default on Plane.",
+         otherwise tile. The default on Plane and on the revolved \
+         family (sphere, cylinder, torus, lathe, …), whose meshers \
+         wrap the shape analytically better than any projection.",
     ),
     (
         UvMapping::Spherical,
@@ -727,9 +747,14 @@ fn uv_mode_name(mapping: UvMapping) -> &'static str {
         .unwrap_or("Unknown")
 }
 
-/// The shared UV-projection picker (#937). Every kind that carries a
-/// `uv_mapping` field shows the same control, so a mode means the same thing
-/// wherever it appears.
+/// The shared UV-projection picker (#937). All sixteen primitive kinds
+/// carry a `uv_mapping` field and all sixteen show this same control, so a
+/// mode means the same thing wherever it appears.
+///
+/// The revolved family got the row late (#963): its field only started
+/// meshing differently when `projection_for` generalised in #959, and until
+/// then a picker would have been dead UI. Their default stays `Fit` — their
+/// meshers' analytic wrap — so nothing that already existed moved.
 pub(super) fn draw_uv_mapping(
     ui: &mut egui::Ui,
     uv_mapping: &mut UvMapping,

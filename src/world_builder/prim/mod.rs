@@ -1252,6 +1252,41 @@ mod tests {
         }
     }
 
+    /// #963: the revolved family's `uv_mapping` is not decoration. It went
+    /// live with [`projection_for`] in #959 and the editor now offers it on
+    /// all sixteen kinds, so picking anything but the default `Fit` — which
+    /// *means* "keep the mesher's own analytic layout" — must actually
+    /// re-project. A silently ignored field would leave the new picker as
+    /// dead UI that looks like it works.
+    #[test]
+    fn a_revolved_prim_honours_a_non_fit_mapping() {
+        let uvs_of = |tag: &str, mapping: UvMapping| -> Vec<[f32; 2]> {
+            let mut k = GeneratorKind::default_primitive_for_tag(tag).unwrap();
+            *k.uv_mapping_mut()
+                .expect("every primitive carries a mapping") = mapping;
+            match mesh_of(&k).attribute(Mesh::ATTRIBUTE_UV_0) {
+                Some(VertexAttributeValues::Float32x2(uv)) => uv.clone(),
+                _ => panic!("{tag}: no UVs"),
+            }
+        };
+        // The nine kinds whose mesher has an analytic parameterisation, and
+        // which therefore default to `Fit`.
+        for tag in [
+            "Sphere", "Cylinder", "Capsule", "Cone", "Torus", "Tube", "Helix", "Spine", "Lathe",
+        ] {
+            let fit = uvs_of(tag, UvMapping::fit());
+            let projected = uvs_of(tag, UvMapping::PlanarY);
+            assert!(
+                projected.iter().flatten().all(|c| c.is_finite()),
+                "{tag}: non-finite UV under PlanarY"
+            );
+            assert_ne!(
+                fit, projected,
+                "{tag}: uv_mapping changed nothing — the picker would be dead UI"
+            );
+        }
+    }
+
     #[test]
     fn box_pie_cut_and_hollow_carve_the_footprint() {
         // Pie path-cut [0, 0.25]: kept quarter is the +X/+Z quadrant-ish
