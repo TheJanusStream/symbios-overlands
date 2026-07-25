@@ -75,6 +75,49 @@ pub(super) fn assemble(mut prims: Vec<Generator>) -> Generator {
     root
 }
 
+/// Nest `children` under `parent`, rebasing each child's translation from
+/// the prop's world frame into the parent's local one.
+///
+/// The counterpart to [`assemble`] for a prop built as a **tree** rather
+/// than a flat list. Both let every piece be authored in one world frame;
+/// the difference is what the owner gets in the editor. Under `assemble`,
+/// every piece hangs off the root, so dragging a fountain's bowl leaves its
+/// jet, its rim and its spray behind — each has to be moved by hand.
+/// Nested, a part carries everything it holds up, and one gizmo drag moves
+/// a whole sub-assembly.
+///
+/// A prop reads best nested the way it was built: the root at the bottom,
+/// each course parented to the one it stands on. That is also the order to
+/// *write* it in — innermost first — because a subtree passed in here still
+/// carries its own world translation, and only its own children have been
+/// rebased so far:
+///
+/// ```ignore
+/// let bowl = nest(prim(bowl, [0.0, 1.49, 0.0], id_quat()), vec![
+///     prim(rim, [0.0, 1.56, 0.0], id_quat()),
+///     fx::jet([0.0, 1.62, 0.0], seed),
+/// ]);
+/// let base = nest(prim(plinth, [0.0, 0.06, 0.0], id_quat()), vec![
+///     nest(prim(shaft, [0.0, 1.0, 0.0], id_quat()), vec![bowl]),
+/// ]);
+/// ```
+///
+/// Rotation and scale propagate too, so a parent that is *tilted* spins
+/// everything above it — which is the point on a leaning mast, and a bug on
+/// a plinth. Keep a sub-assembly's own root axis-aligned unless the tilt is
+/// meant to carry.
+pub(super) fn nest(mut parent: Generator, children: Vec<Generator>) -> Generator {
+    let [px, py, pz] = parent.transform.translation.0;
+    for mut c in children {
+        let t = &mut c.transform.translation.0;
+        t[0] -= px;
+        t[1] -= py;
+        t[2] -= pz;
+        parent.children.push(c);
+    }
+    parent
+}
+
 /// Rotation around X — tilts ramps and dome slits.
 pub(super) fn quat_x(angle_rad: f32) -> Fp4 {
     let half = angle_rad * 0.5;
