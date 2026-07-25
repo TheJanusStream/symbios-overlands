@@ -13,14 +13,12 @@
 //! slabs pinned to the front.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, glow, id_quat, plane, prim, quat_x, solid, tiles_per_metre,
+    self, assemble, cuboid_tapered, glow, id_quat, lit_interior, plane, prim, quat_x, solid,
     window_card, with_face,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
-use crate::pds::{
-    Fp, Fp2, Fp3, Fp64, Generator, SovereignMaterialSettings, SovereignTextureConfig,
-};
+use crate::pds::{Generator, SovereignMaterialSettings};
 use crate::seeded_defaults::ThemeArchetype;
 
 use super::{BRICK_RED, LAMP_WARM, brick, concrete, enamel, steel};
@@ -76,124 +74,18 @@ const SILL_Y: f32 = BASE_H + 0.65;
 /// lays a 172 mm one, small enough at street distance to mip toward flat
 /// colour.
 const BRICK_LEN: f32 = 0.215;
-/// Brick rows per texture tile — the generator's `scale`. Ten rather than
-/// the kit's five: the tile has to hold enough bricks that the seam artifact
-/// below is rare, and rows and columns scale together.
-const BRICK_ROWS: f64 = 10.0;
-/// Brick columns per tile — `round(scale × aspect_ratio)`, and the number of
-/// bricks a tile spans across the wall.
-///
-/// Four is the smallest count that keeps the tile seam quiet. The generator
-/// colours each brick by hashing its **raw** cell index, and a brick
-/// straddling the tile's U seam is indexed `0` on one side and `cols` on the
-/// other — so it renders as two half-bricks of different colour. One brick
-/// per tile per staggered course always straddles; at two columns that was
-/// every fourth brick on the wall, and the eye reads it immediately. Raising
-/// the count dilutes it (and kills the two-brick colour repeat that banded
-/// the wall into vertical stripes) without changing the brick's size, since
-/// [`bonded_brick`] derives `uv_scale` from the column count.
-const BRICK_COLS: f32 = 4.0;
-/// Cell aspect. **Inverted from what the generator's own doc suggests**: it
-/// derives columns as `scale × aspect_ratio` while `scale` *is* the row
-/// count, so under this app's uniform metre mapping (a UV tile is square in
-/// metres) a value above 1 makes each cell taller than it is wide. `0.4`
-/// gives 4 columns to 10 rows — a brick 2.5× longer than it is tall, laid
-/// flat.
-const BRICK_ASPECT: f64 = 0.4;
-/// Bond stagger per course, as a fraction of brick length — the classic
-/// half-bond. The generator needs `scale × row_offset` to be a whole number
-/// to tile cleanly in V; `10 × 0.5` is, where the kit's `5 × 0.5` was not.
-const BRICK_BOND: f64 = 0.5;
-/// Per-brick colour jitter, below the kit's `0.2`. It is what makes a wall
-/// read as fired clay rather than paint, but it is also the *only* thing
-/// that makes a seam-straddling brick visible — the two halves differ by up
-/// to twice this. Low enough that the survivors read as shading, high enough
-/// that the wall still varies.
-const BRICK_VARIANCE: f64 = 0.15;
 
 /// The store's brickwork: the kit's [`brick`] with its courses laid **flat**,
 /// at a real brick's size, and its bond continued into the wall's own frame.
 ///
-/// # Laying the courses flat
+/// The whole recipe — the inverted aspect, the ten-row tile, the integral
+/// half-bond, the tamed cell jitter and the per-face offset that carries one
+/// frame across the joints — now lives in [`util::bonded_brick`], which every
+/// later brick entry shares. What is local here is only the brick's *size*.
 ///
-/// The generator counts `scale` rows up V and `scale × aspect_ratio` columns
-/// across U. Since #933 a UV tile is *square in metres*, so ten columns to
-/// five rows makes every brick twice as tall as it is wide — upright, which
-/// no bricklayer has ever produced. Flipping the aspect (see
-/// [`BRICK_ASPECT`]) turns the cell without turning the *bond*.
-///
-/// A 90° `uv_rotation` looks like the obvious fix and is not: it spins the
-/// running bond with the bricks, so the stagger ends up between vertical
-/// strips instead of between courses, and the wall reads as continuous
-/// vertical mortar lines running its full height. Rotation and a correct
-/// bond are mutually exclusive here — the stagger is applied along U by the
-/// generator itself.
-///
-/// # The seam the generator cannot hide
-///
-/// Per-brick colour comes from hashing the **raw** cell index, so the brick
-/// that straddles a tile's U seam is hashed twice — once as index `0`, once
-/// as index `cols` — and renders as two half-bricks of different colour. It
-/// is unavoidable at this level: a running bond shifts each course by half a
-/// brick, so some course always crosses the seam mid-brick, and only the
-/// generator itself could fix it (by hashing the index *modulo* the column
-/// count, which would make both halves agree). [`BRICK_COLS`] and
-/// [`BRICK_VARIANCE`] are chosen to make what remains read as shading.
-///
-/// # Bonding the slabs together
-///
-/// Each projection is prim-local and centred on the prim's own bounds, so
-/// four slabs framing a shopfront each restart the bond at their own centre
-/// and the joints between them read as breaks in the wall. Shifting each
-/// slab's UVs by its own position puts every piece in one shared frame — the
-/// courses then run through a pier, across a lintel and past a riser as if
-/// the wall were cut from one mass.
-///
-/// The mesher's Box projection reads a *different pair of local axes* per
-/// face, though (`(−x, −y)` on a −Z wall, `(x, z)` looking down on a top
-/// face, `(−z, −y)` on a +X side), so one offset can only serve one face —
-/// which is what [`face_offset`] resolves, and why a slab whose corner is
-/// visible carries a per-face override for the face it turns onto.
+/// [`util::bonded_brick`]: crate::catalogue::items::util::bonded_brick
 fn bonded_brick(color: [f32; 3], center: [f32; 3], face: FaceKey) -> SovereignMaterialSettings {
-    let mut m = SovereignMaterialSettings {
-        uv_scale: tiles_per_metre(BRICK_LEN * BRICK_COLS),
-        uv_offset: face_offset(face, center),
-        ..brick(color)
-    };
-    if let SovereignTextureConfig::Brick(cfg) = &mut m.texture {
-        cfg.scale = Fp64(BRICK_ROWS);
-        cfg.aspect_ratio = Fp64(BRICK_ASPECT);
-        cfg.row_offset = Fp64(BRICK_BOND);
-        cfg.cell_variance = Fp64(BRICK_VARIANCE);
-    }
-    m
-}
-
-/// The UV offset that puts **one face** of a slab into the shared world
-/// course frame (#969).
-///
-/// The Box projection is prim-local and per-face: each of the six regions
-/// reads its own pair of local axes, in its own sign convention — `(−x, −y)`
-/// on a −Z wall, `(x, z)` on a top face, `(−z, −y)` on a +X side. It is also
-/// *linear* in position, which is what makes this a one-liner: the offset
-/// that turns a prim-local UV into a world-frame one is the very same
-/// projection applied to the slab's own centre.
-///
-/// So a slab's brickwork lines up with its neighbours' on the face this
-/// names, and only that face. A sill wants `Top`, the outer return of a pier
-/// wants the side it turns onto, and the base material serves whichever face
-/// people mostly look at.
-fn face_offset(face: FaceKey, center: [f32; 3]) -> Fp2 {
-    let [x, y, z] = center;
-    Fp2(match face {
-        FaceKey::SidePx => [-z, -y],
-        FaceKey::SideNx => [z, -y],
-        FaceKey::Top => [x, z],
-        FaceKey::Bottom => [x, -z],
-        FaceKey::SidePz => [x, -y],
-        // `SideNz` — the shopfront convention — and anything else.
-        _ => [-x, -y],
-    })
+    util::bonded_brick(brick(color), BRICK_LEN, face, center)
 }
 
 /// One brick slab of the shell, bonded into the shared course frame — the
@@ -232,19 +124,13 @@ fn brick_slab(
     prim(kind, center, id_quat())
 }
 
-/// Dim warm interior surface. The shell is enclosed and nothing lights it,
+/// Dim warm interior surface — the shared [`lit_interior`] idiom, which this
+/// entry is the reference for: the shell is enclosed and nothing lights it,
 /// so the surfaces seen through the glazing carry a low self-lit term of
 /// their own. Without it the openings read as black rectangles and every
 /// bit of work behind the glass is invisible.
 fn interior(color: [f32; 3], lit: f32) -> SovereignMaterialSettings {
-    SovereignMaterialSettings {
-        base_color: Fp3(color),
-        emission_color: Fp3([color[0] * 1.1, color[1], color[2] * 0.85]),
-        emission_strength: Fp(lit),
-        roughness: Fp(0.85),
-        metallic: Fp(0.0),
-        ..Default::default()
-    }
+    lit_interior(color, lit)
 }
 
 pub struct CornerStore;
@@ -671,7 +557,7 @@ mod tests {
     ///
     /// The Box projection reads different local axes per face, so "the shared
     /// frame" is not one offset but one *rule*: the offset must be the face's
-    /// own projection of the slab's position ([`face_offset`]). A slab
+    /// own projection of the slab's position ([`util::face_uv_offset`]). A slab
     /// authored with a bare `prim(...)`, or a face override copied from its
     /// neighbour, breaks it — and the joint is subtle enough in a render that
     /// only this catches it.
@@ -689,7 +575,7 @@ mod tests {
         // Summing the transforms down the tree undoes `assemble`'s rebase
         // exactly, so a walked position IS the authored one the offsets were
         // derived from.
-        let expected = |face: FaceKey, pos: &[f32; 3]| face_offset(face, *pos);
+        let expected = |face: FaceKey, pos: &[f32; 3]| util::face_uv_offset(face, *pos);
         const FACES: [FaceKey; 6] = [
             FaceKey::SideNz,
             FaceKey::SidePz,

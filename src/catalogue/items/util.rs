@@ -10,8 +10,8 @@
 use crate::pds::generator::{FaceKey, FaceOverride, UvMapping};
 use crate::pds::sanitize::limits::MAX_FACE_OVERRIDES;
 use crate::pds::{
-    Fp, Fp2, Fp3, Fp4, Generator, GeneratorKind, SovereignMaterialSettings, TortureParams,
-    TransformData,
+    Fp, Fp2, Fp3, Fp4, Fp64, Generator, GeneratorKind, SovereignMaterialSettings,
+    SovereignTextureConfig, TortureParams, TransformData,
 };
 
 /// Wrap a kind into a childless node at `translation` / `rotation`.
@@ -581,7 +581,7 @@ pub(super) fn window_card(
     }
 }
 
-/// Wrap an `f32` in an [`Fp64`](crate::pds::Fp64) snapped to the fixed-point
+/// Wrap an `f32` in an [`Fp64`] snapped to the fixed-point
 /// wire grid.
 ///
 /// `Fp64` holds a full-precision `f64` but serialises as `round(x · 10000)`,
@@ -761,6 +761,196 @@ pub(super) mod tile {
     /// rather than not at all. Multiply alongside `CORRUGATED_PITCH`; leave
     /// it off for roofs and props, which read fine at the real size.
     pub(in crate::catalogue::items) const CORRUGATED_BROAD: f32 = 3.0;
+}
+
+// --- Putting a tiling material into the world's frame ----------------------
+
+/// The UV offset that puts **one face** of a prim into a shared world frame,
+/// so neighbouring slabs sample one continuous pattern instead of each
+/// restarting it at its own centre (#966 / #969).
+///
+/// The Box projection is prim-local *and* per-face: each of the six regions
+/// reads its own pair of local axes, in its own sign convention — `(−x, −y)`
+/// on a `−Z` wall, `(x, z)` on a top face, `(−z, −y)` on a `+X` side. It is
+/// also **linear** in position, which is what makes this a one-liner: the
+/// offset that turns a prim-local UV into a world-frame one is that very
+/// same projection applied to the prim's own centre.
+///
+/// So a slab's pattern lines up with its neighbours' on the face this names,
+/// and only that face. A sill wants `Top`, the outer return of a pier wants
+/// the side it turns onto, and a prim's *base* material serves whichever
+/// face people mostly look at — the rest are per-face overrides
+/// ([`with_face`]).
+///
+/// Which is a shorter list than it first appears, because the four **side**
+/// faces all put `V` on `−y`: turning a vertical corner, horizontal courses
+/// line up on the base offset alone and only the column phase differs, which
+/// matters solely where two slabs are *coplanar* (a pier and the side wall
+/// behind it). Horizontal corners always need a wrap: a `Top` or `Bottom`
+/// face reads depth where its neighbour reads height, so nothing about it
+/// follows from the base. And a pattern with **no U features at all** —
+/// unstaggered lap siding, see [`bonded_siding`] — needs no side wrap ever,
+/// because `V = −y` is all there is to agree on.
+pub(super) fn face_uv_offset(face: FaceKey, center: [f32; 3]) -> Fp2 {
+    let [x, y, z] = center;
+    Fp2(match face {
+        FaceKey::SidePx => [-z, -y],
+        FaceKey::SideNx => [z, -y],
+        FaceKey::Top => [x, z],
+        FaceKey::Bottom => [x, -z],
+        FaceKey::SidePz => [x, -y],
+        // `SideNz` — the usual hero-face convention — and anything else.
+        _ => [-x, -y],
+    })
+}
+
+/// Brick rows per texture tile — the `Brick` generator's `scale`. Ten rather
+/// than the default five: the tile has to hold enough bricks that the seam
+/// artifact below is rare, and rows and columns scale together.
+const BOND_ROWS: f64 = 10.0;
+/// Brick columns per tile, and the number of bricks a tile spans across a
+/// wall.
+///
+/// Four is the smallest count that keeps the tile's U seam quiet. The
+/// generator colours each brick by hashing its **raw** cell index, so a brick
+/// straddling the seam is indexed `0` on one side and `cols` on the other and
+/// renders as two half-bricks of different colour. One brick per tile per
+/// staggered course always straddles; at two columns that was every fourth
+/// brick on the wall, and the eye reads it immediately. Raising the count
+/// dilutes it (and kills the two-brick colour repeat that banded walls into
+/// vertical stripes) without changing the brick's size, since
+/// [`bonded_brick`] derives `uv_scale` from the column count.
+const BOND_COLS: f32 = 4.0;
+/// Cell aspect. **Inverted from what the generator's own doc suggests**: it
+/// derives columns as `scale × aspect_ratio` while `scale` *is* the row
+/// count, so under this app's uniform metre mapping (a UV tile is square in
+/// metres, #933) a value above 1 makes each cell taller than it is wide.
+/// `0.4` gives 4 columns to 10 rows — a brick 2.5× longer than it is tall,
+/// laid flat.
+const BOND_ASPECT: f64 = BOND_COLS as f64 / BOND_ROWS;
+/// Bond stagger per course, as a fraction of brick length — the classic
+/// half-bond. The generator needs `scale × row_offset` to be a whole number
+/// to tile cleanly in V; `10 × 0.5` is, where the kits' `5 × 0.5` was not.
+const BOND_STAGGER: f64 = 0.5;
+/// Per-brick colour jitter. It is what makes a wall read as fired clay rather
+/// than paint, but it is also the *only* thing that makes a seam-straddling
+/// brick visible — the two halves differ by up to twice this. Low enough that
+/// the survivors read as shading, high enough that the wall still varies.
+const BOND_VARIANCE: f64 = 0.15;
+
+/// Re-lay a `Brick` material's courses **flat**, at a real brick's size, and
+/// in the shared world course frame (#966 / #968 / #969).
+///
+/// `brick_len` is the brick's length in metres — `0.215` for a standard
+/// brick, larger for block or adobe. The kit helpers' own sizing lays
+/// whatever `1 / (tile × count)` happens to be, which came out at 172 mm and
+/// small enough at street distance to mip toward flat colour.
+///
+/// # Laying the courses flat
+///
+/// The generator counts `scale` rows up V and `scale × aspect_ratio` columns
+/// across U. Since #933 a UV tile is *square in metres*, so ten columns to
+/// five rows makes every brick twice as tall as it is wide — upright, which
+/// no bricklayer has ever produced. Flipping the aspect ([`BOND_ASPECT`])
+/// turns the cell without turning the *bond*.
+///
+/// A 90° `uv_rotation` looks like the obvious fix and is not: it spins the
+/// running bond with the bricks, so the stagger ends up between vertical
+/// strips instead of between courses and the wall reads as continuous
+/// vertical mortar lines running its full height. Rotation and a correct bond
+/// are mutually exclusive here — the stagger is applied along U by the
+/// generator itself.
+///
+/// # The seam the generator cannot hide
+///
+/// Per-brick colour comes from hashing the **raw** cell index, so the brick
+/// that straddles a tile's U seam is hashed twice and renders as two
+/// half-bricks of different colour. It is unavoidable at this level: a
+/// running bond shifts each course by half a brick, so some course always
+/// crosses the seam mid-brick, and only the generator itself could fix it (by
+/// hashing the index *modulo* the column count, which would make both halves
+/// agree). [`BOND_COLS`] and [`BOND_VARIANCE`] are chosen to make what
+/// remains read as shading.
+///
+/// Non-`Brick` textures keep their config and gain only the offset, so this
+/// is safe to funnel a whole wall through.
+pub(super) fn bonded_brick(
+    mut mat: SovereignMaterialSettings,
+    brick_len: f32,
+    face: FaceKey,
+    center: [f32; 3],
+) -> SovereignMaterialSettings {
+    mat.uv_scale = tiles_per_metre(brick_len * BOND_COLS);
+    mat.uv_offset = face_uv_offset(face, center);
+    if let SovereignTextureConfig::Brick(cfg) = &mut mat.texture {
+        cfg.scale = Fp64(BOND_ROWS);
+        cfg.aspect_ratio = Fp64(BOND_ASPECT);
+        cfg.row_offset = Fp64(BOND_STAGGER);
+        cfg.cell_variance = Fp64(BOND_VARIANCE);
+    }
+    mat
+}
+
+/// Lay a `Plank` material as **unbroken courses** in the shared world frame —
+/// lap siding, clapboard, a painted trim board.
+///
+/// # The end-joint grid
+///
+/// `PlankConfig::stagger` reads like a cosmetic de-correlation knob and is
+/// not. Any value above `0.01` switches on a second joint grid the config
+/// cannot size: the generator cuts **three** short boards per tile across U,
+/// hard-coded, and staggers their ends per course. So a tile that holds ten
+/// 167 mm courses also holds three 557 mm butt joints, and a wall of lap
+/// siding comes out as a coarse 3.3:1 *masonry* grid — which is exactly what
+/// the suburban house rendered as before #972's siding pass, and reads at a
+/// glance as brick, not board.
+///
+/// Real siding is milled in 3–5 m lengths, so on a 10 m elevation there are a
+/// couple of butt joints, not thirty. `stagger = 0` is therefore the honest
+/// setting, not a compromise: it takes the end-joint path out entirely
+/// (`c.stagger > 0.01` gates it) and leaves the courses running the full
+/// width. Per-course grain de-correlation survives — that comes from the
+/// row's own hash, not from the stagger.
+///
+/// # And what that buys at the corners
+///
+/// With no U features left, the *only* thing an offset has to line up is `V`,
+/// and all four side faces read `V = −y`. So unstaggered siding wraps a
+/// vertical corner on its base offset alone and needs no per-face override
+/// anywhere — where the same wall in brick wanted one per visible corner (see
+/// [`bonded_brick`] and [`face_uv_offset`]).
+///
+/// Non-`Plank` textures keep their config and gain only the offset.
+pub(super) fn bonded_siding(
+    mut mat: SovereignMaterialSettings,
+    face: FaceKey,
+    center: [f32; 3],
+) -> SovereignMaterialSettings {
+    mat.uv_offset = face_uv_offset(face, center);
+    if let SovereignTextureConfig::Plank(cfg) = &mut mat.texture {
+        cfg.stagger = Fp64(0.0);
+    }
+    mat
+}
+
+/// Dim self-lit surface for the inside of a shell — the floor, lining and
+/// contents seen through a [`window_card`]'s open panes.
+///
+/// A card's panes are masked *away*, so what fills them is whatever geometry
+/// stands behind. Nothing lights the inside of an enclosed prop, so those
+/// surfaces have to carry a low emissive term of their own; without it every
+/// opening reads as a black rectangle and all the work behind the glass is
+/// invisible. Keep `lit` low (0.1–0.6) — this is meant to read as *interior*,
+/// not as a light box.
+pub(super) fn lit_interior(color: [f32; 3], lit: f32) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        emission_color: Fp3([color[0] * 1.1, color[1], color[2] * 0.85]),
+        emission_strength: Fp(lit),
+        roughness: Fp(0.85),
+        metallic: Fp(0.0),
+        ..Default::default()
+    }
 }
 
 pub(super) fn glow(color: [f32; 3], strength: f32) -> SovereignMaterialSettings {

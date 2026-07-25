@@ -8,7 +8,8 @@
 //!
 //! Surfaces use the real procedural generators rather than flat colour:
 //! lap [`siding`] and [`wood`] plank, asphalt [`shingle`] roofs, [`brick`]
-//! and rendered [`render`] walls, [`glass`] windows, smooth painted
+//! and rendered [`render`] walls, poured [`concrete`] slabs, [`glass`]
+//! windows over real openings and [`tinted_glass`] on solids, smooth painted
 //! [`enamel`], and clipped hedges and shrubs. Porch lights and shop signs glow,
 //! a backyard sprinkler mists the lawn, and birdsong drifts over the street
 //! from [`fx`]. The theme's soft sunny accent lives in
@@ -39,9 +40,9 @@ use crate::catalogue::items::util::{
     cuboid_tapered, cylinder_tapered, id_quat, prim, quat_z, solid,
 };
 use crate::pds::{
-    Fp, Fp3, Fp64, Generator, SovereignBrickConfig, SovereignMaterialSettings,
-    SovereignMetalConfig, SovereignPlankConfig, SovereignShingleConfig, SovereignStuccoConfig,
-    SovereignTextureConfig, SovereignWindowConfig,
+    Fp, Fp3, Fp64, Generator, SovereignBrickConfig, SovereignConcreteConfig,
+    SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignShingleConfig,
+    SovereignStuccoConfig, SovereignTextureConfig, SovereignWindowConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -55,27 +56,49 @@ pub(super) const SUB_BAND: ProsperityBand =
 /// never picked for a modest or affluent room.
 pub(super) const SUB_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
+/// Courses per siding tile — see [`siding`].
+pub(super) const SIDING_COURSES: f64 = 10.0;
+
 /// Vinyl lap siding — the body of a house, garage, or trailer. Fine
 /// horizontal courses with little grain so it reads as siding, not raw plank.
+///
+/// `stagger` is held at **zero**, which is not a cosmetic choice: any value
+/// above `0.01` switches on a second joint grid the config cannot size, and
+/// the generator then cuts *three* short boards per tile across U. At this
+/// tile that is a 557 mm butt joint every third of a metre, and a wall of lap
+/// siding comes out as a coarse masonry grid that reads as brick rather than
+/// board — the state the whole kit was in before #972's siding pass. Real
+/// siding is milled in 3–5 m lengths, so an elevation has a couple of butt
+/// joints, not thirty. Per-course grain de-correlation is unaffected; it comes
+/// from the row's own hash. See
+/// [`util::bonded_siding`](crate::catalogue::items::util::bonded_siding),
+/// which also carries the courses across a multi-slab wall.
 pub(super) fn siding(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.7),
         metallic: Fp(0.0),
-        uv_scale: tiles_per_metre(tile::PLANK_BOARD * 10.0),
+        uv_scale: tiles_per_metre(tile::PLANK_BOARD * SIDING_COURSES as f32),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
             color_wood_light: Fp3([color[0] * 1.08, color[1] * 1.08, color[2] * 1.08]),
             color_wood_dark: Fp3([color[0] * 0.85, color[1] * 0.85, color[2] * 0.85]),
-            plank_count: Fp64(10.0),
+            plank_count: Fp64(SIDING_COURSES),
             knot_density: Fp64(0.0),
             grain_warp: Fp64(0.1),
+            stagger: Fp64(0.0),
+            joint_width: Fp64(0.07),
             ..Default::default()
         }),
         ..Default::default()
     }
 }
 
-/// Painted timber — fences, swing-set frames, porch posts, mailbox posts.
+/// Painted timber — fences, swing-set frames, porch posts, mailbox posts,
+/// trim boards.
+///
+/// `stagger` is zero for the same reason as [`siding`]'s: the end-joint grid
+/// it enables is hard-coded at three cells per tile, which on a 668 mm tile
+/// chops a fence picket or a porch post into a 223 mm checkerboard.
 pub(super) fn wood(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -87,6 +110,25 @@ pub(super) fn wood(color: [f32; 3]) -> SovereignMaterialSettings {
             color_wood_dark: Fp3([color[0] * 0.78, color[1] * 0.78, color[2] * 0.78]),
             plank_count: Fp64(4.0),
             knot_density: Fp64(0.15),
+            stagger: Fp64(0.0),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Poured concrete — house plinths, driveways, porch steps, chimney caps.
+/// Faint saw-cut lines rather than deep formwork marks: a domestic slab is
+/// power-floated and jointed, not board-formed.
+pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.9),
+        uv_scale: tiles_per_metre(tile::CONCRETE),
+        texture: SovereignTextureConfig::Concrete(SovereignConcreteConfig {
+            color_base: Fp3(color),
+            formwork_lines: Fp64(2.0),
+            formwork_depth: Fp64(0.04),
             ..Default::default()
         }),
         ..Default::default()
@@ -165,6 +207,27 @@ pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     }
 }
 
+/// Dark tinted glazing for a **solid** — a car's greenhouse, a light fitting's
+/// lens. Smooth, dark and untextured on purpose.
+///
+/// [`glass`] carries the `Window` generator, which is an alpha card: its panes
+/// are masked *away* and it uploads clamp-to-edge, so it belongs on a flat
+/// quad spanning a real opening, never wrapped round a box (see
+/// [`window_card`](crate::catalogue::items::util::window_card)). On a car's
+/// cabin it grew window frames across the roof and bonnet and punched holes
+/// straight through the vehicle. A tinted solid reads as glass from any angle
+/// and costs nothing.
+pub(super) fn tinted_glass(tint: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3([tint[0] * 0.45, tint[1] * 0.45, tint[2] * 0.5]),
+        roughness: Fp(0.12),
+        metallic: Fp(0.55),
+        uv_scale: Fp(1.0),
+        texture: SovereignTextureConfig::None,
+        ..Default::default()
+    }
+}
+
 /// Smooth painted enamel — cars, bins, garage doors, mailboxes, carports.
 pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -206,9 +269,10 @@ pub(super) fn parked_car(center: [f32; 3], body: [f32; 3]) -> Vec<Generator> {
             [cx - 0.1, cy + 1.25, cz],
             id_quat(),
         ),
-        // Glazed greenhouse.
+        // Glazed greenhouse — a tinted solid, not a `Window` card wrapped
+        // round a box (see [`tinted_glass`]).
         prim(
-            cuboid_tapered([1.62, 0.5, 2.32], 0.18, glass(GLASS_TINT, 0.0)),
+            cuboid_tapered([1.62, 0.5, 2.32], 0.18, tinted_glass(GLASS_TINT)),
             [cx - 0.1, cy + 1.25, cz],
             id_quat(),
         ),
