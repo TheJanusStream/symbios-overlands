@@ -19,6 +19,7 @@
 //! [`crate::seeded_defaults::room::accent`].
 
 pub mod lighthouse;
+pub mod monument;
 pub mod observatory;
 pub mod ruined_temple;
 pub mod stone_circle;

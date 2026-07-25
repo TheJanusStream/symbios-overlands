@@ -22,6 +22,7 @@ pub mod drying_rack;
 pub mod gateway;
 pub mod longship;
 pub mod mead_hall;
+pub mod monument;
 pub mod rune_stones;
 pub mod shield_rack;
 pub mod signal_beacon;

@@ -85,6 +85,15 @@ pub enum StructureRole {
     /// fallback. Never part of the settlement Landmark/Secondary/Prop
     /// pools.
     Gateway,
+    /// Owner-identity monument (#975) — the themed monument every seeded
+    /// room stands beside its gateway, carrying the room owner's profile
+    /// picture on a square panel
+    /// (`items::util::pfp_panel`). Selected exactly like
+    /// [`Gateway`](Self::Gateway): the seeded wiring asks
+    /// `entries_for(theme, Monument)` and falls back to the theme-agnostic
+    /// `civic_monument`. Never part of the settlement Landmark/Secondary/
+    /// Prop pools.
+    Monument,
 }
 
 impl StructureRole {
@@ -98,6 +107,7 @@ impl StructureRole {
             Self::Pattern => "Pattern",
             Self::Tool => "Tool",
             Self::Gateway => "Gateway",
+            Self::Monument => "Monument",
         }
     }
 
@@ -105,7 +115,7 @@ impl StructureRole {
     /// a derived view of [`StructureRole`] so there's one taxonomy.
     pub fn category(self) -> CatalogueCategory {
         match self {
-            Self::Landmark | Self::Secondary | Self::Prop | Self::Gateway => {
+            Self::Landmark | Self::Secondary | Self::Prop | Self::Gateway | Self::Monument => {
                 CatalogueCategory::Buildings
             }
             Self::Plant => CatalogueCategory::Plants,

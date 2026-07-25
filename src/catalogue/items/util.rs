@@ -581,6 +581,69 @@ pub(super) fn window_card(
     }
 }
 
+/// The room owner's profile picture, as a **square** panel (#975).
+///
+/// This is the one piece every themed identity monument shares: a
+/// [`Sign`](GeneratorKind::Sign) whose source is
+/// [`DidPfp`](crate::pds::SignSource::DidPfp), so the engine fetches
+/// `app.bsky.actor.getProfile` for that DID and follows the avatar URL. The
+/// reference is *live* — the owner changes their picture and it appears next
+/// session without the record being rewritten — and every panel pointing at
+/// one DID coalesces onto a single HTTPS round trip in the shared
+/// `BlobImageCache`.
+///
+/// # The rules, and why the signature is what it is
+///
+/// 1. **Square, always.** A profile picture is square; stretched onto an
+///    oblong panel it distorts a person's face, which is the one subject
+///    where distortion is unmistakable. The size is therefore *one scalar*
+///    rather than a pair — the aspect cannot be got wrong at a call site.
+/// 2. **`uv_scale` stays `1.0`.** Sign images upload clamp-to-edge, and the
+///    panel mesh already spans the image exactly once. A scale above one is a
+///    *crop*, not a tile: it shrinks the image into a corner and smears the
+///    border across the rest. The [`window_card`] rule, for the same reason.
+/// 3. **`unlit`.** A portrait that goes black at dusk defeats the point, and
+///    a face lit by the scene's sun reads as a lit *object* rather than as an
+///    image. Portal's own pfp face made the same call.
+/// 4. **Single-sided.** The image would be mirrored on the back. Put a
+///    backing plate behind the panel — which every monument wants anyway, as
+///    the plate the portrait is fixed to.
+/// 5. **It must read blank.** The image only ever arrives over the network,
+///    so a room owner with no picture — or a failed fetch — leaves the panel
+///    at `blank_tint` forever. Pass a colour that reads as the *material* of
+///    the plate it is set into (bronze, slate, dark glass), so an empty panel
+///    reads as a blank plaque rather than as a broken texture.
+///
+/// The panel is a flat quad in the local XZ plane with normal `+Y`, exactly
+/// like [`plane`]: stand it up with [`quat_x`]`(-FRAC_PI_2)` to face `-Z`.
+pub(super) fn pfp_panel(did: &str, side_m: f32, blank_tint: [f32; 3]) -> GeneratorKind {
+    GeneratorKind::Sign {
+        source: crate::pds::SignSource::DidPfp {
+            did: did.to_string(),
+        },
+        size: Fp2([side_m, side_m]),
+        // The legacy UV window, written at the identity so the sanitizer has
+        // nothing to fold and an older client still spans the image once.
+        uv_repeat: Fp2([1.0, 1.0]),
+        uv_offset: Fp2([0.0, 0.0]),
+        material: SovereignMaterialSettings {
+            base_color: Fp3(blank_tint),
+            roughness: Fp(0.55),
+            metallic: Fp(0.0),
+            // See rule 2 — the mesh already spans the image once.
+            uv_scale: Fp(1.0),
+            // The fetched image *is* the texture; a procedural one here would
+            // be painted over the moment the blob lands.
+            texture: SovereignTextureConfig::None,
+            ..Default::default()
+        },
+        double_sided: false,
+        alpha_mode: crate::pds::AlphaModeKind::Opaque,
+        unlit: true,
+        texture_filter: crate::pds::TextureFilter::default(),
+    }
+}
+
 /// Wrap an `f32` in an [`Fp64`] snapped to the fixed-point
 /// wire grid.
 ///
@@ -997,6 +1060,136 @@ pub(super) fn assert_sanitize_stable(built: &Generator, name: &str) {
     let mut sanitized = built.clone();
     crate::pds::sanitize_generator(&mut sanitized);
     tree_eq(built, &sanitized, name);
+}
+
+/// Assert that an identity monument (#975) carries the owner's profile
+/// picture correctly — the shared guard all 24 themed monuments call.
+///
+/// One helper rather than 24 copies, because these are invariants of the
+/// *idiom*, not of any one monument: get any of them wrong and the panel is
+/// still a perfectly valid `Sign` that renders, just a distorted, tiled,
+/// night-blind or back-to-front one. None of that is visible in the render
+/// tool, which never fetches an image at all.
+///
+/// What it pins:
+///
+/// * exactly one panel, pointed at **this room's** DID (a monument showing
+///   somebody else's face is the worst failure available here);
+/// * square — the aspect a face cannot survive losing;
+/// * `uv_scale` 1.0 — Sign images are clamp-to-edge, so anything else crops
+///   and smears rather than tiles;
+/// * `unlit` and single-sided — legible at any hour, never mirrored;
+/// * monument scale: a panel big enough and high enough to read from the
+///   gateway's landing, on a prop tall enough to be a monument;
+/// * something solid **behind** it. The panel is single-sided, so without a
+///   backing plate the monument is see-through from behind. This leans on the
+///   family's authoring convention — hero face toward `-Z`, so "behind" is
+///   `+Z` — which is the same convention the render tool and the settlement
+///   placer already assume.
+#[cfg(test)]
+pub(super) fn assert_owner_panel(entry: &dyn crate::catalogue::CatalogueEntry, did: &str) {
+    use crate::pds::{GeneratorKind, SignSource};
+
+    let slug = entry.slug();
+    let root = entry.build(did);
+    let mut panels: Vec<([f32; 3], f32)> = Vec::new();
+    let mut solids: Vec<[f32; 3]> = Vec::new();
+    let mut top = f32::MIN;
+
+    fn walk(
+        g: &Generator,
+        at: [f32; 3],
+        slug: &str,
+        did: &str,
+        panels: &mut Vec<([f32; 3], f32)>,
+        solids: &mut Vec<[f32; 3]>,
+        top: &mut f32,
+    ) {
+        let t = g.transform.translation.0;
+        let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
+        *top = top.max(here[1]);
+        match &g.kind {
+            GeneratorKind::Sign {
+                source,
+                size,
+                material,
+                double_sided,
+                unlit,
+                ..
+            } => {
+                match source {
+                    SignSource::DidPfp { did: d } => assert_eq!(
+                        d, did,
+                        "{slug}: the panel points at {d}, not at the room owner"
+                    ),
+                    other => panic!("{slug}: panel source is {other:?}, not the owner's pfp"),
+                }
+                assert_eq!(
+                    size.0[0], size.0[1],
+                    "{slug}: panel {:?} is not square — a face cannot survive the stretch",
+                    size.0
+                );
+                assert_eq!(
+                    material.uv_scale.0, 1.0,
+                    "{slug}: Sign images are clamp-to-edge; uv_scale above 1.0 crops and smears"
+                );
+                assert!(*unlit, "{slug}: a lit portrait goes black at dusk");
+                assert!(
+                    !*double_sided,
+                    "{slug}: a double-sided panel shows the owner mirrored from behind"
+                );
+                panels.push((here, size.0[0]));
+            }
+            GeneratorKind::Cuboid { .. }
+            | GeneratorKind::Cylinder { .. }
+            | GeneratorKind::Sphere { .. }
+            | GeneratorKind::Superellipsoid { .. } => solids.push(here),
+            _ => {}
+        }
+        for c in &g.children {
+            walk(c, here, slug, did, panels, solids, top);
+        }
+    }
+    walk(
+        &root,
+        [0.0; 3],
+        slug,
+        did,
+        &mut panels,
+        &mut solids,
+        &mut top,
+    );
+
+    assert_eq!(
+        panels.len(),
+        1,
+        "{slug}: expected exactly one owner panel, found {}",
+        panels.len()
+    );
+    let (at, side) = panels[0];
+    assert!(
+        side >= 1.2,
+        "{slug}: a {side} m panel is too small to read from the gateway's landing"
+    );
+    assert!(
+        at[1] - side * 0.5 > 1.0,
+        "{slug}: the panel's bottom edge sits at {}, low enough to be walked in front of",
+        at[1] - side * 0.5
+    );
+    assert!(
+        top >= 4.0,
+        "{slug}: the monument tops out at {top} m — not monument scale"
+    );
+    assert!(
+        solids.iter().any(|s| {
+            (s[0] - at[0]).abs() < side * 0.75
+                && (s[1] - at[1]).abs() < side * 0.75
+                && s[2] > at[2]
+                && s[2] - at[2] < 1.0
+        }),
+        "{slug}: nothing stands behind the panel — it is single-sided, so the \
+         monument is see-through from the back"
+    );
 }
 
 /// Walk a built tree and report whether any primitive is strongly emissive

@@ -21,6 +21,7 @@ pub mod gateway;
 pub mod mailbox;
 pub mod mini_mart;
 pub mod minivan;
+pub mod monument;
 pub mod picket_fence;
 pub mod suburban_house;
 pub mod swing_set;

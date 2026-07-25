@@ -17,6 +17,7 @@
 pub mod dumpster;
 pub mod gateway;
 pub mod glass_skyscraper;
+pub mod monument;
 pub mod office_block;
 pub mod parked_car;
 pub mod parking_garage;

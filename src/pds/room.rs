@@ -952,6 +952,57 @@ impl RoomRecord {
                 y: None,
                 yaw_deg: Fp(spot.landing_yaw_deg),
             });
+
+            // Owner monument (#975): the themed monument carrying the room
+            // owner's profile picture, standing beside the gate and turned
+            // toward the landing, so the first thing an arrival sees is whose
+            // room they are in. Selected exactly like the gate — the theme's
+            // bespoke entry wins via `entries_for(theme, Monument)`, with the
+            // cross-theme `civic_monument` as the fallback.
+            //
+            // Nested inside the gateway block on purpose: the monument is
+            // placed *relative to the gate*, so a room that somehow has no
+            // gate has nothing to stand beside and simply goes without.
+            //
+            // Socio finish but no ruin pass, for the gate's reason turned
+            // around: a collapsed gate that still teleports reads as a bug,
+            // and a room owner's face on a smashed plinth reads as an insult.
+            // The finish still carries the room's prosperity into its
+            // materials, so a poor room's monument is a humbler one.
+            let monument_entry = crate::catalogue::entries_for(
+                scene.theme,
+                crate::catalogue::StructureRole::Monument,
+            )
+            .next()
+            .or_else(|| crate::catalogue::by_slug("civic_monument"));
+            if let Some(entry) = monument_entry {
+                let clearance = entry.footprint().clearance;
+                let mspot = crate::seeded_defaults::MonumentSpot::beside_gate(
+                    &spot,
+                    gate_clearance,
+                    clearance,
+                    did,
+                );
+                let mut monument = entry.build(did);
+                crate::pds::material_finish::apply_socio_finish(
+                    &mut monument,
+                    scene.prosperity,
+                    scene.escalation,
+                );
+                generators.insert("owner_monument".to_string(), monument);
+                let half_yaw = mspot.yaw_rad * 0.5;
+                placements.push(Placement::Absolute {
+                    generator_ref: "owner_monument".to_string(),
+                    transform: TransformData {
+                        translation: Fp3([mspot.offset[0], -0.35, mspot.offset[1]]),
+                        rotation: Fp4([0.0, half_yaw.sin(), 0.0, half_yaw.cos()]),
+                        scale: Fp3([1.0, 1.0, 1.0]),
+                    },
+                    snap_to_terrain: true,
+                    avoid_water: true,
+                    avoid_water_clearance: Fp(clearance),
+                });
+            }
         }
 
         let mut traits = HashMap::new();

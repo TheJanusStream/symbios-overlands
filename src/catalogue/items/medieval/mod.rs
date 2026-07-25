@@ -26,6 +26,7 @@
 //! world-space UVs too — so they are converted alongside these helpers.
 
 pub mod medieval_castle;
+pub mod monument;
 pub mod watchtower;
 // The theme's bespoke social gateway (#760) — the walk-through Town Gate.
 pub mod gateway;

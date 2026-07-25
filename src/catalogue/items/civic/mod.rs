@@ -29,6 +29,7 @@ mod fx;
 
 // Cross-theme fallback gateway (a Gateway, not a socio-political prop).
 pub mod gateway;
+pub mod monument;
 // Prosperity Poor.
 pub mod barrel_fire;
 pub mod laundry_line;

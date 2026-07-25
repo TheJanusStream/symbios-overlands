@@ -202,11 +202,12 @@ fn hierarchy(entries: &[&'static dyn CatalogueEntry]) -> Vec<CatNode> {
 /// the Buildings category, plus a leading "Cross-theme" group for the
 /// all-theme civic props.
 fn building_theme_dirs(in_cat: &[&'static dyn CatalogueEntry], cat_id: &str) -> Vec<CatNode> {
-    const ROLES: [StructureRole; 4] = [
+    const ROLES: [StructureRole; 5] = [
         StructureRole::Landmark,
         StructureRole::Secondary,
         StructureRole::Prop,
         StructureRole::Gateway,
+        StructureRole::Monument,
     ];
     let role_dirs = |scope: &[&'static dyn CatalogueEntry], parent: &str| -> Vec<CatNode> {
         ROLES
@@ -295,11 +296,12 @@ fn by_theme(entries: &[&'static dyn CatalogueEntry]) -> Vec<CatNode> {
 }
 
 fn by_role(entries: &[&'static dyn CatalogueEntry]) -> Vec<CatNode> {
-    const ROLES: [StructureRole; 7] = [
+    const ROLES: [StructureRole; 8] = [
         StructureRole::Landmark,
         StructureRole::Secondary,
         StructureRole::Prop,
         StructureRole::Gateway,
+        StructureRole::Monument,
         StructureRole::Plant,
         StructureRole::Pattern,
         StructureRole::Tool,
