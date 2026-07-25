@@ -1250,22 +1250,22 @@ fn draw_generator_detail(
             dirty,
             blob_selected_element,
         ),
+        // The legacy `uv_repeat` / `uv_offset` have no editor: the sanitizer
+        // folds them into the material's UV transform (#964), which the
+        // material section below edits.
         GeneratorKind::Sign {
             source,
             size,
-            uv_repeat,
-            uv_offset,
             material,
             double_sided,
             alpha_mode,
             unlit,
             texture_filter,
+            ..
         } => draw_generator_sign(
             ui,
             source,
             size,
-            uv_repeat,
-            uv_offset,
             material,
             double_sided,
             alpha_mode,

@@ -142,7 +142,7 @@ pub(super) fn draw_lsystem_forge(
                     fp_slider(ui, "Roughness", &mut m.roughness, 0.0, 1.0, dirty);
                     fp_slider(ui, "Metallic", &mut m.metallic, 0.0, 1.0, dirty);
                     fp_slider(ui, "UV scale", &mut m.uv_scale, 0.1, 10.0, dirty);
-                    draw_uv_transform_rows(ui, m, dirty);
+                    draw_uv_transform_rows(ui, m, "m", dirty);
 
                     let salt = format!("mat_{}", id);
                     draw_texture_bridge(ui, &mut m.texture, &salt, dirty);

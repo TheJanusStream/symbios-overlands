@@ -1,6 +1,8 @@
-//! Sign-generator detail panel: source picker, panel size, UV repeat /
-//! offset, the `StandardMaterial` toggles, and the alpha-mode picker.
-//! [`draw_sign_source`] is also reused by the particle texture editor.
+//! Sign-generator detail panel: source picker, panel size, the
+//! `StandardMaterial` toggles, and the alpha-mode picker. How the image
+//! sits on the panel lives in the shared material section (#964), not in a
+//! sign-only UV vocabulary. [`draw_sign_source`] is also reused by the
+//! particle texture editor.
 
 use bevy_egui::egui;
 
@@ -9,16 +11,14 @@ use crate::pds::{AlphaModeKind, Fp, Fp2, SignSource, SovereignMaterialSettings};
 use super::super::widgets::fp_slider;
 
 /// Editor for the [`crate::pds::GeneratorKind::Sign`] panel: source picker,
-/// panel size, UV repeat / offset, the StandardMaterial toggles
-/// (double_sided / unlit / alpha_mode), and the shared material PBR
-/// section.
+/// panel size, the StandardMaterial toggles (double_sided / unlit /
+/// alpha_mode), and the shared material section — which is also where the
+/// image's scale / offset / rotation live since #964.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_generator_sign(
     ui: &mut egui::Ui,
     source: &mut SignSource,
     size: &mut Fp2,
-    uv_repeat: &mut Fp2,
-    uv_offset: &mut Fp2,
     material: &mut SovereignMaterialSettings,
     double_sided: &mut bool,
     alpha_mode: &mut AlphaModeKind,
@@ -44,40 +44,6 @@ pub(super) fn draw_generator_sign(
         }
         if changed {
             *size = Fp2(v);
-            *dirty = true;
-        }
-    });
-
-    ui.horizontal(|ui| {
-        ui.label("UV repeat U/V:");
-        let mut v = uv_repeat.0;
-        let mut changed = false;
-        for axis in v.iter_mut() {
-            changed |= ui
-                .add(egui::DragValue::new(axis).speed(0.05).range(0.001..=1000.0))
-                .changed();
-        }
-        if changed {
-            *uv_repeat = Fp2(v);
-            *dirty = true;
-        }
-    });
-
-    ui.horizontal(|ui| {
-        ui.label("UV offset U/V:");
-        let mut v = uv_offset.0;
-        let mut changed = false;
-        for axis in v.iter_mut() {
-            changed |= ui
-                .add(
-                    egui::DragValue::new(axis)
-                        .speed(0.05)
-                        .range(-1000.0..=1000.0),
-                )
-                .changed();
-        }
-        if changed {
-            *uv_offset = Fp2(v);
             *dirty = true;
         }
     });
@@ -119,6 +85,20 @@ pub(super) fn draw_generator_sign(
             );
             fp_slider(ui, "Roughness", &mut material.roughness, 0.0, 1.0, dirty);
             fp_slider(ui, "Metallic", &mut material.metallic, 0.0, 1.0, dirty);
+            // Where the image sits on the panel (#964) — the same three
+            // knobs every other surface uses. Sign images upload
+            // clamp-to-edge, so a scale above 1 crops the image into the
+            // panel's near corner and stretches its border across the rest;
+            // it never tiles.
+            ui.add(egui::Label::new(
+                egui::RichText::new(
+                    "Image placement — scale 1 spans the panel; above 1                      crops toward the near corner (the image never tiles).",
+                )
+                .small()
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
+            ));
+            fp_slider(ui, "UV scale (spans)", &mut material.uv_scale, 0.05, 10.0, dirty);
+            super::super::material::draw_uv_transform_rows(ui, material, "spans", dirty);
         });
 }
 

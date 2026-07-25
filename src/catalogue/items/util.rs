@@ -7,7 +7,8 @@
 //! hand, and these helpers keep that assembly at the "place a tapered
 //! cylinder here" altitude instead of struct-literal plumbing.
 
-use crate::pds::generator::UvMapping;
+use crate::pds::generator::{FaceKey, FaceOverride, UvMapping};
+use crate::pds::sanitize::limits::MAX_FACE_OVERRIDES;
 use crate::pds::{
     Fp, Fp2, Fp3, Fp4, Generator, GeneratorKind, SovereignMaterialSettings, TortureParams,
     TransformData,
@@ -327,6 +328,48 @@ pub(super) fn with_cut(
         t.path_cut = Fp2(path_cut);
         t.profile_cut = Fp2(profile_cut);
         t.hollow = Fp(hollow);
+    }
+    kind
+}
+
+/// Give one face of a primitive its own material (#955) — the SL model: an
+/// override is the face's **whole** material, not a delta, so it keeps its
+/// own colour, texture, uv scale/offset/rotation whatever the base material
+/// later becomes.
+///
+/// This is what replaces the "stack a thin slab on the surface to recolour
+/// it" idiom, which pays a whole extra prim (and a z-fight risk) for a
+/// colour change. Cost here is one extra draw call per *distinct* material —
+/// the spawn-time face plan groups faces by material, so five faces sharing
+/// one override cost one group, and an override equal to the base costs
+/// nothing at all.
+///
+/// Face names are per family — `Top`/`Bottom`/`SidePx`… on the flat family,
+/// `Wall`/`Bore`/`Top`/`Bottom` plus the cut faces on the revolved one; see
+/// [`FaceKey`]. Naming a face the kind doesn't emit is *dormant*, not an
+/// error: it waits, harmlessly, until a cut produces that face. Repeating a
+/// face replaces its override, because the sanitizer keeps the first entry
+/// and a silently-dropped second one would be a trap.
+///
+/// Non-primitive kinds (which have no faces) pass through unchanged.
+pub(super) fn with_face(
+    mut kind: GeneratorKind,
+    face: FaceKey,
+    material: SovereignMaterialSettings,
+) -> GeneratorKind {
+    if let Some(faces) = kind.faces_mut() {
+        if let Some(existing) = faces.iter_mut().find(|o| o.face == face) {
+            existing.material = material;
+        } else if faces.len() < MAX_FACE_OVERRIDES {
+            // At the cap the sanitizer would drop the entry on the way to the
+            // PDS anyway; refusing here keeps the built tree and the saved one
+            // identical.
+            faces.push(FaceOverride {
+                face,
+                material,
+                uv_mapping: None,
+            });
+        }
     }
     kind
 }
@@ -741,4 +784,60 @@ pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
         _ => false,
     };
     own || g.children.iter().any(has_emissive)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tinted(c: [f32; 3]) -> SovereignMaterialSettings {
+        SovereignMaterialSettings {
+            base_color: Fp3(c),
+            ..Default::default()
+        }
+    }
+
+    /// The face override lands on the record where the spawner reads it,
+    /// and inherits the prim's projection (a recolour must not re-mesh).
+    #[test]
+    fn with_face_records_an_override_that_inherits_the_projection() {
+        let kind = with_face(
+            cuboid_tapered([1.0, 1.0, 1.0], 0.0, tinted([0.1, 0.1, 0.1])),
+            FaceKey::Top,
+            tinted([0.9, 0.2, 0.2]),
+        );
+        let faces = kind.faces().expect("a cuboid carries face overrides");
+        assert_eq!(faces.len(), 1);
+        assert_eq!(faces[0].face, FaceKey::Top);
+        assert_eq!(faces[0].material.base_color, Fp3([0.9, 0.2, 0.2]));
+        assert_eq!(faces[0].uv_mapping, None);
+    }
+
+    /// Naming the same face twice replaces it. The sanitizer keeps the FIRST
+    /// entry of a duplicate pair, so an appending helper would hand the
+    /// author the value they overwrote.
+    #[test]
+    fn with_face_replaces_rather_than_stacking_a_duplicate() {
+        let kind = with_face(
+            with_face(
+                cuboid_tapered([1.0, 1.0, 1.0], 0.0, tinted([0.1, 0.1, 0.1])),
+                FaceKey::Top,
+                tinted([0.9, 0.2, 0.2]),
+            ),
+            FaceKey::Top,
+            tinted([0.2, 0.9, 0.2]),
+        );
+        let faces = kind.faces().unwrap();
+        assert_eq!(faces.len(), 1, "a repeated face must not stack");
+        assert_eq!(faces[0].material.base_color, Fp3([0.2, 0.9, 0.2]));
+    }
+
+    /// A kind with no faces at all (here a particle system) passes through
+    /// untouched instead of panicking — helpers compose over whole trees.
+    #[test]
+    fn with_face_leaves_a_faceless_kind_alone() {
+        let particles = GeneratorKind::default_particles();
+        let out = with_face(particles.clone(), FaceKey::Top, tinted([1.0, 0.0, 0.0]));
+        assert_eq!(out, particles);
+    }
 }

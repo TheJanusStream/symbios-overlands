@@ -39,8 +39,9 @@ use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::catalogue::items::util::{
     cuboid_tapered, cylinder_tapered, id_quat, prim, quat_mul, quat_x, quat_y, solid, torus,
-    with_cut,
+    with_cut, with_face,
 };
+use crate::pds::generator::FaceKey;
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, SovereignConcreteConfig, SovereignMaterialSettings,
     SovereignMetalConfig, SovereignTextureConfig, SovereignWindowConfig,
@@ -245,6 +246,13 @@ pub(super) fn dome_ribs(
 /// faces ±Y, the lit cell face up); the caller tilts/positions it. Returned as
 /// one subtree (the cell field is the local root, `id_quat`) so dropping it in
 /// tilted as a child is rotation-safe.
+///
+/// The cell field is a **per-face material** (#955): only the `Top` face is
+/// photovoltaic, and the slab's own material carries the aluminium backsheet
+/// and edges — which is what a real panel looks like from below, and what the
+/// old single-material slab could not say without a second prim glued to its
+/// underside. Both materials already exist on this prim, so the split costs
+/// one extra draw call and no extra geometry.
 pub(super) fn pv_panel(
     width: f32,
     length: f32,
@@ -255,7 +263,11 @@ pub(super) fn pv_panel(
     let fr = 0.07_f32; // frame bar cross-section
     let yf = t * 0.5 + fr * 0.4; // proud of the +Y cell face
     let mut panel = prim(
-        solid(cuboid_tapered([width, t, length], 0.0, cell)),
+        with_face(
+            solid(cuboid_tapered([width, t, length], 0.0, frame.clone())),
+            FaceKey::Top,
+            cell,
+        ),
         [0.0, 0.0, 0.0],
         id_quat(),
     );

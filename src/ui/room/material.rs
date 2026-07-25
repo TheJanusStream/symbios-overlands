@@ -69,22 +69,28 @@ fn draw_splat_rule(ui: &mut egui::Ui, rule: &mut SovereignSplatRule, dirty: &mut
 }
 
 /// The `uv_transform` rows every material editor shares (#957): pattern
-/// slide in metres of surface and spin in degrees CCW.
+/// slide and spin in degrees CCW.
 ///
-/// Factored out because all three material editors — the primitive one in
-/// `construct::draw_universal_material`, the L-system slot list and the
-/// Shape slot list — edit the same [`SovereignMaterialSettings`] and all
-/// three flow to the same `world_builder::material::sovereign_uv_transform`.
-/// Both knobs ride the material rather than the mesh, so dragging them
-/// re-keys only the `StandardMaterial`; no mesh is rebuilt.
+/// Factored out because every material editor — the primitive one in
+/// `construct::draw_universal_material`, the L-system and Shape slot lists,
+/// and the Sign panel (#964) — edits the same
+/// [`SovereignMaterialSettings`] and all of them flow to the same
+/// `world_builder::material::sovereign_uv_transform`. Both knobs ride the
+/// material rather than the mesh, so dragging them re-keys only the
+/// `StandardMaterial`; no mesh is rebuilt.
+///
+/// `offset_unit` names what the slide is measured in: **metres of surface**
+/// for a metre-mapped prim, **spans** for a Sign, whose quad is normalised
+/// so one unit is one panel width.
 pub(super) fn draw_uv_transform_rows(
     ui: &mut egui::Ui,
     m: &mut SovereignMaterialSettings,
+    offset_unit: &str,
     dirty: &mut bool,
 ) {
     let mut offset = m.uv_offset.0;
     ui.horizontal(|ui| {
-        ui.label("UV offset (m)");
+        ui.label(format!("UV offset ({offset_unit})"));
         for v in offset.iter_mut() {
             if ui
                 .add(

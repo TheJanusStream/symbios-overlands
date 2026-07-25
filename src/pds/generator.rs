@@ -1131,6 +1131,14 @@ fn default_gateway_size() -> Fp3 {
     Fp3([2.5, 3.0, 2.5])
 }
 
+/// Serde default for the Sign's legacy `uv_repeat` (#964): the identity
+/// window. A record written after the unification omits the field, and
+/// folding `1.0` into the material's scale is a no-op — which is what makes
+/// the migration safe to run on every record, old or new.
+fn unit_uv_repeat() -> Fp2 {
+    Fp2([1.0, 1.0])
+}
+
 /// Variant-specific payload for a [`Generator`]. Open union: unrecognised
 /// `$type` tags deserialise to `Unknown` instead of failing the whole record.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -1655,24 +1663,44 @@ pub enum GeneratorKind {
     /// Image-bearing panel — a flat plane textured with a fetched image
     /// from one of three [`SignSource`] variants. Subsumes the standalone
     /// "profile picture panel" use case (Portal already does the same fetch
-    /// internally). `size` is the panel extent in metres, `uv_repeat` /
-    /// `uv_offset` let the user tile / pan the texture without resizing the
-    /// mesh, and the StandardMaterial toggles surface every common knob a
-    /// signpost / billboard / pfp panel might need.
+    /// internally). `size` is the panel extent in metres, and the
+    /// StandardMaterial toggles surface every common knob a signpost /
+    /// billboard / pfp panel might need. How the image sits on the panel —
+    /// scale, offset, rotation — is the `material`'s job, the same as on
+    /// every other surface in the app (#964).
     #[serde(rename = "network.symbios.gen.sign")]
     Sign {
         source: SignSource,
         /// Panel size in metres along the local X / Z axes.
         size: Fp2,
-        /// UV repeat factor per axis. `1.0` = the texture covers the panel
-        /// once; `2.0` = tiled twice along that axis.
+        /// **Legacy** per-axis UV window, superseded by the material's
+        /// `uv_scale` / `uv_offset` / `uv_rotation` (#964).
+        ///
+        /// Kept so records written before the unification still say what
+        /// they meant: [`sanitize`](crate::pds::sanitize) folds these two
+        /// into `material` and resets them to the identity, after which
+        /// nothing downstream reads them.
+        ///
+        /// **Still written**, at the identity, rather than elided. A client
+        /// built before #964 requires the key, so dropping it would fail its
+        /// decode of the whole generator; writing the identity instead makes
+        /// an old client render the image spanning the panel once — the
+        /// same graceful degradation the per-face work chose (#956). The
+        /// serde default covers hand-written JSON that omits it.
+        ///
+        /// The migration is exact for the square case. A legacy *anisotropic*
+        /// window cannot survive a uniform scale, so the larger repeat wins —
+        /// no axis gains image content it did not already show.
+        #[serde(default = "unit_uv_repeat")]
         uv_repeat: Fp2,
-        /// UV offset per axis applied after the repeat. Useful for panning
-        /// across an atlas image without changing the panel size.
+        /// **Legacy** UV offset; see [`uv_repeat`](Self::Sign::uv_repeat).
+        #[serde(default)]
         uv_offset: Fp2,
-        /// Tint + emissive + PBR knobs. The texture overrides the
-        /// procedural slot — set `texture` to `None` so the loaded image
-        /// is the only colour source.
+        /// Tint + emissive + PBR knobs, plus the UV transform (`uv_scale` =
+        /// how many times the image spans the panel, `uv_offset` in spans,
+        /// `uv_rotation` in degrees). The fetched image overrides the
+        /// procedural slot — set `texture` to `None` so the loaded image is
+        /// the only colour source.
         #[serde(default, skip_serializing_if = "SovereignMaterialSettings::is_default")]
         material: SovereignMaterialSettings,
         /// `true` renders both faces of the plane (and disables backface

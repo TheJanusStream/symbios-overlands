@@ -199,8 +199,100 @@ fn sanitiser_clamps_panel_size() {
     }
 }
 
+/// #964: a pre-unification Sign's mesh-baked UV window folds into the
+/// material's UV transform, exactly. The old spawner sampled
+/// `offset + repeat · t` from the vertex UVs; the new one samples
+/// `scale · t + scale · material_offset` from a plain `0..1` quad, so a
+/// repeat of 2 with an offset of 0.5 must land as scale 2, offset 0.25.
 #[test]
-fn sanitiser_clamps_uv_repeat_and_offset() {
+fn sanitiser_folds_the_legacy_uv_window_into_the_material() {
+    let mut g = sample_sign(
+        SignSource::Url {
+            url: "https://example.org/x.png".into(),
+        },
+        AlphaModeKind::Opaque,
+    );
+    if let GeneratorKind::Sign {
+        uv_repeat,
+        uv_offset,
+        ..
+    } = &mut g.kind
+    {
+        *uv_repeat = Fp2([2.0, 2.0]);
+        *uv_offset = Fp2([0.5, -0.5]);
+    }
+    sanitize_generator(&mut g);
+    let GeneratorKind::Sign {
+        uv_repeat,
+        uv_offset,
+        material,
+        ..
+    } = &g.kind
+    else {
+        panic!("expected Sign after sanitise");
+    };
+    assert!(
+        (material.uv_scale.0 - 2.0).abs() < 1e-3,
+        "repeat → uv_scale"
+    );
+    assert!(
+        (material.uv_offset.0[0] - 0.25).abs() < 1e-3,
+        "offset / scale"
+    );
+    assert!((material.uv_offset.0[1] + 0.25).abs() < 1e-3);
+    assert_eq!(uv_repeat.0, [1.0, 1.0], "legacy field must reset");
+    assert_eq!(uv_offset.0, [0.0, 0.0], "legacy field must reset");
+}
+
+/// The fold must be a fixpoint: sanitising twice cannot keep multiplying
+/// the scale, or every peer broadcast would shrink the image again.
+#[test]
+fn folding_the_legacy_uv_window_is_idempotent() {
+    let mut g = sample_sign(
+        SignSource::Url {
+            url: "https://example.org/x.png".into(),
+        },
+        AlphaModeKind::Opaque,
+    );
+    if let GeneratorKind::Sign { uv_repeat, .. } = &mut g.kind {
+        *uv_repeat = Fp2([3.0, 3.0]);
+    }
+    sanitize_generator(&mut g);
+    let once = g.clone();
+    sanitize_generator(&mut g);
+    assert_eq!(g, once, "a second sanitise must change nothing");
+}
+
+/// A record written after the unification has no `uv_repeat` key at all.
+/// Its serde default is the identity, so the fold is a no-op rather than a
+/// scale of zero — the failure mode that would blank every new sign.
+#[test]
+fn a_sign_without_the_legacy_keys_is_untouched_by_the_fold() {
+    let json = serde_json::json!({
+        "$type": "network.symbios.gen.sign",
+        "source": { "$type": "network.symbios.sign.url", "url": "https://example.org/x.png" },
+        "size": [20000, 15000],
+        "double_sided": false,
+        "alpha_mode": { "$type": "network.symbios.alpha.opaque" },
+        "unlit": true,
+    });
+    let mut g = Generator::from_kind(serde_json::from_value(json).expect("decode"));
+    sanitize_generator(&mut g);
+    let GeneratorKind::Sign { material, .. } = &g.kind else {
+        panic!("expected Sign");
+    };
+    assert!(
+        (material.uv_scale.0 - 1.0).abs() < 1e-3,
+        "an absent legacy window must leave the scale at 1, got {}",
+        material.uv_scale.0
+    );
+    assert_eq!(material.uv_offset.0, [0.0, 0.0]);
+}
+
+/// The legacy window is clamped on the way in, not trusted: a hostile
+/// record's infinities must not reach the material as NaN.
+#[test]
+fn sanitiser_clamps_the_legacy_uv_window_before_folding() {
     let mut g = sample_sign(
         SignSource::Url {
             url: "https://example.org/x.png".into(),
@@ -217,21 +309,17 @@ fn sanitiser_clamps_uv_repeat_and_offset() {
         *uv_offset = Fp2([1_000_000.0, -1_000_000.0]);
     }
     sanitize_generator(&mut g);
-    if let GeneratorKind::Sign {
-        uv_repeat,
-        uv_offset,
-        ..
-    } = &g.kind
-    {
-        assert!(uv_repeat.0[0].is_finite());
-        assert!(uv_repeat.0[0] >= limits::MIN_SIGN_UV_REPEAT);
-        assert!(uv_repeat.0[0] <= limits::MAX_SIGN_UV_REPEAT);
-        assert!(uv_repeat.0[1] >= limits::MIN_SIGN_UV_REPEAT);
-        assert!(uv_offset.0[0] <= limits::MAX_SIGN_UV_OFFSET);
-        assert!(uv_offset.0[1] >= -limits::MAX_SIGN_UV_OFFSET);
-    } else {
+    let GeneratorKind::Sign { material, .. } = &g.kind else {
         panic!("expected Sign after sanitise");
-    }
+    };
+    assert!(material.uv_scale.0.is_finite());
+    assert!(material.uv_scale.0 >= limits::MIN_SIGN_UV_REPEAT);
+    assert!(material.uv_scale.0 <= limits::MAX_SIGN_UV_REPEAT);
+    assert!(material.uv_offset.0.iter().all(|c| c.is_finite()));
+    assert!(
+        material.uv_offset.0.iter().all(|c| c.abs() <= 1_000.0),
+        "material offset clamp"
+    );
 }
 
 #[test]
@@ -345,4 +433,38 @@ fn default_sign_round_trips() {
         sanitised_v, original_v,
         "default_sign must be sanitiser-stable"
     );
+}
+
+/// #964 wire compat in the other direction: a record we write must keep
+/// carrying the legacy keys (at the identity), because a client built
+/// before the unification requires them and would fail to decode the whole
+/// generator without them.
+#[test]
+fn a_saved_sign_still_carries_the_legacy_keys_for_old_clients() {
+    let mut g = sample_sign(
+        SignSource::Url {
+            url: "https://example.org/x.png".into(),
+        },
+        AlphaModeKind::Opaque,
+    );
+    if let GeneratorKind::Sign { uv_repeat, .. } = &mut g.kind {
+        *uv_repeat = Fp2([4.0, 4.0]);
+    }
+    sanitize_generator(&mut g);
+    let wire = serde_json::to_value(&g.kind).expect("encode");
+    assert_eq!(
+        wire.get("uv_repeat")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len()),
+        Some(2),
+        "uv_repeat must still be written: {wire}"
+    );
+    assert!(
+        wire.get("uv_offset").is_some(),
+        "uv_offset must still be written"
+    );
+    // At the identity — the fold moved the meaning into the material, and an
+    // old client reading this renders the image spanning the panel once.
+    assert_eq!(wire["uv_repeat"], serde_json::json!([10000, 10000]));
+    assert_eq!(wire["uv_offset"], serde_json::json!([0, 0]));
 }

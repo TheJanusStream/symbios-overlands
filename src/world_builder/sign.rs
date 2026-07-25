@@ -1,8 +1,8 @@
 //! Spawner for [`GeneratorKind::Sign`](crate::pds::GeneratorKind::Sign): a flat panel textured with an
 //! image fetched from a [`SignSource`]. The mesh is a `Plane3d` sized by
-//! the variant's `size`, with UV coordinates pre-baked to honour
-//! `uv_repeat` and `uv_offset` so the user can tile / pan the image
-//! without resizing the panel itself.
+//! the variant's `size`, spanning the image exactly once; how that image
+//! sits on the panel — scale, offset, rotation — rides on the material's UV
+//! transform, the same one every other surface goes through (#964).
 //!
 //! The image fetch is decoupled from the spawn: the material starts with
 //! its tint colour and `base_color_texture = None`, then
@@ -19,6 +19,7 @@ use crate::pds::{AlphaModeKind, Fp2, SignSource, SovereignMaterialSettings};
 
 use super::compile::SpawnCtx;
 use super::image_cache::{SamplerFilter, request_blob_image_filtered};
+use super::material::sovereign_uv_transform;
 
 /// Spawn a Sign entity: a textured plane with the StandardMaterial
 /// toggles surfaced by the [`GeneratorKind::Sign`](crate::pds::GeneratorKind::Sign) variant. Returns the
@@ -33,8 +34,6 @@ pub(super) fn spawn_sign_entity(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
     source: &SignSource,
     size: &Fp2,
-    uv_repeat: &Fp2,
-    uv_offset: &Fp2,
     material_settings: &SovereignMaterialSettings,
     double_sided: bool,
     alpha_mode: &AlphaModeKind,
@@ -42,7 +41,7 @@ pub(super) fn spawn_sign_entity(
     texture_filter: &crate::pds::TextureFilter,
     transform: Transform,
 ) -> Entity {
-    let mesh = build_sign_mesh(size, uv_repeat, uv_offset);
+    let mesh = build_sign_mesh(size);
     let mesh_handle = ctx.meshes.add(mesh);
 
     let material = build_sign_material(material_settings, double_sided, alpha_mode, unlit);
@@ -73,11 +72,13 @@ pub(super) fn spawn_sign_entity(
     cmd.id()
 }
 
-/// Build the textured-plane mesh for a Sign. Bevy's `Plane3d::mesh()` does
-/// not expose UV repeat/offset, so we hand-roll a 4-vertex quad lying in
-/// the local XZ plane (Y-up normal) with UVs computed from the variant's
-/// `uv_repeat` and `uv_offset`.
-fn build_sign_mesh(size: &Fp2, uv_repeat: &Fp2, uv_offset: &Fp2) -> Mesh {
+/// Build the textured-plane mesh for a Sign: a 4-vertex quad lying in the
+/// local XZ plane (Y-up normal) whose UVs span `0..1` exactly once.
+///
+/// Geometry only — the UV window used to be baked into these four vertices
+/// (#964 moved it onto the material), which meant re-meshing to pan an image
+/// and a second UV vocabulary to learn.
+fn build_sign_mesh(size: &Fp2) -> Mesh {
     let half_x = size.0[0] * 0.5;
     let half_z = size.0[1] * 0.5;
     let positions: Vec<[f32; 3]> = vec![
@@ -88,15 +89,10 @@ fn build_sign_mesh(size: &Fp2, uv_repeat: &Fp2, uv_offset: &Fp2) -> Mesh {
     ];
     let normals: Vec<[f32; 3]> = vec![[0.0, 1.0, 0.0]; 4];
 
-    // UV layout: U runs along local +X, V runs along local +Z. The
-    // canonical [0,1] → [0,1] grid is multiplied by the repeat factor
-    // and shifted by the offset; the StandardMaterial sampler wraps,
-    // so an offset of 0.5 cleanly recentres a tiled texture.
-    let ru = uv_repeat.0[0];
-    let rv = uv_repeat.0[1];
-    let ou = uv_offset.0[0];
-    let ov = uv_offset.0[1];
-    let uvs: Vec<[f32; 2]> = vec![[ou, ov], [ou + ru, ov], [ou + ru, ov + rv], [ou, ov + rv]];
+    // U runs along local +X, V along local +Z, spanning the image once —
+    // the `Fit` convention every alpha card wants, and the identity the
+    // material's UV transform then scales / offsets / rotates.
+    let uvs: Vec<[f32; 2]> = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
 
     let indices = Indices::U32(vec![0, 1, 2, 0, 2, 3]);
 
@@ -118,6 +114,12 @@ fn build_sign_mesh(size: &Fp2, uv_repeat: &Fp2, uv_offset: &Fp2) -> Mesh {
 /// procedural texture slot (`material.texture`) is intentionally
 /// ignored — the Sign's image is the texture, painted asynchronously
 /// by [`request_blob_image_filtered`] into `base_color_texture`.
+///
+/// The UV transform is the shared [`sovereign_uv_transform`] (#964), so
+/// `uv_scale` / `uv_offset` / `uv_rotation` mean here what they mean
+/// everywhere else. Sign images upload **clamp-to-edge**, so a scale above
+/// `1.0` shrinks the image into the panel's near corner and stretches its
+/// border across the rest — a crop/zoom control, never a tiling one.
 fn build_sign_material(
     settings: &SovereignMaterialSettings,
     double_sided: bool,
@@ -147,6 +149,7 @@ fn build_sign_material(
     StandardMaterial {
         base_color,
         emissive,
+        uv_transform: sovereign_uv_transform(settings),
         perceptual_roughness: settings.roughness.0,
         metallic: settings.metallic.0,
         alpha_mode: bevy_alpha,
@@ -158,5 +161,53 @@ fn build_sign_material(
         },
         unlit,
         ..default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pds::types::{Fp, Fp2 as PdsFp2};
+    use bevy::math::Vec2;
+    use bevy::mesh::VertexAttributeValues;
+
+    /// #964: the panel's UVs span the image exactly once. Everything about
+    /// *where* the image sits moved onto the material, so this mesh is pure
+    /// geometry — panning a sign no longer re-meshes it.
+    #[test]
+    fn the_panel_mesh_spans_the_image_once() {
+        let mesh = build_sign_mesh(&PdsFp2([4.0, 2.0]));
+        let Some(VertexAttributeValues::Float32x2(uvs)) = mesh.attribute(Mesh::ATTRIBUTE_UV_0)
+        else {
+            panic!("no UVs");
+        };
+        assert_eq!(uvs, &[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]);
+    }
+
+    /// The migrated window reproduces the old vertex-baked sampling. A
+    /// legacy `repeat = 2, offset = 0.5` became `uv_scale = 2,
+    /// uv_offset = 0.25` (see `sanitize_sign`); sampling the quad's corners
+    /// through the material transform must land on the same UVs the old
+    /// mesh baked in: `offset + repeat · t`.
+    #[test]
+    fn the_material_transform_reproduces_the_legacy_uv_window() {
+        let settings = SovereignMaterialSettings {
+            uv_scale: Fp(2.0),
+            uv_offset: PdsFp2([0.25, 0.25]),
+            ..Default::default()
+        };
+        let material =
+            build_sign_material(&settings, false, &crate::pds::AlphaModeKind::Opaque, true);
+        for (corner, legacy) in [
+            (Vec2::new(0.0, 0.0), Vec2::new(0.5, 0.5)),
+            (Vec2::new(1.0, 0.0), Vec2::new(2.5, 0.5)),
+            (Vec2::new(1.0, 1.0), Vec2::new(2.5, 2.5)),
+        ] {
+            let got = material.uv_transform.transform_point2(corner);
+            assert!(
+                (got - legacy).length() < 1e-5,
+                "corner {corner:?} sampled {got:?}, legacy baked {legacy:?}"
+            );
+        }
     }
 }

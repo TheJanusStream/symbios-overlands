@@ -224,22 +224,21 @@ pub fn spawn_generator(
         | GeneratorKind::BlobGroup { .. } => {
             Some(spawn_primitive_entity(ctx, &generator.kind, transform))
         }
+        // The legacy `uv_repeat` / `uv_offset` are not read here: the
+        // sanitizer folds them into `material` and resets them (#964).
         GeneratorKind::Sign {
             source,
             size,
-            uv_repeat,
-            uv_offset,
             material,
             double_sided,
             alpha_mode,
             unlit,
             texture_filter,
+            ..
         } => Some(spawn_sign_entity(
             ctx,
             source,
             size,
-            uv_repeat,
-            uv_offset,
             material,
             *double_sided,
             alpha_mode,

@@ -76,6 +76,64 @@ loading deterministic across peers. The worker links only the Bevy-free
 Cargo workspace ([`crates/gen-jobs`](../crates/gen-jobs/) +
 [`crates/gen-worker`](../crates/gen-worker/)), not a lone crate.
 
+## Primitive faces and UV projection
+
+Every parametric primitive presents **named faces**, and any of them can carry
+its own material — the Second Life model, minus the stack of thin slabs that
+faking it otherwise takes.
+
+A face key is *semantic*, not an index: it says what a surface **is**, so it
+survives re-parameterisation and cuts. The vocabulary is per family, and the
+mesher is the authority — `enumerate_faces()` answers by building the mesh,
+because the census depends on the whole cut state:
+
+| Family | Untortured faces | Cuts can add |
+| --- | --- | --- |
+| Cuboid | `Side ±X`, `Side ±Z`, `Top`, `Bottom` | `Bore`, `Cut start/end` |
+| Wedge | `Slope`, `Back`, `Left`, `Right`, `Bottom` | — (no revolve axis) |
+| Tetrahedron | `Front`, `Left`, `Right`, `Base` | — |
+| Plane | `Surface` | — |
+| Sphere / Capsule / Superellipsoid | `Surface` | `Bore`, `Top`, `Bottom`, `Cut start/end` |
+| BlobGroup | `Surface` | — (SDF cuts are emergent, untaggable) |
+| Cylinder / Bevel / Spine / Lathe | `Wall`, `Top`, `Bottom` | `Bore`, `Cut start/end` |
+| Cone | `Wall`, `Bottom` | `Bore`, `Top`, `Cut start/end` |
+| Tube | `Wall`, `Bore`, `Top`, `Bottom` | `Cut start/end` |
+| Torus / Helix | `Wall` (+ helix `Top`/`Bottom`) | `Bore`, `Cut start/end`, `Slice start/end` |
+
+**Record.** Each primitive carries `faces: Vec<FaceOverride>`, elided when
+empty, so nothing changed on the wire for rooms that don't use it. An override
+is a **complete** material, not a delta — editing the prim's base material
+later never bleeds into an overridden face. Its `uv_mapping` is the one
+exception: `None` inherits the prim's own projection, which is what lets a
+plain recolour avoid re-meshing anything.
+
+**Dormancy.** An override naming a face the current cuts don't produce is
+*dormant*, not invalid: it renders nothing, stays in the record, stays listed
+(greyed) in the editor, and paints again the moment the cut is restored. A
+path-cut cuboid, for example, drops `Side −Z` and gains `Bore` + the two cut
+faces — toggling the cut must not destroy work.
+
+**Mesh and spawn.** Every mesher emits a `FaceTable` alongside its `Mesh`:
+contiguous triangle spans, marked at emission time, that tile the mesh exactly.
+At spawn, a `FacePlan` groups faces by *(material, effective projection)* — so
+draw calls scale with distinct materials, not with faces. One group is the
+pre-face single entity, unchanged; several become a transform-only root
+(markers, collider, children) with one render child per group. An override that
+resolves to the base material therefore costs nothing at all.
+
+**UV conventions.** `uv_scale` reads as *tiles per metre*, `uv_offset` in
+*metres of surface*, `uv_rotation` in *degrees CCW*, applied as one affine over
+the mapping. `Fit` means "keep the mesher's own analytic layout, spanning the
+surface once" — the default for `Plane` (alpha cards must not tile) and for the
+revolved family; the flat family defaults to `Box` (per-axis, in metres).
+
+**Authoring.** In the editor: the **Faces** section of any primitive's panel,
+either from its dropdown or by clicking the face in the viewport ("Pick from
+scene"). In code: `with_face(kind, FaceKey::Top, material)` in the catalogue's
+[`util`](../src/catalogue/items/util.rs) vocabulary — see
+[`pv_panel`](../src/catalogue/items/space_outpost/mod.rs), whose photovoltaic
+face and aluminium backsheet are one prim with one override.
+
 ## Data flow
 
 **Cold start (a fresh account):** DID → `fnv1a_64(did)` seeds a
