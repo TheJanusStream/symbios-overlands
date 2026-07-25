@@ -35,7 +35,6 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 
-use crate::pds::GeneratorKind;
 use crate::pds::generator::UvMapping;
 
 /// Compute per-vertex UVs for `mapping`, splitting shared vertices where
@@ -60,65 +59,6 @@ pub(super) fn project_uvs(
         UvMapping::Cylindrical => cylindrical(pos, nor, idx),
         UvMapping::PlanarX | UvMapping::PlanarY | UvMapping::PlanarZ => planar(pos, mapping),
     }
-}
-
-/// Which metre-scale projection (if any) a primitive kind should have baked
-/// over whatever its mesher produced — the kind's own `uv_mapping` choice
-/// (#937), or `None` when it has no such field or picked
-/// [`UvMapping::Fit`].
-///
-/// The flat-faced family carries the field and defaults to box projection.
-/// Their stock parameterisations
-/// — Bevy's for the plain box, the swept rectangular profile once a cut is
-/// active, hand-rolled per-face quads for the prisms — all lay exactly one
-/// tile across *each face*, so an 8 × 4 × 0.35 wall slab wears one tile on
-/// the 8 × 4 face and another crammed into the 0.35 × 4 end. Box projection
-/// fixes every one of them the same way: each face is projected along its
-/// own normal at one metre scale, and the two meshers a kind may use stop
-/// disagreeing with each other as a side effect.
-///
-/// `Superellipsoid` joins them because it *is* a rounded box — its lat/lon
-/// parameterisation pinches badly toward the poles on the flat-faced
-/// exponents the catalogue actually uses (sandbags at `0.42`/`0.52`), and
-/// box projection is already the default for its nearest neighbour,
-/// `BlobGroup`.
-///
-/// `Plane` carries the field too but defaults to [`UvMapping::Fit`], since
-/// every use of it in the catalogue is a foliage billboard or a glazing
-/// card and a card must span its quad exactly once. Authors who want a
-/// tiling floor quad set `Box` or a planar mode explicitly.
-///
-/// Deliberately absent:
-///
-/// * `Sphere` and `Capsule` — see #938. Both have two meshers whose
-///   parameterisations genuinely disagree (an icosphere against a lat/lon
-///   sweep; a height-proportional capsule profile against an arc-length
-///   one), so scaling them needs a decision about *which* to keep rather
-///   than a projection.
-/// * The revolved kinds already handled at their source — `Cylinder`,
-///   `Cone`, `Tube`, `Torus`, `Spine` — whose analytic mappings follow
-///   their shape's own topology and so beat any projection. They scale in
-///   their meshers instead.
-///
-/// UVs must stay a pure function of geometry: [`prim_geometry_fingerprint`]
-/// drops the material from the mesh cache key, so anything material-derived
-/// here would silently serve one prop's UVs to another.
-///
-/// [`prim_geometry_fingerprint`]: crate::world_builder::prim_cache::prim_geometry_fingerprint
-pub(super) fn metre_projection_for(kind: &GeneratorKind) -> Option<UvMapping> {
-    let mapping = match kind {
-        GeneratorKind::Cuboid { uv_mapping, .. }
-        | GeneratorKind::Plane { uv_mapping, .. }
-        | GeneratorKind::Wedge { uv_mapping, .. }
-        | GeneratorKind::Bevel { uv_mapping, .. }
-        | GeneratorKind::Tetrahedron { uv_mapping, .. }
-        | GeneratorKind::Superellipsoid { uv_mapping, .. } => *uv_mapping,
-        _ => return None,
-    };
-    // `Fit` keeps whatever the mesher produced — its own parameterisation,
-    // normalised to span the surface once. That is not a projection, so
-    // there is nothing to bake.
-    (mapping != UvMapping::Fit).then_some(mapping)
 }
 
 /// Scale a mesh's normalised UVs by one span per axis, in place.

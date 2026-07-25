@@ -244,6 +244,20 @@ fn arm_world_compile(
 #[derive(Component)]
 pub struct PlacementMarker(pub usize);
 
+/// Marks a mesh entity carrying one material group of a primitive (#959),
+/// with the face each of its triangles belongs to.
+///
+/// A prim with no per-face overrides renders as a single entity that carries
+/// this alongside its `Mesh3d`; a split one puts it on each render child.
+/// Either way a raycast hit resolves to a face by looking its
+/// `triangle_index` up in [`faces`](Self::faces) — the click-to-pick path
+/// (#961). The table is shared, so every instance of a scattered prop points
+/// at one allocation.
+#[derive(Component, Clone)]
+pub struct PrimFaceGroup {
+    pub faces: std::sync::Arc<FaceTable>,
+}
+
 /// Tags every entity spawned from a node inside a named [`crate::pds::Generator`]
 /// blueprint. Carries the generator's name plus the child-index chain from
 /// the blueprint root so `editor_gizmo` can (a) find every live instance

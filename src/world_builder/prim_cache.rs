@@ -47,12 +47,14 @@
 
 use std::collections::HashSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::Arc;
 
 use bevy::prelude::*;
 
 use crate::pds::GeneratorKind;
 
 use super::generator_cache::GeneratorCache;
+use super::prim::{FacePlan, FaceTable};
 
 /// Entry ceiling per primitive cache. A room's distinct primitive geometries
 /// number in the low hundreds even for a dense settlement; this is headroom
@@ -60,13 +62,54 @@ use super::generator_cache::GeneratorCache;
 /// edits) from pinning handles indefinitely.
 pub const PRIM_CACHE_CAPACITY: usize = 4_096;
 
+/// One built material group of a primitive (#959): the mesh carrying that
+/// group's triangles, the face each of those triangles belongs to (for
+/// click-picking), and which [`FacePlan`] group it draws with.
+///
+/// A prim with no per-face overrides has exactly one of these, and its mesh
+/// is the whole prim — the pre-#959 shape of the cache.
+#[derive(Clone)]
+pub struct CachedGroup {
+    pub mesh: Handle<Mesh>,
+    /// Shared rather than cloned: every instance of a scattered prop points
+    /// at the same table, and the spawner hands it to each child entity.
+    pub faces: Arc<FaceTable>,
+    /// Index into [`FacePlan::groups`].
+    pub group: usize,
+}
+
 /// Content-addressed primitive mesh dedup — see the [module docs](self).
-pub type PrimMeshCache = GeneratorCache<u64, Handle<Mesh>>;
+///
+/// The value is the prim's material groups in spawn order. `Arc<[_]>` so a
+/// cache hit costs a refcount rather than a `Vec` allocation per instance.
+pub type PrimMeshCache = GeneratorCache<u64, Arc<[CachedGroup]>>;
 
 /// Content-addressed primitive material dedup — see the [module docs](self).
 pub type PrimMaterialCache = GeneratorCache<u64, Handle<StandardMaterial>>;
 
-/// Stable content hash of a primitive's **geometry**, excluding its material.
+/// Mesh-cache key for a primitive: its geometry fingerprint, extended by the
+/// *structure* of its face split when it has one.
+///
+/// A prim whose faces all share the base material keys on the plain
+/// geometry fingerprint alone, so every entry cached before #959 — and every
+/// prim in every existing room — stays valid and shared. Only a genuinely
+/// split prim takes a distinct key, and because
+/// [`FacePlan::signature`](super::prim::FacePlan::signature) hashes the
+/// partition rather than the materials, recolouring one face reuses its
+/// meshes instead of re-cutting them.
+pub fn prim_mesh_key(kind: &GeneratorKind, plan: &FacePlan) -> u64 {
+    let geometry = prim_geometry_fingerprint(kind);
+    if plan.is_whole() {
+        return geometry;
+    }
+    let mut hasher = DefaultHasher::new();
+    geometry.hash(&mut hasher);
+    plan.signature().hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Stable content hash of a primitive's **base geometry**, excluding
+/// everything about its materials.
 ///
 /// `build_primitive_mesh` ignores the material entirely, so folding it into
 /// the key would split the cache on colour alone — every re-tinted copy of one
@@ -74,12 +117,22 @@ pub type PrimMaterialCache = GeneratorCache<u64, Handle<StandardMaterial>>;
 /// the serialised form generically rather than by matching all sixteen
 /// primitive variants, which would be a second place to update whenever a
 /// primitive is added.
+///
+/// `faces` goes the same way, and for the same reason — its entries are
+/// mostly *override materials*. What the per-face split does contribute to
+/// geometry (which faces group together, and each group's projection) is
+/// hashed separately by [`FacePlan::signature`], which
+/// [`prim_mesh_key`] folds in only for a prim that actually splits. Dropping
+/// the whole field here is what lets a prim whose overrides all resolve to
+/// the base material share the plain prim's mesh instead of cutting an
+/// identical copy under its own key.
 pub fn prim_geometry_fingerprint(kind: &GeneratorKind) -> u64 {
     let mut hasher = DefaultHasher::new();
     match serde_json::to_value(kind) {
         Ok(mut v) => {
             if let Some(obj) = v.as_object_mut() {
                 obj.remove("material");
+                obj.remove("faces");
             }
             // `to_string` on a `Value` is canonical for our shapes: object keys
             // come back in the order serde emitted them, which is the struct's
@@ -161,6 +214,59 @@ mod tests {
         assert_eq!(
             prim_geometry_fingerprint(&plane([1.0, 2.0], [1.0, 1.0, 1.0])),
             prim_geometry_fingerprint(&plane([1.0, 2.0], [1.0, 1.0, 1.0])),
+        );
+    }
+
+    /// #959 cache continuity: a prim with no per-face overrides — which is
+    /// every prim in every room authored before the feature existed — must
+    /// key on the plain geometry fingerprint, so its already-cached mesh is
+    /// still found and still shared.
+    #[test]
+    fn an_unsplit_prim_keeps_the_plain_geometry_key() {
+        let kind = plane([1.0, 2.0], [1.0, 1.0, 1.0]);
+        let plan = crate::world_builder::prim::plan_faces(&kind);
+        assert!(plan.is_whole());
+        assert_eq!(
+            prim_mesh_key(&kind, &plan),
+            prim_geometry_fingerprint(&kind),
+            "an unsplit prim must not be re-keyed by #959"
+        );
+    }
+
+    /// A split prim takes its own key (its meshes differ), but recolouring
+    /// one of its faces must not — the split's *structure* is unchanged, so
+    /// the cut meshes are still valid.
+    #[test]
+    fn a_split_prim_keys_on_structure_not_colour() {
+        use crate::pds::generator::{FaceKey, FaceOverride};
+        let painted = |color: [f32; 3]| {
+            let mut kind = plane([1.0, 2.0], [1.0, 1.0, 1.0]);
+            *kind.faces_mut().unwrap() = vec![FaceOverride {
+                face: FaceKey::Surface,
+                material: SovereignMaterialSettings {
+                    base_color: Fp3(color),
+                    ..Default::default()
+                },
+                uv_mapping: None,
+            }];
+            kind
+        };
+        let key_of = |kind: &GeneratorKind| {
+            prim_mesh_key(kind, &crate::world_builder::prim::plan_faces(kind))
+        };
+
+        let red = painted([1.0, 0.0, 0.0]);
+        let blue = painted([0.0, 0.0, 1.0]);
+        let plain = plane([1.0, 2.0], [1.0, 1.0, 1.0]);
+        assert_ne!(
+            key_of(&red),
+            key_of(&plain),
+            "a split prim must not collide with the unsplit one"
+        );
+        assert_eq!(
+            key_of(&red),
+            key_of(&blue),
+            "recolouring a face must reuse its cut meshes"
         );
     }
 

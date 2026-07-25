@@ -5,6 +5,8 @@
 //! into its sibling-module spawner (`prim`, `lsystem`, `shape`, `sign`,
 //! `portal`, `particles`, `material::spawn_water_volume`).
 
+use std::sync::Arc;
+
 use bevy::prelude::*;
 
 use crate::config::terrain as tcfg;
@@ -15,11 +17,16 @@ use super::super::lsystem::spawn_lsystem_entity;
 use super::super::material::{spawn_procedural_material, spawn_water_volume};
 use super::super::particles::{snapshot_from_record, spawn_particle_emitter_entity};
 use super::super::portal::spawn_portal_entity;
-use super::super::prim::{build_primitive_mesh, collider_for_primitive, prim_parts};
-use super::super::prim_cache::{bound_capacity, get_and_touch, prim_geometry_fingerprint};
+use super::super::prim::{
+    build_primitive_groups, build_primitive_mesh, collider_for_primitive, group_material,
+    plan_faces, prim_parts,
+};
+use super::super::prim_cache::{CachedGroup, bound_capacity, get_and_touch, prim_mesh_key};
 use super::super::shape::spawn_shape_entity;
 use super::super::sign::spawn_sign_entity;
-use super::super::{PlacementUnit, PrimMarker, RoomEntity, apply_traits, reset_traits};
+use super::super::{
+    PlacementUnit, PrimFaceGroup, PrimMarker, RoomEntity, apply_traits, reset_traits,
+};
 
 use super::spawn_ctx::{SpawnCtx, budget_exceeded, transform_from_data};
 
@@ -361,67 +368,112 @@ fn spawn_primitive_entity(
     // list gates the call.
     let parts = prim_parts(kind).expect("spawn_primitive_entity called on non-primitive kind");
     let solid = parts.solid;
-    let material_settings = parts.material;
+
+    // How this prim's faces partition into materials (#959). A prim with no
+    // per-face overrides plans as one whole group and takes exactly the
+    // pre-#959 path below: one entity, one mesh, one material.
+    let plan = plan_faces(kind);
 
     // Content-addressed dedup (#918): every instance of a scattered prop
     // hashes identically, so a scatter of N cards shares one mesh handle and
     // one material handle instead of allocating N of each.
-    let geometry_key = prim_geometry_fingerprint(kind);
+    let mesh_key = prim_mesh_key(kind, &plan);
 
     // The collider is derived from the mesh data, which a cache hit does not
-    // hand back — so build the raw mesh only when it is actually needed, and
-    // reuse it for both the handle and the collider on a miss.
+    // hand back — so build the meshes only when actually needed, and reuse
+    // them for both the handles and the collider on a miss.
     //
     // `get_and_touch` also marks the key reachable for this pass, on hit and
     // miss alike, which is what the end-of-job GC retains against (#919).
-    let cached_mesh = get_and_touch(ctx.prim_mesh_cache, ctx.prim_mesh_touched, geometry_key);
+    let cached = get_and_touch(ctx.prim_mesh_cache, ctx.prim_mesh_touched, mesh_key);
     let needs_collider = solid && !ctx.avatar_mode;
-    let (mesh_handle, collider) = match cached_mesh {
+    let (groups, collider) = match cached {
         // Avatar mode strips colliders unconditionally — the locomotion
         // preset's chassis collider is the only physics body on the avatar,
         // and per-prim colliders here would register as Static and conflict
         // with the chassis's dynamic body.
-        Some(handle) if !needs_collider => (handle, None),
-        Some(handle) => {
-            let raw_mesh = build_primitive_mesh(kind).mesh;
-            (handle, collider_for_primitive(kind, &raw_mesh))
+        Some(groups) if !needs_collider => (groups, None),
+        Some(groups) => {
+            let whole = build_primitive_mesh(kind).mesh;
+            (groups, collider_for_primitive(kind, &whole))
         }
         None => {
-            let raw_mesh = build_primitive_mesh(kind).mesh;
+            let built = build_primitive_groups(kind, &plan);
             let collider = if needs_collider {
-                collider_for_primitive(kind, &raw_mesh)
+                // A whole prim's only mesh *is* the whole prim, so its hull
+                // comes straight from it. A split one needs the unsplit
+                // geometry — the hull must stand off the shape, not one
+                // group of its faces.
+                match (plan.is_whole(), built.first()) {
+                    (true, Some(g)) => collider_for_primitive(kind, &g.mesh),
+                    _ => collider_for_primitive(kind, &build_primitive_mesh(kind).mesh),
+                }
             } else {
                 None
             };
-            let handle = ctx.meshes.add(raw_mesh);
+            let groups: Arc<[CachedGroup]> = built
+                .into_iter()
+                .map(|g| CachedGroup {
+                    mesh: ctx.meshes.add(g.mesh),
+                    faces: Arc::new(g.faces),
+                    group: g.group,
+                })
+                .collect();
             bound_capacity(ctx.prim_mesh_cache);
             ctx.prim_mesh_cache
-                .insert(geometry_key, geometry_key, handle.clone());
-            (handle, collider)
+                .insert(mesh_key, mesh_key, groups.clone());
+            (groups, collider)
         }
     };
 
-    let material_key = settings_fingerprint(material_settings);
-    let material_handle = match get_and_touch(
-        ctx.prim_material_cache,
-        ctx.prim_material_touched,
-        material_key,
-    ) {
-        Some(handle) => handle,
-        None => {
-            let handle = spawn_procedural_material(ctx, material_settings);
-            bound_capacity(ctx.prim_material_cache);
-            ctx.prim_material_cache
-                .insert(material_key, material_key, handle.clone());
-            handle
-        }
-    };
+    // Resolve each group's material handle through the shared cache.
+    let mut drawn: Vec<(CachedGroup, Handle<StandardMaterial>)> = Vec::with_capacity(groups.len());
+    for group in groups.iter() {
+        let settings = plan
+            .groups
+            .get(group.group)
+            .and_then(|g| group_material(kind, g))
+            .unwrap_or(parts.material);
+        let material_key = settings_fingerprint(settings);
+        let handle = match get_and_touch(
+            ctx.prim_material_cache,
+            ctx.prim_material_touched,
+            material_key,
+        ) {
+            Some(handle) => handle,
+            None => {
+                let handle = spawn_procedural_material(ctx, settings);
+                bound_capacity(ctx.prim_material_cache);
+                ctx.prim_material_cache
+                    .insert(material_key, material_key, handle.clone());
+                handle
+            }
+        };
+        drawn.push((group.clone(), handle));
+    }
 
-    let mut cmd = ctx.commands.spawn((
-        Mesh3d(mesh_handle),
-        MeshMaterial3d(material_handle),
-        transform,
-    ));
+    // One group: the prim is a single mesh on a single entity, unchanged.
+    // Several: a transform-only root carrying the prim's identity (markers,
+    // collider, children, audio) with one render child per material — the
+    // same shape the Shape grammar spawns its terminals in.
+    let single = drawn.len() == 1;
+    let mut cmd = ctx.commands.spawn(transform);
+    if single {
+        let (group, material) = &drawn[0];
+        cmd.insert((
+            Mesh3d(group.mesh.clone()),
+            MeshMaterial3d(material.clone()),
+            PrimFaceGroup {
+                faces: group.faces.clone(),
+            },
+        ));
+    } else {
+        // `Mesh3d` is what normally brings `Visibility` in as a required
+        // component. A split root has no mesh of its own, so it must carry
+        // one explicitly or visibility would not propagate — to its render
+        // children *or* to the generator's own child nodes hanging off it.
+        cmd.insert(Visibility::default());
+    }
     if !ctx.avatar_mode {
         // The unit marker (not just RoomEntity) is what lets the
         // incremental compiler reclaim this prim even after the gizmo
@@ -431,5 +483,37 @@ fn spawn_primitive_entity(
     if let Some(collider) = collider {
         cmd.insert(collider);
     }
-    cmd.id()
+    let root = cmd.id();
+
+    if !single {
+        // NB: no `RoomEntity` / `PlacementUnit` on the render children — the
+        // same rule the Shape and L-system spawners follow. The root carries
+        // them, recursive despawn from it covers the children, and
+        // double-marking makes the flat unit sweep try to despawn entities
+        // the anchor sweep already took ("entity despawned" warnings on
+        // every rebuild).
+        //
+        // Each child is a real ECS entity, so it is charged against the
+        // room-wide budget: a scatter over a three-material prim costs three
+        // entities per point, and the per-node accounting in
+        // `spawn_generator` only knows about the root.
+        let children: Vec<Entity> = drawn
+            .iter()
+            .map(|(group, material)| {
+                *ctx.entities_spawned = ctx.entities_spawned.saturating_add(1);
+                ctx.commands
+                    .spawn((
+                        Mesh3d(group.mesh.clone()),
+                        MeshMaterial3d(material.clone()),
+                        Transform::IDENTITY,
+                        PrimFaceGroup {
+                            faces: group.faces.clone(),
+                        },
+                    ))
+                    .id()
+            })
+            .collect();
+        ctx.commands.entity(root).add_children(&children);
+    }
+    root
 }

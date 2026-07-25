@@ -26,6 +26,7 @@ mod cuts;
 mod faces;
 mod prisms;
 mod shapes;
+mod split;
 mod superellipsoid;
 mod sweeps;
 mod torture;
@@ -35,11 +36,12 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 
 use crate::pds::GeneratorKind;
-use crate::pds::generator::FaceKey;
+use crate::pds::generator::{FaceKey, UvMapping};
 
 use colliders::convex_hull_from_mesh;
 pub use faces::{FaceTable, PrimMesh};
 pub(super) use shapes::prim_parts;
+pub use split::{FacePlan, build_primitive_groups, group_material, plan_faces};
 use torture::{apply_vertex_torture, torture_of};
 
 /// Build the parametric mesh for a primitive [`GeneratorKind`] variant and
@@ -52,6 +54,20 @@ use torture::{apply_vertex_torture, torture_of};
 /// mesher emitted still names the right triangles on return — see the
 /// [`faces`] module docs for why that holds pass by pass.
 pub fn build_primitive_mesh(kind: &GeneratorKind) -> PrimMesh {
+    let (mut built, tortured) = build_primitive_raw(kind);
+    let projection = projection_for(kind, kind.uv_mapping().unwrap_or_default());
+    finish_uvs(&mut built.mesh, projection, tortured);
+    built
+}
+
+/// Mesher output plus vertex torture — everything *before* the UV
+/// projection. Returns whether torture ran, because that pass regenerates
+/// tangents and [`finish_uvs`] must not redo the work.
+///
+/// Split out for the per-face group build (#959), which applies a
+/// *different* projection per group and so cannot start from a mesh that
+/// has already been projected once.
+fn build_primitive_raw(kind: &GeneratorKind) -> (PrimMesh, bool) {
     let mut built = match prim_parts(kind) {
         Some(parts) => parts.shape.base_mesh(),
         // Non-primitive kinds never reach here on the spawn path (the
@@ -64,24 +80,66 @@ pub fn build_primitive_mesh(kind: &GeneratorKind) -> PrimMesh {
         ),
     };
     let torture = torture_of(kind);
-    if !torture.is_identity() {
+    let tortured = !torture.is_identity();
+    if tortured {
         apply_vertex_torture(&mut built.mesh, torture);
     }
-    // Metre-scale UVs for the kinds whose stock parameterisation lays one
-    // tile across each face regardless of that face's size (#934). Runs
-    // *after* torture so the projection follows the deformed surface, and
-    // it re-generates tangents itself because a projection can split
-    // vertices — which would leave any earlier tangent buffer the wrong
-    // length.
-    if let Some(mapping) = uv::metre_projection_for(kind) {
-        uv::reproject_mesh(&mut built.mesh, mapping);
-    } else if torture.is_identity() {
+    (built, tortured)
+}
+
+/// Apply a projection to a raw mesh, or just ensure it has tangents.
+///
+/// Metre-scale UVs for the kinds whose stock parameterisation lays one tile
+/// across each face regardless of that face's size (#934). Runs *after*
+/// torture so the projection follows the deformed surface, and it
+/// re-generates tangents itself because a projection can split vertices —
+/// which would leave any earlier tangent buffer the wrong length.
+fn finish_uvs(mesh: &mut Mesh, projection: Option<UvMapping>, tortured: bool) {
+    if let Some(mapping) = projection {
+        uv::reproject_mesh(mesh, mapping);
+    } else if !tortured {
         // Non-tortured, non-reprojected path still needs tangents for the
-        // PBR shader. The torture branch regenerates them itself after
+        // PBR shader. The torture branch regenerated them itself after
         // mutating positions.
-        let _ = built.mesh.generate_tangents();
+        let _ = mesh.generate_tangents();
     }
-    built
+}
+
+/// Which projection to bake over a primitive's mesh for a given mapping
+/// choice, or `None` to keep the mesher's own parameterisation.
+///
+/// The flat-faced family (Cuboid / Wedge / Bevel / Tetrahedron /
+/// Superellipsoid) defaults to [`UvMapping::Box`] because their stock
+/// parameterisations — Bevy's for the plain box, the swept rectangular
+/// profile once a cut is active, hand-rolled per-face quads for the prisms —
+/// all lay exactly one tile across *each face*, so an 8 × 4 × 0.35 wall slab
+/// would wear one tile on the 8 × 4 face and another crammed into the
+/// 0.35 × 4 end (#934). Box projection fixes every one of them the same way
+/// and makes a kind's two meshers agree as a side effect.
+///
+/// Two mappings never project:
+///
+/// * [`UvMapping::Fit`] *is* "keep the mesher's own parameterisation" — the
+///   default for `Plane` (an alpha card must span its quad exactly once) and
+///   for the revolved family, whose analytic mappings follow their shape's
+///   own topology and beat any projection (#935 / #938). An author who
+///   nonetheless picks a projection on a revolved prim now gets it — that is
+///   what makes a per-face mapping override meaningful on a cylinder.
+/// * `BlobGroup`, whatever its mapping: surface nets has no analytic
+///   parameterisation at all, so its *mesher* consumes the mapping
+///   internally (`build_blob_mesh` → `project_uvs`) and projecting again
+///   here would lay the pattern on twice.
+///
+/// UVs must stay a pure function of geometry: [`prim_geometry_fingerprint`]
+/// drops the material from the mesh cache key, so anything material-derived
+/// here would silently serve one prop's UVs to another.
+///
+/// [`prim_geometry_fingerprint`]: crate::world_builder::prim_cache::prim_geometry_fingerprint
+fn projection_for(kind: &GeneratorKind, mapping: UvMapping) -> Option<UvMapping> {
+    if matches!(kind, GeneratorKind::BlobGroup { .. }) || mapping == UvMapping::Fit {
+        return None;
+    }
+    Some(mapping)
 }
 
 /// The faces a primitive currently presents, in mesh-emission order.
