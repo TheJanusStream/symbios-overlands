@@ -4,8 +4,10 @@
 
 use bevy_egui::egui;
 
-use crate::pds::generator::{BlobElement, BlobShape, LathePoint, SpinePoint, UvMapping};
-use crate::pds::sanitize::limits::{MAX_BLOB_ELEMENTS, MAX_SWEEP_POINTS};
+use crate::pds::generator::{
+    BlobElement, BlobShape, FaceKey, FaceOverride, GeneratorKind, LathePoint, SpinePoint, UvMapping,
+};
+use crate::pds::sanitize::limits::{MAX_BLOB_ELEMENTS, MAX_FACE_OVERRIDES, MAX_SWEEP_POINTS};
 use crate::pds::{Fp, Fp2, Fp3, SovereignMaterialSettings, TortureParams};
 
 use super::super::construct::{draw_torture, draw_universal_material};
@@ -19,6 +21,7 @@ pub(super) fn draw_primitive_cuboid(
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
+    faces: FacePanel<'_, '_>,
     salt: &str,
     dirty: &mut bool,
 ) {
@@ -37,7 +40,7 @@ pub(super) fn draw_primitive_cuboid(
         }
     });
     draw_uv_mapping(ui, uv_mapping, salt, dirty);
-    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
+    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -48,6 +51,7 @@ pub(super) fn draw_primitive_sphere(
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
+    faces: FacePanel<'_, '_>,
     salt: &str,
     dirty: &mut bool,
 ) {
@@ -55,7 +59,7 @@ pub(super) fn draw_primitive_sphere(
         fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
         drag_u32(ui, "Ico Res", resolution, 0, 6, dirty);
     });
-    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
+    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -67,6 +71,7 @@ pub(super) fn draw_primitive_cylinder(
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
+    faces: FacePanel<'_, '_>,
     salt: &str,
     dirty: &mut bool,
 ) {
@@ -75,7 +80,7 @@ pub(super) fn draw_primitive_cylinder(
         fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
         drag_u32(ui, "Res", resolution, 3, 128, dirty);
     });
-    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
+    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -88,6 +93,7 @@ pub(super) fn draw_primitive_capsule(
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
+    faces: FacePanel<'_, '_>,
     salt: &str,
     dirty: &mut bool,
 ) {
@@ -99,7 +105,7 @@ pub(super) fn draw_primitive_capsule(
         drag_u32(ui, "Lats", latitudes, 2, 64, dirty);
         drag_u32(ui, "Lons", longitudes, 4, 128, dirty);
     });
-    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
+    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -111,6 +117,7 @@ pub(super) fn draw_primitive_cone(
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
+    faces: FacePanel<'_, '_>,
     salt: &str,
     dirty: &mut bool,
 ) {
@@ -119,7 +126,7 @@ pub(super) fn draw_primitive_cone(
         fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
         drag_u32(ui, "Res", resolution, 3, 128, dirty);
     });
-    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
+    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -132,6 +139,7 @@ pub(super) fn draw_primitive_torus(
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
+    faces: FacePanel<'_, '_>,
     salt: &str,
     dirty: &mut bool,
 ) {
@@ -143,7 +151,7 @@ pub(super) fn draw_primitive_torus(
         drag_u32(ui, "Minor Res", minor_resolution, 3, 64, dirty);
         drag_u32(ui, "Major Res", major_resolution, 3, 128, dirty);
     });
-    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
+    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -155,6 +163,7 @@ pub(super) fn draw_primitive_plane(
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
+    faces: FacePanel<'_, '_>,
     salt: &str,
     dirty: &mut bool,
 ) {
@@ -176,7 +185,7 @@ pub(super) fn draw_primitive_plane(
     // The Plane has no revolve axis — its mesher ignores the topology cuts,
     // so don't offer them.
     draw_uv_mapping(ui, uv_mapping, salt, dirty);
-    draw_common_primitive(ui, solid, material, torture, salt, false, dirty);
+    draw_common_primitive(ui, solid, material, torture, faces, salt, false, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -187,12 +196,13 @@ pub(super) fn draw_primitive_tetrahedron(
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
+    faces: FacePanel<'_, '_>,
     salt: &str,
     dirty: &mut bool,
 ) {
     fp_slider(ui, "Size", size, 0.01, 100.0, dirty);
     draw_uv_mapping(ui, uv_mapping, salt, dirty);
-    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
+    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -205,6 +215,7 @@ pub(super) fn draw_primitive_tube(
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
+    faces: FacePanel<'_, '_>,
     salt: &str,
     dirty: &mut bool,
 ) {
@@ -216,7 +227,7 @@ pub(super) fn draw_primitive_tube(
         fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
         drag_u32(ui, "Res", resolution, 3, 128, dirty);
     });
-    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
+    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -229,6 +240,7 @@ pub(super) fn draw_primitive_bevel(
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
+    faces: FacePanel<'_, '_>,
     salt: &str,
     dirty: &mut bool,
 ) {
@@ -251,7 +263,7 @@ pub(super) fn draw_primitive_bevel(
         drag_u32(ui, "Segments", bevel_segments, 1, 16, dirty);
     });
     draw_uv_mapping(ui, uv_mapping, salt, dirty);
-    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
+    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -265,6 +277,7 @@ pub(super) fn draw_primitive_helix(
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
+    faces: FacePanel<'_, '_>,
     salt: &str,
     dirty: &mut bool,
 ) {
@@ -277,7 +290,7 @@ pub(super) fn draw_primitive_helix(
         fp_slider(ui, "Turns", turns, 0.05, 16.0, dirty);
         drag_u32(ui, "Res/turn", resolution, 3, 128, dirty);
     });
-    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
+    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -292,6 +305,7 @@ pub(super) fn draw_primitive_superellipsoid(
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
+    faces: FacePanel<'_, '_>,
     salt: &str,
     dirty: &mut bool,
 ) {
@@ -320,7 +334,7 @@ pub(super) fn draw_primitive_superellipsoid(
         drag_u32(ui, "Lons", longitudes, 4, 128, dirty);
     });
     draw_uv_mapping(ui, uv_mapping, salt, dirty);
-    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
+    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -332,6 +346,7 @@ pub(super) fn draw_primitive_spine(
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
+    faces: FacePanel<'_, '_>,
     salt: &str,
     dirty: &mut bool,
 ) {
@@ -390,7 +405,7 @@ pub(super) fn draw_primitive_spine(
         drag_u32(ui, "Ring segs", resolution, 3, 64, dirty);
         drag_u32(ui, "Samples/seg", samples_per_segment, 2, 32, dirty);
     });
-    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
+    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -402,6 +417,7 @@ pub(super) fn draw_primitive_lathe(
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
+    faces: FacePanel<'_, '_>,
     salt: &str,
     dirty: &mut bool,
 ) {
@@ -455,7 +471,7 @@ pub(super) fn draw_primitive_lathe(
             *dirty = true;
         }
     });
-    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
+    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -467,6 +483,7 @@ pub(super) fn draw_primitive_blob_group(
     uv_mapping: &mut UvMapping,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
+    faces: FacePanel<'_, '_>,
     salt: &str,
     dirty: &mut bool,
     // In-scene edit selection (#705): which element carries the 3D gizmo.
@@ -645,7 +662,69 @@ pub(super) fn draw_primitive_blob_group(
     }
     drag_u32(ui, "Grid res", resolution, 8, 48, dirty);
     draw_uv_mapping(ui, uv_mapping, salt, dirty);
-    draw_common_primitive(ui, solid, material, torture, salt, true, dirty);
+    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
+}
+
+/// The UV projection modes an author can pick, with the hover copy that
+/// explains each. Shared by the whole-prim picker ([`draw_uv_mapping`]) and
+/// the per-face one ([`draw_face_uv_mapping`]) so a mode's description is
+/// written once.
+const UV_MODES: [(UvMapping, &str, &str); 7] = [
+    (
+        UvMapping::Box,
+        "Box (tri-planar)",
+        "Projects each face along its dominant axis at uniform \
+         density — the default. Strong patterns show faint seams \
+         where the projection axis changes.",
+    ),
+    (
+        UvMapping::Fit,
+        "Fit (span once)",
+        "Keeps the mesher's own layout, spanning the surface \
+         exactly once. Required for alpha cards — window glazing, \
+         foliage billboards — which upload clamp-to-edge and would \
+         otherwise tile. The default on Plane.",
+    ),
+    (
+        UvMapping::Spherical,
+        "Spherical",
+        "Wraps once around the mass from its centre. Reads well on \
+         roundish blobs; stretches on elongated ones and repeats \
+         the texture on concave regions.",
+    ),
+    (
+        UvMapping::Cylindrical,
+        "Cylindrical (Y)",
+        "Wraps around the prim's local Y axis (the cut axis), in \
+         metres of arc. Suits limbs, trunks and columns; \
+         up/down-facing surface swirls.",
+    ),
+    (
+        UvMapping::PlanarX,
+        "Planar X",
+        "Flat projection along local X. Back side mirrors.",
+    ),
+    (
+        UvMapping::PlanarY,
+        "Planar Y",
+        "Flat top-down projection — slabs and ground masses. \
+         Underside mirrors.",
+    ),
+    (
+        UvMapping::PlanarZ,
+        "Planar Z",
+        "Flat projection along local Z. Back side mirrors.",
+    ),
+];
+
+/// The display name of a projection mode, or `"Unknown"` for a value from
+/// a newer client (the open union's whole point).
+fn uv_mode_name(mapping: UvMapping) -> &'static str {
+    UV_MODES
+        .iter()
+        .find(|(v, _, _)| *v == mapping)
+        .map(|(_, n, _)| *n)
+        .unwrap_or("Unknown")
 }
 
 /// The shared UV-projection picker (#937). Every kind that carries a
@@ -663,62 +742,10 @@ pub(super) fn draw_uv_mapping(
              mode but Fit measures in metres, so `uv_scale` reads as tiles \
              per metre and one material looks the same on prims of any size.",
         );
-        let modes = [
-            (
-                UvMapping::Box,
-                "Box (tri-planar)",
-                "Projects each face along its dominant axis at uniform \
-                 density — the default. Strong patterns show faint seams \
-                 where the projection axis changes.",
-            ),
-            (
-                UvMapping::Fit,
-                "Fit (span once)",
-                "Keeps the mesher's own layout, spanning the surface \
-                 exactly once. Required for alpha cards — window glazing, \
-                 foliage billboards — which upload clamp-to-edge and would \
-                 otherwise tile. The default on Plane.",
-            ),
-            (
-                UvMapping::Spherical,
-                "Spherical",
-                "Wraps once around the mass from its centre. Reads well on \
-                 roundish blobs; stretches on elongated ones and repeats \
-                 the texture on concave regions.",
-            ),
-            (
-                UvMapping::Cylindrical,
-                "Cylindrical (Y)",
-                "Wraps around the prim's local Y axis (the cut axis), in \
-                 metres of arc. Suits limbs, trunks and columns; \
-                 up/down-facing surface swirls.",
-            ),
-            (
-                UvMapping::PlanarX,
-                "Planar X",
-                "Flat projection along local X. Back side mirrors.",
-            ),
-            (
-                UvMapping::PlanarY,
-                "Planar Y",
-                "Flat top-down projection — slabs and ground masses. \
-                 Underside mirrors.",
-            ),
-            (
-                UvMapping::PlanarZ,
-                "Planar Z",
-                "Flat projection along local Z. Back side mirrors.",
-            ),
-        ];
-        let current = modes
-            .iter()
-            .find(|(v, _, _)| v == uv_mapping)
-            .map(|(_, n, _)| *n)
-            .unwrap_or("Unknown");
         egui::ComboBox::from_id_salt((salt, "uv_mapping"))
-            .selected_text(current)
+            .selected_text(uv_mode_name(*uv_mapping))
             .show_ui(ui, |ui| {
-                for (v, n, hint) in modes {
+                for (v, n, hint) in UV_MODES {
                     if ui
                         .selectable_label(*uv_mapping == v, n)
                         .on_hover_text(hint)
@@ -733,9 +760,31 @@ pub(super) fn draw_uv_mapping(
     });
 }
 
+/// Everything the shared Faces panel (#960) needs, bundled into one
+/// parameter so the fifteen per-kind editors thread a single extra
+/// argument down to [`draw_common_primitive`].
+pub(super) struct FacePanel<'a, 'u> {
+    /// The prim's override list, edited in place.
+    pub overrides: &'a mut Vec<FaceOverride>,
+    /// The whole node as of this frame — what the panel enumerates faces
+    /// from, and where an inherited projection comes from. `None` for a
+    /// kind with no faces at all.
+    ///
+    /// A *snapshot* because the dispatch match holds `overrides` mutably
+    /// from that same node: the panel cannot borrow the node again. It is
+    /// taken before the match and costs one clone per frame for the
+    /// selected node only.
+    pub snapshot: Option<&'a GeneratorKind>,
+    /// Undo-history label sink, so a face edit reads as one in the ⌘Z list
+    /// instead of the generic "edit".
+    pub undo_label: &'a mut crate::ui::undo::LabelSlot<'u>,
+}
+
 /// Shared tail for every primitive editor: solid checkbox, torture triple,
-/// collapsible material panel. Factored out so each per-primitive editor
-/// only owns its shape-specific parameter widgets. `show_cuts` gates the
+/// collapsible material panel, per-face overrides. Factored out so each
+/// per-primitive editor only owns its shape-specific parameter widgets, and
+/// so all sixteen kinds — plus the avatar editor, which routes through the
+/// same dispatch — get the Faces panel from one place. `show_cuts` gates the
 /// topology-cut widgets for kinds whose mesher ignores them (Plane).
 #[allow(clippy::too_many_arguments)]
 fn draw_common_primitive(
@@ -743,6 +792,7 @@ fn draw_common_primitive(
     solid: &mut bool,
     material: &mut SovereignMaterialSettings,
     torture: &mut TortureParams,
+    faces: FacePanel<'_, '_>,
     salt: &str,
     show_cuts: bool,
     dirty: &mut bool,
@@ -759,4 +809,332 @@ fn draw_common_primitive(
         .show(ui, |ui| {
             draw_universal_material(ui, material, salt, dirty);
         });
+    // A new override starts as a copy of the base material, so adding one
+    // changes nothing until it is edited (see `draw_face_overrides`).
+    let base = material.clone();
+    draw_face_overrides(ui, faces, &base, salt, dirty);
+}
+
+/// The per-face override list (#960): the SL "select a face, give it its own
+/// texture" model, one collapsible row per overridden face.
+///
+/// Two behaviours are load-bearing rather than cosmetic:
+///
+/// * **Dormant overrides stay.** The list is the *record's* overrides, never
+///   filtered by `live` — a face the current path-cut removed keeps its row
+///   (greyed, still editable) because the record keeps the override and
+///   restoring the cut brings it back. Filtering here would quietly teach
+///   authors that cutting destroys their work.
+/// * **Adding is a no-op.** A fresh override copies the prim's base material
+///   and inherits its projection, so it plans into the same material group
+///   (`FacePlan::is_whole` stays true) and the prim does not split until the
+///   author actually changes something.
+fn draw_face_overrides(
+    ui: &mut egui::Ui,
+    faces: FacePanel<'_, '_>,
+    base: &SovereignMaterialSettings,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    let FacePanel {
+        overrides,
+        snapshot,
+        undo_label,
+    } = faces;
+    let title = if overrides.is_empty() {
+        "Faces".to_string()
+    } else {
+        format!("Faces ({})", overrides.len())
+    };
+    // Local dirty flag: any edit anywhere in this panel names the undo entry
+    // once, instead of every widget repeating the label.
+    let mut edited = false;
+    egui::CollapsingHeader::new(title)
+        .id_salt(format!("{}_faces", salt))
+        .default_open(false)
+        .show(ui, |ui| {
+            // Inside the body: `face_census` meshes the prim, so a closed
+            // panel must not pay for it, and a selected BlobGroup must not
+            // re-run surface nets every frame just for a face list.
+            let live = snapshot
+                .map(|k| face_census(ui, salt, k))
+                .unwrap_or_default();
+            // One frame stale after an edit to the whole-prim UV combo above
+            // — it only names what "Inherit" resolves to.
+            let base_mapping = snapshot.and_then(|k| k.uv_mapping()).unwrap_or_default();
+            let weak = crate::ui::theme::current(ui.ctx()).text_weak;
+            ui.label(
+                egui::RichText::new(
+                    "A listed face carries its own complete material — the \
+                     Material above no longer paints it. Faces the current \
+                     cuts don't produce stay listed but greyed; restoring \
+                     the cut brings the override back.",
+                )
+                .small()
+                .color(weak),
+            );
+            let mut remove: Option<usize> = None;
+            for (i, ov) in overrides.iter_mut().enumerate() {
+                let dormant = !live.contains(&ov.face);
+                // Keyed by face rather than index so removing one row does
+                // not hand its open/closed state to its neighbour.
+                let id = ui.make_persistent_id((salt, "face_row", ov.face.label()));
+                egui::collapsing_header::CollapsingState::load_with_default_open(
+                    ui.ctx(),
+                    id,
+                    false,
+                )
+                .show_header(ui, |ui| {
+                    let c = ov.material.base_color.0;
+                    egui::color_picker::show_color(
+                        ui,
+                        egui::Rgba::from_rgb(c[0], c[1], c[2]),
+                        egui::vec2(14.0, 14.0),
+                    )
+                    .on_hover_text("This face's base colour");
+                    let mut text = egui::RichText::new(ov.face.label());
+                    if dormant {
+                        text = text.color(weak);
+                    }
+                    let label = ui.label(text);
+                    if dormant {
+                        ui.label(egui::RichText::new("(dormant)").small().color(weak))
+                            .on_hover_text(
+                                "The current cuts don't produce this face, so \
+                                 nothing renders with it. The override is kept \
+                                 — undo the cut and it paints again.",
+                            );
+                        label
+                            .on_hover_text("Dormant: not emitted by the prim's current cut state.");
+                    }
+                    if crate::ui::affordances::remove_button(ui, "Drop this face override")
+                        .clicked()
+                    {
+                        remove = Some(i);
+                    }
+                })
+                .body(|ui| {
+                    let face_salt = format!("{}_face_{}", salt, i);
+                    draw_face_uv_mapping(
+                        ui,
+                        &mut ov.uv_mapping,
+                        base_mapping,
+                        &face_salt,
+                        &mut edited,
+                    );
+                    draw_universal_material(ui, &mut ov.material, &face_salt, &mut edited);
+                });
+            }
+            if let Some(i) = remove {
+                overrides.remove(i);
+                edited = true;
+            }
+            // The picker offers only faces this prim emits *now* and does not
+            // yet override — the sanitizer drops duplicate keys (first wins),
+            // so offering one twice would silently discard the second.
+            let addable: Vec<FaceKey> = addable_faces(&live, overrides);
+            if overrides.len() >= MAX_FACE_OVERRIDES {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "All {MAX_FACE_OVERRIDES} override slots are used."
+                    ))
+                    .small()
+                    .color(weak),
+                );
+            } else if addable.is_empty() {
+                ui.label(
+                    egui::RichText::new(
+                        "Every face this prim currently emits already has an override.",
+                    )
+                    .small()
+                    .color(weak),
+                );
+            } else {
+                egui::ComboBox::from_id_salt((salt, "face_add"))
+                    .selected_text("+ Add face")
+                    .show_ui(ui, |ui| {
+                        for face in addable {
+                            if ui.selectable_label(false, face.label()).clicked() {
+                                overrides.push(new_face_override(face, base));
+                                edited = true;
+                            }
+                        }
+                    });
+            }
+        });
+    if edited {
+        undo_label.set("face override");
+        *dirty = true;
+    }
+}
+
+/// A newly picked face's override: the prim's own material, copied whole,
+/// with the projection inherited.
+///
+/// Adding a face must not *change* anything — the author has only said
+/// "this face is mine now". Copying the base rather than defaulting is what
+/// makes that true: the override plans into the base material's group
+/// (`a_no_op_override_does_not_split` in
+/// [`world_builder::prim`](crate::world_builder)), so the prim keeps its
+/// single mesh and single draw call until an edit actually diverges.
+fn new_face_override(face: FaceKey, base: &SovereignMaterialSettings) -> FaceOverride {
+    FaceOverride {
+        face,
+        material: base.clone(),
+        uv_mapping: None,
+    }
+}
+
+/// The faces a prim emits that have no override yet — what the add-picker
+/// offers, in mesh-emission order.
+fn addable_faces(live: &[FaceKey], overrides: &[FaceOverride]) -> Vec<FaceKey> {
+    live.iter()
+        .copied()
+        .filter(|f| !overrides.iter().any(|ov| ov.face == *f))
+        .collect()
+}
+
+/// A single face's projection override: [`draw_uv_mapping`]'s modes plus an
+/// "Inherit" entry for `None`, which is the default and the reason a plain
+/// recolour never re-meshes the prim.
+fn draw_face_uv_mapping(
+    ui: &mut egui::Ui,
+    mapping: &mut Option<UvMapping>,
+    base_mapping: UvMapping,
+    salt: &str,
+    dirty: &mut bool,
+) {
+    let inherit = format!("Inherit ({})", uv_mode_name(base_mapping));
+    ui.horizontal(|ui| {
+        ui.label("UV mapping").on_hover_text(
+            "How this face's texture is projected. Inherit uses the prim's \
+             own projection — the only part of an override that is a delta \
+             rather than a complete value.",
+        );
+        let current = match mapping {
+            None => inherit.as_str(),
+            Some(m) => uv_mode_name(*m),
+        };
+        egui::ComboBox::from_id_salt((salt, "face_uv_mapping"))
+            .selected_text(current)
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(mapping.is_none(), &inherit).clicked() && mapping.is_some() {
+                    *mapping = None;
+                    *dirty = true;
+                }
+                for (v, n, hint) in UV_MODES {
+                    if ui
+                        .selectable_label(*mapping == Some(v), n)
+                        .on_hover_text(hint)
+                        .clicked()
+                        && *mapping != Some(v)
+                    {
+                        *mapping = Some(v);
+                        *dirty = true;
+                    }
+                }
+            });
+    });
+}
+
+/// The faces a primitive currently emits, memoized per node in egui's
+/// frame memory.
+///
+/// [`enumerate_faces`](crate::world_builder::enumerate_faces) answers by
+/// *building the mesh* — the only honest answer, since the census depends on
+/// the whole torture block — so calling it every frame would re-mesh a
+/// 128-segment helix at frame rate while the panel is merely open. The
+/// geometry fingerprint (already the primitive mesh cache's key) is a cheap
+/// enough per-frame check to gate that on, and it changes exactly when the
+/// census can.
+///
+/// Returns empty for a non-primitive kind, which has no faces to override.
+pub(super) fn face_census(ui: &egui::Ui, salt: &str, kind: &GeneratorKind) -> Vec<FaceKey> {
+    if kind.faces().is_none() {
+        return Vec::new();
+    }
+    let fingerprint = crate::world_builder::prim_cache::prim_geometry_fingerprint(kind);
+    let id = egui::Id::new((salt, "face_census"));
+    if let Some((cached, faces)) = ui.data(|d| d.get_temp::<(u64, Vec<FaceKey>)>(id))
+        && cached == fingerprint
+    {
+        return faces;
+    }
+    let faces = crate::world_builder::enumerate_faces(kind);
+    ui.data_mut(|d| d.insert_temp(id, (fingerprint, faces.clone())));
+    faces
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn override_of(face: FaceKey) -> FaceOverride {
+        FaceOverride {
+            face,
+            material: SovereignMaterialSettings::default(),
+            uv_mapping: None,
+        }
+    }
+
+    /// The picker offers the live faces that are still free, in emission
+    /// order — re-offering an overridden face would hand the author a
+    /// duplicate the sanitizer then silently drops (first entry wins).
+    #[test]
+    fn add_picker_offers_only_unclaimed_live_faces() {
+        let live = [FaceKey::Wall, FaceKey::Top, FaceKey::Bottom];
+        let overrides = [override_of(FaceKey::Top)];
+        assert_eq!(
+            addable_faces(&live, &overrides),
+            vec![FaceKey::Wall, FaceKey::Bottom]
+        );
+    }
+
+    /// A dormant override — its face is no longer emitted — occupies no
+    /// picker slot, because the picker is fed by the *live* faces. The row
+    /// itself survives: the panel's list is the record's own `overrides`,
+    /// never filtered by the census (#955's dormancy contract).
+    #[test]
+    fn a_dormant_override_claims_nothing_from_the_picker() {
+        let live = [FaceKey::Wall, FaceKey::Top];
+        // `PathCutStart` exists only while a path-cut is open.
+        let overrides = [override_of(FaceKey::PathCutStart)];
+        assert_eq!(
+            addable_faces(&live, &overrides),
+            vec![FaceKey::Wall, FaceKey::Top]
+        );
+    }
+
+    /// Adding a face is a no-op until it is edited: the new override carries
+    /// a copy of the prim's own material and inherits its projection, which
+    /// is exactly the shape `FacePlan` folds back into the base group.
+    #[test]
+    fn a_new_override_starts_identical_to_the_base_material() {
+        let base = SovereignMaterialSettings {
+            base_color: Fp3([0.2, 0.4, 0.9]),
+            uv_scale: Fp(3.0),
+            ..Default::default()
+        };
+        let ov = new_face_override(FaceKey::Top, &base);
+        assert_eq!(ov.face, FaceKey::Top);
+        assert_eq!(ov.material, base);
+        assert_eq!(
+            ov.uv_mapping, None,
+            "a fresh override inherits the prim's projection"
+        );
+    }
+
+    /// Every face key the record can hold has a display name — the panel
+    /// lists overrides straight from the record, including keys a future
+    /// client invented, so an unnamed one would render as a blank row.
+    #[test]
+    fn every_listed_face_has_a_label() {
+        for tag in ["Cuboid", "Sphere", "Cylinder", "Wedge", "Tetrahedron"] {
+            let kind = GeneratorKind::default_primitive_for_tag(tag).unwrap();
+            for face in crate::world_builder::enumerate_faces(&kind) {
+                assert!(!face.label().is_empty(), "{tag} emits an unnamed face");
+            }
+        }
+        assert!(!FaceKey::Unknown.label().is_empty());
+    }
 }

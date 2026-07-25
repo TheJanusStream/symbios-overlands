@@ -16,9 +16,9 @@ use super::super::terrain::draw_terrain_forge;
 use super::super::widgets::draw_transform;
 use super::particles::draw_generator_particles;
 use super::primitive::{
-    draw_primitive_bevel, draw_primitive_blob_group, draw_primitive_capsule, draw_primitive_cone,
-    draw_primitive_cuboid, draw_primitive_cylinder, draw_primitive_helix, draw_primitive_lathe,
-    draw_primitive_plane, draw_primitive_sphere, draw_primitive_spine,
+    FacePanel, draw_primitive_bevel, draw_primitive_blob_group, draw_primitive_capsule,
+    draw_primitive_cone, draw_primitive_cuboid, draw_primitive_cylinder, draw_primitive_helix,
+    draw_primitive_lathe, draw_primitive_plane, draw_primitive_sphere, draw_primitive_spine,
     draw_primitive_superellipsoid, draw_primitive_tetrahedron, draw_primitive_torus,
     draw_primitive_tube,
 };
@@ -778,6 +778,25 @@ fn draw_generator_detail(
     undo_label: &mut crate::ui::undo::LabelSlot,
     road_stats: Option<&crate::terrain::RoadPanelStats>,
 ) {
+    // Snapshot taken before the match's mutable borrow: the per-face panel
+    // (#960) needs the WHOLE kind — which faces the current cut state emits,
+    // what an override's "inherit" projection resolves to — and the arm that
+    // runs holds the same node's `faces` mutably. Only primitives (the kinds
+    // that have faces at all) pay the clone.
+    let snapshot = kind.faces().is_some().then(|| kind.clone());
+    // One `FacePanel` per primitive arm, from the arm's own `faces` binding
+    // plus the snapshot. A macro rather than a helper fn because the panel
+    // borrows `undo_label` mutably, and only the arm that runs may take
+    // that borrow.
+    macro_rules! face_panel {
+        ($faces:expr) => {
+            FacePanel {
+                overrides: $faces,
+                snapshot: snapshot.as_ref(),
+                undo_label: &mut *undo_label,
+            }
+        };
+    }
     match kind {
         GeneratorKind::Terrain(cfg) => draw_terrain_forge(ui, cfg, dirty),
         GeneratorKind::Water { surface } => {
@@ -846,17 +865,37 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            faces,
             ..
-        } => draw_primitive_cuboid(ui, size, uv_mapping, solid, material, torture, salt, dirty),
+        } => draw_primitive_cuboid(
+            ui,
+            size,
+            uv_mapping,
+            solid,
+            material,
+            torture,
+            face_panel!(faces),
+            salt,
+            dirty,
+        ),
         GeneratorKind::Sphere {
             radius,
             resolution,
             solid,
             material,
             torture,
+            faces,
             ..
         } => draw_primitive_sphere(
-            ui, radius, resolution, solid, material, torture, salt, dirty,
+            ui,
+            radius,
+            resolution,
+            solid,
+            material,
+            torture,
+            face_panel!(faces),
+            salt,
+            dirty,
         ),
         GeneratorKind::Cylinder {
             radius,
@@ -865,9 +904,19 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            faces,
             ..
         } => draw_primitive_cylinder(
-            ui, radius, height, resolution, solid, material, torture, salt, dirty,
+            ui,
+            radius,
+            height,
+            resolution,
+            solid,
+            material,
+            torture,
+            face_panel!(faces),
+            salt,
+            dirty,
         ),
         GeneratorKind::Capsule {
             radius,
@@ -877,9 +926,20 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            faces,
             ..
         } => draw_primitive_capsule(
-            ui, radius, length, latitudes, longitudes, solid, material, torture, salt, dirty,
+            ui,
+            radius,
+            length,
+            latitudes,
+            longitudes,
+            solid,
+            material,
+            torture,
+            face_panel!(faces),
+            salt,
+            dirty,
         ),
         GeneratorKind::Cone {
             radius,
@@ -888,9 +948,19 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            faces,
             ..
         } => draw_primitive_cone(
-            ui, radius, height, resolution, solid, material, torture, salt, dirty,
+            ui,
+            radius,
+            height,
+            resolution,
+            solid,
+            material,
+            torture,
+            face_panel!(faces),
+            salt,
+            dirty,
         ),
         GeneratorKind::Torus {
             minor_radius,
@@ -900,6 +970,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            faces,
             ..
         } => draw_primitive_torus(
             ui,
@@ -910,6 +981,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            face_panel!(faces),
             salt,
             dirty,
         ),
@@ -920,6 +992,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            faces,
             ..
         } => draw_primitive_plane(
             ui,
@@ -929,6 +1002,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            face_panel!(faces),
             salt,
             dirty,
         ),
@@ -938,10 +1012,19 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            faces,
             ..
-        } => {
-            draw_primitive_tetrahedron(ui, size, uv_mapping, solid, material, torture, salt, dirty)
-        }
+        } => draw_primitive_tetrahedron(
+            ui,
+            size,
+            uv_mapping,
+            solid,
+            material,
+            torture,
+            face_panel!(faces),
+            salt,
+            dirty,
+        ),
         GeneratorKind::Tube {
             radius,
             inner_radius,
@@ -950,6 +1033,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            faces,
             ..
         } => draw_primitive_tube(
             ui,
@@ -960,6 +1044,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            face_panel!(faces),
             salt,
             dirty,
         ),
@@ -971,6 +1056,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            faces,
             ..
         } => draw_primitive_bevel(
             ui,
@@ -981,6 +1067,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            face_panel!(faces),
             salt,
             dirty,
         ),
@@ -992,8 +1079,19 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            faces,
             ..
-        } => draw_primitive_cuboid(ui, size, uv_mapping, solid, material, torture, salt, dirty),
+        } => draw_primitive_cuboid(
+            ui,
+            size,
+            uv_mapping,
+            solid,
+            material,
+            torture,
+            face_panel!(faces),
+            salt,
+            dirty,
+        ),
         GeneratorKind::Helix {
             radius,
             tube_radius,
@@ -1003,6 +1101,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            faces,
             ..
         } => draw_primitive_helix(
             ui,
@@ -1014,6 +1113,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            face_panel!(faces),
             salt,
             dirty,
         ),
@@ -1027,6 +1127,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            faces,
             ..
         } => draw_primitive_superellipsoid(
             ui,
@@ -1039,6 +1140,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            face_panel!(faces),
             salt,
             dirty,
         ),
@@ -1049,6 +1151,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            faces,
             ..
         } => draw_primitive_spine(
             ui,
@@ -1058,6 +1161,7 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            face_panel!(faces),
             salt,
             dirty,
         ),
@@ -1068,9 +1172,19 @@ fn draw_generator_detail(
             solid,
             material,
             torture,
+            faces,
             ..
         } => draw_primitive_lathe(
-            ui, points, resolution, smooth, solid, material, torture, salt, dirty,
+            ui,
+            points,
+            resolution,
+            smooth,
+            solid,
+            material,
+            torture,
+            face_panel!(faces),
+            salt,
+            dirty,
         ),
         GeneratorKind::BlobGroup {
             elements,
@@ -1079,6 +1193,7 @@ fn draw_generator_detail(
             uv_mapping,
             material,
             torture,
+            faces,
             ..
         } => draw_primitive_blob_group(
             ui,
@@ -1088,6 +1203,7 @@ fn draw_generator_detail(
             uv_mapping,
             material,
             torture,
+            face_panel!(faces),
             salt,
             dirty,
             blob_selected_element,
