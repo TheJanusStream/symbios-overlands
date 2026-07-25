@@ -26,11 +26,7 @@
 //!    without one the monument is see-through from behind. The plate is also
 //!    what the portrait reads as being fixed *to*.
 
-use std::f32::consts::FRAC_PI_2;
-
-use crate::catalogue::items::util::{
-    cuboid_tapered, glow, id_quat, nest, pfp_panel, prim, quat_x, solid,
-};
+use crate::catalogue::items::util::{cuboid_tapered, glow, id_quat, nest, pfp_panel, prim, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -42,9 +38,6 @@ use super::{bronze, marble, stone};
 const PANEL: f32 = 1.8;
 /// Height of the panel's centre above the ground.
 const PANEL_Y: f32 = 3.3;
-/// Blank-panel tint — weathered bronze, so an owner with no picture reads as a
-/// blank plaque rather than as a failed texture.
-const BLANK: [f32; 3] = [0.34, 0.28, 0.18];
 /// Frame and lettering bronze.
 const BRONZE: [f32; 3] = [0.52, 0.40, 0.20];
 /// Plinth and stele stone.
@@ -143,11 +136,7 @@ fn portrait(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y, front + 0.1],
             id_quat(),
         ),
-        prim(
-            pfp_panel(did, PANEL, BLANK),
-            [0.0, PANEL_Y, front + 0.03],
-            quat_x(-FRAC_PI_2),
-        ),
+        pfp_panel(did, PANEL, [0.0, PANEL_Y, front + 0.03]),
         // Coping over the stele, oversailing it so the head is not a cut edge.
         prim(
             solid(cuboid_tapered([2.6, 0.26, 0.9], 0.06, stone(STONE))),

@@ -8,10 +8,8 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares — square panel, blank-legible frame, backing plate.
 
-use std::f32::consts::FRAC_PI_2;
-
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, quat_x, solid,
+    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -21,9 +19,6 @@ use super::{BRONZE_GREEN, EMBER_ORANGE, MARBLE_WHITE, SANDSTONE_GOLD, bronze, ma
 
 const PANEL: f32 = 1.7;
 const PANEL_Y: f32 = 3.05;
-/// Blank tint — aged bronze, so an owner with no picture reads as an
-/// un-struck votive plate.
-const BLANK: [f32; 3] = [0.30, 0.34, 0.26];
 
 pub struct AncientMonument;
 
@@ -111,11 +106,7 @@ fn portrait(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y, front],
             id_quat(),
         ),
-        prim(
-            pfp_panel(did, PANEL, BLANK),
-            [0.0, PANEL_Y, front - 0.07],
-            quat_x(-FRAC_PI_2),
-        ),
+        pfp_panel(did, PANEL, [0.0, PANEL_Y, front - 0.07]),
         // Architrave across the columns, then the pediment on it.
         prim(
             solid(cuboid_tapered([3.0, 0.42, 1.0], 0.0, marble(MARBLE_WHITE))),

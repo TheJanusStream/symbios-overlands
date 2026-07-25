@@ -9,11 +9,9 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
-use std::f32::consts::FRAC_PI_2;
-
 use crate::catalogue::items::solarpunk::{crop_tufts, foliage};
 use crate::catalogue::items::util::{
-    self, cuboid_tapered, cuboid_tapered_xz, glow, id_quat, nest, pfp_panel, prim, quat_x, solid,
+    self, cuboid_tapered, cuboid_tapered_xz, glow, id_quat, nest, pfp_panel, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -28,8 +26,6 @@ const PANEL: f32 = 1.8;
 const PANEL_Y: f32 = 3.0;
 /// Brick length in metres — a real 215 mm brick (#966).
 const BRICK_LEN: f32 = 0.215;
-/// Blank tint — the cream of a blank notice card behind glass.
-const BLANK: [f32; 3] = [0.80, 0.77, 0.68];
 /// Coach-lamp amber, deep-saturated at low strength so it reads as a colour
 /// under bloom rather than washing to white.
 const LAMP: [f32; 3] = [1.0, 0.62, 0.24];
@@ -140,11 +136,7 @@ fn board(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y, z + 0.06],
             id_quat(),
         ),
-        prim(
-            pfp_panel(did, PANEL, BLANK),
-            [0.0, PANEL_Y, z],
-            quat_x(-FRAC_PI_2),
-        ),
+        pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
         // Gable cap: a ridge along X, so its triangle faces the approach.
         prim(
             solid(cuboid_tapered_xz(

@@ -8,10 +8,8 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
-use std::f32::consts::FRAC_PI_2;
-
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, quat_x, solid,
+    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -21,9 +19,6 @@ use super::{CONCRETE_GREY, LAMP_WARM, STEEL_GREY, concrete, enamel, steel};
 
 const PANEL: f32 = 1.9;
 const PANEL_Y: f32 = 3.2;
-/// Blank tint — dark display glass, so an owner with no picture reads as a
-/// screen that is simply off.
-const BLANK: [f32; 3] = [0.14, 0.15, 0.17];
 
 pub struct ModernCityMonument;
 
@@ -97,11 +92,7 @@ fn display(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y, z + 0.06],
             id_quat(),
         ),
-        prim(
-            pfp_panel(did, PANEL, BLANK),
-            [0.0, PANEL_Y, z],
-            quat_x(-FRAC_PI_2),
-        ),
+        pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
         // Uplight washing the panel from a slot in the bezel's foot. The
         // portrait is unlit and legible on its own; this is what stops the
         // steel around it going dead after sunset.

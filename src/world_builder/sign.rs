@@ -89,10 +89,22 @@ fn build_sign_mesh(size: &Fp2) -> Mesh {
     ];
     let normals: Vec<[f32; 3]> = vec![[0.0, 1.0, 0.0]; 4];
 
-    // U runs along local +X, V along local +Z, spanning the image once —
+    // U runs along local **−X**, V along local +Z, spanning the image once —
     // the `Fit` convention every alpha card wants, and the identity the
     // material's UV transform then scales / offsets / rotates.
-    let uvs: Vec<[f32; 2]> = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+    //
+    // The `−X` is the fix for #976, and it is forced by this quad's winding.
+    // The index order below makes the **−Y** side the front face (the
+    // right-hand normal of `0,1,2` is `−Y`, whatever the `+Y` normal
+    // attribute says — and with `unlit` signs, which is what a profile
+    // picture wants, only the winding is observable). Stand such a quad up to
+    // face a viewer and you need a transform taking `−Y → −Z`, `V+ → down`
+    // and `U+ → the viewer's right`; with `U+` on `+X` those three demand a
+    // determinant of −1, which no rotation has. The panel could be turned to
+    // face front, or drawn the right way up, or drawn unmirrored — never all
+    // three. Flipping `U` here makes the set satisfiable, by
+    // `quat_x(FRAC_PI_2)`.
+    let uvs: Vec<[f32; 2]> = vec![[1.0, 0.0], [0.0, 0.0], [0.0, 1.0], [1.0, 1.0]];
 
     let indices = Indices::U32(vec![0, 1, 2, 0, 2, 3]);
 
@@ -174,6 +186,11 @@ mod tests {
     /// #964: the panel's UVs span the image exactly once. Everything about
     /// *where* the image sits moved onto the material, so this mesh is pure
     /// geometry — panning a sign no longer re-meshes it.
+    ///
+    /// #976: and `U` runs along local **−X**, which is not cosmetic. The
+    /// vertex order makes `−Y` the wound front face; with `U` on `+X` a
+    /// stood-up panel cannot be face-front, upright *and* unmirrored at the
+    /// same time, because the transform that would do it has determinant −1.
     #[test]
     fn the_panel_mesh_spans_the_image_once() {
         let mesh = build_sign_mesh(&PdsFp2([4.0, 2.0]));
@@ -181,7 +198,36 @@ mod tests {
         else {
             panic!("no UVs");
         };
-        assert_eq!(uvs, &[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]);
+        assert_eq!(uvs, &[[1.0, 0.0], [0.0, 0.0], [0.0, 1.0], [1.0, 1.0]]);
+    }
+
+    /// #976: the quad's wound front face is `−Y`, and the standing rotation
+    /// the catalogue uses puts it on `−Z` — facing whoever the prop faces.
+    ///
+    /// The normal *attribute* says `+Y` and disagrees; that is harmless for
+    /// the unlit panels a profile picture wants, and this test exists so the
+    /// discrepancy is recorded rather than rediscovered. Fixing the attribute
+    /// instead of the UVs would flip which side of every existing sign is
+    /// visible, so the winding is the thing held still here.
+    #[test]
+    fn the_wound_front_face_is_negative_y() {
+        let mesh = build_sign_mesh(&PdsFp2([2.0, 2.0]));
+        let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("no positions")
+        };
+        let Some(Indices::U32(idx)) = mesh.indices() else {
+            panic!("no indices")
+        };
+        let v = |i: u32| Vec3::from_array(pos[i as usize]);
+        let n = (v(idx[1]) - v(idx[0]))
+            .cross(v(idx[2]) - v(idx[0]))
+            .normalize();
+        assert!(
+            (n - Vec3::NEG_Y).length() < 1e-5,
+            "wound front is {n:?}, not −Y — the catalogue's standing rotation \
+             assumes −Y and would turn every owner panel away from the viewer"
+        );
     }
 
     /// The migrated window reproduces the old vertex-baked sampling. A

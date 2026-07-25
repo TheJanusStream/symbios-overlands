@@ -11,11 +11,9 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
-use std::f32::consts::FRAC_PI_2;
-
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, prim_scaled, quat_x,
-    quat_z, solid, sphere, superellipsoid,
+    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, prim_scaled, quat_z,
+    solid, sphere, superellipsoid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -28,9 +26,6 @@ use super::{
 
 const PANEL: f32 = 1.8;
 const PANEL_Y: f32 = 3.2;
-/// Blank tint — clouded membrane, exactly what an unimprinted bract looks
-/// like.
-const BLANK: [f32; 3] = [0.24, 0.40, 0.38];
 
 pub struct AlienOrganicMonument;
 
@@ -99,11 +94,7 @@ fn bract(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y, z + 0.09],
             id_quat(),
         ),
-        prim(
-            pfp_panel(did, PANEL, BLANK),
-            [0.0, PANEL_Y, z],
-            quat_x(-FRAC_PI_2),
-        ),
+        pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
         // The cup the bract opens from, sitting under the panel.
         prim(
             solid(cylinder_tapered(0.85, 0.7, 14, -0.5, chitin(CHITIN_GREEN))),

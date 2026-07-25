@@ -24,9 +24,6 @@ use super::{
 
 const PANEL: f32 = 1.8;
 const PANEL_Y: f32 = 3.0;
-/// Blank tint — the buff of unprinted poster stock, so an empty board reads as
-/// paper waiting for a press rather than as a fault.
-const BLANK: [f32; 3] = [0.82, 0.76, 0.62];
 
 pub struct WildWestMonument;
 
@@ -120,11 +117,7 @@ fn board(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y, z + 0.07],
             id_quat(),
         ),
-        prim(
-            pfp_panel(did, PANEL, BLANK),
-            [0.0, PANEL_Y, z],
-            quat_x(-FRAC_PI_2),
-        ),
+        pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
         // Tin awning, canted to shed rain over the poster. A leaf, so its tilt
         // carries nothing.
         prim(

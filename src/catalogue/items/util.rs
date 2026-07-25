@@ -608,16 +608,29 @@ pub(super) fn window_card(
 /// 4. **Single-sided.** The image would be mirrored on the back. Put a
 ///    backing plate behind the panel — which every monument wants anyway, as
 ///    the plate the portrait is fixed to.
-/// 5. **It must read blank.** The image only ever arrives over the network,
-///    so a room owner with no picture — or a failed fetch — leaves the panel
-///    at `blank_tint` forever. Pass a colour that reads as the *material* of
-///    the plate it is set into (bronze, slate, dark glass), so an empty panel
-///    reads as a blank plaque rather than as a broken texture.
+/// 5. **The tint is pure white, always.** `base_color` *multiplies* the
+///    fetched image, so any other colour silently stains the owner's face —
+///    a themed "blank" tint looked right on an empty panel and turned every
+///    real portrait sepia, blue or half-black the moment one loaded (#976).
+///    The blank state is therefore a white square, and the *frame* is what
+///    carries the theme. There is deliberately no parameter for this.
 ///
-/// The panel is a flat quad in the local XZ plane with normal `+Y`, exactly
-/// like [`plane`]: stand it up with [`quat_x`]`(-FRAC_PI_2)` to face `-Z`.
-pub(super) fn pfp_panel(did: &str, side_m: f32, blank_tint: [f32; 3]) -> GeneratorKind {
-    GeneratorKind::Sign {
+/// # Orientation, and why this returns a positioned node
+///
+/// The panel is a flat quad in the local XZ plane, and the rotation that
+/// stands it up is **`quat_x(FRAC_PI_2)`** — not the `-FRAC_PI_2` that
+/// stands up an ordinary [`plane`], which is the trap this helper now closes
+/// by applying the rotation itself.
+///
+/// The mesh's wound front face is `−Y` (see `world_builder::sign`), so the
+/// negative rotation turns the panel's visible side to `+Z`, *away* from
+/// whoever the prop faces, and maps the image's downward axis to world `+Y`
+/// — backwards and upside-down at once, which is exactly how all 24
+/// monuments shipped before #976. The positive rotation puts the front on
+/// `−Z`, `V` on world `−Y` and `U` on world `−X`, which is the viewer's
+/// right.
+pub(super) fn pfp_panel(did: &str, side_m: f32, center: [f32; 3]) -> Generator {
+    let kind = GeneratorKind::Sign {
         source: crate::pds::SignSource::DidPfp {
             did: did.to_string(),
         },
@@ -627,7 +640,8 @@ pub(super) fn pfp_panel(did: &str, side_m: f32, blank_tint: [f32; 3]) -> Generat
         uv_repeat: Fp2([1.0, 1.0]),
         uv_offset: Fp2([0.0, 0.0]),
         material: SovereignMaterialSettings {
-            base_color: Fp3(blank_tint),
+            // See rule 5 — anything but white stains the portrait.
+            base_color: Fp3([1.0, 1.0, 1.0]),
             roughness: Fp(0.55),
             metallic: Fp(0.0),
             // See rule 2 — the mesh already spans the image once.
@@ -641,7 +655,8 @@ pub(super) fn pfp_panel(did: &str, side_m: f32, blank_tint: [f32; 3]) -> Generat
         alpha_mode: crate::pds::AlphaModeKind::Opaque,
         unlit: true,
         texture_filter: crate::pds::TextureFilter::default(),
-    }
+    };
+    prim(kind, center, quat_x(std::f32::consts::FRAC_PI_2))
 }
 
 /// Wrap an `f32` in an [`Fp64`] snapped to the fixed-point
@@ -1078,6 +1093,12 @@ pub(super) fn assert_sanitize_stable(built: &Generator, name: &str) {
 /// * square — the aspect a face cannot survive losing;
 /// * `uv_scale` 1.0 — Sign images are clamp-to-edge, so anything else crops
 ///   and smears rather than tiles;
+/// * a pure white tint — `base_color` multiplies the fetched image, so any
+///   other colour stains the owner's face, and it stains it *only once a
+///   picture loads*, which is the state no render here can show (#976);
+/// * the standing rotation `quat_x(FRAC_PI_2)` — the panel's wound front is
+///   `−Y`, so the `-FRAC_PI_2` that stands up an ordinary quad turns this one
+///   away from the viewer *and* upside-down;
 /// * `unlit` and single-sided — legible at any hour, never mirrored;
 /// * monument scale: a panel big enough and high enough to read from the
 ///   gateway's landing, on a prop tall enough to be a monument;
@@ -1132,6 +1153,26 @@ pub(super) fn assert_owner_panel(entry: &dyn crate::catalogue::CatalogueEntry, d
                 assert_eq!(
                     material.uv_scale.0, 1.0,
                     "{slug}: Sign images are clamp-to-edge; uv_scale above 1.0 crops and smears"
+                );
+                assert_eq!(
+                    material.base_color.0,
+                    [1.0, 1.0, 1.0],
+                    "{slug}: base_color multiplies the fetched image, so anything but \
+                     white stains the owner's face"
+                );
+                // The standing rotation, checked on the node itself: the panel
+                // must be turned to face `−Z` the right way up, and the two
+                // half-angles differ only in sign, so this is a one-character
+                // mistake that no render taken here can catch.
+                let q = g.transform.rotation.0;
+                let want = std::f32::consts::FRAC_PI_4.sin();
+                assert!(
+                    (q[0] - want).abs() < 1e-4
+                        && q[1].abs() < 1e-4
+                        && q[2].abs() < 1e-4
+                        && (q[3] - want).abs() < 1e-4,
+                    "{slug}: panel rotation {q:?} is not quat_x(+FRAC_PI_2) — a \
+                     negative half-angle here faces it away and inverts it"
                 );
                 assert!(*unlit, "{slug}: a lit portrait goes black at dusk");
                 assert!(

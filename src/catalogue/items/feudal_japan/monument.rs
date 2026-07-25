@@ -9,11 +9,9 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
-use std::f32::consts::FRAC_PI_2;
-
 use crate::catalogue::items::util::{
     cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim,
-    quat_x, solid,
+    solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -26,8 +24,6 @@ use super::{
 
 const PANEL: f32 = 1.7;
 const PANEL_Y: f32 = 2.95;
-/// Blank tint — planed cedar, so an empty plaque reads as an unpainted ema.
-const BLANK: [f32; 3] = [0.62, 0.50, 0.34];
 
 pub struct FeudalJapanMonument;
 
@@ -116,11 +112,7 @@ fn board(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y, z + 0.06],
             id_quat(),
         ),
-        prim(
-            pfp_panel(did, PANEL, BLANK),
-            [0.0, PANEL_Y, z],
-            quat_x(-FRAC_PI_2),
-        ),
+        pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
         // Lacquer frame rails top and bottom.
         prim(
             solid(cuboid_tapered(

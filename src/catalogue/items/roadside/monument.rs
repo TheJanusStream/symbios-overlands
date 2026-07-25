@@ -7,10 +7,8 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
-use std::f32::consts::FRAC_PI_2;
-
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, quat_x, solid,
+    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -23,8 +21,6 @@ use super::{
 
 const PANEL: f32 = 2.0;
 const PANEL_Y: f32 = 3.5;
-/// Blank tint — the cream of a pasted-but-unprinted billboard sheet.
-const BLANK: [f32; 3] = [0.86, 0.83, 0.74];
 
 pub struct RoadsideMonument;
 
@@ -104,11 +100,7 @@ fn board(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y, z + 0.08],
             id_quat(),
         ),
-        prim(
-            pfp_panel(did, PANEL, BLANK),
-            [0.0, PANEL_Y, z],
-            quat_x(-FRAC_PI_2),
-        ),
+        pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
         // Neon strip under the frame — deep-saturated at low strength, so it
         // reads as a colour under bloom instead of washing to white.
         prim(

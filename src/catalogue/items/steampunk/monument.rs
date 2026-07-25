@@ -23,9 +23,6 @@ use super::{
 
 const PANEL: f32 = 1.7;
 const PANEL_Y: f32 = 3.15;
-/// Blank tint — the silvered plate of an unexposed daguerreotype, which is
-/// exactly what a portrait with no sitter should look like.
-const BLANK: [f32; 3] = [0.44, 0.42, 0.36];
 
 pub struct SteampunkMonument;
 
@@ -101,11 +98,7 @@ fn portrait(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y, z + 0.06],
             id_quat(),
         ),
-        prim(
-            pfp_panel(did, PANEL, BLANK),
-            [0.0, PANEL_Y, z],
-            quat_x(-FRAC_PI_2),
-        ),
+        pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
         // Brass name plate under the case.
         prim(
             solid(cuboid_tapered([1.3, 0.26, 0.09], 0.0, brass(BRASS))),

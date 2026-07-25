@@ -8,11 +8,7 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
-use std::f32::consts::FRAC_PI_2;
-
-use crate::catalogue::items::util::{
-    cuboid_tapered, glow, id_quat, nest, pfp_panel, prim, quat_x, solid,
-};
+use crate::catalogue::items::util::{cuboid_tapered, glow, id_quat, nest, pfp_panel, prim, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -21,9 +17,6 @@ use super::{CONCRETE_GREY, FLOOD_LIT, SCORE_LIT, SCORE_RED, STEEL_GREY, concrete
 
 const PANEL: f32 = 2.0;
 const PANEL_Y: f32 = 3.4;
-/// Blank tint — an unlit display, so an owner with no picture reads as a
-/// screen between fixtures rather than as a fault.
-const BLANK: [f32; 3] = [0.11, 0.12, 0.13];
 
 pub struct SportsRecMonument;
 
@@ -118,11 +111,7 @@ fn housing(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y - 0.18, z + 0.14],
             id_quat(),
         ),
-        prim(
-            pfp_panel(did, PANEL, BLANK),
-            [0.0, PANEL_Y, z],
-            quat_x(-FRAC_PI_2),
-        ),
+        pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
         // Score strip below the screen — two lit digit blocks and a red
         // period marker, the layout the kit's own scoreboards use.
         prim(

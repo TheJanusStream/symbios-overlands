@@ -8,10 +8,8 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
-use std::f32::consts::FRAC_PI_2;
-
 use crate::catalogue::items::util::{
-    cuboid_tapered, glow, id_quat, nest, pfp_panel, prim, quat_x, quat_z, solid,
+    cuboid_tapered, glow, id_quat, nest, pfp_panel, prim, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -23,9 +21,6 @@ use super::{
 
 const PANEL: f32 = 1.9;
 const PANEL_Y: f32 = 3.4;
-/// Blank tint — the near-black of unlit obsidian, which is what the whole
-/// theme is: a surface that shows nothing until it decides to.
-const BLANK: [f32; 3] = [0.07, 0.08, 0.10];
 
 pub struct AlienMonolithicMonument;
 
@@ -90,11 +85,7 @@ fn inset(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y, z + 0.06],
             id_quat(),
         ),
-        prim(
-            pfp_panel(did, PANEL, BLANK),
-            [0.0, PANEL_Y, z],
-            quat_x(-FRAC_PI_2),
-        ),
+        pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
         // Energy seam under the inset, the theme's cold signature.
         prim(
             cuboid_tapered([PANEL + 0.3, 0.08, 0.07], 0.0, glow(ENERGY_BLUE, 1.3)),

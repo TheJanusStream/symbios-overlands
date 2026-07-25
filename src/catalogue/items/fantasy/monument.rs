@@ -7,10 +7,8 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
-use std::f32::consts::FRAC_PI_2;
-
 use crate::catalogue::items::util::{
-    cuboid_tapered, glow, id_quat, nest, pfp_panel, prim, quat_x, quat_z, solid,
+    cuboid_tapered, glow, id_quat, nest, pfp_panel, prim, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -23,9 +21,6 @@ use super::{
 
 const PANEL: f32 = 1.8;
 const PANEL_Y: f32 = 3.05;
-/// Blank tint — still scrying-water, the deep teal a pane shows when nothing
-/// has been called into it.
-const BLANK: [f32; 3] = [0.16, 0.28, 0.32];
 
 pub struct FantasyMonument;
 
@@ -117,11 +112,7 @@ fn pane(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y, z + 0.07],
             id_quat(),
         ),
-        prim(
-            pfp_panel(did, PANEL, BLANK),
-            [0.0, PANEL_Y, z],
-            quat_x(-FRAC_PI_2),
-        ),
+        pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
         // Rune band burning along the lintel's face. The pane is unlit and
         // reads on its own; this is what makes the stone read as enchanted
         // rather than merely old.

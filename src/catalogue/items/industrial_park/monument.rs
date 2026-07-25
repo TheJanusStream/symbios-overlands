@@ -8,10 +8,8 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
-use std::f32::consts::FRAC_PI_2;
-
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, quat_x, solid,
+    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -26,9 +24,6 @@ const PANEL: f32 = 1.9;
 const PANEL_Y: f32 = 3.3;
 /// Hazard yellow for the striped leg guards.
 const HAZARD: [f32; 3] = [0.82, 0.68, 0.12];
-/// Blank tint — the grey-green of an unprinted site notice, so an owner with
-/// no picture reads as a board waiting to be posted.
-const BLANK: [f32; 3] = [0.36, 0.39, 0.38];
 
 pub struct IndustrialParkMonument;
 
@@ -132,11 +127,7 @@ fn board(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y, z + 0.06],
             id_quat(),
         ),
-        prim(
-            pfp_panel(did, PANEL, BLANK),
-            [0.0, PANEL_Y, z],
-            quat_x(-FRAC_PI_2),
-        ),
+        pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
         // Floodlight on a bracket, aimed down the face. The portrait is unlit
         // and legible on its own; this is what stops the steel around it
         // going dead at night.

@@ -8,10 +8,8 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
-use std::f32::consts::FRAC_PI_2;
-
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, quat_x, quat_z, solid,
+    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -28,9 +26,6 @@ use super::{
 
 const PANEL: f32 = 1.7;
 const PANEL_Y: f32 = 3.15;
-/// Blank tint — the ochre a carved face is painted with, so an empty panel
-/// reads as an uncut field rather than as a hole in the stone.
-const BLANK: [f32; 3] = [0.46, 0.36, 0.24];
 
 pub struct NordicMonument;
 
@@ -109,11 +104,7 @@ fn face(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y, z + 0.06],
             id_quat(),
         ),
-        prim(
-            pfp_panel(did, PANEL, BLANK),
-            [0.0, PANEL_Y, z],
-            quat_x(-FRAC_PI_2),
-        ),
+        pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
         // Rune band across the foot of the stone.
         prim(
             solid(cuboid_tapered([2.0, 0.3, 0.1], 0.0, timber(WOOD_DARK))),

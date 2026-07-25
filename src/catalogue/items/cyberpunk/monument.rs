@@ -12,10 +12,8 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
-use std::f32::consts::FRAC_PI_2;
-
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, quat_x, solid,
+    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -25,9 +23,6 @@ use super::{DARK_METAL, NEON_CYAN, NEON_MAGENTA, RUST_BROWN, concrete, metal, ru
 
 const PANEL: f32 = 2.0;
 const PANEL_Y: f32 = 3.4;
-/// Blank tint — a dead display, which in this theme is a *reading*, not a
-/// fault: half the screens in a cyberpunk street are out.
-const BLANK: [f32; 3] = [0.10, 0.11, 0.14];
 
 pub struct CyberpunkMonument;
 
@@ -94,11 +89,7 @@ fn screen(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y, z + 0.06],
             id_quat(),
         ),
-        prim(
-            pfp_panel(did, PANEL, BLANK),
-            [0.0, PANEL_Y, z],
-            quat_x(-FRAC_PI_2),
-        ),
+        pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
         // Magenta underglow washing the pad.
         prim(
             cuboid_tapered([PANEL + 0.4, 0.07, 0.08], 0.0, glow(NEON_MAGENTA, 1.4)),

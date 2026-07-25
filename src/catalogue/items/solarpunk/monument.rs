@@ -10,8 +10,6 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
-use std::f32::consts::FRAC_PI_2;
-
 use crate::catalogue::items::util::{
     cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, quat_x, solid,
 };
@@ -26,9 +24,6 @@ use super::{
 
 const PANEL: f32 = 1.8;
 const PANEL_Y: f32 = 3.05;
-/// Blank tint — unfinished lime plaster, the surface this theme leaves ready
-/// for a mural. An empty frame reads as awaiting one, not as broken.
-const BLANK: [f32; 3] = [0.80, 0.78, 0.70];
 
 pub struct SolarpunkMonument;
 
@@ -129,11 +124,7 @@ fn frame(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y, z + 0.06],
             id_quat(),
         ),
-        prim(
-            pfp_panel(did, PANEL, BLANK),
-            [0.0, PANEL_Y, z],
-            quat_x(-FRAC_PI_2),
-        ),
+        pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
         // PV wing, tilted to catch the sun rather than lying flat — the tilt
         // is on a leaf, so it spins nothing.
         prim(

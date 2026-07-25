@@ -8,10 +8,8 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
-use std::f32::consts::FRAC_PI_2;
-
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, quat_x, solid,
+    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -24,9 +22,6 @@ const PANEL_Y: f32 = 2.95;
 /// Candle flame — deep amber at low strength, so it reads as one small light
 /// in the dark rather than a lantern that has bloomed to white.
 const CANDLE: [f32; 3] = [1.0, 0.60, 0.22];
-/// Blank tint — weathered bone, the colour a memorial's blank tablet has
-/// before it is cut. An empty panel reads as a grave awaiting its name.
-const BLANK: [f32; 3] = [0.60, 0.58, 0.50];
 
 pub struct GothicHorrorMonument;
 
@@ -98,11 +93,7 @@ fn shrine(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y, z + 0.07],
             id_quat(),
         ),
-        prim(
-            pfp_panel(did, PANEL, BLANK),
-            [0.0, PANEL_Y, z],
-            quat_x(-FRAC_PI_2),
-        ),
+        pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
         // Bone-pale dedication tablet under the portrait.
         prim(
             solid(cuboid_tapered([1.4, 0.3, 0.09], 0.0, stone(BONE))),

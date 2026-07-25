@@ -25,9 +25,6 @@ use super::{
 
 const PANEL: f32 = 1.8;
 const PANEL_Y: f32 = 3.2;
-/// Blank tint — the deep red of the banner field, so an owner with no picture
-/// reads as plain arms rather than as a hole in the cloth.
-const BLANK: [f32; 3] = [0.44, 0.13, 0.12];
 
 pub struct MedievalMonument;
 
@@ -124,11 +121,7 @@ fn banner(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y - 0.05, z + 0.05],
             id_quat(),
         ),
-        prim(
-            pfp_panel(did, PANEL, BLANK),
-            [0.0, PANEL_Y, z],
-            quat_x(-FRAC_PI_2),
-        ),
+        pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
         // Gold fringe along the head of the banner.
         prim(
             solid(cuboid_tapered(

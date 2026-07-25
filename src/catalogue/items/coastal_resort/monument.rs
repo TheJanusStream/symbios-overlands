@@ -24,9 +24,6 @@ use super::{
 
 const PANEL: f32 = 1.9;
 const PANEL_Y: f32 = 3.05;
-/// Blank tint — sun-bleached signwriter's white, so an empty board reads as
-/// freshly primed rather than broken.
-const BLANK: [f32; 3] = [0.86, 0.84, 0.76];
 
 pub struct CoastalResortMonument;
 
@@ -127,11 +124,7 @@ fn sign(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y, z + 0.07],
             id_quat(),
         ),
-        prim(
-            pfp_panel(did, PANEL, BLANK),
-            [0.0, PANEL_Y, z],
-            quat_x(-FRAC_PI_2),
-        ),
+        pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
     ];
     // Striped canvas valance over the board, on the head rail.
     for (i, x) in [-1.2_f32, -0.4, 0.4, 1.2].iter().enumerate() {

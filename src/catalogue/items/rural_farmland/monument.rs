@@ -8,10 +8,8 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
-use std::f32::consts::FRAC_PI_2;
-
 use crate::catalogue::items::util::{
-    cuboid_tapered, cuboid_tapered_xz, glow, id_quat, nest, pfp_panel, prim, quat_x, solid,
+    cuboid_tapered, cuboid_tapered_xz, glow, id_quat, nest, pfp_panel, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -24,9 +22,6 @@ use super::{
 
 const PANEL: f32 = 1.9;
 const PANEL_Y: f32 = 3.15;
-/// Blank tint — the cream a quilt block is primed with before the pattern goes
-/// on, so an empty square reads as an unpainted board.
-const BLANK: [f32; 3] = [0.84, 0.80, 0.70];
 
 pub struct RuralFarmlandMonument;
 
@@ -125,11 +120,7 @@ fn quilt(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y, z + 0.07],
             id_quat(),
         ),
-        prim(
-            pfp_panel(did, PANEL, BLANK),
-            [0.0, PANEL_Y, z],
-            quat_x(-FRAC_PI_2),
-        ),
+        pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
         // Corrugated drip cap: a ridge along X, so its slope sheds toward the
         // approach rather than presenting a flat lid.
         prim(

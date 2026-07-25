@@ -7,10 +7,8 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
-use std::f32::consts::FRAC_PI_2;
-
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, quat_x, solid, sphere,
+    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -23,9 +21,6 @@ use super::{
 
 const PANEL: f32 = 1.8;
 const PANEL_Y: f32 = 3.25;
-/// Blank tint — a powered-down flight display, which on an outpost reads as a
-/// screen on standby rather than as a failure.
-const BLANK: [f32; 3] = [0.16, 0.20, 0.23];
 
 pub struct SpaceOutpostMonument;
 
@@ -89,11 +84,7 @@ fn placard(did: &str) -> Vec<Generator> {
             [0.0, PANEL_Y, z + 0.06],
             id_quat(),
         ),
-        prim(
-            pfp_panel(did, PANEL, BLANK),
-            [0.0, PANEL_Y, z],
-            quat_x(-FRAC_PI_2),
-        ),
+        pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
         // Hazard-striped kick plate at the foot, where boots and cargo hit it.
         prim(
             solid(cuboid_tapered(
