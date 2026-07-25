@@ -7,7 +7,10 @@
 use bevy::math::cubic_splines::{CubicCardinalSpline, CubicGenerator};
 use bevy::prelude::*;
 
+use crate::pds::generator::FaceKey;
+
 use super::base::mesh_from_parts;
+use super::faces::{FaceSpans, PrimMesh};
 
 /// One sampled station along a spine: centreline point, tube radius, the
 /// parallel-transported frame, and the radius slope `dr/ds` that tilts the
@@ -143,7 +146,7 @@ pub(super) fn build_spine_mesh(
     t0: f32,
     t1: f32,
     inner_frac: f32,
-) -> Mesh {
+) -> PrimMesh {
     use std::f32::consts::TAU;
     let res = resolution.clamp(3, 64);
     let full = (a1 - a0).abs() >= TAU - 1e-3;
@@ -191,6 +194,7 @@ pub(super) fn build_spine_mesh(
     let mut nor: Vec<[f32; 3]> = Vec::new();
     let mut uv: Vec<[f32; 2]> = Vec::new();
     let mut idx: Vec<u32> = Vec::new();
+    let mut spans = FaceSpans::new();
 
     // Tube surface grid — outer, plus an inner shell when hollow. The
     // surface normal of a tapering tube tilts along the tangent by the
@@ -220,14 +224,19 @@ pub(super) fn build_spine_mesh(
                 idx.extend_from_slice(&[a, a + row, a + row + 1, a, a + row + 1, a + 1]);
             }
         }
+        spans.mark(&idx, if inward { FaceKey::Bore } else { FaceKey::Wall });
     }
 
     // End caps, normal along ∓tangent: a disc fan over the kept arc when
     // solid (a pie for an open ring — the centre lies on the cut plane), an
     // annular band outer → inner when hollow.
-    for (st, sgn) in [
-        (&stations[0], -1.0f32),
-        (stations.last().expect("stations non-empty"), 1.0f32),
+    for (st, sgn, face) in [
+        (&stations[0], -1.0f32, FaceKey::Bottom),
+        (
+            stations.last().expect("stations non-empty"),
+            1.0f32,
+            FaceKey::Top,
+        ),
     ] {
         let nrm = (st.tangent * sgn).to_array();
         let base = pos.len() as u32;
@@ -261,6 +270,7 @@ pub(super) fn build_spine_mesh(
                 idx.extend_from_slice(&[base, base + 1 + j, base + 2 + j]);
             }
         }
+        spans.mark(&idx, face);
     }
 
     // Edge strips closing an open angular ring (path-cut): one strip per
@@ -268,7 +278,10 @@ pub(super) fn build_spine_mesh(
     // (solid) or the inner shell (hollow). The face normal is the ring
     // tangent at the cut angle.
     if !full {
-        for (j_edge, sgn) in [(0u32, -1.0f32), (res, 1.0f32)] {
+        for (j_edge, sgn, face) in [
+            (0u32, -1.0f32, FaceKey::PathCutStart),
+            (res, 1.0f32, FaceKey::PathCutEnd),
+        ] {
             let a = ang(j_edge);
             let (sn, cs) = a.sin_cos();
             let base = pos.len() as u32;
@@ -293,10 +306,11 @@ pub(super) fn build_spine_mesh(
                 let b = base + ri * 2;
                 idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
             }
+            spans.mark(&idx, face);
         }
     }
 
-    mesh_from_parts(pos, nor, uv, idx)
+    mesh_from_parts(pos, nor, uv, idx, spans)
 }
 
 /// Coarse analytic point cloud for the Spine's convex-hull collider: a few
@@ -404,7 +418,7 @@ pub(super) fn build_lathe_mesh(
     a1: f32,
     t0: f32,
     t1: f32,
-) -> Mesh {
+) -> PrimMesh {
     use std::f32::consts::TAU;
     let segs = resolution.clamp(3, 128);
     let full = (a1 - a0).abs() >= TAU - 1e-3;
@@ -444,6 +458,7 @@ pub(super) fn build_lathe_mesh(
     let mut nor: Vec<[f32; 3]> = Vec::new();
     let mut uv: Vec<[f32; 2]> = Vec::new();
     let mut idx: Vec<u32> = Vec::new();
+    let mut spans = FaceSpans::new();
 
     // Outer (+ inner, when hollow) revolved surface. The inner shell scales
     // radii proportionally (same convention as the frustum bore), keeping
@@ -472,12 +487,16 @@ pub(super) fn build_lathe_mesh(
                 idx.extend_from_slice(&[a, a + row, a + row + 1, a, a + row + 1, a + 1]);
             }
         }
+        spans.mark(&idx, if inward { FaceKey::Bore } else { FaceKey::Wall });
     }
 
     // End caps at any non-pole profile end: fan disc (solid) or annulus
     // (hollow).
     let last = stations.len() - 1;
-    for (si, ny) in [(0usize, -1.0f32), (last, 1.0f32)] {
+    for (si, ny, face) in [
+        (0usize, -1.0f32, FaceKey::Bottom),
+        (last, 1.0f32, FaceKey::Top),
+    ] {
         let st = stations[si];
         if st.x <= 1e-4 {
             continue;
@@ -514,12 +533,16 @@ pub(super) fn build_lathe_mesh(
                 idx.extend_from_slice(&[base, base + 1 + i, base + 2 + i]);
             }
         }
+        spans.mark(&idx, face);
     }
 
     // Flat cut faces when the sweep is angularly open (path-cut): one strip
     // per edge, spanning outer profile → bore (hollow) or axis (solid).
     if !full {
-        for (i_edge, sgn) in [(0u32, -1.0f32), (segs, 1.0f32)] {
+        for (i_edge, sgn, face) in [
+            (0u32, -1.0f32, FaceKey::PathCutStart),
+            (segs, 1.0f32, FaceKey::PathCutEnd),
+        ] {
             let a = ang(i_edge);
             let (s, c) = a.sin_cos();
             let nrm = [sgn * -s, 0.0, sgn * c];
@@ -542,10 +565,11 @@ pub(super) fn build_lathe_mesh(
                 let b = base + si * 2;
                 idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
             }
+            spans.mark(&idx, face);
         }
     }
 
-    mesh_from_parts(pos, nor, uv, idx)
+    mesh_from_parts(pos, nor, uv, idx, spans)
 }
 
 /// Coarse analytic point cloud for the Lathe's convex-hull collider: every

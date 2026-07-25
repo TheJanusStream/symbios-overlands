@@ -14,7 +14,10 @@ use fast_surface_nets::{SurfaceNetsBuffer, surface_nets};
 
 use crate::pds::generator::{BlobElement, BlobShape, UvMapping};
 
+use crate::pds::generator::FaceKey;
+
 use super::base::mesh_from_parts;
+use super::faces::{FaceSpans, FaceTable, PrimMesh};
 use super::uv::project_uvs;
 
 /// One element resolved from wire types into compute-friendly form.
@@ -204,7 +207,7 @@ pub(super) fn build_blob_mesh(
     t1: f32,
     hollow_frac: f32,
     uv_mapping: UvMapping,
-) -> Mesh {
+) -> PrimMesh {
     use std::f32::consts::TAU;
     let resolved = resolve(elements);
     if resolved.is_empty() {
@@ -313,16 +316,26 @@ pub(super) fn build_blob_mesh(
     let mut idx = buffer.indices;
     let uv = project_uvs(uv_mapping, &mut pos, &mut nor, &mut idx);
 
-    mesh_from_parts(pos, nor, uv, idx)
+    // Surface nets emits one undifferentiated skin: the cuts are carved into
+    // the field itself, so a cut face is emergent geometry with no block to
+    // tag. A blob is therefore always exactly one `Surface` (#958).
+    let mut spans = FaceSpans::new();
+    spans.mark(&idx, FaceKey::Surface);
+    mesh_from_parts(pos, nor, uv, idx, spans)
 }
 
 /// Tiny visible stand-in for a group with no surface (all-subtract or
 /// empty): keeps the prim selectable in the editor instead of vanishing.
-fn marker_mesh() -> Mesh {
-    Sphere::new(0.05)
+fn marker_mesh() -> PrimMesh {
+    let mesh = Sphere::new(0.05)
         .mesh()
         .ico(2)
-        .unwrap_or_else(|_| Sphere::new(0.05).mesh().build())
+        .unwrap_or_else(|_| Sphere::new(0.05).mesh().build());
+    let triangles = mesh.indices().map(|i| (i.len() / 3) as u32).unwrap_or(0);
+    PrimMesh {
+        faces: FaceTable::single(FaceKey::Surface, triangles),
+        mesh,
+    }
 }
 
 /// Analytic point cloud for the convex-hull collider: support-ish samples

@@ -5,7 +5,10 @@
 
 use bevy::prelude::*;
 
+use crate::pds::generator::FaceKey;
+
 use super::base::mesh_from_parts;
+use super::faces::{FaceSpans, PrimMesh};
 
 /// Convert a `[begin, end]` path-cut (turns) to a `(start, end)` angle pair.
 pub(super) fn path_cut_angles(t: &crate::pds::TortureParams) -> (f32, f32) {
@@ -38,7 +41,7 @@ pub(super) fn build_swept_frustum(
     a1: f32,
     t0: f32,
     t1: f32,
-) -> Mesh {
+) -> PrimMesh {
     use std::f32::consts::TAU;
     let segs = resolution.max(3);
     let rows = rows.max(1);
@@ -74,6 +77,7 @@ pub(super) fn build_swept_frustum(
     let mut nor: Vec<[f32; 3]> = Vec::new();
     let mut uv: Vec<[f32; 2]> = Vec::new();
     let mut idx: Vec<u32> = Vec::new();
+    let mut spans = FaceSpans::new();
 
     // Outer wall, plus an inner wall when hollow (inward-facing normals).
     // `rows` vertical subdivisions give the vertex-torture pass mid-height
@@ -102,11 +106,15 @@ pub(super) fn build_swept_frustum(
                 idx.extend_from_slice(&[b, b + n, b + n + 1, b, b + n + 1, b + 1]);
             }
         }
+        spans.mark(&idx, if inward { FaceKey::Bore } else { FaceKey::Wall });
     }
 
     // Top + bottom caps: annular when hollow, a triangle fan to the centre
     // when solid. A zero-radius end (a cone's apex) needs no cap.
-    for (y, ny, rr) in [(yt, 1.0f32, r_top), (yb, -1.0f32, r_bottom)] {
+    for (y, ny, rr, face) in [
+        (yt, 1.0f32, r_top, FaceKey::Top),
+        (yb, -1.0f32, r_bottom, FaceKey::Bottom),
+    ] {
         if rr <= 1e-4 {
             continue;
         }
@@ -144,6 +152,7 @@ pub(super) fn build_swept_frustum(
                 idx.extend_from_slice(&[base, base + 1 + i, base + 2 + i]);
             }
         }
+        spans.mark(&idx, face);
     }
 
     // Radial cut faces close the wedge opening (only when path-cut),
@@ -151,7 +160,10 @@ pub(super) fn build_swept_frustum(
     // step. With a zero top radius the strip's top edge collapses to the
     // apex — its last triangles degenerate, which the winding pass tolerates.
     if !full {
-        for (i, sgn) in [(0u32, -1.0f32), (segs, 1.0f32)] {
+        for (i, sgn, face) in [
+            (0u32, -1.0f32, FaceKey::PathCutStart),
+            (segs, 1.0f32, FaceKey::PathCutEnd),
+        ] {
             let a = ang(i);
             let (s, c) = a.sin_cos();
             let nrm = [-sgn * s, 0.0, sgn * c];
@@ -171,10 +183,11 @@ pub(super) fn build_swept_frustum(
                 let b = base + j * 2;
                 idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
             }
+            spans.mark(&idx, face);
         }
     }
 
-    mesh_from_parts(pos, nor, uv, idx)
+    mesh_from_parts(pos, nor, uv, idx, spans)
 }
 
 /// Unified revolved-capsule mesher — a stadium profile (bottom hemisphere →
@@ -198,7 +211,7 @@ pub(super) fn build_swept_capsule(
     t0: f32,
     t1: f32,
     inner_frac: f32,
-) -> Mesh {
+) -> PrimMesh {
     use std::f32::consts::{FRAC_PI_2, TAU};
     let nlon = longitudes.max(4);
     let lon_full = (lon1 - lon0).abs() >= TAU - 1e-3;
@@ -259,6 +272,7 @@ pub(super) fn build_swept_capsule(
     let mut nor: Vec<[f32; 3]> = Vec::new();
     let mut uv: Vec<[f32; 2]> = Vec::new();
     let mut idx: Vec<u32> = Vec::new();
+    let mut spans = FaceSpans::new();
 
     // Outer (+ inner, when hollow) revolved surface grid. A uniform scale
     // leaves surface normals unchanged, so the bore reuses the outer profile
@@ -290,12 +304,23 @@ pub(super) fn build_swept_capsule(
                 idx.extend_from_slice(&[a, a + row, a + row + 1, a, a + row + 1, a + 1]);
             }
         }
+        spans.mark(
+            &idx,
+            if inward {
+                FaceKey::Bore
+            } else {
+                FaceKey::Surface
+            },
+        );
     }
 
     // Profile end caps at any open, non-pole edge: a horizontal disc when
     // solid, a rim band joining the outer edge to the inner (scaled) edge
     // when hollow — the same closure scheme as the banded sphere.
-    for (t, ny_dir, pole) in [(t0, -1.0f32, bottom_pole), (t1, 1.0f32, top_pole)] {
+    for (t, ny_dir, pole, face) in [
+        (t0, -1.0f32, bottom_pole, FaceKey::Bottom),
+        (t1, 1.0f32, top_pole, FaceKey::Top),
+    ] {
         if pole {
             continue;
         }
@@ -337,11 +362,15 @@ pub(super) fn build_swept_capsule(
                 idx.extend_from_slice(&[base, base + 1 + i, base + 2 + i]);
             }
         }
+        spans.mark(&idx, face);
     }
 
     // Meridional cut faces when the longitude sweep is open (path-cut).
     if !lon_full {
-        for (i_edge, sgn) in [(0u32, -1.0f32), (nlon, 1.0f32)] {
+        for (i_edge, sgn, face) in [
+            (0u32, -1.0f32, FaceKey::PathCutStart),
+            (nlon, 1.0f32, FaceKey::PathCutEnd),
+        ] {
             let l = lonf(i_edge);
             let (sl, cl) = l.sin_cos();
             let nrm = [sgn * -sl, 0.0, sgn * cl];
@@ -364,10 +393,11 @@ pub(super) fn build_swept_capsule(
                 let b = base + j * 2;
                 idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
             }
+            spans.mark(&idx, face);
         }
     }
 
-    mesh_from_parts(pos, nor, uv, idx)
+    mesh_from_parts(pos, nor, uv, idx, spans)
 }
 
 /// Unified revolved-sphere mesher — a UV sphere swept over a **latitude band**
@@ -386,7 +416,7 @@ pub(super) fn build_uv_sphere(
     lat_t0: f32,
     lat_t1: f32,
     inner_frac: f32,
-) -> Mesh {
+) -> PrimMesh {
     use std::f32::consts::{FRAC_PI_2, PI, TAU};
     let nlon = (resolution.max(2) * 6).max(8);
     let nlat = (resolution.max(2) * 4).max(6);
@@ -410,6 +440,7 @@ pub(super) fn build_uv_sphere(
     let mut nor: Vec<[f32; 3]> = Vec::new();
     let mut uv: Vec<[f32; 2]> = Vec::new();
     let mut idx: Vec<u32> = Vec::new();
+    let mut spans = FaceSpans::new();
 
     // Outer (+ inner, when hollow) revolved surface grid.
     let mut shells = vec![(radius, false)];
@@ -441,10 +472,21 @@ pub(super) fn build_uv_sphere(
                 idx.extend_from_slice(&[a, a + row, a + row + 1, a, a + row + 1, a + 1]);
             }
         }
+        spans.mark(
+            &idx,
+            if inward {
+                FaceKey::Bore
+            } else {
+                FaceKey::Surface
+            },
+        );
     }
 
     // Latitude caps (horizontal disc / annulus) at any open, non-pole edge.
-    for (t, ny, pole) in [(lat_t0, -1.0f32, bottom_pole), (lat_t1, 1.0f32, top_pole)] {
+    for (t, ny, pole, face) in [
+        (lat_t0, -1.0f32, bottom_pole, FaceKey::Bottom),
+        (lat_t1, 1.0f32, top_pole, FaceKey::Top),
+    ] {
         if pole {
             continue;
         }
@@ -494,11 +536,15 @@ pub(super) fn build_uv_sphere(
                 idx.extend_from_slice(&[base, base + 1 + i, base + 2 + i]);
             }
         }
+        spans.mark(&idx, face);
     }
 
     // Meridional cut faces when the longitude sweep is open (path-cut).
     if !lon_full {
-        for (i_edge, sgn) in [(0u32, -1.0f32), (nlon, 1.0f32)] {
+        for (i_edge, sgn, face) in [
+            (0u32, -1.0f32, FaceKey::PathCutStart),
+            (nlon, 1.0f32, FaceKey::PathCutEnd),
+        ] {
             let l = lonf(i_edge);
             let (sl, cl) = l.sin_cos();
             let nrm = [sgn * -sl, 0.0, sgn * cl];
@@ -529,10 +575,11 @@ pub(super) fn build_uv_sphere(
                 let b = base + j * 2;
                 idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
             }
+            spans.mark(&idx, face);
         }
     }
 
-    mesh_from_parts(pos, nor, uv, idx)
+    mesh_from_parts(pos, nor, uv, idx, spans)
 }
 
 /// Unified swept-torus mesher — a circular profile revolved along a major
@@ -553,7 +600,7 @@ pub(super) fn build_torus(
     min0: f32,
     min1: f32,
     inner_frac: f32,
-) -> Mesh {
+) -> PrimMesh {
     use std::f32::consts::TAU;
     let nmaj = major_res.max(3);
     let nmin = minor_res.max(3);
@@ -581,6 +628,7 @@ pub(super) fn build_torus(
     let mut nor: Vec<[f32; 3]> = Vec::new();
     let mut uv: Vec<[f32; 2]> = Vec::new();
     let mut idx: Vec<u32> = Vec::new();
+    let mut spans = FaceSpans::new();
 
     // Outer (+ inner, when hollow) tube surface.
     let mut shells = vec![(minor_r, false)];
@@ -609,11 +657,15 @@ pub(super) fn build_torus(
                 idx.extend_from_slice(&[a, a + row, a + row + 1, a, a + row + 1, a + 1]);
             }
         }
+        spans.mark(&idx, if inward { FaceKey::Bore } else { FaceKey::Wall });
     }
 
     // Major-arc end caps (the tube cross-section) when path-cut.
     if !maj_full {
-        for (i_edge, sgn) in [(0u32, -1.0f32), (nmaj, 1.0f32)] {
+        for (i_edge, sgn, face) in [
+            (0u32, -1.0f32, FaceKey::PathCutStart),
+            (nmaj, 1.0f32, FaceKey::PathCutEnd),
+        ] {
             let th = majf(i_edge);
             let (st, ct) = th.sin_cos();
             let nrm = [sgn * -st, 0.0, sgn * ct];
@@ -648,12 +700,16 @@ pub(super) fn build_torus(
                     idx.extend_from_slice(&[base, base + 1 + j, base + 2 + j]);
                 }
             }
+            spans.mark(&idx, face);
         }
     }
 
     // Minor-arc edge bands (the open lips of a C-channel) when profile-cut.
     if !min_full {
-        for (j_edge, sgn) in [(0u32, -1.0f32), (nmin, 1.0f32)] {
+        for (j_edge, sgn, face) in [
+            (0u32, -1.0f32, FaceKey::ProfileCutStart),
+            (nmin, 1.0f32, FaceKey::ProfileCutEnd),
+        ] {
             let ph = minf(j_edge);
             let (sp, cp) = ph.sin_cos();
             let base = pos.len() as u32;
@@ -677,21 +733,29 @@ pub(super) fn build_torus(
                 let b = base + i * 2;
                 idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
             }
+            spans.mark(&idx, face);
         }
     }
 
-    mesh_from_parts(pos, nor, uv, idx)
+    mesh_from_parts(pos, nor, uv, idx, spans)
 }
 
-/// One vertex of a swept XZ profile polygon: position + outward normal.
+/// One vertex of a swept XZ profile polygon: position + outward normal +
+/// the face the segment *starting* here belongs to.
 /// Corners of flat-faced profiles (the rectangle) appear twice with the two
 /// face normals so shading stays crisp.
+///
+/// `face` is what lets one swept wall carry four distinct box sides (#958):
+/// the rectangle tags its runs `SidePx` / `SidePz` / `SideNx` / `SideNz`,
+/// while a rounded profile whose corners blend into the straights tags every
+/// point `Wall`.
 #[derive(Clone, Copy)]
 pub(super) struct ProfilePoint {
     pub x: f32,
     pub z: f32,
     pub nx: f32,
     pub nz: f32,
+    pub face: FaceKey,
 }
 
 impl ProfilePoint {
@@ -701,18 +765,23 @@ impl ProfilePoint {
 }
 
 /// Rectangle profile (a Cuboid footprint), CCW, corners duplicated per face.
+///
+/// Each point carries the face of the segment that *starts* at it, so the
+/// duplicated corners hand the run over to the next side: the zero-width
+/// quad between a corner pair inherits the outgoing side and renders
+/// nothing either way.
 pub(super) fn rect_profile(hx: f32, hz: f32) -> Vec<ProfilePoint> {
-    let p = |x: f32, z: f32, nx: f32, nz: f32| ProfilePoint { x, z, nx, nz };
+    let p = |x: f32, z: f32, nx: f32, nz: f32, face: FaceKey| ProfilePoint { x, z, nx, nz, face };
     vec![
         // +X face, then +Z, −X, −Z — CCW when viewed from +Y.
-        p(hx, -hz, 1.0, 0.0),
-        p(hx, hz, 1.0, 0.0),
-        p(hx, hz, 0.0, 1.0),
-        p(-hx, hz, 0.0, 1.0),
-        p(-hx, hz, -1.0, 0.0),
-        p(-hx, -hz, -1.0, 0.0),
-        p(-hx, -hz, 0.0, -1.0),
-        p(hx, -hz, 0.0, -1.0),
+        p(hx, -hz, 1.0, 0.0, FaceKey::SidePx),
+        p(hx, hz, 1.0, 0.0, FaceKey::SidePx),
+        p(hx, hz, 0.0, 1.0, FaceKey::SidePz),
+        p(-hx, hz, 0.0, 1.0, FaceKey::SidePz),
+        p(-hx, hz, -1.0, 0.0, FaceKey::SideNx),
+        p(-hx, -hz, -1.0, 0.0, FaceKey::SideNx),
+        p(-hx, -hz, 0.0, -1.0, FaceKey::SideNz),
+        p(hx, -hz, 0.0, -1.0, FaceKey::SideNz),
     ]
 }
 
@@ -743,6 +812,10 @@ pub(super) fn rounded_rect_profile(
                 z: cz + b * sn,
                 nx: cs,
                 nz: sn,
+                // One wrapped side: a bevel's corner arcs blend continuously
+                // into its straights, so there is no seam to name four
+                // sides against.
+                face: FaceKey::Wall,
             });
         }
     }
@@ -789,6 +862,9 @@ fn profile_raycast(profile: &[ProfilePoint], a: f32) -> ProfilePoint {
                     z: hz,
                     nx,
                     nz,
+                    // The cut endpoint lands inside the hit segment, so it
+                    // belongs to that segment's face.
+                    face: p0.face,
                 },
             ));
         }
@@ -798,6 +874,7 @@ fn profile_raycast(profile: &[ProfilePoint], a: f32) -> ProfilePoint {
         z: sa * 0.01,
         nx: ca,
         nz: sa,
+        face: profile.first().map(|p| p.face).unwrap_or(FaceKey::Wall),
     })
 }
 
@@ -818,7 +895,7 @@ pub(super) fn build_profile_sweep(
     a1: f32,
     t0: f32,
     t1: f32,
-) -> Mesh {
+) -> PrimMesh {
     use std::f32::consts::TAU;
     let rows = rows.max(1);
     let k = inner_frac.clamp(0.0, 0.99);
@@ -874,6 +951,7 @@ pub(super) fn build_profile_sweep(
     let mut nor: Vec<[f32; 3]> = Vec::new();
     let mut uv: Vec<[f32; 2]> = Vec::new();
     let mut idx: Vec<u32> = Vec::new();
+    let mut spans = FaceSpans::new();
 
     // Outer wall (+ scaled inner bore wall when hollow).
     let mut shells = vec![(1.0f32, false)];
@@ -904,6 +982,17 @@ pub(super) fn build_profile_sweep(
                     a + row_stride + 1,
                     a + 1,
                 ]);
+                // The wall walks the ring once per row, so a side's
+                // triangles are not one contiguous block — mark per segment
+                // and let same-key spans merge within each row.
+                spans.mark(
+                    &idx,
+                    if inward {
+                        FaceKey::Bore
+                    } else {
+                        ring[i as usize].face
+                    },
+                );
             }
         }
     }
@@ -917,7 +1006,7 @@ pub(super) fn build_profile_sweep(
             .map(|p| p.x.abs().max(p.z.abs()))
             .fold(0.0f32, f32::max)
             .max(1e-6);
-    for (y, ny) in [(yt, 1.0f32), (yb, -1.0f32)] {
+    for (y, ny, face) in [(yt, 1.0f32, FaceKey::Top), (yb, -1.0f32, FaceKey::Bottom)] {
         let nrm = [0.0, ny, 0.0];
         let base = pos.len() as u32;
         if hollow {
@@ -946,11 +1035,15 @@ pub(super) fn build_profile_sweep(
                 idx.extend_from_slice(&[base, base + 1 + i, base + 2 + i]);
             }
         }
+        spans.mark(&idx, face);
     }
 
     // Radial cut faces closing an open wedge, subdivided to the wall rows.
     if !full {
-        for (end, sgn) in [(0usize, -1.0f32), (n_ring - 1, 1.0f32)] {
+        for (end, sgn, face) in [
+            (0usize, -1.0f32, FaceKey::PathCutStart),
+            (n_ring - 1, 1.0f32, FaceKey::PathCutEnd),
+        ] {
             let p = ring[end];
             let a = p.z.atan2(p.x);
             let (sn, cs) = a.sin_cos();
@@ -971,8 +1064,9 @@ pub(super) fn build_profile_sweep(
                 let b = base + r * 2;
                 idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
             }
+            spans.mark(&idx, face);
         }
     }
 
-    mesh_from_parts(pos, nor, uv, idx)
+    mesh_from_parts(pos, nor, uv, idx, spans)
 }

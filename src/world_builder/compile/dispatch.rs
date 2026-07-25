@@ -383,11 +383,11 @@ fn spawn_primitive_entity(
         // with the chassis's dynamic body.
         Some(handle) if !needs_collider => (handle, None),
         Some(handle) => {
-            let raw_mesh = build_primitive_mesh(kind);
+            let raw_mesh = build_primitive_mesh(kind).mesh;
             (handle, collider_for_primitive(kind, &raw_mesh))
         }
         None => {
-            let raw_mesh = build_primitive_mesh(kind);
+            let raw_mesh = build_primitive_mesh(kind).mesh;
             let collider = if needs_collider {
                 collider_for_primitive(kind, &raw_mesh)
             } else {

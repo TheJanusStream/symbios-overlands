@@ -9,6 +9,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::pds::generator::FaceKey;
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::{GeneratorKind, TortureParams};
 
@@ -18,6 +19,7 @@ use super::cuts::{
     build_profile_sweep, build_swept_capsule, build_swept_frustum, build_torus, build_uv_sphere,
     path_cut_angles, rect_profile, rounded_rect_profile,
 };
+use super::faces::{PrimMesh, box_face, classified, revolved_face, tetra_face, whole};
 use super::prisms::{build_bevel_mesh, build_helix_mesh, build_tube_mesh, build_wedge_mesh};
 use super::superellipsoid::{build_superellipsoid, superellipsoid_hull_points};
 use super::sweeps::{build_lathe_mesh, build_spine_mesh, lathe_hull_points, spine_hull_points};
@@ -33,11 +35,18 @@ const DEFORM_ROWS: u32 = 16;
 /// as [`DEFORM_ROWS`] gives the swept walls.
 const DEFORM_SUBDIV_LEVELS: u32 = 4;
 
-/// One parametric primitive's shape behavior: its base mesh (pre-torture)
-/// and the cheap analytical collider matching the *untortured* shape
-/// (`None` when no meaningful solid exists).
+/// One parametric primitive's shape behavior: its base mesh (pre-torture),
+/// the face each of its triangles belongs to (#958), and the cheap
+/// analytical collider matching the *untortured* shape (`None` when no
+/// meaningful solid exists).
+///
+/// A kind with two meshers — Bevy's stock builder while untortured, our
+/// swept mesher once a cut is active — must return the **same face
+/// vocabulary** from both, so an override survives the cut being toggled.
+/// The stock branches recover it by normal; the swept ones mark it at
+/// emission.
 pub(in crate::world_builder) trait PrimitiveShape {
-    fn base_mesh(&self) -> Mesh;
+    fn base_mesh(&self) -> PrimMesh;
     fn analytical_collider(&self) -> Option<Collider>;
 }
 
@@ -364,12 +373,19 @@ struct CuboidShape<'a> {
 }
 
 impl PrimitiveShape for CuboidShape<'_> {
-    fn base_mesh(&self) -> Mesh {
+    fn base_mesh(&self) -> PrimMesh {
         use std::f32::consts::TAU;
         if self.torture.cuts_are_identity() && self.torture.deforms_are_identity() {
-            return Cuboid::new(self.size[0], self.size[1], self.size[2])
-                .mesh()
-                .build();
+            // Bevy emits the six sides as axis-aligned blocks, so the same
+            // per-direction vocabulary the swept branch tags by profile is
+            // recoverable from the normals alone.
+            return classified(
+                Cuboid::new(self.size[0], self.size[1], self.size[2])
+                    .mesh()
+                    .build(),
+                FaceKey::Wall,
+                box_face,
+            );
         }
         // SL box cuts (#691): the cuboid becomes a swept rectangular
         // profile — pie path-cut, matching rectangular bore, vertical
@@ -407,7 +423,7 @@ struct SphereShape<'a> {
 }
 
 impl PrimitiveShape for SphereShape<'_> {
-    fn base_mesh(&self) -> Mesh {
+    fn base_mesh(&self) -> PrimMesh {
         if self.torture.cuts_are_identity() {
             // Bevy's icosphere UVs are equirectangular (azimuth, inclination
             // normalised to 0..1), so metres are one uniform scale: a full
@@ -423,7 +439,7 @@ impl PrimitiveShape for SphereShape<'_> {
                 std::f32::consts::TAU * self.radius,
                 std::f32::consts::PI * self.radius,
             );
-            mesh
+            whole(mesh, FaceKey::Surface)
         } else {
             let (lon0, lon1) = path_cut_angles(self.torture);
             build_uv_sphere(
@@ -450,7 +466,7 @@ struct CylinderShape<'a> {
 }
 
 impl PrimitiveShape for CylinderShape<'_> {
-    fn base_mesh(&self) -> Mesh {
+    fn base_mesh(&self) -> PrimMesh {
         let rows = if self.torture.deforms_are_identity() {
             1
         } else {
@@ -473,7 +489,7 @@ impl PrimitiveShape for CylinderShape<'_> {
                 self.height,
                 self.radius,
             );
-            mesh
+            classified(mesh, FaceKey::Wall, revolved_face)
         } else {
             let (a0, a1) = path_cut_angles(self.torture);
             build_swept_frustum(
@@ -504,7 +520,7 @@ struct CapsuleShape<'a> {
 }
 
 impl PrimitiveShape for CapsuleShape<'_> {
-    fn base_mesh(&self) -> Mesh {
+    fn base_mesh(&self) -> PrimMesh {
         if self.torture.cuts_are_identity() {
             let rings = if self.torture.deforms_are_identity() {
                 0
@@ -518,7 +534,7 @@ impl PrimitiveShape for CapsuleShape<'_> {
                 .rings(rings)
                 .build();
             super::uv::rescale_capsule_uvs(&mut mesh, self.radius, self.length);
-            mesh
+            whole(mesh, FaceKey::Surface)
         } else {
             let (lon0, lon1) = path_cut_angles(self.torture);
             build_swept_capsule(
@@ -547,7 +563,7 @@ struct ConeShape<'a> {
 }
 
 impl PrimitiveShape for ConeShape<'_> {
-    fn base_mesh(&self) -> Mesh {
+    fn base_mesh(&self) -> PrimMesh {
         if self.torture.cuts_are_identity() && self.torture.deforms_are_identity() {
             let mut mesh = Cone::new(self.radius, self.height)
                 .mesh()
@@ -562,7 +578,7 @@ impl PrimitiveShape for ConeShape<'_> {
                 self.height,
                 self.radius,
             );
-            mesh
+            classified(mesh, FaceKey::Wall, revolved_face)
         } else {
             let (a0, a1) = path_cut_angles(self.torture);
             build_swept_frustum(
@@ -593,7 +609,7 @@ struct TorusShape<'a> {
 }
 
 impl PrimitiveShape for TorusShape<'_> {
-    fn base_mesh(&self) -> Mesh {
+    fn base_mesh(&self) -> PrimMesh {
         if self.torture.cuts_are_identity() {
             // Bevy lays U along the major circle and V around the minor
             // one; both become arc metres (#938) so the ring agrees with
@@ -611,7 +627,10 @@ impl PrimitiveShape for TorusShape<'_> {
                 std::f32::consts::TAU * self.major_radius,
                 std::f32::consts::TAU * self.minor_radius,
             );
-            mesh
+            // A ring is one continuous tube wall: its cut faces only exist
+            // once a path- or profile-cut opens it, which routes to
+            // `build_torus` instead.
+            whole(mesh, FaceKey::Wall)
         } else {
             use std::f32::consts::TAU;
             let (maj0, maj1) = path_cut_angles(self.torture);
@@ -657,11 +676,14 @@ struct PlaneShape {
 }
 
 impl PrimitiveShape for PlaneShape {
-    fn base_mesh(&self) -> Mesh {
-        Plane3d::new(Vec3::Y, Vec2::new(self.size[0] / 2.0, self.size[1] / 2.0))
-            .mesh()
-            .subdivisions(self.subdivisions)
-            .build()
+    fn base_mesh(&self) -> PrimMesh {
+        whole(
+            Plane3d::new(Vec3::Y, Vec2::new(self.size[0] / 2.0, self.size[1] / 2.0))
+                .mesh()
+                .subdivisions(self.subdivisions)
+                .build(),
+            FaceKey::Surface,
+        )
     }
     fn analytical_collider(&self) -> Option<Collider> {
         Some(Collider::cuboid(self.size[0], 0.01, self.size[1]))
@@ -687,7 +709,7 @@ impl TetrahedronShape<'_> {
 }
 
 impl PrimitiveShape for TetrahedronShape<'_> {
-    fn base_mesh(&self) -> Mesh {
+    fn base_mesh(&self) -> PrimMesh {
         let [p0, p1, p2, p3] = self.corners();
         let mut mesh = Tetrahedron::new(p0, p1, p2, p3).mesh().build();
         // Four flat faces have no interior vertices — subdivide so the
@@ -695,7 +717,11 @@ impl PrimitiveShape for TetrahedronShape<'_> {
         if !self.torture.deforms_are_identity() {
             subdivide_flat(&mut mesh, DEFORM_SUBDIV_LEVELS);
         }
-        mesh
+        // Classified *after* subdivision: the split lerps normals, and a
+        // flat face's three corner normals are equal, so every child
+        // triangle still classifies to its parent's face — no table
+        // rescaling needed.
+        classified(mesh, FaceKey::Surface, tetra_face)
     }
     fn analytical_collider(&self) -> Option<Collider> {
         Some(
@@ -714,7 +740,7 @@ struct TubeShape<'a> {
 }
 
 impl PrimitiveShape for TubeShape<'_> {
-    fn base_mesh(&self) -> Mesh {
+    fn base_mesh(&self) -> PrimMesh {
         if self.torture.cuts_are_identity() && self.torture.deforms_are_identity() {
             build_tube_mesh(self.radius, self.inner_radius, self.height, self.resolution)
         } else {
@@ -749,7 +775,7 @@ struct BevelShape<'a> {
 }
 
 impl PrimitiveShape for BevelShape<'_> {
-    fn base_mesh(&self) -> Mesh {
+    fn base_mesh(&self) -> PrimMesh {
         use std::f32::consts::TAU;
         if self.torture.cuts_are_identity() && self.torture.deforms_are_identity() {
             return build_bevel_mesh(self.size, self.bevel, self.bevel_segments);
@@ -794,12 +820,16 @@ struct WedgeShape<'a> {
 }
 
 impl PrimitiveShape for WedgeShape<'_> {
-    fn base_mesh(&self) -> Mesh {
-        let mut mesh = build_wedge_mesh(self.size);
+    fn base_mesh(&self) -> PrimMesh {
+        let mut built = build_wedge_mesh(self.size);
         if !self.torture.deforms_are_identity() {
-            subdivide_flat(&mut mesh, DEFORM_SUBDIV_LEVELS);
+            subdivide_flat(&mut built.mesh, DEFORM_SUBDIV_LEVELS);
+            // The mesher already named the five faces; mirror the 4× split
+            // rather than re-deriving them (the slope's normal is neither
+            // axis-aligned nor stable under the deform that follows).
+            built.faces.subdivide(DEFORM_SUBDIV_LEVELS);
         }
-        mesh
+        built
     }
     fn analytical_collider(&self) -> Option<Collider> {
         let (w, h, d) = (self.size[0] * 0.5, self.size[1] * 0.5, self.size[2] * 0.5);
@@ -828,7 +858,7 @@ struct SuperellipsoidShape<'a> {
 }
 
 impl PrimitiveShape for SuperellipsoidShape<'_> {
-    fn base_mesh(&self) -> Mesh {
+    fn base_mesh(&self) -> PrimMesh {
         use std::f32::consts::TAU;
         let (lon0, lon1) = if self.torture.cuts_are_identity() {
             (0.0, TAU)
@@ -873,7 +903,7 @@ struct SpineShape<'a> {
 }
 
 impl PrimitiveShape for SpineShape<'_> {
-    fn base_mesh(&self) -> Mesh {
+    fn base_mesh(&self) -> PrimMesh {
         use std::f32::consts::TAU;
         let (a0, a1) = if self.torture.cuts_are_identity() {
             (0.0, TAU)
@@ -908,7 +938,7 @@ struct LatheShape<'a> {
 }
 
 impl PrimitiveShape for LatheShape<'_> {
-    fn base_mesh(&self) -> Mesh {
+    fn base_mesh(&self) -> PrimMesh {
         use std::f32::consts::TAU;
         let (a0, a1) = if self.torture.cuts_are_identity() {
             (0.0, TAU)
@@ -940,7 +970,7 @@ struct BlobGroupShape<'a> {
 }
 
 impl PrimitiveShape for BlobGroupShape<'_> {
-    fn base_mesh(&self) -> Mesh {
+    fn base_mesh(&self) -> PrimMesh {
         use std::f32::consts::TAU;
         let (a0, a1) = if self.torture.cuts_are_identity() {
             (0.0, TAU)
@@ -979,7 +1009,7 @@ struct HelixShape<'a> {
 }
 
 impl PrimitiveShape for HelixShape<'_> {
-    fn base_mesh(&self) -> Mesh {
+    fn base_mesh(&self) -> PrimMesh {
         use std::f32::consts::{FRAC_PI_2, TAU};
         // Minor-arc profile-cut shares the torus convention: the band's 0/1
         // endpoints sit on the tube's frame-up pole (the +FRAC_PI_2 phase).

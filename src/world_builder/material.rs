@@ -234,6 +234,11 @@ pub fn build_procedural_material(
     let size = crate::config::textures::SURFACE;
 
     let (mut material, cache_key) = surface_material_and_key(&native, size);
+    // #957: UV offset / rotation live overlands-side only — the upstream
+    // `MaterialSettings` has no such fields — so they're applied over the
+    // parity-locked mirror rather than inside it. With both at their
+    // defaults this reproduces the mirror's own `from_scale` exactly.
+    material.uv_transform = sovereign_uv_transform(settings);
 
     // Cache hit: write handles into the material before we hand it to Bevy.
     // Full lookup — disk-backed stores read their blob and upload it into
@@ -309,6 +314,21 @@ fn bump_texture_cache_counter(commands: &mut Commands, hit: bool) {
     });
 }
 
+/// Compose the `StandardMaterial::uv_transform` a sovereign material asks
+/// for (#957): metre-space rotation and offset, then the tiles-per-metre
+/// scale. `uv_offset` is authored in metres of surface, so its translation
+/// is pre-multiplied by the scale; `uv_rotation` is degrees, positive
+/// counter-clockwise. The scale is uniform, so rotation and scale commute
+/// and the composed `T·R·S` equals the intended `S·(R·p + offset)`.
+pub(crate) fn sovereign_uv_transform(settings: &SovereignMaterialSettings) -> Affine2 {
+    let scale = settings.uv_scale.0;
+    Affine2::from_scale_angle_translation(
+        Vec2::splat(scale),
+        settings.uv_rotation.0.to_radians(),
+        Vec2::from_array(settings.uv_offset.0) * scale,
+    )
+}
+
 /// Build the [`StandardMaterial`] a [`MaterialSettings`] describes, plus its
 /// [`TextureCacheKey`] (`None` when no procedural texture is selected).
 ///
@@ -357,6 +377,35 @@ mod tests {
     use super::*;
     use bevy::ecs::system::SystemState;
     use bevy_symbios_texture::build_procedural_material_async;
+
+    /// #957: the sovereign uv_transform must degrade to the parity mirror's
+    /// pure scale at defaults, and compose offset (metres, pre-scale) with
+    /// rotation (degrees CCW) as `S·(R·p + offset)` otherwise.
+    #[test]
+    fn sovereign_uv_transform_composes_scale_rotation_offset() {
+        use crate::pds::types::{Fp, Fp2};
+
+        let mut s = SovereignMaterialSettings {
+            uv_scale: Fp(2.0),
+            ..Default::default()
+        };
+        assert_eq!(
+            sovereign_uv_transform(&s),
+            Affine2::from_scale(Vec2::splat(2.0)),
+            "defaults must reproduce the mirror's from_scale exactly"
+        );
+
+        s.uv_offset = Fp2([1.5, -0.5]);
+        s.uv_rotation = Fp(90.0);
+        let t = sovereign_uv_transform(&s);
+        // (1, 0) rotated 90° CCW → (0, 1); offset by (1.5, −0.5) metres →
+        // (1.5, 0.5); at 2 tiles/metre → (3, 1).
+        let p = t.transform_point2(Vec2::new(1.0, 0.0));
+        assert!(
+            (p - Vec2::new(3.0, 1.0)).length() < 1e-5,
+            "composed transform off: {p:?}"
+        );
+    }
 
     /// Compare our mirror builder against the upstream one field-for-field.
     /// Upstream is the reference: if a `bevy_symbios_texture` upgrade changes

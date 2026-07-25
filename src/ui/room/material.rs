@@ -6,13 +6,14 @@
 use bevy_egui::egui;
 
 use crate::pds::{
-    SovereignAshlarConfig, SovereignAsphaltConfig, SovereignBarkConfig, SovereignBrickConfig,
-    SovereignBroadleafConfig, SovereignCactusSkinConfig, SovereignChainLinkConfig,
-    SovereignCobblestoneConfig, SovereignConcreteConfig, SovereignCorrugatedConfig,
-    SovereignEncausticConfig, SovereignFabricConfig, SovereignFlameConfig, SovereignFlowerConfig,
-    SovereignFrondConfig, SovereignGrassTuftConfig, SovereignGroundConfig, SovereignIceConfig,
-    SovereignIronGrilleConfig, SovereignLavaConfig, SovereignLeafConfig, SovereignLeafSpriteConfig,
-    SovereignLichenConfig, SovereignLogEndConfig, SovereignMarbleConfig, SovereignMaterialConfig,
+    Fp, Fp2, SovereignAshlarConfig, SovereignAsphaltConfig, SovereignBarkConfig,
+    SovereignBrickConfig, SovereignBroadleafConfig, SovereignCactusSkinConfig,
+    SovereignChainLinkConfig, SovereignCobblestoneConfig, SovereignConcreteConfig,
+    SovereignCorrugatedConfig, SovereignEncausticConfig, SovereignFabricConfig,
+    SovereignFlameConfig, SovereignFlowerConfig, SovereignFrondConfig, SovereignGrassTuftConfig,
+    SovereignGroundConfig, SovereignIceConfig, SovereignIronGrilleConfig, SovereignLavaConfig,
+    SovereignLeafConfig, SovereignLeafSpriteConfig, SovereignLichenConfig, SovereignLogEndConfig,
+    SovereignMarbleConfig, SovereignMaterialConfig, SovereignMaterialSettings,
     SovereignMetalConfig, SovereignMossConfig, SovereignNeedleConfig, SovereignPaversConfig,
     SovereignPetalConfig, SovereignPlankConfig, SovereignPuffConfig, SovereignReedConfig,
     SovereignRingConfig, SovereignRockConfig, SovereignSandConfig, SovereignShardConfig,
@@ -65,6 +66,55 @@ fn draw_splat_rule(ui: &mut egui::Ui, rule: &mut SovereignSplatRule, dirty: &mut
     fp_slider(ui, "Slope min", &mut rule.slope_min, 0.0, 1.0, dirty);
     fp_slider(ui, "Slope max", &mut rule.slope_max, 0.0, 1.0, dirty);
     fp_slider(ui, "Sharpness", &mut rule.sharpness, 0.05, 8.0, dirty);
+}
+
+/// The `uv_transform` rows every material editor shares (#957): pattern
+/// slide in metres of surface and spin in degrees CCW.
+///
+/// Factored out because all three material editors — the primitive one in
+/// `construct::draw_universal_material`, the L-system slot list and the
+/// Shape slot list — edit the same [`SovereignMaterialSettings`] and all
+/// three flow to the same `world_builder::material::sovereign_uv_transform`.
+/// Both knobs ride the material rather than the mesh, so dragging them
+/// re-keys only the `StandardMaterial`; no mesh is rebuilt.
+pub(super) fn draw_uv_transform_rows(
+    ui: &mut egui::Ui,
+    m: &mut SovereignMaterialSettings,
+    dirty: &mut bool,
+) {
+    let mut offset = m.uv_offset.0;
+    ui.horizontal(|ui| {
+        ui.label("UV offset (m)");
+        for v in offset.iter_mut() {
+            if ui
+                .add(
+                    egui::DragValue::new(v)
+                        .speed(0.05)
+                        .range(-1_000.0..=1_000.0),
+                )
+                .changed()
+            {
+                *dirty = true;
+            }
+        }
+    });
+    m.uv_offset = Fp2(offset);
+
+    let mut rotation = m.uv_rotation.0;
+    ui.horizontal(|ui| {
+        ui.label("UV rotation (deg)");
+        if ui
+            .add(
+                egui::DragValue::new(&mut rotation)
+                    .speed(1.0)
+                    .range(-360.0..=360.0),
+            )
+            .changed()
+        {
+            *dirty = true;
+        }
+    });
+    m.uv_rotation = Fp(rotation);
 }
 
 pub(super) fn draw_texture_bridge(

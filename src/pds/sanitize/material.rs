@@ -34,6 +34,21 @@ impl Sanitize for SovereignMaterialSettings {
         } else {
             1.0
         });
+        // #957 uv_transform knobs: offset shares the Sign envelope (the
+        // sampler wraps regardless, the bound is sanity), rotation keeps its
+        // authored sign across a full turn either way.
+        for c in self.uv_offset.0.iter_mut() {
+            *c = if c.is_finite() {
+                c.clamp(-1_000.0, 1_000.0)
+            } else {
+                0.0
+            };
+        }
+        self.uv_rotation = Fp(if self.uv_rotation.0.is_finite() {
+            self.uv_rotation.0.clamp(-360.0, 360.0)
+        } else {
+            0.0
+        });
         self.texture.sanitize();
     }
 }
@@ -220,7 +235,30 @@ fn clamp_atlas(rows: &mut u32, cols: &mut u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pds::types::Fp2;
     use crate::pds::{SovereignFlowerConfig, SovereignSnowflakeConfig};
+
+    /// #957: hostile uv_transform knobs must come back finite and bounded —
+    /// NaN would otherwise ride straight into the material's `Affine2`.
+    #[test]
+    fn hostile_uv_transform_knobs_are_clamped() {
+        let mut m = SovereignMaterialSettings {
+            uv_offset: Fp2([f32::NAN, 5_000.0]),
+            uv_rotation: Fp(f32::INFINITY),
+            ..Default::default()
+        };
+        m.sanitize();
+        assert_eq!(m.uv_offset.0[0], 0.0, "NaN offset must reset");
+        assert_eq!(m.uv_offset.0[1], 1_000.0, "oversized offset must clamp");
+        assert_eq!(m.uv_rotation.0, 0.0, "non-finite rotation must reset");
+
+        let mut m = SovereignMaterialSettings {
+            uv_rotation: Fp(-4_000.0),
+            ..Default::default()
+        };
+        m.sanitize();
+        assert_eq!(m.uv_rotation.0, -360.0, "rotation keeps its sign");
+    }
 
     /// A hostile record can set count-shaped sprite fields to `u32::MAX`; the
     /// sanitiser must bring them back inside the per-feature loop budget so the

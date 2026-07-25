@@ -471,7 +471,7 @@ mod tests {
             a
         }
         fn components(kind: &GeneratorKind) -> usize {
-            let mesh = build_primitive_mesh(kind);
+            let mesh = build_primitive_mesh(kind).mesh;
             let pos = match mesh.attribute(bevy::prelude::Mesh::ATTRIBUTE_POSITION) {
                 Some(VertexAttributeValues::Float32x3(p)) => p.clone(),
                 _ => return 0,

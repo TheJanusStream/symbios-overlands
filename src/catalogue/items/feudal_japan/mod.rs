@@ -199,6 +199,7 @@ pub(super) fn water(color: [f32; 3]) -> SovereignMaterialSettings {
             frost_level: Fp64(0.0),
             ..Default::default()
         }),
+        ..Default::default()
     }
 }
 

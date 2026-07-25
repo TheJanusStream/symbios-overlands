@@ -101,6 +101,7 @@ pub(super) fn stained(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
             grime_level: Fp64(0.18),
             ..Default::default()
         }),
+        ..Default::default()
     }
 }
 

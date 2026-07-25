@@ -8,7 +8,7 @@
 //! `enum(Ty)`, `nested(SovTy)`) and default. [`SovereignGroundConfig`] and
 //! [`SovereignRockConfig`] are the two hand-rolled predecessors of the macro.
 
-use super::types::{Fp, Fp3, Fp64};
+use super::types::{Fp, Fp2, Fp3, Fp64};
 use serde::{Deserialize, Serialize};
 
 /// Procedural "ground" texture parameters (grass / dirt / snow layers).
@@ -1168,6 +1168,15 @@ pub struct SovereignMaterialSettings {
     /// exactly once, so they keep `1.0`.
     #[serde(default = "default_uv_scale")]
     pub uv_scale: Fp,
+    /// Pattern slide in **metres of surface** (#957) — plain UV units under
+    /// a `Fit` mapping, where UVs aren't metres. Rides the material's
+    /// `uv_transform` beside [`uv_scale`](Self::uv_scale), so editing it
+    /// re-keys only the `StandardMaterial`, never a mesh.
+    pub uv_offset: Fp2,
+    /// Pattern spin in degrees, counter-clockwise in UV space (#957).
+    /// Converted to radians at the `uv_transform`; same no-mesh-rebuild
+    /// property as [`uv_offset`](Self::uv_offset).
+    pub uv_rotation: Fp,
     pub texture: SovereignTextureConfig,
 }
 
@@ -1178,6 +1187,8 @@ crate::pds::serde_util::impl_default_eliding_serialize!(SovereignMaterialSetting
     roughness,
     metallic,
     uv_scale,
+    uv_offset,
+    uv_rotation,
     texture,
 });
 
@@ -1194,6 +1205,8 @@ impl Default for SovereignMaterialSettings {
             roughness: Fp(0.5),
             metallic: Fp(0.0),
             uv_scale: Fp(1.0),
+            uv_offset: Fp2([0.0, 0.0]),
+            uv_rotation: Fp(0.0),
             texture: SovereignTextureConfig::None,
         }
     }
@@ -1212,6 +1225,13 @@ impl SovereignMaterialSettings {
     /// `Fp`-wrapped fields collapse to plain `f32`/`[f32; 3]`, and the
     /// embedded [`SovereignTextureConfig`] is forwarded through
     /// [`SovereignTextureConfig::to_texture_config`].
+    ///
+    /// [`uv_offset`](Self::uv_offset) / [`uv_rotation`](Self::uv_rotation)
+    /// deliberately do **not** cross this boundary — the upstream struct has
+    /// no such fields (adding them there is a hard compile break per the
+    /// texture-mirror discipline), so the world-builder applies them over
+    /// the built `StandardMaterial` instead
+    /// (`sovereign_uv_transform` in `world_builder::material`).
     pub fn to_native(&self) -> bevy_symbios_texture::MaterialSettings {
         bevy_symbios_texture::MaterialSettings {
             base_color: self.base_color.0,
@@ -1228,6 +1248,29 @@ impl SovereignMaterialSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #957 wire discipline: the uv_transform knobs elide at their defaults
+    /// (so every already-published material fingerprint is unchanged) and
+    /// round-trip when authored.
+    #[test]
+    fn uv_offset_rotation_elide_and_round_trip() {
+        let v = serde_json::to_value(SovereignMaterialSettings::default()).expect("serialises");
+        let obj = v.as_object().expect("object");
+        assert!(
+            !obj.contains_key("uv_offset") && !obj.contains_key("uv_rotation"),
+            "default knobs must stay off the wire: {obj:?}"
+        );
+
+        let m = SovereignMaterialSettings {
+            uv_offset: Fp2([0.25, -1.0]),
+            uv_rotation: Fp(45.0),
+            ..Default::default()
+        };
+        let v = serde_json::to_value(&m).expect("serialises");
+        assert!(v.get("uv_offset").is_some() && v.get("uv_rotation").is_some());
+        let re: SovereignMaterialSettings = serde_json::from_value(v).expect("reparses");
+        assert_eq!(re, m);
+    }
 
     /// Each sprite-card mirror must survive a `to_native()` → `from_native()`
     /// round trip unchanged. A wrong field kind or a missing field in the

@@ -23,6 +23,7 @@ mod base;
 mod blob;
 mod colliders;
 mod cuts;
+mod faces;
 mod prisms;
 mod shapes;
 mod superellipsoid;
@@ -34,26 +35,37 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 
 use crate::pds::GeneratorKind;
+use crate::pds::generator::FaceKey;
 
 use colliders::convex_hull_from_mesh;
+pub use faces::{FaceTable, PrimMesh};
 pub(super) use shapes::prim_parts;
 use torture::{apply_vertex_torture, torture_of};
 
 /// Build the parametric mesh for a primitive [`GeneratorKind`] variant and
-/// apply vertex torture when non-trivial. Returns the raw `Mesh`; the caller
-/// registers it in `Assets<Mesh>` so a single mesh can be reused when a
-/// material cache hit bypasses the allocation hot path.
-pub fn build_primitive_mesh(kind: &GeneratorKind) -> Mesh {
-    let mut mesh = match prim_parts(kind) {
+/// apply vertex torture when non-trivial. Returns the raw `Mesh` plus the
+/// face each triangle belongs to (#958); the caller registers the mesh in
+/// `Assets<Mesh>` so a single mesh can be reused when a material cache hit
+/// bypasses the allocation hot path.
+///
+/// Every pass below preserves triangle order and count, so the table the
+/// mesher emitted still names the right triangles on return — see the
+/// [`faces`] module docs for why that holds pass by pass.
+pub fn build_primitive_mesh(kind: &GeneratorKind) -> PrimMesh {
+    let mut built = match prim_parts(kind) {
         Some(parts) => parts.shape.base_mesh(),
         // Non-primitive kinds never reach here on the spawn path (the
         // router gates on the variant list); a defensive unit cube keeps a
         // stray caller rendering something visible.
-        None => Cuboid::new(1.0, 1.0, 1.0).mesh().build(),
+        None => faces::classified(
+            Cuboid::new(1.0, 1.0, 1.0).mesh().build(),
+            FaceKey::Wall,
+            faces::box_face,
+        ),
     };
     let torture = torture_of(kind);
     if !torture.is_identity() {
-        apply_vertex_torture(&mut mesh, torture);
+        apply_vertex_torture(&mut built.mesh, torture);
     }
     // Metre-scale UVs for the kinds whose stock parameterisation lays one
     // tile across each face regardless of that face's size (#934). Runs
@@ -62,14 +74,27 @@ pub fn build_primitive_mesh(kind: &GeneratorKind) -> Mesh {
     // vertices — which would leave any earlier tangent buffer the wrong
     // length.
     if let Some(mapping) = uv::metre_projection_for(kind) {
-        uv::reproject_mesh(&mut mesh, mapping);
+        uv::reproject_mesh(&mut built.mesh, mapping);
     } else if torture.is_identity() {
         // Non-tortured, non-reprojected path still needs tangents for the
         // PBR shader. The torture branch regenerates them itself after
         // mutating positions.
-        let _ = mesh.generate_tangents();
+        let _ = built.mesh.generate_tangents();
     }
-    mesh
+    built
+}
+
+/// The faces a primitive currently presents, in mesh-emission order.
+///
+/// The editor's face picker lists these, and an override addressing a key
+/// absent here is *dormant* rather than invalid — restoring the cut that
+/// produced the face brings the override back (#955). Building the mesh is
+/// the only honest way to answer: the face census depends on the whole
+/// torture block (a hollow adds `Bore`, a path-cut adds two cut faces, a
+/// zero-radius cone end drops its cap), and a second hand-written table
+/// would be free to drift from what the mesher actually emits.
+pub fn enumerate_faces(kind: &GeneratorKind) -> Vec<FaceKey> {
+    build_primitive_mesh(kind).faces.faces()
 }
 
 /// Build the Avian collider that matches a primitive's mesh — analytical
@@ -138,6 +163,12 @@ mod tests {
         }
     }
 
+    /// The geometry half of [`build_primitive_mesh`], for the tests that
+    /// only assert on vertices — the face table has its own tests below.
+    fn mesh_of(kind: &GeneratorKind) -> Mesh {
+        build_primitive_mesh(kind).mesh
+    }
+
     fn normals(mesh: &Mesh) -> Vec<[f32; 3]> {
         let Some(VertexAttributeValues::Float32x3(n)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
         else {
@@ -152,7 +183,7 @@ mod tests {
 
     #[test]
     fn untortured_keeps_unit_normals() {
-        let mesh = build_primitive_mesh(&cuboid([1.0, 1.0, 1.0], 0.0, 0.0, [0.0, 0.0, 0.0]));
+        let mesh = mesh_of(&cuboid([1.0, 1.0, 1.0], 0.0, 0.0, [0.0, 0.0, 0.0]));
         for n in normals(&mesh) {
             assert!((len(n) - 1.0).abs() < 1e-3, "non-unit normal {n:?}");
         }
@@ -162,7 +193,7 @@ mod tests {
     fn tortured_normals_stay_unit_and_finite() {
         // A fully tortured frustum-ish cylinder: every normal must remain a
         // finite unit vector after the Jacobian transform.
-        let mesh = build_primitive_mesh(&cylinder(0.5, 2.0, 1.2, 0.3, [0.4, 0.0, 0.2]));
+        let mesh = mesh_of(&cylinder(0.5, 2.0, 1.2, 0.3, [0.4, 0.0, 0.2]));
         for n in normals(&mesh) {
             assert!(n.iter().all(|c| c.is_finite()), "non-finite normal {n:?}");
             assert!((len(n) - 1.0).abs() < 1e-3, "non-unit normal {n:?}");
@@ -174,7 +205,7 @@ mod tests {
         // A tapered cylinder is a frustum: the top cap stays horizontal so its
         // normal must remain ~+Y, while the slanted side normals gain a +Y
         // tilt (the bug the flat-normal recompute used to wash out).
-        let mesh = build_primitive_mesh(&cylinder(0.6, 2.0, 0.0, 0.4, [0.0, 0.0, 0.0]));
+        let mesh = mesh_of(&cylinder(0.6, 2.0, 0.0, 0.4, [0.0, 0.0, 0.0]));
         let ns = normals(&mesh);
         assert!(
             ns.iter().any(|n| n[1] > 0.99),
@@ -189,8 +220,8 @@ mod tests {
     #[test]
     fn build_is_deterministic() {
         let kind = cuboid([1.5, 1.0, 0.8], 0.7, 0.2, [0.3, 0.0, 0.1]);
-        let a = build_primitive_mesh(&kind);
-        let b = build_primitive_mesh(&kind);
+        let a = mesh_of(&kind);
+        let b = mesh_of(&kind);
         let pos = |m: &Mesh| match m.attribute(Mesh::ATTRIBUTE_POSITION) {
             Some(VertexAttributeValues::Float32x3(p)) => p.clone(),
             _ => panic!("no positions"),
@@ -213,7 +244,7 @@ mod tests {
                 ..Default::default()
             },
         };
-        let mesh = build_primitive_mesh(&kind);
+        let mesh = mesh_of(&kind);
         let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
         else {
             panic!("no positions");
@@ -251,7 +282,7 @@ mod tests {
                 ..Default::default()
             },
         };
-        let mesh = build_primitive_mesh(&kind);
+        let mesh = mesh_of(&kind);
         let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
         else {
             panic!("no positions");
@@ -287,7 +318,7 @@ mod tests {
             },
         };
         let mid_radius = |kind: &GeneratorKind| {
-            let mesh = build_primitive_mesh(kind);
+            let mesh = mesh_of(kind);
             let Some(VertexAttributeValues::Float32x3(pos)) =
                 mesh.attribute(Mesh::ATTRIBUTE_POSITION)
             else {
@@ -302,7 +333,7 @@ mod tests {
         assert!(mid_radius(&with_bulge(0.5)) > 0.6, "no mid swell");
         // A hard pinch collapses toward the axis but never inverts: every
         // mid-height radius stays non-negative (the 1e-3 scale floor).
-        let pinched = build_primitive_mesh(&with_bulge(-2.0));
+        let pinched = mesh_of(&with_bulge(-2.0));
         let Some(VertexAttributeValues::Float32x3(pos)) =
             pinched.attribute(Mesh::ATTRIBUTE_POSITION)
         else {
@@ -331,7 +362,7 @@ mod tests {
             torture: TortureParams::default(),
         };
         let corner_reach = |kind: &GeneratorKind| {
-            let mesh = build_primitive_mesh(kind);
+            let mesh = mesh_of(kind);
             let Some(VertexAttributeValues::Float32x3(pos)) =
                 mesh.attribute(Mesh::ATTRIBUTE_POSITION)
             else {
@@ -356,7 +387,7 @@ mod tests {
         );
         // Normals stay unit across the family, including the sphere middle.
         for kind in [se(0.2, 0.2), se(1.0, 1.0), se(2.5, 2.5), se(0.3, 2.0)] {
-            let mesh = build_primitive_mesh(&kind);
+            let mesh = mesh_of(&kind);
             for n in normals(&mesh) {
                 assert!(n.iter().all(|c| c.is_finite()), "non-finite normal {n:?}");
                 assert!((len(n) - 1.0).abs() < 1e-2, "non-unit normal {n:?}");
@@ -393,7 +424,7 @@ mod tests {
             faces: Vec::new(),
             torture: TortureParams::default(),
         };
-        let mesh = build_primitive_mesh(&kind);
+        let mesh = mesh_of(&kind);
         let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
         else {
             panic!("no positions");
@@ -447,7 +478,7 @@ mod tests {
             torture: TortureParams::default(),
         };
         for smooth in [false, true] {
-            let mesh = build_primitive_mesh(&lathe(smooth));
+            let mesh = mesh_of(&lathe(smooth));
             let Some(VertexAttributeValues::Float32x3(pos)) =
                 mesh.attribute(Mesh::ATTRIBUTE_POSITION)
             else {
@@ -484,7 +515,7 @@ mod tests {
             torture: TortureParams::default(),
         };
         let positions = |kind: &GeneratorKind| -> Vec<[f32; 3]> {
-            let mesh = build_primitive_mesh(kind);
+            let mesh = mesh_of(kind);
             match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
                 Some(VertexAttributeValues::Float32x3(p)) => p.clone(),
                 _ => panic!("no positions"),
@@ -551,7 +582,7 @@ mod tests {
             radii: Fp3([0.12, 0.3, 0.0]),
             ..Default::default()
         }]);
-        let mesh = build_primitive_mesh(&tilted);
+        let mesh = mesh_of(&tilted);
         for n in normals(&mesh) {
             assert!(n.iter().all(|c| c.is_finite()), "non-finite normal {n:?}");
             assert!((len(n) - 1.0).abs() < 1e-2, "non-unit normal {n:?}");
@@ -585,7 +616,7 @@ mod tests {
         if let Some(t) = kind.torture_mut() {
             t.profile_cut = Fp2([0.25, 0.75]);
         }
-        let mesh = build_primitive_mesh(&kind);
+        let mesh = mesh_of(&kind);
         let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
         else {
             panic!("no positions");
@@ -631,7 +662,7 @@ mod tests {
             kind
         };
         let positions = |kind: &GeneratorKind| -> Vec<[f32; 3]> {
-            let mesh = build_primitive_mesh(kind);
+            let mesh = mesh_of(kind);
             match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
                 Some(VertexAttributeValues::Float32x3(p)) => p.clone(),
                 _ => panic!("no positions"),
@@ -699,7 +730,7 @@ mod tests {
             torture: TortureParams::default(),
         };
         let positions = |kind: &GeneratorKind| -> Vec<[f32; 3]> {
-            let mesh = build_primitive_mesh(kind);
+            let mesh = mesh_of(kind);
             for n in normals(&mesh) {
                 assert!(n.iter().all(|c| c.is_finite()), "non-finite normal {n:?}");
                 assert!((len(n) - 1.0).abs() < 1e-2, "non-unit normal {n:?}");
@@ -818,7 +849,7 @@ mod tests {
             // A future client's mode must still mesh (as the default, Box).
             UvMapping::Unknown,
         ] {
-            let mesh = build_primitive_mesh(&group(mode));
+            let mesh = mesh_of(&group(mode));
             let pos = match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
                 Some(VertexAttributeValues::Float32x3(p)) => p.clone(),
                 _ => panic!("{mode:?}: no positions"),
@@ -925,7 +956,7 @@ mod tests {
         if let Some(t) = cone.torture_mut() {
             t.profile_cut = Fp2([0.0, 0.5]);
         }
-        let mesh = build_primitive_mesh(&cone);
+        let mesh = mesh_of(&cone);
         let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
         else {
             panic!("no positions");
@@ -955,7 +986,7 @@ mod tests {
             if let GeneratorKind::Cuboid { size: s, .. } = &mut k {
                 *s = Fp3(size);
             }
-            build_primitive_mesh(&k)
+            mesh_of(&k)
         };
 
         // Per-face UV extent, keyed by the face's quantised normal, so each
@@ -1059,7 +1090,7 @@ mod tests {
                 *height = Fp(3.0);
                 torture.hollow = Fp(hollow);
             }
-            build_primitive_mesh(&k)
+            mesh_of(&k)
         };
 
         let circumference = std::f32::consts::TAU * 0.75;
@@ -1121,7 +1152,7 @@ mod tests {
                 *length = Fp(2.0);
                 torture.hollow = Fp(hollow);
             }
-            build_primitive_mesh(&k)
+            mesh_of(&k)
         };
         let profile_arc = std::f32::consts::PI * 0.5 + 2.0;
         let plain = v_span(&capsule(0.0));
@@ -1151,7 +1182,7 @@ mod tests {
                 *radius = Fp(1.5);
                 torture.hollow = Fp(hollow);
             }
-            build_primitive_mesh(&k)
+            mesh_of(&k)
         };
         let half_circ = std::f32::consts::PI * 1.5;
         for (label, h) in [("ico", 0.0), ("lat/lon", 0.4)] {
@@ -1171,7 +1202,7 @@ mod tests {
         if let Some(t) = cuboid.torture_mut() {
             t.path_cut = Fp2([0.0, 0.25]);
         }
-        let mesh = build_primitive_mesh(&cuboid);
+        let mesh = mesh_of(&cuboid);
         let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
         else {
             panic!("no positions");
@@ -1186,7 +1217,7 @@ mod tests {
         if let Some(t) = hollow.torture_mut() {
             t.hollow = Fp(0.5);
         }
-        let mesh = build_primitive_mesh(&hollow);
+        let mesh = mesh_of(&hollow);
         let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
         else {
             panic!("no positions");
@@ -1210,7 +1241,7 @@ mod tests {
                 t.bend = Fp3([0.5, 0.0, 0.0]);
             }
             let count = |k: &GeneratorKind| {
-                let mesh = build_primitive_mesh(k);
+                let mesh = mesh_of(k);
                 match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
                     Some(VertexAttributeValues::Float32x3(p)) => p.len(),
                     _ => 0,
@@ -1222,7 +1253,7 @@ mod tests {
             );
             // And the bend actually curves: some mid-height vertex is
             // displaced off the linear corner interpolation.
-            let mesh = build_primitive_mesh(&bent);
+            let mesh = mesh_of(&bent);
             let Some(VertexAttributeValues::Float32x3(pos)) =
                 mesh.attribute(Mesh::ATTRIBUTE_POSITION)
             else {
@@ -1239,7 +1270,7 @@ mod tests {
     fn tube_mesh_is_finite_unit_and_bounded() {
         // Default tube: outer 0.5, height 1.0.
         let kind = GeneratorKind::default_primitive_for_tag("Tube").unwrap();
-        let mesh = build_primitive_mesh(&kind);
+        let mesh = mesh_of(&kind);
         let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
         else {
             panic!("no positions");
@@ -1260,7 +1291,7 @@ mod tests {
     fn bevel_mesh_is_bounded_and_chamfered() {
         // Default bevel: 1³ box, 0.15 corner, 3 segments.
         let kind = GeneratorKind::default_primitive_for_tag("Bevel").unwrap();
-        let mesh = build_primitive_mesh(&kind);
+        let mesh = mesh_of(&kind);
         let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
         else {
             panic!("no positions");
@@ -1278,6 +1309,207 @@ mod tests {
         }
         // A square corner sits at √(0.5²+0.5²) ≈ 0.707; the bevel pulls it in.
         assert!(max_corner < 0.707, "corner not chamfered: {max_corner}");
+    }
+
+    /// Every combination in the cut matrix below, and both meshers of every
+    /// two-mesher kind.
+    fn cut_matrix() -> Vec<GeneratorKind> {
+        let with_cut = |tag: &str, pc: [f32; 2], prc: [f32; 2], hollow: f32| {
+            let mut k = GeneratorKind::default_primitive_for_tag(tag).unwrap();
+            if let Some(t) = k.torture_mut() {
+                t.path_cut = Fp2(pc);
+                t.profile_cut = Fp2(prc);
+                t.hollow = Fp(hollow);
+            }
+            k
+        };
+        let tags = [
+            "Cuboid",
+            "Sphere",
+            "Cylinder",
+            "Capsule",
+            "Cone",
+            "Torus",
+            "Plane",
+            "Tetrahedron",
+            "Tube",
+            "Bevel",
+            "Wedge",
+            "Helix",
+            "Superellipsoid",
+            "Spine",
+            "Lathe",
+            "BlobGroup",
+        ];
+        let mut out = Vec::new();
+        for tag in tags {
+            out.push(GeneratorKind::default_primitive_for_tag(tag).unwrap());
+            out.push(with_cut(tag, [0.0, 0.5], [0.0, 1.0], 0.0)); // pie wedge
+            out.push(with_cut(tag, [0.0, 1.0], [0.25, 0.75], 0.0)); // slice
+            out.push(with_cut(tag, [0.0, 1.0], [0.0, 1.0], 0.5)); // hollow
+            out.push(with_cut(tag, [0.1, 0.8], [0.2, 0.9], 0.4)); // everything
+        }
+        out
+    }
+
+    /// #958: every mesher's spans tile its whole mesh exactly — the property
+    /// the spawner's per-face split depends on, and the one a mis-marked
+    /// emission block would break. Walks both meshers of every kind across
+    /// the whole cut matrix (a bore shell, a skipped cap, a pair of cut
+    /// faces are all distinct branches).
+    #[test]
+    fn face_spans_tile_every_prim_and_cut() {
+        for kind in cut_matrix() {
+            let tag = kind.kind_tag();
+            let built = build_primitive_mesh(&kind);
+            let tris = built
+                .mesh
+                .indices()
+                .map(|i| (i.len() / 3) as u32)
+                .expect("indexed mesh");
+            assert_eq!(
+                built.faces.triangle_count(),
+                tris,
+                "{tag}: face table covers {} of {tris} triangles",
+                built.faces.triangle_count()
+            );
+            assert!(!built.faces.faces().is_empty(), "{tag}: no faces named");
+            // Every triangle resolves, and no face is `Unknown` — that key
+            // exists only for a record from a newer client.
+            for t in 0..tris {
+                let face = built.faces.face_of(t);
+                assert!(face.is_some(), "{tag}: triangle {t} unaddressed");
+                assert_ne!(face, Some(FaceKey::Unknown), "{tag}: triangle {t} unnamed");
+            }
+        }
+    }
+
+    /// #958: `enumerate_faces` answers with exactly the mesh's own
+    /// vocabulary — the editor's picker cannot offer a face the mesh does
+    /// not have, nor miss one it does.
+    #[test]
+    fn enumerate_faces_matches_the_built_mesh() {
+        for kind in cut_matrix() {
+            assert_eq!(
+                enumerate_faces(&kind),
+                build_primitive_mesh(&kind).faces.faces(),
+                "{}: picker and mesh disagree",
+                kind.kind_tag()
+            );
+        }
+    }
+
+    /// #958: the two meshers a kind may use must name faces the same way,
+    /// or an override would evaporate the moment a cut was toggled.
+    ///
+    /// Hollowing is the cleanest probe: it swaps a Bevy stock builder for
+    /// our swept one *without* trimming the sweep, so every face of the
+    /// plain prim must still be there, plus the bore.
+    #[test]
+    fn faces_survive_the_cut_toggle() {
+        let hollowed = |tag: &str| {
+            let mut k = GeneratorKind::default_primitive_for_tag(tag).unwrap();
+            if let Some(t) = k.torture_mut() {
+                t.hollow = Fp(0.5);
+            }
+            k
+        };
+        for tag in ["Cuboid", "Cylinder", "Sphere", "Capsule", "Superellipsoid"] {
+            let plain = enumerate_faces(&GeneratorKind::default_primitive_for_tag(tag).unwrap());
+            let cut = enumerate_faces(&hollowed(tag));
+            for face in &plain {
+                assert!(
+                    cut.contains(face),
+                    "{tag}: {face:?} vanished when the mesher changed \
+                     (plain {plain:?} vs hollowed {cut:?})"
+                );
+            }
+            assert!(
+                cut.contains(&FaceKey::Bore),
+                "{tag}: hollowing grew no bore ({cut:?})"
+            );
+        }
+
+        // The box family names six sides either way — the headline case, and
+        // the one where the swept mesher's profile tags have to reproduce
+        // what the stock builder's normals say.
+        let sides = [
+            FaceKey::SidePx,
+            FaceKey::SideNx,
+            FaceKey::SidePz,
+            FaceKey::SideNz,
+            FaceKey::Top,
+            FaceKey::Bottom,
+        ];
+        for kind in [
+            GeneratorKind::default_primitive_for_tag("Cuboid").unwrap(),
+            hollowed("Cuboid"),
+        ] {
+            let faces = enumerate_faces(&kind);
+            for side in sides {
+                assert!(faces.contains(&side), "cuboid lost {side:?}: {faces:?}");
+            }
+        }
+    }
+
+    /// #958: a box's four sides land on the triangles that actually face
+    /// those directions. Aimed at the *swept* mesher (a hollow box), where
+    /// the tags come from the profile rather than from the normals — so
+    /// this catches a profile whose face labels are rotated or mirrored
+    /// relative to the geometry, which no self-consistency check would.
+    #[test]
+    fn box_sides_match_their_triangle_normals() {
+        let mut kind = GeneratorKind::default_primitive_for_tag("Cuboid").unwrap();
+        if let Some(t) = kind.torture_mut() {
+            t.hollow = Fp(0.5);
+        }
+        let built = build_primitive_mesh(&kind);
+        let Some(VertexAttributeValues::Float32x3(nor)) =
+            built.mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
+        else {
+            panic!("no normals");
+        };
+        let Some(VertexAttributeValues::Float32x3(pos)) =
+            built.mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("no positions");
+        };
+        let idx: Vec<usize> = built.mesh.indices().expect("indices").iter().collect();
+        let mut checked = 0;
+        for (t, tri) in idx.chunks_exact(3).enumerate() {
+            let face = built.faces.face_of(t as u32).expect("addressed");
+            if !matches!(
+                face,
+                FaceKey::SidePx | FaceKey::SideNx | FaceKey::SidePz | FaceKey::SideNz
+            ) {
+                continue;
+            }
+            // The rectangle profile repeats each corner with the two
+            // adjoining face normals, so the quad *between* a corner pair is
+            // zero-width: it renders nothing, and its averaged normal is the
+            // diagonal between two sides rather than either one. It is
+            // tagged with the side whose run it closes; only the triangles
+            // that carry actual surface can be held to their normal.
+            let (a, b, c) = (
+                Vec3::from_array(pos[tri[0]]),
+                Vec3::from_array(pos[tri[1]]),
+                Vec3::from_array(pos[tri[2]]),
+            );
+            if (b - a).cross(c - a).length() < 1e-6 {
+                continue;
+            }
+            let n = tri
+                .iter()
+                .fold(Vec3::ZERO, |acc, &i| acc + Vec3::from_array(nor[i]))
+                .normalize_or_zero();
+            assert_eq!(
+                faces::box_face(n),
+                face,
+                "triangle {t} tagged {face:?} but its normal {n:?} faces elsewhere"
+            );
+            checked += 1;
+        }
+        assert!(checked > 0, "no side triangles found to check");
     }
 
     #[test]
@@ -1336,7 +1568,7 @@ mod tests {
         ];
         for k in &kinds {
             let tag = k.kind_tag();
-            let mesh = build_primitive_mesh(k);
+            let mesh = mesh_of(k);
             let Some(VertexAttributeValues::Float32x3(pos)) =
                 mesh.attribute(Mesh::ATTRIBUTE_POSITION)
             else {

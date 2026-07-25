@@ -149,6 +149,7 @@ pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
             color_frame: Fp3([0.3, 0.31, 0.32]),
             ..Default::default()
         }),
+        ..Default::default()
     }
 }
 

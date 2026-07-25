@@ -8,7 +8,10 @@
 
 use bevy::prelude::*;
 
+use crate::pds::generator::FaceKey;
+
 use super::base::mesh_from_parts;
+use super::faces::{FaceSpans, PrimMesh};
 
 /// Sign-preserving power: `sign(v) * |v|^e`. The superellipsoid's
 /// parametrisation and its analytic normal are both built from this.
@@ -71,7 +74,7 @@ pub(super) fn build_superellipsoid(
     t0: f32,
     t1: f32,
     inner_frac: f32,
-) -> Mesh {
+) -> PrimMesh {
     use std::f32::consts::{FRAC_PI_2, PI, TAU};
     let (e1, e2) = (exponent_ns, exponent_ew);
     let nlat = latitudes.max(4);
@@ -89,6 +92,7 @@ pub(super) fn build_superellipsoid(
     let mut nor: Vec<[f32; 3]> = Vec::with_capacity(pos.capacity());
     let mut uv: Vec<[f32; 2]> = Vec::with_capacity(pos.capacity());
     let mut idx: Vec<u32> = Vec::new();
+    let mut spans = FaceSpans::new();
 
     // Outer (+ inner, when hollow) surface grid.
     let mut shells = vec![(1.0f32, false)];
@@ -114,6 +118,14 @@ pub(super) fn build_superellipsoid(
                 idx.extend_from_slice(&[a, a + row, a + row + 1, a, a + row + 1, a + 1]);
             }
         }
+        spans.mark(
+            &idx,
+            if inward {
+                FaceKey::Bore
+            } else {
+                FaceKey::Surface
+            },
+        );
     }
 
     // Latitude caps at any open, non-pole edge. Each latitude ring lies in
@@ -121,7 +133,10 @@ pub(super) fn build_superellipsoid(
     // hollow end with a rim band whose normal is the meridional tangent
     // (numeric — the analytic tangent has the same crease caveats as the
     // normal).
-    for (t_edge, ny, pole) in [(t0, -1.0f32, bottom_pole), (t1, 1.0f32, top_pole)] {
+    for (t_edge, ny, pole, face) in [
+        (t0, -1.0f32, bottom_pole, FaceKey::Bottom),
+        (t1, 1.0f32, top_pole, FaceKey::Top),
+    ] {
         if pole {
             continue;
         }
@@ -167,13 +182,17 @@ pub(super) fn build_superellipsoid(
                 idx.extend_from_slice(&[base, base + 1 + i, base + 2 + i]);
             }
         }
+        spans.mark(&idx, face);
     }
 
     // Meridional cut faces when the longitude sweep is open (path-cut):
     // strips from the outer surface to the axis (solid) or the inner shell
     // (hollow).
     if !lon_full {
-        for (i_edge, sgn) in [(0u32, -1.0f32), (nlon, 1.0f32)] {
+        for (i_edge, sgn, face) in [
+            (0u32, -1.0f32, FaceKey::PathCutStart),
+            (nlon, 1.0f32, FaceKey::PathCutEnd),
+        ] {
             let om = lon_of(i_edge);
             let (so, co) = om.sin_cos();
             let nrm = [sgn * -so, 0.0, sgn * co];
@@ -195,10 +214,11 @@ pub(super) fn build_superellipsoid(
                 let b = base + j * 2;
                 idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
             }
+            spans.mark(&idx, face);
         }
     }
 
-    mesh_from_parts(pos, nor, uv, idx)
+    mesh_from_parts(pos, nor, uv, idx, spans)
 }
 
 /// Analytic surface point cloud for the convex-hull collider — a coarse

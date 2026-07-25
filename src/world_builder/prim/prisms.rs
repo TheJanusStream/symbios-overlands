@@ -4,12 +4,15 @@
 
 use bevy::prelude::*;
 
+use crate::pds::generator::FaceKey;
+
 use super::base::mesh_from_parts;
+use super::faces::{FaceSpans, PrimMesh};
 
 /// Hollow cylinder: outer + inner walls (smooth radial normals) closed by two
 /// annular caps. `inner` is clamped just inside `outer` so the bore never
 /// inverts.
-pub(super) fn build_tube_mesh(outer: f32, inner: f32, height: f32, resolution: u32) -> Mesh {
+pub(super) fn build_tube_mesh(outer: f32, inner: f32, height: f32, resolution: u32) -> PrimMesh {
     use std::f32::consts::TAU;
     let res = resolution.max(3) as usize;
     let inner = inner.clamp(0.0, outer * 0.999);
@@ -19,12 +22,16 @@ pub(super) fn build_tube_mesh(outer: f32, inner: f32, height: f32, resolution: u
     let mut nor: Vec<[f32; 3]> = Vec::new();
     let mut uv: Vec<[f32; 2]> = Vec::new();
     let mut idx: Vec<u32> = Vec::new();
+    let mut spans = FaceSpans::new();
 
     // Walls: outer normal points out (+1), inner points in (-1). UVs are
     // metres (#935) — each shell's U spans its own circumference, so the
     // bore's tighter wrap gets its own (shorter) run of texture rather than
     // the outer wall's stretched over it.
-    for &(radius, sign) in &[(outer, 1.0f32), (inner, -1.0f32)] {
+    for &(radius, sign, face) in &[
+        (outer, 1.0f32, FaceKey::Wall),
+        (inner, -1.0f32, FaceKey::Bore),
+    ] {
         let base = pos.len() as u32;
         let circumference = TAU * radius;
         for i in 0..=res {
@@ -44,10 +51,11 @@ pub(super) fn build_tube_mesh(outer: f32, inner: f32, height: f32, resolution: u
             let (b0, t1, b1) = (t0 + 1, t0 + 2, t0 + 3);
             idx.extend_from_slice(&[b0, b1, t1, b0, t1, t0]);
         }
+        spans.mark(&idx, face);
     }
 
     // Annular caps: top (+Y) then bottom (-Y).
-    for &(y, ny) in &[(h2, 1.0f32), (-h2, -1.0f32)] {
+    for &(y, ny, face) in &[(h2, 1.0f32, FaceKey::Top), (-h2, -1.0f32, FaceKey::Bottom)] {
         let base = pos.len() as u32;
         for i in 0..=res {
             let a = i as f32 / res as f32 * TAU;
@@ -64,9 +72,10 @@ pub(super) fn build_tube_mesh(outer: f32, inner: f32, height: f32, resolution: u
             let (in0, o1, in1) = (o0 + 1, o0 + 2, o0 + 3);
             idx.extend_from_slice(&[o0, o1, in1, o0, in1, in0]);
         }
+        spans.mark(&idx, face);
     }
 
-    mesh_from_parts(pos, nor, uv, idx)
+    mesh_from_parts(pos, nor, uv, idx, spans)
 }
 
 /// Push one flat-shaded quad (4 corners, one normal); winding is reconciled by
@@ -111,7 +120,7 @@ fn push_tri(
 /// Right-triangular prism (ramp / roof pitch / buttress): a `size` bounding box
 /// whose slope rises from the front-bottom (`+Z`, `-Y`) to the back-top (`-Z`,
 /// `+Y`) across the full width (X). Five flat faces.
-pub(super) fn build_wedge_mesh(size: [f32; 3]) -> Mesh {
+pub(super) fn build_wedge_mesh(size: [f32; 3]) -> PrimMesh {
     let (w, h, d) = (size[0] * 0.5, size[1] * 0.5, size[2] * 0.5);
     let bbl = [-w, -h, -d];
     let bfl = [-w, -h, d];
@@ -123,6 +132,7 @@ pub(super) fn build_wedge_mesh(size: [f32; 3]) -> Mesh {
     let mut nor = Vec::new();
     let mut uv = Vec::new();
     let mut idx = Vec::new();
+    let mut spans = FaceSpans::new();
     push_quad(
         &mut pos,
         &mut nor,
@@ -130,7 +140,8 @@ pub(super) fn build_wedge_mesh(size: [f32; 3]) -> Mesh {
         &mut idx,
         [bbl, bbr, bfr, bfl],
         [0.0, -1.0, 0.0],
-    ); // bottom
+    );
+    spans.mark(&idx, FaceKey::Bottom);
     push_quad(
         &mut pos,
         &mut nor,
@@ -138,7 +149,8 @@ pub(super) fn build_wedge_mesh(size: [f32; 3]) -> Mesh {
         &mut idx,
         [bbl, tbl, tbr, bbr],
         [0.0, 0.0, -1.0],
-    ); // back
+    );
+    spans.mark(&idx, FaceKey::Back);
     let sl = (d * d + h * h).sqrt().max(1e-6);
     push_quad(
         &mut pos,
@@ -147,7 +159,8 @@ pub(super) fn build_wedge_mesh(size: [f32; 3]) -> Mesh {
         &mut idx,
         [bfl, bfr, tbr, tbl],
         [0.0, d / sl, h / sl],
-    ); // slope
+    );
+    spans.mark(&idx, FaceKey::Slope);
     push_tri(
         &mut pos,
         &mut nor,
@@ -155,7 +168,8 @@ pub(super) fn build_wedge_mesh(size: [f32; 3]) -> Mesh {
         &mut idx,
         [bbl, bfl, tbl],
         [-1.0, 0.0, 0.0],
-    ); // left
+    );
+    spans.mark(&idx, FaceKey::Left);
     push_tri(
         &mut pos,
         &mut nor,
@@ -163,8 +177,9 @@ pub(super) fn build_wedge_mesh(size: [f32; 3]) -> Mesh {
         &mut idx,
         [bbr, tbr, bfr],
         [1.0, 0.0, 0.0],
-    ); // right
-    mesh_from_parts(pos, nor, uv, idx)
+    );
+    spans.mark(&idx, FaceKey::Right);
+    mesh_from_parts(pos, nor, uv, idx, spans)
 }
 
 /// Helical tube (spring / screw / spiral rail): a circular cross-section swept
@@ -185,7 +200,7 @@ pub(super) fn build_helix_mesh(
     min0: f32,
     min1: f32,
     inner_frac: f32,
-) -> Mesh {
+) -> PrimMesh {
     use std::f32::consts::TAU;
     let res = resolution.max(3);
     let turns = turns.abs().max(0.05);
@@ -225,6 +240,7 @@ pub(super) fn build_helix_mesh(
     let mut nor = Vec::new();
     let mut uv = Vec::new();
     let mut idx: Vec<u32> = Vec::new();
+    let mut spans = FaceSpans::new();
     // Outer tube (+ inner shell when hollow).
     let mut shells = vec![(tube_radius, false)];
     if hollow {
@@ -254,11 +270,15 @@ pub(super) fn build_helix_mesh(
                 idx.extend_from_slice(&[a, a + row, a + row + 1, a, a + row + 1, a + 1]);
             }
         }
+        spans.mark(&idx, if inward { FaceKey::Bore } else { FaceKey::Wall });
     }
     // Edge lips closing an open cross-section arc (profile-cut), running the
     // whole path.
     if !min_full {
-        for (j_edge, sgn) in [(0u32, -1.0f32), (tube_segs, 1.0f32)] {
+        for (j_edge, sgn, face) in [
+            (0u32, -1.0f32, FaceKey::ProfileCutStart),
+            (tube_segs, 1.0f32, FaceKey::ProfileCutEnd),
+        ] {
             let (sp, cp) = phi_of(j_edge).sin_cos();
             let base = pos.len() as u32;
             for i in 0..=path_segs {
@@ -284,11 +304,16 @@ pub(super) fn build_helix_mesh(
                 let b = base + i * 2;
                 idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
             }
+            spans.mark(&idx, face);
         }
     }
     // End caps: a fan over the kept arc when solid, an annular band when
-    // hollow.
-    for (i_edge, sgn) in [(0u32, -1.0f32), (path_segs, 1.0f32)] {
+    // hollow. The coil climbs +Y, so its first end is the bottom — these are
+    // the helix's own ends, not cut faces (a helix is always open).
+    for (i_edge, sgn, face) in [
+        (0u32, -1.0f32, FaceKey::Bottom),
+        (path_segs, 1.0f32, FaceKey::Top),
+    ] {
         let (c, t) = path(i_edge);
         let (n, b) = frame(t);
         let ncap = (t * sgn).to_array();
@@ -308,6 +333,7 @@ pub(super) fn build_helix_mesh(
                 let b2 = basec + j * 2;
                 idx.extend_from_slice(&[b2, b2 + 1, b2 + 3, b2, b2 + 3, b2 + 2]);
             }
+            spans.mark(&idx, face);
             continue;
         }
         pos.push(c.to_array());
@@ -323,8 +349,9 @@ pub(super) fn build_helix_mesh(
         for j in 0..tube_segs {
             idx.extend_from_slice(&[basec, basec + 1 + j, basec + 2 + j]);
         }
+        spans.mark(&idx, face);
     }
-    mesh_from_parts(pos, nor, uv, idx)
+    mesh_from_parts(pos, nor, uv, idx, spans)
 }
 
 /// Box with chamfered / rounded vertical edges — an extruded rounded-rectangle
@@ -332,7 +359,7 @@ pub(super) fn build_helix_mesh(
 /// `segments` is `1` for a flat chamfer (octagonal prism), higher for a
 /// rounded corner. Side normals follow the profile (smooth on arcs, flat on
 /// the straight runs); caps are flat fans.
-pub(super) fn build_bevel_mesh(size: [f32; 3], bevel: f32, segments: u32) -> Mesh {
+pub(super) fn build_bevel_mesh(size: [f32; 3], bevel: f32, segments: u32) -> PrimMesh {
     use std::f32::consts::{FRAC_PI_2, PI};
     let [sx, sy, sz] = size;
     let (hx, hy, hz) = (sx * 0.5, sy * 0.5, sz * 0.5);
@@ -361,6 +388,7 @@ pub(super) fn build_bevel_mesh(size: [f32; 3], bevel: f32, segments: u32) -> Mes
     let mut nor: Vec<[f32; 3]> = Vec::new();
     let mut uv: Vec<[f32; 2]> = Vec::new();
     let mut idx: Vec<u32> = Vec::new();
+    let mut spans = FaceSpans::new();
 
     // Side wall.
     for (i, &(x, z, nx, nz)) in profile.iter().enumerate() {
@@ -380,11 +408,14 @@ pub(super) fn build_bevel_mesh(size: [f32; 3], bevel: f32, segments: u32) -> Mes
         let b1 = t1 + 1;
         idx.extend_from_slice(&[b0, b1, t1, b0, t1, t0]);
     }
+    // One wrapped side: the rounded corners bridge the four straights
+    // geometrically, so a bevel has no per-direction seam to name.
+    spans.mark(&idx, FaceKey::Wall);
 
     // Caps: a centre-fan over the profile, top (+Y) then bottom (-Y).
     let inv_hx = 1.0 / hx.max(1e-3);
     let inv_hz = 1.0 / hz.max(1e-3);
-    for &(y, ny) in &[(hy, 1.0f32), (-hy, -1.0f32)] {
+    for &(y, ny, face) in &[(hy, 1.0f32, FaceKey::Top), (-hy, -1.0f32, FaceKey::Bottom)] {
         let center = pos.len() as u32;
         pos.push([0.0, y, 0.0]);
         nor.push([0.0, ny, 0.0]);
@@ -399,7 +430,8 @@ pub(super) fn build_bevel_mesh(size: [f32; 3], bevel: f32, segments: u32) -> Mes
             let i1 = (i + 1) % n as u32;
             idx.extend_from_slice(&[center, rim + i, rim + i1]);
         }
+        spans.mark(&idx, face);
     }
 
-    mesh_from_parts(pos, nor, uv, idx)
+    mesh_from_parts(pos, nor, uv, idx, spans)
 }

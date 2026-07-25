@@ -93,7 +93,7 @@ use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 
 pub use lsystem::{LSystemMaterialCache, LSystemMeshCache};
-pub use prim::build_primitive_mesh;
+pub use prim::{FaceTable, PrimMesh, build_primitive_mesh, enumerate_faces};
 pub use shape::{ShapeMaterialCache, ShapeMeshCache};
 
 /// Capacity (entries) of the shared procedural-[`TextureCache`].

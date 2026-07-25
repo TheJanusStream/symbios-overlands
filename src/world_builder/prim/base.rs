@@ -6,6 +6,8 @@ use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 
+use super::faces::{FaceSpans, PrimMesh};
+
 /// Re-wind every triangle so its face winding agrees with the supplied vertex
 /// normals (front faces stay visible under back-face culling). Lets the
 /// hand-built [`build_tube_mesh`](super::prisms::build_tube_mesh) /
@@ -26,13 +28,20 @@ pub(super) fn orient_to_normals(pos: &[[f32; 3]], nor: &[[f32; 3]], idx: &mut [u
 /// Assemble a CPU mesh from raw attribute buffers, fixing winding against the
 /// normals and generating tangents — the shared tail of the hand-built tube /
 /// bevel builders.
+///
+/// `spans` is the face identity accumulated as the caller appended its
+/// triangle blocks (#958); winding reconciliation only swaps corners *within*
+/// a triangle and tangent generation only adds an attribute, so the spans
+/// still name the right triangles once this returns.
 pub(super) fn mesh_from_parts(
     pos: Vec<[f32; 3]>,
     nor: Vec<[f32; 3]>,
     uv: Vec<[f32; 2]>,
     mut idx: Vec<u32>,
-) -> Mesh {
+    spans: FaceSpans,
+) -> PrimMesh {
     orient_to_normals(&pos, &nor, &mut idx);
+    let faces = spans.finish((idx.len() / 3) as u32);
     let mut mesh = Mesh::new(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
@@ -42,7 +51,7 @@ pub(super) fn mesh_from_parts(
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
     mesh.insert_indices(Indices::U32(idx));
     let _ = mesh.generate_tangents();
-    mesh
+    PrimMesh { mesh, faces }
 }
 
 /// Split every triangle into four (edge midpoints), `levels` times, lerping

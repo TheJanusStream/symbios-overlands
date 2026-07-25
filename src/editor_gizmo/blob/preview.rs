@@ -99,7 +99,7 @@ pub(in crate::editor_gizmo) fn blob_drag_preview(
 
     state.last_dispatch_secs = time.elapsed_secs();
     state.task = Some(AsyncComputeTaskPool::get().spawn(async move {
-        let mesh = build_primitive_mesh(&kind);
+        let mesh = build_primitive_mesh(&kind).mesh;
         edge_line_mesh(&mesh)
     }));
 }

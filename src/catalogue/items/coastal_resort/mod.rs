@@ -132,6 +132,7 @@ pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
             color_frame: Fp3([0.93, 0.92, 0.88]),
             ..Default::default()
         }),
+        ..Default::default()
     }
 }
 
@@ -225,6 +226,7 @@ pub(super) fn water(color: [f32; 3]) -> SovereignMaterialSettings {
         // read as a stale pre-#936 repeat count.
         uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::None,
+        ..Default::default()
     }
 }
 

@@ -109,6 +109,7 @@ pub(super) fn window_wall(glass: [f32; 3], glow: f32) -> SovereignMaterialSettin
             color_frame: Fp3([0.08, 0.09, 0.12]),
             ..Default::default()
         }),
+        ..Default::default()
     }
 }
 
