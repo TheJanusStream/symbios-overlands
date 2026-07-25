@@ -18,6 +18,11 @@ const SEAT: [f32; 3] = [0.14, 0.16, 0.18];
 /// Bright seat colours — a red bucket seat and a blue plank seat.
 const SEAT_RED: [f32; 3] = [0.75, 0.18, 0.16];
 const SEAT_BLUE: [f32; 3] = [0.18, 0.34, 0.62];
+/// Seat width, across the swing's travel.
+const SEAT_W: f32 = 0.5;
+/// How far in from the seat's centreline each chain hangs — just inside the
+/// ends, which is where a real swing's chains are shackled.
+const CHAIN_INSET: f32 = SEAT_W * 0.5 - 0.03;
 
 pub struct SwingSet;
 
@@ -86,17 +91,24 @@ fn build_tree() -> Generator {
     }
 
     // Two chain-hung seats — one red, one blue.
+    //
+    // A seat hangs from its **sides**, so the pair of chains is offset along
+    // the seat's width (X) and sits on its depth centreline (Z). Offsetting
+    // them in Z instead hung both chains off the seat's front and back edges,
+    // on one point of its width — a swing that would corkscrew rather than
+    // swing, and visibly wrong from the side (#974). `SEAT_W` is the seat's
+    // width and the chain inset is derived from it, so the two cannot drift.
     for (i, sx) in [-0.85_f32, 0.85].into_iter().enumerate() {
-        for cz in [-0.12_f32, 0.12] {
+        for cx in [-CHAIN_INSET, CHAIN_INSET] {
             prims.push(prim(
                 solid(cuboid_tapered([0.03, 1.45, 0.03], 0.0, enamel(SEAT))),
-                [sx, bar_y - 0.75, cz],
+                [sx + cx, bar_y - 0.75, 0.0],
                 id_quat(),
             ));
         }
         let seat_col = if i == 0 { SEAT_RED } else { SEAT_BLUE };
         prims.push(prim(
-            solid(cuboid_tapered([0.5, 0.08, 0.26], 0.0, enamel(seat_col))),
+            solid(cuboid_tapered([SEAT_W, 0.08, 0.26], 0.0, enamel(seat_col))),
             [sx, bar_y - 1.5, 0.0],
             id_quat(),
         ));
@@ -127,6 +139,56 @@ mod tests {
     #[test]
     fn build_round_trips_through_sanitize() {
         assert_sanitize_stable(&SwingSet.build(""), "swing_set");
+    }
+
+    /// #974: each seat hangs from its **sides**.
+    ///
+    /// The chains straddle the seat's width and sit on its depth centreline.
+    /// Offset along the depth instead — which is how this was authored — both
+    /// chains hang off the seat's front and back edges at one point of its
+    /// width, so the seat is slung on an axis it would corkscrew around rather
+    /// than swing on.
+    #[test]
+    fn the_chains_hang_from_the_sides_of_each_seat() {
+        let root = SwingSet.build("");
+        let mut seats = 0;
+        for seat in &root.children {
+            let GeneratorKind::Cuboid { size, material, .. } = &seat.kind else {
+                continue;
+            };
+            if size.0[0] != SEAT_W || material.base_color.0 == FRAME {
+                continue;
+            }
+            let at = seat.transform.translation.0;
+            // The chains are the slender verticals above this seat.
+            let mut chains: Vec<[f32; 3]> = root
+                .children
+                .iter()
+                .filter_map(|c| match &c.kind {
+                    GeneratorKind::Cuboid { size, .. } if size.0[0] < 0.05 => {
+                        Some(c.transform.translation.0)
+                    }
+                    _ => None,
+                })
+                .filter(|t| (t[0] - at[0]).abs() < SEAT_W && t[1] > at[1])
+                .collect();
+            chains.sort_by(|a, b| a[0].total_cmp(&b[0]));
+            assert_eq!(chains.len(), 2, "seat at {at:?} is not hung by two chains");
+            for c in &chains {
+                assert!(
+                    (c[2] - at[2]).abs() < 1e-4,
+                    "chain at {c:?} hangs off the seat's front or back edge, not its side"
+                );
+            }
+            let span = chains[1][0] - chains[0][0];
+            assert!(
+                span > SEAT_W * 0.7 && span < SEAT_W,
+                "chains span {span} across a {SEAT_W} m seat — they must straddle \
+                 its width without overhanging it"
+            );
+            seats += 1;
+        }
+        assert_eq!(seats, 2, "expected two hung seats");
     }
 
     /// #973: the legs make an **A**, not a V.
