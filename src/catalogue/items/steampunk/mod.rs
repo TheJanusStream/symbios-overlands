@@ -22,6 +22,7 @@ pub mod foundry;
 pub mod gas_lamp;
 pub mod gateway;
 pub mod gear_pile;
+pub mod monument;
 pub mod pipework;
 pub mod pressure_tank;
 pub mod pump_house;

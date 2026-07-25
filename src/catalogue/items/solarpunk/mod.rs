@@ -19,6 +19,7 @@ pub mod beehive;
 pub mod biodome;
 pub mod gateway;
 pub mod green_pavilion;
+pub mod monument;
 pub mod solar_lamp;
 pub mod solar_panel;
 pub mod veggie_planter;

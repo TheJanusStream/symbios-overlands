@@ -22,6 +22,7 @@ pub mod fae_ring;
 pub mod gateway;
 pub mod glow_mushroom;
 pub mod mana_font;
+pub mod monument;
 pub mod runestone;
 pub mod spell_circle;
 pub mod wizard_tower;

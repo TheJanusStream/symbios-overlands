@@ -26,6 +26,7 @@ pub mod dinghy;
 pub mod gateway;
 pub mod grand_hotel;
 pub mod lifeguard_tower;
+pub mod monument;
 pub mod resort_pier;
 // Poor (fishing-hamlet) variants — the prosperity-Poor end of the theme.
 pub mod bait_stand;

@@ -21,6 +21,7 @@ pub mod fuel_pump;
 pub mod gas_station;
 pub mod gateway;
 pub mod guardrail;
+pub mod monument;
 pub mod motel;
 pub mod road_sign;
 pub mod roadside_diner;

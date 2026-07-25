@@ -21,6 +21,7 @@ pub mod gateway;
 pub mod grain_silo;
 pub mod greenhouse;
 pub mod hay_bales;
+pub mod monument;
 pub mod rail_fence;
 pub mod scarecrow;
 pub mod tractor;

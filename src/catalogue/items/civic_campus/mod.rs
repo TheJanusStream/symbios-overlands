@@ -24,6 +24,7 @@ pub mod flagpole;
 pub mod gateway;
 pub mod lecture_hall;
 pub mod library;
+pub mod monument;
 pub mod notice_board;
 pub mod town_hall;
 // Poor (underfunded) variants — the prosperity-Poor end of the theme.

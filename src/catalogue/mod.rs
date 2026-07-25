@@ -305,6 +305,59 @@ mod tests {
         );
     }
 
+    /// The same contract for the owner monument (#975): every
+    /// `ThemeArchetype` resolves to exactly one bespoke monument, so no
+    /// seeded room ever falls through to `civic_monument`.
+    ///
+    /// This is the test that makes "every room has the owner's face on it"
+    /// true rather than aspirational. Zero for a theme strands it on the
+    /// cross-theme fallback; two makes the pick registry-order-dependent, so
+    /// the same room could show a different monument after an unrelated
+    /// registry edit.
+    #[test]
+    fn every_theme_resolves_to_exactly_one_monument() {
+        for theme in ThemeArchetype::ALL {
+            let found: Vec<&str> = entries_for(theme, StructureRole::Monument)
+                .map(|e| e.slug())
+                .collect();
+            assert_eq!(
+                found.len(),
+                1,
+                "{theme:?} must have exactly one bespoke monument, got {found:?}"
+            );
+        }
+        let fallback = by_slug("civic_monument").expect("civic_monument fallback registered");
+        assert_eq!(fallback.role(), StructureRole::Monument);
+        assert!(
+            fallback.themes().is_empty(),
+            "the fallback must be themeless so it stays out of entries_for"
+        );
+    }
+
+    /// A monument is never settlement dressing. The deriver fills its
+    /// Landmark / Secondary / Prop slots by role, so a monument that also
+    /// claimed one of those roles could be scattered through the settlement
+    /// as ordinary content — several owner portraits in one room, which is
+    /// the one thing this system must not do.
+    #[test]
+    fn monuments_stay_out_of_the_settlement_pools() {
+        for theme in ThemeArchetype::ALL {
+            for role in [
+                StructureRole::Landmark,
+                StructureRole::Secondary,
+                StructureRole::Prop,
+            ] {
+                for e in entries_for(theme, role) {
+                    assert!(
+                        !e.slug().ends_with("_monument"),
+                        "{} is in the {role:?} pool for {theme:?}",
+                        e.slug()
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn socio_bands_default_to_any() {
         // An entry that doesn't override the band methods must accept every

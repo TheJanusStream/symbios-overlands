@@ -20,6 +20,7 @@ pub mod egg_sac;
 pub mod fleshy_spire;
 pub mod gateway;
 pub mod membrane_wall;
+pub mod monument;
 pub mod pod_cluster;
 pub mod spore_vent;
 pub mod tendril;

@@ -23,6 +23,7 @@ pub mod levitating_platform;
 pub mod light_disc;
 pub mod light_pylon;
 pub mod monolith_shard;
+pub mod monument;
 // Poor (dormant) variants — the prosperity-Poor end of the theme.
 pub mod broken_monolith;
 pub mod dead_pylon;

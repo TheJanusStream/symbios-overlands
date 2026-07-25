@@ -19,6 +19,7 @@ pub mod factory;
 pub mod floodlight;
 pub mod gateway;
 pub mod loading_dock;
+pub mod monument;
 pub mod pallet_stack;
 pub mod pipe_run;
 pub mod shipping_containers;

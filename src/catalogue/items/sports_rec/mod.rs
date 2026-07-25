@@ -22,6 +22,7 @@ pub mod floodlight_mast;
 pub mod gateway;
 pub mod goalpost;
 pub mod gym;
+pub mod monument;
 pub mod players_bench;
 pub mod scoreboard;
 pub mod stadium;

@@ -20,6 +20,7 @@ pub mod gateway;
 pub mod general_store;
 pub mod hitching_post;
 pub mod jail;
+pub mod monument;
 pub mod saloon;
 pub mod wagon;
 pub mod water_tower;

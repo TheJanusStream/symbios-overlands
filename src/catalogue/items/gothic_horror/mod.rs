@@ -23,6 +23,7 @@ pub mod gateway;
 pub mod gravestone;
 pub mod iron_fence;
 pub mod mausoleum;
+pub mod monument;
 pub mod stone_cross;
 // Poor (forsaken) variants — the prosperity-Poor end of the theme.
 pub mod bone_pile;

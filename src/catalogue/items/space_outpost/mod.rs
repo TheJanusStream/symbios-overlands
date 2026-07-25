@@ -23,6 +23,7 @@ pub mod gateway;
 pub mod habitat_dome;
 pub mod hydroponics;
 pub mod landing_pad;
+pub mod monument;
 pub mod rover;
 pub mod solar_array;
 // Poor (wreck) variants — the prosperity-Poor end of the theme.

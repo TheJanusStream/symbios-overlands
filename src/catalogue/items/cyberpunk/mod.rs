@@ -33,6 +33,7 @@ pub mod data_spire;
 pub mod drone_perch;
 pub mod gateway;
 pub mod holo_billboard;
+pub mod monument;
 pub mod neon_kiosk;
 pub mod neon_megatower;
 pub mod parking_stack;
