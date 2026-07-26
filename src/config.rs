@@ -1120,6 +1120,12 @@ pub mod ui {
         /// Feed-card heading text size (px) — the card lost its window
         /// title bar (#896), so the heading renders in the body.
         pub const FEED_HEADING_TEXT_SIZE: f32 = 16.0;
+        /// Padding inside the "New world" backdrop-re-roll chip (#978).
+        /// Tighter than [`CARD_INNER_MARGIN`]: it wears the same card
+        /// chrome, but a lone button in a full card's padding reads as a
+        /// third panel competing with the pair rather than a control
+        /// sitting on the world.
+        pub const REROLL_INNER_MARGIN: f32 = 8.0;
     }
 
     pub mod editor {

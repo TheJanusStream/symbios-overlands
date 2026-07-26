@@ -317,6 +317,21 @@ impl Plugin for TerrainPlugin {
                     in_state(AppState::Loading)
                         .and(resource_exists::<crate::loading::AbortLoading>),
                 ),
+            )
+            // Re-rolling the login backdrop (#978) discards one demo world
+            // for another without leaving `Login`, so neither `OnExit` hook
+            // fires — react to the request flag, exactly as the abort path
+            // above does. Ordered `.before` the attract-side sweep that
+            // clears the flag, which also puts an `ApplyDeferred` between
+            // the two halves of the teardown.
+            .add_systems(
+                Update,
+                lifecycle::cleanup_terrain
+                    .before(crate::attract::reroll_attract_scene)
+                    .run_if(
+                        in_state(AppState::Login)
+                            .and(resource_exists::<crate::attract::AttractReroll>),
+                    ),
             );
     }
 }

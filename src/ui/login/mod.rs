@@ -44,7 +44,7 @@ pub use complete::poll_complete_auth_task;
 pub use native_callback::poll_native_callback;
 pub use posts::{LoginPostFeed, poll_login_feed_fetch, start_login_feed_fetch};
 #[cfg(target_arch = "wasm32")]
-pub use wasm_resume::{check_wasm_callback, check_wasm_resume, poll_resume_task};
+pub use wasm_resume::{ResumeAuthTask, check_wasm_callback, check_wasm_resume, poll_resume_task};
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -636,6 +636,40 @@ pub fn login_ui(
                     });
             });
         });
+
+    // Backdrop control (#978). The demo overland behind the login screen
+    // is a fresh random seed every visit, and it is the first thing the
+    // app ever shows of what it makes — so let a visitor roll again on
+    // demand instead of reloading the page to see a second one. Anchored
+    // bottom-right, away from the card pair: it acts on the world, not
+    // on the login.
+    //
+    // Shown whenever a demo world is armed and disabled until it is
+    // actually on screen. `reroll_attract_scene` holds `AttractScene`
+    // across the swap so the chip itself never blinks out; the disabled
+    // stretch is the rebuild, and it doubles as the progress cue that
+    // the flat gradient alone doesn't give.
+    if attract.is_some() {
+        egui::Area::new(egui::Id::new("login-backdrop-reroll"))
+            .anchor(egui::Align2::RIGHT_BOTTOM, [-cfg::EDGE_PAD, -cfg::EDGE_PAD])
+            .show(&ctx, |ui| {
+                card_frame(&theme.0)
+                    .inner_margin(cfg::REROLL_INNER_MARGIN)
+                    .show(ui, |ui| {
+                        let reroll =
+                            ui.add_enabled(world_backdrop_visible, egui::Button::new("New world"));
+                        let reroll = if world_backdrop_visible {
+                            reroll
+                                .on_hover_text("Seed a different overland behind the login screen")
+                        } else {
+                            reroll.on_disabled_hover_text("Building the backdrop overland…")
+                        };
+                        if reroll.clicked() {
+                            commands.insert_resource(crate::attract::AttractReroll);
+                        }
+                    });
+            });
+    }
 }
 
 /// Full-screen vertical gradient (zenith → horizon) painted on egui's

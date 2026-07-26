@@ -187,6 +187,27 @@ pub fn run() {
         .add_systems(Update, ui::unsaved_guard::sync_beforeunload_dirty);
     #[cfg(not(target_arch = "wasm32"))]
     app.add_systems(Update, ui::unsaved_guard::intercept_window_close);
+    // WASM (#978): settle *before the first frame* whether this page load
+    // is an auth handoff — an OAuth callback bouncing back from the
+    // authorization server, or a persisted session about to resume. Both
+    // are resolved by frame-1 one-shots whose `Commands` are invisible to
+    // the rest of that frame, so the login screen's attract backdrop
+    // (`attract::start_attract_scene`, same unordered Update tuple) used
+    // to read the screen as idle and seed a full demo world that the
+    // imminent `Login → Loading` handover discarded a moment later. Read
+    // straight from the browser here, where no schedule can race it.
+    // `boot_params::detect()` above deliberately leaves `code=` / `state=`
+    // in the URL bar for exactly this reason.
+    #[cfg(target_arch = "wasm32")]
+    {
+        let callback = oauth::wasm::read_callback_params();
+        if callback.code.is_some()
+            || callback.error.is_some()
+            || oauth::wasm::load_persisted().is_some()
+        {
+            app.insert_resource(oauth::AuthHandoffPending);
+        }
+    }
     app.add_plugins(PhysicsPlugins::default())
         // BootParams must be resident before DiagnosticsPlugin::build reads it
         // for the boot StartupSnapshot, so insert it here and add the plugin

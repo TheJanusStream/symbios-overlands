@@ -115,6 +115,30 @@ pub const SESSION_STORAGE_KEY: &str = "symbios_overlands_pending_auth";
 #[cfg(target_arch = "wasm32")]
 pub const PERSISTED_SESSION_KEY: &str = "symbios_overlands_session";
 
+/// WASM-only marker: this page load began as an *auth handoff* rather
+/// than a cold visit — the URL carries an OAuth callback (`?code=` or
+/// `?error=`), or `localStorage` holds a session to resume. Inserted in
+/// [`crate::run`] before the first frame, so the fact is settled outside
+/// the ECS schedule entirely.
+///
+/// Why it can't be a system-side check (#978): the OAuth redirect
+/// destroys the wasm app, so the callback lands on a *fresh* boot into
+/// [`AppState::Login`](crate::state::AppState::Login). On frame 1
+/// `ui::login::check_wasm_callback` spawns its
+/// [`CompleteAuthTask`](crate::ui::login::CompleteAuthTask) through
+/// `Commands`, and that spawn is not visible to any other system until
+/// the queue flushes — so `attract::start_attract_scene`, sharing the
+/// same unordered `Update` tuple, saw an idle login screen and seeded a
+/// whole demo world that the imminent `Login → Loading` transition threw
+/// away. Reading the browser state at app-build time has no such race.
+///
+/// Removed by whichever frame-1 one-shot resolves the handoff
+/// (`check_wasm_callback` / `check_wasm_resume`); from then on the
+/// in-flight auth *tasks* are the authority.
+#[cfg(target_arch = "wasm32")]
+#[derive(Resource)]
+pub struct AuthHandoffPending;
+
 /// Bevy resource holding everything `OAuthSession::refresh` needs.
 ///
 /// The `OAuthSession` itself only carries the token set + DPoP key; refreshing

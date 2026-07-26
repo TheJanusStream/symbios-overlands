@@ -23,16 +23,23 @@
 //! ## Teardown
 //!
 //! `OnExit(Login)` — whether into `Loading` after a successful auth or
-//! never (process exit) — [`end_attract_scene`] despawns every
-//! [`RoomEntity`](crate::world_builder::RoomEntity), drops the demo
-//! record and the `WorldCompiled` / `WorldCompileArmed` markers (a
-//! stale `WorldCompiled` would let the loading gate unveil an
-//! uncompiled world), and hands the camera back at gameplay framing.
-//! [`crate::terrain`] registers its own `cleanup_terrain` on the same
-//! transition (gated on [`AttractScene`]), so heightmap, splat and
-//! road state reset exactly like the #849 abort path. The session
+//! never (process exit) — [`end_attract_scene`] runs the shared
+//! [`tear_down_demo_world`] sweep and hands the camera back at gameplay
+//! framing. [`crate::terrain`] registers its own `cleanup_terrain` on
+//! the same transition (gated on [`AttractScene`]), so heightmap, splat
+//! and road state reset exactly like the #849 abort path. The session
 //! resources the login flow inserted (`RelayHost`, the OAuth session)
 //! are deliberately untouched — this is *not* a logout.
+//!
+//! ## Re-rolling
+//!
+//! The login screen offers a "New world" button (#978) that discards the
+//! current demo overland and seeds another. It inserts [`AttractReroll`],
+//! which drives the same two-part teardown as the exit path
+//! ([`reroll_attract_scene`] plus `terrain::cleanup_terrain`, ordered
+//! before it) and then simply lets [`start_attract_scene`] find an idle
+//! screen again on its next run. The camera is left orbiting: only the
+//! world underneath it changes.
 //!
 //! ## Camera
 //!
@@ -56,6 +63,14 @@ use crate::ui::login::{BeginAuthTask, CompleteAuthTask, LoginUiLatch};
 /// [`world_pipeline_active`]) and arms the `OnExit(Login)` teardown.
 #[derive(Resource)]
 pub struct AttractScene;
+
+/// Request marker: the login screen's "New world" button wants a
+/// different demo overland (#978). Consumed on the next `Update` by
+/// [`reroll_attract_scene`], which [`crate::terrain`] orders its own
+/// `cleanup_terrain` ahead of so the heightmap, splat and road state are
+/// already reset when the replacement seeds.
+#[derive(Resource)]
+pub struct AttractReroll;
 
 /// Run condition for the terrain / world-builder system groups: the
 /// historical `not(in_state(Login))` gate, widened to also pass while
@@ -88,6 +103,8 @@ pub fn start_attract_scene(
     #[cfg(not(target_arch = "wasm32"))] native_wait: Option<
         Res<crate::oauth::NativeCallbackReceiver>,
     >,
+    #[cfg(target_arch = "wasm32")] handoff: Option<Res<crate::oauth::AuthHandoffPending>>,
+    #[cfg(target_arch = "wasm32")] resume_tasks: Query<(), With<crate::ui::login::ResumeAuthTask>>,
 ) {
     if !settings.login_world_backdrop || attract.is_some() || record.is_some() {
         return;
@@ -108,18 +125,33 @@ pub fn start_attract_scene(
     if native_wait.is_some() {
         return;
     }
-    // A persisted wasm session resumes on its own; the marker clears if
-    // the user backs out via "Not you?", and the attract world starts
-    // on the next frame.
+    // The wasm boot handoff (#978): an OAuth callback or a persisted
+    // session found in the URL/localStorage *before the App ran*. It
+    // covers exactly the frames in which the resolving one-shots have
+    // queued their task spawn but no other system can see it yet;
+    // afterwards the task queries below take over. Without it the OAuth
+    // return seeded a whole demo world that the `Login → Loading`
+    // handover discarded a second later — visible as a flash, and
+    // expensive: on wasm a dropped `Task` does *not* cancel its future,
+    // so the discarded world's heightmap and splat bakes ran on to
+    // completion, holding the four-worker gen pool against the real
+    // world's load.
     #[cfg(target_arch = "wasm32")]
-    if crate::oauth::wasm::load_persisted().is_some() {
+    if handoff.is_some() || !resume_tasks.is_empty() {
         return;
     }
 
-    // A different world every visit: the wall clock (chrono is
-    // wasm-safe, unlike `std::time`) hashed through the same
-    // `default_for_did` path a first-visit room takes, so the demo
-    // showcases exactly what a fresh user would get.
+    seed_demo_world(&mut commands);
+}
+
+/// Mint a demo [`LiveRoomRecord`] and arm the pipeline gates for it.
+///
+/// A different world every visit: the wall clock (chrono is wasm-safe,
+/// unlike `std::time`) hashed through the same `default_for_did` path a
+/// first-visit room takes, so the demo showcases exactly what a fresh
+/// user would get. Shared with [`reroll_attract_scene`], whose whole job
+/// is to land on a *different* millisecond.
+fn seed_demo_world(commands: &mut Commands) {
     let demo_did = format!("did:attract:{:x}", chrono::Utc::now().timestamp_millis());
     info!("Attract backdrop: seeding demo world from {demo_did}");
     commands.insert_resource(LiveRoomRecord(RoomRecord::default_for_did(&demo_did)));
@@ -148,6 +180,50 @@ pub fn drive_attract_camera(
     }
 }
 
+/// Despawn the demo world and drop every resource that describes it, so
+/// the next build — the real room after `Loading`, or the replacement
+/// demo after a re-roll — starts from nothing. Shared by
+/// [`end_attract_scene`] and [`reroll_attract_scene`]; the caller pairs
+/// it with `terrain::cleanup_terrain` for the heightmap/splat/road half.
+///
+/// Deliberately leaves [`AttractScene`] alone: the exit path removes it,
+/// while a re-roll holds it across the swap so the pipeline gates — and
+/// the login screen's own "New world" button — never blink out for the
+/// frame between one demo world and the next.
+fn tear_down_demo_world(
+    commands: &mut Commands,
+    room_entities: &Query<Entity, With<crate::world_builder::RoomEntity>>,
+) {
+    // `try_despawn`, not `despawn` (#923): every node of a spawned tree
+    // carries `RoomEntity`, and `despawn` is recursive — so a root's
+    // despawn already takes its children, and the children's own queued
+    // commands then hit dead entities. With the demo world now thousands
+    // of entities (vegetation tiers), plain `despawn` turned this sweep
+    // into a warning per node on every Login→Loading handover. The same
+    // overlap exists across systems: `terrain::cleanup_terrain` retires
+    // the water volumes on this same transition, and they are
+    // `RoomEntity`s too. Same idiom as the executor's full-rebuild sweep
+    // and `logout::cleanup_on_logout`.
+    for e in room_entities {
+        commands.entity(e).try_despawn();
+    }
+    commands.remove_resource::<LiveRoomRecord>();
+    // A stale `WorldCompiled` would let the loading gate unveil an
+    // uncompiled world; a stale `WorldCompileArmed` would skip the
+    // next pass's one-frame compile delay.
+    commands.remove_resource::<crate::world_builder::WorldCompiled>();
+    commands.remove_resource::<crate::world_builder::WorldCompileArmed>();
+    // Removing `WorldCompiled` alone is not enough — the diff planner
+    // skips any unit whose index *and* fingerprint still match what
+    // `CompiledWorld` remembers, and every anchor it remembers has just
+    // been despawned above. Two unrelated seeds rarely collide, but a
+    // re-roll runs the same generators over the same placement slots, so
+    // the odds stop being theoretical. Reset both wholesale, exactly as
+    // `logout::cleanup_on_logout` does.
+    commands.insert_resource(crate::world_builder::compile::CompiledWorld::default());
+    commands.insert_resource(crate::world_builder::compile::CompileJob::default());
+}
+
 /// Tear the demo world down when `Login` is left. See the module docs
 /// for the split of responsibilities with `terrain::cleanup_terrain`
 /// (registered on the same transition by [`crate::terrain`]).
@@ -160,23 +236,12 @@ pub fn end_attract_scene(
     if attract.is_none() {
         return;
     }
-    // `try_despawn`, not `despawn` (#923): every node of a spawned tree
-    // carries `RoomEntity`, and `despawn` is recursive — so a root's
-    // despawn already takes its children, and the children's own queued
-    // commands then hit dead entities. With the demo world now thousands
-    // of entities (vegetation tiers), plain `despawn` turned this sweep
-    // into a warning per node on every Login→Loading handover. The same
-    // overlap exists across systems: `terrain::cleanup_terrain` retires
-    // the water volumes on this same transition, and they are
-    // `RoomEntity`s too. Same idiom as the executor's full-rebuild sweep
-    // and `logout::cleanup_on_logout`.
-    for e in &room_entities {
-        commands.entity(e).try_despawn();
-    }
-    commands.remove_resource::<LiveRoomRecord>();
-    commands.remove_resource::<crate::world_builder::WorldCompiled>();
-    commands.remove_resource::<crate::world_builder::WorldCompileArmed>();
+    tear_down_demo_world(&mut commands, &room_entities);
     commands.remove_resource::<AttractScene>();
+    // A re-roll queued in the same frame as a successful login would
+    // otherwise outlive the login screen and re-seed a demo world behind
+    // `Loading`.
+    commands.remove_resource::<AttractReroll>();
     // Hand the camera back at gameplay framing so the first `InGame`
     // frame doesn't start from a 150 m bird's eye; `follow_local_player`
     // takes the focus over from there.
@@ -187,6 +252,32 @@ pub fn end_attract_scene(
     }
 }
 
+/// Swap the current demo overland for a freshly seeded one (#978). Same
+/// sweep as the exit path, minus the camera handback — the orbit keeps
+/// running while the world under it changes — and followed immediately
+/// by [`seed_demo_world`], so [`AttractScene`] and the pipeline gates it
+/// opens stay continuously armed across the swap.
+///
+/// [`crate::terrain`] registers `cleanup_terrain` `.before` this system
+/// on the same [`AttractReroll`] condition, which both fixes the order
+/// of the two teardown halves and puts an `ApplyDeferred` between them,
+/// so the terrain reset has landed before the replacement record does.
+pub fn reroll_attract_scene(
+    mut commands: Commands,
+    attract: Option<Res<AttractScene>>,
+    room_entities: Query<Entity, With<crate::world_builder::RoomEntity>>,
+) {
+    // The flag comes off unconditionally: a request that arrives with no
+    // demo world to replace (the backdrop toggle went off in the same
+    // frame, say) must not latch on and re-fire this every frame.
+    commands.remove_resource::<AttractReroll>();
+    if attract.is_none() {
+        return;
+    }
+    tear_down_demo_world(&mut commands, &room_entities);
+    seed_demo_world(&mut commands);
+}
+
 pub struct AttractPlugin;
 
 impl Plugin for AttractPlugin {
@@ -194,6 +285,11 @@ impl Plugin for AttractPlugin {
         app.add_systems(
             Update,
             start_attract_scene.run_if(in_state(AppState::Login)),
+        )
+        .add_systems(
+            Update,
+            reroll_attract_scene
+                .run_if(in_state(AppState::Login).and(resource_exists::<AttractReroll>)),
         )
         .add_systems(
             PostUpdate,
