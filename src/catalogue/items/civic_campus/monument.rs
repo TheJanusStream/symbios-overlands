@@ -86,7 +86,7 @@ fn build_tree(did: &str) -> Generator {
 /// The portrait, its copper surround, the cornice and the blank dedication
 /// band under it.
 fn dedication(did: &str) -> Vec<Generator> {
-    let z = -0.29;
+    let z = -0.35;
     let bar = 0.16;
     let mut out = vec![
         // Recessed field, and the backing the single-sided panel needs.

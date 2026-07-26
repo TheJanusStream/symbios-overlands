@@ -91,7 +91,7 @@ fn build_tree(did: &str) -> Generator {
 
 /// The carved face: jade border, portrait, gold glyph band, feathered crest.
 fn carving(did: &str) -> Vec<Generator> {
-    let z = -0.31;
+    let z = -0.36;
     let bar = 0.17;
     let mut out = vec![
         // Sunk field, and the backing the single-sided panel needs.

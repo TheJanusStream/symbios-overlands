@@ -71,7 +71,7 @@ fn build_tree(did: &str) -> Generator {
 /// The placard: hull backing, portrait, viewport bezel, kick plate, status
 /// light and antenna.
 fn placard(did: &str) -> Vec<Generator> {
-    let z = -0.3;
+    let z = -0.36;
     let bez = 0.14;
     let mut out = vec![
         // Recessed hull panel — the backing the single-sided panel needs.

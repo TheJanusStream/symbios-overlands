@@ -85,7 +85,7 @@ fn build_tree(did: &str) -> Generator {
 /// The portrait: a dark backing, the plate, a heavy brass bezel, a cog at each
 /// side, and the gas lamp over the case.
 fn portrait(did: &str) -> Vec<Generator> {
-    let z = -0.33;
+    let z = -0.40;
     let bez = 0.17;
     let mut out = vec![
         // Backing — the panel is single-sided and a case has a back to it.

@@ -76,7 +76,7 @@ fn build_tree(did: &str) -> Generator {
 
 /// The screen: dark backing, portrait, neon bezel, underglow and a grille.
 fn screen(did: &str) -> Vec<Generator> {
-    let z = -0.29;
+    let z = -0.35;
     let bez = 0.1;
     let mut out = vec![
         // Backing plate — the panel is single-sided and a pylon is opaque.

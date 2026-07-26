@@ -79,7 +79,7 @@ fn build_tree(did: &str) -> Generator {
 /// The shrine face: the portrait, its iron surround, the pointed arch over it,
 /// corner finials and the spire needle on top.
 fn shrine(did: &str) -> Vec<Generator> {
-    let z = -0.36;
+    let z = -0.46;
     let fr = 0.13;
     let mut out = vec![
         // Recessed tablet — the backing the single-sided panel needs, and the

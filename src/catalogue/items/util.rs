@@ -1077,6 +1077,16 @@ pub(super) fn assert_sanitize_stable(built: &Generator, name: &str) {
     tree_eq(built, &sanitized, name);
 }
 
+/// Minimum clearance between an owner panel and anything solid behind it.
+///
+/// Deliberately small — a backing plate is *supposed* to sit millimetres
+/// behind the portrait, and only a body whose face comes out **in front of**
+/// the panel is a bug. Four millimetres is enough to rule out a coplanar
+/// depth tie without outlawing the plate. Ten of the twenty-four monuments
+/// shipped with the panel between 5 mm and 40 mm behind its own body (#977).
+#[cfg(test)]
+const PANEL_REVEAL: f32 = 0.004;
+
 /// Assert that an identity monument (#975) carries the owner's profile
 /// picture correctly — the shared guard all 24 themed monuments call.
 ///
@@ -1102,33 +1112,43 @@ pub(super) fn assert_sanitize_stable(built: &Generator, name: &str) {
 /// * `unlit` and single-sided — legible at any hour, never mirrored;
 /// * monument scale: a panel big enough and high enough to read from the
 ///   gateway's landing, on a prop tall enough to be a monument;
-/// * something solid **behind** it. The panel is single-sided, so without a
-///   backing plate the monument is see-through from behind. This leans on the
-///   family's authoring convention — hero face toward `-Z`, so "behind" is
-///   `+Z` — which is the same convention the render tool and the settlement
-///   placer already assume.
+/// * something solid **behind** it, and nothing solid **around** it. The
+///   panel is single-sided, so without a backing plate the monument is
+///   see-through from behind — but the mirror failure is worse and was
+///   shipping on ten of the twenty-four (#977): a panel authored a centimetre
+///   or two *inside* the body it is mounted on, so the portrait is buried in
+///   the slab and z-fights with it. Both checks lean on the family's
+///   authoring convention — hero face toward `-Z`, so "behind" is `+Z` —
+///   which is the same convention the render tool and the settlement placer
+///   already assume.
 #[cfg(test)]
 pub(super) fn assert_owner_panel(entry: &dyn crate::catalogue::CatalogueEntry, did: &str) {
     use crate::pds::{GeneratorKind, SignSource};
 
     let slug = entry.slug();
     let root = entry.build(did);
-    let mut panels: Vec<([f32; 3], f32)> = Vec::new();
-    let mut solids: Vec<[f32; 3]> = Vec::new();
-    let mut top = f32::MIN;
+    /// What one walk of the tree collects. A struct rather than eight
+    /// out-parameters: `boxes` holds axis-aligned cuboids only, as
+    /// `(centre, half-extents)`, because the burial check needs a box and a
+    /// tilted prim's AABB would over-report — and every monument's *body*, the
+    /// only mass that can bury a panel, is axis-aligned by the family's own
+    /// rule that a tilted sub-root spins what it carries.
+    #[derive(Default)]
+    struct Census {
+        panels: Vec<([f32; 3], f32)>,
+        solids: Vec<[f32; 3]>,
+        boxes: Vec<([f32; 3], [f32; 3])>,
+        top: f32,
+    }
+    let mut census = Census {
+        top: f32::MIN,
+        ..Default::default()
+    };
 
-    fn walk(
-        g: &Generator,
-        at: [f32; 3],
-        slug: &str,
-        did: &str,
-        panels: &mut Vec<([f32; 3], f32)>,
-        solids: &mut Vec<[f32; 3]>,
-        top: &mut f32,
-    ) {
+    fn walk(g: &Generator, at: [f32; 3], slug: &str, did: &str, c: &mut Census) {
         let t = g.transform.translation.0;
         let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
-        *top = top.max(here[1]);
+        c.top = c.top.max(here[1]);
         match &g.kind {
             GeneratorKind::Sign {
                 source,
@@ -1179,27 +1199,31 @@ pub(super) fn assert_owner_panel(entry: &dyn crate::catalogue::CatalogueEntry, d
                     !*double_sided,
                     "{slug}: a double-sided panel shows the owner mirrored from behind"
                 );
-                panels.push((here, size.0[0]));
+                c.panels.push((here, size.0[0]));
             }
-            GeneratorKind::Cuboid { .. }
-            | GeneratorKind::Cylinder { .. }
+            GeneratorKind::Cuboid { size, .. } => {
+                c.solids.push(here);
+                if g.transform.rotation.0 == [0.0, 0.0, 0.0, 1.0] {
+                    c.boxes
+                        .push((here, [size.0[0] * 0.5, size.0[1] * 0.5, size.0[2] * 0.5]));
+                }
+            }
+            GeneratorKind::Cylinder { .. }
             | GeneratorKind::Sphere { .. }
-            | GeneratorKind::Superellipsoid { .. } => solids.push(here),
+            | GeneratorKind::Superellipsoid { .. } => c.solids.push(here),
             _ => {}
         }
-        for c in &g.children {
-            walk(c, here, slug, did, panels, solids, top);
+        for child in &g.children {
+            walk(child, here, slug, did, c);
         }
     }
-    walk(
-        &root,
-        [0.0; 3],
-        slug,
-        did,
-        &mut panels,
-        &mut solids,
-        &mut top,
-    );
+    walk(&root, [0.0; 3], slug, did, &mut census);
+    let Census {
+        panels,
+        solids,
+        boxes,
+        top,
+    } = census;
 
     assert_eq!(
         panels.len(),
@@ -1231,6 +1255,24 @@ pub(super) fn assert_owner_panel(entry: &dyn crate::catalogue::CatalogueEntry, d
         "{slug}: nothing stands behind the panel — it is single-sided, so the \
          monument is see-through from the back"
     );
+
+    // ...and nothing stands *in* it. A body whose front face is nearer the
+    // viewer than the panel swallows the portrait: the panel is either hidden
+    // outright or z-fights with the slab it was meant to sit proud of.
+    for (c, e) in &boxes {
+        let covers_panel = (c[0] - at[0]).abs() < e[0] && (c[1] - at[1]).abs() < e[1];
+        if !covers_panel {
+            continue;
+        }
+        let front = c[2] - e[2];
+        assert!(
+            front > at[2] + PANEL_REVEAL,
+            "{slug}: a solid at {c:?} presents its face at z = {front}, in front of \
+             a panel at z = {} — the portrait is buried in the body it is mounted \
+             on. The panel must stand at least {PANEL_REVEAL} m proud of it.",
+            at[2]
+        );
+    }
 }
 
 /// Walk a built tree and report whether any primitive is strongly emissive

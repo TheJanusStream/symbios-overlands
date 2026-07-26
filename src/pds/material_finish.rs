@@ -15,12 +15,12 @@
 //!
 //! The pass is a pure function of the two dials (no RNG), so peers deriving
 //! the same room produce bit-identical finishes. It reaches every
-//! material-bearing variant — the twelve primitives' `material`, `Sign`'s
-//! `material`, and every value in the `Shape` / `LSystem` materials maps —
-//! and recurses through `children`, so a deeply-nested construct is
-//! finished uniformly. Variants with no
-//! [`SovereignMaterialSettings`] (terrain, water, particles, portals) are
-//! left untouched.
+//! material-bearing variant — the twelve primitives' `material` and every
+//! value in the `Shape` / `LSystem` materials maps — and recurses through
+//! `children`, so a deeply-nested construct is finished uniformly. Variants
+//! with no [`SovereignMaterialSettings`] (terrain, water, particles,
+//! portals) are left untouched, and so is **`Sign`**, whose `base_color`
+//! tints a fetched image rather than describing a surface (#977).
 //!
 //! Magnitudes are tuned modest: a mid-prosperity, peaceful room
 //! (prosperity ≈ 0.5, escalation ≈ 0) reads essentially as the catalogue's
@@ -136,10 +136,19 @@ pub(crate) fn node_materials_mut(kind: &mut GeneratorKind) -> Vec<&mut Sovereign
         } => std::iter::once(material)
             .chain(faces.iter_mut().map(|f| &mut f.material))
             .collect(),
-        GeneratorKind::Sign { material, .. } => vec![material],
         GeneratorKind::Shape { materials, .. } => materials.values_mut().collect(),
         GeneratorKind::LSystem { materials, .. } => materials.values_mut().collect(),
-        GeneratorKind::Terrain(_)
+        // `Sign` is deliberately absent (#977). Its `base_color` is not a
+        // surface colour — it is a **tint multiplied over a fetched image**,
+        // so weathering it does not weather a sign, it stains the picture on
+        // it. On the owner monuments (#975) that meant every room's
+        // prosperity and escalation dials repainting the room owner's face,
+        // by an amount that varied per room and appeared only once a real
+        // photo loaded. A billboard's artwork has the same claim on being
+        // left alone. The panel's *frame* is ordinary geometry and still
+        // takes the finish.
+        GeneratorKind::Sign { .. }
+        | GeneratorKind::Terrain(_)
         | GeneratorKind::Water { .. }
         | GeneratorKind::RoadNetwork(_)
         | GeneratorKind::Portal { .. }
@@ -209,6 +218,54 @@ fn clamp3(a: [f32; 3]) -> [f32; 3] {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    /// #977: a `Sign` keeps its tint whatever the dials say.
+    ///
+    /// Its `base_color` multiplies a fetched image, so weathering it does not
+    /// weather the sign — it stains the picture. On the owner monuments
+    /// (#975) that meant the room's prosperity and escalation repainting the
+    /// room owner's face, by a different amount per room, and only once a
+    /// real photo had loaded: invisible in every render, obvious in-world.
+    ///
+    /// Both extremes are checked, because the destitute end and the
+    /// conflict end shift the colour in different directions and a pass that
+    /// skipped only one would look fixed on half the rooms.
+    #[test]
+    fn a_sign_tint_survives_every_dial() {
+        let panel = |c: [f32; 3]| {
+            Generator::from_kind(GeneratorKind::Sign {
+                source: crate::pds::SignSource::DidPfp {
+                    did: "did:plc:test".into(),
+                },
+                size: crate::pds::Fp2([1.0, 1.0]),
+                uv_repeat: crate::pds::Fp2([1.0, 1.0]),
+                uv_offset: crate::pds::Fp2([0.0, 0.0]),
+                material: SovereignMaterialSettings {
+                    base_color: Fp3(c),
+                    ..SovereignMaterialSettings::default()
+                },
+                double_sided: false,
+                alpha_mode: crate::pds::AlphaModeKind::Opaque,
+                unlit: true,
+                texture_filter: crate::pds::TextureFilter::default(),
+            })
+        };
+        // Destitute-peaceful, opulent-peaceful, and both ends of conflict:
+        // wealth and scorch shift the colour in different directions, so a
+        // pass that skipped only one would look fixed on half the rooms.
+        for (prosperity, escalation) in [(0.0, 0.0), (1.0, 0.0), (0.5, 1.0), (0.0, 1.0)] {
+            let mut g = panel([1.0, 1.0, 1.0]);
+            apply_socio_finish(&mut g, prosperity, escalation);
+            let GeneratorKind::Sign { material, .. } = &g.kind else {
+                unreachable!("built a Sign above")
+            };
+            assert_eq!(
+                material.base_color.0,
+                [1.0, 1.0, 1.0],
+                "prosperity {prosperity} / escalation {escalation} restained the image tint"
+            );
+        }
+    }
 
     fn cuboid(color: [f32; 3], roughness: f32, metallic: f32, emission: f32) -> Generator {
         Generator::from_kind(GeneratorKind::Cuboid {

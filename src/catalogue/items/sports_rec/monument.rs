@@ -108,7 +108,7 @@ fn housing(did: &str) -> Vec<Generator> {
                 0.0,
                 enamel([0.10, 0.11, 0.12]),
             )),
-            [0.0, PANEL_Y - 0.18, z + 0.14],
+            [0.0, PANEL_Y - 0.18, z + 0.22],
             id_quat(),
         ),
         pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),

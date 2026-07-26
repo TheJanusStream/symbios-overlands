@@ -78,7 +78,7 @@ fn build_tree(did: &str) -> Generator {
 /// The display: recessed bezel, portrait, an uplight strip and a shadow gap
 /// that reads as the panel floating in the face of the steel.
 fn display(did: &str) -> Vec<Generator> {
-    let z = -0.27;
+    let z = -0.31;
     let bezel = 0.13;
     let mut out = vec![
         // Dark backing plate — the panel is single-sided, and a wayfinding

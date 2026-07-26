@@ -71,7 +71,7 @@ fn build_tree(did: &str) -> Generator {
 /// The inset: a recessed obsidian field, the likeness, the glyph frame, and a
 /// column of glyphs down each flank.
 fn inset(did: &str) -> Vec<Generator> {
-    let z = -0.24;
+    let z = -0.31;
     let fr = 0.09;
     let mut out = vec![
         // Recessed field — the backing the single-sided panel needs, and what

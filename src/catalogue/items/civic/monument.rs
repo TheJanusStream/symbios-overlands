@@ -122,7 +122,7 @@ fn build_tree(did: &str) -> Generator {
 /// top, so the portrait sits *in* a reveal — the same reason a window gets a
 /// reveal instead of a sticker.
 fn portrait(did: &str) -> Vec<Generator> {
-    let front = -0.33;
+    let front = -0.39;
     let bar = 0.16;
     let mut out = vec![
         // Backing plate. The panel is single-sided; this is what it is fixed
