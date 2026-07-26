@@ -28,6 +28,28 @@ const OFFICE_WARM: [f32; 3] = [1.0, 0.87, 0.62];
 /// Steel mullion / transom grey — the proud curtain-wall grid.
 const MULLION: [f32; 3] = [0.34, 0.36, 0.40];
 
+/// Clear height of the ground storey, above the plinth top — the band the
+/// shopfront glazing and the entrance live in, and the datum the curtain wall
+/// above now starts from.
+///
+/// It used to be implicit and much too small. The curtain wall was sized as
+/// "the body less 2.4", which put its bottom edge 1.8 m above the lobby
+/// floor, while the shopfront band was placed by eye at 1.0–2.7 m: a metre of
+/// blank concrete under the glazing, and 0.4 m of the band running *up into*
+/// the curtain wall on the same plane, which is two alpha-masked frames tying
+/// for depth (see [`util::assert_cards_do_not_overlap`]). Giving the storey a
+/// real height puts the glazing down on the floor where a lobby's glazing
+/// belongs and leaves the curtain wall a clean edge to start from.
+///
+/// [`util::assert_cards_do_not_overlap`]: crate::catalogue::items::util
+const GROUND_H: f32 = 3.4;
+/// Height of the shopfront glazing's sill above the plinth top — a low kerb,
+/// not a stall riser: this is a lobby, so the glass runs nearly to the floor.
+const STORE_SILL: f32 = 0.28;
+/// Spandrel left between the shopfront head and the curtain wall's bottom
+/// transom, so the two glazed surfaces never meet on one plane.
+const STORE_SPANDREL: f32 = 0.55;
+
 /// Push a curtain-wall mullion grid — `cols + 1` verticals and `rows + 1`
 /// transoms, standing `proud` of the glass plane at `cz` toward the front —
 /// into `prims`. The glass itself is a separate [`plane`]; this is only the
@@ -152,13 +174,23 @@ fn build_tree() -> Generator {
 
     // --- The lit interior seen through the curtain wall.
 
-    // Glazing envelope (shared by the interior and the glass plane).
+    // Glazing envelope (shared by the interior and the glass plane). The
+    // curtain wall starts at the first-floor line — one clear ground storey
+    // above the plinth — and runs to just under the parapet.
     let gw = w - 1.0;
-    let gh = body_h - 2.4;
-    let gy = body_cy + 0.6;
-    let g_bottom = gy - gh * 0.5;
+    let g_bottom = base_h + GROUND_H;
+    let g_top = base_h + body_h - 0.6;
+    let gh = g_top - g_bottom;
+    let gy = (g_bottom + g_top) * 0.5;
     let bays = (4u32, 5u32);
     let row_h = gh / bays.1 as f32;
+
+    // The shopfront band fills what is left below it: sill just clear of the
+    // plinth, head held a spandrel short of the curtain wall's own edge.
+    let store_sill = base_h + STORE_SILL;
+    let store_head = g_bottom - STORE_SPANDREL;
+    let store_h = store_head - store_sill;
+    let store_cy = (store_sill + store_head) * 0.5;
 
     // Warm interior back wall behind the floors, so the offices read as a
     // pale lit space through the cut panes rather than a cold recess. (The
@@ -215,11 +247,13 @@ fn build_tree() -> Generator {
 
     // --- Ground-floor lobby: a storefront over a lit reception.
 
-    // Lit lobby floor glow and a reception desk, set in the cavity so they
-    // show through the storefront glazing.
+    // Lit lobby ceiling and its furniture, set in the cavity so they show
+    // through the storefront glazing. The ceiling sits just under the
+    // shopfront head, where a real lobby soffit is: hung any higher it is
+    // outside the opening and lights nothing the street can see.
     prims.push(prim(
         cuboid_tapered([gw - 0.8, 0.12, cavity - 0.4], 0.0, glow(OFFICE_WARM, 1.1)),
-        [0.0, base_h + 2.15, cav_mid],
+        [0.0, store_head - 0.25, cav_mid],
         id_quat(),
     ));
     prims.push(prim(
@@ -231,40 +265,63 @@ fn build_tree() -> Generator {
         [3.5, base_h + 0.5, cav_mid],
         id_quat(),
     ));
-    // Storefront glazing — wide clear panes over the lobby, flanking the
-    // central entrance portal.
+    // A planter run in the left half of the lobby. The desk is a right-hand
+    // object, and a shopfront this wide otherwise leaves four bays of glazing
+    // with nothing behind them but the back wall.
     prims.push(prim(
-        plane([gw, 1.7], window_card(GLASS_TEAL, 8, 1, 0.3, 0.02)),
-        [0.0, base_h + 1.35, front_z],
+        solid(cuboid_tapered(
+            [3.4, 0.55, 0.7],
+            0.0,
+            concrete([0.52, 0.51, 0.49]),
+        )),
+        [-3.8, base_h + 0.28, cav_mid],
+        id_quat(),
+    ));
+    // Storefront glazing — wide clear panes over the lobby, flanking the
+    // central entrance portal. Two pane rows rather than one, because a
+    // full-height lobby bay split once lands the panes near square.
+    prims.push(prim(
+        plane([gw, store_h], window_card(GLASS_TEAL, 8, 2, 0.3, 0.02)),
+        [0.0, store_cy, front_z],
         quat_x(-FRAC_PI_2),
     ));
 
     // Dark entrance portal recess + glass doors, proud of the storefront so
-    // the doors read in front of the glazing.
+    // the doors read in front of the glazing. Both are derived from the
+    // shopfront band rather than placed by eye, so the entrance can never
+    // again stand taller than the glazing it is cut into.
+    let door_head = store_head - 0.45;
     prims.push(prim(
         solid(cuboid_tapered(
-            [3.0, 2.5, 0.4],
+            [3.2, door_head - base_h + 0.35, 0.4],
             0.0,
             steel([0.16, 0.17, 0.2]),
         )),
-        [0.0, base_h + 1.25, front_z - 0.2],
+        [0.0, (base_h + door_head + 0.35) * 0.5, front_z - 0.2],
         id_quat(),
     ));
+    // The leaves lap 0.04 below the lobby floor so their bottom edge is not
+    // coplanar with the plinth top (the card rule, #972 lesson 7).
     prims.push(prim(
-        plane([2.4, 2.1], window_card([0.14, 0.18, 0.2], 2, 1, 0.32, 0.05)),
-        [0.0, base_h + 1.05, front_z - 0.42],
+        plane(
+            [2.6, door_head - base_h + 0.04],
+            window_card([0.14, 0.18, 0.2], 2, 2, 0.32, 0.05),
+        ),
+        [0.0, (base_h - 0.04 + door_head) * 0.5, front_z - 0.42],
         quat_x(-FRAC_PI_2),
     ));
-    // Steel entrance canopy cantilevered over the doors.
+    // Steel entrance canopy cantilevered over the doors, in the spandrel
+    // between the shopfront head and the curtain wall.
     prims.push(prim(
         solid(cuboid_tapered([5.4, 0.3, 2.2], 0.0, steel(STEEL_GREY))),
-        [0.0, base_h + 3.0, front_z - 1.0],
+        [0.0, store_head + 0.2, front_z - 1.0],
         id_quat(),
     ));
-    // Warm lit address band above the canopy.
+    // Warm lit address band above the canopy, held clear of the mullion grid
+    // it would otherwise be embedded in.
     prims.push(prim(
-        cuboid_tapered([4.2, 0.55, 0.18], 0.0, glow(LAMP_WARM, 1.8)),
-        [0.0, base_h + 3.7, front_z - 0.3],
+        cuboid_tapered([4.2, 0.42, 0.16], 0.0, glow(LAMP_WARM, 1.8)),
+        [0.0, store_head + 0.62, front_z - 0.62],
         id_quat(),
     ));
 
@@ -308,12 +365,72 @@ fn build_tree() -> Generator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalogue::items::util::assert_sanitize_stable;
+    use crate::catalogue::items::util::{
+        assert_cards_do_not_overlap, assert_sanitize_stable, window_cards,
+    };
     use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
     #[test]
     fn build_round_trips_through_sanitize() {
         assert_sanitize_stable(&OfficeBlock.build(""), "office_block");
+    }
+
+    /// #972: the ground-storey glazing meets the lobby floor.
+    ///
+    /// The band used to be placed by eye at 1.0 m, so from the pavement the
+    /// building showed half a metre of blank plinth and then another half
+    /// metre of blank concrete before any glass — the one thing the user
+    /// asked to have fixed. It is now derived from the plinth, and this pins
+    /// the derivation: the lowest card's sill sits within a low kerb's height
+    /// of the floor, and never below it.
+    #[test]
+    fn shopfront_glazing_sits_on_the_lobby_floor() {
+        let cards = window_cards(&OfficeBlock.build(""));
+        let sill = cards
+            .iter()
+            .map(|c| c.center[1] - c.size[1] * 0.5)
+            .fold(f32::MAX, f32::min);
+        let floor = 0.5; // plinth top
+        assert!(
+            sill > floor - 0.1,
+            "glazing sill at {sill} runs below the lobby floor at {floor}"
+        );
+        assert!(
+            sill < floor + 0.45,
+            "glazing sill at {sill} floats {} above the lobby floor — the \
+             street sees blank concrete where the shopfront should be",
+            sill - floor
+        );
+    }
+
+    /// #972: no two glazed surfaces share a plane and overlap. The shopfront
+    /// band used to run 0.4 m up into the bottom of the curtain wall, both on
+    /// `front_z`, which is two alpha-masked frames tying for depth.
+    #[test]
+    fn glazed_surfaces_do_not_collide() {
+        assert_cards_do_not_overlap(&OfficeBlock.build(""), "office_block");
+    }
+
+    /// The entrance is cut *into* the shopfront, so its head must stay under
+    /// the glazing's. Both are derived from [`GROUND_H`]; this pins that they
+    /// stay derived from each other rather than drifting apart by hand.
+    #[test]
+    fn entrance_head_stays_under_the_shopfront_head() {
+        let cards = window_cards(&OfficeBlock.build(""));
+        let doors = cards
+            .iter()
+            .find(|c| c.center[2] < -5.0)
+            .expect("the entrance leaves stand proud of the glazing plane");
+        let band = cards
+            .iter()
+            .find(|c| (c.center[2] + 5.0).abs() < 1e-4 && c.center[1] < 3.0)
+            .expect("the shopfront band sits on the wall plane");
+        let door_head = doors.center[1] + doors.size[1] * 0.5;
+        let band_head = band.center[1] + band.size[1] * 0.5;
+        assert!(
+            door_head < band_head,
+            "entrance head {door_head} stands above the shopfront head {band_head}"
+        );
     }
 
     /// #942: every `Window` card sits on a `Plane` at `uv_scale` 1.0, so the

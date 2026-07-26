@@ -37,7 +37,8 @@ use super::util::{tile, tiles_per_metre};
 use crate::catalogue::items::util::{cuboid_tapered, id_quat, prim};
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, SovereignBrickConfig, SovereignConcreteConfig,
-    SovereignMaterialSettings, SovereignMetalConfig, SovereignTextureConfig, SovereignWindowConfig,
+    SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignTextureConfig,
+    SovereignWindowConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -147,6 +148,35 @@ pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
             color_mortar: Fp3([0.72, 0.70, 0.66]),
             scale: Fp64(5.0),
             cell_variance: Fp64(0.2),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Weathered softwood boards — the one piece of timber in a glass-and-brick
+/// kit, and the rooftop water tank the inner-city skyline is known for.
+///
+/// Authored `stagger`-free (#972 lesson 4): any value above 0.01 switches on
+/// the generator's hard-coded three-butt-joints-per-tile grid, which turns
+/// boarding into coarse masonry. The tank additionally stands the boards up
+/// with [`util::upright_boards`], because staves run vertically and the
+/// generator only lays courses up V.
+///
+/// [`util::upright_boards`]: super::util::upright_boards
+pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.9),
+        metallic: Fp(0.0),
+        uv_scale: tiles_per_metre(tile::PLANK_BOARD * 6.0),
+        texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
+            color_wood_light: Fp3([color[0] * 1.14, color[1] * 1.10, color[2] * 1.06]),
+            color_wood_dark: Fp3([color[0] * 0.62, color[1] * 0.58, color[2] * 0.56]),
+            plank_count: Fp64(6.0),
+            stagger: Fp64(0.0),
+            knot_density: Fp64(0.18),
+            grain_warp: Fp64(0.3),
             ..Default::default()
         }),
         ..Default::default()

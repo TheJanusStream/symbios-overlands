@@ -54,8 +54,20 @@ pub(super) const FARM_BAND: ProsperityBand =
 /// theme, never picked for a modest or affluent room.
 pub(super) const FARM_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
-/// Painted barn-board siding — the deep red of the barn, vertical boards
-/// with a little grain so it reads as timber, not a flat slab.
+/// Painted barn-board siding — the deep red of the barn, boards with a
+/// little grain so it reads as timber, not a flat slab.
+///
+/// `stagger` is held at zero across this kit's three plank materials (#972
+/// lesson 4): any value above 0.01 switches on the generator's hard-coded
+/// three-butt-joints-per-tile grid, and on a 1.3 m tile that is a butt joint
+/// every 445 mm — a wall of boarding rendering as coarse masonry. Real siding
+/// is milled in 3–5 m lengths. The per-course grain de-correlation survives
+/// untouched, because it comes from the row's own hash.
+///
+/// Boards are laid **up V**, so this material on its own gives horizontal
+/// courses. Board-and-batten stands them up with
+/// [`util::bonded_boards`](super::util::bonded_boards), which is a quarter
+/// turn the pattern survives precisely *because* the stagger is off.
 pub(super) fn barn_board(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -66,6 +78,11 @@ pub(super) fn barn_board(color: [f32; 3]) -> SovereignMaterialSettings {
             color_wood_light: Fp3([color[0] * 1.15, color[1] * 1.1, color[2] * 1.1]),
             color_wood_dark: Fp3([color[0] * 0.65, color[1] * 0.6, color[2] * 0.6]),
             plank_count: Fp64(8.0),
+            stagger: Fp64(0.0),
+            // Wider than the generator's default hairline: on
+            // board-and-batten the joint *is* the batten, and at 167 mm
+            // boards a 6% groove disappears by the far side of a farmyard.
+            joint_width: Fp64(0.12),
             knot_density: Fp64(0.1),
             grain_warp: Fp64(0.2),
             ..Default::default()
@@ -85,6 +102,7 @@ pub(super) fn clapboard(color: [f32; 3]) -> SovereignMaterialSettings {
             color_wood_light: Fp3([color[0] * 1.08, color[1] * 1.08, color[2] * 1.08]),
             color_wood_dark: Fp3([color[0] * 0.82, color[1] * 0.82, color[2] * 0.82]),
             plank_count: Fp64(9.0),
+            stagger: Fp64(0.0),
             knot_density: Fp64(0.05),
             ..Default::default()
         }),
@@ -103,6 +121,7 @@ pub(super) fn weathered(color: [f32; 3]) -> SovereignMaterialSettings {
             color_wood_light: Fp3([color[0] * 1.15, color[1] * 1.15, color[2] * 1.15]),
             color_wood_dark: Fp3([color[0] * 0.7, color[1] * 0.7, color[2] * 0.7]),
             plank_count: Fp64(4.0),
+            stagger: Fp64(0.0),
             knot_density: Fp64(0.35),
             grain_warp: Fp64(0.4),
             ..Default::default()

@@ -1011,6 +1011,84 @@ pub(super) fn bonded_siding(
     mat
 }
 
+/// The quarter turn [`bonded_boards`] applies, in degrees counter-clockwise.
+const BOARD_TURN_DEG: f32 = 90.0;
+
+/// Stand a `Plank` material's boards **upright** — board-and-batten, the
+/// barn's cladding and the one thing the generator cannot lay by itself.
+///
+/// # Why this is not the `uv_rotation` trap
+///
+/// [`bonded_brick`] documents the rule that a 90° `uv_rotation` is *not* a
+/// reorientation tool, because it spins a pattern's internal logic along with
+/// its cells: on brick it turns the running bond on its side and the wall
+/// becomes continuous vertical mortar lines. That rule is about patterns with
+/// **U features**. Plank's only U feature is the hard-coded three-butt-joints
+/// grid that [`bonded_siding`] switches off, and with `stagger = 0` there is
+/// nothing structured left along U at all — the boards are pure bands up V,
+/// the grain is isotropic noise and the knots are a Worley field. So the
+/// quarter turn has no bond to break here, and it is the *only* way to get
+/// vertical boards out of a generator that lays courses up V.
+///
+/// Both directions still tile: the generator's noise is toroidal in U and V
+/// and `plank_count` is integral, so a square tile turned through 90° maps
+/// onto itself seamlessly.
+///
+/// # The offset has to turn with it
+///
+/// The material's UV transform composes as `scale · (rotate · uv + offset)`,
+/// so the world-frame offset is applied **after** the rotation and has to be
+/// pre-rotated to match: where [`bonded_siding`] passes `t =
+/// face_uv_offset(..)` straight through, this passes `R·t`, which for a
+/// quarter turn counter-clockwise is `(u, v) → (−v, u)`. Skip that and every
+/// slab still gets vertical boards, but each one starts them at its own
+/// centre and the joints step at every wall break.
+pub(super) fn bonded_boards(
+    mat: SovereignMaterialSettings,
+    face: FaceKey,
+    center: [f32; 3],
+) -> SovereignMaterialSettings {
+    let [u, v] = face_uv_offset(face, center).0;
+    let mut mat = upright_boards(mat);
+    mat.uv_offset = Fp2([-v, u]);
+    mat
+}
+
+/// Stand a `Plank` material's boards upright with **no** world frame — for
+/// the revolved prims a stave drum is made of (a rooftop water tank, a
+/// barrel, a post), whose `Fit` parameterisation wraps its own surface and
+/// has no shared face frame to line up with.
+///
+/// [`bonded_boards`] is the flat-face counterpart, and the place the whole
+/// argument for turning this pattern at all is written down.
+pub(super) fn upright_boards(mat: SovereignMaterialSettings) -> SovereignMaterialSettings {
+    let mut mat = quarter_turn(mat);
+    if let SovereignTextureConfig::Plank(cfg) = &mut mat.texture {
+        cfg.stagger = Fp64(0.0);
+    }
+    mat
+}
+
+/// Turn a material's pattern through a quarter turn, and nothing else.
+///
+/// The bare rotation, for the patterns whose *axis* is wrong rather than
+/// whose cells are: corrugated sheet is the case that named it. The
+/// generator varies its ribs along U and streaks its rust along V, so a roof
+/// plane — whose Box `Top` face reads U down the slope — comes out ribbed
+/// *across* the pitch with the rust running along the ridge, which is
+/// backwards on both counts. Turned, the ribs and the streaks both run down
+/// the slope, the way rolled sheet and rainwater do.
+///
+/// Safe here for the same reason it is safe in [`bonded_boards`], and unsafe
+/// on brick for the reason [`bonded_brick`] gives: what a quarter turn
+/// destroys is a pattern's *cross-axis* logic (brick's stagger runs along U
+/// but keys off the V course index), and corrugation has none — it is one
+/// sine wave in U.
+pub(super) fn quarter_turn(mut mat: SovereignMaterialSettings) -> SovereignMaterialSettings {
+    mat.uv_rotation = Fp(BOARD_TURN_DEG);
+    mat
+}
+
 /// Dim self-lit surface for the inside of a shell — the floor, lining and
 /// contents seen through a [`window_card`]'s open panes.
 ///
@@ -1272,6 +1350,91 @@ pub(super) fn assert_owner_panel(entry: &dyn crate::catalogue::CatalogueEntry, d
              on. The panel must stand at least {PANEL_REVEAL} m proud of it.",
             at[2]
         );
+    }
+}
+
+/// One upright glazing card as the guards see it: its world centre and the
+/// `[width, height]` of quad it spans.
+#[cfg(test)]
+pub(super) struct CardRect {
+    pub center: [f32; 3],
+    pub size: [f32; 2],
+}
+
+/// Collect every upright [`window_card`] in a built tree, in the prop's own
+/// world frame.
+///
+/// "Upright" means a [`plane`] stood up by `quat_x(±FRAC_PI_2)`, which maps
+/// the quad's local Z extent onto world Y — so a card's `size` reads as
+/// `[width, height]` and it occupies a rectangle on a single Z plane. That is
+/// the whole family's glazing idiom, and it is what makes the geometric
+/// guards below expressible at all.
+///
+/// Translations accumulate down the tree; rotations are not composed, because
+/// every prop in this family keeps its sub-roots axis-aligned by the rule
+/// that a tilted parent spins what it carries ([`nest`]). A card under a
+/// tilted parent is therefore reported at the wrong place — which is a bug
+/// worth having surface as a failing guard rather than a silent skip.
+#[cfg(test)]
+pub(super) fn window_cards(root: &Generator) -> Vec<CardRect> {
+    fn walk(g: &Generator, at: [f32; 3], out: &mut Vec<CardRect>) {
+        let t = g.transform.translation.0;
+        let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
+        if let GeneratorKind::Plane { size, material, .. } = &g.kind
+            && matches!(material.texture, SovereignTextureConfig::Window(_))
+        {
+            let q = g.transform.rotation.0;
+            let upright = q[0].abs() > 0.5 && q[1].abs() < 1e-4 && q[2].abs() < 1e-4;
+            if upright {
+                out.push(CardRect {
+                    center: here,
+                    size: size.0,
+                });
+            }
+        }
+        for c in &g.children {
+            walk(c, here, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, [0.0; 3], &mut out);
+    out
+}
+
+/// Assert that no two glazing cards sharing a Z plane overlap (#972).
+///
+/// Two `Window` cards on the same plane, overlapping, is a depth tie the
+/// rasteriser breaks arbitrarily — and because both are alpha-masked frames,
+/// the result is a band of interleaved mullion that reads as neither. It is
+/// the same failure the coplanar rule describes, arrived at between two cards
+/// rather than between a card and its reveal, and it is invisible in a
+/// straight-on render: the office block shipped with its shopfront band
+/// running 0.4 m up into the bottom of its own curtain wall, and the sheet
+/// simply showed a slightly muddled row.
+///
+/// Cards on *different* planes are none of this guard's business — a door
+/// leaf proud of the glazing behind it is the idiom working.
+#[cfg(test)]
+pub(super) fn assert_cards_do_not_overlap(root: &Generator, slug: &str) {
+    let cards = window_cards(root);
+    for (i, a) in cards.iter().enumerate() {
+        for b in &cards[i + 1..] {
+            if (a.center[2] - b.center[2]).abs() > 1e-3 {
+                continue;
+            }
+            let overlaps = |axis: usize| {
+                (a.center[axis] - b.center[axis]).abs() < (a.size[axis] + b.size[axis]) * 0.5 - 1e-4
+            };
+            assert!(
+                !(overlaps(0) && overlaps(1)),
+                "{slug}: glazing cards at {:?} ({:?}) and {:?} ({:?}) share a Z plane \
+                 and overlap — two alpha-masked frames tie for depth over the overlap",
+                a.center,
+                a.size,
+                b.center,
+                b.size
+            );
+        }
     }
 }
 
