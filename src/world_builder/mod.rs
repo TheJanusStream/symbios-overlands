@@ -131,6 +131,12 @@ pub fn fresh_texture_cache() -> bevy_symbios_texture::TextureCache {
 /// the resource set in [`WorldBuilderPlugin::build`]; keep the two in sync.
 pub fn register_headless_spawn(app: &mut App) {
     app.add_plugins(MaterialPlugin::<WaterMaterial>::default())
+        // Foliage wind (#916). The render tool takes a still, so the sway
+        // itself contributes nothing to a contact sheet — but the material is
+        // registered here anyway because *this* is the headless path that
+        // actually creates the foliage render pipeline. Without it, a broken
+        // `wind.wgsl` would first surface in a browser.
+        .add_plugins(crate::wind::VegetationWindPlugin)
         .add_plugins(bevy_symbios_texture::SymbiosTexturePlugin::default())
         .insert_resource(fresh_texture_cache())
         .init_resource::<LSystemMaterialCache>()

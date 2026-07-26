@@ -38,6 +38,7 @@ pub(crate) fn apply_environment_state(
     mut cloud_layer: Query<(&MeshMaterial3d<CloudMaterial>, &mut Transform), With<CloudLayer>>,
     mut cloud_materials: ResMut<Assets<CloudMaterial>>,
     mut water_materials: ResMut<Assets<crate::water::WaterMaterial>>,
+    vegetation_wind: Option<ResMut<crate::wind::VegetationWind>>,
 ) {
     let Some(record) = record else {
         return;
@@ -132,6 +133,23 @@ pub(crate) fn apply_environment_state(
             // sunlit tint so any non-shader fallback path (e.g. an asset
             // inspector) still shows a recognisable cloud colour.
             mat.base.base_color = Color::srgb(cloud_c[0], cloud_c[1], cloud_c[2]);
+        }
+    }
+
+    // Vegetation sways on the same wind that drives the cloud deck (#916),
+    // so a wind-direction drag in the editor turns the clouds and the
+    // foliage together instead of leaving them visibly disagreeing. The
+    // resource is `Option` because the headless spawn path (the render tool,
+    // minimal test apps) runs the world compiler without
+    // `VegetationWindPlugin`; writing it only when the values actually differ
+    // keeps `Res::is_changed` meaningful for `wind::apply_wind_state`, which
+    // would otherwise re-upload every foliage material on every record edit.
+    if let Some(mut veg_wind) = vegetation_wind {
+        let dir = Vec2::new(wind[0], wind[1]);
+        let speed = env.cloud_speed.0;
+        if veg_wind.dir != dir || veg_wind.speed != speed {
+            veg_wind.dir = dir;
+            veg_wind.speed = speed;
         }
     }
 

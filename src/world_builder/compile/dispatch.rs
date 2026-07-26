@@ -425,14 +425,18 @@ fn spawn_primitive_entity(
         }
     };
 
-    // Resolve each group's material handle through the shared cache.
-    let mut drawn: Vec<(CachedGroup, Handle<StandardMaterial>)> = Vec::with_capacity(groups.len());
+    // Resolve each group's material handle through the shared cache. The
+    // trailing flag is #916's: `true` when this group's material is foliage
+    // and the entity drawing it should sway.
+    let mut drawn: Vec<(CachedGroup, Handle<StandardMaterial>, bool)> =
+        Vec::with_capacity(groups.len());
     for group in groups.iter() {
         let settings = plan
             .groups
             .get(group.group)
             .and_then(|g| group_material(kind, g))
             .unwrap_or(parts.material);
+        let sways = crate::wind::sways(&settings.texture);
         let material_key = settings_fingerprint(settings);
         let handle = match get_and_touch(
             ctx.prim_material_cache,
@@ -448,7 +452,7 @@ fn spawn_primitive_entity(
                 handle
             }
         };
-        drawn.push((group.clone(), handle));
+        drawn.push((group.clone(), handle, sways));
     }
 
     // One group: the prim is a single mesh on a single entity, unchanged.
@@ -458,7 +462,7 @@ fn spawn_primitive_entity(
     let single = drawn.len() == 1;
     let mut cmd = ctx.commands.spawn(transform);
     if single {
-        let (group, material) = &drawn[0];
+        let (group, material, sways) = &drawn[0];
         cmd.insert((
             Mesh3d(group.mesh.clone()),
             MeshMaterial3d(material.clone()),
@@ -466,6 +470,13 @@ fn spawn_primitive_entity(
                 faces: group.faces.clone(),
             },
         ));
+        // Ground-cover cards (#916). A prim's origin is its own centre
+        // rather than its base — a standing card is a `Plane` rotated
+        // upright about its middle — which is what `WindSway::Card`'s
+        // height bias accounts for.
+        if *sways {
+            cmd.insert(crate::wind::WindSway::Card);
+        }
     } else {
         // `Mesh3d` is what normally brings `Visibility` in as a required
         // component. A split root has no mesh of its own, so it must carry
@@ -498,18 +509,23 @@ fn spawn_primitive_entity(
         // `spawn_generator` only knows about the root.
         let children: Vec<Entity> = drawn
             .iter()
-            .map(|(group, material)| {
+            .map(|(group, material, sways)| {
                 *ctx.entities_spawned = ctx.entities_spawned.saturating_add(1);
-                ctx.commands
-                    .spawn((
-                        Mesh3d(group.mesh.clone()),
-                        MeshMaterial3d(material.clone()),
-                        Transform::IDENTITY,
-                        PrimFaceGroup {
-                            faces: group.faces.clone(),
-                        },
-                    ))
-                    .id()
+                let mut child = ctx.commands.spawn((
+                    Mesh3d(group.mesh.clone()),
+                    MeshMaterial3d(material.clone()),
+                    Transform::IDENTITY,
+                    PrimFaceGroup {
+                        faces: group.faces.clone(),
+                    },
+                ));
+                // A split prim's foliage face sways on its own (#916) — the
+                // render children are `Transform::IDENTITY` under the prim
+                // root, so they share its origin and its profile.
+                if *sways {
+                    child.insert(crate::wind::WindSway::Card);
+                }
+                child.id()
             })
             .collect();
         ctx.commands.entity(root).add_children(&children);

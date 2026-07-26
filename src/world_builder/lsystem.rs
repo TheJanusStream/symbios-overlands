@@ -562,6 +562,16 @@ pub(super) fn spawn_lsystem_entity(
     // resolved a shared palette slot for us — in that case we skip the
     // task, because the palette owns texture sync.
     let mut slot_handles: HashMap<u16, Handle<StandardMaterial>> = HashMap::new();
+    // Slots whose material is foliage rather than bark (#916). Read off the
+    // authored settings, not off the resolved handle, so the decision is the
+    // same on the palette path — a palette supplies the *handle*, not the
+    // texture config that says what the slot depicts.
+    let mut swaying_slots: std::collections::HashSet<u16> = std::collections::HashSet::new();
+    for (&slot, settings) in lsys_materials.iter() {
+        if crate::wind::sways(&settings.texture) {
+            swaying_slots.insert(slot);
+        }
+    }
     for (&slot, settings) in lsys_materials.iter() {
         let handle = if let Some(palette) = ctx.palette
             && let Some(h) = palette.materials.get(&slot)
@@ -640,14 +650,25 @@ pub(super) fn spawn_lsystem_entity(
         // causes the logout / room-rebuild cleanup queries to yield both
         // parent and child, and whichever lands first cascades the
         // despawn, leaving the other as an "entity despawned" warning.
-        let child = ctx
-            .commands
-            .spawn((
-                Mesh3d(mesh_handle.clone()),
-                MeshMaterial3d(material),
-                Transform::IDENTITY,
-            ))
-            .id();
+        let mut child_cmd = ctx.commands.spawn((
+            Mesh3d(mesh_handle.clone()),
+            MeshMaterial3d(material),
+            Transform::IDENTITY,
+        ));
+        // Foliage buckets sway; bark and everything else stays rigid (#916).
+        // The marker is all this path does — `wind::attach_wind_materials`
+        // swaps in the extended material once the source material exists,
+        // which it cannot do here because a procedural material's textures
+        // are still baking at spawn time.
+        //
+        // The bucket is spawned at `Transform::IDENTITY` under a parent
+        // anchored at the plant's base, so the shader's "height above the
+        // entity origin" is height above the ground — which is exactly what
+        // `WindSway::Branch` expects.
+        if swaying_slots.contains(material_id) {
+            child_cmd.insert(crate::wind::WindSway::Branch);
+        }
+        let child = child_cmd.id();
         ctx.commands.entity(parent).add_child(child);
         *ctx.entities_spawned = ctx.entities_spawned.saturating_add(1);
     }

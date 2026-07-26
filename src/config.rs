@@ -607,6 +607,47 @@ pub mod textures {
 }
 
 // ---------------------------------------------------------------------------
+// Vegetation wind sway (wind.rs)
+// ---------------------------------------------------------------------------
+/// Tuning for the foliage wind-sway vertex shader (#916).
+///
+/// The motion is authored per *profile* — foliage hanging off an L-system
+/// plant sways differently from a hand-sized ground-cover card — and the two
+/// profiles differ only in these numbers; the shader itself has no branch.
+/// Direction and speed are not here: those come from the room's
+/// `Environment::cloud_wind_dir` / `cloud_speed`, so one wind drives the
+/// clouds and the foliage together.
+pub mod vegetation_wind {
+    /// L-system foliage. `AMPLITUDE` is metres of lean at full weight, and
+    /// weight reaches 1 at `REFERENCE_HEIGHT` metres above the plant's base —
+    /// so a leaf in a 4 m canopy travels about a hand's width, and one on a
+    /// waist-high shrub barely moves.
+    pub mod branch {
+        pub const AMPLITUDE: f32 = 0.16;
+        pub const REFERENCE_HEIGHT: f32 = 4.0;
+        /// Cross-wind flutter as a fraction of `AMPLITUDE`. Lower than the
+        /// card profile's: a leaf cluster on a branch is held at one end,
+        /// so it leans more than it shivers.
+        pub const FLUTTER: f32 = 0.35;
+    }
+
+    /// Ground-cover cards (grass tufts, ferns, reeds, wildflowers).
+    ///
+    /// A card's entity origin sits at its *centre* rather than its base, so
+    /// the height weight is biased by half: `HALF_HEIGHT` metres below the
+    /// origin weighs 0 and the same distance above weighs 1. That is what
+    /// makes the base near-static and the tip mobile without the shader
+    /// needing to know how tall any particular card is.
+    pub mod card {
+        pub const AMPLITUDE: f32 = 0.035;
+        pub const HALF_HEIGHT: f32 = 0.5;
+        /// Higher than the branch profile: loose blades shimmer across the
+        /// wind at least as much as they lean along it.
+        pub const FLUTTER: f32 = 0.55;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Avatar-world interaction framework (interaction/)
 // ---------------------------------------------------------------------------
 /// Engine-tuning constants for the optional Phase-4 consumer channels

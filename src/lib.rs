@@ -61,6 +61,7 @@ pub mod terrain;
 pub mod ui;
 pub mod urban;
 pub mod water;
+pub mod wind;
 pub mod world_builder;
 
 /// Headless render tool — drives the real spawn path to produce contact-sheet
@@ -222,6 +223,7 @@ pub fn run() {
         .add_plugins(diagnostics::MetricsPlugin)
         .add_plugins(transform_gizmo_bevy::TransformGizmoPlugin)
         .add_plugins(MaterialPlugin::<clouds::CloudMaterial>::default())
+        .add_plugins(wind::VegetationWindPlugin)
         .add_plugins(terrain::TerrainPlugin)
         .add_plugins(world_builder::WorldBuilderPlugin)
         .add_plugins(player::PlayerPlugin)
