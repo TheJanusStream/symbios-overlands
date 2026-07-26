@@ -155,6 +155,10 @@ pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
 }
 
 /// Rough timber — wooden pallets and crates in the yard.
+///
+/// `stagger` at zero (#972 lesson 4): the generator's staggered end-joints
+/// are three hard-coded butt joints per tile, which on a 670 mm tile puts one
+/// every 220 mm and turns a pallet board into brickwork.
 pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -165,6 +169,7 @@ pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
             color_wood_light: Fp3([color[0] * 1.2, color[1] * 1.2, color[2] * 1.15]),
             color_wood_dark: Fp3([color[0] * 0.65, color[1] * 0.65, color[2] * 0.6]),
             plank_count: Fp64(4.0),
+            stagger: Fp64(0.0),
             knot_density: Fp64(0.3),
             ..Default::default()
         }),

@@ -1438,6 +1438,54 @@ pub(super) fn assert_cards_do_not_overlap(root: &Generator, slug: &str) {
     }
 }
 
+/// Assert that no **solid** primitive in a tree wears a `Window` texture
+/// (#972 lesson 1, stated as a prohibition rather than as a census).
+///
+/// The card guards elsewhere count cards and check the ones they find. This
+/// checks the other side of the same rule, and it is the stronger half: a
+/// `Window` texture on a cuboid or a cylinder is *always* wrong, whatever the
+/// count says, because the generator masks its panes away and upstream renders
+/// every card at `AlphaMode::Mask(0.5)`. So the slab becomes a frame with real
+/// holes in it, showing whatever solid it was stuck to — and on a cuboid it
+/// grows windows on its sides, top and bottom into the bargain.
+///
+/// Worth naming separately because the failure has a *sociable* form: the
+/// grand hotel acquired it by reaching for another kit's
+/// [`curtain_wall`](crate::catalogue::items::modern_city::curtain_wall)
+/// helper, which is a lit glass box behind proud fins — correct on the tower
+/// it was written for, and unable to be a window anywhere else. A count-based
+/// guard passes that happily; this one does not.
+#[cfg(test)]
+pub(super) fn assert_no_glazing_on_solids(root: &Generator, slug: &str) {
+    fn walk(g: &Generator, at: [f32; 3], slug: &str) {
+        let t = g.transform.translation.0;
+        let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
+        let material = match &g.kind {
+            GeneratorKind::Cuboid { material, .. }
+            | GeneratorKind::Cylinder { material, .. }
+            | GeneratorKind::Sphere { material, .. }
+            | GeneratorKind::Cone { material, .. }
+            | GeneratorKind::Capsule { material, .. }
+            | GeneratorKind::Torus { material, .. }
+            | GeneratorKind::Superellipsoid { material, .. } => Some(material),
+            _ => None,
+        };
+        if let Some(m) = material {
+            assert!(
+                !matches!(m.texture, SovereignTextureConfig::Window(_)),
+                "{slug}: a {} at {here:?} wears a Window texture — its panes are \
+                 masked away, so it is a frame with holes onto whatever stands \
+                 behind it. Cards belong on a flat Plane over a real opening.",
+                g.kind.kind_tag()
+            );
+        }
+        for c in &g.children {
+            walk(c, here, slug);
+        }
+    }
+    walk(root, [0.0; 3], slug);
+}
+
 /// Walk a built tree and report whether any primitive is strongly emissive
 /// (emission strength > 1.0) — the shared "did the kit's firelit hero keep
 /// its glow?" check the per-theme kits assert on (forge fire, saloon lamps,

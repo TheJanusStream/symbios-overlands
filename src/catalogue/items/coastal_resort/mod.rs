@@ -77,6 +77,18 @@ pub(super) fn stucco(color: [f32; 3]) -> SovereignMaterialSettings {
 
 /// Sun-greyed timber plank — pier decking, boardwalks, clapboard walls,
 /// boat hulls. Weathered grain with a little knotting so it reads as wood.
+///
+/// `stagger` is held at zero (#972 lesson 4): any value above 0.01 switches
+/// on the generator's hard-coded three-butt-joints-per-tile grid, and on this
+/// kit's 1 m tile that is a butt joint every 333 mm — a driftwood wall
+/// rendering as coarse masonry, which is exactly what the fishing shack wore.
+/// Real boards are milled in 3–5 m lengths. The per-course grain
+/// de-correlation survives untouched: it comes from the row's own hash.
+///
+/// Boards lay **up V**, so this gives horizontal courses. Vertical boarding
+/// stands them up with
+/// [`util::bonded_boards`](super::util::bonded_boards) — a quarter turn the
+/// pattern survives precisely *because* the stagger is off.
 pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -87,6 +99,7 @@ pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
             color_wood_light: Fp3([color[0] * 1.2, color[1] * 1.2, color[2] * 1.18]),
             color_wood_dark: Fp3([color[0] * 0.62, color[1] * 0.6, color[2] * 0.56]),
             plank_count: Fp64(6.0),
+            stagger: Fp64(0.0),
             knot_density: Fp64(0.22),
             grain_warp: Fp64(0.3),
             ..Default::default()
