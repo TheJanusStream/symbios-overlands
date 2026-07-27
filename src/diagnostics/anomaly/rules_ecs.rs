@@ -222,6 +222,34 @@ fn leaking_class(deltas: &[f64]) -> Option<f64> {
     (deltas.iter().all(|d| *d >= 0.0) && total >= ASSET_GROWTH_LEAK_TOTAL).then_some(total)
 }
 
+/// Images a single resident texture-cache entry pins: albedo + normal +
+/// ORM. Entries carrying an emissive map pin a fourth — the discount
+/// below deliberately uses the floor, so cache growth is never
+/// over-credited and a real leak that coincides with warm-up still
+/// clears the bar.
+const TEXTURE_CACHE_IMAGES_PER_ENTRY: f64 = 3.0;
+
+/// Image growth across the window with the texture cache's expected
+/// contribution discounted (#981): per rebuild, up to `entries-added ×
+/// images-per-entry` of image-count growth is the bounded cache filling
+/// toward its cap — the healthiest thing a cache can do, yet it wears
+/// the exact leak signature for the session's first minutes. #980's log
+/// fired the growth rule five times on nothing else (images 47→496
+/// while the cache went 11→128). Cache *shrink* is not credited back:
+/// eviction should free images, so a count that still rises past a
+/// shrinking cache is more suspicious, not less. Without cache marks
+/// (disk-backed store, older logs) the raw total is returned unchanged.
+fn unexplained_image_total(raw: &[f64], cache: Option<&[f64]>) -> f64 {
+    match cache {
+        Some(c) if c.len() == raw.len() => raw
+            .iter()
+            .zip(c)
+            .map(|(img, cache_d)| img - TEXTURE_CACHE_IMAGES_PER_ENTRY * cache_d.max(0.0))
+            .sum(),
+        _ => raw.iter().sum(),
+    }
+}
+
 struct AssetGrowthAcrossRebuilds;
 const ASSET_GROWTH_ACROSS_REBUILDS: RuleHeader = RuleHeader {
     id: "runtime.asset_growth_across_rebuilds",
@@ -242,7 +270,19 @@ impl Rule for AssetGrowthAcrossRebuilds {
         if image.is_none() && mesh.is_none() {
             return None;
         }
-        let image_leak = image.as_deref().and_then(leaking_class);
+        // Images: "never falls" is judged on the raw marks (did anything
+        // ever get released?), but the floor is judged on the total the
+        // texture cache can't explain — see `unexplained_image_total`.
+        // Judging monotonicity on the *adjusted* deltas instead would let
+        // one over-discounted rebuild (cache filled faster than images
+        // grew) manufacture a fake fall and mask a genuine leak in the
+        // rest of the window.
+        let cache = rebuild_deltas(cx, names::RUNTIME_REBUILD_TEXTURE_CACHE_LEN);
+        let image_leak = image.as_deref().and_then(|raw| {
+            let unexplained = unexplained_image_total(raw, cache.as_deref());
+            (raw.iter().all(|d| *d >= 0.0) && unexplained >= ASSET_GROWTH_LEAK_TOTAL)
+                .then_some(unexplained)
+        });
         let mesh_leak = mesh.as_deref().and_then(leaking_class);
         Some(match (image_leak, mesh_leak) {
             (None, None) => Verdict::Clear,
@@ -296,10 +336,23 @@ impl Rule for MemoryRetentionAcrossRebuilds {
                 && flat(names::RUNTIME_REBUILD_IMAGE_HANDLES)
                 && flat(names::RUNTIME_REBUILD_MESH_HANDLES)
             {
+                // Platform-split explanation (#981): the old copy said
+                // "expected on wasm" even when firing on a native session
+                // (#980), where the honest reading is glibc arena
+                // retention — real RSS the OS never gets back, worth a
+                // malloc_trim experiment if it compounds across re-rolls.
                 Verdict::violated(format!(
                     "+{:.0} MB over the last {REBUILD_DELTA_WINDOW} full rebuilds with asset \
-                     handles flat — allocator retention (#625), expected on wasm, not a leak",
-                    grew / (1024.0 * 1024.0)
+                     handles flat — {}",
+                    grew / (1024.0 * 1024.0),
+                    if cfg!(target_arch = "wasm32") {
+                        "wasm linear memory never shrinks (#565): the high-water mark is \
+                         permanent, structural, not a handle leak"
+                    } else {
+                        "allocator retention, not a handle leak (#625): freed heap not yet \
+                         returned to the OS; climbing without a plateau across many re-rolls \
+                         → see #980"
+                    }
                 ))
             } else {
                 Verdict::Clear
@@ -725,6 +778,128 @@ mod tests {
             &[41.0, 131.0, 221.0, 311.0],
         );
         assert!(AssetGrowthAcrossRebuilds.eval(&ctx(&m)).is_none());
+    }
+
+    /// The #980 false alarm, replayed (#981): image marks rise on every
+    /// rebuild — the leak signature — but the texture-cache marks show the
+    /// rise is the bounded cache filling toward its cap (each entry pins
+    /// albedo + normal + ORM). The discounted total sits under the floor,
+    /// so the verdict is Clear instead of five stale WARNs.
+    #[test]
+    fn texture_cache_warm_up_is_not_an_image_leak() {
+        let mut m = MetricsRegistry::default();
+        // The exact session-1785160056105 shape: images 47→496 while the
+        // cache went 11→128 (deltas 90/296/0/63 vs 30/87/0/0 entries).
+        observe_marks(
+            &mut m,
+            names::RUNTIME_REBUILD_IMAGE_HANDLES,
+            &[47.0, 137.0, 433.0, 433.0, 496.0],
+        );
+        observe_marks(
+            &mut m,
+            names::RUNTIME_REBUILD_TEXTURE_CACHE_LEN,
+            &[11.0, 41.0, 128.0, 128.0, 128.0],
+        );
+        assert_eq!(
+            AssetGrowthAcrossRebuilds.eval(&ctx(&m)),
+            Some(Verdict::Clear),
+            "cache warm-up must not wear the leak signature"
+        );
+
+        // Same image marks with the cache already saturated: nothing
+        // explains the growth, so the rule must still fire.
+        let mut m = MetricsRegistry::default();
+        observe_marks(
+            &mut m,
+            names::RUNTIME_REBUILD_IMAGE_HANDLES,
+            &[47.0, 137.0, 433.0, 433.0, 496.0],
+        );
+        observe_marks(
+            &mut m,
+            names::RUNTIME_REBUILD_TEXTURE_CACHE_LEN,
+            &[128.0, 128.0, 128.0, 128.0, 128.0],
+        );
+        assert!(
+            AssetGrowthAcrossRebuilds
+                .eval(&ctx(&m))
+                .unwrap()
+                .is_violated(),
+            "a saturated cache explains nothing — the growth is real"
+        );
+    }
+
+    /// A genuine leak riding on top of warm-up must still fire: the
+    /// discount only removes the cache's own contribution, and the
+    /// remainder clears the floor on its own.
+    #[test]
+    fn leak_during_warm_up_still_fires() {
+        let mut m = MetricsRegistry::default();
+        // Warm-up (+90/+261 explained) plus a steady ~+65/rebuild leak.
+        observe_marks(
+            &mut m,
+            names::RUNTIME_REBUILD_IMAGE_HANDLES,
+            &[47.0, 202.0, 528.0, 593.0, 658.0],
+        );
+        observe_marks(
+            &mut m,
+            names::RUNTIME_REBUILD_TEXTURE_CACHE_LEN,
+            &[11.0, 41.0, 128.0, 128.0, 128.0],
+        );
+        let v = AssetGrowthAcrossRebuilds.eval(&ctx(&m)).unwrap();
+        assert!(v.is_violated(), "the unexplained remainder is a real leak");
+
+        // Monotonicity stays judged on the RAW marks: an over-discounted
+        // rebuild (cache filled faster than images grew) must not
+        // manufacture a fake fall that masks the rest of the window.
+        let mut m = MetricsRegistry::default();
+        observe_marks(
+            &mut m,
+            names::RUNTIME_REBUILD_IMAGE_HANDLES,
+            &[100.0, 180.0, 260.0, 340.0, 420.0],
+        );
+        // First delta over-explained (40 entries × 3 > +80 images), the
+        // rest unexplained: +240 raw-monotone growth must fire.
+        observe_marks(
+            &mut m,
+            names::RUNTIME_REBUILD_TEXTURE_CACHE_LEN,
+            &[0.0, 40.0, 40.0, 40.0, 40.0],
+        );
+        assert!(
+            AssetGrowthAcrossRebuilds
+                .eval(&ctx(&m))
+                .unwrap()
+                .is_violated(),
+            "raw marks never fell and +240 is unexplained"
+        );
+    }
+
+    /// The retention detail must name this build's platform story — the
+    /// old copy said "expected on wasm" even on native sessions (#980).
+    /// Tests compile for the host, so the native arm is what's assertable.
+    #[test]
+    fn memory_retention_detail_names_the_platform() {
+        const MB: f64 = 1024.0 * 1024.0;
+        let flat = [200.0, 205.0, 198.0, 203.0, 200.0];
+        let mut m = MetricsRegistry::default();
+        observe_marks(
+            &mut m,
+            names::RUNTIME_REBUILD_MEMORY_BYTES,
+            &[715.0 * MB, 767.0 * MB, 819.0 * MB, 871.0 * MB, 923.0 * MB],
+        );
+        observe_marks(&mut m, names::RUNTIME_REBUILD_IMAGE_HANDLES, &flat);
+        observe_marks(&mut m, names::RUNTIME_REBUILD_MESH_HANDLES, &flat);
+        let Some(Verdict::Violated { detail }) = MemoryRetentionAcrossRebuilds.eval(&ctx(&m))
+        else {
+            panic!("retention shape must violate");
+        };
+        assert!(
+            detail.contains("allocator retention") && detail.contains("#625"),
+            "native detail must own the native story: {detail}"
+        );
+        assert!(
+            !detail.contains("expected on wasm"),
+            "the platform-blind copy must be gone: {detail}"
+        );
     }
 
     /// The retention rule owns exactly the class the growth rule doesn't:

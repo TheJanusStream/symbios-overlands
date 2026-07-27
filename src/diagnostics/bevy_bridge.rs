@@ -223,6 +223,19 @@ fn scrape_bevy_diagnostics(
         if let Some(bytes) = memory {
             reg.observe_gauge(names::RUNTIME_REBUILD_MEMORY_BYTES, bytes);
         }
+        // Texture-cache entry count at the same boundary (#981): the
+        // image-growth rule subtracts the cache's expected pin count from
+        // the image marks so warm-up toward the cap doesn't read as a
+        // leak. Same read-back idiom as the memory mark; absent (never
+        // observed) for disk-backed stores, and the rule falls back to
+        // the unadjusted deltas.
+        let cache_len = reg
+            .gauge(names::RUNTIME_TEXTURE_CACHE_LEN)
+            .filter(|g| !g.is_empty())
+            .map(|g| g.last());
+        if let Some(len) = cache_len {
+            reg.observe_gauge(names::RUNTIME_REBUILD_TEXTURE_CACHE_LEN, len);
+        }
     }
 }
 

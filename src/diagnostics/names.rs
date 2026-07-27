@@ -107,6 +107,17 @@ pub const RUNTIME_REBUILD_MESH_HANDLES: &str = "runtime.rebuild.mesh_handles";
 /// stay flat is allocator retention (#625's ~52 MB/re-roll), which reads as
 /// informational rather than as a bug.
 pub const RUNTIME_REBUILD_MEMORY_BYTES: &str = "runtime.rebuild.memory_bytes";
+/// Texture-cache entry count sampled once per completed full rebuild — see
+/// [`RUNTIME_REBUILD_IMAGE_HANDLES`]. The image-growth rule subtracts the
+/// cache's expected contribution (entries × maps-per-entry) from the image
+/// deltas so the bounded cache *filling toward its cap* doesn't wear the
+/// leak signature: #980's session fired `asset_growth_across_rebuilds` five
+/// times on nothing but warm-up (images 47→496 while the cache went
+/// 11→128), then re-fired the same stale window every debounce interval
+/// until the next rebuild refreshed it (#981). Absent for disk-backed
+/// stores, whose entries aren't resident — the rule then falls back to the
+/// unadjusted deltas.
+pub const RUNTIME_REBUILD_TEXTURE_CACHE_LEN: &str = "runtime.rebuild.texture_cache_len";
 /// Entities in the camera's post-culling visible set (all mesh classes,
 /// summed across views) — the #811 discriminator. On WebGL2 the per-frame
 /// CPU staging (instance uniforms) scales with this number, so wasm heap
@@ -263,6 +274,7 @@ pub const ALL: &[(&str, MetricKind)] = &[
     (RUNTIME_REBUILD_IMAGE_HANDLES, MetricKind::Gauge),
     (RUNTIME_REBUILD_MESH_HANDLES, MetricKind::Gauge),
     (RUNTIME_REBUILD_MEMORY_BYTES, MetricKind::Gauge),
+    (RUNTIME_REBUILD_TEXTURE_CACHE_LEN, MetricKind::Gauge),
     (RUNTIME_VISIBLE_ENTITY_COUNT, MetricKind::Gauge),
     (RUNTIME_ALLOC_SMALL_BYTES, MetricKind::Gauge),
     (RUNTIME_ALLOC_MEDIUM_BYTES, MetricKind::Gauge),
