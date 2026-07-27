@@ -245,6 +245,14 @@ struct BskyProfile {
 
 pub(crate) async fn fetch_avatar_bytes(did: String) -> AvatarFetchResult {
     let mut out = AvatarFetchResult::default();
+    // Owner monuments and portals ask for their room owner's PFP, and the
+    // login backdrop's demo world owns itself under a synthetic
+    // `did:attract:…`. The AppView answers 400 for any DID it cannot
+    // resolve, so a profile-less identity would log a failure warning on
+    // every attract scene. Skip the round-trip instead.
+    if !crate::pds::xrpc::is_resolvable_did(&did) {
+        return out;
+    }
     let client = crate::config::http::default_client();
 
     let url = format!(

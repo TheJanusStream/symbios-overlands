@@ -184,12 +184,29 @@ pub async fn resolve_handle(client: &reqwest::Client, handle: &str) -> Result<St
     Ok(body.did)
 }
 
+/// Prefix of the placeholder DID method used by ATProto's PLC directory.
+const DID_PLC_PREFIX: &str = "did:plc:";
+/// Prefix of the W3C `did:web` method, the other method ATProto identity
+/// resolution accepts.
+const DID_WEB_PREFIX: &str = "did:web:";
+
+/// Whether `did` uses a DID method the ATProto network can resolve.
+///
+/// Locally-minted DIDs — the synthetic `did:attract:…` the login backdrop
+/// stamps on its demo world, for one — have no DID document and no AppView
+/// profile, so every network lookup for them is a guaranteed failure. Callers
+/// that would otherwise hit the network check this first, so a synthetic
+/// identity costs no round-trip and logs no error the user could act on.
+pub fn is_resolvable_did(did: &str) -> bool {
+    did.starts_with(DID_PLC_PREFIX) || did.starts_with(DID_WEB_PREFIX)
+}
+
 /// Resolve a DID to its ATProto PDS endpoint by fetching the DID document.
 pub async fn resolve_pds(client: &reqwest::Client, did: &str) -> Option<String> {
-    let url = if did.starts_with("did:plc:") {
+    let url = if did.starts_with(DID_PLC_PREFIX) {
         format!("https://plc.directory/{}", did)
     } else {
-        let rest = did.strip_prefix("did:web:")?;
+        let rest = did.strip_prefix(DID_WEB_PREFIX)?;
         did_web_document_url(rest)
     };
     let doc: DidDocument = fetch_did_json(client, &url).await?;
@@ -288,5 +305,28 @@ pub(crate) async fn apply_writes(
         Ok(())
     } else {
         Err(format!("applyWrites failed: {} — {}", status, body))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn network_did_methods_are_resolvable() {
+        assert!(is_resolvable_did("did:plc:vpkhqolt662uhesyj6nxm7ys"));
+        assert!(is_resolvable_did("did:web:example.com"));
+        assert!(is_resolvable_did("did:web:example.com:u:alice"));
+    }
+
+    #[test]
+    fn synthetic_and_malformed_dids_are_not_resolvable() {
+        // The login backdrop's demo-world owner — the case that used to
+        // fire a 400 profile-fetch warning on every attract scene.
+        assert!(!is_resolvable_did("did:attract:19fa5262e75"));
+        assert!(!is_resolvable_did("did:key:z6MkhaXgBZDvot"));
+        assert!(!is_resolvable_did("did:plc"));
+        assert!(!is_resolvable_did("plc:vpkhqolt662uhesyj6nxm7ys"));
+        assert!(!is_resolvable_did(""));
     }
 }
