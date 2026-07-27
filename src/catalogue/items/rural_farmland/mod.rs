@@ -38,7 +38,7 @@ use bevy_symbios_texture::metal::MetalStyle;
 use super::util::{tile, tiles_per_metre};
 
 use crate::pds::{
-    Fp, Fp3, Fp64, SovereignCobblestoneConfig, SovereignCorrugatedConfig,
+    Fp, Fp3, Fp64, SovereignCobblestoneConfig, SovereignConcreteConfig, SovereignCorrugatedConfig,
     SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignShingleConfig,
     SovereignTextureConfig, SovereignWindowConfig,
 };
@@ -214,6 +214,43 @@ pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     }
 }
 
+/// The kit's own glazing card, re-cut to one opening's pane grid (#972).
+///
+/// Follows the factory's and the coastal kit's move: a shared card material
+/// cannot know how big the hole it fills is, and the pane count is precisely
+/// what tells a viewer that — three lights across a 1.5 m sash and ten across
+/// an 8 m roof slope are the same material at two scales. Everything else
+/// ([`glass`]'s grime, its putty colour, its opacity) is worth inheriting, so
+/// this overrides the two fields rather than swapping in the generic
+/// [`window_card`](super::util::window_card).
+pub(super) fn pane_grid(tint: [f32; 3], glow: f32, panes: (u32, u32)) -> SovereignMaterialSettings {
+    let mut m = glass(tint, glow);
+    if let SovereignTextureConfig::Window(cfg) = &mut m.texture {
+        cfg.panes_x = panes.0;
+        cfg.panes_y = panes.1;
+    }
+    m
+}
+
+/// Farm concrete — a laid pad, a glasshouse base, a standing apron. Board
+/// marks from the shuttering rather than the fieldstone of [`stone`], which
+/// is what a wall is built of and not what a floor is poured on.
+pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.92),
+        metallic: Fp(0.0),
+        uv_scale: tiles_per_metre(tile::CONCRETE),
+        texture: SovereignTextureConfig::Concrete(SovereignConcreteConfig {
+            color_base: Fp3(color),
+            formwork_lines: Fp64(4.0),
+            formwork_depth: Fp64(0.07),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
 /// Smooth painted enamel — the tractor, water troughs, windmill fan, vanes.
 pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
@@ -263,6 +300,8 @@ pub(super) const STONE_GREY: [f32; 3] = [0.52, 0.50, 0.46];
 pub(super) const TRACTOR_GREEN: [f32; 3] = [0.16, 0.34, 0.16];
 pub(super) const TRACTOR_YELLOW: [f32; 3] = [0.80, 0.66, 0.16];
 pub(super) const GLASS_TINT: [f32; 3] = [0.55, 0.66, 0.60];
+/// Poured farm concrete — glasshouse base, standing apron, yard slab.
+pub(super) const CONCRETE_PALE: [f32; 3] = [0.60, 0.59, 0.56];
 
 /// Warm lamplight in the barn window.
 pub(super) const LAMP_WARM: [f32; 3] = [1.0, 0.82, 0.48];
