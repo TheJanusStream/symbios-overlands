@@ -7,10 +7,13 @@
 //!    placement ([`super::job::unit_fingerprint`]) and diff against
 //!    [`super::job::CompiledWorld`]. Stale units are despawned immediately
 //!    (anchor-recursive, plus their water planes); changed indices are
-//!    queued ascending. Heightmap swaps and placement-count changes
-//!    force a full rebuild (a flat `RoomEntity` sweep that also catches
-//!    strays such as gizmo-detached prims), because snapped transforms
-//!    resp. `PlacementMarker` indices would otherwise go stale.
+//!    queued ascending. Heightmap swaps, placement-count *shrinks*, and
+//!    the first compile force a full rebuild (a flat `RoomEntity` sweep
+//!    that also catches strays such as gizmo-detached prims), because
+//!    snapped transforms resp. `PlacementMarker` indices would otherwise
+//!    go stale. Count *growth* is an append (#979) and stays
+//!    incremental: only the new tail builds, so dropping an item into a
+//!    room never blinks the rest of the room out.
 //! 2. **Execute** (every frame while a job is active): build queued
 //!    units inside a ~5 ms wall-clock slice ([`super::job::SLICE_BUDGET`]),
 //!    resuming mid-grid / mid-scatter via [`super::job::UnitCursor`] (which
@@ -338,11 +341,28 @@ fn plan_job(
 
     let len = record.placements.len();
     // Full when the heightmap was swapped (every snapped transform
-    // sampled the old surface) or the placement count changed (indices
-    // are unit identity; `PlacementMarker` values on surviving anchors
-    // would go stale under an insert/remove shift). The first compile
-    // is the count-change case with a previous length of zero.
-    let full = heightmap_changed || world.units.len() != len;
+    // sampled the old surface), when the placement count SHRANK
+    // (removal shifts the indices of everything after the removed
+    // entry, and indices are unit identity — `PlacementMarker` values
+    // on surviving anchors would go stale), or on the first compile
+    // for this world (empty `CompiledWorld`; full coverage is what
+    // keeps the end-of-job cache GC and the full-rebuild metric sound
+    // after a logout / attract teardown reset it).
+    //
+    // Count GROWTH is deliberately NOT full (#979): every live-record
+    // mutation appends (`placements.push` — no call site inserts
+    // mid-list), so existing indices keep their placements, their
+    // fingerprints match, and the diff below no-ops them. Only the new
+    // tail queues — which is what stops the whole room from blinking
+    // out (flat despawn, multi-frame sliced respawn) every time an
+    // item is dropped in from the catalogue or inventory, for the
+    // owner and for every peer receiving the record broadcast. If a
+    // mid-list insert is ever added, it must NOT ride this path
+    // unaudited: a shifted unit that survives on a matching
+    // fingerprint keeps its index-seeded Grid `random_yaw` stream
+    // (`step_unit` seeds off the placement index), silently diverging
+    // from what a from-scratch compile of the same record produces.
+    let full = heightmap_changed || world.units.len() > len || world.units.is_empty();
     let mut queue: VecDeque<QueuedUnit> = VecDeque::new();
 
     if full {
@@ -361,6 +381,13 @@ fn plan_job(
             });
         }
     } else {
+        // Appended placements enter the diff as never-compiled units
+        // (`None` fingerprint, no anchor), so the per-index loop below
+        // treats "new" and "stale" uniformly: the new tail always
+        // mismatches and queues, the untouched prefix never does.
+        if world.units.len() < len {
+            world.units.resize_with(len, CompiledUnit::default);
+        }
         for (index, placement) in record.placements.iter().enumerate() {
             let fingerprint = unit_fingerprint(record, placement, &fp_pass);
             if fingerprint.is_some() && world.units[index].fingerprint == fingerprint {
@@ -813,5 +840,228 @@ fn step_unit(
         // replans (aborting the cursor) before the placement kind could
         // differ — but stay total rather than panicking the frame loop.
         _ => StepOutcome::Done,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Planner-level ECS coverage (#979): what a replan tears down. The
+    //! fingerprint inputs are unit-tested in [`super::super::job`]; these
+    //! tests drive the real [`compile_room_record`] system in a minimal
+    //! headless app and watch anchor entities across record edits — the
+    //! entity-identity view of "the room must not blink when an item is
+    //! appended, and must still rebuild wholesale when one is removed".
+
+    use std::collections::HashMap;
+
+    use super::*;
+    use crate::pds::{Environment, Fp, Fp3, Fp4, Generator, TransformData};
+
+    fn test_placement(x: f32) -> Placement {
+        Placement::Absolute {
+            generator_ref: "box".to_string(),
+            transform: TransformData {
+                translation: Fp3([x, 0.0, 0.0]),
+                rotation: Fp4([0.0, 0.0, 0.0, 1.0]),
+                scale: Fp3([1.0, 1.0, 1.0]),
+            },
+            snap_to_terrain: false,
+            avoid_water: false,
+            avoid_water_clearance: Fp(0.0),
+        }
+    }
+
+    fn test_record(placements: usize) -> RoomRecord {
+        let mut generators = HashMap::new();
+        generators.insert("box".to_string(), Generator::default_cuboid());
+        RoomRecord {
+            lex_type: "network.symbios.room".to_string(),
+            environment: Environment::default(),
+            generators,
+            placements: (0..placements)
+                .map(|i| test_placement(i as f32 * 4.0))
+                .collect(),
+            traits: HashMap::new(),
+            contact_effects: Default::default(),
+            default_landing: None,
+        }
+    }
+
+    /// A headless app carrying exactly the resources
+    /// [`compile_room_record`]'s signature demands — no render, no
+    /// terrain, no heightmap (`heightmap_changed` stays `false`, so the
+    /// only full-rebuild triggers reachable here are the ones under
+    /// test: first compile and count shrink).
+    fn compile_app(record: RoomRecord) -> App {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()));
+        app.init_asset::<Mesh>();
+        app.init_asset::<Image>();
+        app.init_asset::<StandardMaterial>();
+        app.init_asset::<WaterMaterial>();
+        app.init_resource::<crate::world_builder::lsystem::LSystemMaterialCache>();
+        app.init_resource::<crate::world_builder::lsystem::LSystemMeshCache>();
+        app.init_resource::<crate::world_builder::shape::ShapeMaterialCache>();
+        app.init_resource::<crate::world_builder::shape::ShapeMeshCache>();
+        app.init_resource::<crate::world_builder::prim_cache::PrimMeshCache>();
+        app.init_resource::<crate::world_builder::prim_cache::PrimMaterialCache>();
+        app.init_resource::<bevy_symbios_shape::cache::ShapeMeshCache>();
+        app.init_resource::<crate::world_builder::spatial_audio::BakedAudioCache>();
+        app.insert_resource(crate::world_builder::fresh_texture_cache());
+        app.init_resource::<CompiledWorld>();
+        app.init_resource::<CompileJob>();
+        app.init_resource::<WaterSurfaces>();
+        app.init_resource::<BlobImageCache>();
+        app.init_resource::<crate::world_builder::audio_resolver::BlobAudioCache>();
+        app.init_resource::<crate::diagnostics::SessionLog>();
+        app.insert_resource(LiveRoomRecord(record));
+        app.add_systems(Update, compile_room_record);
+        app
+    }
+
+    /// Update until the in-flight job drains. Panics rather than loops
+    /// forever — a queue that never empties is itself a failure.
+    fn settle(app: &mut App) {
+        for _ in 0..64 {
+            app.update();
+            if app.world().resource::<CompileJob>().0.is_none() {
+                return;
+            }
+        }
+        panic!("compile job did not settle within 64 frames");
+    }
+
+    fn unit_anchors(app: &App) -> Vec<Option<Entity>> {
+        app.world()
+            .resource::<CompiledWorld>()
+            .units
+            .iter()
+            .map(|u| u.anchor)
+            .collect()
+    }
+
+    /// Every spawned entity claimed by a placement unit, with its index.
+    fn unit_members(app: &mut App) -> Vec<(Entity, usize)> {
+        app.world_mut()
+            .query::<(Entity, &PlacementUnit)>()
+            .iter(app.world())
+            .map(|(e, u)| (e, u.0))
+            .collect()
+    }
+
+    #[test]
+    fn append_keeps_existing_units_alive() {
+        let mut app = compile_app(test_record(3));
+        settle(&mut app);
+        let anchors_before = unit_anchors(&app);
+        assert_eq!(anchors_before.len(), 3);
+        assert!(anchors_before.iter().all(|a| a.is_some()));
+        let members_before = unit_members(&mut app);
+        assert!(!members_before.is_empty());
+
+        // The catalogue / inventory drop shape: one appended placement.
+        app.world_mut()
+            .resource_mut::<LiveRoomRecord>()
+            .0
+            .placements
+            .push(test_placement(99.0));
+        settle(&mut app);
+
+        let anchors_after = unit_anchors(&app);
+        assert_eq!(anchors_after.len(), 4);
+        // The prefix anchors are the SAME entities — never despawned,
+        // never respawned. `Entity` equality includes the generation,
+        // so a despawn recycled into the same slot would still fail.
+        assert_eq!(
+            &anchors_after[..3],
+            &anchors_before[..],
+            "append must not touch existing units"
+        );
+        // Their whole spawned trees survive too, not just the anchors.
+        for (entity, index) in &members_before {
+            assert!(
+                app.world().get_entity(*entity).is_ok(),
+                "unit {index} member despawned by an append"
+            );
+        }
+        assert!(anchors_after[3].is_some(), "appended unit must compile");
+    }
+
+    #[test]
+    fn append_to_an_empty_room_compiles() {
+        // 0 → 1 rides the first-compile (empty `CompiledWorld`) full
+        // path; there is nothing to preserve, but the drop must build.
+        let mut app = compile_app(test_record(0));
+        settle(&mut app);
+        assert!(unit_anchors(&app).is_empty());
+
+        app.world_mut()
+            .resource_mut::<LiveRoomRecord>()
+            .0
+            .placements
+            .push(test_placement(0.0));
+        settle(&mut app);
+
+        let anchors = unit_anchors(&app);
+        assert_eq!(anchors.len(), 1);
+        assert!(anchors[0].is_some());
+    }
+
+    #[test]
+    fn removal_still_rebuilds_wholesale() {
+        // Removal shifts every later index, so index identity is void:
+        // the shrink must tear the whole compiled world down and rebuild
+        // it under the new indices.
+        let mut app = compile_app(test_record(3));
+        settle(&mut app);
+        let anchors_before = unit_anchors(&app);
+
+        app.world_mut()
+            .resource_mut::<LiveRoomRecord>()
+            .0
+            .placements
+            .remove(0);
+        settle(&mut app);
+
+        let anchors_after = unit_anchors(&app);
+        assert_eq!(anchors_after.len(), 2);
+        assert!(anchors_after.iter().all(|a| a.is_some()));
+        for anchor in anchors_before.iter().flatten() {
+            assert!(
+                app.world().get_entity(*anchor).is_err(),
+                "stale anchor survived a shrink"
+            );
+        }
+    }
+
+    #[test]
+    fn content_edit_after_append_stays_scoped() {
+        // Composition check: an append followed by a transform edit of
+        // one OLD unit rebuilds that unit alone — the append must not
+        // have wedged the diff's index bookkeeping.
+        let mut app = compile_app(test_record(2));
+        settle(&mut app);
+        app.world_mut()
+            .resource_mut::<LiveRoomRecord>()
+            .0
+            .placements
+            .push(test_placement(99.0));
+        settle(&mut app);
+        let anchors_before = unit_anchors(&app);
+        assert_eq!(anchors_before.len(), 3);
+
+        {
+            let mut record = app.world_mut().resource_mut::<LiveRoomRecord>();
+            let Placement::Absolute { transform, .. } = &mut record.0.placements[1] else {
+                panic!("test record uses Absolute placements");
+            };
+            transform.translation.0[2] += 5.0;
+        }
+        settle(&mut app);
+
+        let anchors_after = unit_anchors(&app);
+        assert_eq!(anchors_after[0], anchors_before[0], "unit 0 untouched");
+        assert_eq!(anchors_after[2], anchors_before[2], "unit 2 untouched");
+        assert_ne!(anchors_after[1], anchors_before[1], "unit 1 rebuilt");
     }
 }

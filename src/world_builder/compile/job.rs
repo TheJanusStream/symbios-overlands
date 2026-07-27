@@ -54,11 +54,14 @@ pub(super) struct CompiledUnit {
 /// compares fresh fingerprints against this; the executor commits each
 /// unit here as it completes.
 ///
-/// Reset by `logout::cleanup_on_logout` (the teardown despawns every
-/// `RoomEntity`, so an identical record next login must compile from
-/// scratch). A placements-length change resets it wholesale — indices
-/// are unit identity, and `PlacementMarker` values on surviving anchors
-/// would go stale under an insert/remove shift.
+/// Reset by `logout::cleanup_on_logout` and the attract-scene teardown
+/// (both despawn every `RoomEntity` outside the planner, so an identical
+/// record afterwards must compile from scratch). A placements-length
+/// *shrink* resets it wholesale — indices are unit identity, and
+/// `PlacementMarker` values on surviving anchors would go stale under a
+/// removal shift. A length *growth* only extends it (#979): live-record
+/// mutations append, so surviving indices keep their placements and the
+/// diff rebuilds nothing but the new tail.
 #[derive(Resource, Default)]
 pub struct CompiledWorld {
     pub(super) units: Vec<CompiledUnit>,
