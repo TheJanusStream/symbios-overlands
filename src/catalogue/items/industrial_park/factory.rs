@@ -928,8 +928,8 @@ fn yard_marks() -> Generator {
 mod tests {
     use super::*;
     use crate::catalogue::items::util::{
-        assert_cards_do_not_overlap, assert_no_glazing_on_solids, assert_sanitize_stable,
-        window_cards,
+        assert_cards_do_not_overlap, assert_no_glazing_on_solids, assert_no_tilted_parents,
+        assert_sanitize_stable, window_cards,
     };
     use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
@@ -965,6 +965,15 @@ mod tests {
     #[test]
     fn no_glazing_lands_on_a_solid() {
         assert_no_glazing_on_solids(&Factory.build(""), "factory");
+    }
+
+    /// The standing ROTATED-ROOT gotcha, finally guarded: a tilted parent
+    /// spins everything it carries, and the translation-only walks every other
+    /// guard here uses would report those children where they were authored
+    /// rather than where they render.
+    #[test]
+    fn no_sub_assembly_hangs_off_a_tilted_root() {
+        assert_no_tilted_parents(&Factory.build(""), "factory");
     }
 
     /// #972 lesson 1: every `Window` card sits on a `Plane` at `uv_scale` 1.0

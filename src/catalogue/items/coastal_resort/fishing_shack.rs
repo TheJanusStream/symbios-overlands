@@ -28,14 +28,16 @@ use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
     self, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, glow, id_quat, lit_interior, nest,
-    plane, prim, quat_x, quat_y, solid, sphere, window_card,
+    plane, prim, quat_x, quat_y, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
 use crate::pds::{Generator, SovereignMaterialSettings};
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{BUOY_RED, DECK_WOOD, DRIFT_GREY, LAMP_WARM, STEEL_GREY, canvas, enamel, plank, steel};
+use super::{
+    BUOY_RED, DECK_WOOD, DRIFT_GREY, LAMP_WARM, STEEL_GREY, canvas, enamel, pane_grid, plank, steel,
+};
 
 // --- Dimensions. Everything below derives from these. ----------------------
 
@@ -352,7 +354,7 @@ fn shore_elevation(parts: &mut Vec<Generator>) {
     parts.push(prim(
         plane(
             [WIN_W + GLAZE_LAP, WIN_H + GLAZE_LAP],
-            window_card(TAR_BROWN, 2, 2, 0.3, 0.12),
+            pane_grid(TAR_BROWN, 0.0, (2, 2)),
         ),
         [WIN_X, FLOOR + WIN_SILL + WIN_H * 0.5, GLAZE_Z],
         quat_x(-FRAC_PI_2),
@@ -586,7 +588,8 @@ fn steps() -> Generator {
 mod tests {
     use super::*;
     use crate::catalogue::items::util::{
-        assert_cards_do_not_overlap, assert_no_glazing_on_solids, assert_sanitize_stable,
+        assert_cards_do_not_overlap, assert_no_glazing_on_solids, assert_no_tilted_parents,
+        assert_sanitize_stable,
     };
     use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
@@ -615,6 +618,15 @@ mod tests {
     #[test]
     fn no_glazing_lands_on_a_solid() {
         assert_no_glazing_on_solids(&FishingShack.build(""), "fishing_shack");
+    }
+
+    /// The standing ROTATED-ROOT gotcha, finally guarded: a tilted parent
+    /// spins everything it carries, and the translation-only walks every other
+    /// guard here uses would report those children where they were authored
+    /// rather than where they render.
+    #[test]
+    fn no_sub_assembly_hangs_off_a_tilted_root() {
+        assert_no_tilted_parents(&FishingShack.build(""), "fishing_shack");
     }
 
     /// #972 lesson 1: the one window is a card on a `Plane` at `uv_scale` 1.0,
@@ -728,28 +740,10 @@ mod tests {
     /// beside its own doorway. Taking the node's actual quaternion and its
     /// actual half-extent is what makes the check independent of the
     /// authoring, and it is the only reason it can catch this class at all.
+    /// The turn itself goes through [`util::rotate_by`], which is the guards'
+    /// single implementation of the operation most easily got backwards.
     #[test]
     fn the_open_leaf_hangs_on_its_hinge() {
-        /// Rotate `v` by the quaternion `q` (`[x, y, z, w]`).
-        fn rotate(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
-            let (qx, qy, qz, qw) = (q[0], q[1], q[2], q[3]);
-            let cross = |a: [f32; 3], b: [f32; 3]| {
-                [
-                    a[1] * b[2] - a[2] * b[1],
-                    a[2] * b[0] - a[0] * b[2],
-                    a[0] * b[1] - a[1] * b[0],
-                ]
-            };
-            let u = [qx, qy, qz];
-            let uv = cross(u, v);
-            let uuv = cross(u, uv);
-            [
-                v[0] + 2.0 * (qw * uv[0] + uuv[0]),
-                v[1] + 2.0 * (qw * uv[1] + uuv[1]),
-                v[2] + 2.0 * (qw * uv[2] + uuv[2]),
-            ]
-        }
-
         let root = FishingShack.build("");
         let mut leaf: Option<([f32; 3], [f32; 4], [f32; 3])> = None;
         walk(&root, [0.0; 3], &mut |g, at| {
@@ -764,7 +758,7 @@ mod tests {
         let (at, q, size) = leaf.expect("the doorway carries a swung leaf");
 
         // The leaf's two ends, in the world frame the tree actually builds.
-        let arm = rotate(q, [size[0] * 0.5, 0.0, 0.0]);
+        let arm = util::rotate_by(q, [size[0] * 0.5, 0.0, 0.0]);
         let ends = [
             [at[0] - arm[0], at[1], at[2] - arm[2]],
             [at[0] + arm[0], at[1], at[2] + arm[2]],

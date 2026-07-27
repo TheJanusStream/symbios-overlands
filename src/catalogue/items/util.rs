@@ -1089,6 +1089,102 @@ pub(super) fn quarter_turn(mut mat: SovereignMaterialSettings) -> SovereignMater
     mat
 }
 
+/// Default clear spacing between balusters, in metres — see [`railing`].
+///
+/// Real balustrades run a 100 mm gap, which on a twelve-metre boardwalk is
+/// ninety-odd prims for a handrail. This is the coarsest pitch that still
+/// reads as *balusters* rather than as a ladder at the distance these props
+/// are seen from, and it is a parameter rather than a constant because a
+/// two-metre porch run wants a tighter one than a promenade does.
+pub(super) const BALUSTER_PITCH: f32 = 0.42;
+
+/// An open railing: two horizontal rails, balusters between them, and a
+/// heavier post at each end (#972).
+///
+/// This exists because the same wrong thing was built four times. A railing
+/// authored as **one slab** — a 0.55 m plate on the hotel's balconies, a
+/// 0.5 m plate along the beach house's porch, a single bar with no posts at
+/// all on the boardwalk and the lifeguard tower — reads as a parapet *wall*,
+/// and a parapet wall in front of a window hides the one thing the opening
+/// was cut for. What makes a railing read as a railing is that you can see
+/// through it, which is a property of having gaps, which is a property of
+/// having balusters.
+///
+/// `from` and `to` are the ends of the run at the level it stands on (the
+/// deck top, the balcony slab); they must share a `y` and lie on a common `X`
+/// or `Z` axis, which is every railing in this family. `height` is measured
+/// from that level to the top of the handrail.
+///
+/// Returns a flat list, so the caller decides what it hangs off — normally
+/// [`nest`]ed under the deck it stands on, which is also what makes the
+/// footprint guards able to check it.
+pub(super) fn railing(
+    from: [f32; 3],
+    to: [f32; 3],
+    height: f32,
+    pitch: f32,
+    mat: SovereignMaterialSettings,
+) -> Vec<Generator> {
+    debug_assert!(
+        (from[1] - to[1]).abs() < 1e-4,
+        "a railing run is level; {from:?} and {to:?} are not"
+    );
+    let dx = (to[0] - from[0]).abs();
+    let dz = (to[2] - from[2]).abs();
+    let along_x = dx >= dz;
+    debug_assert!(
+        if along_x { dz < 1e-3 } else { dx < 1e-3 },
+        "a railing run is axis-aligned; {from:?} → {to:?} is diagonal"
+    );
+    let len = if along_x { dx } else { dz };
+    let base = from[1];
+    let mid = [(from[0] + to[0]) * 0.5, base, (from[2] + to[2]) * 0.5];
+    /// Handrail and baluster stock, and the heavier end post.
+    const BAR: f32 = 0.07;
+    const POST: f32 = 0.11;
+    // A rail's own thickness has to come out of the run, or two railings
+    // meeting at a corner overlap by exactly one post.
+    let span = (len - POST).max(0.1);
+    let rail = |cross: f32| -> [f32; 3] {
+        if along_x {
+            [span, BAR, cross]
+        } else {
+            [cross, BAR, span]
+        }
+    };
+
+    let mut out = Vec::new();
+    for y in [height * 0.28, height - BAR * 0.5] {
+        out.push(prim(
+            cuboid_tapered(rail(BAR), 0.0, mat.clone()),
+            [mid[0], base + y, mid[2]],
+            id_quat(),
+        ));
+    }
+    let n = ((span / pitch).round() as i32).clamp(2, 24);
+    for i in 0..n {
+        let f = (i as f32 + 0.5) / n as f32 - 0.5;
+        let at = if along_x {
+            [mid[0] + f * span, base + height * 0.5, mid[2]]
+        } else {
+            [mid[0], base + height * 0.5, mid[2] + f * span]
+        };
+        out.push(prim(
+            cuboid_tapered([BAR * 0.7, height - BAR, BAR * 0.7], 0.0, mat.clone()),
+            at,
+            id_quat(),
+        ));
+    }
+    for end in [from, to] {
+        out.push(prim(
+            solid(cuboid_tapered([POST, height, POST], 0.0, mat.clone())),
+            [end[0], base + height * 0.5, end[2]],
+            id_quat(),
+        ));
+    }
+    out
+}
+
 /// Dim self-lit surface for the inside of a shell — the floor, lining and
 /// contents seen through a [`window_card`]'s open panes.
 ///
@@ -1353,6 +1449,41 @@ pub(super) fn assert_owner_panel(entry: &dyn crate::catalogue::CatalogueEntry, d
     }
 }
 
+/// Rotate `v` by the quaternion `q` (`[x, y, z, w]`) — the guards' one
+/// implementation of the thing that is easiest to get backwards (#972).
+///
+/// A guard that checks where a *tilted* part's ends actually land has to turn
+/// a local half-extent into world space, and hand-rolling that as
+/// `(sin θ, cos θ)` has a fifty-fifty chance of picking the wrong handedness.
+/// When it picks wrong, it agrees with a part rotated the wrong way and the
+/// two errors cancel: the lifeguard tower's boarding ramp pointed downhill
+/// toward its own deck, and a guard written the same afternoon confirmed both
+/// ends were exactly where they should be.
+///
+/// So there is one of these, it uses the standard right-handed formula, and
+/// no guard writes its own. `Quat::from_rotation_x(θ)` turns `+Y` toward
+/// `+Z`, which means a prim's local `+Z` end goes **down** for positive θ —
+/// the opposite of what "tilt it up by θ" suggests, and the reason this note
+/// is longer than the function.
+#[cfg(test)]
+pub(super) fn rotate_by(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
+    let cross = |a: [f32; 3], b: [f32; 3]| {
+        [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+    };
+    let u = [q[0], q[1], q[2]];
+    let uv = cross(u, v);
+    let uuv = cross(u, uv);
+    [
+        v[0] + 2.0 * (q[3] * uv[0] + uuv[0]),
+        v[1] + 2.0 * (q[3] * uv[1] + uuv[1]),
+        v[2] + 2.0 * (q[3] * uv[2] + uuv[2]),
+    ]
+}
+
 /// One upright glazing card as the guards see it: its world centre and the
 /// `[width, height]` of quad it spans.
 #[cfg(test)]
@@ -1486,6 +1617,69 @@ pub(super) fn assert_no_glazing_on_solids(root: &Generator, slug: &str) {
     walk(root, [0.0; 3], slug);
 }
 
+/// Assert that a rotated node carries children **only at its own origin**
+/// (#972).
+///
+/// The oldest gotcha in this family's list and, until now, the only one with
+/// no test: rotation propagates down a tree, so a tilted parent spins
+/// everything it holds. A ramp board built as a sub-root with its cleats
+/// nested under it turns the cleats twice and swings their offsets out of the
+/// surface — and because [`nest`] rebases only *translations*, the authored
+/// world position and the rendered one part company with nothing in the
+/// record looking wrong.
+///
+/// It is also how a guard gets fooled twice over. A footprint check that
+/// accumulates translations down the tree — which is what every guard in this
+/// family does, because composing rotations for a family that has almost none
+/// would be noise — reports a tilted parent's children where they were
+/// *authored*, not where they render. The tilt hides the fault from the render
+/// and from the guard at once. Forbidding the shape is what keeps every
+/// translation-only walk sound by construction.
+///
+/// # Why "at its own origin" and not "never"
+///
+/// A tilted parent is perfectly safe when its children sit at its own origin,
+/// because then the rotation moves nothing and only *orientation* propagates —
+/// which is the whole point of authoring a rig as one turned assembly. The
+/// kit's [`valve_wheel`](crate::catalogue::items::industrial_park::valve_wheel)
+/// is exactly that: a rim turned to face a pipe, with its hub and spokes at
+/// `[0, 0, 0]` so they ride the turn. `nest`'s own note calls the same thing
+/// the point on a leaning mast.
+///
+/// So the rule is about **offset children under a turn**, which is the only
+/// form that displaces anything. The fix when it fires is always the same:
+/// demote the tilted piece to a child and give the sub-assembly a flat root —
+/// the thing it stands on (the ramp's foot kerb, the awning's poles).
+#[cfg(test)]
+pub(super) fn assert_no_tilted_parents(root: &Generator, slug: &str) {
+    fn walk(g: &Generator, at: [f32; 3], slug: &str) {
+        let t = g.transform.translation.0;
+        let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
+        let q = g.transform.rotation.0;
+        let upright = q[0].abs() < 1e-4 && q[1].abs() < 1e-4 && q[2].abs() < 1e-4;
+        if !upright {
+            for c in &g.children {
+                let o = c.transform.translation.0;
+                assert!(
+                    o[0].abs() < 1e-4 && o[1].abs() < 1e-4 && o[2].abs() < 1e-4,
+                    "{slug}: a rotated {} at {here:?} carries a child offset by \
+                     {o:?} — the turn spins that offset, so the child renders \
+                     somewhere the record does not say, and every guard here \
+                     walks translations only and will agree with the record. \
+                     Demote the tilted piece to a child and give the \
+                     sub-assembly a flat root. (A turned rig whose children sit \
+                     at its own origin is fine — that is what the turn is for.)",
+                    g.kind.kind_tag()
+                );
+            }
+        }
+        for c in &g.children {
+            walk(c, here, slug);
+        }
+    }
+    walk(root, [0.0; 3], slug);
+}
+
 /// Walk a built tree and report whether any primitive is strongly emissive
 /// (emission strength > 1.0) — the shared "did the kit's firelit hero keep
 /// its glow?" check the per-theme kits assert on (forge fire, saloon lamps,
@@ -1550,6 +1744,49 @@ mod tests {
         let faces = kind.faces().unwrap();
         assert_eq!(faces.len(), 1, "a repeated face must not stack");
         assert_eq!(faces[0].material.base_color, Fp3([0.2, 0.9, 0.2]));
+    }
+
+    /// A railing spans its run, stands on the level it is given, and is made
+    /// of things you can see between. The count is bounded so a promenade run
+    /// cannot quietly cost ninety prims.
+    #[test]
+    fn railing_spans_its_run_and_has_gaps_in_it() {
+        let run = railing(
+            [-3.0, 1.5, -2.0],
+            [3.0, 1.5, -2.0],
+            1.0,
+            BALUSTER_PITCH,
+            tinted([0.5, 0.5, 0.5]),
+        );
+        let ys: Vec<f32> = run.iter().map(|g| g.transform.translation.0[1]).collect();
+        assert!(
+            ys.iter().all(|y| (1.5..=2.55).contains(y)),
+            "a railing must stand on the level it is given: {ys:?}"
+        );
+        let balusters = run
+            .iter()
+            .filter(|g| match &g.kind {
+                GeneratorKind::Cuboid { size, .. } => size.0[0] < 0.09 && size.0[1] > 0.5,
+                _ => false,
+            })
+            .count();
+        assert!(
+            (6..=24).contains(&balusters),
+            "{balusters} balusters over a 6 m run reads as a plate or a ladder"
+        );
+        // Two rails plus balusters plus two posts.
+        assert_eq!(run.len(), balusters + 4);
+        let widest = run
+            .iter()
+            .filter_map(|g| match &g.kind {
+                GeneratorKind::Cuboid { size, .. } => Some(size.0[0]),
+                _ => None,
+            })
+            .fold(0.0_f32, f32::max);
+        assert!(
+            widest > 5.0 && widest <= 6.0,
+            "the handrail spans {widest} of a 6 m run"
+        );
     }
 
     /// A kind with no faces at all (here a particle system) passes through

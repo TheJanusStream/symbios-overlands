@@ -150,6 +150,26 @@ pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
     }
 }
 
+/// The kit's [`glass`], re-cut to one opening's pane grid (#972).
+///
+/// `glass` is already card-shaped — `uv_scale` 1.0, alpha-masked panes, the
+/// kit's own grime and white joinery — and it is worth keeping over a generic
+/// card for exactly that reason. What a shared material cannot know is the
+/// *aspect of the hole it is filling*, and pane counts are what tell a viewer
+/// how big an opening is, so they are picked per opening and everything else
+/// is inherited.
+///
+/// `glow` stays at the caller's discretion but is normally zero: what lights a
+/// window is the room behind it, not the pane.
+pub(super) fn pane_grid(tint: [f32; 3], glow: f32, panes: (u32, u32)) -> SovereignMaterialSettings {
+    let mut m = glass(tint, glow);
+    if let SovereignTextureConfig::Window(cfg) = &mut m.texture {
+        cfg.panes_x = panes.0;
+        cfg.panes_y = panes.1;
+    }
+    m
+}
+
 /// Brushed structural steel — railings, pier pilings, tower frames, poles.
 pub(super) fn steel(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {

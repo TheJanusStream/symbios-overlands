@@ -32,7 +32,7 @@ use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
     self, cone, cuboid_tapered, cylinder_tapered, foundation_block, glow, id_quat, lit_interior,
-    nest, plane, prim, quat_mul, quat_x, quat_y, solid, window_card,
+    nest, plane, prim, quat_mul, quat_x, quat_y, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
@@ -41,7 +41,7 @@ use crate::seeded_defaults::ThemeArchetype;
 
 use super::{
     AWNING_RED, AWNING_WHITE, POOL_AQUA, SIGN_AMBER, SIGN_GOLD, STEEL_GREY, STUCCO_SAND,
-    STUCCO_WHITE, canvas, concrete, fx, steel, stucco, water,
+    STUCCO_WHITE, canvas, concrete, fx, pane_grid, steel, stucco, water,
 };
 
 // --- Shell dimensions. Everything below derives from these. ----------------
@@ -152,7 +152,7 @@ fn glazing(size: [f32; 2], center: [f32; 3], panes: (u32, u32)) -> Generator {
     prim(
         plane(
             [size[0] + GLAZE_LAP, size[1] + GLAZE_LAP],
-            window_card(JOINERY, panes.0, panes.1, 0.32, 0.07),
+            pane_grid(JOINERY, 0.0, panes),
         ),
         center,
         quat_x(-FRAC_PI_2),
@@ -165,7 +165,7 @@ fn side_glazing(size: [f32; 2], center: [f32; 3], sx: f32) -> Generator {
     prim(
         plane(
             [size[0] + GLAZE_LAP, size[1] + GLAZE_LAP],
-            window_card(JOINERY, 2, 5, 0.32, 0.07),
+            pane_grid(JOINERY, 0.0, (2, 5)),
         ),
         center,
         quat_mul(quat_y(-sx * FRAC_PI_2), quat_x(-FRAC_PI_2)),
@@ -508,7 +508,7 @@ fn lobby_fitout(parts: &mut Vec<Generator>) {
     parts.push(prim(
         plane(
             [OPEN_W + 0.2, LOBBY_HEAD - 0.55],
-            window_card([0.86, 0.85, 0.8], 2, 3, 0.34, 0.06),
+            pane_grid([0.86, 0.85, 0.8], 0.0, (2, 3)),
         ),
         [
             BAY_X[DOOR_BAY],
@@ -606,12 +606,24 @@ fn awning() -> Generator {
         [0.0, y - AWNING_D * 0.5 * 0.26 - 0.14, z - AWNING_D * 0.5],
         id_quat(),
     ));
-    let canopy = prim(
+    parts.push(prim(
         cuboid_tapered([5.2, 0.18, AWNING_D], 0.0, canvas(AWNING_RED, AWNING_WHITE)),
         [0.0, y, z],
         quat_x(-0.26),
+    ));
+
+    // The sub-root is the head rail across the poles, **not** the canopy. A
+    // tilted sub-root spins everything nested under it, so hanging the poles
+    // off the sloping canvas turned them 15° and slid their feet off the
+    // podium — and the footprint guard, which walks translations only,
+    // reported them exactly where they were authored. Both the render and the
+    // check agreed with a record that was wrong.
+    let head = prim(
+        solid(cuboid_tapered([5.4, 0.14, 0.14], 0.0, steel(STEEL_GREY))),
+        [0.0, y + 0.12, pole_z],
+        id_quat(),
     );
-    nest(canopy, parts)
+    nest(head, parts)
 }
 
 /// The cornice, and everything the roof carries: the parapet ring, its
@@ -808,8 +820,8 @@ fn terrace() -> Generator {
 mod tests {
     use super::*;
     use crate::catalogue::items::util::{
-        assert_cards_do_not_overlap, assert_no_glazing_on_solids, assert_sanitize_stable,
-        window_cards,
+        assert_cards_do_not_overlap, assert_no_glazing_on_solids, assert_no_tilted_parents,
+        assert_sanitize_stable, window_cards,
     };
     use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
@@ -877,6 +889,15 @@ mod tests {
     #[test]
     fn no_glazing_lands_on_a_solid() {
         assert_no_glazing_on_solids(&GrandHotel.build(""), "grand_hotel");
+    }
+
+    /// The standing ROTATED-ROOT gotcha, finally guarded: a tilted parent
+    /// spins everything it carries, and the translation-only walks every other
+    /// guard here uses would report those children where they were authored
+    /// rather than where they render.
+    #[test]
+    fn no_sub_assembly_hangs_off_a_tilted_root() {
+        assert_no_tilted_parents(&GrandHotel.build(""), "grand_hotel");
     }
 
     /// #972 lesson 7: cards lap their openings and stand clear of the rooms
