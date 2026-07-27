@@ -243,8 +243,29 @@ pub(super) fn steel(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
+/// The kit's own glazing card, re-cut to one opening's pane grid (#972).
+///
+/// A shared card material cannot know how big the hole it fills is, and the
+/// pane count is exactly what tells a viewer that. Everything else ([`glass`]'s
+/// grime, its joinery colour, its opacity) is worth inheriting, so this
+/// overrides the two fields rather than swapping in the generic
+/// [`window_card`](super::util::window_card).
+pub(super) fn pane_grid(tint: [f32; 3], glow: f32, panes: (u32, u32)) -> SovereignMaterialSettings {
+    let mut m = glass(tint, glow);
+    if let SovereignTextureConfig::Window(cfg) = &mut m.texture {
+        cfg.panes_x = panes.0;
+        cfg.panes_y = panes.1;
+    }
+    m
+}
+
 /// Sun-greyed plank — the notice board, the portable classroom, the bus
 /// shelter bench.
+///
+/// `stagger` is held at zero (#972 lesson 4): any value above 0.01 switches on
+/// the generator's hard-coded three-butt-joints-per-tile grid, which the config
+/// cannot size — on this kit's 0.84 m tile an end joint every 280 mm, so a
+/// notice board reads as brickwork.
 pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
@@ -255,6 +276,7 @@ pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
             color_wood_light: Fp3([color[0] * 1.2, color[1] * 1.2, color[2] * 1.18]),
             color_wood_dark: Fp3([color[0] * 0.62, color[1] * 0.6, color[2] * 0.56]),
             plank_count: Fp64(5.0),
+            stagger: Fp64(0.0),
             knot_density: Fp64(0.2),
             grain_warp: Fp64(0.3),
             ..Default::default()

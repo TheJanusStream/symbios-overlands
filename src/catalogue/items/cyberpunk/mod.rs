@@ -114,6 +114,26 @@ pub(super) fn window_wall(glass: [f32; 3], glow: f32) -> SovereignMaterialSettin
     }
 }
 
+/// The kit's own glazing card, re-cut to one opening's pane grid (#972).
+///
+/// A shared card material cannot know how big the hole it fills is, and the
+/// pane count is exactly what tells a viewer that. Everything else
+/// ([`window_wall`]'s grime, its near-black frame, its opacity) is worth
+/// inheriting, so this overrides the two fields rather than swapping in the
+/// generic [`window_card`](super::util::window_card).
+pub(super) fn pane_grid(
+    glass: [f32; 3],
+    glow: f32,
+    panes: (u32, u32),
+) -> SovereignMaterialSettings {
+    let mut m = window_wall(glass, glow);
+    if let SovereignTextureConfig::Window(cfg) = &mut m.texture {
+        cfg.panes_x = panes.0;
+        cfg.panes_y = panes.1;
+    }
+    m
+}
+
 /// Ridged corrugated steel — shipping containers and lean-to roofing. The
 /// correct surface for the scrap-shanty undercity, with built-in rust.
 pub(super) fn corrugated(color: [f32; 3]) -> SovereignMaterialSettings {
