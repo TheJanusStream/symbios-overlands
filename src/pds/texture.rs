@@ -476,6 +476,7 @@ define_sovereign_texture_cfg!(SovereignBrickConfig => bevy_symbios_texture::bric
     fp64 : roughness = 0.5,
     fp3  : color_brick = [0.56, 0.28, 0.18],
     fp3  : color_mortar = [0.76, 0.73, 0.67],
+    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
     fp   : normal_strength = 4.0,
 });
 
@@ -501,6 +502,7 @@ define_sovereign_texture_cfg!(SovereignShingleConfig => bevy_symbios_texture::sh
     fp64 : moss_level = 0.18,
     fp3  : color_tile = [0.40, 0.25, 0.18],
     fp3  : color_grout = [0.18, 0.14, 0.12],
+    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
     fp   : normal_strength = 5.0,
 });
 
@@ -511,6 +513,7 @@ define_sovereign_texture_cfg!(SovereignStuccoConfig => bevy_symbios_texture::stu
     fp64  : roughness = 0.35,
     fp3   : color_base = [0.92, 0.89, 0.84],
     fp3   : color_shadow = [0.72, 0.70, 0.66],
+    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
     fp    : normal_strength = 2.0,
 });
 
@@ -524,6 +527,7 @@ define_sovereign_texture_cfg!(SovereignConcreteConfig => bevy_symbios_texture::c
     fp64  : pit_density = 0.08,
     fp3   : color_base = [0.55, 0.54, 0.52],
     fp3   : color_pit = [0.35, 0.34, 0.33],
+    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
     fp    : normal_strength = 2.5,
 });
 
@@ -752,6 +756,7 @@ define_sovereign_texture_cfg!(SovereignMetalConfig => bevy_symbios_texture::meta
     fp64 : rust_level = 0.15,
     fp3  : color_metal = [0.42, 0.44, 0.47],
     fp3  : color_rust = [0.42, 0.24, 0.12],
+    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
     fp   : normal_strength = 3.0,
 });
 
@@ -766,6 +771,7 @@ define_sovereign_texture_cfg!(SovereignPaversConfig => bevy_symbios_texture::pav
     fp3  : color_stone = [0.48, 0.44, 0.40],
     fp3  : color_grout = [0.28, 0.27, 0.26],
     enum(bevy_symbios_texture::pavers::PaversLayout) : layout = bevy_symbios_texture::pavers::PaversLayout::Square,
+    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
     fp   : normal_strength = 3.5,
 });
 
@@ -780,6 +786,7 @@ define_sovereign_texture_cfg!(SovereignAshlarConfig => bevy_symbios_texture::ash
     fp64  : roughness = 0.45,
     fp3   : color_stone = [0.52, 0.50, 0.47],
     fp3   : color_mortar = [0.72, 0.70, 0.65],
+    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
     fp    : normal_strength = 4.5,
 });
 
@@ -791,6 +798,7 @@ define_sovereign_texture_cfg!(SovereignCobblestoneConfig => bevy_symbios_texture
     fp64 : roundness = 1.2,
     fp3  : color_stone = [0.46, 0.43, 0.40],
     fp3  : color_mud = [0.22, 0.18, 0.14],
+    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
     fp   : normal_strength = 5.0,
 });
 
@@ -803,6 +811,7 @@ define_sovereign_texture_cfg!(SovereignThatchConfig => bevy_symbios_texture::tha
     fp64 : layer_shadow = 0.55,
     fp3  : color_straw = [0.62, 0.54, 0.28],
     fp3  : color_shadow = [0.22, 0.17, 0.09],
+    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
     fp   : normal_strength = 3.5,
 });
 
@@ -817,6 +826,7 @@ define_sovereign_texture_cfg!(SovereignMarbleConfig => bevy_symbios_texture::mar
     fp64  : roughness = 0.08,
     fp3   : color_base = [0.92, 0.90, 0.87],
     fp3   : color_vein = [0.42, 0.38, 0.34],
+    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
     fp    : normal_strength = 1.5,
 });
 
@@ -829,6 +839,7 @@ define_sovereign_texture_cfg!(SovereignCorrugatedConfig => bevy_symbios_texture:
     fp   : metallic = 0.85,
     fp3  : color_metal = [0.72, 0.74, 0.76],
     fp3  : color_rust = [0.55, 0.30, 0.12],
+    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
     fp   : normal_strength = 4.0,
 });
 
@@ -841,6 +852,7 @@ define_sovereign_texture_cfg!(SovereignAsphaltConfig => bevy_symbios_texture::as
     fp64 : stain_level = 0.25,
     fp3  : color_base = [0.06, 0.06, 0.07],
     fp3  : color_aggregate = [0.35, 0.33, 0.30],
+    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
     fp   : normal_strength = 2.5,
 });
 
@@ -854,6 +866,7 @@ define_sovereign_texture_cfg!(SovereignWainscotingConfig => bevy_symbios_texture
     fp64  : grain_warp = 0.30,
     fp3   : color_wood_light = [0.65, 0.44, 0.20],
     fp3   : color_wood_dark = [0.28, 0.16, 0.07],
+    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
     fp    : normal_strength = 4.0,
 });
 
@@ -866,6 +879,7 @@ define_sovereign_texture_cfg!(SovereignEncausticConfig => bevy_symbios_texture::
     fp3  : color_a = [0.72, 0.38, 0.22],
     fp3  : color_b = [0.22, 0.35, 0.65],
     fp3  : color_grout = [0.82, 0.80, 0.75],
+    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
     fp   : normal_strength = 3.0,
 });
 
@@ -1026,6 +1040,7 @@ define_sovereign_texture_cfg!(SovereignFabricConfig => bevy_symbios_texture::fab
     fp64 : fuzz = 0.35,
     fp3  : color_warp = [0.55, 0.36, 0.24],
     fp3  : color_weft = [0.62, 0.44, 0.30],
+    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
     fp   : normal_strength = 3.0,
 });
 
@@ -1697,6 +1712,61 @@ mod tests {
         assert_default_matches!(
             SovereignFabricConfig::default().to_native(),
             bevy_symbios_texture::fabric::FabricConfig::default()
+        );
+
+        // The fifteen built surfaces that gained a weathering block in
+        // symbios-texture 0.4.
+        assert_default_matches!(
+            SovereignAshlarConfig::default().to_native(),
+            bevy_symbios_texture::ashlar::AshlarConfig::default()
+        );
+        assert_default_matches!(
+            SovereignAsphaltConfig::default().to_native(),
+            bevy_symbios_texture::asphalt::AsphaltConfig::default()
+        );
+        assert_default_matches!(
+            SovereignBrickConfig::default().to_native(),
+            bevy_symbios_texture::brick::BrickConfig::default()
+        );
+        assert_default_matches!(
+            SovereignCobblestoneConfig::default().to_native(),
+            bevy_symbios_texture::cobblestone::CobblestoneConfig::default()
+        );
+        assert_default_matches!(
+            SovereignConcreteConfig::default().to_native(),
+            bevy_symbios_texture::concrete::ConcreteConfig::default()
+        );
+        assert_default_matches!(
+            SovereignCorrugatedConfig::default().to_native(),
+            bevy_symbios_texture::corrugated::CorrugatedConfig::default()
+        );
+        assert_default_matches!(
+            SovereignEncausticConfig::default().to_native(),
+            bevy_symbios_texture::encaustic::EncausticConfig::default()
+        );
+        assert_default_matches!(
+            SovereignMarbleConfig::default().to_native(),
+            bevy_symbios_texture::marble::MarbleConfig::default()
+        );
+        assert_default_matches!(
+            SovereignPaversConfig::default().to_native(),
+            bevy_symbios_texture::pavers::PaversConfig::default()
+        );
+        assert_default_matches!(
+            SovereignShingleConfig::default().to_native(),
+            bevy_symbios_texture::shingle::ShingleConfig::default()
+        );
+        assert_default_matches!(
+            SovereignStuccoConfig::default().to_native(),
+            bevy_symbios_texture::stucco::StuccoConfig::default()
+        );
+        assert_default_matches!(
+            SovereignThatchConfig::default().to_native(),
+            bevy_symbios_texture::thatch::ThatchConfig::default()
+        );
+        assert_default_matches!(
+            SovereignWainscotingConfig::default().to_native(),
+            bevy_symbios_texture::wainscoting::WainscotingConfig::default()
         );
 
         // Guard the enum dispatch too: a default mirror must convert to the
