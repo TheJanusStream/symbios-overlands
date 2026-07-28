@@ -746,6 +746,7 @@ pub(super) fn tiles_per_metre(tile_m: f32) -> Fp {
 /// | Rock | rock face | | 1.5 m |
 /// | Ground / Sand / Snow / Ice | granular | | 2.0 m |
 /// | Pavers | paving slabs | | 1.2 m |
+/// | Cracked Earth / Gravel / Forest Floor | terrain-only so far | | — |
 pub(super) mod tile {
     /// One brick column, for configs whose `SovereignBrickConfig::scale`
     /// departs from the usual 5 (mudbrick coursing runs 14). Multiply by
@@ -757,6 +758,22 @@ pub(super) mod tile {
     pub(in crate::catalogue::items) const CONCRETE: f32 = 2.4;
     /// Sheet metal — plate seams and brushing.
     pub(in crate::catalogue::items) const METAL: f32 = 1.2;
+    /// Fired enamel / glazed ceramic. The clear coat is near-scaleless — the
+    /// only feature is a fine orange-peel — so this is sized to match the
+    /// sheet metal it is usually sprayed onto, keeping panel UVs consistent
+    /// where a kit mixes painted and bare metal.
+    pub(in crate::catalogue::items) const ENAMEL: f32 = METAL;
+    /// Carapace plating. The default six plates per tile at roughly a
+    /// 0.2 m plate.
+    pub(in crate::catalogue::items) const CHITIN: f32 = 1.2;
+    /// Obsidian flow banding — a figure rather than a countable feature,
+    /// sized like marble so the sheets read at architectural scale.
+    pub(in crate::catalogue::items) const OBSIDIAN: f32 = 2.0;
+    /// One photovoltaic wafer. Real cells are 156 mm square, and the
+    /// generator lays four across a tile.
+    pub(in crate::catalogue::items) const SOLAR_CELL: f32 = 0.156;
+    /// The default four-by-four wafer array.
+    pub(in crate::catalogue::items) const SOLAR_PANEL: f32 = SOLAR_CELL * 4.0;
     /// One dressed-ashlar block, for configs whose
     /// `SovereignAshlarConfig::cols` departs from the usual 4. Multiply by
     /// that count; at the usual count, prefer [`ASHLAR`].

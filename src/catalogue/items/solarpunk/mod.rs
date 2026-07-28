@@ -39,7 +39,8 @@ use bevy_symbios_texture::metal::MetalStyle;
 use crate::catalogue::items::util::{id_quat, prim_scaled, sphere};
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, SovereignConcreteConfig, SovereignMaterialSettings,
-    SovereignMetalConfig, SovereignPlankConfig, SovereignTextureConfig, SovereignWindowConfig,
+    SovereignMetalConfig, SovereignPlankConfig, SovereignSolarPanelConfig, SovereignTextureConfig,
+    SovereignWindowConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -224,15 +225,12 @@ pub(super) fn pv(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.12),
         metallic: Fp(0.6),
-        uv_scale: tiles_per_metre(tile::METAL),
-        texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
-            style: MetalStyle::Brushed,
-            color_metal: Fp3(color),
-            color_rust: Fp3([0.1, 0.12, 0.2]),
-            seam_count: Fp64(6.0),
-            roughness: Fp64(0.12),
-            metallic: Fp(0.6),
-            rust_level: Fp64(0.0),
+        uv_scale: tiles_per_metre(tile::SOLAR_PANEL),
+        texture: SovereignTextureConfig::SolarPanel(SovereignSolarPanelConfig {
+            // The theme's own silicon tint; the backing sheet and the tinned
+            // busbars stay neutral, as they are on a real module.
+            color_cell: Fp3(color),
+            glass_roughness: Fp(0.12),
             ..Default::default()
         }),
         ..Default::default()

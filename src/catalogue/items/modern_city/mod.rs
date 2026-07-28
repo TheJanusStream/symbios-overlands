@@ -36,7 +36,7 @@ use bevy_symbios_texture::metal::MetalStyle;
 use super::util::{tile, tiles_per_metre};
 use crate::catalogue::items::util::{cuboid_tapered, id_quat, prim};
 use crate::pds::{
-    Fp, Fp3, Fp64, Generator, SovereignBrickConfig, SovereignConcreteConfig,
+    Fp, Fp3, Fp64, Generator, SovereignBrickConfig, SovereignConcreteConfig, SovereignEnamelConfig,
     SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignTextureConfig,
     SovereignWindowConfig,
 };
@@ -122,15 +122,11 @@ pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.25),
         metallic: Fp(0.5),
-        uv_scale: tiles_per_metre(tile::METAL),
-        texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
-            style: MetalStyle::Brushed,
-            color_metal: Fp3(color),
-            color_rust: Fp3([0.3, 0.18, 0.1]),
-            seam_count: Fp64(1.0),
-            roughness: Fp64(0.25),
+        uv_scale: tiles_per_metre(tile::ENAMEL),
+        texture: SovereignTextureConfig::Enamel(SovereignEnamelConfig {
+            color: Fp3(color),
+            gloss_roughness: Fp(0.25),
             metallic: Fp(0.5),
-            rust_level: Fp64(0.0),
             ..Default::default()
         }),
         ..Default::default()

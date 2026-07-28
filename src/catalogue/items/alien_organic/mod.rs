@@ -32,14 +32,12 @@ pub mod withered_hive;
 pub mod fx;
 
 use super::util::{tile, tiles_per_metre};
-use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::catalogue::items::util::{
     cuboid_tapered, cylinder_tapered, id_quat, prim, prim_scaled, quat_y, quat_z, solid, sphere,
 };
 use crate::pds::{
-    Fp, Fp3, Fp64, Generator, SovereignMaterialSettings, SovereignMetalConfig,
-    SovereignTextureConfig,
+    Fp, Fp3, Generator, SovereignChitinConfig, SovereignMaterialSettings, SovereignTextureConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -60,14 +58,14 @@ pub(super) fn chitin(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.3),
         metallic: Fp(0.5),
-        uv_scale: tiles_per_metre(tile::METAL),
-        texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
-            style: MetalStyle::Brushed,
-            color_metal: Fp3(color),
-            color_rust: Fp3([color[0] * 1.4, color[1] * 0.8, color[2] * 1.2]),
-            roughness: Fp64(0.3),
+        uv_scale: tiles_per_metre(tile::CHITIN),
+        texture: SovereignTextureConfig::Chitin(SovereignChitinConfig {
+            color: Fp3(color),
+            // The shell darkens into its sutures and wherever a plate sits
+            // lower than its neighbour.
+            color_deep: Fp3([color[0] * 0.28, color[1] * 0.3, color[2] * 0.26]),
+            gloss_roughness: Fp(0.3),
             metallic: Fp(0.5),
-            rust_level: Fp64(0.1),
             ..Default::default()
         }),
         ..Default::default()

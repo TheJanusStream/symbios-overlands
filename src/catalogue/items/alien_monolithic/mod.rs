@@ -32,12 +32,10 @@ pub mod glyph_rubble;
 pub mod fx;
 
 use super::util::{tile, tiles_per_metre};
-use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::catalogue::items::fantasy::rune_marks;
 use crate::pds::{
-    Fp, Fp3, Fp64, Generator, SovereignMaterialSettings, SovereignMetalConfig,
-    SovereignTextureConfig,
+    Fp, Fp3, Generator, SovereignMaterialSettings, SovereignObsidianConfig, SovereignTextureConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -59,14 +57,18 @@ pub(super) fn obsidian(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.15),
         metallic: Fp(0.7),
-        uv_scale: tiles_per_metre(tile::METAL),
-        texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
-            style: MetalStyle::Brushed,
-            color_metal: Fp3(color),
-            color_rust: Fp3([0.1, 0.1, 0.16]),
-            roughness: Fp64(0.15),
+        uv_scale: tiles_per_metre(tile::OBSIDIAN),
+        texture: SovereignTextureConfig::Obsidian(SovereignObsidianConfig {
+            color: Fp3(color),
+            // Sheen bands lift and cool against the body: volcanic glass
+            // catches the light along the flow, not evenly across the face.
+            color_sheen: Fp3([
+                (color[0] * 1.9 + 0.05).min(1.0),
+                (color[1] * 1.9 + 0.06).min(1.0),
+                (color[2] * 2.1 + 0.09).min(1.0),
+            ]),
+            gloss_roughness: Fp(0.15),
             metallic: Fp(0.7),
-            rust_level: Fp64(0.0),
             ..Default::default()
         }),
         ..Default::default()

@@ -35,15 +35,14 @@ pub mod fx;
 use std::f32::consts::FRAC_PI_2;
 
 use super::util::{tile, tiles_per_metre};
-use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::catalogue::items::util::{
     cuboid_tapered, cylinder_tapered, id_quat, prim, quat_z, solid,
 };
 use crate::pds::{
-    Fp, Fp3, Fp64, Generator, SovereignBrickConfig, SovereignConcreteConfig,
-    SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignShingleConfig,
-    SovereignStuccoConfig, SovereignTextureConfig, SovereignWindowConfig,
+    Fp, Fp3, Fp64, Generator, SovereignBrickConfig, SovereignConcreteConfig, SovereignEnamelConfig,
+    SovereignMaterialSettings, SovereignPlankConfig, SovereignShingleConfig, SovereignStuccoConfig,
+    SovereignTextureConfig, SovereignWindowConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -235,15 +234,11 @@ pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.3),
         metallic: Fp(0.5),
-        uv_scale: tiles_per_metre(tile::METAL),
-        texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
-            style: MetalStyle::Brushed,
-            color_metal: Fp3(color),
-            color_rust: Fp3([0.3, 0.2, 0.12]),
-            seam_count: Fp64(1.0),
-            roughness: Fp64(0.3),
+        uv_scale: tiles_per_metre(tile::ENAMEL),
+        texture: SovereignTextureConfig::Enamel(SovereignEnamelConfig {
+            color: Fp3(color),
+            gloss_roughness: Fp(0.3),
             metallic: Fp(0.5),
-            rust_level: Fp64(0.0),
             ..Default::default()
         }),
         ..Default::default()
