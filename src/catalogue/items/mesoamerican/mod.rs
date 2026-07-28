@@ -32,13 +32,13 @@ pub mod maize_granary;
 
 pub mod fx;
 
-use super::util::{tile, tiles_per_metre};
+use super::util::{ageing, tile, tiles_per_metre};
 use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::pds::{
-    Fp, Fp3, Fp64, SovereignAshlarConfig, SovereignCobblestoneConfig, SovereignMarbleConfig,
-    SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignStuccoConfig,
-    SovereignTextureConfig, SovereignThatchConfig,
+    Fp, Fp3, Fp64, SovereignAshlarConfig, SovereignCobblestoneConfig, SovereignEncausticConfig,
+    SovereignMarbleConfig, SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig,
+    SovereignStuccoConfig, SovereignTextureConfig, SovereignThatchConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -90,6 +90,27 @@ pub(super) fn painted(color: [f32; 3]) -> SovereignMaterialSettings {
 }
 
 /// Rough cobble — fieldstone fill, rubble cores, humble footings.
+/// Glazed geometric floor tile — the ceremonial surfaces: ball-court alleys,
+/// shrine platforms, plaza inlays. The step-fret and diamond motifs of the
+/// culture are exactly what an encaustic tile lays down.
+pub(super) fn patterned_floor(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.5),
+        uv_scale: tiles_per_metre(tile::ENCAUSTIC),
+        texture: SovereignTextureConfig::Encaustic(SovereignEncausticConfig {
+            pattern: bevy_symbios_texture::encaustic::EncausticPattern::Diamond,
+            color_a: Fp3(color),
+            color_b: Fp3([color[0] * 0.45, color[1] * 0.30, color[2] * 0.26]),
+            color_grout: Fp3([color[0] * 0.85, color[1] * 0.82, color[2] * 0.76]),
+            scale: Fp64(4.0),
+            weathering: ageing::stained(0x72, 0.7),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
 pub(super) fn cobble(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),

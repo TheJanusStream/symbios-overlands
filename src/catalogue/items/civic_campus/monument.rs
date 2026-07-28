@@ -15,8 +15,8 @@ use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
 use super::{
-    CONCRETE_GREY, COPPER_VERDIGRIS, LAMP_WARM, MARBLE_WHITE, STEEL_GREY, STONE_PALE, concrete,
-    copper, marble, steel, stone,
+    CONCRETE_GREY, COPPER_VERDIGRIS, LAMP_WARM, MARBLE_WHITE, STEEL_GREY, STONE_PALE, copper,
+    marble, paving, steel, stone,
 };
 
 const PANEL: f32 = 1.8;
@@ -56,7 +56,7 @@ fn build_tree(did: &str) -> Generator {
         solid(cuboid_tapered(
             [4.6, 0.34, 2.0],
             0.05,
-            concrete(CONCRETE_GREY),
+            paving(CONCRETE_GREY),
         )),
         [0.0, 0.17, 0.0],
         id_quat(),

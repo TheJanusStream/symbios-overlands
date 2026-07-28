@@ -34,7 +34,7 @@ pub mod recycling_bins;
 
 pub mod fx;
 
-use super::util::{tile, tiles_per_metre};
+use super::util::{ageing, tile, tiles_per_metre};
 use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::catalogue::items::util::{
@@ -42,8 +42,8 @@ use crate::catalogue::items::util::{
 };
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, SovereignAshlarConfig, SovereignBrickConfig, SovereignConcreteConfig,
-    SovereignMarbleConfig, SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig,
-    SovereignTextureConfig, SovereignWindowConfig,
+    SovereignMarbleConfig, SovereignMaterialSettings, SovereignMetalConfig, SovereignPaversConfig,
+    SovereignPlankConfig, SovereignTextureConfig, SovereignWindowConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -165,6 +165,26 @@ pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
 }
 
 /// Board-formed concrete — the modern lecture hall, steps, plinths.
+/// Precast paving slabs — plazas, walkways and monument steps. The campus
+/// ground plane is laid, not poured, so it reads as slabs with grout joints
+/// rather than the board-marked concrete of the buildings.
+pub(super) fn paving(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.82),
+        uv_scale: tiles_per_metre(tile::PAVERS),
+        texture: SovereignTextureConfig::Pavers(SovereignPaversConfig {
+            color_stone: Fp3(color),
+            color_grout: Fp3([color[0] * 0.55, color[1] * 0.55, color[2] * 0.55]),
+            grout_width: Fp64(0.06),
+            cell_variance: Fp64(0.12),
+            weathering: ageing::stained(0x71, 0.5),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
 pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),

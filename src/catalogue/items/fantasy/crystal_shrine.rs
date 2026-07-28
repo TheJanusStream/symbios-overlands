@@ -169,6 +169,11 @@ fn build_tree() -> Generator {
     root.audio = fx::crystal_shimmer();
     root.children
         .push(fx::mana_motes([0.0, plinth_top + 1.5, 0.0], 0x0A1A_C512));
+    // Splinters shedding from the crystal itself, falling where the motes rise.
+    root.children.push(fx::crystal_shards(
+        [0.0, plinth_top + 1.1, 0.0],
+        0x0A1A_C513,
+    ));
     root
 }
 

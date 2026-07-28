@@ -854,6 +854,13 @@ pub(super) mod tile {
     pub(in crate::catalogue::items) const BRICK: f32 = BRICK_COURSE * 5.0;
     /// Board-formed concrete — the board marks are the feature.
     pub(in crate::catalogue::items) const CONCRETE: f32 = 2.4;
+    /// Precast paving slabs, at a 0.6 m slab across the default five-cell
+    /// grid.
+    pub(in crate::catalogue::items) const PAVERS: f32 = 3.0;
+    /// Glazed floor tile — the default five cells at a 0.2 m tile.
+    pub(in crate::catalogue::items) const ENCAUSTIC: f32 = 1.0;
+    /// One framed wall panel.
+    pub(in crate::catalogue::items) const WAINSCOTING: f32 = 0.9;
     /// Sheet metal — plate seams and brushing.
     pub(in crate::catalogue::items) const METAL: f32 = 1.2;
     /// Fired enamel / glazed ceramic. The clear coat is near-scaleless — the

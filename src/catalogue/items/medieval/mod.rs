@@ -48,12 +48,13 @@ pub mod fx;
 
 use bevy_symbios_texture::metal::MetalStyle;
 
-use super::util::{tile, tiles_per_metre};
+use super::util::{ageing, tile, tiles_per_metre};
 use crate::catalogue::items::util::{cuboid_tapered, id_quat, prim, solid};
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, SovereignAshlarConfig, SovereignCobblestoneConfig,
     SovereignFabricConfig, SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig,
     SovereignShingleConfig, SovereignStuccoConfig, SovereignTextureConfig, SovereignThatchConfig,
+    SovereignWainscotingConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -91,6 +92,27 @@ pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
 
 /// Dressed ashlar stone — chapel and castle walls, market-hall pillars,
 /// the well kerb. Coursed blocks with a pale mortar line.
+/// Framed board panelling — shutters, screens and the panelled backs of
+/// market stalls. Distinct from [`timber`], which is sawn structural board:
+/// this is joinery, with a raised frame around a recessed panel.
+pub(super) fn panelling(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.78),
+        uv_scale: tiles_per_metre(tile::WAINSCOTING),
+        texture: SovereignTextureConfig::Wainscoting(SovereignWainscotingConfig {
+            color_wood_light: Fp3([color[0] * 1.15, color[1] * 1.15, color[2] * 1.15]),
+            color_wood_dark: Fp3([color[0] * 0.55, color[1] * 0.55, color[2] * 0.55]),
+            panels_x: 1,
+            panels_y: 1,
+            frame_width: Fp64(0.22),
+            weathering: ageing::stained(0x73, 0.6),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
 pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),

@@ -103,6 +103,9 @@ fn build_tree() -> Generator {
     // Signature life: mana motes rising from the ring centre.
     root.children
         .push(fx::mana_motes([0.0, 0.5, 0.0], 0x0A1A_FA12));
+    // The ring's own signature: slow pulses spreading across the sward.
+    root.children
+        .push(fx::ring_pulse([0.0, 0.08, 0.0], 0x0A1A_FA13));
     root
 }
 

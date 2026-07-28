@@ -14,8 +14,9 @@ use bevy_symbios_audio::{Connection, Gain, GraphNode, Lfo, LfoShape, NodeId, Nod
 
 use crate::catalogue::items::fx::{Emitter, node, patch};
 use crate::pds::{
-    EmitterShape, Fp, Fp3, Generator, ParticleBlendMode, SovereignAudioConfig, SovereignPuffConfig,
-    SovereignSoftDiscConfig, SovereignSparkConfig, SovereignTextureConfig,
+    EmitterShape, Fp, Fp3, Fp64, Generator, ParticleBlendMode, SovereignAudioConfig,
+    SovereignPuffConfig, SovereignRingConfig, SovereignShardConfig, SovereignSoftDiscConfig,
+    SovereignSparkConfig, SovereignTextureConfig,
 };
 
 // ---------------------------------------------------------------------------
@@ -45,6 +46,71 @@ pub(super) fn mana_motes(pos: [f32; 3], seed: u64) -> Generator {
             seed: (seed ^ 0x0A1A_0F00) as u32,
             color_core: Fp3([0.7, 1.0, 0.95]),
             color_halo: Fp3([0.2, 0.7, 0.9]),
+            ..Default::default()
+        }),
+    }
+    .at(pos, seed)
+}
+
+/// Slow rings of fae light pulsing outward at ankle height — the ring itself
+/// made visible. Rises barely at all: these are ripples across the ground,
+/// not motes on the breeze.
+pub(super) fn ring_pulse(pos: [f32; 3], seed: u64) -> Generator {
+    Emitter {
+        shape: EmitterShape::Sphere { radius: Fp(0.15) },
+        rate: 1.2,
+        burst: 0,
+        max: 8,
+        life: (2.6, 3.8),
+        speed: (0.05, 0.12),
+        gravity: -0.01,
+        accel: [0.0, 0.02, 0.0],
+        drag: 0.7,
+        // Grows as it fades, so each ring reads as a ripple spreading out.
+        size: (0.35, 1.6),
+        start_color: [0.55, 1.0, 0.80, 0.55],
+        end_color: [0.35, 0.85, 1.0, 0.0],
+        blend: ParticleBlendMode::Additive,
+        sprite: SovereignTextureConfig::Ring(SovereignRingConfig {
+            seed: (seed ^ 0x0_1234_0000) as u32,
+            color: Fp3([0.72, 1.0, 0.92]),
+            radius: Fp64(0.62),
+            thickness: Fp64(0.09),
+            // A fae ring is drawn by hand, not stamped: let it wobble.
+            waviness: Fp64(0.16),
+            wave_count: 7,
+            ..Default::default()
+        }),
+    }
+    .at(pos, seed)
+}
+
+/// Splinters shed from a crystal — angular, faceted, and falling rather than
+/// drifting, which is what separates them from the mana motes above.
+pub(super) fn crystal_shards(pos: [f32; 3], seed: u64) -> Generator {
+    Emitter {
+        shape: EmitterShape::Sphere { radius: Fp(0.7) },
+        rate: 4.0,
+        burst: 0,
+        max: 36,
+        life: (1.8, 3.2),
+        speed: (0.15, 0.5),
+        gravity: 0.12,
+        accel: [0.0, -0.05, 0.0],
+        drag: 0.5,
+        size: (0.09, 0.0),
+        start_color: [0.75, 0.95, 1.0, 0.95],
+        end_color: [0.45, 0.70, 0.95, 0.0],
+        blend: ParticleBlendMode::Additive,
+        sprite: SovereignTextureConfig::Shard(SovereignShardConfig {
+            seed: (seed ^ 0x0_5A4D_0000) as u32,
+            variant_rows: 3,
+            variant_cols: 3,
+            color_base: Fp3([0.80, 0.94, 1.0]),
+            color_edge: Fp3([0.40, 0.66, 0.90]),
+            sides: 6,
+            irregularity: Fp64(0.35),
+            edge_band: Fp64(0.22),
             ..Default::default()
         }),
     }

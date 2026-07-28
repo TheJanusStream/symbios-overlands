@@ -20,8 +20,9 @@ use rand_chacha::rand_core::SeedableRng;
 
 use super::accent::ThemeAccent;
 use crate::pds::{
-    Fp3, Fp64, SovereignPetalConfig, SovereignPuffConfig, SovereignSnowflakeConfig,
-    SovereignSoftDiscConfig, SovereignSparkConfig, SovereignTextureConfig,
+    Fp, Fp3, Fp64, SovereignLeafConfig, SovereignLeafSpriteConfig, SovereignPetalConfig,
+    SovereignPuffConfig, SovereignSnowflakeConfig, SovereignSoftDiscConfig, SovereignSparkConfig,
+    SovereignTextureConfig,
 };
 use crate::seeded_defaults::scene::{BiomeArchetype, EscalationTier, SceneCharacter, range_f32};
 
@@ -159,16 +160,25 @@ impl AmbientParticles {
                 color_throat: Fp3([1.0, 0.90, 0.70]),
                 ..Default::default()
             }),
-            // Leaves reuse the petal card silhouette, recoloured to
-            // foliage: green blade, darker rim, amber midrib.
-            ParticleMood::Leaves => SovereignTextureConfig::Petal(SovereignPetalConfig {
+            // The leaf card proper: a lobed blade with real venation, rather
+            // than the petal silhouette this mood used to borrow. Autumn
+            // colours, since these are leaves that have already fallen.
+            ParticleMood::Leaves => SovereignTextureConfig::LeafSprite(SovereignLeafSpriteConfig {
                 seed,
                 variant_rows: 2,
                 variant_cols: 2,
-                color_base: Fp3([0.45, 0.62, 0.24]),
-                color_edge: Fp3([0.30, 0.45, 0.16]),
-                color_throat: Fp3([0.74, 0.66, 0.28]),
-                ..Default::default()
+                leaf: SovereignLeafConfig {
+                    color_base: Fp3([0.52, 0.40, 0.14]),
+                    color_edge: Fp3([0.34, 0.22, 0.08]),
+                    lobe_count: Fp64(3.0),
+                    lobe_depth: Fp64(0.35),
+                    serration_strength: Fp64(0.18),
+                    ..Default::default()
+                },
+                // Every leaf falls differently; jitter the silhouette and the
+                // tint so a `RandomFrame` draw does not repeat.
+                shape_jitter: Fp64(0.6),
+                tint_jitter: Fp(0.35),
             }),
             ParticleMood::Smoke => SovereignTextureConfig::Puff(SovereignPuffConfig {
                 seed,

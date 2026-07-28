@@ -18,7 +18,7 @@ use crate::seeded_defaults::ThemeArchetype;
 
 use super::{
     DAUB_CREAM, IRON_DARK, SLATE_GREY, STONE_GREY, STONE_PALE, WOOD_DARK, WOOD_OAK, daub, iron,
-    rough_stone, shingle, stone, timber,
+    panelling, rough_stone, shingle, stone, timber,
 };
 
 pub struct MarketHall;
@@ -159,7 +159,7 @@ fn build_tree() -> Generator {
         // Two shuttered windows per long face.
         for sx in [-1.6_f32, 1.6] {
             prims.push(prim(
-                solid(cuboid_tapered([0.9, 0.9, 0.1], 0.0, timber(WOOD_OAK))),
+                solid(cuboid_tapered([0.9, 0.9, 0.1], 0.0, panelling(WOOD_OAK))),
                 [sx, upper_y + 0.1, zf - sz * 0.02],
                 id_quat(),
             ));

@@ -12,7 +12,9 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{LIMESTONE_PALE, STONE_GREY, STUCCO_CREAM, STUCCO_RED, limestone, painted};
+use super::{
+    LIMESTONE_PALE, STONE_GREY, STUCCO_CREAM, STUCCO_RED, limestone, painted, patterned_floor,
+};
 
 pub struct BallCourt;
 
@@ -62,7 +64,7 @@ fn build_tree() -> Generator {
             solid(cuboid_tapered(
                 [alley_hw * 2.0, 0.3, len],
                 0.0,
-                limestone(STUCCO_CREAM),
+                patterned_floor(STUCCO_CREAM),
             )),
             [0.0, 0.15, 0.0],
             id_quat(),
