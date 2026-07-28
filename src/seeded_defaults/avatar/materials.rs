@@ -320,25 +320,31 @@ impl MaterialKit {
             ..Default::default()
         };
         if self.chitinous {
-            // Carapace, not hide. The generator lays six plates across a
-            // tile, so 2 tiles/m puts a plate at roughly a hand's width and
-            // a forearm carries a few rather than one flat shell. The
-            // default 6 tiles/m would be a 2.8 cm scale — correct for an
-            // insect, invisible on an avatar.
+            // Carapace, not hide. Sizing is the whole game here: visible
+            // plates/m = generator `scale` × `uv_scale`, and a plate only
+            // reads as a plate if several fit the limb AND the suture
+            // between them survives the surface's on-screen footprint. The
+            // generator defaults (6 plates/tile, hairline seams) are drawn
+            // for an architectural face seen up close; on an avatar they
+            // put one smooth plate across a forearm and mip the seams away
+            // entirely, which renders as flat colour (#1004 — initially
+            // misread as the texture never reaching the GPU).
             m.metallic = Fp(0.35);
             m.roughness = Fp(0.35);
-            m.uv_scale = Fp(2.0);
+            m.uv_scale = Fp(1.0);
             m.texture = SovereignTextureConfig::Chitin(SovereignChitinConfig {
                 color: Fp3(color),
-                color_deep: Fp3(shade01(color, 0.35)),
-                gloss_roughness: Fp(0.3),
-                metallic: Fp(0.35),
-                // The default hairline suture is drawn for a surface seen
-                // close up; on a limb a few metres away it mips away
-                // entirely, taking the read of separate plates with it.
-                seam_width: Fp64(0.02),
+                color_deep: Fp3(shade01(color, 0.25)),
+                // 4 plates/m: a hand-span plate, so a forearm carries a
+                // couple of segments and the head a crown of them.
+                scale: Fp64(4.0),
+                // Bold sutures — 2.5 cm at this tile — or the carapace
+                // read vanishes past a few metres.
+                seam_width: Fp64(0.025),
                 seam_depth: Fp(0.9),
                 plate_relief: Fp64(0.7),
+                gloss_roughness: Fp(0.3),
+                metallic: Fp(0.35),
                 iridescence: Fp(if self.bold { 0.35 } else { 0.18 }),
                 ..Default::default()
             });
