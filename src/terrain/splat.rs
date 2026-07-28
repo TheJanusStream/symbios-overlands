@@ -56,7 +56,7 @@ pub(super) fn start_texture_tasks(
 
     for (i, layer) in mat.layers.iter().enumerate() {
         let task = crate::offload::offload(GenJob::TextureBake {
-            job: texture_bake_job(layer),
+            job: Box::new(texture_bake_job(layer)),
             width: texture_size,
             height: texture_size,
         });
@@ -112,6 +112,15 @@ fn texture_bake_job(layer: &SovereignTextureConfig) -> gen_jobs::TextureBakeJob 
     use gen_jobs::TextureBakeJob as Job;
     match layer {
         SovereignTextureConfig::Ground(c) => Job::Ground(c.to_native()),
+        SovereignTextureConfig::CrackedEarth(c) => Job::CrackedEarth(c.to_native()),
+        SovereignTextureConfig::Gravel(c) => Job::Gravel(c.to_native()),
+        SovereignTextureConfig::ForestFloor(c) => Job::ForestFloor(c.to_native()),
+        SovereignTextureConfig::Enamel(c) => Job::Enamel(c.to_native()),
+        SovereignTextureConfig::Obsidian(c) => Job::Obsidian(c.to_native()),
+        SovereignTextureConfig::Chitin(c) => Job::Chitin(c.to_native()),
+        SovereignTextureConfig::SolarPanel(c) => Job::SolarPanel(c.to_native()),
+        SovereignTextureConfig::Parquet(c) => Job::Parquet(c.to_native()),
+        SovereignTextureConfig::Truchet(c) => Job::Truchet(c.to_native()),
         SovereignTextureConfig::Rock(c) => Job::Rock(c.to_native()),
         SovereignTextureConfig::Bark(c) => Job::Bark(c.to_native()),
         SovereignTextureConfig::Brick(c) => Job::Brick(c.to_native()),

@@ -185,6 +185,11 @@ impl Sanitize for SovereignTextureConfig {
             SovereignTextureConfig::Lichen(s) => {
                 s.patch_octaves = s.patch_octaves.clamp(1, limits::MAX_GROUND_OCTAVES);
             }
+            // Forest floor: every litter layer walks a 3x3 cell neighbourhood
+            // per texel, so the layer count is a real loop bound.
+            SovereignTextureConfig::ForestFloor(s) => {
+                s.layers = s.layers.clamp(1, limits::MAX_TEXTURE_LITTER_LAYERS);
+            }
             // Forward to the asset-reference sanitiser — caps URL / DID /
             // CID lengths so a hostile peer can't smuggle a megabyte URL
             // through a referenced texture slot.
@@ -217,6 +222,21 @@ impl Sanitize for SovereignTextureConfig {
             | SovereignTextureConfig::Lava(_)
             | SovereignTextureConfig::ChainLink(_)
             | SovereignTextureConfig::LogEnd(_)
+            // Surfaces added in bevy_symbios_texture 0.8. Their plate / stone
+            // / tile / wafer counts are `fp64` feature frequencies bounded by
+            // `MAX_TEXTURE_SIZE`, and the cellular lattices behind Cracked
+            // Earth, Gravel, Chitin and Enamel's craze clamp their own cell
+            // count upstream. Corrosion growth is a fixed number of sweeps
+            // regardless of how far it spreads, so no layer here scales its
+            // cost with a record-supplied value.
+            | SovereignTextureConfig::CrackedEarth(_)
+            | SovereignTextureConfig::Gravel(_)
+            | SovereignTextureConfig::Enamel(_)
+            | SovereignTextureConfig::Obsidian(_)
+            | SovereignTextureConfig::Chitin(_)
+            | SovereignTextureConfig::SolarPanel(_)
+            | SovereignTextureConfig::Parquet(_)
+            | SovereignTextureConfig::Truchet(_)
             | SovereignTextureConfig::Unknown => {}
         }
     }

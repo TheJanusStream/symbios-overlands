@@ -130,7 +130,7 @@ pub(super) fn dispatch_surface_bake(
     let job_name = format!("surface_tex_{}_{:08x}", key.kind, key.fingerprint as u32);
 
     let task = crate::offload::offload(GenJob::TextureBake {
-        job,
+        job: Box::new(job),
         width: size,
         height: size,
     });

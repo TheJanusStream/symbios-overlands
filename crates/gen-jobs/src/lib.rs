@@ -321,8 +321,14 @@ pub enum GenJob {
     /// Procedural audio bake (patch or sequence) → WAV bytes.
     AudioBake(AudioBakeJob),
     /// Procedural texture bake at `width`×`height` → RGBA pixel buffers.
+    ///
+    /// The job is boxed because `TextureBakeJob` carries the largest generator
+    /// config in the roster, and several of those now nest a whole weathering
+    /// block. Inlining it would push every `GenJob` — including the small
+    /// heightmap and audio variants — up to its size, and these are moved
+    /// through queues and channels far more often than they are baked.
     TextureBake {
-        job: TextureBakeJob,
+        job: Box<TextureBakeJob>,
         width: u32,
         height: u32,
     },

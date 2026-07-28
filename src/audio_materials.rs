@@ -189,6 +189,22 @@ impl ImpactMaterial {
 fn classify(texture: &SovereignTextureConfig) -> ImpactMaterial {
     match texture {
         SovereignTextureConfig::Rock(_) => ImpactMaterial::Rock,
+        // Loose aggregate grinds rather than rings — closest to stone.
+        SovereignTextureConfig::Gravel(_) => ImpactMaterial::Rock,
+        // Dried mud is still earth underfoot.
+        SovereignTextureConfig::CrackedEarth(_) => ImpactMaterial::Ground,
+        // Leaf litter rustles.
+        SovereignTextureConfig::ForestFloor(_) => ImpactMaterial::Soft,
+        // Fired glaze, volcanic glass and carapace all ring hard and bright.
+        SovereignTextureConfig::Enamel(_)
+        | SovereignTextureConfig::Obsidian(_)
+        | SovereignTextureConfig::Chitin(_) => ImpactMaterial::Stone,
+        // Glass over a metal frame, and a plated circuit panel.
+        SovereignTextureConfig::SolarPanel(_) | SovereignTextureConfig::Truchet(_) => {
+            ImpactMaterial::Metal
+        }
+        // Parquet is a wooden floor whatever figure it is laid in.
+        SovereignTextureConfig::Parquet(_) => ImpactMaterial::Wood,
         SovereignTextureConfig::Pavers(_)
         | SovereignTextureConfig::Cobblestone(_)
         | SovereignTextureConfig::Ashlar(_) => ImpactMaterial::Rock,

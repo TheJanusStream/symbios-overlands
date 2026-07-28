@@ -55,6 +55,13 @@ pub const MAX_SPRITE_FLOWER_PETALS: u32 = 12;
 /// the per-pixel silhouette test, so cap it at the record boundary; the value
 /// mirrors the upstream generator's own internal clamp.
 pub const MAX_TEXTURE_GRASS_BLADES: u32 = 24;
+
+/// Maximum stacked litter layers on a forest floor.
+///
+/// Each layer walks a 3x3 cell neighbourhood per texel, so this is a genuine
+/// loop bound rather than a feature frequency. Matches the upstream
+/// `forest_floor::MAX_LAYERS`.
+pub const MAX_TEXTURE_LITTER_LAYERS: u32 = 4;
 /// Scatter placement count.
 pub const MAX_SCATTER_COUNT: u32 = 100_000;
 /// L-system derivation iterations. 12 is already enough to blow out most

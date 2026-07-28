@@ -8,18 +8,21 @@ use bevy_egui::egui;
 use crate::pds::{
     Fp, Fp2, SovereignAshlarConfig, SovereignAsphaltConfig, SovereignBarkConfig,
     SovereignBrickConfig, SovereignBroadleafConfig, SovereignCactusSkinConfig,
-    SovereignChainLinkConfig, SovereignCobblestoneConfig, SovereignConcreteConfig,
-    SovereignCorrugatedConfig, SovereignEncausticConfig, SovereignFabricConfig,
-    SovereignFlameConfig, SovereignFlowerConfig, SovereignFrondConfig, SovereignGrassTuftConfig,
-    SovereignGroundConfig, SovereignIceConfig, SovereignIronGrilleConfig, SovereignLavaConfig,
-    SovereignLeafConfig, SovereignLeafSpriteConfig, SovereignLichenConfig, SovereignLogEndConfig,
-    SovereignMarbleConfig, SovereignMaterialConfig, SovereignMaterialSettings,
-    SovereignMetalConfig, SovereignMossConfig, SovereignNeedleConfig, SovereignPaversConfig,
-    SovereignPetalConfig, SovereignPlankConfig, SovereignPuffConfig, SovereignReedConfig,
-    SovereignRingConfig, SovereignRockConfig, SovereignSandConfig, SovereignShardConfig,
-    SovereignShingleConfig, SovereignSnowConfig, SovereignSnowflakeConfig, SovereignSoftDiscConfig,
-    SovereignSparkConfig, SovereignSplatRule, SovereignStainedGlassConfig, SovereignStuccoConfig,
-    SovereignTextureConfig, SovereignThatchConfig, SovereignTwigConfig, SovereignWainscotingConfig,
+    SovereignChainLinkConfig, SovereignChitinConfig, SovereignCobblestoneConfig,
+    SovereignConcreteConfig, SovereignCorrugatedConfig, SovereignCrackedEarthConfig,
+    SovereignEnamelConfig, SovereignEncausticConfig, SovereignFabricConfig, SovereignFlameConfig,
+    SovereignFlowerConfig, SovereignForestFloorConfig, SovereignFrondConfig,
+    SovereignGrassTuftConfig, SovereignGravelConfig, SovereignGroundConfig, SovereignIceConfig,
+    SovereignIronGrilleConfig, SovereignLavaConfig, SovereignLeafConfig, SovereignLeafSpriteConfig,
+    SovereignLichenConfig, SovereignLogEndConfig, SovereignMarbleConfig, SovereignMaterialConfig,
+    SovereignMaterialSettings, SovereignMetalConfig, SovereignMossConfig, SovereignNeedleConfig,
+    SovereignObsidianConfig, SovereignParquetConfig, SovereignPaversConfig, SovereignPetalConfig,
+    SovereignPlankConfig, SovereignPuffConfig, SovereignReedConfig, SovereignRingConfig,
+    SovereignRockConfig, SovereignSandConfig, SovereignShardConfig, SovereignShingleConfig,
+    SovereignSnowConfig, SovereignSnowflakeConfig, SovereignSoftDiscConfig,
+    SovereignSolarPanelConfig, SovereignSparkConfig, SovereignSplatRule,
+    SovereignStainedGlassConfig, SovereignStuccoConfig, SovereignTextureConfig,
+    SovereignThatchConfig, SovereignTruchetConfig, SovereignTwigConfig, SovereignWainscotingConfig,
     SovereignWindowConfig,
 };
 
@@ -261,6 +264,35 @@ pub(super) fn draw_texture_bridge_opts(
             opt!(
                 "Cactus Skin",
                 SovereignTextureConfig::CactusSkin(Default::default())
+            );
+            // Terrain surfaces added in bevy_symbios_texture 0.8.
+            opt!(
+                "Cracked Earth",
+                SovereignTextureConfig::CrackedEarth(Default::default())
+            );
+            opt!("Gravel", SovereignTextureConfig::Gravel(Default::default()));
+            opt!(
+                "Forest Floor",
+                SovereignTextureConfig::ForestFloor(Default::default())
+            );
+            // Catalogue surfaces added in bevy_symbios_texture 0.8.
+            opt!("Enamel", SovereignTextureConfig::Enamel(Default::default()));
+            opt!(
+                "Obsidian",
+                SovereignTextureConfig::Obsidian(Default::default())
+            );
+            opt!("Chitin", SovereignTextureConfig::Chitin(Default::default()));
+            opt!(
+                "Solar Panel",
+                SovereignTextureConfig::SolarPanel(Default::default())
+            );
+            opt!(
+                "Parquet",
+                SovereignTextureConfig::Parquet(Default::default())
+            );
+            opt!(
+                "Truchet",
+                SovereignTextureConfig::Truchet(Default::default())
             );
             // Alpha-masked mesh cards.
             opt!(
@@ -522,6 +554,51 @@ pub(super) fn draw_texture_bridge_opts(
             c,
             SovereignLavaConfig,
             bevy_symbios_texture::ui::lava_config_editor
+        ),
+        SovereignTextureConfig::CrackedEarth(c) => run!(
+            c,
+            SovereignCrackedEarthConfig,
+            bevy_symbios_texture::ui::cracked_earth_config_editor
+        ),
+        SovereignTextureConfig::Gravel(c) => run!(
+            c,
+            SovereignGravelConfig,
+            bevy_symbios_texture::ui::gravel_config_editor
+        ),
+        SovereignTextureConfig::ForestFloor(c) => run!(
+            c,
+            SovereignForestFloorConfig,
+            bevy_symbios_texture::ui::forest_floor_config_editor
+        ),
+        SovereignTextureConfig::Enamel(c) => run!(
+            c,
+            SovereignEnamelConfig,
+            bevy_symbios_texture::ui::enamel_config_editor
+        ),
+        SovereignTextureConfig::Obsidian(c) => run!(
+            c,
+            SovereignObsidianConfig,
+            bevy_symbios_texture::ui::obsidian_config_editor
+        ),
+        SovereignTextureConfig::Chitin(c) => run!(
+            c,
+            SovereignChitinConfig,
+            bevy_symbios_texture::ui::chitin_config_editor
+        ),
+        SovereignTextureConfig::SolarPanel(c) => run!(
+            c,
+            SovereignSolarPanelConfig,
+            bevy_symbios_texture::ui::solar_panel_config_editor
+        ),
+        SovereignTextureConfig::Parquet(c) => run!(
+            c,
+            SovereignParquetConfig,
+            bevy_symbios_texture::ui::parquet_config_editor
+        ),
+        SovereignTextureConfig::Truchet(c) => run!(
+            c,
+            SovereignTruchetConfig,
+            bevy_symbios_texture::ui::truchet_config_editor
         ),
         SovereignTextureConfig::ChainLink(c) => run!(
             c,
