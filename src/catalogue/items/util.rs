@@ -874,6 +874,12 @@ pub(super) mod tile {
     /// Obsidian flow banding — a figure rather than a countable feature,
     /// sized like marble so the sheets read at architectural scale.
     pub(in crate::catalogue::items) const OBSIDIAN: f32 = 2.0;
+    /// Knapped obsidian — blades, mirrors and inlays, worked at a few
+    /// centimetres rather than quarried in sheets. [`OBSIDIAN`] sized to an
+    /// architectural face puts less than a tenth of a tile across a 0.15 m
+    /// inlay, which mips to flat black; the figure only survives on small
+    /// pieces if the tile shrinks with them.
+    pub(in crate::catalogue::items) const OBSIDIAN_KNAPPED: f32 = 0.25;
     /// One photovoltaic wafer. Real cells are 156 mm square, and the
     /// generator lays four across a tile.
     pub(in crate::catalogue::items) const SOLAR_CELL: f32 = 0.156;

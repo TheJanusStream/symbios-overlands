@@ -14,10 +14,11 @@
 //! back a fully-finished material, so the style/wear logic lives in exactly
 //! one place instead of being re-derived per builder.
 
-use bevy_symbios_texture::metal::MetalStyle;
+use bevy_symbios_texture::{fabric::WeaveKind, metal::MetalStyle};
 
 use crate::pds::texture::{
-    SovereignFabricConfig, SovereignMaterialSettings, SovereignMetalConfig, SovereignTextureConfig,
+    SovereignChitinConfig, SovereignEnamelConfig, SovereignFabricConfig, SovereignMaterialSettings,
+    SovereignMetalConfig, SovereignTextureConfig,
 };
 use crate::pds::types::{Fp, Fp3, Fp64};
 use crate::seeded_defaults::scene::ThemeArchetype;
@@ -52,6 +53,20 @@ impl FinishFamily {
         }
     }
 
+    /// The weave a family's loose cloth is worked in. Cloth is where the
+    /// families differ most by touch rather than by gloss, so this is the
+    /// one place the weave kind is chosen rather than left plain.
+    fn cloth_weave(self) -> WeaveKind {
+        match self {
+            // Technical fabric over a hard shell — flat and even.
+            Self::Metal | Self::Clean => WeaveKind::Plain,
+            // Workwear: canvas and denim carry a diagonal wale.
+            Self::Matte => WeaveKind::Twill,
+            // Robes and drapery, where the long floats catch the light.
+            Self::Organic => WeaveKind::Satin,
+        }
+    }
+
     /// `(metallic, roughness)` for the family's main painted body surface.
     fn body_pbr(self) -> (f32, f32) {
         match self {
@@ -74,6 +89,14 @@ fn style_is_luminous(style: ThemeArchetype) -> bool {
     )
 }
 
+/// Whether a style's "skin" is carapace rather than hide. Style-level, not
+/// family-level: the Organic family also holds Fantasy and FeudalJapan, and
+/// plating a fantasy avatar's face in insect chitin is a worse read than
+/// leaving it flat.
+fn style_is_chitinous(style: ThemeArchetype) -> bool {
+    matches!(style, ThemeArchetype::AlienOrganic)
+}
+
 /// A seeded material-finish kit. Cheap to recompute from the anchor;
 /// holds the style finish family + continuous wear so each role method
 /// bakes a consistent finish.
@@ -81,6 +104,8 @@ fn style_is_luminous(style: ThemeArchetype) -> bool {
 pub struct MaterialKit {
     family: FinishFamily,
     luminous: bool,
+    /// Whether [`MaterialKit::skin`] is carapace rather than hide.
+    chitinous: bool,
     /// `[0, 1]` continuous wear from the anchor — drives grime + roughness.
     wear: f32,
     /// Bold finish register — glossier surfaces + stronger glow than the
@@ -102,6 +127,7 @@ impl MaterialKit {
         Self {
             family: FinishFamily::for_style(c.style),
             luminous: style_is_luminous(c.style),
+            chitinous: style_is_chitinous(c.style),
             wear: c.wear.clamp(0.0, 1.0),
             bold: matches!(c.finish, FinishRegister::Bold),
         }
@@ -147,9 +173,25 @@ impl MaterialKit {
         }
     }
 
-    /// Matte fabric / canvas — clothing, envelope canvas, awnings.
+    /// Matte fabric / canvas — clothing, envelope canvas, awnings. Woven in
+    /// the family's own weave, and coarser than [`Self::body`]: loose cloth
+    /// hangs in bigger folds than a fitted panel, so the thread reads at a
+    /// larger pitch.
     pub fn cloth(&self, color: [f32; 3]) -> SovereignMaterialSettings {
-        self.finish(color, 0.0, 0.85)
+        let mut m = self.finish(color, 0.0, 0.85);
+        let base = m.base_color.0;
+        m.uv_scale = Fp(1.2);
+        m.texture = SovereignTextureConfig::Fabric(SovereignFabricConfig {
+            weave: self.family.cloth_weave(),
+            color_warp: Fp3(base),
+            color_weft: Fp3(shade01(base, 0.82)),
+            // Coarser than the body's 22: a garment's weave is visible, a
+            // fitted panel's is a texture you only notice up close.
+            thread_count: Fp64(15.0),
+            fuzz: Fp64((0.3 + 0.3 * self.wear as f64).min(0.9)),
+            ..Default::default()
+        });
+        m
     }
 
     /// Structural metal — frames, struts, masts. Brushed-panel texture.
@@ -168,6 +210,24 @@ impl MaterialKit {
         let mut m = self.finish(color, 0.75, 0.3);
         // Ornament metal is wiped/maintained — pull a little wear back out.
         m.roughness = Fp(m.roughness.0 * 0.85);
+        let base = m.base_color.0;
+        // Fittings are small — a buckle or finial is a few centimetres — so
+        // the tile has to shrink with them or the peening mips to flat brass.
+        m.uv_scale = Fp(9.0);
+        m.texture = SovereignTextureConfig::Metal(SovereignMetalConfig {
+            // Beaten, not brushed: ornament is worked by hand, and the
+            // dimples catch light from every angle where brushing only
+            // answers along one.
+            style: MetalStyle::Hammered,
+            scale: Fp64(7.0),
+            color_metal: Fp3(base),
+            color_rust: Fp3([0.34, 0.24, 0.10]),
+            roughness: Fp64(0.3),
+            metallic: Fp(0.85),
+            // Maintained ornament barely tarnishes, even on a battered avatar.
+            rust_level: Fp64((0.02 + 0.18 * self.wear as f64).min(0.35)),
+            ..Default::default()
+        });
         m
     }
 
@@ -187,7 +247,37 @@ impl MaterialKit {
                 ..Default::default()
             }
         } else {
-            self.finish(color, 0.4, 0.45)
+            let mut m = self.finish(color, 0.4, 0.45);
+            let base = m.base_color.0;
+            m.uv_scale = Fp(2.0);
+            m.texture = match self.family {
+                // A sprayed accent stripe over a hard shell is enamel: the
+                // fired coat's only feature is a fine orange-peel, which is
+                // what separates it from the brushed panel underneath.
+                FinishFamily::Metal | FinishFamily::Clean => {
+                    SovereignTextureConfig::Enamel(SovereignEnamelConfig {
+                        color: Fp3(base),
+                        color_body: Fp3(shade01(base, 0.7)),
+                        gloss_roughness: Fp(0.2),
+                        // Old lacquer crazes; a fresh coat does not.
+                        crackle: Fp(0.45 * self.wear),
+                        ..Default::default()
+                    })
+                }
+                // A sash or heraldic panel is cloth, not paint — so it takes
+                // the same weave as the rest of the avatar's clothing.
+                FinishFamily::Matte | FinishFamily::Organic => {
+                    SovereignTextureConfig::Fabric(SovereignFabricConfig {
+                        weave: self.family.cloth_weave(),
+                        color_warp: Fp3(base),
+                        color_weft: Fp3(shade01(base, 0.82)),
+                        thread_count: Fp64(18.0),
+                        fuzz: Fp64((0.25 + 0.25 * self.wear as f64).min(0.9)),
+                        ..Default::default()
+                    })
+                }
+            };
+            m
         }
     }
 
@@ -206,6 +296,11 @@ impl MaterialKit {
     }
 
     /// Glassy canopy / visor. Slightly dirtier (rougher) when worn.
+    ///
+    /// Deliberately untextured: glass reads by its reflection, and any
+    /// surface pattern on a visor competes with the eyes behind it. Same for
+    /// [`Self::glow`], whose jewels and running lights are small enough that
+    /// a tiled surface would arrive as noise rather than detail.
     pub fn glass(&self, color: [f32; 3]) -> SovereignMaterialSettings {
         SovereignMaterialSettings {
             base_color: Fp3(color),
@@ -218,12 +313,37 @@ impl MaterialKit {
     /// Organic skin — independent of style and wear (wear is equipment
     /// grime, not biology). Softer than cloth so faces catch the sun.
     pub fn skin(&self, color: [f32; 3]) -> SovereignMaterialSettings {
-        SovereignMaterialSettings {
+        let mut m = SovereignMaterialSettings {
             base_color: Fp3(color),
             metallic: Fp(0.0),
             roughness: Fp(0.65),
             ..Default::default()
+        };
+        if self.chitinous {
+            // Carapace, not hide. The generator lays six plates across a
+            // tile, so 2 tiles/m puts a plate at roughly a hand's width and
+            // a forearm carries a few rather than one flat shell. The
+            // default 6 tiles/m would be a 2.8 cm scale — correct for an
+            // insect, invisible on an avatar.
+            m.metallic = Fp(0.35);
+            m.roughness = Fp(0.35);
+            m.uv_scale = Fp(2.0);
+            m.texture = SovereignTextureConfig::Chitin(SovereignChitinConfig {
+                color: Fp3(color),
+                color_deep: Fp3(shade01(color, 0.35)),
+                gloss_roughness: Fp(0.3),
+                metallic: Fp(0.35),
+                // The default hairline suture is drawn for a surface seen
+                // close up; on a limb a few metres away it mips away
+                // entirely, taking the read of separate plates with it.
+                seam_width: Fp64(0.02),
+                seam_depth: Fp(0.9),
+                plate_relief: Fp64(0.7),
+                iridescence: Fp(if self.bold { 0.35 } else { 0.18 }),
+                ..Default::default()
+            });
         }
+        m
     }
 
     /// Apply the wear grime + roughness bump to a base finish: a worn
@@ -387,6 +507,113 @@ mod tests {
         let n = MaterialKit::for_character(&nat).body([0.5, 0.4, 0.3]);
         assert!(b.metallic.0 > n.metallic.0, "bold should be more metallic");
         assert!(b.roughness.0 < n.roughness.0, "bold should be smoother");
+    }
+
+    /// Every textured role must survive the sanitiser untouched. A kit that
+    /// authors a value outside the sanitiser's envelope still *renders* —
+    /// the sanitiser quietly rewrites it — but the record then differs from
+    /// what the kit produced, so a round-trip through the PDS mutates the
+    /// avatar. Only a fixpoint check catches that.
+    #[test]
+    fn every_role_is_a_sanitiser_fixpoint() {
+        use crate::pds::sanitize::Sanitize;
+
+        for style in ThemeArchetype::ALL {
+            for wear in [0.0f32, 0.5, 1.0] {
+                for finish in [FinishRegister::Bold, FinishRegister::Naturalistic] {
+                    let mut c = AvatarCharacter::for_seed(11);
+                    c.style = style;
+                    c.wear = wear;
+                    c.finish = finish;
+                    let kit = MaterialKit::for_character(&c);
+                    let col = [0.55, 0.42, 0.30];
+                    let roles: [(&str, SovereignMaterialSettings); 7] = [
+                        ("body", kit.body(col)),
+                        ("cloth", kit.cloth(col)),
+                        ("metal", kit.metal(col)),
+                        ("trim", kit.trim(col)),
+                        ("accent", kit.accent(col)),
+                        ("glass", kit.glass(col)),
+                        ("skin", kit.skin(col)),
+                    ];
+                    for (name, m) in roles {
+                        let mut sanitised = m.clone();
+                        sanitised.sanitize();
+                        assert_eq!(
+                            m, sanitised,
+                            "{style:?}/{finish:?}/wear={wear} {name} is rewritten by the sanitiser"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// The point of #997: these roles used to be flat colour.
+    #[test]
+    fn dressed_roles_actually_carry_a_texture() {
+        for style in ThemeArchetype::ALL {
+            let mut c = AvatarCharacter::for_seed(12);
+            c.style = style;
+            let kit = MaterialKit::for_character(&c);
+            let col = [0.5, 0.45, 0.4];
+            assert!(
+                !matches!(kit.cloth(col).texture, SovereignTextureConfig::None),
+                "{style:?} cloth is untextured"
+            );
+            assert!(
+                !matches!(kit.trim(col).texture, SovereignTextureConfig::None),
+                "{style:?} trim is untextured"
+            );
+            // A luminous accent is emissive rather than textured — the glow
+            // is the feature, so it keeps its flat self-lit treatment.
+            if !kit.emissive_accents() {
+                assert!(
+                    !matches!(kit.accent(col).texture, SovereignTextureConfig::None),
+                    "{style:?} non-luminous accent is untextured"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn only_alien_organic_wears_chitin() {
+        for style in ThemeArchetype::ALL {
+            let mut c = AvatarCharacter::for_seed(13);
+            c.style = style;
+            let kit = MaterialKit::for_character(&c);
+            let is_chitin = matches!(
+                kit.skin([0.5, 0.4, 0.35]).texture,
+                SovereignTextureConfig::Chitin(_)
+            );
+            assert_eq!(
+                is_chitin,
+                style == ThemeArchetype::AlienOrganic,
+                "{style:?} skin chitin mismatch"
+            );
+        }
+    }
+
+    /// Cloth is where the families are meant to differ by hand rather than
+    /// gloss, so the weaves must not all collapse to one kind.
+    #[test]
+    fn families_weave_their_cloth_differently() {
+        use std::collections::BTreeSet;
+        let weaves: BTreeSet<_> = ThemeArchetype::ALL
+            .iter()
+            .map(|&style| {
+                let mut c = AvatarCharacter::for_seed(14);
+                c.style = style;
+                match MaterialKit::for_character(&c).cloth([0.5; 3]).texture {
+                    SovereignTextureConfig::Fabric(f) => format!("{:?}", f.weave),
+                    other => panic!("{style:?} cloth is not fabric: {other:?}"),
+                }
+            })
+            .collect();
+        assert!(
+            weaves.len() >= 3,
+            "cloth weave collapsed to {weaves:?} — the families read alike"
+        );
     }
 
     #[test]

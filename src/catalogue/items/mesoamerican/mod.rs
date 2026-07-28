@@ -8,7 +8,7 @@
 //!
 //! Surfaces use the real procedural generators rather than flat colour:
 //! dressed [`limestone`] ashlar, [`painted`] red stucco, rough [`cobble`]
-//! stone, green [`jade`] and black [`obsidian`] marble, [`gold`] metal,
+//! stone, green [`jade`] marble, knapped [`obsidian`] glass, [`gold`] metal,
 //! [`timber`] plank, and golden [`thatch`]. The temple fire, the fire
 //! bowls, and ritual incense come alive with flame, ember, copal-smoke and
 //! spatial audio from [`fx`] (a fire crackle and a slow ritual drum). The
@@ -37,8 +37,9 @@ use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::pds::{
     Fp, Fp3, Fp64, SovereignAshlarConfig, SovereignCobblestoneConfig, SovereignEncausticConfig,
-    SovereignMarbleConfig, SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig,
-    SovereignStuccoConfig, SovereignTextureConfig, SovereignThatchConfig,
+    SovereignMarbleConfig, SovereignMaterialSettings, SovereignMetalConfig,
+    SovereignObsidianConfig, SovereignPlankConfig, SovereignStuccoConfig, SovereignTextureConfig,
+    SovereignThatchConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -151,16 +152,24 @@ pub(super) fn obsidian(color: [f32; 3]) -> SovereignMaterialSettings {
         base_color: Fp3(color),
         roughness: Fp(0.1),
         metallic: Fp(0.3),
-        uv_scale: tiles_per_metre(tile::MARBLE),
-        texture: SovereignTextureConfig::Marble(SovereignMarbleConfig {
-            color_base: Fp3(color),
-            color_vein: Fp3([
-                color[0] * 2.0 + 0.05,
-                color[1] * 2.0 + 0.05,
-                color[2] * 2.0 + 0.08,
+        uv_scale: tiles_per_metre(tile::OBSIDIAN_KNAPPED),
+        texture: SovereignTextureConfig::Obsidian(SovereignObsidianConfig {
+            color: Fp3(color),
+            // Sheen lifts and cools off the body, the way a fresh fracture
+            // catches light against the bulk of the glass.
+            color_sheen: Fp3([
+                (color[0] * 2.0 + 0.05).min(1.0),
+                (color[1] * 2.0 + 0.05).min(1.0),
+                (color[2] * 2.2 + 0.08).min(1.0),
             ]),
-            vein_frequency: Fp64(2.0),
-            roughness: Fp64(0.08),
+            // Knapped, not quarried: conchoidal fracture leaves tight,
+            // crisp ripples, where a flow face carries broad lazy bands.
+            band_cycles_u: Fp64(9.0),
+            band_cycles_v: Fp64(4.0),
+            band_warp: Fp64(0.14),
+            band_sharpness: Fp64(0.62),
+            gloss_roughness: Fp(0.1),
+            metallic: Fp(0.3),
             ..Default::default()
         }),
         ..Default::default()
