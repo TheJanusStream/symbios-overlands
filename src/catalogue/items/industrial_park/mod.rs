@@ -33,7 +33,7 @@ pub mod fx;
 
 use std::f32::consts::PI;
 
-use super::util::{tile, tiles_per_metre};
+use super::util::{ageing, tile, tiles_per_metre};
 use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::catalogue::items::util::{
@@ -73,6 +73,7 @@ pub(super) fn cladding(color: [f32; 3]) -> SovereignMaterialSettings {
             roughness: Fp64(0.55),
             metallic: Fp(0.7),
             rust_level: Fp64(0.12),
+            weathering: ageing::corroded(0x11, 0.75),
             ..Default::default()
         }),
         ..Default::default()
@@ -90,6 +91,7 @@ pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
             formwork_lines: Fp64(5.0),
             formwork_depth: Fp64(0.12),
             pit_density: Fp64(0.12),
+            weathering: ageing::stained(0x12, 0.8),
             ..Default::default()
         }),
         ..Default::default()
@@ -110,6 +112,7 @@ pub(super) fn tank_steel(color: [f32; 3]) -> SovereignMaterialSettings {
             roughness: Fp64(0.4),
             metallic: Fp(0.85),
             rust_level: Fp64(0.1),
+            weathering: ageing::corroded(0x13, 0.7),
             ..Default::default()
         }),
         ..Default::default()
@@ -127,6 +130,7 @@ pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
             color_mortar: Fp3([0.45, 0.43, 0.40]),
             scale: Fp64(5.0),
             cell_variance: Fp64(0.2),
+            weathering: ageing::stained(0x14, 0.6),
             ..Default::default()
         }),
         ..Default::default()
@@ -192,6 +196,7 @@ pub(super) fn rust(color: [f32; 3]) -> SovereignMaterialSettings {
             roughness: Fp64(0.9),
             metallic: Fp(0.4),
             rust_level: Fp64(0.6),
+            weathering: ageing::corroded(0x15, 0.95),
             ..Default::default()
         }),
         ..Default::default()

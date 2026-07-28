@@ -46,7 +46,7 @@ pub mod tarp_shelter;
 
 pub mod fx;
 
-use super::util::{tile, tiles_per_metre};
+use super::util::{ageing, tile, tiles_per_metre};
 use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::pds::{
@@ -85,6 +85,7 @@ pub(super) fn metal(color: [f32; 3]) -> SovereignMaterialSettings {
             roughness: Fp64(0.32),
             metallic: Fp(0.85),
             rust_level: Fp64(0.06),
+            weathering: ageing::stained(0x41, 0.8),
             ..Default::default()
         }),
         ..Default::default()
@@ -150,6 +151,7 @@ pub(super) fn corrugated(color: [f32; 3]) -> SovereignMaterialSettings {
             roughness: Fp64(0.5),
             metallic: Fp(0.6),
             rust_level: Fp64(0.3),
+            weathering: ageing::corroded(0x42, 0.6),
             ..Default::default()
         }),
         ..Default::default()
@@ -172,6 +174,7 @@ pub(super) fn rust(color: [f32; 3]) -> SovereignMaterialSettings {
             roughness: Fp64(0.85),
             metallic: Fp(0.4),
             rust_level: Fp64(0.55),
+            weathering: ageing::corroded(0x43, 0.9),
             ..Default::default()
         }),
         ..Default::default()
@@ -202,6 +205,7 @@ pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
             color_base: Fp3(color),
             formwork_lines: Fp64(4.0),
             formwork_depth: Fp64(0.1),
+            weathering: ageing::stained(0x44, 0.9),
             ..Default::default()
         }),
         ..Default::default()

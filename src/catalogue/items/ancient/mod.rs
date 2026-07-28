@@ -44,7 +44,7 @@ pub mod fx;
 
 use bevy_symbios_texture::metal::MetalStyle;
 
-use super::util::{tile, tiles_per_metre};
+use super::util::{ageing, tile, tiles_per_metre};
 
 use crate::pds::{
     Fp, Fp3, Fp64, SovereignAshlarConfig, SovereignMarbleConfig, SovereignMaterialSettings,
@@ -75,6 +75,7 @@ pub(super) fn marble(color: [f32; 3]) -> SovereignMaterialSettings {
             color_vein: Fp3([color[0] * 0.55, color[1] * 0.52, color[2] * 0.5]),
             vein_frequency: Fp64(3.0),
             scale: Fp64(2.5),
+            weathering: ageing::stained(0x31, 0.7),
             ..Default::default()
         }),
         ..Default::default()
@@ -94,6 +95,7 @@ pub(super) fn sandstone(color: [f32; 3]) -> SovereignMaterialSettings {
             rows: 4,
             cols: 3,
             chisel_depth: Fp64(0.35),
+            weathering: ageing::stained(0x32, 0.75),
             ..Default::default()
         }),
         ..Default::default()
@@ -112,6 +114,7 @@ pub(super) fn adobe(color: [f32; 3]) -> SovereignMaterialSettings {
             color_base: Fp3(color),
             color_shadow: Fp3([color[0] * 0.7, color[1] * 0.66, color[2] * 0.6]),
             roughness: Fp64(0.55),
+            weathering: ageing::stained(0x33, 0.6),
             ..Default::default()
         }),
         ..Default::default()
@@ -144,6 +147,7 @@ pub(super) fn bronze(color: [f32; 3]) -> SovereignMaterialSettings {
             roughness: Fp64(0.4),
             metallic: Fp(0.85),
             rust_level: Fp64(0.35),
+            weathering: ageing::verdigris(0x34, 0.9),
             ..Default::default()
         }),
         ..Default::default()

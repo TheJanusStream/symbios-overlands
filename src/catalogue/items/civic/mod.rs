@@ -51,7 +51,7 @@ pub mod garden_bed;
 pub mod lantern;
 pub mod market_stall;
 
-use super::util::{tile, tiles_per_metre};
+use super::util::{ageing, tile, tiles_per_metre};
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, SovereignBrickConfig, SovereignCobblestoneConfig,
     SovereignCorrugatedConfig, SovereignFabricConfig, SovereignMarbleConfig,
@@ -141,6 +141,7 @@ pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
             color_stone: Fp3(color),
             color_mud: Fp3([color[0] * 0.5, color[1] * 0.48, color[2] * 0.42]),
             roundness: Fp64(1.2),
+            weathering: ageing::stained(0x21, 0.45),
             ..Default::default()
         }),
         ..Default::default()
@@ -158,6 +159,7 @@ pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
             color_brick: Fp3(color),
             aspect_ratio: Fp64(3.0),
             scale: Fp64(9.0),
+            weathering: ageing::stained(0x22, 0.45),
             ..Default::default()
         }),
         ..Default::default()
@@ -175,6 +177,7 @@ pub(super) fn corrugated(color: [f32; 3]) -> SovereignMaterialSettings {
             color_metal: Fp3(color),
             ridges: Fp64(9.0),
             rust_level: Fp64(0.4),
+            weathering: ageing::corroded(0x23, 0.6),
             ..Default::default()
         }),
         ..Default::default()
@@ -193,6 +196,7 @@ pub(super) fn marble(color: [f32; 3]) -> SovereignMaterialSettings {
             color_vein: Fp3([color[0] * 0.6, color[1] * 0.58, color[2] * 0.56]),
             vein_frequency: Fp64(3.0),
             scale: Fp64(2.5),
+            weathering: ageing::stained(0x24, 0.4),
             ..Default::default()
         }),
         ..Default::default()
@@ -213,6 +217,7 @@ pub(super) fn rust_metal(color: [f32; 3]) -> SovereignMaterialSettings {
             roughness: Fp64(0.85),
             metallic: Fp(0.55),
             rust_level: Fp64(0.45),
+            weathering: ageing::corroded(0x25, 0.85),
             ..Default::default()
         }),
         ..Default::default()
@@ -234,6 +239,7 @@ pub(super) fn bronze(color: [f32; 3]) -> SovereignMaterialSettings {
             roughness: Fp64(0.4),
             metallic: Fp(0.9),
             rust_level: Fp64(0.08),
+            weathering: ageing::verdigris(0x26, 0.85),
             ..Default::default()
         }),
         ..Default::default()

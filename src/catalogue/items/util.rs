@@ -696,6 +696,104 @@ pub(super) fn tiles_per_metre(tile_m: f32) -> Fp {
     Fp(1.0 / tile_m.max(1e-4))
 }
 
+/// Shared ageing recipes.
+///
+/// Weathering is one of the few material decisions that is genuinely
+/// theme-agnostic — rust is rust whether it is on a shanty or a factory — so
+/// these live here rather than being copied into each theme kit the way the
+/// colour-carrying helpers are. A theme picks a recipe and a strength; the
+/// seed keeps neighbouring surfaces from ageing in lockstep.
+pub(super) mod ageing {
+    use crate::pds::{
+        Fp, Fp3, Fp64, SovereignCorrosion, SovereignCreviceDirt, SovereignEdgeWear,
+        SovereignStreaks, SovereignWeatheringConfig,
+    };
+
+    /// Heavy corrosion for exposed steel: pitting out of the crevices, wear
+    /// back to bare metal on the arrises, and run-off staining below.
+    pub(in crate::catalogue::items) fn corroded(
+        seed: u32,
+        amount: f32,
+    ) -> SovereignWeatheringConfig {
+        SovereignWeatheringConfig {
+            seed,
+            corrosion: SovereignCorrosion {
+                amount: Fp(amount),
+                coverage: Fp(0.34),
+                spread: Fp64(0.07),
+                ..Default::default()
+            },
+            edge_wear: SovereignEdgeWear {
+                amount: Fp(amount * 0.7),
+                ..Default::default()
+            },
+            streaks: SovereignStreaks {
+                amount: Fp(amount * 0.8),
+                density: Fp(0.5),
+                ..Default::default()
+            },
+            crevice_dirt: SovereignCreviceDirt {
+                amount: Fp(amount * 0.6),
+                ..Default::default()
+            },
+        }
+    }
+
+    /// Weathering for masonry, which does not corrode: grime settling into
+    /// the recesses and rain drawing it down the face.
+    pub(in crate::catalogue::items) fn stained(
+        seed: u32,
+        amount: f32,
+    ) -> SovereignWeatheringConfig {
+        SovereignWeatheringConfig {
+            seed,
+            crevice_dirt: SovereignCreviceDirt {
+                amount: Fp(amount),
+                ..Default::default()
+            },
+            streaks: SovereignStreaks {
+                amount: Fp(amount * 0.9),
+                density: Fp(0.45),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    /// The green patina copper and bronze grow outdoors. Structurally this is
+    /// corrosion like rust — it is the *colour* that separates a weathered
+    /// statue from a weathered girder.
+    pub(in crate::catalogue::items) fn verdigris(
+        seed: u32,
+        amount: f32,
+    ) -> SovereignWeatheringConfig {
+        SovereignWeatheringConfig {
+            seed,
+            corrosion: SovereignCorrosion {
+                amount: Fp(amount),
+                color: Fp3([0.10, 0.32, 0.26]),
+                coverage: Fp(0.45),
+                spread: Fp64(0.08),
+                // Patina is a thin film, not the flaking crust rust leaves.
+                relief: Fp64(0.015),
+                ..Default::default()
+            },
+            crevice_dirt: SovereignCreviceDirt {
+                amount: Fp(amount * 0.7),
+                ..Default::default()
+            },
+            streaks: SovereignStreaks {
+                amount: Fp(amount * 0.6),
+                // Copper run-off stains the stone below it green too.
+                color: Fp3([0.14, 0.28, 0.22]),
+                density: Fp(0.4),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+}
+
 /// Physical tile sizes, in metres, for the surface generators the catalogue
 /// uses on **primitive** geometry. Each is the generator's default feature
 /// count times a real-world feature size, so one constant reads the same on

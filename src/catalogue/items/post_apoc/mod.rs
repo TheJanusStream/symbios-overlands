@@ -31,7 +31,7 @@ pub mod survivor_lean_to;
 
 pub mod fx;
 
-use super::util::{tile, tiles_per_metre};
+use super::util::{ageing, tile, tiles_per_metre};
 use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::catalogue::items::util::{
@@ -67,7 +67,11 @@ pub(super) fn rusted(color: [f32; 3]) -> SovereignMaterialSettings {
             color_rust: Fp3([0.42, 0.24, 0.12]),
             roughness: Fp64(0.7),
             metallic: Fp(0.6),
-            rust_level: Fp64(0.6),
+            // The built-in rust is a flat noise blend; it now only tints the
+            // base, while the weathering layer supplies the pitting that
+            // actually reads as corrosion.
+            rust_level: Fp64(0.2),
+            weathering: ageing::corroded(0xA5, 0.95),
             ..Default::default()
         }),
         ..Default::default()
@@ -84,6 +88,7 @@ pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
             color_base: Fp3(color),
             formwork_lines: Fp64(3.0),
             pit_density: Fp64(0.2),
+            weathering: ageing::stained(0xC0, 0.85),
             ..Default::default()
         }),
         ..Default::default()
@@ -100,7 +105,8 @@ pub(super) fn sheet(color: [f32; 3]) -> SovereignMaterialSettings {
         texture: SovereignTextureConfig::Corrugated(SovereignCorrugatedConfig {
             color_metal: Fp3(color),
             ridges: Fp64(10.0),
-            rust_level: Fp64(0.45),
+            rust_level: Fp64(0.15),
+            weathering: ageing::corroded(0x5E, 0.9),
             ..Default::default()
         }),
         ..Default::default()
