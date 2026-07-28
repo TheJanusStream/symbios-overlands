@@ -442,7 +442,7 @@ impl RoomRecord {
         apply_palette_to_material(&palette, &mut terrain_cfg.material);
         apply_shape_to_material(&shape, &mut terrain_cfg.material);
         apply_textures_to_material(&textures, &mut terrain_cfg.material);
-        apply_biome_signature_surface(scene.biome, did_seed, &mut terrain_cfg.material);
+        apply_biome_signature_surface(scene.biome, did_seed, &palette, &mut terrain_cfg.material);
 
         // Terrain-aware settlement siting (#905): a low-resolution proxy
         // of the exact heightmap this config will generate, segmented
@@ -1424,59 +1424,115 @@ fn apply_textures_to_material(
 ///   they keep the grassy Ground stack.
 ///
 /// Runs after [`apply_textures_to_material`] so the swapped layer carries
-/// the new generator's own appearance rather than a seeded Ground config.
+/// the new generator's own shape rather than a seeded Ground config.
 /// The splat *rules* (height/slope → layer) are untouched, so layer 0 still
 /// paints low/flat ground and layer 3 the high peaks.
+///
+/// The `palette` argument is what keeps the swap from going colour-blind.
+/// Replacing a layer wholesale discards the palette
+/// [`apply_palette_to_material`] just wrote, and the Ground/Rock-shaped
+/// guards there cannot reach a Sand or Ice layer afterwards — so without
+/// this every arid room shared one sand, and every glacier one ice. Each
+/// signature surface is therefore built *with* the room's own colours,
+/// mapped onto whichever of its fields carries the same meaning.
 fn apply_biome_signature_surface(
     biome: crate::seeded_defaults::BiomeArchetype,
     seed: u64,
+    palette: &crate::seeded_defaults::RoomPalette,
     material: &mut crate::pds::terrain::SovereignMaterialConfig,
 ) {
     use crate::pds::texture::{
-        SovereignIceConfig, SovereignLavaConfig, SovereignSandConfig, SovereignSnowConfig,
-        SovereignTextureConfig as T,
+        SovereignIceConfig, SovereignLavaConfig, SovereignLichenConfig, SovereignMossConfig,
+        SovereignSandConfig, SovereignSnowConfig, SovereignTextureConfig as T,
     };
     use crate::seeded_defaults::BiomeArchetype;
 
     let sig = (seed ^ 0x5163_0001) as u32;
+
+    // Sand is dry earth, so it takes the room's dirt pair: the dry tone
+    // catches the ripple crests, the moist tone sits in the troughs.
+    let sand = |seed| {
+        T::Sand(SovereignSandConfig {
+            seed,
+            color_crest: Fp3(palette.dirt_dry),
+            color_trough: Fp3(palette.dirt_moist),
+            ..Default::default()
+        })
+    };
+    let snow = |seed| {
+        T::Snow(SovereignSnowConfig {
+            seed,
+            color_snow: Fp3(palette.snow_dry),
+            color_shadow: Fp3(palette.snow_moist),
+            ..Default::default()
+        })
+    };
+
     match biome {
         BiomeArchetype::Arid
         | BiomeArchetype::Coastal
         | BiomeArchetype::Savanna
         | BiomeArchetype::Badlands => {
-            material.layers[0] = T::Sand(SovereignSandConfig {
-                seed: sig,
-                ..Default::default()
-            });
+            material.layers[0] = sand(sig);
         }
         BiomeArchetype::Volcanic => {
             material.layers[0] = T::Lava(SovereignLavaConfig {
                 seed: sig,
+                // Cooled basalt is the room's own rock, seen in its darkest
+                // tone. The glow is deliberately left at the generator
+                // default: it is fire, not terrain, and tinting it with a
+                // room palette would drain the heat out of it.
+                color_crust: Fp3(palette.rock_gap),
                 ..Default::default()
             });
         }
         BiomeArchetype::Tundra | BiomeArchetype::Alpine | BiomeArchetype::Boreal => {
-            material.layers[3] = T::Snow(SovereignSnowConfig {
-                seed: sig,
-                ..Default::default()
-            });
+            material.layers[3] = snow(sig);
         }
         BiomeArchetype::Glacial => {
             // Crevassed blue ice on the valley floor, snowfields on top.
+            // Glacier ice reads as frozen water, so it takes the room's own
+            // water colours rather than a fixed blue.
             material.layers[0] = T::Ice(SovereignIceConfig {
                 seed: sig,
+                color_ice: Fp3([
+                    palette.water_shallow[0],
+                    palette.water_shallow[1],
+                    palette.water_shallow[2],
+                ]),
+                color_crack: Fp3([
+                    palette.water_deep[0],
+                    palette.water_deep[1],
+                    palette.water_deep[2],
+                ]),
                 ..Default::default()
             });
-            material.layers[3] = T::Snow(SovereignSnowConfig {
+            material.layers[3] = snow(sig);
+        }
+        // Standing water keeps the ground permanently sodden, so the flat
+        // layer is moss rather than grass.
+        BiomeArchetype::Wetland => {
+            material.layers[0] = T::Moss(SovereignMossConfig {
                 seed: sig,
+                color_tip: Fp3(palette.grass_moist),
+                color_deep: Fp3(palette.grass_dry),
                 ..Default::default()
             });
         }
         BiomeArchetype::Lush
         | BiomeArchetype::Jungle
         | BiomeArchetype::TemperateForest
-        | BiomeArchetype::Wetland
         | BiomeArchetype::Meadow => {}
+    }
+
+    // Above the treeline bare stone crusts over with lichen, so the rock
+    // layer itself changes rather than the ground beneath it.
+    if matches!(biome, BiomeArchetype::Alpine | BiomeArchetype::Tundra) {
+        material.layers[2] = T::Lichen(SovereignLichenConfig {
+            seed: sig,
+            color_rock: Fp3(palette.rock_stone),
+            ..Default::default()
+        });
     }
 }
 
@@ -2181,12 +2237,84 @@ pub async fn reset_room_record(
 mod tests {
     use super::*;
 
+    /// A swapped signature layer must carry the room's own colours.
+    ///
+    /// Replacing a layer discards whatever `apply_palette_to_material` wrote,
+    /// and its Ground/Rock-shaped guards cannot reach a Sand or Ice layer
+    /// afterwards — so before this was wired through, every arid room shared
+    /// one sand and every glacier one ice, however different their palettes.
+    #[test]
+    fn signature_surfaces_take_the_room_palette() {
+        use crate::pds::texture::SovereignTextureConfig as T;
+        use crate::seeded_defaults::{BiomeArchetype, RoomPalette, SceneCharacter};
+
+        let fresh = crate::pds::terrain::SovereignMaterialConfig::default;
+        let palette_for =
+            |seed: u64| RoomPalette::from_scene(&SceneCharacter::for_seed(seed), seed);
+
+        // Sand takes the room's dirt pair.
+        let palette = palette_for(9);
+        let mut m = fresh();
+        apply_biome_signature_surface(BiomeArchetype::Arid, 9, &palette, &mut m);
+        match &m.layers[0] {
+            T::Sand(sand) => {
+                assert_eq!(sand.color_crest.0, palette.dirt_dry, "sand crest");
+                assert_eq!(sand.color_trough.0, palette.dirt_moist, "sand trough");
+            }
+            other => panic!("arid → sand, got {other:?}"),
+        }
+
+        // Glacier ice takes the room's water colours.
+        let mut m = fresh();
+        apply_biome_signature_surface(BiomeArchetype::Glacial, 9, &palette, &mut m);
+        match &m.layers[0] {
+            T::Ice(ice) => {
+                assert_eq!(ice.color_ice.0[0], palette.water_shallow[0], "ice tint");
+                assert_eq!(ice.color_crack.0[0], palette.water_deep[0], "crack tint");
+            }
+            other => panic!("glacial → ice, got {other:?}"),
+        }
+
+        // Two rooms with genuinely different palettes must not bake the same
+        // sand — the whole point of routing the palette through.
+        let (a, b) = (palette_for(9), palette_for(4242));
+        if a.dirt_dry != b.dirt_dry {
+            let mut ma = fresh();
+            let mut mb = fresh();
+            apply_biome_signature_surface(BiomeArchetype::Arid, 9, &a, &mut ma);
+            apply_biome_signature_surface(BiomeArchetype::Arid, 9, &b, &mut mb);
+            assert_ne!(
+                ma.layers[0], mb.layers[0],
+                "different palettes produced identical sand"
+            );
+        }
+
+        // Lava keeps its glow: fire is not terrain, and tinting it with a
+        // room palette would drain the heat out of it.
+        let mut m = fresh();
+        apply_biome_signature_surface(BiomeArchetype::Volcanic, 9, &palette, &mut m);
+        match &m.layers[0] {
+            T::Lava(lava) => {
+                assert_eq!(lava.color_crust.0, palette.rock_gap, "crust from rock");
+                let default_glow = crate::pds::texture::SovereignLavaConfig::default().color_glow;
+                assert_eq!(lava.color_glow.0, default_glow.0, "glow must stay molten");
+            }
+            other => panic!("volcanic → lava, got {other:?}"),
+        }
+    }
+
     #[test]
     fn biome_signature_surface_swaps_expected_layer() {
         use crate::pds::texture::SovereignTextureConfig as T;
         use crate::seeded_defaults::BiomeArchetype;
 
         let fresh = crate::pds::terrain::SovereignMaterialConfig::default;
+        // A real derived palette, so the assertions exercise the same
+        // colour plumbing the room build uses.
+        let palette = crate::seeded_defaults::RoomPalette::from_scene(
+            &crate::seeded_defaults::SceneCharacter::for_seed(9),
+            9,
+        );
 
         // Arid / Coastal / Savanna / Badlands → sand on the low/flat Grass
         // layer (0).
@@ -2197,13 +2325,13 @@ mod tests {
             BiomeArchetype::Badlands,
         ] {
             let mut m = fresh();
-            apply_biome_signature_surface(biome, 9, &mut m);
+            apply_biome_signature_surface(biome, 9, &palette, &mut m);
             assert!(matches!(m.layers[0], T::Sand(_)), "{biome:?} → layer0 sand");
         }
 
         // Volcanic → molten lava crust on the low/flat layer.
         let mut m = fresh();
-        apply_biome_signature_surface(BiomeArchetype::Volcanic, 9, &mut m);
+        apply_biome_signature_surface(BiomeArchetype::Volcanic, 9, &palette, &mut m);
         assert!(matches!(m.layers[0], T::Lava(_)));
 
         // Tundra / Alpine / Boreal → real snow on the high-altitude Snow
@@ -2214,14 +2342,28 @@ mod tests {
             BiomeArchetype::Boreal,
         ] {
             let mut m = fresh();
-            apply_biome_signature_surface(biome, 9, &mut m);
+            apply_biome_signature_surface(biome, 9, &palette, &mut m);
             assert!(matches!(m.layers[3], T::Snow(_)), "{biome:?} → layer3 snow");
             assert!(matches!(m.layers[0], T::Ground(_)));
+            // Above the treeline the rock layer crusts over with lichen.
+            if matches!(biome, BiomeArchetype::Alpine | BiomeArchetype::Tundra) {
+                assert!(
+                    matches!(m.layers[2], T::Lichen(_)),
+                    "{biome:?} → layer2 lichen"
+                );
+            } else {
+                assert!(matches!(m.layers[2], T::Rock(_)), "{biome:?} → layer2 rock");
+            }
         }
+
+        // Wetland → moss on the permanently sodden flat layer.
+        let mut m = fresh();
+        apply_biome_signature_surface(BiomeArchetype::Wetland, 9, &palette, &mut m);
+        assert!(matches!(m.layers[0], T::Moss(_)), "wetland → layer0 moss");
 
         // Glacial → blue cracked ice on the valley floor + snow on top.
         let mut m = fresh();
-        apply_biome_signature_surface(BiomeArchetype::Glacial, 9, &mut m);
+        apply_biome_signature_surface(BiomeArchetype::Glacial, 9, &palette, &mut m);
         assert!(matches!(m.layers[0], T::Ice(_)), "glacial → layer0 ice");
         assert!(matches!(m.layers[3], T::Snow(_)), "glacial → layer3 snow");
 
@@ -2230,11 +2372,10 @@ mod tests {
             BiomeArchetype::Lush,
             BiomeArchetype::Jungle,
             BiomeArchetype::TemperateForest,
-            BiomeArchetype::Wetland,
             BiomeArchetype::Meadow,
         ] {
             let mut m = fresh();
-            apply_biome_signature_surface(biome, 9, &mut m);
+            apply_biome_signature_surface(biome, 9, &palette, &mut m);
             assert!(
                 matches!(m.layers[0], T::Ground(_)),
                 "{biome:?} → layer0 ground"
