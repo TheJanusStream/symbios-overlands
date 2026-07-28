@@ -1442,6 +1442,7 @@ fn apply_biome_signature_surface(
     material: &mut crate::pds::terrain::SovereignMaterialConfig,
 ) {
     use crate::pds::texture::{
+        SovereignCrackedEarthConfig, SovereignForestFloorConfig, SovereignGravelConfig,
         SovereignIceConfig, SovereignLavaConfig, SovereignLichenConfig, SovereignMossConfig,
         SovereignSandConfig, SovereignSnowConfig, SovereignTextureConfig as T,
     };
@@ -1467,13 +1468,47 @@ fn apply_biome_signature_surface(
             ..Default::default()
         })
     };
+    // Dried lakebed: the plate is the room's dry earth, and the crack holds
+    // the damper silt that has not baked out yet.
+    let cracked_earth = |seed| {
+        T::CrackedEarth(SovereignCrackedEarthConfig {
+            seed,
+            color_plate: Fp3(palette.dirt_dry),
+            color_crack: Fp3(palette.dirt_moist),
+            ..Default::default()
+        })
+    };
+    // Scree is the room's own rock broken up, with its dust between.
+    let gravel = |seed| {
+        T::Gravel(SovereignGravelConfig {
+            seed,
+            color_stone: Fp3(palette.rock_stone),
+            color_dark: Fp3(palette.rock_gap),
+            color_fines: Fp3(palette.dirt_dry),
+            ..Default::default()
+        })
+    };
+    // Litter over humus: fallen leaves keep the room's dry-vegetation tone,
+    // ageing down toward its earth colours.
+    let forest_floor = |seed| {
+        T::ForestFloor(SovereignForestFloorConfig {
+            seed,
+            color_humus: Fp3(palette.dirt_moist),
+            color_leaf: Fp3(palette.grass_dry),
+            color_leaf_old: Fp3(palette.dirt_dry),
+            ..Default::default()
+        })
+    };
 
     match biome {
-        BiomeArchetype::Arid
-        | BiomeArchetype::Coastal
-        | BiomeArchetype::Savanna
-        | BiomeArchetype::Badlands => {
+        BiomeArchetype::Arid | BiomeArchetype::Coastal | BiomeArchetype::Savanna => {
             material.layers[0] = sand(sig);
+        }
+        // Badlands are eroded, not drifted: a dry cracked pan rather than
+        // dunes, with the broken rock of the scarps banding above it.
+        BiomeArchetype::Badlands => {
+            material.layers[0] = cracked_earth(sig);
+            material.layers[1] = gravel(sig ^ 0x00A1);
         }
         BiomeArchetype::Volcanic => {
             material.layers[0] = T::Lava(SovereignLavaConfig {
@@ -1486,7 +1521,19 @@ fn apply_biome_signature_surface(
                 ..Default::default()
             });
         }
-        BiomeArchetype::Tundra | BiomeArchetype::Alpine | BiomeArchetype::Boreal => {
+        BiomeArchetype::Tundra => {
+            material.layers[3] = snow(sig);
+            // Frost-shattered stone works its way up through the thin soil.
+            material.layers[1] = gravel(sig ^ 0x00A1);
+        }
+        // Above the treeline the flat ground is loose scree, not turf.
+        BiomeArchetype::Alpine => {
+            material.layers[0] = gravel(sig);
+            material.layers[3] = snow(sig);
+        }
+        // Conifer needle litter under the snowline.
+        BiomeArchetype::Boreal => {
+            material.layers[0] = forest_floor(sig);
             material.layers[3] = snow(sig);
         }
         BiomeArchetype::Glacial => {
@@ -1519,10 +1566,13 @@ fn apply_biome_signature_surface(
                 ..Default::default()
             });
         }
-        BiomeArchetype::Lush
-        | BiomeArchetype::Jungle
-        | BiomeArchetype::TemperateForest
-        | BiomeArchetype::Meadow => {}
+        // Broadleaf litter carpets the floor under a closed canopy.
+        BiomeArchetype::TemperateForest | BiomeArchetype::Jungle => {
+            material.layers[0] = forest_floor(sig);
+        }
+        // Lush and Meadow are grassland: the grassy Ground stack is the
+        // right answer for them, not a gap waiting to be filled.
+        BiomeArchetype::Lush | BiomeArchetype::Meadow => {}
     }
 
     // Above the treeline bare stone crusts over with lichen, so the rock
@@ -2303,86 +2353,96 @@ mod tests {
         }
     }
 
+    /// The full splat stack every biome ends up with, layer by layer.
+    ///
+    /// Stated as a table rather than a handful of spot checks: the biome map
+    /// is the one place where a change silently repaints entire regions, so
+    /// every future edit should have to say out loud which layer it moved.
+    /// Layers are R=low/flat, G=dirt band, B=rock, A=high.
     #[test]
     fn biome_signature_surface_swaps_expected_layer() {
-        use crate::pds::texture::SovereignTextureConfig as T;
-        use crate::seeded_defaults::BiomeArchetype;
+        use crate::seeded_defaults::{BiomeArchetype as B, RoomPalette, SceneCharacter};
 
-        let fresh = crate::pds::terrain::SovereignMaterialConfig::default;
-        // A real derived palette, so the assertions exercise the same
-        // colour plumbing the room build uses.
-        let palette = crate::seeded_defaults::RoomPalette::from_scene(
-            &crate::seeded_defaults::SceneCharacter::for_seed(9),
-            9,
-        );
+        let palette = RoomPalette::from_scene(&SceneCharacter::for_seed(9), 9);
 
-        // Arid / Coastal / Savanna / Badlands → sand on the low/flat Grass
-        // layer (0).
-        for biome in [
-            BiomeArchetype::Arid,
-            BiomeArchetype::Coastal,
-            BiomeArchetype::Savanna,
-            BiomeArchetype::Badlands,
-        ] {
-            let mut m = fresh();
+        // (biome, [layer0, layer1, layer2, layer3])
+        let expected: [(B, [&str; 4]); 14] = [
+            // Drylands: drifted sand, except the eroded badlands.
+            (B::Arid, ["Sand", "Ground", "Rock", "Ground"]),
+            (B::Coastal, ["Sand", "Ground", "Rock", "Ground"]),
+            (B::Savanna, ["Sand", "Ground", "Rock", "Ground"]),
+            (B::Badlands, ["Cracked Earth", "Gravel", "Rock", "Ground"]),
+            (B::Volcanic, ["Lava", "Ground", "Rock", "Ground"]),
+            // Cold: lichen-crusted rock above the treeline, scree on the
+            // alpine flats, needle litter in the boreal forest.
+            (B::Tundra, ["Ground", "Gravel", "Lichen", "Snow"]),
+            (B::Alpine, ["Gravel", "Ground", "Lichen", "Snow"]),
+            (B::Boreal, ["Forest Floor", "Ground", "Rock", "Snow"]),
+            (B::Glacial, ["Ice", "Ground", "Rock", "Snow"]),
+            // Verdant: litter under a canopy, moss on sodden ground, and
+            // plain grass where grass is the right answer.
+            (
+                B::TemperateForest,
+                ["Forest Floor", "Ground", "Rock", "Ground"],
+            ),
+            (B::Jungle, ["Forest Floor", "Ground", "Rock", "Ground"]),
+            (B::Wetland, ["Moss", "Ground", "Rock", "Ground"]),
+            (B::Lush, ["Ground", "Ground", "Rock", "Ground"]),
+            (B::Meadow, ["Ground", "Ground", "Rock", "Ground"]),
+        ];
+
+        for (biome, layers) in expected {
+            let mut m = crate::pds::terrain::SovereignMaterialConfig::default();
             apply_biome_signature_surface(biome, 9, &palette, &mut m);
-            assert!(matches!(m.layers[0], T::Sand(_)), "{biome:?} → layer0 sand");
-        }
-
-        // Volcanic → molten lava crust on the low/flat layer.
-        let mut m = fresh();
-        apply_biome_signature_surface(BiomeArchetype::Volcanic, 9, &palette, &mut m);
-        assert!(matches!(m.layers[0], T::Lava(_)));
-
-        // Tundra / Alpine / Boreal → real snow on the high-altitude Snow
-        // layer (3), leaving the low/flat layer as its Ground default.
-        for biome in [
-            BiomeArchetype::Tundra,
-            BiomeArchetype::Alpine,
-            BiomeArchetype::Boreal,
-        ] {
-            let mut m = fresh();
-            apply_biome_signature_surface(biome, 9, &palette, &mut m);
-            assert!(matches!(m.layers[3], T::Snow(_)), "{biome:?} → layer3 snow");
-            assert!(matches!(m.layers[0], T::Ground(_)));
-            // Above the treeline the rock layer crusts over with lichen.
-            if matches!(biome, BiomeArchetype::Alpine | BiomeArchetype::Tundra) {
-                assert!(
-                    matches!(m.layers[2], T::Lichen(_)),
-                    "{biome:?} → layer2 lichen"
+            for (i, want) in layers.iter().enumerate() {
+                assert_eq!(
+                    &m.layers[i].label(),
+                    want,
+                    "{biome:?} layer{i}: expected {want}, got {}",
+                    m.layers[i].label()
                 );
-            } else {
-                assert!(matches!(m.layers[2], T::Rock(_)), "{biome:?} → layer2 rock");
             }
         }
+    }
 
-        // Wetland → moss on the permanently sodden flat layer.
-        let mut m = fresh();
-        apply_biome_signature_surface(BiomeArchetype::Wetland, 9, &palette, &mut m);
-        assert!(matches!(m.layers[0], T::Moss(_)), "wetland → layer0 moss");
+    /// Every biome that is not grassland should have *something* of its own
+    /// on the splat stack — the gap this map exists to close.
+    #[test]
+    fn only_grassland_biomes_keep_the_plain_ground_stack() {
+        use crate::seeded_defaults::{BiomeArchetype as B, RoomPalette, SceneCharacter};
 
-        // Glacial → blue cracked ice on the valley floor + snow on top.
-        let mut m = fresh();
-        apply_biome_signature_surface(BiomeArchetype::Glacial, 9, &palette, &mut m);
-        assert!(matches!(m.layers[0], T::Ice(_)), "glacial → layer0 ice");
-        assert!(matches!(m.layers[3], T::Snow(_)), "glacial → layer3 snow");
+        let palette = RoomPalette::from_scene(&SceneCharacter::for_seed(9), 9);
+        let plain = crate::pds::terrain::SovereignMaterialConfig::default();
 
-        // Verdant biomes keep the entire grassy Ground stack.
         for biome in [
-            BiomeArchetype::Lush,
-            BiomeArchetype::Jungle,
-            BiomeArchetype::TemperateForest,
-            BiomeArchetype::Meadow,
+            B::Arid,
+            B::Coastal,
+            B::Savanna,
+            B::Badlands,
+            B::Volcanic,
+            B::Tundra,
+            B::Alpine,
+            B::Boreal,
+            B::Glacial,
+            B::TemperateForest,
+            B::Jungle,
+            B::Wetland,
         ] {
-            let mut m = fresh();
+            let mut m = crate::pds::terrain::SovereignMaterialConfig::default();
             apply_biome_signature_surface(biome, 9, &palette, &mut m);
-            assert!(
-                matches!(m.layers[0], T::Ground(_)),
-                "{biome:?} → layer0 ground"
+            assert_ne!(
+                m.layers, plain.layers,
+                "{biome:?} still renders as the untouched ground stack"
             );
-            assert!(
-                matches!(m.layers[3], T::Ground(_)),
-                "{biome:?} → layer3 ground"
+        }
+
+        // Grassland keeps grass on purpose.
+        for biome in [B::Lush, B::Meadow] {
+            let mut m = crate::pds::terrain::SovereignMaterialConfig::default();
+            apply_biome_signature_surface(biome, 9, &palette, &mut m);
+            assert_eq!(
+                m.layers, plain.layers,
+                "{biome:?} should keep the grassy stack"
             );
         }
     }
