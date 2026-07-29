@@ -114,7 +114,7 @@ fn matches(e: &dyn CatalogueEntry, q: &str) -> bool {
 
 /// An entry tagged with *every* theme is a cross-theme prop (the civic
 /// kit); it is filed under one "Cross-theme" group rather than duplicated
-/// under all 23 themes.
+/// under all 24 themes.
 fn is_cross_theme(e: &dyn CatalogueEntry) -> bool {
     e.themes().len() >= ThemeArchetype::ALL.len()
 }

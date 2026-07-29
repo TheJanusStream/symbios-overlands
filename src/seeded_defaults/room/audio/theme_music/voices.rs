@@ -84,6 +84,10 @@ pub(super) fn theme_alt_scales(theme: ThemeArchetype) -> &'static [&'static [f32
         ThemeArchetype::Nordic => &[DORIAN],
         ThemeArchetype::Medieval => &[PHRYGIAN],
         ThemeArchetype::WildWest => &[PENTATONIC_MINOR],
+        // A shanty is sung in dorian and a lament in minor; both belong to
+        // the same crew on the same night, which is exactly the two-register
+        // read the theme is built on.
+        ThemeArchetype::Pirate => &[PENTATONIC_MINOR],
         ThemeArchetype::PostApoc => &[PHRYGIAN],
         ThemeArchetype::AlienMonolithic => &[PENTATONIC_MINOR],
         ThemeArchetype::AlienOrganic => &[DORIAN],
@@ -319,6 +323,29 @@ pub(super) fn base_voice(theme: ThemeArchetype) -> ThemeVoice {
             volume: (0.07, 0.13),
             arp: false,
             reverb_mix: 0.4,
+        },
+        // Squeezebox shanty — a reedy detuned saw swaying through dorian,
+        // the mode nearly every sung capstan shanty sits in. Slow attack and
+        // long gates give it the pull-and-rest of men walking a capstan
+        // round rather than a played melody; the wide reverb is the harbour
+        // it is sung across. Deliberately the reverse of `CoastalResort`'s
+        // bright high sine: the two maritime themes share water and share
+        // nothing else.
+        ThemeArchetype::Pirate => ThemeVoice {
+            id: "theme_shanty",
+            wave: Wave::Sawtooth,
+            detune_cents: 9.0,
+            scale: DORIAN,
+            octave: 1.0,
+            attack_s: 0.06,
+            decay_s: 0.3,
+            sustain_level: 0.45,
+            release_s: 0.9,
+            note_count: (4, 8),
+            gate: (0.5, 1.1),
+            volume: (0.07, 0.13),
+            arp: false,
+            reverb_mix: 0.42,
         },
         // Bleak wasteland drone — a heavily-detuned saw groaning low in a
         // minor pentatonic, sparse and forlorn over the desolate wind.

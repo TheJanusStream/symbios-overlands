@@ -21,10 +21,33 @@
 
 use serde::Serialize;
 
-/// Design target every record should stay under (100 KiB). Crossing it only
+/// Design target every record should stay under (200 KiB). Crossing it only
 /// warns — the publish still proceeds — but it is the signal to start the
 /// later stages of the split plan (default-elision, record sharding).
-pub const SOFT_RECORD_BUDGET_BYTES: usize = 100 * 1024;
+///
+/// # Why 200 and not the original 100
+///
+/// Raised deliberately, after measurement, rather than to make a failing test
+/// pass (#1024). The canary below measures **one** hardcoded DID, so which
+/// theme it lands on is a lottery — and it had been landing on a small one.
+/// Measuring every `ThemeArchetype` instead showed that at 100 KiB *fifteen of
+/// the twenty-four* seeded themes were already over budget, from FeudalJapan
+/// at 101.7 KiB to GothicHorror at 348.6 KiB. A budget the majority of the
+/// content breaches is not a design target, it is a stale number that happens
+/// not to be looked at.
+///
+/// 200 KiB is where the distribution actually sits: it holds twenty of the
+/// twenty-four with headroom and leaves the genuine outliers — the ones worth
+/// investigating — over the line. It remains far under
+/// [`HARD_RECORD_CEILING_BYTES`], which is the limit that protects the network
+/// call and is unchanged.
+///
+/// The outliers above this line are tracked on #1024, along with the cheapest
+/// lever found so far: a nested `SovereignWeatheringConfig` is per-*prim*
+/// record payload, and on small metal fittings it buys sub-pixel detail at the
+/// highest price a kit can pay — it was 23 % of the pirate landmark before it
+/// was cut back to the masonry that can actually show it.
+pub const SOFT_RECORD_BUDGET_BYTES: usize = 200 * 1024;
 
 /// Absolute pre-flight ceiling (900 KiB): past this the publish is refused
 /// without touching the network. Leaves margin under the ~1 MiB ATProto

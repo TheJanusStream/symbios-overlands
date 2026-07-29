@@ -196,10 +196,15 @@ pub enum ThemeArchetype {
     PostApoc,
     /// Saloons, water towers, general stores.
     WildWest,
+    /// Harbour batteries, careening slips, prize warehouses, rum tuns —
+    /// a Golden-Age buccaneer port. Its destitute register turns eerie
+    /// rather than merely poor (gibbets, rotting hulks, tide-line bones),
+    /// which is the theme's second read rather than a second identity.
+    Pirate,
 }
 
 impl ThemeArchetype {
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 24] = [
         Self::AncientClassical,
         Self::Medieval,
         Self::Nordic,
@@ -223,6 +228,7 @@ impl ThemeArchetype {
         Self::AlienMonolithic,
         Self::PostApoc,
         Self::WildWest,
+        Self::Pirate,
     ];
 
     /// Human-readable display name — used by the catalogue browser and any
@@ -252,6 +258,7 @@ impl ThemeArchetype {
             Self::AlienMonolithic => "Alien Monolithic",
             Self::PostApoc => "Post-Apocalyptic",
             Self::WildWest => "Wild West",
+            Self::Pirate => "Pirate",
         }
     }
 }

@@ -62,10 +62,17 @@ impl ParticleAura {
             SpaceOutpost | Solarpunk => Self::Thruster,
             Steampunk | IndustrialPark | Roadside => Self::Steam,
             PostApoc | WildWest => Self::Embers,
+            // `Pirate` sits here deliberately rather than taking `Embers` off
+            // the powder-and-lantern association. A style aura is what an
+            // avatar trails *at idle*, and the strongest idle signature a
+            // buccaneer has is the one the chassis already supplies: rolling
+            // `None` here lets `family_floor` give a Boat its `Wake`, which
+            // is the correct answer and a better one than any style aura
+            // would be. A humanoid pirate then reads clean, which is right —
+            // a person does not smoke.
             Medieval | AncientClassical | Nordic | FeudalJapan | Mesoamerican | ModernCity
-            | Suburban | RuralFarmland | CoastalResort | CivicCampus | SportsRec | GothicHorror => {
-                Self::None
-            }
+            | Suburban | RuralFarmland | CoastalResort | CivicCampus | SportsRec | GothicHorror
+            | Pirate => Self::None,
         }
     }
 

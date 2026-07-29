@@ -26,7 +26,7 @@ use crate::seeded_defaults::scene::ThemeArchetype;
 use super::character::{AvatarCharacter, FinishRegister};
 
 /// Per-style finish family — the PBR character a style gives its hard
-/// surfaces, plus whether its accents are self-lit. The 23 themes group
+/// surfaces, plus whether its accents are self-lit. The 24 themes group
 /// into four families so the kit stays compact.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FinishFamily {
@@ -47,7 +47,7 @@ impl FinishFamily {
             Cyberpunk | IndustrialPark | ModernCity | SpaceOutpost | Steampunk
             | AlienMonolithic => Self::Metal,
             Medieval | AncientClassical | Nordic | Mesoamerican | RuralFarmland | Roadside
-            | PostApoc | WildWest | GothicHorror => Self::Matte,
+            | PostApoc | WildWest | GothicHorror | Pirate => Self::Matte,
             Fantasy | Solarpunk | AlienOrganic | FeudalJapan => Self::Organic,
             CoastalResort | CivicCampus | SportsRec | Suburban => Self::Clean,
         }

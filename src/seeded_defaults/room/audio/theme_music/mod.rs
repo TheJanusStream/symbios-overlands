@@ -153,6 +153,11 @@ mod tests {
                 && (ww.octave - 1.0).abs() < 1e-6
         );
         assert_eq!(base_voice(T::WildWest).scale, PENTATONIC_MAJOR);
+        // The shanty and the resort are the two maritime themes; the pair of
+        // assertions is really one claim, that they do not sound alike.
+        let pir = voice_for(&scene_with(T::Pirate, 0.0), ID_SEED);
+        assert!(matches!(pir.wave, Wave::Sawtooth) && !pir.arp && pir.detune_cents > 0.0);
+        assert_eq!(base_voice(T::Pirate).scale, DORIAN);
     }
 
     /// Every mode a theme can emit stays inside its curated family (the

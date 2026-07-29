@@ -28,6 +28,7 @@ pub mod mesoamerican;
 pub mod modern_city;
 pub mod nordic;
 pub mod patterns;
+pub mod pirate;
 pub mod plants;
 pub mod post_apoc;
 pub mod roadside;
@@ -375,6 +376,8 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &wild_west::prospector_shack::ProspectorShack,
     &wild_west::boot_hill::BootHill,
     &wild_west::tumbleweed::Tumbleweed,
+    // Buildings — Pirate theme (landmark + secondaries + props).
+    &pirate::harbour_battery::HarbourBattery,
     // Buildings — cross-theme socio-political props (Prop role, tagged
     // with every theme but gated to a prosperity / escalation tier band;
     // see crate::catalogue::items::civic).
@@ -463,6 +466,8 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &modern_city::monument::ModernCityMonument,
     &nordic::gateway::NordicGateway,
     &nordic::monument::NordicMonument,
+    &pirate::gateway::PirateGateway,
+    &pirate::monument::PirateMonument,
     &post_apoc::gateway::PostApocGateway,
     &post_apoc::monument::PostApocMonument,
     &roadside::gateway::RoadsideGateway,

@@ -114,6 +114,16 @@ impl StyleMood {
                 chroma_mul: 0.7,
                 light_bias: -0.03,
             },
+            // Sea-worn but not drab. A buccaneer's colour comes off other
+            // people's cargo — dyed coats, sashes, gold — so the chroma sits
+            // above the earthy group it otherwise belongs to, while the
+            // lightness stays down where salt, tar and powder put it. That
+            // gap is the whole read: saturated colour on a dark, weathered
+            // body, rather than the uniform muting the historical themes get.
+            Pirate => Self {
+                chroma_mul: 1.1,
+                light_bias: -0.06,
+            },
         }
     }
 }

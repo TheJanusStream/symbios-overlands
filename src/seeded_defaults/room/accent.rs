@@ -229,6 +229,21 @@ impl ThemeAccent {
                 brightness: 1.0,
                 particle_mood: Some(ParticleMood::DustMotes),
             },
+            // Salt haze and spent powder — a cold blue-green sea air, thick
+            // enough to read as weather over the roads, with spray motes
+            // blowing through it. Deliberately the opposite reading to
+            // `CoastalResort`, which is the same water under a holiday sky: a
+            // resort is bright, haze-free and warm-lit; a buccaneer harbour is
+            // grey, wet and gunsmoke-tinged. Two maritime themes have to
+            // separate on light before they separate on architecture, because
+            // the air is the first thing a room shows you.
+            Pirate => Self {
+                tint: [0.44, 0.56, 0.58],
+                tint_strength: 0.20,
+                haze: 0.18,
+                brightness: 1.0,
+                particle_mood: Some(ParticleMood::MistMotes),
+            },
             // Sun-baked sandstone-gold air over the marble and ruins. Kept a
             // tint only (no particle mood) so it stays a quiet daylight key —
             // it is also the settlement fallback theme (see #461).

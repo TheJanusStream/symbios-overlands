@@ -11,7 +11,7 @@
 //! shaping; finish comes from the seeded
 //! [`MaterialKit`](crate::seeded_defaults::MaterialKit).
 //!
-//! Every mood group (see the group consts) houses at least one of the 23
+//! Every mood group (see the group consts) houses at least one of the 24
 //! [`ThemeArchetype`]s, and every optional slot ships a **style-universal**
 //! floor part (`boat_bow_bowsprit` / `boat_stack_vent` / `skiff_exhaust_tailpipe`
 //! / `veh_orn_finial`, all empty-styles) so no theme's optional slots are ever
@@ -22,8 +22,8 @@ use crate::seeded_defaults::ChassisFamily;
 use crate::seeded_defaults::ThemeArchetype::{
     self, AlienMonolithic, AlienOrganic, AncientClassical, CivicCampus, CoastalResort, Cyberpunk,
     Fantasy, FeudalJapan, GothicHorror, IndustrialPark, Medieval, Mesoamerican, ModernCity, Nordic,
-    PostApoc, Roadside, RuralFarmland, Solarpunk, SpaceOutpost, SportsRec, Steampunk, Suburban,
-    WildWest,
+    Pirate, PostApoc, Roadside, RuralFarmland, Solarpunk, SpaceOutpost, SportsRec, Steampunk,
+    Suburban, WildWest,
 };
 use crate::seeded_defaults::{OrnatenessBand, OrnatenessTier, WearBand, WearTier};
 
@@ -53,7 +53,7 @@ const VEHICLES: &[ChassisFamily] = &[
     ChassisFamily::Skiff,
 ];
 
-// Mood groups — the vehicle-styling taxonomy. Each of the 23 `ThemeArchetype`s
+// Mood groups — the vehicle-styling taxonomy. Each of the 24 `ThemeArchetype`s
 // belongs to at least one group so no population is a "desert" with zero styled
 // parts (#792). A theme may sit in several (a grimy neon craft is both NEON and
 // GRUBBY); a part draws the group whose read it wants. NEON/STEAM/MARTIAL/REGAL/
@@ -70,7 +70,7 @@ const NEON: &[ThemeArchetype] = &[
     AlienOrganic,
 ];
 const STEAM: &[ThemeArchetype] = &[Steampunk, IndustrialPark, ModernCity];
-const MARTIAL: &[ThemeArchetype] = &[Medieval, Nordic, WildWest, PostApoc];
+const MARTIAL: &[ThemeArchetype] = &[Medieval, Nordic, WildWest, PostApoc, Pirate];
 const REGAL: &[ThemeArchetype] = &[Fantasy, AncientClassical, CivicCampus];
 // GRUBBY = grimy / worn / workaday ground craft: industrial soot, frontier
 // scrap, and the ordinary agrarian / roadside / suburban beaters (buggies,
@@ -97,6 +97,7 @@ const HISTORIC: &[ThemeArchetype] = &[
     FeudalJapan,
     Mesoamerican,
     GothicHorror,
+    Pirate,
 ];
 /// Seaside / leisure / sporting moods — resort cruisers, sport skiffs. Homes
 /// CoastalResort / SportsRec, which fit none of the ground-craft groups.
@@ -134,6 +135,10 @@ const WORKING: &[ThemeArchetype] = &[
     PostApoc,
     Steampunk,
     IndustrialPark,
+    // The narrowest audience that is also the most obviously right: rope
+    // coils, cleats and a capstan are not merely *allowed* on a buccaneer's
+    // craft, they are what its deck is for.
+    Pirate,
 ];
 /// Funereal / temple / old-world craft — a hanging stern lantern's home.
 const SEPULCHRAL: &[ThemeArchetype] = &[GothicHorror, FeudalJapan, Medieval];
