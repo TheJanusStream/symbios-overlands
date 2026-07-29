@@ -47,7 +47,7 @@ use std::f32::consts::FRAC_PI_2;
 use crate::catalogue::items::util::{
     attach, bonded_siding, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, face_uv_offset,
     footing, glow, id_quat, lit_interior, nest, prim, quat_x, quat_z, solid, sphere,
-    superellipsoid, torus, wedge, with_face,
+    superellipsoid, torus, wedge, with_cut, with_face,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
@@ -55,10 +55,10 @@ use crate::pds::{Generator, SovereignMaterialSettings};
 use crate::seeded_defaults::{ProsperityBand, ThemeArchetype};
 
 use super::{
-    BONE_PALE, BRONZE_GUN, CANVAS_BONE, CANVAS_SHADE, DECK_HOLY, ENSIGN_RED, GOLD_LEAF, HULL_OAK,
-    HULL_TAR, IRON_BLACK, PORT_BAND, ROPE_HEMP, SHINGLE_GREY, STONE_LIME, STONE_QUAY,
-    STRAND_SHINGLE, WHARF_GREY, ashlar, board, bone, bronze, cobbles, fx, hemp, iron, lantern,
-    sailcloth, shingle, strake, strand,
+    BRONZE_GUN, CANVAS_BONE, CANVAS_SHADE, DECK_HOLY, ENSIGN_RED, GOLD_LEAF, HULL_OAK, HULL_TAR,
+    IRON_BLACK, PORT_BAND, ROPE_HEMP, SHINGLE_GREY, STONE_LIME, STONE_QUAY, STRAND_SHINGLE,
+    WHARF_GREY, ashlar, board, bronze, cobbles, fx, hemp, iron, jolly_roger, lantern, sailcloth,
+    shingle, strake, strand,
 };
 
 // ---------------------------------------------------------------------------
@@ -172,14 +172,26 @@ const PARAPET_TOP: f32 = DECK_TOP + PARAPET_H;
 /// guns and the colours read over it from every landward angle.
 const GORGE_H: f32 = 0.85;
 
+/// Clear width of the gorge flight, and therefore of the opening left for it
+/// in the breast wall above. One constant, so the stair and the gap it climbs
+/// through cannot disagree.
+const FLIGHT_W: f32 = 4.4;
+
 /// Gorge steps: rise and going per tread. Both authored, and the count
 /// derived from them, so the flight always lands exactly on the deck
 /// (#972 lesson 16's shape — pin the relationship, not the number).
 const RISER: f32 = 0.292;
 const GOING: f32 = 0.30;
 
-/// Hero side. The render tool and the settlement placer both look down `-Z`.
-const FRONT: f32 = -1.0;
+/// Bore of a gun barrel, as a fraction of its outer radius.
+///
+/// `TortureParams::hollow` carves the barrel along its axis, so the muzzle is
+/// a ring with darkness inside it rather than a flat bronze disc. That black
+/// circle is the entire read at any distance a gun is seen from here, and it
+/// costs one field rather than one prim. A real piece runs a thin wall at the
+/// muzzle and a much thicker one at the breech; one fraction cannot say both,
+/// so it is sized for the end anybody sees.
+const BORE_FRACTION: f32 = 0.42;
 
 pub struct HarbourBattery;
 
@@ -253,6 +265,23 @@ fn port_centres(side: f32) -> [f32; 1] {
 /// `len` the barrel length — so the same gun serves the long pieces on the
 /// terreplein and the shorter ones in the casemates.
 ///
+/// # What makes it read as a gun rather than a rod on blocks
+///
+/// Three things, all learned from the first build looking wrong in-world.
+///
+/// 1. **The bore is real.** `hollow` carves the barrel out along its axis, so
+///    the muzzle is a ring with darkness inside it. A solid drum pointed at
+///    you is a post; the black circle is the entire read at any distance, and
+///    it costs one field rather than one prim.
+/// 2. **Trunnions carry it.** The barrel is held *up* by two stub axles that
+///    pass into the carriage cheeks. Without them the cheeks stand beside the
+///    barrel touching nothing, which is exactly why it looked like it was
+///    hanging in the air — there was no member anywhere between the carriage
+///    and the gun.
+/// 3. **The cheeks are stepped.** A real carriage cheek falls away toward the
+///    breech in steps so the gun can be elevated; a plain slab reads as
+///    packaging. Two boxes per side instead of one.
+///
 /// The barrel is a **leaf** prim carrying its own quarter turn: a rotated
 /// parent with offset children spins those offsets out of the geometry and
 /// then hides the fault from every guard here, all of which walk translations
@@ -262,23 +291,33 @@ fn gun(x: f32, bore_y: f32, muzzle_z: f32, len: f32, seed: u32) -> Generator {
     let r = len * 0.075;
     let breech_z = muzzle_z + len;
     let barrel_c = [x, bore_y, muzzle_z + len * 0.5];
-    // Carriage bed on the platform under the gun.
-    let bed_y = bore_y - r - 0.22;
-    let bed_c = [x, bed_y, breech_z - len * 0.32];
+    // Trunnions sit forward of the balance point, as they do on a real piece,
+    // and the cheeks are built up to meet them.
+    let trunnion_z = muzzle_z + len * 0.42;
+    let cheek_x = r + 0.055;
+    // The carriage's own bed, and the height its cheeks rise to.
+    let bed_y = bore_y - r - 0.30;
+    let bed_c = [x, bed_y, breech_z - len * 0.30];
 
     let mut carried = vec![
-        // Barrel: tapered from breech to muzzle, laid along Z. `quat_x` turns
-        // a Y-axis cylinder's +Y toward +Z, so the taper's narrow end (the
-        // cylinder's top) points seaward — which is the muzzle.
+        // Barrel: tapered breech-to-muzzle, laid along Z, and BORED. `quat_x`
+        // turns a Y-axis cylinder's +Y toward +Z, so the taper's narrow end
+        // (the cylinder's top) points seaward — which is the muzzle.
         prim(
-            solid(cylinder_tapered(r, len, 12, 0.28, bronze(BRONZE_GUN, seed))),
+            solid(with_cut(
+                cylinder_tapered(r, len, 12, 0.28, bronze(BRONZE_GUN, seed)),
+                [0.0, 1.0],
+                [0.0, 1.0],
+                BORE_FRACTION,
+            )),
             barrel_c,
             quat_x(-FRAC_PI_2),
         ),
-        // Cascabel at the breech.
+        // Cascabel at the breech — and it caps the bore, so the hollow reads
+        // as a muzzle opening rather than as a tube you can see through.
         prim(
-            sphere(r * 0.62, 3, bronze(BRONZE_GUN, seed ^ 0x07)),
-            [x, bore_y, breech_z + r * 0.4],
+            sphere(r * 0.66, 3, bronze(BRONZE_GUN, seed ^ 0x07)),
+            [x, bore_y, breech_z + r * 0.3],
             id_quat(),
         ),
         // One reinforcing ring at the breech — what makes a tapered drum read
@@ -292,21 +331,59 @@ fn gun(x: f32, bore_y: f32, muzzle_z: f32, len: f32, seed: u32) -> Generator {
         ),
     ];
 
-    // Two carriage brackets, and the trucks under them. Painted the deep red
-    // a period sea-service carriage actually wore — the one place in the kit
-    // where `ENSIGN_RED` lands on something structural rather than on cloth,
-    // and the thing that stops ten guns reading as ten brown sticks.
+    // Trunnions: the stub axles the whole gun hangs on. Laid along X, long
+    // enough to reach from the barrel's flank into the outside of each cheek.
     for sx in [-1.0_f32, 1.0] {
         carried.push(prim(
+            solid(cylinder_tapered(
+                r * 0.34,
+                (cheek_x + 0.05 - r * 0.6) * 2.0,
+                8,
+                0.0,
+                bronze(BRONZE_GUN, seed ^ 0x0B),
+            )),
+            [
+                x + sx * (r * 0.6 + (cheek_x + 0.05 - r * 0.6)),
+                bore_y,
+                trunnion_z,
+            ],
+            quat_z(FRAC_PI_2),
+        ));
+    }
+
+    // Two stepped cheeks, and a truck under each. Painted the deep red a
+    // period sea-service carriage actually wore — the one place in the kit
+    // where `ENSIGN_RED` lands on something structural rather than on cloth,
+    // and the thing that stops seven guns reading as seven brown sticks.
+    let cheek_top = bore_y + r * 0.15;
+    for sx in [-1.0_f32, 1.0] {
+        // Forward step: rises to the trunnion, carrying the gun.
+        let fwd_h = cheek_top - bed_y;
+        carried.push(prim(
             solid(cuboid_tapered(
-                [0.09, 0.44, len * 0.62],
+                [0.10, fwd_h, len * 0.30],
                 0.0,
                 strake(ENSIGN_RED),
             )),
-            [x + sx * (r + 0.09), bed_y, bed_c[2]],
+            [
+                x + sx * cheek_x,
+                bed_y + fwd_h * 0.5,
+                trunnion_z + len * 0.06,
+            ],
             id_quat(),
         ));
-        // One truck per bracket rather than two. The rear pair sits under the
+        // Rear step: lower, running back under the breech.
+        let aft_h = fwd_h * 0.58;
+        carried.push(prim(
+            solid(cuboid_tapered(
+                [0.10, aft_h, len * 0.34],
+                0.0,
+                strake(ENSIGN_RED),
+            )),
+            [x + sx * cheek_x, bed_y + aft_h * 0.5, breech_z - len * 0.16],
+            id_quat(),
+        ));
+        // One truck per cheek rather than two. The rear pair sits under the
         // carriage bed and behind the parapet, where nothing sees it.
         carried.push(prim(
             solid(cylinder_tapered(
@@ -316,10 +393,11 @@ fn gun(x: f32, bore_y: f32, muzzle_z: f32, len: f32, seed: u32) -> Generator {
                 0.0,
                 iron(IRON_BLACK, seed ^ 0x0A),
             )),
-            [x + sx * (r + 0.09), bed_y - 0.26, bed_c[2] - len * 0.22],
+            [x + sx * cheek_x, bed_y - 0.14, trunnion_z + len * 0.08],
             quat_z(FRAC_PI_2),
         ));
     }
+
     // Breeching rope through the cascabel — the detail that says the gun is
     // rigged rather than parked. Worth its prim on the terreplein pieces,
     // which are seen whole; the casemate guns skip it, since a rope behind a
@@ -334,8 +412,12 @@ fn gun(x: f32, bore_y: f32, muzzle_z: f32, len: f32, seed: u32) -> Generator {
 
     nest(
         prim(
-            solid(cuboid_tapered([0.5, 0.1, len * 0.7], 0.0, strake(HULL_TAR))),
-            [x, bed_y - 0.35, bed_c[2]],
+            solid(cuboid_tapered(
+                [cheek_x * 2.0 + 0.2, 0.14, len * 0.7],
+                0.0,
+                strake(HULL_TAR),
+            )),
+            [x, bed_y - 0.07, bed_c[2]],
             id_quat(),
         ),
         carried,
@@ -587,20 +669,6 @@ fn parapet() -> Vec<Generator> {
         // Shot garland behind each gun — every bay gets its own thing to look
         // at from the deck as well as from the sea.
         out.push(shot_pile([x, DECK_TOP, z + 1.5], 0xB0 + i as u32));
-        // Every third gun keeps its tarred canvas apron over the muzzle — a
-        // battery where every piece is stripped for action reads as a
-        // diorama, and the two covered guns are what say the others are not.
-        if i % 3 == 1 {
-            out.push(prim(
-                solid(cuboid_tapered(
-                    [0.42, 0.4, 0.42],
-                    0.18,
-                    sailcloth(CANVAS_BONE, CANVAS_SHADE),
-                )),
-                [x, DECK_TOP + SOLE_H + 0.5, -DECK[2] * 0.5 - 0.5],
-                id_quat(),
-            ));
-        }
     }
     out
 }
@@ -667,10 +735,12 @@ fn sentry_box() -> Generator {
 
 /// The colours on their staff, at the gorge end of the deck.
 ///
-/// The flag is a flat quad hanging from a yard; its device is a set of leaf
-/// prims carrying their own turns, which is the form #972 lesson 22 permits.
+/// The flag itself is the kit's shared [`jolly_roger`] — two BlobGroups, a
+/// rippled cloth and a bone relief seated in its face — so the skull cannot
+/// poke through the back of the flag the way a sphere laid on a slab did.
 fn colours() -> Generator {
     let staff_h = 5.6;
+    let cz = DECK[2] * 0.5 - 1.5;
     let base = prim(
         solid(cylinder_tapered(
             0.34,
@@ -679,13 +749,10 @@ fn colours() -> Generator {
             0.2,
             ashlar(STONE_LIME, 0xC0),
         )),
-        [0.0, DECK_TOP + 0.2, DECK[2] * 0.5 - 1.5],
+        [0.0, DECK_TOP + 0.2, cz],
         id_quat(),
     );
     let staff_top = DECK_TOP + 0.4 + staff_h;
-    let cx = 1.0;
-    let cy = staff_top - 0.9;
-    let cz = DECK[2] * 0.5 - 1.5;
     let mut staff = nest(
         base,
         vec![
@@ -699,31 +766,8 @@ fn colours() -> Generator {
                 [0.0, staff_top + 0.1, cz],
                 id_quat(),
             ),
-            // The black colours, hung to one side of the staff.
-            prim(
-                cuboid_tapered(
-                    [1.9, 1.25, 0.03],
-                    0.0,
-                    sailcloth(HULL_TAR, [0.09, 0.09, 0.10]),
-                ),
-                [cx, cy, cz],
-                id_quat(),
-            ),
-            prim(
-                sphere(0.2, 3, bone(BONE_PALE)),
-                [cx, cy + 0.2, cz + FRONT * 0.03],
-                id_quat(),
-            ),
-            prim(
-                cuboid_tapered([0.74, 0.07, 0.05], 0.0, bone(BONE_PALE)),
-                [cx, cy - 0.3, cz + FRONT * 0.03],
-                quat_z(0.6),
-            ),
-            prim(
-                cuboid_tapered([0.74, 0.07, 0.05], 0.0, bone(BONE_PALE)),
-                [cx, cy - 0.3, cz + FRONT * 0.03],
-                quat_z(-0.6),
-            ),
+            // Hung to one side of the staff, its hoist against it.
+            jolly_roger([1.05, staff_top - 0.95, cz], 1.9, 1.25),
         ],
     );
     // The halyard slatting against the staff. Its own spatial patch rather
@@ -744,8 +788,12 @@ fn gorge_steps() -> Generator {
     let rise = DECK_TOP - QUAY;
     let treads = (rise / RISER).round().max(2.0) as usize;
     let riser = rise / treads as f32;
-    let start_z = WALL[2] * 0.5;
-    let width = 4.4;
+    // The flight starts beyond the CORDON's projection, not at the wall face.
+    // Started at the wall it ran its top treads straight through the cordon's
+    // 0.4 m oversail and stopped 0.3 m short of the deck's own edge, which is
+    // why it read as a stair leaning on the fort rather than joining it.
+    let start_z = WALL[2] * 0.5 + CORDON_PROJECT;
+    let width = FLIGHT_W;
     let mut out = Vec::new();
     for i in 1..treads {
         let h = riser * (i + 1) as f32;
@@ -760,6 +808,26 @@ fn gorge_steps() -> Generator {
             id_quat(),
         ));
     }
+    // Landing: the piece that actually makes the flight meet the building.
+    // It bears on the cordon and reaches in to the deck's own edge, so the
+    // top tread arrives at a floor rather than at a 0.7 m gap over a
+    // projecting moulding. Sized from both — the cordon's outer face and the
+    // deck's edge — so it cannot come apart if either is re-proportioned.
+    let landing_back = DECK[2] * 0.5;
+    let landing_d = start_z - landing_back;
+    out.push(prim(
+        solid(cuboid_tapered(
+            [width, DECK[1], landing_d],
+            0.0,
+            cobbles(STONE_QUAY, 0xDF),
+        )),
+        [
+            0.0,
+            DECK_TOP - DECK[1] * 0.5,
+            landing_back + landing_d * 0.5,
+        ],
+        id_quat(),
+    ));
     // Cheek walls, derived from the flight's own run so they cannot be left
     // behind when the rise changes.
     let run = treads as f32 * GOING;
@@ -855,10 +923,17 @@ fn build_tree() -> Generator {
             if ports.iter().any(|p| (p - pcx).abs() < 0.05) {
                 continue;
             }
-            let pc = [pcx, CASEMATE_SILL + PORT_H * 0.5, 0.0];
+            // Only as deep as the chamber it frames. Full-depth piers ran
+            // the whole 10.8 m of the wall, so they occupied the same volume
+            // as the rear mass behind them AND presented a face at the same
+            // x = ±9.9 over eight metres of overlap — two coplanar walls
+            // fighting for depth down the middle of the base, which is what
+            // showed in-world. Abutting the rear mass instead of passing
+            // through it removes the shared plane rather than nudging it.
+            let pc = [pcx, CASEMATE_SILL + PORT_H * 0.5, FACE_Z + CHAMBER_D * 0.5];
             on_talus.push(prim(
                 solid(cuboid_tapered(
-                    [pw, PORT_H, WALL[2]],
+                    [pw, PORT_H, CHAMBER_D],
                     0.0,
                     coursed(pc, FaceKey::SideNz, 0x13),
                 )),
@@ -946,27 +1021,42 @@ fn build_tree() -> Generator {
     on_deck.push(sentry_box());
     // Gorge breast wall and the two flank parapets, each a ring segment
     // rather than a face detail, so each takes the deck's own extent.
-    on_deck.push(prim(
-        solid(cuboid_tapered(
-            [DECK[0], GORGE_H, PARAPET_D],
-            0.0,
-            coursed(
-                [
-                    0.0,
-                    DECK_TOP + GORGE_H * 0.5,
-                    DECK[2] * 0.5 - PARAPET_D * 0.5,
-                ],
-                FaceKey::SidePz,
-                0x18,
-            ),
-        )),
-        [
-            0.0,
+    //
+    // The breast wall is TWO runs with the flight's opening between them. One
+    // continuous wall walled the stair off from the deck it climbs to, which
+    // is a flight to nowhere — obvious the moment somebody walks up it, and
+    // invisible in every elevation.
+    let gorge_z = DECK[2] * 0.5 - PARAPET_D * 0.5;
+    let gap_half = FLIGHT_W * 0.5 + 0.12;
+    for sx in [-1.0_f32, 1.0] {
+        let run = DECK[0] * 0.5 - gap_half;
+        let c = [
+            sx * (gap_half + run * 0.5),
             DECK_TOP + GORGE_H * 0.5,
-            DECK[2] * 0.5 - PARAPET_D * 0.5,
-        ],
-        id_quat(),
-    ));
+            gorge_z,
+        ];
+        on_deck.push(prim(
+            solid(cuboid_tapered(
+                [run, GORGE_H, PARAPET_D],
+                0.0,
+                coursed(c, FaceKey::SidePz, 0x18),
+            )),
+            c,
+            id_quat(),
+        ));
+        // A stub pier at each side of the opening, standing proud of the runs,
+        // so the gap reads as a doorway somebody built rather than as a
+        // missing length of wall.
+        on_deck.push(prim(
+            solid(cuboid_tapered(
+                [0.34, GORGE_H + 0.26, PARAPET_D + 0.16],
+                0.0,
+                ashlar(STONE_LIME, 0x1A),
+            )),
+            [sx * gap_half, DECK_TOP + (GORGE_H + 0.26) * 0.5, gorge_z],
+            id_quat(),
+        ));
+    }
     for sx in [-1.0_f32, 1.0] {
         let c = [
             sx * (DECK[0] * 0.5 - PARAPET_D * 0.5),
@@ -989,6 +1079,38 @@ fn build_tree() -> Generator {
             )),
             c,
             id_quat(),
+        ));
+    }
+    // A furled tarpaulin lashed along the gorge wall. This is where the kit's
+    // canvas lives on this entry: the first build put a tapered box over two
+    // of the muzzles as a "gun apron", which is a real thing and was
+    // completely unreadable as one — at that size it was a beige lump on the
+    // end of a barrel. A rolled tarp on the deck is unmistakably a rolled
+    // tarp, which is the whole test a small prop has to pass.
+    on_deck.push(prim(
+        solid(cylinder_tapered(
+            0.22,
+            3.2,
+            10,
+            0.0,
+            sailcloth(CANVAS_BONE, CANVAS_SHADE),
+        )),
+        [
+            DECK[0] * 0.5 - 3.4,
+            DECK_TOP + 0.22,
+            DECK[2] * 0.5 - PARAPET_D - 0.3,
+        ],
+        quat_z(FRAC_PI_2),
+    ));
+    for dx in [-1.1_f32, 1.1] {
+        on_deck.push(prim(
+            torus(0.035, 0.24, hemp(ROPE_HEMP)),
+            [
+                DECK[0] * 0.5 - 3.4 + dx,
+                DECK_TOP + 0.22,
+                DECK[2] * 0.5 - PARAPET_D - 0.3,
+            ],
+            quat_z(FRAC_PI_2),
         ));
     }
     // A tarred timber platform strip under the gun trucks, so the deck reads
@@ -1068,7 +1190,10 @@ mod tests {
     ///
     /// The ceiling is deliberately a little above the current figure so the
     /// entry can be detailed further, and well under the doubling that would
-    /// make it an outlier again.
+    /// make it an outlier again. It was raised once, from 85 to 95 KB, when
+    /// the guns gained their bores, trunnions and stepped cheeks (#1025) —
+    /// detail the user asked for after seeing them in-world, on the prop that
+    /// is the whole point of the building.
     #[test]
     fn the_entry_stays_within_the_landmark_record_band() {
         fn count(g: &Generator) -> usize {
@@ -1080,15 +1205,15 @@ mod tests {
             .len();
         let nodes = count(&g);
         assert!(
-            bytes < 85_000,
+            bytes < 95_000,
             "the battery serialises to {bytes} B over {nodes} nodes; the next \
-             heaviest landmark in the catalogue is ~55 KB, and a room's whole \
-             soft budget is 100 KiB"
+             heaviest landmark in the catalogue is ~55 KB, and a whole seeded \
+             room's soft budget is 200 KiB"
         );
         assert!(
-            nodes < 200,
-            "{nodes} nodes — guns are ~7 prims each and are the first place to \
-             look when this trips"
+            nodes < 215,
+            "{nodes} nodes — a gun is ~10 prims and there are seven of them, \
+             so the guns are the first place to look when this trips"
         );
     }
 
@@ -1238,6 +1363,151 @@ mod tests {
                  either way the chamber reads unlit from the quay"
             );
         }
+    }
+
+    /// No two solids of the base occupy the same space (#1025).
+    ///
+    /// The in-world fault this replaces: the wall piers ran the full 10.8 m
+    /// depth of the wall while the rear mass filled everything behind the
+    /// chambers, so eight metres of the two interpenetrated AND presented
+    /// faces on the same x = ±9.9 plane — a coplanar seam fighting for depth
+    /// down the middle of the base, on the most-looked-at part of the
+    /// building.
+    ///
+    /// The rule is stated for the *masonry* only: the fit-out inside the
+    /// chambers is supposed to sit against its lining, guns pass through their
+    /// own ports, and trim is supposed to be proud of what it trims. Masonry
+    /// blocks are structure, and two of those in the same place is always a
+    /// mistake.
+    #[test]
+    fn no_two_masonry_blocks_interpenetrate() {
+        use crate::pds::SovereignTextureConfig as Tex;
+        // Coursed ashlar is what the structural blocks wear, and it is what
+        // defines them — selecting on size would sweep in the copings and the
+        // sentry box (#972 lesson 24).
+        fn blocks(g: &Generator, at: [f32; 3], out: &mut Vec<([f32; 3], [f32; 3])>) {
+            let t = g.transform.translation.0;
+            let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
+            if let crate::pds::GeneratorKind::Cuboid {
+                size,
+                material,
+                torture,
+                ..
+            } = &g.kind
+                && matches!(material.texture, Tex::Ashlar(_))
+                // Battered blocks narrow with height; their AABB overstates
+                // them, so they are left to the eye rather than reported as
+                // false overlaps.
+                && torture.taper.0 == [0.0, 0.0]
+                // Structure, not trim: a coping or a stub pier is meant to
+                // lap what it caps.
+                && size.0[1] > 1.0
+            {
+                out.push((here, [size.0[0] * 0.5, size.0[1] * 0.5, size.0[2] * 0.5]));
+            }
+            for c in &g.children {
+                blocks(c, here, out);
+            }
+        }
+        let mut found = Vec::new();
+        blocks(&built(), [0.0; 3], &mut found);
+        assert!(
+            found.len() >= 5,
+            "only {} masonry blocks found — the selector has stopped seeing \
+             the piers and the rear mass",
+            found.len()
+        );
+        for (i, (ca, ea)) in found.iter().enumerate() {
+            for (cb, eb) in &found[i + 1..] {
+                let clash = |ax: usize| (ca[ax] - cb[ax]).abs() < ea[ax] + eb[ax] - 1e-3;
+                assert!(
+                    !(clash(0) && clash(1) && clash(2)),
+                    "two masonry blocks share space: {ca:?} (half {ea:?}) and \
+                     {cb:?} (half {eb:?}) — coplanar faces inside an overlap \
+                     are what z-fights"
+                );
+            }
+        }
+    }
+
+    /// The gorge flight actually joins the fort (#1025).
+    ///
+    /// Three relationships, because the fault was three faults: the flight
+    /// stopped short of the deck edge, its top treads ran through the cordon's
+    /// oversail, and the breast wall it climbed to had no opening in it — a
+    /// stair to a parapet. Each is checked against the built tree, and each
+    /// would be invisible in an elevation.
+    #[test]
+    fn the_flight_arrives_on_the_deck_through_a_real_opening() {
+        let g = built();
+        let solids = measure::solids(&g);
+        // The landing bridges the cordon's outer face to the deck's own edge.
+        let landing = solids
+            .iter()
+            .find(|p| {
+                let s = p.bounds.size();
+                // The top tread shares the landing's width AND its top face,
+                // so depth is the only property that tells them apart —
+                // select on what defines the thing (#972 lesson 24).
+                (s.x - FLIGHT_W).abs() < 0.05
+                    && (p.bounds.max.y - DECK_TOP).abs() < 1e-3
+                    && s.z > GOING * 1.5
+            })
+            .expect("the flight lands on a landing at deck level");
+        assert!(
+            landing.bounds.min.z <= DECK[2] * 0.5 + 1e-3,
+            "the landing stops at z = {}, short of the deck edge at {}",
+            landing.bounds.min.z,
+            DECK[2] * 0.5
+        );
+        assert!(
+            landing.bounds.max.z >= WALL[2] * 0.5 + CORDON_PROJECT - 1e-3,
+            "the landing does not reach the cordon's outer face, so the top \
+             tread has nothing to bear on"
+        );
+        // Nothing in the flight cuts through the cordon's projection.
+        let cordon_band = (WALL_TOP, CORDON_TOP);
+        for p in &solids {
+            let b = &p.bounds;
+            let in_band = b.max.y > cordon_band.0 + 1e-3 && b.min.y < cordon_band.1 - 1e-3;
+            let over_cordon =
+                b.min.z < WALL[2] * 0.5 + CORDON_PROJECT - 1e-3 && b.max.z > WALL[2] * 0.5 + 1e-3;
+            let is_the_cordon = b.size().x > WALL[0];
+            assert!(
+                !(in_band && over_cordon && !is_the_cordon),
+                "{} at {:?} passes through the cordon's oversail",
+                p.kind_tag,
+                b.center()
+            );
+        }
+        // And the breast wall has a gap the flight's width at the centre.
+        let gorge_z = DECK[2] * 0.5 - PARAPET_D * 0.5;
+        let runs: Vec<_> = solids
+            .iter()
+            .filter(|p| {
+                let b = &p.bounds;
+                (b.center().z - gorge_z).abs() < 0.2
+                    && (b.size().y - GORGE_H).abs() < 0.05
+                    && b.size().x > 1.0
+            })
+            .collect();
+        assert_eq!(
+            runs.len(),
+            2,
+            "the gorge breast wall must be two runs with the flight's opening \
+             between them, found {}",
+            runs.len()
+        );
+        let gap = runs
+            .iter()
+            .map(|p| p.bounds.min.x.abs().min(p.bounds.max.x.abs()))
+            .fold(f32::MAX, f32::min)
+            * 2.0;
+        assert!(
+            gap >= FLIGHT_W,
+            "the opening in the breast wall is {gap} m for a {FLIGHT_W} m \
+             flight — somebody coming up the stair walks into a wall"
+        );
     }
 
     /// The work is a stack and the stack is contiguous (#972 lesson 33):

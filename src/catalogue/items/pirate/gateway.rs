@@ -35,10 +35,10 @@
 
 use std::f32::consts::FRAC_PI_2;
 
-use crate::catalogue::items::pirate::lantern;
+use crate::catalogue::items::pirate::{jolly_roger, lantern};
 use crate::catalogue::items::util::{
     attach, bonded_siding, cuboid_tapered, cylinder_tapered, face_uv_offset, footing, glow,
-    id_quat, nest, prim, quat_x, quat_z, solid, sphere, torus,
+    id_quat, nest, prim, quat_x, quat_z, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
@@ -46,8 +46,8 @@ use crate::pds::{Fp3, Generator, GeneratorKind};
 use crate::seeded_defaults::ThemeArchetype;
 
 use super::{
-    BONE_PALE, BRONZE_FITTING, GOLD_LEAF, HULL_OAK, HULL_TAR, IRON_BLACK, ROPE_HEMP, SIGN_AMBER,
-    STONE_LIME, STONE_QUAY, ashlar, bone, bronze, cobbles, fx, hemp, iron, sailcloth, strake, tar,
+    BRONZE_FITTING, GOLD_LEAF, HULL_OAK, HULL_TAR, IRON_BLACK, ROPE_HEMP, SIGN_AMBER, STONE_LIME,
+    STONE_QUAY, ashlar, bronze, cobbles, fx, hemp, iron, strake, tar,
 };
 
 // --- The frame, stated once ------------------------------------------------
@@ -101,6 +101,15 @@ const FLAG_DROP: f32 = 0.06;
 /// reads as *hanging*, so a foot that grazes the board it hangs over looks
 /// wrong long before it is actually intersecting.
 const FLAG_CLEAR: f32 = 0.22;
+/// How far the meshed cloth bulges past its authored half-height.
+///
+/// The colours are a `BlobGroup`, and surface nets places the iso-surface a
+/// little *outside* the analytic elements it is fitting — around 30 mm at this
+/// blend radius. So the built flag is taller than `FLAG_H` says, and a
+/// clearance derived from the authored number alone comes up short by exactly
+/// that margin, which is what the guard caught. Anything positioned against a
+/// blob's edge has to pay this.
+const FLAG_BLOOM: f32 = 0.04;
 
 /// Hero side — the approach the gate is read from. The render tool and the
 /// settlement placer both look down `-Z`.
@@ -242,7 +251,7 @@ fn head() -> Generator {
     // which the four-angle sheet showed as a dark box sitting on the sign.
     // Same shape as #972 lesson 16: the clearance has to be evaluated where
     // the part actually ends, not where its centre is.
-    let yard_y = board_top + FLAG_DROP + FLAG_H + FLAG_CLEAR;
+    let yard_y = board_top + FLAG_DROP + FLAG_H + FLAG_CLEAR + FLAG_BLOOM;
 
     let mut carried = vec![
         // Carved name-board on an oak backing. The board is the frame; the lit
@@ -303,62 +312,19 @@ fn head() -> Generator {
         [0.0, yard_y, 0.0],
         quat_z(FRAC_PI_2),
     ));
-    carried.push(colours(yard_y));
+    // The colours, off the yard's starboard half so the gate is not
+    // symmetrical — a flag centred over the opening reads as signage, off to
+    // one side it reads as colours flown. Built by the kit's shared
+    // `jolly_roger` (#972 lesson 5), which is two BlobGroups: a rippled cloth
+    // and a bone relief seated in its front face, so the skull cannot poke
+    // through the back the way a sphere on a slab did.
+    carried.push(jolly_roger(
+        [0.82, yard_y - FLAG_H * 0.5 - FLAG_DROP, FRONT * 0.04],
+        FLAG_W,
+        FLAG_H,
+    ));
 
     nest(prim(lintel, lintel_c, id_quat()), carried)
-}
-
-/// The black colours, hanging from the starboard half of the yard.
-///
-/// Authored as a flat quad with its device on the front, and *not* as a
-/// rotated parent: the flag hangs plumb, and the two crossed bones are turned
-/// leaf prims with no children of their own — which is the form #972 lesson 22
-/// permits, since a turn with nothing offset under it displaces nothing.
-fn colours(yard_y: f32) -> Generator {
-    // Hung off the yard's starboard half, so the gate is not symmetrical —
-    // a flag centred over the opening reads as signage, off to one side it
-    // reads as colours flown.
-    let cx = 0.82;
-    let cy = yard_y - FLAG_H * 0.5 - FLAG_DROP;
-    let cz = FRONT * 0.04;
-    let cloth = prim(
-        cuboid_tapered(
-            [FLAG_W, FLAG_H, 0.03],
-            0.0,
-            sailcloth(HULL_TAR, [0.09, 0.09, 0.10]),
-        ),
-        [cx, cy, cz],
-        id_quat(),
-    );
-    let device_z = cz + FRONT * 0.03;
-    nest(
-        cloth,
-        vec![
-            // Skull.
-            prim(
-                sphere(0.17, 3, bone(BONE_PALE)),
-                [cx, cy + 0.16, device_z],
-                id_quat(),
-            ),
-            // Jaw, a touch below and narrower.
-            prim(
-                solid(cuboid_tapered([0.17, 0.07, 0.05], 0.2, bone(BONE_PALE))),
-                [cx, cy + 0.01, device_z],
-                id_quat(),
-            ),
-            // Crossed bones under it. Leaf prims, so the turn carries nothing.
-            prim(
-                cuboid_tapered([0.62, 0.06, 0.05], 0.0, bone(BONE_PALE)),
-                [cx, cy - 0.24, device_z],
-                quat_z(0.6),
-            ),
-            prim(
-                cuboid_tapered([0.62, 0.06, 0.05], 0.0, bone(BONE_PALE)),
-                [cx, cy - 0.24, device_z],
-                quat_z(-0.6),
-            ),
-        ],
-    )
 }
 
 /// One bollard with a hawser coiled at its foot. `side` picks the beam.
@@ -561,16 +527,38 @@ mod tests {
     fn the_colours_fly_clear_of_the_name_board() {
         let g = built();
         let solids = measure::solids(&g);
-        // The flag is the only near-black cloth in the tree; the board is the
-        // only oak slab of its plan. Both selected by what defines them
-        // (#972 lesson 24), not by an incidental dimension.
-        let flag = solids
+        // The flag is the gate's only BlobGroup pair, and the board its only
+        // oak slab of that plan. Both selected by what defines them rather
+        // than by a nominal size: the cloth is meshed by surface nets, so its
+        // built bounds are deliberately NOT its authored width and a guard
+        // that matched on that number would find nothing (#972 lesson 24).
+        fn blob_bounds(g: &Generator, at: [f32; 3], out: &mut Vec<measure::Bounds>) {
+            let t = g.transform.translation.0;
+            let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
+            if matches!(g.kind, GeneratorKind::BlobGroup { .. })
+                && let Some(b) = measure::mesh_bounds(
+                    &g.kind,
+                    &bevy::prelude::Transform::from_xyz(here[0], here[1], here[2]),
+                )
+            {
+                out.push(b);
+            }
+            for c in &g.children {
+                blob_bounds(c, here, out);
+            }
+        }
+        let mut blobs = Vec::new();
+        blob_bounds(&g, [0.0; 3], &mut blobs);
+        assert_eq!(
+            blobs.len(),
+            2,
+            "the colours are a cloth group and a device group, found {}",
+            blobs.len()
+        );
+        let flag = blobs
             .iter()
-            .find(|p| {
-                let s = p.bounds.size();
-                (s.x - FLAG_W).abs() < 0.05 && (s.y - FLAG_H).abs() < 0.05
-            })
-            .expect("the colours are in the tree");
+            .max_by(|a, b| a.size().x.partial_cmp(&b.size().x).expect("finite extents"))
+            .expect("the cloth is the wider group");
         let board = solids
             .iter()
             .find(|p| {
@@ -579,17 +567,17 @@ mod tests {
             })
             .expect("the name-board is in the tree");
         assert!(
-            flag.bounds.min.y > board.bounds.max.y,
+            flag.min.y > board.bounds.max.y,
             "the colours' foot is at {} and the name-board's head at {} — the \
              flag is hanging inside the sign",
-            flag.bounds.min.y,
+            flag.min.y,
             board.bounds.max.y
         );
         assert!(
-            flag.bounds.min.y - board.bounds.max.y >= FLAG_CLEAR - 1e-3,
+            flag.min.y - board.bounds.max.y >= FLAG_CLEAR - 1e-3,
             "only {:.3} m between the colours and the board; a flag that grazes \
              what it hangs over reads wrong well before it intersects",
-            flag.bounds.min.y - board.bounds.max.y
+            flag.min.y - board.bounds.max.y
         );
     }
 

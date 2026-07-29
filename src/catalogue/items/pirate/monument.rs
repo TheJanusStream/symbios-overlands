@@ -83,6 +83,20 @@ const FRAME_TOP: f32 = DECK + FRAME[1];
 /// Gilt frame stock round the portrait.
 const GILT: f32 = 0.16;
 
+/// Radius of one round shot.
+const SHOT_R: f32 = 0.115;
+
+/// The frame post's inner face — what the ground dressing has to stay clear
+/// of. Derived rather than eyeballed, because the first build put the hawser
+/// coil straight through the post (#1025).
+const POST_INNER: f32 = FRAME_X - FRAME[0] * 0.5;
+
+/// Centre of the coiled hawser, and of the shot stack, on the two sides of
+/// the monument. Both are pulled in from [`POST_INNER`] by their own outer
+/// radius plus a margin, so neither can touch the timber.
+const COIL_X: f32 = -(POST_INNER - 0.34 - 0.06 - 0.08);
+const SHOT_X: f32 = POST_INNER - SHOT_R * 3.0 - 0.08;
+
 pub struct PirateMonument;
 
 impl CatalogueEntry for PirateMonument {
@@ -123,38 +137,26 @@ fn build_tree(did: &str) -> Generator {
         oak_frame(-1.0),
         oak_frame(1.0),
         transom(did),
-        // Coiled hawser and two round shot at the foot — the dressing that
-        // says this board came off a ship rather than out of a mason's yard.
-        // Held back from the kerb's front edge: a 0.34 m coil at z = -0.42
-        // reaches 0.82 m out on a kerb whose half-depth is 0.75, which the
-        // footprint guard caught (#972 lesson 8 — derive ground furniture
-        // from the slab it stands on, not from the thing it dresses).
+        // Coiled hawser at the foot — the dressing that says this board came
+        // off a ship rather than out of a mason's yard.
+        //
+        // Held clear of the frame post on BOTH axes. At x = -1.06 the coil's
+        // 0.40 m outer radius reached to -1.46 and the post's face is at
+        // -1.21, so the rope ran straight through the timber it was supposed
+        // to be lying beside. Derived from the post's own inner face now,
+        // rather than from a number that happened to look right in plan.
         prim(
             torus(0.06, 0.34, hemp(ROPE_HEMP)),
-            [-1.06, DECK + 0.06, -0.28],
+            [COIL_X, DECK + 0.06, -0.28],
             id_quat(),
         ),
         prim(
             torus(0.055, 0.27, hemp(ROPE_HEMP)),
-            [-1.06, DECK + 0.16, -0.28],
-            id_quat(),
-        ),
-        prim(
-            sphere(0.13, 3, iron(IRON_BLACK, 0x51)),
-            [1.02, DECK + 0.13, -0.44],
-            id_quat(),
-        ),
-        prim(
-            sphere(0.13, 3, iron(IRON_BLACK, 0x52)),
-            [1.26, DECK + 0.13, -0.32],
+            [COIL_X, DECK + 0.16, -0.28],
             id_quat(),
         ),
     ];
-    carried.push(prim(
-        sphere(0.13, 3, iron(IRON_BLACK, 0x53)),
-        [1.14, DECK + 0.34, -0.38],
-        id_quat(),
-    ));
+    carried.extend(shot_stack([SHOT_X, DECK, -0.34]));
 
     let mut root = nest(
         prim(solid(cuboid_tapered(KERB, 0.0, paving)), kerb_c, id_quat()),
@@ -163,6 +165,39 @@ fn build_tree(did: &str) -> Generator {
     // Signature life: the swell against the wall this board is nailed to.
     root.audio = fx::harbour_swell();
     root
+}
+
+/// A stack of round shot: **three on the ground carrying a fourth on top**.
+///
+/// The first build had two below and one above, which is a pile rather than a
+/// stack — it has no plane of support, so the top ball reads as balanced
+/// between two rather than seated in a hollow. Three in a triangle with a
+/// fourth in the dimple is the arrangement a gunner's garland actually takes,
+/// and it is the smallest one that looks like it would stay put.
+///
+/// The apex height is derived, not chosen: four equal spheres in contact form
+/// a regular tetrahedron of edge `2r`, so the top centre sits `2r·sqrt(2/3)`
+/// above the base centres. Pick it by eye and the ball either floats or sinks.
+fn shot_stack(base: [f32; 3]) -> Vec<Generator> {
+    // Base triangle: three touching spheres, so their centres are 2r apart
+    // and the circumradius of that triangle is 2r/sqrt(3).
+    let circum = SHOT_R * 2.0 / 3.0_f32.sqrt();
+    let y = base[1] + SHOT_R;
+    let mut out = Vec::new();
+    for (i, k) in [0.0_f32, 1.0, 2.0].into_iter().enumerate() {
+        let a = std::f32::consts::FRAC_PI_2 + k * std::f32::consts::TAU / 3.0;
+        out.push(prim(
+            sphere(SHOT_R, 3, iron(IRON_BLACK, 0x51 + i as u32)),
+            [base[0] + circum * a.cos(), y, base[2] + circum * a.sin()],
+            id_quat(),
+        ));
+    }
+    out.push(prim(
+        sphere(SHOT_R, 3, iron(IRON_BLACK, 0x54)),
+        [base[0], y + SHOT_R * 2.0 * (2.0_f32 / 3.0).sqrt(), base[2]],
+        id_quat(),
+    ));
+    out
 }
 
 /// One sided oak frame, with its lantern and its cap.
@@ -436,6 +471,130 @@ mod tests {
             FRAME_X + FRAME[0] * 0.5 > board_half,
             "the frames at ±{FRAME_X} are inside the board's own {board_half} m \
              half-width, so they read as battens rather than as posts"
+        );
+    }
+
+    /// The ground dressing keeps clear of the frame posts (#1025).
+    ///
+    /// The hawser coil ran straight through the port post in-world — a torus
+    /// whose outer radius reached 0.25 m past the timber's inner face. It is
+    /// the coplanar family's other half: not two faces fighting for depth, but
+    /// two solids simply occupying the same space, which no still shows
+    /// because the rope is the same tone as the post behind it.
+    ///
+    /// Checked against the built tree rather than the constants, so a coil
+    /// re-sized without moving cannot pass (#972 lesson 21).
+    #[test]
+    fn the_ground_dressing_clears_the_frame_posts() {
+        let g = built();
+        let posts: Vec<_> = measure::solids(&g)
+            .into_iter()
+            .filter(|p| {
+                let s = p.bounds.size();
+                (s.y - FRAME[1]).abs() < 0.2 && s.x < 0.5
+            })
+            .collect();
+        assert_eq!(
+            posts.len(),
+            2,
+            "expected two frame posts, found {}",
+            posts.len()
+        );
+        for part in measure::solids(&g) {
+            // Only the dressing on the ground; the transom and its gilt are
+            // supposed to run between the posts.
+            if part.bounds.center().y > DECK + 0.9 {
+                continue;
+            }
+            for post in &posts {
+                let overlaps = |lo_a: f32, hi_a: f32, lo_b: f32, hi_b: f32| {
+                    hi_a > lo_b + 1e-3 && hi_b > lo_a + 1e-3
+                };
+                let hit = overlaps(
+                    part.bounds.min.x,
+                    part.bounds.max.x,
+                    post.bounds.min.x,
+                    post.bounds.max.x,
+                ) && overlaps(
+                    part.bounds.min.z,
+                    part.bounds.max.z,
+                    post.bounds.min.z,
+                    post.bounds.max.z,
+                ) && overlaps(
+                    part.bounds.min.y,
+                    part.bounds.max.y,
+                    post.bounds.min.y,
+                    post.bounds.max.y,
+                );
+                assert!(
+                    !hit || std::ptr::eq(&part.bounds, &post.bounds),
+                    "{} at {:?} runs into a frame post at {:?}",
+                    part.kind_tag,
+                    part.bounds.center(),
+                    post.bounds.center()
+                );
+            }
+        }
+    }
+
+    /// The shot stack is three carrying a fourth, and the fourth is *seated*.
+    ///
+    /// The apex height is the tetrahedral one — `2r·sqrt(2/3)` above the base
+    /// centres — so it rests in the dimple the three below it make. A ball
+    /// placed by eye either floats above the hollow or sinks into it, and at
+    /// this scale both read as wrong without being obviously wrong.
+    #[test]
+    fn the_shot_is_a_stack_of_three_carrying_a_fourth() {
+        // Selected by what DEFINES a round shot — an IRON sphere — not by its
+        // size. The first draft matched on diameter alone and picked up the
+        // two gilt post finials, which are spheres 5 mm smaller (#972 lesson
+        // 24: suspect the selector before the content).
+        fn iron_spheres(g: &Generator, at: [f32; 3], out: &mut Vec<[f32; 3]>) {
+            let t = g.transform.translation.0;
+            let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
+            if let crate::pds::GeneratorKind::Sphere {
+                radius, material, ..
+            } = &g.kind
+                && material.base_color.0 == IRON_BLACK
+                && (radius.0 - SHOT_R).abs() < 1e-4
+            {
+                out.push(here);
+            }
+            for c in &g.children {
+                iron_spheres(c, here, out);
+            }
+        }
+        let g = built();
+        let mut shot = Vec::new();
+        iron_spheres(&g, [0.0; 3], &mut shot);
+        assert_eq!(
+            shot.len(),
+            4,
+            "expected four round shot, found {}",
+            shot.len()
+        );
+        let base_y = shot.iter().map(|c| c[1]).fold(f32::MAX, f32::min);
+        let ground: Vec<_> = shot
+            .iter()
+            .filter(|c| (c[1] - base_y).abs() < 1e-3)
+            .collect();
+        assert_eq!(ground.len(), 3, "the stack's base is not three balls");
+        let apex = shot
+            .iter()
+            .find(|c| (c[1] - base_y).abs() > 1e-3)
+            .expect("one ball sits on top");
+        let want = base_y + SHOT_R * 2.0 * (2.0_f32 / 3.0).sqrt();
+        assert!(
+            (apex[1] - want).abs() < 1e-3,
+            "the top shot is at {} where four touching spheres put it at {want}",
+            apex[1]
+        );
+        // And it sits over the centre of the three, not off to one side.
+        let cx = ground.iter().map(|c| c[0]).sum::<f32>() / 3.0;
+        let cz = ground.iter().map(|c| c[2]).sum::<f32>() / 3.0;
+        assert!(
+            (apex[0] - cx).abs() < 1e-3 && (apex[2] - cz).abs() < 1e-3,
+            "the top shot is not over the centroid of the three below it"
         );
     }
 

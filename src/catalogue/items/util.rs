@@ -375,6 +375,94 @@ pub(super) fn helix(
     }
 }
 
+/// A metaball group meshed by surface nets — the catalogue's route to forms
+/// the primitive vocabulary cannot state.
+///
+/// Elements evaluate in list order, each smoothly blended into everything
+/// before it (or carved out of it, with `subtract`), so a handful of boxes and
+/// ellipsoids become **one continuous watertight skin** rather than a pile of
+/// intersecting solids. That property is the reason to reach for it: cloth,
+/// organic masses and anything whose silhouette should read as a single
+/// object are exactly where a union of prims shows its seams.
+///
+/// The cost is that a group has **one material** (plus a `Surface` face
+/// override), because there is no analytic parameterisation to tag faces
+/// against. Two colours means two groups.
+///
+/// `resolution` is sample cells along the longest axis; the sanitiser caps it
+/// at [`MAX_BLOB_RESOLUTION`](crate::pds::sanitize::limits::MAX_BLOB_RESOLUTION)
+/// (48) and the element count at 16. Bake cost climbs with the cube of it, so
+/// prefer the smallest that hides the faceting — a metre-scale prop reads
+/// clean around 24–32.
+pub(super) fn blob_group(
+    elements: Vec<crate::pds::generator::BlobElement>,
+    resolution: u32,
+    material: SovereignMaterialSettings,
+) -> GeneratorKind {
+    GeneratorKind::BlobGroup {
+        elements,
+        resolution,
+        solid: false,
+        uv_mapping: UvMapping::default(),
+        material,
+        faces: Vec::new(),
+        torture: TortureParams::default(),
+    }
+}
+
+/// An axis-aligned box element for a [`blob_group`] — flat faces inside a
+/// smooth blend, which is what keeps a blobbed slab reading as a slab.
+pub(super) fn blob_box(
+    position: [f32; 3],
+    half_extents: [f32; 3],
+    blend: f32,
+) -> crate::pds::generator::BlobElement {
+    crate::pds::generator::BlobElement {
+        shape: crate::pds::generator::BlobShape::Box,
+        position: Fp3(position),
+        rotation: id_quat(),
+        radii: Fp3(half_extents),
+        subtract: false,
+        blend: Fp(blend),
+    }
+}
+
+/// An ellipsoid element for a [`blob_group`].
+pub(super) fn blob_ellipsoid(
+    position: [f32; 3],
+    semi_axes: [f32; 3],
+    blend: f32,
+) -> crate::pds::generator::BlobElement {
+    crate::pds::generator::BlobElement {
+        shape: crate::pds::generator::BlobShape::Ellipsoid,
+        position: Fp3(position),
+        rotation: id_quat(),
+        radii: Fp3(semi_axes),
+        subtract: false,
+        blend: Fp(blend),
+    }
+}
+
+/// A capsule element for a [`blob_group`], its axis along local `+Y` before
+/// `rotation` — the element to reach for when a limb, a bone or a rope needs
+/// to melt into the mass rather than abut it.
+pub(super) fn blob_capsule(
+    position: [f32; 3],
+    radius: f32,
+    half_length: f32,
+    rotation: Fp4,
+    blend: f32,
+) -> crate::pds::generator::BlobElement {
+    crate::pds::generator::BlobElement {
+        shape: crate::pds::generator::BlobShape::Capsule,
+        position: Fp3(position),
+        rotation,
+        radii: Fp3([radius, half_length, radius]),
+        subtract: false,
+        blend: Fp(blend),
+    }
+}
+
 /// Right-triangular prism — a ramp / awning / roof pitch / buttress. `size`
 /// is the bounding box; the slope rises from the front-bottom (`+Z`, `-Y`) to
 /// the back-top (`-Z`, `+Y`) across the full width (X).
