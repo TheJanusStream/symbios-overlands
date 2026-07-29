@@ -47,7 +47,7 @@ pub mod vehicle_blueprint;
 pub use blueprint::HumanoidBlueprint;
 pub use body::{AvatarBody, BodyArchetype, StylizationTier};
 pub use character::{
-    AvatarCharacter, FinishRegister, OrnatenessBand, OrnatenessTier, WearBand, WearTier,
+    AvatarCharacter, AvatarPins, FinishRegister, OrnatenessBand, OrnatenessTier, WearBand, WearTier,
 };
 pub use chassis::ChassisFamily;
 pub use face::{Disposition, FaceParams, FaceShape, FacialHair, HairStyle, NoseKind};

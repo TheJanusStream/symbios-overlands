@@ -38,6 +38,16 @@ pub enum ChassisFamily {
 impl ChassisFamily {
     pub const ALL: [Self; 4] = [Self::Boat, Self::Airship, Self::Humanoid, Self::Skiff];
 
+    /// Human-readable display name — used by the pinned re-roll readout.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Boat => "Hover-boat",
+            Self::Airship => "Airship",
+            Self::Humanoid => "Humanoid",
+            Self::Skiff => "Land-skiff",
+        }
+    }
+
     pub fn for_did(did: &str) -> Self {
         Self::for_seed(fnv1a_64(did))
     }

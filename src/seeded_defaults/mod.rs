@@ -52,10 +52,10 @@ pub mod scene;
 
 pub use avatar::{
     AirshipBlueprint, AvatarBody, AvatarCharacter, AvatarFx, AvatarGait, AvatarOutfit,
-    AvatarPalette, AvatarVoice, BoatBlueprint, BodyArchetype, ChassisFamily, Disposition,
-    FaceParams, FaceShape, FacialHair, FinishRegister, HairStyle, HumanoidBlueprint, MaterialKit,
-    NoseKind, OrnatenessBand, OrnatenessTier, OutfitPart, ParticleAura, SkiffBlueprint,
-    StylizationTier, VehicleBlueprint, VehicleStance, WearBand, WearTier,
+    AvatarPalette, AvatarPins, AvatarVoice, BoatBlueprint, BodyArchetype, ChassisFamily,
+    Disposition, FaceParams, FaceShape, FacialHair, FinishRegister, HairStyle, HumanoidBlueprint,
+    MaterialKit, NoseKind, OrnatenessBand, OrnatenessTier, OutfitPart, ParticleAura,
+    SkiffBlueprint, StylizationTier, VehicleBlueprint, VehicleStance, WearBand, WearTier,
 };
 pub use hash::fnv1a_64;
 pub use room::{
@@ -67,5 +67,6 @@ pub use room::{
 };
 pub use scene::{
     BiomeArchetype, EscalationBand, EscalationTier, LandformArchetype, ProsperityBand,
-    ProsperityTier, SceneCharacter, ThemeArchetype, pick, range_f32, signed_unit_f32, unit_f32,
+    ProsperityTier, SceneCharacter, ScenePins, ThemeArchetype, pick, range_f32, signed_unit_f32,
+    unit_f32,
 };

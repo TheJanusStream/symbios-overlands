@@ -38,6 +38,17 @@ impl LandformArchetype {
         Self::Archipelago,
         Self::Valleys,
     ];
+
+    /// Human-readable display name — used by the pinned re-roll readout.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Rolling => "Rolling",
+            Self::Craggy => "Craggy",
+            Self::Mesa => "Mesa",
+            Self::Archipelago => "Archipelago",
+            Self::Valleys => "Valleys",
+        }
+    }
 }
 
 /// Discrete biome family. Drives palette anchors and biome thresholds
@@ -101,6 +112,26 @@ impl BiomeArchetype {
         Self::Badlands,
         Self::Glacial,
     ];
+
+    /// Human-readable display name — used by the pinned re-roll readout.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Lush => "Lush",
+            Self::Arid => "Arid",
+            Self::Alpine => "Alpine",
+            Self::Volcanic => "Volcanic",
+            Self::Coastal => "Coastal",
+            Self::Tundra => "Tundra",
+            Self::Jungle => "Jungle",
+            Self::TemperateForest => "Temperate Forest",
+            Self::Boreal => "Boreal",
+            Self::Wetland => "Wetland",
+            Self::Meadow => "Meadow",
+            Self::Savanna => "Savanna",
+            Self::Badlands => "Badlands",
+            Self::Glacial => "Glacial",
+        }
+    }
 }
 
 /// Discrete theme family — the *artificial* axis, parallel and fully
@@ -411,6 +442,70 @@ impl SceneCharacter {
     }
 }
 
+/// Ceiling on the pinned-re-roll seed hunt (#1005). The hardest legal
+/// room pin-set (all five axes locked) matches ~1 seed in 14,490, so two
+/// million trials miss with probability ~e⁻¹³⁸ — the cap exists to bound
+/// the loop if a future draw stops being uniform, not because a miss is
+/// ever expected.
+const PIN_HUNT_CAP: u64 = 2_000_000;
+
+/// Deterministic pinned-re-roll seed hunt (#1005): the first seed at or
+/// after `start` (wrapping) whose derivation satisfies `accepts`, or
+/// `None` after [`PIN_HUNT_CAP`] trials. Deterministic in `start`, so
+/// clicking "Re-roll" twice on the same seed lands on the same world —
+/// exactly the contract the un-pinned re-roll has.
+pub fn find_matching_seed(start: u64, accepts: impl Fn(u64) -> bool) -> Option<u64> {
+    (0..PIN_HUNT_CAP)
+        .map(|i| start.wrapping_add(i))
+        .find(|&s| accepts(s))
+}
+
+/// Transient per-axis locks for the World editor's pinned re-roll (#1005).
+///
+/// A pinned re-roll is a deterministic seed *hunt*, not a parameter
+/// override: [`Self::find_seed`] walks forward from the clicked seed to
+/// the first one whose [`SceneCharacter`] naturally rolls every pinned
+/// value, and the room is then built by the unchanged
+/// `RoomRecord::default_for_seed` path. By construction the result is
+/// indistinguishable from any other seeded room — no out-of-distribution
+/// combination can exist, and peers re-derive it bit-identically from the
+/// seed alone. Pins are editor UI state only; nothing is stored in the
+/// record.
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
+pub struct ScenePins {
+    pub landform: Option<LandformArchetype>,
+    pub biome: Option<BiomeArchetype>,
+    pub theme: Option<ThemeArchetype>,
+    /// Pinned as the discrete tier; the hunt accepts any seed whose
+    /// continuous prosperity falls in the tier's third, so the record
+    /// keeps a natural in-distribution value rather than a midpoint.
+    pub prosperity: Option<ProsperityTier>,
+    /// Pinned as the discrete tier, like [`Self::prosperity`].
+    pub escalation: Option<EscalationTier>,
+}
+
+impl ScenePins {
+    /// Whether `c` satisfies every pinned axis (unpinned axes accept
+    /// anything).
+    pub fn matches(&self, c: &SceneCharacter) -> bool {
+        self.landform.is_none_or(|p| p == c.landform)
+            && self.biome.is_none_or(|p| p == c.biome)
+            && self.theme.is_none_or(|p| p == c.theme)
+            && self.prosperity.is_none_or(|p| p == c.prosperity_tier())
+            && self.escalation.is_none_or(|p| p == c.escalation_tier())
+    }
+
+    /// The first seed at or after `start` whose [`SceneCharacter`]
+    /// satisfies every pin. With no pins this is `start` itself, so the
+    /// un-pinned path is bit-identical to the pre-#1005 re-roll.
+    pub fn find_seed(&self, start: u64) -> Option<u64> {
+        if *self == Self::default() {
+            return Some(start);
+        }
+        find_matching_seed(start, |s| self.matches(&SceneCharacter::for_seed(s)))
+    }
+}
+
 /// `[0, 1)` uniform sample. Top 24 bits of `next_u32` give full f32
 /// mantissa precision without bias.
 pub fn unit_f32(rng: &mut impl RngCore) -> f32 {
@@ -574,6 +669,123 @@ mod tests {
         for _ in 0..32 {
             let x = range_f32(&mut rng, -5.0, 5.0);
             assert!((-5.0..5.0).contains(&x));
+        }
+    }
+
+    #[test]
+    fn empty_pins_hunt_returns_the_start_seed() {
+        // The un-pinned re-roll must stay bit-identical to pre-#1005:
+        // no pins → the clicked seed is used verbatim.
+        assert_eq!(ScenePins::default().find_seed(42), Some(42));
+    }
+
+    #[test]
+    fn pinned_hunt_is_deterministic_and_satisfies_the_pins() {
+        let pins = ScenePins {
+            biome: Some(BiomeArchetype::Glacial),
+            theme: Some(ThemeArchetype::WildWest),
+            prosperity: Some(ProsperityTier::Rich),
+            ..Default::default()
+        };
+        let found = pins.find_seed(0).expect("hunt failed");
+        let c = SceneCharacter::for_seed(found);
+        assert_eq!(c.biome, BiomeArchetype::Glacial);
+        assert_eq!(c.theme, ThemeArchetype::WildWest);
+        assert_eq!(c.prosperity_tier(), ProsperityTier::Rich);
+        // Unpinned axes stay whatever the found seed rolls — but the hunt
+        // itself is deterministic: same start, same pins, same seed.
+        assert_eq!(pins.find_seed(0), Some(found));
+    }
+
+    #[test]
+    fn a_seed_that_already_matches_is_kept() {
+        // Re-rolling again from a found seed must be a fixpoint: the row
+        // shows the seed the record was built from, and clicking Re-roll
+        // on it (same pins) must not walk away from it.
+        let pins = ScenePins {
+            landform: Some(LandformArchetype::Mesa),
+            ..Default::default()
+        };
+        let found = pins.find_seed(7).expect("hunt failed");
+        assert_eq!(pins.find_seed(found), Some(found));
+    }
+
+    #[test]
+    fn every_variant_of_every_axis_is_huntable() {
+        // Each axis variant pinned alone must be reachable from a fixed
+        // start — a variant the hunt can never satisfy would make its
+        // combo option a dead button.
+        for lf in LandformArchetype::ALL {
+            let pins = ScenePins {
+                landform: Some(lf),
+                ..Default::default()
+            };
+            let s = pins.find_seed(0).expect("landform unreachable");
+            assert_eq!(SceneCharacter::for_seed(s).landform, lf);
+        }
+        for b in BiomeArchetype::ALL {
+            let pins = ScenePins {
+                biome: Some(b),
+                ..Default::default()
+            };
+            let s = pins.find_seed(0).expect("biome unreachable");
+            assert_eq!(SceneCharacter::for_seed(s).biome, b);
+        }
+        for t in ThemeArchetype::ALL {
+            let pins = ScenePins {
+                theme: Some(t),
+                ..Default::default()
+            };
+            let s = pins.find_seed(0).expect("theme unreachable");
+            assert_eq!(SceneCharacter::for_seed(s).theme, t);
+        }
+        for p in ProsperityTier::ALL {
+            let pins = ScenePins {
+                prosperity: Some(p),
+                ..Default::default()
+            };
+            let s = pins.find_seed(0).expect("prosperity unreachable");
+            assert_eq!(SceneCharacter::for_seed(s).prosperity_tier(), p);
+        }
+        for e in EscalationTier::ALL {
+            let pins = ScenePins {
+                escalation: Some(e),
+                ..Default::default()
+            };
+            let s = pins.find_seed(0).expect("escalation unreachable");
+            assert_eq!(SceneCharacter::for_seed(s).escalation_tier(), e);
+        }
+    }
+
+    #[test]
+    fn fully_pinned_hunt_succeeds() {
+        // The hardest legal pin-set: all five axes at once (~1 in 14,490
+        // seeds). Must land inside the hunt cap with a satisfying seed.
+        let pins = ScenePins {
+            landform: Some(LandformArchetype::Archipelago),
+            biome: Some(BiomeArchetype::Volcanic),
+            theme: Some(ThemeArchetype::GothicHorror),
+            prosperity: Some(ProsperityTier::Poor),
+            escalation: Some(EscalationTier::Conflict),
+        };
+        let s = pins
+            .find_seed(0xDEAD_BEEF)
+            .expect("full pin-set unreachable");
+        let c = SceneCharacter::for_seed(s);
+        assert!(pins.matches(&c), "hunt returned a non-matching seed");
+    }
+
+    #[test]
+    fn labels_cover_every_variant_distinctly() {
+        // The readout / combo labels must be unique per axis, or two
+        // options become indistinguishable in the picker.
+        let landforms: Vec<_> = LandformArchetype::ALL.iter().map(|l| l.label()).collect();
+        let biomes: Vec<_> = BiomeArchetype::ALL.iter().map(|b| b.label()).collect();
+        for (i, l) in landforms.iter().enumerate() {
+            assert_eq!(landforms.iter().position(|x| x == l), Some(i));
+        }
+        for (i, b) in biomes.iter().enumerate() {
+            assert_eq!(biomes.iter().position(|x| x == b), Some(i));
         }
     }
 

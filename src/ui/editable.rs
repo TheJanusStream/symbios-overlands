@@ -316,6 +316,58 @@ impl SeedRowState {
     pub fn current_seed(&self) -> Option<u64> {
         self.buf.trim().parse().ok()
     }
+
+    /// Overwrite the buffer with the seed a pinned re-roll actually used
+    /// (#1005): the hunt may land past the typed start, and the row must
+    /// always show the seed the record was really built from.
+    pub fn set_seed(&mut self, seed: u64) {
+        self.buf = seed.to_string();
+    }
+}
+
+/// Memoized pinned-re-roll seed hunt (#1005). The axis readout must
+/// preview the seed "Re-roll" will *actually* build from — with locks
+/// engaged the hunt may walk past the typed seed, and previewing the
+/// typed seed showed unlocked values a click would then not deliver —
+/// but a full hunt costs milliseconds, far too much to rerun every
+/// frame. The result is keyed on `(start, pins)` and recomputed only
+/// when either changes (a keystroke in the seed field, a 🎲 roll, a lock
+/// toggle, a combo pick). Embed one per editor next to its
+/// [`SeedRowState`].
+pub struct PinHuntCache<P> {
+    key: Option<(u64, P)>,
+    found: Option<u64>,
+}
+
+// Manual impl: a derived `Default` would needlessly bound `P: Default`.
+impl<P> Default for PinHuntCache<P> {
+    fn default() -> Self {
+        Self {
+            key: None,
+            found: None,
+        }
+    }
+}
+
+impl<P: Copy + PartialEq> PinHuntCache<P> {
+    /// The seed a re-roll from `start` under `pins` will build from —
+    /// `ScenePins::find_seed` / `AvatarPins::find_seed` passed as
+    /// `hunt` — or `None` if the hunt capped out (practically
+    /// unreachable for a legal pin-set). Both the readout and the
+    /// "Re-roll" handler read this, so the preview and the applied
+    /// record can never disagree.
+    pub fn effective_seed(
+        &mut self,
+        start: u64,
+        pins: P,
+        hunt: impl FnOnce(u64) -> Option<u64>,
+    ) -> Option<u64> {
+        if self.key != Some((start, pins)) {
+            self.key = Some((start, pins));
+            self.found = hunt(start);
+        }
+        self.found
+    }
 }
 
 /// Render the "Random seed" re-roll row shared by the World and Avatar
@@ -388,6 +440,63 @@ pub fn seed_row(
         }
     });
     action
+}
+
+/// One row of the pinned re-roll readout under [`seed_row`] (#1005),
+/// shared by the World and Avatar editors: what the seed in the row rolls
+/// for one category axis, with a lock toggle. Locking captures the shown
+/// value into `pin`; a locked axis renders as a combo box so an explicit
+/// value can be picked. Pins apply on the next "Re-roll" click — the
+/// caller hunts a seed satisfying them (`ScenePins::find_seed` /
+/// `AvatarPins::find_seed`) — matching the seed field's own
+/// edit-then-apply contract.
+///
+/// Draws three cells (axis label, lock, value) and ends the row; call
+/// inside an `egui::Grid` so the columns align across axes. The lock
+/// glyphs are `🔒`/`🔓` (U+1F512/U+1F513) — both present in egui's
+/// embedded NotoEmoji fallback, verified against its cmap (#861 tofu
+/// discipline).
+pub fn pin_axis_row<T: Copy + PartialEq>(
+    ui: &mut egui::Ui,
+    axis: &str,
+    options: &[T],
+    label_of: impl Fn(T) -> &'static str,
+    pin: &mut Option<T>,
+    rolled: T,
+) {
+    ui.label(format!("{axis}:"));
+
+    let locked = pin.is_some();
+    let glyph = if locked { "🔒" } else { "🔓" };
+    let hover = if locked {
+        format!("{axis} is locked: re-rolls hold it. Click to let it roll freely.")
+    } else {
+        format!("Lock {axis}: re-rolls will hold the shown value.")
+    };
+    if ui
+        .selectable_label(locked, glyph)
+        .on_hover_text(hover)
+        .clicked()
+    {
+        *pin = if locked { None } else { Some(rolled) };
+    }
+
+    match pin {
+        Some(v) => {
+            egui::ComboBox::from_id_salt(("pin_axis", axis))
+                .selected_text(label_of(*v))
+                .show_ui(ui, |ui| {
+                    for opt in options {
+                        ui.selectable_value(v, *opt, label_of(*opt));
+                    }
+                });
+        }
+        None => {
+            ui.weak(label_of(rolled))
+                .on_hover_text("Rolled by this seed. Lock to hold it across re-rolls.");
+        }
+    }
+    ui.end_row();
 }
 
 /// Diffuse a frame-time float + the DID seed into a fresh pseudo-random

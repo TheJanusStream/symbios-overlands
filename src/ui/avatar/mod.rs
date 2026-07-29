@@ -41,7 +41,7 @@ use crate::state::{
     records_differ,
 };
 use crate::ui::editable::{
-    RecordAction, SeedAction, publish_status_line, save_load_reset_row, seed_row,
+    RecordAction, SeedAction, pin_axis_row, publish_status_line, save_load_reset_row, seed_row,
 };
 use crate::ui::room::RoomEditorState;
 use crate::ui::room::generators::{AvatarVisualsTreeSource, GenNodeId, draw_generators_tab};
@@ -101,6 +101,16 @@ pub struct AvatarEditorState {
     /// owner's DID seed, editable to re-roll the whole avatar. See
     /// [`crate::ui::editable::seed_row`].
     seed_row_state: crate::ui::editable::SeedRowState,
+    /// Per-axis locks for the pinned re-roll (#1005): axes held (or
+    /// explicitly picked) across "Re-roll avatar" clicks via a
+    /// deterministic seed hunt. Transient editor state — never stored in
+    /// the record. See [`crate::seeded_defaults::AvatarPins`].
+    avatar_pins: crate::seeded_defaults::AvatarPins,
+    /// Memoized hunt result for the axis readout (#1005): re-hunts only
+    /// when the seed text or the pins change, so the preview can derive
+    /// from the seed "Re-roll" will actually use without paying the
+    /// hunt every frame.
+    pin_hunt: crate::ui::editable::PinHuntCache<crate::seeded_defaults::AvatarPins>,
     /// Pending publish-after-unrecoverable-fetch confirmation (#840):
     /// while [`crate::state::AvatarRecordRecovery`] is present the
     /// editor holds the default, and saving would overwrite the real
@@ -363,6 +373,8 @@ pub fn avatar_ui(
                     renaming_unused,
                     audio_editor,
                     seed_row_state,
+                    avatar_pins,
+                    pin_hunt,
                     publish_guard,
                     tree_confirms,
                     default_cache,
@@ -429,20 +441,92 @@ pub fn avatar_ui(
                         // banner tracks the DID, not the seed, so it survives
                         // a re-roll.
                         if let Some(s) = session.as_ref() {
+                            let did_seed = crate::seeded_defaults::fnv1a_64(&s.did);
                             let reroll = seed_row(
                                 ui,
                                 seed_row_state,
-                                crate::seeded_defaults::fnv1a_64(&s.did),
+                                did_seed,
                                 time.elapsed_secs_f64(),
                                 "avatar",
                             );
-                            if let SeedAction::Reroll(seed) = reroll {
-                                live_mut.0 = AvatarRecord::default_for_seed(seed);
-                                undo_labels.set_avatar(format!("seed re-roll ({seed})"));
-                                session_log.info(
-                                    time.elapsed_secs_f64(),
-                                    EventPayload::AvatarReseeded { seed },
-                                );
+
+                            // Pinned re-roll readout (#1005): what "Re-roll"
+                            // will roll for each top-level avatar axis, each
+                            // lockable. The preview derives from the hunted
+                            // seed — the one a click will actually build
+                            // from — not the typed one, so 🎲 previews
+                            // exactly what Apply then delivers. Memoized:
+                            // the hunt only reruns when the seed text or the
+                            // pins change.
+                            let start = seed_row_state.current_seed().unwrap_or(did_seed);
+                            let effective = pin_hunt
+                                .effective_seed(start, *avatar_pins, |s| avatar_pins.find_seed(s));
+                            {
+                                use crate::seeded_defaults::{
+                                    AvatarCharacter, ChassisFamily, OrnatenessTier, ThemeArchetype,
+                                    WearTier,
+                                };
+                                let rolled = AvatarCharacter::for_seed(effective.unwrap_or(start));
+                                egui::Grid::new("avatar_pin_axes")
+                                    .num_columns(3)
+                                    .show(ui, |ui| {
+                                        pin_axis_row(
+                                            ui,
+                                            "Chassis",
+                                            &ChassisFamily::ALL,
+                                            ChassisFamily::label,
+                                            &mut avatar_pins.chassis,
+                                            rolled.chassis,
+                                        );
+                                        pin_axis_row(
+                                            ui,
+                                            "Style",
+                                            &ThemeArchetype::ALL,
+                                            ThemeArchetype::label,
+                                            &mut avatar_pins.style,
+                                            rolled.style,
+                                        );
+                                        pin_axis_row(
+                                            ui,
+                                            "Ornateness",
+                                            &OrnatenessTier::ALL,
+                                            OrnatenessTier::label,
+                                            &mut avatar_pins.ornateness,
+                                            rolled.ornateness_tier(),
+                                        );
+                                        pin_axis_row(
+                                            ui,
+                                            "Wear",
+                                            &WearTier::ALL,
+                                            WearTier::label,
+                                            &mut avatar_pins.wear,
+                                            rolled.wear_tier(),
+                                        );
+                                    });
+                            }
+
+                            if let SeedAction::Reroll(_) = reroll {
+                                // Build from the same hunted seed the
+                                // readout previewed — never the raw typed
+                                // one.
+                                if let Some(seed) = effective {
+                                    seed_row_state.set_seed(seed);
+                                    live_mut.0 = AvatarRecord::default_for_seed(seed);
+                                    undo_labels.set_avatar(format!("seed re-roll ({seed})"));
+                                    session_log.info(
+                                        time.elapsed_secs_f64(),
+                                        EventPayload::AvatarReseeded { seed },
+                                    );
+                                } else {
+                                    // Unreachable in practice (the cap misses
+                                    // a legal pin-set with probability
+                                    // ~e⁻²⁴¹⁵); keep the record untouched
+                                    // rather than violate the locks.
+                                    bevy::log::warn!(
+                                        "pinned re-roll found no seed matching {avatar_pins:?} \
+                                         from {start}"
+                                    );
+                                }
                             }
                         }
                         ui.separator();

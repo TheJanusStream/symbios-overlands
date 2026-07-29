@@ -24,7 +24,9 @@ use rand_chacha::rand_core::SeedableRng;
 
 use super::chassis::ChassisFamily;
 use crate::seeded_defaults::hash::fnv1a_64;
-use crate::seeded_defaults::scene::{ThemeArchetype, pick, signed_unit_f32, unit_f32};
+use crate::seeded_defaults::scene::{
+    ThemeArchetype, find_matching_seed, pick, signed_unit_f32, unit_f32,
+};
 
 /// Sub-stream salt for the character anchor — distinct from every
 /// per-domain avatar deriver salt so the anchor's draws never alias a
@@ -252,6 +254,49 @@ impl AvatarCharacter {
     }
 }
 
+/// Transient per-axis locks for the Avatar editor's pinned re-roll
+/// (#1005) — the avatar analogue of
+/// [`crate::seeded_defaults::scene::ScenePins`], and the reason the whole
+/// feature is a seed *hunt*: unlike the room pipeline (which threads one
+/// `SceneCharacter` through every deriver), the avatar derivers each
+/// re-derive from the raw seed deep inside the family builders, so
+/// overriding an anchor field centrally could desynchronise them. Hunting
+/// a seed that *naturally* rolls the pinned axes leaves every deriver
+/// untouched and mutually consistent. Pins are editor UI state only;
+/// nothing is stored in the record.
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
+pub struct AvatarPins {
+    pub chassis: Option<ChassisFamily>,
+    pub style: Option<ThemeArchetype>,
+    /// Pinned as the discrete tier; the hunt accepts any seed whose
+    /// continuous ornateness falls in the tier's third, so the found
+    /// avatar keeps a natural in-distribution value.
+    pub ornateness: Option<OrnatenessTier>,
+    /// Pinned as the discrete tier, like [`Self::ornateness`].
+    pub wear: Option<WearTier>,
+}
+
+impl AvatarPins {
+    /// Whether `c` satisfies every pinned axis (unpinned axes accept
+    /// anything).
+    pub fn matches(&self, c: &AvatarCharacter) -> bool {
+        self.chassis.is_none_or(|p| p == c.chassis)
+            && self.style.is_none_or(|p| p == c.style)
+            && self.ornateness.is_none_or(|p| p == c.ornateness_tier())
+            && self.wear.is_none_or(|p| p == c.wear_tier())
+    }
+
+    /// The first seed at or after `start` whose [`AvatarCharacter`]
+    /// satisfies every pin. With no pins this is `start` itself, so the
+    /// un-pinned path is bit-identical to the pre-#1005 re-roll.
+    pub fn find_seed(&self, start: u64) -> Option<u64> {
+        if *self == Self::default() {
+            return Some(start);
+        }
+        find_matching_seed(start, |s| self.matches(&AvatarCharacter::for_seed(s)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -414,5 +459,95 @@ mod tests {
         let b = AvatarCharacter::for_did("did:plc:def");
         // At least one field differs; hue is the most sensitive.
         assert!((a.base_hue_deg - b.base_hue_deg).abs() > 1e-6);
+    }
+
+    #[test]
+    fn empty_pins_hunt_returns_the_start_seed() {
+        // The un-pinned re-roll must stay bit-identical to pre-#1005:
+        // no pins → the clicked seed is used verbatim.
+        assert_eq!(AvatarPins::default().find_seed(42), Some(42));
+    }
+
+    #[test]
+    fn pinned_hunt_is_deterministic_and_satisfies_the_pins() {
+        let pins = AvatarPins {
+            chassis: Some(ChassisFamily::Airship),
+            style: Some(ThemeArchetype::Steampunk),
+            wear: Some(WearTier::Battered),
+            ..Default::default()
+        };
+        let found = pins.find_seed(0).expect("hunt failed");
+        let c = AvatarCharacter::for_seed(found);
+        assert_eq!(c.chassis, ChassisFamily::Airship);
+        assert_eq!(c.style, ThemeArchetype::Steampunk);
+        assert_eq!(c.wear_tier(), WearTier::Battered);
+        assert_eq!(pins.find_seed(0), Some(found));
+    }
+
+    #[test]
+    fn a_seed_that_already_matches_is_kept() {
+        // Re-rolling from a found seed with the same pins must be a
+        // fixpoint, matching the World-editor contract.
+        let pins = AvatarPins {
+            chassis: Some(ChassisFamily::Humanoid),
+            ..Default::default()
+        };
+        let found = pins.find_seed(7).expect("hunt failed");
+        assert_eq!(pins.find_seed(found), Some(found));
+    }
+
+    #[test]
+    fn every_variant_of_every_axis_is_huntable() {
+        // Each axis variant pinned alone must be reachable from a fixed
+        // start — a variant the hunt can never satisfy would make its
+        // combo option a dead button.
+        for f in ChassisFamily::ALL {
+            let pins = AvatarPins {
+                chassis: Some(f),
+                ..Default::default()
+            };
+            let s = pins.find_seed(0).expect("chassis unreachable");
+            assert_eq!(AvatarCharacter::for_seed(s).chassis, f);
+        }
+        for t in ThemeArchetype::ALL {
+            let pins = AvatarPins {
+                style: Some(t),
+                ..Default::default()
+            };
+            let s = pins.find_seed(0).expect("style unreachable");
+            assert_eq!(AvatarCharacter::for_seed(s).style, t);
+        }
+        for o in OrnatenessTier::ALL {
+            let pins = AvatarPins {
+                ornateness: Some(o),
+                ..Default::default()
+            };
+            let s = pins.find_seed(0).expect("ornateness unreachable");
+            assert_eq!(AvatarCharacter::for_seed(s).ornateness_tier(), o);
+        }
+        for w in WearTier::ALL {
+            let pins = AvatarPins {
+                wear: Some(w),
+                ..Default::default()
+            };
+            let s = pins.find_seed(0).expect("wear unreachable");
+            assert_eq!(AvatarCharacter::for_seed(s).wear_tier(), w);
+        }
+    }
+
+    #[test]
+    fn fully_pinned_hunt_succeeds() {
+        // The hardest legal avatar pin-set: all four axes at once (~1 in
+        // 828 seeds). Must land inside the hunt cap with a match.
+        let pins = AvatarPins {
+            chassis: Some(ChassisFamily::Skiff),
+            style: Some(ThemeArchetype::AlienOrganic),
+            ornateness: Some(OrnatenessTier::Ornate),
+            wear: Some(WearTier::Pristine),
+        };
+        let s = pins
+            .find_seed(0xC0FF_EE00)
+            .expect("full pin-set unreachable");
+        assert!(pins.matches(&AvatarCharacter::for_seed(s)));
     }
 }

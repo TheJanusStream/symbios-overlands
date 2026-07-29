@@ -54,7 +54,7 @@ use crate::state::{
 };
 use crate::ui::avatar::AvatarEditorState;
 use crate::ui::editable::{
-    RecordAction, SeedAction, publish_status_line, save_load_reset_row, seed_row,
+    RecordAction, SeedAction, pin_axis_row, publish_status_line, save_load_reset_row, seed_row,
 };
 
 use publish::spawn_reset_task;
@@ -175,6 +175,16 @@ pub struct RoomEditorState {
     /// owner's DID seed, editable to re-roll the whole room. See
     /// [`crate::ui::editable::seed_row`].
     seed_row_state: crate::ui::editable::SeedRowState,
+    /// Per-axis locks for the pinned re-roll (#1005): axes held (or
+    /// explicitly picked) across "Re-roll world" clicks via a
+    /// deterministic seed hunt. Transient editor state — never stored in
+    /// the record. See [`crate::seeded_defaults::ScenePins`].
+    scene_pins: crate::seeded_defaults::ScenePins,
+    /// Memoized hunt result for the axis readout (#1005): re-hunts only
+    /// when the seed text or the pins change, so the preview can derive
+    /// from the seed "Re-roll" will actually use without paying the
+    /// hunt every frame.
+    pin_hunt: crate::ui::editable::PinHuntCache<crate::seeded_defaults::ScenePins>,
     /// Pending destructive tree-operation confirmations (#838): root
     /// delete + kind change on the Generators tab.
     tree_confirms: generators::TreeConfirms,
@@ -431,6 +441,8 @@ pub fn room_admin_ui(
         renaming_generator,
         audio_editor,
         seed_row_state,
+        scene_pins,
+        pin_hunt,
         tree_confirms,
         recovery_reset_confirm,
         default_cache,
@@ -652,15 +664,243 @@ pub fn room_admin_ui(
                 });
                 ui.separator();
 
-                // Reserve room below the tab body for the separator +
-                // Publish/Load/Reset row + feedback line; the scroll area
-                // then fills the rest of the window so dragging the window
-                // taller actually grows the tab body. Without this (and
-                // without `auto_shrink = false`) the scroll area collapses
-                // to its content and the window height snaps back.
-                const FOOTER_RESERVE: f32 = 90.0;
+                // --- Footer as a real bottom panel (#830 idiom) ---------
+                // The old code reserved a fixed FOOTER_RESERVE below the
+                // tab body; the pinned re-roll readout (#1005) made the
+                // real footer taller than the guess, so the window grew by
+                // the overflow every frame until it spanned the screen.
+                // Declared BEFORE the tab body (egui's panels-before-
+                // content rule) but rendered pinned to the window's bottom
+                // edge; the tab body then fills exactly what remains, and
+                // the footer can grow without a guess to outgrow.
+                egui::TopBottomPanel::bottom("world_editor_footer")
+                    .resizable(false)
+                    .show_inside(ui, |ui| {
+                        // Manual re-roll: the same DID-seeded engine that
+                        // builds the defaults, but with an owner-chosen
+                        // master seed. Re-rolling replaces the whole
+                        // working record exactly like "Reset to default"
+                        // (which is this with seed = fnv1a_64(did)) —
+                        // clear selections, refresh the raw-JSON mirror,
+                        // and arm a broadcast/recompile.
+                        let did_seed = crate::seeded_defaults::fnv1a_64(&room_did.0);
+                        let action = seed_row(
+                            ui,
+                            seed_row_state,
+                            did_seed,
+                            time.elapsed_secs_f64(),
+                            "world",
+                        );
+
+                        // Pinned re-roll readout (#1005): what "Re-roll"
+                        // will roll for each top-level scene axis, each
+                        // lockable. The preview derives from the hunted
+                        // seed — the one a click will actually build from
+                        // — not the typed one, so 🎲 previews exactly what
+                        // Apply then delivers. Memoized: the hunt only
+                        // reruns when the seed text or the pins change.
+                        let start = seed_row_state.current_seed().unwrap_or(did_seed);
+                        let effective = pin_hunt
+                            .effective_seed(start, *scene_pins, |s| scene_pins.find_seed(s));
+                        {
+                            use crate::seeded_defaults::{
+                                BiomeArchetype, EscalationTier, LandformArchetype, ProsperityTier,
+                                SceneCharacter, ThemeArchetype,
+                            };
+                            let rolled = SceneCharacter::for_seed(effective.unwrap_or(start));
+                            egui::Grid::new("scene_pin_axes")
+                                .num_columns(3)
+                                .show(ui, |ui| {
+                                    pin_axis_row(
+                                        ui,
+                                        "Landform",
+                                        &LandformArchetype::ALL,
+                                        LandformArchetype::label,
+                                        &mut scene_pins.landform,
+                                        rolled.landform,
+                                    );
+                                    pin_axis_row(
+                                        ui,
+                                        "Biome",
+                                        &BiomeArchetype::ALL,
+                                        BiomeArchetype::label,
+                                        &mut scene_pins.biome,
+                                        rolled.biome,
+                                    );
+                                    pin_axis_row(
+                                        ui,
+                                        "Theme",
+                                        &ThemeArchetype::ALL,
+                                        ThemeArchetype::label,
+                                        &mut scene_pins.theme,
+                                        rolled.theme,
+                                    );
+                                    pin_axis_row(
+                                        ui,
+                                        "Prosperity",
+                                        &ProsperityTier::ALL,
+                                        ProsperityTier::label,
+                                        &mut scene_pins.prosperity,
+                                        rolled.prosperity_tier(),
+                                    );
+                                    pin_axis_row(
+                                        ui,
+                                        "Escalation",
+                                        &EscalationTier::ALL,
+                                        EscalationTier::label,
+                                        &mut scene_pins.escalation,
+                                        rolled.escalation_tier(),
+                                    );
+                                });
+                        }
+
+                        if let SeedAction::Reroll(_) = action {
+                            // Build from the same hunted seed the readout
+                            // previewed — never the raw typed one.
+                            if let Some(seed) = effective {
+                                seed_row_state.set_seed(seed);
+                                *record_mut = pds::RoomRecord::default_for_seed(seed, &room_did.0);
+                                *raw_text =
+                                    serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
+                                *raw_error = None;
+                                *selected_generator = None;
+                                *selected_placement = None;
+                                *selected_prim_path = None;
+                                tree_view_state.set_selected(Vec::new());
+                                needs_broadcast = true;
+                                undo_labels.set_room(format!("seed re-roll ({seed})"));
+                            } else {
+                                // Unreachable in practice (the cap misses a
+                                // legal pin-set with probability ~e⁻¹³⁸);
+                                // keep the record untouched rather than
+                                // violate the locks.
+                                bevy::log::warn!(
+                                    "pinned re-roll found no seed matching {scene_pins:?} \
+                                     from {start}"
+                                );
+                            }
+                        }
+
+                        ui.separator();
+
+                        // Publish / Revert to saved / Reset to default — the
+                        // shared row + status line used by every editor
+                        // (`ui::editable`). `dirty` is *derived* (the live
+                        // record serialises differently from the stored
+                        // snapshot) rather than a flag: a failed publish
+                        // stays dirty and retryable, and an out-of-band edit
+                        // (the 3D gizmo, an inventory drop) lights the row
+                        // up with no explicit `mark_dirty` call. Rebuild the
+                        // seeded default only when the room DID changes, not
+                        // every frame (#637) — it's a full procedural build.
+                        let did = &room_did.0;
+                        if default_cache.as_ref().is_none_or(|(d, _, _)| d != did) {
+                            let default_record = pds::RoomRecord::default_for_did(did);
+                            let default_value = serde_json::to_value(&default_record).ok();
+                            *default_cache = Some((did.clone(), default_record, default_value));
+                        }
+                        let (_, default_record, default_value) =
+                            default_cache.as_ref().expect("just populated");
+                        // Both comparison baselines are cached (#674): the
+                        // stored side re-serializes only when the resource
+                        // changes and the default side only per DID, so an
+                        // open panel pays for ONE live-record serialization
+                        // per frame. The comparisons are value-identical to
+                        // `records_differ` (Option<Value> both sides,
+                        // `.ok()` semantics preserved).
+                        match stored.as_ref() {
+                            Some(s)
+                                if stored_baseline
+                                    .as_ref()
+                                    .is_none_or(|(tick, _)| *tick != s.last_changed()) =>
+                            {
+                                *stored_baseline =
+                                    Some((s.last_changed(), serde_json::to_value(&s.0).ok()));
+                            }
+                            None => *stored_baseline = None,
+                            _ => {}
+                        }
+                        let live_value = serde_json::to_value(&*record_mut).ok();
+                        let dirty = match stored_baseline.as_ref() {
+                            Some((_, baseline)) => *baseline != live_value,
+                            None => true,
+                        };
+                        let can_reset = *default_value != live_value;
+                        // `session` + `refresh_ctx` are guaranteed present
+                        // (the early return at the top bails otherwise), so
+                        // the PDS write can always be attempted while dirty.
+                        // Size readout: the room publishes as a manifest +
+                        // child generator records (#697), so the per-record
+                        // budget applies to the largest single record — not
+                        // the in-memory monolith. Same throttled cache as
+                        // the other editors.
+                        let now = time.elapsed_secs_f64();
+                        if publish_feedback.live_bytes_at.is_none_or(|at| {
+                            now - at >= crate::config::ui::editor::SIZE_READOUT_REFRESH_SECS
+                        }) {
+                            publish_feedback.live_bytes =
+                                pds::room::max_publish_record_bytes(&*record_mut);
+                            publish_feedback.live_bytes_at = Some(now);
+                        }
+                        let record_bytes = publish_feedback.live_bytes;
+                        let ctrl_s = publish_shortcut.take(crate::ui::shortcuts::EditorKind::World);
+                        match save_load_reset_row(
+                            ui,
+                            dirty,
+                            true,
+                            can_reset,
+                            record_bytes,
+                            ctrl_s,
+                            matches!(publish_feedback.status, PublishStatus::Publishing),
+                            // Undo covers Revert/Reset here (#866) — no modal.
+                            None,
+                        ) {
+                            RecordAction::None => {}
+                            RecordAction::Publish => {
+                                publish_feedback.status = PublishStatus::Publishing;
+                                spawn_room_publish_task(
+                                    &mut commands,
+                                    &session,
+                                    &refresh_ctx,
+                                    record_mut.clone(),
+                                    room_did.0.clone(),
+                                    time.elapsed_secs_f64(),
+                                );
+                            }
+                            RecordAction::Load => {
+                                if let Some(stored) = stored.as_ref() {
+                                    *record_mut = stored.0.clone();
+                                    *raw_text = serde_json::to_string_pretty(&*record_mut)
+                                        .unwrap_or_default();
+                                    *raw_error = None;
+                                    *selected_generator = None;
+                                    *selected_placement = None;
+                                    *selected_prim_path = None;
+                                    tree_view_state.set_selected(Vec::new());
+                                    needs_broadcast = true;
+                                    undo_labels.set_room("load from PDS");
+                                }
+                            }
+                            RecordAction::Reset => {
+                                *record_mut = default_record.clone();
+                                *raw_text =
+                                    serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
+                                *raw_error = None;
+                                *selected_generator = None;
+                                *selected_placement = None;
+                                *selected_prim_path = None;
+                                tree_view_state.set_selected(Vec::new());
+                                needs_broadcast = true;
+                                undo_labels.set_room("reset to default");
+                            }
+                        }
+
+                        publish_status_line(ui, &publish_feedback.status, time.elapsed_secs_f64());
+                    });
+
+                // The tab body fills exactly what the footer left over.
                 const BODY_MIN_HEIGHT: f32 = 160.0;
-                let body_height = (ui.available_height() - FOOTER_RESERVE).max(BODY_MIN_HEIGHT);
+                let body_height = ui.available_height().max(BODY_MIN_HEIGHT);
 
                 // The Generators, Placements and Effects tabs paint their
                 // own SidePanel + CentralPanel splits (#825), so they
@@ -755,143 +995,6 @@ pub fn room_admin_ui(
                             });
                     }
                 }
-
-                ui.separator();
-
-                // Manual re-roll: the same DID-seeded engine that builds
-                // the defaults, but with an owner-chosen master seed.
-                // Re-rolling replaces the whole working record exactly
-                // like "Reset to default" (which is this with seed =
-                // fnv1a_64(did)) — clear selections, refresh the raw-JSON
-                // mirror, and arm a broadcast/recompile.
-                if let SeedAction::Reroll(seed) = seed_row(
-                    ui,
-                    seed_row_state,
-                    crate::seeded_defaults::fnv1a_64(&room_did.0),
-                    time.elapsed_secs_f64(),
-                    "world",
-                ) {
-                    *record_mut = pds::RoomRecord::default_for_seed(seed, &room_did.0);
-                    *raw_text = serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
-                    *raw_error = None;
-                    *selected_generator = None;
-                    *selected_placement = None;
-                    *selected_prim_path = None;
-                    tree_view_state.set_selected(Vec::new());
-                    needs_broadcast = true;
-                    undo_labels.set_room(format!("seed re-roll ({seed})"));
-                }
-
-                ui.separator();
-
-                // Publish / Revert to saved / Reset to default — the shared
-                // row + status line used by every editor (`ui::editable`).
-                // `dirty` is *derived* (the live record serialises
-                // differently from the stored snapshot) rather than a
-                // flag: a failed publish stays dirty and retryable, and an
-                // out-of-band edit (the 3D gizmo, an inventory drop) lights
-                // the row up with no explicit `mark_dirty` call.
-                // Rebuild the seeded default only when the room DID changes,
-                // not every frame (#637) — it's a full procedural build.
-                let did = &room_did.0;
-                if default_cache.as_ref().is_none_or(|(d, _, _)| d != did) {
-                    let default_record = pds::RoomRecord::default_for_did(did);
-                    let default_value = serde_json::to_value(&default_record).ok();
-                    *default_cache = Some((did.clone(), default_record, default_value));
-                }
-                let (_, default_record, default_value) =
-                    default_cache.as_ref().expect("just populated");
-                // Both comparison baselines are cached (#674): the stored
-                // side re-serializes only when the resource changes and the
-                // default side only per DID, so an open panel pays for ONE
-                // live-record serialization per frame. The comparisons are
-                // value-identical to `records_differ` (Option<Value> both
-                // sides, `.ok()` semantics preserved).
-                match stored.as_ref() {
-                    Some(s)
-                        if stored_baseline
-                            .as_ref()
-                            .is_none_or(|(tick, _)| *tick != s.last_changed()) =>
-                    {
-                        *stored_baseline =
-                            Some((s.last_changed(), serde_json::to_value(&s.0).ok()));
-                    }
-                    None => *stored_baseline = None,
-                    _ => {}
-                }
-                let live_value = serde_json::to_value(&*record_mut).ok();
-                let dirty = match stored_baseline.as_ref() {
-                    Some((_, baseline)) => *baseline != live_value,
-                    None => true,
-                };
-                let can_reset = *default_value != live_value;
-                // `session` + `refresh_ctx` are guaranteed present (the
-                // early return at the top bails otherwise), so the PDS
-                // write can always be attempted while dirty.
-                // Size readout: the room publishes as a manifest + child
-                // generator records (#697), so the per-record budget
-                // applies to the largest single record — not the in-memory
-                // monolith. Same throttled cache as the other editors.
-                let now = time.elapsed_secs_f64();
-                if publish_feedback.live_bytes_at.is_none_or(|at| {
-                    now - at >= crate::config::ui::editor::SIZE_READOUT_REFRESH_SECS
-                }) {
-                    publish_feedback.live_bytes = pds::room::max_publish_record_bytes(&*record_mut);
-                    publish_feedback.live_bytes_at = Some(now);
-                }
-                let record_bytes = publish_feedback.live_bytes;
-                let ctrl_s = publish_shortcut.take(crate::ui::shortcuts::EditorKind::World);
-                match save_load_reset_row(
-                    ui,
-                    dirty,
-                    true,
-                    can_reset,
-                    record_bytes,
-                    ctrl_s,
-                    matches!(publish_feedback.status, PublishStatus::Publishing),
-                    // Undo covers Revert/Reset here (#866) — no modal.
-                    None,
-                ) {
-                    RecordAction::None => {}
-                    RecordAction::Publish => {
-                        publish_feedback.status = PublishStatus::Publishing;
-                        spawn_room_publish_task(
-                            &mut commands,
-                            &session,
-                            &refresh_ctx,
-                            record_mut.clone(),
-                            room_did.0.clone(),
-                            time.elapsed_secs_f64(),
-                        );
-                    }
-                    RecordAction::Load => {
-                        if let Some(stored) = stored.as_ref() {
-                            *record_mut = stored.0.clone();
-                            *raw_text =
-                                serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
-                            *raw_error = None;
-                            *selected_generator = None;
-                            *selected_placement = None;
-                            *selected_prim_path = None;
-                            tree_view_state.set_selected(Vec::new());
-                            needs_broadcast = true;
-                            undo_labels.set_room("load from PDS");
-                        }
-                    }
-                    RecordAction::Reset => {
-                        *record_mut = default_record.clone();
-                        *raw_text = serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
-                        *raw_error = None;
-                        *selected_generator = None;
-                        *selected_placement = None;
-                        *selected_prim_path = None;
-                        tree_view_state.set_selected(Vec::new());
-                        needs_broadcast = true;
-                        undo_labels.set_room("reset to default");
-                    }
-                }
-
-                publish_status_line(ui, &publish_feedback.status, time.elapsed_secs_f64());
             });
 
         // Pop-out audio editor — a top-level Window sibling to the World
