@@ -278,6 +278,12 @@ fn write_transform_into_placement(
     transform: &Transform,
     heightmap: Option<&crate::terrain::FinishedHeightMap>,
 ) -> bool {
+    // The ground reading MUST match the compile executor's (#1011): the
+    // offset written below is `dragged world Y − ground`, and the compile
+    // renders at `ground + offset`, so any disagreement is baked into the
+    // record and compounds on every drag. A seeded structure resolves
+    // against its whole footprint, not its centre (#1008).
+    let radius = crate::world_builder::snap_footprint_radius(placement);
     match placement {
         Placement::Absolute {
             transform: rec_tf,
@@ -286,13 +292,17 @@ fn write_transform_into_placement(
         } => {
             let mut translation = transform.translation.to_array();
             if *snap_to_terrain && let Some(hm) = heightmap {
-                // The anchor sat at terrain(old x/z) + old offset when the
-                // drag started, so subtracting terrain at the OLD x/z
+                // The anchor sat at ground(old x/z) + old offset when the
+                // drag started, so subtracting the ground at the OLD x/z
                 // (still in the record here) turns the dragged world Y
                 // back into "offset + vertical drag delta": pure sideways
                 // drags keep the offset, vertical drags change it.
-                translation[1] -=
-                    hm.world_height_at(rec_tf.translation.0[0], rec_tf.translation.0[2]);
+                translation[1] -= crate::world_builder::snapped_ground_y(
+                    &hm.0,
+                    rec_tf.translation.0[0],
+                    rec_tf.translation.0[2],
+                    radius,
+                );
             }
             rec_tf.translation = Fp3(translation);
             rec_tf.rotation = Fp4(transform.rotation.to_array());
@@ -308,8 +318,14 @@ fn write_transform_into_placement(
                 // Grid compile REPLACES Y with the terrain height; store
                 // that height at the NEW spot so the record mirrors what
                 // the recompile will render (same rule as the snap
-                // toggle, #700).
-                translation[1] = hm.world_height_at(translation[0], translation[2]);
+                // toggle, #700). Grid anchors are point-like, so `radius`
+                // is `None` and this is the plain centre sample.
+                translation[1] = crate::world_builder::snapped_ground_y(
+                    &hm.0,
+                    translation[0],
+                    translation[2],
+                    radius,
+                );
             }
             rec_tf.translation = Fp3(translation);
             rec_tf.rotation = Fp4(transform.rotation.to_array());

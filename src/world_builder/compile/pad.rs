@@ -21,6 +21,17 @@
 //! Applied only to seeded structures — the `avoid_water` opt-in the
 //! settlement and lot derivers set — so hand-authored editor placements
 //! keep the plain centre sample they were positioned against.
+//!
+//! # One sampling site
+//!
+//! Four places resolve a snapped placement's ground: the compile
+//! executor, the gizmo's preview, the gizmo's drag commit, and the
+//! editor's snap toggle. They must agree exactly — the offset a drag
+//! writes into the record is `dragged world Y − ground`, and the compile
+//! then renders at `ground + offset`, so any disagreement between the two
+//! reads is baked into the offset and *accumulates on every drag*. Read
+//! [`snapped_ground_y`] from all four rather than sampling the heightmap
+//! directly; it is the reason this module is public.
 
 /// Samples around the footprint rim. A heightfield's maximum over a disc
 /// lies either at a grid vertex inside it or somewhere on its rim; the
@@ -34,6 +45,49 @@ const RIM_SAMPLES: u32 = 24;
 /// against a ~2 m cell, so 54 cells per side); it only bounds the loop if
 /// a record ever pairs a huge clearance with a fine terrain grid.
 const MAX_SPAN_CELLS: usize = 192;
+
+/// The footprint radius a placement's snap resolves against, or `None`
+/// for one that resolves at its centre.
+///
+/// A seeded structure is marked by `avoid_water` — the opt-in the
+/// settlement and lot derivers set — and carries its footprint in
+/// `avoid_water_clearance`, scaled by the placement's own scale so a 1.2×
+/// landmark measures a 1.2× disc. Everything else (scatter bounds, grid
+/// anchors, hand-placed props) resolves at a point.
+pub fn snap_footprint_radius(placement: &crate::pds::Placement) -> Option<f32> {
+    match placement {
+        crate::pds::Placement::Absolute {
+            transform,
+            avoid_water,
+            avoid_water_clearance,
+            ..
+        } => snap_radius_of(*avoid_water, avoid_water_clearance.0, transform.scale.0[0]),
+        _ => None,
+    }
+}
+
+/// [`snap_footprint_radius`] from the loose fields, for callers that hold
+/// a destructured placement rather than the enum.
+pub fn snap_radius_of(avoid_water: bool, clearance: f32, scale_x: f32) -> Option<f32> {
+    let r = clearance * scale_x.max(0.0);
+    (avoid_water && r > 0.0).then_some(r)
+}
+
+/// The ground a snapped placement sits on — the single reading every
+/// consumer must use (see the module docs).
+///
+/// `radius` comes from [`snap_footprint_radius`]; `None` gives the plain
+/// centre sample a point-like placement wants.
+pub fn snapped_ground_y(
+    hm: &bevy_symbios_ground::HeightMap,
+    x: f32,
+    z: f32,
+    radius: Option<f32>,
+) -> f32 {
+    let extent = (hm.width().saturating_sub(1)) as f32 * hm.scale();
+    let half = extent * 0.5;
+    footprint_height(hm, extent, half, x, z, radius.unwrap_or(0.0))
+}
 
 /// Height of the ground a footprint of `radius` centred on `(x, z)` rests
 /// on: the highest terrain under the building.
@@ -208,6 +262,78 @@ mod tests {
             let y = footprint_height(&hm, EXTENT, HALF, cx, cz, 20.0);
             assert!(y.is_finite(), "({cx}, {cz}) gave {y}");
         }
+    }
+
+    /// A seeded placement reads as a footprint, everything else as a
+    /// point — the classification the four snap sites share.
+    #[test]
+    fn seeded_placements_resolve_as_footprints_and_others_as_points() {
+        use crate::pds::{Fp, Fp3, Placement, TransformData};
+
+        let seeded = Placement::Absolute {
+            generator_ref: "x".into(),
+            transform: TransformData::default(),
+            snap_to_terrain: true,
+            avoid_water: true,
+            avoid_water_clearance: Fp(8.0),
+        };
+        assert_eq!(snap_footprint_radius(&seeded), Some(8.0));
+
+        // Scaled up, the disc scales with it.
+        let scaled = Placement::Absolute {
+            generator_ref: "x".into(),
+            transform: TransformData {
+                scale: Fp3([1.5, 1.5, 1.5]),
+                ..Default::default()
+            },
+            snap_to_terrain: true,
+            avoid_water: true,
+            avoid_water_clearance: Fp(8.0),
+        };
+        assert_eq!(snap_footprint_radius(&scaled), Some(12.0));
+
+        // A hand-placed prop has no `avoid_water` marker: point-like.
+        let hand = Placement::Absolute {
+            generator_ref: "x".into(),
+            transform: TransformData::default(),
+            snap_to_terrain: true,
+            avoid_water: false,
+            avoid_water_clearance: Fp(8.0),
+        };
+        assert_eq!(snap_footprint_radius(&hand), None);
+    }
+
+    /// The invariant that keeps a drag from ratcheting (#1011): the
+    /// ground a drag commit subtracts is the same one the compile adds
+    /// back, so re-committing an unmoved placement is a fixpoint.
+    ///
+    /// Before the four sites shared this reader, the editor sampled the
+    /// centre while the compile took the footprint maximum, and the
+    /// difference landed in the stored offset on every drag.
+    #[test]
+    fn resolving_a_seeded_placement_is_a_fixpoint_across_sites() {
+        let hm = map_from(|x, z| 0.25 * x + 0.1 * z);
+        let (x, z) = (6.0, -3.0);
+        let radius = Some(9.0);
+
+        // What the compile renders at, for a stored offset of -0.35.
+        let ground = footprint_height(&hm, EXTENT, HALF, x, z, 9.0);
+        let world_y = ground + -0.35;
+
+        // What a drag commit stores back, having not moved the placement.
+        let offset = world_y - super::snapped_ground_y(&hm, x, z, radius);
+        assert!(
+            (offset - -0.35).abs() < 1e-4,
+            "offset drifted to {offset} — the sites disagree"
+        );
+
+        // A centre-sampling commit (the pre-#1011 bug) would drift up.
+        let centre_only = at(&hm, x, z);
+        let bad_offset = world_y - centre_only;
+        assert!(
+            bad_offset - -0.35 > 1.0,
+            "fixture should expose the drift the shared reader removes"
+        );
     }
 
     /// Deterministic: peers must derive identical worlds from the same

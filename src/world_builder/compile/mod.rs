@@ -37,7 +37,7 @@ mod dispatch;
 mod environment;
 mod executor;
 pub(super) mod job;
-mod pad;
+pub(crate) mod pad;
 mod scatter;
 mod slope;
 mod spawn_ctx;

@@ -308,10 +308,23 @@ fn draw_placement_detail(
                     // ON: drop onto the surface — zero the offset (#701).
                     transform.translation.0[1] = 0.0;
                 } else if let Some(hm) = heightmap {
-                    // OFF: stay in place — bake the terrain height into
-                    // the now-absolute Y (#700).
-                    transform.translation.0[1] +=
-                        hm.world_height_at(transform.translation.0[0], transform.translation.0[2]);
+                    // OFF: stay in place — bake the ground height into the
+                    // now-absolute Y (#700). Read through the shared
+                    // resolver so the object does not move when the flag
+                    // flips: a seeded structure is rendered at its
+                    // footprint's high point, not its centre (#1008/#1011).
+                    transform.translation.0[1] += crate::world_builder::snapped_ground_y(
+                        &hm.0,
+                        transform.translation.0[0],
+                        transform.translation.0[2],
+                        // `avoid_water` is untouched by this toggle, so the
+                        // radius reads exactly as it did while snapped.
+                        crate::world_builder::snap_radius_of(
+                            *avoid_water,
+                            avoid_water_clearance.0,
+                            transform.scale.0[0],
+                        ),
+                    );
                 }
                 *dirty = true;
             }

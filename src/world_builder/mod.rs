@@ -92,6 +92,7 @@ use bevy::math::Isometry3d;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 
+pub use compile::pad::{snap_footprint_radius, snap_radius_of, snapped_ground_y};
 pub use lsystem::{LSystemMaterialCache, LSystemMeshCache};
 pub use prim::{FaceTable, PrimMesh, build_primitive_mesh, enumerate_faces};
 pub use shape::{ShapeMaterialCache, ShapeMeshCache};
@@ -506,10 +507,14 @@ fn draw_placement_visualizers(
         return;
     };
 
+    // Resolve through the shared reader so the preview marker sits where
+    // the compile will actually put the anchor — a seeded structure
+    // resolves against its whole footprint, not its centre (#1008/#1011).
+    let radius = snap_footprint_radius(placement);
     let get_y = |x: f32, z: f32| -> f32 {
         heightmap
             .as_deref()
-            .map(|hm| hm.world_height_at(x, z))
+            .map(|hm| snapped_ground_y(&hm.0, x, z, radius))
             .unwrap_or(0.0)
     };
 
