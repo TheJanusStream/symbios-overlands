@@ -11,7 +11,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, quat_x, quat_z, solid,
+    cuboid_tapered, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel, prim, quat_x,
+    quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -70,6 +71,9 @@ fn build_tree(did: &str) -> Generator {
     parts.push(nest(header(), board(did)));
     parts.push(hitching_rail());
     parts.push(lantern(-1.32));
+    // Buried footing under the cairn, so a terrain-snapped board on a slope
+    // shows plinth rather than daylight under its downhill edge.
+    parts.push(footing(3.4, 1.6, [0.0, 0.0], 2.6));
     nest(cairn, parts)
 }
 

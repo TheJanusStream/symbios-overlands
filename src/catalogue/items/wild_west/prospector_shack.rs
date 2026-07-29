@@ -7,8 +7,8 @@
 //! The stovepipe and pick lean with a [`quat_x`].
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, solid, sphere,
-    with_cut,
+    assemble, cone, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, solid,
+    sphere, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -63,6 +63,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried footing under the walls, so a terrain-snapped shack on a slope
+    // shows plinth rather than daylight under its downhill wall.
+    prims.push(footing(3.4, 3.0, [0.0, 0.0], 6.0));
     // Board-and-batten: a few proud vertical battens breaking the front wall.
     for bx in [-1.5_f32, -0.1, 1.5] {
         prims.push(prim(

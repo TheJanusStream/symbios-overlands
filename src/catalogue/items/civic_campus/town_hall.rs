@@ -12,8 +12,8 @@
 
 use crate::catalogue::items::space_outpost::dome_ribs;
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, foundation_block, glow, id_quat,
-    prim, solid, sphere, torus, with_cut,
+    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, glow, id_quat, prim,
+    solid, sphere, torus, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -78,7 +78,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
-    prims.push(foundation_block(16.0, 12.0, [0.0, 0.0], 1.5));
+    // Buried footing under the stylobate, its depth sized to the drop this
+    // footprint spans rather than picked by eye (#1009).
+    prims.push(footing(16.0, 12.0, [0.0, 0.0], 14.0));
 
     // Stone hall body.
     prims.push(prim(

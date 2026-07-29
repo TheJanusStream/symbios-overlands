@@ -9,7 +9,7 @@
 //! [`assemble`], which reparents every piece under the counter.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cuboid_tapered_xz, id_quat, prim, quat_x, solid, sphere,
+    assemble, cuboid_tapered, cuboid_tapered_xz, footing, id_quat, prim, quat_x, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -65,6 +65,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    prims.push(footing(3.6, 1.5, [0.0, 0.0], 5.0));
     // Slanted display board across the counter front, tipped toward the buyer.
     prims.push(prim(
         solid(cuboid_tapered([3.5, 0.1, 0.7], 0.0, plank(PLANK_WOOD))),

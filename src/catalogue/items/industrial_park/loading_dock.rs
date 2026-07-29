@@ -2,7 +2,9 @@
 //! roller bay doors and rubber bumpers under a steel canopy, a side ramp, and
 //! a box trailer backed up to one bay.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, glow, id_quat, prim, quat_x, solid};
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, footing, glow, id_quat, prim, quat_x, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -64,6 +66,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    prims.push(footing(l, d, [0.0, 0.0], 8.0));
 
     // Three roller bay doors facing -Z, each with slat ribs and a lit dock
     // lamp hooded above it.

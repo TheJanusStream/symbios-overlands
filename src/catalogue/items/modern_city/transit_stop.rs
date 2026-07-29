@@ -14,8 +14,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, plane, prim, quat_mul, quat_x,
-    quat_y, solid, window_card,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, plane, prim, quat_mul,
+    quat_x, quat_y, solid, window_card,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Generator, SovereignMaterialSettings};
@@ -257,6 +257,9 @@ fn build_tree() -> Generator {
         [5.3, 3.7, -1.0],
         id_quat(),
     ));
+
+    // Buried footing under the raised platform.
+    prims.push(footing(9.0, 3.2, [0.0, 0.0], 6.0));
 
     assemble(prims)
 }

@@ -9,7 +9,8 @@
 use std::f32::consts::TAU;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid, sphere, torus,
+    assemble, cuboid_tapered, cylinder_tapered, footing_disc, glow, id_quat, prim, solid, sphere,
+    torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -66,6 +67,8 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried plinth so a slope-snapped pad shows stone, not daylight.
+    prims.push(footing_disc(radius, 8.0));
 
     // Raised steel perimeter curb.
     prims.push(prim(

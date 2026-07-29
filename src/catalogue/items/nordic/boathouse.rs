@@ -5,7 +5,7 @@
 //! sealed barn.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, id_quat, prim, solid,
+    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, id_quat, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -132,6 +132,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
+
+    // Buried footing under the stone slipway course.
+    prims.push(footing(l + 1.0, d + 1.0, [0.0, 0.0], 7.0));
 
     assemble(prims)
 }

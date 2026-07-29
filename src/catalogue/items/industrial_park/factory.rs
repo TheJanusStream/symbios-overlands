@@ -29,8 +29,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    self, cuboid_tapered, cylinder_tapered, glow, id_quat, lit_interior, nest, plane, prim, quat_x,
-    solid, torus, tube,
+    self, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, lit_interior, nest, plane,
+    prim, quat_x, solid, torus, tube,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
@@ -236,7 +236,18 @@ fn build_tree() -> Generator {
         [0.0, YARD_H * 0.5, YARD_Z],
         id_quat(),
     );
-    let mut root = nest(yard, vec![shell(), stack(), gantry(), yard_marks()]);
+    let mut root = nest(
+        yard,
+        vec![
+            shell(),
+            stack(),
+            gantry(),
+            yard_marks(),
+            // Buried plinth under the yard slab, deep enough for the ground
+            // the works gets dropped on (#1009).
+            footing(YARD_W, YARD_D, [0.0, YARD_Z], 17.0),
+        ],
+    );
     // Signature life: smoke from the stack, over the plant's heavy hum.
     root.children.push(fx::stack_smoke(
         [stack_x(), YARD_H + STACK_H + 0.5, stack_z()],
@@ -1192,8 +1203,8 @@ mod tests {
         let root = Factory.build("");
         assert_eq!(
             root.children.len(),
-            5,
-            "yard carries shell, stack, gantry, marks and the stack plume"
+            6,
+            "yard carries shell, stack, gantry, marks, the footing and the stack plume"
         );
         let shell = &root.children[0];
         let ridge = shell

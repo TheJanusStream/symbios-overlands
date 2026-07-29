@@ -11,7 +11,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, quat_x, solid,
+    cuboid_tapered, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel, prim, quat_x, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -54,8 +54,8 @@ impl CatalogueEntry for SteampunkMonument {
 }
 
 fn build_tree(did: &str) -> Generator {
-    // Sooted brick footing — the root, and flat.
-    let footing = prim(
+    // Sooted brick base course — the root, and flat.
+    let base = prim(
         solid(cuboid_tapered([3.0, 0.44, 1.7], 0.06, brick(BRICK_SOOT))),
         [0.0, 0.22, 0.0],
         id_quat(),
@@ -74,11 +74,16 @@ fn build_tree(did: &str) -> Generator {
     );
 
     nest(
-        footing,
-        vec![nest(
-            pedestal,
-            vec![nest(case, portrait(did)), pipe(-1.05), pipe(1.05)],
-        )],
+        base,
+        vec![
+            // Buried footing under the base course, so a terrain-snapped
+            // monument on a slope shows plinth rather than daylight beneath it.
+            footing(3.0, 1.7, [0.0, 0.0], 2.6),
+            nest(
+                pedestal,
+                vec![nest(case, portrait(did)), pipe(-1.05), pipe(1.05)],
+            ),
+        ],
     )
 }
 

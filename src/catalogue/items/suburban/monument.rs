@@ -11,7 +11,7 @@
 
 use crate::catalogue::items::solarpunk::{crop_tufts, foliage};
 use crate::catalogue::items::util::{
-    self, cuboid_tapered, cuboid_tapered_xz, glow, id_quat, nest, pfp_panel, prim, solid,
+    self, cuboid_tapered, cuboid_tapered_xz, footing, glow, id_quat, nest, pfp_panel, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -81,6 +81,9 @@ fn build_tree(did: &str) -> Generator {
         0.6,
         foliage(HEDGE_GREEN),
     ));
+    // Buried footing under the pad, so a terrain-snapped board on a slope shows
+    // plinth rather than daylight under its downhill edge.
+    parts.push(footing(3.6, 1.5, [0.0, 0.0], 2.6));
     nest(pad, parts)
 }
 

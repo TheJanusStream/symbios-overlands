@@ -8,7 +8,9 @@
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], which reparents every piece under the cabin floor.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, quat_x, solid};
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, footing, id_quat, prim, quat_x, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -67,6 +69,10 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried footing under the cabin's own plan, sized to the drop this
+    // footprint spans (#1009): the blocks stand on it, and it closes the gap
+    // a terrain-snapped placement leaves under the downhill edge.
+    prims.push(footing(7.0, 3.5, [0.0, 0.0], 7.0));
 
     // Cinder blocks under the cabin.
     for sx in [-1.0_f32, 0.0, 1.0] {

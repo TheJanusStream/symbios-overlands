@@ -6,7 +6,8 @@
 
 use crate::catalogue::items::nordic::gable_roof;
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, id_quat, prim, quat_x, solid,
+    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing_disc, id_quat, prim,
+    quat_x, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp, Fp3, Generator, SovereignMaterialSettings};
@@ -109,6 +110,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    prims.push(footing_disc(1.0, 3.0));
 
     // Four oak corner posts carrying the canopy.
     for (sx, sz) in [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {

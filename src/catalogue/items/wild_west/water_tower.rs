@@ -8,8 +8,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_z, solid, sphere,
-    torus,
+    assemble, cone, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, quat_z,
+    solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -62,6 +62,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried footing spanning the four leg feet, so a terrain-snapped tower on
+    // a slope stands on plinth rather than showing daylight downhill.
+    prims.push(footing(2.0 * r + 0.3, 2.0 * r + 0.3, [0.0, 0.0], 6.0));
     for (sx, sz) in [(1.0_f32, -1.0_f32), (1.0, 1.0), (-1.0, 1.0)] {
         prims.push(prim(
             solid(cuboid_tapered([0.3, leg_h, 0.3], 0.0, clapboard(WOOD_RAW))),

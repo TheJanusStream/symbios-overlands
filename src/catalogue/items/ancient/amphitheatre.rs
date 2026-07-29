@@ -6,7 +6,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, torus, with_cut,
+    assemble, cuboid_tapered, cylinder_tapered, footing_disc, id_quat, prim, quat_x, solid, torus,
+    with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -136,6 +137,13 @@ fn build_tree() -> Generator {
         [0.0, 3.0, scaenae_z - 0.45],
         quat_x(-FRAC_PI_2),
     ));
+
+    // Buried footing under the orchestra floor, so a terrain-snapped theatre
+    // shows plinth instead of daylight under its downhill edge. Sized to the
+    // marble floor and not to the cavea: the tiers only wrap the −Z half, so a
+    // disc out at their 11.45 m outer radius would leave a bare stone lip
+    // across the open +Z front.
+    prims.push(footing_disc(4.0, 9.0));
 
     assemble(prims)
 }

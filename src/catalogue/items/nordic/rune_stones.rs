@@ -6,7 +6,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, glow, id_quat, prim, quat_x, quat_y, solid, torus,
+    assemble, cuboid_tapered, footing, glow, id_quat, prim, quat_x, quat_y, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -101,6 +101,11 @@ fn build_tree() -> Generator {
             quat_y(yaw),
         ));
     }
+
+    // Buried setting stone under the memorial itself — the cluster has no
+    // slab, and the tallest stone is what must not stand clear of the
+    // ground; the satellites are short enough to bed into it.
+    prims.push(footing(1.4, depth, [0.0, 0.0], 5.0));
 
     assemble(prims)
 }

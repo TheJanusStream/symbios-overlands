@@ -4,7 +4,7 @@
 //! kit: a poor classical room grows this instead of a temple or villa.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp, Fp3, Generator, SovereignMaterialSettings};
@@ -105,6 +105,10 @@ fn build_tree() -> Generator {
         [l * 0.5 + 0.02, foot_h + 0.85, 0.0],
         id_quat(),
     ));
+
+    // Buried footing under the adobe base course, so a terrain-snapped hut
+    // shows plinth instead of daylight under its downhill edge.
+    prims.push(footing(l + 0.5, w + 0.5, [0.0, 0.0], 5.0));
 
     assemble(prims)
 }

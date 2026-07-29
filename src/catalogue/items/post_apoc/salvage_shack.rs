@@ -7,7 +7,8 @@
 //! [`assemble`], which reparents every piece under the slab.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, quat_y, solid, torus,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, quat_y,
+    solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -67,6 +68,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    prims.push(footing(4.6, 4.0, [0.0, 0.0], 5.0));
 
     // Corrugated sheet walls.
     prims.push(prim(

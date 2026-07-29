@@ -8,7 +8,7 @@
 //! rules this family shares.
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, solid,
+    cuboid_tapered, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -76,10 +76,16 @@ fn build_tree(did: &str) -> Generator {
 
     nest(
         step,
-        vec![nest(
-            plinth,
-            vec![nest(wall, dedication(did)), lamp(-2.05), lamp(2.05)],
-        )],
+        vec![
+            nest(
+                plinth,
+                vec![nest(wall, dedication(did)), lamp(-2.05), lamp(2.05)],
+            ),
+            // Buried footing under the bottom step, sized to the drop this
+            // footprint spans (#1009) — authored around y=0 and rebased by
+            // `nest` like every other child.
+            footing(4.6, 2.0, [0.0, 0.0], 3.0),
+        ],
     )
 }
 

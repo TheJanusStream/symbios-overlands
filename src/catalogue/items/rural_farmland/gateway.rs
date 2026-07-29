@@ -10,8 +10,8 @@
 //! reads as a farm gate you pass through.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cuboid_tapered_xz, foundation_mat, glow, id_quat, prim, quat_z,
-    solid, sphere,
+    assemble, cuboid_tapered, cuboid_tapered_xz, footing, foundation_mat, glow, id_quat, prim,
+    quat_z, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -70,6 +70,8 @@ fn build_tree() -> Generator {
         [0.0, apron_h * 0.5, 0.0],
         id_quat(),
     )];
+    // Buried plinth so a slope-snapped gate shows stone, not daylight.
+    prims.push(footing(5.6, 3.0, [0.0, 0.0], 3.5));
 
     for sx in [-1.0_f32, 1.0] {
         // Fieldstone pier — the mass the timber post stands on.

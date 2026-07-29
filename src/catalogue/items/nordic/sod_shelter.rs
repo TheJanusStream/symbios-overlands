@@ -5,7 +5,7 @@
 //! [`turf_house`](super::turf_house).
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -125,6 +125,9 @@ fn build_tree() -> Generator {
         [1.3, foot_h + 0.4, -0.4],
         id_quat(),
     ));
+
+    // Buried footing under the fieldstone course.
+    prims.push(footing(4.2, 3.2, [0.0, 0.0], 3.0));
 
     assemble(prims)
 }

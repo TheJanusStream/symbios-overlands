@@ -5,7 +5,7 @@
 //! Markers lean with a [`quat_x`].
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, sphere,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -60,6 +60,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried footing under the whole plot of mounds (there is no slab here, so
+    // the footprint is the extent of the mound cluster).
+    prims.push(footing(4.9, 2.9, [0.06, 0.86], 4.0));
 
     // More rounded mounds in a loose, uneven row.
     for (mx, mz, w, l) in [

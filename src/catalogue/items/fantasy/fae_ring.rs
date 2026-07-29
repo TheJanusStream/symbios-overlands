@@ -9,7 +9,8 @@
 use std::f32::consts::TAU;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_z, solid, torus,
+    assemble, cuboid_tapered, cylinder_tapered, footing_disc, glow, id_quat, prim, quat_z, solid,
+    torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -98,6 +99,9 @@ fn build_tree() -> Generator {
             prims.push(toadstool([x, 0.18, z], 0.85, glow(MUSH_GLOW, 1.5), false));
         }
     }
+
+    // Buried footing under the mossy floor disc.
+    prims.push(footing_disc(4.0, 6.0));
 
     let mut root = assemble(prims);
     // Signature life: mana motes rising from the ring centre.

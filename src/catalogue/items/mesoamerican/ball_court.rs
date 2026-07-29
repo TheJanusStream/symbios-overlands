@@ -6,7 +6,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_y, quat_z, solid, torus, wedge,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_y, quat_z, solid,
+    torus, wedge,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -143,6 +144,11 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
+
+    // Buried footing under the whole court platform — the end-zone banks
+    // and the range walls stand out at the full width, so the plinth has
+    // to carry that, not just the sunken alley floor.
+    prims.push(footing((bench_top + wall_w) * 2.0, len, [0.0, 0.0], 9.0));
 
     assemble(prims)
 }

@@ -4,7 +4,7 @@
 //! tile roof. The martial counterpart to the contemplative tea house.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, id_quat, prim, quat_y, solid, wedge,
+    assemble, cuboid_tapered, footing, id_quat, prim, quat_y, solid, wedge,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -182,6 +182,9 @@ fn build_tree() -> Generator {
         [0.0, wall_top + cap_h + 0.1, 0.0],
         id_quat(),
     ));
+
+    // Buried footing under the stone footing course.
+    prims.push(footing(l + 0.8, w + 0.8, [0.0, 0.0], 8.0));
 
     assemble(prims)
 }

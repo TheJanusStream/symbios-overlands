@@ -14,8 +14,7 @@
 //! [`assemble`], which reparents every piece under the threshold slab.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, foundation_block, glow, id_quat, prim, solid,
-    sphere, torus,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -76,7 +75,7 @@ fn build_tree() -> Generator {
         id_quat(),
     )];
     // Buried plinth so a slope-snapped gate shows stone, not daylight.
-    prims.push(foundation_block(5.4, 3.0, [0.0, 0.0], 1.2));
+    prims.push(footing(5.4, 3.0, [0.0, 0.0], 3.5));
 
     // Two flanking columns — base plinth, tapering ashlar shaft ringed by gold
     // string-courses, capital, and a glowing crystal finial.

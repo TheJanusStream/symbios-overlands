@@ -11,7 +11,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, torus, with_cut,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, solid, torus,
+    with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -70,6 +71,8 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried plinth so a slope-snapped pad shows stone, not daylight.
+    prims.push(footing(radius * 2.0, length, [0.0, 0.0], 4.0));
 
     // Translucent plastic-sheet vault (round side up) arching over the crops,
     // laid along Z; the flat cut side sits at the floor so the rows read.

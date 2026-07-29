@@ -31,8 +31,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    self, cone, cuboid_tapered, cylinder_tapered, foundation_block, glow, id_quat, lit_interior,
-    nest, plane, prim, quat_mul, quat_x, quat_y, solid,
+    self, cone, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, lit_interior, nest,
+    plane, prim, quat_mul, quat_x, quat_y, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
@@ -254,12 +254,14 @@ fn build_tree() -> Generator {
         podium,
         vec![
             // Buried plinth so a terrain-snapped placement shows footing on a
-            // slope rather than daylight under its downhill edge.
-            foundation_block(
+            // slope rather than daylight under its downhill edge. Its depth is
+            // sized to the drop this footprint spans rather than picked by eye
+            // (#1009).
+            footing(
                 W + PODIUM_OVER * 2.0,
                 D + PODIUM_OVER * 2.0,
                 [0.0, 0.0],
-                2.0,
+                15.0,
             ),
             shell(),
             terrace(),

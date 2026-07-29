@@ -9,7 +9,7 @@
 //! rules this family shares.
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, glow, id_quat, nest, pfp_panel, prim, quat_z, solid,
+    cuboid_tapered, footing, glow, id_quat, nest, pfp_panel, prim, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -65,7 +65,17 @@ fn build_tree(did: &str) -> Generator {
         id_quat(),
     );
 
-    nest(dais, vec![nest(slab, inset(did)), counter_slab(1.75)])
+    // Buried footing under the dais, so a terrain-snapped monument shows
+    // plinth instead of daylight under its downhill edge. `nest` rebases it
+    // out of the world frame like every other child.
+    nest(
+        dais,
+        vec![
+            nest(slab, inset(did)),
+            counter_slab(1.75),
+            footing(3.4, 2.0, [0.0, 0.0], 2.6),
+        ],
+    )
 }
 
 /// The inset: a recessed obsidian field, the likeness, the glyph frame, and a

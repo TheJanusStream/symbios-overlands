@@ -63,7 +63,7 @@ impl CatalogueEntry for RuinedTemple {
         // offset by -footprint/2 (see the villa for the rationale). The
         // temple runs deep (Z) so the pedimented short end faces the
         // front (−Z).
-        let mut root = crate::catalogue::items::util::foundation_block(15.0, 25.0, [0.0, 0.0], 2.5);
+        let mut root = crate::catalogue::items::util::footing(15.0, 25.0, [0.0, 0.0], 14.5);
         let mut temple = Generator::from_kind(build_kind());
         temple.transform.translation = crate::pds::Fp3([-7.0, 0.0, -12.0]);
         root.children.push(temple);

@@ -13,8 +13,8 @@ use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::space_outpost::dome_ribs;
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, foundation_disc, glow, id_quat, plane, prim,
-    quat_x, solid, sphere, torus, window_card, with_cut,
+    assemble, cuboid_tapered, cylinder_tapered, footing_disc, glow, id_quat, plane, prim, quat_x,
+    solid, sphere, torus, window_card, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -80,7 +80,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
-    prims.push(foundation_disc(drum_r - 0.4, 1.2));
+    prims.push(footing_disc(drum_r - 0.4, 9.0));
 
     // Planted soil inside the drum + a leafy interior garden seen through the
     // glass.

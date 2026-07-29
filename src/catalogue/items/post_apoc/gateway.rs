@@ -15,8 +15,8 @@
 //! hazard board and beacon face the approaching player.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, foundation_block, glow, id_quat, prim, quat_x,
-    quat_z, solid, sphere, torus, tube,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, quat_z,
+    solid, sphere, torus, tube,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -74,7 +74,7 @@ fn build_tree() -> Generator {
         id_quat(),
     )];
     // Buried plinth so a slope-snapped gate shows stone, not daylight.
-    prims.push(foundation_block(5.0, 2.8, [0.0, 0.0], 1.2));
+    prims.push(footing(5.0, 2.8, [0.0, 0.0], 3.5));
 
     // Two salvage pylons flanking a ~2.85 m gap. Each is a welded steel post on
     // an oil-drum footing, clad on the −Z face with corrugated sheet and shored

@@ -32,8 +32,8 @@ use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::solarpunk::{CROP_GREEN, crop_tufts, foliage};
 use crate::catalogue::items::util::{
-    self, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, glow, id_quat, lit_interior, nest,
-    plane, prim, quat_mul, quat_x, quat_y, solid,
+    self, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, glow, id_quat,
+    lit_interior, nest, plane, prim, quat_mul, quat_x, quat_y, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
@@ -366,7 +366,16 @@ fn build_tree() -> Generator {
         pad_c,
         id_quat(),
     );
-    nest(pad, vec![apron(), dwarf_wall()])
+    // Buried footing under the poured base, so a glasshouse snapped to the
+    // high point of a slope keeps its ground under the downhill edge.
+    nest(
+        pad,
+        vec![
+            apron(),
+            dwarf_wall(),
+            footing(PAD_W, PAD_D, [0.0, 0.0], 6.0),
+        ],
+    )
 }
 
 /// The standing apron in front of the door, and everything that stands on it.
@@ -1298,8 +1307,8 @@ mod tests {
         let root = Greenhouse.build("");
         assert_eq!(
             root.children.len(),
-            2,
-            "the base carries apron + dwarf wall"
+            3,
+            "the base carries apron + dwarf wall + buried footing"
         );
         let knee = root
             .children

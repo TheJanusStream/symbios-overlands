@@ -3,7 +3,8 @@
 //! stain, beside the [`derelict_shed`](super::derelict_shed).
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_z, solid, torus,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, quat_z, solid,
+    torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -57,6 +58,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    prims.push(footing(7.0, 7.0, [0.0, 0.0], 5.0));
 
     // Corroded tank leaning a little off true — a subtree so its dished cap
     // and round hoops lean with it (the old square cuboid bands jutted their

@@ -8,7 +8,7 @@
 //! The tarp and props lean with a [`quat_x`].
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_y, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, quat_y, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -65,6 +65,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried footing under the heap and the sheltered floor, so the shelter
+    // keeps its ground when it is dropped on a slope.
+    prims.push(footing(4.0, 2.6, [-0.9, 0.0], 6.0));
     // A couple of broken concrete chunks + crumbled debris around the heap.
     for (cx, cz, s) in [(-2.4_f32, 1.0_f32, 0.8_f32), (-0.8, -1.0, 0.7)] {
         prims.push(prim(

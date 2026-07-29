@@ -3,7 +3,7 @@
 //! and cornice. The open civic portico of a classical agora.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -126,6 +126,10 @@ fn build_tree() -> Generator {
         [0.0, entab_y + 0.7, 0.0],
         id_quat(),
     ));
+
+    // Buried footing under the bottom stylobate step, so a terrain-snapped
+    // stoa shows plinth instead of daylight under its downhill edge.
+    prims.push(footing(l + 0.6, 3.0, [0.0, 0.0], 6.0));
 
     assemble(prims)
 }

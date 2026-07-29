@@ -4,7 +4,7 @@
 //! central plaque. Marks the threshold of the sacred ground.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_z, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -151,6 +151,9 @@ fn build_tree() -> Generator {
         [0.0, 0.4 + nuki_y + 0.7, -0.28],
         id_quat(),
     ));
+
+    // Buried footing under the stone footing strip.
+    prims.push(footing(2.0 * span + 1.4, 1.2, [0.0, 0.0], 6.0));
 
     assemble(prims)
 }

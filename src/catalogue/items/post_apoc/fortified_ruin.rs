@@ -10,8 +10,7 @@
 //! under the slab.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, foundation_block, glow, id_quat, prim, quat_x,
-    quat_y, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, quat_y, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -70,7 +69,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
-    prims.push(foundation_block(10.0, 8.0, [0.0, 0.0], 1.5));
+    prims.push(footing(10.0, 8.0, [0.0, 0.0], 11.0));
 
     // Surviving concrete walls at broken heights: the solid back wall faces
     // away (+Z), the gate and barrel fire face the camera (−Z).

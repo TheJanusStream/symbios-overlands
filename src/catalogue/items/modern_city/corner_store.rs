@@ -13,8 +13,8 @@
 //! slabs pinned to the front.
 
 use crate::catalogue::items::util::{
-    self, assemble, cuboid_tapered, glow, id_quat, lit_interior, plane, prim, quat_x, solid,
-    window_card, with_face,
+    self, assemble, cuboid_tapered, footing, glow, id_quat, lit_interior, plane, prim, quat_x,
+    solid, window_card, with_face,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
@@ -184,6 +184,9 @@ fn build_tree() -> Generator {
     shopfront(&mut prims);
     interior_fitout(&mut prims);
     street_furniture(&mut prims);
+
+    // Buried footing under the concrete base.
+    prims.push(footing(W + 0.4, D + 0.4, [0.0, 0.0], 5.0));
 
     assemble(prims)
 }

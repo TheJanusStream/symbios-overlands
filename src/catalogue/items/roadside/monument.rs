@@ -8,7 +8,7 @@
 //! rules this family shares.
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, solid,
+    cuboid_tapered, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -54,7 +54,7 @@ impl CatalogueEntry for RoadsideMonument {
 fn build_tree(did: &str) -> Generator {
     // Concrete footing — the root, and the only thing touching the ground:
     // a billboard is a single mast, not a frame on legs.
-    let footing = prim(
+    let pad = prim(
         solid(cuboid_tapered(
             [1.5, 0.36, 1.3],
             0.12,
@@ -63,6 +63,8 @@ fn build_tree(did: &str) -> Generator {
         [0.0, 0.18, 0.0],
         id_quat(),
     );
+    // Buried plinth under the pad, so a slope-snapped board keeps its ground.
+    let plinth = footing(1.5, 1.3, [0.0, 0.0], 2.5);
     let mast = prim(
         solid(cylinder_tapered(
             0.22,
@@ -80,7 +82,7 @@ fn build_tree(did: &str) -> Generator {
         id_quat(),
     );
 
-    nest(footing, vec![collar, nest(mast, board(did))])
+    nest(pad, vec![plinth, collar, nest(mast, board(did))])
 }
 
 /// The board itself: enamel backing, portrait, cream frame, neon strip and

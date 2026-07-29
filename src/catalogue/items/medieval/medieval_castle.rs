@@ -60,7 +60,7 @@ impl CatalogueEntry for MedievalCastle {
         // offset by -footprint/2 (see the villa for the rationale). The
         // castle lands on craggy alpine slopes, so it gets the deepest
         // foundation in the pool.
-        let mut root = crate::catalogue::items::util::foundation_block(77.0, 77.0, [0.0, 0.0], 5.0);
+        let mut root = crate::catalogue::items::util::footing(77.0, 77.0, [0.0, 0.0], 54.0);
         let mut castle = Generator::from_kind(build_kind());
         castle.transform.translation = crate::pds::Fp3([-37.5, 0.0, -37.5]);
         root.children.push(castle);

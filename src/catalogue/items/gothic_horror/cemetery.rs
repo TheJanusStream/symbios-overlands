@@ -7,7 +7,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, torus, with_cut,
+    assemble, cone, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, solid, torus,
+    with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -59,6 +60,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    prims.push(footing(8.0, 6.0, [0.0, 0.0], 6.0));
 
     // Rows of leaning headstones in mixed Gothic styles.
     let mut k = 0usize;

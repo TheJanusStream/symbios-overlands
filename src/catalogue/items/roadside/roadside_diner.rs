@@ -6,7 +6,9 @@
 //! [`assemble`], which reparents every piece under the slab.
 
 use crate::catalogue::items::modern_city::curtain_wall;
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, quat_x, solid};
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, footing, id_quat, prim, quat_x, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -67,6 +69,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    prims.push(footing(12.0, 6.0, [0.0, 0.0], 7.0));
 
     // Brick body.
     prims.push(prim(

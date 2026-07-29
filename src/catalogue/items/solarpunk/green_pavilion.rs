@@ -6,7 +6,7 @@
 //! [`assemble`], which reparents every piece under the deck.
 
 use crate::catalogue::items::nordic::gable_roof;
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, solid};
+use crate::catalogue::items::util::{assemble, cuboid_tapered, footing, id_quat, prim, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -65,6 +65,8 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried plinth so a slope-snapped pavilion shows stone, not daylight.
+    prims.push(footing(8.0, 6.0, [0.0, 0.0], 7.0));
 
     // Timber posts.
     for sx in [-1.0_f32, 0.0, 1.0] {

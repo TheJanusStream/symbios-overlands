@@ -15,8 +15,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, solid, torus,
-    with_cut,
+    assemble, cone, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, solid,
+    torus, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -81,6 +81,7 @@ fn build_tree() -> Generator {
         [0.0, slab_top * 0.5, 0.0],
         id_quat(),
     )];
+    prims.push(footing(6.4, 2.8, [0.0, 0.0], 3.5));
 
     // ── Two flanking gatehouse towers ──
     for sx in [-1.0_f32, 1.0] {

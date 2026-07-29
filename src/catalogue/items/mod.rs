@@ -40,8 +40,10 @@ pub mod suburban;
 pub mod tools;
 pub mod wild_west;
 
+pub mod foundation;
 pub(crate) mod fx;
 pub mod gateway_fit;
+pub mod measure;
 mod util;
 
 #[cfg(test)]

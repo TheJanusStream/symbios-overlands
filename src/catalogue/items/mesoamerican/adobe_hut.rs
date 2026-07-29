@@ -5,7 +5,7 @@
 //! room grows this instead of the temple-mountain.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, solid, sphere,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -188,6 +188,10 @@ fn build_tree() -> Generator {
         [-1.5, foot_h + 0.46, front_z - 0.45],
         id_quat(),
     ));
+
+    // Buried footing under the stone course, so the downhill side of a
+    // terrace-snapped hut shows plinth rather than daylight.
+    prims.push(footing(l + 0.6, w + 0.6, [0.0, 0.0], 9.0));
 
     let mut root = assemble(prims);
     // Signature life: hearth smoke seeping from the ridge.

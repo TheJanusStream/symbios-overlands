@@ -10,8 +10,8 @@ use crate::catalogue::items::civic_campus::column;
 use crate::catalogue::items::roadside::{SIGN_AMBER, sign_board};
 use crate::catalogue::items::solarpunk::{crop_tufts, foliage};
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, plane, prim, quat_x, solid, sphere,
-    window_card,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, plane, prim, quat_x, solid,
+    sphere, window_card,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -130,6 +130,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried footing under the concrete plinth, so a terrain-snapped hall on a
+    // slope shows plinth rather than daylight under its downhill edge.
+    prims.push(footing(l + 1.0, w + 1.0, [0.0, 0.0], 12.0));
     // Side walls.
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(

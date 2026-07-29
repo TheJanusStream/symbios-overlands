@@ -3,7 +3,8 @@
 //! farm of the wreck site.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_mul, quat_x, quat_z, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_mul, quat_x, quat_z,
+    solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator};
@@ -54,6 +55,8 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried plinth so a slope-snapped footing shows stone, not daylight.
+    prims.push(footing(5.0, 2.0, [0.0, 0.0], 4.0));
 
     // Buckled torque tube, leaning (a child now → rotation-safe).
     prims.push(prim(

@@ -8,7 +8,7 @@
 
 use crate::catalogue::items::fantasy::rune_marks;
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid, torus,
+    assemble, cuboid_tapered, cylinder_tapered, footing_disc, glow, id_quat, prim, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -100,6 +100,10 @@ fn build_tree() -> Generator {
             glow(GLYPH_CYAN, 2.2),
         ));
     }
+
+    // Buried footing under the base disc, so a terrain-snapped dais shows
+    // plinth instead of daylight under its downhill edge.
+    prims.push(footing_disc(2.0, 6.0));
 
     let mut root = assemble(prims);
     // Signature life: energy motes rising in the levitation field.

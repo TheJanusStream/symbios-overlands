@@ -6,7 +6,7 @@
 //! prosperity axis (`Poor`), so a destitute Nordic room grows this instead.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cuboid_tapered_xz, glow, id_quat, prim, solid,
+    assemble, cuboid_tapered, cuboid_tapered_xz, footing, glow, id_quat, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -130,6 +130,9 @@ fn build_tree() -> Generator {
         [hole_x, wall_top + roof_h - 0.2, 0.0],
         id_quat(),
     ));
+
+    // Buried footing under the fieldstone course.
+    prims.push(footing(l + 1.0, w + 1.0, [0.0, 0.0], 9.0));
 
     let mut root = assemble(prims);
     // Signature life: peat smoke seeping from the roof hole.

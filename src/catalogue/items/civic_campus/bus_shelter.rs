@@ -3,7 +3,7 @@
 //! of the underfunded quarter.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -62,6 +62,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried footing under the pad, sized to the drop this footprint spans
+    // (#1009), so a terrain-snapped shelter shows footing not daylight.
+    prims.push(footing(3.6, 1.6, [0.0, 0.0], 2.5));
 
     // Four corner steel posts.
     for sx in [-1.0_f32, 1.0] {

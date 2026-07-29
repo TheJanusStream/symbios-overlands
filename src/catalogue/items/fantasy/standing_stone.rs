@@ -5,7 +5,7 @@
 //! The menhir leans with a single [`quat_x`].
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing_disc, glow, id_quat, prim, quat_x, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -69,6 +69,9 @@ fn build_tree() -> Generator {
         menhir.children.push(stroke);
     }
     prims.push(menhir);
+
+    // Buried footing under the base mound.
+    prims.push(footing_disc(1.0, 3.0));
 
     assemble(prims)
 }

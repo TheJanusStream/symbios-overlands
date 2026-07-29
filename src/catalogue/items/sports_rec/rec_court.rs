@@ -11,7 +11,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_y, solid, torus,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, quat_y, solid,
+    torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -73,6 +74,8 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried plinth so a slope-snapped court shows stone, not daylight.
+    prims.push(footing(14.0, 9.0, [0.0, 0.0], 8.0));
     // Faded painted key + centre line + free-throw circle.
     prims.push(prim(
         cuboid_tapered([4.0, 0.05, 3.0], 0.0, painted(COURT_BLUE)),

@@ -3,7 +3,7 @@
 //! the drifter's camp.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, id_quat, prim, quat_x, solid, torus,
+    assemble, cuboid_tapered, footing, id_quat, prim, quat_x, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -59,6 +59,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    prims.push(footing(4.0, 1.2, [0.0, 0.0], 4.0));
 
     // Broken concrete chunks piled on top.
     for (cx, s) in [(-1.3_f32, 0.8_f32), (0.4, 0.9), (1.4, 0.7)] {

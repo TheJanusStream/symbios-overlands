@@ -7,8 +7,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, prim_scaled, quat_x, quat_z,
-    solid, sphere, torus, tube, with_cut,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, prim_scaled, quat_x,
+    quat_z, solid, sphere, torus, tube, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -61,6 +61,10 @@ fn build_tree() -> Generator {
         [0.0, 0.09, 0.0],
         id_quat(),
     )];
+
+    // Buried footing under the cradle sills, so a terrain-snapped boiler on a
+    // slope shows plinth rather than daylight under its downhill end.
+    prims.push(footing(1.45, 2.4, [0.0, 0.0], 3.0));
 
     // Rusted boiler tank, laid along Z.
     prims.push(prim(

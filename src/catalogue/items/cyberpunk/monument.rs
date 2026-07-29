@@ -13,7 +13,7 @@
 //! rules this family shares.
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, solid,
+    cuboid_tapered, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -71,7 +71,16 @@ fn build_tree(did: &str) -> Generator {
         id_quat(),
     );
 
-    nest(pad, vec![nest(pylon, screen(did)), conduit(1.05)])
+    nest(
+        pad,
+        vec![
+            nest(pylon, screen(did)),
+            conduit(1.05),
+            // Buried footing under the pad, so the pylon keeps its ground line
+            // where the concrete is set into a slope.
+            footing(3.0, 1.6, [0.0, 0.0], 2.5),
+        ],
+    )
 }
 
 /// The screen: dark backing, portrait, neon bezel, underglow and a grille.

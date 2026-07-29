@@ -7,7 +7,8 @@ use std::f32::consts::{FRAC_PI_2, TAU};
 
 use crate::catalogue::items::coastal_resort::{POOL_AQUA, water};
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_z, solid, torus, tube,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, quat_z, solid,
+    torus, tube,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -63,6 +64,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    prims.push(footing(3.0, 3.0, [0.0, 0.0], 5.0));
 
     // Four vertical lattice legs.
     for (sx, sz) in [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {

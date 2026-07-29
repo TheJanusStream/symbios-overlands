@@ -507,6 +507,39 @@ pub(super) fn foundation_disc(radius: f32, depth: f32) -> Generator {
     )
 }
 
+/// A footing sized to the ground it will be dropped on (#1009): a
+/// [`foundation_block`] whose depth comes from the entry's own footprint
+/// radius via [`crate::catalogue::items::foundation::required_depth`],
+/// rather than being picked by eye.
+///
+/// This is what a settlement building should carry. Since #1008 a seeded
+/// structure is snapped to the *highest* ground under its footprint, so
+/// it never sinks into a hillside — but the ground then falls away under
+/// its downhill edge, and this is what closes that gap. Depth tracks the
+/// footprint because the drop a building spans is proportional to how
+/// wide it is; pass the same `clearance` the entry's
+/// [`Footprint`](crate::catalogue::Footprint) declares.
+///
+/// `size_x`/`size_z` are the *building's* base footprint, not its
+/// clearance — the plinth should sit under the walls, not out at the
+/// keep-clear radius.
+pub(super) fn footing(size_x: f32, size_z: f32, center: [f32; 2], clearance: f32) -> Generator {
+    foundation_block(
+        size_x,
+        size_z,
+        center,
+        crate::catalogue::items::foundation::required_depth(clearance),
+    )
+}
+
+/// Round sibling of [`footing`] for drum / tower / dome entries.
+pub(super) fn footing_disc(radius: f32, clearance: f32) -> Generator {
+    foundation_disc(
+        radius,
+        crate::catalogue::items::foundation::required_depth(clearance),
+    )
+}
+
 /// Strong self-lit material — lamps, orbs, finials.
 /// Flat quad in the local XZ plane, `size` = `[x_extent, z_extent]`, normal
 /// `+Y`. Stand it up with [`quat_x`]`(-FRAC_PI_2)` to face `-Z` — that maps

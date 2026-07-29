@@ -6,7 +6,9 @@
 //! [`assemble`], which reparents every piece under the slab.
 
 use crate::catalogue::items::modern_city::curtain_wall;
-use crate::catalogue::items::util::{assemble, cuboid_tapered, glow, id_quat, prim, solid};
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, footing, glow, id_quat, prim, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -67,6 +69,8 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried plinth so a slope-snapped slab shows stone, not daylight.
+    prims.push(footing(14.0, 10.0, [0.0, 0.0], 9.0));
 
     // Corrugated body.
     prims.push(prim(

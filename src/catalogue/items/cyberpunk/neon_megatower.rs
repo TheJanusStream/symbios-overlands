@@ -10,8 +10,7 @@
 //! height), and every child measures its Y from the slab centre via `rel`.
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, foundation_block, glow, id_quat, prim, solid, sphere, torus,
-    tube,
+    cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, solid, sphere, torus, tube,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -64,7 +63,7 @@ fn build_tree() -> Generator {
     );
     let rel = |ground_y: f32| ground_y - slab_h * 0.5;
 
-    let mut base = foundation_block(14.0, 14.0, [0.0, 0.0], 3.0);
+    let mut base = footing(14.0, 14.0, [0.0, 0.0], 16.0);
     base.transform.translation.0[1] -= slab_h * 0.5;
     root.children.push(base);
 

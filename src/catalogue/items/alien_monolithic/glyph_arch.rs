@@ -6,7 +6,7 @@
 //! [`assemble`], which reparents every piece under the left jamb.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, glow, id_quat, prim, quat_x, solid, torus, with_cut,
+    assemble, cuboid_tapered, footing, glow, id_quat, prim, quat_x, solid, torus, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -124,6 +124,13 @@ fn build_tree() -> Generator {
         [0.0, (leg_h - 0.4) * 0.5, 0.0],
         id_quat(),
     ));
+
+    // Buried footings under each jamb — the arch has no base slab, so the
+    // jambs are what meets the ground. Kept separate so nothing bridges the
+    // threshold.
+    for sx in [-1.0_f32, 1.0] {
+        prims.push(footing(0.9, 0.9, [sx * jamb_x, 0.0], 5.0));
+    }
 
     assemble(prims)
 }

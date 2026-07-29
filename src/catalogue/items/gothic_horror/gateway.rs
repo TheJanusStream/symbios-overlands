@@ -14,8 +14,8 @@
 //! [`assemble`], which reparents every piece under the flagstone base.
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, foundation_block, id_quat,
-    prim, quat_z, solid, sphere,
+    assemble, cone, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, id_quat, prim,
+    quat_z, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -69,7 +69,7 @@ fn build_tree() -> Generator {
         [0.0, 0.15, 0.0],
         id_quat(),
     )];
-    prims.push(foundation_block(4.2, 2.4, [0.0, 0.0], 1.0));
+    prims.push(footing(4.2, 2.4, [0.0, 0.0], 3.5));
 
     // Two dressed-ashlar piers: stepped plinth, lightly battered shaft, cap.
     for s in [-1.0_f32, 1.0] {

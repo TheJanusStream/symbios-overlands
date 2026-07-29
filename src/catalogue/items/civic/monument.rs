@@ -26,7 +26,9 @@
 //!    without one the monument is see-through from behind. The plate is also
 //!    what the portrait reads as being fixed *to*.
 
-use crate::catalogue::items::util::{cuboid_tapered, glow, id_quat, nest, pfp_panel, prim, solid};
+use crate::catalogue::items::util::{
+    cuboid_tapered, footing, glow, id_quat, nest, pfp_panel, prim, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -101,17 +103,23 @@ fn build_tree(did: &str) -> Generator {
 
     nest(
         step0,
-        vec![nest(
-            step1,
-            vec![
-                nest(stele, portrait(did)),
-                // Two flame bowls on the plinth. The panel is unlit and reads
-                // at any hour on its own; these are for the *stone*, which
-                // otherwise goes flat at dusk.
-                lamp(-1.35),
-                lamp(1.35),
-            ],
-        )],
+        vec![
+            nest(
+                step1,
+                vec![
+                    nest(stele, portrait(did)),
+                    // Two flame bowls on the plinth. The panel is unlit and
+                    // reads at any hour on its own; these are for the *stone*,
+                    // which otherwise goes flat at dusk.
+                    lamp(-1.35),
+                    lamp(1.35),
+                ],
+            ),
+            // Buried footing under the bottom step, sized to the drop this
+            // footprint spans (#1009) — authored around y=0 and rebased by
+            // `nest` like every other child.
+            footing(3.4, 2.4, [0.0, 0.0], 2.6),
+        ],
     )
 }
 

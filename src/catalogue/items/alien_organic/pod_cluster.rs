@@ -8,7 +8,7 @@
 //! `id_quat`).
 
 use crate::catalogue::items::util::{
-    assemble, cylinder_tapered, glow, id_quat, prim, prim_scaled, solid, sphere,
+    assemble, cylinder_tapered, footing_disc, glow, id_quat, prim, prim_scaled, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -99,6 +99,12 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
+
+    // Buried footing under the creep mound, so a terrain-snapped clutch shows
+    // plinth instead of daylight under its downhill edge. Held to the mound's
+    // radius at the reveal height rather than its r=1.15 foot, because the
+    // mound tapers inward going up and would otherwise not cover the rim.
+    prims.push(footing_disc(1.0, 5.0));
 
     let mut root = assemble(prims);
     // Signature life: spores drifting off the brood.

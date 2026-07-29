@@ -10,7 +10,9 @@
 //! the piers — walking into it opens the destination picker. Everything else
 //! is set-dressing that frames that opening as a gate you pass through.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, glow, id_quat, prim, solid};
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, footing, glow, id_quat, prim, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
 use crate::seeded_defaults::ThemeArchetype;
@@ -63,6 +65,8 @@ fn build_tree() -> Generator {
         [0.0, 0.15, 0.0],
         id_quat(),
     )];
+    // Buried plinth so a slope-snapped gate shows stone, not daylight.
+    prims.push(footing(5.2, 3.0, [0.0, 0.0], 3.5));
 
     // Two board-formed concrete entrance piers flanking a 2.6 m walk-in,
     // lightly tapered so they read as stadium buttresses rather than posts.

@@ -13,8 +13,8 @@
 //! wreath emblem, and the gilded frieze inscription all face `-Z`.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, glow, id_quat, prim, quat_x,
-    solid, sphere, torus,
+    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, glow, id_quat, prim,
+    quat_x, solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -191,6 +191,10 @@ fn build_tree() -> Generator {
         [0.0, 2.425, -0.625],
         id_quat(),
     ));
+
+    // Buried footing under the bottom stylobate step, so a terrain-snapped
+    // propylaea shows plinth instead of daylight under its downhill edge.
+    prims.push(footing(5.6, 3.0, [0.0, 0.0], 3.5));
 
     assemble(prims)
 }

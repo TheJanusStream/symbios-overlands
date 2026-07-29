@@ -11,7 +11,7 @@
 //! under the stone footing.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cuboid_tapered_xz, glow, id_quat, prim, quat_x, solid,
+    assemble, cuboid_tapered, cuboid_tapered_xz, footing, glow, id_quat, prim, quat_x, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -235,6 +235,10 @@ fn build_tree() -> Generator {
             ));
         }
     }
+
+    // Buried footing under the dressed stone course, carrying the hall down
+    // to grade where the steading ground falls away.
+    prims.push(footing(l + 1.5, w + 1.5, [0.0, 0.0], 16.0));
 
     let mut root = assemble(prims);
     // Signature life: woodsmoke from the louver, the hall's low wind moan.

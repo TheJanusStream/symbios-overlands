@@ -8,7 +8,7 @@
 //! The toppled slab lies tipped with a [`quat_x`].
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_z, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing_disc, id_quat, prim, quat_x, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -92,6 +92,10 @@ fn build_tree() -> Generator {
             quat_x(tilt),
         ));
     }
+
+    // Buried footing under the fractured base disc, so a terrain-snapped
+    // monolith shows plinth instead of daylight under its downhill edge.
+    prims.push(footing_disc(2.4, 8.0));
 
     assemble(prims)
 }

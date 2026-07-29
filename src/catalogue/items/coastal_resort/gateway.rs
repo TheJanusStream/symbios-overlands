@@ -15,7 +15,7 @@
 //! awning face the approach.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, solid, sphere,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -72,6 +72,10 @@ fn build_tree() -> Generator {
         [0.0, 0.15, 0.0],
         id_quat(),
     )];
+    // Buried footing under the promenade plinth, sized to the drop this
+    // footprint spans (#1009), so a terrain-snapped gate shows footing rather
+    // than daylight under its downhill edge.
+    prims.push(footing(5.6, 3.0, [0.0, 0.0], 3.5));
 
     // A rippled sand runner bedded into the plinth across the threshold, so
     // the crossing reads as a beach entrance rather than bare paving.

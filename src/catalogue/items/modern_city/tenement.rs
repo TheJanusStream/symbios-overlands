@@ -37,8 +37,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    self, cuboid_tapered, cylinder_tapered, glow, id_quat, lit_interior, nest, plane, prim, quat_z,
-    solid, torus, window_card, with_face,
+    self, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, lit_interior, nest, plane,
+    prim, quat_z, solid, torus, window_card, with_face,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
@@ -255,7 +255,17 @@ fn build_tree() -> Generator {
         [0.0, BASE_H * 0.5, 0.0],
         id_quat(),
     );
-    nest(plinth, vec![shell(), stoop(), fire_escape()])
+    nest(
+        plinth,
+        vec![
+            shell(),
+            stoop(),
+            fire_escape(),
+            // Buried footing under the pavement plinth. `nest` rebases it
+            // out of the ground frame into the plinth's local one.
+            footing(W + 0.6, D + 0.6, [0.0, 0.0], 9.0),
+        ],
+    )
 }
 
 // --- The shell. ------------------------------------------------------------
@@ -1081,8 +1091,8 @@ mod tests {
         let root = Tenement.build("");
         assert_eq!(
             root.children.len(),
-            3,
-            "plinth carries shell, stoop, escape"
+            4,
+            "plinth carries shell, stoop, escape, and its buried footing"
         );
         let shell = &root.children[0];
         let cornice = shell

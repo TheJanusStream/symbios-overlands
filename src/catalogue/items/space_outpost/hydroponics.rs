@@ -9,8 +9,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, solid, torus,
-    with_cut,
+    assemble, cone, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, solid,
+    torus, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -72,6 +72,8 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried plinth so a slope-snapped base shows stone, not daylight.
+    prims.push(footing(6.0, 4.0, [0.0, 0.0], 6.0));
 
     // Open glazed barrel vault (round side up) arching over the crops, laid
     // along Z. The flat cut side sits at the base so the interior shows.

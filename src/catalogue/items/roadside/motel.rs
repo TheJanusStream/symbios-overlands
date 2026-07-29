@@ -26,8 +26,8 @@
 //! the pylon on a poured footing derived from the lot's own extent.
 
 use crate::catalogue::items::util::{
-    self, cuboid_tapered, cylinder_tapered, glow, id_quat, lit_interior, nest, plane, prim, quat_x,
-    quat_y, solid,
+    self, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, lit_interior, nest, plane,
+    prim, quat_x, quat_y, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
@@ -386,6 +386,15 @@ fn block() -> Generator {
     );
 
     let mut parts = Vec::new();
+    // Buried footing under the base course, sized to it rather than to the
+    // lot: the lot's own paving is thinner than a plinth's reveal, so a
+    // lot-wide footing would surface through the asphalt.
+    parts.push(footing(
+        BLOCK_W + 0.12,
+        BLOCK_D + 0.12,
+        [0.0, (FRONT + BACK) * 0.5],
+        10.0,
+    ));
     // Back and flank walls — only the road elevation is cut.
     parts.push(wall(
         [BLOCK_W, WALL_H, WALL_T],

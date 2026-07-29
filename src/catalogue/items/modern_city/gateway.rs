@@ -8,7 +8,7 @@
 //! it as a gate you pass through.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -182,6 +182,9 @@ fn build_tree() -> Generator {
         [0.0, 2.4, 0.0],
         id_quat(),
     ));
+
+    // Buried footing under the forecourt deck.
+    prims.push(footing(5.4, 3.0, [0.0, 0.0], 3.5));
 
     assemble(prims)
 }

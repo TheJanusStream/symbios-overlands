@@ -16,8 +16,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, quat_z, solid, sphere,
-    torus, tube,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, quat_z,
+    solid, sphere, torus, tube,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -77,6 +77,9 @@ fn build_tree() -> Generator {
         [0.0, 0.15, 0.0],
         id_quat(),
     )];
+    // Buried footing under the threshold plate, so a terrain-snapped gate on a
+    // slope shows plinth rather than daylight under its downhill edge.
+    prims.push(footing(5.2, 3.0, [0.0, 0.0], 3.5));
     // Brass threshold inlay marking the walk path.
     prims.push(prim(
         solid(cuboid_tapered([2.6, 0.06, 1.3], 0.0, brass(BRASS))),

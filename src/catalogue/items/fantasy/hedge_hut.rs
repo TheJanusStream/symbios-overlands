@@ -13,7 +13,7 @@
 
 use crate::catalogue::items::nordic::gable_roof;
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, glow, id_quat, plane, prim, quat_x, solid, tube, window_card,
+    assemble, cuboid_tapered, footing, glow, id_quat, plane, prim, quat_x, solid, tube, window_card,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -220,6 +220,9 @@ fn build_tree() -> Generator {
             quat_x(std::f32::consts::PI),
         ));
     }
+
+    // Buried footing under the earthen floor.
+    prims.push(footing(4.5, 3.8, [0.0, 0.0], 6.0));
 
     assemble(prims)
 }

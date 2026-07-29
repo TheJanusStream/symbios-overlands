@@ -14,7 +14,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, glow, id_quat, plane, prim, quat_x, solid, window_card,
+    assemble, cuboid_tapered, footing, glow, id_quat, plane, prim, quat_x, solid, window_card,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Generator, SovereignMaterialSettings};
@@ -351,6 +351,9 @@ fn build_tree() -> Generator {
         [1.8, base_h + body_h + 1.4, 1.6],
         id_quat(),
     ));
+
+    // Buried footing under the concrete base.
+    prims.push(footing(w + 1.0, d + 1.0, [0.0, 0.0], 8.0));
 
     let mut root = assemble(prims);
     // Signature life: the rooftop unit steaming with a steady hum.

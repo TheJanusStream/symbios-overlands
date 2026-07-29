@@ -4,7 +4,7 @@
 //! and out of reach beside the [`minka`](super::minka).
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -117,6 +117,9 @@ fn build_tree() -> Generator {
         [0.0, box_y - 0.7, -1.7],
         quat_x(-0.4),
     ));
+
+    // Buried footing under the stone pad.
+    prims.push(footing(3.4, 2.8, [0.0, 0.0], 4.0));
 
     assemble(prims)
 }

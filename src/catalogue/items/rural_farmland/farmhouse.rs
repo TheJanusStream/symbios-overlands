@@ -28,8 +28,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    self, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, glow, id_quat, lit_interior, nest,
-    plane, prim, quat_x, solid, window_card, with_face,
+    self, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, glow, id_quat,
+    lit_interior, nest, plane, prim, quat_x, solid, window_card, with_face,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
@@ -249,7 +249,7 @@ impl CatalogueEntry for Farmhouse {
 /// Written outermost-last, because [`nest`] rebases a subtree that already
 /// carries its own world translation.
 fn build_tree() -> Generator {
-    let footing = prim(
+    let base = prim(
         solid(cuboid_tapered(
             [W + 0.6, FOOT_H, D + 0.6],
             0.0,
@@ -258,7 +258,12 @@ fn build_tree() -> Generator {
         [0.0, FOOT_H * 0.5, 0.0],
         id_quat(),
     );
-    let mut root = nest(footing, vec![shell(), porch()]);
+    // Buried plinth under the fieldstone footing, so a house snapped to the
+    // high point of a slope keeps its ground under the downhill corner.
+    let mut root = nest(
+        base,
+        vec![shell(), porch(), footing(W + 0.6, D + 0.6, [0.0, 0.0], 9.0)],
+    );
     // Signature life: hearth smoke off the gable-end chimney.
     root.children.push(fx::chimney_smoke(
         [chimney_x(), chimney_top() + 0.5, -0.6],
@@ -967,8 +972,8 @@ mod tests {
         let root = Farmhouse.build("");
         assert_eq!(
             root.children.len(),
-            3,
-            "footing carries shell, porch, smoke"
+            4,
+            "footing carries shell, porch, buried plinth, smoke"
         );
         let shell = &root.children[0];
         assert!(

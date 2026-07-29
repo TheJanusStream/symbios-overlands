@@ -11,7 +11,7 @@
 use std::f32::consts::TAU;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, glow, id_quat, prim, quat_y, solid, sphere,
+    assemble, cuboid_tapered, footing_disc, glow, id_quat, prim, quat_y, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -118,6 +118,11 @@ fn build_tree() -> Generator {
             quat_y(-a),
         ));
     }
+
+    // Buried footing under the trunk's bottom bulb, so a terrain-snapped spire
+    // shows plinth instead of daylight under its downhill edge. Sized to where
+    // that bulb crosses the ground plane, not to its equator.
+    prims.push(footing_disc(0.9, 5.0));
 
     let mut root = assemble(prims);
     // Signature life: the spire's eerie whine.

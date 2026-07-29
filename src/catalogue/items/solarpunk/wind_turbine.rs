@@ -8,7 +8,8 @@
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_z, solid, sphere,
+    assemble, cone, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, quat_z,
+    solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -66,6 +67,8 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried plinth so a slope-snapped base shows concrete, not daylight.
+    prims.push(footing(2.0, 2.0, [0.0, 0.0], 6.0));
 
     // White tapering tower.
     prims.push(prim(

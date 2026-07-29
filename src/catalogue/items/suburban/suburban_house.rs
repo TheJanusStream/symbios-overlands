@@ -37,8 +37,8 @@ use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::solarpunk::{crop_tufts, foliage};
 use crate::catalogue::items::util::{
-    self, cuboid_tapered, cuboid_tapered_xz, glow, id_quat, lit_interior, nest, plane, prim,
-    quat_x, solid, window_card,
+    self, cuboid_tapered, cuboid_tapered_xz, footing, glow, id_quat, lit_interior, nest, plane,
+    prim, quat_x, solid, window_card,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
@@ -264,6 +264,9 @@ fn build_tree() -> Generator {
     yard.push(shell());
     yard.push(garage_wing());
     yard.push(porch());
+    // Buried footing under the plinth, so a terrain-snapped house on a slope
+    // shows plinth rather than daylight under its downhill edge.
+    yard.push(footing(W + 0.5, D + 0.5, [0.0, 0.0], 7.0));
 
     nest(plinth, yard)
 }
@@ -1057,8 +1060,8 @@ mod tests {
             1 + g.children.iter().map(size).sum::<usize>()
         }
         // The plinth's own children: four hedge clumps, the shell, the garage
-        // wing and the porch.
-        assert_eq!(root.children.len(), 7, "plinth children");
+        // wing, the porch and the buried footing.
+        assert_eq!(root.children.len(), 8, "plinth children");
 
         let shell = &root.children[4];
         let garage = &root.children[5];

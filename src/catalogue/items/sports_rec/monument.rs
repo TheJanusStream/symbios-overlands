@@ -8,7 +8,9 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
-use crate::catalogue::items::util::{cuboid_tapered, glow, id_quat, nest, pfp_panel, prim, solid};
+use crate::catalogue::items::util::{
+    cuboid_tapered, footing, glow, id_quat, nest, pfp_panel, prim, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -58,7 +60,9 @@ fn build_tree(did: &str) -> Generator {
         id_quat(),
     );
 
-    let mut parts = Vec::new();
+    // Buried plinth under the pad, so a slope-snapped board shows stone
+    // instead of daylight under its downhill edge.
+    let mut parts = vec![footing(4.0, 1.5, [0.0, 0.0], 2.8)];
     for sx in [-1.0_f32, 1.0] {
         parts.push(leg(sx * 1.5));
     }

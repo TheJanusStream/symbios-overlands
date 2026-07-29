@@ -12,7 +12,7 @@
 use std::f32::consts::{FRAC_PI_2, PI};
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, glow, id_quat, prim, quat_x, solid, torus,
+    assemble, cuboid_tapered, footing, glow, id_quat, prim, quat_x, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -189,6 +189,9 @@ fn build_tree() -> Generator {
         [0.0, 2.2, 0.0],
         id_quat(),
     ));
+
+    // Buried footing under the flagstone threshold slab.
+    prims.push(footing(5.6, 2.4, [0.0, 0.0], 3.5));
 
     assemble(prims)
 }

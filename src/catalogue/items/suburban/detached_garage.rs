@@ -22,8 +22,8 @@ use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::solarpunk::{crop_tufts, foliage};
 use crate::catalogue::items::util::{
-    self, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, glow, id_quat, lit_interior, nest,
-    plane, prim, quat_x, quat_z, solid, window_card,
+    self, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, glow, id_quat,
+    lit_interior, nest, plane, prim, quat_x, quat_z, solid, window_card,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
@@ -174,7 +174,9 @@ fn build_tree() -> Generator {
         id_quat(),
     );
 
-    let mut parts = vec![apron, shell()];
+    // Buried footing under the slab, so a terrain-snapped garage on a slope
+    // shows plinth rather than daylight under its downhill edge.
+    let mut parts = vec![apron, shell(), footing(W + 0.6, D + 0.6, [0.0, 0.0], 5.0)];
     parts.extend(crop_tufts(
         [-W * 0.5 + 0.6, 0.0, D * 0.5 + 0.1],
         [1.2, 0.9],
@@ -743,8 +745,9 @@ mod tests {
             1 + g.children.iter().map(size).sum::<usize>()
         }
         let root = DetachedGarage.build("");
-        // Slab's own children: the apron, the shell, and four shrub clumps.
-        assert_eq!(root.children.len(), 6, "slab children");
+        // Slab's own children: the apron, the shell, the buried footing, and
+        // four shrub clumps.
+        assert_eq!(root.children.len(), 7, "slab children");
         let shell = &root.children[1];
         assert!(
             size(shell) > 30,

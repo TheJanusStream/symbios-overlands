@@ -3,7 +3,7 @@
 //! edge of the municipal rec ground.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_y, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, quat_y, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -61,6 +61,8 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried plinth so a slope-snapped pad shows stone, not daylight.
+    prims.push(footing(7.0, 3.0, [0.0, 0.0], 3.5));
 
     // Central chain-link panel.
     prims.push(prim(

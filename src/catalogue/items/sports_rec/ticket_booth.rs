@@ -6,7 +6,7 @@
 //! [`assemble`], which reparents every piece under the pad.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -64,6 +64,8 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried plinth so a slope-snapped pad shows stone, not daylight.
+    prims.push(footing(5.0, 3.0, [0.0, 0.0], 3.5));
 
     // Booth box.
     prims.push(prim(

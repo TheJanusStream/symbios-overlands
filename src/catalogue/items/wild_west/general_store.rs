@@ -6,7 +6,7 @@
 //! [`assemble`], which reparents every piece under the slab.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -64,6 +64,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried footing under the slab, so a terrain-snapped store on a slope
+    // shows plinth rather than daylight under its downhill edge.
+    prims.push(footing(7.0, 7.0, [0.0, 0.0], 6.0));
 
     // Clapboard body.
     prims.push(prim(

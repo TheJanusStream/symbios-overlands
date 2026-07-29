@@ -3,7 +3,9 @@
 //! few hay bales stored under it, pitched beside the
 //! [`homestead_shack`](super::homestead_shack).
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, quat_x, solid};
+use crate::catalogue::items::util::{
+    assemble, cuboid_tapered, footing, id_quat, prim, quat_x, solid,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -61,6 +63,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    prims.push(footing(w + 0.5, d + 0.5, [0.0, 0.0], 5.0));
 
     // Back (tall) and front (short) pole rows.
     for sx in [-1.0_f32, 0.0, 1.0] {

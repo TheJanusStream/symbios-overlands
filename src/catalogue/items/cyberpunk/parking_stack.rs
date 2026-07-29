@@ -3,9 +3,7 @@
 //! around a stair/lift core and dotted with parked cars. The low, wide
 //! counterpoint to the megatower's height.
 
-use crate::catalogue::items::util::{
-    cuboid_tapered, foundation_block, glow, helix, id_quat, prim, solid,
-};
+use crate::catalogue::items::util::{cuboid_tapered, footing, glow, helix, id_quat, prim, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -81,7 +79,7 @@ fn build_tree() -> Generator {
     );
     let rel = |ground_y: f32| ground_y - slab_h * 0.5;
 
-    let mut base = foundation_block(w, depth, [0.0, 0.0], 2.5);
+    let mut base = footing(w, depth, [0.0, 0.0], 8.0);
     base.transform.translation.0[1] -= slab_h * 0.5;
     root.children.push(base);
 

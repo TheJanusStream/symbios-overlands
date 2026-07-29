@@ -16,9 +16,7 @@ use crate::pds::{
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier, ThemeArchetype};
 
-use crate::catalogue::items::util::{
-    cuboid_tapered, foundation_block, glow, id_quat, prim, quat_x, solid,
-};
+use crate::catalogue::items::util::{cuboid_tapered, footing, glow, id_quat, prim, quat_x, solid};
 
 pub struct Ziggurat;
 
@@ -94,7 +92,7 @@ fn build_tree() -> Generator {
 
     // Buried foundation, re-anchored from the entry ground frame into
     // the base-tier frame.
-    let mut base = foundation_block(tiers[0].0 + 1.0, tiers[0].0 + 1.0, [0.0, 0.0], 3.0);
+    let mut base = footing(tiers[0].0 + 1.0, tiers[0].0 + 1.0, [0.0, 0.0], 18.0);
     base.transform.translation.0[1] -= base_h * 0.5;
     root.children.push(base);
 

@@ -26,8 +26,8 @@
 use std::f32::consts::{FRAC_PI_2, PI};
 
 use crate::catalogue::items::util::{
-    self, cuboid_tapered, cylinder_tapered, foundation_block, glow, id_quat, lit_interior, nest,
-    plane, prim, quat_x, quat_y, solid, wedge,
+    self, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, lit_interior, nest, plane,
+    prim, quat_x, quat_y, solid, wedge,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
@@ -262,9 +262,9 @@ fn build_tree() -> Generator {
         id_quat(),
     );
 
-    let mut base = foundation_block(LOT_W, LOT_D, [0.0, LOT_CZ], 2.0);
-    base.transform.translation.0[1] -= center[1];
-    base.transform.translation.0[2] -= center[2];
+    // Authored in the world frame like every other part here — `nest` rebases
+    // it into the lot's local frame below.
+    let base = footing(LOT_W, LOT_D, [0.0, LOT_CZ], 7.5);
 
     let mut parts = vec![base, block()];
     parts.extend(forecourt());

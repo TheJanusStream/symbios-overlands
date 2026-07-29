@@ -5,7 +5,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, torus, with_cut,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, solid, torus,
+    with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp, Fp3, Generator, SovereignMaterialSettings};
@@ -155,6 +156,10 @@ fn build_tree() -> Generator {
         [0.0, 0.34, pool_z],
         id_quat(),
     ));
+
+    // Buried footing under the sandstone base course, so a terrain-snapped
+    // bath shows plinth instead of daylight under its downhill edge.
+    prims.push(footing(l + 0.8, w + 0.8, [0.0, 0.0], 6.5));
 
     assemble(prims)
 }

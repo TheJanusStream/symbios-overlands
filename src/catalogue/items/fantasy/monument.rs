@@ -8,7 +8,7 @@
 //! rules this family shares.
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, glow, id_quat, nest, pfp_panel, prim, quat_z, solid,
+    cuboid_tapered, footing, glow, id_quat, nest, pfp_panel, prim, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -72,6 +72,8 @@ fn build_tree(did: &str) -> Generator {
         ));
     }
     parts.push(nest(lintel(), pane(did)));
+    // Buried footing under the dais.
+    parts.push(footing(3.8, 2.2, [0.0, 0.0], 2.8));
     nest(dais, parts)
 }
 

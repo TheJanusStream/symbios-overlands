@@ -6,8 +6,8 @@
 //! this instead of the megastructure.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_mul, quat_x, quat_y,
-    solid, sphere,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_mul, quat_x,
+    quat_y, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -204,5 +204,8 @@ fn build_tree() -> Generator {
         },
         // A coolant/cooking vent breathing steam at the base.
         fx::steam_vent([1.6, 0.4, 1.4], 0x5CA0_57A1),
+        // Buried footing under the ground container, so a slope shows plinth
+        // rather than daylight under the stack's downhill edge.
+        footing(4.2, 2.5, [0.0, 0.0], 9.0),
     ])
 }

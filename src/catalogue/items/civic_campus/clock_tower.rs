@@ -9,7 +9,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, glow, id_quat, prim, quat_x, quat_z, solid, sphere, torus,
+    assemble, cuboid_tapered, footing, glow, id_quat, prim, quat_x, quat_z, solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp4, Generator};
@@ -66,6 +66,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried footing under the stone base, sized to the drop this footprint
+    // spans (#1009) — a campanile on a slope shows footing, not daylight.
+    prims.push(footing(3.6, 3.6, [0.0, 0.0], 5.0));
 
     // Brick shaft.
     prims.push(prim(

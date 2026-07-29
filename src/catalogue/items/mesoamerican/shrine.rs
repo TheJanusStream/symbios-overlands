@@ -3,7 +3,7 @@
 //! roof, copal incense smoking from the threshold. A neighbourhood place of
 //! offering beneath the great pyramid.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, solid};
+use crate::catalogue::items::util::{assemble, cuboid_tapered, footing, id_quat, prim, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -142,6 +142,9 @@ fn build_tree() -> Generator {
         [0.0, base + 0.25, -2.1],
         id_quat(),
     ));
+
+    // Buried footing under the lower platform step.
+    prims.push(footing(6.0, 6.0, [0.0, 0.0], 6.0));
 
     let mut root = assemble(prims);
     // Signature life: copal incense rising from the offering altar.

@@ -17,7 +17,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, glow, id_quat, prim, quat_x, solid, sphere, torus, with_cut,
+    assemble, cuboid_tapered, footing, glow, id_quat, prim, quat_x, solid, sphere, torus, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -67,6 +67,8 @@ fn build_tree() -> Generator {
         [0.0, 0.15, 0.0],
         id_quat(),
     )];
+    // Buried plinth so a slope-snapped gantry shows stone, not daylight.
+    prims.push(footing(6.0, 3.0, [0.0, 0.0], 3.5));
 
     // Twin posts flanking a ~2.9 m drive-through: board-formed concrete
     // footing + a lightly tapered structural-steel column on top.

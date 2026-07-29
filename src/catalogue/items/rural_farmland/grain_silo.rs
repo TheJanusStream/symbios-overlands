@@ -3,7 +3,7 @@
 //! chute. The vertical landmark of the farmyard.
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, id_quat, prim, solid, torus,
+    assemble, cone, cuboid_tapered, cylinder_tapered, footing_disc, id_quat, prim, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -69,6 +69,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    prims.push(footing_disc(r + 0.4, 5.0));
 
     // Conical roof and vent cap.
     let roof_y = base_h + body_h;

@@ -10,7 +10,7 @@
 //! under the pitch.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, solid, torus,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -62,6 +62,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried plinth under the pitch, so a slope-snapped ground shows stone
+    // instead of daylight under its downhill edge.
+    prims.push(footing(20.0, 14.0, [0.0, 0.0], 22.0));
     // Halfway line and centre circle painted on the turf.
     prims.push(prim(
         cuboid_tapered([0.3, 0.06, 14.0], 0.0, painted(LINE_WHITE)),

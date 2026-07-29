@@ -33,8 +33,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    self, cone, cuboid_tapered, cuboid_tapered_xz, glow, id_quat, lit_interior, nest, plane, prim,
-    quat_mul, quat_x, quat_y, quat_z, solid, window_card,
+    self, cone, cuboid_tapered, cuboid_tapered_xz, footing, glow, id_quat, lit_interior, nest,
+    plane, prim, quat_mul, quat_x, quat_y, quat_z, solid, window_card,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
@@ -270,7 +270,7 @@ impl CatalogueEntry for Barn {
 /// Written outermost-last, because [`nest`] rebases a subtree that already
 /// carries its own world translation.
 fn build_tree() -> Generator {
-    let footing = prim(
+    let base = prim(
         solid(cuboid_tapered(
             [W + 0.7, FOOT_H, D + 0.7],
             0.0,
@@ -279,7 +279,12 @@ fn build_tree() -> Generator {
         [0.0, FOOT_H * 0.5, 0.0],
         id_quat(),
     );
-    let mut root = nest(footing, vec![shell()]);
+    // Buried footing under the fieldstone base, so a barn snapped to the high
+    // point of a field keeps its ground under the downhill corner.
+    let mut root = nest(
+        base,
+        vec![shell(), footing(W + 0.7, D + 0.7, [0.0, 0.0], 14.0)],
+    );
     // Signature life: chaff drifting out of the open bay.
     root.children.push(fx::chaff_drift(
         [0.0, WALL_TOP - 1.4, FRONT - 1.6],

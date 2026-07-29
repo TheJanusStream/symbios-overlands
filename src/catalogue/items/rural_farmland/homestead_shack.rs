@@ -6,7 +6,7 @@
 
 use crate::catalogue::items::nordic::gable_roof;
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -73,6 +73,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    prims.push(footing(l + 0.5, w + 0.5, [0.0, 0.0], 9.0));
 
     // Hero face toward the render front (−Z); boards stand proud toward −Z.
     let f = -front;

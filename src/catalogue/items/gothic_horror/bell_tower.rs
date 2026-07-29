@@ -9,8 +9,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, sphere, torus,
-    with_cut,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, solid, sphere,
+    torus, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -68,6 +68,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    prims.push(footing(3.8, 3.8, [0.0, 0.0], 5.0));
     // Plinth step.
     prims.push(prim(
         solid(cuboid_tapered([3.2, 0.4, 3.2], 0.0, st())),

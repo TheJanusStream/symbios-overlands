@@ -8,7 +8,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, torus, with_cut,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, solid, torus,
+    with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -93,6 +94,9 @@ fn build_tree() -> Generator {
         [0.0, 0.25, 0.0],
         id_quat(),
     ));
+    // Buried footing under that course, so a terrain-snapped jail on a slope
+    // shows plinth rather than daylight under its downhill wall.
+    prims.push(footing(body_w + 0.3, body_d + 0.3, [0.0, 0.0], 5.0));
     // Recessed tin roof ringed by a heavy stone parapet cap.
     prims.push(prim(
         solid(cuboid_tapered(

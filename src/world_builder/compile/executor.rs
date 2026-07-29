@@ -563,7 +563,27 @@ fn start_unit(
             } else {
                 0.0
             };
-            anchor_world_tf.translation.y = hm.get_height_at(hm_x, hm_z) + authored_y;
+            // A seeded structure resolves against its whole footprint,
+            // not the one point under its centre (#1008) — otherwise a
+            // hillside tilts the building around that point and buries
+            // its uphill wall. Everything else keeps the plain sample:
+            // scatter instances re-sample per instance (they are point
+            // objects), and an editor placement was positioned by hand
+            // against exactly this height.
+            let ground = match avoid_water {
+                Some(clearance) if matches!(placement, Placement::Absolute { .. }) => {
+                    super::pad::footprint_height(
+                        hm,
+                        extent,
+                        half,
+                        anchor_world_tf.translation.x,
+                        anchor_world_tf.translation.z,
+                        clearance,
+                    )
+                }
+                _ => hm.get_height_at(hm_x, hm_z),
+            };
+            anchor_world_tf.translation.y = ground + authored_y;
         } else {
             anchor_world_tf.translation.y = 0.0;
         }

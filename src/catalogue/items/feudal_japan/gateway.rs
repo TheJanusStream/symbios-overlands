@@ -11,7 +11,7 @@
 //! zone so it reads as a sacred threshold you pass through.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_z, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -78,6 +78,8 @@ fn build_tree() -> Generator {
         [0.0, 0.2, 0.0],
         id_quat(),
     )];
+    // Buried plinth so a slope-snapped gate shows stone, not daylight.
+    prims.push(footing(2.0 * span + 1.4, 1.2, [0.0, 0.0], 3.5));
 
     // Two lacquered pillars on stone footings, tapering up.
     for sx in [-1.0_f32, 1.0] {

@@ -692,3 +692,191 @@ pub(super) fn print_gateway_fit(filter: &str) {
     }
     println!("\n{clean}/{checked} gateways fit");
 }
+
+/// Print the foundation-depth audit (#1009): every settlement-placeable
+/// entry against the plinth depth its footprint demands, worst shortfall
+/// first. `pass` limits the listing to entries that already satisfy it.
+pub(super) fn print_foundation_audit(filter: &str) {
+    use crate::catalogue::items::foundation::{audit, required_depth};
+
+    let filter = filter.trim();
+    let mut rows = audit();
+    rows.sort_by(|a, b| {
+        b.shortfall()
+            .total_cmp(&a.shortfall())
+            .then(a.slug.cmp(b.slug))
+    });
+
+    let show_pass = filter == "all" || filter == "pass";
+    let failing = rows.iter().filter(|r| !r.passes()).count();
+    println!(
+        "{} of {} settlement structures are too shallow for their footprint\n",
+        failing,
+        rows.len()
+    );
+    println!(
+        "{:<34} {:<10} {:>6} {:>8} {:>8} {:>8}",
+        "slug", "role", "clear", "needs", "has", "short"
+    );
+    for r in &rows {
+        if !show_pass && r.passes() {
+            continue;
+        }
+        println!(
+            "{:<34} {:<10} {:>6.1} {:>8.2} {:>8.2} {:>8.2}",
+            r.slug,
+            format!("{:?}", r.role),
+            r.clearance,
+            r.required,
+            r.actual,
+            r.shortfall()
+        );
+    }
+    // The rule itself, so a reader can sanity-check a row by hand.
+    println!(
+        "\nrequired depth = clamp({:.2} x clearance - 0.35 + 0.4, 1.0, 6.0); \
+         e.g. clearance 8 -> {:.2} m",
+        crate::catalogue::items::foundation::FOOTPRINT_DROP_RATIO,
+        required_depth(8.0)
+    );
+}
+
+/// Measure the drop real seeded settlements actually span (#1009): for
+/// each of `seeds` rooms, rebuild the terrain and, for every seeded
+/// structure placement, report `max - min` terrain height across its
+/// footprint disc. That drop is exactly what a plinth has to cover, so
+/// this is what the depth rule should be sized from rather than a
+/// worst-case slope assumption.
+pub(super) fn print_settlement_drop(seeds: u64) {
+    use crate::pds::{Placement, RoomRecord};
+
+    let mut all: Vec<(f32, f32)> = Vec::new(); // (clearance, drop)
+    let mut covered = 0usize;
+    let mut short: Vec<(f32, f32)> = Vec::new(); // (drop, daylight gap)
+    for seed in 0..seeds.max(1) {
+        let did = format!("did:plc:drop{seed}");
+        let record = RoomRecord::default_for_seed(seed, &did);
+        let hm = crate::terrain::rebuild_heightmap_for_record(&record);
+        let extent = (hm.width() - 1) as f32 * hm.scale();
+        let half = extent * 0.5;
+        let sample = |x: f32, z: f32| {
+            hm.get_height_at((x + half).clamp(0.0, extent), (z + half).clamp(0.0, extent))
+        };
+
+        let mut room = Vec::new();
+        for p in &record.placements {
+            let Placement::Absolute {
+                transform,
+                avoid_water,
+                avoid_water_clearance,
+                snap_to_terrain,
+                ..
+            } = p
+            else {
+                continue;
+            };
+            // The seeded-structure marker, same gate the compiler uses.
+            if !*avoid_water || !*snap_to_terrain {
+                continue;
+            }
+            let r = avoid_water_clearance.0 * transform.scale.0[0].max(0.0);
+            if r <= 0.0 {
+                continue;
+            }
+            let (x, z) = (transform.translation.0[0], transform.translation.0[2]);
+            let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+            for i in 0..48 {
+                for j in 0..8 {
+                    let a = i as f32 * std::f32::consts::TAU / 48.0;
+                    let rr = r * (j as f32 / 7.0);
+                    let h = sample(x + a.sin() * rr, z + a.cos() * rr);
+                    lo = lo.min(h);
+                    hi = hi.max(h);
+                }
+            }
+            // End-to-end check of #1008 + #1009 together. The building's
+            // origin lands at the footprint's high point less the 0.35 m
+            // placement sink, and its plinth reaches `depth` below that, so
+            // daylight shows exactly when the plinth stops above the lowest
+            // ground under the footprint.
+            let scale = transform.scale.0[0].max(1e-3);
+            let depth_world =
+                crate::catalogue::items::foundation::required_depth(r / scale) * scale;
+            let plinth_bottom = hi - 0.35 - depth_world;
+            if plinth_bottom <= lo {
+                covered += 1;
+            } else {
+                short.push((hi - lo, plinth_bottom - lo));
+            }
+            room.push((r, hi - lo));
+        }
+        println!("seed {seed}: {} seeded structures", room.len());
+        all.extend(room);
+    }
+
+    if all.is_empty() {
+        println!("no seeded structures found");
+        return;
+    }
+    println!(
+        "\nPLINTH COVERAGE: {covered}/{} footprints show no daylight ({:.1} %)",
+        all.len(),
+        100.0 * covered as f32 / all.len() as f32
+    );
+    if !short.is_empty() {
+        short.sort_by(|a, b| b.1.total_cmp(&a.1));
+        println!("  worst uncovered (drop -> daylight gap):");
+        for (d, g) in short.iter().take(8) {
+            println!("    drop {d:6.2} m -> {g:5.2} m of daylight");
+        }
+    }
+
+    let mut drops: Vec<f32> = all.iter().map(|(_, d)| *d).collect();
+    drops.sort_by(f32::total_cmp);
+    let pct = |p: f32| drops[((drops.len() - 1) as f32 * p) as usize];
+    println!(
+        "\n{} footprints | drop median {:.2} p75 {:.2} p90 {:.2} p99 {:.2} max {:.2} m",
+        drops.len(),
+        pct(0.5),
+        pct(0.75),
+        pct(0.9),
+        pct(0.99),
+        drops[drops.len() - 1]
+    );
+
+    // Drop against footprint radius — the rule is depth = k x clearance,
+    // so print the ratio the data actually supports.
+    let mut ratios: Vec<f32> = all
+        .iter()
+        .filter(|(r, _)| *r > 0.0)
+        .map(|(r, d)| d / r)
+        .collect();
+    ratios.sort_by(f32::total_cmp);
+    let rp = |p: f32| ratios[((ratios.len() - 1) as f32 * p) as usize];
+    println!(
+        "drop/radius   median {:.3} p75 {:.3} p90 {:.3} p99 {:.3} max {:.3}",
+        rp(0.5),
+        rp(0.75),
+        rp(0.9),
+        rp(0.99),
+        ratios[ratios.len() - 1]
+    );
+    for (lo, hi) in [(0.0, 6.0), (6.0, 9.0), (9.0, 14.0), (14.0, 100.0)] {
+        let mut b: Vec<f32> = all
+            .iter()
+            .filter(|(r, _)| *r >= lo && *r < hi)
+            .map(|(_, d)| *d)
+            .collect();
+        if b.is_empty() {
+            continue;
+        }
+        b.sort_by(f32::total_cmp);
+        println!(
+            "  clearance {lo:>5.1}..{hi:<5.1} n={:<4} drop median {:.2} p90 {:.2} max {:.2}",
+            b.len(),
+            b[b.len() / 2],
+            b[((b.len() - 1) as f32 * 0.9) as usize],
+            b[b.len() - 1]
+        );
+    }
+}

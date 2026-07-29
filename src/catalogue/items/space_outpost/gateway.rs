@@ -10,8 +10,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, quat_z, solid, sphere,
-    torus, tube,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, quat_z,
+    solid, sphere, torus, tube,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -65,6 +65,8 @@ fn build_tree() -> Generator {
         [0.0, pad_top * 0.5, 0.0],
         id_quat(),
     )];
+    // Buried plinth so a slope-snapped gate shows stone, not daylight.
+    prims.push(footing(4.8, 2.6, [0.0, 0.0], 3.5));
 
     // Hazard floor marking across the threshold — the airlock's caution band.
     prims.push(prim(

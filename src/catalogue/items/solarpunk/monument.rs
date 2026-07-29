@@ -11,7 +11,7 @@
 //! rules this family shares.
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, quat_x, solid,
+    cuboid_tapered, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel, prim, quat_x, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -65,7 +65,9 @@ fn build_tree(did: &str) -> Generator {
         id_quat(),
     );
 
-    let mut parts = Vec::new();
+    // Buried plinth under the kerb, so a slope-snapped monument shows stone
+    // instead of daylight under its downhill edge.
+    let mut parts = vec![footing(3.6, 1.6, [0.0, 0.0], 2.7)];
     for sx in [-1.0_f32, 1.0] {
         parts.push(post(sx * 1.38));
     }

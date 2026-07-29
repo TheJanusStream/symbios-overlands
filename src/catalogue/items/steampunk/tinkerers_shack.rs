@@ -11,7 +11,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, glow, id_quat, prim, quat_x, quat_z, solid, torus, tube,
+    assemble, cuboid_tapered, footing, glow, id_quat, prim, quat_x, quat_z, solid, torus, tube,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -72,6 +72,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried footing under the walls, so a terrain-snapped shack on a slope
+    // shows plinth rather than daylight under its downhill wall.
+    prims.push(footing(5.0, 4.0, [0.0, 0.0], 7.0));
 
     // Patched plank panel + door on the −Z front.
     prims.push(prim(

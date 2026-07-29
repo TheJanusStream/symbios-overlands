@@ -9,8 +9,8 @@ use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::nordic::gable_roof;
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, id_quat, prim, quat_x,
-    quat_y, solid, torus, with_cut,
+    assemble, cone, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, id_quat, prim,
+    quat_x, quat_y, solid, torus, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Generator, SovereignMaterialSettings};
@@ -89,6 +89,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    prims.push(footing(l + 0.6, w + 0.6, [0.0, 0.0], 7.0));
 
     // Open arcade: 4×2 grid of stone piers carrying round arches.
     for &px in &pier_xs {

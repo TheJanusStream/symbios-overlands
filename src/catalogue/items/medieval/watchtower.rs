@@ -48,7 +48,7 @@ impl CatalogueEntry for Watchtower {
     fn build(&self, _local_did: &str) -> Generator {
         // Centred foundation root + corner-origin 12×12 grammar child
         // offset by -footprint/2 (see the villa for the rationale).
-        let mut root = crate::catalogue::items::util::foundation_block(13.0, 13.0, [0.0, 0.0], 3.0);
+        let mut root = crate::catalogue::items::util::footing(13.0, 13.0, [0.0, 0.0], 9.5);
         let mut tower = Generator::from_kind(build_kind());
         tower.transform.translation = crate::pds::Fp3([-6.0, 0.0, -6.0]);
         root.children.push(tower);

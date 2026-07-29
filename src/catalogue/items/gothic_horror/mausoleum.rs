@@ -9,8 +9,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, foundation_block, id_quat, prim,
-    quat_x, solid, torus,
+    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, id_quat, prim, quat_x,
+    solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -68,7 +68,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
-    prims.push(foundation_block(6.0, 5.0, [0.0, 0.0], 1.2));
+    prims.push(footing(6.0, 5.0, [0.0, 0.0], 5.0));
 
     // Tomb body.
     prims.push(prim(

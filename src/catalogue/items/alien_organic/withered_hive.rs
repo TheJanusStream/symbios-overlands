@@ -13,10 +13,11 @@
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use crate::catalogue::items::util::{
-    assemble, cone, id_quat, prim, prim_scaled, quat_x, solid, sphere, torus, with_cut,
+    assemble, cone, footing_disc, id_quat, prim, prim_scaled, quat_x, solid, sphere, torus,
+    with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
-use crate::pds::Generator;
+use crate::pds::{Fp3, Generator};
 use crate::seeded_defaults::ThemeArchetype;
 
 use super::{CHITIN_DARK, CHITIN_GREEN, NECROTIC, chitin, flesh, tendril};
@@ -59,11 +60,13 @@ fn build_tree() -> Generator {
     // dark grey-green chitin so the stack reads as the dead twin of the hive;
     // necrotic beige is used only for the tissue exposed where it has broken
     // open.
+    let base_y = 2.0_f32;
+    let base_scale = [1.12_f32, 0.86, 1.0];
     let mut prims = vec![prim_scaled(
         solid(sphere(2.8, 5, chitin(CHITIN_GREEN))),
-        [0.0, 2.0, 0.0],
+        [0.0, base_y, 0.0],
         id_quat(),
-        [1.12, 0.86, 1.0],
+        base_scale,
     )];
 
     // A caved-in mid bulb, slumped and leaning off-axis (child — safe).
@@ -148,6 +151,27 @@ fn build_tree() -> Generator {
             flesh(NECROTIC),
         ));
     }
+
+    // Buried footing under the slumped base bulb, so a terrain-snapped hive
+    // shows plinth instead of daylight under its downhill edge. Sized to where
+    // the squashed bulb crosses the ground plane rather than to its equator, so
+    // the shell still covers the plinth on flat ground.
+    //
+    // This root is `prim_scaled`, and `assemble` rebases a child's
+    // *translation* but not its scale — so everything under it inherits the
+    // bulb's 0.86 squash. Left alone the plinth would reach only 86 % of the
+    // depth the rule asked for. Undo the squash on this one child: cancel the
+    // scale, and pre-divide the offset from the root so `assemble`'s rebase
+    // still lands it where it was authored.
+    let mut foot = footing_disc(1.85, 8.0);
+    foot.transform.scale = Fp3([
+        1.0 / base_scale[0],
+        1.0 / base_scale[1],
+        1.0 / base_scale[2],
+    ]);
+    let authored_y = foot.transform.translation.0[1];
+    foot.transform.translation.0[1] = base_y + (authored_y - base_y) / base_scale[1];
+    prims.push(foot);
 
     assemble(prims)
 }

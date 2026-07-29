@@ -68,7 +68,7 @@ impl CatalogueEntry for Villa {
         // whole entry is centred on its anchor (placement yaw turns the
         // building around its middle, and the dry-land clearance ring
         // measures from the true centre).
-        let mut root = crate::catalogue::items::util::foundation_block(21.0, 17.0, [0.0, 0.0], 3.0);
+        let mut root = crate::catalogue::items::util::footing(21.0, 17.0, [0.0, 0.0], 13.5);
         let mut house = Generator::from_kind(build_kind());
         house.transform.translation = crate::pds::Fp3([-10.0, 0.0, -8.0]);
         root.children.push(house);

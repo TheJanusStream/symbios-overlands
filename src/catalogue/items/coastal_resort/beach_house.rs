@@ -24,8 +24,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    self, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, glow, id_quat, lit_interior, nest,
-    plane, prim, quat_x, solid,
+    self, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, glow, id_quat,
+    lit_interior, nest, plane, prim, quat_x, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
@@ -223,6 +223,11 @@ fn build_tree() -> Generator {
         ));
     }
     parts.push(deck());
+    // Buried footing under the deck's own plan, sized to the drop this
+    // footprint spans (#1009): the stilts stand on it, and it closes the gap
+    // a terrain-snapped placement leaves under the downhill edge. Authored
+    // around y=0 and rebased into the root stilt's frame by `nest`.
+    parts.push(footing(DECK_W, DECK_D, [0.0, 0.0], 6.0));
 
     let root = prim(
         solid(cylinder_tapered(0.19, DECK_Y, 8, 0.08, plank(DECK_WOOD))),

@@ -6,7 +6,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, quat_y, quat_z, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, quat_y,
+    quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -212,6 +213,9 @@ fn build_tree() -> Generator {
         [-w * 0.5 + 0.95, 3.35, front_z - 0.58],
         id_quat(),
     ));
+
+    // Buried footing under the ground slab.
+    prims.push(footing(w + 1.0, d + 1.0, [0.0, 0.0], 9.0));
 
     assemble(prims)
 }

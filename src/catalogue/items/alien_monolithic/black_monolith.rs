@@ -10,7 +10,7 @@
 //! under the base ring.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid, torus,
+    assemble, cuboid_tapered, cylinder_tapered, footing_disc, glow, id_quat, prim, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -119,6 +119,10 @@ fn build_tree() -> Generator {
         [0.0, cap_y - 0.32, 0.0],
         id_quat(),
     ));
+
+    // Buried footing under the base disc, so a terrain-snapped monolith shows
+    // plinth instead of daylight under its downhill edge.
+    prims.push(footing_disc(2.6, 9.0));
 
     let mut root = assemble(prims);
     // Signature life: the monolith's hum, energy motes rising in the gap.

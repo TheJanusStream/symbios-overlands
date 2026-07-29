@@ -12,8 +12,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, glow, id_quat, plane,
-    prim, quat_x, quat_z, solid, torus, window_card, with_cut,
+    assemble, cone, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, glow, id_quat,
+    plane, prim, quat_x, quat_z, solid, torus, window_card, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Generator, SovereignMaterialSettings};
@@ -140,6 +140,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried footing under the slab, so a terrain-snapped church on a slope
+    // shows plinth rather than daylight under its downhill edge.
+    prims.push(footing(7.0, 10.8, [0.0, -0.9], 7.0));
 
     // --- Hollow nave shell: rear + front gable walls, an interior floor and a
     //     flat ceiling under the roof. The side walls are punched separately.

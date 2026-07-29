@@ -3,7 +3,7 @@
 //! with a mosaic of lit ad-tiles behind scanlines and a hot neon frame.
 //! Reads as the settlement's advertising glow.
 
-use crate::catalogue::items::util::{cuboid_tapered, foundation_block, glow, id_quat, prim, solid};
+use crate::catalogue::items::util::{cuboid_tapered, footing, glow, id_quat, prim, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -54,7 +54,7 @@ fn build_tree() -> Generator {
     );
     let rel = |ground_y: f32| ground_y - slab_h * 0.5;
 
-    let mut base = foundation_block(6.0, 2.0, [0.0, 0.0], 2.0);
+    let mut base = footing(6.0, 2.0, [0.0, 0.0], 6.0);
     base.transform.translation.0[1] -= slab_h * 0.5;
     root.children.push(base);
 

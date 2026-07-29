@@ -3,7 +3,7 @@
 //! and a pair of chum buckets: the bait shop of the fishing hamlet.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, quat_z, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -55,6 +55,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried footing under the counter, sized to the drop this footprint
+    // spans (#1009), so a terrain-snapped stand shows footing not daylight.
+    prims.push(footing(3.0, 1.2, [0.0, 0.0], 2.5));
 
     // Two back posts (the serving side and signage face the -Z render front).
     for sx in [-1.0_f32, 1.0] {

@@ -6,7 +6,7 @@
 //! home region.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, glow, id_quat, prim, quat_x, solid, sphere,
+    assemble, cuboid_tapered, footing, glow, id_quat, prim, quat_x, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -198,6 +198,10 @@ fn build_tree() -> Generator {
         [0.0, summit + 0.9, fire_z],
         id_quat(),
     ));
+
+    // Buried footing under the base course, carrying the temple-mountain
+    // down to grade where the ground falls away from its uphill corner.
+    prims.push(footing(19.0, 19.0, [0.0, 0.0], 18.0));
 
     let mut root = assemble(prims);
     // Signature life: the sacred fire's flame and embers, a ritual drum.

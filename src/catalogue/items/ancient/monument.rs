@@ -9,7 +9,7 @@
 //! rules this family shares — square panel, blank-legible frame, backing plate.
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, solid,
+    cuboid_tapered, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -80,7 +80,16 @@ fn build_tree(did: &str) -> Generator {
         on_dado.push(brazier(sx * 1.62));
     }
 
-    nest(step0, vec![nest(step1, vec![nest(dado, on_dado)])])
+    nest(
+        step0,
+        vec![
+            nest(step1, vec![nest(dado, on_dado)]),
+            // Buried footing under the bottom krepis step, so a terrain-snapped
+            // herm shows plinth instead of daylight under its downhill edge.
+            // `nest` rebases it out of the world frame like every other child.
+            footing(4.0, 2.6, [0.0, 0.0], 2.8),
+        ],
+    )
 }
 
 /// The wall the portrait is fixed to — and the backing that stops the shrine

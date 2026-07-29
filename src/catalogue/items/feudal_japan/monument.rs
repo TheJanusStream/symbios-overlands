@@ -10,8 +10,8 @@
 //! rules this family shares.
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim,
-    solid,
+    cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel,
+    prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -67,6 +67,8 @@ fn build_tree(did: &str) -> Generator {
     }
     parts.push(nest(head_beam(), board(did)));
     parts.push(lantern(1.3));
+    // Buried footing under the stone base.
+    parts.push(footing(3.4, 1.5, [0.0, 0.0], 2.6));
     nest(base, parts)
 }
 

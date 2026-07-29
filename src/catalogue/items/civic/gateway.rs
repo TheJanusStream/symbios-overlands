@@ -15,8 +15,8 @@
 //! render front.
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, foundation_mat, glow, id_quat, prim,
-    quat_x, solid, sphere, torus,
+    cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, foundation_mat, glow, id_quat,
+    prim, quat_x, solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -65,6 +65,10 @@ fn build_tree() -> Generator {
         [0.0, 0.15, 0.0],
         id_quat(),
     )];
+    // Buried footing under the forecourt, sized to the drop this footprint
+    // spans (#1009), so a terrain-snapped gate shows stone rather than
+    // daylight under its downhill edge.
+    prims.push(footing(5.6, 2.6, [0.0, 0.0], 3.5));
 
     // Polished threshold inlay across the opening — a marble band, set proud of
     // the slab top so its face never sits coplanar with the slab (z-fight).

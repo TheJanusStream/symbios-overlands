@@ -4,7 +4,8 @@
 //! The crosses lean with a [`quat_x`].
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, prim_scaled, quat_x, solid, sphere,
+    assemble, cuboid_tapered, cylinder_tapered, footing_disc, id_quat, prim, prim_scaled, quat_x,
+    solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -79,6 +80,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried footing under the rise, so a terrain-snapped plot on a slope shows
+    // plinth rather than daylight under its downhill edge.
+    prims.push(footing_disc(2.6, 4.0));
 
     // Grave mounds, each with a leaning cross at its head.
     prims.push(grave_mound(-1.2, 0.6));

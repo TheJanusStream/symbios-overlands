@@ -3,7 +3,7 @@
 //! [`trailer_home`](super::trailer_home).
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_z, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -65,6 +65,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried footing under the pad, so a terrain-snapped carport on a slope
+    // shows plinth rather than daylight under its downhill edge.
+    prims.push(footing(w + 0.5, d + 0.5, [0.0, 0.0], 5.0));
 
     // Four galvanised posts (dull, lightly weathered) with knee braces.
     for (sx, sz) in [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {

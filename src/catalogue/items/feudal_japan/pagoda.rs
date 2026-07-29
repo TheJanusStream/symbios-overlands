@@ -6,8 +6,8 @@
 //! across the home region.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_y, solid, sphere, torus,
-    wedge,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_y, solid,
+    sphere, torus, wedge,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -215,6 +215,9 @@ fn build_tree() -> Generator {
     );
     bell.audio = fx::temple_bell_ring();
     prims.push(bell);
+
+    // Buried footing under the stone plinth.
+    prims.push(footing(9.0, 9.0, [0.0, 0.0], 14.0));
 
     let eave_y = plinth_h + 4.0;
     let mut root = assemble(prims);

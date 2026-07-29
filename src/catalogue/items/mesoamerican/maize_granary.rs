@@ -4,7 +4,8 @@
 //! [`adobe_hut`](super::adobe_hut).
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, id_quat, prim, solid, sphere, torus,
+    assemble, cone, cuboid_tapered, cylinder_tapered, footing_disc, id_quat, prim, solid, sphere,
+    torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -123,6 +124,9 @@ fn build_tree() -> Generator {
         [0.0, 3.05, 0.0],
         id_quat(),
     ));
+
+    // Buried footing under the round stone foot.
+    prims.push(footing_disc(1.3, 4.0));
 
     assemble(prims)
 }

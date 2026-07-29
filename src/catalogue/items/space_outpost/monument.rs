@@ -8,7 +8,8 @@
 //! rules this family shares.
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, solid, sphere,
+    cuboid_tapered, cylinder_tapered, footing_disc, glow, id_quat, nest, pfp_panel, prim, solid,
+    sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -65,7 +66,9 @@ fn build_tree(did: &str) -> Generator {
         id_quat(),
     );
 
-    nest(pad, vec![nest(pylon, placard(did))])
+    // Buried plinth under the pad, so a slope-snapped marker shows stone
+    // instead of daylight under its downhill edge.
+    nest(pad, vec![nest(pylon, placard(did)), footing_disc(1.6, 2.5)])
 }
 
 /// The placard: hull backing, portrait, viewport bezel, kick plate, status

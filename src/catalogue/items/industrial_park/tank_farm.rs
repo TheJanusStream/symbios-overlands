@@ -5,8 +5,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, prim_scaled, quat_z, solid, sphere,
-    with_cut,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, prim_scaled, quat_z, solid,
+    sphere, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -69,6 +69,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    prims.push(footing(pad, pad - 1.0, [0.0, 0.0], 7.0));
 
     // Low containment bund around the pad.
     for sx in [-1.0_f32, 1.0] {

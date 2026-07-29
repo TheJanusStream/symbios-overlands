@@ -5,7 +5,7 @@
 //! The fallen length lies tipped with a [`quat_x`].
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, id_quat, prim, quat_x, quat_z, solid,
+    assemble, cuboid_tapered, footing, id_quat, prim, quat_x, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -75,6 +75,10 @@ fn build_tree() -> Generator {
         [3.1, 0.4, 0.3],
         quat_z(-1.5),
     ));
+
+    // Buried footing under the dead-stone base, so a terrain-snapped stub shows
+    // plinth instead of daylight under its downhill edge.
+    prims.push(footing(1.6, 1.6, [0.0, 0.0], 4.0));
 
     assemble(prims)
 }

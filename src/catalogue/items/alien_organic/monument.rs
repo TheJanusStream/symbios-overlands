@@ -12,8 +12,8 @@
 //! rules this family shares.
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, prim_scaled, quat_z,
-    solid, sphere, superellipsoid,
+    cuboid_tapered, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel, prim, prim_scaled,
+    quat_z, solid, sphere, superellipsoid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -73,7 +73,16 @@ fn build_tree(did: &str) -> Generator {
 
     nest(
         mound,
-        vec![nest(stalk, bract(did)), sac(-1.15, 0.34), sac(1.05, 0.28)],
+        vec![
+            nest(stalk, bract(did)),
+            sac(-1.15, 0.34),
+            sac(1.05, 0.28),
+            // Buried footing so a terrain-snapped bloom keeps its mound in the
+            // ground. Sized to where the mound crosses the ground plane, well
+            // inside its 1.7 × 1.2 half-extents, so the swell still covers it
+            // on the flat. `nest` rebases it like every other child.
+            footing(2.4, 1.7, [0.0, 0.0], 2.6),
+        ],
     )
 }
 

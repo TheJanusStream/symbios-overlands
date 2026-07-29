@@ -18,7 +18,7 @@ use crate::pds::{
 use crate::seeded_defaults::ThemeArchetype;
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, glow, id_quat, prim, quat_x, quat_y, solid, sphere,
+    cuboid_tapered, footing, glow, id_quat, prim, quat_x, quat_y, solid, sphere,
 };
 
 pub struct StoneCircle;
@@ -76,6 +76,13 @@ fn build_tree() -> Generator {
         id_quat(),
     );
     let rel = |ground_y: f32| ground_y - altar_h * 0.5;
+
+    // Buried footing under the altar, re-anchored from the entry ground frame
+    // into the altar's frame, so the terrain-snapped root keeps ground under
+    // it on a slope. (The ring stones carry their own `root_depth` below.)
+    let mut base = footing(2.4, 1.6, [0.0, 0.0], 10.0);
+    base.transform.translation.0[1] -= altar_h * 0.5;
+    root.children.push(base);
 
     root.children.push(prim(
         sphere(0.32, 3, glow(orb_glow, 4.0)),
@@ -189,8 +196,8 @@ mod tests {
     #[test]
     fn ring_has_eight_stones_plus_lintels_orb_and_ruins() {
         let g = StoneCircle.build("");
-        // 1 orb + 8 stones + 3 lintels + 3 fallen/leaning = 15
+        // 1 footing + 1 orb + 8 stones + 3 lintels + 3 fallen/leaning = 16
         // children under the altar root.
-        assert_eq!(g.children.len(), 15);
+        assert_eq!(g.children.len(), 16);
     }
 }

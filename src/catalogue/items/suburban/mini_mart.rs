@@ -25,7 +25,7 @@ use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::roadside::{SIGN_AMBER, asphalt, sign_board};
 use crate::catalogue::items::util::{
-    self, cuboid_tapered, glow, id_quat, lit_interior, nest, plane, prim, quat_x, solid,
+    self, cuboid_tapered, footing, glow, id_quat, lit_interior, nest, plane, prim, quat_x, solid,
     window_card,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
@@ -157,7 +157,10 @@ fn build_tree() -> Generator {
         id_quat(),
     );
 
-    let mut parts = vec![shop(), pylon()];
+    // Buried footing under the forecourt pad — the piece that meets grade — so
+    // a terrain-snapped mart on a slope shows plinth rather than daylight under
+    // its downhill edge.
+    let mut parts = vec![shop(), pylon(), footing(W + 6.0, D + 4.0, [0.0, -3.0], 6.0)];
     // Painted parking bays, so the forecourt is a car park rather than a grey
     // rectangle. Held a hair above the tarmac: paint flush with the slab would
     // be two coplanar faces fighting for the same plane.
@@ -853,9 +856,9 @@ mod tests {
             1 + g.children.iter().map(size).sum::<usize>()
         }
         let root = MiniMart.build("");
-        // Forecourt's own children: the shop, the pylon, three bay lines and a
-        // seven-prim car.
-        assert_eq!(root.children.len(), 12, "forecourt children");
+        // Forecourt's own children: the shop, the pylon, the buried footing,
+        // three bay lines and a seven-prim car.
+        assert_eq!(root.children.len(), 13, "forecourt children");
         let shop = &root.children[0];
         let pylon = &root.children[1];
         assert!(

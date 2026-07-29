@@ -4,8 +4,8 @@
 //! undercity stall.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, solid, sphere,
-    with_cut,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, solid,
+    sphere, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -113,6 +113,9 @@ fn build_tree() -> Generator {
     ));
     // A burn-barrel brazier in the corner keeping the shelter warm.
     prims.push(fx::brazier_flame([-0.7, 0.4, -0.5], 0xB7A2_F1A3));
+
+    // Buried footing spanning the square the four poles stake out.
+    prims.push(footing(half * 2.0 + 0.1, half * 2.0 + 0.1, [0.0, 0.0], 3.5));
 
     assemble(prims)
 }

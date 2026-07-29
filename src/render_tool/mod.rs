@@ -43,7 +43,8 @@ mod text_tools;
 use headless::{Capture, Frames, RenderJob, Subject, drive, setup};
 use text_tools::{
     analyze_session, diff_sessions, dump_road_graph, find_part, print_family_seeds,
-    print_gateway_fit, print_outfit, room_census, scatter_census, scatter_plot,
+    print_foundation_audit, print_gateway_fit, print_outfit, print_settlement_drop, room_census,
+    scatter_census, scatter_plot,
 };
 
 /// Camera yaw per tile (degrees), left→right: front, ¾, side, back. Avatars /
@@ -94,6 +95,15 @@ struct Args {
     /// then exit — finds render-verification seeds for a styled part.
     #[arg(long)]
     find_part: Option<String>,
+    /// Measure the terrain drop real seeded settlements span (#1009) over
+    /// this many seeds and exit — the empirical basis for the plinth rule.
+    #[arg(long)]
+    settlement_drop: Option<u64>,
+    /// Print the foundation-depth audit (#1009) and exit: every
+    /// settlement-placeable entry against the plinth depth its footprint
+    /// demands. Pass `all` to include entries that already satisfy it.
+    #[arg(long)]
+    foundation_audit: Option<String>,
     /// Print the gateway veil-fit report (#1006) and exit: per gateway, the
     /// translucent zone's box against the frame around it, naming any face
     /// that floats in open air or juts past the mouth. Pass a slug to check
@@ -271,6 +281,18 @@ pub fn run() {
     // `--find-part <slug>`: scan for seeds that roll a styled part and exit.
     if let Some(slug) = &args.find_part {
         find_part(slug, args.family_count);
+        return;
+    }
+
+    // `--settlement-drop <seeds>`: measure real footprint drops and exit.
+    if let Some(seeds) = args.settlement_drop {
+        print_settlement_drop(seeds);
+        return;
+    }
+
+    // `--foundation-audit [all]`: print the plinth-depth audit and exit.
+    if let Some(mode) = &args.foundation_audit {
+        print_foundation_audit(mode);
         return;
     }
 

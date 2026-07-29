@@ -7,8 +7,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, foundation_block, glow, id_quat, plane, prim,
-    quat_x, quat_z, solid, sphere, window_card,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, plane, prim, quat_x,
+    quat_z, solid, sphere, window_card,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -136,9 +136,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
-    let mut base = foundation_block(16.0, 16.0, [0.0, 0.0], 3.0);
-    base.transform.translation.0[1] -= plaza_h * 0.5;
-    prims.push(base);
+    // Buried footing under the plaza base. Authored in the same ground
+    // frame as every other prim here — `assemble` rebases it.
+    prims.push(footing(16.0, 16.0, [0.0, 0.0], 16.0));
 
     // Lower shaft: a lit blue core, glazed on every face. The core is an
     // emissive mass (the lit floors) rather than the old `Window`-textured box

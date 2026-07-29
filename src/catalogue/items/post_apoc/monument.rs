@@ -9,7 +9,7 @@
 //! rules this family shares.
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, quat_z, solid,
+    cuboid_tapered, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel, prim, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -55,7 +55,7 @@ impl CatalogueEntry for PostApocMonument {
 fn build_tree(did: &str) -> Generator {
     // Broken slab — the root, and flat, so the canted posts above spin
     // nothing.
-    let footing = prim(
+    let slab = prim(
         solid(cuboid_tapered(
             [3.4, 0.36, 1.7],
             0.1,
@@ -66,6 +66,9 @@ fn build_tree(did: &str) -> Generator {
     );
 
     let mut parts = Vec::new();
+    // Buried footing under the slab, so a slope-snapped shrine shows
+    // concrete rather than daylight under its downhill edge.
+    parts.push(footing(3.4, 1.7, [0.0, 0.0], 2.7));
     for (sx, lean) in [(-1.0_f32, 0.05_f32), (1.0, -0.03)] {
         parts.push(post(sx * 1.32, lean));
     }
@@ -73,7 +76,7 @@ fn build_tree(did: &str) -> Generator {
     parts.extend(rubble_chunks([-1.5, 0.36, -0.5], 0.9, 0.16, 5));
     parts.extend(rebar_stubs([1.3, 0.36, -0.55], 0.6, 4));
     parts.extend(tyre_stack([1.75, 0.36, 0.45], 0.4));
-    nest(footing, parts)
+    nest(slab, parts)
 }
 
 /// A scavenged post, canted a little because nothing here was set plumb. The

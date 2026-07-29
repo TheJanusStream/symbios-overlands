@@ -4,7 +4,9 @@
 
 use std::f32::consts::TAU;
 
-use crate::catalogue::items::util::{assemble, cylinder_tapered, id_quat, prim, solid, torus};
+use crate::catalogue::items::util::{
+    assemble, cylinder_tapered, footing_disc, id_quat, prim, solid, torus,
+};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -57,6 +59,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    prims.push(footing_disc(4.6, 7.0));
 
     // Inlet colonnade: the cooling tower's signature open ring of columns,
     // lifting the shell off the apron so air can draw up through it.

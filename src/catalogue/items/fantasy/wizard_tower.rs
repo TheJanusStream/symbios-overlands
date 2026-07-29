@@ -13,8 +13,8 @@ use std::f32::consts::{FRAC_PI_2, TAU};
 
 use crate::catalogue::items::gothic_horror::pointed_arch;
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, foundation_block, glow, id_quat, plane, prim,
-    quat_x, solid, sphere, torus, window_card,
+    assemble, cone, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, plane, prim, quat_x,
+    solid, sphere, torus, window_card,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -79,7 +79,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
-    prims.push(foundation_block(5.0, 5.0, [0.0, 0.0], 1.5));
+    prims.push(footing(5.0, 5.0, [0.0, 0.0], 9.0));
 
     // Tapering stone shaft.
     prims.push(prim(

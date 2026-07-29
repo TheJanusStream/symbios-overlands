@@ -8,7 +8,7 @@
 //! `id_quat`).
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid, sphere,
+    assemble, cone, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -109,6 +109,10 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
+
+    // Buried footing under the creep sill — the wall's only ground course — so
+    // a terrain-snapped rampart shows plinth instead of daylight beneath it.
+    prims.push(footing(6.6, 0.7, [0.0, 0.0], 5.0));
 
     assemble(prims)
 }

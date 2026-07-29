@@ -27,8 +27,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    self, cuboid_tapered, cylinder_tapered, glow, id_quat, lit_interior, nest, plane, prim, quat_x,
-    solid,
+    self, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, lit_interior, nest, plane,
+    prim, quat_x, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
@@ -248,7 +248,17 @@ fn build_tree() -> Generator {
         CONCRETE_GREY,
         FaceKey::SideNz,
     );
-    nest(plinth, vec![apron(), body()])
+    nest(
+        plinth,
+        vec![
+            apron(),
+            body(),
+            // Buried footing under the plinth, sized to the drop this
+            // footprint spans (#1009). Authored around y=0 and rebased into
+            // the plinth's frame by `nest`, like every other child.
+            footing(W + PLINTH_OVER, D + PLINTH_OVER, [0.0, 0.0], 8.5),
+        ],
+    )
 }
 
 /// The approach apron and the flight up onto the plinth.
@@ -1097,7 +1107,11 @@ mod tests {
             1 + g.children.iter().map(count).sum::<usize>()
         }
         let root = Dormitory.build("");
-        assert_eq!(root.children.len(), 2, "the plinth carries apron + body");
+        assert_eq!(
+            root.children.len(),
+            3,
+            "the plinth carries apron + body + its own buried footing"
+        );
         let sized = |g: &Generator, want: [f32; 3]| match &g.kind {
             GeneratorKind::Cuboid { size, .. } => size
                 .0

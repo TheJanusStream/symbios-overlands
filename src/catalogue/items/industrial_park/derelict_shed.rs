@@ -6,7 +6,7 @@
 //! plant.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_z, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -70,6 +70,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    prims.push(footing(l + 0.6, w + 0.6, [0.0, 0.0], 9.0));
 
     // Solid rust back wall (+Z) and the two side walls.
     prims.push(prim(

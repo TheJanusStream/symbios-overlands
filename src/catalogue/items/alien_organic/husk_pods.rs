@@ -5,7 +5,8 @@
 use std::f32::consts::TAU;
 
 use crate::catalogue::items::util::{
-    assemble, cone, cylinder_tapered, id_quat, prim, quat_mul, quat_x, quat_y, solid, sphere,
+    assemble, cone, cylinder_tapered, footing, id_quat, prim, quat_mul, quat_x, quat_y, solid,
+    sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -89,12 +90,21 @@ impl CatalogueEntry for HuskPods {
 }
 
 fn build_tree() -> Generator {
-    let prims = vec![
-        // Largest husk — the root (stalk is id_quat).
-        husk([0.0, 0.35, 0.0], 1.3),
-        husk([1.1, 0.3, 0.3], 1.0),
-        husk([-0.9, 0.28, -0.4], 0.9),
+    // (position, scale). The largest husk is the root (its stalk is id_quat).
+    let husks = [
+        ([0.0_f32, 0.35_f32, 0.0_f32], 1.3_f32),
+        ([1.1, 0.3, 0.3], 1.0),
+        ([-0.9, 0.28, -0.4], 0.9),
     ];
+    let mut prims: Vec<Generator> = husks.iter().map(|&(p, s)| husk(p, s)).collect();
+
+    // Buried footings so a terrain-snapped clutch keeps its stalks in the
+    // ground. There is no base slab here — the stalks *are* what meets the
+    // ground — so each gets its own, held narrow enough (≈0.32·scale, and the
+    // helper insets that further) that the stalk foot hides it on flat ground.
+    for &([x, _, z], s) in &husks {
+        prims.push(footing(0.32 * s, 0.32 * s, [x, z], 4.0));
+    }
 
     assemble(prims)
 }

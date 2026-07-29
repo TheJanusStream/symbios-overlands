@@ -6,7 +6,7 @@
 //! [`assemble`], which reparents every piece under the base.
 
 use crate::catalogue::items::modern_city::curtain_wall;
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, solid};
+use crate::catalogue::items::util::{assemble, cuboid_tapered, footing, id_quat, prim, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -68,6 +68,10 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried footing under the base, sized to the drop this footprint spans
+    // (#1009), so a terrain-snapped hall shows stone rather than daylight
+    // under its downhill edge.
+    prims.push(footing(12.0, 8.0, [0.0, 0.0], 9.0));
 
     // Stone body.
     prims.push(prim(

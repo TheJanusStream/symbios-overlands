@@ -9,7 +9,7 @@
 //! rules this family shares.
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, solid,
+    cuboid_tapered, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -65,7 +65,7 @@ fn build_tree(did: &str) -> Generator {
         id_quat(),
     );
 
-    let mut parts = Vec::new();
+    let mut parts = vec![footing(3.8, 1.7, [0.0, 0.0], 2.7)];
     for sx in [-1.0_f32, 1.0] {
         parts.push(leg(sx * 1.5));
         parts.push(bollard(sx * 1.72));

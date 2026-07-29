@@ -8,8 +8,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, glow, id_quat, prim, quat_x,
-    solid, torus, tube, with_cut,
+    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, glow, id_quat, prim,
+    quat_x, solid, torus, tube, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -63,6 +63,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried footing under the hall, so a terrain-snapped foundry on a slope
+    // shows plinth rather than daylight under its downhill wall.
+    prims.push(footing(12.0, 8.0, [0.0, 0.0], 9.0));
     // Brass cornice band where the wall meets the roof.
     prims.push(prim(
         solid(cuboid_tapered([12.2, 0.3, 8.2], 0.0, brass(BRASS))),

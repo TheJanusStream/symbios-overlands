@@ -5,7 +5,7 @@
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], which reparents every piece under the pad.
 
-use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, solid};
+use crate::catalogue::items::util::{assemble, cuboid_tapered, footing, id_quat, prim, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
@@ -60,6 +60,8 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried plinth so a slope-snapped pad shows stone, not daylight.
+    prims.push(footing(10.0, 5.0, [0.0, 0.0], 6.0));
 
     // Five tiers stepping up and back, split into two seat banks by a central
     // aisle. Each tier is a concrete riser (closing the step front so the

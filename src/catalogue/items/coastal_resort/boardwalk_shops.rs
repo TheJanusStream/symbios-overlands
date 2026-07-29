@@ -22,8 +22,8 @@
 //! [`util::railing`]: crate::catalogue::items::util::railing
 
 use crate::catalogue::items::util::{
-    self, cone, cuboid_tapered, cylinder_tapered, glow, id_quat, lit_interior, nest, prim, quat_x,
-    solid, torus,
+    self, cone, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, lit_interior, nest, prim,
+    quat_x, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
@@ -159,6 +159,11 @@ fn build_tree() -> Generator {
     );
 
     let mut parts: Vec<Generator> = (0..3).map(kiosk).collect();
+
+    // Buried footing under the deck's own plan, sized to the drop this
+    // footprint spans (#1009). Authored around y=0 and rebased into the
+    // deck's frame by `nest`, like everything else here.
+    parts.push(footing(DECK_W, DECK_D, [0.0, 0.0], 8.0));
 
     // Back rail along the seaward edge, in two runs so the middle is a gap
     // people walk through — and posts and balusters, not a bar floating on

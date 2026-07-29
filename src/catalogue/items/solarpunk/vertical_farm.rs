@@ -28,8 +28,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    self, cuboid_tapered, cylinder_tapered, glow, id_quat, lit_interior, nest, plane, prim, quat_x,
-    solid,
+    self, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, lit_interior, nest, plane,
+    prim, quat_x, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
@@ -242,7 +242,9 @@ fn build_tree() -> Generator {
         center,
         id_quat(),
     );
-    nest(pad, vec![street()])
+    // Buried plinth under the pad, so a slope-snapped tower shows stone
+    // instead of daylight under its downhill edge.
+    nest(pad, vec![street(), footing(PAD_W, PAD_D, [0.0, 0.0], 7.0)])
 }
 
 // --- The street storey. ----------------------------------------------------
@@ -1163,7 +1165,11 @@ mod tests {
             1 + g.children.iter().map(count).sum::<usize>()
         }
         let root = VerticalFarm.build("");
-        assert_eq!(root.children.len(), 1, "the pad carries the street storey");
+        assert_eq!(
+            root.children.len(),
+            2,
+            "the pad carries the street storey and its buried footing"
+        );
         // Walk the stack: from the street storey, the child that is a deck slab
         // of the next level up. Selected by DECK_T, which is what defines a
         // deck, rather than by child count.

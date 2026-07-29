@@ -14,8 +14,8 @@
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, foundation_block, glow, helix, id_quat, prim, prim_scaled, quat_x,
-    quat_z, solid, sphere, torus,
+    assemble, cuboid_tapered, footing, glow, helix, id_quat, prim, prim_scaled, quat_x, quat_z,
+    solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -82,7 +82,7 @@ fn build_tree() -> Generator {
         id_quat(),
     )];
     // Buried plinth so a slope-snapped gate shows stone, not daylight.
-    prims.push(foundation_block(5.2, 2.6, [0.0, 0.0], 1.0));
+    prims.push(footing(5.2, 2.6, [0.0, 0.0], 3.5));
 
     // Two living columns flanking the opening: a lightly tapered timber post, a
     // climbing foliage vine spiralling up it, and a planted urn at its foot.

@@ -12,8 +12,8 @@
 use std::f32::consts::TAU;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, foundation_disc, glow, id_quat, prim, solid,
-    sphere, with_cut,
+    assemble, cuboid_tapered, cylinder_tapered, footing_disc, glow, id_quat, prim, solid, sphere,
+    with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -76,7 +76,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
-    prims.push(foundation_disc(4.6, 1.0));
+    prims.push(footing_disc(4.6, 9.0));
 
     // White hull module.
     prims.push(prim(

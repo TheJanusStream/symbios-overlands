@@ -16,8 +16,8 @@
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, foundation_mat, glow, id_quat, prim, quat_x, quat_z, solid,
-    sphere, torus,
+    assemble, cone, cuboid_tapered, footing, foundation_mat, glow, id_quat, prim, quat_x, quat_z,
+    solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -71,6 +71,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried footing under the threshold slab, so a terrain-snapped gate on a
+    // slope shows plinth rather than daylight under its downhill edge.
+    prims.push(footing(5.4, 3.0, [0.0, 0.0], 3.5));
 
     for sx in [-1.0_f32, 1.0] {
         let x = sx * px;

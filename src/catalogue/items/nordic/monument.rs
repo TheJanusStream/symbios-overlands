@@ -9,7 +9,7 @@
 //! rules this family shares.
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, quat_z, solid,
+    cuboid_tapered, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel, prim, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -85,6 +85,9 @@ fn build_tree(did: &str) -> Generator {
     for sx in [-1.0_f32, 1.0] {
         parts.push(guardian(sx * 1.55, sx * 0.14));
     }
+    // Buried footing under the cairn. `nest` rebases it out of the ground
+    // frame into the cairn's local one.
+    parts.push(footing(3.8, 2.2, [0.0, 0.0], 2.7));
     nest(cairn, parts)
 }
 

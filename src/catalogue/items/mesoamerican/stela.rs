@@ -3,7 +3,7 @@
 //! with a round sacrificial altar stone at its foot.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, solid, torus,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -154,6 +154,10 @@ fn build_tree() -> Generator {
         [0.0, 0.64, -1.9],
         id_quat(),
     ));
+
+    // Buried footing under the slab itself — the setting stone a stela is
+    // stepped into, so the slab never stands clear of falling ground.
+    prims.push(footing(1.6, 0.6, [0.0, 0.0], 4.0));
 
     assemble(prims)
 }

@@ -7,7 +7,7 @@
 //! [`assemble`], which reparents every piece under the base.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid, sphere, torus,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -110,6 +110,10 @@ fn build_tree() -> Generator {
         [0.0, pylon_top + 1.8, 0.0],
         id_quat(),
     ));
+
+    // Buried footing under the obsidian base, so a terrain-snapped pylon shows
+    // plinth instead of daylight under its downhill edge.
+    prims.push(footing(1.8, 1.8, [0.0, 0.0], 5.0));
 
     let mut root = assemble(prims);
     // Signature life: a high power shimmer at the crown.

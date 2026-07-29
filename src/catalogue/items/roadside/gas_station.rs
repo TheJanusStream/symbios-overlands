@@ -12,7 +12,7 @@
 
 use crate::catalogue::items::modern_city::curtain_wall;
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, foundation_block, glow, id_quat, prim, solid,
+    assemble, cuboid_tapered, footing, glow, id_quat, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -72,7 +72,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
-    prims.push(foundation_block(8.4, 6.4, [-5.0, 4.0], 1.5));
+    prims.push(footing(8.4, 6.4, [-5.0, 4.0], 16.0));
 
     // --- Brick convenience store at the back (+Z), its glazed storefront and
     // lit name band turned to face the −Z camera front across the forecourt. ---

@@ -6,8 +6,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_y, solid, torus,
-    with_cut,
+    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, quat_y, solid,
+    torus, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -128,6 +128,10 @@ fn build_tree() -> Generator {
             quat_y(yaw),
         ));
     }
+
+    // Buried footing under the footing course, so a terrain-snapped ruin shows
+    // plinth instead of daylight under its downhill edge.
+    prims.push(footing(4.8, 1.0, [0.0, 0.0], 2.6));
 
     assemble(prims)
 }

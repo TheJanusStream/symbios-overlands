@@ -9,7 +9,7 @@
 //! rules this family shares.
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, cuboid_tapered_xz, glow, id_quat, nest, pfp_panel, prim, solid,
+    cuboid_tapered, cuboid_tapered_xz, footing, glow, id_quat, nest, pfp_panel, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -53,20 +53,23 @@ impl CatalogueEntry for RuralFarmlandMonument {
 }
 
 fn build_tree(did: &str) -> Generator {
-    let footing = prim(
+    let base = prim(
         solid(cuboid_tapered([3.5, 0.34, 1.5], 0.07, stone(STONE_GREY))),
         [0.0, 0.17, 0.0],
         id_quat(),
     );
 
     let mut parts = Vec::new();
+    // Buried plinth under the stone footing, so a slope-snapped board keeps
+    // its ground under the downhill edge.
+    parts.push(footing(3.5, 1.5, [0.0, 0.0], 2.6));
     for sx in [-1.0_f32, 1.0] {
         parts.push(post(sx * 1.36));
     }
     parts.push(nest(head(), quilt(did)));
     parts.push(hay_bale(-1.55));
     parts.push(yard_lamp(1.36));
-    nest(footing, parts)
+    nest(base, parts)
 }
 
 /// A weathered post with an iron-strapped foot.

@@ -9,7 +9,7 @@
 use crate::catalogue::items::gothic_horror::pointed_arch;
 use crate::catalogue::items::nordic::gable_roof;
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cuboid_tapered_xz, id_quat, prim, solid,
+    assemble, cone, cuboid_tapered, cuboid_tapered_xz, footing, id_quat, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{
@@ -149,6 +149,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    prims.push(footing(l + 1.0, w + 1.0, [0.0, 0.0], 7.5));
 
     // Steep slate gable roof over the nave (ridge ‖ X, slopes face ±Z).
     prims.push(gable_roof(

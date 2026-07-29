@@ -13,7 +13,8 @@
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use crate::catalogue::items::util::{
-    assemble, cone, cylinder_tapered, glow, id_quat, prim, quat_x, solid, sphere, torus,
+    assemble, cone, cylinder_tapered, footing_disc, glow, id_quat, prim, quat_x, solid, sphere,
+    torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -164,6 +165,12 @@ fn build_tree() -> Generator {
             flesh(FLESH_RED),
         ));
     }
+
+    // Buried footing under the base bulb, so a terrain-snapped hive shows
+    // plinth instead of daylight under its downhill edge. Sized to where the
+    // r=3.5 bulb crosses the ground plane (√(3.5² − 2.5²) ≈ 2.45), not to the
+    // bulb's equator, so the swelling shell still hides it on flat ground.
+    prims.push(footing_disc(2.45, 9.0));
 
     let mut root = assemble(prims);
     // Signature life: the hive's pulse and drifting spores.

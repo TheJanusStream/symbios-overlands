@@ -15,8 +15,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, foundation_block, glow, id_quat,
-    prim, quat_x, solid, sphere, torus,
+    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, glow, id_quat, prim,
+    quat_x, solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -151,8 +151,9 @@ fn build_tree() -> Generator {
         id_quat(),
     )];
     // Buried plinth so a terrain-snapped gate shows stone, not daylight, on a
-    // downhill edge.
-    prims.push(foundation_block(5.4, 2.4, [0.0, 0.0], 1.2));
+    // downhill edge. Its depth is sized to the drop this footprint spans
+    // rather than picked by eye (#1009).
+    prims.push(footing(5.4, 2.4, [0.0, 0.0], 3.5));
 
     // Two piers flanking the ~2.6 m walk-through.
     for x in [-pier_x, pier_x] {

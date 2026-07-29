@@ -5,7 +5,7 @@
 //! [`assemble`], which reparents every piece under the base frame.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, glow, id_quat, prim, quat_x, solid, sphere,
+    assemble, cuboid_tapered, footing, glow, id_quat, prim, quat_x, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator};
@@ -55,6 +55,8 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried plinth so a slope-snapped frame shows stone, not daylight.
+    prims.push(footing(9.0, 3.5, [0.0, 0.0], 6.0));
 
     // Horizontal torque tube on short posts.
     prims.push(prim(

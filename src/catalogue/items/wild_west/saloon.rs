@@ -15,7 +15,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, foundation_block, glow, id_quat, plane, prim, quat_x, solid, sphere,
+    assemble, cuboid_tapered, footing, glow, id_quat, plane, prim, quat_x, solid, sphere,
     window_card,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
@@ -152,7 +152,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
-    prims.push(foundation_block(10.0, 8.0, [0.0, 0.0], 1.2));
+    prims.push(footing(10.0, 8.0, [0.0, 0.0], 11.0));
 
     // --- Hollow body shell: rear + side walls, a storey floor and a ceiling.
     prims.push(prim(

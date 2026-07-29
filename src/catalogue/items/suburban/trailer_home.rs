@@ -8,7 +8,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, plane, prim, quat_x, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, plane, prim, quat_x, solid,
     window_card,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
@@ -74,6 +74,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried footing under the pad, so a terrain-snapped trailer on a slope
+    // shows plinth rather than daylight under its downhill edge.
+    prims.push(footing(l + 0.6, d + 0.6, [0.0, 0.0], 9.0));
 
     // Cinder-block supports.
     for sx in [-1.0_f32, -0.33, 0.33, 1.0] {

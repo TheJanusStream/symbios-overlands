@@ -12,7 +12,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, quat_x, solid, torus,
+    cuboid_tapered, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel, prim, quat_x, solid,
+    torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -58,7 +59,7 @@ impl CatalogueEntry for MedievalMonument {
 fn build_tree(did: &str) -> Generator {
     // Rough-stone footing — the root, and flat, so nothing above inherits a
     // tilt.
-    let footing = prim(
+    let base = prim(
         solid(cuboid_tapered(
             [3.6, 0.45, 1.6],
             0.06,
@@ -68,14 +69,14 @@ fn build_tree(did: &str) -> Generator {
         id_quat(),
     );
 
-    let mut parts = Vec::new();
+    let mut parts = vec![footing(3.6, 1.6, [0.0, 0.0], 2.6)];
     for sx in [-1.0_f32, 1.0] {
         parts.push(post(sx * 1.42));
     }
     parts.push(nest(beam(), banner(did)));
     parts.push(cresset(-1.42));
 
-    nest(footing, parts)
+    nest(base, parts)
 }
 
 /// An oak post with an iron collar at its foot.

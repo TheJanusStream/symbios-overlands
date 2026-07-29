@@ -13,8 +13,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, glow, id_quat, prim, prim_scaled, quat_mul, quat_x, quat_z,
-    solid, sphere, torus,
+    assemble, cone, cuboid_tapered, footing, glow, id_quat, prim, prim_scaled, quat_mul, quat_x,
+    quat_z, solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -71,6 +71,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried footing under the mast base, so a terrain-snapped dock on a slope
+    // shows plinth rather than daylight under its downhill edge.
+    prims.push(footing(3.2, 3.2, [0.0, 0.0], 8.0));
 
     // Lattice mast: four inward-leaning corner legs.
     for sx in [-1.0_f32, 1.0] {

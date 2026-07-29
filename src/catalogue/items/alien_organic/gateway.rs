@@ -17,8 +17,8 @@
 use std::f32::consts::PI;
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, prim_scaled, quat_x,
-    quat_z, solid, sphere, torus,
+    assemble, cone, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, prim_scaled,
+    quat_x, quat_z, solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -167,6 +167,10 @@ fn build_tree() -> Generator {
 
     // The maw breathes and exhales glowing spores through the threshold.
     prims.push(fx::spore_drift([0.0, 1.6, 0.0], 0x0A11_6A6E));
+
+    // Buried footing under the creep forecourt pad, so a terrain-snapped maw
+    // shows plinth instead of daylight under its downhill edge.
+    prims.push(footing(5.0, 2.2, [0.0, 0.0], 3.5));
 
     let mut root = assemble(prims);
     root.audio = fx::bio_pulse();

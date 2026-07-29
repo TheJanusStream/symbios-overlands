@@ -12,8 +12,8 @@
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, foundation_block, id_quat, prim,
-    quat_x, quat_z, solid, torus,
+    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, id_quat, prim, quat_x,
+    quat_z, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -77,7 +77,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
-    prims.push(foundation_block(14.0, 9.0, [0.0, 0.0], 1.5));
+    prims.push(footing(14.0, 9.0, [0.0, 0.0], 12.0));
 
     // Stone nave.
     prims.push(prim(

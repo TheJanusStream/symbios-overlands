@@ -9,8 +9,8 @@
 use std::f32::consts::TAU;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_x, quat_z, solid, sphere,
-    torus,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, quat_z,
+    solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -196,6 +196,9 @@ fn build_tree() -> Generator {
             quat_z(lean),
         ));
     }
+
+    // Buried footing under the fieldstone base.
+    prims.push(footing(3.0, 3.0, [0.0, 0.0], 4.0));
 
     let flame_y = deck_y + 1.0;
     let mut root = assemble(prims);

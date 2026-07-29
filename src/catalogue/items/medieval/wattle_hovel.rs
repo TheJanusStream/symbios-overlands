@@ -9,7 +9,7 @@
 
 use crate::catalogue::items::nordic::gable_roof;
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cuboid_tapered_xz, id_quat, prim, quat_z, solid,
+    assemble, cuboid_tapered, cuboid_tapered_xz, footing, id_quat, prim, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -79,6 +79,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    prims.push(footing(l + 0.8, w + 0.8, [0.0, 0.0], 6.0));
 
     // Steep heavy thatch (ridge ‖ X, A-frame slopes face ±Z) with a wide
     // overhang — replaces the old flat-topped frustum mound.

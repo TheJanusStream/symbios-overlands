@@ -10,8 +10,8 @@ use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::gothic_horror::pointed_arch;
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, plane, prim, quat_x, solid, sphere,
-    window_card, with_cut,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, plane, prim, quat_x, solid,
+    sphere, window_card, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -187,6 +187,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
+
+    // Buried footing under the stone base.
+    prims.push(footing(12.0, 8.0, [0.0, 0.0], 9.0));
 
     assemble(prims)
 }

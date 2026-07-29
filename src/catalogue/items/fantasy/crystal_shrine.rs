@@ -6,7 +6,7 @@
 //! [`assemble`], which reparents every piece under the plinth.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid, torus,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -163,6 +163,9 @@ fn build_tree() -> Generator {
         glow(RUNE_GOLD, 1.7),
     );
     prims.extend(runes);
+
+    // Buried footing under the broad step.
+    prims.push(footing(4.8, 4.8, [0.0, 0.0], 5.0));
 
     let mut root = assemble(prims);
     // Signature life: the crystal's shimmer and rising mana motes.

@@ -17,7 +17,7 @@
 use crate::catalogue::items::roadside::sign_board;
 use crate::catalogue::items::solarpunk::{crop_tufts, foliage};
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cuboid_tapered_xz, glow, id_quat, prim, solid, sphere,
+    assemble, cuboid_tapered, cuboid_tapered_xz, footing, glow, id_quat, prim, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -76,6 +76,10 @@ fn build_tree() -> Generator {
         [0.0, base_h * 0.5, 0.0],
         id_quat(),
     )];
+
+    // Buried footing under the apron, so a terrain-snapped gate on a slope
+    // shows plinth rather than daylight under its downhill edge.
+    prims.push(footing(5.6, 3.0, [0.0, 0.0], 3.5));
 
     // A brick paver runner bedded into the apron across the threshold, so the
     // crossing reads as a swept neighborhood entry walk, not bare concrete.

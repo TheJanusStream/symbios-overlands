@@ -8,7 +8,7 @@
 //! [`assemble`], which reparents every piece under the cob wall.
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, id_quat, prim, solid, torus,
+    assemble, cone, cuboid_tapered, cylinder_tapered, footing_disc, id_quat, prim, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -77,6 +77,9 @@ fn build_tree() -> Generator {
         [0.0, 0.2, 0.0],
         id_quat(),
     ));
+    // Buried plinth under that ring, so a slope-snapped house shows stone
+    // instead of daylight under its downhill edge.
+    prims.push(footing_disc(2.74, 6.0));
     // Eave ring beam where the overhanging roof springs from the wall top.
     prims.push(prim(
         solid(torus(0.12, 2.95, timber(TIMBER_WARM))),

@@ -11,7 +11,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, glow, id_quat, nest, pfp_panel, prim, quat_x, solid, torus,
+    cuboid_tapered, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel, prim, quat_x, solid,
+    torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -72,6 +73,10 @@ fn build_tree(did: &str) -> Generator {
     parts.push(nest(head_rail(), sign(did)));
     parts.push(life_ring(-1.4));
     parts.push(string_lamp(1.4));
+    // Buried footing under the kerb, sized to the drop this footprint spans
+    // (#1009) — authored around y=0 and rebased by `nest` like every other
+    // child.
+    parts.push(footing(3.6, 1.4, [0.0, 0.0], 2.6));
     nest(kerb, parts)
 }
 

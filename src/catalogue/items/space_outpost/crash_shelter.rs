@@ -13,8 +13,8 @@
 use std::f32::consts::{FRAC_PI_2, PI};
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_mul, quat_x,
-    quat_z, solid,
+    assemble, cone, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_mul,
+    quat_x, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -65,6 +65,8 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried plinth so a slope-snapped berm shows stone, not daylight.
+    prims.push(footing(4.8, 3.0, [0.0, 0.0], 7.0));
 
     // Scorched lander capsule laid along X (a child → rotation-safe).
     prims.push(prim(

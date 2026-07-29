@@ -8,8 +8,8 @@
 use std::f32::consts::{FRAC_PI_2, PI};
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, id_quat, prim, quat_x, quat_z,
-    solid, torus, tube, with_cut,
+    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, id_quat, prim, quat_x,
+    quat_z, solid, torus, tube, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -66,6 +66,9 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried footing under the engine house, so a terrain-snapped pump house on
+    // a slope shows plinth rather than daylight under its downhill wall.
+    prims.push(footing(7.0, 5.0, [0.0, 0.0], 7.0));
     // Brass cornice band + pitched iron gable roof (ridge along X).
     prims.push(prim(
         solid(cuboid_tapered([7.2, 0.3, 5.2], 0.0, brass(BRASS))),

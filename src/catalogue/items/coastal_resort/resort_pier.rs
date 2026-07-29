@@ -8,7 +8,7 @@
 //! [`assemble`], which reparents every piece under the deck.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_z, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -66,6 +66,10 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
     ];
+    // Buried footing under the deck's own plan, sized to the drop this
+    // footprint spans (#1009): the pilings bear on it, and it closes the gap
+    // a terrain-snapped placement leaves under the downhill edge.
+    prims.push(footing(4.0, length, [0.0, center_z], 8.0));
 
     // Concrete pilings in pairs marching out under the deck, each bent tied by
     // a cross-beam and a pair of diagonal braces.

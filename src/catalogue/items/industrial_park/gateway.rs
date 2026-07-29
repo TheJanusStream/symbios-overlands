@@ -11,7 +11,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_z, solid,
+    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -74,6 +74,7 @@ fn build_tree() -> Generator {
         [0.0, base_y * 0.5, 0.0],
         id_quat(),
     )];
+    prims.push(footing(6.0, 2.4, [0.0, 0.0], 3.5));
 
     // Two braced steel lattice pylons — plant steelwork, not fenceposts. The
     // helper builds a mast centred on the origin; shift each flat list out to
