@@ -197,13 +197,18 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // The single functional element: the walk-in zone centred in the opening,
-    // bottom at the slab top and headroom under the lintel.
+    // The single functional element, fitted to the opening (#1006): slab
+    // top to lintel underside, spanning the walk-through gap.
+    //
+    // The pylons are battered, so the mouth is narrowest where the tablero
+    // oversails and widest at the talud's foot. The veil reaches past the
+    // *narrowest* of those, which buries its sides at every height rather
+    // than leaving a wedge of daylight up the sloping face.
     prims.push(prim(
         GeneratorKind::Gateway {
-            size: Fp3([2.6, 3.2, 1.4]),
+            size: Fp3([3.02, 3.43, 1.10]),
         },
-        [0.0, 1.9, 0.0],
+        [0.0, 2.175, 0.0],
         id_quat(),
     ));
 

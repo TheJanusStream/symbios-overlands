@@ -175,13 +175,20 @@ fn build_tree() -> Generator {
         ));
     }
 
-    // The single walk-in zone in the intercolumniation: bottom at the
-    // stylobate tread, headroom up under the architrave.
+    // The single walk-in zone in the intercolumniation, fitted to it
+    // (#1006): stylobate tread to architrave underside, with its edges
+    // buried in the column shafts.
+    //
+    // A propylaea frames its opening with two *rows* of columns and open
+    // air between them, so a veil centred on the porch would have nothing
+    // to hide its edges in. It stands in the front row instead — the plane
+    // the approach reads as the doorway — running that row's depth, so the
+    // sides disappear into the shafts and the top under the architrave.
     prims.push(prim(
         GeneratorKind::Gateway {
-            size: Fp3([2.6, 3.2, 1.4]),
+            size: Fp3([2.92, 3.73, 0.75]),
         },
-        [0.0, 1.8, 0.0],
+        [0.0, 2.425, -0.625],
         id_quat(),
     ));
 

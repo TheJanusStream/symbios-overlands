@@ -594,3 +594,101 @@ pub(super) fn scatter_plot(room: &str, out: &std::path::Path) {
         Err(e) => eprintln!("cannot write {}: {e}", out.display()),
     }
 }
+
+/// Print the veil-fit report for every gateway entry (#1006), or just the
+/// one whose slug is given. For each gateway: the veil box, then per face
+/// whether it is buried in the frame and how far the nearest frame surface
+/// ahead of it sits — the numbers the per-theme fit is derived from.
+pub(super) fn print_gateway_fit(filter: &str) {
+    use crate::catalogue::items::gateway_fit::{Face, fit_faults, measure, probe, recommend};
+    use crate::catalogue::{ENTRIES, StructureRole};
+
+    let filter = filter.trim();
+    let want_all = filter.is_empty() || filter == "all";
+    let mut checked = 0usize;
+    let mut clean = 0usize;
+
+    for entry in ENTRIES {
+        if entry.role() != StructureRole::Gateway {
+            continue;
+        }
+        if !want_all && entry.slug() != filter {
+            continue;
+        }
+        let built = entry.build("did:plc:gatewayfit");
+        let Some(geo) = measure(&built) else {
+            println!("{}: no Gateway zone found", entry.slug());
+            continue;
+        };
+        checked += 1;
+
+        let v = geo.veil;
+        println!("\n=== {} ({})", entry.slug(), entry.name());
+        println!(
+            "  veil  size [{:.3}, {:.3}, {:.3}]  x {:.3}..{:.3}  y {:.3}..{:.3}  z {:.3}..{:.3}",
+            v.size().x,
+            v.size().y,
+            v.size().z,
+            v.min.x,
+            v.max.x,
+            v.min.y,
+            v.max.y,
+            v.min.z,
+            v.max.z
+        );
+        for p in probe(&geo) {
+            let cover = match &p.covered_by {
+                Some(s) => format!("buried in {} {:?}", s.kind_tag, s.path),
+                None => "OPEN AIR".to_string(),
+            };
+            let ahead = match &p.nearest_ahead {
+                Some((d, s)) => {
+                    format!("  nearest ahead {:+.3} m ({} {:?})", d, s.kind_tag, s.path)
+                }
+                None => String::new(),
+            };
+            println!(
+                "  {:<10} at {:+.3}  {cover}{ahead}",
+                p.face.label(),
+                p.veil_at
+            );
+        }
+        let want = recommend(&geo);
+        println!(
+            "  FIT -> size [{:.3}, {:.3}, {:.3}]  centre [{:.3}, {:.3}, {:.3}]  \
+             (dy {:+.3}, dz-centre {:+.3})",
+            want.size().x,
+            want.size().y,
+            want.size().z,
+            want.center().x,
+            want.center().y,
+            want.center().z,
+            want.center().y - v.center().y,
+            want.center().z - v.center().z,
+        );
+        let faults = fit_faults(&geo);
+        if faults.is_empty() {
+            clean += 1;
+            println!("  FIT OK");
+        } else {
+            for f in &faults {
+                println!("  FAULT [{}] {}", f.face.label(), f.detail);
+            }
+        }
+        // Depth reference: how deep the pieces burying the jambs run.
+        for face in [Face::Left, Face::Right] {
+            let p = face.center_of(&v);
+            if let Some(s) = geo.solids.iter().find(|s| s.bounds.contains(p, 1.0e-3)) {
+                println!(
+                    "  {} piece z {:.3}..{:.3} (veil z {:.3}..{:.3})",
+                    face.label(),
+                    s.bounds.min.z,
+                    s.bounds.max.z,
+                    v.min.z,
+                    v.max.z
+                );
+            }
+        }
+    }
+    println!("\n{clean}/{checked} gateways fit");
+}

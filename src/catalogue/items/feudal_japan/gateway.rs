@@ -187,10 +187,13 @@ fn build_tree() -> Generator {
     // The walk-in zone between the pillars: bottom near the footing top,
     // headroom under the nuki.
     prims.push(prim(
+        // Fitted to the opening (#1006): the veil spans the mouth and
+        // buries its edges in jamb, lintel and threshold, so no cuboid
+        // edge shows. Measured by `catalogue::items::gateway_fit`.
         GeneratorKind::Gateway {
-            size: Fp3([2.6, 3.2, 1.4]),
+            size: Fp3([2.88, 3.24, 0.60]),
         },
-        [0.0, 1.9, 0.0],
+        [0.0, 1.921, 0.0],
         id_quat(),
     ));
 

@@ -184,10 +184,13 @@ fn build_tree() -> Generator {
     // The walk-through zone between the columns: bottom at the slab top,
     // headroom under the veil strip. This is the only functional element.
     prims.push(prim(
+        // Fitted to the opening (#1006): the veil spans the mouth and
+        // buries its edges in jamb, lintel and threshold, so no cuboid
+        // edge shows. Measured by `catalogue::items::gateway_fit`.
         GeneratorKind::Gateway {
-            size: Fp3([2.6, 3.2, 1.4]),
+            size: Fp3([2.98, 3.77, 0.80]),
         },
-        [0.0, 1.95, 0.0],
+        [0.0, 2.233, 0.0],
         id_quat(),
     ));
 

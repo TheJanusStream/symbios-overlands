@@ -158,10 +158,13 @@ fn build_tree() -> Generator {
     // The walk-in zone between the piers: floor at the plinth top, headroom
     // under the lintel. Bare kind — the gateway takes no material.
     prims.push(prim(
+        // Fitted to the opening (#1006): the veil spans the mouth and
+        // buries its edges in jamb, lintel and threshold, so no cuboid
+        // edge shows. Measured by `catalogue::items::gateway_fit`.
         GeneratorKind::Gateway {
-            size: Fp3([2.6, 3.2, 1.4]),
+            size: Fp3([2.98, 3.47, 0.80]),
         },
-        [0.0, 1.95, 0.0],
+        [0.0, 2.055, 0.0],
         id_quat(),
     ));
 

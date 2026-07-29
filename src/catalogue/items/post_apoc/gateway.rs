@@ -183,13 +183,14 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // The walk-in zone centred in the opening: bottom at the slab top, headroom
-    // up to the valance / hazard board.
+    // Fitted to the opening (#1006): the veil spans the mouth and buries
+    // its edges in jamb, lintel and threshold, so no cuboid edge shows.
+    // Measured by `catalogue::items::gateway_fit`.
     prims.push(prim(
         GeneratorKind::Gateway {
-            size: Fp3([2.6, 3.2, 1.4]),
+            size: Fp3([2.93, 4.08, 0.55]),
         },
-        [0.0, slab_top + 1.6, 0.0],
+        [0.0, slab_top + 2.0, 0.0],
         id_quat(),
     ));
 

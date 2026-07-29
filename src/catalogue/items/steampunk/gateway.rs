@@ -242,10 +242,13 @@ fn build_tree() -> Generator {
     // The walk-in zone between the pylons: bottom at the plate top, headroom
     // under the lintel. The one functional element.
     prims.push(prim(
+        // Fitted to the opening (#1006): the veil spans the mouth and
+        // buries its edges in jamb, lintel and threshold, so no cuboid
+        // edge shows. Measured by `catalogue::items::gateway_fit`.
         GeneratorKind::Gateway {
-            size: Fp3([2.6, 3.2, 1.4]),
+            size: Fp3([3.16, 3.55, 0.72]),
         },
-        [0.0, 1.95, 0.0],
+        [0.0, 2.085, 0.0],
         id_quat(),
     ));
 

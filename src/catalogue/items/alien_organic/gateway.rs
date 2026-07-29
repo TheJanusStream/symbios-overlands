@@ -153,10 +153,15 @@ fn build_tree() -> Generator {
     // The walk-through maw: the one functional zone, centred in the opening
     // from the creep floor up under the brow.
     prims.push(prim(
+        // Fitted to the opening (#1006): the veil spans the mouth and
+        // buries its edges in jamb, palate and threshold, so no cuboid
+        // edge shows. The maw's overhang is the head of this opening — the
+        // veil stops just inside it rather than climbing into the mass
+        // above, which would only swell the box behind opaque flesh.
         GeneratorKind::Gateway {
-            size: Fp3([2.6, 3.2, 1.4]),
+            size: Fp3([2.60, 2.60, 0.88]),
         },
-        [0.0, 1.9, 0.0],
+        [0.0, 1.56, 0.0],
         id_quat(),
     ));
 

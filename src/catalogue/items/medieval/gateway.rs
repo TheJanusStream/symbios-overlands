@@ -263,10 +263,20 @@ fn build_tree() -> Generator {
     // ── The single functional zone: the walk-in gateway box, centred in the
     //    passage, floor-to-lintel. ──
     prims.push(prim(
+        // Fitted to the opening (#1006): the veil spans the passage and
+        // buries its edges in the towers, the slab and the curtain wall,
+        // so no cuboid edge shows.
+        //
+        // A round arch cannot be filled by a box. Stopping at the
+        // springline would draw the very edge this overhaul removes,
+        // straight across the opening — so the veil carries on up past the
+        // apex into the wall that sits on it, and the arch ribs read in
+        // front of the glow. That wall is the shallower piece, so the veil
+        // takes its depth rather than the towers'.
         GeneratorKind::Gateway {
-            size: Fp3([2.6, 3.2, 1.4]),
+            size: Fp3([2.68, 3.98, 1.00]),
         },
-        [0.0, 1.9, 0.0],
+        [0.0, 2.25, 0.0],
         id_quat(),
     ));
 

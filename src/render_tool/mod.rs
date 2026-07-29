@@ -42,8 +42,8 @@ mod text_tools;
 
 use headless::{Capture, Frames, RenderJob, Subject, drive, setup};
 use text_tools::{
-    analyze_session, diff_sessions, dump_road_graph, find_part, print_family_seeds, print_outfit,
-    room_census, scatter_census, scatter_plot,
+    analyze_session, diff_sessions, dump_road_graph, find_part, print_family_seeds,
+    print_gateway_fit, print_outfit, room_census, scatter_census, scatter_plot,
 };
 
 /// Camera yaw per tile (degrees), left→right: front, ¾, side, back. Avatars /
@@ -94,6 +94,12 @@ struct Args {
     /// then exit — finds render-verification seeds for a styled part.
     #[arg(long)]
     find_part: Option<String>,
+    /// Print the gateway veil-fit report (#1006) and exit: per gateway, the
+    /// translucent zone's box against the frame around it, naming any face
+    /// that floats in open air or juts past the mouth. Pass a slug to check
+    /// one gateway, or `all` for every one.
+    #[arg(long)]
+    gateway_fit: Option<String>,
     /// Catalogue subject: an entry slug (e.g. `villa`, `bench`, `wizard_tower`).
     #[arg(long)]
     catalogue: Option<String>,
@@ -265,6 +271,12 @@ pub fn run() {
     // `--find-part <slug>`: scan for seeds that roll a styled part and exit.
     if let Some(slug) = &args.find_part {
         find_part(slug, args.family_count);
+        return;
+    }
+
+    // `--gateway-fit <slug|all>`: print the veil-fit report and exit.
+    if let Some(slug) = &args.gateway_fit {
+        print_gateway_fit(slug);
         return;
     }
 

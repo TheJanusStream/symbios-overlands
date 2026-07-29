@@ -162,10 +162,13 @@ fn build_tree() -> Generator {
     // The walk-in zone standing in the opening: floor at the pad top, headroom
     // clearing the glow bar under the lintel.
     prims.push(prim(
+        // Fitted to the opening (#1006): the veil spans the mouth and
+        // buries its edges in jamb, lintel and threshold, so no cuboid
+        // edge shows. Measured by `catalogue::items::gateway_fit`.
         GeneratorKind::Gateway {
-            size: Fp3([2.6, 3.2, 1.4]),
+            size: Fp3([2.96, 3.65, 0.70]),
         },
-        [0.0, 1.95, 0.0],
+        [0.0, 2.112, 0.0],
         id_quat(),
     ));
 

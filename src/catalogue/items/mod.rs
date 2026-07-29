@@ -41,6 +41,7 @@ pub mod tools;
 pub mod wild_west;
 
 pub(crate) mod fx;
+pub mod gateway_fit;
 mod util;
 
 #[cfg(test)]

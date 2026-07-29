@@ -12,6 +12,7 @@
 //! border, floor runway and chevron run hot (`~5–6`) for a white-hot neon
 //! core with a coloured halo.
 
+use crate::catalogue::items::gateway_fit::EMBED;
 use crate::catalogue::items::util::{
     cuboid_tapered, foundation_block, glow, id_quat, prim, quat_z, solid, sphere,
 };
@@ -203,12 +204,17 @@ fn build_tree() -> Generator {
     }
 
     // ---- The functional zone --------------------------------------------
-    // Bottom at the slab top, spanning floor-to-header through the mouth.
+    // Fitted to the opening (#1006): the veil fills the mouth exactly —
+    // pylon inner faces left and right, slab top to header underside — and
+    // buries each edge `EMBED` into that frame so no cuboid edge shows. It
+    // runs the pylons' own depth, so it never juts out of the mouth.
+    // Derived from the frame constants above rather than written as
+    // literals, so retuning the pylons keeps the veil fitted.
     root.children.push(prim(
         GeneratorKind::Gateway {
-            size: Fp3([2.6, 3.2, 1.4]),
+            size: Fp3([2.0 * px - pw + 2.0 * EMBED, top - slab_h + 2.0 * EMBED, pd]),
         },
-        [0.0, rel(slab_h + 1.75), 0.0],
+        [0.0, rel((slab_h + top) * 0.5), 0.0],
         id_quat(),
     ));
 

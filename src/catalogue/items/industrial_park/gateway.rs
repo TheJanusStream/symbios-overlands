@@ -159,13 +159,23 @@ fn build_tree() -> Generator {
         prims.extend(gauge_plate([sx * cx, 2.4, front + 0.2], 0.2, LAMP_AMBER));
     }
 
-    // The walk-in zone, centred in the opening: floor at the apron top, head
-    // clearing the truss. This is the gate's only functional element.
+    // The gate's only functional element, fitted to the opening (#1006):
+    // apron top to girder underside, edges on the pylons' inner leg line.
+    //
+    // A lattice mast has no solid jamb to bury an edge in — only legs — so
+    // the veil sits in the plane of the front pair, where its sides run
+    // down inside those legs instead of hanging in the open steelwork. That
+    // is also the `front` hero face the signage rides.
+    //
+    // Its depth is pinned between two limits: the girder it tucks under
+    // reaches z ±0.4, the front legs lean back no further than ≈ −0.15, and
+    // the record sanitiser floors any zone axis at 0.25 m. That leaves
+    // exactly one band, and this is it — do not thin it further.
     prims.push(prim(
         GeneratorKind::Gateway {
-            size: Fp3([2.6, 3.2, 1.4]),
+            size: Fp3([3.30, 4.48, 0.25]),
         },
-        [0.0, 1.9, 0.0],
+        [0.0, 2.5, -0.275],
         id_quat(),
     ));
 
