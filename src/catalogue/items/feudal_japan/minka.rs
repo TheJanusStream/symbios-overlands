@@ -5,7 +5,7 @@
 //! axis (`Poor`), so a destitute room grows this instead of the temple.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cuboid_tapered_xz, footing, id_quat, prim, solid,
+    assemble, attach, cuboid_tapered, cuboid_tapered_xz, footing, id_quat, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -200,10 +200,10 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: hearth smoke seeping from the ridge.
-    root.children.push(fx::hearth_smoke(
-        [ridge_x, wall_top + roof_h + 0.2, 0.0],
-        0x70F0_CE11,
-    ));
+    attach(
+        &mut root,
+        fx::hearth_smoke([ridge_x, wall_top + roof_h + 0.2, 0.0], 0x70F0_CE11),
+    );
     root
 }
 

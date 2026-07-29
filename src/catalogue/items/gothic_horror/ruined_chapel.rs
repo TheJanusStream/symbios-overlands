@@ -11,7 +11,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, quat_z, solid,
+    assemble, attach, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, quat_z,
+    solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -185,8 +186,10 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: graveyard mist creeping through the ruin.
-    root.children
-        .push(fx::ground_mist([0.0, 0.3, zf - 2.0], 0x60F0_C40E));
+    attach(
+        &mut root,
+        fx::ground_mist([0.0, 0.3, zf - 2.0], 0x60F0_C40E),
+    );
     root
 }
 

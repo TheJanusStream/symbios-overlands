@@ -5,7 +5,7 @@
 use std::f32::consts::TAU;
 
 use crate::catalogue::items::util::{
-    assemble, cylinder_tapered, glow, id_quat, prim, quat_mul, quat_x, quat_y, solid, torus,
+    assemble, attach, cylinder_tapered, glow, id_quat, prim, quat_mul, quat_x, quat_y, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -101,8 +101,10 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: the beacon flame.
-    root.children
-        .push(fx::fire_flame([0.0, pole_h + 0.9, 0.0], 0x0A57_F2E2));
+    attach(
+        &mut root,
+        fx::fire_flame([0.0, pole_h + 0.9, 0.0], 0x0A57_F2E2),
+    );
     root
 }
 

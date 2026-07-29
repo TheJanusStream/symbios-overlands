@@ -6,8 +6,8 @@
 use std::f32::consts::TAU;
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_y, solid, sphere,
-    torus, with_cut,
+    assemble, attach, cone, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_y, solid,
+    sphere, torus, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -147,9 +147,11 @@ fn build_tree() -> Generator {
     // Signature life: leaping flame, lofted embers, and a fire crackle.
     let mut flame = fx::sacred_flame([0.0, flame_y, 0.0], 0xF1A0_B0E1);
     flame.audio = fx::fire_crackle();
-    root.children.push(flame);
-    root.children
-        .push(fx::fire_embers([0.0, flame_y + 0.3, 0.0], 0xE3BE_B0E1));
+    attach(&mut root, flame);
+    attach(
+        &mut root,
+        fx::fire_embers([0.0, flame_y + 0.3, 0.0], 0xE3BE_B0E1),
+    );
     root
 }
 

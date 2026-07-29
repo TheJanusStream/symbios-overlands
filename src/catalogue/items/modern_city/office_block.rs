@@ -14,7 +14,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, footing, glow, id_quat, plane, prim, quat_x, solid, window_card,
+    assemble, attach, cuboid_tapered, footing, glow, id_quat, plane, prim, quat_x, solid,
+    window_card,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Generator, SovereignMaterialSettings};
@@ -357,10 +358,10 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: the rooftop unit steaming with a steady hum.
-    root.children.push(fx::vent_steam(
-        [-2.5, base_h + body_h + 2.4, 1.6],
-        0x0FF1_CE10,
-    ));
+    attach(
+        &mut root,
+        fx::vent_steam([-2.5, base_h + body_h + 2.4, 1.6], 0x0FF1_CE10),
+    );
     root.audio = fx::ac_hum();
     root
 }

@@ -6,8 +6,8 @@
 use std::f32::consts::TAU;
 
 use crate::catalogue::items::util::{
-    assemble, cone, cylinder_tapered, glow, id_quat, prim, prim_scaled, quat_z, solid, sphere,
-    torus, with_cut,
+    assemble, attach, cone, cylinder_tapered, glow, id_quat, prim, prim_scaled, quat_z, solid,
+    sphere, torus, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -104,8 +104,7 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: spores venting up out of the throat.
-    root.children
-        .push(fx::spore_drift([0.0, 1.1, 0.0], 0x0A11_5E12));
+    attach(&mut root, fx::spore_drift([0.0, 1.1, 0.0], 0x0A11_5E12));
     root
 }
 

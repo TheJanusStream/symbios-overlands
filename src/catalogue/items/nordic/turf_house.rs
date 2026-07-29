@@ -6,7 +6,7 @@
 //! prosperity axis (`Poor`), so a destitute Nordic room grows this instead.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cuboid_tapered_xz, footing, glow, id_quat, prim, solid,
+    assemble, attach, cuboid_tapered, cuboid_tapered_xz, footing, glow, id_quat, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -136,10 +136,10 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: peat smoke seeping from the roof hole.
-    root.children.push(fx::hearth_smoke(
-        [hole_x, wall_top + roof_h + 0.3, 0.0],
-        0x70F0_DA11,
-    ));
+    attach(
+        &mut root,
+        fx::hearth_smoke([hole_x, wall_top + roof_h + 0.3, 0.0], 0x70F0_DA11),
+    );
     root
 }
 

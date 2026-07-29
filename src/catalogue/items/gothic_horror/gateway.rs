@@ -14,8 +14,8 @@
 //! [`assemble`], which reparents every piece under the flagstone base.
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, id_quat, prim,
-    quat_z, solid, sphere,
+    assemble, attach, cone, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, id_quat,
+    prim, quat_z, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -192,8 +192,10 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: cold graveyard mist creeping at the gate's foot.
-    root.children
-        .push(fx::ground_mist([0.0, 0.3, zf - 1.0], 0x60F0_1CE7));
+    attach(
+        &mut root,
+        fx::ground_mist([0.0, 0.3, zf - 1.0], 0x60F0_1CE7),
+    );
     root
 }
 

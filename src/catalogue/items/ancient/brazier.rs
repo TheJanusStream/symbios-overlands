@@ -4,7 +4,7 @@
 //! the trim escalation's ruin pass snuffs to a cold dead bowl.
 
 use crate::catalogue::items::util::{
-    assemble, cylinder_tapered, glow, id_quat, prim, solid, torus,
+    assemble, attach, cylinder_tapered, glow, id_quat, prim, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -93,10 +93,14 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: a low flame and drifting embers off the coals.
-    root.children
-        .push(fx::brazier_flame([0.0, bowl_y + 0.4, 0.0], 0x00F1_A3E0));
-    root.children
-        .push(fx::brazier_embers([0.0, bowl_y + 0.5, 0.0], 0x0E3B_E0A1));
+    attach(
+        &mut root,
+        fx::brazier_flame([0.0, bowl_y + 0.4, 0.0], 0x00F1_A3E0),
+    );
+    attach(
+        &mut root,
+        fx::brazier_embers([0.0, bowl_y + 0.5, 0.0], 0x0E3B_E0A1),
+    );
     root
 }
 

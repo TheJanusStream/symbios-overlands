@@ -5,7 +5,7 @@
 use std::f32::consts::TAU;
 
 use crate::catalogue::items::util::{
-    assemble, cylinder_tapered, footing_disc, id_quat, prim, solid, torus,
+    assemble, attach, cylinder_tapered, footing_disc, id_quat, prim, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -116,7 +116,7 @@ fn build_tree() -> Generator {
     // Signature life: a fat steam plume off the rim, hissing.
     let mut steam = fx::cooling_steam([0.0, rim + 1.0, 0.0], 0xC001_5EE0);
     steam.audio = fx::steam_hiss();
-    root.children.push(steam);
+    attach(&mut root, steam);
     root
 }
 

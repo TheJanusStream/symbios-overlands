@@ -8,7 +8,8 @@
 //! `id_quat`).
 
 use crate::catalogue::items::util::{
-    assemble, cylinder_tapered, footing_disc, glow, id_quat, prim, prim_scaled, solid, sphere,
+    assemble, attach, cylinder_tapered, footing_disc, glow, id_quat, prim, prim_scaled, solid,
+    sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -108,8 +109,7 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: spores drifting off the brood.
-    root.children
-        .push(fx::spore_drift([0.0, 1.0, 0.0], 0x0A11_9012));
+    attach(&mut root, fx::spore_drift([0.0, 1.0, 0.0], 0x0A11_9012));
     root
 }
 

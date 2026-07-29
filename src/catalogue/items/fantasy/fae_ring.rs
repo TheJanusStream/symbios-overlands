@@ -9,8 +9,8 @@
 use std::f32::consts::TAU;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, footing_disc, glow, id_quat, prim, quat_z, solid,
-    torus,
+    assemble, attach, cuboid_tapered, cylinder_tapered, footing_disc, glow, id_quat, prim, quat_z,
+    solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -105,11 +105,9 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: mana motes rising from the ring centre.
-    root.children
-        .push(fx::mana_motes([0.0, 0.5, 0.0], 0x0A1A_FA12));
+    attach(&mut root, fx::mana_motes([0.0, 0.5, 0.0], 0x0A1A_FA12));
     // The ring's own signature: slow pulses spreading across the sward.
-    root.children
-        .push(fx::ring_pulse([0.0, 0.08, 0.0], 0x0A1A_FA13));
+    attach(&mut root, fx::ring_pulse([0.0, 0.08, 0.0], 0x0A1A_FA13));
     root
 }
 

@@ -495,6 +495,75 @@ pub fn by_slug(slug: &str) -> Option<&'static dyn CatalogueEntry> {
 mod tests {
     use super::*;
 
+    /// No entry pushes a child straight onto an assembled root (#1010).
+    ///
+    /// [`util::assemble`] and [`util::nest`] rebase the pieces handed to
+    /// them out of the prop's ground frame; a child pushed onto the
+    /// finished root afterwards is read in the root's *local* frame and
+    /// never rebased, so it silently lands one root-height out. This
+    /// shipped 65 times across 54 entries before it was caught — an
+    /// emitter as much as 2.5 m off — because the offending line reads
+    /// perfectly and nothing about the result looks broken in isolation.
+    ///
+    /// Since intent lives in the author's head rather than the built
+    /// tree, this reads the sources: the call is simply banned in files
+    /// that assemble their root, and [`util::attach`] is the way to add
+    /// one more piece.
+    #[test]
+    fn no_entry_pushes_onto_an_assembled_root() {
+        fn rs_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(dir)
+                .expect("catalogue items dir")
+                .flatten()
+            {
+                let p = e.path();
+                if p.is_dir() {
+                    rs_files(&p, out);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    out.push(p);
+                }
+            }
+        }
+        let root_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/catalogue/items");
+        let mut files = Vec::new();
+        rs_files(&root_dir, &mut files);
+        assert!(files.len() > 100, "only found {} sources", files.len());
+
+        let mut offenders = Vec::new();
+        for path in files {
+            // `util.rs` defines the idiom, and shows the wrong call in
+            // `attach`'s docs precisely so authors recognise it.
+            if path.file_name().is_some_and(|n| n == "util.rs") {
+                continue;
+            }
+            let src = std::fs::read_to_string(&path).expect("read source");
+            if !src.contains("= assemble(") && !src.contains("= nest(") {
+                continue;
+            }
+            // Whitespace-insensitive: rustfmt splits the call across lines.
+            let flat: String = src.split_whitespace().collect::<Vec<_>>().join(" ");
+            // Assembled from parts so this file does not match itself.
+            let banned = ["root.children", ".push("].concat();
+            let banned_split = ["root.children", " .push("].concat();
+            if flat.contains(&banned) || flat.contains(&banned_split) {
+                offenders.push(
+                    path.strip_prefix(&root_dir)
+                        .unwrap_or(&path)
+                        .display()
+                        .to_string(),
+                );
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "{} entr(y/ies) push onto an assembled root instead of using \
+             `util::attach`, so the child is never rebased out of the \
+             ground frame:\n  {}",
+            offenders.len(),
+            offenders.join("\n  ")
+        );
+    }
+
     #[test]
     fn slugs_are_unique() {
         let mut slugs: Vec<&str> = ENTRIES.iter().map(|e| e.slug()).collect();

@@ -28,7 +28,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    self, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, glow, id_quat,
+    self, attach, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, glow, id_quat,
     lit_interior, nest, plane, prim, quat_x, solid, window_card, with_face,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
@@ -265,10 +265,10 @@ fn build_tree() -> Generator {
         vec![shell(), porch(), footing(W + 0.6, D + 0.6, [0.0, 0.0], 9.0)],
     );
     // Signature life: hearth smoke off the gable-end chimney.
-    root.children.push(fx::chimney_smoke(
-        [chimney_x(), chimney_top() + 0.5, -0.6],
-        0x0FA1_5E11,
-    ));
+    attach(
+        &mut root,
+        fx::chimney_smoke([chimney_x(), chimney_top() + 0.5, -0.6], 0x0FA1_5E11),
+    );
     root
 }
 

@@ -10,8 +10,8 @@ use crate::catalogue::items::civic_campus::column;
 use crate::catalogue::items::roadside::{SIGN_AMBER, sign_board};
 use crate::catalogue::items::solarpunk::{crop_tufts, foliage};
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, plane, prim, quat_x, solid,
-    sphere, window_card,
+    assemble, attach, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, plane, prim,
+    quat_x, solid, sphere, window_card,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -387,8 +387,10 @@ fn build_tree() -> Generator {
     let mut root = assemble(prims);
     // Signature life: birdsong over the lawn and a sprinkler misting it.
     root.audio = fx::birdsong();
-    root.children
-        .push(fx::sprinkler_mist([6.0, 0.4, front - 5.0], 0x5B19_DA11));
+    attach(
+        &mut root,
+        fx::sprinkler_mist([6.0, 0.4, front - 5.0], 0x5B19_DA11),
+    );
     root
 }
 

@@ -14,7 +14,8 @@
 //! [`assemble`], which reparents every piece under the threshold slab.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, solid, sphere, torus,
+    assemble, attach, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, solid,
+    sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -197,10 +198,14 @@ fn build_tree() -> Generator {
     // Signature life: an ethereal arcane hum, mana motes rising through the
     // opening, and sparkles crackling around the crowning orb.
     root.audio = fx::arcane_hum();
-    root.children
-        .push(fx::mana_motes([0.0, slab_top + 0.4, 0.0], 0x0756_0A17));
-    root.children
-        .push(fx::arcane_sparkle([0.0, orb_y, -0.08], 0x0756_0B23));
+    attach(
+        &mut root,
+        fx::mana_motes([0.0, slab_top + 0.4, 0.0], 0x0756_0A17),
+    );
+    attach(
+        &mut root,
+        fx::arcane_sparkle([0.0, orb_y, -0.08], 0x0756_0B23),
+    );
     root
 }
 

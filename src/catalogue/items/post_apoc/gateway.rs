@@ -15,8 +15,8 @@
 //! hazard board and beacon face the approaching player.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, quat_z,
-    solid, sphere, torus, tube,
+    assemble, attach, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x,
+    quat_z, solid, sphere, torus, tube,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -198,8 +198,7 @@ fn build_tree() -> Generator {
     // Signature life: the desolate wasteland wind and a low drift of ash
     // through the gate mouth.
     root.audio = fx::desolate_wind();
-    root.children
-        .push(fx::ash_drift([0.0, 0.7, -1.0], 0x0A57_6A7E));
+    attach(&mut root, fx::ash_drift([0.0, 0.7, -1.0], 0x0A57_6A7E));
     root
 }
 

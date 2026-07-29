@@ -13,8 +13,8 @@
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use crate::catalogue::items::util::{
-    assemble, cone, cylinder_tapered, footing_disc, glow, id_quat, prim, quat_x, solid, sphere,
-    torus,
+    assemble, attach, cone, cylinder_tapered, footing_disc, glow, id_quat, prim, quat_x, solid,
+    sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -175,8 +175,7 @@ fn build_tree() -> Generator {
     let mut root = assemble(prims);
     // Signature life: the hive's pulse and drifting spores.
     root.audio = fx::bio_pulse();
-    root.children
-        .push(fx::spore_drift([0.0, 2.0, 4.0], 0x0A11_8112));
+    attach(&mut root, fx::spore_drift([0.0, 2.0, 4.0], 0x0A11_8112));
     root
 }
 

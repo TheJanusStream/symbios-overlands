@@ -9,8 +9,8 @@
 use std::f32::consts::TAU;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, quat_z,
-    solid, sphere, torus,
+    assemble, attach, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x,
+    quat_z, solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -203,10 +203,14 @@ fn build_tree() -> Generator {
     let flame_y = deck_y + 1.0;
     let mut root = assemble(prims);
     // Signature life: leaping flame and embers carried up off the fire.
-    root.children
-        .push(fx::beacon_flame([0.0, flame_y, 0.0], 0xB3AC_0F12));
-    root.children
-        .push(fx::rising_embers([0.0, flame_y + 0.3, 0.0], 0xE3BE_0F12));
+    attach(
+        &mut root,
+        fx::beacon_flame([0.0, flame_y, 0.0], 0xB3AC_0F12),
+    );
+    attach(
+        &mut root,
+        fx::rising_embers([0.0, flame_y + 0.3, 0.0], 0xE3BE_0F12),
+    );
     root
 }
 

@@ -6,7 +6,7 @@
 
 use crate::catalogue::items::nordic::gable_roof;
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, solid,
+    assemble, attach, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -136,10 +136,10 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: thin stovepipe smoke.
-    root.children.push(fx::chimney_smoke(
-        [pipe_x, wall_top + 1.8, -1.0],
-        0x70F0_5E22,
-    ));
+    attach(
+        &mut root,
+        fx::chimney_smoke([pipe_x, wall_top + 1.8, -1.0], 0x70F0_5E22),
+    );
     root
 }
 

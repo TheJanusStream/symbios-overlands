@@ -6,8 +6,8 @@
 //! across the home region.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_y, solid,
-    sphere, torus, wedge,
+    assemble, attach, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_y,
+    solid, sphere, torus, wedge,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -222,8 +222,10 @@ fn build_tree() -> Generator {
     let eave_y = plinth_h + 4.0;
     let mut root = assemble(prims);
     // Signature life: blossom shed from the lowest eaves above the bell.
-    root.children
-        .push(fx::falling_petals([0.0, eave_y, 0.0], 0x9A60_DA11));
+    attach(
+        &mut root,
+        fx::falling_petals([0.0, eave_y, 0.0], 0x9A60_DA11),
+    );
     root
 }
 

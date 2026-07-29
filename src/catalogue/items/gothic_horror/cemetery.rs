@@ -7,8 +7,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, solid, torus,
-    with_cut,
+    assemble, attach, cone, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x,
+    solid, torus, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -200,8 +200,7 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: mist pooling between the rows.
-    root.children
-        .push(fx::ground_mist([0.0, 0.3, 0.0], 0x60F0_CE12));
+    attach(&mut root, fx::ground_mist([0.0, 0.3, 0.0], 0x60F0_CE12));
     root
 }
 

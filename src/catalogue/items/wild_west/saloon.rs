@@ -15,7 +15,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, footing, glow, id_quat, plane, prim, quat_x, solid, sphere,
+    assemble, attach, cuboid_tapered, footing, glow, id_quat, plane, prim, quat_x, solid, sphere,
     window_card,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
@@ -469,8 +469,10 @@ fn build_tree() -> Generator {
     let mut root = assemble(prims);
     // Signature life: a dry prairie wind, dust skating the street.
     root.audio = fx::prairie_wind();
-    root.children
-        .push(fx::dust_drift([0.0, 0.3, front_z - 3.5], 0x0DE5_5A12));
+    attach(
+        &mut root,
+        fx::dust_drift([0.0, 0.3, front_z - 3.5], 0x0DE5_5A12),
+    );
     root
 }
 

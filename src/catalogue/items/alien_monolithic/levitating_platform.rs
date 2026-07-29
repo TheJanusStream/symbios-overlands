@@ -8,7 +8,8 @@
 
 use crate::catalogue::items::fantasy::rune_marks;
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, footing_disc, glow, id_quat, prim, solid, torus,
+    assemble, attach, cuboid_tapered, cylinder_tapered, footing_disc, glow, id_quat, prim, solid,
+    torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -107,8 +108,7 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: energy motes rising in the levitation field.
-    root.children
-        .push(fx::energy_motes([0.0, 1.2, 0.0], 0x0A30_9012));
+    attach(&mut root, fx::energy_motes([0.0, 1.2, 0.0], 0x0A30_9012));
     root
 }
 

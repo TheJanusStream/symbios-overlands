@@ -118,6 +118,40 @@ pub(super) fn nest(mut parent: Generator, children: Vec<Generator>) -> Generator
     parent
 }
 
+/// Add one more child to an already-[`assemble`]d or [`nest`]ed root,
+/// rebasing it out of the prop's ground frame the same way they do
+/// (#1010).
+///
+/// The trap this closes: `assemble` and `nest` rebase the pieces handed
+/// *to* them, but a child pushed onto the finished root afterwards is
+/// read in the root's own local space and never rebased — so geometry
+/// authored in the prop's ground frame, from the same constants as
+/// everything else, silently lands one root-height out. It is an easy
+/// mistake to make because the signature line reads perfectly:
+///
+/// ```ignore
+/// let mut root = assemble(prims);
+/// root.children.push(fx::hearth_smoke([x, wall_top + roof_h, 0.0], seed));
+/// //                                      ^ ground-frame constants, local-frame slot
+/// ```
+///
+/// Reach for this instead of `root.children.push` whenever the child is
+/// authored in the same frame as the prims — signature FX are the usual
+/// case, since they hang off a chimney or a hearth the prims placed.
+///
+/// Like its two siblings this rebases translation only. A root carrying a
+/// non-identity scale or rotation still propagates it to everything
+/// beneath, including this child.
+pub(super) fn attach(root: &mut Generator, child: Generator) {
+    let [rx, ry, rz] = root.transform.translation.0;
+    let mut child = child;
+    let t = &mut child.transform.translation.0;
+    t[0] -= rx;
+    t[1] -= ry;
+    t[2] -= rz;
+    root.children.push(child);
+}
+
 /// Rotation around X — tilts ramps and dome slits.
 pub(super) fn quat_x(angle_rad: f32) -> Fp4 {
     let half = angle_rad * 0.5;
@@ -1864,6 +1898,81 @@ pub(super) fn has_emissive(g: &crate::pds::Generator) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// [`attach`] lands a ground-frame child where it was authored, which
+    /// a raw `push` onto the same root does not (#1010).
+    #[test]
+    fn attach_rebases_a_child_the_way_assemble_would() {
+        let mat = SovereignMaterialSettings::default();
+        let base = prim(
+            solid(cuboid_tapered([4.0, 0.4, 4.0], 0.0, mat.clone())),
+            [0.0, 0.2, 0.0],
+            id_quat(),
+        );
+        // Authored in the prop's ground frame, 3 m up.
+        let authored = [0.5, 3.0, -1.0];
+
+        let mut root = assemble(vec![base.clone()]);
+        attach(
+            &mut root,
+            prim(
+                solid(cuboid_tapered([0.2; 3], 0.0, mat.clone())),
+                authored,
+                id_quat(),
+            ),
+        );
+        let child = &root.children[0];
+        // World = root + local, so the local must be authored − root.
+        let world: Vec<f32> = (0..3)
+            .map(|i| root.transform.translation.0[i] + child.transform.translation.0[i])
+            .collect();
+        for i in 0..3 {
+            assert!(
+                (world[i] - authored[i]).abs() < 1e-5,
+                "axis {i}: landed at {} not {}",
+                world[i],
+                authored[i]
+            );
+        }
+
+        // The raw push it replaces lands a whole root-height out.
+        let mut naive = assemble(vec![base]);
+        naive.children.push(prim(
+            solid(cuboid_tapered([0.2; 3], 0.0, mat)),
+            authored,
+            id_quat(),
+        ));
+        let naive_world_y =
+            naive.transform.translation.0[1] + naive.children[0].transform.translation.0[1];
+        assert!(
+            (naive_world_y - authored[1]).abs() > 0.19,
+            "fixture should show the un-rebased error"
+        );
+    }
+
+    /// It composes with [`nest`] roots too — the barn/farmhouse idiom.
+    #[test]
+    fn attach_works_on_a_nested_root() {
+        let mat = SovereignMaterialSettings::default();
+        let parent = prim(
+            solid(cuboid_tapered([2.0, 1.0, 2.0], 0.0, mat.clone())),
+            [1.0, 0.5, 2.0],
+            id_quat(),
+        );
+        let mut root = nest(parent, vec![]);
+        attach(
+            &mut root,
+            prim(
+                solid(cuboid_tapered([0.2; 3], 0.0, mat)),
+                [1.0, 4.0, 2.0],
+                id_quat(),
+            ),
+        );
+        let c = &root.children[0].transform.translation.0;
+        assert!((c[0] - 0.0).abs() < 1e-5, "{c:?}");
+        assert!((c[1] - 3.5).abs() < 1e-5, "{c:?}");
+        assert!((c[2] - 0.0).abs() < 1e-5, "{c:?}");
+    }
 
     fn tinted(c: [f32; 3]) -> SovereignMaterialSettings {
         SovereignMaterialSettings {

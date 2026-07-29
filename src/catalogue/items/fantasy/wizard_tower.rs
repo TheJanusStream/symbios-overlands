@@ -13,8 +13,8 @@ use std::f32::consts::{FRAC_PI_2, TAU};
 
 use crate::catalogue::items::gothic_horror::pointed_arch;
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, plane, prim, quat_x,
-    solid, sphere, torus, window_card,
+    assemble, attach, cone, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, plane, prim,
+    quat_x, solid, sphere, torus, window_card,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -218,8 +218,10 @@ fn build_tree() -> Generator {
     let mut root = assemble(prims);
     // Signature life: an arcane hum, sparkles whirling around the orb.
     root.audio = fx::arcane_hum();
-    root.children
-        .push(fx::arcane_sparkle([0.0, shaft_top + 5.2, 0.0], 0x0A5C_0B12));
+    attach(
+        &mut root,
+        fx::arcane_sparkle([0.0, shaft_top + 5.2, 0.0], 0x0A5C_0B12),
+    );
     root
 }
 

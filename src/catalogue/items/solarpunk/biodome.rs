@@ -13,8 +13,8 @@ use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::space_outpost::dome_ribs;
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, footing_disc, glow, id_quat, plane, prim, quat_x,
-    solid, sphere, torus, window_card, with_cut,
+    assemble, attach, cuboid_tapered, cylinder_tapered, footing_disc, glow, id_quat, plane, prim,
+    quat_x, solid, sphere, torus, window_card, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -163,8 +163,10 @@ fn build_tree() -> Generator {
     let mut root = assemble(prims);
     // Signature life: clean-air breeze and drifting pollen.
     root.audio = fx::breeze_calm();
-    root.children
-        .push(fx::pollen_drift([0.0, ring_top + 2.0, 0.0], 0x501A_D03E));
+    attach(
+        &mut root,
+        fx::pollen_drift([0.0, ring_top + 2.0, 0.0], 0x501A_D03E),
+    );
     root
 }
 

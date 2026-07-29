@@ -11,7 +11,8 @@
 //! under the stone footing.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cuboid_tapered_xz, footing, glow, id_quat, prim, quat_x, solid,
+    assemble, attach, cuboid_tapered, cuboid_tapered_xz, footing, glow, id_quat, prim, quat_x,
+    solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -242,10 +243,10 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: woodsmoke from the louver, the hall's low wind moan.
-    root.children.push(fx::hearth_smoke(
-        [louver_x, ridge_y + 0.5, 0.0],
-        0x4EAD_DA11,
-    ));
+    attach(
+        &mut root,
+        fx::hearth_smoke([louver_x, ridge_y + 0.5, 0.0], 0x4EAD_DA11),
+    );
     root.audio = fx::wind_moan();
     root
 }

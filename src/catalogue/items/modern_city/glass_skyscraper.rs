@@ -7,8 +7,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, plane, prim, quat_x,
-    quat_z, solid, sphere, window_card,
+    assemble, attach, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, plane, prim,
+    quat_x, quat_z, solid, sphere, window_card,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -312,8 +312,10 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: a rooftop AC unit steaming, with its steady hum.
-    root.children
-        .push(fx::vent_steam([-2.4, roof_y + 2.0, -2.2], 0xC17_57EA));
+    attach(
+        &mut root,
+        fx::vent_steam([-2.4, roof_y + 2.0, -2.2], 0xC17_57EA),
+    );
     root.audio = fx::ac_hum();
     root
 }

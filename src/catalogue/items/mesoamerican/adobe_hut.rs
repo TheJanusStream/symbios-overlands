@@ -5,7 +5,7 @@
 //! room grows this instead of the temple-mountain.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, solid, sphere,
+    assemble, attach, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -195,10 +195,10 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: hearth smoke seeping from the ridge.
-    root.children.push(fx::hearth_smoke(
-        [2.0, wall_top + roof_h + 0.1, 0.0],
-        0x70F0_5E11,
-    ));
+    attach(
+        &mut root,
+        fx::hearth_smoke([2.0, wall_top + roof_h + 0.1, 0.0], 0x70F0_5E11),
+    );
     root
 }
 

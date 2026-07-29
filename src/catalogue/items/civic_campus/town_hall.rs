@@ -12,8 +12,8 @@
 
 use crate::catalogue::items::space_outpost::dome_ribs;
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, glow, id_quat, prim,
-    solid, sphere, torus, with_cut,
+    assemble, attach, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, glow, id_quat,
+    prim, solid, sphere, torus, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -179,8 +179,7 @@ fn build_tree() -> Generator {
     let mut root = assemble(prims);
     // Signature life: a calm quad bed and drifting seed-fluff out front.
     root.audio = fx::campus_calm();
-    root.children
-        .push(fx::seed_drift([0.0, 1.5, fz * 9.0], 0x0C1F_5A11));
+    attach(&mut root, fx::seed_drift([0.0, 1.5, fz * 9.0], 0x0C1F_5A11));
     root
 }
 

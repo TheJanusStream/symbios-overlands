@@ -10,7 +10,7 @@
 //! under the pitch.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, solid, torus,
+    assemble, attach, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -169,8 +169,7 @@ fn build_tree() -> Generator {
     let mut root = assemble(prims);
     // Signature life: the crowd murmur in the stands, dust over the pitch.
     root.audio = fx::crowd_murmur();
-    root.children
-        .push(fx::field_dust([0.0, 1.0, 0.0], 0x05F0_5A11));
+    attach(&mut root, fx::field_dust([0.0, 1.0, 0.0], 0x05F0_5A11));
     root
 }
 

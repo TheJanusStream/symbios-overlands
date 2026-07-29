@@ -15,7 +15,7 @@
 //! under the forecourt plinth.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, footing, glow, id_quat, prim, solid, torus,
+    assemble, attach, cuboid_tapered, footing, glow, id_quat, prim, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -179,8 +179,7 @@ fn build_tree() -> Generator {
     // Signature life: the gate hums with the monolith array's voice, energy
     // motes rising through the charged threshold.
     root.audio = fx::monolith_hum();
-    root.children
-        .push(fx::energy_motes([0.0, 0.5, 0.0], 0x0A30_9A71));
+    attach(&mut root, fx::energy_motes([0.0, 0.5, 0.0], 0x0A30_9A71));
     root
 }
 

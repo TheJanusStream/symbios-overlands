@@ -16,8 +16,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, quat_z,
-    solid, sphere, torus, tube,
+    assemble, attach, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x,
+    quat_z, solid, sphere, torus, tube,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -258,10 +258,8 @@ fn build_tree() -> Generator {
     let mut root = assemble(prims);
     // Signature life: the aether engine's chug, steam venting from both risers.
     root.audio = fx::engine_chug();
-    root.children
-        .push(fx::steam_vent([2.4, 5.05, 0.55], 0x4E17_0001));
-    root.children
-        .push(fx::steam_vent([-2.4, 5.05, 0.55], 0x4E17_0002));
+    attach(&mut root, fx::steam_vent([2.4, 5.05, 0.55], 0x4E17_0001));
+    attach(&mut root, fx::steam_vent([-2.4, 5.05, 0.55], 0x4E17_0002));
     root
 }
 

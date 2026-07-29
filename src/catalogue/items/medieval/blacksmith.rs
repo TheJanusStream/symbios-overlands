@@ -11,8 +11,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, quat_z,
-    solid, torus,
+    assemble, attach, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x,
+    quat_z, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -250,18 +250,18 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: chimney smoke, forge flame at the mouth, anvil sparks.
-    root.children.push(fx::forge_smoke(
-        [chim[0], foot_h + chim_h + 0.5, chim[2]],
-        0x510E_DA11,
-    ));
-    root.children.push(fx::forge_flame(
-        [mouth[0], mouth[1] + 0.2, mouth[2] - 0.1],
-        0xF1A3_0E12,
-    ));
-    root.children.push(fx::forge_sparks(
-        [anvil[0], foot_h + 1.1, anvil[2]],
-        0x0E3B_E012,
-    ));
+    attach(
+        &mut root,
+        fx::forge_smoke([chim[0], foot_h + chim_h + 0.5, chim[2]], 0x510E_DA11),
+    );
+    attach(
+        &mut root,
+        fx::forge_flame([mouth[0], mouth[1] + 0.2, mouth[2] - 0.1], 0xF1A3_0E12),
+    );
+    attach(
+        &mut root,
+        fx::forge_sparks([anvil[0], foot_h + 1.1, anvil[2]], 0x0E3B_E012),
+    );
     root
 }
 

@@ -11,7 +11,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, footing, glow, id_quat, prim, quat_x, quat_z, solid, torus, tube,
+    assemble, attach, cuboid_tapered, footing, glow, id_quat, prim, quat_x, quat_z, solid, torus,
+    tube,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -165,10 +166,10 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: smoke seeping from the stovepipe.
-    root.children.push(fx::furnace_smoke(
-        [pipe_x, wall_top + 2.3, -1.0],
-        0x500F_5AC4,
-    ));
+    attach(
+        &mut root,
+        fx::furnace_smoke([pipe_x, wall_top + 2.3, -1.0], 0x500F_5AC4),
+    );
     root
 }
 

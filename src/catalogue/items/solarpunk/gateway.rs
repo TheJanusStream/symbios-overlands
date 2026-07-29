@@ -14,8 +14,8 @@
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, footing, glow, helix, id_quat, prim, prim_scaled, quat_x, quat_z,
-    solid, sphere, torus,
+    assemble, attach, cuboid_tapered, footing, glow, helix, id_quat, prim, prim_scaled, quat_x,
+    quat_z, solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp3, Generator, GeneratorKind};
@@ -213,8 +213,7 @@ fn build_tree() -> Generator {
     // Signature life: birdsong over the gate and a soft drift of pollen through
     // the opening, so the Living Gateway literally breathes.
     root.audio = fx::birdsong();
-    root.children
-        .push(fx::pollen_drift([0.0, 2.0, 0.0], 0x5011_6A7E));
+    attach(&mut root, fx::pollen_drift([0.0, 2.0, 0.0], 0x5011_6A7E));
     root
 }
 

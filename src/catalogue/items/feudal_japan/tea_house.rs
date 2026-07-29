@@ -4,8 +4,8 @@
 //! trickles and a thread of incense rises — the quiet of the tea garden.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, quat_y, solid,
-    wedge,
+    assemble, attach, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, quat_y,
+    solid, wedge,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -204,8 +204,10 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: a thread of incense rising by the basin.
-    root.children
-        .push(fx::incense_wisp([basin_x - 0.3, 0.8, basin_z], 0x7EA0_CE11));
+    attach(
+        &mut root,
+        fx::incense_wisp([basin_x - 0.3, 0.8, basin_z], 0x7EA0_CE11),
+    );
     root
 }
 

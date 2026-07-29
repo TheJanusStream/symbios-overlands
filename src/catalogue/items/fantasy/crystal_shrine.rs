@@ -6,7 +6,7 @@
 //! [`assemble`], which reparents every piece under the plinth.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, solid, torus,
+    assemble, attach, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, solid, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -170,13 +170,15 @@ fn build_tree() -> Generator {
     let mut root = assemble(prims);
     // Signature life: the crystal's shimmer and rising mana motes.
     root.audio = fx::crystal_shimmer();
-    root.children
-        .push(fx::mana_motes([0.0, plinth_top + 1.5, 0.0], 0x0A1A_C512));
+    attach(
+        &mut root,
+        fx::mana_motes([0.0, plinth_top + 1.5, 0.0], 0x0A1A_C512),
+    );
     // Splinters shedding from the crystal itself, falling where the motes rise.
-    root.children.push(fx::crystal_shards(
-        [0.0, plinth_top + 1.1, 0.0],
-        0x0A1A_C513,
-    ));
+    attach(
+        &mut root,
+        fx::crystal_shards([0.0, plinth_top + 1.1, 0.0], 0x0A1A_C513),
+    );
     root
 }
 

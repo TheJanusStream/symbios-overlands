@@ -13,8 +13,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, solid,
-    sphere, torus, tube, with_cut,
+    assemble, attach, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x,
+    solid, sphere, torus, tube, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -202,8 +202,10 @@ fn build_tree() -> Generator {
     let mut root = assemble(prims);
     // Signature life: the engine chug, steam from the corner vent stack.
     root.audio = fx::engine_chug();
-    root.children
-        .push(fx::steam_vent([1.45, shaft_top + 3.7, 1.45], 0x57EA_C061));
+    attach(
+        &mut root,
+        fx::steam_vent([1.45, shaft_top + 3.7, 1.45], 0x57EA_C061),
+    );
     root
 }
 

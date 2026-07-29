@@ -12,8 +12,8 @@
 use std::f32::consts::TAU;
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, footing_disc, glow, id_quat, prim, solid, sphere,
-    with_cut,
+    assemble, attach, cuboid_tapered, cylinder_tapered, footing_disc, glow, id_quat, prim, solid,
+    sphere, with_cut,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -181,8 +181,10 @@ fn build_tree() -> Generator {
     let mut root = assemble(prims);
     // Signature life: the reactor hum and skating regolith dust.
     root.audio = fx::reactor_hum();
-    root.children
-        .push(fx::regolith_dust([0.0, pad_h + 0.3, -6.0], 0x5EA0_D03E));
+    attach(
+        &mut root,
+        fx::regolith_dust([0.0, pad_h + 0.3, -6.0], 0x5EA0_D03E),
+    );
     root
 }
 

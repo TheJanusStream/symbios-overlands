@@ -12,7 +12,7 @@
 
 use crate::catalogue::items::modern_city::curtain_wall;
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, footing, glow, id_quat, prim, solid,
+    assemble, attach, cuboid_tapered, footing, glow, id_quat, prim, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -276,8 +276,10 @@ fn build_tree() -> Generator {
     let mut root = assemble(prims);
     // Signature life: a distant highway drone, dust off the lot.
     root.audio = fx::highway_drone();
-    root.children
-        .push(fx::road_dust([2.0, pad_top + 0.3, -7.0], 0x0D05_7A1E));
+    attach(
+        &mut root,
+        fx::road_dust([2.0, pad_top + 0.3, -7.0], 0x0D05_7A1E),
+    );
     root
 }
 

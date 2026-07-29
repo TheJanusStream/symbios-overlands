@@ -29,8 +29,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    self, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, lit_interior, nest, plane,
-    prim, quat_x, solid, torus, tube,
+    self, attach, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, lit_interior, nest,
+    plane, prim, quat_x, solid, torus, tube,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
@@ -249,10 +249,10 @@ fn build_tree() -> Generator {
         ],
     );
     // Signature life: smoke from the stack, over the plant's heavy hum.
-    root.children.push(fx::stack_smoke(
-        [stack_x(), YARD_H + STACK_H + 0.5, stack_z()],
-        0x5AC0_5E11,
-    ));
+    attach(
+        &mut root,
+        fx::stack_smoke([stack_x(), YARD_H + STACK_H + 0.5, stack_z()], 0x5AC0_5E11),
+    );
     root.audio = fx::machine_hum();
     root
 }

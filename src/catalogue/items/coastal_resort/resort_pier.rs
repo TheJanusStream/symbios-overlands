@@ -8,7 +8,7 @@
 //! [`assemble`], which reparents every piece under the deck.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_z, solid,
+    assemble, attach, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -204,8 +204,10 @@ fn build_tree() -> Generator {
     let mut root = assemble(prims);
     // Signature life: surf wash under the deck, sea spray off the head.
     root.audio = fx::surf_wash();
-    root.children
-        .push(fx::sea_mist([0.0, deck_y - 0.4, z0 + length], 0x05EA_1DE0));
+    attach(
+        &mut root,
+        fx::sea_mist([0.0, deck_y - 0.4, z0 + length], 0x05EA_1DE0),
+    );
     root
 }
 

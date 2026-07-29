@@ -33,8 +33,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    self, cone, cuboid_tapered, cuboid_tapered_xz, footing, glow, id_quat, lit_interior, nest,
-    plane, prim, quat_mul, quat_x, quat_y, quat_z, solid, window_card,
+    self, attach, cone, cuboid_tapered, cuboid_tapered_xz, footing, glow, id_quat, lit_interior,
+    nest, plane, prim, quat_mul, quat_x, quat_y, quat_z, solid, window_card,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::generator::FaceKey;
@@ -286,10 +286,10 @@ fn build_tree() -> Generator {
         vec![shell(), footing(W + 0.7, D + 0.7, [0.0, 0.0], 14.0)],
     );
     // Signature life: chaff drifting out of the open bay.
-    root.children.push(fx::chaff_drift(
-        [0.0, WALL_TOP - 1.4, FRONT - 1.6],
-        0xC4AF_DA11,
-    ));
+    attach(
+        &mut root,
+        fx::chaff_drift([0.0, WALL_TOP - 1.4, FRONT - 1.6], 0xC4AF_DA11),
+    );
     root
 }
 

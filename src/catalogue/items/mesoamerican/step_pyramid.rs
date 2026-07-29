@@ -6,7 +6,7 @@
 //! home region.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, footing, glow, id_quat, prim, quat_x, solid, sphere,
+    assemble, attach, cuboid_tapered, footing, glow, id_quat, prim, quat_x, solid, sphere,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -205,10 +205,14 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: the sacred fire's flame and embers, a ritual drum.
-    root.children
-        .push(fx::sacred_flame([0.0, summit + 1.1, fire_z], 0x5AC0_F1E0));
-    root.children
-        .push(fx::fire_embers([0.0, summit + 1.4, fire_z], 0xE3BE_F1E0));
+    attach(
+        &mut root,
+        fx::sacred_flame([0.0, summit + 1.1, fire_z], 0x5AC0_F1E0),
+    );
+    attach(
+        &mut root,
+        fx::fire_embers([0.0, summit + 1.4, fire_z], 0xE3BE_F1E0),
+    );
     root.audio = fx::ritual_drum();
     root
 }

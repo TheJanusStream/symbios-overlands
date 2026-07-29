@@ -13,8 +13,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, footing, glow, id_quat, prim, prim_scaled, quat_mul, quat_x,
-    quat_z, solid, sphere, torus,
+    assemble, attach, cone, cuboid_tapered, footing, glow, id_quat, prim, prim_scaled, quat_mul,
+    quat_x, quat_z, solid, sphere, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -201,8 +201,10 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: steam venting from the mast head.
-    root.children
-        .push(fx::steam_vent([0.0, mast_top + 0.4, 0.0], 0x57EA_D0C2));
+    attach(
+        &mut root,
+        fx::steam_vent([0.0, mast_top + 0.4, 0.0], 0x57EA_D0C2),
+    );
     root
 }
 

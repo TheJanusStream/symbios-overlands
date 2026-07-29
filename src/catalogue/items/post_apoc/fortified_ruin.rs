@@ -10,7 +10,8 @@
 //! under the slab.
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, quat_y, solid,
+    assemble, attach, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x,
+    quat_y, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -207,12 +208,11 @@ fn build_tree() -> Generator {
     let mut root = assemble(prims);
     // Signature life: desolate wind, drifting ash, the barrel flame.
     root.audio = fx::desolate_wind();
-    root.children
-        .push(fx::ash_drift([0.0, 0.6, -5.0], 0x0A57_C012));
-    root.children.push(fx::fire_flame(
-        [barrel[0], base_h + 1.4, barrel[1]],
-        0x0A57_F112,
-    ));
+    attach(&mut root, fx::ash_drift([0.0, 0.6, -5.0], 0x0A57_C012));
+    attach(
+        &mut root,
+        fx::fire_flame([barrel[0], base_h + 1.4, barrel[1]], 0x0A57_F112),
+    );
     root
 }
 

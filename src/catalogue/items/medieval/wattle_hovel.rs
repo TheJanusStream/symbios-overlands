@@ -9,7 +9,7 @@
 
 use crate::catalogue::items::nordic::gable_roof;
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cuboid_tapered_xz, footing, id_quat, prim, quat_z, solid,
+    assemble, attach, cuboid_tapered, cuboid_tapered_xz, footing, id_quat, prim, quat_z, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -164,10 +164,10 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: hearth smoke seeping from the roof hole.
-    root.children.push(fx::hearth_smoke(
-        [hole_x, wall_top + roof_rise - 0.1, 0.8],
-        0x70F0_DA11,
-    ));
+    attach(
+        &mut root,
+        fx::hearth_smoke([hole_x, wall_top + roof_rise - 0.1, 0.8], 0x70F0_DA11),
+    );
     root
 }
 
