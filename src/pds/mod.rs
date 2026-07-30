@@ -24,7 +24,7 @@
 //!
 //! * `generators`  — name → [`Generator`] map. Each entry is a hierarchical
 //!   node carrying a [`GeneratorKind`] (Terrain / Water / RoadNetwork /
-//!   Portal / LSystem / Shape / `Sign` / `ParticleSystem` / one of the
+//!   Portal / Gateway / LSystem / Shape / `Sign` / `ParticleSystem` / one of the
 //!   sixteen parametric primitives — Cuboid / Sphere / Cylinder / Capsule /
 //!   Cone / Torus / Plane / Tetrahedron / Tube / Bevel / Wedge / Helix /
 //!   Superellipsoid / Spine / Lathe / BlobGroup), a

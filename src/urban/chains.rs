@@ -1,3 +1,12 @@
+//! Chain extraction: the road graph split into the continuous runs the ribbon
+//! mesher extrudes along — maximal walks through degree-2 nodes between
+//! intersections, re-split into maximal sub-runs inside the district interior
+//! so no street reaches the visible room edge. Only public adjacency (node
+//! degree + `active` edge flags) is walked, so nothing here depends on
+//! `symbios-tensor` internals. Each end records *why* it stopped: a run cut at
+//! the boundary leaves an open cross-section the ribbon must cap (#582), where
+//! a genuine terminus is closed by degree instead.
+
 use bevy_symbios_ground::HeightMap;
 use symbios_tensor::{RoadGraph, RoadType};
 

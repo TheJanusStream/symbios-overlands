@@ -1,3 +1,12 @@
+//! Shared fixtures for the urban road tests, compiled only under `cfg(test)`.
+//! The heightmaps are real generated terrain rather than flat planes — tensor
+//! needs crossing slopes before its major/minor directions enclose any blocks at
+//! all — and the pilot seed is frozen from the era when seeded urban rooms
+//! derived one, so the geometry the fixtures assert against stays byte-identical.
+//! `extrude_chain` keeps the pre-#584 single-chain levelling path alive so cap /
+//! mouth / truncation tests can read one chain's geometry without the network
+//! levelling pass in the way.
+
 use bevy_symbios_ground::{FbmNoise, HeightMap, TerrainGenerator};
 use symbios_tensor::{RoadGraph, RoadType};
 

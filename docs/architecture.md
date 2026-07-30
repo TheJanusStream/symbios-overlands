@@ -14,11 +14,13 @@ direct WebRTC mesh.
 ## Engine stack
 
 - **Engine:** Bevy 0.18 + Avian3D 0.6 (physics) +
-  [`bevy_egui`](https://github.com/vladbat00/bevy_egui) (UI) +
+  [`bevy_egui`](https://github.com/vladbat00/bevy_egui) + `egui_ltreeview`
+  (UI, and the generator tree every editor is built around) +
   [`bevy_panorbit_camera`](https://github.com/Plonq/bevy_panorbit_camera)
   (third-person orbit) +
   [`transform-gizmo-bevy`](https://github.com/urholaukkarinen/transform-gizmo)
-  (in-world editor handles).
+  (in-world editor handles) + `fast-surface-nets` (the isosurface mesher
+  behind `BlobGroup`).
 - **Procedural ecosystem:** the sovereign `symbios` family —
   [`symbios-ground`](https://github.com/TheJanusStream/symbios-ground) (Voronoi
   terracing + hydraulic and thermal erosion),
@@ -28,7 +30,8 @@ direct WebRTC mesh.
   [`symbios-tensor`](https://github.com/TheJanusStream/symbios-tensor)
   (tensor-field road topology for urban themes),
   [`bevy_symbios_texture`](https://github.com/TheJanusStream/bevy_symbios_texture)
-  (~30-material procedural PBR catalogue + particle-sprite atlases), and
+  (a 57-generator procedural material catalogue — 35 tileable PBR surfaces plus
+  22 alpha-masked cards, the particle sprites among them), and
   [`bevy_symbios_audio`](https://github.com/TheJanusStream/bevy_symbios_audio)
   (node-graph synthesis + step-sequencer mixdown). The generation algorithms
   live in Bevy-free core crates (`symbios-ground`, `symbios-texture`,
@@ -51,6 +54,17 @@ depths and octaves so a malformed payload from a hostile peer can't OOM or crash
 the engine. Records cross the wire twice — as PDS fetches and as live peer
 broadcasts — and both paths go through the same sanitizer.
 
+Size is policed before either crossing. A publish is measured record by record
+before any network I/O — a room writes a manifest plus one child per generator,
+and each is weighed on its own: past the 100 KiB soft budget the editor's size
+readout turns amber, past the 900 KiB hard ceiling the publish is refused and
+the button greys out. The refusal matters beyond tidiness, because the delete-then-put recovery
+path must never be handed a record the PDS will reject, or an owner ends up with
+no record at all. The peer path is chunked rather than refused: a reliable
+payload over ~48 KiB is split under WebRTC's 64 KiB SCTP whole-message ceiling
+and reassembled on the far side, with the same 900 KiB backstop above which the
+broadcast is dropped and counted.
+
 ## State machine and the loading gate
 
 A three-stage `AppState` (`Login` → `Loading` → `InGame`). The loading gate
@@ -61,15 +75,30 @@ can't leave the world half-loaded or silent, and the browser build's long
 synchronous world build stays behind the loading screen instead of freezing the
 first visible frame.
 
+`Login` is not idle, though. With the login-world backdrop enabled (the
+default) an `AttractScene` marker widens the terrain and world-builder system
+groups into it, so the login screen orbits a genuine seeded overland — a demo
+record from a per-visit random DID, compiled by the very same path, re-rollable
+from a **New world** button and torn down on the way out. See
+[`attract.rs`](../src/attract.rs).
+
 ## Compute offload
 
 CPU-heavy generation runs off the render frame through one platform-routed
 [`offload()`](../src/offload.rs) API: on native via Bevy's multithreaded
-`AsyncComputeTaskPool`, on wasm via a dedicated Web Worker (Bevy's task pools
-collapse to a single cooperative thread there, so an inline job would stall the
-frame). Three job kinds route through it — the **heightmap**, the **audio
-bakes** (the room's ambient bed plus per-construct spatial audio), and the
-**splat-texture bakes**. Each job is a self-contained, serialisable `GenJob`
+`AsyncComputeTaskPool`, on wasm via a bounded pool of warm Web Workers (Bevy's
+task pools collapse to a single cooperative thread there, so an inline job would
+stall the frame). At most four workers are live at once and three are kept warm
+between jobs — spawning one per job cost 130 ms–1 s in worker creation, module
+fetch and wasm instantiation — and the wait queue has two lanes, so a
+latency-sensitive audio bake or heightmap never sits behind a flood of bulk
+texture bakes. Three job kinds route through it — the **heightmap**, the
+**audio bakes** (the room's ambient bed plus per-construct spatial audio), and
+the **texture bakes**: the terrain's four splat layers on every target, plus —
+on wasm — every construct / avatar / primitive material texture, which the
+upstream generator pool would otherwise bake on the render thread (identical
+requests coalesce onto one airborne job). Each job is a self-contained,
+serialisable `GenJob`
 whose pure `run()` is byte-identical on both backends, keeping progressive
 loading deterministic across peers. The worker links only the Bevy-free
 `symbios-*` cores, so its `.wasm` stays small — which is why the repo is a small
@@ -98,7 +127,7 @@ because the census depends on the whole cut state:
 | Cylinder / Bevel / Spine / Lathe | `Wall`, `Top`, `Bottom` | `Bore`, `Cut start/end` |
 | Cone | `Wall`, `Bottom` | `Bore`, `Top`, `Cut start/end` |
 | Tube | `Wall`, `Bore`, `Top`, `Bottom` | `Cut start/end` |
-| Torus / Helix | `Wall` (+ helix `Top`/`Bottom`) | `Bore`, `Cut start/end`, `Slice start/end` |
+| Torus / Helix | `Wall` (+ helix `Top`/`Bottom`) | `Bore`, `Slice start/end`, torus `Cut start/end` |
 
 **Record.** Each primitive carries `faces: Vec<FaceOverride>`, elided when
 empty, so nothing changed on the wire for rooms that don't use it. An override
@@ -110,8 +139,8 @@ plain recolour avoid re-meshing anything.
 **Dormancy.** An override naming a face the current cuts don't produce is
 *dormant*, not invalid: it renders nothing, stays in the record, stays listed
 (greyed) in the editor, and paints again the moment the cut is restored. A
-path-cut cuboid, for example, drops `Side −Z` and gains `Bore` + the two cut
-faces — toggling the cut must not destroy work.
+path-cut cuboid, for example, drops `Side −Z` and gains the two cut faces, while
+hollowing it adds the `Bore` — toggling either must not destroy work.
 
 **Mesh and spawn.** Every mesher emits a `FaceTable` alongside its `Mesh`:
 contiguous triangle spans, marked at emission time, that tile the mesh exactly.
@@ -124,8 +153,13 @@ resolves to the base material therefore costs nothing at all.
 **UV conventions.** `uv_scale` reads as *tiles per metre*, `uv_offset` in
 *metres of surface*, `uv_rotation` in *degrees CCW*, applied as one affine over
 the mapping. `Fit` means "keep the mesher's own analytic layout, spanning the
-surface once" — the default for `Plane` (alpha cards must not tile) and for the
-revolved family; the flat family defaults to `Box` (per-axis, in metres).
+surface once" — the default for `Plane` (alpha cards must not tile), for the
+revolved kinds (Cylinder, Cone, Tube, Lathe, Spine, Helix, Torus) and for the
+smooth Sphere and Capsule, whose analytic mappings follow their own topology.
+The flat-faced family — Cuboid, Wedge, Tetrahedron, Bevel and Superellipsoid,
+whose stock parameterisations lay exactly one tile across *each* face
+regardless of that face's size — defaults to `Box` (per-axis, in metres), as
+does `BlobGroup`, whose mesher consumes the mapping itself.
 
 **Authoring.** In the editor: the **Faces** section of any primitive's panel,
 either from its dropdown or by clicking the face in the viewport ("Pick from
@@ -175,30 +209,50 @@ generation cores shared with the wasm Web Worker.
   `…overlands.avatar`, and the inventory as one record per stashed item
   (`…overlands.inventory.item`); plus the `Generator` / `Placement` /
   `LocomotionConfig` open unions, fixed-point wrappers, per-variant
-  sanitisers, the DAG-CBOR-safe audio/texture/contact-effect mirrors, and the
-  shared XRPC plumbing.
+  sanitisers, the publish-time record-size measurement and its budget, the
+  tagged avatar part-composition catalogue
+  ([`avatar/parts/`](../src/pds/avatar/parts/)) that the seeded outfit deriver
+  fills its slots from, the socio-political passes that age a built catalogue
+  tree (a material finish driven by the room's prosperity/escalation dials, and
+  the escalation-driven ruin modifier that leans, settles and partly collapses
+  a fought-over structure), the DAG-CBOR-safe audio/texture/contact-effect
+  mirrors, and the shared XRPC plumbing.
 - [`src/world_builder/`](../src/world_builder/) — the recipe → ECS compiler.
   The incremental, time-sliced executor ([`compile/`](../src/world_builder/compile/)),
-  per-generator spawn arms (terrain, water, portal, sign, particles, L-system,
+  per-generator spawn arms (terrain, water, portal,
+  [gateway](../src/world_builder/gateway.rs), sign, particles, L-system,
   shape grammar, primitives including SDF blob groups), the cross-compile
   geometry / material caches, and the source-keyed
   [image cache](../src/world_builder/image_cache.rs) shared by
   signs / portals / particles.
 - [`src/terrain/`](../src/terrain/), [`src/urban/`](../src/urban/),
   [`src/splat.rs`](../src/splat.rs), [`src/water.rs`](../src/water.rs),
-  [`src/clouds.rs`](../src/clouds.rs) — heightmap + Avian heightfield collider,
-  four-layer splat material extension, Gerstner-wave water shader, FBM
-  cloud-deck shader, and the urban-theme road layer: [`src/urban/`](../src/urban/)
+  [`src/clouds.rs`](../src/clouds.rs), [`src/wind.rs`](../src/wind.rs) —
+  heightmap + Avian heightfield collider, four-layer splat material extension,
+  Gerstner-wave water shader, FBM cloud-deck shader, the vegetation wind-sway
+  material extension (leaf buckets and ground-cover cards only, attached a
+  frame after spawn so it inherits the asynchronously-baked procedural
+  textures, and batched per source material so a 500-card scatter costs one
+  wind material), and the road layer: [`src/urban/`](../src/urban/)
   meshes a `symbios-tensor` road topology into a ribbon draped over the terrain
   (graph sanitation → chain extraction → junction truncation → network
   levelling → ribbon extrusion with dead-end caps → junction hubs with
-  curb-return fillets), wired in as a terrain
-  child that rebuilds reactively ([`roads.rs`](../src/terrain/roads.rs)) with
-  themed buildings populated onto its enclosed lots at load time
-  ([`lots.rs`](../src/terrain/lots.rs)).
+  curb-return fillets), wired in as a terrain child that rebuilds reactively
+  ([`roads.rs`](../src/terrain/roads.rs)), with themed buildings and street
+  furniture injected onto its enclosed lots at load time
+  ([`lots.rs`](../src/terrain/lots.rs)). Roads are **editor-opt-in**: seeded
+  rooms grow no network — too heavy a default on wasm — so the layer only
+  serves rooms whose author added a `RoadNetwork` generator. A seeded urban
+  theme gets a mini-settlement and a social gateway instead.
 - [`src/player/`](../src/player/) — the five locomotion presets (HoverBoat,
-  Humanoid, Airplane, Helicopter, Car), avatar hot-swap on record edits, portal
-  interaction, and fall-through respawn.
+  Humanoid, Airplane, Helicopter, Car), the avatar-side generator-tree spawner
+  that routes avatar nodes back through the world-builder's primitive /
+  L-system / shape-grammar machinery, avatar hot-swap on record edits, the
+  cosmetic idle/gait animation driven by the seeded `AvatarGait` (applied to
+  the visual root, never the physics body), portal interaction — plus the
+  shared ground-ray filter that hides every sensor volume, gateway veils and
+  portal cubes alike, from the suspension and jump-grounding casts, so a
+  walk-in zone never reads as ground — and fall-through respawn.
 - [`src/interaction/`](../src/interaction/) — the contact-effects framework: one
   per-frame classifier feeds independent water-wake / particle-burst /
   splat-stain / decal / audio channels, plus the always-on material-keyed
@@ -223,16 +277,35 @@ generation cores shared with the wasm Web Worker.
 - [`src/camera.rs`](../src/camera.rs), [`src/avatar.rs`](../src/avatar.rs),
   [`src/social.rs`](../src/social.rs) — the third-person orbit camera + distance
   fog, the peer profile-picture cache that backs the chat / People panel icons,
-  and the ATProto social-graph (mutual-follow) resonance tagger.
-- [`src/ui/`](../src/ui/) — egui panels: [login](../src/ui/login/),
-  [chat](../src/ui/chat.rs), [people](../src/ui/people.rs) (with drag-to-gift),
+  and the ATProto social graph: the mutual-follow resonance tagger for peers in
+  the room, plus the TTL-cached mutuals enumeration service (paginated
+  `getFollows` ∩ `getFollowers`) that the gateway destination picker lists a
+  room owner's neighbourhood from.
+- [`src/ui/`](../src/ui/) — the whole egui surface, not just a panel list.
+  Panels: [login](../src/ui/login/), [chat](../src/ui/chat.rs),
+  [people](../src/ui/people.rs) (with drag-to-gift),
   [avatar editor](../src/ui/avatar/), [inventory](../src/ui/inventory/),
   [catalogue](../src/ui/catalogue.rs),
-  [diagnostics](../src/ui/diagnostics.rs) (the 5-tab metrics/anomaly HUD), and
-  the owner-only [world editor](../src/ui/room/) (Environment / Region Assets /
+  [diagnostics](../src/ui/diagnostics.rs) (the 5-tab metrics/anomaly HUD),
+  [settings](../src/ui/settings.rs), the
+  [gateway destination picker](../src/ui/gateway.rs) (the room owner's mutuals,
+  listed on contact with the gate), and the owner-only
+  [world editor](../src/ui/room/) (Environment / Region Assets /
   Placements / Effects / Raw JSON tabs, plus a pop-out
   [audio editor](../src/ui/room/audio.rs) hosting the node-graph + sequence
-  canvas).
+  canvas). Around them sits the shell: the [toolbar](../src/ui/toolbar.rs) that
+  owns every panel's open flag, [computed non-overlapping window
+  geometry](../src/ui/layout.rs), [global shortcuts](../src/ui/shortcuts.rs)
+  (the Esc back-out ladder, Enter-to-chat, Ctrl+S publish), the
+  [semantic theme](../src/ui/theme.rs) with its
+  [affordance idioms](../src/ui/affordances.rs) and
+  [font stack](../src/ui/fonts.rs) (bundled Noto, lazily-loaded CJK fallback),
+  [toasts](../src/ui/toast.rs), [confirm / rename dialogs](../src/ui/confirm.rs),
+  the [unsaved-edit guard](../src/ui/unsaved_guard.rs), the
+  [travel surfaces](../src/ui/travel.rs) (in-flight overlay and portal approach
+  prompt), and the bounded [undo/redo ring](../src/ui/undo/) — 32 whole-record
+  clones, labelled, shared by the world and avatar editors on Ctrl+Z /
+  Ctrl+Shift+Z.
 - [`src/oauth/`](../src/oauth/) — ATProto OAuth 2.0 + DPoP (WASM redirect /
   native loopback) with granular scopes, token refresh, and the
   periodically-refreshed relay service-auth token that underwrites the
@@ -240,20 +313,31 @@ generation cores shared with the wasm Web Worker.
 - [`src/seeded_defaults/`](../src/seeded_defaults/) — DID-seeded deterministic
   defaults, derived along two orthogonal axes: a natural *biome* and an
   artificial *theme*, plus continuous prosperity/escalation dials. Room side:
-  terrain, palette, biome textures, atmosphere, tree / rock / particle
-  scatters, a themed mini-settlement near spawn (a landmark plus secondary
-  buildings and scatter props, drawn from the catalogue by theme), a light
+  terrain, a realistic-first palette (with a bounded exotic lean reserved for
+  the fantastical themes), biome textures, atmosphere, tree / rock /
+  ground-cover / particle scatters, a themed mini-settlement near spawn (a
+  landmark plus secondary buildings and scatter props, drawn from the catalogue
+  by theme and sited inside buildable regions segmented from a derive-time
+  proxy heightmap), exactly one social gateway on the origin→landmark approach
+  — which also fixes the room's default landing pose — with the owner-identity
+  monument standing beside it, a light
   theme accent nudged back onto the natural derivers (fog tint, particle mood),
   and the layered ambient soundtrack. Avatar side: one of four chassis families
   (boat / airship / humanoid / skiff) plus its palette, body proportions, gait,
   and a tagged outfit that the part catalogue assembles into geometry.
 - [`src/catalogue/`](../src/catalogue/) — code-shipped read-only library of
-  starter generator blueprints (hundreds of entries across 23 themes),
+  starter generator blueprints (~380 entries across 24 themes),
   organised by theme and structural role (landmark / secondary / prop / plant /
-  pattern / tool), functionally analogous to a user inventory but always
-  present; the same entries the seeded settlement deriver draws from.
+  pattern / tool, plus the per-theme gateway and owner monument), functionally
+  analogous to a user inventory but always present; the same entries the seeded
+  settlement deriver draws from.
 - [`src/editor_gizmo/`](../src/editor_gizmo/) — bridge between the editor
-  selection and the in-world 3D transform gizmo. Includes
+  selection and the in-world 3D transform gizmo, plus the scene context menu.
+  Includes [`face_pick.rs`](../src/editor_gizmo/face_pick.rs) — the viewport
+  half of the Faces panel's "Pick from scene": a mesh raycast (the only query
+  that reports a triangle index, which Avian's convex-hull rays cannot)
+  resolves the clicked triangle to a face key and hands it to the override
+  editor — and
   [`blob/`](../src/editor_gizmo/blob/) — in-scene BlobGroup element
   editing: the evaluated surface renders as an edge-line wireframe and
   each element gets a red (carve) / green (add) proxy the gizmo can drag,
@@ -262,16 +346,35 @@ generation cores shared with the wasm Web Worker.
   append-only session-event stream with a native NDJSON sink, a shared metrics
   registry scraped at 1 Hz, an anomaly/invariant rule engine that runs live and
   replays offline, and the offline analyzer behind
-  `render --analyze-session` / `--diff-sessions`. See
+  `render --analyze-session` / `--diff-sessions`. Two crash-survival paths hang
+  off the stream: a process-global panic shadow that dumps the last events to
+  `session-panic-<pid>-<millis>.jsonl` on a native fault, and a `localStorage`
+  tail on wasm that survives a hard OOM and is offered for download on the next
+  boot. [`src/alloc_track.rs`](../src/alloc_track.rs) feeds the registry from
+  below on wasm: a tracking allocator wrapping dlmalloc that reports live bytes
+  per size class and fingerprints every allocation ≥ 16 MiB — which is what
+  tells one huge buffer apart from a million-object leak — with a native
+  backtrace-printing twin behind the `alloc-trace` feature. See
   [diagnostics.md](diagnostics.md).
 - [`src/loading/`](../src/loading/), [`src/state.rs`](../src/state.rs),
   [`src/boot_params.rs`](../src/boot_params.rs),
+  [`src/attract.rs`](../src/attract.rs),
   [`src/logout.rs`](../src/logout.rs) — state-machine plumbing (with the
   generic per-record fetch/retry pipeline and the per-task loading screen),
-  shared resources, landmark-link parsing, and the on-logout cache teardown.
+  shared resources, landmark-link parsing, the attract-mode login backdrop —
+  which widens the world-pipeline gate into `Login` so the login screen orbits
+  a genuine seeded overland compiled through the real pipeline, re-rollable and
+  torn down on the way into `Loading` — and the on-logout cache teardown.
 - [`src/config.rs`](../src/config.rs) — centralised tuneable constants
-  (lighting, fog, locomotion physics, terrain, splat layers, contact-effect
-  pools, networking, HTTP timeouts, UI windows).
+  (lighting, fog, locomotion physics, terrain, splat layers, textures,
+  vegetation wind, contact-effect pools, networking, HTTP timeouts, UI
+  windows).
+- [`src/prefs.rs`](../src/prefs.rs) — the machine-local counterpart: which
+  panels are open, the per-window rects, the gizmo frame, the locally muted
+  DIDs and the `LocalSettings` toggles, persisted to a file (native) /
+  `localStorage` (wasm) behind a debounced change-detection save. Deliberately
+  *not* PDS records — they describe this client, not the world or the identity
+  — so every account logging in from the machine shares them.
 - [`src/offload.rs`](../src/offload.rs) + [`src/offload/`](../src/offload/),
   [`crates/gen-jobs/`](../crates/gen-jobs/),
   [`crates/gen-worker/`](../crates/gen-worker/) — the compute-offload layer: the
@@ -280,7 +383,12 @@ generation cores shared with the wasm Web Worker.
   worker crate that runs them off the main thread on the web.
 - [`src/render_tool/`](../src/render_tool/) +
   [`src/bin/render.rs`](../src/bin/render.rs) — a native-only headless tool:
-  contact-sheet renders through the real spawn path, plus the no-render text
-  modes — offline diagnostics (`--analyze-session`, `--diff-sessions`,
-  `--road-dump`) and the survey/dump tools (`--family-seeds`, `--dump`).
-  See [building.md](building.md#developer-tooling).
+  contact-sheet renders through the real spawn path (`--avatar` / `--catalogue`
+  / `--prim` / `--room` / `--generator`, with `--ages` for a plant
+  age-progression grid), plus the no-render text modes — offline diagnostics
+  (`--analyze-session`, `--diff-sessions`, `--road-dump`), the survey/dump
+  tools (`--family-seeds`, `--outfit`, `--find-part`, `--dump`) and the content
+  audits the overhaul loop runs on (`--room-census`, `--scatter-census`,
+  `--settlement-drop`, `--foundation-audit`, `--gateway-fit`, plus
+  `--scatter-plot`, which prints nothing and instead writes a plan-view PNG of
+  a room's scatters). See [building.md](building.md#developer-tooling).

@@ -1,3 +1,12 @@
+//! Deck heights — the one place the heightmap is sampled, so nothing drifts.
+//! Each chain is trimmed, densified and sampled ONCE here (#584), and both the
+//! levelling pre-pass and the ribbon mesher consume that cached sample, so the
+//! deck floor is bit-identical between them and the mouths leave no seam.
+//! Heights resolve upward-only — the deck rises to clear the terrain under it,
+//! never sinks: a longitudinal grade limit that bridges dips (#573), then ramp
+//! cones down from each junction's pinned height. Junctions are flat and lifting
+//! one can lift the next, so the network relaxes to a monotone-upward fixed point.
+
 use bevy_symbios_ground::HeightMap;
 
 use crate::urban::{Chain, RIBBON_STEP_M, ROAD_DEPTH_BIAS_M, densify, frame_right, trim_polyline};

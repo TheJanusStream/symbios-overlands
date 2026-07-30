@@ -24,14 +24,20 @@ runs natively or in any modern browser via WASM.
 sees a password. Your world is deterministically seeded from your DID, so a
 brand-new user already has a unique homeworld before they touch the editor:
 its own landform, biome and settlement theme, its own colour palette, even its
-own soundtrack.
+own soundtrack — plus two socio-political dials, prosperity and escalation,
+that decide whether that theme reads as a marble forum or a scrap shanty, a
+market day or a barricade. Nothing about that roll is final: the editor shows
+you what each axis landed on, and you can re-roll the lot, or padlock the axes
+you like and let it hunt for a seed that keeps them.
 
 **Worlds are recipes, not assets.** A room is a small set of records on your
 own PDS carrying a tree of generators — terrain, water, portals, road networks,
 parametric primitives, L-system plants, building grammars, image-bearing signs,
 particle emitters. Every widget in the owner-only World Editor mutates the live
-recipe in place: the world recompiles around you, and remote peers mirror each
-edit before you press **Save to PDS**. A whole region — a house, a forest, a market
+recipe in place: the world recompiles around you, remote peers mirror each edit
+before you press **Save to PDS**, and nothing is a one-way door — Ctrl+Z walks
+back through a labelled history of the last thirty-two edits, in the avatar
+editor as well as the world. A whole region — a house, a forest, a market
 square — becomes one named generator you can scatter, grid-array, or stash in
 your inventory.
 
@@ -44,15 +50,19 @@ stream to peers as a live preview before you commit them.
 room carries an ambient-bed slot and every construct can carry its own
 synthesised voice, played spatially at its world position. A pop-out
 node-graph-and-step-sequencer editor authors patches live, and a fresh room is
-already
-seeded with a layered ambient soundtrack — an atonal biome texture under a
-tonal theme voice — plus material-keyed impact sounds before the owner touches
-a knob.
+already seeded with a layered ambient soundtrack — an atonal biome texture
+under a tonal theme voice — plus material-keyed impact sounds before the owner
+touches a knob.
 
 **The web is seamless.** Walk through a portal doorway and the engine hot-swaps
-the destination world and the peer mesh in the background. Shareable landmark
-links bundle a destination, position and heading into a URL so anyone can drop
-into a specific spot in someone else's world.
+the destination world and the peer mesh in the background. Every homeworld also
+grows a themed gateway beside its spawn — it is where you land when you log in,
+and stepping into it lists the room owner's mutual follows, so you can walk out
+of a stranger's world into their friends' worlds without ever typing a DID. A
+monument next to the gate carries the owner's profile picture, so you always
+know whose ground you are standing on. Shareable landmark links bundle a
+destination, position and heading into a URL so anyone can drop into a specific
+spot in someone else's world.
 
 **Contact brings it to life.** Every avatar is classified against the surface
 beneath it each frame, and the contact drives a stack of effects: water wakes,
@@ -63,9 +73,10 @@ cues.
 tree or a whole region blueprint, carry it across the network, and drag it onto
 a peer's row in the People panel to gift it. A built-in Catalogue ships a
 starter library alongside whatever you've authored: hundreds of architectural
-blueprints spanning 23 themes — from ancient villas and medieval keeps to
-cyberpunk megatowers, steampunk foundries and alien hives. Those same theme
-tags drive the mini-settlement every fresh homeworld grows around its spawn.
+blueprints spanning 24 themes — from ancient villas and medieval keeps to
+cyberpunk megatowers, steampunk foundries, buccaneer careening slips and alien
+hives. Those same theme tags drive the mini-settlement every fresh homeworld
+grows around its spawn.
 
 ## Try it
 
@@ -88,6 +99,10 @@ landmark-link CLI flags, and the developer tooling.
   tests, and the headless render/analysis tooling.
 - [docs/diagnostics.md](docs/diagnostics.md) — the session log, the in-game
   diagnostics panel, and the offline analyzer.
+- [docs/lsystem-playbook.md](docs/lsystem-playbook.md) — taking a species
+  request to a plant grammar: the engine's turtle vocabulary and its traps,
+  growth as iteration count, the pipe model, tropism and phyllotaxis, and the
+  finalization pass that separates a grammar's logic from its appearance.
 
 ## License
 

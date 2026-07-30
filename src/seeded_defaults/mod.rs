@@ -17,12 +17,19 @@
 //!                             particle-mood overrides)
 //!         · room::palette    (OkLCH-coordinated colours)
 //!         · room::terrain    (heightmap shape + erosion)
+//!         · room::siting     (flat-region probe over a proxy heightmap, so
+//!                             structures are sited on ground that fits)
 //!         · room::textures   (per-biome procedural generator knobs)
 //!         · room::atmosphere (water, clouds, sun, fog)
 //!         · room::scatters   (biome-biased tree-scatter specs)
 //!         · room::rocks      (landform-biased boulder scatters)
+//!         · room::groundcover (grass / flowers / ferns / moss — the tier
+//!                             below the trees)
 //!         · room::particles  (biome-mood ambient emitter)
 //!         · room::settlement (themed catalogue cluster near spawn)
+//!         · room::gateway    (the room's one social gateway spot and its
+//!                             forecourt landing pose)
+//!         · room::monument   (the owner-identity monument beside it)
 //!         · room::audio      (biome-matched ambient bed)
 //!         · avatar::character (anchor: chassis + style + ornateness/wear)
 //!         · avatar::palette  (skin/hair + style/temperature/wear accents)
@@ -31,6 +38,8 @@
 //!         · avatar::outfit   (slot → part choice from the part catalogue)
 //!         · avatar::body     (proportions)
 //!         · avatar::blueprint (humanoid canon: joint anchors + capsule dims)
+//!         · avatar::vehicle_blueprint (the vehicle counterpart: hull /
+//!                             cabin / envelope proportions)
 //!         · avatar::face     (head shape, features, resting expression)
 //!         · avatar::gait     (cadence/bounce/sway)
 //! ```

@@ -1,3 +1,12 @@
+//! No-render dump of the meshed road graph's topology and geometry risk, behind
+//! the render harness's `--road-dump <seed|did>`. Nothing here feeds generation:
+//! the spurious junctions, dead-end spurs, near-duplicate nodes and tight-bend
+//! spikes seen in-game originate in raw tracer output, and this measures how much
+//! survives so a filter can be sized against real seeds before it is baked in.
+//! Stats are gathered through the mesher's OWN paths (chain extraction,
+//! truncation, levelling) and reported raw-vs-sanitised, so a sanitation change
+//! shows as a delta; the thresholds below are reporting heuristics, not gates.
+
 use bevy_symbios_ground::HeightMap;
 use symbios_tensor::RoadGraph;
 

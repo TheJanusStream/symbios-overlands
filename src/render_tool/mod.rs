@@ -20,11 +20,14 @@
 //! #   with --ages one such row per iteration count)
 //! ```
 //!
-//! The same binary also hosts several no-render modes that short-circuit
-//! before any render app stands up: `--family-seeds` (chassis-family seed
-//! survey), `--dump` (print a subject's `Generator` JSON), `--road-dump`
-//! (road-graph topology stats), and the offline session-log analyzers
-//! `--analyze-session` / `--diff-sessions`. See the per-arg docs on `Args`.
+//! The same binary also hosts thirteen no-render modes that short-circuit
+//! before any render app stands up: the avatar surveys (`--family-seeds`,
+//! `--outfit`, `--find-part`), the fit audits (`--settlement-drop`,
+//! `--foundation-audit`, `--gateway-fit`), the census / plot tooling
+//! (`--room-census`, `--scatter-census`, `--scatter-plot`), `--dump` (print a
+//! subject's `Generator` JSON), `--road-dump` (road-graph topology stats),
+//! and the offline session-log analyzers `--analyze-session` /
+//! `--diff-sessions`. See the per-arg docs on `Args`.
 
 use std::time::Duration;
 

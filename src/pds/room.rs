@@ -1711,10 +1711,6 @@ pub fn find_road_config(record: &RoomRecord) -> Option<&RoadConfig> {
 /// inert (the editor warns on them, #886).
 pub const MAX_ROAD_NETWORKS: usize = 4;
 
-/// Every active road network, in child order, up to [`MAX_ROAD_NETWORKS`]
-/// (#895): all `RoadNetwork` children of the deterministically-chosen
-/// (sorted-first) Terrain generator. Same determinism contract as
-/// [`find_road_config`], which is simply this list's head.
 /// Total entities one generator tree spawns: itself plus every descendant.
 ///
 /// The vegetation budget needs a per-instance cost for the ground-cover props
@@ -1729,6 +1725,10 @@ fn generator_entity_count(generator: &Generator) -> u64 {
         .sum::<u64>()
 }
 
+/// Every active road network, in child order, up to [`MAX_ROAD_NETWORKS`]
+/// (#895): all `RoadNetwork` children of the deterministically-chosen
+/// (sorted-first) Terrain generator. Same determinism contract as
+/// [`find_road_config`], which is simply this list's head.
 pub fn find_road_configs(record: &RoomRecord) -> Vec<&RoadConfig> {
     let mut keys: Vec<&String> = record.generators.keys().collect();
     keys.sort();

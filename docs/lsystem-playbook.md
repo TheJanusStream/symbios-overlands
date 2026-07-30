@@ -28,7 +28,27 @@ Kurth (1994) on interpretation rules.
 Turtle symbols: `F` draw · `f` move (no draw, **no tropism**) · `+`/`-` yaw ·
 `&`/`^` pitch · `\`/`/` roll · `|` turn around · `$` roll-to-horizontal ·
 `!` **set** width (absolute, not a multiplier) · `[`/`]` push/pop ·
-`~(id,scale)` spawn prop · `,` set material · `'` set colour · `;` set UV scale.
+`~(id,scale)` spawn prop · `,` set material · `'` set colour (**branch
+geometry only** — see §8) · `;` set UV **V**-scale (U always wraps once around
+the tube).
+
+`~(id,scale)` deserves spelling out, because §8 leans on it and both arguments
+mislead. `id` indexes the generator's `prop_mappings` table — *not* the material
+slot `,` sets — and an unmapped id does not fail, it silently falls back to a
+leaf. `scale` is a multiplier on the generator's `prop_scale` field, which is
+`0.045` in most species, so `~(0,22)` is about one world unit, not twenty-two.
+
+Grammar source is **line-oriented**: one `#define` / `#ignore` directive, one
+`omega:` axiom, or one rule per line, with `//` line comments. A grammar with no
+`omega:` line derives to nothing and is reported as "derivation produced an
+empty state"; a bad directive is reported with its line number, while axiom and
+rule errors carry only the parser's message — so keep one rule per line and the
+offender is obvious. Source and finalization blocks are each truncated at 16 KiB
+by the record sanitiser.
+
+```
+omega: !(0.14)A(0.85,0.09)
+```
 
 Rule syntax — `[label:] [prob :] [left <] pred [> right] [: cond] -> successor`:
 
@@ -38,8 +58,12 @@ a1: 0.45 : A(l,w) : l > 0.05 -> !(w)F(l)[&(52)B(l*0.55,w*0.6)]/(137.5)A(l*0.95,w
 
 Supported and verified: stochastic weights, **weights and guards on the same
 rule**, parametric modules, context-sensitivity (`A < B > C`) with
-`#ignore: + - /`, `#define` constants (inlined at compile time — free),
-and a separate **finalization ruleset**.
+`#ignore: + - /`, `: *` as an always-true guard (what every finalization rule in
+this catalogue writes), `#define` constants (inlined at compile time — free),
+and a separate **finalization ruleset**. The parser also accepts a per-rule
+`{ ignore: + - / }` postfix that shadows the global list for that rule alone
+(`{ ignore: }` means "ignore nothing here") — unused in this catalogue so far,
+but there if a context-sensitive rule needs its own view.
 
 **Not supported:** the ABOP cut symbol `%` (branch self-pruning — how ABOP does
 petal fall, frond shedding, autumn leaf drop). If a species needs organ
@@ -175,7 +199,13 @@ segment counts, tiny widths. **Negative gravitropism** (`T = (0,+1,0)`) makes
 `T = ±Y`. Two workarounds: cancel the droop with a small per-segment up-pitch
 (`^(3)` cancels `e≈0.05`), or use **`$`**, which rolls the turtle so its left
 vector is horizontal — preserving heading, flattening the branch *plane*. `$` is
-the ABOP idiom for flat crowns and is why the monopodial `b1`/`c1` rules use it.
+the ABOP idiom for flat crowns and is why the monopodial tree's `p2a`/`p2b` and
+`p3a`/`p3b` rules — the `B`/`C` lateral pair — use it. It is the only `$` left
+in the catalogue; the sympodial tree's old planar `$`-flattened zigzag was
+retired in favour of a genuinely three-dimensional crown. Note that `$` has the
+*same* fixpoint as tropism, for the same reason: it builds its left vector from
+`Y × H`, so on a vertical heading it silently does nothing. It flattens
+laterals, never the leader.
 
 ---
 
@@ -258,6 +288,15 @@ different topology read as **different individuals**. So:
 - **Stochastic rules for within-species variation; `#define` constants for
   between-species.** Don't blur the two.
 
+**Know where this lever does and does not reach.** The seed is authored *per
+generator* — one catalogue entry, one seed — and a `Scatter` placement does not
+re-roll it per instance: its `local_seed` drives position, clustering, scale and
+tilt jitter, never the derivation. So every birch in a seeded stand is the same
+derivation, distinguished only by yaw and scale. Stochastic rules buy variety
+between *species entries and hand-authored plants*, not within a scatter; adding
+stall/abort alternatives will not de-clone a forest. To see two individuals,
+`--dump` the entry and edit `seed` (see the verification loop in §10).
+
 ---
 
 ## 8. Finalization = homomorphism (separating logic from appearance)
@@ -282,16 +321,41 @@ L -> ,(1)[+(50)~(0,14)]   L -> ,(3)[~(1,9)]          L ->
 One skeleton, three seasons, zero grammar duplication. This is the re-skin lever
 and it is why organ expression must **not** be inlined into growth rules.
 
-Two mechanical notes:
+Three mechanical notes:
 - Finalization **clears the ruleset** and runs exactly **one** `derive(1)` — it
   is a single non-recursive pass. One marker, one expansion, no chaining.
 - Because of that, **give every marker a finalization terminal**. A marker
   created on the last growth step otherwise renders nothing — that was a real
   silent gap in the palm (last-iteration leaflets were invisible).
+- **Finalization inherits `#define` constants but not `#ignore`.** Clearing the
+  ruleset leaves the constant table standing, so a finalization rule can spend a
+  growth-block constant — `lsys_ternary_props` expresses its twig tufts as
+  `,(1)~(0,ps)` against the `ps` it defined for growth. The ignore list *is*
+  cleared with the rules, so re-declare `#ignore:` inside the finalization block
+  if a rule there needs context.
 
-**Material slot convention** (keep it stable across all species so palettes and
-biome tinting stay interchangeable): `0` = bark, `1` = twig/leaf-cluster,
-`2` = leaf, `3` = flower/fruit.
+**`'` cannot tint a `~` prop.** Vertex colour reaches the tube mesher for branch
+geometry, but a prop is baked into its material bucket with a flat white vertex
+colour so it merges cleanly, so a `'` before a `~` is silently dropped. Organ
+colour belongs to the **material slot** — which is the whole point of the
+re-skin lever anyway.
+
+**Material slot convention.** Slot `0` is always the woody surface — bark, or
+whatever stands in for it (bamboo cane, fern rachis, the cactus's succulent
+skin). Above that the catalogue runs two families: **0 bark / 1 foliage**
+(birch, acacia, bamboo, bush, fern, palm, monopodial, and the flowering tree's
+leaf ring) and **0 bark / 2 foliage** (mangrove, sympodial, ternary-gravity).
+Only `lsys_ternary_props` uses the full **0 bark / 1 twig-cluster / 2 leaf**
+split; `lsys_flowering_tree` puts blossom on `2`; `lsys_cactus` and
+`lsys_dead_shrub` ship slot `0` alone; nothing ships on `3`.
+
+Palettes and biome tinting do *not* key off the numbering — `PlantVariant::apply`
+names the slot it re-skins per species — so the rule that actually binds is
+narrower: **slot 0 is bark, and every foliage slot must be re-tinted by the
+species' own variants, or a re-skin silently misses it.** Prefer
+`0` bark / `1` twig-cluster / `2` leaf / `3` flower-fruit in a *new* species so
+the numbering eventually means something, but never assume it of an existing one
+— read the entry.
 
 Worth adding later: **decomposition rules** ("consists of", applied recursively
 *within* a step and affecting derivation) are a distinct tier from interpretation
@@ -339,9 +403,26 @@ many species without copy-paste.
 
 ```bash
 cargo run --bin render -- --catalogue lsys_birch --ages 3,5,7,9,11
+cargo run --bin render -- --catalogue lsys_birch --variant list          # named re-skins
+cargo run --bin render -- --catalogue lsys_birch --variant autumn --ages 5,9
 cargo run --bin render -- --catalogue lsys_birch --dump > /tmp/x.json   # edit + re-render
 cargo run --bin render -- --generator /tmp/x.json --ages 3,5,7,9,11     # no recompile
 ```
 
 The `--generator` loop avoids a rebuild per grammar edit — use it while tuning,
-then bake the final grammar back into the catalogue entry.
+then bake the final grammar back into the catalogue entry. `--variant` composes
+with `--ages`, which is how you check the re-skin lever without touching a
+symbol of the grammar. There is no `--seed` flag: to confirm that individuals
+differ, `--dump`, edit `seed` in the JSON, and re-render through `--generator`.
+
+Two ceilings bound the loop. `iterations` is clamped to **12** by the record
+sanitiser (the forge's own slider stops there too), and `--ages` deliberately
+does *not* sanitise — so a sweep past 12 renders a plant no room can ever spawn.
+Beyond that, derivation aborts at the 2²⁰-symbol state cap. Keep the top of a
+sweep at or below 12, and ship a species a step or two under it for headroom.
+
+Inside the app there is a shorter loop still: the L-system forge renders the last
+compile outcome under its code editor — the parser's error in red (line-numbered
+where it knows one), or a quiet "grammar compiled" tick — so a broken grammar
+announces itself without a render round-trip. Use the render tool for *shape*,
+the forge for *syntax*.

@@ -5,8 +5,8 @@
 //! * [`login`]        — OAuth 2.0 + DPoP login form, runs in `AppState::Login`.
 //! * [`diagnostics`]  — tabbed diagnostics HUD: Overview / Runtime /
 //!   Network / Offload metric sparklines, per-subsystem health cards and
-//!   anomaly badges, plus the Identity tab (peer roster, mute toggles,
-//!   event log, logout button).
+//!   anomaly badges, plus the Session tab (peer roster, mute toggles,
+//!   event log, session-log export).
 //! * [`chat`]         — in-room chat window (Reliable channel).
 //! * [`people`]       — room roster with per-peer mute toggles; peer rows
 //!   double as drop targets for inventory gifts, and `incoming_offer_ui`
@@ -35,7 +35,8 @@
 //! * [`layout`]       — computed non-overlapping default window
 //!   geometry + persisted rects ([`layout::WindowChrome`], #833).
 //! * [`shortcuts`]    — global keyboard shortcuts: the Esc back-out
-//!   ladder, Enter-to-chat, and Ctrl+S publish (#836).
+//!   ladder, Enter-to-chat, Ctrl+S publish (#836) and Ctrl+Z /
+//!   Ctrl+Shift+Z undo (#864).
 //! * [`confirm`]      — shared destructive-action confirm modal +
 //!   rename dialog ([`confirm::ConfirmState`], #838).
 //! * [`travel`]       — in-flight travel overlay + portal approach
@@ -43,6 +44,23 @@
 //! * [`toast`]        — transient top-right notification stack
 //!   ([`toast::Toasts`]); the one channel for "something just happened"
 //!   feedback (#819).
+//! * [`gateway`]      — gateway destination picker (#748): walking into a
+//!   gateway zone lists the **room owner's** mutual follows, so a visitor
+//!   browses the owner's social neighbourhood rather than their own.
+//! * [`settings`]     — the Settings window (#857): this-machine-only
+//!   preferences (theme pick, remote-peer smoothing), persisted by
+//!   [`crate::prefs`].
+//! * [`theme`]        — semantic theme foundation (#855): three palettes
+//!   behind `theme::current(ctx)`, applied on startup and re-applied
+//!   whenever the picker swaps the resource.
+//! * [`fonts`]        — the bundled base font plus the at-most-once lazy
+//!   CJK fallback fetch (#858), so a Chinese / Japanese / Korean string
+//!   never renders as tofu.
+//! * [`affordances`]  — shared affordance idioms (#859): one add wording,
+//!   one danger idiom, one checkmark, one status dot.
+//! * [`undo`]         — bounded whole-record undo/redo rings for the room
+//!   and avatar editors (#862), captured off the editors' existing commit
+//!   ticks in `PostUpdate`.
 
 pub mod affordances;
 pub mod avatar;

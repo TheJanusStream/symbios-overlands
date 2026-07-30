@@ -448,7 +448,7 @@ fn health_card(
 
 /// The per-subsystem health tab (Pillar C-4): one or more `egui::Frame` cards of
 /// the live metrics for `tab` (Runtime / Network / Offload), each row reading the
-/// C-2 metric readers + surfacing its anomaly badge. The Overview + Identity tabs
+/// C-2 metric readers + surfacing its anomaly badge. The Overview + Session tabs
 /// render elsewhere.
 fn render_health_tab(
     ui: &mut egui::Ui,
@@ -756,7 +756,7 @@ fn render_health_tab(
     }
 }
 
-/// Session-log export controls for the Identity tab (Pillar A-8).
+/// Session-log export controls for the Session tab (Pillar A-8).
 ///
 /// The two platforms expose the *same* NDJSON stream two different ways:
 /// - **native** — the log is already appended to `session-latest.jsonl` on
@@ -843,7 +843,7 @@ fn render_log_export_controls(
 /// build with the local player's current room DID, exact world position,
 /// and yaw in degrees. Visible to visitors as well as owners (any player
 /// in the room can share where they are). Shared by the Diagnostics
-/// Identity tab and the toolbar's account chip (#835); returns whether
+/// Session tab and the toolbar's account chip (#835); returns whether
 /// the button was clicked so the chip can close its menu.
 pub(crate) fn landmark_link_button(
     ui: &mut egui::Ui,

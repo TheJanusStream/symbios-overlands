@@ -1,3 +1,12 @@
+//! Ribbon extrusion: one chain's closed cross-section swept along its centreline.
+//! The profile is a chamfered curb framing a flat deck over a skirt of FIXED
+//! depth, so a deck riding high over a dip floats clear as a bridge rather than
+//! filling it. Frames miter through bends to hold a constant width, UVs run on
+//! arc length so the texture flows down the street, and each profile face is its
+//! own strip — normals average ALONG the road while the creases across it stay
+//! sharp. Deck, structure and neon go to separate buffers; an end no hub closes
+//! (a dead-end #579, a perimeter clip #582) gets an explicit cross-section cap.
+
 use crate::urban::math::{cross, dot, normalize, sub3};
 use crate::urban::{Chain, ChainSample, Dims, RoadEnd, RoadParts};
 

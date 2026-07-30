@@ -1,4 +1,5 @@
-//! Symbios Overlands — library crate.
+//! Symbios Overlands — library crate for a peer-to-peer virtual world whose
+//! contents live on each player's own ATProto PDS.
 //!
 //! This is the home for every gameplay module. The companion binary in
 //! `src/main.rs` is a thin shim that just calls [`run`]; having a library
@@ -13,6 +14,29 @@
 //! `InGame`, so slower PDS round-trips cannot be silently dropped, gameplay
 //! never runs with half-loaded recipes or a silent world, and the wasm
 //! build's long synchronous compile stall stays behind the loading screen.
+//!
+//! # Where to start reading
+//!
+//! * [`pds`] — the sovereign record lexicons (room / avatar / inventory), the
+//!   fixed-point wire types the DAG-CBOR float ban forces, and the sanitiser
+//!   every inbound record passes through. A world *is* these records;
+//!   everything below derives from them.
+//! * [`seeded_defaults`] — the DID-seeded deriver pipeline, so a player who has
+//!   published nothing still lands in a complete, deterministic overland.
+//! * [`terrain`] and [`world_builder`] — heightmap + splat generation, and the
+//!   incremental, time-sliced compiler that turns a `RoomRecord` recipe into
+//!   ECS entities.
+//! * [`player`] and [`network`] — the local avatar's locomotion presets, and
+//!   the peer-to-peer transform / chat / gift plumbing over WebRTC.
+//! * [`catalogue`] — the client-shipped blueprint library that the settlement
+//!   deriver and the drag-to-place UI both draw from.
+//! * [`ui`] — every egui surface, including the owner-only room and avatar
+//!   editors that mutate the live records in place.
+//! * [`offload`] — the platform-routed CPU-generation backend (native task
+//!   pool / wasm Web Worker pool) shared by terrain, textures and audio.
+//! * [`diagnostics`] — the session event stream, metrics registry and
+//!   invariant engine. The native `render` bin ([`render_tool`]) reads back
+//!   what it writes, and renders headless contact sheets besides.
 
 // This crate is an application, not a published library — the lib target
 // exists so integration tests can import the module tree. Module docstrings

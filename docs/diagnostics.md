@@ -6,7 +6,7 @@ fetches, offloaded jobs, portal hops, anomalies, periodic metric snapshots).
 The stream has three consumers that all read the *same* records, so they can
 never disagree:
 
-1. the in-game **Diagnostics panel** (a bounded tail view — Identity tab → *Event Log*),
+1. the in-game **Diagnostics panel** (a bounded tail view — Session tab → *Event Log*),
 2. a durable **NDJSON file** a coding agent reads for a post-mortem (native), and
 3. the offline **`--analyze-session` analyzer** (Pillar B).
 
@@ -37,10 +37,31 @@ kill therefore loses at most a couple of seconds of tail.
 
 ### WASM (web build)
 
-There is no filesystem, so the in-memory ring buffer *is* the log. Open the
-**Diagnostics panel → Identity tab → “Download session log”** to save a
+There is no filesystem, so the in-memory ring buffer *is* the log — and it is
+bounded (`RING_CAPACITY`, 4096 events; the on-screen tail is narrower still at
+200). The 1 Hz `MetricsSnapshot` records land in that same ring on the web,
+since there is no file sink to divert them, so the real event history is shorter
+than 4096 suggests. A long web session therefore downloads only its **last**
+events: the log can legitimately start mid-run at a non-zero `seq`, and once the
+boot `StartupSnapshot` has been evicted the analyzer's header degrades to
+`build: —` and its `session-id` becomes the first *retained* stamp rather than
+the true run start.
+
+Open the **Diagnostics panel → Session tab → “Download session log”** to save a
 `.jsonl` file that is byte-for-byte compatible with the native one (same
 analyzer reads both).
+
+A crash still leaves evidence there too: every 5 s the ring's NDJSON tail is
+persisted to `localStorage` (`symbios.diag.session_tail`, capped at 1.5 MB and
+cut forward to a line boundary so it always starts on a whole event). At the
+next boot that tail is parked under `…session_tail.prev` — whether the previous
+session crashed or simply closed — and the panel then grows a second button,
+**“Download previous session log”**, saving it as
+`symbios-session-log-previous.jsonl`. It is the wasm counterpart of the native
+panic file: the payload survives even when the tab died in an OOM trap before
+the log could be saved, and the analyzer reads it like any other capture. If the
+button never appears, the origin's storage quota is the first suspect — a failed
+write disarms persistence for the rest of the session.
 
 ## Environment controls
 
@@ -109,21 +130,30 @@ prints, in order:
 | header | `session-id` / `did` / `build` (version·sha·arch·profile) / `duration` / `exit` reason (or a crash/truncation note). |
 | `[Verdict]` | `HEALTHY`, or the count of `warning` / `error` / `critical` events. |
 | `[Event Tallies]` | A `subsystem × severity` matrix + a by-category line — *where* the noise came from. The 1 Hz metric snapshots are excluded (and the count noted) so they don't bury the counts. |
-| `[Timeline]` | The milestone events (loading gate, fetches, heightmap/ambient/world-compile, `→ InGame`, portals, segment resets, session end) at their timestamps. |
+| `[Timeline]` | The milestone events (startup snapshots, loading gate, record fetches *and* PDS saves, heightmap/ambient/world-compile, avatar re-seeds, `→ InGame`, portals, segment resets, session end) at their timestamps. Capped at 60 rows with an explicit `… N more milestone(s)` line — never a silent truncation. |
 | `[Loading Gate]` | The Login → Loading → InGame gate time, plus each heavy loading stage's duration distribution (`min/p50/p90/max/mean`). |
 | `[Metric Trends]` | The gauge/counter/histogram series charted from the periodic `MetricsSnapshot` records — memory-growth curve, frame-time percentiles, entity/asset drift (the leak signal). |
+| `[Non-Finite Physics Values]` | *Conditional — printed only when it fires.* The respawn events whose positions were non-finite at the source (a NaN restored from a pre-sentinel build's `null`, or the `1e30` sentinel a current build writes), with the window they span. Inside that window the physics state was corrupt: treat every position/velocity metric there as garbage. |
 | `[Invariant Violations]` | The anomaly rules **replayed** over the log (offline re-derived) plus any captured live-only fires — the offline counterpart to the in-game anomaly engine. |
 
 ### Filters
 
 Restrict the *analysis* sections to a slice of the log (the header always shows
 the full run's identity). An invalid filter name aborts with a clear message.
+All filter names are case-insensitive.
+
+One asymmetry to know: a rule's *own* subsystem — the `RuleHeader` field the GUI
+badges and tab counters group by — is not the subsystem of the record it writes.
+Every anomaly fire is logged as an `InvariantViolation`, and that payload derives
+`Session`/`Anomaly`, so `--subsystem runtime` empties `[Invariant Violations]`
+completely. Filter on `--category anomaly` or `--subsystem session` when you are
+hunting anomalies.
 
 | Flag | Effect |
 | --- | --- |
-| `--subsystem <s>` | `loading` \| `network` \| `offload` \| `runtime` \| `session` |
+| `--subsystem <s>` | `loading` \| `network` (or `net`) \| `offload` \| `runtime` \| `session` |
 | `--category <c>` | `lifecycle` \| `fetch` \| `generation` \| `audio` \| `peer` \| `transport` \| `offer` \| `chat` \| `social` \| `job` \| `physics` \| `asset` \| `perf` \| `portal` \| `anomaly` \| `snapshot` |
-| `--severity <min>` | minimum severity — `trace` \| `info` \| `warn` \| `error` \| `critical` (matches that level *and above*) |
+| `--severity <min>` | minimum severity — `trace` \| `info` \| `warn` (or `warning`) \| `error` \| `critical` (or `crit`, the label the tally matrix prints) — matches that level *and above* |
 | `--since <secs>` / `--until <secs>` | inclusive session-relative time window (`t_mono_secs`) |
 
 ```sh
@@ -135,12 +165,19 @@ cargo run --bin render -- --analyze-session diagnostics/session-latest.jsonl \
 A `[Filter]` line then documents the active lens and how many of the total events
 matched. Only the header (session identity) is derived from the full run;
 **every** section below it — `[Verdict]`, `[Event Tallies]`, `[Timeline]`,
-`[Loading Gate]`, `[Metric Trends]` and `[Invariant Violations]` — folds only the
+`[Loading Gate]`, `[Metric Trends]`, `[Non-Finite Physics Values]` and
+`[Invariant Violations]` — folds only the
 matching subset. In particular, a narrow time window (`--since`/`--until`) that
 clips the `→ InGame` transition can make `[Loading Gate]` report *“did not reach
 InGame (stalled or truncated log)”* for the slice even though the full run reached
 it; read the `[Filter]` match count as your cue that these sections describe a
 subset, not the whole session.
+
+The same trap catches `[Metric Trends]`, and more easily — including in the
+worked example above. The 1 Hz snapshots are `Session`/`Snapshot`/`Trace`
+records, so *any* subsystem or category filter, and any `--severity` above
+`trace`, filters them out and the section reports no snapshots at all. The
+trends are a whole-run signal; read them from an unfiltered run.
 
 ### Before/after diff — `--diff-sessions`
 

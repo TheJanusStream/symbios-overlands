@@ -1,3 +1,12 @@
+//! Intersection hubs: the deck that fills a junction between its incident roads.
+//! Built from the truncated ribbon ends (#576), the deck is a fan swept by angle
+//! around the mouth corners' centroid — a node-anchored fan self-intersects
+//! whenever the per-arm pull-backs differ — held FLAT at the max incident mouth
+//! height, which the network levelling has already pinned every road up to (#584).
+//! The angular gaps between adjacent arms round off with curb-return arc fillets
+//! (#577) starting exactly on each ribbon's outer curb, so curb and skirt run
+//! continuous across the seam; an acute fork grows a merge crotch instead (#894).
+
 use bevy_symbios_ground::HeightMap;
 
 use crate::urban::math::{cross, dot, norm2, normalize, sub3, tri_up_normal};

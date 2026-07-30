@@ -499,9 +499,12 @@ pub enum EventPayload {
 }
 
 impl EventPayload {
-    /// The subsystem this payload naturally belongs to. Used as the default
-    /// when recording; a caller (e.g. the anomaly router) may override the
-    /// event's `subsystem` field for cross-cutting events.
+    /// The subsystem this payload belongs to, stamped by [`SessionEvent::new`]
+    /// at every recording site. The field is public, so a cross-cutting caller
+    /// *could* rewrite it after construction, but none does today — note in
+    /// particular that an anomaly fire is logged as an `InvariantViolation`
+    /// and therefore lands under [`Subsystem::Session`], not under the firing
+    /// rule's own `RuleHeader` subsystem.
     pub fn subsystem(&self) -> Subsystem {
         use EventPayload::*;
         match self {
@@ -1006,8 +1009,9 @@ pub struct SessionEvent {
 
 impl SessionEvent {
     /// Build an event, deriving `subsystem` and `category` from the payload so
-    /// call sites only pass the payload + severity (+ the two stamps). The
-    /// derived subsystem can be overridden afterward for cross-cutting events.
+    /// call sites only pass the payload + severity (+ the two stamps). Nothing
+    /// overrides the derived pair afterwards, so `subsystem` / `category` are
+    /// always exactly what the payload dictates.
     pub fn new(
         seq: u64,
         t_mono_secs: f64,

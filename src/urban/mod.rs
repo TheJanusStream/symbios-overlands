@@ -1,5 +1,5 @@
 //! Tensor-field urban layout — deterministic, terrain-conforming road networks
-//! for urban-themed rooms (cyberpunk pilot).
+//! for rooms whose author adds a `RoadNetwork` generator.
 //!
 //! `symbios-tensor` is used purely as a road-**topology** generator: we take
 //! its tensor-field [`symbios_tensor::RoadGraph`] and build our own road geometry that *drapes*
@@ -18,16 +18,43 @@
 //! bottom — so where the road runs out high over a dip the underside floats
 //! clear as a bridge, not a hollow strip.
 //!
-//! Generation is localized to a district window around spawn (the seeded
-//! settlement only reaches ~140 m) and clipped to the district interior so no
-//! street runs off to the visible edge. Everything is deterministic in the
-//! room's terrain seed and recomputed at load, never stored — like the
-//! heightmap itself.
+//! Roads are editor-opt-in (#775): a seeded room grows none — the graph trace
+//! plus its lot-building layer are too heavy for a good default room on wasm —
+//! so everything here serves records that carry a `RoadNetwork` child (or that
+//! were saved back when roads were still seeded). Generation is localized to
+//! that network's district window (`district_half_extent`, 170 m by default,
+//! centred on spawn until `center` moves it off the room origin) and clipped
+//! to the district interior so no street runs off to the visible edge; a room
+//! may run up to [`MAX_ROAD_NETWORKS`](crate::pds::room::MAX_ROAD_NETWORKS) of
+//! them at once (#895). Everything is deterministic in the network's own
+//! layout seed — a sub-stream kept separate from the terrain seed, so streets
+//! can be re-rolled without disturbing the land — and recomputed at load,
+//! never stored, like the heightmap itself.
 //!
 //! `symbios-tensor` consumes a `symbios_ground::HeightMap`; overlands' own
 //! [`bevy_symbios_ground::HeightMap`] is the same crate/type — both crates
 //! resolve to the same `symbios-ground` version, so the heightmap passes
 //! straight through with no conversion.
+//!
+//! ## Sub-module map
+//!
+//! * [`graph`] — tensor-field trace and rationalisation, then the sanitation
+//!   pass that welds coincident nodes and drops the degenerate edges whose
+//!   unstable direction spikes a miter.
+//! * [`chains`] — extraction of continuous runs of connected nodes between
+//!   intersections, plus the district-interior clip.
+//! * [`truncation`] — per-end pull-back, so a ribbon stops at the
+//!   intersection boundary instead of overlapping into the hub.
+//! * [`levelling`] — the single heightmap-sampling pass, and the
+//!   network-wide resolve of flat junction heights and per-chain deck
+//!   heights, so the pre-pass and the ribbon agree to the bit.
+//! * [`ribbon`] — cross-section extrusion along a levelled chain: miter
+//!   frames, arc-length UVs, and the deck / curb / skirt / bottom strips.
+//! * [`hubs`] — junction decks, built to meet every incident road at its
+//!   exact levelled mouth.
+//! * [`diagnostics`] — the `render --road-dump` topology and geometry-risk
+//!   report (degree histogram, dead-end spurs, spike-risk bends).
+//! * [`math`] — small vector helpers shared across the builders.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology};

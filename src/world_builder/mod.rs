@@ -60,6 +60,25 @@
 //!   colliders) are skipped.
 //! * [`material`] — water volume spawn, procedural material bridge, and
 //!   foliage texture task polling.
+//! * [`gateway`] — Gateway zone spawning (#747): the sensor volume carrying
+//!   the gateway marker at the mouth of a themed gate structure, which the
+//!   picker in [`crate::ui::gateway`] watches.
+//! * [`audio_resolver`] — source-keyed coalescing cache for referenced audio
+//!   fetches; sister to [`image_cache`], sharing [`blob_fetch`] and the same
+//!   FIFO-bounded eviction.
+//! * [`spatial_audio`] — per-construct bake-and-attach: the
+//!   [`crate::loading`] ambient pipeline at per-entity granularity, so a
+//!   node's `audio` field plays from that node's own position.
+//! * [`surface_bake`] — offload-routed surface-texture bakes (#807), so wasm
+//!   generates through the worker pool instead of the upstream rayon path.
+//! * [`generator_cache`] — the shared per-generator cache family and the
+//!   content-fingerprint helpers behind the L-system and Shape geometry /
+//!   material caches.
+//! * [`prim_cache`] — content-addressed primitive mesh / material dedup; the
+//!   primitives' equivalent of the per-generator caches.
+//! * [`grammar_diag`] — per-generator grammar compile status, so a parse or
+//!   derivation failure surfaces in the editor instead of a `warn!` nobody
+//!   reads.
 
 pub mod audio_resolver;
 pub mod avatar_spawn;

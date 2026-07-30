@@ -169,7 +169,8 @@ mod f32_blob {
 /// A procedural audio bake — a patch one-shot or a multi-track sequence —
 /// producing WAV bytes (mono 16-bit PCM — half the size of 32-bit float, which
 /// matters on wasm where the heap never shrinks). The inputs are serialisable
-/// so the job crosses the worker boundary; the heavy synthesis runs in [`run`].
+/// so the job crosses the worker boundary; the heavy synthesis runs in
+/// [`GenJob::run`].
 #[derive(Serialize, Deserialize, Clone)]
 pub enum AudioBakeJob {
     /// One-shot patch render of `duration_secs` at `sample_rate`.
@@ -415,7 +416,8 @@ const PROXY_MIN_DROPS: u32 = 500;
 /// Floor on the thermal sweep count of a proxy run.
 const PROXY_MIN_THERMAL: u32 = 4;
 
-/// Low-resolution proxy of [`run_heightmap`] for synchronous derive-time
+/// Low-resolution proxy of the full `run_heightmap` pass, for synchronous
+/// derive-time
 /// terrain queries (#905) — cheap enough to run inline while a room
 /// record is being derived, close enough in macro shape that flat-region
 /// decisions made against it hold on the full-resolution map.

@@ -1,3 +1,12 @@
+//! District graph: the road network's planar topology, traced once and shared by
+//! the mesher and the lot layer — so a building can only stand on a street the
+//! player actually sees. The authored district window is copied into its own
+//! sub-heightmap (never written back; nothing carves the terrain), traced by
+//! `symbios-tensor`, then rationalized. Sanitation clears the tracer artefacts
+//! the mesher would otherwise inherit: coincident nodes and near-zero segments
+//! merge (miter spikes, double-hubs), stub / grazing-junction edges are cut
+//! (#571) and near-miss dead-ends weld into junctions (#583), to a fixed point.
+
 use bevy_symbios_ground::HeightMap;
 use symbios_tensor::{
     RationalizeConfig, RoadGraph, RoadType, TensorConfig, generate_roads, rationalize_graph,

@@ -18,6 +18,8 @@
 //!     → outfit     (slot → part choice, querying the part catalogue)
 //!     → body/gait  (proportions + locomotion tuning)
 //!     → blueprint  (humanoid canon: joint anchors + capsule dimensions)
+//!     → vehicle_blueprint (the vehicle counterpart: hull / cabin / envelope
+//!                  proportions from a seeded stance register)
 //!     → face       (head shape, feature layout, resting expression)
 //! ```
 //!

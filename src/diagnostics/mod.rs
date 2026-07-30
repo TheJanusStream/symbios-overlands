@@ -22,6 +22,10 @@
 //! - [`sink`] — the native NDJSON file writer (per-session files +
 //!   `session-latest.jsonl`); [`panic`](mod@panic) mirrors the tail into a panic-hook
 //!   ring so a crash still leaves a `session-panic-*.jsonl`.
+//! - [`crash_log`] — the wasm counterpart to [`sink`] (#811): the ring's
+//!   NDJSON tail is persisted to `localStorage` every few seconds, so a hard
+//!   crash still leaves a byte-compatible capture that the next boot offers
+//!   as "Download previous session log".
 //! - [`snapshot`] — the startup record (build/environment context) emitted as
 //!   each session's first event.
 //! - [`registry`] / [`names`] — the shared metrics spine (gauges / counters /

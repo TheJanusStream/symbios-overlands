@@ -1,3 +1,12 @@
+//! Junction truncation (#575): how far each chain end retreats before its hub.
+//! Un-truncated ribbons run to the junction node and overlap, leaving diamond
+//! holes and no real polygon for the hub to fill. Each arm's pull-back is the
+//! adjacent-boundary intersection — arms sorted radially, each neighbouring
+//! pair's *outer* footprints solved 2×2 — ported from `symbios-tensor`. Two
+//! guards matter: the distance is capped, since it diverges as a fork closes
+//! (#578 blends those instead), and a trimmed chain always keeps a stub of
+//! ribbon — the hub is mouth-driven, so a chain consumed whole loses its junction.
+
 use crate::urban::{Chain, Dims};
 
 /// Shortest ribbon (m) worth meshing after junction truncation (#575). A chain
